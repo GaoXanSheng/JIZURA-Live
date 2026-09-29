@@ -208,8 +208,6 @@ public sealed class SpoutPipeline : IDisposable
     {
         try
         {
-            Log.Info(
-                $"[SpoutMirror] JS => C#：{e.Message}");
 
             if (e.Message is not IDictionary<string, object> dict)
                 return;
@@ -257,22 +255,6 @@ public sealed class SpoutPipeline : IDisposable
     private void HandleMirrorPerf(
         IDictionary<string, object> dict)
     {
-        try
-        {
-            Log.Info(
-                $"[SpoutMirror] 绘制节奏：rAF间隔 " +
-                $"avg={D(dict, "gapAvg"):F1}ms, " +
-                $"max={D(dict, "gapMax"):F1}ms；" +
-                $"单帧绘制 avg={D(dict, "drawAvg"):F1}ms, " +
-                $"max={D(dict, "drawMax"):F1}ms " +
-                $"({D(dict, "drawN"):0}帧)");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn(
-                "[SpoutMirror] mirror-perf 处理失败：" +
-                ex.Message);
-        }
     }
 
     private static double D(

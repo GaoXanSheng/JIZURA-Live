@@ -84,13 +84,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
         if (++_paintCount < 60)
             return;
 
-        Log.Info(
-            $"[SpoutMirror] 帧输出[{path}]：间隔 " +
-            $"avg={_paintGapSum / Math.Max(1, _paintCount - 1):F1}ms, " +
-            $"max={_paintGapMax:F1}ms；" +
-            $"拷贝+Spout发送 avg={_paintCostSum / _paintCount:F2}ms, " +
-            $"max={_paintCostMax:F2}ms");
-
         _paintCount = 0;
         _paintLastTicks = 0;
         _paintGapSum = 0;

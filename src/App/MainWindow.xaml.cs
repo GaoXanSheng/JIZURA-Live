@@ -377,15 +377,7 @@ public partial class MainWindow : Window
                     }
                 }
             }
-
-            // 其余消息低频，保留日志
-            Log.Info(
-                $"[MainWindow] JS => C#：{e.Message}");
-
-            // ------------------------------------------------------------
-            // 老的设置消息
-            // ------------------------------------------------------------
-
+            
             if (
                 e.Message as string ==
                 "jl-settings"
