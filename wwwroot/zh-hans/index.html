@@ -37056,8 +37056,8 @@ function drawCenterGuide(ctx, k) {
 function draw() {
   const c = $('view'), ctx = c.getContext('2d');
   const t0 = performance.now();
-  S.renderer.frame(ctx, S.plan, S.t, { scale: c.width / S.plan.W, fast: S.playing && S.slow });
-  if (S.plan.centerFree) drawCenterGuide(ctx, c.width / S.plan.W);
+  S.renderer.frame(ctx, S.plan, S.t, { scale: c.width / S.plan.W, fast: S.playing && S.slow, transparent: !!window.__jl_spout_transparent });
+  if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(ctx, c.width / S.plan.W);
   const dt = performance.now() - t0;
   S.slow = S.playing ? (dt > 30 ? true : dt < 14 ? false : S.slow) : false;
   updateTimeUI(); drawTimeline(); updateCutInfo();

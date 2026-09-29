@@ -147,7 +147,8 @@ public partial class MainWindow : Window
             _settings.SpoutName,
             _settings.RenderFps,
             _settings.Width,
-            _settings.Height);
+            _settings.Height,
+            _settings.SpoutTransparent);
     }
 
     public void StopSpout()
@@ -170,7 +171,8 @@ public partial class MainWindow : Window
             _settings.SpoutName,
             _settings.RenderFps,
             _settings.Width,
-            _settings.Height);
+            _settings.Height,
+            _settings.SpoutTransparent);
     }
 
     // --------------------------------------------------------------------

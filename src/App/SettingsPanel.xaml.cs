@@ -102,6 +102,12 @@ public partial class SettingsPanel : UserControl
                     }
                 };
 
+            ChkSpoutTransparent.Checked +=
+                (_, _) => ApplySpoutTransparent();
+
+            ChkSpoutTransparent.Unchecked +=
+                (_, _) => ApplySpoutTransparent();
+
             ChkCdp.Checked +=
                 (_, _) => ApplyCdp();
 
@@ -186,6 +192,9 @@ public partial class SettingsPanel : UserControl
 
             ChkSpout.IsChecked =
                 settings.SpoutEnabled;
+
+            ChkSpoutTransparent.IsChecked =
+                settings.SpoutTransparent;
 
             ChkCdp.IsChecked =
                 settings.CdpEnabled;
@@ -300,6 +309,38 @@ public partial class SettingsPanel : UserControl
 
         Log.Info(
             $"渲染帧率设置：{fps}fps");
+
+        var main =
+            Application.Current.MainWindow
+                as MainWindow;
+
+        if (
+            main != null &&
+            SpoutPipeline.Instance.IsRunning
+        )
+        {
+            main.RestartSpout();
+        }
+    }
+
+    private void ApplySpoutTransparent()
+    {
+        if (_loadingUi || _settings == null)
+            return;
+
+        bool on =
+            ChkSpoutTransparent.IsChecked == true;
+
+        if (_settings.SpoutTransparent == on)
+            return;
+
+        _settings.SpoutTransparent = on;
+
+        Persist();
+
+        Log.Info(
+            $"Spout 透明背景：{(on ? "开启" : "关闭")}" +
+            $"（输出透明图层）");
 
         var main =
             Application.Current.MainWindow

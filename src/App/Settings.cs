@@ -9,6 +9,10 @@ public sealed class Settings
     public string SpoutName { get; set; } = "JIZURA-live";
     public bool Clean { get; set; }
     public bool SpoutEnabled { get; set; } = true;
+
+    // Spout 输出透明背景：镜像页面跳过背景填充（只输出歌词+特效的透明图层），
+    // 供 OBS 等下游合成；主界面预览不受影响。改动重启镜像后生效
+    public bool SpoutTransparent { get; set; }
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;

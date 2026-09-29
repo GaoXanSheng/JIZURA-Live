@@ -64,6 +64,7 @@
                 <TextBlock Text="通道：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>
                 <TextBox x:Name="TxtSpoutName" Width="200"/>
             </StackPanel>
+            <CheckBox x:Name="ChkSpoutTransparent" Content="透明背景（输出透明图层，重启镜像后生效）"/>
             <CheckBox x:Name="ChkCdp" Content="CDP 调试端口（重启后生效）"/>
             <StackPanel Orientation="Horizontal" Margin="24,2,0,0">
                 <TextBlock Text="端口：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>

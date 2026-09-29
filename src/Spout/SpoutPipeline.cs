@@ -21,7 +21,7 @@ public sealed class SpoutPipeline : IDisposable
 
     public Action? SyncPoke { get; set; }
 
-    public bool Start(string url, string senderName, int fps, int initialW, int initialH)
+    public bool Start(string url, string senderName, int fps, int initialW, int initialH, bool transparent = false)
     {
         if (IsRunning)
             return true;
@@ -39,7 +39,9 @@ public sealed class SpoutPipeline : IDisposable
                 WindowlessFrameRate = safeFps
             };
 
-            _mirrorScript = MirrorScript.Replace("__FPS__", safeFps.ToString(CultureInfo.InvariantCulture));
+            _mirrorScript = MirrorScript
+                .Replace("__FPS__", safeFps.ToString(CultureInfo.InvariantCulture))
+                .Replace("__TRANSPARENT__", transparent ? "true" : "false");
 
             // ------------------------------------------------------------
             // 重要：
@@ -440,6 +442,11 @@ public sealed class SpoutPipeline : IDisposable
 
     window.__jl_spout_mirror = true;
 
+    // __TRANSPARENT__ 由 C# 端按设置烘焙：true 时页面 draw() 传
+    // transparent 给渲染器（跳过背景填充），镜像输出带 alpha 的透明图层；
+    // 主窗口预览页面没有这个标记，完全不受影响
+    window.__jl_spout_transparent = __TRANSPARENT__;
+
     var LS_KEY = 'jizura.project.v1';
 
     var lastW = 0;
@@ -510,8 +517,9 @@ public sealed class SpoutPipeline : IDisposable
                 }
             }
 
-            document.documentElement.style.background = '#000';
-            document.body.style.background = '#000';
+            var bg = window.__jl_spout_transparent ? 'transparent' : '#000';
+            document.documentElement.style.background = bg;
+            document.body.style.background = bg;
         }
         catch (e) {
             console.error(
