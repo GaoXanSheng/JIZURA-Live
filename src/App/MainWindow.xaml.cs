@@ -45,6 +45,10 @@ public partial class MainWindow : Window
 
         Browser.Address = url;
 
+        // 页面"保存"按钮走浏览器下载（a[download]）：
+        // 不设 DownloadHandler 时 CEF 会静默取消下载，按钮表现为无效
+        Browser.DownloadHandler = AppDownloadHandler.Instance;
+
         Browser.FrameLoadEnd +=
             OnBrowserFrameLoadEnd;
 
