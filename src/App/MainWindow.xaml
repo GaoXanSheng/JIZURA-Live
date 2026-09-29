@@ -4,6 +4,7 @@
         xmlns:local="clr-namespace:JizuraLive"
         xmlns:cef="clr-namespace:CefSharp.Wpf.HwndHost;assembly=CefSharp.Wpf"
         Title="JIZURA Live"
+        Icon="assets/app.ico"
         WindowStyle="None"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
