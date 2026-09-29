@@ -24,6 +24,9 @@ public sealed class EmbeddedServer : IDisposable
         _server = new WebServer(o => o
                 .WithUrlPrefix($"http://127.0.0.1:{port}/")
                 .WithMode(HttpListenerMode.EmbedIO))
+            // 静态站必须在前：WebApiModule 未命中路由会直接 404 终结而不是传递，
+            // 放前面会把 /render 等 SPA 路径吞掉。API 侧由 StaticSiteModule 的
+            // 回退排除（api/ 前缀不回退）保证到达控制器。
             .WithModule(new StaticSiteModule())
             .WithModule(BuildApiModule());
     }

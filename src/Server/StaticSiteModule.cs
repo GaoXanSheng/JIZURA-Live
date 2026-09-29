@@ -50,8 +50,10 @@ internal sealed class StaticSiteModule : WebModuleBase
                 return await SendFileAsync(context, rel, mime);
         }
 
-        // SPA history 路由回退：/render 等无扩展名路径回嵌入 index.html
-        if (!rel.Contains('.') && await SendEmbeddedAsync(context, "index.html")) return true;
+        // SPA history 路由回退：/render 等无扩展名路径回嵌入 index.html。
+        // api/ 前缀绝不回退——否则未匹配的 API 路径会拿到 HTML，前端 JSON 解析全挂
+        if (!rel.Contains('.') && !rel.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
+            && await SendEmbeddedAsync(context, "index.html")) return true;
 
         return false;
     }

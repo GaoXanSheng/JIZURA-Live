@@ -14,6 +14,9 @@ async function call<T extends ApiBase>(source: Source, path: string, params?: Re
   } catch {
     throw new Error(OFFLINE);
   }
+  if (!(r.headers.get('content-type') || '').includes('json')) {
+    throw new Error('本机服务响应异常（未返回 JSON，可能需要更新字面 Live）');
+  }
   return r.json() as Promise<T>;
 }
 
