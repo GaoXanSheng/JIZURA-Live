@@ -75,7 +75,8 @@ public static class Log
     public static void Error(string message, Exception ex)
     {
         Console.WriteLine(message);
-        L.Error(message);
+        // 不带堆栈的异常日志等于没日志（排查单文件发布问题时吃过亏）
+        L.Error(message + "\n" + ex);
     }
 
     public static void Fatal(string message)

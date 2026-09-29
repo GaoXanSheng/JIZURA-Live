@@ -10,11 +10,6 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Server;
 
-
-
-
-
-
 public sealed partial class KuGouClient
 {
     private const string WebSalt = "NVPh5oo715z5DIWAeQlhMDsWXXQV4hwt";
@@ -33,23 +28,15 @@ public sealed partial class KuGouClient
         -----END PUBLIC KEY-----
         """;
 
+    // 酷狗登录状态（含 cookie）与 settings.json 同放应用的 config 文件夹，
+    // 随应用便携携带，不写入系统 AppData
     private static readonly string StateFile = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "JizuraLive", "kg_login.json");
-
-    
-    private const string LegacyStateFile = @"E:\OC_柚苏鲁\JIZURA适配\kg_login.json";
-
-    
+        AppContext.BaseDirectory, "config", "kg_login.json");
 
     private static JObject KgState()
     {
         try
         {
-            if (!File.Exists(StateFile) && File.Exists(LegacyStateFile))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
-                File.Copy(LegacyStateFile, StateFile); 
-            }
             if (File.Exists(StateFile))
                 return JObject.Parse(File.ReadAllText(StateFile));
         }

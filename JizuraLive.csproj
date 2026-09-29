@@ -54,13 +54,25 @@
         <Content Include="native\SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 
-    <Target Name="CopySpoutDx" AfterTargets="Build" Condition="Exists('native\SpoutDX.dll')">
+    <Target Name="CopySpoutDx" AfterTargets="Build;Publish" Condition="Exists('native\SpoutDX.dll')">
         <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"/>
+        <!-- publish 时 OutDir 指向构建目录，发布目录需要单独补一份，
+             否则 SpoutDXWrapper.dll 找不到原生依赖，镜像管线启动失败 -->
+        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true"
+              Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll')"/>
     </Target>
+
+    <!-- 发布产物不携带引用程序的 pdb/xml -->
+    <PropertyGroup>
+        <AllowedReferenceRelatedFileExtensions Condition="'$(Configuration)' == 'Release'">none</AllowedReferenceRelatedFileExtensions>
+    </PropertyGroup>
 
     <ItemGroup>
         <None Remove="wwwroot\**\*"/>
-        <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- 打包只带中文（zh-hans）：其余语言与站点构建工具链只存在于
+             wwwroot 源码（GitHub Pages 用），不进应用产物 -->
+        <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest"
+                 Exclude="wwwroot\en\**;wwwroot\id\**;wwwroot\ko\**;wwwroot\vi\**;wwwroot\zh-hant\**;wwwroot\index.html;wwwroot\sitemap.xml;wwwroot\build.py;wwwroot\**\*.py;wwwroot\**\*.pyc;wwwroot\**\__pycache__\**"/>
     </ItemGroup>
 
     <ItemGroup>

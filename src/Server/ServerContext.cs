@@ -25,6 +25,7 @@ internal static class ServerContext
         [".wav"] = "audio/wav",
         [".png"] = "image/png",
         [".jpg"] = "image/jpeg",
+        [".ico"] = "image/x-icon",
         [".svg"] = "image/svg+xml",
         [".woff"] = "font/woff",
         [".woff2"] = "font/woff2",
