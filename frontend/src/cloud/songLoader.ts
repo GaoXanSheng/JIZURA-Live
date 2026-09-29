@@ -47,9 +47,8 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
       } else lyricNote = '，没找到歌词';
     } catch { lyricNote = '，歌词加载失败'; }
 
-    // 音频分析完成后再装载（歌词已先行就位），并把播放位置归零
-    if (!S.project.title) S.project.title = it.name;
-    if (!S.project.artist) S.project.artist = it.singer;
+    // 音频分析完成后再装载（歌词已先行就位），并把播放位置归零。
+    // 曲名/歌手不自动填：只能用户手动输入
     const loaded = await loadAudioFile(file);
     if (my !== loadSeq) return;
     if (loaded) { bus.emit('sync-ui'); seek(0); }
@@ -67,11 +66,4 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
 
 export function songKey(it: Song): string {
   return `${it.source}|${it.id || it.hash || ''}|${it.name}`;
-}
-
-/* 新歌载入后把项目里的曲名/歌手一并补上（若为空），体验与手动载入一致 */
-export function syncSongMeta(it: Song) {
-  if (!S.project.title) S.project.title = it.name;
-  if (!S.project.artist) S.project.artist = it.singer;
-  bus.emit('sync-ui');
 }

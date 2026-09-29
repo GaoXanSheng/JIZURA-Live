@@ -7,7 +7,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { J } from '../../engine';
 import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
-import { setAspect } from '../../jizura/export';
+import { setAspect, setKeyBg } from '../../jizura/export';
 import { toast } from '../../jizura/look';
 import SubtitlePanel from './SubtitlePanel.vue';
 import { replan } from '../../jizura/engine';
@@ -26,6 +26,7 @@ const form = reactive({
   cdpPort: 9222,
 });
 const aspect = ref(S.project?.aspect || '16:9');
+const keyBg = ref('off');
 const centerFree = ref(S.project?.centerFree === true);
 const centerGap = ref(S.project?.centerGap ?? 30);
 const centerDir = ref(S.project?.centerDir === 'lr' ? 'lr' : 'tb');
@@ -112,7 +113,10 @@ function saveCenter() {
 
 onMounted(() => {
   load();
-  offs.push(bus.on('out', () => { aspect.value = S.project?.aspect || '16:9'; }));
+  offs.push(bus.on('out', () => {
+    aspect.value = S.project?.aspect || '16:9';
+    keyBg.value = (J.keyMode(S.project) || 'off');
+  }));
   offs.push(bus.on('replan', syncCenter));
   syncCenter();
 });
@@ -162,6 +166,16 @@ onUnmounted(() => offs.forEach(f => f()));
           </select>
         </label>
         <p class="hint !text-[11px] !mt-0">与「导出」页的画面比例同源，改这里导出页会同步。</p>
+
+        <label class="flex items-center gap-3 text-xs">
+          <span class="w-[110px] flex-none text-mut">背景</span>
+          <select :value="keyBg" class="flex-1" aria-label="背景" @change="setKeyBg((($event.target) as HTMLSelectElement).value)">
+            <option value="off">常规（风格背景）</option>
+            <option value="green">绿幕（用于合成）</option>
+            <option value="black">黑幕（用于合成）</option>
+          </select>
+        </label>
+        <p class="hint !text-[11px] !mt-0">与「导出」页的背景同源：绿幕/黑幕时只在单色背景上绘制白色文字与演出，供合成抠像。</p>
 
         <label class="flex items-center gap-3 text-xs">
           <span class="w-[110px] flex-none text-mut">渲染窗口分辨率</span>

@@ -110,7 +110,7 @@ export function setRes(v: number) { S.project.res = v; syncOut(); autosave(); }
 export function setFps(v: number) { S.project.fps = v; syncOut(); replan(); }
 export function setQuality(v: string) { S.project.quality = v; autosave(); }
 export function setKeyBg(v: string) {
-  S.project.keyBg = v; syncOut(); replan(); flushSave();
+  S.project.keyBg = v; syncOut(); bus.emit('sync-ui'); replan(); flushSave();
   const k = J.keyMode(S.project);
   toast(k ? `背景：${k === 'green' ? '绿幕' : '黑幕'}（只有白色文字与演出）` : '背景：常规（风格配色）');
 }
