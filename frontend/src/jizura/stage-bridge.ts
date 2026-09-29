@@ -73,11 +73,12 @@ export interface StageSink {
   setProject(project: any, beats: number[], duration: number, map: [string, { roma: string; trans: string }][] | null): void;
   setTime(t: number, playing: boolean): void;
   setSub(sub: any): void;
+  isConnected(): boolean;
 }
 
-export function bindStageBroadcast(sink: StageSink): () => void {
+export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendHello: () => void } {
   let c: BroadcastChannel | null = null;
-  try { c = new BroadcastChannel(CHANNEL); } catch { return () => {}; }
+  try { c = new BroadcastChannel(CHANNEL); } catch { return { stop: () => {}, resendHello: () => {} }; }
   c.onmessage = (e: MessageEvent<Msg>) => {
     const m = e.data;
     if (m.type === 'state') sink.setState(m.project, m.beats, m.duration, m.sub, m.map);
@@ -85,6 +86,13 @@ export function bindStageBroadcast(sink: StageSink): () => void {
     else if (m.type === 'time') sink.setTime(m.t, m.playing);
     else if (m.type === 'sub') sink.setSub(m.sub);
   };
-  try { c.postMessage({ type: 'hello' } as Msg); } catch {}
-  return () => { try { c!.close(); } catch {} };
+  const hello = () => { try { c!.postMessage({ type: 'hello' } as Msg); } catch {} };
+  hello();
+  // hello 是握手竞态敏感的：渲染页可能先于编辑页 channel 就绪时发出，
+  // 周期性重发直到连上（connected 由调用方判断）
+  const retry = window.setInterval(() => { if (!sink.isConnected()) hello(); }, 1500);
+  return {
+    stop: () => { window.clearInterval(retry); try { c!.close(); } catch {} },
+    resendHello: hello,
+  };
 }

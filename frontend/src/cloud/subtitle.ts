@@ -65,25 +65,28 @@ export function redrawSub() {
   try { seek(S.t); } catch { /* 尚无方案时无需处理 */ }
 }
 
+function fromNoteOf(line: any): { roma: string; trans: string } {
+  const note = String(line.note || '');
+  if (!note) return { roma: '', trans: '' };
+  const roma: string[] = [], trans: string[] = [];
+  for (const p of note.split('　').map((s: string) => s.trim()).filter(Boolean)) {
+    (classifyLangRows([p]) === 'roma' ? roma : trans).push(p);
+  }
+  return { roma: roma.join(' '), trans: trans.join(' ') };
+}
+
 function subTextFor(line: any): string {
   if (!line || line.interlude) return '';
+  const fromNote = () => fromNoteOf(line);
   if (overrideCfg) {
+    // 字幕通道：映射经广播注入；缺失时与主画面一致回退行内注音
     const m = overrideMap && overrideMap.get(line.text);
-    const parts = m || { roma: '', trans: '' };
+    const parts = m || fromNote();
     if (overrideCfg.content === 'roma') return parts.roma || '';
     if (overrideCfg.content === 'trans') return parts.trans || '';
     return [parts.roma, parts.trans].filter(Boolean).join('　');
   }
   const map = currentLyric() && currentLyric()!.map.get(line.text);
-  const fromNote = () => {
-    const note = String(line.note || '');
-    if (!note) return { roma: '', trans: '' };
-    const roma: string[] = [], trans: string[] = [];
-    for (const p of note.split('　').map((s: string) => s.trim()).filter(Boolean)) {
-      (classifyLangRows([p]) === 'roma' ? roma : trans).push(p);
-    }
-    return { roma: roma.join(' '), trans: trans.join(' ') };
-  };
   const parts = map || fromNote();
   if (cfg.content === 'roma') return parts.roma || '';
   if (cfg.content === 'trans') return parts.trans || '';

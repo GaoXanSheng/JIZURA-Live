@@ -67,6 +67,7 @@ export const useStage = defineStore('stage', {
           this.subCfg = sub || null;
           this.need = true;
         },
+        isConnected: () => this.connected,
       };
     },
   },

@@ -30,7 +30,8 @@ onMounted(() => {
   const stage = useStage();
 
   /* BroadcastChannel 直通：工程/字幕/时间全部来自编辑页 */
-  stopBridge = bindStageBroadcast(stage.sink());
+  const bridge = bindStageBroadcast(stage.sink());
+  stopBridge = bridge.stop;
   connected.value = stage.connected;
   watch(() => stage.connected, v => { connected.value = v; });
   watch(() => [stage.subCfg, stage.subMap] as const, ([cfg, map]) => {
