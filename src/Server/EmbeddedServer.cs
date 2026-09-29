@@ -8,12 +8,6 @@ using Newtonsoft.Json;
 namespace JizuraLive.Server;
 
 
-
-
-
-
-
-
 public sealed class EmbeddedServer : IDisposable
 {
     private const int PortBase = 8642;
@@ -30,6 +24,7 @@ public sealed class EmbeddedServer : IDisposable
         _server = new WebServer(o => o
                 .WithUrlPrefix($"http://127.0.0.1:{port}/")
                 .WithMode(HttpListenerMode.EmbedIO))
+            .WithModule(new FaviconModule())
             .WithModule(new StaticSiteModule())
             .WithModule(BuildApiModule());
     }
