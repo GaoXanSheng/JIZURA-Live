@@ -10,7 +10,7 @@ public static class CefRuntime
     public static string CachePath { get; private set; } = "";
     public static string LogFile { get; private set; } = "";
     private static bool _initialized;
-    public static bool Initialize()
+    public static bool Initialize(Settings? settings = null)
     {
         if (_initialized || Cef.IsInitialized == true)
         {
@@ -72,12 +72,39 @@ public static class CefRuntime
                 cefSettings.CefCommandLineArgs[tok] = "1";
         }
 
-        // CDP 远程调试端口（仅绑定 127.0.0.1），可用环境变量 JIZURA_CDP_PORT 覆盖，设为 0 关闭
-        string cdpPort = Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "9222";
-        if (int.TryParse(cdpPort, out int port) && port > 0)
+        // ------------------------------------------------------------
+        // CDP 调试端口：默认关闭，设置面板开启后才监听（仅回环地址）。
+        // 环境变量 JIZURA_CDP_PORT 显式设置时优先（开发调试用）。
+        // RemoteDebuggingPort 只能在 Cef.Initialize 前配置，
+        // 因此面板里改动需重启应用生效
+        // ------------------------------------------------------------
+        int? cdpPort = null;
+
+        string envPort =
+            Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
+
+        if (int.TryParse(envPort, out int envParsed) && envParsed > 0)
         {
-            cefSettings.RemoteDebuggingPort = port;
-            Log.Info($"CDP 远程调试端口已开启：http://127.0.0.1:{port}/json");
+            cdpPort = envParsed;
+            Log.Info($"CDP 端口来自环境变量：JIZURA_CDP_PORT={envParsed}");
+        }
+        else if (settings != null &&
+            settings.CdpEnabled &&
+            settings.CdpPort > 0)
+        {
+            cdpPort = settings.CdpPort;
+        }
+
+        if (cdpPort.HasValue)
+        {
+            cefSettings.RemoteDebuggingPort = cdpPort.Value;
+            Log.Info(
+                $"CDP 远程调试端口已开启：" +
+                $"http://127.0.0.1:{cdpPort.Value}/json");
+        }
+        else
+        {
+            Log.Info("CDP 远程调试端口未启用");
         }
 
         foreach (var kv in cefSettings.CefCommandLineArgs)

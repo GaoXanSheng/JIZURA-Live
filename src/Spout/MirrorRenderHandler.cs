@@ -396,6 +396,13 @@ public sealed class MirrorRenderHandler : IRenderHandler
         {
             try
             {
+                _spoutSender.Dispose();
+            }
+            catch 
+            {
+            }
+            try
+            {
                 _cpuTexture?.Dispose();
             }
             catch

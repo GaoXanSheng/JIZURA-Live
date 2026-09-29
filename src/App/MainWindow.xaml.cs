@@ -161,14 +161,10 @@ public partial class MainWindow : Window
     {
         var pipeline =
             SpoutPipeline.Instance;
-
         pipeline.Stop();
-
         pipeline.SyncPoke =
             ForceSyncResend;
-
         ApplySyncRate();
-
         pipeline.Start(
             _url,
             _settings.SpoutName,

@@ -53,7 +53,12 @@ public partial class App : Application
             }
             Log.Info($"内嵌服务就绪：http://127.0.0.1:{_server.Port}/");
 
-            if (!CefRuntime.Initialize())
+            // 设置必须在 CEF 初始化前加载：CDP 调试端口等参数
+            // 属于 CefSettings，只能在 Cef.Initialize 之前配置
+            var settings = Settings.Load();
+            _settings = settings;
+
+            if (!CefRuntime.Initialize(settings))
             {
                 Log.Fatal("CEF 初始化失败。");
                 Shutdown(-3);
@@ -61,8 +66,6 @@ public partial class App : Application
             }
             Log.Info("CEF 就绪");
 
-            var settings = Settings.Load();
-            _settings = settings;
             _url = $"http://127.0.0.1:{_server.Port}/";
             var main = new MainWindow(settings, _url);
             MainWindow = main;

@@ -17,14 +17,14 @@ public partial class SettingsPanel : UserControl
         int W,
         int H,
         string Label
-    )[] Resolutions =
-    {
-        (1280, 720, "1280 × 720 (16:9)"),
-        (1920, 1080, "1920 × 1080 (16:9)"),
-        (2560, 1440, "2560 × 1440 (16:9)"),
-        (1080, 1920, "1080 × 1920 (9:16 竖屏)"),
-        (2160, 3840, "2160 × 3840 (9:16 竖屏)")
-    };
+        )[] Resolutions =
+        {
+            (1280, 720, "1280 × 720 (16:9)"),
+            (1920, 1080, "1920 × 1080 (16:9)"),
+            (2560, 1440, "2560 × 1440 (16:9)"),
+            (1080, 1920, "1080 × 1920 (9:16 竖屏)"),
+            (2160, 3840, "2160 × 3840 (9:16 竖屏)")
+        };
 
     private readonly DispatcherTimer _statusTimer =
         new()
@@ -59,19 +59,19 @@ public partial class SettingsPanel : UserControl
 
             CmbRes.SelectionChanged +=
                 (_, _) =>
-                ApplyResolution();
+                    ApplyResolution();
 
             CmbFps.SelectionChanged +=
                 (_, _) =>
-                ApplyFps();
+                    ApplyFps();
 
             ChkSpout.Checked +=
                 (_, _) =>
-                ToggleSpout();
+                    ToggleSpout();
 
             ChkSpout.Unchecked +=
                 (_, _) =>
-                ToggleSpout();
+                    ToggleSpout();
 
             TxtSpoutName.LostFocus +=
                 (_, _) =>
@@ -97,13 +97,31 @@ public partial class SettingsPanel : UserControl
                     }
                 };
 
+            ChkCdp.Checked +=
+                (_, _) => ApplyCdp();
+
+            ChkCdp.Unchecked +=
+                (_, _) => ApplyCdp();
+
+            TxtCdpPort.LostFocus +=
+                (_, _) => ApplyCdp();
+
+            TxtCdpPort.KeyDown +=
+                (_, e) =>
+                {
+                    if (e.Key == Key.Enter)
+                    {
+                        ApplyCdp();
+                    }
+                };
+
             BtnRestartRender.Click +=
                 (_, _) =>
                 {
                     var main =
                         Application.Current
-                        .MainWindow
-                        as MainWindow;
+                                .MainWindow
+                            as MainWindow;
 
                     if (main == null)
                         return;
@@ -112,8 +130,8 @@ public partial class SettingsPanel : UserControl
                     // 主窗口浏览器保持不动
                     if (
                         !SpoutPipeline
-                        .Instance
-                        .IsRunning
+                            .Instance
+                            .IsRunning
                     )
                     {
                         Log.Info(
@@ -145,16 +163,58 @@ public partial class SettingsPanel : UserControl
                 ? idx
                 : 1;
 
+        int fpsIdx =
+            CmbFps.Items.IndexOf(
+                settings.RenderFps.ToString());
+
         CmbFps.SelectedIndex =
-            settings.RenderFps >= 55
-                ? 1
-                : 0;
+            fpsIdx >= 0
+                ? fpsIdx
+                : 1;
 
         TxtSpoutName.Text =
             settings.SpoutName;
 
         ChkSpout.IsChecked =
             settings.SpoutEnabled;
+
+        ChkCdp.IsChecked =
+            settings.CdpEnabled;
+
+        TxtCdpPort.Text =
+            settings.CdpPort.ToString();
+    }
+
+    private void ApplyCdp()
+    {
+        if (_settings == null)
+            return;
+
+        bool on =
+            ChkCdp.IsChecked == true;
+
+        int port =
+            int.TryParse(TxtCdpPort.Text.Trim(), out int p)
+                ? Math.Clamp(p, 1, 65535)
+                : 9222;
+
+        if (_settings.CdpEnabled == on &&
+            _settings.CdpPort == port)
+        {
+            return;
+        }
+
+        _settings.CdpEnabled = on;
+        _settings.CdpPort = port;
+
+        TxtCdpPort.Text = port.ToString();
+
+        Persist();
+
+        Log.Info(
+            $"CDP 调试端口设置：" +
+            $"{(on ? $"启用，端口 {port}" : "关闭")}" +
+            $"（重启应用后生效）");
     }
 
     private void Persist()
@@ -171,10 +231,10 @@ public partial class SettingsPanel : UserControl
             return;
 
         var (
-            w,
-            h,
-            _
-        ) =
+                w,
+                h,
+                _
+                ) =
             Resolutions[
                 CmbRes.SelectedIndex];
 
@@ -193,12 +253,12 @@ public partial class SettingsPanel : UserControl
         )
         {
             SpoutPipeline
-                .Instance
-                ._browser
-                .Size =
-                    new System.Drawing.Size(
-                        w,
-                        h);
+                    .Instance
+                    ._browser
+                    .Size =
+                new System.Drawing.Size(
+                    w,
+                    h);
         }
     }
 
@@ -211,9 +271,8 @@ public partial class SettingsPanel : UserControl
             return;
 
         int fps =
-            CmbFps.SelectedItem as string ==
-            "60"
-                ? 60
+            int.TryParse(CmbFps.SelectedItem as string, out int f)
+                ? Math.Clamp(f, 1, 240)
                 : 30;
 
         _settings.RenderFps =
@@ -226,7 +285,7 @@ public partial class SettingsPanel : UserControl
 
         var main =
             Application.Current.MainWindow
-            as MainWindow;
+                as MainWindow;
 
         if (
             main != null &&
@@ -273,7 +332,7 @@ public partial class SettingsPanel : UserControl
 
         var main =
             Application.Current.MainWindow
-            as MainWindow;
+                as MainWindow;
 
         if (main == null)
             return;

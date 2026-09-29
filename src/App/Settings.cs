@@ -13,6 +13,11 @@ public sealed class Settings
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;
 
+    // CDP 调试端口：默认关闭；开启后 CEF 仅在本机回环地址监听该端口。
+    // RemoteDebuggingPort 必须在 Cef.Initialize 前配置，改动重启后生效
+    public bool CdpEnabled { get; set; }
+    public int CdpPort { get; set; } = 9222;
+
     public static string ConfigDir => Path.Combine(AppContext.BaseDirectory, "config");
     public static string FilePath => Path.Combine(ConfigDir, "settings.json");
 

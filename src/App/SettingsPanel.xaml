@@ -64,6 +64,11 @@
                 <TextBlock Text="通道：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>
                 <TextBox x:Name="TxtSpoutName" Width="200"/>
             </StackPanel>
+            <CheckBox x:Name="ChkCdp" Content="CDP 调试端口（重启后生效）"/>
+            <StackPanel Orientation="Horizontal" Margin="24,2,0,0">
+                <TextBlock Text="端口：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>
+                <TextBox x:Name="TxtCdpPort" Width="100"/>
+            </StackPanel>
             <Button x:Name="BtnRestartRender" Content="重启渲染引擎" Height="28"
                     Margin="0,10,0,0" Cursor="Hand"/>
         </StackPanel>
