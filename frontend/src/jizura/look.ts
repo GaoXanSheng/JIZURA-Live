@@ -3,6 +3,7 @@
 import { J } from '../engine';
 import { S } from './state';
 import { autosave, flushSave } from './project';
+export { flushSave };
 import { bus } from './bus';
 import { replan, seek, pause, play, invalidateFontKey } from './engine';
 
@@ -270,6 +271,20 @@ export function toggleParamLock(k: string) {
   else { L.params[k] = true; toast('已锁定：' + k); }
   commit(); autosave();
   bus.emit('sync-ui');
+}
+
+/* ---- 配色随机 ---- */
+export function randomPalette() {
+  remember();
+  const c = S.project.colors;
+  const sc0 = J.STYLES[S.project.style].schemes[0];
+  const bg = c.enabled && c.bg ? c.bg : sc0.bg;
+  let p: any, guard = 0;
+  do { p = J.randomPalette(bg); } while (guard++ < 6 && p.ghostA === c.ghostA && p.ghostB === c.ghostB);
+  Object.assign(c, { accent: p.accent, ghostA: p.ghostA, ghostB: p.ghostB, accentOn: true });
+  bus.emit('sync-ui');
+  replan(); commit();
+  toast('配色：强调色・错位色A/B 已更换', [p.accent, p.ghostA, p.ghostB]);
 }
 
 /* ---- おまかせ（一键随机） ---- */

@@ -9,6 +9,9 @@ import LineList from './components/lyrics/LineList.vue';
 import TapPanel from './components/lyrics/TapPanel.vue';
 import StageCanvas from './components/stage/StageCanvas.vue';
 import Transport from './components/stage/Transport.vue';
+import TimelineCanvas from './components/stage/TimelineCanvas.vue';
+import CutInfo from './components/stage/CutInfo.vue';
+import RightPanel from './components/panels/RightPanel.vue';
 import ToastHost from './components/common/ToastHost.vue';
 
 const ed = useEditor();
@@ -44,9 +47,11 @@ onUnmounted(() => offs.forEach(f => f()));
       <section class="col col-stage" aria-label="预览">
         <StageCanvas />
         <Transport />
+        <TimelineCanvas />
+        <CutInfo />
       </section>
       <section class="col col-right" aria-label="风格与导出">
-        <div class="placeholder">风格 / 演出 / 手法 / 导出面板 — Phase 3</div>
+        <RightPanel />
       </section>
     </main>
     <ToastHost />
