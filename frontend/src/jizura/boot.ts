@@ -37,6 +37,8 @@ function bindKeys() {
 }
 
 export function boot() {
+  if ((globalThis as any).__jl_booted) return;   // 路由往返时只启动一次
+  (globalThis as any).__jl_booted = true;
   installSubtitleOverlay();   // 字幕叠加（Renderer.frame 包装，幂等）
   S.project = loadLocal();
   initVolume();
@@ -68,5 +70,3 @@ export function boot() {
   };
   bus.emit('booted');
 }
-
-boot();

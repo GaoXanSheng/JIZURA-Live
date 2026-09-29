@@ -4,7 +4,7 @@ import type { Source, ApiBase, LoginResponse, LyricResponse, PlaylistsResponse, 
 const OFFLINE = '连不上本机服务：请（重新）运行字面 Live';
 
 async function call<T extends ApiBase>(source: Source, path: string, params?: Record<string, string | number | undefined>): Promise<T> {
-  const src = source === 'netease' ? '/ne/' : '/kg/';
+  const src = source === 'netease' ? '/api/ne/' : '/api/kg/';
   const q = params ? '?' + new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)]),
   ) : '';
@@ -36,7 +36,7 @@ export const api = {
 };
 
 export async function fetchAudioBlob(source: Source, url: string): Promise<Blob> {
-  const base = source === 'netease' ? '/ne/audio?u=' : '/kg/audio?u=';
+  const base = source === 'netease' ? '/api/ne/audio?u=' : '/api/kg/audio?u=';
   return (await fetch(base + encodeURIComponent(url))).blob();
 }
 

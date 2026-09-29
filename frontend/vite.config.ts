@@ -16,10 +16,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 4096,
   },
   server: {
-    port: 5173,
+    port: 5174,
     proxy: {
-      '/kg': 'http://127.0.0.1:8642',
-      '/ne': 'http://127.0.0.1:8642',
+      // 本机服务 API 全部以 /api 开头，dev 时代理到正在运行的桌面应用
+      '/api': 'http://127.0.0.1:8642',
     },
   },
 });

@@ -11,6 +11,12 @@ public partial class MainWindow : Window
     private readonly Settings _settings;
     private readonly string _url;
 
+    /// <summary>
+    /// Spout 渲染进程加载的纯 canvas 页（/#/render 路由，100% 画布）。
+    /// 编辑页与渲染页同源，经 BroadcastChannel 直通工程/时间/字幕，互不打扰。
+    /// </summary>
+    private string RenderUrl => _url + "render";
+
     private bool _clean;
 
     private bool _lastSyncPlaying;
@@ -108,7 +114,7 @@ public partial class MainWindow : Window
         ApplySyncRate();
 
         pipeline.Start(
-            _url,
+            RenderUrl,
             _settings.SpoutName,
             _settings.RenderFps,
             _settings.Width,
@@ -132,7 +138,7 @@ public partial class MainWindow : Window
             ForceSyncResend;
         ApplySyncRate();
         pipeline.Start(
-            _url,
+            RenderUrl,
             _settings.SpoutName,
             _settings.RenderFps,
             _settings.Width,

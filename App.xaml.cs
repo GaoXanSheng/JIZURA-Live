@@ -15,6 +15,9 @@ public partial class App : Application
     private Settings? _settings;
     private string _url = "";
 
+    /// <summary>开发模式时为 Vite dev server 地址（如 http://localhost:5174/），否则 null。</summary>
+    public static string? DevUrl { get; private set; }
+
     private static bool AnotherRealInstanceRunning()
     {
         int self = Environment.ProcessId;
@@ -66,7 +69,17 @@ public partial class App : Application
             }
             Log.Info("CEF 就绪");
 
-            _url = $"http://127.0.0.1:{_server.Port}/";
+            // 开发模式：设置环境变量 JIZURA_DEV=1（或 JIZURA_DEV=http://localhost:5174/ 指定地址），
+            // CEF 主窗口与 Spout 渲染 browser 都改载 Vite dev server（frontend 下 npm run dev），
+            // 页面热更新即时生效；本机 8642 服务照常启动，由 Vite 的 /api 代理回来到这里。
+            string dev = Environment.GetEnvironmentVariable("JIZURA_DEV") ?? "";
+            if (dev.Equals("1", StringComparison.OrdinalIgnoreCase))
+                dev = "http://localhost:5174/";
+            DevUrl = dev.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? dev : null;
+            if (DevUrl != null)
+                Log.Info($"开发模式：页面加载 {DevUrl}（API 经 Vite 代理回本机服务）");
+
+            _url = DevUrl ?? $"http://127.0.0.1:{_server.Port}/";
             var main = new MainWindow(settings, _url);
             MainWindow = main;
             main.Show();

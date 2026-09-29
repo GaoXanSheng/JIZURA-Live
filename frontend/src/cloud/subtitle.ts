@@ -8,7 +8,7 @@ import { J } from '../engine';
 import { S } from '../jizura/state';
 import { bus } from '../jizura/bus';
 import { seek } from '../jizura/engine';
-import { classifyLangRows } from './krc';
+import { classifyLangRows, type LyricMap } from './krc';
 import { currentLyric } from './lyricStore';
 
 export interface SubConfig {
@@ -31,6 +31,15 @@ export const SUB_DEFAULT: SubConfig = {
 };
 
 let cfg: SubConfig = loadCfg();
+
+/* 渲染进程（/render 页）的字幕配置/映射经 BroadcastChannel 注入，
+   优先于本页 localStorage（渲染进程不读写 localStorage）。 */
+let overrideCfg: SubConfig | null = null;
+let overrideMap: LyricMap | null = null;
+export function setSubOverride(o: SubConfig | null, map: LyricMap | null) {
+  overrideCfg = o;
+  overrideMap = map;
+}
 
 function loadCfg(): SubConfig {
   try { return Object.assign({}, SUB_DEFAULT, JSON.parse(localStorage.getItem('jizura.kgsub') || '{}')); }
@@ -58,6 +67,13 @@ export function redrawSub() {
 
 function subTextFor(line: any): string {
   if (!line || line.interlude) return '';
+  if (overrideCfg) {
+    const m = overrideMap && overrideMap.get(line.text);
+    const parts = m || { roma: '', trans: '' };
+    if (overrideCfg.content === 'roma') return parts.roma || '';
+    if (overrideCfg.content === 'trans') return parts.trans || '';
+    return [parts.roma, parts.trans].filter(Boolean).join('　');
+  }
   const map = currentLyric() && currentLyric()!.map.get(line.text);
   const fromNote = () => {
     const note = String(line.note || '');
@@ -96,7 +112,10 @@ function wrapSubtitle(ctx: CanvasRenderingContext2D, text: string, maxW: number)
   return out;
 }
 
+function effCfg(): SubConfig { return overrideCfg || cfg; }
+
 function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any) {
+  const cfg = effCfg();
   if (cfg.content === 'off' || opt.noTrans || opt.layer) return;
   if (!plan || !plan.lines || !plan.W || !plan.H) return;
   const line = plan.lines.find((l: any) => t >= l.start && t < (l.visEnd != null ? l.visEnd : l.end));
@@ -149,7 +168,7 @@ export function installSubtitleOverlay() {
   const origFrame = proto.frame;
   proto.frame = function (this: any, ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
     origFrame.call(this, ctx, plan, t, opt);
-    if (cfg.content !== 'off') {
+    if (effCfg().content !== 'off') {
       try { drawSubtitle(ctx, plan, t, opt); } catch { /* 字幕出错不影响渲染 */ }
     }
   };

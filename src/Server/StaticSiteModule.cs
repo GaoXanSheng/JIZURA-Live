@@ -50,6 +50,9 @@ internal sealed class StaticSiteModule : WebModuleBase
                 return await SendFileAsync(context, rel, mime);
         }
 
+        // SPA history 路由回退：/render 等无扩展名路径回嵌入 index.html
+        if (!rel.Contains('.') && await SendEmbeddedAsync(context, "index.html")) return true;
+
         return false;
     }
 
