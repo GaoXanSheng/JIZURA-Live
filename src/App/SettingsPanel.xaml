@@ -45,7 +45,8 @@
     </UserControl.Resources>
     <Border Background="{StaticResource PanelBg}"
             BorderBrush="#FF3C3C46" BorderThickness="1"
-            CornerRadius="10" Padding="18,14,18,14">
+            CornerRadius="10" Padding="18,14,18,14"
+            MouseLeftButtonDown="OnBorderDragMove">
         <StackPanel>
             <Grid Margin="0,0,0,10">
                 <TextBlock Text="&#x2699; 设置" FontSize="14" FontWeight="Bold"
@@ -77,22 +78,22 @@
                 </Button>
             </Grid>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                <TextBlock Text="输出分辨率" VerticalAlignment="Center"
+                <TextBlock Text="渲染窗口分辨率" VerticalAlignment="Center"
                            Foreground="{StaticResource FgDim}" Width="110"/>
                 <ComboBox x:Name="CmbRes" Width="230"/>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
-                <TextBlock Text="输出帧率" VerticalAlignment="Center"
+                <TextBlock Text="渲染帧率" VerticalAlignment="Center"
                            Foreground="{StaticResource FgDim}" Width="110"/>
                 <ComboBox x:Name="CmbFps" Width="120"/>
             </StackPanel>
-            <CheckBox x:Name="ChkSpout" Content="Spout2 输出"/>
+            <CheckBox x:Name="ChkSpout" Content="Spout 输出"/>
             <StackPanel Orientation="Horizontal" Margin="24,2,0,0">
-                <TextBlock Text="通道：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>
+                <TextBlock Text="Spout ID：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>
                 <TextBox x:Name="TxtSpoutName" Width="200"/>
             </StackPanel>
-            <CheckBox x:Name="ChkSpoutTransparent" Content="透明背景（输出透明图层，重启镜像后生效）"/>
-            <CheckBox x:Name="ChkCdp" Content="CDP 调试端口（重启后生效）"/>
+            <CheckBox x:Name="ChkSpoutTransparent" Content="渲染透明背景（输出透明图层，重启镜像后生效）"/>
+            <CheckBox x:Name="ChkCdp" Content="调试端口（CDP，重启后生效）"/>
             <StackPanel Orientation="Horizontal" Margin="24,2,0,0">
                 <TextBlock Text="端口：" VerticalAlignment="Center" Foreground="{StaticResource FgDim}"/>
                 <TextBox x:Name="TxtCdpPort" Width="100"/>

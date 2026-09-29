@@ -53,8 +53,7 @@ public partial class SettingsWindow : Window
 
     public static void Toggle(
         Settings settings,
-        Window owner,
-        FrameworkElement anchor)
+        Window owner)
     {
         var existing = _active;
 
@@ -70,57 +69,23 @@ public partial class SettingsWindow : Window
             Owner = owner
         };
 
-        PositionOver(win, owner, anchor);
+        PositionOver(win, owner);
 
         win.Show();
 
         _active = win;
     }
 
-    // 定位：右缘对齐锚点（齿轮按钮），顶部贴按钮下方。
-    // PointToScreen 得到设备像素，再除以 DPI 变换转回 WPF 逻辑坐标，
-    // 这样窗口最大化、跨 DPI 缩放显示器时位置都正确。
+    // 定位：主窗口右上内侧（前端「导出」页唤起，无锚点按钮）。
     private static void PositionOver(
         SettingsWindow win,
-        Window owner,
-        FrameworkElement anchor)
+        Window owner)
     {
-        if (owner == null || anchor == null)
+        if (owner == null)
             return;
 
-        var transform =
-            PresentationSource
-            .FromVisual(owner)
-            ?.CompositionTarget
-            ?.TransformToDevice;
-
-        double scaleX =
-            transform?.M11 ?? 1.0;
-
-        double scaleY =
-            transform?.M22 ?? 1.0;
-
-        if (scaleX <= 0)
-            scaleX = 1.0;
-
-        if (scaleY <= 0)
-            scaleY = 1.0;
-
-        var screenPx =
-            anchor.PointToScreen(
-                new Point(
-                    anchor.ActualWidth,
-                    anchor.ActualHeight));
-
-        double dipX =
-            screenPx.X / scaleX;
-
-        double dipY =
-            screenPx.Y / scaleY;
-
-        // SettingsPanel 固定 Width=450
-        win.Left = dipX - 450;
-
-        win.Top = dipY + 4;
+        // SettingsPanel 固定 Width=450；贴主窗口右上，向下留出标题栏
+        win.Left = owner.Left + owner.ActualWidth - 450 - 24;
+        win.Top = owner.Top + 48;
     }
 }

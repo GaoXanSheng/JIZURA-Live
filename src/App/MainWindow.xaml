@@ -32,8 +32,6 @@
                        VerticalAlignment="Center" Margin="14,0,0,0"
                        FontSize="12" Opacity="0.65"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="BtnGear" Content="&#x2699;" Style="{StaticResource ChromeBtn}"
-                        FontSize="16" Click="BtnGear_Click" ToolTip="设置"/>
                 <Button x:Name="BtnMin" Content="&#xE921;" Style="{StaticResource ChromeBtn}"
                         FontFamily="Segoe MDL2 Assets" Click="BtnMin_Click" ToolTip="最小化"/>
                 <Button x:Name="BtnClose" Content="&#xE8BB;"

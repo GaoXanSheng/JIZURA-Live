@@ -18,6 +18,9 @@ public partial class App : Application
     /// <summary>开发模式时为 Vite dev server 地址（如 http://localhost:5174/），否则 null。</summary>
     public static string? DevUrl { get; private set; }
 
+    /// <summary>本机设置（AppController 等服务端组件读取）。</summary>
+    public Settings? Settings { get; private set; }
+
     private static bool AnotherRealInstanceRunning()
     {
         int self = Environment.ProcessId;
@@ -60,6 +63,7 @@ public partial class App : Application
             // 属于 CefSettings，只能在 Cef.Initialize 之前配置
             var settings = Settings.Load();
             _settings = settings;
+            Settings = settings;
 
             if (!CefRuntime.Initialize(settings))
             {

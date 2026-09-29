@@ -44,6 +44,33 @@ public partial class SettingsPanel : UserControl
         }
     }
 
+    // 面板空白区（边距/行间隙/静态文字）整体可拖拽：
+    // 命中的是可交互控件时事件不会冒泡到这里，交互不受影响
+    private void OnBorderDragMove(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || e.Handled)
+            return;
+
+        if (e.OriginalSource is System.Windows.DependencyObject d &&
+            FindAncestor<Control>(d) is Control)
+        {
+            return;   // 按钮/输入框/下拉等交给自己处理
+        }
+
+        Window.GetWindow(this)?.DragMove();
+    }
+
+    private static T? FindAncestor<T>(System.Windows.DependencyObject from) where T : class
+    {
+        while (from != null)
+        {
+            if (from is T hit)
+                return hit;
+            from = System.Windows.Media.VisualTreeHelper.GetParent(from);
+        }
+        return null;
+    }
+
     private void OnCloseClick(object sender, RoutedEventArgs e)
     {
         Window.GetWindow(this)?.Close();

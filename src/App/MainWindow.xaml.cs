@@ -475,19 +475,12 @@ public partial class MainWindow : Window
         Close();
     }
 
-    private void BtnGear_Click(
-        object sender,
-        RoutedEventArgs e)
-    {
-        ToggleSettings();
-    }
-
-    private void ToggleSettings()
+    // 设置入口已移至前端「导出」页（经 /api/app/settings 唤起）
+    public void ToggleSettings()
     {
         SettingsWindow.Toggle(
             _settings,
-            this,
-            BtnGear);
+            this);
     }
 
     private void ApplyClean()

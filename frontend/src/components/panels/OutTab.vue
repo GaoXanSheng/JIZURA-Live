@@ -88,6 +88,7 @@ onMounted(() => {
 onUnmounted(() => offs.forEach(f => f()));
 
 function doExport(kind: any) { runExport(kind); }
+function openAppSettings() { fetch('/api/app/settings', { method: 'POST' }).catch(() => {}); }
 function abort() { if (S.exporting) S.exporting.abort(); }
 async function doShare() { const s = share.value; if (!s) return; try { await (navigator as any).share({ files: [s.file], title: s.name }); } catch {} }
 </script>
@@ -138,6 +139,14 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
       <span class="text-mut">〜</span>
       <select :value="rangeTo" :disabled="rangeFrom === '-1'" aria-label="导出范围的最后一行" @change="onTo($event)"><option v-for="o in toOpts" :key="o.v" :value="o.v">{{ o.t }}</option></select>
       <span class="font-mono text-[11px] text-mut">{{ rangeInfo }}</span>
+    </div>
+    <div class="mt-4 mb-1 border border-line rounded-md bg-raised p-3 flex items-center gap-3">
+      <div class="flex-1 min-w-0">
+        <b class="text-xs">输出（Spout）设置</b>
+        <div class="text-[11px] text-mut mt-0.5">渲染窗口分辨率・渲染帧率・Spout 输出与 ID・渲染透明背景——
+          供 OBS 等下游接收的画面设置，改分辨率/帧率会即时生效</div>
+      </div>
+      <button class="btn flex-none" title="打开输出设置窗口（渲染窗口分辨率/帧率/Spout）" @click="openAppSettings">输出设置</button>
     </div>
     <div class="grid gap-2 mt-3">
       <button class="btn btn-primary !py-2.5" :disabled="busy || !codecOk" title="导出 MP4 视频" @click="doExport('mp4')">导出 MP4</button>
