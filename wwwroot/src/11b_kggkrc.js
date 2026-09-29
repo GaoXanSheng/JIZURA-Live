@@ -766,8 +766,19 @@
     kgSub = kgLoadSubCfg();
     kgInjectSubPanel();
 
-    // 主窗口换了歌（KRC 映射更新）：镜像浏览器通过 storage 事件跟随
+    // 主窗口改了字幕设置/换了歌：镜像浏览器通过 storage 事件实时跟随。
+    // kgSub 在页面载入时缓存，不跟随 storage 的话镜像会一直用
+    // 旧的内容/位置设置（比如还在渲染音译、位置不动）
     window.addEventListener('storage', e => {
+      if (e.key === 'jizura.kgsub') {
+        kgSub = kgLoadSubCfg();
+        if (kgSubBox) for (const el of kgSubBox.querySelectorAll('[data-k]')) {
+          const k = el.dataset.k;
+          if (el.type === 'checkbox') el.checked = !!kgSub[k];
+          else el.value = kgSub[k];
+        }
+        return;
+      }
       if (e.key !== 'jizura.kgsubmap') return;
       try {
         const saved = JSON.parse(e.newValue || 'null');
