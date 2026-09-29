@@ -31,7 +31,7 @@ public sealed class NeController : WebApiController
     public Task<KgQrResponse> Qr() => ServerContext.Netease.QrAsync();
 
     [Route(HttpVerbs.Get, "/ne/playlists")]
-    public Task<NePlaylistsResponse> Playlists() => ServerContext.Netease.MyPlaylistsAsync();
+    public Task<PlaylistsResponse> Playlists() => ServerContext.Netease.MyPlaylistsAsync();
 
     [Route(HttpVerbs.Get, "/ne/playlist")]
     public Task<KgSearchResponse> Playlist([QueryField("id")] string? id) =>

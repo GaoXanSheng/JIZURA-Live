@@ -26,37 +26,36 @@ async function toggleLogin(source: 'kugou' | 'netease') {
 </script>
 
 <template>
-  <div class="pane">
-    <div v-for="src in (['kugou', 'netease'] as const)" :key="src" class="acct-card">
-      <span class="logo" :class="src">{{ src === 'kugou' ? '酷' : '易' }}</span>
-      <div class="acct-info">
+  <div class="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto">
+    <div v-for="src in (['kugou', 'netease'] as const)" :key="src" class="flex items-center gap-3 bg-raised border border-line rounded-[10px] p-3.5 transition-colors hover:border-line2">
+      <span class="grid place-items-center w-10 h-10 rounded-[10px] text-white flex-none font-black text-lg font-brand"
+            :style="{ background: src === 'kugou' ? 'linear-gradient(135deg,#2aa4f4,#0b6fd1)' : 'linear-gradient(135deg,#ec4141,#c01f1f)' }">{{ src === 'kugou' ? '酷' : '易' }}</span>
+      <div class="flex-1 min-w-0 flex flex-col gap-0.5">
         <b>{{ src === 'kugou' ? '酷狗音乐' : '网易云音乐' }}</b>
-        <small v-if="cloud.login[src].logged">已登录{{ cloud.login[src].nickname ? '：' + cloud.login[src].nickname : '' }}</small>
-        <small v-else>未登录 — VIP 歌曲与完整音质需要扫码登录</small>
+        <small class="text-mut text-[11px] truncate">{{ cloud.login[src].logged ? `已登录${cloud.login[src].nickname ? '：' + cloud.login[src].nickname : ''}` : '未登录 — VIP 歌曲与完整音质需要扫码登录' }}</small>
       </div>
-      <button :class="cloud.login[src].logged ? 'ghost' : 'primary'" @click="toggleLogin(src)">
+      <button :class="cloud.login[src].logged ? 'btn btn-ghost' : 'btn btn-primary'" @click="toggleLogin(src)">
         {{ cloud.login[src].logged ? '退出登录' : '扫码登录' }}
       </button>
     </div>
-    <p class="hint note">登录凭据只保存在本机服务端（config/kg_login.json、config/ne_login.json），不会上传。</p>
+    <p class="hint border-l-2 border-line2 pl-2.5">登录凭据只保存在本机服务端（config/kg_login.json、config/ne_login.json），不会上传。</p>
 
-    <!-- 扫码弹层 -->
     <Teleport to="body">
       <Transition name="pop">
-        <div v-if="cloud.qr.active" class="qr-mask" @click.self="cloud.closeQr()">
-          <div class="qr-card">
+        <div v-if="cloud.qr.active" class="fixed inset-0 z-[3000] bg-[rgba(6,6,8,0.6)] backdrop-blur-sm grid place-items-center" @click.self="cloud.closeQr()">
+          <div class="bg-panel/90 backdrop-blur-xl text-fg border border-line2 rounded-2xl p-6 flex flex-col gap-3 items-center shadow-modal">
             <strong>{{ cloud.qr.source === 'netease' ? '网易云扫码登录' : '酷狗扫码登录' }}</strong>
-            <div class="qr-imgbox" :class="{ loading: cloud.qr.state === 'loading' }">
-              <img v-if="cloud.qr.img" :src="cloud.qr.img" alt="登录二维码" width="188" height="188">
-              <div v-else class="skel qr-skel"></div>
+            <div class="relative w-[188px] h-[188px] rounded-[10px] overflow-hidden bg-white">
+              <img v-if="cloud.qr.img" :src="cloud.qr.img" alt="登录二维码" width="188" height="188" class="block">
+              <div v-else class="skel w-full h-full !rounded-none"></div>
               <Transition name="fade">
-                <div v-if="cloud.qr.state === 'scanned'" class="qr-done">✓<br>已扫码</div>
+                <div v-if="cloud.qr.state === 'scanned'" class="absolute inset-0 grid place-items-center bg-[rgba(10,12,10,0.82)] text-cyan font-bold text-[22px] text-center leading-tight">已扫码</div>
               </Transition>
             </div>
-            <div class="qr-tip" :class="{ expired: cloud.qr.state === 'expired', err: cloud.qr.state === 'error' }">{{ cloud.qr.tip }}</div>
-            <div class="qr-btns">
-              <button v-if="cloud.qr.state === 'expired' || cloud.qr.state === 'error'" class="ghost small" @click="cloud.openQr(cloud.qr.source)">刷新二维码</button>
-              <button class="ghost small" @click="cloud.closeQr()">关闭</button>
+            <div class="text-xs min-h-[1.2em]" :class="cloud.qr.state === 'expired' ? 'text-amber' : cloud.qr.state === 'error' ? 'text-danger' : 'text-mut'">{{ cloud.qr.tip }}</div>
+            <div class="flex gap-2">
+              <button v-if="cloud.qr.state === 'expired' || cloud.qr.state === 'error'" class="btn btn-ghost btn-sm" @click="cloud.openQr(cloud.qr.source)">刷新二维码</button>
+              <button class="btn btn-ghost btn-sm" @click="cloud.closeQr()">关闭</button>
             </div>
           </div>
         </div>
@@ -64,68 +63,3 @@ async function toggleLogin(source: 'kugou' | 'netease') {
     </Teleport>
   </div>
 </template>
-
-<style scoped>
-.pane { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; overflow-y: auto; }
-.acct-card {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--raised);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 14px 16px;
-  transition: border-color var(--dur-1) var(--ease);
-}
-.acct-card:hover { border-color: var(--line2); }
-.logo {
-  display: grid; place-items: center;
-  width: 40px; height: 40px; border-radius: 10px;
-  font: 900 18px var(--brand);
-  color: #fff; flex: none;
-}
-.logo.kugou { background: linear-gradient(135deg, #2aa4f4, #0b6fd1); }
-.logo.netease { background: linear-gradient(135deg, #ec4141, #c01f1f); }
-.acct-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.acct-info small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.note { border-left: 2px solid var(--line2); padding-left: 10px; }
-
-.qr-mask {
-  position: fixed; inset: 0; z-index: 3000;
-  background: var(--backdrop);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  display: grid; place-items: center;
-}
-.qr-card {
-  background: var(--panel-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  color: var(--text);
-  border: 1px solid var(--line2);
-  border-radius: var(--r-lg);
-  padding: 22px 24px;
-  display: flex; flex-direction: column; gap: 12px; align-items: center;
-  box-shadow: var(--shadow-3);
-}
-.qr-imgbox { position: relative; width: 188px; height: 188px; border-radius: var(--r); overflow: hidden; background: #fff; }
-.qr-imgbox img { display: block; width: 188px; height: 188px; }
-.qr-skel { width: 188px; height: 188px; border-radius: 0; }
-.qr-done {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  background: rgba(10, 12, 10, 0.82);
-  color: var(--cyan);
-  font: 700 30px/1.3 var(--ui);
-  text-align: center;
-  font-size: 22px;
-}
-.qr-tip { color: var(--muted); font-size: 12px; min-height: 1.2em; }
-.qr-tip.expired { color: var(--amber); }
-.qr-tip.err { color: var(--danger); }
-.qr-btns { display: flex; gap: 8px; }
-.fade-enter-active, .fade-leave-active { transition: opacity 180ms; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-.pop-enter-active { transition: opacity var(--dur-2) var(--ease), transform var(--dur-2) var(--ease-out); }
-.pop-leave-active { transition: opacity var(--dur-1) var(--ease), transform var(--dur-1) var(--ease); }
-.pop-enter-from { opacity: 0; transform: scale(0.96); }
-.pop-leave-to { opacity: 0; transform: scale(0.97); }
-</style>

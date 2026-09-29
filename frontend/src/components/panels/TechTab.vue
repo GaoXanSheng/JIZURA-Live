@@ -1,16 +1,28 @@
 <script setup lang="ts">
-/* 手法 tab：分组折叠列表 + 实时预览卡 + 过滤 + 全开/全关/反转 + 组锁 */
+/* 手法 tab：套装开关（新增/和/文字排版/动态文字/恐怖）+ 分组折叠 + 实时预览卡 + 筛选/组锁 */
 import { onMounted, onUnmounted, ref } from 'vue';
 import { J } from '../../engine';
 import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
 import { replan, replanSoon } from '../../jizura/engine';
-import { remember, toggleTechLock, locksOf } from '../../jizura/look';
+import { remember, commit, toggleTechLock, locksOf, toast } from '../../jizura/look';
 import { badgesOf } from '../../jizura/ui-helpers';
 import { registerThumbs, resetWatch } from '../../jizura/preview';
+import { flushSave } from '../../jizura/project';
 
-const GROUPS: [string, string][] = [['layout', '布局'], ['enter', '入场'], ['hold', '保持'], ['exit', '退场'], ['decor', '装饰'], ['treat', '文字的加工'], ['bg', '背景'], ['cam', '镜头'], ['fx', '画面效果'], ['trans', '切分间的衔接']];
-const TECH_LOCK_ON = '锁定：一键随机不改这一组的开/关';
+const GROUPS: [string, string][] = [
+  ['layout', '布局'], ['enter', '入场'], ['hold', '保持'], ['exit', '退场'], ['decor', '装饰'],
+  ['treat', '文字处理'], ['bg', '背景'], ['cam', '运镜'], ['fx', '画面效果'], ['trans', '镜头转场'],
+];
+const TECH_LOCK_ON = '锁定：一键生成不改变这一组的开/关';
+
+const SETS = [
+  { cls: 'extra', label: '使用新增特效', sub: '带“新增”标记的手法、风格和字体。关闭时，一键生成和随机编排只使用首个公开版的特效' },
+  { cls: 'wa', label: '使用和风特效', sub: '带“和”标记的手法和风格。关闭后，一键生成和随机编排不会选用（在新增内容的判断之后应用；逐行手动指定时仍可使用）' },
+  { cls: 'typo', label: '使用文字排版部件', sub: '标有“文”的手法。关闭后，一键生成与随机重排不会选用' },
+  { cls: 'kinetic', label: '使用动态文字部件', sub: '标有“动”的手法。关闭后，一键生成与随机重排不会选用' },
+  { cls: 'horror', label: '也使用恐怖特效', sub: '标有“恐”的手法与风格。一键生成只在“恐怖”氛围时使用' },
+] as const;
 
 const filter = ref('');
 const groups = ref<any[]>([]);
@@ -18,6 +30,20 @@ const totalText = ref('');
 const openSet = new Set<string>();
 const listEls = new Map<string, HTMLElement>();
 const offs: (() => void)[] = [];
+
+const setVal = (cls: string) =>
+  cls === 'extra' ? S.project?.extra === true
+  : cls === 'wa' ? S.project?.wa !== false
+  : J.setOn(S.project, cls);
+
+function onSet(cls: string, ev: Event) {
+  const on = (ev.target as HTMLInputElement).checked;
+  remember();
+  S.project[cls] = on;
+  bus.emit('sync-ui');
+  rebuild();
+  replan(); commit(); flushSave();
+}
 
 function techItems(g: string) { return J.order(g).filter((k: string) => J.registry(g)[k] && !J.registry(g)[k].special); }
 
@@ -34,10 +60,8 @@ function rebuild() {
     const onN = items.filter((k: string) => en[k] !== false).length;
     total += items.length; onAll += onN;
     if (q && !shown.length) return;
-    const [tw, th] = (() => {
-      const [W, H] = J.designSize(S.project.aspect || '16:9');
-      const h = 90; return [Math.max(80, Math.round(h * W / H)), h];
-    })();
+    const [W, H] = J.designSize(S.project.aspect || '16:9');
+    const h = 90; const tw = Math.max(80, Math.round(h * W / H)), th = h;
     out.push({
       g, label,
       open: !!q || openSet.has(g),
@@ -47,9 +71,9 @@ function rebuild() {
         const def = tbl[k];
         let offNote = '';
         if (!J.randomOk(S.project, g, k)) {
-          offNote = def.extra && S.project.extra !== true ? '（追加项未开启，自动不会选中）'
+          offNote = def.extra && S.project.extra !== true ? '（新增特效未开启，自动不会选中）'
             : def.set && !J.setOn(S.project, def.set) ? '（该套装未开启，自动不会选中）'
-            : '（和风演出未开启，自动不会选中）';
+            : '（和风特效未开启，自动不会选中）';
         }
         return {
           k, name: def.name, badges: badgesOf(def), on: en[k] !== false,
@@ -81,7 +105,7 @@ function onCheck(g: string, k: string, ev: Event) {
 
 function onAll(g: string, a: 'on' | 'off' | 'flip') {
   remember();
-  const tbl = J.registry(g), items = techItems(g);
+  const items = techItems(g);
   const en = S.project.enabled[g] || (S.project.enabled[g] = {});
   items.forEach((k: string) => { en[k] = a === 'on' ? true : a === 'off' ? false : en[k] === false; });
   if (g === 'layout' && !items.some((k: string) => en[k] !== false)) en.center = true;
@@ -100,7 +124,6 @@ function onLock(g: string) { toggleTechLock(g); rebuild(); }
 
 onMounted(() => {
   offs.push(bus.on('sync-ui', rebuild));
-  offs.push(bus.on('replan', () => { /* enabled 变了重新画状态 */ }));
   offs.push(bus.on('tech-rebuilt', () => {
     requestAnimationFrame(() => groups.value.forEach(g => { const el = listEls.get(g.g); if (el && g.open) registerThumbs(el); }));
   }));
@@ -110,60 +133,41 @@ onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
 </script>
 
 <template>
-  <div class="tabpane" data-pane="tech">
-    <div class="row" style="margin-bottom: 10px">
-      <input v-model="filter" type="text" placeholder="按名称筛选手法" style="flex: 1" aria-label="按名称筛选手法" @input="rebuild()">
-      <span class="mono muted">{{ totalText }}</span>
+  <div class="px-4 py-3.5">
+    <div class="flex flex-col gap-1 mb-3">
+      <label v-for="t in SETS" :key="t.cls" class="checkblock">
+        <input type="checkbox" :checked="setVal(t.cls)" @change="onSet(t.cls, $event)">
+        <span>{{ t.label }}<small>{{ t.sub }}</small></span>
+      </label>
     </div>
-    <p class="note">画面中可见的预览会自动循环播放。</p>
-    <details v-for="g in groups" :key="g.g" class="tgroup" :open="g.open" @toggle="onToggle(g.g, $event)">
-      <summary>
-        <span class="tg-name">{{ g.label }}</span>
-        <span class="tg-cnt mono">{{ g.onN }}/{{ g.items.length }}</span>
-        <button type="button" class="icon ghost lk" :aria-pressed="g.locked" :title="g.locked ? '锁定中，点击解除' : TECH_LOCK_ON" @click.prevent.stop="onLock(g.g)">
+    <div class="row mb-2.5">
+      <input v-model="filter" type="text" placeholder="按名称筛选手法" class="flex-1" aria-label="按名称筛选手法" @input="rebuild()">
+      <span class="font-mono text-xs text-mut">{{ totalText }}</span>
+    </div>
+    <p class="hint mb-2">画面中可见的预览会自动循环播放。</p>
+    <details v-for="g in groups" :key="g.g" class="border border-line rounded-md bg-raised mb-2" :open="g.open" @toggle="onToggle(g.g, $event)">
+      <summary class="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer text-xs list-none [&::-webkit-details-marker]:hidden before:content-['▸'] before:text-mut before:mr-2 before:transition-transform open:before:rotate-90">
+        <span class="flex-1 font-semibold">{{ g.label }}</span>
+        <span class="font-mono text-[11px] text-mut">{{ g.onN }}/{{ g.items.length }}</span>
+        <button type="button" class="btn btn-icon btn-ghost" :class="g.locked ? '!text-amber' : ''" :aria-pressed="g.locked" :title="g.locked ? '锁定中，点击解除' : TECH_LOCK_ON" @click.prevent.stop="onLock(g.g)">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
         </button>
       </summary>
-      <div class="tg-tools">
-        <button class="ghost small" @click="onAll(g.g, 'on')">全部开启</button>
-        <button class="ghost small" @click="onAll(g.g, 'off')">全部关闭</button>
-        <button class="ghost small" @click="onAll(g.g, 'flip')">反转</button>
+      <div class="flex gap-1.5 px-2.5 pb-2">
+        <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'on')">全部开启</button>
+        <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'off')">全部关闭</button>
+        <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'flip')">反转</button>
       </div>
-      <div :ref="(el: any) => { if (el) listEls.set(g.g, el); }" class="checks tech-grid">
-        <label v-for="c in g.cards" :key="c.k" class="tcard" :class="{ 'set-off': c.off }" :title="c.title">
-          <canvas :width="c.tw" :height="c.th" :data-g="g.g" :data-k="c.k"></canvas>
-          <span class="tcard-name">
+      <div :ref="(el: any) => { if (el) listEls.set(g.g, el); }" class="grid gap-2 px-2.5 pb-2.5 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]">
+        <label v-for="c in g.cards" :key="c.k" class="flex flex-col gap-1 p-0 border border-line rounded-md overflow-hidden bg-panel cursor-pointer" :class="{ 'opacity-50': c.off }" :title="c.title">
+          <canvas :width="c.tw" :height="c.th" :data-g="g.g" :data-k="c.k" class="w-full aspect-video block bg-ink"></canvas>
+          <span class="flex items-center gap-1 text-[11px] px-1.5 pb-1.5 min-w-0">
             <input type="checkbox" :checked="c.on" @change="onCheck(g.g, c.k, $event)">
-            <span>{{ c.name }}</span>
-            <i v-for="(b, i) in c.badges" :key="i" class="set-badge" :class="b.cls" :title="b.title">{{ b.text }}</i>
+            <span class="truncate min-w-0">{{ c.name }}</span>
+            <i v-for="(b, i) in c.badges" :key="i" class="badge-set" :class="b.cls" :title="b.title">{{ b.text }}</i>
           </span>
         </label>
       </div>
     </details>
   </div>
 </template>
-
-<style scoped>
-.tgroup { border: 1px solid var(--line); border-radius: var(--r-sm); margin-bottom: 8px; background: var(--raised); }
-.tgroup summary { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; cursor: pointer; list-style: none; font-size: 12px; gap: 6px; }
-.tgroup summary::-webkit-details-marker { display: none; }
-.tgroup summary::before { content: '▸'; color: var(--muted); margin-right: 8px; transition: transform 0.15s; }
-.tgroup[open] summary::before { transform: rotate(90deg); }
-.tg-name { flex: 1; font-weight: 600; }
-.tg-cnt { color: var(--muted); font-size: 11px; }
-.tg-tools { display: flex; gap: 6px; padding: 0 10px 8px; }
-.tgroup .lk[aria-pressed='true'] { color: var(--amber); }
-.checks.tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; padding: 0 10px 10px; }
-.tcard { display: flex; flex-direction: column; gap: 4px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; background: var(--panel); cursor: pointer; }
-.tcard:hover { border-color: var(--line2); }
-.tcard canvas { width: 100%; aspect-ratio: 16 / 9; display: block; background: #0c0c0e; }
-.tcard .tcard-name { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 0 6px 6px; min-width: 0; }
-.tcard .tcard-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.tcard.set-off { opacity: 0.5; }
-.set-badge { display: inline-block; margin-left: 2px; padding: 0 4px; border: 1px solid var(--amber); border-radius: 3px; color: var(--amber); font-size: 10px; line-height: 15px; font-style: normal; }
-.set-badge.ex { border-color: var(--cyan); color: var(--cyan); }
-.set-badge.set-horror { border-color: #c0544a; color: #e0786e; }
-.set-badge.set-typo { border-color: #9aa3ad; color: #c5ccd3; }
-.set-badge.set-kinetic { border-color: #7fbf6a; color: #9fd98a; }
-.note { font-size: 12px; color: var(--muted); }
-</style>

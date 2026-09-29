@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+/* ============================================================
+   设计 token：暗色 + 琥珀基因（Tailwind v4 @theme）
+   生成 bg-ink / text-fg / border-line / text-amber 等工具类
+   ============================================================ */
+@theme {
+  --color-ink: #0c0c0e;
+  --color-panel: #131316;
+  --color-raised: #1b1b20;
+  --color-raised2: #232329;
+  --color-line: #2a2a31;
+  --color-line2: #383840;
+  --color-fg: #ece7e1;
+  --color-mut: #8e8a94;
+  --color-faint: #5d5a63;
+  --color-amber: #f5a50c;
+  --color-cyan: #16f4d4;
+  --color-rose: #ff6f9c;
+  --color-danger: #ff5a6a;
+
+  --font-ui: "IBM Plex Sans JP", "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --font-brand: "Zen Old Mincho", "Noto Serif JP", "Yu Mincho", serif;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 8px rgb(0 0 0 / 0.22);
+  --shadow-pop: 0 4px 16px rgb(0 0 0 / 0.38), 0 12px 40px rgb(0 0 0 / 0.32);
+  --shadow-modal: 0 8px 28px rgb(0 0 0 / 0.5), 0 28px 90px rgb(0 0 0 / 0.5);
+}
+
+/* ============================================================
+   元素默认（Tailwind preflight 之上的薄层）
+   ============================================================ */
+@layer base {
+  html, body { height: 100%; }
+  body {
+    @apply bg-ink text-fg font-ui antialiased overflow-hidden;
+    font-size: 13px; line-height: 1.5;
+  }
+  [hidden] { display: none !important; }
+  * { box-sizing: border-box; }
+  ::selection { background: rgb(245 165 12 / 0.35); }
+  :focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-line2); border: 2px solid transparent; background-clip: padding-box; }
+  * { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+
+  input[type="text"], input[type="number"], input[type="search"], input:not([type]), select, textarea {
+    @apply bg-raised border border-line rounded-md px-2.5 h-8 min-w-0 text-fg;
+    transition: border-color 120ms var(--ease, ease), box-shadow 120ms var(--ease, ease);
+  }
+  textarea { @apply w-full h-auto py-1.5 resize-y; line-height: 1.7; }
+  input:hover, select:hover, textarea:hover { @apply border-line2; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: rgb(245 165 12 / 0.55); box-shadow: 0 0 0 3px rgb(245 165 12 / 0.12); }
+  input[type="number"] { @apply font-mono; }
+  select {
+    @apply pr-1.5 appearance-none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--color-mut) 50%), linear-gradient(135deg, var(--color-mut) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 55%, calc(100% - 10px) 55%;
+    background-size: 4px 4px;
+    background-repeat: no-repeat;
+  }
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--color-amber); width: 14px; height: 14px; }
+  input[type="range"] { accent-color: var(--color-amber); }
+  input[type="color"] { @apply w-full h-7 p-0 border border-line bg-transparent rounded-md; }
+}
+
+/* ============================================================
+   组件类（模板里高频复用的样式收敛到这里，@apply 组合工具类）
+   ============================================================ */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer
+           h-8 px-3 rounded-md border border-line2 bg-raised text-fg text-[13px]
+           transition-[background,border-color,transform,box-shadow] duration-100 select-none;
+  }
+  .btn:hover { @apply bg-raised2 border-[#4a4a54]; }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { @apply opacity-45 cursor-not-allowed; transform: none; }
+  .btn-sm { @apply h-[26px] px-2.5 text-xs; }
+  .btn-icon { @apply px-1.5; }
+  .btn-icon svg { @apply w-[15px] h-[15px]; }
+  .btn-ghost { @apply bg-transparent border-line; }
+  .btn-ghost:hover { @apply bg-white/5 border-line2; }
+  .btn-primary { @apply bg-amber border-amber text-[#120c00] font-bold shadow-[0_2px_10px_rgb(245_165_12/0.25)]; }
+  .btn-primary:hover { @apply bg-[#ffb52a] border-[#ffb52a] shadow-[0_4px_16px_rgb(245_165_12/0.35)]; }
+  .btn-accent { @apply bg-transparent border-amber/55 text-amber; }
+  .btn-accent:hover { @apply bg-amber/10 border-amber; }
+  .btn-danger { @apply bg-[#c9433a] border-[#c9433a] text-white font-bold; }
+  .btn-danger:hover { @apply bg-[#dd5146] border-[#dd5146]; }
+  .btn[aria-pressed="true"], .btn-icon[aria-pressed="true"] { @apply border-cyan text-cyan; }
+  .btn-cloud { @apply bg-transparent border-amber/55 text-amber; }
+  .btn-cloud:hover { @apply bg-amber/10 border-amber; }
+  .btn-file {
+    @apply relative inline-flex items-center gap-1.5 cursor-pointer h-8 px-3
+           bg-raised border border-dashed border-line2 rounded-md;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .btn-file:hover { @apply border-amber bg-amber/10; }
+  .btn-file input { @apply absolute inset-0 w-full opacity-0 cursor-pointer; }
+
+  .chip {
+    @apply inline-flex items-center gap-1 h-auto px-2 py-0.5 rounded-full border border-line2
+           bg-raised text-fg text-[11px] whitespace-nowrap;
+  }
+  .chip b { @apply font-medium text-mut mr-1; }
+  .chip-l { border-color: rgb(245 165 12 / 0.6); }
+  .chip-e { border-color: rgb(22 244 212 / 0.55); }
+  .chip-x { border-color: rgb(255 111 156 / 0.6); }
+  .chip-t { border-color: rgb(180 140 255 / 0.6); }
+  .chip-b { border-color: rgb(120 200 120 / 0.55); }
+  .chip-c { border-color: rgb(120 170 255 / 0.6); }
+  .chip-h { border-color: #55525c; }
+  .chip-clickable { @apply cursor-pointer; }
+  .chip-clickable:hover { @apply border-amber; }
+  .chip.is-forced { @apply border-amber; }
+
+  .sec { @apply flex flex-col gap-2.5 px-4 py-3.5 border-b border-line; }
+  .sec-h { @apply flex items-center justify-between gap-2; }
+  .sec-title { @apply text-[11px] tracking-[0.18em] text-mut font-semibold; }
+  .sec-sub { @apply text-[11px] tracking-[0.14em] text-mut font-semibold mt-4 mb-2; }
+  .row { @apply flex items-center gap-2 flex-wrap; }
+  .hint { @apply text-xs text-mut; }
+  .kbd { @apply font-mono text-[11px] border border-line2 border-b-2 px-1 rounded; }
+  .note { @apply text-xs text-mut border-l-2 border-line2 pl-2.5 mt-3; }
+  .muted { @apply text-mut; }
+  .mono { @apply font-mono; }
+
+  .field { @apply flex flex-col gap-1 text-[11px] text-mut; }
+  .field input, .field select { @apply w-full; }
+  .checkline { @apply flex items-center gap-2 text-xs cursor-pointer; }
+  .checkblock { @apply flex items-start gap-2 text-xs cursor-pointer; }
+  .checkblock small { @apply block text-[11px] text-mut; }
+
+  .badge-set {
+    @apply inline-block px-1 border border-amber rounded-sm text-amber text-[10px] leading-[15px] not-italic;
+  }
+  .badge-set.ex { @apply border-cyan text-cyan; }
+  .badge-set.set-horror { @apply border-[#c0544a] text-[#e0786e]; }
+  .badge-set.set-typo { @apply border-[#9aa3ad] text-[#c5ccd3]; }
+  .badge-set.set-kinetic { @apply border-[#7fbf6a] text-[#9fd98a]; }
+
+  .skel {
+    @apply rounded-md bg-raised;
+    background-image: linear-gradient(100deg, var(--color-raised) 40%, var(--color-raised2) 50%, var(--color-raised) 60%);
+    background-size: 200% 100%;
+    animation: skel 1.3s linear infinite;
+  }
+
+  .progress { @apply h-1.5 bg-raised2 rounded-sm overflow-hidden; }
+  .progress i { @apply block h-full w-0 bg-gradient-to-r from-cyan to-amber transition-[width] duration-200; }
+
+  /* 品牌字标 */
+  .brand-mark {
+    @apply font-brand font-black text-2xl leading-none text-fg;
+    text-shadow: -2px -1px 0 rgb(22 244 212 / 0.85), 2px 1px 0 rgb(245 165 12 / 0.9);
+  }
+}
+
+/* Vue 过渡钩子（行为，非样式） */
+.fade-enter-active, .fade-leave-active { transition: opacity 200ms ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+.pop-enter-active { transition: opacity 200ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+.pop-leave-active { transition: opacity 120ms ease, transform 120ms ease; }
+.pop-enter-from { opacity: 0; transform: scale(0.97) translateY(8px); }
+.pop-leave-to { opacity: 0; transform: scale(0.98); }
+.list-enter-active { transition: opacity 200ms ease, transform 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+.list-enter-from { opacity: 0; transform: translateY(6px); }
+.sg-enter-active { transition: opacity 160ms cubic-bezier(0.16, 1, 0.3, 1), transform 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+.sg-enter-from { opacity: 0; transform: translateY(4px); }
+@keyframes skel { to { background-position: -200% 0; } }
+
+/* 固定工作区：够宽够高时页面不滚，各栏内部滚 */
+html.fixed-ok body { overflow: hidden; }
+@media (min-width: 1181px) and (min-height: 620px) {
+  html.fixed-ok .app { height: 100vh; height: 100dvh; }
+  html.fixed-ok .work { overflow: hidden; }
+  html.fixed-ok .col-stage { overflow: hidden auto; }
+}
+@media (max-width: 1180px) {
+  .work { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .col-stage { grid-column: 1 / -1; order: -1; }
+}
+@media (max-width: 760px) {
+  .work { grid-template-columns: minmax(0, 1fr); }
+  .col-left, .col-right { border: 0; border-top: 1px solid var(--color-line); }
+}

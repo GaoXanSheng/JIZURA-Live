@@ -5,7 +5,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { J } from '../../engine';
 import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
-import { replan, seek, touchList } from '../../jizura/engine';
+import { replan, seek } from '../../jizura/engine';
 import {
   setOv, setCutTech, pushEdit, remember, commit, toast,
   setExportRange, exportRangeLines, startTap,
@@ -63,7 +63,6 @@ onMounted(() => {
   offs.push(bus.on('replan', rebuild));
   offs.push(bus.on('replan-sync', rebuild));
   offs.push(bus.on('sync-ui', rebuild));
-  offs.push(bus.on('close-cutpick', () => {}));
   rebuild();
 });
 onUnmounted(() => offs.forEach(f => f()));
@@ -129,47 +128,50 @@ function onRng(i: number, ev: MouseEvent) { setExportRange(i, ev.shiftKey); }
 
 <template>
   <div class="sec">
-    <div class="sec-h"><h2>行与切分</h2><span class="mono muted">{{ infoText }}</span></div>
-    <ol class="line-list">
-      <li v-for="r in rows" :key="r.i" class="ln" :class="{ cur: ed.curLine === r.i, 'is-inter': r.interlude, 'in-range': r.inRange }">
-        <span class="no">{{ r.no }}</span>
-        <input class="time mono" type="number" step="0.01" min="0" :value="r.start.toFixed(2)"
+    <div class="sec-h"><span class="sec-title">行与切分</span><span class="font-mono text-mut text-[11px]">{{ infoText }}</span></div>
+    <ol class="list-none m-0 p-0 grid gap-1.5">
+      <li v-for="r in rows" :key="r.i"
+          class="grid grid-cols-[22px_66px_minmax(0,1fr)] gap-x-1.5 gap-y-1 items-center p-1.5 rounded-md border transition-colors"
+          :class="[ed.curLine === r.i ? 'border-line2 bg-raised shadow-[inset_2px_0_0_var(--color-amber)]' : 'border-transparent hover:bg-raised', r.inRange ? '!border-amber' : '']">
+        <span class="font-mono text-[11px] text-faint text-right">{{ r.no }}</span>
+        <input class="!h-[26px] !py-0.5 !px-1 text-xs w-full mono" :class="r.manual ? '!border-cyan' : ''" type="number" step="0.01" min="0" :value="r.start.toFixed(2)"
                :title="`开始（秒）${r.manual ? '・手动' : '・自动'}`" :aria-label="`第 ${r.i + 1} 行的开始秒`"
-               :style="r.manual ? 'border-color:var(--cyan)' : ''" @change="onTime(r.i, $event)">
-        <input v-if="editing && editing.i === r.i" ref="editInput" v-model="editing.value" class="txt-edit" type="text"
+               @change="onTime(r.i, $event)">
+        <input v-if="editing && editing.i === r.i" ref="editInput" v-model="editing.value" class="!h-[26px] !py-0.5 !px-1.5 text-[13px] w-full" type="text"
                title="记法（/ 分隔・*强调*・行尾 !・| 注释・[间奏 8]）同样可用。Enter 确认、Esc 取消"
                @keydown.enter.prevent="finishEdit(true)" @keydown.esc.prevent="finishEdit(false)" @blur="finishEdit(true)">
-        <span v-else class="txt" :title="r.full" @click="seekLine(r)" @dblclick="startEdit(r.i)">{{ r.label }}</span>
-        <div class="meta">
-          <span class="cuts">
-            <select v-for="cell in r.cuts" :key="cell.k" class="cut-lay pro-only" :class="{ 'is-forced': cell.forced }"
-                    :value="cell.forced || cell.layout" :title="cell.title" :aria-label="`第 ${r.i + 1} 行 切分 ${cell.k + 1} 的布局`"
+        <span v-else class="truncate cursor-pointer" :class="{ 'italic': r.interlude }" :title="r.full" @click="seekLine(r)">{{ r.label }}</span>
+        <div class="col-span-2 col-start-2 flex justify-between items-start gap-1.5 flex-wrap">
+          <span class="flex gap-1 flex-wrap min-w-0 flex-[1_1_140px]">
+            <select v-for="cell in r.cuts" :key="cell.k" class="!h-[22px] !py-0 !px-1 text-[10px] max-w-[112px] w-auto border border-line2 rounded bg-raised text-fg"
+                    :class="{ '!border-amber': cell.forced }"
                     :style="{ borderColor: `hsla(${cell.hue},70%,58%,0.7)` }"
+                    :value="cell.forced || cell.layout" :title="cell.title" :aria-label="`第 ${r.i + 1} 行 切分 ${cell.k + 1} 的布局`"
                     @pointerdown="seekCut(cell)" @change="onCutLayout(r.i, cell, $event)">
               <option v-for="o in layoutOpts" :key="o.v" :value="o.v">{{ o.t }}</option>
             </select>
           </span>
-          <span class="tools">
-            <button class="icon ghost" title="修改这一行的歌词" :aria-label="`修改第 ${r.i + 1} 行歌词`" @click="startEdit(r.i)">
+          <span class="flex gap-1 flex-wrap justify-end ml-auto">
+            <button class="btn btn-icon btn-ghost" title="修改这一行的歌词" :aria-label="`修改第 ${r.i + 1} 行歌词`" @click="startEdit(r.i)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 13l1-3.5L11 2.5l2.5 2.5L6.5 12z"/><path d="M9.5 4l2.5 2.5"/></svg>
             </button>
-            <select v-if="!r.interlude" class="ncut" :value="r.ncut" :aria-label="`第 ${r.i + 1} 行的切分数`" @change="onNcut(r.i, r.start, $event)">
+            <select v-if="!r.interlude" class="!h-auto !py-0.5 !px-1 text-[11px] max-w-[92px] w-auto" :value="r.ncut" :aria-label="`第 ${r.i + 1} 行的切分数`" @change="onNcut(r.i, r.start, $event)">
               <option value="">切分 自动</option>
               <option v-for="n in cutCountOpts" :key="n" :value="String(n)">切分 {{ n }}</option>
             </select>
-            <select v-if="!r.interlude" v-model="rows[r.i].layout" class="lay pro-only" :aria-label="`第 ${r.i + 1} 行布局指定`" @change="onLayout(r.i, $event)">
+            <select v-if="!r.interlude" v-model="rows[r.i].layout" class="!h-auto !py-0.5 !px-1 text-[11px] max-w-[92px] w-auto" :aria-label="`第 ${r.i + 1} 行布局指定`" @change="onLayout(r.i, $event)">
               <option v-for="o in layoutOpts" :key="o.v" :value="o.v">{{ o.t }}</option>
             </select>
-            <button class="icon ghost" title="从这一行开始重新打点同步" :aria-label="`从第 ${r.i + 1} 行开始打点`" @click="startTap(r.i)">
+            <button class="btn btn-icon btn-ghost" title="从这一行开始重新打点同步" :aria-label="`从第 ${r.i + 1} 行开始打点`" @click="startTap(r.i)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2" fill="currentColor"/><circle cx="8" cy="8" r="5.5"/></svg>
             </button>
-            <button class="icon ghost" :aria-pressed="r.inRange" title="设为导出范围（Shift+点击扩大范围）" :aria-label="`把第 ${r.i + 1} 行设为导出范围`" @click="onRng(r.i, $event)">
+            <button class="btn btn-icon btn-ghost" :class="r.inRange ? '!text-amber' : ''" :aria-pressed="r.inRange" title="设为导出范围（Shift+点击扩大范围）" :aria-label="`把第 ${r.i + 1} 行设为导出范围`" @click="onRng(r.i, $event)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 3v10M13 3v10"/><path d="M5.5 8h5M8.5 5.5L11 8l-2.5 2.5"/></svg>
             </button>
-            <button v-if="!r.interlude" class="icon ghost" title="重抽这一行" @click="onDice(r.i)">
+            <button v-if="!r.interlude" class="btn btn-icon btn-ghost" title="重抽这一行" @click="onDice(r.i)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="12" height="12" rx="2"/><circle cx="5.5" cy="5.5" r="1" fill="currentColor"/><circle cx="10.5" cy="10.5" r="1" fill="currentColor"/><circle cx="10.5" cy="5.5" r="1" fill="currentColor"/><circle cx="5.5" cy="10.5" r="1" fill="currentColor"/></svg>
             </button>
-            <button v-if="!r.interlude" class="icon ghost" :aria-pressed="r.locked" title="锁定这一行的构成" @click="onLock(r.i)">
+            <button v-if="!r.interlude" class="btn btn-icon btn-ghost" :class="r.locked ? '!text-amber' : ''" :aria-pressed="r.locked" title="锁定这一行的构成" @click="onLock(r.i)">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
             </button>
           </span>
@@ -180,22 +182,5 @@ function onRng(i: number, ev: MouseEvent) { setExportRange(i, ev.shiftKey); }
 </template>
 
 <style scoped>
-.line-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.ln { display: grid; grid-template-columns: 22px 66px minmax(0, 1fr); gap: 4px 6px; align-items: center; padding: 6px; border: 1px solid transparent; border-radius: var(--r-sm); transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); }
-.ln:hover { background: var(--raised); }
-.ln.cur { border-color: var(--line2); background: var(--raised); box-shadow: inset 2px 0 0 var(--amber); }
-.ln .no { font: 500 11px var(--mono); color: var(--faint); text-align: right; }
-.ln .time { width: 100%; padding: 3px 5px; font-size: 12px; min-height: 26px; }
-.ln .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.ln.is-inter .txt { color: var(--muted); font-style: italic; }
-.ln.in-range { border-color: var(--amber); }
-.ln .txt-edit { width: 100%; padding: 3px 6px; font-size: 13px; min-height: 26px; }
-.ln .meta { grid-column: 2 / 4; display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
-.ln .tools { display: flex; gap: 4px; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
-.ln .tools select { padding: 2px 4px; font-size: 11px; max-width: 92px; width: auto; min-height: 24px; }
-.ln .cuts { display: flex; gap: 4px; flex-wrap: wrap; min-width: 0; flex: 1 1 140px; }
-.ln .cut-lay { font-size: 10px; padding: 1px 4px; max-width: 112px; min-height: 22px; border: 1px solid var(--line2); border-radius: 4px; background: var(--raised); color: var(--text); }
-.ln .cut-lay.is-forced { border-color: var(--amber); color: var(--text); }
-.ln .tools .icon[aria-pressed='true'] { color: var(--amber); }
-
+.ln.in-range { border-color: var(--color-amber); }
 </style>

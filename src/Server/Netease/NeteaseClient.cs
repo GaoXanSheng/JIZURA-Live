@@ -265,15 +265,15 @@ public sealed partial class NeteaseClient
         };
     }
 
-    public async Task<NePlaylistsResponse> MyPlaylistsAsync()
+    public async Task<PlaylistsResponse> MyPlaylistsAsync()
     {
         if (S(NeState(), "MUSIC_U").Length == 0)
-            return new NePlaylistsResponse { Ok = false, Error = "请先扫码登录网易云" };
+            return new PlaylistsResponse { Ok = false, Error = "请先扫码登录网易云" };
         var acc = await PostAsync("/api/nuser/account/get", new JObject(), eapi: false);
         string uid = acc["profile"]?.Value<long?>("userId")?.ToString()
                      ?? acc["account"]?.Value<long?>("id")?.ToString() ?? "";
         if (uid.Length == 0)
-            return new NePlaylistsResponse { Ok = false, Error = "登录状态已失效，请重新扫码" };
+            return new PlaylistsResponse { Ok = false, Error = "登录状态已失效，请重新扫码" };
         var d = await PostAsync("/api/user/playlist", new JObject
         {
             ["uid"] = long.Parse(uid),
@@ -281,10 +281,10 @@ public sealed partial class NeteaseClient
             ["offset"] = 0,
             ["includeVideoSong"] = true,
         }, eapi: false);
-        var r = new NePlaylistsResponse { Ok = true };
+        var r = new PlaylistsResponse { Ok = true };
         foreach (var p in d["playlist"] as JArray ?? new JArray())
         {
-            r.List.Add(new NePlaylist
+            r.List.Add(new PlaylistInfo
             {
                 Id = p.Value<long?>("id")?.ToString() ?? "",
                 Name = p.Value<string>("name") ?? "",

@@ -27,3 +27,6 @@ frontend/node_modules/
 
 # 本机凭据（酷狗 token / 网易云 cookie，运行时写入应用目录）
 config/
+
+# 前端产物已嵌入程序集（obj/frontend-dist → JizuraLive.dll），磁盘 dist 仅剩本地遗留
+wwwroot/dist/

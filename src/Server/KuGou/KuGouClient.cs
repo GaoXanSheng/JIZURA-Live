@@ -1,4 +1,7 @@
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Server;
@@ -20,6 +23,47 @@ public sealed partial class KuGouClient
 
     private Task<JObject> GetJsonAsync(string url, int timeoutMs = 20000) =>
         GetJsonAsync(new HttpRequestMessage(HttpMethod.Get, url), timeoutMs);
+
+    // gateway 通用调用：android 签名（query 按 key 排序拼 k=v，再夹 body 原文与 AndroidSalt 取 MD5）
+    private async Task<JObject> GatewayAsync(string path, string? router,
+        Dictionary<string, string>? extraParams, JObject? body)
+    {
+        var st = EnsureIdentity();
+        string now = ((int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000)).ToString();
+        string token = S(st, "token");
+        long userid = long.TryParse(S(st, "userid"), out var uid) ? uid : 0;
+        var q = new Dictionary<string, string>
+        {
+            ["dfid"] = S(st, "dfid").Length > 0 ? S(st, "dfid") : "-",
+            ["mid"] = S(st, "mid"),
+            ["uuid"] = "-",
+            ["appid"] = AppId,
+            ["clientver"] = ClientVer,
+            ["clienttime"] = now,
+        };
+        if (token.Length > 0)
+        {
+            q["token"] = token;
+            q["userid"] = userid.ToString();
+        }
+        if (extraParams != null)
+            foreach (var (k, v) in extraParams) q[k] = v;
+
+        string data = body == null ? "" : JsonConvert.SerializeObject(body);
+        string plain = string.Concat(q.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => $"{k}={q[k]}"));
+        q["signature"] = Md5($"{AndroidSalt}{plain}{data}{AndroidSalt}");
+        string qs = string.Join("&", q.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value)}"));
+
+        using var req = new HttpRequestMessage(
+            body == null ? HttpMethod.Get : HttpMethod.Post,
+            $"https://gateway.kugou.com{path}?{qs}");
+        if (body != null)
+            req.Content = new StringContent(data, new MediaTypeHeaderValue("application/json"));
+        if (router != null)
+            req.Headers.TryAddWithoutValidation("x-router", router);
+        AddGatewayHeaders(req, dfid: q["dfid"], clientTime: now, mid: q["mid"]);
+        return await GetJsonAsync(req);
+    }
 
     private async Task<JObject> V5UrlAsync(string hash, string albumId, string albumAudioId, int quality,
         int freePart, string token, long userid)
@@ -201,6 +245,107 @@ public sealed partial class KuGouClient
                 Nick = x.Value<string>("nickname") ?? "",
             });
         return new KgLyricResponse { Ok = true, Fmt = hit2.Value.Fmt, Content = hit2.Value.Content, Candidates = candidates };
+    }
+
+    /* ---------- 歌单（需登录） ---------- */
+
+    public async Task<PlaylistsResponse> MyPlaylistsAsync()
+    {
+        var st = KgState();
+        string token = S(st, "token");
+        if (token.Length == 0)
+            return new PlaylistsResponse { Ok = false, Error = "请先扫码登录酷狗" };
+        var d = await GatewayAsync("/v7/get_all_list", "cloudlist.service.kugou.com",
+            new Dictionary<string, string> { ["plat"] = "1" },
+            new JObject
+            {
+                ["userid"] = long.TryParse(S(st, "userid"), out var uid) ? uid : 0,
+                ["token"] = token,
+                ["total_ver"] = 979,
+                ["type"] = 2,
+                ["page"] = 1,
+                ["pagesize"] = 100,
+            });
+        var r = new PlaylistsResponse { Ok = true };
+        foreach (var p in d["data"]?["info"] as JArray ?? new JArray())
+        {
+            string id = p.Value<string>("global_collection_id") ?? "";
+            string name = p.Value<string>("name") ?? "";
+            if (id.Length == 0 || name.Length == 0) continue;
+            r.List.Add(new PlaylistInfo
+            {
+                Id = id,
+                Name = name,
+                Count = p.Value<int?>("count") ?? 0,
+            });
+        }
+        return r;
+    }
+
+    // 歌单歌曲映射成搜索结果同款 DTO，前端渲染零改动
+    private static KgSong PlSongToSong(JObject it)
+    {
+        var singers = (it["singerinfo"] as JArray ?? new JArray())
+            .Select(x => x.Value<string>("name")).Where(n => !string.IsNullOrEmpty(n));
+        return new KgSong
+        {
+            Hash = it.Value<string>("hash") ?? "",
+            AlbumId = it.Value<string>("album_id") ?? "",
+            AlbumAudioId = it.Value<long?>("mixsongid")?.ToString() ?? "",
+            Name = it.Value<string>("name") ?? "",
+            Singer = string.Join(" / ", singers),
+            Album = it["albuminfo"]?.Value<string>("name") ?? "",
+            Duration = (it.Value<long?>("timelen") ?? 0) / 1000,
+            Pay = (it.Value<long?>("feetype") ?? 0) != 0 ? 1 : 0,
+            Cover = it.Value<string>("cover")?.Replace("{size}", "240") ?? "",
+        };
+    }
+
+    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id)
+    {
+        string gcid = (id ?? "").Trim();
+        var m = System.Text.RegularExpressions.Regex.Match(gcid, @"[?&](?:global_collection_id|id)=([\w-]+)");
+        if (m.Success) gcid = m.Groups[1].Value;
+        if (gcid.Length == 0)
+            return new KgSearchResponse { Ok = false, Error = "缺少歌单 ID（可粘贴酷狗歌单链接或 global_collection_id）" };
+        string token = S(KgState(), "token");
+        if (token.Length == 0)
+            return new KgSearchResponse { Ok = false, Error = "请先扫码登录酷狗" };
+
+        var r = new KgSearchResponse { Ok = true };
+        const int pageSize = 300;
+        for (int begin = 0; begin < 1000; begin += pageSize)
+        {
+            var d = await GatewayAsync("/pubsongs/v2/get_other_list_file_nofilt", null,
+                new Dictionary<string, string>
+                {
+                    ["area_code"] = "1",
+                    ["begin_idx"] = begin.ToString(),
+                    ["plat"] = "1",
+                    ["type"] = "1",
+                    ["mode"] = "1",
+                    ["personal_switch"] = "1",
+                    ["extend_fields"] = "abtags,hot_cmt,popularization",
+                    ["pagesize"] = pageSize.ToString(),
+                    ["global_collection_id"] = gcid,
+                }, null);
+            if (d.Value<int?>("status") != 1)
+            {
+                if (r.List.Count > 0) break;
+                string msg = d.Value<string>("errmsg") ?? "";
+                return new KgSearchResponse
+                {
+                    Ok = false,
+                    Error = "酷狗歌单读取失败" + (msg.Length > 0 ? "：" + msg : "，请确认歌单 ID 或重新扫码登录"),
+                };
+            }
+            foreach (var it in d["data"]?["songs"] as JArray ?? new JArray())
+                r.List.Add(PlSongToSong((JObject)it));
+            int count = d["data"]?.Value<int?>("count") ?? r.List.Count;
+            if (r.List.Count >= count) break;
+        }
+        r.Total = r.List.Count;
+        return r;
     }
 
     public async Task<KgQrResponse> QrAsync()

@@ -2,6 +2,7 @@
    轮询定时器集中在 store 管理，弹窗关闭/组件卸载必须 stopQrPolling()。 */
 import { defineStore } from 'pinia';
 import { api } from '../cloud/api';
+import { toast } from '../jizura/look';
 import type { Song, Source, PlaylistInfo } from '../cloud/types';
 
 export type QrState = 'idle' | 'loading' | 'waiting' | 'scanned' | 'expired' | 'ok' | 'error';
@@ -135,7 +136,6 @@ export const useCloud = defineStore('cloud', {
             this.qr.active = false;
             const src = this.qr.source;
             await this.refreshLogin(src);
-            const { toast } = await import('../jizura/look');
             toast(src === 'netease' ? '网易云已登录，VIP 歌曲可以载入了' : '酷狗已登录，VIP 歌曲可以载入完整音质了');
           }
         } catch { /* 网络抖动，下一轮再试 */ }

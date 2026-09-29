@@ -38,42 +38,26 @@ function loadPasted() {
 </script>
 
 <template>
-  <div class="pane">
-    <div class="pl-row">
-      <input v-model="cloud.playlistInput" type="text" placeholder="粘贴歌单 ID / 链接，回车载入" aria-label="歌单 ID 或链接" @keydown.enter.prevent="loadPasted" @keydown.stop>
-      <button @click="loadPasted">载入</button>
+  <div class="flex flex-col gap-2.5 flex-1 min-h-0">
+    <div class="row">
+      <input v-model="cloud.playlistInput" type="text" class="flex-1" placeholder="粘贴歌单 ID / 链接，回车载入" aria-label="歌单 ID 或链接" @keydown.enter.prevent="loadPasted" @keydown.stop>
+      <button class="btn" @click="loadPasted">载入</button>
     </div>
-    <div v-if="cloud.playlistsLoading" class="skel-box">
-      <div v-for="i in 5" :key="i" class="skel" style="height: 34px; margin-bottom: 6px"></div>
+    <div v-if="cloud.playlistsLoading" class="py-1">
+      <div v-for="i in 5" :key="i" class="skel h-[34px] mb-1.5"></div>
     </div>
-    <div v-else-if="cloud.playlistsError" class="empty error">{{ cloud.playlistsError }}</div>
+    <div v-else-if="cloud.playlistsError" class="py-5 px-3 text-xs text-center text-danger">{{ cloud.playlistsError }}</div>
     <template v-else>
-      <ul v-if="cloud.playlists.length" class="pl-list">
-        <li v-for="p in cloud.playlists" :key="p.id">
-          <button type="button" @click="loadPlaylistSongs(p.id, p.name)">
-            <span class="pl-name">{{ p.name }}</span>
-            <span class="pl-count">{{ p.count }} 首</span>
+      <ul v-if="cloud.playlists.length" class="list-none m-0 p-0 overflow-y-auto border border-line rounded-md flex-1 min-h-0">
+        <li v-for="p in cloud.playlists" :key="p.id" class="border-t border-line first:border-t-0">
+          <button type="button" class="btn !border-0 !rounded-none !bg-none w-full !h-auto justify-between items-baseline px-3 py-2 text-left hover:!bg-white/5" @click="loadPlaylistSongs(p.id, p.name)">
+            <span class="truncate">{{ p.name }}</span>
+            <span class="text-mut text-[11px] flex-none">{{ p.count }} 首</span>
           </button>
         </li>
       </ul>
-      <div v-else class="empty">{{ cloud.playlistTip }}</div>
+      <div v-else class="py-5 px-3 text-xs text-center text-mut">{{ cloud.playlistTip }}</div>
     </template>
-    <div v-if="cloud.playlistTip && !cloud.playlistsLoading && !cloud.playlistsError" class="tip muted">{{ cloud.playlistTip }}</div>
+    <div v-if="cloud.playlistTip && !cloud.playlistsLoading && !cloud.playlistsError" class="text-[11px] text-mut">{{ cloud.playlistTip }}</div>
   </div>
 </template>
-
-<style scoped>
-.pane { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
-.pl-row { display: flex; gap: 8px; }
-.pl-row input { flex: 1; }
-.pl-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); flex: 1; min-height: 0; }
-.pl-list li { border-top: 1px solid var(--line); }
-.pl-list li:first-child { border-top: 0; }
-.pl-list button { display: flex; width: 100%; gap: 8px; justify-content: space-between; align-items: baseline; padding: 8px 12px; background: none; border: 0; text-align: left; min-height: 0; }
-.pl-list button:hover { background: var(--hover); }
-.pl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-count { color: var(--muted); font-size: 11px; flex: none; }
-.empty { padding: 20px 12px; color: var(--muted); font-size: 12px; text-align: center; }
-.empty.error { color: var(--danger); }
-.tip { font-size: 11px; }
-</style>

@@ -53,6 +53,12 @@
         </Reference>
         <None Remove="native\SpoutDX.dll"/>
         <Content Include="native\SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
+        <Content Update="frontend\favicon.ico">
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Update="frontend\LICENSE-JIZURA">
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish" Condition="Exists('native\SpoutDX.dll')">
@@ -91,4 +97,45 @@
     <ItemGroup>
       <Resource Include="assets\app.ico" />
     </ItemGroup>
+
+    <!-- ================= 前端构建与嵌入 =================
+         frontend/（Vite + Vue3）构建到 obj/frontend-dist（git 忽略），
+         再以 EmbeddedResource（jizura-www/ 前缀）嵌入本程序集，
+         运行时 StaticSiteModule 从程序集内存 serve——磁盘上没有可被随手改动的散装产物。
+         日常前端开发用 frontend 下 npm run dev（API 代理到本机服务）。
+         跳过前端构建：dotnet build /p:SkipFrontendBuild=true -->
+    <PropertyGroup>
+        <FrontendDir>$(MSBuildProjectDirectory)\frontend\</FrontendDir>
+        <FrontendDist>$(MSBuildProjectDirectory)\obj\frontend-dist</FrontendDist>
+        <FrontendStamp>$(MSBuildProjectDirectory)\obj\frontend-build.stamp</FrontendStamp>
+    </PropertyGroup>
+    <ItemGroup>
+        <FrontendSourceInputs Include="$(FrontendDir)package.json"/>
+        <FrontendSourceInputs Include="$(FrontendDir)package-lock.json"/>
+        <FrontendSourceInputs Include="$(FrontendDir)vite.config.ts"/>
+        <FrontendSourceInputs Include="$(FrontendDir)tsconfig.json"/>
+        <FrontendSourceInputs Include="$(FrontendDir)index.html"/>
+        <FrontendSourceInputs Include="$(FrontendDir)src\**\*"/>
+    </ItemGroup>
+    <Target Name="FrontendInvalidateStamp" BeforeTargets="BuildFrontend">
+        <!-- 产物目录被清空但戳记还在时强制重建 -->
+        <Delete Files="$(FrontendStamp)" Condition="!Exists('$(FrontendDist)\index.html')"/>
+    </Target>
+    <Target Name="BuildFrontend" BeforeTargets="BeforeBuild"
+            Inputs="@(FrontendSourceInputs)" Outputs="$(FrontendStamp)"
+            Condition="'$(SkipFrontendBuild)' != 'true'">
+        <Message Importance="high" Text="前端构建：vite build → $(FrontendDist)"/>
+        <Exec Command="npm install --no-audit --no-fund" WorkingDirectory="$(FrontendDir)"
+              Condition="!Exists('$(FrontendDir)node_modules')"/>
+        <Exec Command="npm run build -- --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
+        <WriteLinesToFile File="$(FrontendStamp)" Lines="$([System.DateTime]::UtcNow.Ticks)" Overwrite="true"/>
+    </Target>
+    <!-- 增量跳过 npm 时也要重新收集嵌入项（AfterTargets 无论上游是否跳过都会执行） -->
+    <Target Name="EmbedFrontend" AfterTargets="BuildFrontend" BeforeTargets="PrepareForBuild">
+        <ItemGroup>
+            <_FrontendFiles Include="$(FrontendDist)\**\*"/>
+            <EmbeddedResource Include="@(_FrontendFiles)"
+                              LogicalName="jizura-www/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)"/>
+        </ItemGroup>
+    </Target>
 </Project>

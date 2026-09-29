@@ -96,65 +96,39 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="cut-info">
+  <div class="flex gap-1.5 flex-wrap items-center min-h-[26px] flex-none">
     <template v-if="!cut">
       <span class="hint">此位置没有切分</span>
     </template>
     <template v-else>
       <button v-for="(it, i) in items" :key="i" type="button"
-              class="chip" :class="[it.cls, { 'is-forced': it.forced, clickable: it.g && it.enabled }]"
+              class="chip" :class="[it.cls, { 'is-forced': it.forced, 'chip-clickable': it.g && it.enabled }]"
               :aria-pressed="pick && pick.g === it.g ? 'true' : 'false'"
               :disabled="!it.g || !it.enabled"
               @click="onChip(it)">
         <b v-if="it.label !== '#'">{{ it.label }}</b>{{ it.value }}
       </button>
-      <button type="button" class="ghost small" :disabled="!items.some(it => it.enabled)" title="只重抽这个切分的构成" @click="rerollCurrentCut('shuffle')">重抽</button>
-      <button type="button" class="ghost small accent" :disabled="!items.some(it => it.enabled)" title="这个切分的手法全部随机" @click="rerollCurrentCut('omakase')">一键随机</button>
+      <button type="button" class="btn btn-ghost btn-sm" :disabled="!items.some(it => it.enabled)" title="只重抽这个切分的构成" @click="rerollCurrentCut('shuffle')">重抽</button>
+      <button type="button" class="btn btn-accent btn-sm" :disabled="!items.some(it => it.enabled)" title="这个切分的手法全部随机" @click="rerollCurrentCut('omakase')">一键随机</button>
     </template>
   </div>
-  <div v-if="pick" class="cut-pick">
-    <div class="cut-pick-h">
-      <strong>{{ pick.title }}</strong>
-      <span class="muted">只替换这个切分</span>
-      <button type="button" class="ghost small" @click="onPickAuto">自动</button>
-      <button type="button" class="ghost small" aria-label="关闭" @click="closePick">✕</button>
+  <div v-if="pick" class="border border-line rounded-md bg-panel p-2 max-h-[min(42vh,420px)] overflow-auto">
+    <div class="flex items-center gap-2 mb-2 sticky top-0 bg-panel z-[1] pb-1">
+      <strong class="text-xs">{{ pick.title }}</strong>
+      <span class="text-mut flex-1 text-[11px]">只替换这个切分</span>
+      <button type="button" class="btn btn-ghost btn-sm" @click="onPickAuto">自动</button>
+      <button type="button" class="btn btn-ghost btn-sm" aria-label="关闭" @click="closePick">✕</button>
     </div>
-    <div ref="pickGrid" class="tech-grid">
-      <button v-for="card in pickCards" :key="card.key" type="button" class="tcard" :class="{ 'is-on': card.on }" @click="onPickCard(card)">
-        <canvas v-if="!card.isNone" :width="card.tw" :height="card.th" :data-g="pick.g" :data-k="card.key"></canvas>
-        <span v-else class="none-slot">无</span>
-        <span v-if="!card.isNone" class="tcard-name"><span>{{ card.name }}</span><i v-for="(b, i) in card.badges" :key="i" class="set-badge" :class="b.cls" :title="b.title">{{ b.text }}</i></span>
+    <div ref="pickGrid" class="grid gap-2 min-h-24 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))]">
+      <button v-for="card in pickCards" :key="card.key" type="button" class="btn !p-0 flex-col !h-auto border-line rounded-md overflow-hidden bg-panel text-left"
+              :class="{ '!border-amber shadow-[0_0_0_1px_var(--color-amber)]': card.on }" @click="onPickCard(card)">
+        <canvas v-if="!card.isNone" :width="card.tw" :height="card.th" :data-g="pick.g" :data-k="card.key" class="w-full aspect-video block bg-ink rounded-none"></canvas>
+        <span v-else class="grid place-items-center w-full aspect-video text-mut">无</span>
+        <span v-if="!card.isNone" class="flex items-center gap-1 text-[11px] px-1.5 pb-1.5 min-w-0">
+          <span class="truncate min-w-0">{{ card.name }}</span>
+          <i v-for="(b, i) in card.badges" :key="i" class="badge-set" :class="b.cls" :title="b.title">{{ b.text }}</i>
+        </span>
       </button>
     </div>
   </div>
 </template>
-
-<style scoped>
-.cut-info { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; min-height: 26px; flex: none; }
-.chip.clickable { cursor: pointer; }
-.chip.clickable:hover { border-color: var(--amber); }
-.chip.is-forced { border-color: var(--amber); }
-.chip.l { border-color: rgba(245, 165, 12, 0.6); }
-.chip.e { border-color: rgba(22, 244, 212, 0.55); }
-.chip.x { border-color: rgba(255, 111, 156, 0.6); }
-.chip.t { border-color: rgba(180, 140, 255, 0.6); }
-.chip.b { border-color: rgba(120, 200, 120, 0.55); }
-.chip.c { border-color: rgba(120, 170, 255, 0.6); }
-.chip.h { border-color: #55525c; }
-.cut-pick { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); padding: 8px; max-height: min(42vh, 420px); overflow: auto; }
-.cut-pick-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; position: sticky; top: 0; background: var(--panel); z-index: 1; padding-bottom: 4px; }
-.cut-pick-h strong { font-size: 12px; }
-.cut-pick-h .muted { flex: 1; font-size: 11px; }
-.tech-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; padding: 0; min-height: 96px; }
-.tcard { cursor: pointer; width: 100%; text-align: left; flex-direction: column; }
-.tcard.is-on { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); }
-.tcard canvas { width: 100%; aspect-ratio: 16 / 9; display: block; background: #0c0c0e; border-radius: 0; }
-.none-slot { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; color: var(--muted); }
-.tcard-name { display: flex; align-items: center; gap: 5px; font-size: 11px; padding: 0 6px 6px; min-width: 0; }
-.tcard-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.set-badge { display: inline-block; padding: 0 4px; border: 1px solid var(--amber); border-radius: 3px; color: var(--amber); font-size: 10px; line-height: 15px; font-style: normal; }
-.set-badge.ex { border-color: var(--cyan); color: var(--cyan); }
-.set-badge.set-horror { border-color: #c0544a; color: #e0786e; }
-.set-badge.set-typo { border-color: #9aa3ad; color: #c5ccd3; }
-.set-badge.set-kinetic { border-color: #7fbf6a; color: #9fd98a; }
-</style>

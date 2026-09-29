@@ -1,26 +1,26 @@
 <script setup lang="ts">
-/* 右栏宿主：详细模式 = 四个 tab；简单/手机模式 = かんたん面板 */
+/* 右栏宿主：风格 / 特效 / 手法 / 导出 四个 tab */
 import { ref } from 'vue';
-import { useEditor } from '../../stores/editor';
 import StyleTab from './StyleTab.vue';
 import FxTab from './FxTab.vue';
 import TechTab from './TechTab.vue';
 import OutTab from './OutTab.vue';
 import SubtitlePanel from './SubtitlePanel.vue';
 
-const ed = useEditor();
 const active = ref('style');
 const tabs = [
   { id: 'style', label: '风格' },
-  { id: 'fx', label: '演出' },
+  { id: 'fx', label: '特效' },
   { id: 'tech', label: '手法' },
   { id: 'out', label: '导出' },
 ];
 </script>
 
 <template>
-  <nav class="tabs" role="tablist">
-    <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="active === t.id" @click="active = t.id">{{ t.label }}</button>
+  <nav class="sticky top-0 z-[2] grid grid-cols-4 border-b border-line bg-panel" role="tablist">
+    <button v-for="t in tabs" :key="t.id" role="tab" class="border-0 rounded-none bg-transparent px-1 py-2.5 text-mut border-b-2 border-transparent min-h-0 hover:bg-white/5"
+            :class="active === t.id ? '!text-fg !border-b-amber' : ''"
+            :aria-selected="active === t.id" @click="active = t.id">{{ t.label }}</button>
   </nav>
   <StyleTab v-show="active === 'style'" />
   <FxTab v-show="active === 'fx'" />
@@ -28,18 +28,3 @@ const tabs = [
   <OutTab v-show="active === 'out'" />
   <SubtitlePanel />
 </template>
-
-<style scoped>
-.tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  background: var(--panel);
-  z-index: 2;
-}
-.tabs button { border: 0; border-radius: 0; background: transparent; padding: 11px 4px; color: var(--muted); border-bottom: 2px solid transparent; min-height: 0; }
-.tabs button:hover { background: var(--hover); }
-.tabs button[aria-selected='true'] { color: var(--text); border-bottom-color: var(--amber); }
-</style>

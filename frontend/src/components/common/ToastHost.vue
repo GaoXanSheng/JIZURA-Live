@@ -17,20 +17,14 @@ bus.on('toast', (text: string, cols?: string[]) => {
 </script>
 
 <template>
-  <div class="toast-wrap" role="status" aria-live="polite">
-    <TransitionGroup name="toastt">
-      <div v-for="i in items" :key="i.id" class="toast-item">
-        <span class="txt">{{ i.text }}</span>
-        <span v-if="i.cols && i.cols.length" class="swatches"><i v-for="(c, k) in i.cols" :key="k" :style="{ background: c }"></i></span>
+  <div class="fixed top-3.5 left-1/2 -translate-x-1/2 z-[4000] flex flex-col items-center gap-2 pointer-events-none" role="status" aria-live="polite">
+    <TransitionGroup name="pop">
+      <div v-for="i in items" :key="i.id" class="flex items-center gap-2.5 max-w-[min(560px,calc(100vw-32px))] bg-ink/70 backdrop-blur-xl border border-line2 border-l-2 border-l-amber px-3.5 py-2 rounded-[10px] text-xs shadow-pop whitespace-nowrap overflow-hidden text-ellipsis">
+        <span class="truncate">{{ i.text }}</span>
+        <span v-if="i.cols && i.cols.length" class="inline-flex gap-0.5">
+          <i v-for="(c, k) in i.cols" :key="k" class="w-4 h-4 rounded-sm border border-white/20" :style="{ background: c }"></i>
+        </span>
       </div>
     </TransitionGroup>
   </div>
 </template>
-
-<style scoped>
-.toastt-enter-active { transition: opacity 180ms var(--ease-out), transform 180ms var(--ease-out); }
-.toastt-leave-active { transition: opacity 220ms var(--ease), transform 220ms var(--ease); }
-.toastt-enter-from { opacity: 0; transform: translateY(-8px); }
-.toastt-leave-to { opacity: 0; transform: translateY(-6px); }
-.toast-item .txt { overflow: hidden; text-overflow: ellipsis; }
-</style>

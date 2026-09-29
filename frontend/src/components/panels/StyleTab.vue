@@ -12,7 +12,7 @@ import { badgesOf, toColorInput, swatchHTML } from '../../jizura/ui-helpers';
 const gridEl = ref<HTMLElement | null>(null);
 const offs: (() => void)[] = [];
 
-const styles = ref<{ k: string; name: string; desc: string; badges: ReturnType<typeof badgesOf>; off: boolean; offNote: string; on: boolean }[]>([]);
+const styles = ref<{ k: string; name: string; desc: string; badges: ReturnType<typeof badgesOf>; off: boolean; on: boolean }[]>([]);
 const fontRoles = ref<{ role: string; label: string; value: string; options: { v: string; t: string }[] }[]>([]);
 const localFontName = ref('');
 const colorOn = ref(false), accentOn = ref(false);
@@ -29,9 +29,9 @@ function rebuildStyles() {
     const st = J.STYLES[k];
     const off = !J.randomOk(S.project, 'style', k);
     const offNote = off
-      ? (st.extra && S.project.extra !== true ? '（追加项未开启，一键随机不会选中）'
+      ? (st.extra && S.project.extra !== true ? '（新增特效未开启，一键随机不会选中）'
         : st.set && !J.setOn(S.project, st.set) ? '（该套装未开启，一键随机不会选中）'
-        : '（和风演出未开启，一键随机不会选中）') : '';
+        : '（和风特效未开启，一键随机不会选中）') : '';
     return { k, name: st.name, desc: st.desc + offNote, badges: badgesOf(st), off, on: S.project.style === k };
   });
   paintGrid();
@@ -156,75 +156,49 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="tabpane" data-pane="style">
-    <div ref="gridEl" class="style-grid">
-      <button v-for="s in styles" :key="s.k" class="stile" :class="{ 'set-off': s.off }" :title="s.desc"
-              :aria-pressed="s.on" @click="pickStyle(s.k)">
-        <canvas width="192" height="108" :data-k="s.k"></canvas>
-        <span>{{ s.name }}</span>
-        <span class="badges">
-          <i v-for="(b, i) in s.badges" :key="i" class="set-badge" :class="b.cls" :title="b.title">{{ b.text }}</i>
+  <div class="px-4 py-3.5">
+    <div ref="gridEl" class="grid grid-cols-3 gap-2">
+      <button v-for="s in styles" :key="s.k" class="relative flex flex-col gap-1 p-0 border rounded-md overflow-hidden text-left min-h-0 bg-transparent transition-colors"
+              :class="s.on ? 'border-amber shadow-[0_0_0_1px_var(--color-amber)]' : 'border-line hover:border-line2'"
+              :title="s.desc" :aria-pressed="s.on" @click="pickStyle(s.k)">
+        <canvas width="192" height="108" :data-k="s.k" class="w-full aspect-video block"></canvas>
+        <span class="text-[11px] px-1.5 pb-1.5 truncate">{{ s.name }}</span>
+        <span class="absolute top-1 left-1 flex gap-0.5">
+          <i v-for="(b, i) in s.badges" :key="i" class="badge-set !bg-black/55" :class="b.cls" :title="b.title">{{ b.text }}</i>
         </span>
       </button>
     </div>
-    <h3>字体角色</h3>
+    <h3 class="sec-sub">字体角色</h3>
     <div>
-      <div v-for="r in fontRoles" :key="r.role" class="font-row">
-        <span class="muted">{{ r.label }}</span>
+      <div v-for="r in fontRoles" :key="r.role" class="grid grid-cols-[70px_minmax(0,1fr)] gap-2 items-center mb-1.5 text-xs">
+        <span class="text-mut">{{ r.label }}</span>
         <select :value="r.value" :aria-label="`${r.label}的字体`" @change="onFontRole(r.role, $event)">
           <option v-for="o in r.options" :key="o.v" :value="o.v">{{ o.t }}</option>
         </select>
       </div>
     </div>
-    <div class="row" style="margin-top: 8px">
-      <input v-model="localFontName" type="text" placeholder="本机字体名（例：游明朝）" style="flex: 1">
-      <button @click="addLocalFont">添加</button>
+    <div class="row mt-2">
+      <input v-model="localFontName" type="text" placeholder="本机字体名（例：游明朝）" class="flex-1">
+      <button class="btn" @click="addLocalFont">添加</button>
     </div>
-    <div class="row" style="margin-top: 8px">
-      <label class="file">字体文件（.ttf/.otf）<input type="file" accept=".ttf,.otf,.woff,.woff2" @change="onFontFile"></label>
+    <div class="row mt-2">
+      <label class="btn-file">字体文件（.ttf/.otf）<input type="file" accept=".ttf,.otf,.woff,.woff2" @change="onFontFile"></label>
     </div>
-    <h3>强调色・错位色</h3>
-    <label class="check"><input v-model="accentOn" type="checkbox" @change="onColorToggle('accentOn', ACCENT_KEYS)"><span>用自定义颜色覆盖<small>应用到全部场景，亮度会随背景自动调整</small></span></label>
-    <div class="color-row">
-      <label v-for="c in accentColors" :key="c.k">{{ c.label }}<input type="color" :value="c.value" @input="onColor(c.k, 'accentOn', $event)"></label>
+    <h3 class="sec-sub">强调色・错位色</h3>
+    <label class="checkblock mb-2"><input v-model="accentOn" type="checkbox" @change="onColorToggle('accentOn', ACCENT_KEYS)"><span>用自定义颜色覆盖<small>应用到全部场景，亮度会随背景自动调整</small></span></label>
+    <div class="grid grid-cols-3 gap-2">
+      <label v-for="c in accentColors" :key="c.k" class="field">{{ c.label }}<input type="color" :value="c.value" @input="onColor(c.k, 'accentOn', $event)"></label>
     </div>
-    <div class="row" style="margin-top: 10px">
-      <button class="accent" @click="randomPalette">随机配色</button>
-      <span class="swatches"><i v-for="(c, i) in swatch" :key="i" :style="{ background: c }" :title="c"></i></span>
+    <div class="row mt-2.5">
+      <button class="btn btn-accent" @click="randomPalette">随机配色</button>
+      <span class="inline-flex gap-0.5 items-center">
+        <i v-for="(c, i) in swatch" :key="i" class="w-5 h-5 rounded border border-white/20 inline-block" :style="{ background: c }" :title="c"></i>
+      </span>
     </div>
-    <h3>背景・文字色</h3>
-    <label class="check"><input v-model="colorOn" type="checkbox" @change="onColorToggle('enabled', BASE_KEYS)"><span>把主背景与文字换成自定义颜色</span></label>
-    <div class="color-row">
-      <label v-for="c in baseColors" :key="c.k">{{ c.label }}<input type="color" :value="c.value" @input="onColor(c.k, 'enabled', $event)"></label>
+    <h3 class="sec-sub">背景・文字色</h3>
+    <label class="checkblock mb-2"><input v-model="colorOn" type="checkbox" @change="onColorToggle('enabled', BASE_KEYS)"><span>把主背景与文字换成自定义颜色</span></label>
+    <div class="grid grid-cols-3 gap-2">
+      <label v-for="c in baseColors" :key="c.k" class="field">{{ c.label }}<input type="color" :value="c.value" @input="onColor(c.k, 'enabled', $event)"></label>
     </div>
   </div>
 </template>
-
-<style scoped>
-.style-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.stile {
-  position: relative;
-  display: flex; flex-direction: column; gap: 5px; padding: 0;
-  border: 1px solid var(--line); background: transparent;
-  border-radius: var(--r-sm); overflow: hidden; text-align: left; min-height: 0;
-}
-.stile canvas { width: 100%; aspect-ratio: 16 / 9; display: block; }
-.stile span { font-size: 11px; padding: 0 7px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stile[aria-pressed='true'] { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber); color: var(--text); }
-.stile.set-off { opacity: 0.55; }
-.stile .badges { position: absolute; top: 4px; left: 4px; padding: 0; display: flex; gap: 3px; }
-.font-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; align-items: center; margin-bottom: 6px; font-size: 12px; }
-.color-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.color-row label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); }
-.color-row input[type='color'] { width: 100%; height: 28px; padding: 0; border: 1px solid var(--line); background: transparent; border-radius: var(--r-sm); }
-.swatches { display: inline-flex; gap: 3px; vertical-align: middle; }
-.swatches i { width: 22px; height: 22px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, 0.18); display: inline-block; }
-.set-badge { display: inline-block; margin: 0; padding: 0 4px; border: 1px solid var(--amber); border-radius: 3px; color: var(--amber); font-size: 10px; line-height: 15px; background: rgba(0, 0, 0, 0.55); font-style: normal; }
-.set-badge.ex { border-color: var(--cyan); color: var(--cyan); }
-.set-badge.set-horror { border-color: #c0544a; color: #e0786e; }
-.set-badge.set-typo { border-color: #9aa3ad; color: #c5ccd3; }
-.set-badge.set-kinetic { border-color: #7fbf6a; color: #9fd98a; }
-label.check { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; cursor: pointer; }
-label.check input { margin: 3px 0 0; flex: none; }
-label.check small { display: block; font-size: 11px; color: var(--muted); }
-</style>

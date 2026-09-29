@@ -42,6 +42,13 @@ src/
 └── styles/          # tokens.css(设计 token) / base.css(控件) / app.css(布局)
 ```
 
+## 样式：Tailwind CSS v4
+
+不再手写平行设计系统。`styles/main.css` 里 `@theme` 定义调色板/字体/阴影 token
+（生成 `bg-ink`、`text-amber`、`border-line` 等工具类），控件默认值在 `@layer base`，
+高频复用的按钮/区块收敛为 `.btn`/`.btn-primary`/`.chip`/`.sec` 等组件类（@apply 组合工具类），
+组件模板一律用工具类。改主题只动 `@theme`。
+
 ## 架构约定
 
 - **引擎零改动**：`engine/` 下的 JS 是上游 JIZURA 的核心资产，只通过

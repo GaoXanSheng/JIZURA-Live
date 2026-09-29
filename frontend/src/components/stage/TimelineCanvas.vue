@@ -157,9 +157,9 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="tl-bar">
-    <span class="tl-hint muted">行界（上排刻度）可拖动。<span class="kbd">Shift</span> 不吸附节拍</span>
-    <span class="tl-btns">
+  <div class="flex justify-between items-center gap-2 my-2 mb-1 flex-wrap">
+    <span class="text-[11px] text-mut">行界（上排刻度）可拖动。<span class="kbd">Shift</span> 不吸附节拍</span>
+    <span class="flex gap-1 ml-auto">
       <button class="ghost small" title="撤销歌词・时间修改（Ctrl+Z）" @click="undoEdit">撤销</button>
       <button class="ghost small icon-txt" title="缩小" aria-label="缩小时间轴" @click="tlZoom(1 / 1.6)">−</button>
       <button class="ghost small icon-txt" title="放大（时间轴上滚轮亦可）" aria-label="放大时间轴" @click="tlZoom(1.6)">＋</button>
@@ -168,7 +168,7 @@ onUnmounted(() => offs.forEach(f => f()));
   </div>
   <canvas
     ref="canvas"
-    class="timeline"
+    class="w-full h-[76px] block bg-panel border border-line rounded-md cursor-pointer touch-none"
     aria-label="时间轴（点击移动・行界可拖动调整）"
     @pointerdown="onDown"
     @pointermove="onMove"
@@ -178,10 +178,3 @@ onUnmounted(() => offs.forEach(f => f()));
     @wheel="onWheel"
   ></canvas>
 </template>
-
-<style scoped>
-.tl-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap; }
-.tl-hint { font-size: 11px; }
-.tl-btns { display: flex; gap: 4px; margin-left: auto; }
-.timeline { width: 100%; height: 76px; display: block; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-sm); cursor: pointer; touch-action: none; }
-</style>

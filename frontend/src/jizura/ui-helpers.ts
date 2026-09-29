@@ -2,9 +2,9 @@
 import { J } from '../engine';
 
 const SET_UI: Record<string, { name: string; badge: string }> = {
-  horror: { name: '恐怖', badge: 'ホ' },
-  typo: { name: '文字PV系', badge: '文' },
-  kinetic: { name: '动感', badge: 'キ' },
+  horror: { name: '恐怖', badge: '恐' },
+  typo: { name: '文字排版', badge: '文' },
+  kinetic: { name: '动态文字', badge: '动' },
 };
 
 export interface Badge { text: string; cls: string; title: string }
@@ -12,8 +12,8 @@ export interface Badge { text: string; cls: string; title: string }
 export function badgesOf(d: any): Badge[] {
   const out: Badge[] = [];
   if (!d) return out;
-  if (d.extra) out.push({ text: '追加', cls: 'ex', title: '最初公开版之后追加' });
-  if (d.wa) out.push({ text: '和', cls: '', title: '和风演出' });
+  if (d.extra) out.push({ text: '新增', cls: 'ex', title: '最初公开版之后追加' });
+  if (d.wa) out.push({ text: '和', cls: '', title: '和风特效' });
   if (d.set && SET_UI[d.set]) out.push({ text: SET_UI[d.set].badge, cls: `set-${d.set}`, title: SET_UI[d.set].name });
   return out;
 }

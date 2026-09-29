@@ -33,6 +33,13 @@ public sealed class KgController : WebApiController
         [QueryField("album_id")] string? albumId) =>
         ServerContext.KuGou.GetLyricAsync(hash, id, accesskey, albumId ?? "");
 
+    [Route(HttpVerbs.Get, "/kg/playlists")]
+    public Task<PlaylistsResponse> Playlists() => ServerContext.KuGou.MyPlaylistsAsync();
+
+    [Route(HttpVerbs.Get, "/kg/playlist")]
+    public Task<KgSearchResponse> Playlist([QueryField("id")] string? id) =>
+        ServerContext.KuGou.PlaylistSongsAsync(id);
+
     [Route(HttpVerbs.Get, "/kg/qr")]
     public Task<KgQrResponse> Qr() => ServerContext.KuGou.QrAsync();
 

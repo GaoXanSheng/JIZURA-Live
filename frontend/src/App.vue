@@ -36,22 +36,22 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="app">
+  <div class="app flex flex-col h-full">
     <TopBar />
-    <main class="work">
-      <section class="col col-left" aria-label="歌词与时间">
+    <main class="work flex-1 grid grid-cols-[minmax(280px,340px)_minmax(0,1fr)_minmax(300px,370px)] min-h-0 max-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[760px]:grid-cols-[minmax(0,1fr)]">
+      <section class="flex flex-col min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-panel border-r border-line max-[760px]:border-r-0 max-[760px]:border-t max-[760px]:border-line" aria-label="歌词与时间">
         <TapPanel />
         <LyricsPanel />
         <AudioPanel />
         <LineList />
       </section>
-      <section class="col col-stage" aria-label="预览">
+      <section class="col-stage flex flex-col gap-2.5 px-4 py-3 min-w-0 min-h-0 overflow-hidden max-[1180px]:overflow-y-auto max-[1180px]:[grid-column:1/-1] max-[1180px]:[order:-1]" aria-label="预览">
         <StageCanvas />
         <Transport />
         <TimelineCanvas />
         <CutInfo />
       </section>
-      <section class="col col-right" aria-label="风格与导出">
+      <section class="flex flex-col min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-panel border-l border-line max-[1180px]:border-l-0 max-[760px]:border-l-0 max-[760px]:border-t max-[760px]:border-line" aria-label="风格与导出">
         <RightPanel />
       </section>
     </main>

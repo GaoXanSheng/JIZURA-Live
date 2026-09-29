@@ -398,7 +398,7 @@ export async function resetAll() {
 /* ---- 当前切分重抽 ---- */
 const CHIP_GROUPS: [string, string, string][] = [
   ['layout', 'l', '布局'], ['enter', 'e', '入场'], ['hold', 'h', '保持'], ['exit', 'x', '退场'],
-  ['decor', '', '装饰'], ['treat', 't', '加工'], ['bg', 'b', '背景'], ['cam', 'c', '镜头'], ['trans', 'c', '衔接'],
+  ['decor', '', '装饰'], ['treat', 't', '文字处理'], ['bg', 'b', '背景'], ['cam', 'c', '运镜'], ['trans', 'c', '转场'],
 ];
 export { CHIP_GROUPS };
 

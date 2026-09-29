@@ -20,29 +20,14 @@ async function pick(it: Song) {
 </script>
 
 <template>
-  <TransitionGroup name="sg" tag="ul" class="song-list">
-    <li v-for="it in cloud.results" :key="songKey(it)">
-      <button type="button" class="song" @click="pick(it)">
-        <span class="name" :title="it.name">{{ it.name }}</span>
-        <span class="meta" :title="it.singer">{{ it.singer }}{{ it.album ? ' · ' + it.album : '' }} · {{ fmtDur(it.duration) }}</span>
-        <span v-if="it.pay && it.pay !== 0" class="vip">VIP</span>
-        <span v-if="state(it) === 'loading'" class="state">载入中…</span>
-        <span v-else-if="state(it) === 'downloading'" class="state">下载中…</span>
+  <TransitionGroup name="sg" tag="ul" class="list-none m-0 p-0 overflow-y-auto border border-line rounded-md flex-1 min-h-0">
+    <li v-for="it in cloud.results" :key="songKey(it)" class="border-t border-line first:border-t-0">
+      <button type="button" class="btn !border-0 !rounded-none !bg-none w-full !h-auto gap-2 items-baseline px-2.5 py-1.5 text-left whitespace-normal hover:!bg-white/5" @click="pick(it)">
+        <span class="flex-none max-w-[52%] truncate" :title="it.name">{{ it.name }}</span>
+        <span class="text-mut text-[11px] truncate flex-1 min-w-0">{{ it.singer }}{{ it.album ? ' · ' + it.album : '' }} · {{ fmtDur(it.duration) }}</span>
+        <span v-if="it.pay && it.pay !== 0" class="flex-none text-[10px] leading-[1.5] border border-[#8a6d2f] text-[#c8a24a] rounded px-1">VIP</span>
+        <span v-if="state(it) === 'loading' || state(it) === 'downloading'" class="flex-none text-[11px] text-cyan">{{ state(it) === 'loading' ? '载入中…' : '下载中…' }}</span>
       </button>
     </li>
   </TransitionGroup>
 </template>
-
-<style scoped>
-.song-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-sm); flex: 1; min-height: 0; }
-.song-list li { border-top: 1px solid var(--line); }
-.song-list li:first-child { border-top: 0; }
-.song { display: flex; width: 100%; gap: 8px; align-items: baseline; padding: 7px 10px; background: none; border: 0; border-radius: 0; text-align: left; white-space: normal; min-height: 0; }
-.song:hover { background: var(--hover); }
-.name { flex: none; max-width: 52%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meta { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.vip { flex: none; font-size: 10px; line-height: 1.5; border: 1px solid #8a6d2f; color: #c8a24a; border-radius: 4px; padding: 0 4px; }
-.state { flex: none; font-size: 11px; color: var(--cyan); }
-.sg-enter-active { transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out); }
-.sg-enter-from { opacity: 0; transform: translateY(4px); }
-</style>

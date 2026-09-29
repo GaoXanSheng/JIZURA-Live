@@ -106,14 +106,15 @@ public sealed class KgLoginResponse : ApiResponse
     [JsonProperty("userid", NullValueHandling = NullValueHandling.Ignore)] public string? UserId { get; set; }
 }
 
-public sealed class NePlaylist
+// 歌单条目：酷狗（global_collection_id）与网易云共用同一形态
+public sealed class PlaylistInfo
 {
     [JsonProperty("id")] public string Id { get; set; } = "";
     [JsonProperty("name")] public string Name { get; set; } = "";
     [JsonProperty("count")] public int Count { get; set; }
 }
 
-public sealed class NePlaylistsResponse : ApiResponse
+public sealed class PlaylistsResponse : ApiResponse
 {
-    [JsonProperty("list")] public List<NePlaylist> List { get; } = [];
+    [JsonProperty("list")] public List<PlaylistInfo> List { get; } = [];
 }

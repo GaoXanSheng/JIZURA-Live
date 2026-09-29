@@ -62,36 +62,21 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="transport">
-    <button class="play" :aria-label="ed.playing ? '暂停' : '播放'" @click="togglePlay">{{ ed.playing ? '❚❚' : '▶' }}</button>
-    <span class="tc">{{ nowText }}</span><span class="tc muted">/</span><span class="tc muted">{{ durText }}</span>
-    <input class="scrub" type="range" min="0" max="10000" :value="scrubVal" aria-label="播放位置" @input="onScrub" @change="onScrubEnd">
-    <button class="ghost small" :aria-pressed="ed.loopMode !== 'off'" :data-mode="ed.loopMode" :title="loopLabel.title" @click="cycleLoop">{{ loopLabel.text }}</button>
-    <span class="vol">
-      <button class="ghost small" :aria-pressed="muted" title="点击消音／解除（仅预览，导出音量不变）" @click="toggleMute">音量</button>
-      <input type="range" min="0" max="100" :value="vol" aria-label="预览音量" @input="onVol">
+  <div class="flex items-center gap-2.5 flex-wrap">
+    <button class="btn !w-11 !h-[34px] !p-0 text-[13px]" :aria-label="ed.playing ? '暂停' : '播放'" @click="togglePlay">{{ ed.playing ? '❚❚' : '▶' }}</button>
+    <span class="font-mono font-medium text-[13px] tabular-nums">{{ nowText }}</span><span class="font-mono text-[13px] text-mut">/</span><span class="font-mono text-[13px] text-mut tabular-nums">{{ durText }}</span>
+    <input class="flex-[1_1_160px]" type="range" min="0" max="10000" :value="scrubVal" aria-label="播放位置" @input="onScrub" @change="onScrubEnd">
+    <button class="btn btn-ghost btn-sm" :class="[ed.loopMode === 'off' ? 'opacity-55' : (ed.loopMode !== 'all' ? '!text-amber' : '')]"
+            :aria-pressed="ed.loopMode !== 'off'" :title="loopLabel.title" @click="cycleLoop">{{ loopLabel.text }}</button>
+    <span class="inline-flex items-center gap-1">
+      <button class="btn btn-ghost btn-sm" :class="muted ? '!text-cyan' : ''" :aria-pressed="muted" title="点击消音／解除（仅预览，导出音量不变）" @click="toggleMute">音量</button>
+      <input type="range" min="0" max="100" :value="vol" class="w-20" aria-label="预览音量" @input="onVol">
     </span>
-    <span class="hist-btns">
-      <button class="ghost small icon-txt" :disabled="!hist.canBack" title="回到上一案" aria-label="上一案" @click="histGo(-1)">◀</button>
-      <button class="ghost small icon-txt" :disabled="!hist.canFwd" title="前往下一案" aria-label="下一案" @click="histGo(1)">▶</button>
+    <span class="inline-flex gap-1">
+      <button class="btn btn-ghost btn-sm !text-[10px] min-w-7" :disabled="!hist.canBack" title="回到上一案" aria-label="上一案" @click="histGo(-1)">◀</button>
+      <button class="btn btn-ghost btn-sm !text-[10px] min-w-7" :disabled="!hist.canFwd" title="前往下一案" aria-label="下一案" @click="histGo(1)">▶</button>
     </span>
-    <button class="accent" title="设置不变，仅构成重新抽选（锁定的行保留）" @click="doShuffle">重抽构成</button>
-    <button class="primary" title="风格・氛围・演出・配色整体随机（快捷键 R）" @click="omakase()">一键随机</button>
+    <button class="btn btn-accent" title="设置不变，仅构成重新抽选（锁定的行保留）" @click="doShuffle">重抽构成</button>
+    <button class="btn btn-primary" title="风格・氛围・演出・配色整体随机（快捷键 R）" @click="omakase()">一键随机</button>
   </div>
 </template>
-
-<style scoped>
-.transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.transport .tc { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; }
-.scrub { flex: 1 1 160px; }
-button.play { width: 44px; height: 34px; padding: 0; font-size: 13px; }
-button[data-mode='line'], button[data-mode='cut'] { color: var(--amber); }
-button[aria-pressed='false'] { opacity: 0.55; }
-.vol { display: inline-flex; align-items: center; gap: 4px; }
-.vol input[type='range'] { flex: 0 0 80px; width: 80px; }
-.hist-btns { display: inline-flex; gap: 4px; }
-.icon-txt { font-size: 10px; min-width: 28px; }
-@media (max-width: 760px) {
-  .hist-btns { display: none; }
-}
-</style>

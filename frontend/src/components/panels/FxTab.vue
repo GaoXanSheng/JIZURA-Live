@@ -1,18 +1,23 @@
 <script setup lang="ts">
-/* 演出 tab：强度滑杆 + 闪烁/二拍打/显示 + seed，含锁定 */
+/* 特效 tab：统一感/文字排列 + 强度滑杆（官方译名）+ 闪光/抽帧/HUD/种子，含锁定 */
 import { onMounted, onUnmounted, ref } from 'vue';
 import { J } from '../../engine';
 import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
 import { replan, replanSoon } from '../../jizura/engine';
-import { remember, commit, toggleParamLock, lockOn } from '../../jizura/look';
+import { remember, commit, toggleParamLock, lockOn, toast } from '../../jizura/look';
 import { flushSave } from '../../jizura/project';
 
-const FX: [string, string][] = [['motion', '动效强度'], ['glitch', '故障'], ['chroma', '色偏'], ['decor', '装饰量'], ['density', '切分密度'], ['texture', '质感'], ['bgSwitch', '背景切换']];
-const LOCK_ON = '锁定：一键随机/重抽不会改动';
+const FX: [string, string][] = [
+  ['motion', '动态强度'], ['glitch', '故障效果'], ['chroma', '色彩错位'], ['decor', '装饰量'],
+  ['density', '镜头密度'], ['texture', '质感'], ['bgSwitch', '背景切换'],
+];
+const LOCK_ON = '锁定：一键随机/重抽不改动此项';
 const LOCK_OFF = '锁定中，点击解除';
 
 const sliders = ref<{ k: string; label: string; v: number; locked: boolean }[]>([]);
+const unify = ref(false);
+const typeset = ref(false);
 const flash = ref(false);
 const koma = ref('0');
 const hud = ref('auto');
@@ -26,6 +31,8 @@ function rebuild() {
     v: S.project.fx[k] ?? 0.5,
     locked: lockOn(k),
   }));
+  unify.value = S.project.unify === true;
+  typeset.value = S.project.typeset === true;
   flash.value = !!S.project.fx.flash;
   koma.value = String(J.komaOf(S.project.fx));
   hud.value = S.project.fx.hud || 'auto';
@@ -41,6 +48,15 @@ function onSlider(k: string, ev: Event) {
 }
 
 function onLock(k: string) { toggleParamLock(k); rebuild(); }
+
+function onSet(cls: 'unify' | 'typeset') {
+  remember();
+  S.project[cls] = cls === 'unify' ? unify.value : typeset.value;
+  replan(); commit(); flushSave();
+  toast(cls === 'unify'
+    ? (unify.value ? '统一感：开（分段内统一、并使用点睛/变形/加粗）' : '统一感：关')
+    : (typeset.value ? '文字排列：开（字距/助词/英文/0.2秒提前/效果收敛）' : '文字排列：关'));
+}
 
 function onFlash() { S.project.fx.flash = flash.value; replan(); }
 function onKoma() {
@@ -63,50 +79,44 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="tabpane" data-pane="fx">
-    <div class="unify-box">
-      <span class="muted" style="font-size: 11px">锁定按钮：防止一键随机 / 重抽改动对应项</span>
+  <div class="px-4 py-3.5">
+    <div class="flex flex-col gap-1.5 mb-3 pb-1.5 border-b border-line">
+      <label class="checkline"><input v-model="unify" type="checkbox" @change="onSet('unify')"><span>统一感</span></label>
+      <label class="checkline"><input v-model="typeset" type="checkbox" @change="onSet('typeset')"><span>文字排列</span></label>
     </div>
-    <div v-for="s in sliders" :key="s.k" class="slider">
-      <label :for="`fx_${s.k}`">{{ s.label }}</label>
-      <input :id="`fx_${s.k}`" type="range" min="0" max="1" step="0.01" :value="s.v" @input="onSlider(s.k, $event)">
-      <output>{{ Math.round(s.v * 100) }}</output>
-      <button type="button" class="icon ghost lk" :aria-pressed="s.locked" :title="s.locked ? LOCK_OFF : LOCK_ON" @click="onLock(s.k)">
+    <div v-for="s in sliders" :key="s.k" class="grid grid-cols-[96px_minmax(0,1fr)_36px_30px] gap-2 items-center mb-2">
+      <label :for="`fx_${s.k}`" class="text-xs">{{ s.label }}</label>
+      <input :id="`fx_${s.k}`" type="range" min="0" max="1" step="0.01" :value="s.v" class="w-full" @input="onSlider(s.k, $event)">
+      <output class="font-mono text-[11px] text-mut text-right">{{ Math.round(s.v * 100) }}</output>
+      <button type="button" class="btn btn-icon btn-ghost" :class="s.locked ? '!text-amber' : ''" :aria-pressed="s.locked" :title="s.locked ? LOCK_OFF : LOCK_ON" @click="onLock(s.k)">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
       </button>
     </div>
-    <div class="row" style="margin-top: 6px">
-      <label class="row" style="gap: 6px"><input v-model="flash" type="checkbox" @change="onFlash"> 闪烁</label>
-      <label class="row" style="gap: 6px">抽帧
-        <select v-model="koma" title="动效每秒画多少张（与导出 fps 无关）" @change="onKoma">
-          <option value="0">完整（跟随导出 fps）</option>
-          <option value="12">二拍抽帧（12张/秒）</option>
-          <option value="8">三拍抽帧（8张/秒）</option>
+    <div class="row mt-1.5">
+      <label class="checkline"><input v-model="flash" type="checkbox" @change="onFlash"> 闪光</label>
+      <label class="btn btn-ghost !h-8" style="border: 0; background: none; padding: 0 0 0 6px">
+        <span class="text-xs text-mut shrink-0">抽帧</span>
+        <select v-model="koma" class="!h-7 text-xs" title="动效每秒画多少张（与导出 fps 无关）" @change="onKoma">
+          <option value="0">全帧（同输出 fps）</option>
+          <option value="12">一拍二（12 张/秒）</option>
+          <option value="8">一拍三（8 张/秒）</option>
         </select>
       </label>
+      <button type="button" class="btn btn-icon btn-ghost" :aria-pressed="lockOn('koma')" :title="lockOn('koma') ? LOCK_OFF : LOCK_ON" @click="onLock('koma'); rebuild()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+      </button>
     </div>
-    <div class="fields" style="margin-top: 12px">
+    <div class="grid grid-cols-3 gap-2 mt-3">
       <label class="field">HUD
         <select v-model="hud" @change="onHud">
-          <option value="auto">跟随风格</option>
+          <option value="auto">随风格</option>
           <option value="on">始终显示</option>
           <option value="off">不显示</option>
         </select>
       </label>
       <label class="field">种子<input v-model="seed" type="number" step="1" @change="onSeed"></label>
-      <label class="field">&nbsp;<button class="ghost" @click="newSeed">新种子</button></label>
+      <label class="field">&nbsp;<button class="btn btn-ghost" @click="newSeed">新种子</button></label>
     </div>
-    <p class="note">相同种子生成相同构成。逐行的「重抽」「锁定」在左侧行列表。</p>
+    <p class="note">相同的种子会生成相同的编排。逐行“重新随机”和“锁定”请在左侧行列表中操作。</p>
   </div>
 </template>
-
-<style scoped>
-.unify-box { margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.slider { display: grid; grid-template-columns: 96px minmax(0, 1fr) 36px 30px; gap: 8px; align-items: center; margin-bottom: 8px; }
-.slider input { width: 100%; }
-.slider output { font: 500 11px var(--mono); color: var(--muted); text-align: right; }
-.slider .lk[aria-pressed='true'] { color: var(--amber); }
-.fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
-.note { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line2); padding-left: 10px; margin-top: 12px; }
-</style>
