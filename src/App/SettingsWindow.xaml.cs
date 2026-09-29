@@ -75,11 +75,6 @@ public partial class SettingsWindow : Window
         win.Show();
 
         _active = win;
-
-        Log.Info(
-            $"设置窗口已显示：" +
-            $"Left={win.Left:F0}, Top={win.Top:F0}, " +
-            $"Size={win.ActualWidth:F0}x{win.ActualHeight:F0}");
     }
 
     // 定位：右缘对齐锚点（齿轮按钮），顶部贴按钮下方。

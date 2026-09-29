@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Input;
 using CefSharp;
@@ -17,15 +16,6 @@ public partial class MainWindow : Window
     private bool _lastSyncPlaying;
 
     private bool _lastSyncPlayingValid;
-
-    // --------------------------------------------------------------------
-    // 时间流仪表：采样间隔健康度（每 60 条汇总一条日志）
-    // --------------------------------------------------------------------
-
-    private int _syncCount;
-    private long _syncLastTicks;
-    private double _syncGapSum;
-    private double _syncGapMax;
 
     public MainWindow(
         Settings settings,
@@ -55,14 +45,6 @@ public partial class MainWindow : Window
         Browser.JavascriptMessageReceived +=
             OnJavascriptMessageReceived;
 
-        Browser.IsBrowserInitializedChanged +=
-            (_, _) =>
-            {
-                Log.Info(
-                    $"Browser IsBrowserInitialized: " +
-                    $"{Browser.IsBrowserInitialized}");
-            };
-
         Browser.LoadError +=
             (_, e) =>
             {
@@ -73,19 +55,9 @@ public partial class MainWindow : Window
                     $"URL: {e.FailedUrl}");
             };
 
-        SourceInitialized +=
-            (_, _) =>
-            {
-                Log.Info(
-                    "MainWindow SourceInitialized");
-            };
-
         Loaded +=
             (_, _) =>
             {
-                Log.Info(
-                    "MainWindow Loaded");
-
                 if (_clean)
                 {
                     ApplyClean();
@@ -97,20 +69,9 @@ public partial class MainWindow : Window
                 }
             };
 
-        Closing +=
-            (_, e) =>
-            {
-                Log.Info(
-                    $"MainWindow Closing, " +
-                    $"Cancel={e.Cancel}");
-            };
-
         Closed +=
             (_, _) =>
             {
-                Log.Info(
-                    "MainWindow Closed");
-
                 SpoutPipeline
                     .Instance
                     .Stop();
@@ -216,11 +177,6 @@ public partial class MainWindow : Window
         object? sender,
         FrameLoadEndEventArgs e)
     {
-        Log.Info(
-            $"OnBrowserFrameLoadEnd: " +
-            $"IsMain={e.Frame.IsMain}, " +
-            $"Url={e.Url}");
-
         if (!e.Frame.IsMain)
             return;
 
@@ -441,31 +397,6 @@ public partial class MainWindow : Window
                     $"t={time:F3}");
             }
 
-            // 时间流仪表：间隔抖动大 = 主页面采样被饿（主线程忙）
-            long ts = Stopwatch.GetTimestamp();
-
-            if (_syncLastTicks != 0)
-            {
-                double gapMs =
-                    (ts - _syncLastTicks) *
-                    1000.0 / Stopwatch.Frequency;
-
-                _syncGapSum += gapMs;
-
-                if (gapMs > _syncGapMax)
-                    _syncGapMax = gapMs;
-            }
-
-            _syncLastTicks = ts;
-
-            if (++_syncCount >= 60)
-            {
-                _syncCount = 0;
-                _syncLastTicks = 0;
-                _syncGapSum = 0;
-                _syncGapMax = 0;
-            }
-
             SpoutPipeline
                 .Instance
                 .ApplyPlaybackSync(
@@ -547,8 +478,6 @@ public partial class MainWindow : Window
 
     private void ToggleSettings()
     {
-        Log.Info("ToggleSettings 触发");
-
         SettingsWindow.Toggle(
             _settings,
             this,

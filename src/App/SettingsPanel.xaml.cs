@@ -2,7 +2,6 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Threading;
 using CefSharp;
 
 namespace JizuraLive;
@@ -29,13 +28,6 @@ public partial class SettingsPanel : UserControl
             (2560, 1440, "2560 × 1440 (16:9)"),
             (1080, 1920, "1080 × 1920 (9:16 竖屏)"),
             (2160, 3840, "2160 × 3840 (9:16 竖屏)")
-        };
-
-    private readonly DispatcherTimer _statusTimer =
-        new()
-        {
-            Interval =
-                TimeSpan.FromMilliseconds(500)
         };
 
     public SettingsPanel()
@@ -158,8 +150,6 @@ public partial class SettingsPanel : UserControl
 
                     main.RestartSpout();
                 };
-
-            _statusTimer.Start();
         }
 
         _loadingUi = true;

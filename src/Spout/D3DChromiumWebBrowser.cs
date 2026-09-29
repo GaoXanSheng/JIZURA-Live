@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Threading.Tasks;
 using CefSharp;
 using CefSharp.OffScreen;
 
@@ -51,10 +50,5 @@ public sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
         CreateBrowser(
             windowInfo,
             _browserSettings);
-    }
-
-    public async Task WaitReadyAsync()
-    {
-        await WaitForInitialLoadAsync();
     }
 }

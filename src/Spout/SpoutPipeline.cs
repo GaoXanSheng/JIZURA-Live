@@ -62,8 +62,6 @@ public sealed class SpoutPipeline : IDisposable
 
             _browser.LoadError += OnMirrorLoadError;
 
-            _browser.ConsoleMessage += OnMirrorConsoleMessage;
-
             // 镜像只出画面：与主窗口共享存储后会真正加载歌曲，
             // 同步播放时不静音会出现双重音频
             _browser.BrowserInitialized += OnMirrorBrowserInitialized;
@@ -145,18 +143,6 @@ public sealed class SpoutPipeline : IDisposable
             $"{e.FailedUrl}");
     }
 
-    private void OnMirrorConsoleMessage(
-        object? sender,
-        ConsoleMessageEventArgs e)
-    {
-        Log.Info(
-            $"[SpoutMirror][console] " +
-            $"Level={e.Level}, " +
-            $"Line={e.Line}, " +
-            $"Source={e.Source}, " +
-            $"Message={e.Message}");
-    }
-
     private void OnFrameLoadEnd(
         object? sender,
         FrameLoadEndEventArgs e)
@@ -219,15 +205,6 @@ public sealed class SpoutPipeline : IDisposable
 
             if (string.Equals(
                 type,
-                "mirror-perf",
-                StringComparison.OrdinalIgnoreCase))
-            {
-                HandleMirrorPerf(dict);
-                return;
-            }
-
-            if (string.Equals(
-                type,
                 "plan-size",
                 StringComparison.OrdinalIgnoreCase))
             {
@@ -250,21 +227,6 @@ public sealed class SpoutPipeline : IDisposable
                 "[SpoutMirror] JavascriptMessageReceived 处理失败：" +
                 ex.Message);
         }
-    }
-
-    private void HandleMirrorPerf(
-        IDictionary<string, object> dict)
-    {
-    }
-
-    private static double D(
-        IDictionary<string, object> dict,
-        string key)
-    {
-        return dict.TryGetValue(key, out var v) &&
-            v != null
-                ? Convert.ToDouble(v)
-                : 0;
     }
 
     private void HandlePlanSize(
@@ -361,7 +323,6 @@ public sealed class SpoutPipeline : IDisposable
             _browser.FrameLoadEnd -= OnFrameLoadEnd;
             _browser.JavascriptMessageReceived -= OnMirrorMessage;
             _browser.LoadError -= OnMirrorLoadError;
-            _browser.ConsoleMessage -= OnMirrorConsoleMessage;
             _browser.BrowserInitialized -= OnMirrorBrowserInitialized;
 
             try
@@ -615,61 +576,6 @@ public sealed class SpoutPipeline : IDisposable
             Math.floor(1000 / __FPS__)
         );
 
-    // ================================================================
-    // 性能采样：泵的实际触发间隔 ≈ 镜像渲染节奏，
-    // renderer.frame 耗时 ≈ 单帧绘制成本；每 60 次泵上报一次给 C#
-    // ================================================================
-
-    var perf = {
-        n: 0, last: 0,
-        gapSum: 0, gapMax: 0,
-        drawN: 0, drawSum: 0, drawMax: 0
-    };
-
-    function perfSample(now) {
-
-        if (perf.last) {
-            var gap = now - perf.last;
-            perf.gapSum += gap;
-            if (gap > perf.gapMax)
-                perf.gapMax = gap;
-        }
-        perf.last = now;
-        perf.n++;
-
-        // 包装一次 renderer.frame 统计绘制耗时
-        // （replan 重建渲染器后 __perfWrapped 标记随对象消失，会自动重包）
-        var S = state();
-
-        if (S && S.renderer && !S.renderer.__perfWrapped) {
-            var r = S.renderer;
-            var orig = r.frame;
-            r.__perfWrapped = true;
-            r.frame = function (ctx, plan, t, opt) {
-                var t0 = performance.now();
-                var out = orig.call(r, ctx, plan, t, opt);
-                var dt = performance.now() - t0;
-                perf.drawN++;
-                perf.drawSum += dt;
-                if (dt > perf.drawMax)
-                    perf.drawMax = dt;
-                return out;
-            };
-        }
-
-        if (perf.n >= 60) {
-            postHost({
-                type: 'mirror-perf',
-                gapAvg: perf.gapSum / Math.max(1, perf.n - 1),
-                gapMax: perf.gapMax,
-                drawAvg: perf.drawN ? perf.drawSum / perf.drawN : 0,
-                drawMax: perf.drawMax,
-                drawN: perf.drawN
-            });
-            perf = { n: 0, last: now, gapSum: 0, gapMax: 0, drawN: 0, drawSum: 0, drawMax: 0 };
-        }
-    }
-
     (function pump() {
 
         requestAnimationFrame(pump);
@@ -707,8 +613,6 @@ public sealed class SpoutPipeline : IDisposable
 
                 S.t = te;
             }
-
-            perfSample(now);
 
             S.need = true;
         }

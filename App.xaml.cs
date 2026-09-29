@@ -94,7 +94,7 @@ public partial class App : Application
 
         AppDomain.CurrentDomain.ProcessExit += (s, e) =>
         {
-            Log.Info("AppDomain ProcessExit 触发！调用栈：" + Environment.StackTrace);
+            // 兜底：非 OnExit 路径退出时保住日志落盘
             Log.Shutdown();
         };
 

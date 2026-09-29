@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics;
 using CefSharp;
 using CefSharp.Enums;
 using CefSharp.OffScreen;
@@ -37,60 +36,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
     private readonly object _renderLock = new();
 
-    // --------------------------------------------------------------------
-    // 调试仪表：出帧节奏与单帧拷贝+发送耗时（每 60 帧汇总一条日志）
-    // --------------------------------------------------------------------
-
-    private long _paintLastTicks;
-    private int _paintCount;
-    private double _paintGapSum;
-    private double _paintGapMax;
-    private double _paintCostSum;
-    private double _paintCostMax;
-
     private bool _accelFirstSeen;
     private bool _cpuFirstSeen;
     private bool _zeroHandleWarned;
-
-    private void CountPaint(
-        long startTimestamp,
-        string path)
-    {
-        long end =
-            Stopwatch.GetTimestamp();
-
-        double costMs =
-            (end - startTimestamp) *
-            1000.0 / Stopwatch.Frequency;
-
-        if (_paintLastTicks != 0)
-        {
-            double gapMs =
-                (end - _paintLastTicks) *
-                1000.0 / Stopwatch.Frequency;
-
-            _paintGapSum += gapMs;
-
-            if (gapMs > _paintGapMax)
-                _paintGapMax = gapMs;
-        }
-
-        _paintLastTicks = end;
-        _paintCostSum += costMs;
-
-        if (costMs > _paintCostMax)
-            _paintCostMax = costMs;
-
-        if (++_paintCount < 60)
-            return;
-
-        _paintCount = 0;
-        _paintLastTicks = 0;
-        _paintGapSum = 0;
-        _paintGapMax = 0;
-        _paintCostSum = 0;
-        _paintCostMax = 0;
-    }
 
     private bool _disposed;
 
@@ -121,8 +69,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         _spoutSender.OpenDirectX(
             _dxDevice.NativePointer);
-
-        Log.Info($"[SpoutMirror] D3D11 初始化完成：");
     }
 
     // ====================================================================
@@ -232,9 +178,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         lock (_renderLock)
         {
-            long t0 =
-                Stopwatch.GetTimestamp();
-
             try
             {
                 EnsureCpuTexture(width, height);
@@ -275,8 +218,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
                         "[SpoutMirror] CPU 回退路径首次触发" +
                         "（OnPaint：GPU 共享纹理未生效）");
                 }
-
-                CountPaint(t0, "CPU");
             }
             catch (Exception ex)
             {
@@ -351,9 +292,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
         }
         lock (_renderLock)
         {
-            long t0 =
-                Stopwatch.GetTimestamp();
-
             try
             {
                 using var cefTexture = _dxDevice1.OpenSharedResource1<Texture2D>(info.SharedTextureHandle);
@@ -364,8 +302,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
                 var context = _dxDevice.ImmediateContext;
                 context.CopyResource(cefTexture, _sharedTexture);
                 _spoutSender.SendTexture(_sharedTexture.NativePointer);
-
-                CountPaint(t0, "GPU");
             }
             catch (Exception ex)
             {
