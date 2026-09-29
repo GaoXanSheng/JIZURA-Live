@@ -8,6 +8,8 @@ internal static class ServerContext
 
     public static KuGouClient KuGou { get; } = new();
 
+    public static NeteaseClient Netease { get; } = new();
+
     public static readonly Dictionary<string, string> MimeMap = new()
     {
         [".html"] = "text/html; charset=utf-8",

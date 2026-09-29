@@ -21,6 +21,7 @@
         <PackageReference Include="EmbedIO" Version="3.5.2"/>
         <PackageReference Include="log4net" Version="3.4.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4"/>
+        <PackageReference Include="QRCoder" Version="1.6.0"/>
         <PackageReference Include="CefSharp.Common" Version="152.0.100"/>
         <PackageReference Include="CefSharp.Wpf" Version="152.0.100"/>
         <PackageReference Include="CefSharp.OffScreen" Version="152.0.100"/>

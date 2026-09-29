@@ -43,6 +43,7 @@ public sealed class EmbeddedServer : IDisposable
     {
         var api = new WebApiModule("/", SerializeWithNewtonsoft);
         api.WithController<KgController>();
+        api.WithController<NeController>();
         return api;
     }
 
@@ -81,5 +82,6 @@ public sealed class EmbeddedServer : IDisposable
         _cts.Cancel();
         try { _server.Dispose(); } catch { }
         ServerContext.KuGou.Http.Dispose();
+        ServerContext.Netease.Http.Dispose();
     }
 }

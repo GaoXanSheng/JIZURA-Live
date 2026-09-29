@@ -39,7 +39,9 @@ public sealed class ConvertedItem
 
 public sealed class KgSong
 {
+    [JsonProperty("source")] public string Source { get; set; } = "kugou";
     [JsonProperty("hash")] public string Hash { get; set; } = "";
+    [JsonProperty("id")] public string Id { get; set; } = "";
     [JsonProperty("albumId")] public string AlbumId { get; set; } = "";
     [JsonProperty("albumAudioId")] public string AlbumAudioId { get; set; } = "";
     [JsonProperty("name")] public string Name { get; set; } = "";
@@ -79,6 +81,9 @@ public sealed class KgLyricResponse : ApiResponse
 {
     [JsonProperty("fmt", NullValueHandling = NullValueHandling.Ignore)] public string? Fmt { get; set; }
     [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)] public string? Content { get; set; }
+    // 网易云：翻译(tlyric)/音译(romalrc) LRC，base64，前端按时间戳对齐成注音
+    [JsonProperty("trans", NullValueHandling = NullValueHandling.Ignore)] public string? Trans { get; set; }
+    [JsonProperty("roma", NullValueHandling = NullValueHandling.Ignore)] public string? Roma { get; set; }
     [JsonProperty("candidates", NullValueHandling = NullValueHandling.Ignore)] public List<KgLyricCandidate>? Candidates { get; set; }
 }
 
@@ -99,4 +104,16 @@ public sealed class KgLoginResponse : ApiResponse
     [JsonProperty("logged")] public bool Logged { get; set; }
     [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)] public string? Nickname { get; set; }
     [JsonProperty("userid", NullValueHandling = NullValueHandling.Ignore)] public string? UserId { get; set; }
+}
+
+public sealed class NePlaylist
+{
+    [JsonProperty("id")] public string Id { get; set; } = "";
+    [JsonProperty("name")] public string Name { get; set; } = "";
+    [JsonProperty("count")] public int Count { get; set; }
+}
+
+public sealed class NePlaylistsResponse : ApiResponse
+{
+    [JsonProperty("list")] public List<NePlaylist> List { get; } = [];
 }

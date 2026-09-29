@@ -5440,11 +5440,12 @@ J.planForAE = (plan, project, range) => {
 })();
 
 /* ============================================================
-   JIZURA — 酷狗云端 / krc 歌词适配层（本地版追加）
+   JIZURA — 酷狗/网易云云端 / krc 歌词适配层（本地版追加）
    在 12_ui.js 之前加载：
      .krc → 浏览器内解密（固定 key 异或 + DecompressionStream inflate），
             转成带 [mm:ss.xx] 时间戳的 LRC 填进 #lyrics，派发 input 事件。
-     酷狗音乐 → 直接通过云端 API 在线搜索与流式加载。
+     酷狗/网易云 → 搜索框上的「来源」切换；音频都经本机代理塞回 #audioFile，
+            歌词酷狗拿 KRC/LRC、网易云拿 LRC（翻译/音译按时间戳对齐成注音）。
    ============================================================ */
 (function () {
   'use strict';
@@ -5590,6 +5591,7 @@ J.planForAE = (plan, project, range) => {
       const text = await decryptKrc(new Uint8Array(await file.arrayBuffer()));
       const map = new Map();
       kgLastLyric = { fmt: 'krc', text, map };
+      kgPersistMap();
       const lyrics = document.getElementById('lyrics');
       lyrics.value = krcToLrc(text, kgLyricOptions(), map);
       lyrics.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5618,6 +5620,7 @@ J.planForAE = (plan, project, range) => {
   const KG_SUB_DEFAULT = {
     content: 'off', pos: 'bottom', size: 4.5, stroke: 4,
     color: '#ffffff', strokeColor: '#000000', font: '', bar: false,
+    offX: 0, offY: 0,               // 自定义位置：画面宽/高的百分比偏移
   };
   let kgSub = null;
   let kgSubBox = null;
@@ -5644,6 +5647,8 @@ J.planForAE = (plan, project, range) => {
       '<label class="field">描边<input data-k="stroke" type="number" min="0" max="12" step="0.5" title="描边宽度（按 1080p 像素计）"></label>' +
       '<label class="field">文字颜色<input data-k="color" type="color"></label>' +
       '<label class="field">描边颜色<input data-k="strokeColor" type="color"></label>' +
+      '<label class="field">水平偏移 %<input data-k="offX" type="number" min="-50" max="50" step="1" title="字幕水平中心偏移（画面宽度百分比，正=右移）"></label>' +
+      '<label class="field">垂直偏移 %<input data-k="offY" type="number" min="-50" max="50" step="1" title="字幕垂直偏移（画面高度百分比，正=下移）"></label>' +
       '<label class="field field-wide">字体<select data-k="font"><option value="">跟随画面</option><option value="sans">黑体（无衬线）</option><option value="serif">宋体（衬线）</option></select></label>' +
       '<label class="check field-wide"><input data-k="bar" type="checkbox"><span>半透明底条</span></label>' +
       '</div>';
@@ -5733,13 +5738,17 @@ J.planForAE = (plan, project, range) => {
     ctx.textBaseline = 'alphabetic';
     const rows = kgWrapSubtitle(ctx, text, maxW);
     const blockH = rows.length * lh;
-    const baseY = kgSub.pos === 'top' ? H * 0.055 + fontPx : H - H * 0.055 - blockH + fontPx;
+    // 自定义位置：offX/offY 为画面宽/高的百分比偏移（默认 0 = 原生底部/顶部居中）
+    const clampPct = v => Math.max(-50, Math.min(50, parseFloat(v) || 0));
+    const centerX = W * (0.5 + clampPct(kgSub.offX) / 100);
+    let baseY = kgSub.pos === 'top' ? H * 0.055 + fontPx : H - H * 0.055 - blockH + fontPx;
+    baseY += H * clampPct(kgSub.offY) / 100;
 
     if (kgSub.bar) {
       const wmax = Math.max(...rows.map(r => ctx.measureText(r).width));
       const padX = fontPx * 0.5, padY = fontPx * 0.3;
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
-      ctx.fillRect(W / 2 - wmax / 2 - padX, baseY - fontPx * 0.82 - padY,
+      ctx.fillRect(centerX - wmax / 2 - padX, baseY - fontPx * 0.82 - padY,
                    wmax + padX * 2, blockH + padY * 2);
     }
     ctx.lineWidth = strokePx;
@@ -5748,8 +5757,8 @@ J.planForAE = (plan, project, range) => {
     ctx.fillStyle = kgSub.color;
     rows.forEach((r, i) => {
       const y = baseY + i * lh;
-      if (strokePx > 0) ctx.strokeText(r, W / 2, y);
-      ctx.fillText(r, W / 2, y);
+      if (strokePx > 0) ctx.strokeText(r, centerX, y);
+      ctx.fillText(r, centerX, y);
     });
     ctx.restore();
   }
@@ -5764,10 +5773,13 @@ J.planForAE = (plan, project, range) => {
   };
 
   /* ============================================================
-     酷狗在线搜索（借道本机 server.js 的 /kg/* 端点）
-       搜索 → 列表（标出 VIP）→ 点选后音频走 /kg/audio 代理塞回 #audioFile，
-       歌词拿 KRC/LRC，KRC 复用上面的 decryptKrc + krcToLrc 填进歌词框。
-       VIP 歌要完整音质需点「登录」扫码（token 存在服务端 kg_login.json）。
+     酷狗 / 网易云在线搜索（借道本机 server 的 /kg/* 与 /ne/* 端点，
+     搜索框上的「来源」下拉切换）
+       搜索 → 列表（标出 VIP）→ 点选后音频走 /kg|ne/audio 代理塞回 #audioFile，
+       歌词：酷狗拿 KRC/LRC（KRC 复用上面的 decryptKrc + krcToLrc），
+             网易云拿 LRC + 翻译/音译（按时间戳对齐成注音，见 neAdoptLyric）。
+       VIP 歌要完整音质需点「登录」扫码（token/cookie 分别存服务端
+       kg_login.json / ne_login.json）。
      ============================================================ */
 
   const KG_MIME = { mp3: 'audio/mpeg', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4' };
@@ -5792,17 +5804,57 @@ J.planForAE = (plan, project, range) => {
     '.kg-card img{background:#fff;border-radius:8px;display:block}',
     '.kg-card .kg-tip{color:var(--muted);font-size:12px;min-height:1.2em}',
     '.kg-card .kg-btns{display:flex;gap:8px}',
+    '.kg-pl-card{width:min(420px, 92vw)}',
+    '.kg-pl-row{display:flex;gap:6px;width:100%}',
+    '.kg-pl-row input{flex:1;background:var(--raised);border:1px solid var(--line);border-radius:var(--r);padding:6px 8px;min-width:0}',
+    '.kg-pl-list{list-style:none;margin:2px 0;padding:0;width:100%;max-height:240px;overflow-y:auto;border:1px solid var(--line);border-radius:var(--r)}',
+    '.kg-pl-list li{border-top:1px solid var(--line)}',
+    '.kg-pl-list li:first-child{border-top:0}',
+    '.kg-pl-list button{display:flex;width:100%;gap:8px;justify-content:space-between;align-items:baseline;padding:6px 10px;background:none;border:0;text-align:left}',
+    '.kg-pl-list button:hover{background:rgba(127,127,127,.14)}',
+    '.kg-pl-list .kg-pl-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.kg-pl-list .kg-pl-count{color:var(--muted);font-size:11px;flex:none}',
   ].join('\n');
 
-  let kgEls = null;            // {box, results, query, quality, btnSearch, btnLogin, modal, qrImg, qrTip, qrRefresh, optRoma, optTrans}
+  let kgEls = null;            // {source, box, results, query, quality, btnSearch, btnLogin, modal, qrImg, qrTip, qrRefresh, optRoma, optTrans}
   let kgPollTimer = null;
   let kgLoadSeq = 0;
   let kgLastLyric = null;      // 最近一次载入的歌词源 { fmt: 'krc'|'lrc', text }（音译/翻译勾选框靠它即时重渲染）
 
+  // 镜像（渲染进程）浏览器拿不到主页面内存里的 kgLastLyric，
+  // 映射持久化到 localStorage（两边共享），载入时还原、storage 事件实时跟随
+  function kgPersistMap() {
+    try {
+      const m = kgLastLyric && kgLastLyric.map;
+      if (m && m.size) localStorage.setItem('jizura.kgsubmap', JSON.stringify({
+        fmt: (kgLastLyric && kgLastLyric.fmt) || 'krc',
+        text: kgLastLyric.text || '', map: [...m],
+      }));
+      else localStorage.removeItem('jizura.kgsubmap');
+    } catch (e) { /* 映射过大存不下就算了 */ }
+  }
+  function kgRestoreMap() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('jizura.kgsubmap') || 'null');
+      if (saved && saved.map && saved.map.length)
+        kgLastLyric = { fmt: saved.fmt || 'krc', text: saved.text || '', map: new Map(saved.map) };
+    } catch (e) { }
+  }
+  kgRestoreMap();
+
   function kgApi(pathname, params) {
     const q = params ? '?' + new URLSearchParams(params) : '';
     return fetch('/kg/' + pathname + q).then(r => r.json()).catch(() => {
-      throw new Error('连不上本机服务：请（重新）运行 启动服务.bat');
+      throw new Error('连不上本机服务：请（重新）运行');
+    });
+  }
+
+  /* 按搜索框上的「来源」选择 /kg/* 或 /ne/* */
+  function kgSource() { return kgEls && kgEls.source ? kgEls.source.value : 'kugou'; }
+  function srcApi(pathname, params) {
+    const q = params ? '?' + new URLSearchParams(params) : '';
+    return fetch((kgSource() === 'netease' ? '/ne/' : '/kg/') + pathname + q).then(r => r.json()).catch(() => {
+      throw new Error('连不上本机服务：请（重新）运行');
     });
   }
 
@@ -5825,11 +5877,14 @@ J.planForAE = (plan, project, range) => {
     const box = document.createElement('div');
     box.className = 'kgrow';
     box.innerHTML =
-      '<input type="search" aria-label="酷狗在线搜索" placeholder="酷狗在线搜索：歌名 / 歌手">' +
-      '<select title="音质（320k / 无损需要扫码登录酷狗 VIP）" aria-label="音质">' +
+      '<select class="kg-src" aria-label="搜索来源" title="搜索来源">' +
+      '<option value="kugou">酷狗</option><option value="netease">网易云</option></select>' +
+      '<input type="search" aria-label="在线搜索" placeholder="在线搜索：歌名 / 歌手">' +
+      '<select class="kg-quality" title="音质（酷狗 320k/无损、网易云无损需要扫码登录）" aria-label="音质">' +
       '<option value="128">128k</option><option value="320">320k</option><option value="flac">无损</option></select>' +
       '<button type="button" class="ghost small">搜索</button>' +
-      '<button type="button" class="ghost small" title="扫码登录酷狗账号：VIP 歌曲与完整音质需要">扫码登录</button>';
+      '<button type="button" class="ghost small" title="网易云：我的歌单 / 按歌单 ID 载入">歌单</button>' +
+      '<button type="button" class="ghost small" title="扫码登录账号：VIP 歌曲与完整音质需要">扫码登录</button>';
     const results = document.createElement('ul');
     results.className = 'kg-results';
     results.hidden = true;
@@ -5842,29 +5897,67 @@ J.planForAE = (plan, project, range) => {
     modal.setAttribute('aria-modal', 'true');
     modal.innerHTML =
       '<div class="kg-card"><strong>酷狗扫码登录</strong>' +
-      '<img alt="酷狗登录二维码" width="188" height="188">' +
-      '<div class="kg-tip">打开酷狗手机版扫一扫</div>' +
+      '<img alt="登录二维码" width="188" height="188">' +
+      '<div class="kg-tip">打开手机版 App 扫一扫</div>' +
       '<div class="kg-btns"><button type="button" class="ghost small" hidden>刷新二维码</button>' +
       '<button type="button" class="ghost small">关闭</button></div></div>';
     document.body.appendChild(modal);
 
+    const plModal = document.createElement('div');
+    plModal.className = 'kg-modal';
+    plModal.hidden = true;
+    plModal.setAttribute('role', 'dialog');
+    plModal.setAttribute('aria-modal', 'true');
+    plModal.innerHTML =
+      '<div class="kg-card kg-pl-card"><strong>网易云歌单</strong>' +
+      '<div class="kg-pl-row"><input type="text" placeholder="粘贴歌单 ID / 链接，回车载入">' +
+      '<button type="button" class="ghost small">载入</button></div>' +
+      '<ul class="kg-pl-list"></ul>' +
+      '<div class="kg-tip"></div>' +
+      '<div class="kg-btns"><button type="button" class="ghost small">关闭</button></div></div>';
+    document.body.appendChild(plModal);
+
     kgEls = {
       box, results,
+      source: box.querySelector('.kg-src'),
       query: box.querySelector('input'),
-      quality: box.querySelector('select'),
+      quality: box.querySelector('.kg-quality'),
       btnSearch: box.querySelectorAll('button')[0],
-      btnLogin: box.querySelectorAll('button')[1],
+      btnPlaylist: box.querySelectorAll('button')[1],
+      btnLogin: box.querySelectorAll('button')[2],
       modal,
       qrImg: modal.querySelector('img'),
       qrTip: modal.querySelector('.kg-tip'),
       qrRefresh: modal.querySelectorAll('button')[0],
       qrClose: modal.querySelectorAll('button')[1],
+      plModal,
+      plTitle: plModal.querySelector('strong'),
+      plInput: plModal.querySelector('input'),
+      plBtnLoad: plModal.querySelector('.kg-pl-row button'),
+      plList: plModal.querySelector('.kg-pl-list'),
+      plTip: plModal.querySelector('.kg-tip'),
+      plClose: plModal.querySelector('.kg-btns button'),
     };
 
     kgEls.btnSearch.addEventListener('click', kgSearch);
     kgEls.query.addEventListener('keydown', e => {
       e.stopPropagation();
       if (e.key === 'Enter') { e.preventDefault(); kgSearch(); }
+    });
+    kgEls.btnPlaylist.addEventListener('click', kgOpenPlaylists);
+    kgEls.plClose.addEventListener('click', kgClosePlaylists);
+    kgEls.plModal.addEventListener('click', e => { if (e.target === kgEls.plModal) kgClosePlaylists(); });
+    kgEls.plBtnLoad.addEventListener('click', kgLoadPastedPlaylist);
+    kgEls.plInput.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); kgLoadPastedPlaylist(); }
+    });
+    kgEls.source.addEventListener('change', () => {
+      kgEls.query.placeholder = kgSource() === 'netease'
+        ? '网易云在线搜索：歌名 / 歌手'
+        : '酷狗在线搜索：歌名 / 歌手';
+      kgEls.results.hidden = true;          // 两边的结果不混排
+      kgRefreshLoginButton();               // 登录态跟着来源走
     });
     kgEls.btnLogin.addEventListener('click', kgLoginButton);
     kgEls.qrClose.addEventListener('click', kgCloseLogin);
@@ -5904,9 +5997,18 @@ J.planForAE = (plan, project, range) => {
   }
 
   function kgApplyLyricOptions() {
-    if (!kgLastLyric || kgLastLyric.fmt !== 'krc') return;
+    if (!kgLastLyric) return;
     const lyrics = document.getElementById('lyrics');
-    lyrics.value = krcToLrc(kgLastLyric.text, kgLyricOptions(), kgLastLyric.map);
+    if (kgLastLyric.fmt === 'krc') {
+      lyrics.value = krcToLrc(kgLastLyric.text, kgLyricOptions(), kgLastLyric.map);
+    } else if (kgLastLyric.fmt === 'ne' && kgLastLyric.raw) {
+      // 网易云：从原始 LRC 重建（音译/翻译按时间戳对齐）
+      const map = new Map();
+      lyrics.value = neBuildLrc(kgLastLyric.raw.lrc, kgLastLyric.raw.trans, kgLastLyric.raw.roma,
+                                kgLyricOptions(), map);
+      kgLastLyric.map = map;
+      kgPersistMap();
+    } else return;
     lyrics.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
@@ -5938,9 +6040,11 @@ J.planForAE = (plan, project, range) => {
       const text = await decryptKrc(bin);
       const map = new Map();
       kgLastLyric = { fmt: 'krc', text, map, cands };
+      kgPersistMap();
       lyrics.value = krcToLrc(text, kgLyricOptions(), map);
     } else {
       kgLastLyric = { fmt: 'lrc', text: new TextDecoder('utf-8').decode(bin), cands };
+      kgPersistMap();
       lyrics.value = kgLastLyric.text;
     }
     lyrics.dispatchEvent(new Event('input', { bubbles: true }));
@@ -5968,6 +6072,121 @@ J.planForAE = (plan, project, range) => {
     }
   }
 
+  /* ============================================================
+     网易云歌词：主 LRC + 翻译(tlyric)/音译(romalrc) 各一份 LRC，
+     按 [mm:ss.xxx] 时间戳对齐，合成带 |注音 的 LRC 并建字幕映射。
+     首行的制作信息（作词/作曲）在网易云 v1 接口里是 {"t":..,"c":[{tx}..]}
+     的 JSON 形式，转成无时间戳的纯文本行。
+     ============================================================ */
+
+  function neB64Text(b64) {
+    return new TextDecoder('utf-8').decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+  }
+
+  const NE_STAMP = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+
+  // 一份 LRC → [{ms(毫秒|null), text}]；多时间戳行展开成多条
+  function neParseLrc(src) {
+    const out = [];
+    for (const raw of String(src || '').split('\n')) {
+      const line = raw.replace(/\r$/, '');
+      if (!line.trim()) continue;
+      if (/^\s*\{"/.test(line)) {
+        // 制作信息行（JSON）：转纯文本，不带时间戳
+        try {
+          const j = JSON.parse(line.trim());
+          const text = (j.c || []).map(p => p.tx || '').join('').trim();
+          if (text) out.push({ ms: null, text });
+        } catch (e) { /* 不是合法 JSON 就丢掉 */ }
+        continue;
+      }
+      NE_STAMP.lastIndex = 0;
+      let m, last = 0;
+      const stamps = [];
+      while ((m = NE_STAMP.exec(line)) !== null && m.index === last) {
+        stamps.push((+m[1]) * 60000 + (+m[2]) * 1000 + (m[3] ? +String(m[3]).padEnd(3, '0') : 0));
+        last = NE_STAMP.lastIndex;
+      }
+      if (!stamps.length) {
+        // 元数据标签（[ti:..] [offset:..] 等）跳过；其余无时间戳行保留，后面补默认时间
+        if (/^\s*\[[a-zA-Z]+:.*]\s*$/.test(line)) continue;
+        out.push({ ms: null, text: line.trim() });
+        continue;
+      }
+      const text = line.slice(last).trim();
+      for (const ms of stamps) out.push({ ms, text });
+    }
+    return out;
+  }
+
+  function neFmtMs(ms) {
+    ms = Math.max(0, Math.round(ms));
+    return String(Math.floor(ms / 60000)).padStart(2, '0') + ':' +
+           String(Math.floor(ms / 1000) % 60).padStart(2, '0') + '.' +
+           String(Math.floor(ms % 1000 / 10)).padStart(2, '0');
+  }
+
+  // 按当前音译/翻译勾选合成 LRC；mapOut 建 歌词原文 → {roma, trans}（字幕用）。
+  // 无时间戳的行（网易云的作词/作曲等）补默认时间：在上一句与下一句的时间之间均摊，
+  // 作为开场字幕参与排版。全曲都没时间戳时不补（交给 JIZURA 的自动排时）。
+  function neBuildLrc(lrc, trans, roma, opts, mapOut) {
+    const at = rows => {
+      const m = new Map();
+      for (const e of rows) if (e.ms != null && e.text) m.set(Math.round(e.ms / 10), e.text);
+      return ms => m.get(Math.round(ms / 10)) || '';
+    };
+    const getRoma = at(roma), getTrans = at(trans);
+    const hasTimed = lrc.some(e => e.ms != null);
+    const ms = lrc.map(e => e.ms);
+    if (hasTimed) {
+      for (let i = 0; i < lrc.length; i++) {
+        if (ms[i] != null) continue;
+        let prev = 0, next = null, runEnd = i;
+        for (let j = i - 1; j >= 0; j--) if (ms[j] != null) { prev = ms[j]; break; }
+        for (let j = i + 1; j < lrc.length; j++) if (ms[j] != null) { next = ms[j]; break; }
+        while (runEnd < lrc.length && ms[runEnd] == null) runEnd++;
+        const run = runEnd - i;
+        for (let k = 0; k < run; k++)
+          ms[i + k] = next != null ? prev + (next - prev) * (k + 1) / (run + 1)
+                                   : prev + 2000 * (k + 1);
+        i = runEnd - 1;
+      }
+    }
+    const out = [];
+    for (let i = 0; i < lrc.length; i++) {
+      const e = lrc[i];
+      const ts = hasTimed ? ms[i] : e.ms;
+      if (ts == null) { if (e.text) out.push(e.text.replace(/\//g, '／')); continue; }  // 全曲无时间戳的兜底
+      const text = e.text.replace(/\//g, '／');
+      if (!text) { out.push(''); continue; }  // 空行 = 停顿（JIZURA 语法）
+      const notes = [];
+      for (const [get, want] of [[getRoma, opts.roma !== false], [getTrans, opts.trans !== false]]) {
+        if (!want) continue;
+        const s = get(ts);
+        if (s && s !== text && !notes.includes(s)) notes.push(s);
+      }
+      if (mapOut) {
+        const r = getRoma(ts), t = getTrans(ts);
+        if (r || t) mapOut.set(text, { roma: r, trans: t });
+      }
+      out.push('[' + neFmtMs(ts) + ']' + text + (notes.length ? '|' + notes.join('　') : ''));
+    }
+    return out.join('\n').replace(/\n+$/, '') + '\n';
+  }
+
+  async function neAdoptLyric(ly) {
+    const lrc = neParseLrc(neB64Text(ly.content));
+    const trans = ly.trans ? neParseLrc(neB64Text(ly.trans)) : [];
+    const roma = ly.roma ? neParseLrc(neB64Text(ly.roma)) : [];
+    const lyrics = document.getElementById('lyrics');
+    const map = new Map();
+    lyrics.value = neBuildLrc(lrc, trans, roma, kgLyricOptions(), map);
+    kgLastLyric = { fmt: 'ne', text: lyrics.value, map, raw: { lrc, trans, roma }, cands: [] };
+    kgPersistMap();
+    lyrics.dispatchEvent(new Event('input', { bubbles: true }));
+    kgRefreshVerSel();
+  }
+
   async function kgSearch() {
     if (!kgEls) return;
     const kw = kgEls.query.value.trim();
@@ -5975,7 +6194,7 @@ J.planForAE = (plan, project, range) => {
     kgEls.btnSearch.disabled = true;
     kgEls.btnSearch.textContent = '搜索中…';
     try {
-      const j = await kgApi('search', { kw });
+      const j = await srcApi('search', { kw });
       if (!j.ok) throw new Error(j.error || '搜索失败');
       kgRenderResults(j.list || []);
     } catch (e) {
@@ -6023,6 +6242,7 @@ J.planForAE = (plan, project, range) => {
   }
 
   async function kgLoadSong(it, btn) {
+    if (it.source === 'netease') return neLoadSong(it, btn);
     const my = ++kgLoadSeq;
     const old = btn.textContent;
     btn.textContent = '载入中…';
@@ -6067,26 +6287,74 @@ J.planForAE = (plan, project, range) => {
     }
   }
 
+  /* 网易云：音频经 /ne/audio 代理塞回 #audioFile；歌词 LRC + 翻译/音译对齐 */
+  async function neLoadSong(it, btn) {
+    const my = ++kgLoadSeq;
+    const old = btn.textContent;
+    btn.textContent = '载入中…';
+    const input = document.getElementById('audioFile');
+    try {
+      const u = await srcApi('url', { id: it.id, quality: (kgEls && kgEls.quality.value) || '128' });
+      if (my !== kgLoadSeq) return;
+      if (!u.ok) throw new Error(u.error || '拿不到播放链接');
+      if (u.needVip) { kgOpenLogin(); throw new Error('这首需要网易云 VIP，扫码登录后再试'); }
+      btn.textContent = '下载中…';
+      const blob = await (await fetch('/ne/audio?u=' + encodeURIComponent(u.url))).blob();
+      if (my !== kgLoadSeq) return;
+      const ext = (u.ext || (blob.type.match(/audio\/(\w+)/) || [])[1] || 'mp3').toLowerCase();
+      const file = new File([blob], `${it.singer || ''} - ${it.name}.${ext}`.replace(/\s+-\s+\./, '.'),
+                            { type: KG_MIME[ext] || blob.type || 'application/octet-stream' });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+
+      let lyricNote = '';
+      try {
+        const ly = await srcApi('lyric', { id: it.id });
+        if (my !== kgLoadSeq) return;
+        if (ly.ok) {
+          await neAdoptLyric(ly);
+          lyricNote = (ly.trans || ly.roma) ? '，歌词已填入（含注音）' : '，歌词已填入（无音译/翻译）';
+        } else {
+          lyricNote = '，没找到歌词';
+        }
+      } catch (e) { lyricNote = '，歌词加载失败'; }
+
+      toast(u.trial ? `只载入试听片段（这首需要 VIP，可点「登录」）：${it.name}${lyricNote}`
+                    : `已载入：${it.name}${lyricNote}`);
+    } catch (e) {
+      toast('载入失败：' + e.message, true);
+    } finally {
+      if (my === kgLoadSeq) btn.textContent = old;
+    }
+  }
+
   /* ---------- 扫码登录 ---------- */
 
   async function kgRefreshLoginButton() {
     if (!kgEls) return;
     try {
-      const j = await kgApi('login');
+      const j = await srcApi('login');
+      const ne = kgSource() === 'netease';
       kgEls.btnLogin.textContent = j.logged ? '退出登录' : '扫码登录';
       kgEls.btnLogin.title = j.logged
-        ? ('已登录酷狗（' + (j.nickname || '账号 ' + (j.userid || '?')) + '），点击退出')
-        : '扫码登录酷狗账号：VIP 歌曲与完整音质需要';
+        ? (ne ? '已登录网易云' + (j.nickname ? '（' + j.nickname + '）' : '') + '，点击退出'
+              : '已登录酷狗（' + (j.nickname || '账号 ' + (j.userid || '?')) + '），点击退出')
+        : (ne ? '扫码登录网易云账号：VIP 歌曲需要'
+              : '扫码登录酷狗账号：VIP 歌曲与完整音质需要');
     } catch (e) { /* 服务不在就保持默认 */ }
   }
 
   async function kgLoginButton() {
     try {
-      const j = await kgApi('login');
+      const j = await srcApi('login');
       if (j.logged) {
-        if (!window.confirm('确定退出酷狗登录？\n退出后 VIP 歌曲将只能试听，重新扫码即可恢复。')) return;
-        await kgApi('logout');
-        toast('已退出酷狗登录');
+        const ne = kgSource() === 'netease';
+        if (!window.confirm(ne ? '确定退出网易云登录？\n退出后 VIP 歌曲将无法载入，重新扫码即可恢复。'
+                              : '确定退出酷狗登录？\n退出后 VIP 歌曲将只能试听，重新扫码即可恢复。')) return;
+        await srcApi('logout');
+        toast(ne ? '已退出网易云登录' : '已退出酷狗登录');
         return kgRefreshLoginButton();
       }
     } catch (e) { toast(e.message, true); return; }
@@ -6095,7 +6363,9 @@ J.planForAE = (plan, project, range) => {
 
   async function kgOpenLogin() {
     if (!kgEls) return;
+    const ne = kgSource() === 'netease';
     const { modal, qrImg, qrTip, qrRefresh } = kgEls;
+    modal.querySelector('strong').textContent = ne ? '网易云扫码登录' : '酷狗扫码登录';
     modal.hidden = false;
     qrImg.removeAttribute('src');
     qrTip.textContent = '正在获取二维码…';
@@ -6103,29 +6373,31 @@ J.planForAE = (plan, project, range) => {
     clearInterval(kgPollTimer);
     let key = '';
     try {
-      const j = await kgApi('qr');
+      const j = await srcApi('qr');
       if (!j.ok) throw new Error(j.error || '二维码生成失败');
       key = j.key;
       if (j.img) qrImg.src = j.img;
-      qrTip.textContent = '打开酷狗手机版扫一扫';
+      qrTip.textContent = ne ? '打开网易云音乐 App 扫一扫' : '打开酷狗手机版扫一扫';
     } catch (e) {
       qrTip.textContent = '失败：' + e.message;
       return;
     }
     clearInterval(kgPollTimer);
+    // 酷狗状态：1 等待 / 2 已扫码 / 0 过期 / 4 成功；网易云：801 / 802 / 800 / 803
+    const S_WAIT = ne ? '801' : '1', S_SCAN = ne ? '802' : '2', S_EXPIRE = ne ? '800' : '0', S_OK = ne ? '803' : '4';
     kgPollTimer = setInterval(async () => {
       try {
-        const j = await kgApi('qr/check', { key });
-        if (j.status === 1) qrTip.textContent = '等待扫码…';
-        else if (j.status === 2) qrTip.textContent = '已扫码，请在手机上确认';
-        else if (j.status === 0) {
+        const j = await srcApi('qr/check', { key });
+        if (j.status === S_WAIT) qrTip.textContent = '等待扫码…';
+        else if (j.status === S_SCAN) qrTip.textContent = '已扫码，请在手机上确认';
+        else if (j.status === S_EXPIRE) {
           qrTip.textContent = '二维码已过期';
           qrRefresh.hidden = false;
           clearInterval(kgPollTimer);
-        } else if (j.status === 4) {
+        } else if (j.status === S_OK) {
           clearInterval(kgPollTimer);
           modal.hidden = true;
-          toast('酷狗已登录，VIP 歌曲可以载入完整音质了');
+          toast(ne ? '网易云已登录，VIP 歌曲可以载入了' : '酷狗已登录，VIP 歌曲可以载入完整音质了');
           kgRefreshLoginButton();
         }
       } catch (e) { /* 网络抖动，下一轮再试 */ }
@@ -6136,6 +6408,79 @@ J.planForAE = (plan, project, range) => {
     if (!kgEls) return;
     clearInterval(kgPollTimer);
     kgEls.modal.hidden = true;
+  }
+
+  /* ---------- 歌单（网易云：我的歌单 / 按歌单 ID 载入） ---------- */
+
+  function kgParsePlaylistId(s) {
+    s = String(s || '').trim();
+    const m = s.match(/[?&]id=(\d+)/) || s.match(/^(\d{5,})$/) || s.match(/(\d{6,})/);
+    return m ? m[1] : '';
+  }
+
+  async function kgLoadPlaylistSongs(id, label) {
+    toast('歌单读取中…');
+    try {
+      const j = await srcApi('playlist', { id });
+      if (!j.ok) throw new Error(j.error || '读取失败');
+      kgRenderResults(j.list || []);
+      kgClosePlaylists();
+      toast((label ? label : '歌单') + '：' + (j.list || []).length + ' 首，点歌名即可载入');
+    } catch (e) {
+      toast('歌单载入失败：' + e.message, true);
+    }
+  }
+
+  function kgLoadPastedPlaylist() {
+    if (!kgEls) return;
+    const id = kgParsePlaylistId(kgEls.plInput.value);
+    if (!id) { kgEls.plTip.textContent = '没认出歌单 ID：粘贴 music.163.com/playlist?id=… 或纯数字 ID'; return; }
+    kgLoadPlaylistSongs(id, null);
+  }
+
+  async function kgOpenPlaylists() {
+    if (!kgEls) return;
+    const { plModal, plTitle, plList, plTip, plInput, plBtnLoad } = kgEls;
+    const ne = kgSource() === 'netease';
+    plModal.hidden = false;
+    plList.innerHTML = '';
+    plInput.value = '';
+    plInput.parentElement.style.display = ne ? '' : 'none';
+    plList.style.display = ne ? '' : 'none';
+    if (!ne) {
+      plTitle.textContent = '歌单';
+      plTip.textContent = '酷狗的歌单接口已停止公开访问，暂时只支持网易云歌单（搜歌不受影响）';
+      return;
+    }
+    plTitle.textContent = '网易云歌单';
+    plTip.textContent = '正在加载我的歌单…';
+    try {
+      const j = await srcApi('playlists');
+      if (!j.ok) throw new Error(j.error || '读取失败');
+      plTip.textContent = j.list.length ? '点歌单载入全部歌曲' : '这个账号还没有歌单；可粘贴歌单 ID 载入';
+      for (const p of j.list) {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const name = document.createElement('span');
+        name.className = 'kg-pl-name';
+        name.textContent = kgEsc(p.name);
+        const count = document.createElement('span');
+        count.className = 'kg-pl-count';
+        count.textContent = p.count + ' 首';
+        btn.append(name, count);
+        btn.addEventListener('click', () => kgLoadPlaylistSongs(p.id, kgEsc(p.name)));
+        li.appendChild(btn);
+        plList.appendChild(li);
+      }
+    } catch (e) {
+      plTip.textContent = '加载失败：' + e.message;
+    }
+  }
+
+  function kgClosePlaylists() {
+    if (!kgEls) return;
+    kgEls.plModal.hidden = true;
   }
 
   /* 载入新歌后把播放位置归零：上游 loadAudioFile 会保留上一首的位置，
@@ -6179,6 +6524,28 @@ J.planForAE = (plan, project, range) => {
     // 字幕（详细模式右栏「字幕」区）
     kgSub = kgLoadSubCfg();
     kgInjectSubPanel();
+
+    // 主窗口改了字幕设置/换了歌：镜像浏览器通过 storage 事件实时跟随。
+    // kgSub 在页面载入时缓存，不跟随 storage 的话镜像会一直用
+    // 旧的内容/位置设置（比如还在渲染音译、位置不动）
+    window.addEventListener('storage', e => {
+      if (e.key === 'jizura.kgsub') {
+        kgSub = kgLoadSubCfg();
+        if (kgSubBox) for (const el of kgSubBox.querySelectorAll('[data-k]')) {
+          const k = el.dataset.k;
+          if (el.type === 'checkbox') el.checked = !!kgSub[k];
+          else el.value = kgSub[k];
+        }
+        return;
+      }
+      if (e.key !== 'jizura.kgsubmap') return;
+      try {
+        const saved = JSON.parse(e.newValue || 'null');
+        kgLastLyric = saved && saved.map && saved.map.length
+          ? { fmt: saved.fmt || 'krc', text: saved.text || '', map: new Map(saved.map) }
+          : null;
+      } catch (err) { /* 忽略 */ }
+    });
   }
 
   if (document.readyState === 'loading') {
@@ -36860,8 +37227,8 @@ function drawCenterGuide(ctx, k) {
 function draw() {
   const c = $('view'), ctx = c.getContext('2d');
   const t0 = performance.now();
-  S.renderer.frame(ctx, S.plan, S.t, { scale: c.width / S.plan.W, fast: S.playing && S.slow });
-  if (S.plan.centerFree) drawCenterGuide(ctx, c.width / S.plan.W);
+  S.renderer.frame(ctx, S.plan, S.t, { scale: c.width / S.plan.W, fast: S.playing && S.slow, transparent: !!window.__jl_spout_transparent });
+  if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(ctx, c.width / S.plan.W);
   const dt = performance.now() - t0;
   S.slow = S.playing ? (dt > 30 ? true : dt < 14 ? false : S.slow) : false;
   updateTimeUI(); drawTimeline(); updateCutInfo();
@@ -38252,7 +38619,23 @@ function bind() {
   $('resetDlg').addEventListener('close', () => { if ($('resetDlg').returnValue === 'reset') resetAll(); });
   $('fileProject').addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
-    try { S.project = mergeProject(JSON.parse(await f.text())); syncUI(); replan(); restoreFonts(); }
+    try {
+      S.project = mergeProject(JSON.parse(await f.text()));
+      // 配置文件只当样式配置：歌词/逐字时间/BGM 都是上一首歌的，全部清空，
+      // 歌曲用酷狗在线搜索重新拉，避免"配置是 A 歌、歌词 BGM 还是 B 歌"的串台
+      pause();
+      S.project.lyrics = '';
+      S.project.timing.lineTimes = {};
+      S.project.overrides = {};
+      S.project.exportRange = null;
+      S.project.audioName = '';
+      S.audio = null; if ($('audioFile')) $('audioFile').value = '';
+      if (J.forgetSong) await J.forgetSong();
+      $('audioName').textContent = audioNameDefault;
+      try { localStorage.removeItem('jizura.kgsubmap'); } catch (err) { }   // 旧歌的 KRC 字幕映射一并清掉
+      syncUI(); replan(); restoreFonts(); updateEditBtns(); flushSave(); seek(0);
+      toast('配置已载入：歌词与歌曲已清空，请重新载入歌曲');
+    }
     catch (err) { showMsg('Could not open the project'); setTimeout(() => showMsg(null), 2500); }
     e.target.value = '';
   });

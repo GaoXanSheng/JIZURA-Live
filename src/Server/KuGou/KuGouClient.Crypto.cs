@@ -19,7 +19,6 @@ public sealed partial class KuGouClient
     private const string ClientVer = "20489";
     private const string SrcAppId = "2919";
     private const string AndroidUa = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
-    private static readonly string[] AudioHostSuffixes = [".kugou.com", ".kgimg.com", ".kglink.cn"];
     private static readonly (string Key, string Value)[] GatewayHeaders =
         [("kg-rc", "1"), ("kg-thash", "5d816a0"), ("kg-rec", "1"), ("kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F")];
     private const string PubKeyPem = """

@@ -21,11 +21,6 @@ public sealed partial class KuGouClient
     private Task<JObject> GetJsonAsync(string url, int timeoutMs = 20000) =>
         GetJsonAsync(new HttpRequestMessage(HttpMethod.Get, url), timeoutMs);
 
-    public static bool AllowedAudioHost(string host) =>
-        AudioHostSuffixes.Any(s => host == s[1..] || host.EndsWith(s, StringComparison.OrdinalIgnoreCase));
-
-    
-
     private async Task<JObject> V5UrlAsync(string hash, string albumId, string albumAudioId, int quality,
         int freePart, string token, long userid)
     {
