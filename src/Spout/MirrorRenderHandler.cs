@@ -48,8 +48,13 @@ public sealed class MirrorRenderHandler : IRenderHandler
     private double _paintCostSum;
     private double _paintCostMax;
 
+    private bool _accelFirstSeen;
+    private bool _cpuFirstSeen;
+    private bool _zeroHandleWarned;
+
     private void CountPaint(
-        long startTimestamp)
+        long startTimestamp,
+        string path)
     {
         long end =
             Stopwatch.GetTimestamp();
@@ -80,7 +85,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
             return;
 
         Log.Info(
-            $"[SpoutMirror] 帧输出：间隔 " +
+            $"[SpoutMirror] 帧输出[{path}]：间隔 " +
             $"avg={_paintGapSum / Math.Max(1, _paintCount - 1):F1}ms, " +
             $"max={_paintGapMax:F1}ms；" +
             $"拷贝+Spout发送 avg={_paintCostSum / _paintCount:F2}ms, " +
@@ -269,7 +274,16 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
                 _spoutSender.SendTexture(_cpuTexture.NativePointer);
 
-                CountPaint(t0);
+                if (!_cpuFirstSeen)
+                {
+                    _cpuFirstSeen = true;
+
+                    Log.Warn(
+                        "[SpoutMirror] CPU 回退路径首次触发" +
+                        "（OnPaint：GPU 共享纹理未生效）");
+                }
+
+                CountPaint(t0, "CPU");
             }
             catch (Exception ex)
             {
@@ -322,7 +336,25 @@ public sealed class MirrorRenderHandler : IRenderHandler
             return;
         if (info.SharedTextureHandle == IntPtr.Zero)
         {
+            if (!_zeroHandleWarned)
+            {
+                _zeroHandleWarned = true;
+
+                Log.Warn(
+                    "[SpoutMirror] OnAcceleratedPaint " +
+                    "收到空共享纹理句柄");
+            }
+
             return;
+        }
+
+        if (!_accelFirstSeen)
+        {
+            _accelFirstSeen = true;
+
+            Log.Info(
+                "[SpoutMirror] GPU 共享纹理路径已激活" +
+                "（OnAcceleratedPaint）");
         }
         lock (_renderLock)
         {
@@ -340,7 +372,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
                 context.CopyResource(cefTexture, _sharedTexture);
                 _spoutSender.SendTexture(_sharedTexture.NativePointer);
 
-                CountPaint(t0);
+                CountPaint(t0, "GPU");
             }
             catch (Exception ex)
             {
