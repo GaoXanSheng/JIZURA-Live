@@ -1,0 +1,68 @@
+/* ============================================================
+   字面 Live — 应用布局（顶栏 + 三栏工作区）
+   ============================================================ */
+.app { display: flex; flex-direction: column; height: 100%; }
+
+/* ---- 顶栏 ---- */
+.bar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand .mark {
+  font: 900 24px/1 var(--brand); letter-spacing: 0.02em; color: var(--text);
+  text-shadow: -2px -1px 0 rgba(22, 244, 212, 0.85), 2px 1px 0 rgba(245, 165, 12, 0.9);
+}
+.brand .ver { font: 400 10px/1 var(--mono); color: var(--muted); opacity: 0.8; margin-left: 2px; letter-spacing: 0.04em; }
+.proj { display: flex; gap: 8px; flex: 1 1 260px; min-width: 0; }
+.proj input { flex: 1 1 0; min-width: 0; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.modes { display: inline-flex; border: 1px solid var(--line2); border-radius: var(--r-sm); overflow: hidden; padding: 2px; gap: 2px; }
+.modes button { border: 0; border-radius: 6px; background: transparent; padding: 5px 13px; color: var(--muted); min-height: 26px; }
+.modes button:hover { background: var(--hover); }
+.modes button[aria-pressed=true] { background: var(--raised2); color: var(--text); box-shadow: inset 0 -2px 0 var(--amber); }
+
+/* ---- 三栏 ---- */
+.work { flex: 1; display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) minmax(300px, 370px); min-height: 0; }
+.col { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.col-left, .col-right { background: var(--panel); overflow-y: auto; overscroll-behavior: contain; }
+.col-left { border-right: 1px solid var(--line); }
+.col-right { border-left: 1px solid var(--line); }
+.col-stage { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; min-width: 0; overflow: hidden auto; }
+
+.sec { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.sec-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.field input, .field select { width: 100%; }
+.audio-name { font-size: 12px; overflow-wrap: anywhere; }
+
+/* ---- 固定工作区（够宽够高时页面不滚动） ---- */
+@media (min-width: 1181px) and (min-height: 620px) {
+  html.fixed-ok body { overflow: hidden; }
+  html.fixed-ok .app { height: 100vh; height: 100dvh; }
+  html.fixed-ok .work { overflow: hidden; }
+  html.fixed-ok .col-stage { overflow: hidden auto; }
+}
+
+/* ---- 响应式 ---- */
+@media (max-width: 1180px) {
+  .work { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .col-stage { grid-column: 1 / -1; order: -1; }
+}
+@media (max-width: 760px) {
+  .work { grid-template-columns: minmax(0, 1fr); }
+  .col-left, .col-right { border: 0; border-top: 1px solid var(--line); }
+  .bar { gap: 10px; }
+  .brand .ver { display: none; }
+}
+
+/* ---- かんたん / スマホ模式 ---- */
+.app.is-easy .tabs-host, .app.is-easy .pro-only { display: none !important; }
+.app.is-mobile .pro-only { display: none !important; }
+.placeholder { padding: 24px 16px; color: var(--faint); font-size: 12px; text-align: center; border: 1px dashed var(--line); border-radius: var(--r); margin: 16px; }

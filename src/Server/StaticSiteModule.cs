@@ -15,7 +15,17 @@ internal sealed class StaticSiteModule : WebModuleBase
     {
         string path = Uri.UnescapeDataString(context.Request.Url.AbsolutePath);
 
+        // 新前端（Vue 3 + Vite 产物）；dist 还没构建时回退旧版，保证应用始终可启动
         if (path == "/" || path == "/index.html")
+        {
+            string entry = File.Exists(Path.Combine(ServerContext.WwwRoot, "dist", "index.html"))
+                ? Path.Combine("dist", "index.html")
+                : Path.Combine("zh-hans", "index.html");
+            return await SendFileAsync(context, entry, "text/html; charset=utf-8");
+        }
+
+        // 旧版单文件页（重构过渡期对照验收用）
+        if (path == "/legacy" || path == "/legacy/" || path == "/legacy/index.html")
             return await SendFileAsync(context, Path.Combine("zh-hans", "index.html"), "text/html; charset=utf-8");
 
         string rel = path.TrimStart('/');

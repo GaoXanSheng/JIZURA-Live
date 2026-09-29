@@ -1,0 +1,50 @@
+<script setup lang="ts">
+import { onMounted, onUnmounted, ref } from 'vue';
+import { useEditor } from './stores/editor';
+import { bus } from './jizura/bus';
+import TopBar from './components/layout/TopBar.vue';
+import LyricsPanel from './components/lyrics/LyricsPanel.vue';
+import AudioPanel from './components/lyrics/AudioPanel.vue';
+import StageCanvas from './components/stage/StageCanvas.vue';
+import Transport from './components/stage/Transport.vue';
+import ToastHost from './components/common/ToastHost.vue';
+
+const ed = useEditor();
+const booted = ref(false);
+const offs: (() => void)[] = [];
+
+onMounted(() => {
+  offs.push(bus.on('playstate', () => ed.syncPlayState()));
+  offs.push(bus.on('playhead', () => ed.syncTime()));
+  offs.push(bus.on('frame', () => ed.syncTime()));
+  offs.push(bus.on('time', () => ed.syncTime()));
+  offs.push(bus.on('replan', () => ed.syncPlan()));
+  offs.push(bus.on('replan-sync', () => ed.syncPlan()));
+  offs.push(bus.on('mode', (m: any) => { ed.mode = m; ed.syncPlan(); }));
+  offs.push(bus.on('curline', (li: number) => { ed.curLine = li; }));
+  offs.push(bus.on('booted', () => { booted.value = true; ed.syncAll(); }));
+  booted.value = true;
+  ed.syncAll();
+});
+onUnmounted(() => offs.forEach(f => f()));
+</script>
+
+<template>
+  <div class="app" :class="['is-' + ed.mode]">
+    <TopBar />
+    <main class="work">
+      <section class="col col-left" aria-label="歌词与时间">
+        <LyricsPanel />
+        <AudioPanel />
+      </section>
+      <section class="col col-stage" aria-label="预览">
+        <StageCanvas />
+        <Transport />
+      </section>
+      <section class="col col-right" aria-label="风格与导出">
+        <div class="placeholder">风格 / 演出 / 手法 / 导出面板 — Phase 3</div>
+      </section>
+    </main>
+    <ToastHost />
+  </div>
+</template>

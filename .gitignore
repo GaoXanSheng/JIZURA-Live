@@ -21,3 +21,9 @@ __pycache__/
 
 # 登录凭据（酷狗 token / 网易云 cookie），切勿提交
 token/
+
+# 前端工程
+frontend/node_modules/
+
+# 本机凭据（酷狗 token / 网易云 cookie，运行时写入应用目录）
+config/
