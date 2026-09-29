@@ -1635,7 +1635,23 @@ function bind() {
   $('resetDlg').addEventListener('close', () => { if ($('resetDlg').returnValue === 'reset') resetAll(); });
   $('fileProject').addEventListener('change', async e => {
     const f = e.target.files && e.target.files[0]; if (!f) return;
-    try { S.project = mergeProject(JSON.parse(await f.text())); syncUI(); replan(); restoreFonts(); }
+    try {
+      S.project = mergeProject(JSON.parse(await f.text()));
+      // 配置文件只当样式配置：歌词/逐字时间/BGM 都是上一首歌的，全部清空，
+      // 歌曲用酷狗在线搜索重新拉，避免"配置是 A 歌、歌词 BGM 还是 B 歌"的串台
+      pause();
+      S.project.lyrics = '';
+      S.project.timing.lineTimes = {};
+      S.project.overrides = {};
+      S.project.exportRange = null;
+      S.project.audioName = '';
+      S.audio = null; if ($('audioFile')) $('audioFile').value = '';
+      if (J.forgetSong) await J.forgetSong();
+      $('audioName').textContent = audioNameDefault;
+      try { localStorage.removeItem('jizura.kgsubmap'); } catch (err) { }   // 旧歌的 KRC 字幕映射一并清掉
+      syncUI(); replan(); restoreFonts(); updateEditBtns(); flushSave(); seek(0);
+      toast('配置已载入：歌词与歌曲已清空，请重新载入歌曲');
+    }
     catch (err) { showMsg('プロジェクトを読み込めませんでした'); setTimeout(() => showMsg(null), 2500); }
     e.target.value = '';
   });
