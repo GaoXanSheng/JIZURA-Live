@@ -14,6 +14,8 @@ import CutInfo from './components/stage/CutInfo.vue';
 import RightPanel from './components/panels/RightPanel.vue';
 import CloudMusicModal from './components/cloud/CloudMusicModal.vue';
 import ToastHost from './components/common/ToastHost.vue';
+import Dialogs from './components/common/Dialogs.vue';
+import Tour from './components/common/Tour.vue';
 
 const ed = useEditor();
 const booted = ref(false);
@@ -56,6 +58,8 @@ onUnmounted(() => offs.forEach(f => f()));
       </section>
     </main>
     <CloudMusicModal />
+    <Dialogs />
+    <Tour />
     <ToastHost />
   </div>
 </template>
