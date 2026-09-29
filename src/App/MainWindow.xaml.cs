@@ -559,6 +559,8 @@ public partial class MainWindow : Window
 
     private void ToggleSettings()
     {
+        Log.Info("ToggleSettings 触发");
+
         SettingsWindow.Toggle(
             _settings,
             this,

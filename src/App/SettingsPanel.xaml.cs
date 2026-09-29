@@ -13,6 +13,11 @@ public partial class SettingsPanel : UserControl
 
     private bool _initialized;
 
+    // 程序填充 UI 初始值时置 true，屏蔽 Change 事件回调——
+    // 否则每次打开设置窗口（新面板 SelectedIndex 从 -1 赋值）
+    // 都会触发 ApplyFps/ApplyResolution/ToggleSpout，导致镜像被误重启
+    private bool _loadingUi;
+
     private static readonly (
         int W,
         int H,
@@ -151,43 +156,52 @@ public partial class SettingsPanel : UserControl
             _statusTimer.Start();
         }
 
-        int idx =
-            Array.FindIndex(
-                Resolutions,
-                r =>
-                    r.W == settings.Width &&
-                    r.H == settings.Height);
+        _loadingUi = true;
 
-        CmbRes.SelectedIndex =
-            idx >= 0
-                ? idx
-                : 1;
+        try
+        {
+            int idx =
+                Array.FindIndex(
+                    Resolutions,
+                    r =>
+                        r.W == settings.Width &&
+                        r.H == settings.Height);
 
-        int fpsIdx =
-            CmbFps.Items.IndexOf(
-                settings.RenderFps.ToString());
+            CmbRes.SelectedIndex =
+                idx >= 0
+                    ? idx
+                    : 1;
 
-        CmbFps.SelectedIndex =
-            fpsIdx >= 0
-                ? fpsIdx
-                : 1;
+            int fpsIdx =
+                CmbFps.Items.IndexOf(
+                    settings.RenderFps.ToString());
 
-        TxtSpoutName.Text =
-            settings.SpoutName;
+            CmbFps.SelectedIndex =
+                fpsIdx >= 0
+                    ? fpsIdx
+                    : 1;
 
-        ChkSpout.IsChecked =
-            settings.SpoutEnabled;
+            TxtSpoutName.Text =
+                settings.SpoutName;
 
-        ChkCdp.IsChecked =
-            settings.CdpEnabled;
+            ChkSpout.IsChecked =
+                settings.SpoutEnabled;
 
-        TxtCdpPort.Text =
-            settings.CdpPort.ToString();
+            ChkCdp.IsChecked =
+                settings.CdpEnabled;
+
+            TxtCdpPort.Text =
+                settings.CdpPort.ToString();
+        }
+        finally
+        {
+            _loadingUi = false;
+        }
     }
 
     private void ApplyCdp()
     {
-        if (_settings == null)
+        if (_loadingUi || _settings == null)
             return;
 
         bool on =
@@ -224,7 +238,7 @@ public partial class SettingsPanel : UserControl
 
     private void ApplyResolution()
     {
-        if (_settings == null)
+        if (_loadingUi || _settings == null)
             return;
 
         if (CmbRes.SelectedIndex < 0)
@@ -264,7 +278,7 @@ public partial class SettingsPanel : UserControl
 
     private void ApplyFps()
     {
-        if (_settings == null)
+        if (_loadingUi || _settings == null)
             return;
 
         if (CmbFps.SelectedIndex < 0)
@@ -274,6 +288,10 @@ public partial class SettingsPanel : UserControl
             int.TryParse(CmbFps.SelectedItem as string, out int f)
                 ? Math.Clamp(f, 1, 240)
                 : 30;
+
+        // 值没变就不重启管线（避免设置窗口打开时的初始赋值触发）
+        if (_settings.RenderFps == fps)
+            return;
 
         _settings.RenderFps =
             fps;
@@ -298,7 +316,7 @@ public partial class SettingsPanel : UserControl
 
     private void ToggleSpout()
     {
-        if (_settings == null)
+        if (_loadingUi || _settings == null)
             return;
 
         bool on =
