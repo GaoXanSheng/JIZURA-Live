@@ -1,6 +1,7 @@
 /* 歌曲载入管线：搜索结果/歌单曲目 → 播放链接 → 音频代理下载 → 引擎装载 → 歌词拉取对齐 */
 import { S } from '../jizura/state';
 import { bus } from '../jizura/bus';
+import { useCloud } from '../stores/cloud';
 import { loadAudioFile, seek } from '../jizura/engine';
 import { toast } from '../jizura/look';
 import { api, fetchAudioBlob } from './api';
@@ -14,7 +15,8 @@ export function loadingId(): number { return loadSeq; }
 
 export async function loadSong(source: Source, it: Song, quality: string): Promise<void> {
   const my = ++loadSeq;
-  bus.emit('cloud-load', { id: songKey(it), state: 'loading' });
+  const cloud = useCloud();
+  cloud.setLoading(songKey(it), 'loading');
   try {
     const u = await api.url(source, it, quality);
     if (my !== loadSeq) return;
@@ -23,7 +25,7 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
       bus.emit('cloud-vip-needed', source);
       throw new Error(`这首需要${source === 'netease' ? '网易云' : '酷狗'} VIP，扫码登录后再试`);
     }
-    bus.emit('cloud-load', { id: songKey(it), state: 'downloading' });
+    cloud.setLoading(songKey(it), 'downloading');
     const blob = await fetchAudioBlob(source, u.url!);
     if (my !== loadSeq) return;
     const ext = (u.ext || (blob.type.match(/audio\/(\w+)/) || [])[1] || 'mp3').toLowerCase();
@@ -54,11 +56,11 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
 
     toast(u.trial ? `只载入 60 秒试听（这首需要 VIP，可在「账号」页登录）：${it.name}${lyricNote}`
                   : `已载入：${it.name}${lyricNote}`);
-    bus.emit('cloud-load', { id: songKey(it), state: 'done' });
+    cloud.setLoading(songKey(it), '');
   } catch (e: any) {
     if (my === loadSeq) {
       toast('载入失败：' + (e.message || e));
-      bus.emit('cloud-load', { id: songKey(it), state: 'error' });
+      cloud.setLoading(songKey(it), 'error');
     }
   }
 }

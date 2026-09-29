@@ -26,7 +26,9 @@ async function pick(it: Song) {
         <span class="flex-none max-w-[52%] truncate" :title="it.name">{{ it.name }}</span>
         <span class="text-mut text-[11px] truncate flex-1 min-w-0">{{ it.singer }}{{ it.album ? ' · ' + it.album : '' }} · {{ fmtDur(it.duration) }}</span>
         <span v-if="it.pay && it.pay !== 0" class="flex-none text-[10px] leading-[1.5] border border-[#8a6d2f] text-[#c8a24a] rounded px-1">VIP</span>
-        <span v-if="state(it) === 'loading' || state(it) === 'downloading'" class="flex-none text-[11px] text-cyan">{{ state(it) === 'loading' ? '载入中…' : '下载中…' }}</span>
+        <span v-if="state(it) === 'loading' || state(it) === 'downloading'" class="flex-none inline-flex items-center gap-1.5 text-[11px] text-cyan">
+          <i class="spinner"></i>{{ state(it) === 'loading' ? '载入中…' : '下载中…' }}
+        </span>
       </button>
     </li>
   </TransitionGroup>

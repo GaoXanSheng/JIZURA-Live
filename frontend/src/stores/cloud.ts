@@ -12,6 +12,7 @@ let pollTimer = 0;   // 轮询定时器不放响应式 state 里
 export const useCloud = defineStore('cloud', {
   state: () => ({
     open: false,
+    booting: false,   // 弹窗打开后的初始加载（登录态等），期间内容区转圈
     pane: 'search' as 'search' | 'playlists' | 'account',
     source: 'kugou' as Source,
     quality: '320' as string,
@@ -47,11 +48,22 @@ export const useCloud = defineStore('cloud', {
   }),
   actions: {
     async refreshLogin(source?: Source) {
-      for (const s of source ? [source] : (['kugou', 'netease'] as Source[])) {
-        try {
-          const j = await api.login(s);
-          this.login[s] = { logged: !!j.logged, nickname: j.nickname || '' };
-        } catch { /* 服务不在就保持默认 */ }
+      if (!source) this.booting = true;
+      const t0 = Date.now();
+      try {
+        for (const s of source ? [source] : (['kugou', 'netease'] as Source[])) {
+          try {
+            const j = await api.login(s);
+            this.login[s] = { logged: !!j.logged, nickname: j.nickname || '' };
+          } catch { /* 服务不在就保持默认 */ }
+        }
+      } finally {
+        if (!source) {
+          // 转圈至少显示 250ms：本机 API 毫秒级返回，不留最短时长会闪没看不见
+          const remain = 250 - (Date.now() - t0);
+          if (remain > 0) setTimeout(() => { this.booting = false; }, remain);
+          else this.booting = false;
+        }
       }
     },
     setSource(s: Source) {

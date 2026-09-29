@@ -1,6 +1,7 @@
 /* 引擎驱动层：replan / 渲染循环 / 播放控制 / 字体预热 / 音频装载。
    原 12_ui.js 的对应逻辑，DOM 操作替换为 bus 事件通知。 */
 import { J } from '../engine';
+import { analyzeAudioOffThread } from './audio-analyze';
 import { S, AP, refreshLoopHold, activeLoopRange } from './state';
 import { autosave, flushSave } from './project';
 import { bus } from './bus';
@@ -208,7 +209,7 @@ export async function loadAudioFile(f: File, restored = false) {
   bus.emit('audioname', '解析中…');
   try {
     pause();
-    const a = await J.analyzeAudio(f);
+    const a = await analyzeAudioOffThread(f);   // 数值计算在 Worker：主线程不卡
     if (my !== audioSeq) return false;
     S.audio = a;
     bus.emit('audioname', `${f.name}（${J.fmtTime(S.audio.duration)}・约${S.audio.bpm}BPM）` + (restored ? '・上次的歌曲' : ''));

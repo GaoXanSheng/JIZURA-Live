@@ -28,8 +28,7 @@ public sealed class EmbeddedServer : IDisposable
             // 放前面会把 /render 等 SPA 路径吞掉。API 侧由 StaticSiteModule 的
             // 回退排除（api/ 前缀不回退）保证到达控制器。
             .WithModule(new StaticSiteModule())
-            .WithModule(BuildApiModule());
-    }
+            .WithModule(BuildApiModule());    }
 
     public static EmbeddedServer? Start()
     {
@@ -47,6 +46,7 @@ public sealed class EmbeddedServer : IDisposable
         var api = new WebApiModule("/", SerializeWithNewtonsoft);
         api.WithController<KgController>();
         api.WithController<NeController>();
+        api.WithController<AnalyzeController>();
         return api;
     }
 

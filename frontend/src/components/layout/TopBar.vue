@@ -55,6 +55,9 @@ async function onOpenProject(e: Event) {
   const f = inp.files && inp.files[0];
   if (!f) return;
   try {
+    // 先让"载入中"提示画出来，再同步解析+规划（大工程会有几百毫秒阻塞）
+    bus.emit('msg', '正在载入工程…');
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     S.project = mergeProject(JSON.parse(await f.text()));
     pause();
     S.project.lyrics = '';
@@ -85,10 +88,6 @@ function seek0() {
 
 <template>
   <header class="flex items-center gap-3.5 flex-wrap py-2 px-4 border-b border-line bg-panel">
-    <div class="flex items-baseline gap-2.5 min-w-0">
-      <span class="brand-mark">字面</span>
-      <span class="font-mono text-[10px] text-mut opacity-80 tracking-wide">Live {{ VERSION }}</span>
-    </div>
     <div class="flex gap-2 flex-[1_1_260px] min-w-0">
       <input v-model="title" type="text" class="flex-[1_1_0] min-w-0" placeholder="曲名（标题卡・HUD 显示）" aria-label="曲名" @input="onTitle">
       <input v-model="artist" type="text" class="flex-[1_1_0] min-w-0" placeholder="歌手" aria-label="歌手" @input="onArtist">
