@@ -83,86 +83,42 @@ internal sealed class SettingsController : WebApiController
 
         var changed = new System.Collections.Generic.List<string>();
 
-        // 全部 UI/管线操作回 WPF 主线程
+        // —— 只保存，不立即应用管线 ——
+        // 渲染窗口分辨率/帧率/Spout ID/透明背景统一在「重启渲染引擎」时
+        // 以 settings 当前值重建镜像（RestartRender），避免每次改动都实时打断输出
         Application.Current?.Dispatcher.Invoke(() =>
         {
-            var main = Application.Current.MainWindow as MainWindow;
-
-            // —— 渲染窗口分辨率：即时调整镜像尺寸 ——
             if (settings.Width != d.Width || settings.Height != d.Height)
-            {
-                settings.Width = d.Width;
-                settings.Height = d.Height;
-                settings.Save();
-                if (SpoutPipeline.Instance.IsRunning && SpoutPipeline.Instance._browser != null)
-                {
-                    SpoutPipeline.Instance._browser.Size = new System.Drawing.Size(d.Width, d.Height);
-                }
                 changed.Add($"渲染窗口分辨率 {d.Width}×{d.Height}");
-            }
 
-            // —— 渲染帧率：变化才重启镜像 ——
             int fps = System.Math.Clamp(d.Fps, 1, 240);
             if (settings.RenderFps != fps)
-            {
-                settings.RenderFps = fps;
-                settings.Save();
-                if (SpoutPipeline.Instance.IsRunning) main?.RestartSpout();
                 changed.Add($"渲染帧率 {fps}fps");
-            }
 
-            // —— Spout 输出 / ID / 透明背景 ——
             string name = string.IsNullOrWhiteSpace(d.SpoutName) ? "JIZURA-live" : d.SpoutName.Trim();
-            bool nameChanged = !string.Equals(settings.SpoutName, name, System.StringComparison.Ordinal);
-            bool spoutChanged = settings.SpoutEnabled != d.SpoutEnabled || nameChanged;
-            bool transChanged = settings.SpoutTransparent != d.SpoutTransparent;
+            if (!string.Equals(settings.SpoutName, name, System.StringComparison.Ordinal))
+                changed.Add($"Spout ID → {name}");
+            if (settings.SpoutEnabled != d.SpoutEnabled)
+                changed.Add($"Spout 输出{(d.SpoutEnabled ? " 开启" : " 关闭")}");
+            if (settings.SpoutTransparent != d.SpoutTransparent)
+                changed.Add($"渲染透明背景{(d.SpoutTransparent ? " 开启" : " 关闭")}");
 
+            settings.Width = d.Width;
+            settings.Height = d.Height;
+            settings.RenderFps = fps;
             settings.SpoutEnabled = d.SpoutEnabled;
             settings.SpoutName = name;
             settings.SpoutTransparent = d.SpoutTransparent;
-            if (spoutChanged || transChanged) settings.Save();
 
-            if (d.SpoutEnabled && spoutChanged)
-            {
-                if (SpoutPipeline.Instance.IsRunning && nameChanged)
-                {
-                    main?.RestartSpout();
-                    changed.Add($"Spout ID → {name}（镜像已重启）");
-                }
-                else if (!SpoutPipeline.Instance.IsRunning)
-                {
-                    main?.StartSpout();
-                    changed.Add("Spout 输出已开启");
-                }
-            }
-            else if (!d.SpoutEnabled && spoutChanged)
-            {
-                main?.StopSpout();
-                changed.Add("Spout 输出已关闭");
-            }
-            else if (nameChanged)
-            {
-                changed.Add($"Spout ID → {name}（开启输出时生效）");
-            }
-
-            if (transChanged && d.SpoutTransparent)
-            {
-                changed.Add("渲染透明背景（镜像已重启）");
-            }
-            else if (transChanged)
-            {
-                changed.Add("渲染透明背景已关闭（镜像已重启）");
-            }
-
-            // —— 调试端口：重启应用生效 ——
             int port = System.Math.Clamp(d.CdpPort, 1, 65535);
             if (settings.CdpEnabled != d.CdpEnabled || settings.CdpPort != port)
             {
                 settings.CdpEnabled = d.CdpEnabled;
                 settings.CdpPort = port;
-                settings.Save();
                 changed.Add($"调试端口{(d.CdpEnabled ? $" {port}" : " 关闭")}（重启应用后生效）");
             }
+
+            settings.Save();
         });
 
         HttpContext.SendStringAsync(
@@ -175,15 +131,29 @@ internal sealed class SettingsController : WebApiController
             "application/json; charset=utf-8", System.Text.Encoding.UTF8);
     }
 
+    // 「重启渲染引擎」：以此刻 settings 的值重建镜像——
+    // 分辨率/帧率/ID/透明背景全部经由 SpoutPipeline.Start 的参数一次性生效
     [Route(HttpVerbs.Post, "/api/app/render/restart")]
     public void RestartRender()
     {
         Application.Current?.Dispatcher.Invoke(() =>
         {
-            if (!SpoutPipeline.Instance.IsRunning)
+            var settings = ((App?)Application.Current)?.Settings;
+            if (settings == null)
                 return;
 
-            (Application.Current.MainWindow as MainWindow)?.RestartSpout();
+            var main = Application.Current.MainWindow as MainWindow;
+            if (settings.SpoutEnabled)
+            {
+                if (SpoutPipeline.Instance.IsRunning)
+                    main?.RestartSpout();
+                else
+                    main?.StartSpout();
+            }
+            else
+            {
+                main?.StopSpout();
+            }
         });
         HttpContext.SendStringAsync("{\"ok\":true}", "application/json; charset=utf-8", System.Text.Encoding.UTF8);
     }
