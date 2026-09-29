@@ -12,6 +12,7 @@ import Transport from './components/stage/Transport.vue';
 import TimelineCanvas from './components/stage/TimelineCanvas.vue';
 import CutInfo from './components/stage/CutInfo.vue';
 import RightPanel from './components/panels/RightPanel.vue';
+import CloudMusicModal from './components/cloud/CloudMusicModal.vue';
 import ToastHost from './components/common/ToastHost.vue';
 
 const ed = useEditor();
@@ -54,6 +55,7 @@ onUnmounted(() => offs.forEach(f => f()));
         <RightPanel />
       </section>
     </main>
+    <CloudMusicModal />
     <ToastHost />
   </div>
 </template>

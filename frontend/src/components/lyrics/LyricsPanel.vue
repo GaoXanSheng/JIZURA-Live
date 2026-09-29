@@ -6,6 +6,8 @@ import { bus } from '../../jizura/bus';
 import { replan, replanSoon } from '../../jizura/engine';
 import { remember, commit, toast, clearLyrics } from '../../jizura/look';
 import { flushSave } from '../../jizura/project';
+import { lyricOptions, setLyricOptions, applyLyricOptions, versions, versionLabel, switchVersion, currentLyric } from '../../cloud/lyricStore';
+import { useCloud } from '../../stores/cloud';
 
 const lyrics = ref('');
 const lang = ref('auto');
@@ -14,14 +16,31 @@ const syntaxOpen = ref(false);
 const ta = ref<HTMLTextAreaElement | null>(null);
 const offs: (() => void)[] = [];
 
+const cloud = useCloud();
+const optRoma = ref(lyricOptions().roma);
+const optTrans = ref(lyricOptions().trans);
+const verIdx = ref('');
+const verBox = ref(false);
+const verList = ref<{ i: number; label: string }[]>([]);
+
 onMounted(() => {
   offs.push(bus.on('sync-ui', sync));
   offs.push(bus.on('lyrics-sync', sync));
   offs.push(bus.on('focus-lyrics', () => ta.value?.focus()));
   offs.push(bus.on('replan', noteLang));
+  offs.push(bus.on('lyric-versions', refreshVersions));
+  offs.push(bus.on('booted', refreshVersions));
   sync();
+  refreshVersions();
 });
 onUnmounted(() => offs.forEach(f => f()));
+
+function refreshVersions() {
+  const cands = versions();
+  verBox.value = cands.length >= 2;
+  verList.value = cands.map((c, i) => ({ i, label: versionLabel(c) }));
+  verIdx.value = '';
+}
 
 function sync() {
   if (document.activeElement !== ta.value) lyrics.value = S.project?.lyrics || '';
@@ -46,6 +65,18 @@ function onLang() {
   toast((S.project.lang === 'auto' ? '歌词语言：自动判定 → ' : '歌词语言：') + J.LANG_LABEL[l]);
   noteLang();
 }
+
+function onLyOpt(kind: 'roma' | 'trans') {
+  setLyricOptions(kind === 'roma' ? { roma: optRoma.value } : { trans: optTrans.value });
+  applyLyricOptions();
+}
+
+function onVersion() {
+  const idx = +verIdx.value;
+  if (!Number.isNaN(idx) && verIdx.value !== '') switchVersion(cloud.source, idx);
+}
+
+const hasLyricSource = () => !!currentLyric();
 </script>
 
 <template>
@@ -69,6 +100,16 @@ function onLang() {
       </select>
       <span class="muted">{{ langNote }}</span>
     </label>
+    <div class="lyopts">
+      <label title="把歌词音译（罗马音/拼音）作为小字注音渲染。勾选变化会对刚载入的酷狗 KRC 歌词（含拖入的 .krc）立即重新生成"><input v-model="optRoma" type="checkbox" @change="onLyOpt('roma')">音译</label>
+      <label title="把歌词翻译作为小字注音渲染；与音译同时勾选时两者并列显示"><input v-model="optTrans" type="checkbox" @change="onLyOpt('trans')">翻译</label>
+      <label v-if="verBox" class="ver" title="同一首歌酷狗上往往有多个歌词版本（官方/用户上传），翻译和音译各版本不一样，可在此切换">歌词版本
+        <select v-model="verIdx" @change="onVersion">
+          <option value="" disabled>选择版本</option>
+          <option v-for="v in verList" :key="v.i" :value="String(v.i)">{{ v.label }}</option>
+        </select>
+      </label>
+    </div>
     <div v-if="syntaxOpen" class="syntax">
       <ul>
         <li>1 行就是 1 个短语，空行表示稍作停顿</li>
@@ -88,6 +129,9 @@ function onLang() {
 .sec-btns { display: inline-flex; gap: 6px; }
 .lang-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--muted); }
 .lang-row select { width: auto; }
+.lyopts { display: inline-flex; gap: 14px; font-size: 12px; align-items: center; flex-wrap: wrap; }
+.lyopts label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+.lyopts .ver select { max-width: 180px; padding: 2px 4px; font-size: 11px; width: auto; }
 .syntax {
   font-size: 12px; color: var(--muted);
   background: var(--raised);

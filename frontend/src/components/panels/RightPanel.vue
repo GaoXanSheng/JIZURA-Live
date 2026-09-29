@@ -7,6 +7,7 @@ import FxTab from './FxTab.vue';
 import TechTab from './TechTab.vue';
 import OutTab from './OutTab.vue';
 import EasyPanel from './EasyPanel.vue';
+import SubtitlePanel from './SubtitlePanel.vue';
 
 const ed = useEditor();
 const active = ref('style');
@@ -28,6 +29,7 @@ const tabs = [
     <FxTab v-show="active === 'fx'" />
     <TechTab v-show="active === 'tech'" />
     <OutTab v-show="active === 'out'" />
+    <SubtitlePanel />
   </template>
 </template>
 

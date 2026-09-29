@@ -9,6 +9,7 @@ import { loadLocal, flushSave } from './project';
 import { replan, seek, bootEngine, loadAudioFile, pause, play, invalidateFontKey } from './engine';
 import * as look from './look';
 import { bus } from './bus';
+import { installSubtitleOverlay } from '../cloud/subtitle';
 
 async function restoreFonts() {
   const list = S.project.userFonts || [];
@@ -37,6 +38,7 @@ function bindKeys() {
 }
 
 export function boot() {
+  installSubtitleOverlay();   // 字幕叠加（Renderer.frame 包装，幂等）
   S.project = loadLocal();
   initVolume();
   replan();
