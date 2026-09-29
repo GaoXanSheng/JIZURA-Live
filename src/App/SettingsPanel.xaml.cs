@@ -35,6 +35,20 @@ public partial class SettingsPanel : UserControl
         InitializeComponent();
     }
 
+    // 标题行拖拽移动设置窗口（无边框窗口没有系统标题栏）
+    private void OnTitleDragMove(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Left)
+        {
+            Window.GetWindow(this)?.DragMove();
+        }
+    }
+
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        Window.GetWindow(this)?.Close();
+    }
+
     public void Initialize(
         Settings settings)
     {

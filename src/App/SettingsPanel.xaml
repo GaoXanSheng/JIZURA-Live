@@ -47,8 +47,35 @@
             BorderBrush="#FF3C3C46" BorderThickness="1"
             CornerRadius="10" Padding="18,14,18,14">
         <StackPanel>
-            <TextBlock Text="&#x2699; 设置" FontSize="14" FontWeight="Bold"
-                       Foreground="{StaticResource FgMain}" Margin="0,0,0,10"/>
+            <Grid Margin="0,0,0,10">
+                <TextBlock Text="&#x2699; 设置" FontSize="14" FontWeight="Bold"
+                           Foreground="{StaticResource FgMain}" VerticalAlignment="Center"
+                           MouseLeftButtonDown="OnTitleDragMove"/>
+                <Button x:Name="BtnClose" Content="&#x2715;" Width="26" Height="26"
+                        HorizontalAlignment="Right" VerticalAlignment="Center"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{StaticResource FgDim}" Cursor="Hand" FontSize="12"
+                        Click="OnCloseClick">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Foreground" Value="#FFFF5A6A"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </Grid>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                 <TextBlock Text="输出分辨率" VerticalAlignment="Center"
                            Foreground="{StaticResource FgDim}" Width="110"/>

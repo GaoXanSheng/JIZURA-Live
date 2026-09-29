@@ -67,11 +67,15 @@ export const useCloud = defineStore('cloud', {
       }
     },
     setSource(s: Source) {
+      if (this.source === s) return;
       this.source = s;
       this.results = [];
       this.resultsError = '';
       this.playlistInput = '';
       this.playlistTip = '';
+      // 我的歌单跟着来源走：旧平台列表立即清掉，歌单页会自动重新加载
+      this.playlists = [];
+      this.playlistsError = '';
     },
     async doSearch() {
       const kw = this.query.trim();

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, watch } from 'vue';
 import { useCloud } from '../../stores/cloud';
 import { parsePlaylistId, api } from '../../cloud/api';
 import { toast } from '../../jizura/look';
@@ -8,6 +8,11 @@ import SongList from './SongList.vue';
 const cloud = useCloud();
 
 onMounted(() => {
+  cloud.loadPlaylists();
+});
+
+// 切换来源（酷狗/网易云）后自动重新加载我的歌单
+watch(() => cloud.source, () => {
   cloud.loadPlaylists();
 });
 
