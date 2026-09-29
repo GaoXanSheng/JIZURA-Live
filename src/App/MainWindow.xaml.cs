@@ -340,16 +340,6 @@ public partial class MainWindow : Window
                 }
             }
             
-            if (
-                e.Message as string ==
-                "jl-settings"
-            )
-            {
-                Dispatcher.BeginInvoke(
-                    ToggleSettings);
-
-                return;
-            }
         }
         catch (Exception ex)
         {
@@ -475,13 +465,7 @@ public partial class MainWindow : Window
         Close();
     }
 
-    // 设置入口已移至前端「导出」页（经 /api/app/settings 唤起）
-    public void ToggleSettings()
-    {
-        SettingsWindow.Toggle(
-            _settings,
-            this);
-    }
+
 
     private void ApplyClean()
     {

@@ -47,7 +47,7 @@ public sealed class EmbeddedServer : IDisposable
         api.WithController<KgController>();
         api.WithController<NeController>();
         api.WithController<AnalyzeController>();
-        api.WithController<AppController>();
+        api.WithController<SettingsController>();
         return api;
     }
 
