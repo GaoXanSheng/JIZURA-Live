@@ -226,6 +226,15 @@
   const tr = s => { if (typeof s !== 'string') return s; for (const [a, b] of TR) if (s.includes(a)) s = s.split(a).join(b); return s; };
   for (const fn of ['exportMP4', 'exportPNGZip']) {
     const orig = J[fn];
-    if (typeof orig === 'function') J[fn] = async (...a) => { try { return await orig(...a); } catch (e) { if (e && e.message) e.message = tr(e.message); throw e; } };
+    if (typeof orig !== 'function') continue;
+    J[fn] = async (...a) => {
+      const o = a[0];
+      if (o && typeof o === 'object' && typeof o.onProgress === 'function') {
+        const origProgress = o.onProgress;
+        o.onProgress = (p, m) => origProgress(p, tr(m));   // 进度文案（帧 x/y 等）一并翻译
+      }
+      try { return await orig(...a); }
+      catch (e) { if (e && e.message) e.message = tr(e.message); throw e; }
+    };
   }
 })();
