@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>WinExe</OutputType>
+        <TargetFramework>net10.0-windows</TargetFramework>
+        <RootNamespace>JizuraLive</RootNamespace>
+        <AssemblyName>JizuraLive</AssemblyName>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <UseWPF>true</UseWPF>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <PlatformTarget>x64</PlatformTarget>
+        <Version>0.5.0</Version>
+        <Product>JIZURA Live</Product>
+        <Description>JIZURA-live</Description>
+        <NoWarn>$(NoWarn);NU1701</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="EmbedIO" Version="3.5.2"/>
+        <PackageReference Include="log4net" Version="3.4.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4"/>
+        <PackageReference Include="CefSharp.Common" Version="152.0.100"/>
+        <PackageReference Include="CefSharp.Wpf" Version="152.0.100"/>
+        <PackageReference Include="CefSharp.OffScreen" Version="152.0.100"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Reference Include="SharpDX">
+            <HintPath>$(NuGetPackageRoot)sharpdx\4.2.0\lib\net45\SharpDX.dll</HintPath>
+        </Reference>
+        <Reference Include="SharpDX.Direct3D11">
+            <HintPath>$(NuGetPackageRoot)sharpdx.direct3d11\4.2.0\lib\net45\SharpDX.Direct3D11.dll</HintPath>
+        </Reference>
+        <Reference Include="SharpDX.DXGI">
+            <HintPath>$(NuGetPackageRoot)sharpdx.dxgi\4.2.0\lib\net45\SharpDX.DXGI.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="CefSharp">
+            <HintPath>$(NuGetPackageRoot)cefsharp.common\152.0.100\lib\net462\CefSharp.dll</HintPath>
+        </Reference>
+        <Reference Include="CefSharp.Core">
+            <HintPath>$(NuGetPackageRoot)cefsharp.common\152.0.100\lib\net462\CefSharp.Core.dll</HintPath>
+        </Reference>
+        <Reference Include="CefSharp.Wpf">
+            <HintPath>$(NuGetPackageRoot)cefsharp.wpf\152.0.100\lib\net462\CefSharp.Wpf.dll</HintPath>
+        </Reference>
+        <Reference Include="SpoutDXWrapper">
+            <HintPath>native\SpoutDXWrapper.dll</HintPath>
+        </Reference>
+        <None Remove="native\SpoutDX.dll"/>
+        <Content Include="native\SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+
+    <Target Name="CopySpoutDx" AfterTargets="Build" Condition="Exists('native\SpoutDX.dll')">
+        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"/>
+    </Target>
+
+    <ItemGroup>
+        <None Remove="wwwroot\**\*"/>
+        <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest"/>
+    </ItemGroup>
+</Project>

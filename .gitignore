@@ -1,0 +1,20 @@
+# Build artifacts
+bin/
+obj/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.DotSettings.user
+
+# Runtime data
+logs/
+cef-cache/
+
+# ZCode session data
+.zcode/
+
+# Python cache (wwwroot/app)
+__pycache__/
+*.pyc
