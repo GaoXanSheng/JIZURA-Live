@@ -30,3 +30,6 @@ config/
 
 # 前端产物已嵌入程序集（obj/frontend-dist → JizuraLive.dll），磁盘 dist 仅剩本地遗留
 wwwroot/dist/
+
+# 临时工作目录
+.tmp-i18n/
