@@ -370,11 +370,11 @@ class Renderer {
   drawCut(env) {
     const cut = env.cut, L = J.LAYOUTS[cut.layout] || J.LAYOUTS.center;
     const decor = cut.decor || [];
-    if (env.layer !== 'front') for (const d of decor) { const D = J.DECOR[d.id]; if (D && D.layer === 'back') try { D.draw(env, null, d); } catch (e) { console.warn(e); } }
+    if (!env.lyricsOnly && env.layer !== 'front') for (const d of decor) { const D = J.DECOR[d.id]; if (D && D.layer === 'back') try { D.draw(env, null, d); } catch (e) { console.warn(e); } }
     if (env.layer === 'back') return null;                // 後景だけ: the lyrics and the front decorations go to the other layer
     let bb = null;
     try { bb = L.render(env); } catch (e) { console.warn('layout', cut.layout, e); }
-    for (const d of decor) { const D = J.DECOR[d.id]; if (D && D.layer === 'front') try { D.draw(env, bb, d); } catch (e) { console.warn(e); } }
+    if (!env.lyricsOnly) for (const d of decor) { const D = J.DECOR[d.id]; if (D && D.layer === 'front') try { D.draw(env, bb, d); } catch (e) { console.warn(e); } }
     return bb;
   }
 

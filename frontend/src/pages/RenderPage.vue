@@ -16,6 +16,8 @@ import { installSubtitleOverlay, setSubOverride } from '../cloud/subtitle';
 const stage = useStage();
 const canvas = ref<HTMLCanvasElement | null>(null);
 const connected = ref(false);
+/* ?layer=lyric：独立 Spout 字幕通道——透明底、只画歌词文字（无背景/装饰/HUD） */
+const isLyricLayer = new URLSearchParams(window.location.search).get('layer') === 'lyric';
 let renderer: any = null;
 let stopBridge: (() => void) | null = null;
 let raf = 0;
@@ -85,17 +87,22 @@ function draw(cv: HTMLCanvasElement) {
   if (!plan) return;
   const ctx = cv.getContext('2d')!;
   try {
-    renderer.frame(ctx, plan, stage.t, { scale: cv.width / plan.W, transparent: !!window.__jl_spout_transparent });
+    renderer.frame(ctx, plan, stage.t, {
+      scale: cv.width / plan.W,
+      transparent: isLyricLayer || !!window.__jl_spout_transparent,
+      lyricsOnly: isLyricLayer,
+      noHud: isLyricLayer,
+    });
   } catch { /* 单帧失败不中断泵 */ }
 }
 </script>
 
 <template>
-  <div class="fixed inset-0 bg-black overflow-hidden">
+  <div class="fixed inset-0 overflow-hidden" :class="isLyricLayer ? 'bg-transparent' : 'bg-black'">
     <!-- id="view" 是 Spout 注入脚本的 DOM 契约 -->
     <canvas id="view" ref="canvas" width="1280" height="720" class="block w-full h-full"></canvas>
     <div v-if="!connected" class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1 backdrop-blur">
-      等待编辑页连接（BroadcastChannel）…
+      等待编辑页连接（BroadcastChannel）{{ isLyricLayer ? ' · 歌词通道' : '' }}
     </div>
   </div>
 </template>

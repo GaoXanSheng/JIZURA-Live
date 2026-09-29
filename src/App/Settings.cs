@@ -13,6 +13,9 @@ public sealed class Settings
     // Spout 输出透明背景：镜像页面跳过背景填充（只输出歌词+特效的透明图层），
     // 供 OBS 等下游合成；主界面预览不受影响。改动重启镜像后生效
     public bool SpoutTransparent { get; set; }
+
+    // 独立 Spout 字幕通道：把歌词层单独输出到 <SpoutID>-LYRICS 通道（透明底，供分层合成）
+    public bool SpoutLyricsEnabled { get; set; }
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;

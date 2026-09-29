@@ -22,6 +22,7 @@ internal sealed class SettingsController : WebApiController
         public bool SpoutEnabled { get; set; }
         public string SpoutName { get; set; } = "";
         public bool SpoutTransparent { get; set; }
+        public bool SpoutLyricsEnabled { get; set; }
         public bool CdpEnabled { get; set; }
         public int CdpPort { get; set; }
     }
@@ -34,6 +35,7 @@ internal sealed class SettingsController : WebApiController
         spoutEnabled = s.SpoutEnabled,
         spoutName = s.SpoutName,
         spoutTransparent = s.SpoutTransparent,
+        spoutLyricsEnabled = s.SpoutLyricsEnabled,
         cdpEnabled = s.CdpEnabled,
         cdpPort = s.CdpPort,
     };
@@ -102,6 +104,8 @@ internal sealed class SettingsController : WebApiController
                 changed.Add($"Spout 输出{(d.SpoutEnabled ? " 开启" : " 关闭")}");
             if (settings.SpoutTransparent != d.SpoutTransparent)
                 changed.Add($"渲染透明背景{(d.SpoutTransparent ? " 开启" : " 关闭")}");
+            if (settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled)
+                changed.Add($"独立 Spout 字幕通道{(d.SpoutLyricsEnabled ? " 开启" : " 关闭")}");
 
             settings.Width = d.Width;
             settings.Height = d.Height;
@@ -109,6 +113,7 @@ internal sealed class SettingsController : WebApiController
             settings.SpoutEnabled = d.SpoutEnabled;
             settings.SpoutName = name;
             settings.SpoutTransparent = d.SpoutTransparent;
+            settings.SpoutLyricsEnabled = d.SpoutLyricsEnabled;
 
             int port = System.Math.Clamp(d.CdpPort, 1, 65535);
             if (settings.CdpEnabled != d.CdpEnabled || settings.CdpPort != port)

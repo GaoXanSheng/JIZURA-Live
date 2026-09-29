@@ -178,7 +178,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
     {
         if (_disposed)
             return;
-
+        
         if (type != PaintElementType.View)
             return;
         if (buffer == IntPtr.Zero || width <= 0 || height <= 0)

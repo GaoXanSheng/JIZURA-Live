@@ -17,6 +17,14 @@ public partial class MainWindow : Window
     /// </summary>
     private string RenderUrl => _url + "render";
 
+    /// <summary>歌词独立通道的渲染页（透明底、只画歌词文字）。</summary>
+    private string LyricsRenderUrl => RenderUrl + "?layer=lyric";
+
+    /// <summary>歌词独立通道的 Spout 发送端名。</summary>
+    private string LyricsSenderName => _settings.SpoutName + "-LYRICS";
+
+    private readonly SpoutPipeline _lyricsPipeline = new SpoutPipeline();
+
     private bool _clean;
 
     private bool _lastSyncPlaying;
@@ -120,6 +128,8 @@ public partial class MainWindow : Window
             _settings.Width,
             _settings.Height,
             _settings.SpoutTransparent);
+
+        ApplySpoutLyrics();
     }
 
     public void StopSpout()
@@ -127,6 +137,51 @@ public partial class MainWindow : Window
         SpoutPipeline
             .Instance
             .Stop();
+
+        _lyricsPipeline.Stop();
+    }
+
+    // --------------------------------------------------------------------
+    // 独立 Spout 字幕通道：按设置开关启停，透明底、只画歌词，
+    // 输出到 <SpoutID>-LYRICS。时间锚点与主通道同源（sync_play 同时喂两路）。
+    // --------------------------------------------------------------------
+    public void ApplySpoutLyrics()
+    {
+        if (_settings.SpoutLyricsEnabled)
+        {
+            if (_lyricsPipeline.IsRunning)
+            {
+                RestartLyrics();
+            }
+            else
+            {
+                _lyricsPipeline.SyncPoke = ForceSyncResend;
+                _lyricsPipeline.Start(
+                    LyricsRenderUrl,
+                    LyricsSenderName,
+                    _settings.RenderFps,
+                    _settings.Width,
+                    _settings.Height,
+                    transparent: true);
+            }
+        }
+        else
+        {
+            _lyricsPipeline.Stop();
+        }
+    }
+
+    private void RestartLyrics()
+    {
+        _lyricsPipeline.Stop();
+        _lyricsPipeline.SyncPoke = ForceSyncResend;
+        _lyricsPipeline.Start(
+            LyricsRenderUrl,
+            LyricsSenderName,
+            _settings.RenderFps,
+            _settings.Width,
+            _settings.Height,
+            transparent: true);
     }
 
     public void RestartSpout()
@@ -144,6 +199,15 @@ public partial class MainWindow : Window
             _settings.Width,
             _settings.Height,
             _settings.SpoutTransparent);
+
+        if (_settings.SpoutLyricsEnabled)
+        {
+            RestartLyrics();
+        }
+        else
+        {
+            _lyricsPipeline.Stop();
+        }
     }
 
     // --------------------------------------------------------------------
@@ -398,6 +462,10 @@ public partial class MainWindow : Window
                 .ApplyPlaybackSync(
                     playing,
                     time);
+
+            _lyricsPipeline.ApplyPlaybackSync(
+                playing,
+                time);
         }
         catch (Exception ex)
         {

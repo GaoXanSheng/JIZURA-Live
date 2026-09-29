@@ -22,6 +22,7 @@ const form = reactive({
   spoutEnabled: true,
   spoutName: 'JIZURA-live',
   spoutTransparent: false,
+  spoutLyricsEnabled: false,
   cdpEnabled: false,
   cdpPort: 9222,
 });
@@ -76,6 +77,7 @@ async function applyAndRestart() {
         width: Math.round(form.width), height: Math.round(form.height), fps: Math.round(form.fps),
         spoutEnabled: form.spoutEnabled, spoutName: form.spoutName,
         spoutTransparent: form.spoutTransparent,
+        spoutLyricsEnabled: form.spoutLyricsEnabled,
         cdpEnabled: form.cdpEnabled, cdpPort: form.cdpPort,
       }),
     });
@@ -203,6 +205,7 @@ onUnmounted(() => offs.forEach(f => f()));
           <input v-model="form.spoutName" type="text" class="flex-1" @input="markDirty">
         </label>
         <label class="checkline"><input v-model="form.spoutTransparent" type="checkbox" @change="markDirty"> 渲染透明背景（输出透明图层）</label>
+        <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立 Spout 字幕通道（歌词单独输出到 <b>{{ form.spoutName || 'JIZURA-live' }}-LYRICS</b>，透明底）</label>
       </div>
 
       <div class="flex flex-col gap-1.5 mt-3.5">
