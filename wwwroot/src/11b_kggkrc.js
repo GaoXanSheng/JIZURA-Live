@@ -149,6 +149,7 @@
       const text = await decryptKrc(new Uint8Array(await file.arrayBuffer()));
       const map = new Map();
       kgLastLyric = { fmt: 'krc', text, map };
+      kgPersistMap();
       const lyrics = document.getElementById('lyrics');
       lyrics.value = krcToLrc(text, kgLyricOptions(), map);
       lyrics.dispatchEvent(new Event('input', { bubbles: true }));
@@ -177,6 +178,7 @@
   const KG_SUB_DEFAULT = {
     content: 'off', pos: 'bottom', size: 4.5, stroke: 4,
     color: '#ffffff', strokeColor: '#000000', font: '', bar: false,
+    offX: 0, offY: 0,               // 自定义位置：画面宽/高的百分比偏移
   };
   let kgSub = null;
   let kgSubBox = null;
@@ -203,6 +205,8 @@
       '<label class="field">描边<input data-k="stroke" type="number" min="0" max="12" step="0.5" title="描边宽度（按 1080p 像素计）"></label>' +
       '<label class="field">文字颜色<input data-k="color" type="color"></label>' +
       '<label class="field">描边颜色<input data-k="strokeColor" type="color"></label>' +
+      '<label class="field">水平偏移 %<input data-k="offX" type="number" min="-50" max="50" step="1" title="字幕水平中心偏移（画面宽度百分比，正=右移）"></label>' +
+      '<label class="field">垂直偏移 %<input data-k="offY" type="number" min="-50" max="50" step="1" title="字幕垂直偏移（画面高度百分比，正=下移）"></label>' +
       '<label class="field field-wide">字体<select data-k="font"><option value="">跟随画面</option><option value="sans">黑体（无衬线）</option><option value="serif">宋体（衬线）</option></select></label>' +
       '<label class="check field-wide"><input data-k="bar" type="checkbox"><span>半透明底条</span></label>' +
       '</div>';
@@ -292,13 +296,17 @@
     ctx.textBaseline = 'alphabetic';
     const rows = kgWrapSubtitle(ctx, text, maxW);
     const blockH = rows.length * lh;
-    const baseY = kgSub.pos === 'top' ? H * 0.055 + fontPx : H - H * 0.055 - blockH + fontPx;
+    // 自定义位置：offX/offY 为画面宽/高的百分比偏移（默认 0 = 原生底部/顶部居中）
+    const clampPct = v => Math.max(-50, Math.min(50, parseFloat(v) || 0));
+    const centerX = W * (0.5 + clampPct(kgSub.offX) / 100);
+    let baseY = kgSub.pos === 'top' ? H * 0.055 + fontPx : H - H * 0.055 - blockH + fontPx;
+    baseY += H * clampPct(kgSub.offY) / 100;
 
     if (kgSub.bar) {
       const wmax = Math.max(...rows.map(r => ctx.measureText(r).width));
       const padX = fontPx * 0.5, padY = fontPx * 0.3;
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
-      ctx.fillRect(W / 2 - wmax / 2 - padX, baseY - fontPx * 0.82 - padY,
+      ctx.fillRect(centerX - wmax / 2 - padX, baseY - fontPx * 0.82 - padY,
                    wmax + padX * 2, blockH + padY * 2);
     }
     ctx.lineWidth = strokePx;
@@ -307,8 +315,8 @@
     ctx.fillStyle = kgSub.color;
     rows.forEach((r, i) => {
       const y = baseY + i * lh;
-      if (strokePx > 0) ctx.strokeText(r, W / 2, y);
-      ctx.fillText(r, W / 2, y);
+      if (strokePx > 0) ctx.strokeText(r, centerX, y);
+      ctx.fillText(r, centerX, y);
     });
     ctx.restore();
   }
@@ -357,6 +365,23 @@
   let kgPollTimer = null;
   let kgLoadSeq = 0;
   let kgLastLyric = null;      // 最近一次载入的歌词源 { fmt: 'krc'|'lrc', text }（音译/翻译勾选框靠它即时重渲染）
+
+  // 镜像（渲染进程）浏览器拿不到主页面内存里的 kgLastLyric，
+  // 映射持久化到 localStorage（两边共享），载入时还原、storage 事件实时跟随
+  function kgPersistMap() {
+    try {
+      const m = kgLastLyric && kgLastLyric.map;
+      if (m && m.size) localStorage.setItem('jizura.kgsubmap', JSON.stringify({ text: kgLastLyric.text || '', map: [...m] }));
+      else localStorage.removeItem('jizura.kgsubmap');
+    } catch (e) { /* 映射过大存不下就算了 */ }
+  }
+  function kgRestoreMap() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('jizura.kgsubmap') || 'null');
+      if (saved && saved.map && saved.map.length) kgLastLyric = { fmt: 'krc', text: saved.text || '', map: new Map(saved.map) };
+    } catch (e) { }
+  }
+  kgRestoreMap();
 
   function kgApi(pathname, params) {
     const q = params ? '?' + new URLSearchParams(params) : '';
@@ -497,9 +522,11 @@
       const text = await decryptKrc(bin);
       const map = new Map();
       kgLastLyric = { fmt: 'krc', text, map, cands };
+      kgPersistMap();
       lyrics.value = krcToLrc(text, kgLyricOptions(), map);
     } else {
       kgLastLyric = { fmt: 'lrc', text: new TextDecoder('utf-8').decode(bin), cands };
+      kgPersistMap();
       lyrics.value = kgLastLyric.text;
     }
     lyrics.dispatchEvent(new Event('input', { bubbles: true }));
@@ -738,6 +765,17 @@
     // 字幕（详细模式右栏「字幕」区）
     kgSub = kgLoadSubCfg();
     kgInjectSubPanel();
+
+    // 主窗口换了歌（KRC 映射更新）：镜像浏览器通过 storage 事件跟随
+    window.addEventListener('storage', e => {
+      if (e.key !== 'jizura.kgsubmap') return;
+      try {
+        const saved = JSON.parse(e.newValue || 'null');
+        kgLastLyric = saved && saved.map && saved.map.length
+          ? { fmt: 'krc', text: saved.text || '', map: new Map(saved.map) }
+          : null;
+      } catch (err) { /* 忽略 */ }
+    });
   }
 
   if (document.readyState === 'loading') {
