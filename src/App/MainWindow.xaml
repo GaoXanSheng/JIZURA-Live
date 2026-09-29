@@ -15,7 +15,7 @@
         UseLayoutRounding="True">
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0"
-                      ResizeBorderThickness="8"
+                      ResizeBorderThickness="5"
                       GlassFrameThickness="0"
                       CornerRadius="0"
                       UseAeroCaptionButtons="False"/>
@@ -51,6 +51,10 @@
                 </Button>
             </StackPanel>
         </Grid>
-        <cef:ChromiumWebBrowser x:Name="Browser" Grid.Row="1"/>
+        <!-- 四周留 5px 边框：CEF 是 Win32 句柄控件，若贴满边缘会把缩放热区整个盖住
+             （鼠标消息进不了 WindowChrome 的命中测试），内缩后边缘归 WPF 才能拖拽缩放 -->
+        <Grid Grid.Row="1" Margin="5" Background="#FF0F0F12">
+            <cef:ChromiumWebBrowser x:Name="Browser"/>
+        </Grid>
     </Grid>
 </Window>
