@@ -34,7 +34,7 @@
 @layer base {
   html, body { height: 100%; }
   body {
-    @apply bg-ink text-fg font-ui antialiased overflow-hidden;
+    @apply bg-ink text-fg font-ui antialiased;
     font-size: 13px; line-height: 1.5;
   }
   [hidden] { display: none !important; }
@@ -174,11 +174,12 @@
 .sg-enter-from { opacity: 0; transform: translateY(4px); }
 @keyframes skel { to { background-position: -200% 0; } }
 
-/* 固定工作区：够宽够高时页面不滚，各栏内部滚 */
-html.fixed-ok body { overflow: hidden; }
+/* 固定工作区：仅在够宽够高的窗口锁整页滚动，各栏内部滚（窄窗口整页上下滑） */
 @media (min-width: 1181px) and (min-height: 620px) {
-  html.fixed-ok .app { height: 100vh; height: 100dvh; }
+  html.fixed-ok body { overflow: hidden; }
+  html.fixed-ok .app { height: 100vh; height: 100dvh; min-height: 0; }
   html.fixed-ok .work { overflow: hidden; }
+  html.fixed-ok .col-left, html.fixed-ok .col-right { overscroll-behavior: contain; }
   html.fixed-ok .col-stage { overflow: hidden auto; }
 }
 @media (max-width: 1180px) {
