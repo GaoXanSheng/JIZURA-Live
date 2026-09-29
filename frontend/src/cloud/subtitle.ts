@@ -161,6 +161,11 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
   ctx.restore();
 }
 
+/* 独立字幕通道绘制入口：/render?layer=lyric 只画字幕（不渲染歌词动画） */
+export function drawSubtitleFrame(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
+  drawSubtitle(ctx, plan, t, opt);
+}
+
 /* 正式帧画完再叠加（幂等：重复挂载不再包一层） */
 export function installSubtitleOverlay() {
   const proto = J.Renderer.prototype as any;

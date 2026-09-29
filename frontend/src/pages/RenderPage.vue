@@ -11,7 +11,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { J } from '../engine';
 import { useStage } from '../stores/stage';
 import { bindStageBroadcast } from '../jizura/stage-bridge';
-import { installSubtitleOverlay, setSubOverride } from '../cloud/subtitle';
+import { installSubtitleOverlay, setSubOverride, drawSubtitleFrame } from '../cloud/subtitle';
 
 const stage = useStage();
 const canvas = ref<HTMLCanvasElement | null>(null);
@@ -87,12 +87,13 @@ function draw(cv: HTMLCanvasElement) {
   if (!plan) return;
   const ctx = cv.getContext('2d')!;
   try {
-    renderer.frame(ctx, plan, stage.t, {
-      scale: cv.width / plan.W,
-      transparent: isLyricLayer || !!window.__jl_spout_transparent,
-      lyricsOnly: isLyricLayer,
-      noHud: isLyricLayer,
-    });
+    if (isLyricLayer) {
+      // 字幕通道：透明画布上只叠加字幕组件（翻译/音译字幕）
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      drawSubtitleFrame(ctx, plan, stage.t, { scale: cv.width / plan.W });
+    } else {
+      renderer.frame(ctx, plan, stage.t, { scale: cv.width / plan.W, transparent: !!window.__jl_spout_transparent });
+    }
   } catch { /* 单帧失败不中断泵 */ }
 }
 </script>
