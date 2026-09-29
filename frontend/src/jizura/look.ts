@@ -360,6 +360,26 @@ export function stopTap() {
 /* 播放到循环终点时打断点同步（engine.tick 经 bus 通知，避免模块循环） */
 bus.on('tapend', () => { if (S.tap) stopTap(); });
 
+/* ---- 初始化：回到空白项目（歌曲/设置/两套历史全清） ---- */
+export async function resetAll() {
+  if (S.exporting) return;
+  if (S.tap) stopTap();
+  pause();
+  const { resetAllProject } = await import('./project');
+  await resetAllProject();
+  ED.undo = []; ED.redo = [];
+  H.list = []; H.i = -1;
+  invalidateFontKey();
+  bus.emit('audioname', '未载入歌曲（载入后自动检测节拍并对齐切分）');
+  bus.emit('sync-ui');
+  bus.emit('editstack');
+  bus.emit('hist');
+  replan(); commit(); seek(0);
+  flushSave();
+  bus.emit('lyrics-sync');
+  toast('已初始化');
+}
+
 /* ---- 当前切分重抽 ---- */
 const CHIP_GROUPS: [string, string, string][] = [
   ['layout', 'l', '布局'], ['enter', 'e', '入场'], ['hold', 'h', '保持'], ['exit', 'x', '退场'],

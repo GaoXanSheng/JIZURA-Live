@@ -5,6 +5,8 @@ import { bus } from './jizura/bus';
 import TopBar from './components/layout/TopBar.vue';
 import LyricsPanel from './components/lyrics/LyricsPanel.vue';
 import AudioPanel from './components/lyrics/AudioPanel.vue';
+import LineList from './components/lyrics/LineList.vue';
+import TapPanel from './components/lyrics/TapPanel.vue';
 import StageCanvas from './components/stage/StageCanvas.vue';
 import Transport from './components/stage/Transport.vue';
 import ToastHost from './components/common/ToastHost.vue';
@@ -34,8 +36,10 @@ onUnmounted(() => offs.forEach(f => f()));
     <TopBar />
     <main class="work">
       <section class="col col-left" aria-label="歌词与时间">
+        <TapPanel />
         <LyricsPanel />
         <AudioPanel />
+        <LineList />
       </section>
       <section class="col col-stage" aria-label="预览">
         <StageCanvas />

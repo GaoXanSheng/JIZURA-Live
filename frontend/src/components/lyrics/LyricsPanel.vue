@@ -4,7 +4,7 @@ import { J } from '../../engine';
 import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
 import { replan, replanSoon } from '../../jizura/engine';
-import { remember, commit, toast } from '../../jizura/look';
+import { remember, commit, toast, clearLyrics } from '../../jizura/look';
 import { flushSave } from '../../jizura/project';
 
 const lyrics = ref('');
@@ -53,7 +53,7 @@ function onLang() {
     <div class="sec-h">
       <h2>歌词</h2>
       <span class="sec-btns">
-        <button class="ghost small" title="清空歌词与逐行时间、指定、导出范围（可用 Ctrl+Z 撤销）">清空歌词</button>
+        <button class="ghost small" title="清空歌词与逐行时间、指定、导出范围（可用 Ctrl+Z 撤销）" @click="clearLyrics()">清空歌词</button>
         <button class="ghost small" :aria-expanded="syntaxOpen" @click="syntaxOpen = !syntaxOpen">记法</button>
       </span>
     </div>

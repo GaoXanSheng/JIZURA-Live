@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import { useEditor } from '../../stores/editor';
 import { S, setMode } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
-import { remember, commit, toast, rangeSuffix } from '../../jizura/look';
+import { remember, commit, toast, rangeSuffix, resetAll } from '../../jizura/look';
 import { replan, replanSoon, pause, seek } from '../../jizura/engine';
 import { mergeProject, flushSave } from '../../jizura/project';
 import { J } from '../../engine';
@@ -37,6 +37,11 @@ function baseName() {
 
 function onSave() {
   J.saveFile(baseName() + '.jizura.json', JSON.stringify(Object.assign({}, S.project, { appVersion: VERSION }), null, 1));
+}
+
+async function onReset() {
+  // 确认弹窗在 Phase 6 换成原生 <dialog>；先保证逻辑可用
+  if (window.confirm('将清空歌词、歌曲、设置和历史，回到初始状态。此操作无法撤销。')) await resetAll();
 }
 
 /* 配置文件只当样式配置用：歌词/逐字时间/BGM 一律清空，避免"配置是 A 歌、歌词 BGM 还是 B 歌"串台 */
@@ -87,7 +92,7 @@ function seek0() {
     <div class="acts">
       <label class="file" title="打开保存的项目(.json)">打开<input ref="fileProject" type="file" accept=".json,application/json" @change="onOpenProject"></label>
       <button title="项目保存为 .json" @click="onSave">保存</button>
-      <button class="ghost" title="清空歌词、歌曲、设置和历史，回到初始状态">初始化</button>
+      <button class="ghost" title="清空歌词、歌曲、设置和历史，回到初始状态" @click="onReset">初始化</button>
     </div>
   </header>
 </template>
