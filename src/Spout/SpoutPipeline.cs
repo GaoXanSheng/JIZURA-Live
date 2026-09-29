@@ -443,11 +443,18 @@ public sealed class SpoutPipeline : IDisposable
                 document.body.appendChild(cv);
             }
 
+            // width/height 必须铺满视口：CEF 页面缩放（按来源持久化，
+            // 与主窗口共享 profile）会让 CSS 视口 ≠ 纹理物理尺寸，
+            // canvas 若按位图尺寸显示就会在右侧/底部留出透明带，
+            // OBS 合成黑底即黑边。铺满视口后 CSS 尺寸×dpr 恒等于
+            // 纹理物理尺寸，任何缩放下都精确 1:1 出图
             cv.style.cssText =
                 'position:fixed;' +
                 'left:0;' +
                 'top:0;' +
                 'margin:0;' +
+                'width:100vw;' +
+                'height:100vh;' +
                 'z-index:2147483647;' +
                 'display:block;' +
                 'visibility:visible;';

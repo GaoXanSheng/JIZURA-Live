@@ -77,7 +77,17 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
     public ScreenInfo? GetScreenInfo()
     {
-        return null;
+        // 缩放系数必须钉死为 1：返回 null 时 CEF 按显示器 DPI 推导缩放
+        //（实测推得 0.9），CSS 视口(2133x1200)≠出图纹理(1920x1080)，
+        // canvas 钉在左上角只占一角，右侧/底部留出 alpha=0 透明带，
+        // OBS 合成到黑底上就是大黑边。=1 保证 CSS 像素 = 纹理像素
+        var size = GetViewRect();
+        return new ScreenInfo
+        {
+            DeviceScaleFactor = 1f,
+            Rect = size,
+            AvailableRect = size
+        };
     }
 
     public Rect GetViewRect()
