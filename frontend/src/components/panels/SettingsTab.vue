@@ -9,6 +9,8 @@ import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
 import { setAspect } from '../../jizura/export';
 import { toast } from '../../jizura/look';
+import SubtitlePanel from './SubtitlePanel.vue';
+import { replan } from '../../jizura/engine';
 
 const ASPECTS = ['16:9', '9:16', '4:3', '3:4', '1:1', '4:5', '21:9'];
 const RES_MIN = 64, RES_MAX = 4096;
@@ -24,6 +26,9 @@ const form = reactive({
   cdpPort: 9222,
 });
 const aspect = ref(S.project?.aspect || '16:9');
+const centerFree = ref(S.project?.centerFree === true);
+const centerGap = ref(S.project?.centerGap ?? 30);
+const centerDir = ref(S.project?.centerDir === 'lr' ? 'lr' : 'tb');
 const loading = ref(true);
 const applying = ref(false);
 const dirty = ref(false);
@@ -88,9 +93,25 @@ async function applyAndRestart() {
   applying.value = false;
 }
 
+function syncCenter() {
+  centerFree.value = S.project?.centerFree === true;
+  centerGap.value = S.project?.centerGap ?? 30;
+  centerDir.value = S.project?.centerDir === 'lr' ? 'lr' : 'tb';
+}
+
+function saveCenter() {
+  S.project.centerFree = centerFree.value;
+  S.project.centerGap = Math.min(70, Math.max(10, Math.round(centerGap.value) || 30));
+  S.project.centerDir = centerDir.value;
+  bus.emit('sync-ui');
+  replan();
+}
+
 onMounted(() => {
   load();
   offs.push(bus.on('out', () => { aspect.value = S.project?.aspect || '16:9'; }));
+  offs.push(bus.on('replan', syncCenter));
+  syncCenter();
 });
 onUnmounted(() => offs.forEach(f => f()));
 </script>
@@ -99,6 +120,27 @@ onUnmounted(() => offs.forEach(f => f()));
   <div class="px-4 py-3.5">
     <div v-if="loading" class="py-6 grid place-items-center"><i class="spinner lg"></i></div>
     <template v-else>
+      <SubtitlePanel />
+
+      <div class="sec !border-b-0 !px-0">
+        <div class="sec-h"><span class="sec-title">留出画面中央</span><span class="text-[11px] text-muted">给角色留出空白，文字与演出放两侧</span></div>
+        <label class="checkline"><input v-model="centerFree" type="checkbox" @change="saveCenter"> 留出画面中央（导出页可开关，宽度用这里自定义的值）</label>
+        <div v-if="centerFree" class="flex flex-col gap-2">
+          <label class="flex items-center gap-3 text-xs">
+            <span class="w-[110px] flex-none text-mut">留白宽度 %</span>
+            <input v-model.number="centerGap" type="number" min="10" max="70" step="5" class="w-24" aria-label="中央留白宽度百分比" @change="saveCenter">
+            <span class="text-mut">%（10~70，按画面宽/高计）</span>
+          </label>
+          <label class="flex items-center gap-3 text-xs">
+            <span class="w-[110px] flex-none text-mut">竖屏分列</span>
+            <select v-model="centerDir" class="w-40" aria-label="竖屏画面的分列方式" @change="saveCenter">
+              <option value="tb">上下留白</option>
+              <option value="lr">左右留白</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div class="flex flex-col gap-2.5">
         <label class="flex items-center gap-3 text-xs">
           <span class="w-[110px] flex-none text-mut">画布比例</span>

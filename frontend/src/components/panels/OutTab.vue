@@ -124,7 +124,7 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
       </label>
     </div>
     <p class="note">选绿幕/黑幕后，只在单色背景上绘制白色文字与演出（背景花纹、纸质感、粒子、暗角都不含）。绿幕可用剪辑软件的色度键抠除，黑幕用「滤色」或亮度键合成。</p>
-    <label class="checkblock my-2.5"><input v-model="centerFree" type="checkbox" @change="setCenterFree(centerFree)"><span>留出画面中央（放角色用）<small>以在中央叠加角色为前提，横屏时文字与演出放左右、竖屏放上下，逐行交替。预览会用虚线标出留空范围</small></span></label>
+    <label class="checkblock my-2.5"><input v-model="centerFree" type="checkbox" @change="setCenterFree(centerFree)"><span>留出画面中央（放角色用）<small>留白宽度在「设置」页自定义；预览会用虚线标出留空范围</small></span></label>
     <label v-if="centerFree && tall" class="row" style="gap: 6px">竖屏时
       <select :value="centerDir" aria-label="竖屏画面的分列方式" @change="setCenterDir(($event.target as HTMLSelectElement).value)">
         <option value="tb">上下分列</option>

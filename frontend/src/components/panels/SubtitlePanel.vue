@@ -20,7 +20,7 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="sec !border-b-0 !border-t border-line">
+  <div class="border border-line rounded-md bg-raised/60 p-3.5 flex flex-col gap-2.5 mb-3">
     <div class="sec-h"><span class="sec-title">字幕</span><span class="text-[11px] text-mut">渲染时叠加（预览与导出）</span></div>
     <div class="grid grid-cols-3 gap-2">
       <label class="field col-span-2">显示
