@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:JizuraLive"
         xmlns:cef="clr-namespace:CefSharp.Wpf.HwndHost;assembly=CefSharp.Wpf"
-        Title="JIZURA Live"
+        Title="字面 Live"
         Icon="pack://application:,,,/assets/app.ico"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -28,7 +28,7 @@
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Height="36" Background="#FF151519"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-            <TextBlock Text="JIZURA Live"
+            <TextBlock Text="字面 Live"
                        VerticalAlignment="Center" Margin="14,0,0,0"
                        FontSize="12" Opacity="0.65"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">

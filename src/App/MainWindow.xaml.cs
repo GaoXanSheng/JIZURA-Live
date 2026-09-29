@@ -442,8 +442,7 @@ public partial class MainWindow : Window
             }
 
             // 时间流仪表：间隔抖动大 = 主页面采样被饿（主线程忙）
-            long ts =
-                Stopwatch.GetTimestamp();
+            long ts = Stopwatch.GetTimestamp();
 
             if (_syncLastTicks != 0)
             {
@@ -461,15 +460,6 @@ public partial class MainWindow : Window
 
             if (++_syncCount >= 60)
             {
-                double expected =
-                    1000.0 / Math.Max(1, _settings.RenderFps);
-
-                Log.Info(
-                    $"[Sync] 时间流：间隔 " +
-                    $"avg={_syncGapSum / Math.Max(1, _syncCount - 1):F1}ms, " +
-                    $"max={_syncGapMax:F1}ms " +
-                    $"（期望≈{expected:F0}ms；max 频繁过大说明主页面采样被饿）");
-
                 _syncCount = 0;
                 _syncLastTicks = 0;
                 _syncGapSum = 0;
