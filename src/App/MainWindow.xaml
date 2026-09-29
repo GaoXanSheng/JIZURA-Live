@@ -8,7 +8,7 @@
         WindowStyle="None"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
-        Width="1280" Height="756" MinWidth="480" MinHeight="360"
+        Width="1280" Height="720" MinWidth="480" MinHeight="360"
         Background="#FF0F0F12"
         Foreground="{StaticResource FgMain}"
         FontFamily="Segoe UI"

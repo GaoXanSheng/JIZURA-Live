@@ -87,12 +87,6 @@
         <AllowedReferenceRelatedFileExtensions Condition="'$(Configuration)' == 'Release'">none</AllowedReferenceRelatedFileExtensions>
     </PropertyGroup>
 
-    <ItemGroup>
-        <None Remove="wwwroot\**\*"/>
-        <!-- 前端：frontend/ 的 Vite 构建产物在 wwwroot/dist（先 npm run build 再 dotnet build）；
-             wwwroot/zh-hans 是旧版单文件页，仅作 /legacy 对照回退，重构收尾后可移除 -->
-        <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />

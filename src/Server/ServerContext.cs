@@ -4,8 +4,6 @@ namespace JizuraLive.Server;
 
 internal static class ServerContext
 {
-    public static string WwwRoot { get; } = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-
     public static KuGouClient KuGou { get; } = new();
 
     public static NeteaseClient Netease { get; } = new();
