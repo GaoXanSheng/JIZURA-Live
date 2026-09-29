@@ -15,7 +15,6 @@ import RightPanel from './components/panels/RightPanel.vue';
 import CloudMusicModal from './components/cloud/CloudMusicModal.vue';
 import ToastHost from './components/common/ToastHost.vue';
 import Dialogs from './components/common/Dialogs.vue';
-import Tour from './components/common/Tour.vue';
 
 const ed = useEditor();
 const booted = ref(false);
@@ -28,7 +27,6 @@ onMounted(() => {
   offs.push(bus.on('time', () => ed.syncTime()));
   offs.push(bus.on('replan', () => ed.syncPlan()));
   offs.push(bus.on('replan-sync', () => ed.syncPlan()));
-  offs.push(bus.on('mode', (m: any) => { ed.mode = m; ed.syncPlan(); }));
   offs.push(bus.on('curline', (li: number) => { ed.curLine = li; }));
   offs.push(bus.on('booted', () => { booted.value = true; ed.syncAll(); }));
   booted.value = true;
@@ -38,7 +36,7 @@ onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
-  <div class="app" :class="['is-' + ed.mode]">
+  <div class="app">
     <TopBar />
     <main class="work">
       <section class="col col-left" aria-label="歌词与时间">
@@ -59,7 +57,6 @@ onUnmounted(() => offs.forEach(f => f()));
     </main>
     <CloudMusicModal />
     <Dialogs />
-    <Tour />
     <ToastHost />
   </div>
 </template>

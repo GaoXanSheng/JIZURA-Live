@@ -21,7 +21,6 @@ onMounted(() => {
   attachView(viewport.value!, canvas.value!);
   offs.push(bus.on('msg', (m: string | null) => { msg.value = m; }));
   offs.push(bus.on('replan', () => sizeViewport()));
-  offs.push(bus.on('mode', () => setTimeout(sizeViewport, 0)));
   offs.push(bus.on('sync-ui', syncKeyBadge));
   ro = new ResizeObserver(() => { sizeViewport(); bus.emit('viewresize'); });
   ro.observe(viewport.value!);

@@ -12,7 +12,6 @@ import { badgesOf } from '../../jizura/ui-helpers';
 
 const cut = ref<any>(null);
 const items = ref<{ g: string; cls: string; label: string; value: string; forced: boolean; enabled: boolean }[]>([]);
-const isPro = ref(true);
 const pick = ref<{ g: string; line: number; k: number; title: string } | null>(null);
 const pickCards = ref<any[]>([]);
 const pickGrid = ref<HTMLElement | null>(null);
@@ -23,23 +22,6 @@ const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 function refresh(c: any) {
   cut.value = c;
   if (!c) { items.value = []; closePick(); return; }
-  if (S.mode !== 'pro') {
-    closePick();
-    const n = (tbl: any, k: string) => (tbl[k] ? tbl[k].name : k);
-    items.value = [
-      { g: '', cls: 'mono', label: '#', value: String(c.index + 1).padStart(2, '0'), forced: false, enabled: true },
-      { g: 'layout', cls: 'l', label: '布局', value: n(J.LAYOUTS, c.layout), forced: false, enabled: true },
-      { g: 'enter', cls: 'e', label: '入场', value: n(J.ENTER, c.enter), forced: false, enabled: true },
-      { g: 'hold', cls: 'h', label: '保持', value: n(J.HOLD, c.hold), forced: false, enabled: true },
-      { g: 'exit', cls: 'x', label: '退场', value: n(J.EXIT, c.exit), forced: false, enabled: true },
-      ...(c.decor && c.decor.length ? [{ g: '', cls: '', label: '装饰', value: c.decor.map((d: any) => n(J.DECOR, d.id)).join('・'), forced: false, enabled: true }] : []),
-      ...(c.treat && c.treat !== 'none' ? [{ g: '', cls: 't', label: '加工', value: n(J.TREAT, c.treat), forced: false, enabled: true }] : []),
-      ...(c.bg && c.bg !== 'none' ? [{ g: '', cls: 'b', label: '背景', value: n(J.BG, c.bg), forced: false, enabled: true }] : []),
-      ...(c.cam && c.cam !== 'push' ? [{ g: '', cls: 'c', label: '镜头', value: n(J.CAMERA, c.cam), forced: false, enabled: true }] : []),
-      ...(c.trans ? [{ g: '', cls: 'c', label: '衔接', value: n(J.TRANS, c.trans), forced: false, enabled: true }] : []),
-    ];
-    return;
-  }
   const k = lyricCutK(c);
   const slot = k >= 0 ? cutTechSlot(c.line, k) : {};
   const quiet = k >= 0 ? cutQuietSlot(c.line, k) : {};
@@ -57,7 +39,7 @@ function refresh(c: any) {
 }
 
 function onChip(it: { g: string; enabled: boolean }) {
-  if (!it.g || !it.enabled || S.mode !== 'pro') return;
+  if (!it.g || !it.enabled) return;
   const c = cut.value;
   const k = lyricCutK(c);
   if (k < 0) return;
@@ -108,8 +90,6 @@ onMounted(() => {
   offs.push(bus.on('cutchange', refresh));
   offs.push(bus.on('replan', () => refresh(J.cutAt(S.plan, S.t))));
   offs.push(bus.on('close-cutpick', closePick));
-  offs.push(bus.on('mode', () => { isPro.value = S.mode === 'pro'; closePick(); refresh(cut.value); }));
-  isPro.value = S.mode === 'pro';
   refresh(J.cutAt(S.plan, S.t));
 });
 onUnmounted(() => offs.forEach(f => f()));
@@ -122,14 +102,14 @@ onUnmounted(() => offs.forEach(f => f()));
     </template>
     <template v-else>
       <button v-for="(it, i) in items" :key="i" type="button"
-              class="chip" :class="[it.cls, { 'is-forced': it.forced, clickable: it.g && it.enabled && isPro }]"
+              class="chip" :class="[it.cls, { 'is-forced': it.forced, clickable: it.g && it.enabled }]"
               :aria-pressed="pick && pick.g === it.g ? 'true' : 'false'"
               :disabled="!it.g || !it.enabled"
               @click="onChip(it)">
         <b v-if="it.label !== '#'">{{ it.label }}</b>{{ it.value }}
       </button>
-      <button v-if="isPro" type="button" class="ghost small" :disabled="!items.some(it => it.enabled)" title="只重抽这个切分的构成" @click="rerollCurrentCut('shuffle')">重抽</button>
-      <button v-if="isPro" type="button" class="ghost small accent" :disabled="!items.some(it => it.enabled)" title="这个切分的手法全部随机" @click="rerollCurrentCut('omakase')">一键随机</button>
+      <button type="button" class="ghost small" :disabled="!items.some(it => it.enabled)" title="只重抽这个切分的构成" @click="rerollCurrentCut('shuffle')">重抽</button>
+      <button type="button" class="ghost small accent" :disabled="!items.some(it => it.enabled)" title="这个切分的手法全部随机" @click="rerollCurrentCut('omakase')">一键随机</button>
     </template>
   </div>
   <div v-if="pick" class="cut-pick">

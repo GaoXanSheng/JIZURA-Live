@@ -7,7 +7,6 @@ import { J } from '../engine';
 export const useEditor = defineStore('editor', {
   state: () => ({
     booted: false,
-    mode: 'pro' as 'pro' | 'easy' | 'mobile',
     playing: false,
     /* 播放时间（每帧更新，只有依赖它的组件重渲染） */
     t: 0,
@@ -49,7 +48,6 @@ export const useEditor = defineStore('editor', {
       this.cutsCount = S.plan ? S.plan.cuts.length : 0;
       this.hasAudio = !!S.audio;
       this.audioBpm = S.audio ? S.audio.bpm : 0;
-      this.mode = S.mode;
     },
     syncAll() {
       this.syncPlayState();

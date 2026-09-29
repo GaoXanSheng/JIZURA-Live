@@ -1,7 +1,6 @@
 /* 引擎运行时状态（12_ui.js 的 S + AP，原样移植）。
    刻意保持非响应式：S.t 每帧变化，走 bus 通知，不进 Vue 响应式系统。 */
 import { J } from '../engine';
-import { bus } from './bus';
 
 export type LoopMode = 'all' | 'line' | 'cut' | false;
 
@@ -20,7 +19,6 @@ export const S = {
   tap: null as { i: number; from: number; done: { i: number; had: number | null }[] } | null,
   slow: false,
   curLine: -2,
-  mode: 'pro' as 'pro' | 'easy' | 'mobile',
   scrubbing: false,
 };
 
@@ -59,14 +57,6 @@ export function initVolume() {
 }
 export function saveVolume() {
   try { localStorage.setItem('jizura.previewVolume', JSON.stringify({ v: AP.vol, m: AP.muted })); } catch {}
-}
-
-/* 模式切换（pro/easy/mobile）—— bus 通知布局组件 */
-export function setMode(m: 'pro' | 'easy' | 'mobile') {
-  S.mode = m;
-  try { localStorage.setItem('jizura.mode', m); } catch {}
-  document.documentElement.classList.toggle('fixed-ok', m !== 'mobile');
-  bus.emit('mode', m);
 }
 
 /* ---- 循环范围 ---- */

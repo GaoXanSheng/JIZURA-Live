@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useEditor } from '../../stores/editor';
-import { S, setMode } from '../../jizura/state';
+import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
 import { remember, commit, toast, rangeSuffix } from '../../jizura/look';
 import { replan, replanSoon, pause, seek } from '../../jizura/engine';
@@ -75,12 +75,6 @@ function seek0() {
   if (c0) seek(c0.start + Math.min(c0.dur * 0.6, c0.inDur + 0.25)); else seek(0);
 }
 
-/* 手机模式：折叠/展开菜单（CSS 按 .app.menu-open 控制） */
-const menuOpen = ref(false);
-function toggleMenu() {
-  menuOpen.value = !menuOpen.value;
-  document.querySelector('.app')?.classList.toggle('menu-open', menuOpen.value);
-}
 </script>
 
 <template>
@@ -89,12 +83,6 @@ function toggleMenu() {
     <div class="proj">
       <input type="text" v-model="title" placeholder="曲名（标题卡・HUD 显示）" aria-label="曲名" @input="onTitle">
       <input type="text" v-model="artist" placeholder="歌手" aria-label="歌手" @input="onArtist">
-    </div>
-    <button class="ghost menu-btn" :aria-expanded="menuOpen" aria-controls="topActs" @click="toggleMenu">菜单</button>
-    <div class="modes" role="group" aria-label="显示模式">
-      <button :aria-pressed="ed.mode === 'mobile'" title="手机竖屏布局" @click="setMode('mobile')">手机</button>
-      <button :aria-pressed="ed.mode === 'easy'" title="一键随机为主的简单界面" @click="setMode('easy')">简单</button>
-      <button :aria-pressed="ed.mode === 'pro'" title="显示全部设置" @click="setMode('pro')">详细</button>
     </div>
     <div class="acts">
       <label class="file" title="打开保存的项目(.json)">打开<input ref="fileProject" type="file" accept=".json,application/json" @change="onOpenProject"></label>

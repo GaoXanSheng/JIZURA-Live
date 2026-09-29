@@ -220,7 +220,7 @@ export function histGo(d: number) {
   restartPreview();
 }
 
-export function restartPreview() { seek(0); if (!S.playing && S.mode !== 'pro') play(); }
+export function restartPreview() { seek(0); }
 
 /* ---- 锁（随机/重抽不能碰的东西） ---- */
 export function locksOf() {

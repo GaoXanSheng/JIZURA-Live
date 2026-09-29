@@ -21,7 +21,8 @@ npm run check      # vue-tsc 类型检查
 ```
 src/
 ├── engine/          # 歌词引擎（JIZURA 原版 JS，IIFE 挂 window.J，按序副作用导入，勿改写）
-│   └── index.ts     # 导入顺序 = 原 build.py 拼接顺序，顺序即依赖顺序
+│   ├── index.ts     # 导入顺序 = 原 build.py 拼接顺序，顺序即依赖顺序
+│   └── zh-labels.js # 简中标签覆盖（风格/部件名/示例歌词/导出错误），必须在引擎文件之后
 ├── jizura/          # 控制层（原 12_ui.js 的非 DOM 逻辑移植）
 │   ├── state.ts     #   S 状态 / WebAudio 播放器 / 循环范围 / 模式切换
 │   ├── project.ts   #   项目持久化（localStorage jizura.project.v1，老项目兼容）
@@ -54,7 +55,14 @@ src/
 - 服务端只改过一处：`StaticSiteModule` 把 `/` 指向 `dist/index.html`；
   `/legacy` 仍提供旧版单文件页作对照。
 
+## 界面语言：简体中文
+
+上游的日文部件名（约 860 个风格/手法/装饰名）由 `engine/zh-labels.js` 在运行时
+按键覆盖为简中——该文件转制自上游 `app/chinese_hans.js`（部件名）与
+`app/i18n_zh_hans.py`（风格名/示例歌词，经 i18n.names_js 生成器产出）。
+升级上游引擎后若新增部件，需同步补充 zh-labels.js（未覆盖的名字保持日文原名）。
+
 ## 旧版（GitHub Pages 七语言构建）已退役
 
 原 build.py + app/i18n 七语言单文件构建已删除；本分支为桌面端定制，
-界面只保留简体中文，引擎内注册名（风格/手法等）保持日文原名。
+界面只保留简体中文，无多模式切换（仅完整编辑器）。

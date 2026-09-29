@@ -6,7 +6,6 @@ import StyleTab from './StyleTab.vue';
 import FxTab from './FxTab.vue';
 import TechTab from './TechTab.vue';
 import OutTab from './OutTab.vue';
-import EasyPanel from './EasyPanel.vue';
 import SubtitlePanel from './SubtitlePanel.vue';
 
 const ed = useEditor();
@@ -20,17 +19,14 @@ const tabs = [
 </script>
 
 <template>
-  <nav v-if="ed.mode === 'pro'" class="tabs" role="tablist">
+  <nav class="tabs" role="tablist">
     <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="active === t.id" @click="active = t.id">{{ t.label }}</button>
   </nav>
-  <EasyPanel v-if="ed.mode !== 'pro'" />
-  <template v-else>
-    <StyleTab v-show="active === 'style'" />
-    <FxTab v-show="active === 'fx'" />
-    <TechTab v-show="active === 'tech'" />
-    <OutTab v-show="active === 'out'" />
-    <SubtitlePanel />
-  </template>
+  <StyleTab v-show="active === 'style'" />
+  <FxTab v-show="active === 'fx'" />
+  <TechTab v-show="active === 'tech'" />
+  <OutTab v-show="active === 'out'" />
+  <SubtitlePanel />
 </template>
 
 <style scoped>

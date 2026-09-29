@@ -14,7 +14,6 @@ import { flushSave } from '../../jizura/project';
 import { useEditor } from '../../stores/editor';
 
 const ed = useEditor();
-const openLine = ref(-1);   // 手机模式点开的行
 const offs: (() => void)[] = [];
 
 interface CutCell { k: number; layout: string; forced: string | null; hue: number; title: string; start: number; half: number }
@@ -132,7 +131,7 @@ function onRng(i: number, ev: MouseEvent) { setExportRange(i, ev.shiftKey); }
   <div class="sec">
     <div class="sec-h"><h2>行与切分</h2><span class="mono muted">{{ infoText }}</span></div>
     <ol class="line-list">
-      <li v-for="r in rows" :key="r.i" class="ln" :class="{ cur: ed.curLine === r.i, 'is-inter': r.interlude, 'in-range': r.inRange, open: openLine === r.i }">
+      <li v-for="r in rows" :key="r.i" class="ln" :class="{ cur: ed.curLine === r.i, 'is-inter': r.interlude, 'in-range': r.inRange }">
         <span class="no">{{ r.no }}</span>
         <input class="time mono" type="number" step="0.01" min="0" :value="r.start.toFixed(2)"
                :title="`开始（秒）${r.manual ? '・手动' : '・自动'}`" :aria-label="`第 ${r.i + 1} 行的开始秒`"
@@ -198,12 +197,5 @@ function onRng(i: number, ev: MouseEvent) { setExportRange(i, ev.shiftKey); }
 .ln .cut-lay { font-size: 10px; padding: 1px 4px; max-width: 112px; min-height: 22px; border: 1px solid var(--line2); border-radius: 4px; background: var(--raised); color: var(--text); }
 .ln .cut-lay.is-forced { border-color: var(--amber); color: var(--text); }
 .ln .tools .icon[aria-pressed='true'] { color: var(--amber); }
-@media (max-width: 900px) {
-  .ln { grid-template-columns: 22px minmax(0, 1fr); padding: 8px 6px; }
-  .ln .time { display: none; }
-  .ln .meta { display: none; grid-column: 1 / -1; }
-  .ln.open .meta { display: flex; }
-  .ln .txt { white-space: nowrap; }
-  .ln.open .txt { white-space: normal; }
-}
+
 </style>

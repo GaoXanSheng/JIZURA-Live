@@ -62,21 +62,3 @@
   .brand .ver { display: none; }
 }
 
-/* ---- かんたん / スマホ模式 ---- */
-.app.is-easy .pro-only { display: none !important; }
-.app.is-mobile .pro-only { display: none !important; }
-.placeholder { padding: 24px 16px; color: var(--faint); font-size: 12px; text-align: center; border: 1px dashed var(--line); border-radius: var(--r); margin: 16px; }
-
-/* ---- 手机模式顶栏折叠 ---- */
-.menu-btn { display: none; }
-@media (max-width: 900px), (pointer: coarse) {
-  .menu-btn { display: inline-flex; }
-}
-.app.is-mobile .bar { position: sticky; top: 0; z-index: 40; }
-.app.is-mobile .proj, .app.is-mobile .acts { display: none; }
-.app.is-mobile.menu-open .proj, .app.is-mobile.menu-open .acts { display: flex; flex: 1 1 100%; }
-.app.is-mobile .work { display: flex; flex-direction: column; overflow: visible; }
-.app.is-mobile .col-stage { order: -1; position: sticky; top: 64px; z-index: 30; background: var(--ink); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45); }
-.app.is-mobile .viewport canvas { max-height: 34vh; }
-.app.is-mobile .tl-bar, .app.is-mobile .timeline, .app.is-mobile .cut-info { display: none; }
-.app.is-mobile button, .app.is-mobile select, .app.is-mobile input[type='text'], .app.is-mobile label.file { min-height: 40px; }

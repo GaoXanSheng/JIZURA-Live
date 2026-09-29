@@ -19,7 +19,6 @@ const colorOn = ref(false), accentOn = ref(false);
 const baseColors = ref<{ k: string; label: string; value: string }[]>([]);
 const accentColors = ref<{ k: string; label: string; value: string }[]>([]);
 const swatch = ref<string[]>([]);
-const isPro = ref(true);
 
 const BASE_KEYS: [string, string][] = [['bg', '背景'], ['fg', '文字'], ['sub', '辅助']];
 const ACCENT_KEYS: [string, string][] = [['accent', '强调色'], ['ghostA', '错位色A'], ['ghostB', '错位色B']];
@@ -144,7 +143,7 @@ function drawSwatch() {
   swatch.value = sc ? swatchHTML([sc.accent, sc.ghostA, sc.ghostB]) : [];
 }
 
-function onSyncUi() { rebuildStyles(); rebuildFonts(); rebuildColors(); isPro.value = S.mode !== 'easy' && S.mode !== 'mobile'; }
+function onSyncUi() { rebuildStyles(); rebuildFonts(); rebuildColors(); }
 
 onMounted(() => {
   offs.push(bus.on('sync-ui', onSyncUi));

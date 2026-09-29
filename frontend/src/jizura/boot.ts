@@ -4,7 +4,6 @@
    - window.J.uiApi   —— 宿主动作（SeekSpoutPipeline.cs 注入脚本调用） */
 import { J } from '../engine';
 import { S, initVolume } from './state';
-import { setMode } from './state';
 import { loadLocal, flushSave } from './project';
 import { replan, seek, bootEngine, loadAudioFile, pause, play, invalidateFontKey } from './engine';
 import * as look from './look';
@@ -43,9 +42,6 @@ export function boot() {
   initVolume();
   replan();
   restoreFonts();
-  let mode: 'pro' | 'easy' | 'mobile' = window.matchMedia && window.matchMedia('(max-width: 760px)').matches ? 'mobile' : 'easy';
-  try { mode = (localStorage.getItem('jizura.mode') as any) || mode; } catch {}
-  setMode(mode);
   look.commit();
   bindKeys();
   // 打开在有代表性的帧（第一个切分入场的中段）

@@ -151,7 +151,6 @@ onMounted(() => {
   offs.push(bus.on('replan', drawTimeline));
   offs.push(bus.on('replan-sync', drawTimeline));
   offs.push(bus.on('viewresize', drawTimeline));
-  offs.push(bus.on('mode', () => setTimeout(drawTimeline, 0)));
   drawTimeline();
 });
 onUnmounted(() => offs.forEach(f => f()));
