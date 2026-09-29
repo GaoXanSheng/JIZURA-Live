@@ -29,6 +29,7 @@ const aspect = ref(S.project?.aspect || '16:9');
 const centerFree = ref(S.project?.centerFree === true);
 const centerGap = ref(S.project?.centerGap ?? 30);
 const centerDir = ref(S.project?.centerDir === 'lr' ? 'lr' : 'tb');
+const centerZone = ref(S.project?.centerZone || 'center');
 const loading = ref(true);
 const applying = ref(false);
 const dirty = ref(false);
@@ -97,12 +98,14 @@ function syncCenter() {
   centerFree.value = S.project?.centerFree === true;
   centerGap.value = S.project?.centerGap ?? 30;
   centerDir.value = S.project?.centerDir === 'lr' ? 'lr' : 'tb';
+  centerZone.value = S.project?.centerZone || 'center';
 }
 
 function saveCenter() {
   S.project.centerFree = centerFree.value;
   S.project.centerGap = Math.min(70, Math.max(10, Math.round(centerGap.value) || 30));
   S.project.centerDir = centerDir.value;
+  S.project.centerZone = centerZone.value;
   bus.emit('sync-ui');
   replan();
 }
@@ -127,11 +130,21 @@ onUnmounted(() => offs.forEach(f => f()));
         <label class="checkline"><input v-model="centerFree" type="checkbox" @change="saveCenter"> 留出画面中央（导出页可开关，宽度用这里自定义的值）</label>
         <div v-if="centerFree" class="flex flex-col gap-2">
           <label class="flex items-center gap-3 text-xs">
-            <span class="w-[110px] flex-none text-mut">留白宽度 %</span>
-            <input v-model.number="centerGap" type="number" min="10" max="70" step="5" class="w-24" aria-label="中央留白宽度百分比" @change="saveCenter">
-            <span class="text-mut">%（10~70，按画面宽/高计）</span>
+            <span class="w-[110px] flex-none text-mut">留白位置</span>
+            <select v-model="centerZone" class="flex-1" aria-label="留白区域位置" @change="saveCenter">
+              <option value="center">画面中央（文字分列两侧/上下）</option>
+              <option value="left">左侧留白（文字排右侧）</option>
+              <option value="right">右侧留白（文字排左侧）</option>
+              <option value="top">顶部留白（文字排下方）</option>
+              <option value="bottom">底部留白（文字排上方）</option>
+            </select>
           </label>
           <label class="flex items-center gap-3 text-xs">
+            <span class="w-[110px] flex-none text-mut">留白宽度 %</span>
+            <input v-model.number="centerGap" type="number" min="10" max="70" step="5" class="w-24" aria-label="留白宽度百分比" @change="saveCenter">
+            <span class="text-mut">%（10~70，按画面宽/高计）</span>
+          </label>
+          <label v-if="centerZone === 'center'" class="flex items-center gap-3 text-xs">
             <span class="w-[110px] flex-none text-mut">竖屏分列</span>
             <select v-model="centerDir" class="w-40" aria-label="竖屏画面的分列方式" @change="saveCenter">
               <option value="tb">上下留白</option>

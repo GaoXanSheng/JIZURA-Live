@@ -25,6 +25,7 @@ J.defaultProject = () => ({
   typeset: false,                 // 文字整列: kana tracking, small particles / big first character, Latin sizing, 0.2 s lead, restraint
   centerDir: 'tb',                // 中央を空ける on tall frames: 'tb' = top / bottom, 'lr' = left / right
   centerFree: false,              // 中央を空ける: lay the cuts out in side bands (left / right or top / bottom) around a character
+  centerZone: 'center',           // 留白位置: center / left / right / top / bottom（设置页自定义）
   seed: 20260922,
   aspect: '16:9', res: 1080, fps: 24,
   fx: { motion: 0.7, glitch: 0.55, chroma: 0.7, decor: 0.5, density: 0.55, texture: 0.6, flash: true, onTwos: true, koma: 12, hud: 'auto', bgSwitch: 0.35 },
@@ -231,7 +232,7 @@ J.plan = (project, audio) => {
   for (const g of J.GROUP_KEYS) { en[g] = {}; const src = (project.enabled || {})[g] || {}; for (const k of J.order(g)) en[g][k] = src[k] !== false && (!J.randomOk || J.randomOk(project, g, k)); }
   // 中央を空ける (キャラクター用): every cut is laid out in a side band — left / right on wide frames, top / bottom on tall
   // ones — alternating line by line; the centre keeps only the full-frame background and screen effects
-  const zones = project.centerFree ? J.sideZones(W, H, project.centerDir, project.centerGap) : null;
+  const zones = project.centerFree ? J.sideZones(W, H, project.centerDir, project.centerGap, project.centerZone) : null;
   // the lyric of every cut is split in two: the first half in band 0 (left / top), the second in band 1 (right / bottom)
   const zoneOf = () => (zones ? Object.assign({}, zones[0]) : null);
   if (zones && en.bg) en.bg.bigChar = false;               // the one background that draws the lyric itself (big, centred)
@@ -703,9 +704,18 @@ J.lineSnapshot = (plan, li) => {
 
 /* side bands for 中央を空ける: [a, b] in design pixels. Wide frames: left / right thirds (a little narrower on 21:9);
    tall frames: top / bottom; square-ish frames count as wide.
-   gapPct: 中央留白占画面宽/高的百分比（10..70，设置页自定义）；缺省用原来的固定比例。 */
-J.sideZones = (W, H, dir, gapPct) => {
+   gapPct: 中央留白占画面宽/高的百分比（10..70，设置页自定义）；缺省用原来的固定比例。
+   zonePos: 留白位置 center / left / right / top / bottom（设置页自定义）；
+   单侧留白时文字排进剩余区域，切成上下（左右留白时）或左右（上下留白时）两个矩形。 */
+J.sideZones = (W, H, dir, gapPct, zonePos) => {
   const gap = !(gapPct > 0) ? 0 : Math.min(70, Math.max(10, +gapPct)) / 100;
+  const bw = Math.round(W * (gap || 0.3));
+  const bh = Math.round(H * (gap || 0.33));
+  const halfH = Math.round(H / 2), halfW = Math.round(W / 2);
+  if (zonePos === 'left')  { const w = bw; return [{ x: w, y: 0, w: W - w, h: halfH, side: 'top' }, { x: w, y: halfH, w: W - w, h: H - halfH, side: 'bottom' }]; }
+  if (zonePos === 'right') { const w = bw; return [{ x: 0, y: 0, w: W - w, h: halfH, side: 'top' }, { x: 0, y: halfH, w: W - w, h: H - halfH, side: 'bottom' }]; }
+  if (zonePos === 'top')   { const h = bh; return [{ x: 0, y: h, w: halfW, h: H - h, side: 'left' }, { x: halfW, y: h, w: W - halfW, h: H - h, side: 'right' }]; }
+  if (zonePos === 'bottom'){ const h = bh; return [{ x: 0, y: 0, w: halfW, h: H - h, side: 'left' }, { x: halfW, y: 0, w: W - halfW, h: H - h, side: 'right' }]; }
   if (H > W * 1.1 && dir === 'lr') { const w = Math.round(W * (gap ? (1 - gap) / 2 : 0.34)); return [{ x: 0, y: 0, w, h: H, side: 'left' }, { x: W - w, y: 0, w, h: H, side: 'right' }]; }   // 縦長で左右に分ける
   if (H > W * 1.1) { const h = Math.round(H * (gap || 0.33)); return [{ x: 0, y: 0, w: W, h, side: 'top' }, { x: 0, y: H - h, w: W, h, side: 'bottom' }]; }
   const w = Math.round(W * (gap ? (1 - gap) / 2 : (W / H > 2 ? 0.3 : 0.36)));

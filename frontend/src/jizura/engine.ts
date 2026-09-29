@@ -115,8 +115,16 @@ export function sizeViewport() {
 
 /* 中央を空ける的预览参考线（仅预览，导出不含） */
 function drawCenterGuide(ctx: CanvasRenderingContext2D, k: number) {
-  const P = S.plan, z = P.zones; if (!z) return;
-  const r = z[0].side === 'left' ? [z[0].w, 0, P.W - z[0].w - z[1].w, P.H] : [0, z[0].h, P.W, P.H - z[0].h - z[1].h];
+  const P = S.plan, z = P.zones; if (!z || z.length < 2) return;
+  const pos = S.project.centerZone || 'center';
+  // 留白矩形：单侧留白 = 文字带之外的那条边；中央 = 两条文字带之间的区域
+  let r: number[];
+  if (pos === 'left') r = [0, 0, z[0].x, P.H];
+  else if (pos === 'right') r = [z[0].x + z[0].w, 0, P.W - z[0].x - z[0].w, P.H];
+  else if (pos === 'top') r = [0, 0, P.W, z[0].y];
+  else if (pos === 'bottom') r = [0, z[0].y + z[0].h, P.W, P.H - z[0].y - z[0].h];
+  else if (P.W >= P.H) { const left = z[0].x + z[0].w, right = z[1].x; r = [left, 0, Math.max(2, right - left), P.H]; }
+  else { const top = z[0].y + z[0].h, bottom = z[1].y; r = [0, top, P.W, Math.max(2, bottom - top)]; }
   ctx.save(); ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.setLineDash([14, 10]); ctx.lineWidth = 2 / k * 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.55)';
   ctx.strokeRect(r[0] + 4, r[1] + 4, r[2] - 8, r[3] - 8);
