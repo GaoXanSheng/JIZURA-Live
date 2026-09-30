@@ -14,6 +14,8 @@
         <Product>JIZURA Live</Product>
         <Description>JIZURA-live</Description>
         <ApplicationIcon>assets\app.ico</ApplicationIcon>
+        <!-- 自包含发布只带简中卫星资源：默认会把运行时全部语言目录（cs/de/es/...）打进去 -->
+        <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
         <NoWarn>$(NoWarn);NU1701</NoWarn>
     </PropertyGroup>
 
@@ -110,6 +112,9 @@
         <FrontendSourceInputs Include="$(FrontendDir)tsconfig.json"/>
         <FrontendSourceInputs Include="$(FrontendDir)index.html"/>
         <FrontendSourceInputs Include="$(FrontendDir)src\**\*"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Folder Include="Output\"/>
     </ItemGroup>
     <Target Name="FrontendInvalidateStamp" BeforeTargets="BuildFrontend">
         <!-- 产物目录被清空但戳记还在时强制重建 -->
