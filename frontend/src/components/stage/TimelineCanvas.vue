@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /* 时间轴（原 12_ui.js timeline 体系）：音频波形 + 节拍 + 切分块 + 行界拖动手柄
    缩放/平移（滚轮）、点击定位、拖动行界（Shift 自由，默认吸附节拍） */
-import { onMounted, onUnmounted, ref } from 'vue';
-import { J } from '../../engine';
-import { S, activeLoopRange } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { seek, pause, replan } from '../../jizura/engine';
-import { pushEdit, flushSave, exportRangeLines, exportRange, edGo } from '../../jizura/look';
-import { probeRecord } from '../../jizura/probe';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {J} from '../../engine';
+import {activeLoopRange, S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {pause, replan, seek} from '../../jizura/engine';
+import {edGo, exportRange, flushSave, pushEdit} from '../../jizura/look';
+import {probeRecord} from '../../jizura/probe';
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const offs: (() => void)[] = [];
@@ -33,6 +33,28 @@ function followTlPlayhead() {
   if (S.t < off || S.t > off + vd * 0.92) drawTimeline();
 }
 
+/* 静态层缓存：波形/节拍/切分/行界很少变。播放中每帧只需叠加播放头；
+   视图或内容一变（缩放/平移/拖动/replan/导出范围/循环模式/换音频）整幅重建。
+   此前每帧全量重画（含逐条切分 fillText），只为了挪一根播放头。 */
+let tlStatic: HTMLCanvasElement | null = null;
+let tlStaticKey = '';
+
+function tlCacheKey(w: number, h: number, off: number, vd: number): string {
+  const R = exportRange();
+  const loopR = S.loop === 'line' || S.loop === 'cut' ? activeLoopRange() : null;
+  return [w, h, off.toFixed(3), vd.toFixed(3), TL.z, TL.drag, TL.hover, S.loop,
+    R ? R.t0.toFixed(2) + '~' + R.t1.toFixed(2) : '',
+    loopR ? loopR.start.toFixed(2) + '~' + loopR.end.toFixed(2) : '',
+    S.audio ? S.audio.duration.toFixed(2) : '',
+    S.plan.cuts.length, S.plan.lines.length].join('|');
+}
+
+function drawPlayhead(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, off: number, vd: number) {
+  const px = (S.t - off) / vd * w;
+  x.fillStyle = '#f5a50c';
+  x.fillRect(Math.round(px) - dpr, 0, 2 * dpr, h);
+}
+
 function drawTimeline() {
   const __t0 = performance.now();
   const c = canvas.value; if (!c || !S.plan) return;
@@ -41,7 +63,42 @@ function drawTimeline() {
   if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
   let { D, vd, off } = tlView();
   if (TL.z > 1 && S.playing && TL.drag < 0 && (S.t < off || S.t > off + vd * 0.92)) { TL.off = S.t - vd * 0.1; ({ D, vd, off } = tlView()); }
+  if (!tlStatic || tlStatic.width !== w || tlStatic.height !== h) {
+    tlStatic = document.createElement('canvas');
+    tlStatic.width = w;
+    tlStatic.height = h;
+  }
+  drawStatic(tlStatic.getContext('2d')!, w, h, dpr, vd, off, D);
+  tlStaticKey = tlCacheKey(w, h, off, vd);
   const x = c.getContext('2d')!;
+  x.drawImage(tlStatic, 0, 0);
+  drawPlayhead(x, w, h, dpr, off, vd);
+  probeRecord('timeline:draw', performance.now() - __t0);
+}
+
+/* 播放帧：静态层命中就只叠加播放头；视图被自动跟随挪动或缓存失效才整幅重画 */
+function tlFrame() {
+  const c = canvas.value;
+  if (!c || !S.plan) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(10, Math.round(c.clientWidth * dpr)), h = Math.max(10, Math.round(c.clientHeight * dpr));
+  let {vd, off} = tlView();
+  if (TL.z > 1 && S.playing && TL.drag < 0 && (S.t < off || S.t > off + vd * 0.92)) {
+    drawTimeline();
+    return;
+  }
+  if (!tlStatic || tlStaticKey !== tlCacheKey(w, h, off, vd)) {
+    drawTimeline();
+    return;
+  }
+  const __t0 = performance.now();
+  const x = c.getContext('2d')!;
+  x.drawImage(tlStatic, 0, 0);
+  drawPlayhead(x, w, h, dpr, off, vd);
+  probeRecord('timeline:frame', performance.now() - __t0);
+}
+
+function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, vd: number, off: number, D: number) {
   const X = (t: number) => (t - off) / vd * w, T = (px: number) => off + px / w * vd;
   x.fillStyle = '#131316'; x.fillRect(0, 0, w, h);
   if (S.audio && S.audio.peaks) {
@@ -55,6 +112,7 @@ function drawTimeline() {
   const top = h * 0.3, bot = h - 8 * dpr;
   const R = exportRange();
   if (R) { x.fillStyle = 'rgba(245,165,12,0.10)'; x.fillRect(X(R.t0), 0, X(R.t1) - X(R.t0), h); }
+  const mono = getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
   for (const cut of S.plan.cuts) {
     const x0 = X(cut.start), x1 = X(cut.end);
     if (x1 < 0 || x0 > w) continue;
@@ -62,7 +120,8 @@ function drawTimeline() {
     x.fillStyle = `hsla(${hue},70%,58%,0.28)`; x.fillRect(x0, top, Math.max(1, x1 - x0 - 1), bot - top);
     x.fillStyle = `hsla(${hue},80%,62%,0.95)`; x.fillRect(x0, top, Math.max(1, 2 * dpr), bot - top);
     if (x1 - x0 > 34 * dpr) {
-      x.fillStyle = 'rgba(236,231,225,0.85)'; x.font = `${10 * dpr}px ${getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace'}`;
+      x.fillStyle = 'rgba(236,231,225,0.85)';
+      x.font = `${10 * dpr}px ${mono}`;
       x.save(); x.beginPath(); x.rect(x0, top, x1 - x0 - 3, bot - top); x.clip();
       x.fillText(TL.z > 3 && cut.text ? cut.text : ((J.LAYOUTS[cut.layout] || {}).name || cut.layout), x0 + 5 * dpr, top + 13 * dpr); x.restore();
     }
@@ -86,9 +145,6 @@ function drawTimeline() {
     x.fillStyle = 'rgba(245,165,12,0.16)';
     x.fillRect(X(r.start), 0, Math.max(2 * dpr, X(r.end) - X(r.start)), h);
   }
-  const px = X(S.t);
-  x.fillStyle = '#f5a50c'; x.fillRect(Math.round(px) - dpr, 0, 2 * dpr, h);
-  probeRecord('timeline:draw', performance.now() - __t0);
 }
 
 function tlTime(ev: { clientX: number }) {
@@ -149,7 +205,7 @@ function onWheel(e: WheelEvent) {
 function undoEdit() { edGo(-1); }
 
 onMounted(() => {
-  offs.push(bus.on('frame', drawTimeline));
+  offs.push(bus.on('frame', tlFrame));
   offs.push(bus.on('playhead', followTlPlayhead));
   offs.push(bus.on('replan', drawTimeline));
   offs.push(bus.on('replan-sync', drawTimeline));

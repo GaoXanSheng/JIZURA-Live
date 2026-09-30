@@ -30,10 +30,10 @@ bindEditorBroadcast();     // 向 /render 渲染页广播工程/时间/字幕（
 
 onMounted(() => {
   offs.push(bus.on('playstate', () => ed.syncPlayState()));
-  offs.push(bus.on('playhead', () => ed.syncTime()));
-  // ed.t 驱动 Transport 的时间码/进度条重渲染：60Hz 全量会让 Transport 每帧
-  // vdom diff + DOM 写入，把整页布局弄脏（实测布局占渲染进程 40% 墙钟）。
-  // 时间码 12Hz 足够，播放头平滑由 TimelineCanvas 直读 S.t 保证
+  // 时间码只走 frame 的 80ms 节流路径：playhead 是逐帧事件，曾在这里无节流
+  // 地 syncTime，把 Transport 打成每帧 vdom diff + DOM 写入（60Hz 全量实测
+  // 布局占渲染进程 40% 墙钟）。seek 会置 need，下一帧 draw 补发 frame，
+  // 时间码不丢更新；播放头平滑由 TimelineCanvas 直读 S.t 保证
   let lastTimeSync = 0;
   offs.push(bus.on('frame', () => {
     const now = performance.now();
