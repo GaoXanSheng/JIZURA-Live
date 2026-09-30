@@ -11,7 +11,6 @@ import type { Song, Source } from './types';
 const MIME: Record<string, string> = { mp3: 'audio/mpeg', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4' };
 
 let loadSeq = 0;
-export function loadingId(): number { return loadSeq; }
 
 export async function loadSong(source: Source, it: Song, quality: string): Promise<void> {
   const my = ++loadSeq;

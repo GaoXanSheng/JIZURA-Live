@@ -114,14 +114,12 @@ export function pickEnabledTech(g: string, opts: { n?: number; allowNone?: boole
 /* ---- 歌词/时间编辑历史（Ctrl+Z，独立于外观◀▶） ---- */
 const ED = { undo: [] as string[], redo: [] as string[] };
 const edSnap = () => JSON.stringify({ lyrics: S.project.lyrics, lineTimes: S.project.timing.lineTimes || {} });
-export function editUndoDepth() { return ED.undo.length; }
 
 export function pushEdit() {
   const s = edSnap();
   if (ED.undo[ED.undo.length - 1] !== s) ED.undo.push(s);
   if (ED.undo.length > 60) ED.undo.shift();
   ED.redo = [];
-  bus.emit('editstack');
 }
 
 export function edGo(d: number) {
@@ -134,7 +132,6 @@ export function edGo(d: number) {
   if ('ov' in o) { S.project.overrides = o.ov || {}; S.project.exportRange = o.range || null; }
   replan(); flushSave();
   bus.emit('lyrics-sync');
-  bus.emit('editstack');
   toast(d < 0 ? '已撤销' : '已重做');
 }
 
@@ -149,7 +146,6 @@ export function clearLyrics() {
   P.lyrics = ''; P.timing.lineTimes = {}; P.overrides = {}; P.exportRange = null;
   replan(); flushSave(); seek(0);
   bus.emit('lyrics-sync');
-  bus.emit('editstack');
   toast('歌词已清空（可用「撤销」或 Ctrl+Z 恢复）');
 }
 
@@ -302,35 +298,6 @@ export function omakase() {
   restartPreview();
 }
 
-/* 只换外观的一个方面 */
-export function rerollPart(part: 'style' | 'mood' | 'cut') {
-  if (S.exporting || S.tap) return;
-  remember();
-  const P = S.project;
-  let msg = '';
-  if (part === 'style') {
-    let pool = J.STYLE_ORDER.filter((k: string) => k !== P.style && J.randomOk(P, 'style', k));
-    if (!pool.length) pool = J.STYLE_ORDER.filter((k: string) => k !== P.style);
-    P.style = pool[Math.floor(Math.random() * pool.length)];
-    P.colors.enabled = false;
-    msg = `风格：${J.STYLES[P.style].name}`;
-  } else if (part === 'mood') {
-    const keepE = lockedEnabled(), keepP = lockedParams();
-    const r = J.omakase(P);
-    Object.assign(P, { mood: r.mood, fx: r.fx, enabled: r.enabled });
-    restoreEnabled(keepE); restoreParams(keepP);
-    msg = `氛围：${J.MOODS[r.mood].name}`;
-  } else if (part === 'cut') {
-    P.seed = (Math.random() * 1e9) | 0;
-    msg = '构成：布局与动效已重抽';
-  }
-  invalidateFontKey();
-  bus.emit('sync-ui');
-  replan(); commit();
-  toast(msg);
-  restartPreview();
-}
-
 /* ---- TAP 打点同步 ----
    从任意行开始：播放从该行稍前开始，更早的行保持原时间 */
 export function startTap(from = 0) {
@@ -339,7 +306,6 @@ export function startTap(from = 0) {
   pushEdit();
   S.tap = { i: from, from, done: [] };
   if (!S.project.timing.lineTimes) S.project.timing.lineTimes = {};
-  bus.emit('tap');
   const prev = from > 0 ? S.plan.lines[from - 1] : null, cur = S.plan.lines[from];
   const t0 = from === 0 ? 0 : Math.max(0, prev.start + 0.01, cur.start - 2.5);   // 比该行稍早，但不早于上一行
   seek(t0); play(); bus.emit('tapstate');
@@ -387,7 +353,6 @@ export async function resetAll() {
   invalidateFontKey();
   bus.emit('audioname', '未载入歌曲（载入后自动检测节拍并对齐切分）');
   bus.emit('sync-ui');
-  bus.emit('editstack');
   bus.emit('hist');
   replan(); commit(); seek(0);
   flushSave();

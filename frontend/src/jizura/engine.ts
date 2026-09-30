@@ -163,8 +163,6 @@ export function tick(now: number) {
 }
 
 /* ---- 播放控制 ---- */
-export function updateTime() { bus.emit('time'); }
-
 export function play() {
   refreshLoopHold();
   if (S.audio) AP.play(S.audio.buffer, S.t);
@@ -190,7 +188,6 @@ export function togglePlay() { S.playing ? pause() : play(); }
 
 /* ---- 当前切分信息（原 updateCutInfo 的非 DOM 部分） ---- */
 let lastCutIdx = -2;
-export function currentCut() { return J.cutAt(S.plan, S.t); }
 export function updateCutInfo() {
   if (!S.plan) return;
   const cut = J.cutAt(S.plan, S.t);
@@ -204,7 +201,6 @@ export function updateCutInfo() {
 
 /* ---- 播放行跟随滚动（组件通过 bus 监听） ---- */
 let listTouched = 0;
-export function touchList() { listTouched = performance.now(); }
 function followLine(li: number) {
   bus.emit('curline', li);
   if (!S.playing || li < 0 || !fixedLayout()) return;

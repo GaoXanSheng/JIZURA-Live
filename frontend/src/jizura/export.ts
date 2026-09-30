@@ -8,7 +8,7 @@ import { flushSave } from './project';
 import { ensureFonts, invalidateFontKey, pause, replan } from './engine';
 import { autosave } from './project';
 
-export function baseName() {
+function baseName() {
   const k = J.keyMode(S.project);
   return ((S.project.title || 'jizura').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'jizura') + (k ? (k === 'green' ? '_greenback' : '_blackback') : '');
 }
@@ -101,7 +101,7 @@ function offerShare(blob: Blob, name: string) {
 }
 
 /* 输出参数同步 + 广播（组件监听 'out' 事件刷新表单） */
-export function syncOut() {
+function syncOut() {
   bus.emit('out');
 }
 

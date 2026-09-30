@@ -32,7 +32,6 @@ onMounted(() => {
   offs.push(bus.on('playstate', () => ed.syncPlayState()));
   offs.push(bus.on('playhead', () => ed.syncTime()));
   offs.push(bus.on('frame', () => ed.syncTime()));
-  offs.push(bus.on('time', () => ed.syncTime()));
   offs.push(bus.on('replan', () => ed.syncPlan()));
   offs.push(bus.on('replan-sync', () => ed.syncPlan()));
   offs.push(bus.on('curline', (li: number) => { ed.curLine = li; }));

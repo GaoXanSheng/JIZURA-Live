@@ -1,7 +1,7 @@
 /* 性能探针：定位编辑器卡顿。
    激活：URL ?probe=1 或 Ctrl+Alt+P 切换（状态存 localStorage jizura.probe）。
    数据：
-     - 埋点聚合 probeSync(name, fn) / probeAsync(name, fn)：count/avg/max/p95
+     - 埋点聚合 probeRecord(name, ms) / probeSync(name, fn)：count/avg/max/last
      - rAF 帧间隔（掉帧监控）：frameGap avg/max、丢帧数（>32ms 记一次）
      - LongTask（>50ms 主线程任务）PerformanceObserver
    读取：window.__probe.dump() 返回全部数据；HUD 组件每 500ms 刷新显示。 */
@@ -38,12 +38,6 @@ export function probeSync<T>(name: string, fn: () => T): T {
   if (!enabled) return fn();
   const t0 = performance.now();
   try { return fn(); } finally { record(name, performance.now() - t0); }
-}
-
-export async function probeAsync<T>(name: string, fn: () => Promise<T>): Promise<T> {
-  if (!enabled) return fn();
-  const t0 = performance.now();
-  try { return await fn(); } finally { record(name, performance.now() - t0); }
 }
 
 /* 帧间隔/丢帧/LongTask */

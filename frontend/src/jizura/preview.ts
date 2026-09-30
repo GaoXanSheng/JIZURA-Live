@@ -37,7 +37,7 @@ function getPreviewPlan(g: string, k: string) {
   return plan;
 }
 
-export function previewTime(plan: any, g: string, now: number) {
+function previewTime(plan: any, g: string, now: number) {
   const c = plan.cuts[plan.cuts.length - 1];
   const u = now / 1000;
   if (g === 'enter') return c.start + ((u % 1.5) / 1.5) * Math.max(0.3, c.inDur);

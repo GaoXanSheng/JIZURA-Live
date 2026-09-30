@@ -2,7 +2,6 @@
    键与旧版完全一致（jizura.project.v1），老项目无缝兼容。 */
 import { J } from '../engine';
 import { S } from './state';
-import { bus } from './bus';
 
 export const LS_KEY = 'jizura.project.v1';
 
@@ -51,5 +50,4 @@ export async function resetAllProject() {
   S.audio = null;
   if (J.forgetSong) await J.forgetSong();
   try { localStorage.removeItem('jizura.kgsubmap'); } catch {}
-  bus.emit('reset');
 }
