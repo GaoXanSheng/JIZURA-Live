@@ -2,7 +2,7 @@
    - canvas 2d：jsdom 不实现 getContext（返回 null），而 02_fonts.js 在模块加载期就创建
      2d context 做字体度量。这里给一个确定性的假 context——measureText 按字符类给固定宽度
      （CJK=1em，字母数字=0.55em），排版/planner 测试因此完全可复现。
-   - requestAnimationFrame：jsdom 默认没有，用 setTimeout(16) 兜底（probe.ts 模块级启动 rAF 循环）。 */
+   - requestAnimationFrame：jsdom 默认没有，用 setTimeout(16) 兜底（帧统计等模块的 rAF 循环）。 */
 
 type AnyObj = Record<string | symbol, any>;
 
@@ -102,9 +102,7 @@ if (typeof window.requestAnimationFrame !== 'function') {
   (window as AnyObj).cancelAnimationFrame = (id: number) => clearTimeout(id);
 }
 
-/* probe.ts 在模块加载期读这个键决定是否激活埋点；测试里默认打开以覆盖聚合逻辑 */
-try { window.localStorage.setItem('jizura.probe', '1'); } catch {}
-
 /* jsdom 的 Blob 没有 .stream()（krc 解密的 DecompressionStream 管线需要）——换成 Node 原生 Blob */
-import { Blob as NodeBlob } from 'node:buffer';
+import {Blob as NodeBlob} from 'node:buffer';
+
 (globalThis as AnyObj).Blob = NodeBlob;

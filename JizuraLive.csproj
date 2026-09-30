@@ -126,15 +126,14 @@
         <Message Importance="high" Text="前端构建：vite build → $(FrontendDist)"/>
         <Exec Command="npm install --no-audit --no-fund" WorkingDirectory="$(FrontendDir)"
               Condition="!Exists('$(FrontendDir)node_modules')"/>
-        <Exec Command="npm run build -- --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
+        <Exec Command="npm run build --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
         <WriteLinesToFile File="$(FrontendStamp)" Lines="$([System.DateTime]::UtcNow.Ticks)" Overwrite="true"/>
     </Target>
     <!-- 增量跳过 npm 时也要重新收集嵌入项（AfterTargets 无论上游是否跳过都会执行） -->
     <Target Name="EmbedFrontend" AfterTargets="BuildFrontend" BeforeTargets="PrepareForBuild">
         <ItemGroup>
             <_FrontendFiles Include="$(FrontendDist)\**\*"/>
-            <EmbeddedResource Include="@(_FrontendFiles)"
-                              LogicalName="jizura-www/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)"/>
+            <EmbeddedResource Include="@(_FrontendFiles)" LogicalName="jizura-www/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)"/>
         </ItemGroup>
     </Target>
 </Project>

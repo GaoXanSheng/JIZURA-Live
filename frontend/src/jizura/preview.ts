@@ -1,8 +1,7 @@
 /* 手法预览循环（原 12_ui.js 的 previewR/previewPlans/IntersectionObserver 体系）
    Vue 组件把含 canvas[data-g][data-k] 的容器注册进来，循环只画可见的。 */
-import { J } from '../engine';
-import { S } from './state';
-import { probeRecord } from './probe';
+import {J} from '../engine';
+import {S} from './state';
 
 const previewR = new J.Renderer();
 const previewPlans = new Map<string, any>();
@@ -49,7 +48,6 @@ function previewTime(plan: any, g: string, now: number) {
 }
 
 export function paintTechCanvas(cv: HTMLCanvasElement, g: string, k: string, t: number) {
-  const __t0 = performance.now();
   const plan = getPreviewPlan(g, k);
   const ctx = cv.getContext('2d')!;
   try {
@@ -57,7 +55,6 @@ export function paintTechCanvas(cv: HTMLCanvasElement, g: string, k: string, t: 
   } catch {
     ctx.fillStyle = '#131316'; ctx.fillRect(0, 0, cv.width, cv.height);
   }
-  probeRecord('preview:tech', performance.now() - __t0);
 }
 
 function ensureObs() {

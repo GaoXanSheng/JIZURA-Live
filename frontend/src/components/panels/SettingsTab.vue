@@ -32,7 +32,6 @@ const centerFree = ref(S.project?.centerFree === true);
 const centerGap = ref(S.project?.centerGap ?? 30);
 const centerDir = ref(S.project?.centerDir === 'lr' ? 'lr' : 'tb');
 const centerZone = ref(S.project?.centerZone || 'center');
-const probeOn = ref(localStorage.getItem('jizura.probe') === '1');
 const loading = ref(true);
 const applying = ref(false);
 const dirty = ref(false);
@@ -67,14 +66,6 @@ async function load() {
 }
 
 /* 保存草稿 → 重启渲染引擎（以保存的值重建镜像，一次生效） */
-function toggleProbe() {
-  try {
-    if (probeOn.value) localStorage.setItem('jizura.probe', '1');
-    else localStorage.removeItem('jizura.probe');
-  } catch {}
-  window.location.reload();
-}
-
 async function applyAndRestart() {
   if (!canApply.value || applying.value) return;
   applying.value = true;
@@ -228,7 +219,8 @@ onUnmounted(() => offs.forEach(f => f()));
 
       <div class="sec !border-b-0 !px-0 mt-3.5">
         <div class="sec-h"><span class="sec-title">开发者</span></div>
-        <label class="checkline"><input v-model="probeOn" type="checkbox" @change="toggleProbe"> 性能探针 HUD（右下角实时显示各路径耗时，切换后刷新页面）</label>
+        <p class="note !px-0">渲染调试面板：任意页面按 <b>Ctrl+Alt+D</b> 呼出（FPS/CPU/GPU 悬浮图标条、DOM 重绘标框、hover
+          元素详情）。精确管线数据需勾选上方「调试端口」并重启应用。</p>
       </div>
 
       <button class="btn btn-primary w-full mt-4" :disabled="applying || !canApply"

@@ -15,8 +15,7 @@ import RightPanel from '../components/panels/RightPanel.vue';
 import CloudMusicModal from '../components/cloud/CloudMusicModal.vue';
 import ToastHost from '../components/common/ToastHost.vue';
 import Dialogs from '../components/common/Dialogs.vue';
-import ProbeHud from '../components/common/ProbeHud.vue';
-import {probeEnabled} from '../jizura/probe';
+import DevPerfPanel from '../components/common/DevPerfPanel.vue';
 import {boot} from '../jizura/boot';
 import {bindEditorBroadcast} from '../jizura/stage-bridge';
 
@@ -30,18 +29,10 @@ bindEditorBroadcast();     // 向 /render 渲染页广播工程/时间/字幕（
 
 onMounted(() => {
   offs.push(bus.on('playstate', () => ed.syncPlayState()));
-  // 时间码只走 frame 的 80ms 节流路径：playhead 是逐帧事件，曾在这里无节流
-  // 地 syncTime，把 Transport 打成每帧 vdom diff + DOM 写入（60Hz 全量实测
-  // 布局占渲染进程 40% 墙钟）。seek 会置 need，下一帧 draw 补发 frame，
-  // 时间码不丢更新；播放头平滑由 TimelineCanvas 直读 S.t 保证
-  let lastTimeSync = 0;
-  offs.push(bus.on('frame', () => {
-    const now = performance.now();
-    if (now - lastTimeSync >= 80) {
-      lastTimeSync = now;
-      ed.syncTime();
-    }
-  }));
+  // 时间码/进度条由 Transport 自行在 frame 里命令式更新（12.5Hz）。
+  // 不要在这里挂 playhead/frame → syncTime：响应式链路会连带整页级重绘
+  // （实测 Paint 事件以 12.5Hz 落满 document/html 根层，连右栏 nav 都整层重画）。
+  // 播放头平滑由 TimelineCanvas 直读 S.t 保证
   offs.push(bus.on('replan', () => ed.syncPlan()));
   offs.push(bus.on('replan-sync', () => ed.syncPlan()));
   offs.push(bus.on('curline', (li: number) => { ed.curLine = li; }));
@@ -74,7 +65,7 @@ onUnmounted(() => offs.forEach(f => f()));
     </main>
     <CloudMusicModal />
     <Dialogs />
-    <ProbeHud v-if="probeEnabled" />
+    <DevPerfPanel/>
     <ToastHost />
   </div>
 </template>

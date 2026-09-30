@@ -97,6 +97,11 @@ public static class CefRuntime
         if (cdpPort.HasValue)
         {
             cefSettings.RemoteDebuggingPort = cdpPort.Value;
+            // 新版 Chromium 校验 DevTools WebSocket 的 Origin 头：页面直连
+            // ws://127.0.0.1:<port> 会被以 "Rejected an incoming WebSocket
+            // connection" 拒掉（渲染调试面板的 CDP 精确模式依赖这条连接），
+            // 放行所有来源——端口本就只监听回环，无外露风险
+            cefSettings.CefCommandLineArgs["remote-allow-origins"] = "*";
             Log.Info(
                 $"CDP 远程调试端口已开启：" +
                 $"http://127.0.0.1:{cdpPort.Value}/json");

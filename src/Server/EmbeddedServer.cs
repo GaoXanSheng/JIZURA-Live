@@ -1,21 +1,16 @@
-using System.IO;
 using System.Text;
 using EmbedIO;
 using EmbedIO.WebApi;
-using JizuraLive.Server;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
 
-
 public sealed class EmbeddedServer : IDisposable
 {
     private const int PortBase = 8642;
-
-    public int Port { get; }
+    private readonly CancellationTokenSource _cts = new();
 
     private readonly WebServer _server;
-    private readonly CancellationTokenSource _cts = new();
     private Task? _runTask;
 
     private EmbeddedServer(int port)
@@ -28,7 +23,25 @@ public sealed class EmbeddedServer : IDisposable
             // 放前面会把 /render 等 SPA 路径吞掉。API 侧由 StaticSiteModule 的
             // 回退排除（api/ 前缀不回退）保证到达控制器。
             .WithModule(new StaticSiteModule())
-            .WithModule(BuildApiModule());    }
+            .WithModule(BuildApiModule());
+    }
+
+    public int Port { get; }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        try
+        {
+            _server.Dispose();
+        }
+        catch
+        {
+        }
+
+        ServerContext.KuGou.Http.Dispose();
+        ServerContext.Netease.Http.Dispose();
+    }
 
     public static EmbeddedServer? Start()
     {
@@ -36,8 +49,15 @@ public sealed class EmbeddedServer : IDisposable
         {
             var server = new EmbeddedServer(port);
             if (server.TryStart()) return server;
-            try { server.Dispose(); } catch { }
+            try
+            {
+                server.Dispose();
+            }
+            catch
+            {
+            }
         }
+
         return null;
     }
 
@@ -48,10 +68,11 @@ public sealed class EmbeddedServer : IDisposable
         api.WithController<NeController>();
         api.WithController<AnalyzeController>();
         api.WithController<SettingsController>();
+        api.WithController<PerfController>();
         return api;
     }
 
-    
+
     private static async Task SerializeWithNewtonsoft(IHttpContext context, object? data)
     {
         await context.SendStringAsync(
@@ -65,27 +86,20 @@ public sealed class EmbeddedServer : IDisposable
         try
         {
             _runTask = _server.RunAsync(_cts.Token);
-            
+
             _ = _runTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
-            for (int i = 0; i < 40; i++) 
+            for (int i = 0; i < 40; i++)
             {
                 if (_server.State == WebServerState.Listening) return true;
-                if (_runTask.IsCompleted) return false; 
+                if (_runTask.IsCompleted) return false;
                 Thread.Sleep(50);
             }
+
             return _server.State == WebServerState.Listening;
         }
         catch
         {
             return false;
         }
-    }
-
-    public void Dispose()
-    {
-        _cts.Cancel();
-        try { _server.Dispose(); } catch { }
-        ServerContext.KuGou.Http.Dispose();
-        ServerContext.Netease.Http.Dispose();
     }
 }

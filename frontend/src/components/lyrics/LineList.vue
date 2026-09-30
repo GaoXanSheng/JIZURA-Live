@@ -6,7 +6,6 @@ import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {exportRangeLines} from '../../jizura/look';
-import {probeRecord} from '../../jizura/probe';
 import {useEditor} from '../../stores/editor';
 import type {Row} from './LineRow.vue';
 import LineRow from './LineRow.vue';
@@ -19,7 +18,6 @@ const infoText = computed(() => `${ed.linesCount} 行 / ${ed.cutsCount} 切分`)
 const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 
 function rebuild() {
-  const __t0 = performance.now();
   if (!S.plan) { rows.value = []; return; }
   const ov = S.project.overrides, R = exportRangeLines();
   rows.value = S.plan.lines.map((ln: any, i: number): Row => {
@@ -44,7 +42,6 @@ function rebuild() {
       cuts,
     };
   });
-  probeRecord('lines:rebuild', performance.now() - __t0);
 }
 
 onMounted(() => {

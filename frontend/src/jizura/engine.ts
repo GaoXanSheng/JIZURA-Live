@@ -1,11 +1,10 @@
 /* 引擎驱动层：replan / 渲染循环 / 播放控制 / 字体预热 / 音频装载。
    原 12_ui.js 的对应逻辑，DOM 操作替换为 bus 事件通知。 */
-import { J } from '../engine';
-import { analyzeAudioOffThread } from './audio-analyze';
-import { S, AP, refreshLoopHold, activeLoopRange } from './state';
-import { autosave, flushSave } from './project';
-import { bus } from './bus';
-import { probeSync, probeRecord } from './probe';
+import {J} from '../engine';
+import {analyzeAudioOffThread} from './audio-analyze';
+import {activeLoopRange, AP, refreshLoopHold, S} from './state';
+import {autosave} from './project';
+import {bus} from './bus';
 
 const HUD_CHARS = '0123456789:./-_()【】・No.LYRICRECUNTITLEDXYlinebpminterlude—─／ ';
 
@@ -30,7 +29,7 @@ export function audioLike() {
 }
 
 export function replan() {
-  S.plan = probeSync('replan:plan', () => J.plan(S.project, audioLike()));
+  S.plan = J.plan(S.project, audioLike());
   // 旧项目锁定的行（只有 seed）：现在拍快照，从今往后保持原样
   for (const [i, o] of Object.entries(S.project.overrides || {})) {
     const ov: any = o;
@@ -139,7 +138,6 @@ export function draw() {
   S.renderer.frame(ctx, S.plan, S.t, { scale: c.width / S.plan.W, fast: S.playing && S.slow, transparent: !!window.__jl_spout_transparent });
   if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(ctx, c.width / S.plan.W);
   const dt = performance.now() - t0;
-  probeRecord('draw:frame', dt);
   S.slow = S.playing ? (dt > 30 ? true : dt < 14 ? false : S.slow) : false;
   updateCutInfo();
   bus.emit('frame');

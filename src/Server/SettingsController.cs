@@ -1,9 +1,10 @@
 using System.IO;
+using System.Text;
 using System.Windows;
 using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
-using JizuraLive.Server;
+using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
 
@@ -14,19 +15,6 @@ namespace JizuraLive.Server;
 /// </summary>
 internal sealed class SettingsController : WebApiController
 {
-    public sealed class Dto
-    {
-        public int Width { get; set; }
-        public int Height { get; set; }
-        public int Fps { get; set; }
-        public bool SpoutEnabled { get; set; }
-        public string SpoutName { get; set; } = "";
-        public bool SpoutTransparent { get; set; }
-        public bool SpoutLyricsEnabled { get; set; }
-        public bool CdpEnabled { get; set; }
-        public int CdpPort { get; set; }
-    }
-
     private static object CurrentState(Settings s) => new
     {
         width = s.Width,
@@ -41,7 +29,7 @@ internal sealed class SettingsController : WebApiController
     };
 
     [Route(HttpVerbs.Get, "/api/app/settings")]
-    public void Get()
+    public async Task Get()
     {
         var settings = ((App?)Application.Current)?.Settings;
         if (settings == null)
@@ -49,27 +37,29 @@ internal sealed class SettingsController : WebApiController
             Response.StatusCode = 409;
             return;
         }
-        HttpContext.SendStringAsync(
-            Newtonsoft.Json.JsonConvert.SerializeObject(new { ok = true, settings = CurrentState(settings) }),
-            "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+
+        await HttpContext.SendStringAsync(
+            JsonConvert.SerializeObject(new { ok = true, settings = CurrentState(settings) }),
+            "application/json; charset=utf-8", Encoding.UTF8);
     }
 
     [Route(HttpVerbs.Post, "/api/app/settings")]
-    public async System.Threading.Tasks.Task Apply()
+    public async Task Apply()
     {
         using var ms = new MemoryStream();
         await Request.InputStream.CopyToAsync(ms);
         Dto? d;
         try
         {
-            d = Newtonsoft.Json.JsonConvert.DeserializeObject<Dto>(
-                System.Text.Encoding.UTF8.GetString(ms.ToArray()));
+            d = JsonConvert.DeserializeObject<Dto>(
+                Encoding.UTF8.GetString(ms.ToArray()));
         }
         catch
         {
             Response.StatusCode = 400;
             return;
         }
+
         if (d == null)
         {
             Response.StatusCode = 400;
@@ -83,7 +73,7 @@ internal sealed class SettingsController : WebApiController
             return;
         }
 
-        var changed = new System.Collections.Generic.List<string>();
+        var changed = new List<string>();
 
         // —— 只保存，不立即应用管线 ——
         // 渲染窗口分辨率/帧率/Spout ID/透明背景统一在「重启渲染引擎」时
@@ -93,12 +83,12 @@ internal sealed class SettingsController : WebApiController
             if (settings.Width != d.Width || settings.Height != d.Height)
                 changed.Add($"渲染窗口分辨率 {d.Width}×{d.Height}");
 
-            int fps = System.Math.Clamp(d.Fps, 1, 240);
+            int fps = Math.Clamp(d.Fps, 1, 240);
             if (settings.RenderFps != fps)
                 changed.Add($"渲染帧率 {fps}fps");
 
             string name = string.IsNullOrWhiteSpace(d.SpoutName) ? "JIZURA-live" : d.SpoutName.Trim();
-            if (!string.Equals(settings.SpoutName, name, System.StringComparison.Ordinal))
+            if (!string.Equals(settings.SpoutName, name, StringComparison.Ordinal))
                 changed.Add($"Spout ID → {name}");
             if (settings.SpoutEnabled != d.SpoutEnabled)
                 changed.Add($"Spout 输出{(d.SpoutEnabled ? " 开启" : " 关闭")}");
@@ -115,7 +105,7 @@ internal sealed class SettingsController : WebApiController
             settings.SpoutTransparent = d.SpoutTransparent;
             settings.SpoutLyricsEnabled = d.SpoutLyricsEnabled;
 
-            int port = System.Math.Clamp(d.CdpPort, 1, 65535);
+            int port = Math.Clamp(d.CdpPort, 1, 65535);
             if (settings.CdpEnabled != d.CdpEnabled || settings.CdpPort != port)
             {
                 settings.CdpEnabled = d.CdpEnabled;
@@ -133,20 +123,20 @@ internal sealed class SettingsController : WebApiController
             }
         });
 
-        HttpContext.SendStringAsync(
-            Newtonsoft.Json.JsonConvert.SerializeObject(new
+        await HttpContext.SendStringAsync(
+            JsonConvert.SerializeObject(new
             {
                 ok = true,
                 changed,
                 settings = CurrentState(settings),
             }),
-            "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+            "application/json; charset=utf-8", Encoding.UTF8);
     }
 
     // 「重启渲染引擎」：以此刻 settings 的值重建镜像——
     // 分辨率/帧率/ID/透明背景全部经由 SpoutPipeline.Start 的参数一次性生效
     [Route(HttpVerbs.Post, "/api/app/render/restart")]
-    public void RestartRender()
+    public async Task RestartRender()
     {
         Application.Current?.Dispatcher.Invoke(() =>
         {
@@ -167,6 +157,19 @@ internal sealed class SettingsController : WebApiController
                 main?.StopSpout();
             }
         });
-        HttpContext.SendStringAsync("{\"ok\":true}", "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+        await HttpContext.SendStringAsync("{\"ok\":true}", "application/json; charset=utf-8", Encoding.UTF8);
+    }
+
+    public sealed class Dto
+    {
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public int Fps { get; set; }
+        public bool SpoutEnabled { get; set; }
+        public string SpoutName { get; set; } = "";
+        public bool SpoutTransparent { get; set; }
+        public bool SpoutLyricsEnabled { get; set; }
+        public bool CdpEnabled { get; set; }
+        public int CdpPort { get; set; }
     }
 }

@@ -7,7 +7,6 @@ import {activeLoopRange, S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {pause, replan, seek} from '../../jizura/engine';
 import {edGo, exportRange, flushSave, pushEdit} from '../../jizura/look';
-import {probeRecord} from '../../jizura/probe';
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const offs: (() => void)[] = [];
@@ -56,7 +55,6 @@ function drawPlayhead(x: CanvasRenderingContext2D, w: number, h: number, dpr: nu
 }
 
 function drawTimeline() {
-  const __t0 = performance.now();
   const c = canvas.value; if (!c || !S.plan) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = Math.max(10, Math.round(c.clientWidth * dpr)), h = Math.max(10, Math.round(c.clientHeight * dpr));
@@ -73,7 +71,6 @@ function drawTimeline() {
   const x = c.getContext('2d')!;
   x.drawImage(tlStatic, 0, 0);
   drawPlayhead(x, w, h, dpr, off, vd);
-  probeRecord('timeline:draw', performance.now() - __t0);
 }
 
 /* 播放帧：静态层命中就只叠加播放头；视图被自动跟随挪动或缓存失效才整幅重画 */
@@ -91,11 +88,9 @@ function tlFrame() {
     drawTimeline();
     return;
   }
-  const __t0 = performance.now();
   const x = c.getContext('2d')!;
   x.drawImage(tlStatic, 0, 0);
   drawPlayhead(x, w, h, dpr, off, vd);
-  probeRecord('timeline:frame', performance.now() - __t0);
 }
 
 function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, vd: number, off: number, D: number) {
@@ -219,10 +214,12 @@ onUnmounted(() => offs.forEach(f => f()));
   <div class="flex justify-between items-center gap-2 my-2 mb-1 flex-wrap">
     <span class="text-[11px] text-mut">行界（上排刻度）可拖动。<span class="kbd">Shift</span> 不吸附节拍</span>
     <span class="flex gap-1 ml-auto">
-      <button class="ghost small" title="撤销歌词・时间修改（Ctrl+Z）" @click="undoEdit">撤销</button>
-      <button class="ghost small icon-txt" title="缩小" aria-label="缩小时间轴" @click="tlZoom(1 / 1.6)">−</button>
-      <button class="ghost small icon-txt" title="放大（时间轴上滚轮亦可）" aria-label="放大时间轴" @click="tlZoom(1.6)">＋</button>
-      <button class="ghost small" title="显示整首" @click="TL.z = 1; TL.off = 0; drawTimeline()">全部</button>
+      <button class="btn btn-ghost btn-sm" title="撤销歌词・时间修改（Ctrl+Z）" @click="undoEdit">撤销</button>
+      <button aria-label="缩小时间轴" class="btn btn-ghost btn-sm min-w-7" title="缩小"
+              @click="tlZoom(1 / 1.6)">−</button>
+      <button aria-label="放大时间轴" class="btn btn-ghost btn-sm min-w-7" title="放大（时间轴上滚轮亦可）"
+              @click="tlZoom(1.6)">＋</button>
+      <button class="btn btn-ghost btn-sm" title="显示整首" @click="TL.z = 1; TL.off = 0; drawTimeline()">全部</button>
     </span>
   </div>
   <canvas
