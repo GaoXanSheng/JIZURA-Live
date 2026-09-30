@@ -32,6 +32,7 @@ const centerFree = ref(S.project?.centerFree === true);
 const centerGap = ref(S.project?.centerGap ?? 30);
 const centerDir = ref(S.project?.centerDir === 'lr' ? 'lr' : 'tb');
 const centerZone = ref(S.project?.centerZone || 'center');
+const probeOn = ref(localStorage.getItem('jizura.probe') === '1');
 const loading = ref(true);
 const applying = ref(false);
 const dirty = ref(false);
@@ -66,6 +67,14 @@ async function load() {
 }
 
 /* 保存草稿 → 重启渲染引擎（以保存的值重建镜像，一次生效） */
+function toggleProbe() {
+  try {
+    if (probeOn.value) localStorage.setItem('jizura.probe', '1');
+    else localStorage.removeItem('jizura.probe');
+  } catch {}
+  window.location.reload();
+}
+
 async function applyAndRestart() {
   if (!canApply.value || applying.value) return;
   applying.value = true;
@@ -214,6 +223,11 @@ onUnmounted(() => offs.forEach(f => f()));
           <span class="flex-none text-mut">端口：</span>
           <input v-model="form.cdpPort" type="number" class="w-28" min="1" max="65535" @change="markDirty">
         </label>
+      </div>
+
+      <div class="sec !border-b-0 !px-0 mt-3.5">
+        <div class="sec-h"><span class="sec-title">开发者</span></div>
+        <label class="checkline"><input v-model="probeOn" type="checkbox" @change="toggleProbe"> 性能探针 HUD（右下角实时显示各路径耗时，切换后刷新页面）</label>
       </div>
 
       <button class="btn btn-primary w-full mt-4" :disabled="applying || !canApply"

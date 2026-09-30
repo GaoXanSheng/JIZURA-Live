@@ -15,6 +15,8 @@ import RightPanel from '../components/panels/RightPanel.vue';
 import CloudMusicModal from '../components/cloud/CloudMusicModal.vue';
 import ToastHost from '../components/common/ToastHost.vue';
 import Dialogs from '../components/common/Dialogs.vue';
+import ProbeHud from '../components/common/ProbeHud.vue';
+import { probeEnabled } from '../jizura/probe';
 import { boot } from '../jizura/boot';
 import { bindEditorBroadcast } from '../jizura/stage-bridge';
 
@@ -63,6 +65,7 @@ onUnmounted(() => offs.forEach(f => f()));
     </main>
     <CloudMusicModal />
     <Dialogs />
+    <ProbeHud v-if="probeEnabled" />
     <ToastHost />
   </div>
 </template>
