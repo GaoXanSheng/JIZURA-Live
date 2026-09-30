@@ -1,0 +1,2 @@
+{"ts":"2026-09-30T13:48:35","git":"9a3b8bb","fixture":"jinge2","res":"preview","hz":60,"throttle":1,"reps":2,"replanP50":26.85,"sweepAvg":1.82,"sweepP95":9.85,"sweepMax":22.3,"rtDroppedPct":0,"rtGapMax":13.6,"rtDrawP95":3.55,"verdict":"PASS","report":"jinge2-preview-20260930-134835.json"}
+{"ts":"2026-09-30T14:51:36","git":"9a3b8bb","fixture":"jinge2","res":"preview","hz":60,"throttle":1,"reps":1,"replanP50":26.4,"sweepAvg":1.78,"sweepP95":7.9,"sweepMax":83,"rtDroppedPct":1.62,"rtGapMax":106.7,"rtDrawP95":9.7,"verdict":"PASS","report":"jinge2-preview-20260930-145136.json"}

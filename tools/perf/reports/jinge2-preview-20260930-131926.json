@@ -1,0 +1,781 @@
+{
+    "version":  1,
+    "cfg":  {
+                "fixture":  "jinge2",
+                "res":  "preview",
+                "hz":  60,
+                "sweepSec":  0,
+                "rtSec":  30,
+                "rtWin":  "auto",
+                "thumbs":  true,
+                "replanN":  5,
+                "title":  "",
+                "artist":  ""
+            },
+    "thr":  {
+                "replanP50Max":  100,
+                "sweepDrawP95Max":  16.7,
+                "sweepDrawMax":  150,
+                "rtDroppedPctMax":  2,
+                "rtGapMaxMax":  150,
+                "rtLongTaskMax":  250,
+                "rtDrawP95Max":  16.7,
+                "thumbPaintAvgMax":  8,
+                "memGrowMax":  60
+            },
+    "verdict":  {
+                    "pass":  true,
+                    "failures":  [
+
+                                 ]
+                },
+    "env":  {
+                "ua":  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+                "dpr":  1,
+                "cores":  32,
+                "heapMB":  30.4
+            },
+    "song":  {
+                 "title":  "",
+                 "artist":  "",
+                 "audio":  "古巨基 - 劲歌. 金曲2.mp3",
+                 "duration":  758.3,
+                 "bpm":  133.7
+             },
+    "plan":  {
+                 "W":  1920,
+                 "H":  1080,
+                 "fps":  24,
+                 "style":  "transit",
+                 "cuts":  424,
+                 "lines":  160,
+                 "duration":  758.3,
+                 "capturedPlan":  {
+                                      "cuts":  424,
+                                      "lines":  160,
+                                      "duration":  758.307,
+                                      "W":  1920,
+                                      "H":  1080
+                                  }
+             },
+    "replan":  {
+                   "n":  5,
+                   "avg":  30.94,
+                   "p50":  31.3,
+                   "p95":  34.5,
+                   "p99":  34.5,
+                   "max":  34.5
+               },
+    "sweep":  {
+                  "frames":  45498,
+                  "hz":  60,
+                  "res":  "preview",
+                  "canvasW":  1280,
+                  "canvasH":  720,
+                  "draw":  {
+                               "n":  45498,
+                               "avg":  1.97,
+                               "p50":  0.6,
+                               "p95":  8.4,
+                               "p99":  24.6,
+                               "max":  119.8
+                           },
+                  "slowRatio":  0.0067,
+                  "buckets":  [
+                                  {
+                                      "t0":  0,
+                                      "avg":  2.17,
+                                      "max":  36.9
+                                  },
+                                  {
+                                      "t0":  10,
+                                      "avg":  2,
+                                      "max":  32.1
+                                  },
+                                  {
+                                      "t0":  20,
+                                      "avg":  1.62,
+                                      "max":  25.8
+                                  },
+                                  {
+                                      "t0":  30,
+                                      "avg":  3.8,
+                                      "max":  85
+                                  },
+                                  {
+                                      "t0":  40,
+                                      "avg":  1.41,
+                                      "max":  21.7
+                                  },
+                                  {
+                                      "t0":  50,
+                                      "avg":  1.47,
+                                      "max":  25.3
+                                  },
+                                  {
+                                      "t0":  60,
+                                      "avg":  2.64,
+                                      "max":  45.8
+                                  },
+                                  {
+                                      "t0":  70,
+                                      "avg":  1.28,
+                                      "max":  25.8
+                                  },
+                                  {
+                                      "t0":  80,
+                                      "avg":  2.51,
+                                      "max":  30.9
+                                  },
+                                  {
+                                      "t0":  90,
+                                      "avg":  1.02,
+                                      "max":  14.6
+                                  },
+                                  {
+                                      "t0":  100,
+                                      "avg":  2.72,
+                                      "max":  94.3
+                                  },
+                                  {
+                                      "t0":  110,
+                                      "avg":  3.08,
+                                      "max":  119.8
+                                  },
+                                  {
+                                      "t0":  120,
+                                      "avg":  1.31,
+                                      "max":  33.9
+                                  },
+                                  {
+                                      "t0":  130,
+                                      "avg":  1.01,
+                                      "max":  21.2
+                                  },
+                                  {
+                                      "t0":  140,
+                                      "avg":  2.39,
+                                      "max":  74.5
+                                  },
+                                  {
+                                      "t0":  150,
+                                      "avg":  2.47,
+                                      "max":  98.5
+                                  },
+                                  {
+                                      "t0":  160,
+                                      "avg":  2.01,
+                                      "max":  45.7
+                                  },
+                                  {
+                                      "t0":  170,
+                                      "avg":  2.67,
+                                      "max":  42.6
+                                  },
+                                  {
+                                      "t0":  180,
+                                      "avg":  1.5,
+                                      "max":  22.5
+                                  },
+                                  {
+                                      "t0":  190,
+                                      "avg":  1.69,
+                                      "max":  40.2
+                                  },
+                                  {
+                                      "t0":  200,
+                                      "avg":  2.44,
+                                      "max":  30.6
+                                  },
+                                  {
+                                      "t0":  210,
+                                      "avg":  1.22,
+                                      "max":  24.6
+                                  },
+                                  {
+                                      "t0":  220,
+                                      "avg":  1.87,
+                                      "max":  35.8
+                                  },
+                                  {
+                                      "t0":  230,
+                                      "avg":  2.73,
+                                      "max":  43.2
+                                  },
+                                  {
+                                      "t0":  240,
+                                      "avg":  1.32,
+                                      "max":  33.8
+                                  },
+                                  {
+                                      "t0":  250,
+                                      "avg":  1.56,
+                                      "max":  46.6
+                                  },
+                                  {
+                                      "t0":  260,
+                                      "avg":  1.81,
+                                      "max":  52
+                                  },
+                                  {
+                                      "t0":  270,
+                                      "avg":  1.65,
+                                      "max":  36.5
+                                  },
+                                  {
+                                      "t0":  280,
+                                      "avg":  0.85,
+                                      "max":  12.5
+                                  },
+                                  {
+                                      "t0":  290,
+                                      "avg":  1.92,
+                                      "max":  46.6
+                                  },
+                                  {
+                                      "t0":  300,
+                                      "avg":  2.32,
+                                      "max":  69.6
+                                  },
+                                  {
+                                      "t0":  310,
+                                      "avg":  1.62,
+                                      "max":  80.6
+                                  },
+                                  {
+                                      "t0":  320,
+                                      "avg":  2.88,
+                                      "max":  67.9
+                                  },
+                                  {
+                                      "t0":  330,
+                                      "avg":  1.29,
+                                      "max":  17
+                                  },
+                                  {
+                                      "t0":  340,
+                                      "avg":  1.75,
+                                      "max":  59.1
+                                  },
+                                  {
+                                      "t0":  350,
+                                      "avg":  1.59,
+                                      "max":  27.2
+                                  },
+                                  {
+                                      "t0":  360,
+                                      "avg":  2.05,
+                                      "max":  36.2
+                                  },
+                                  {
+                                      "t0":  370,
+                                      "avg":  2.51,
+                                      "max":  61.8
+                                  },
+                                  {
+                                      "t0":  380,
+                                      "avg":  1.88,
+                                      "max":  71.7
+                                  },
+                                  {
+                                      "t0":  390,
+                                      "avg":  0.93,
+                                      "max":  38.4
+                                  },
+                                  {
+                                      "t0":  400,
+                                      "avg":  1.72,
+                                      "max":  41.1
+                                  },
+                                  {
+                                      "t0":  410,
+                                      "avg":  1.54,
+                                      "max":  31.1
+                                  },
+                                  {
+                                      "t0":  420,
+                                      "avg":  2.42,
+                                      "max":  58.2
+                                  },
+                                  {
+                                      "t0":  430,
+                                      "avg":  3.04,
+                                      "max":  86.3
+                                  },
+                                  {
+                                      "t0":  440,
+                                      "avg":  2.85,
+                                      "max":  111.3
+                                  },
+                                  {
+                                      "t0":  450,
+                                      "avg":  1.29,
+                                      "max":  16.9
+                                  },
+                                  {
+                                      "t0":  460,
+                                      "avg":  2.64,
+                                      "max":  75.2
+                                  },
+                                  {
+                                      "t0":  470,
+                                      "avg":  2.92,
+                                      "max":  104.5
+                                  },
+                                  {
+                                      "t0":  480,
+                                      "avg":  3.16,
+                                      "max":  35.8
+                                  },
+                                  {
+                                      "t0":  490,
+                                      "avg":  1.71,
+                                      "max":  29.2
+                                  },
+                                  {
+                                      "t0":  500,
+                                      "avg":  2.62,
+                                      "max":  59.5
+                                  },
+                                  {
+                                      "t0":  510,
+                                      "avg":  1.56,
+                                      "max":  23.9
+                                  },
+                                  {
+                                      "t0":  520,
+                                      "avg":  3.53,
+                                      "max":  94.2
+                                  },
+                                  {
+                                      "t0":  530,
+                                      "avg":  2.13,
+                                      "max":  36
+                                  },
+                                  {
+                                      "t0":  540,
+                                      "avg":  2.03,
+                                      "max":  39.6
+                                  },
+                                  {
+                                      "t0":  550,
+                                      "avg":  2.47,
+                                      "max":  32.6
+                                  },
+                                  {
+                                      "t0":  560,
+                                      "avg":  4.72,
+                                      "max":  86.5
+                                  },
+                                  {
+                                      "t0":  570,
+                                      "avg":  1.4,
+                                      "max":  51.4
+                                  },
+                                  {
+                                      "t0":  580,
+                                      "avg":  0.89,
+                                      "max":  13.3
+                                  },
+                                  {
+                                      "t0":  590,
+                                      "avg":  0.98,
+                                      "max":  16.1
+                                  },
+                                  {
+                                      "t0":  600,
+                                      "avg":  1.69,
+                                      "max":  31.4
+                                  },
+                                  {
+                                      "t0":  610,
+                                      "avg":  2.04,
+                                      "max":  18.7
+                                  },
+                                  {
+                                      "t0":  620,
+                                      "avg":  1.76,
+                                      "max":  60.8
+                                  },
+                                  {
+                                      "t0":  630,
+                                      "avg":  1.41,
+                                      "max":  29.6
+                                  },
+                                  {
+                                      "t0":  640,
+                                      "avg":  2.27,
+                                      "max":  34.7
+                                  },
+                                  {
+                                      "t0":  650,
+                                      "avg":  2.24,
+                                      "max":  22.9
+                                  },
+                                  {
+                                      "t0":  660,
+                                      "avg":  2.17,
+                                      "max":  33.8
+                                  },
+                                  {
+                                      "t0":  670,
+                                      "avg":  2.12,
+                                      "max":  81.2
+                                  },
+                                  {
+                                      "t0":  680,
+                                      "avg":  2.5,
+                                      "max":  40.9
+                                  },
+                                  {
+                                      "t0":  690,
+                                      "avg":  2.85,
+                                      "max":  70.6
+                                  },
+                                  {
+                                      "t0":  700,
+                                      "avg":  1.62,
+                                      "max":  46.2
+                                  },
+                                  {
+                                      "t0":  710,
+                                      "avg":  1.94,
+                                      "max":  31.9
+                                  },
+                                  {
+                                      "t0":  720,
+                                      "avg":  0.8,
+                                      "max":  66.9
+                                  },
+                                  {
+                                      "t0":  730,
+                                      "avg":  0.88,
+                                      "max":  16.5
+                                  },
+                                  {
+                                      "t0":  740,
+                                      "avg":  0.61,
+                                      "max":  13.9
+                                  },
+                                  {
+                                      "t0":  750,
+                                      "avg":  0.05,
+                                      "max":  0.3
+                                  }
+                              ],
+                  "worstCuts":  [
+                                    {
+                                        "cut":  64,
+                                        "t":  112.4,
+                                        "line":  25,
+                                        "layout":  "lowerThird",
+                                        "enter":  "flicker",
+                                        "exit":  "echoOut",
+                                        "hold":  "tyKeyPulse",
+                                        "dur":  2.38,
+                                        "chars":  10,
+                                        "avg":  4.21,
+                                        "max":  119.8,
+                                        "p95":  16.1
+                                    },
+                                    {
+                                        "cut":  256,
+                                        "t":  440.7,
+                                        "line":  93,
+                                        "layout":  "wordCloud",
+                                        "enter":  "blur",
+                                        "exit":  "scrambleOut",
+                                        "hold":  "pulse",
+                                        "dur":  1.03,
+                                        "chars":  3,
+                                        "avg":  10.77,
+                                        "max":  111.3,
+                                        "p95":  70.4
+                                    },
+                                    {
+                                        "cut":  279,
+                                        "t":  476.5,
+                                        "line":  101,
+                                        "layout":  "wordCloud",
+                                        "enter":  "trackIn",
+                                        "exit":  "riseOut",
+                                        "hold":  "pulse",
+                                        "dur":  1.45,
+                                        "chars":  5,
+                                        "avg":  11.56,
+                                        "max":  104.5,
+                                        "p95":  80.5
+                                    },
+                                    {
+                                        "cut":  84,
+                                        "t":  150.1,
+                                        "line":  31,
+                                        "layout":  "wordCloud",
+                                        "enter":  "diagWipe",
+                                        "exit":  "tyStrike",
+                                        "hold":  "tyReadCursor",
+                                        "dur":  1.31,
+                                        "chars":  6,
+                                        "avg":  10.42,
+                                        "max":  98.5,
+                                        "p95":  70
+                                    },
+                                    {
+                                        "cut":  63,
+                                        "t":  110.3,
+                                        "line":  25,
+                                        "layout":  "wordCloud",
+                                        "enter":  "trackOut",
+                                        "exit":  "trackOutWide",
+                                        "hold":  "tyOutlineBlink",
+                                        "dur":  1.91,
+                                        "chars":  5,
+                                        "avg":  11.18,
+                                        "max":  95,
+                                        "p95":  66.3
+                                    },
+                                    {
+                                        "cut":  313,
+                                        "t":  520.4,
+                                        "line":  114,
+                                        "layout":  "wordCloud",
+                                        "enter":  "slideR",
+                                        "exit":  "vSliceDrop",
+                                        "hold":  "breathe",
+                                        "dur":  1.39,
+                                        "chars":  10,
+                                        "avg":  12.63,
+                                        "max":  94.2,
+                                        "p95":  76.8
+                                    },
+                                    {
+                                        "cut":  335,
+                                        "t":  564.8,
+                                        "line":  127,
+                                        "layout":  "wordCloud",
+                                        "enter":  "flicker",
+                                        "exit":  "cut",
+                                        "hold":  "still",
+                                        "dur":  2.26,
+                                        "chars":  6,
+                                        "avg":  5.94,
+                                        "max":  86.5,
+                                        "p95":  30.8
+                                    },
+                                    {
+                                        "cut":  255,
+                                        "t":  439.7,
+                                        "line":  93,
+                                        "layout":  "tyBaseline",
+                                        "enter":  "unroll",
+                                        "exit":  "diagWipeOut",
+                                        "hold":  "still",
+                                        "dur":  1.68,
+                                        "chars":  6,
+                                        "avg":  13.84,
+                                        "max":  86.3,
+                                        "p95":  77.9
+                                    },
+                                    {
+                                        "cut":  18,
+                                        "t":  34.9,
+                                        "line":  7,
+                                        "layout":  "wordCloud",
+                                        "enter":  "knPushIn",
+                                        "exit":  "vSliceDrop",
+                                        "hold":  "colorRun",
+                                        "dur":  3.2,
+                                        "chars":  6,
+                                        "avg":  6.5,
+                                        "max":  85,
+                                        "p95":  46.9
+                                    },
+                                    {
+                                        "cut":  385,
+                                        "t":  670.9,
+                                        "line":  146,
+                                        "layout":  "edgeFrame",
+                                        "enter":  "tyKeyFirst",
+                                        "exit":  "shrink",
+                                        "hold":  "drift",
+                                        "dur":  1.79,
+                                        "chars":  10,
+                                        "avg":  5.04,
+                                        "max":  81.2,
+                                        "p95":  23.7
+                                    },
+                                    {
+                                        "cut":  193,
+                                        "t":  312.5,
+                                        "line":  72,
+                                        "layout":  "knTypeSlam",
+                                        "enter":  "tyZoomOne",
+                                        "exit":  "echoOut",
+                                        "hold":  "still",
+                                        "dur":  1.79,
+                                        "chars":  5,
+                                        "avg":  3.52,
+                                        "max":  80.6,
+                                        "p95":  13.7
+                                    },
+                                    {
+                                        "cut":  268,
+                                        "t":  461.4,
+                                        "line":  97,
+                                        "layout":  "wordCloud",
+                                        "enter":  "trackOut",
+                                        "exit":  "scrambleOut",
+                                        "hold":  "wave",
+                                        "dur":  2.29,
+                                        "chars":  9,
+                                        "avg":  8.5,
+                                        "max":  75.2,
+                                        "p95":  59.2
+                                    }
+                                ],
+                  "worstFrames":  [
+                                      {
+                                          "ms":  119.8,
+                                          "t":  112.4,
+                                          "cut":  64
+                                      },
+                                      {
+                                          "ms":  111.3,
+                                          "t":  440.7,
+                                          "cut":  256
+                                      },
+                                      {
+                                          "ms":  104.5,
+                                          "t":  476.5,
+                                          "cut":  279
+                                      },
+                                      {
+                                          "ms":  104,
+                                          "t":  112.5,
+                                          "cut":  64
+                                      },
+                                      {
+                                          "ms":  98.5,
+                                          "t":  150.1,
+                                          "cut":  84
+                                      },
+                                      {
+                                          "ms":  98,
+                                          "t":  476.7,
+                                          "cut":  279
+                                      },
+                                      {
+                                          "ms":  97.4,
+                                          "t":  150.3,
+                                          "cut":  84
+                                      },
+                                      {
+                                          "ms":  95,
+                                          "t":  110.3,
+                                          "cut":  63
+                                      },
+                                      {
+                                          "ms":  94.3,
+                                          "t":  109.9,
+                                          "cut":  63
+                                      },
+                                      {
+                                          "ms":  94.2,
+                                          "t":  520.4,
+                                          "cut":  313
+                                      }
+                                  ]
+              },
+    "realtime":  {
+                     "window":  [
+                                    560,
+                                    590
+                                ],
+                     "wallMs":  30012,
+                     "gapAvg":  13.58,
+                     "gapMax":  53.5,
+                     "dropped":  8,
+                     "droppedPct":  0.36,
+                     "draw":  {
+                                  "n":  2210,
+                                  "avg":  2.13,
+                                  "p50":  0.7,
+                                  "p95":  10.6,
+                                  "p99":  27.1,
+                                  "max":  65.4
+                              },
+                     "longTasks":  {
+                                       "count":  4,
+                                       "worstMs":  65
+                                   }
+                 },
+    "thumbs":  {
+                   "cards":  860,
+                   "size":  "160x90",
+                   "plan":  {
+                                "n":  860,
+                                "avg":  0.12,
+                                "p50":  0.1,
+                                "p95":  0.3,
+                                "p99":  0.4,
+                                "max":  1.3
+                            },
+                   "paint":  {
+                                 "n":  860,
+                                 "avg":  1,
+                                 "p50":  0.3,
+                                 "p95":  5.1,
+                                 "p99":  10.1,
+                                 "max":  16.5
+                             },
+                   "worstPaint":  [
+                                      {
+                                          "ms":  16.5,
+                                          "g":  "layout",
+                                          "k":  "hrOuija"
+                                      },
+                                      {
+                                          "ms":  14.8,
+                                          "g":  "layout",
+                                          "k":  "spiral"
+                                      },
+                                      {
+                                          "ms":  13.5,
+                                          "g":  "layout",
+                                          "k":  "glitchGrid"
+                                      },
+                                      {
+                                          "ms":  12.8,
+                                          "g":  "layout",
+                                          "k":  "center"
+                                      },
+                                      {
+                                          "ms":  11.6,
+                                          "g":  "layout",
+                                          "k":  "type"
+                                      },
+                                      {
+                                          "ms":  11,
+                                          "g":  "layout",
+                                          "k":  "typeSpecimen"
+                                      },
+                                      {
+                                          "ms":  10.9,
+                                          "g":  "layout",
+                                          "k":  "ledScroll"
+                                      },
+                                      {
+                                          "ms":  10.8,
+                                          "g":  "layout",
+                                          "k":  "fisheye"
+                                      }
+                                  ]
+               },
+    "memory":  {
+                   "beforeMB":  30.4,
+                   "afterSweepMB":  56.4,
+                   "afterRtMB":  65.4
+               },
+    "finishedAt":  "2026-09-30T05:19:24.867Z",
+    "wallSec":  126.4
+}

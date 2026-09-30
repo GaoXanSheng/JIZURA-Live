@@ -1,0 +1,27 @@
+CPU profile (top self-time)
+
+   4830.8 ms     3179 hits  (idle)  :-1
+    417.9 ms      275 hits  drawImage  :-1
+    186.9 ms      123 hits  (program)  :-1
+    142.8 ms       94 hits  fillText  :-1
+    104.9 ms       69 hits  drawImage  :-1
+     98.8 ms       65 hits  strokeText  :-1
+     94.2 ms       62 hits  strokeText  :-1
+     47.1 ms       31 hits  fillText  :-1
+     44.1 ms       29 hits  (anonymous)  08_planner.js:336
+     33.4 ms       22 hits  strokeText  :-1
+     33.4 ms       22 hits  strokeText  :-1
+     31.9 ms       21 hits  pickLayout  08_planner.js:769
+     28.9 ms       19 hits  drawImage  :-1
+     24.3 ms       16 hits  (garbage collector)  :-1
+     22.8 ms       15 hits  fillText  :-1
+     18.2 ms       12 hits  (anonymous)  08_planner.js:841
+     16.7 ms       11 hits  J.segments  08_planner.js:110
+     16.7 ms       11 hits  strokeText  :-1
+     13.7 ms        9 hits  pickEnter  08_planner.js:791
+     13.7 ms        9 hits  pickExit  08_planner.js:809
+     12.2 ms        8 hits  frame  09_render.js:57
+     12.2 ms        8 hits  fillText  :-1
+     12.2 ms        8 hits  run  perfsim.ts?t=1790745642870:102
+     12.2 ms        8 hits  paper  09_render.js:32
+     12.2 ms        8 hits  frame  09_render.js:57
