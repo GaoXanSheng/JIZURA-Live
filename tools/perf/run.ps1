@@ -33,7 +33,10 @@ param(
   # fail (exit 1) on baseline regression, not just warn
   [switch]$StrictBaseline,
   # reuse an existing /perfsim tab instead of opening a new one
-  [switch]$ReuseTab
+  [switch]$ReuseTab,
+  # keep the /perfsim tab open after the run (default: close it — an idle sim tab
+  # pins its own renderer process, ~600MB after a full-song sweep)
+  [switch]$KeepTab
 )
 # Simulated performance test runner (Chrome-tools-style).
 # 1. opens /perfsim in the app (CDP) with a captured song fixture
@@ -301,6 +304,12 @@ if (-not $NoHistory) {
     report = (Split-Path $outFile -Leaf)
   }
   [System.IO.File]::AppendAllText((Join-Path $PSScriptRoot 'history.jsonl'), ($hist | ConvertTo-Json -Compress) + "`r`n")
+}
+
+# ---- close the sim tab (an idle one pins ~600MB of renderer) ----
+if (-not $KeepTab -and -not $ReuseTab) {
+  try { Invoke-RestMethod -Uri "http://127.0.0.1:$Port/json/close/$($target.id)" -Method GET | Out-Null } catch {}
+  $ws.Dispose()
 }
 
 # ---- summary ----

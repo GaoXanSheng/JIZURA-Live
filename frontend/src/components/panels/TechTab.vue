@@ -1,6 +1,14 @@
+<script lang="ts">
+/* 模块级状态：RightPanel 对本 tab 用 v-if 卸载省内存（860 张预览 canvas 不再常驻），
+   卸载重开后筛选词与折叠状态保留在这里不丢 */
+import { ref } from 'vue';
+const filter = ref('');
+const openSet = new Set<string>();
+</script>
+
 <script setup lang="ts">
 /* 手法 tab：套装开关（新增/和/文字排版/动态文字/恐怖）+ 分组折叠 + 实时预览卡 + 筛选/组锁 */
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import { J } from '../../engine';
 import { S } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
@@ -24,10 +32,8 @@ const SETS = [
   { cls: 'horror', label: '也使用恐怖特效', sub: '标有“恐”的手法与风格。一键生成只在“恐怖”氛围时使用' },
 ] as const;
 
-const filter = ref('');
 const groups = ref<any[]>([]);
 const totalText = ref('');
-const openSet = new Set<string>();
 const listEls = new Map<string, HTMLElement>();
 const offs: (() => void)[] = [];
 

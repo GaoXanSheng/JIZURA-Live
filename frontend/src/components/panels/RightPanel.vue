@@ -25,7 +25,9 @@ const tabs = [
   </nav>
   <StyleTab v-show="active === 'style'" />
   <FxTab v-show="active === 'fx'" />
-  <TechTab v-show="active === 'tech'" />
+  <!-- 手法 tab 用 v-if 整体卸载：860 张预览 canvas 只在 tab 打开时存在，
+       切走即释放 renderer + GPU 两侧的常驻内存；筛选/折叠状态在 TechTab 模块级保留 -->
+  <TechTab v-if="active === 'tech'" />
   <SettingsTab v-if="active === 'settings'" />
   <OutTab v-show="active === 'out'" />
 </template>
