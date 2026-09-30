@@ -3,14 +3,14 @@
    - 画布比例：与「导出」页画面比例同源（同一个 project.aspect，改一处两处同步，即时生效）
    - 渲染窗口分辨率/帧率（自定义输入，帧率 1~240）/Spout 输出与 ID/渲染透明背景/调试端口：
      改动只存草稿，点「重启渲染引擎」才保存并统一生效（避免随手改动实时打断输出） */
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { setAspect, setKeyBg } from '../../jizura/export';
-import { toast } from '../../jizura/look';
+import {computed, onMounted, onUnmounted, reactive, ref} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {setAspect, setKeyBg} from '../../jizura/export';
+import {toast} from '../../jizura/look';
 import SubtitlePanel from './SubtitlePanel.vue';
-import { replan } from '../../jizura/engine';
+import {replan} from '../../jizura/engine';
 
 const ASPECTS = ['16:9', '9:16', '4:3', '3:4', '1:1', '4:5', '21:9'];
 const RES_MIN = 64, RES_MAX = 4096;
@@ -214,7 +214,8 @@ onUnmounted(() => offs.forEach(f => f()));
           <input v-model="form.spoutName" type="text" class="flex-1" @input="markDirty">
         </label>
         <label class="checkline"><input v-model="form.spoutTransparent" type="checkbox" @change="markDirty"> 渲染透明背景（输出透明图层）</label>
-        <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立 Spout 字幕通道（歌词单独输出到 <b>{{ form.spoutName || 'JIZURA-live' }}-LYRICS</b>，透明底）</label>
+        <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立
+          Spout 字幕通道 {{ form.spoutName || 'JIZURA-live' }}-LYRICS</label>
       </div>
 
       <div class="flex flex-col gap-1.5 mt-3.5">

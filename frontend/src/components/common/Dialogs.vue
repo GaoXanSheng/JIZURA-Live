@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /* 原生 <dialog>：初始化确认 + 输出物权利说明（简中重写） */
-import { onMounted, onUnmounted, ref } from 'vue';
-import { bus } from '../../jizura/bus';
-import { resetAll } from '../../jizura/look';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {bus} from '../../jizura/bus';
+import {resetAll} from '../../jizura/look';
 
 const resetOpen = ref(false);
 const termsOpen = ref(false);
@@ -73,7 +73,8 @@ onUnmounted(() => {
             <p class="mt-1.5">MP4 导出：mp4-muxer（MIT License）<br>字体：Google Fonts 发布的各字体（SIL Open Font License 1.1）<br>界面：Vue 3（MIT License）</p>
           </details>
           <div class="flex justify-between items-center gap-3 border-t border-line pt-3">
-            <span class="font-mono text-xs text-mut">字面 Live · MIT</span>
+            <span class="font-mono text-xs text-mut">字面 Live 测试版</span>
+            <span class="font-mono text-xs text-mut">免费提供，如需付费请拉黑退款</span>
             <button class="btn btn-primary" @click="termsOpen = false">关闭</button>
           </div>
         </div>
