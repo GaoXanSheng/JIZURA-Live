@@ -57,8 +57,7 @@ public static class CefRuntime
         // 空格或逗号分隔，"k=v" 或 "k"。
         // 例：JIZURA_CEF_ARGS="ignore-gpu-blocklist use-angle=d3d11"
         // ------------------------------------------------------------
-        string extraArgs =
-            Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
+        string extraArgs = Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
 
         foreach (string tok in extraArgs.Split(
             new[] { ' ', ',' },
@@ -80,8 +79,7 @@ public static class CefRuntime
         // ------------------------------------------------------------
         int? cdpPort = null;
 
-        string envPort =
-            Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
+        string envPort = Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
 
         if (int.TryParse(envPort, out int envParsed) && envParsed > 0)
         {

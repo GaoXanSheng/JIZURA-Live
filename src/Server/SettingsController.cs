@@ -124,6 +124,13 @@ internal sealed class SettingsController : WebApiController
             }
 
             settings.Save();
+
+            // 独立字幕通道开关变化：主通道需重注入 __jl_no_sub（字幕分离标志），
+            // 歌词通道随 RestartSpout 启停——整体重启一次到位
+            if (settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled)
+            {
+                (Application.Current.MainWindow as MainWindow)?.RestartSpout();
+            }
         });
 
         HttpContext.SendStringAsync(

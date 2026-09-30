@@ -176,6 +176,8 @@ export function installSubtitleOverlay() {
   const origFrame = proto.frame;
   proto.frame = function (this: any, ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
     origFrame.call(this, ctx, plan, t, opt);
+    // 字幕分离：主通道页被 C# 注入 __jl_no_sub=true 时不叠加（字幕只走独立通道）
+    if (window.__jl_no_sub) return;
     if (effCfg().content !== 'off') {
       try { drawSubtitle(ctx, plan, t, opt); } catch { /* 字幕出错不影响渲染 */ }
     }

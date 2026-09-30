@@ -127,7 +127,8 @@ public partial class MainWindow : Window
             _settings.RenderFps,
             _settings.Width,
             _settings.Height,
-            _settings.SpoutTransparent);
+            _settings.SpoutTransparent,
+            suppressSubtitle: _settings.SpoutLyricsEnabled);
 
         ApplySpoutLyrics();
     }
@@ -198,7 +199,8 @@ public partial class MainWindow : Window
             _settings.RenderFps,
             _settings.Width,
             _settings.Height,
-            _settings.SpoutTransparent);
+            _settings.SpoutTransparent,
+            suppressSubtitle: _settings.SpoutLyricsEnabled);
 
         if (_settings.SpoutLyricsEnabled)
         {

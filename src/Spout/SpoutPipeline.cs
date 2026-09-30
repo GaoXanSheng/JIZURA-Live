@@ -21,7 +21,7 @@ public sealed class SpoutPipeline : IDisposable
 
     public Action? SyncPoke { get; set; }
 
-    public bool Start(string url, string senderName, int fps, int initialW, int initialH, bool transparent = false)
+    public bool Start(string url, string senderName, int fps, int initialW, int initialH, bool transparent = false, bool suppressSubtitle = false)
     {
         if (IsRunning)
             return true;
@@ -41,7 +41,8 @@ public sealed class SpoutPipeline : IDisposable
 
             _mirrorScript = MirrorScript
                 .Replace("__FPS__", safeFps.ToString(CultureInfo.InvariantCulture))
-                .Replace("__TRANSPARENT__", transparent ? "true" : "false");
+                .Replace("__TRANSPARENT__", transparent ? "true" : "false")
+                .Replace("__NO_SUB__", suppressSubtitle ? "true" : "false");
 
             // ------------------------------------------------------------
             // 重要：
@@ -389,6 +390,11 @@ public sealed class SpoutPipeline : IDisposable
     // transparent 给渲染器（跳过背景填充），镜像输出带 alpha 的透明图层；
     // 主窗口预览页面没有这个标记，完全不受影响
     window.__jl_spout_transparent = __TRANSPARENT__;
+
+    // 字幕分离：独立字幕通道开启时，主通道注入 __jl_no_sub=true，
+    // 页面侧字幕叠加（Renderer.frame 包装）据此跳过——主通道出干净画面，
+    // 字幕只走独立通道（歌词通道不注入此标志，照常叠加字幕）
+    window.__jl_no_sub = __NO_SUB__;
 
     var LS_KEY = 'jizura.project.v1';
 
