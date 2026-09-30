@@ -12,7 +12,8 @@
     "bench": "powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/perf/run.ps1",
     "bench:quick": "powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/perf/run.ps1 -SweepSec 60 -RtSec 15 -Reps 1 -Warmup 0",
     "bench:full": "powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/perf/run.ps1 -Reps 3 -Thumbs",
-    "bench:lowend": "powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/perf/run.ps1 -SweepSec 60 -RtSec 15 -Reps 1 -Warmup 0 -Throttle 4"
+    "bench:lowend": "powershell -NoProfile -ExecutionPolicy Bypass -File ../tools/perf/run.ps1 -SweepSec 60 -RtSec 15 -Reps 1 -Warmup 0 -Throttle 4",
+    "fonts": "node scripts/fetch-fonts.mjs"
   },
   "dependencies": {
     "pinia": "^2.3.0",

@@ -36,3 +36,6 @@ wwwroot/dist/
 
 # 性能仿真夹具：含真实歌曲的逐字歌词（版权内容），只留本地，capture-fixture.ps1 随时重抓
 frontend/public/perf-fixtures/
+
+# 本地自托管字体（约 50MB，scripts/fetch-fonts.mjs 抓取；构建时随 public/ 打包）
+frontend/public/fonts/

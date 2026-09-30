@@ -7,7 +7,8 @@ rem      /api 自动代理回本机 8642 服务）
 rem 改 frontend/ 下任何文件即时生效，无需 build / 重启应用。
 rem 对应停止脚本：dev-stop.bat
 rem ============================================================
-start "jizura-vite" cmd /c "cd /d %~dp0..\frontend && npm run dev"
+rem first run: fetches ~50MB of self-hosted fonts (offline afterwards; may take minutes)
+start "jizura-vite" cmd /c "cd /d %~dp0..\frontend && (if not exist public\fonts\manifest.json node scripts\fetch-fonts.mjs) & npm run dev"
 timeout /t 2 /nobreak >nul
 set JIZURA_DEV=1
 start "" "%~dp0..\bin\Debug\net10.0-windows\JizuraLive.exe"

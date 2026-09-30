@@ -6,9 +6,8 @@
 <link rel="icon" href="./favicon.ico">
 <title>字面 Live</title>
 <meta name="description" content="歌词动效引擎：把歌词变成文字 PV，实时预览并导出 MP4。">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Noto+Sans+JP:wght@300;500;700;900&family=Noto+Serif+JP:wght@300;500;700&family=Zen+Kaku+Gothic+New:wght@900&family=Zen+Old+Mincho:wght@900&family=Kaisei+Tokumin:wght@800&family=M+PLUS+Rounded+1c:wght@800&family=Mochiy+Pop+One&family=DotGothic16&family=Yuji+Syuku&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<!-- 字体不再在页面级加载：engine 02_fonts.js attachFamily() 按需挂本地
+     /fonts/css/<spec>.css（scripts/fetch-fonts.mjs 抓取），未抓取的规格回退 CDN -->
 </head>
 <body>
 <div id="app"></div>
