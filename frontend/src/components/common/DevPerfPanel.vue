@@ -1,18 +1,16 @@
 <script lang="ts" setup>
-/* 渲染调试面板（Ctrl+Alt+D 呼出）：折叠图标条（FPS/CPU/GPU/CDP 点）+ 展开弹窗
-   （帧与主线程、应用进程、CDP 精确模式、元素标框）。
+/* 渲染调试面板（Ctrl+Alt+D 呼出）：折叠图标条（FPS/CDP 点）+ 展开弹窗
+   （帧与主线程、CDP 精确模式、元素标框）。
    EditorPage 常挂载，内部按 devUi.open 显隐；采集器启停逻辑在 jizura/devui/index.ts。 */
 import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
 import {devUi, toggleDevUi} from '../../jizura/devui';
 import {type FrameSnapshot, framesSnapshot} from '../../jizura/devui/frames';
-import {sysSnapshot, type SysSnapshot} from '../../jizura/devui/sysmetrics';
 import type {CdpMetrics} from '../../jizura/devui/cdp';
 import {cdpConnect, cdpDisconnect, cdpState, recordPipeline} from '../../jizura/devui/cdp';
 import type {TraceReport} from '../../jizura/devui/traceparse';
 import {boxerLocate, boxerTop, boxerTracked, type TopChanger} from '../../jizura/devui/boxer';
 
 const data = ref<FrameSnapshot | null>(null);
-const sys = ref<SysSnapshot | null>(null);
 const top = ref<TopChanger[]>([]);
 const tracked = ref(0);
 const cdpUi = ref<{ status: string; error: string; port: number; metrics: CdpMetrics | null }>({
@@ -87,7 +85,6 @@ let timer = 0;
 
 function tick() {
   data.value = framesSnapshot();
-  sys.value = sysSnapshot();
   top.value = boxerTop(8);
   tracked.value = boxerTracked();
   cdpUi.value = {status: cdpState.status, error: cdpState.error, port: cdpState.port, metrics: cdpState.metrics};
@@ -135,8 +132,6 @@ watch(data, () => requestAnimationFrame(drawSpark));
 /* ---- 展示格式化 ---- */
 const n1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : '—');
 const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 40 ? 'text-amber' : 'text-danger');
-const pctCls = (v?: number) => (v == null || v < 0 ? 'text-mut' : v >= 60 ? 'text-danger' : v >= 25 ? 'text-amber' : 'text-cyan');
-const pctText = (v?: number) => (v == null || v < 0 ? '—' : v.toFixed(0) + '%');
 const typeText = (t: string) => (({geom: '几何', style: '样式', content: '内容'} as any)[t] || '—');
 
 /* ---- CDP ---- */
@@ -172,8 +167,6 @@ async function doRecord() {
            @click="pillClick"
            @mousedown="onDragStart">
         <span :class="fpsCls(data?.fps)">FPS {{ data ? data.fps.toFixed(0) : '—' }}</span>
-        <span :class="pctCls(sys?.total.cpu)">CPU {{ pctText(sys?.total.cpu) }}</span>
-        <span :class="pctCls(sys?.total.gpu)">GPU {{ pctText(sys?.total.gpu) }}</span>
         <span :class="cdpUi.status === 'connected' ? 'bg-cyan' : cdpUi.status === 'connecting' ? 'bg-amber' : 'bg-faint'"
               :title="'CDP ' + cdpUi.status"
               class="w-1.5 h-1.5 rounded-full"></span>
@@ -211,21 +204,6 @@ async function doRecord() {
             </div>
             <div v-else class="text-faint">Vue 组件耗时需 dev 构建才有数据</div>
           </template>
-        </div>
-
-        <!-- 应用进程 -->
-        <div class="px-2.5 py-2 border-b border-line2">
-          <div class="text-mut mb-1">应用进程（CPU / GPU / 内存）</div>
-          <template v-if="sys && !sys.error">
-            <div class="mb-0.5">合计 <b :class="pctCls(sys.total.cpu)">{{ pctText(sys.total.cpu) }}</b> /
-              <b :class="pctCls(sys.total.gpu)">{{ pctText(sys.total.gpu) }}</b> / {{ sys.total.memMB }}MB
-            </div>
-            <div v-for="p in sys.procs" :key="p.pid">
-              {{ p.type === 'main' ? '主' : 'cef' }} {{ p.pid }}
-              · {{ pctText(p.cpu) }} · {{ pctText(p.gpu) }} · {{ p.memMB }}MB
-            </div>
-          </template>
-          <div v-else class="text-faint">{{ sys?.error || '等待数据…' }}</div>
         </div>
 
         <!-- CDP 精确模式 -->

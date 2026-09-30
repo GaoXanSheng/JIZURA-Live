@@ -132,7 +132,8 @@ onUnmounted(() => offs.forEach(f => f()));
       <SubtitlePanel />
 
       <div class="sec !border-b-0 !px-0">
-        <div class="sec-h"><span class="sec-title">留出画面中央</span><span class="text-[11px] text-muted">给角色留出空白，文字与演出放两侧</span></div>
+        <div class="sec-h"><span class="sec-title">自定义留出画面范围</span><span class="text-[11px] text-muted">给角色留出空白，文字与演出放两侧</span>
+        </div>
         <label class="checkline"><input v-model="centerFree" type="checkbox" @change="saveCenter"> 留出画面中央（导出页可开关，宽度用这里自定义的值）</label>
         <div v-if="centerFree" class="flex flex-col gap-2">
           <label class="flex items-center gap-3 text-xs">
@@ -206,21 +207,15 @@ onUnmounted(() => offs.forEach(f => f()));
         </label>
         <label class="checkline"><input v-model="form.spoutTransparent" type="checkbox" @change="markDirty"> 渲染透明背景（输出透明图层）</label>
         <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立
-          Spout 字幕通道 {{ form.spoutName || 'JIZURA-live' }}-LYRICS</label>
+          Spout 字幕通道 <b>{{ form.spoutName || 'JIZURA-live' }}-LYRICS</b></label>
       </div>
 
       <div class="flex flex-col gap-1.5 mt-3.5">
-        <label class="checkline"><input v-model="form.cdpEnabled" type="checkbox" @change="markDirty"> 调试端口（CDP）</label>
-        <label class="flex items-center gap-3 text-xs pl-6">
-          <span class="flex-none text-mut">端口：</span>
+        <label class="checkline">
+          <input v-model="form.cdpEnabled" type="checkbox" @change="markDirty"> 调试端口（CDP）
           <input v-model="form.cdpPort" type="number" class="w-28" min="1" max="65535" @change="markDirty">
         </label>
-      </div>
 
-      <div class="sec !border-b-0 !px-0 mt-3.5">
-        <div class="sec-h"><span class="sec-title">开发者</span></div>
-        <p class="note !px-0">渲染调试面板：任意页面按 <b>Ctrl+Alt+D</b> 呼出（FPS/CPU/GPU 悬浮图标条、DOM 重绘标框、hover
-          元素详情）。精确管线数据需勾选上方「调试端口」并重启应用。</p>
       </div>
 
       <button class="btn btn-primary w-full mt-4" :disabled="applying || !canApply"

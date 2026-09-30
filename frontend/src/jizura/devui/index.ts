@@ -1,13 +1,12 @@
 /* 渲染调试面板（DevTools 式）：Ctrl+Alt+D 呼出，任意页面可用。
-   折叠图标条：FPS / CPU / GPU 占用 / CDP 状态点；展开为完整面板
-   （帧与主线程、应用进程、CDP 精确模式、元素标框）。
+   折叠图标条：FPS / CDP 状态点；展开为完整面板
+   （帧与主线程、CDP 精确模式、元素标框）。
    关闭时全部采集器停止，零常驻开销。 */
 
 import type {App} from 'vue';
 import {reactive, watch} from 'vue';
 import {startFrames, stopFrames} from './frames';
 import {setBoxerModes, stopBoxer} from './boxer';
-import {startSys, stopSys} from './sysmetrics';
 import {cdpSetWant, setPaintFlashing} from './cdp';
 
 const LS = 'jizura.devui';
@@ -41,14 +40,12 @@ let appRef: App | null = null;
 function applyCollectors() {
     if (devUi.open) {
         startFrames();
-        startSys();
         if (devUi.flash || devUi.hover) setBoxerModes(devUi.flash, devUi.hover);
         else stopBoxer();
         cdpSetWant(devUi.cdp);
         if (devUi.cdp && devUi.paintFlash) setPaintFlashing(true);
     } else {
         stopFrames();
-        stopSys();
         stopBoxer();
         cdpSetWant(false);
     }
