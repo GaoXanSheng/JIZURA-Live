@@ -2,11 +2,11 @@
    工程与时间全部经 BroadcastChannel 从编辑页直通进来（内存消息，不走 localStorage）；
    本页只负责 replan 与画帧，同时也暴露 J.ui 兼容影子供 Spout 注入脚本读写
    （SpoutPipeline.cs 的 __jlApplySync / pump 直接操作该对象）。 */
-import { defineStore } from 'pinia';
-import { J } from '../engine';
-import { mergeProject } from '../jizura/project';
-import type { StageSink } from '../jizura/stage-bridge';
-import type { SubConfig } from '../cloud/subtitle';
+import {defineStore} from 'pinia';
+import {J} from '../engine';
+import {mergeProject} from '../jizura/project';
+import type {StageSink} from '../jizura/stage-bridge';
+import type {SubConfig} from '../cloud/subtitle';
 
 export const useStage = defineStore('stage', {
   state: () => ({
@@ -58,10 +58,13 @@ export const useStage = defineStore('stage', {
           this.replan();
         },
         setTime: (t, playing) => {
+          // 编辑器任何重绘都会带一条 time 推送（暂停态同值也推）：
+          // 锚点没动、播放态没切换就不置 need，避免静止画面空转重绘
+          const changed = playing !== this.playing || t !== this.t;
           this.t = t;
           this.playing = playing;
           this.lastPush = performance.now();
-          this.need = true;
+          if (changed || playing) this.need = true;
         },
         setSub: (sub) => {
           this.subCfg = sub || null;

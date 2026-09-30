@@ -12,10 +12,10 @@
  * - 已存在的文件跳过（断点续传）；--force 全部重抓。
  * - 字体均为 OFL 开源协议，自托管合规；目录已 gitignore（约 40-80MB，构建时随 public/ 打进应用）。
  */
-import { mkdir, writeFile, readFile, stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
+import {dirname, join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'public', 'fonts');
@@ -76,12 +76,17 @@ async function main() {
     catch (e) { failed.push(`${spec} (css: ${e.message})`); continue; }
 
     // 2. 改写 url() 到本地并下载 woff2（按文件名去重，多规格共享同一切片）
+    //    路径必须写成 ../files/：css 落在 fonts/css/ 下，浏览器按 css 所在目录解析相对路径，
+    //    写 ./files/ 会解析成 /fonts/css/files/（404），文件实际在 /fonts/files/
     const urls = [...new Set([...css.matchAll(/url\((https:[^)]+)\)/g)].map(m => m[1]))];
     let i = 0;
     for (const u of urls) {
       const name = u.split('/').pop().split('?')[0];
       const local = join(fileDir, name);
-      if (!FORCE && existsSync(local)) { css = css.split(u).join('./files/' + name); continue; }
+      if (!FORCE && existsSync(local)) {
+        css = css.split(u).join('../files/' + name);
+        continue;
+      }
       const path = new URL(u).pathname + new URL(u).search;
       try {
         const { body } = await fetchWithHosts(path, FILE_HOSTS, 'bin');
@@ -89,7 +94,7 @@ async function main() {
         files++; bytes += body.length;
         process.stdout.write(`\r${files} files, ${(bytes / 1048576).toFixed(1)} MB`);
       } catch (e) { failed.push(`${name} (${e.message})`); }
-      css = css.split(u).join('./files/' + name);
+      css = css.split(u).join('../files/' + name);
       i++;
     }
     await writeFile(cssFile, css);

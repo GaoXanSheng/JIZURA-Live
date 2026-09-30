@@ -23,20 +23,22 @@ internal sealed class StaticSiteModule : WebModuleBase
 
     protected override async Task<bool> OnRequestAsync(IHttpContext context)
     {
-        string path = Uri.UnescapeDataString(context.Request.Url.AbsolutePath);
+        string rel = Uri.UnescapeDataString(context.Request.Url.AbsolutePath).TrimStart('/');
 
-        if (path == "/" || path == "/index.html")
+        if (rel == "" || rel == "index.html")
             return await SendEmbeddedAsync(context, "index.html");
 
-        string rel = path.TrimStart('/');
-        if (rel.Length == 0 || rel.Contains("..")) return false;
+        // 只拦".."路径段（真正的穿越写法）；子串检查会误杀文件名含 .. 的合法请求，
+        // 如 Noto_Sans_JP_wght_100..900.css（可变字重区间）。嵌入资源直接查程序集清单，
+        // 没有文件系统可逃逸，按段判断足够
+        if (rel.Split('/', '\\').Any(seg => seg == "..")) return false;
 
         if (await SendEmbeddedAsync(context, rel)) return true;
 
         // SPA history 路由回退：/render 等无扩展名路径回嵌入 index.html。
         // api/ 前缀绝不回退——否则未匹配的 API 路径会拿到 HTML，前端 JSON 解析全挂
         if (!rel.Contains('.') && !rel.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
-            && await SendEmbeddedAsync(context, "index.html")) return true;
+                               && await SendEmbeddedAsync(context, "index.html")) return true;
 
         return false;
     }
@@ -44,8 +46,15 @@ internal sealed class StaticSiteModule : WebModuleBase
     private static async Task<bool> SendEmbeddedAsync(IHttpContext context, string rel)
     {
         Stream? stream;
-        try { stream = Asm.GetManifestResourceStream(EmbeddedPrefix + rel); }
-        catch { return false; }
+        try
+        {
+            stream = Asm.GetManifestResourceStream(EmbeddedPrefix + rel);
+        }
+        catch
+        {
+            return false;
+        }
+
         if (stream == null) return false;
 
         await using (stream)
@@ -56,6 +65,7 @@ internal sealed class StaticSiteModule : WebModuleBase
             context.Response.Headers["Cache-Control"] = "no-cache";
             await stream.CopyToAsync(context.Response.OutputStream);
         }
+
         return true;
     }
 }

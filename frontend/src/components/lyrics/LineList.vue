@@ -1,18 +1,25 @@
 <script setup lang="ts">
 /* 行与切分列表（原 12_ui.js renderLines 的 Vue 化）
    planVersion 变化时重建行数据；逐行工具直接改 project.overrides / timing.lineTimes */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { replan, seek } from '../../jizura/engine';
+import {computed, onMounted, onUnmounted, ref} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {replan, seek} from '../../jizura/engine';
 import {
-  setOv, setCutTech, pushEdit, remember, commit, toast,
-  setExportRange, exportRangeLines, startTap,
+  commit,
+  exportRangeLines,
+  pushEdit,
+  remember,
+  setCutTech,
+  setExportRange,
+  setOv,
+  startTap,
+  toast,
 } from '../../jizura/look';
-import { flushSave } from '../../jizura/project';
-import { probeRecord } from '../../jizura/probe';
-import { useEditor } from '../../stores/editor';
+import {flushSave} from '../../jizura/project';
+import {probeRecord} from '../../jizura/probe';
+import {useEditor} from '../../stores/editor';
 
 const ed = useEditor();
 const offs: (() => void)[] = [];
@@ -134,7 +141,7 @@ function onRng(i: number, ev: MouseEvent) { setExportRange(i, ev.shiftKey); }
     <div class="sec-h"><span class="sec-title">行与切分</span><span class="font-mono text-mut text-[11px]">{{ infoText }}</span></div>
     <ol class="list-none m-0 p-0 grid gap-1.5">
       <li v-for="r in rows" :key="r.i"
-          class="grid grid-cols-[22px_66px_minmax(0,1fr)] gap-x-1.5 gap-y-1 items-center p-1.5 rounded-md border transition-colors"
+          class="row-cv grid grid-cols-[22px_66px_minmax(0,1fr)] gap-x-1.5 gap-y-1 items-center p-1.5 rounded-md border transition-colors"
           :class="[ed.curLine === r.i ? 'border-line2 bg-raised shadow-[inset_2px_0_0_var(--color-amber)]' : 'border-transparent hover:bg-raised', r.inRange ? '!border-amber' : '']">
         <span class="font-mono text-[11px] text-faint text-right">{{ r.no }}</span>
         <input class="!h-[26px] !py-0.5 !px-1 text-xs w-full mono" :class="r.manual ? '!border-cyan' : ''" type="number" step="0.01" min="0" :value="r.start.toFixed(2)"
@@ -186,4 +193,12 @@ function onRng(i: number, ev: MouseEvent) { setExportRange(i, ev.shiftKey); }
 
 <style scoped>
 .ln.in-range { border-color: var(--color-amber); }
+
+/* 不可见的行不参与排版/绘制：长歌词列表的布局成本随行数线性涨，
+   content-visibility 让视口外的行跳过 layout+paint（可交互性保留，
+   滚动到即渲染）；72px 为估算行高，首次排版后浏览器自动替换为实测值 */
+.row-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
 </style>

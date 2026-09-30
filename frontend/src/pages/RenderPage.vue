@@ -1,35 +1,51 @@
 <script setup lang="ts">
-/* 纯 canvas 渲染页（100% 画布）：
-   - Spout 渲染进程（SpoutPipeline.cs offscreen browser）加载本页出画面
-   - 双窗口监看场景：编辑页经 BroadcastChannel 直通工程/时间/字幕（内存消息，不落盘）
-   - C# 注入脚本（mirror）依赖的兼容面全部保留：
-       window.J.ui          → stage store（reactive，注入脚本直接读写 t/need/plan）
-       window.J.uiApi       → pause/replan
-       canvas#view          → isolate/fitPlanSize 抓取目标
-       __jlApplySync        → C# 时间锚点（保持暂停态 + 外推） */
-import { onMounted, onUnmounted, ref, watch } from 'vue';
-import { J } from '../engine';
-import { useStage } from '../stores/stage';
-import { bindStageBroadcast } from '../jizura/stage-bridge';
-import { installSubtitleOverlay, setSubOverride, drawSubtitleFrame } from '../cloud/subtitle';
+import {onMounted, onUnmounted, ref, watch} from 'vue';
+import {J} from '../engine';
+import {useStage} from '../stores/stage';
+import {mergeProject} from '../jizura/project';
+import {bindStageBroadcast} from '../jizura/stage-bridge';
+import {drawSubtitleFrame, installSubtitleOverlay, setSubOverride} from '../cloud/subtitle';
 
 const stage = useStage();
 const canvas = ref<HTMLCanvasElement | null>(null);
 const connected = ref(false);
 /* ?layer=lyric：独立 Spout 字幕通道——透明底、只画歌词文字（无背景/装饰/HUD） */
-const isLyricLayer = new URLSearchParams(window.location.search).get('layer') === 'lyric';
+const spoutParams = new URLSearchParams(window.location.search);
+const isLyricLayer = spoutParams.get('layer') === 'lyric';
+const isMirror = spoutParams.get('mirror') === '1';
 let renderer: any = null;
 let stopBridge: (() => void) | null = null;
 let raf = 0;
 let unwatch: (() => void) | null = null;
+let mirrorCleanup: (() => void) | null = null;
+
+/* 镜像模式时间同步——完整跟随编辑器时钟（时钟同步已恢复）。
+   时间来源（双路并存）：
+     BC time 每帧 + C# __jlApplySync ~30Hz 锚点；锚点之间泵按墙钟外推
+     （消除推送节奏与出画节奏的拍频）。暂停同值推送由变更检测静默。 */
+const anchor = {playing: false, lastT: 0, stamp: 0};
+
+function onMirrorTime(t: number, playing: boolean) {
+  if (!Number.isFinite(t)) return;
+  const now = performance.now();
+  const changed = playing !== anchor.playing || t !== anchor.lastT;
+  anchor.playing = playing;
+  anchor.lastT = t;
+  anchor.stamp = now;
+  if (changed || playing) {
+    stage.t = t;
+    stage.need = true;
+  }
+}
 
 onMounted(() => {
   installSubtitleOverlay();
   renderer = new J.Renderer();
   const cv = canvas.value!;
-  const stage = useStage();
 
-  /* BroadcastChannel 直通：工程/字幕/时间全部来自编辑页 */
+  if (isMirror) startMirror(cv);
+
+  /* BroadcastChannel 直通：工程/字幕/时间全部来自编辑页（每帧时钟同步） */
   const bridge = bindStageBroadcast(stage.sink());
   stopBridge = bridge.stop;
   connected.value = stage.connected;
@@ -38,7 +54,7 @@ onMounted(() => {
     if (cfg) setSubOverride(cfg, map);
   }, { immediate: true });
 
-  /* Spout 注入脚本的兼容面：J.ui = store 本身（reactive，脚本直接读写） */
+  /* C# 宿主契约面：J.ui = store 本身（宿主侧脚本/排障直接读写） */
   J.ui = stage;
   J.uiApi = {
     toast: () => {},
@@ -54,11 +70,14 @@ onMounted(() => {
     exportRangeLines: () => null,
   };
 
-  /* 工程分辨率画布：plan 就绪时把物理像素设为 plan 尺寸（mirror 注入脚本也会保持） */
-  unwatch = watch(() => stage.plan, () => fitPlanSize(cv), { deep: false });
+  /* 工程分辨率画布：plan 就绪时把物理像素设为 plan 尺寸（镜像泵也会保持） */
+  unwatch = watch(() => stage.plan, () => {
+    fitPlanSize(cv);
+    warmMorphs(cv);
+  }, {deep: false});
   fitPlanSize(cv);
 
-  /* 渲染泵：need 时画（Spout 注入泵/时间推送都会置 need） */
+  /* 渲染泵：need 时画（镜像泵/时间推送都会置 need） */
   const tick = () => {
     raf = requestAnimationFrame(tick);
     if (!stage.need || !stage.plan) return;
@@ -72,6 +91,7 @@ onUnmounted(() => {
   cancelAnimationFrame(raf);
   stopBridge?.();
   unwatch?.();
+  mirrorCleanup?.();
 });
 
 function fitPlanSize(cv: HTMLCanvasElement) {
@@ -81,6 +101,36 @@ function fitPlanSize(cv: HTMLCanvasElement) {
     cv.width = plan.W;
     cv.height = plan.H;
   }
+}
+
+/* morph 预热：morph 切分入场的第一帧会在帧内递归渲染两整帧取字形起止位置
+   （Renderer.morphLogs，结果按 plan 缓存）——播放正好走到那里才付这笔钱，
+   画面上就是一次可感知的顿挫。这里在 plan 就绪后的空闲时段提前算好全部
+   morph 缓存，播放时直取缓存。编辑页的 warm() 只预热 piece 动画字形，
+   且渲染页原本什么预热都没有 */
+let warmJob = 0;
+
+function warmMorphs(cv: HTMLCanvasElement) {
+  const plan = stage.plan;
+  if (!plan || !plan.cuts) return;
+  const cuts = plan.cuts.filter((c: any) => c.morph && c.index > 0);
+  if (!cuts.length) return;
+  const job = ++warmJob;
+  const scale = cv.width / plan.W;
+  const idle = (window as any).requestIdleCallback ?? ((f: any) => setTimeout(() => f({timeRemaining: () => 10}), 40));
+  let i = 0;
+  const step = (deadline: any) => {
+    if (job !== warmJob || stage.plan !== plan) return;   // 工程已变：作废，等新 plan 的预热
+    while (i < cuts.length && deadline.timeRemaining() > 8) {
+      const c = cuts[i++];
+      try {
+        (renderer as any).morphLogs(plan, plan.cuts[c.index - 1], c, cv.width, cv.height, scale, {transparent: !!window.__jl_spout_transparent});
+      } catch { /* 预热失败留回播放时的懒加载兜底 */
+      }
+    }
+    if (i < cuts.length) idle(step);
+  };
+  idle(step);
 }
 
 function draw(cv: HTMLCanvasElement) {
@@ -97,11 +147,156 @@ function draw(cv: HTMLCanvasElement) {
     }
   } catch { /* 单帧失败不中断泵 */ }
 }
+
+/* ================================================================
+   Spout 镜像模式（?mirror=1）——原 C# 注入脚本（SpoutPipeline.MirrorScript）
+   的页面原生版。行为契约逐条保留：
+     - isolate：页面只剩 #view 画布，铺满视口（CSS 像素=纹理像素 1:1 出图）
+     - fitPlanSize：画布钉在工程分辨率，变更时 PostMessage 上报 plan-size
+     - __jlApplySync / BC time：完整时钟同步——每帧跟随编辑器时间，
+       锚点之间泵按墙钟外推（消除 ~30Hz 推送与出画节奏的拍频）
+     - 泵：播放满帧率出画；暂停只在画面真的会变时重绘（无条件置 need 会让
+       GPU 进程永不空闲，是整条出帧管线卡顿的主因之一）
+     - storage：主窗口保存工程后 storage 事件跨浏览器触发
+       （依赖镜像与主窗口共享默认 RequestContext）
+   ================================================================ */
+function startMirror(cv: HTMLCanvasElement) {
+  (window as any).__jl_spout_mirror = true;
+  (window as any).__jl_spout_transparent = spoutParams.get('transparent') === '1';
+  (window as any).__jl_no_sub = spoutParams.get('nosub') === '1';
+
+  const fps = Math.max(1, Number(spoutParams.get('fps')) || 60);
+  const PUMP_MS = Math.max(8, Math.floor(1000 / fps));
+  let lastW = 0, lastH = 0;
+  let postedPending = false;
+
+  const postHost = (o: any) => {
+    try {
+      const cs = (window as any).CefSharp;
+      if (cs && cs.PostMessage) {
+        cs.PostMessage(o);
+        return true;
+      }
+    } catch { /* binding 未就绪，下个泵 tick 重试 */
+    }
+    return false;
+  };
+
+  function isolate() {
+    try {
+      if (cv.parentElement !== document.body) document.body.appendChild(cv);
+      // width/height 必须铺满视口：CEF 页面缩放（按来源持久化）会让 CSS 视口 ≠
+      // 纹理物理尺寸，canvas 若按位图尺寸显示就会留出透明带（OBS 合成黑边）。
+      // 铺满视口后 CSS 尺寸×dpr 恒等于纹理物理尺寸，任何缩放下精确 1:1 出图
+      cv.style.cssText =
+          'position:fixed;left:0;top:0;margin:0;width:100vw;height:100vh;' +
+          'z-index:2147483647;display:block;visibility:visible;';
+      const kids = document.body.children;
+      for (let i = 0; i < kids.length; i++) {
+        if (kids[i] !== cv) (kids[i] as HTMLElement).style.display = 'none';
+      }
+      const bg = (window as any).__jl_spout_transparent ? 'transparent' : '#000';
+      document.documentElement.style.background = bg;
+      document.body.style.background = bg;
+    } catch (e) {
+      console.error('[mirror] isolate failed:', e);
+    }
+  }
+
+  function fit() {
+    const plan = stage.plan;
+    if (!plan) return false;
+    const w = Number(plan.W) || 0, h = Number(plan.H) || 0;
+    if (w <= 0 || h <= 0) return false;
+    let changed = false;
+    if (cv.width !== w || cv.height !== h) {
+      cv.width = w;
+      cv.height = h;
+      stage.need = true;
+      changed = true;
+    }
+    if (w !== lastW || h !== lastH) {
+      lastW = w;
+      lastH = h;
+      postedPending = !postHost({type: 'plan-size', w: lastW, h: lastH});
+      changed = true;
+    } else if (postedPending) {
+      postedPending = !postHost({type: 'plan-size', w: lastW, h: lastH});
+    }
+    return changed;
+  }
+
+  (window as any).__jlApplySync = (data: any) => {
+    try {
+      if (!data) return;
+      const t = Number(data.t);
+      if (!Number.isFinite(t)) return;
+      // C# ~30Hz 锚点落地：泵在两次锚点之间按墙钟外推（拍频消除）
+      onMirrorTime(t, !!data.playing);
+    } catch (e) {
+      console.error('[mirror] ApplySync failed:', e);
+    }
+  };
+
+  let pumpLast = 0;
+  let drawnT: number | undefined = undefined;
+  const pump = () => {
+    requestAnimationFrame(pump);
+    try {
+      const now = performance.now();
+      if (now - pumpLast < PUMP_MS) return;
+      pumpLast = now;
+      const sizeChanged = fit();
+      // 播放中在两次锚点之间按墙钟外推，满帧率出画；暂停时只在画面真的会变时
+      //（锚点 t 变化 / 分辨率变化 / 首帧）才置 need
+      if (anchor.playing) {
+        let te = anchor.lastT + (now - anchor.stamp) / 1000;
+        const dur = stage.plan?.duration ?? 0;
+        if (dur > 0) te = Math.min(te, dur - 1e-3);
+        stage.t = te;
+        stage.need = true;
+        drawnT = te;
+        return;
+      }
+      if (sizeChanged || drawnT === undefined || stage.t !== drawnT) {
+        stage.need = true;
+        drawnT = stage.t;
+      }
+    } catch { /* 泵不容错中断 */
+    }
+  };
+  requestAnimationFrame(pump);
+
+  // isolate 低频重入即可（自愈 DOM 变动）；分辨率保持已移入泵里
+  const isolateTimer = window.setInterval(isolate, 500);
+
+  // 工程跟随：主窗口保存工程后 storage 事件跨浏览器触发
+  //（依赖镜像与主窗口共享默认 RequestContext）
+  const onStorage = (ev: StorageEvent) => {
+    if (ev.key !== 'jizura.project.v1' || !ev.newValue) return;
+    try {
+      stage.project = mergeProject(JSON.parse(ev.newValue));
+      stage.replan();
+    } catch (e) {
+      console.error('[mirror] storage sync failed:', e);
+    }
+  };
+  window.addEventListener('storage', onStorage);
+
+  stage.need = true;   // 初始渲染
+  isolate();
+
+  mirrorCleanup = () => {
+    window.removeEventListener('storage', onStorage);
+    window.clearInterval(isolateTimer);
+    delete (window as any).__jlApplySync;
+  };
+}
 </script>
 
 <template>
   <div class="fixed inset-0 overflow-hidden" :class="isLyricLayer ? 'bg-transparent' : 'bg-black'">
-    <!-- id="view" 是 Spout 注入脚本的 DOM 契约 -->
+    <!-- id="view" 是镜像 isolate / 宿主抓图的 DOM 契约 -->
     <canvas id="view" ref="canvas" width="1280" height="720" class="block w-full h-full"></canvas>
     <div v-if="!connected" class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1">
       等待编辑页连接（BroadcastChannel）{{ isLyricLayer ? ' · 歌词通道' : '' }}

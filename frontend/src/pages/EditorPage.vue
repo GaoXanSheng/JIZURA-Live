@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { useEditor } from '../stores/editor';
-import { bus } from '../jizura/bus';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {useEditor} from '../stores/editor';
+import {bus} from '../jizura/bus';
 import TopBar from '../components/layout/TopBar.vue';
 import LyricsPanel from '../components/lyrics/LyricsPanel.vue';
 import AudioPanel from '../components/lyrics/AudioPanel.vue';
@@ -16,9 +16,9 @@ import CloudMusicModal from '../components/cloud/CloudMusicModal.vue';
 import ToastHost from '../components/common/ToastHost.vue';
 import Dialogs from '../components/common/Dialogs.vue';
 import ProbeHud from '../components/common/ProbeHud.vue';
-import { probeEnabled } from '../jizura/probe';
-import { boot } from '../jizura/boot';
-import { bindEditorBroadcast } from '../jizura/stage-bridge';
+import {probeEnabled} from '../jizura/probe';
+import {boot} from '../jizura/boot';
+import {bindEditorBroadcast} from '../jizura/stage-bridge';
 
 const ed = useEditor();
 const booted = ref(false);
@@ -31,7 +31,17 @@ bindEditorBroadcast();     // 向 /render 渲染页广播工程/时间/字幕（
 onMounted(() => {
   offs.push(bus.on('playstate', () => ed.syncPlayState()));
   offs.push(bus.on('playhead', () => ed.syncTime()));
-  offs.push(bus.on('frame', () => ed.syncTime()));
+  // ed.t 驱动 Transport 的时间码/进度条重渲染：60Hz 全量会让 Transport 每帧
+  // vdom diff + DOM 写入，把整页布局弄脏（实测布局占渲染进程 40% 墙钟）。
+  // 时间码 12Hz 足够，播放头平滑由 TimelineCanvas 直读 S.t 保证
+  let lastTimeSync = 0;
+  offs.push(bus.on('frame', () => {
+    const now = performance.now();
+    if (now - lastTimeSync >= 80) {
+      lastTimeSync = now;
+      ed.syncTime();
+    }
+  }));
   offs.push(bus.on('replan', () => ed.syncPlan()));
   offs.push(bus.on('replan-sync', () => ed.syncPlan()));
   offs.push(bus.on('curline', (li: number) => { ed.curLine = li; }));

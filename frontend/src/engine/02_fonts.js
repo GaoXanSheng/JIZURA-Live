@@ -80,13 +80,17 @@ J.fontCSS = (key, px) => {
    adding faces to the catalogue therefore costs nothing until a style or setting picks them.
    首选本地自托管（scripts/fetch-fonts.mjs 抓到 public/fonts/，构建后完全离线）；本地缺失时回退 CDN。 */
 const cssJobs = new Map();
+  /* 本地文件名由 fetch-fonts.mjs 的 safe 规则生成（spec.replace(/[^\w.-]+/g, '_')），
+     必须用同一规则请求——encodeURIComponent 会把 + : @ ; 编码成 %xx 而全部 404。
+     例: 'Noto+Sans+JP:wght@100..900' → 'Noto_Sans_JP_wght_100..900.css' */
+  const cssFileOf = spec => spec.replace(/[^\w.-]+/g, '_') + '.css';
 function attachFamily(spec) {
   if (!spec || typeof document === 'undefined' || !document.head) return Promise.resolve();
   if (cssJobs.has(spec)) return cssJobs.get(spec);
   const job = new Promise(res => {
     const l = document.createElement('link');
     l.rel = 'stylesheet';
-    l.href = '/fonts/css/' + encodeURIComponent(spec) + '.css';
+    l.href = '/fonts/css/' + cssFileOf(spec);
     const done = () => res();
     l.onload = done;
     l.onerror = () => {   // 本地没抓过这份字体 → 回退 Google CDN（原行为）

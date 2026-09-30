@@ -2,18 +2,14 @@ using System.Drawing;
 using System.Globalization;
 using System.Text.Json;
 using CefSharp;
-using CefSharp.Handler;
 
 namespace JizuraLive;
 
 public sealed class SpoutPipeline : IDisposable
 {
-    public static SpoutPipeline Instance { get; } = new();
-
     public D3DChromiumWebBrowser? _browser;
     private MirrorRenderHandler? _renderHandler;
-
-    private string _mirrorScript = MirrorScript;
+    public static SpoutPipeline Instance { get; } = new();
 
     public bool IsRunning { get; private set; }
 
@@ -21,7 +17,13 @@ public sealed class SpoutPipeline : IDisposable
 
     public Action? SyncPoke { get; set; }
 
-    public bool Start(string url, string senderName, int fps, int initialW, int initialH, bool transparent = false, bool suppressSubtitle = false)
+    public void Dispose()
+    {
+        Stop();
+    }
+
+    public bool Start(string url, string senderName, int fps, int initialW, int initialH, bool transparent = false,
+        bool suppressSubtitle = false)
     {
         if (IsRunning)
             return true;
@@ -39,10 +41,10 @@ public sealed class SpoutPipeline : IDisposable
                 WindowlessFrameRate = safeFps
             };
 
-            _mirrorScript = MirrorScript
-                .Replace("__FPS__", safeFps.ToString(CultureInfo.InvariantCulture))
-                .Replace("__TRANSPARENT__", transparent ? "true" : "false")
-                .Replace("__NO_SUB__", suppressSubtitle ? "true" : "false");
+            // 镜像行为（泵/锚点应用/isolate/分辨率保持/工程跟随）已内置于页面本身
+            //（RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本——
+            // 只负责推 __jlApplySync 锚点、收 plan-size 消息
+            string mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle);
 
             // ------------------------------------------------------------
             // 重要：
@@ -51,7 +53,7 @@ public sealed class SpoutPipeline : IDisposable
             _renderHandler = new MirrorRenderHandler(this);
 
             _browser = new D3DChromiumWebBrowser(
-                url,
+                mirrorUrl,
                 browserSettings);
 
             // RenderHandler 必须先设置
@@ -151,41 +153,29 @@ public sealed class SpoutPipeline : IDisposable
         if (!e.Frame.IsMain)
             return;
 
+        // 镜像行为由页面原生处理（RenderPage.vue ?mirror=1），无脚本可注入。
+        // 页面脚本需要一点时间完成初始化
         Log.Info(
             $"[SpoutMirror] 页面加载完成：" +
-            $"{e.Url}，注入镜像脚本。");
+            $"{e.Url}（镜像模式由页面原生处理）。");
 
-        try
-        {
-            e.Frame.ExecuteJavaScriptAsync(
-                _mirrorScript);
-        }
-        catch (Exception ex)
-        {
-            Log.Error(
-                "[SpoutMirror] 注入镜像脚本失败",
-                ex);
-        }
-
-        // 页面脚本需要一点时间完成初始化
         var poke = SyncPoke;
 
         if (poke != null)
         {
-            _ = Task.Delay(1000).ContinueWith(
-                _ =>
+            _ = Task.Delay(1000).ContinueWith(_ =>
+            {
+                try
                 {
-                    try
-                    {
-                        poke();
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warn(
-                            "[SpoutMirror] SyncPoke 调用失败：" +
-                            ex.Message);
-                    }
-                });
+                    poke();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn(
+                        "[SpoutMirror] SyncPoke 调用失败：" +
+                        ex.Message);
+                }
+            });
         }
     }
 
@@ -195,7 +185,6 @@ public sealed class SpoutPipeline : IDisposable
     {
         try
         {
-
             if (e.Message is not IDictionary<string, object> dict)
                 return;
 
@@ -205,9 +194,9 @@ public sealed class SpoutPipeline : IDisposable
             string? type = typeObj?.ToString();
 
             if (string.Equals(
-                type,
-                "plan-size",
-                StringComparison.OrdinalIgnoreCase))
+                    type,
+                    "plan-size",
+                    StringComparison.OrdinalIgnoreCase))
             {
                 HandlePlanSize(dict);
                 return;
@@ -275,6 +264,26 @@ public sealed class SpoutPipeline : IDisposable
     }
 
     // --------------------------------------------------------------------
+    // 镜像参数走 URL 传给页面（RenderPage.vue ?mirror=1 原生处理），
+    // 不再注入脚本
+    // --------------------------------------------------------------------
+
+    private static string AppendMirrorParams(
+        string url,
+        int fps,
+        bool transparent,
+        bool suppressSubtitle)
+    {
+        string sep = url.Contains('?') ? "&" : "?";
+
+        return
+            $"{url}{sep}mirror=1" +
+            $"&fps={fps.ToString(CultureInfo.InvariantCulture)}" +
+            $"&transparent={(transparent ? 1 : 0)}" +
+            $"&nosub={(suppressSubtitle ? 1 : 0)}";
+    }
+
+    // --------------------------------------------------------------------
     // 主窗口 -> 镜像窗口
     // --------------------------------------------------------------------
 
@@ -315,6 +324,7 @@ public sealed class SpoutPipeline : IDisposable
                 ex.Message);
         }
     }
+
     private void CleanupLocked()
     {
         IsRunning = false;
@@ -369,355 +379,4 @@ public sealed class SpoutPipeline : IDisposable
         Log.Info(
             $"Spout 管线已停止：通道={oldName}");
     }
-
-    public void Dispose()
-    {
-        Stop();
-    }
-
-    // ====================================================================
-    // 镜像 JS
-    // ====================================================================
-
-    private const string MirrorScript = """
-(function () {
-    if (window.__jl_spout_mirror)
-        return;
-
-    window.__jl_spout_mirror = true;
-
-    // __TRANSPARENT__ 由 C# 端按设置烘焙：true 时页面 draw() 传
-    // transparent 给渲染器（跳过背景填充），镜像输出带 alpha 的透明图层；
-    // 主窗口预览页面没有这个标记，完全不受影响
-    window.__jl_spout_transparent = __TRANSPARENT__;
-
-    // 字幕分离：独立字幕通道开启时，主通道注入 __jl_no_sub=true，
-    // 页面侧字幕叠加（Renderer.frame 包装）据此跳过——主通道出干净画面，
-    // 字幕只走独立通道（歌词通道不注入此标志，照常叠加字幕）
-    window.__jl_no_sub = __NO_SUB__;
-
-    var LS_KEY = 'jizura.project.v1';
-
-    var lastW = 0;
-    var lastH = 0;
-
-    // ================================================================
-    // 页面状态入口
-    //
-    // 注意：12_ui.js 全部包在 IIFE 里，S / play / pause / seek /
-    // mergeProject / syncUI / replan 都不是全局的。
-    // 页面只暴露 window.J.ui（状态）与 window.J.uiApi（动作）。
-    // ================================================================
-
-    function state() {
-        return (window.J && J.ui) || null;
-    }
-
-    // ================================================================
-    // C# Host IPC
-    // ================================================================
-
-    function postHost(o) {
-        try {
-            if (
-                window.CefSharp &&
-                CefSharp.PostMessage
-            ) {
-                CefSharp.PostMessage(o);
-            }
-        }
-        catch (e) {
-            console.error(
-                '[SpoutMirror] postHost failed:',
-                e
-            );
-        }
-    }
-
-    // ================================================================
-    // 页面隔离
-    // ================================================================
-
-    function isolate() {
-        try {
-            var cv = document.getElementById('view');
-
-            if (!cv)
-                return;
-
-            if (cv.parentElement !== document.body) {
-                document.body.appendChild(cv);
-            }
-
-            // width/height 必须铺满视口：CEF 页面缩放（按来源持久化，
-            // 与主窗口共享 profile）会让 CSS 视口 ≠ 纹理物理尺寸，
-            // canvas 若按位图尺寸显示就会在右侧/底部留出透明带，
-            // OBS 合成黑底即黑边。铺满视口后 CSS 尺寸×dpr 恒等于
-            // 纹理物理尺寸，任何缩放下都精确 1:1 出图
-            cv.style.cssText =
-                'position:fixed;' +
-                'left:0;' +
-                'top:0;' +
-                'margin:0;' +
-                'width:100vw;' +
-                'height:100vh;' +
-                'z-index:2147483647;' +
-                'display:block;' +
-                'visibility:visible;';
-
-            var kids = document.body.children;
-
-            for (var i = 0; i < kids.length; i++) {
-                if (kids[i] !== cv) {
-                    kids[i].style.display = 'none';
-                }
-            }
-
-            var bg = window.__jl_spout_transparent ? 'transparent' : '#000';
-            document.documentElement.style.background = bg;
-            document.body.style.background = bg;
-        }
-        catch (e) {
-            console.error(
-                '[SpoutMirror] isolate failed:',
-                e
-            );
-        }
-    }
-
-    // ================================================================
-    // 分辨率保持：画布按工程分辨率渲染，而不是镜像视口大小
-    // ================================================================
-
-    function fitPlanSize() {
-        var S = state();
-
-        if (!S || !S.plan)
-            return;
-
-        var c = document.getElementById('view');
-
-        if (!c)
-            return;
-
-        var targetW = Number(S.plan.W) || 0;
-        var targetH = Number(S.plan.H) || 0;
-
-        if (targetW <= 0 || targetH <= 0)
-            return;
-
-        if (
-            c.width !== targetW ||
-            c.height !== targetH
-        ) {
-            c.width = targetW;
-            c.height = targetH;
-
-            S.need = true;
-        }
-
-        if (
-            targetW !== lastW ||
-            targetH !== lastH
-        ) {
-            lastW = targetW;
-            lastH = targetH;
-
-            postHost({
-                type: 'plan-size',
-                w: lastW,
-                h: lastH
-            });
-        }
-    }
-
-    // ================================================================
-    // 主窗口同步进度（由 C# 调用）
-    //
-    // 镜像是从渲染器：永远不自己播放（不点播放键、不跑本地时钟）。
-    // 推送锚点落地后，泵里按墙钟外推到当前时刻——
-    // 推送节奏（~30Hz）与渲染节奏（30/60fps）是两个不同步的时钟，
-    // 直接用推送值会形成拍频（一帧重复、下一帧跳两格，
-    // 看起来就是规律的"一卡一卡"），外推彻底消除采样抖动。
-    // ================================================================
-
-    var mirror = { playing: false, lastT: 0, stamp: 0 };
-
-    window.__jlApplySync = function(data) {
-    try {
-        var S = state();
-
-        if (!data || !S)
-            return;
-
-        // 保持从渲染器暂停态（页面 tick 会用本地时钟覆盖 S.t）
-        if (S.playing) {
-            var api = window.J && J.uiApi;
-
-            if (api && typeof api.pause === 'function') {
-                api.pause();
-            }
-        }
-
-        var t = Number(data.t);
-
-        if (!Number.isFinite(t))
-            return;
-
-        mirror.playing = !!data.playing;
-        mirror.lastT = t;
-        mirror.stamp = performance.now();
-
-        S.t = t;
-        S.need = true;
-    }
-    catch (e) {
-        console.error(
-            '[SpoutMirror] ApplySync failed:',
-            e
-        );
-    }
-};
-
-    // ================================================================
-    // 持续渲染泵（同时负责分辨率保持）
-    // ================================================================
-
-    var PUMP_MS =
-        Math.max(
-            8,
-            Math.floor(1000 / __FPS__)
-        );
-
-    (function pump() {
-
-        requestAnimationFrame(pump);
-
-        try {
-            var S = state();
-
-            if (!S)
-                return;
-
-            var now =
-                performance.now();
-
-            if (
-                now - (pump.last || 0) <
-                PUMP_MS
-            ) {
-                return;
-            }
-
-            pump.last = now;
-
-            fitPlanSize();
-
-            // 播放中在两次推送之间按墙钟外推（锚点见 __jlApplySync）
-            if (mirror.playing) {
-                var te = mirror.lastT +
-                    (now - mirror.stamp) / 1000;
-
-                if (S.plan && S.plan.duration > 0) {
-                    te = Math.min(
-                        te,
-                        S.plan.duration - 1e-3);
-                }
-
-                S.t = te;
-            }
-
-            S.need = true;
-        }
-        catch (e) {
-        }
-
-    })();
-
-    // isolate 低频做即可，分辨率保持已移入泵里
-    setInterval(function () {
-        try {
-            isolate();
-        }
-        catch (e) {
-            console.error(
-                '[SpoutMirror] isolate failed:',
-                e
-            );
-        }
-    }, 500);
-
-    // ================================================================
-    // 工程跟随：主窗口保存工程后 storage 事件跨浏览器触发
-    // （依赖镜像与主窗口共享默认 RequestContext）
-    // ================================================================
-
-    window.addEventListener(
-        'storage',
-        function (ev) {
-
-            if (
-                ev.key !== LS_KEY ||
-                !ev.newValue
-            ) {
-                return;
-            }
-
-            try {
-                var S = state();
-
-                if (!S)
-                    return;
-
-                // 主窗口保存的就是同一版本 normalize 过的工程，
-                // 直接落进去即可（mergeProject 在 IIFE 里拿不到）
-                S.project =
-                    JSON.parse(ev.newValue);
-
-                var api = window.J && J.uiApi;
-
-                if (api && typeof api.syncUI === 'function')
-                    api.syncUI();
-
-                if (api && typeof api.replan === 'function')
-                    api.replan();
-
-                S.need = true;
-            }
-            catch (e) {
-                console.error(
-                    '[SpoutMirror] storage sync failed:',
-                    e
-                );
-            }
-        }
-    );
-
-    // ================================================================
-    // 初始渲染
-    // ================================================================
-
-    try {
-        var s0 = state();
-
-        if (s0) {
-            // 从渲染器保持暂停：若页面加载后自己进入了播放态，
-            // 本地时钟会覆盖主窗口推来的时间
-            var api0 = window.J && J.uiApi;
-
-            if (s0.playing && api0 &&
-                typeof api0.pause === 'function') {
-                api0.pause();
-            }
-
-            s0.need = true;
-        }
-    }
-    catch (e) {
-    }
-
-    isolate();
-
-})();
-""";
 }

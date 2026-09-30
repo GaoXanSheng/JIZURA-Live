@@ -3,10 +3,10 @@
    全部走内存消息通道，渲染进程不读写 localStorage，不增加落盘能耗。
    Spout 渲染进程另有一条 C# __jlApplySync 锚点通道（SpoutPipeline 注入），
    两者时间源相同（都来自编辑页时钟），可并存。 */
-import { S } from './state';
-import { bus } from './bus';
-import { currentLyric } from '../cloud/lyricStore';
-import { subConfig } from '../cloud/subtitle';
+import {S} from './state';
+import {bus} from './bus';
+import {currentLyric} from '../cloud/lyricStore';
+import {subConfig} from '../cloud/subtitle';
 
 const CHANNEL = 'jizura-live';
 
@@ -56,7 +56,7 @@ export function bindEditorBroadcast() {
 
   // 工程变化：replan 后推全量（低频）
   bus.on('replan', () => { try { ch!.postMessage(projectMsg('project')); } catch {} });
-  // 播放时间：每帧（高频、纯内存）
+  // 播放时间：每帧（高频、纯内存）——镜像完整时钟同步需要逐帧时间
   bus.on('frame', () => { try { ch!.postMessage({ type: 'time', t: S.t, playing: S.playing } as Msg); } catch {} });
   // 字幕配置：变化时推
   bus.on('subcfg', () => {
