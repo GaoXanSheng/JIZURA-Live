@@ -1,4 +1,3 @@
-using System;
 using System.IO;
 using Newtonsoft.Json;
 
@@ -25,12 +24,8 @@ public sealed class Settings
     public bool CdpEnabled { get; set; }
     public int CdpPort { get; set; } = 9222;
 
-    public static string ConfigDir => Path.Combine(AppContext.BaseDirectory, "config");
+    public static string ConfigDir => AppDirs.ConfigDir;
     public static string FilePath => Path.Combine(ConfigDir, "settings.json");
-
-    private static string LegacyFilePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "JizuraLive", "settings.json");
 
     public static Settings Load()
     {
@@ -43,17 +38,6 @@ public sealed class Settings
                 if (settings != null)
                 {
                     Log.Info($"已加载配置文件：{FilePath}");
-                    return settings;
-                }
-            }
-            else if (File.Exists(LegacyFilePath))
-            {
-                string text = File.ReadAllText(LegacyFilePath);
-                var settings = JsonConvert.DeserializeObject<Settings>(text);
-                if (settings != null)
-                {
-                    Log.Info($"检测到旧版配置，自动迁移至：{FilePath}");
-                    settings.Save();
                     return settings;
                 }
             }

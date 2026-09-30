@@ -35,7 +35,8 @@ Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
-Source: "bin\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+; Excludes 挡掉开发机上跑 bin\publish 时产生的运行时数据（含设置与登录 cookie），绝不随安装包分发
+Source: "bin\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion; Excludes: "config\*;logs\*;cef-cache\*"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
@@ -48,48 +49,6 @@ begin
   Result := True;
 end;
 
-// 安装步骤改变时触发：在文件复制前删除旧的日志目录，避免旧日志残留
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  LogsDir: String;
-begin
-  if CurStep = ssInstall then
-  begin
-    LogsDir := ExpandConstant('{app}\logs');
-    if DirExists(LogsDir) then
-    begin
-      Log('正在删除日志目录: ' + LogsDir);
-      if DelTree(LogsDir, True, True, True) then
-        Log('日志目录删除成功。')
-      else
-        Log('日志目录删除失败。');
-    end
-    else
-      Log('日志目录不存在，跳过删除: ' + LogsDir);
-  end;
-end;
-
-// 卸载步骤改变时触发：在卸载开始前清理运行时生成的日志目录
-procedure DoCleanupResources();
-var
-  LogsDir: String;
-begin
-  LogsDir := ExpandConstant('{app}\logs');
-  if DirExists(LogsDir) then
-  begin
-    Log('正在删除日志目录: ' + LogsDir);
-    if DelTree(LogsDir, True, True, True) then
-      Log('日志目录删除成功。')
-    else
-      Log('日志目录删除失败。');
-  end;
-end;
-
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  // 在卸载实际开始前执行清理
-  if CurUninstallStep = usUninstall then
-  begin
-    DoCleanupResources();
-  end;
-end;
+// 运行时数据（config/logs/cef-cache）都在 %LOCALAPPDATA%\JizuraLive，
+// 安装目录没有运行时写入，卸载由 Inno 按安装清单移除即可，无需额外清理；
+// %LOCALAPPDATA% 下的用户设置/登录态卸载时有意保留

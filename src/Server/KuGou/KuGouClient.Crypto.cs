@@ -1,8 +1,6 @@
 using System.IO;
 using System.Net.Http;
 using System.Numerics;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
@@ -19,18 +17,19 @@ public sealed partial class KuGouClient
     private const string ClientVer = "20489";
     private const string SrcAppId = "2919";
     private const string AndroidUa = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+
+    private const string PubKeyPem = """
+                                     -----BEGIN PUBLIC KEY-----
+                                     MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDIAG7QOELSYoIJvTFJhMpe1s/gbjDJX51HBNnEl5HXqTW6lQ7LC8jr9fWZTwusknp+sVGzwd40MwP6U5yDE27M/X1+UR4tvOGOqp94TJtQ1EPnWGWXngpeIW5GxoQGao1rmYWAu6oi1z9XkChrsUdC6DJE5E221wf/4WLFxwAtRQIDAQAB
+                                     -----END PUBLIC KEY-----
+                                     """;
+
     private static readonly (string Key, string Value)[] GatewayHeaders =
         [("kg-rc", "1"), ("kg-thash", "5d816a0"), ("kg-rec", "1"), ("kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F")];
-    private const string PubKeyPem = """
-        -----BEGIN PUBLIC KEY-----
-        MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDIAG7QOELSYoIJvTFJhMpe1s/gbjDJX51HBNnEl5HXqTW6lQ7LC8jr9fWZTwusknp+sVGzwd40MwP6U5yDE27M/X1+UR4tvOGOqp94TJtQ1EPnWGWXngpeIW5GxoQGao1rmYWAu6oi1z9XkChrsUdC6DJE5E221wf/4WLFxwAtRQIDAQAB
-        -----END PUBLIC KEY-----
-        """;
 
-    // 酷狗登录状态（含 cookie）与 settings.json 同放应用的 config 文件夹，
-    // 随应用便携携带，不写入系统 AppData
-    private static readonly string StateFile = Path.Combine(
-        AppContext.BaseDirectory, "config", "kg_login.json");
+    // 酷狗登录状态（含 cookie）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config；
+    // 旧版曾放 exe 旁 config 文件夹，由 AppDirs.MigrateLegacyConfig 首次启动时搬过来
+    private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "kg_login.json");
 
     private static JObject KgState()
     {
@@ -39,7 +38,10 @@ public sealed partial class KuGouClient
             if (File.Exists(StateFile))
                 return JObject.Parse(File.ReadAllText(StateFile));
         }
-        catch { }
+        catch
+        {
+        }
+
         return [];
     }
 
@@ -54,7 +56,7 @@ public sealed partial class KuGouClient
 
     private static string S(JObject o, string key) => o[key]?.ToString() ?? "";
 
-    
+
     private static JObject EnsureIdentity()
     {
         var st = KgState();
@@ -66,6 +68,7 @@ public sealed partial class KuGouClient
             patch["uuid"] = uuid;
             st["uuid"] = uuid;
         }
+
         if (S(st, "mid").Length == 0)
         {
             BigInteger midVal = 0;
@@ -74,16 +77,17 @@ public sealed partial class KuGouClient
             patch["mid"] = mid;
             st["mid"] = mid;
         }
+
         if (S(st, "dev").Length == 0)
         {
             string dev = Md5(RandomKg(16));
             patch["dev"] = dev;
             st["dev"] = dev;
         }
+
         return patch.Count > 0 ? KgSave(patch) : st;
     }
 
-    
 
     private static string Md5(string s) =>
         Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
@@ -96,7 +100,7 @@ public sealed partial class KuGouClient
         return sb.ToString();
     }
 
-    
+
     private static (string Url, string ClientTime) SignedUrl(
         string baseUrl, string urlPath, Dictionary<string, string> parameters, bool android, string data = "")
     {
@@ -115,7 +119,8 @@ public sealed partial class KuGouClient
         return ($"{baseUrl}{urlPath}?{qs}", now);
     }
 
-    private static void AddGatewayHeaders(HttpRequestMessage req, string? dfid = null, string? clientTime = null, string? mid = null)
+    private static void AddGatewayHeaders(HttpRequestMessage req, string? dfid = null, string? clientTime = null,
+        string? mid = null)
     {
         req.Headers.TryAddWithoutValidation("User-Agent", AndroidUa);
         if (dfid != null) req.Headers.TryAddWithoutValidation("dfid", dfid);
@@ -124,12 +129,14 @@ public sealed partial class KuGouClient
         foreach (var (k, v) in GatewayHeaders) req.Headers.TryAddWithoutValidation(k, v);
     }
 
-    
 
     private static string AesCbc(byte[] key, byte[] iv, string plainText)
     {
         using var aes = Aes.Create();
-        aes.Key = key; aes.IV = iv; aes.Mode = CipherMode.CBC; aes.Padding = PaddingMode.PKCS7;
+        aes.Key = key;
+        aes.IV = iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
         using var enc = aes.CreateEncryptor();
         return Convert.ToBase64String(enc.TransformFinalBlock(Encoding.UTF8.GetBytes(plainText), 0, plainText.Length));
     }
@@ -137,12 +144,15 @@ public sealed partial class KuGouClient
     private static string AesCbcDec(byte[] key, byte[] iv, byte[] cipher)
     {
         using var aes = Aes.Create();
-        aes.Key = key; aes.IV = iv; aes.Mode = CipherMode.CBC; aes.Padding = PaddingMode.PKCS7;
+        aes.Key = key;
+        aes.IV = iv;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
         using var dec = aes.CreateDecryptor();
         return Encoding.UTF8.GetString(dec.TransformFinalBlock(cipher, 0, cipher.Length));
     }
 
-    
+
     private async Task<string> RegisterDevAsync(string token, long userid)
     {
         var st = EnsureIdentity();
@@ -152,8 +162,8 @@ public sealed partial class KuGouClient
         byte[] aesIv = Encoding.ASCII.GetBytes(kmd5[16..32]);
 
         string deviceJson = """
-        {"availableRamSize":4983533568,"availableRomSize":48114719,"availableSDSize":48114717,"basebandVer":"","batteryLevel":100,"batteryStatus":3,"brand":"Redmi","buildSerial":"unknown","device":"marble","imei":"UUID","imsi":"","manufacturer":"Xiaomi","uuid":"UUID","accelerometer":false,"accelerometerValue":"","gravity":false,"gravityValue":"","gyroscope":false,"gyroscopeValue":"","light":false,"lightValue":"","magnetic":false,"magneticValue":"","orientation":false,"orientationValue":"","pressure":false,"pressureValue":"","step_counter":false,"step_counterValue":"","temperature":false,"temperatureValue":""}
-        """.Replace("UUID", S(st, "uuid")).Replace("\r", "").Replace("\n", "");
+                            {"availableRamSize":4983533568,"availableRomSize":48114719,"availableSDSize":48114717,"basebandVer":"","batteryLevel":100,"batteryStatus":3,"brand":"Redmi","buildSerial":"unknown","device":"marble","imei":"UUID","imsi":"","manufacturer":"Xiaomi","uuid":"UUID","accelerometer":false,"accelerometerValue":"","gravity":false,"gravityValue":"","gyroscope":false,"gyroscopeValue":"","light":false,"lightValue":"","magnetic":false,"magneticValue":"","orientation":false,"orientationValue":"","pressure":false,"pressureValue":"","step_counter":false,"step_counterValue":"","temperature":false,"temperatureValue":""}
+                            """.Replace("UUID", S(st, "uuid")).Replace("\r", "").Replace("\n", "");
         string aesStr = AesCbc(aesKey, aesIv, deviceJson);
 
         string portrait;
@@ -161,13 +171,15 @@ public sealed partial class KuGouClient
         {
             rsa.ImportFromPem(PubKeyPem);
             string inner = $$"""{"aes":"{{key6}}","uid":{{userid}},"token":"{{token}}"}""";
-            portrait = Convert.ToHexString(rsa.Encrypt(Encoding.UTF8.GetBytes(inner), RSAEncryptionPadding.Pkcs1)).ToLowerInvariant();
+            portrait = Convert.ToHexString(rsa.Encrypt(Encoding.UTF8.GetBytes(inner), RSAEncryptionPadding.Pkcs1))
+                .ToLowerInvariant();
         }
 
-        var (url, clientTime) = SignedUrl("https://userservice.kugou.com", "/risk/v2/r_register_dev", new Dictionary<string, string>
-        {
-            ["dfid"] = "-", ["mid"] = S(st, "mid"), ["part"] = "1", ["platid"] = "1", ["p"] = portrait,
-        }, android: true, data: aesStr);
+        var (url, clientTime) = SignedUrl("https://userservice.kugou.com", "/risk/v2/r_register_dev",
+            new Dictionary<string, string>
+            {
+                ["dfid"] = "-", ["mid"] = S(st, "mid"), ["part"] = "1", ["platid"] = "1", ["p"] = portrait,
+            }, android: true, data: aesStr);
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(aesStr) };
         AddGatewayHeaders(req, dfid: "-", clientTime: clientTime, mid: S(st, "mid"));
@@ -182,6 +194,7 @@ public sealed partial class KuGouClient
             string rawJson = body.ToString(Formatting.None);
             throw new InvalidOperationException("register_dev 失败：" + rawJson[..Math.Min(200, rawJson.Length)]);
         }
+
         KgSave(new JObject { ["dfid"] = dfid });
         return dfid!;
     }

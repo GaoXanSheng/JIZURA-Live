@@ -1,5 +1,4 @@
 using System.IO;
-using System.Threading;
 using CefSharp;
 using CefSharp.Wpf;
 
@@ -7,9 +6,10 @@ namespace JizuraLive;
 
 public static class CefRuntime
 {
+    private static bool _initialized;
     public static string CachePath { get; private set; } = "";
     public static string LogFile { get; private set; } = "";
-    private static bool _initialized;
+
     public static bool Initialize(Settings? settings = null)
     {
         if (_initialized || Cef.IsInitialized == true)
@@ -17,9 +17,10 @@ public static class CefRuntime
             _initialized = true;
             return true;
         }
-        CachePath = Path.Combine(AppContext.BaseDirectory, "cef-cache");
+
+        CachePath = Path.Combine(AppDirs.Root, "cef-cache");
         LogFile = Path.Combine(CachePath, "cef_debug.log");
-        var cefSettings = new CefSharp.Wpf.CefSettings
+        var cefSettings = new CefSettings
         {
             RootCachePath = CachePath,
             CachePath = CachePath,
@@ -60,8 +61,8 @@ public static class CefRuntime
         string extraArgs = Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
 
         foreach (string tok in extraArgs.Split(
-            new[] { ' ', ',' },
-            StringSplitOptions.RemoveEmptyEntries))
+                     new[] { ' ', ',' },
+                     StringSplitOptions.RemoveEmptyEntries))
         {
             int eq = tok.IndexOf('=');
 
@@ -87,8 +88,8 @@ public static class CefRuntime
             Log.Info($"CDP 端口来自环境变量：JIZURA_CDP_PORT={envParsed}");
         }
         else if (settings != null &&
-            settings.CdpEnabled &&
-            settings.CdpPort > 0)
+                 settings.CdpEnabled &&
+                 settings.CdpPort > 0)
         {
             cdpPort = settings.CdpPort;
         }

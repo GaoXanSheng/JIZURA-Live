@@ -18,7 +18,7 @@ public static class Log
 
     public static void Init()
     {
-        LogDir = Path.Combine(AppContext.BaseDirectory, "logs");
+        LogDir = AppDirs.LogsDir;
         Directory.CreateDirectory(LogDir);
         LogFile = Path.Combine(LogDir, "jizura.log");
 

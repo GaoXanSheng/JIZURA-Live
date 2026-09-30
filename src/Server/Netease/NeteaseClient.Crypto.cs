@@ -18,17 +18,18 @@ public sealed partial class NeteaseClient
     private const string EapiKey = "e82ckenh8dichen8";
     private const string EapiSep = "36cd479b6b5";
     private const string AppVer = "8.9.75";
-    private const string PcUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/122.0.0.0 Safari/537.36";
-    private const string PubKeyPem = """
-        -----BEGIN PUBLIC KEY-----
-        MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB
-        -----END PUBLIC KEY-----
-        """;
 
-    // 登录状态（MUSIC_U cookie 等）与 settings.json 同放应用的 config 文件夹（同 kg_login.json 惯例）
-    private static readonly string StateFile = Path.Combine(
-        AppContext.BaseDirectory, "config", "ne_login.json");
+    private const string PcUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                                "Chrome/122.0.0.0 Safari/537.36";
+
+    private const string PubKeyPem = """
+                                     -----BEGIN PUBLIC KEY-----
+                                     MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB
+                                     -----END PUBLIC KEY-----
+                                     """;
+
+    // 登录状态（MUSIC_U cookie 等）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config（同 kg_login.json 惯例）
+    private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "ne_login.json");
 
     private static JObject NeState()
     {
@@ -37,7 +38,10 @@ public sealed partial class NeteaseClient
             if (File.Exists(StateFile))
                 return JObject.Parse(File.ReadAllText(StateFile));
         }
-        catch { }
+        catch
+        {
+        }
+
         return [];
     }
 
