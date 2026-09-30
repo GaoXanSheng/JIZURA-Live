@@ -42,8 +42,8 @@ async function toggleLogin(source: 'kugou' | 'netease') {
 
     <Teleport to="body">
       <Transition name="pop">
-        <div v-if="cloud.qr.active" class="fixed inset-0 z-[3000] bg-[rgba(6,6,8,0.6)] backdrop-blur-sm grid place-items-center" @click.self="cloud.closeQr()">
-          <div class="bg-panel/90 backdrop-blur-xl text-fg border border-line2 rounded-2xl p-6 flex flex-col gap-3 items-center shadow-modal">
+        <div v-if="cloud.qr.active" class="fixed inset-0 z-[3000] bg-[rgba(6,6,8,0.6)] grid place-items-center" @click.self="cloud.closeQr()">
+          <div class="bg-panel text-fg border border-line2 rounded-2xl p-6 flex flex-col gap-3 items-center shadow-modal">
             <strong>{{ cloud.qr.source === 'netease' ? '网易云扫码登录' : '酷狗扫码登录' }}</strong>
             <div class="relative w-[188px] h-[188px] rounded-[10px] overflow-hidden bg-white">
               <img v-if="cloud.qr.img" :src="cloud.qr.img" alt="登录二维码" width="188" height="188" class="block">

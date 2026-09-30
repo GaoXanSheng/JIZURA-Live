@@ -44,9 +44,9 @@ watch(() => cloud.open, (v) => {
 <template>
   <Teleport to="body">
     <Transition name="fade">
-      <div v-if="cloud.open" class="fixed inset-0 z-[2500] bg-[rgba(6,6,8,0.6)] backdrop-blur-md grid place-items-center p-6" @click.self="cloud.open = false">
+      <div v-if="cloud.open" class="fixed inset-0 z-[2500] bg-[rgba(6,6,8,0.6)] grid place-items-center p-6" @click.self="cloud.open = false">
         <Transition name="pop" appear>
-          <div class="w-[min(860px,96vw)] h-[min(600px,88vh)] flex flex-col bg-panel/90 backdrop-blur-xl border border-line2 rounded-2xl shadow-modal overflow-hidden" role="dialog" aria-modal="true" aria-label="云端音乐">
+          <div class="w-[min(860px,96vw)] h-[min(600px,88vh)] flex flex-col bg-panel border border-line2 rounded-2xl shadow-modal overflow-hidden" role="dialog" aria-modal="true" aria-label="云端音乐">
             <header class="flex items-center gap-3.5 px-4.5 py-3.5 border-b border-line" style="padding-inline: 18px">
               <strong class="text-sm tracking-wider">云端音乐</strong>
               <span class="inline-flex gap-0.5 bg-raised border border-line2 rounded-lg p-0.5 ml-auto" role="group" aria-label="搜索来源">

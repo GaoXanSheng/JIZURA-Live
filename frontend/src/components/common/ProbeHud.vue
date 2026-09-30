@@ -22,7 +22,7 @@ function fmtMarks() {
 
 <template>
   <div class="fixed bottom-2 left-2 z-[5000] pointer-events-none font-mono text-[10px] leading-[1.5] text-left">
-    <div class="bg-ink/85 border border-line2 rounded-md px-2.5 py-2 backdrop-blur-sm max-w-[420px]">
+    <div class="bg-ink/85 border border-line2 rounded-md px-2.5 py-2 max-w-[420px]">
       <div class="text-amber mb-1">PERF PROBE <span v-if="data" class="text-mut">{{ data.frame.count }}f</span></div>
       <template v-if="data">
         <div>fps~{{ data.frame.gapAvg ? (1000 / Math.max(1, data.frame.gapAvg)).toFixed(1) : '-' }}  gapAvg {{ data.frame.gapAvg?.toFixed(1) }}ms  gapMax {{ data.frame.gapMax?.toFixed(0) }}ms  dropped {{ data.frame.dropped }}</div>

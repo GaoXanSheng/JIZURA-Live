@@ -103,7 +103,7 @@ function draw(cv: HTMLCanvasElement) {
   <div class="fixed inset-0 overflow-hidden" :class="isLyricLayer ? 'bg-transparent' : 'bg-black'">
     <!-- id="view" 是 Spout 注入脚本的 DOM 契约 -->
     <canvas id="view" ref="canvas" width="1280" height="720" class="block w-full h-full"></canvas>
-    <div v-if="!connected" class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1 backdrop-blur">
+    <div v-if="!connected" class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1">
       等待编辑页连接（BroadcastChannel）{{ isLyricLayer ? ' · 歌词通道' : '' }}
     </div>
   </div>

@@ -34,7 +34,7 @@ onUnmounted(() => { offs.forEach(f => f()); ro?.disconnect(); });
   <div ref="viewport" class="relative w-full flex-1 min-h-[180px] bg-black border border-line rounded-[10px] grid place-items-center overflow-hidden">
     <!-- id="view" 是 Spout 镜像脚本(SpoutPipeline.cs)的 DOM 契约，不能改名 -->
     <canvas id="view" ref="canvas" width="1280" height="720" class="block w-full h-auto max-h-[68vh] object-contain max-[1180px]:max-h-[50vh]"></canvas>
-    <div v-if="msg" class="absolute left-3 bottom-3 bg-ink/85 border border-line2 px-2.5 py-1.5 rounded-md text-xs backdrop-blur-sm">{{ msg }}</div>
+    <div v-if="msg" class="absolute left-3 bottom-3 bg-ink/85 border border-line2 px-2.5 py-1.5 rounded-md text-xs">{{ msg }}</div>
     <div v-if="keyBadge" class="absolute right-2.5 top-2.5 bg-ink/80 border border-line2 text-white px-2 py-0.5 rounded-md text-[11px] tracking-wide pointer-events-none">
       <i class="inline-block w-2 h-2 rounded-sm mr-1.5 -mb-px border border-white/50" :style="{ background: keyBadge.color }"></i>{{ keyBadge.label }}
     </div>

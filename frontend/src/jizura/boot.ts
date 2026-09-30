@@ -22,7 +22,7 @@ function bindKeys() {
   document.addEventListener('keydown', (e: KeyboardEvent) => {
     const tag = (e.target && (e.target as HTMLElement).tagName) || '';
     const typing = /INPUT|TEXTAREA|SELECT/.test(tag) && (e.target as HTMLInputElement).type !== 'range' && (e.target as HTMLInputElement).type !== 'checkbox';
-    const dialogOpen = !!document.querySelector('dialog[open]');
+    const dialogOpen = !!document.querySelector('dialog[open], .jl-modal-open');
     if (S.tap && (e.code === 'Space' || e.code === 'Enter') && !typing) { e.preventDefault(); look.tapNow(); return; }
     if (S.tap && e.code === 'Escape') { pause(); look.stopTap(); return; }
     if (S.tap && e.code === 'Backspace' && !typing) { e.preventDefault(); look.tapBack(); return; }
