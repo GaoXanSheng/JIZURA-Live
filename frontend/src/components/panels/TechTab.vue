@@ -133,7 +133,8 @@ onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
 </script>
 
 <template>
-  <div class="px-4 py-3.5">
+  <!-- data-pane="tech"：预览循环 paneOpen() 的判定依据，勿删 -->
+  <div class="px-4 py-3.5" data-pane="tech">
     <div class="flex flex-col gap-1 mb-3">
       <label v-for="t in SETS" :key="t.cls" class="checkblock">
         <input type="checkbox" :checked="setVal(t.cls)" @change="onSet(t.cls, $event)">

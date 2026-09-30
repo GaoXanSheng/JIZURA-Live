@@ -11,6 +11,7 @@ import {
   setExportRange, exportRangeLines, startTap,
 } from '../../jizura/look';
 import { flushSave } from '../../jizura/project';
+import { probeRecord } from '../../jizura/probe';
 import { useEditor } from '../../stores/editor';
 
 const ed = useEditor();
@@ -33,6 +34,7 @@ const editInput = ref<HTMLInputElement | null>(null);
 const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 
 function rebuild() {
+  const __t0 = performance.now();
   if (!S.plan) { rows.value = []; return; }
   const ov = S.project.overrides, R = exportRangeLines();
   rows.value = S.plan.lines.map((ln: any, i: number): Row => {
@@ -57,6 +59,7 @@ function rebuild() {
       cuts,
     };
   });
+  probeRecord('lines:rebuild', performance.now() - __t0);
 }
 
 onMounted(() => {

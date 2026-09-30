@@ -7,6 +7,7 @@ import { S, activeLoopRange } from '../../jizura/state';
 import { bus } from '../../jizura/bus';
 import { seek, pause, replan } from '../../jizura/engine';
 import { pushEdit, flushSave, exportRangeLines, exportRange, edGo } from '../../jizura/look';
+import { probeRecord } from '../../jizura/probe';
 
 const canvas = ref<HTMLCanvasElement | null>(null);
 const offs: (() => void)[] = [];
@@ -33,6 +34,7 @@ function followTlPlayhead() {
 }
 
 function drawTimeline() {
+  const __t0 = performance.now();
   const c = canvas.value; if (!c || !S.plan) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = Math.max(10, Math.round(c.clientWidth * dpr)), h = Math.max(10, Math.round(c.clientHeight * dpr));
@@ -86,6 +88,7 @@ function drawTimeline() {
   }
   const px = X(S.t);
   x.fillStyle = '#f5a50c'; x.fillRect(Math.round(px) - dpr, 0, 2 * dpr, h);
+  probeRecord('timeline:draw', performance.now() - __t0);
 }
 
 function tlTime(ev: { clientX: number }) {

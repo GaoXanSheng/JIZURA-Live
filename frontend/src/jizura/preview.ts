@@ -2,6 +2,7 @@
    Vue 组件把含 canvas[data-g][data-k] 的容器注册进来，循环只画可见的。 */
 import { J } from '../engine';
 import { S } from './state';
+import { probeRecord } from './probe';
 
 const previewR = new J.Renderer();
 const previewPlans = new Map<string, any>();
@@ -48,6 +49,7 @@ export function previewTime(plan: any, g: string, now: number) {
 }
 
 export function paintTechCanvas(cv: HTMLCanvasElement, g: string, k: string, t: number) {
+  const __t0 = performance.now();
   const plan = getPreviewPlan(g, k);
   const ctx = cv.getContext('2d')!;
   try {
@@ -55,6 +57,7 @@ export function paintTechCanvas(cv: HTMLCanvasElement, g: string, k: string, t: 
   } catch {
     ctx.fillStyle = '#131316'; ctx.fillRect(0, 0, cv.width, cv.height);
   }
+  probeRecord('preview:tech', performance.now() - __t0);
 }
 
 function ensureObs() {
@@ -71,33 +74,45 @@ export function resetWatch() {
   if (previewObs) { previewObs.disconnect(); previewObs = null; }
 }
 
+/* 时间预算制 + 轮转：每轮最多花 BUDGET_MS 画预览卡，画不完的下轮从游标接着来——
+   860 个可见卡也不会把主线程吃满（此前一轮全画，贵的卡单次 379ms，主线程完全饱和、
+   rAF 间隔被拉到 4 秒以上） */
+const FRAME_MS = 90;
+const BUDGET_MS = 8;
+let cursor = 0;
+
 function kick() {
   if (previewRaf) return;
   const tickFn = (now: number) => {
-    previewRaf = 0;
-    if (document.hidden || S.exporting || !paneOpen() || !previewLive.size) return;
-    if (now - previewLast >= 70) {
-      previewLast = now;
-      for (const cv of previewLive) {
-        if (!cv.isConnected) { previewLive.delete(cv); continue; }
-        const g = cv.dataset.g!, k = cv.dataset.k!;
-        if (!g || !k) continue;
-        paintTechCanvas(cv, g, k, previewTime(getPreviewPlan(g, k), g, now));
-      }
-    }
     previewRaf = requestAnimationFrame(tickFn);
+    if (document.hidden || S.exporting || !previewLive.size || !paneOpen()) return;
+    if (now - previewLast < FRAME_MS) return;
+    previewLast = now;
+
+    const list = [...previewLive];
+    if (cursor >= list.length) cursor = 0;
+    const deadline = performance.now() + BUDGET_MS;
+    let drawn = 0;
+    while (cursor < list.length) {
+      const cv = list[cursor++];
+      if (!cv.isConnected) { previewLive.delete(cv); continue; }
+      const g = cv.dataset.g!, k = cv.dataset.k!;
+      if (!g || !k) continue;
+      paintTechCanvas(cv, g, k, previewTime(getPreviewPlan(g, k), g, performance.now()));
+      drawn++;
+      if (performance.now() >= deadline && drawn > 0) break;   // 预算用尽，下轮从游标继续
+    }
   };
   previewRaf = requestAnimationFrame(tickFn);
 }
 
-/* 注册容器内的所有 canvas[data-g]（组件挂载/展开/过滤后调用） */
+/* 注册容器内的所有 canvas[data-g]（组件挂载/展开/过滤后调用）。
+   不做同步首画——首画交给预算循环按可见性轮转（同步全画会造成秒级长任务）。
+   占位底色由 canvas 元素自身样式提供。 */
 export function registerThumbs(list: HTMLElement) {
-  const now = performance.now();
   list.querySelectorAll<HTMLCanvasElement>('canvas[data-g]').forEach(cv => {
     previewLive.add(cv);
     ensureObs().observe(cv);
-    const g = cv.dataset.g!, k = cv.dataset.k!;
-    if (g && k) paintTechCanvas(cv, g, k, previewTime(getPreviewPlan(g, k), g, now));
   });
   kick();
 }

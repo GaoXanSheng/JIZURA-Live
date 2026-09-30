@@ -6,4 +6,5 @@ declare interface Window {
   Mp4Muxer?: any;
   __jl_spout_mirror?: boolean;
   __jl_spout_transparent?: boolean;
+  __jl_no_sub?: boolean;
 }
