@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using NAudio.Wave;
 
 namespace JizuraLive.Server;
 
@@ -11,6 +12,8 @@ namespace JizuraLive.Server;
 /// </summary>
 internal static class AudioAnalyzer
 {
+    public const int AnalyzeRate = 11025;
+
     public static Result Analyze(float[] mono, int sampleRate, double duration)
     {
         int len = mono.Length;
@@ -293,6 +296,41 @@ internal static class AudioAnalyzer
             ArrayPool<float>.Shared.Return(wbuf, clearArray: true);
             ArrayPool<double>.Shared.Return(cc, clearArray: true);
         }
+    }
+
+    /// <summary>
+    /// 原始音频文件（mp3/flac/m4a/wav…，MediaFoundation 支持的格式）→ 单声道 11025Hz float[]。
+    /// 前端不再自己 decode+重采样+拷 40MB PCM，整文件直接丢过来。
+    /// </summary>
+    public static float[] DecodeMonoAnalyzeRate(string filePath, out double duration)
+    {
+        using var mf = new MediaFoundationReader(filePath);
+        using var resampler = new MediaFoundationResampler(mf, new WaveFormat(AnalyzeRate, 16, 1));
+        var sp = resampler.ToSampleProvider();
+        var chunks = new List<float[]>();
+        int total = 0;
+        while (true)
+        {
+            var buf = new float[AnalyzeRate * 10]; // 每次读 10 秒
+            int read = sp.Read(buf, 0, buf.Length);
+            if (read <= 0) break;
+            for (int i = 0; i < read; i++) buf[i] /= 32768f; // int16 → float
+            Array.Resize(ref buf, read);
+            chunks.Add(buf);
+            total += read;
+            if (total > AnalyzeRate * 60 * 30) break; // 30 分钟上限
+        }
+
+        var all = new float[total];
+        int off = 0;
+        foreach (var c in chunks)
+        {
+            Array.Copy(c, 0, all, off, c.Length);
+            off += c.Length;
+        }
+
+        duration = total / (double)AnalyzeRate;
+        return all;
     }
 
     public sealed class Result

@@ -50,8 +50,22 @@ export function boot() {
   const c0 = S.plan.cuts.find((c: any) => c.line >= 0);
   if (c0) seek(c0.start + Math.min(c0.dur * 0.6, c0.inDur + 0.25));
   bootEngine();
-  // 上次的歌曲（与保存项目同名）刷新后自动回来
-  if (J.loadSong && S.project.audioName) J.loadSong().then((f: File | null) => { if (f && f.name === S.project.audioName && !S.audio) loadAudioFile(f, true); });
+  // 上次的歌曲（与保存项目同名）刷新后自动回来。
+  // 若用户已经点播放（性能时钟在走），挂到下一次暂停再恢复——中途 loadAudioFile
+  // 会 replan + 替换时钟（冷解码 + 40MB PCM 拷贝 ≈ 秒级冻结 + 播放头归零），
+  // 实测正是「重启后一点播放就卡死」的来源。
+  if (J.loadSong && S.project.audioName) J.loadSong().then((f: File | null) => {
+    if (!f || f.name !== S.project.audioName || S.audio) return;
+    if (S.playing) {
+      const off = bus.on('playstate', () => {
+        if (S.playing) return;
+        off();
+        loadAudioFile(f, true);
+      });
+      return;
+    }
+    loadAudioFile(f, true);
+  });
 
   // ---- 宿主契约（Spout 镜像脚本 / AE 面板） ----
   J.ui = S;

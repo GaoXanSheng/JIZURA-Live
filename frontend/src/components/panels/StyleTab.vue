@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /* 风格 tab：风格网格（canvas 缩略图）、字体角色、自定义配色 */
-import { onMounted, onUnmounted, ref } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { replan, replanSoon, invalidateFontKey, loadThumbFonts } from '../../jizura/engine';
-import { remember, commit, toast, randomPalette } from '../../jizura/look';
-import { flushSave } from '../../jizura/project';
-import { badgesOf, toColorInput, swatchHTML } from '../../jizura/ui-helpers';
+import {nextTick, onMounted, onUnmounted, ref} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {invalidateFontKey, loadThumbFonts, replan, replanSoon} from '../../jizura/engine';
+import {commit, randomPalette, remember} from '../../jizura/look';
+import {flushSave} from '../../jizura/project';
+import {badgesOf, swatchHTML, toColorInput} from '../../jizura/ui-helpers';
 
 const gridEl = ref<HTMLElement | null>(null);
 const offs: (() => void)[] = [];
@@ -145,10 +145,11 @@ function drawSwatch() {
 
 function onSyncUi() { rebuildStyles(); rebuildFonts(); rebuildColors(); }
 
-onMounted(() => {
+onMounted(async () => {
   offs.push(bus.on('sync-ui', onSyncUi));
   offs.push(bus.on('replan', () => { drawSwatch(); }));
   offs.push(bus.on('fonts', () => { rebuildStyles(); }));
+  await nextTick();          // v-for 的 canvas 要等 DOM flush 后才存在，同步画会扑空
   onSyncUi();
   loadThumbFonts();
 });

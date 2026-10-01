@@ -24,22 +24,59 @@ export interface AnalyzedAudio {
 const ANALYZE_RATE = 11025;
 
 export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> {
-  // 1) 全质量 decode：预览播放用（decodeAudioData 会 detach 传入的副本，须 slice）
+    // 两条并行，互不占主线程：
+    // ① 播放用 AudioBuffer：decodeAudioData 原生异步解码；
+    // ② 数值分析：原始文件（几 MB）直接 POST 给 C# /api/analyze/file，
+    //    NAudio 解码 + 重采样 + 分析——不再走 OfflineAudioContext 和
+    //    40MB 单声道 PCM 的主线程拷贝+上传（载入歌曲时的冻结源）。
+    // ② 不可用（旧桌面版 / MediaFoundation 不认的格式）时回退旧 PCM 路径。
   const AC = window.AudioContext || (window as any).webkitAudioContext;
   const ac = new AC();
-  let audioBuffer: AudioBuffer;
-  try {
-    audioBuffer = await ac.decodeAudioData((await file.arrayBuffer()).slice(0));
-  } finally {
-    try {
-      ac.close();
-    } catch {
-    }
-  }
 
-  // 2) 分析用单声道低采样：从已解码的 audioBuffer 离线重采样渲染。
-  //    不再对压缩文件做第二次 decodeAudioData——整文件再拷贝 + FLAC 二次解码
-  //    正是载入瞬间卡顿的大头；渲染在音频线程跑，主线程只收小结果
+    const fileP = fetch('/api/analyze/file', {
+        method: 'POST',
+        headers: {'X-Filename': encodeURIComponent(file.name)},   // C# 按扩展名识别格式（保 ASCII）
+        body: file,
+    })
+        .then(async r => {
+            if (!r.ok) throw new Error('status ' + r.status);
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error || '分析失败');
+            return j;
+        })
+        .catch(() => null);
+
+    const decodeP = (async () => {
+        // decodeAudioData 会 detach 传入的副本，须 slice
+        const buf = await ac.decodeAudioData((await file.arrayBuffer()).slice(0));
+        try {
+            ac.close();
+        } catch { /* 已关 */
+        }
+        return buf;
+    })();
+
+    const audioBuffer = await decodeP;
+    let j = await fileP;
+    if (!j) j = await analyzePcmFallback(audioBuffer);
+
+    return {
+        name: file.name,
+        duration: audioBuffer.duration,
+        sampleRate: audioBuffer.sampleRate,
+        buffer: audioBuffer,
+        bpm: j.bpm,
+        beats: j.beats,
+        energy: Float32Array.from(j.energy),
+        energyRate: j.energyRate,
+        peaks: Float32Array.from(j.peaks),
+        pitch: j.pitch ? Float32Array.from(j.pitch) : null,
+        pitchRate: j.pitchRate || j.energyRate || 0,
+    };
+}
+
+/* 旧路径：OfflineAudioContext 重采样 + 40MB PCM 上传（/api/analyze）。回退用 */
+async function analyzePcmFallback(audioBuffer: AudioBuffer): Promise<any> {
   const offLen = Math.max(1, Math.ceil(audioBuffer.duration * ANALYZE_RATE));
   const off = new OfflineAudioContext(1, offLen, ANALYZE_RATE);
   const src = off.createBufferSource();
@@ -48,7 +85,6 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
   src.start(0);
   const mono = (await off.startRendering()).getChannelData(0);
 
-  // 3) [int32 sampleRate][int32 count][float32×count] → C#
   const payload = new ArrayBuffer(8 + mono.length * 4);
   new DataView(payload).setInt32(0, ANALYZE_RATE, true);
   new DataView(payload).setInt32(4, mono.length, true);
@@ -57,18 +93,5 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
   if (!r.ok) throw new Error('本机分析服务不可用（' + r.status + '）');
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || '分析失败');
-
-  return {
-    name: file.name,
-    duration: audioBuffer.duration,
-    sampleRate: audioBuffer.sampleRate,
-    buffer: audioBuffer,
-    bpm: j.bpm,
-    beats: j.beats,
-    energy: Float32Array.from(j.energy),
-    energyRate: j.energyRate,
-    peaks: Float32Array.from(j.peaks),
-    pitch: j.pitch ? Float32Array.from(j.pitch) : null,
-    pitchRate: j.pitchRate || j.energyRate || 0,
-  };
+    return j;
 }
