@@ -2,15 +2,18 @@
 /* 设置 tab（导出前）：
    - 画布比例：与「导出」页画面比例同源（同一个 project.aspect，改一处两处同步，即时生效）
    - 渲染窗口分辨率/帧率（自定义输入，帧率 1~240）/Spout 输出与 ID/渲染透明背景/调试端口：
-     改动只存草稿，点「重启渲染引擎」才保存并统一生效（避免随手改动实时打断输出） */
+     改动只存草稿，点「重启渲染引擎」才保存并统一生效（避免随手改动实时打断输出）
+   - 高级设置（默认收起）：预览渲染尺寸档位——预览画布分辨率与字幕设计尺寸解绑，
+     只影响主编辑器预览的清晰度/性能，即时生效，不进草稿组 */
 import {computed, onMounted, onUnmounted, reactive, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {setAspect, setKeyBg} from '../../jizura/export';
 import {toast} from '../../jizura/look';
+import {getPreviewRes, type PreviewResTier, setPreviewRes} from '../../jizura/previewres';
 import SubtitlePanel from './SubtitlePanel.vue';
-import {replan} from '../../jizura/engine';
+import {replan, sizeViewport} from '../../jizura/engine';
 
 const ASPECTS = ['16:9', '9:16', '4:3', '3:4', '1:1', '4:5', '21:9'];
 const RES_MIN = 64, RES_MAX = 4096;
@@ -48,6 +51,17 @@ const fpsValid = computed(() => {
 const canApply = computed(() => resValid.value && fpsValid.value);
 
 function markDirty() { dirty.value = true; }
+
+/* 预览渲染尺寸：即时生效的应用偏好（不进草稿组，与重启按钮无关） */
+const previewRes = ref<PreviewResTier>(getPreviewRes());
+
+function onPreviewRes(e: Event) {
+  const raw = (e.target as HTMLSelectElement).value;
+  const v: PreviewResTier = raw === 'auto' ? 'auto' : Number(raw) as PreviewResTier;
+  previewRes.value = v;
+  setPreviewRes(v);
+  sizeViewport();   // 重建画布物理像素并置 need 立即重绘
+}
 
 function onAspect(e: Event) {
   const v = (e.target as HTMLSelectElement).value;
@@ -224,6 +238,27 @@ onUnmounted(() => offs.forEach(f => f()));
         {{ applying ? '正在重启…' : (dirty ? '保存并重启渲染引擎' : '重启渲染引擎') }}
       </button>
       <p class="note">分辨率・帧率・Spout・透明背景的改动需点上方按钮保存并重启渲染引擎后生效；调试端口需重启应用。画布比例即时生效。</p>
+
+      <details class="border border-line rounded-md bg-raised mt-4">
+        <summary
+            class="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer text-xs list-none [&::-webkit-details-marker]:hidden before:content-['▸'] before:text-mut before:mr-2 before:transition-transform open:before:rotate-90">
+          <span class="flex-1 font-semibold">高级设置</span>
+        </summary>
+        <div class="flex flex-col gap-2 px-2.5 pb-2.5 pt-0.5">
+          <label class="flex items-center gap-3 text-xs">
+            <span class="w-[110px] flex-none text-mut">预览渲染尺寸</span>
+            <select :value="String(previewRes)" aria-label="预览渲染尺寸" class="flex-1" @change="onPreviewRes">
+              <option value="auto">自动（跟随窗口，上限＝字幕尺寸）</option>
+              <option value="720">720p（更流畅）</option>
+              <option value="1080">1080p</option>
+              <option value="1440">1440p</option>
+              <option value="2160">2160p（更精细）</option>
+            </select>
+          </label>
+          <p class="hint !text-[11px] !mt-0">主编辑器预览的渲染上限（按短边计，比例始终跟随画幅）。只影响预览的清晰度与性能：不影响导出分辨率（「导出」页单独设置），也不影响
+            Spout 渲染窗口。</p>
+        </div>
+      </details>
     </template>
   </div>
 </template>

@@ -6,6 +6,7 @@ import {analyzeAudioOffThread} from './audio-analyze';
 import {activeLoopRange, AP, refreshLoopHold, S} from './state';
 import {autosave} from './project';
 import {bus} from './bus';
+import {previewWidthCap} from './previewres';
 
 const HUD_CHARS = '0123456789:./-_()【】・No.LYRICRECUNTITLEDXYlinebpminterlude—─／ ';
 
@@ -114,7 +115,8 @@ export function sizeViewport() {
         cssW = cssH * ar;
     }
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const pw = Math.round(Math.min(S.plan.W, cssW * dpr)), ph = Math.round(pw / ar);
+    /* 预览渲染尺寸档位（设置-高级）：'auto' 时上限=字幕设计宽，即历史行为 */
+    const pw = Math.round(Math.min(previewWidthCap(S.plan.W, S.plan.H), cssW * dpr)), ph = Math.round(pw / ar);
     if (c.width !== pw || c.height !== ph) {
         c.width = pw;
         c.height = ph;

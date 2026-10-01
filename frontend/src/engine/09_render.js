@@ -212,7 +212,10 @@ class Renderer {
     if (morphOn && layer !== 'back') {
       const L = this.morphLogs(plan, mPrev, MC, cw, ch, scale, opt);
       const k = J.clamp(mlt / MC.morph.dur), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-      this.morphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
+      // koma=0（逐输出帧，如 60fps 工程）：morph 连续现绘（同上游），位图只有
+      // 10 档 + ≤960 宽，满帧率下会看到阶梯；koma>0（24 基准作画）维持位图路径
+      if (J.komaOf(fx) === 0) this.drawMorph(ctx, L, e, allowFilter);
+      else this.morphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
     }
     // ---------- cut-to-cut transition: composite the previous cut's resting frame with this one ----------
     if (!opt.noTrans && mainCut && mainCut.trans && J.TRANS[mainCut.trans] && mainCut.index > 0) {

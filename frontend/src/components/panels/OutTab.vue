@@ -9,6 +9,7 @@ import {flushSave} from '../../jizura/project';
 import {
   canPickFile,
   codecNote,
+  exportAeJson,
   runExport,
   setAspect,
   setCenterDir,
@@ -103,7 +104,13 @@ onMounted(() => {
 });
 onUnmounted(() => offs.forEach(f => f()));
 
-function doExport(kind: any) { runExport(kind); }
+function doExport(kind: any) {
+  if (kind === 'ae') {
+    exportAeJson();
+    return;
+  }
+  runExport(kind);
+}
 function abort() { if (S.exporting) S.exporting.abort(); }
 async function doShare() { const s = share.value; if (!s) return; try { await (navigator as any).share({ files: [s.file], title: s.name }); } catch {} }
 </script>
@@ -166,6 +173,10 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
       <button class="btn !py-2.5" :disabled="busy" @click="doExport('png')">连号 PNG（ZIP）</button>
       <button class="btn !py-2.5" :disabled="busy" @click="doExport('pnga')">透明 PNG（ZIP・无背景）</button>
       <button class="btn !py-2.5" :disabled="busy" title="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG" @click="doExport('pngl')">透明 PNG 前景/后景（ZIP）</button>
+      <button :disabled="busy" class="btn !py-2.5"
+              title="完整 plan（v2）+ AE_MAP 对照表。在 AE 中运行 JIZURA_AE.jsx（上游发布）后选择该文件即可重建合成"
+              @click="doExport('ae')">AE 工程（.json）
+      </button>
     </div>
     <div v-if="busy || progressText !== '—'" class="mt-3">
       <button v-if="share" class="btn btn-primary w-full mb-2" @click="doShare">分享并保存</button>

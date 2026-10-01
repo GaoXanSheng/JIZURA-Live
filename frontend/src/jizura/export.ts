@@ -212,6 +212,17 @@ function syncOut() {
 export function setAspect(v: string) { S.project.aspect = v; syncOut(); invalidateFontKey(); replan(); }
 export function setRes(v: number) { S.project.res = v; syncOut(); autosave(); }
 export function setFps(v: number) { S.project.fps = v; syncOut(); replan(); }
+
+/* AE 工程 JSON：完整烤熟的 plan（v2，含每个切分的手法/参数/时间、events、
+   字体表与语言映射、AE_MAP 对照表——本 fork 新增条目由它映射到最近似原版手法）。
+   在 AE 里运行上游发布的 JIZURA_AE.jsx（File→Scripts→Run Script File），
+   面板里选择本文件即可逐步重建合成；morph 在 AE 侧以 inkBlob 转场近似（webMorph 标记）。 */
+export async function exportAeJson() {
+    if (!S.plan) return;
+    const data = J.planForAE(S.plan, S.project, exportRange());
+    await J.saveFile(baseName() + rangeSuffix() + '_ae.json', new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'}));
+    toast('已导出 AE 工程 JSON：在 AE 中运行 JIZURA_AE.jsx 后选择该文件');
+}
 export function setQuality(v: string) { S.project.quality = v; autosave(); }
 export function setKeyBg(v: string) {
   S.project.keyBg = v; syncOut(); bus.emit('sync-ui'); replan(); flushSave();
