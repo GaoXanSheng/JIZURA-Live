@@ -219,8 +219,13 @@ class Renderer {
         this.frame(A.getContext('2d'), plan, Math.max(prev.start, prev.end - 1e-3), Object.assign({}, opt, { noTrans: true, noPost: true, noHud: true }));
         const psc = st.schemes[prev.scheme % st.schemes.length] || st.schemes[0];
         ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+        // 透過出力（Spout 透明 / PNG alpha・分层导出）与 post 特效同规加 alphaGuard：
+        // 转场普遍从 sc.bg 全幅填充起画（uncover/zoomThrough 等），不 fence 会把空背景涂实
+        const tg = opt.transparent ? this.alphaGuard(ctx, [A, B], sc) : null;
+        if (tg) tg.begin();
         try { J.TRANS[mainCut.trans].draw(ctx, A, B, J.clamp(lt / dur), { cw, ch, sc, scPrev: psc, st, P: mainCut.transP || {}, step, t, scale, allowFilter, seed: mainCut.seed | 0, tmp: (w, h) => this.ensure(this.transC || (this.transC = mk(2, 2)), w, h) }); }
         catch (e) { console.warn('trans', mainCut.trans, e); }
+        if (tg) tg.end();
         ctx.restore();
       }
     }
@@ -466,7 +471,8 @@ class Renderer {
     const P = this.ensure(this.guardP || (this.guardP = mk(2, 2)), cw, ch), px = P.getContext('2d');
     const M = this.ensure(this.guardM || (this.guardM = mk(2, 2)), cw, ch), mx = M.getContext('2d');
     let cleared = false, bgN = null;
-    const content = img => img === S;                  // the scratch copy of the frame (temp canvases may carry an opaque background)
+    // S 是"帧内容"的来源画布：post 传 scratch 单画布，转场传 [A, B] 两块；tmp 类画布不认（可能带不透明底）
+    const content = img => img === S || (Array.isArray(S) && S.includes(img));
     const own = ['fillRect', 'drawImage'];
     return {
       begin() {

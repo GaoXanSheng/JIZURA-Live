@@ -65,15 +65,16 @@ window.addEventListener('storage', e => {
     }
 });
 
-/* 把生成的 LRC 文本写进项目并触发重排（等价旧版的写 #lyrics + input 事件） */
-function applyLyrics(text: string) {
+/* 把生成的 LRC 文本写进项目并触发重排（等价旧版的写 #lyrics + input 事件）
+   deferReplan: 歌曲载入管线的中间步跳过同步重排——紧随其后的 loadAudioFile 会 replan 一次到位 */
+function applyLyrics(text: string, deferReplan = false) {
   S.project.lyrics = text;
   bus.emit('lyrics-sync');
-  replan();
+    if (!deferReplan) replan();
 }
 
 /* 载入一份歌词源（ly = /kg|ne/lyric 的返回），重建映射并按当前勾选生成 LRC */
-export async function adoptKgLyric(ly: LyricResponse, keepCands = false): Promise<'krc' | 'lrc'> {
+export async function adoptKgLyric(ly: LyricResponse, keepCands = false, deferReplan = false): Promise<'krc' | 'lrc'> {
   const bin = Uint8Array.from(atob(ly.content!), c => c.charCodeAt(0));
   const cands = ly.candidates || (keepCands && last && last.cands) || [];
   if (ly.fmt === 'krc') {
@@ -81,17 +82,17 @@ export async function adoptKgLyric(ly: LyricResponse, keepCands = false): Promis
     const map: LyricMap = new Map();
     last = { fmt: 'krc', text, map, cands };
     persist();
-    applyLyrics(krcToLrc(text, opts, map));
+      applyLyrics(krcToLrc(text, opts, map), deferReplan);
   } else {
     last = { fmt: 'lrc', text: new TextDecoder('utf-8').decode(bin), map: new Map(), cands };
     persist();
-    applyLyrics(last.text);
+      applyLyrics(last.text, deferReplan);
   }
   bus.emit('lyric-versions');
   return ly.fmt as 'krc' | 'lrc';
 }
 
-export async function adoptNeLyric(ly: LyricResponse): Promise<void> {
+export async function adoptNeLyric(ly: LyricResponse, deferReplan = false): Promise<void> {
   const lrc = neParseLrc(b64Text(ly.content!));
   const trans = ly.trans ? neParseLrc(b64Text(ly.trans)) : [];
   const roma = ly.roma ? neParseLrc(b64Text(ly.roma)) : [];
@@ -99,7 +100,7 @@ export async function adoptNeLyric(ly: LyricResponse): Promise<void> {
   const text = neBuildLrc(lrc, trans, roma, opts, map);
   last = { fmt: 'ne', text, map, raw: { lrc, trans, roma }, cands: [] };
   persist();
-  applyLyrics(text);
+    applyLyrics(text, deferReplan);
   bus.emit('lyric-versions');
 }
 

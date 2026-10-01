@@ -100,8 +100,15 @@ IDB.open = () => IDB.db || (IDB.db = new Promise((res, rej) => {
 }));
 J.saveSong = async (file) => {
   try {
-    const db = await IDB.open(), data = await file.arrayBuffer();
-    await new Promise((res, rej) => { const tx = db.transaction('files', 'readwrite'); tx.objectStore('files').put({ name: file.name, type: file.type, data }, 'song'); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+      const db = await IDB.open();
+      // 直接存 File 本体（IDB 原生支持 Blob/File）：先前先 arrayBuffer() 再入库存，
+      // 大文件（FLAC 30MB+）要在主线程多拷一份并结构化克隆，载入后立刻再卡一下
+      await new Promise((res, rej) => {
+          const tx = db.transaction('files', 'readwrite');
+          tx.objectStore('files').put({name: file.name, type: file.type, data: file}, 'song');
+          tx.oncomplete = res;
+          tx.onerror = () => rej(tx.error);
+      });
     return true;
   } catch (e) { return false; }
 };
