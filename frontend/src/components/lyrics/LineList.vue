@@ -1,7 +1,15 @@
 <script setup lang="ts">
 /* 行与切分列表（原 12_ui.js renderLines 的 Vue 化）
-   行本体在 LineRow.vue：跨行只重渲新旧两行，replan 时才全量重建行数据 */
-import {computed, onMounted, onUnmounted, ref} from 'vue';
+   行本体在 LineRow.vue：跨行只重渲新旧两行，replan 时才全量重建行数据。
+
+   窗口化渲染：82+ 行全量挂载时每行 ~43 节点，DOM 光歌词列表就 3.5k+。
+   这里只挂「可视区 ± 缓冲」的行，上下用定高 spacer 占位：
+   - 行高实测回填：渲染后量 offsetHeight，未渲染行按 72px 估算（行自带
+     content-visibility，真实高度首次可见后回填，滚动锚定误差自愈）；
+   - bus 'scrolltoline'（播放行跟随）把滚动容器滚到活动行——纯坐标计算，
+     未渲染的行也能滚；滚到即挂载；
+   - 行的编辑态/打开的下拉随滚出视口销毁、滚回重建（行数据都在 rows，无损失）。 */
+import {computed, nextTick, onMounted, onUnmounted, ref, watch} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
@@ -16,6 +24,14 @@ const offs: (() => void)[] = [];
 const rows = ref<Row[]>([]);
 const infoText = computed(() => `${ed.linesCount} 行 / ${ed.cutsCount} 切分`);
 const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
+
+const listEl = ref<HTMLOListElement | null>(null);
+let scroller: HTMLElement | null = null;
+const EST = 72, BUF = 420;             // 行高估算 / 可视区上下缓冲（px）
+let rowH: number[] = [];
+let pos: number[] = [0];               // 行首坐标前缀和
+const win = ref({from: 0, to: 0, top: 0, bottom: 0});
+let rafId = 0;
 
 function rebuild() {
   if (!S.plan) { rows.value = []; return; }
@@ -52,20 +68,111 @@ function rebuild() {
   });
 }
 
-onMounted(() => {
+function rebuildPos() {
+  pos = new Array(rows.value.length + 1);
+  pos[0] = 0;
+  for (let i = 0; i < rows.value.length; i++) pos[i + 1] = pos[i] + (rowH[i] || EST);
+}
+
+function measure(): boolean {
+  const ol = listEl.value;
+  if (!ol) return false;
+  let changed = false;
+  for (const li of ol.querySelectorAll<HTMLLIElement>('li[data-i]')) {
+    const i = +(li.dataset.i || 0);
+    const h = li.offsetHeight;
+    if (h > 0 && Math.abs((rowH[i] || 0) - h) > 1) {
+      rowH[i] = h;
+      changed = true;
+    }
+  }
+  if (changed) rebuildPos();
+  return changed;
+}
+
+function updateWindow() {
+  const ol = listEl.value;
+  if (!ol || !scroller || !rows.value.length) {
+    win.value = {from: 0, to: rows.value.length, top: 0, bottom: 0};
+    return;
+  }
+  const olTop = ol.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  const vTop = scroller.scrollTop - olTop - BUF;
+  const vBot = vTop + scroller.clientHeight + BUF * 2;
+  let from = 0;
+  while (from < rows.value.length && pos[from + 1] <= vTop) from++;
+  let to = from;
+  while (to < rows.value.length && pos[to] < vBot) to++;
+  const to2 = Math.min(rows.value.length, to + 1);
+  win.value = {from, to: to2, top: pos[from], bottom: Math.max(0, pos[rows.value.length] - pos[to2])};
+}
+
+function onScrollFrame() {
+  rafId = 0;
+  measure();
+  updateWindow();
+}
+
+function requestUpdate() {
+  if (!rafId) rafId = requestAnimationFrame(onScrollFrame);
+}
+
+function scrollToLine(i: number) {
+  if (!scroller || !listEl.value || i < 0 || i >= rows.value.length) return;
+  const olTop = listEl.value.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  scroller.scrollTop = olTop + Math.max(0, pos[i] - scroller.clientHeight * 0.35);
+  requestUpdate();
+}
+
+function getScrollParent(el: HTMLElement): HTMLElement | null {
+  let p = el.parentElement;
+  while (p) {
+    const o = getComputedStyle(p).overflowY;
+    if (o === 'auto' || o === 'scroll') return p;
+    p = p.parentElement;
+  }
+  return null;
+}
+
+onMounted(async () => {
   offs.push(bus.on('replan', rebuild));
   offs.push(bus.on('replan-sync', rebuild));
   offs.push(bus.on('sync-ui', rebuild));
+  offs.push(bus.on('scrolltoline', scrollToLine));
+  offs.push(bus.on('viewresize', requestUpdate));
   rebuild();
+  await nextTick();
+  if (listEl.value) scroller = getScrollParent(listEl.value);
+  if (scroller) scroller.addEventListener('scroll', requestUpdate, {passive: true});
+  window.addEventListener('resize', requestUpdate);
+  rebuildPos();
+  updateWindow();
+  await nextTick();
+  measure();
+  updateWindow();
 });
-onUnmounted(() => offs.forEach(f => f()));
+onUnmounted(() => {
+  if (rafId) cancelAnimationFrame(rafId);
+  if (scroller) scroller.removeEventListener('scroll', requestUpdate);
+  window.removeEventListener('resize', requestUpdate);
+  offs.forEach(f => f());
+});
+
+watch(rows, async () => {
+  rebuildPos();
+  await nextTick();
+  measure();
+  updateWindow();
+});
 </script>
 
 <template>
   <div class="sec">
     <div class="sec-h"><span class="sec-title">行与切分</span><span class="font-mono text-mut text-[11px]">{{ infoText }}</span></div>
-    <ol class="list-none m-0 p-0 grid gap-1.5">
-      <LineRow v-for="r in rows" :key="r.i" :active="ed.curLine === r.i" :row="r"/>
+    <ol ref="listEl" class="list-none m-0 p-0 grid gap-1.5">
+      <li v-if="win.top > 0" :style="{ height: win.top + 'px' }" aria-hidden="true"></li>
+      <LineRow v-for="r in rows.slice(win.from, win.to)" :key="r.i" :active="ed.curLine === r.i" :row="r"/>
+      <li v-if="win.bottom > 0" :style="{ height: win.bottom + 'px' }" aria-hidden="true"></li>
     </ol>
   </div>
 </template>

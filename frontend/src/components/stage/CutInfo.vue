@@ -59,6 +59,8 @@ function onChip(it: { g: string; enabled: boolean }) {
 
 function closePick() { pick.value = null; pickCards.value = []; }
 
+let lastGroup = '';
+
 function fillPick() {
   const p = pick.value; if (!p) return;
   const meta = CHIP_GROUPS.find(x => x[0] === p.g);
@@ -79,7 +81,14 @@ function fillPick() {
     cards.push({ key, name: def.name, badges: badgesOf(def), isNone: false, on: key === onKey, tw, th });
   });
   pickCards.value = cards;
-  requestAnimationFrame(() => { if (pickGrid.value) registerThumbs(pickGrid.value); });
+  // 换了手法组才滚回顶部；同组内（选卡 / 播放跟随刷新）保持原位
+  const groupChanged = lastGroup !== p.g;
+  lastGroup = p.g;
+  requestAnimationFrame(() => {
+    if (!pickGrid.value) return;
+    if (groupChanged) pickGrid.value.scrollTop = 0;
+    registerThumbs(pickGrid.value);
+  });
 }
 
 function onPickCard(card: any) {
@@ -121,14 +130,20 @@ onUnmounted(() => offs.forEach(f => f()));
       <button type="button" class="btn btn-accent btn-sm" :disabled="!items.some(it => it.enabled)" title="这个切分的手法全部随机" @click="rerollCurrentCut('omakase')">一键随机</button>
     </template>
   </div>
-  <div v-if="pick" class="cut-pick border border-line rounded-md bg-panel p-2 max-h-[min(42vh,420px)] overflow-auto">
-    <div class="flex items-center gap-2 mb-2 sticky top-0 bg-panel z-[1] pb-1">
+  <!-- 固定头 + 内部滚动区：滚动容器不能带顶部 padding，否则滚动的行会从 sticky 头上方的
+       padding 空隙里穿出来（表现为"标题上方挂着一条滚不掉的碎条"） -->
+  <div v-if="pick"
+       class="cut-pick border border-line rounded-md bg-panel max-h-[min(42vh,420px)] flex flex-col overflow-hidden">
+    <div class="flex items-center gap-2 px-2 pt-2 pb-1 flex-none">
       <strong class="text-xs">{{ pick.title }}</strong>
       <span class="text-mut flex-1 text-[11px]">只替换这个切分</span>
       <button type="button" class="btn btn-ghost btn-sm" @click="onPickAuto">自动</button>
       <button type="button" class="btn btn-ghost btn-sm" aria-label="关闭" @click="closePick">✕</button>
     </div>
-    <div ref="pickGrid" class="grid gap-2 min-h-24 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))]">
+    <!-- grid-auto-rows 锁 min-content：卡片带 overflow-hidden（自动最小尺寸=0），
+         容器高度确定时 auto 行会被压扁而不是溢出滚动 -->
+    <div ref="pickGrid"
+         class="grid gap-2 px-2 pb-2 overflow-auto min-h-0 flex-1 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))] [grid-auto-rows:min-content]">
       <button v-for="card in pickCards" :key="card.key" type="button" class="btn !p-0 flex-col !h-auto border-line rounded-md overflow-hidden bg-panel text-left"
               :class="{ '!border-amber shadow-[0_0_0_1px_var(--color-amber)]': card.on }" @click="onPickCard(card)">
         <canvas v-if="!card.isNone" :width="card.tw" :height="card.th" :data-g="pick.g" :data-k="card.key" class="w-full aspect-video block bg-ink rounded-none"></canvas>

@@ -65,13 +65,18 @@ function warmupNearMorphs() {
     const cw = viewCanvas.width, ch = viewCanvas.height, scale = cw / S.plan.W;
     const idle = (window as any).requestIdleCallback ? (f: any) => (window as any).requestIdleCallback(f, {timeout: 200}) : (f: any) => setTimeout(() => f(null), 20);
     let q = 0;
+      warmReset(10, '预渲染位图');
     const step = (deadline: any) => {
-      if (job !== nearWarmJob || S.exporting) return;
+        if (job !== nearWarmJob || S.exporting) {
+            warmState.active = false;
+            return;
+        }
       try {
         const L = S.renderer.morphLogs(S.plan, A, c, cw, ch, scale, {});
         while (q <= 9 && (!deadline || deadline.timeRemaining() > 4)) {
           S.renderer.morphShotBuild(S.plan, A, c, cw, ch, scale, q / 9, true, L);
           q++;
+            warmStep();
         }
       } catch { /* 兜底 */
       }
@@ -89,21 +94,52 @@ function warmupNearMorphs() {
    p50 26.7ms→最大 386ms）。播放时只留 warmupNearMorphs 的预算化预热，
    全局预热挪到 pause() 补跑。 */
 let warmTimer = 0, warmJob = 0;
+
+/* 预热进度（画面 loading 条的数据源）：warm() 与 warmupNearMorphs() 共用。
+   播放/导出中不预热（见上），所以条只在暂停/空闲时出现，随进度走完自动消失。 */
+export const warmState = {active: false, done: 0, total: 0, phase: ''};
+
+function warmReset(total: number, phase: string) {
+    warmState.active = total > 0;
+    warmState.done = 0;
+    warmState.total = total;
+    warmState.phase = phase;
+    if (warmState.active) S.need = true;
+}
+
+function warmStep(n = 1) {
+    if (!warmState.active) return;
+    warmState.done = Math.min(warmState.total, warmState.done + n);
+    if (warmState.done >= warmState.total) warmState.active = false;
+    S.need = true;   // 暂停态下 draw 很便宜，让进度条动起来
+}
+
 function warm() {
-  if (S.playing || S.exporting) return;   // 播放/导出中：全局预热让路，pause() 里补跑
+    if (S.playing || S.exporting) {
+        warmState.active = false;
+        return;
+    }   // 播放/导出中：全局预热让路，pause() 里补跑
   const job = ++warmJob;
-  const cuts = S.plan.cuts.filter((c: any) => c.enter === 'assemble' || ['explode', 'fall', 'drift'].includes(c.exit));
+    // 全切分首帧预热：每个切分按真实路径（fast=false，含滤镜/辉光）预渲一帧入场中段，
+    // 把首播的字形光栅化、特效首帧路径、滤镜 scratch 层全部提前踩热——
+    // 实测冷缓存下这些首帧是 25-80ms 的长帧（每秒一切分就顿一下的「一卡一卡」）。
+    const cuts = S.plan.cuts.filter((c: any) => !c.special);
   const morphs = S.plan.cuts.filter((c: any) => c.morph && c.index > 0 && S.plan.cuts[c.index - 1]);
   if (!viewCanvas) return;
+    warmReset(morphs.length + cuts.length, '预热缓存');
   const cv = document.createElement('canvas'); cv.width = viewCanvas.width; cv.height = viewCanvas.height;
   const ctx = cv.getContext('2d')!;
   const scale = cv.width / S.plan.W;
   let i = 0, mi = 0;
   const idle = (window as any).requestIdleCallback ? (f: any) => (window as any).requestIdleCallback(f, { timeout: 400 }) : (f: any) => setTimeout(() => f(null), 40);
   const step = (deadline: any) => {
-    if (job !== warmJob || S.exporting) return;
+      if (job !== warmJob || S.exporting) {
+          warmState.active = false;
+          return;
+      }
     // 字体没就绪就预热的话，位图里嵌的是 fallback 字形且不会自己失效——等就绪
     if (morphs.length && document.fonts && document.fonts.status !== 'loaded') {
+        warmState.phase = '字体加载中';
       idle(step);
       return;
     }
@@ -112,25 +148,33 @@ function warm() {
         const c = morphs[mi++];
         // 只预热 morphLogs（字形起止）：首次递归渲染两整帧+字形光栅化是首播大卡。
         // 位图档位不在这里全量预热（LRU 装不下全歌档位），由 warmupNearMorphs 按需填
+          warmState.phase = 'morph 布局';
         try {
           S.renderer.morphLogs(S.plan, S.plan.cuts[c.index - 1], c, cv.width, cv.height, scale, {});
         } catch { /* 兜底 */
         }
+          warmStep();
       } else {
         const c = cuts[i++];
         if (!c) break;
-        const ts: number[] = [];
-        if (c.enter === 'assemble') ts.push(c.start + Math.min(c.inDur * 0.3, c.dur * 0.2));
-        if (c.outDur > 0) ts.push(c.end - c.outDur * 0.5);
+          const ts: number[] = [c.start + Math.min(c.inDur * 0.7, c.dur * 0.25)];   // 入场中段（首帧路径）
+          if (c.enter === 'assemble' || ['explode', 'fall', 'drift'].includes(c.exit)) {
+              ts.push(c.start + Math.min(c.inDur * 0.3, c.dur * 0.2));                // piece 拆解帧
+              if (c.outDur > 0) ts.push(c.end - c.outDur * 0.5);                      // piece 退场合体帧
+          }
+          warmState.phase = '切分首帧';
         for (const t of ts) {
           try {
-            S.renderer.frame(ctx, S.plan, t, {scale: cv.width / S.plan.W, fast: true, noHud: true, noGhost: true});
+              // fast 必须为 false：真实播放走滤镜/辉光路径，预热就要踩同一条路
+              S.renderer.frame(ctx, S.plan, t, {scale: cv.width / S.plan.W, fast: false, noHud: true, noGhost: true});
           } catch {
           }
         }
+          warmStep();
       }
     } while ((mi < morphs.length || i < cuts.length) && deadline && deadline.timeRemaining() > 10);
     if (mi < morphs.length || i < cuts.length) idle(step);
+    else warmState.active = false;
   };
   idle(step);
 }
@@ -199,12 +243,37 @@ function drawCenterGuide(ctx: CanvasRenderingContext2D, k: number) {
   ctx.setLineDash([]); ctx.restore();
 }
 
+/* 预热 loading 条：一键随机/载入后的冷缓存空闲预热进度（warmState 驱动）。
+   只画编辑器主画面——Spout 镜像/透明通道、/render 镜像页与导出不画。 */
+function drawWarmBar(ctx: CanvasRenderingContext2D, k: number) {
+    const W = S.plan.W, H = S.plan.H;
+    const p = warmState.total > 0 ? Math.min(1, warmState.done / warmState.total) : 0;
+    const w = Math.min(W * 0.36, 620), h = Math.max(5, Math.round(H * 0.006));
+    const x = (W - w) / 2, y = H - h - Math.max(12, H * 0.018);
+    ctx.save();
+    ctx.setTransform(k, 0, 0, k, 0, 0);
+    ctx.fillStyle = 'rgba(10,10,12,0.62)';
+    ctx.fillRect(x - 3, y - 3, w + 6, h + 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#f5a50c';
+    ctx.fillRect(x, y, w * p, h);
+    const fs = Math.max(11, Math.round(H * 0.013));
+    ctx.font = J.fontCSS('mono', fs);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText(`${warmState.phase} ${Math.round(p * 100)}%`, W / 2, y - fs * 0.45);
+    ctx.restore();
+}
+
 export function draw() {
   if (!viewCanvas || !S.plan) return;
   const c = viewCanvas, ctx = c.getContext('2d')!;
   const t0 = performance.now();
   S.renderer.frame(ctx, S.plan, S.t, { scale: c.width / S.plan.W, fast: S.playing && S.slow, transparent: !!window.__jl_spout_transparent });
   if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(ctx, c.width / S.plan.W);
+    if (warmState.active && !S.exporting && !window.__jl_spout_mirror && !window.__jl_spout_transparent && !location.pathname.startsWith('/render')) drawWarmBar(ctx, c.width / S.plan.W);
   const dt = performance.now() - t0;
   S.slow = S.playing ? (dt > 30 ? true : dt < 14 ? false : S.slow) : false;
   updateCutInfo();

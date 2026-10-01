@@ -1,6 +1,9 @@
 <script setup lang="ts">
-/* 时间轴（原 12_ui.js timeline 体系）：音频波形 + 节拍 + 切分块 + 行界拖动手柄
-   缩放/平移（滚轮）、点击定位、拖动行界（Shift 自由，默认吸附节拍） */
+/* 时间轴（原 12_ui.js timeline 体系）：三块独立 canvas，各画各的、各自可单独探查——
+   上条 = 视图滑动条（缩放后左右平移可视窗口）
+   中条 = 播放头条（拖动定位，自由、不吸附）
+   下条 = 时间轴本体（波形 + 节拍 + 切分块 + 行界拖动手柄 + 缩放范围）
+   此前三块塞在同一个 canvas 的三条横带里，调试时要靠像素坐标去抠横带，问题不好定位。 */
 import {onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {activeLoopRange, S} from '../../jizura/state';
@@ -8,22 +11,23 @@ import {bus} from '../../jizura/bus';
 import {pause, replan, seek} from '../../jizura/engine';
 import {edGo, exportRange, flushSave, pushEdit} from '../../jizura/look';
 
-const canvas = ref<HTMLCanvasElement | null>(null);
+const canvas = ref<HTMLCanvasElement | null>(null);     // 下条：时间轴本体
+const panCanvas = ref<HTMLCanvasElement | null>(null);  // 上条：视图滑动
+const phCanvas = ref<HTMLCanvasElement | null>(null);   // 中条：播放头
 const offs: (() => void)[] = [];
 
 const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
-type Hover = number | 'pan' | 'ph';
+type Hover = number;
 const TL: { z: number; off: number; hover: Hover; drag: number } = {z: 1, off: 0, hover: -1, drag: -1};
-/* 顶部两条：上面一条平移视图（行界跟着滑），下面一条拖动播放头（自由、不吸附）。
-   播放位置也可以继续用播放进度条控制。hover 用 'pan'/'ph' 字符串与行号区分 */
-const LANES = {pan: 0.13, ph: 0.16};
 
-function laneAt(e: { clientY: number }): 'pan' | 'ph' | null {
-  const r = canvas.value!.getBoundingClientRect();
-  const y = e.clientY - r.top;
-  if (y <= r.height * LANES.pan) return 'pan';
-  if (y <= r.height * (LANES.pan + LANES.ph)) return 'ph';
-  return null;
+function fitCanvas(cv: HTMLCanvasElement): { w: number; h: number; dpr: number } {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.max(10, Math.round(cv.clientWidth * dpr)), h = Math.max(10, Math.round(cv.clientHeight * dpr));
+  if (cv.width !== w || cv.height !== h) {
+    cv.width = w;
+    cv.height = h;
+  }
+  return {w, h, dpr};
 }
 
 function tlView() {
@@ -44,9 +48,125 @@ function followTlPlayhead() {
   if (S.t < off || S.t > off + vd * 0.92) drawTimeline();
 }
 
-/* 静态层缓存：波形/节拍/切分/行界很少变。播放中每帧只需叠加播放头；
-   视图或内容一变（缩放/平移/拖动/replan/导出范围/循环模式/换音频）整幅重建。
-   此前每帧全量重画（含逐条切分 fillText），只为了挪一根播放头。 */
+function tlTimeOf(ev: { clientX: number }, r: DOMRect) {
+  const {vd, off} = tlView();
+  return off + J.clamp((ev.clientX - r.left) / r.width, 0, 1) * vd;
+}
+
+function timelineSeek(ev: { clientX: number }) {
+  seek(tlTimeOf(ev, phCanvas.value!.getBoundingClientRect()));
+}
+
+/* ---- 上条：视图滑动条 ---- */
+function drawPanBar() {
+  const c = panCanvas.value;
+  if (!c || !S.plan) return;
+  const {w, h, dpr} = fitCanvas(c);
+  const x = c.getContext('2d')!;
+  const {D, vd, off} = tlView();
+  x.fillStyle = '#131316';
+  x.fillRect(0, 0, w, h);
+  x.fillStyle = 'rgba(255,255,255,0.045)';
+  x.fillRect(0, 0, w, h);
+  if (TL.z > 1) {
+    x.fillStyle = 'rgba(245,165,12,0.45)';
+    x.fillRect(off / D * w, dpr * 1.5, Math.max(6 * dpr, vd / D * w), h - 3 * dpr);
+  } else {
+    x.fillStyle = 'rgba(255,255,255,0.09)';
+    x.fillRect(0, dpr * 1.5, w, h - 3 * dpr);
+  }
+}
+
+let panDrag = false, panLastX = 0;
+
+function onPanDown(e: PointerEvent) {
+  try {
+    panCanvas.value!.setPointerCapture(e.pointerId);
+  } catch { /* 合成事件/无效指针：不影响后续逻辑 */
+  }
+  panDrag = true;
+  panLastX = e.clientX;
+  // 音量条语义：点哪，视窗块中心就瞬移到哪，随后块跟手 1:1 拖动
+  const r = panCanvas.value!.getBoundingClientRect();
+  const frac = J.clamp((e.clientX - r.left) / r.width, 0, 1);
+  const {D, vd} = tlView();
+  TL.off = frac * D - vd / 2;
+  tlView();
+  drawTimeline();
+  panCanvas.value!.style.cursor = 'grabbing';
+}
+
+function onPanMove(e: PointerEvent) {
+  if (!panDrag) return;
+  const r = panCanvas.value!.getBoundingClientRect(), {D} = tlView();
+  // 滚动条语义：握住视窗块直接拖，块跟手 1:1（拖内容语义是 off -= dx，块会反向移动）
+  TL.off += (e.clientX - panLastX) / r.width * D;
+  panLastX = e.clientX;
+  tlView();
+  drawTimeline();
+}
+
+function onPanUp() {
+  panDrag = false;
+  panCanvas.value!.style.cursor = 'grab';
+}
+
+function onPanWheel(e: WheelEvent) {
+  e.preventDefault();
+  const {vd} = tlView();
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    TL.off += (e.shiftKey ? e.deltaY : e.deltaX) / panCanvas.value!.clientWidth * vd;
+    tlView();
+    drawTimeline();
+  } else tlZoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)));
+}
+
+/* ---- 中条：播放头条 ---- */
+function drawPhBar() {
+  const c = phCanvas.value;
+  if (!c || !S.plan) return;
+  const {w, h, dpr} = fitCanvas(c);
+  const x = c.getContext('2d')!;
+  const {vd, off} = tlView();
+  x.fillStyle = '#131316';
+  x.fillRect(0, 0, w, h);
+  x.fillStyle = 'rgba(255,255,255,0.02)';
+  x.fillRect(0, 0, w, h);
+  x.fillStyle = 'rgba(255,255,255,0.07)';
+  x.fillRect(0, h / 2 - dpr / 2, w, dpr);
+  const px = Math.round((S.t - off) / vd * w);
+  x.fillStyle = '#f5a50c';
+  x.fillRect(px - dpr, 0, 2 * dpr, h);
+  x.beginPath();
+  x.moveTo(px - 5 * dpr, 0);
+  x.lineTo(px + 5 * dpr, 0);
+  x.lineTo(px, h * 0.55);
+  x.closePath();
+  x.fill();
+}
+
+let phDrag = false;
+
+function onPhDown(e: PointerEvent) {
+  try {
+    phCanvas.value!.setPointerCapture(e.pointerId);
+  } catch { /* 合成事件/无效指针：不影响后续逻辑 */
+  }
+  phDrag = true;
+  timelineSeek(e);
+}
+
+function onPhMove(e: PointerEvent) {
+  if (phDrag) timelineSeek(e);
+}
+
+function onPhUp() {
+  phDrag = false;
+}
+
+/* ---- 下条：时间轴本体 ---- */
+/* 静态层缓存：波形/节拍/切分/行界很少变。播放中每帧只需叠加播放头线；
+   视图或内容一变（缩放/平移/拖动/replan/导出范围/循环模式/换音频）整幅重建。 */
 let tlStatic: HTMLCanvasElement | null = null;
 let tlStaticKey = '';
 
@@ -60,25 +180,15 @@ function tlCacheKey(w: number, h: number, off: number, vd: number): string {
     S.plan.cuts.length, S.plan.lines.length].join('|');
 }
 
-function drawPlayhead(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, off: number, vd: number) {
+function drawPlayheadLine(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, off: number, vd: number) {
   const px = Math.round((S.t - off) / vd * w);
   x.fillStyle = '#f5a50c';
   x.fillRect(px - dpr, 0, 2 * dpr, h);
-  // 播放头旗标：第二条车道里的一枚下指三角，按住车道拖动即可移动播放头
-  const a = h * LANES.pan, b = h * (LANES.pan + LANES.ph);
-  x.beginPath();
-  x.moveTo(px - 6 * dpr, a + dpr);
-  x.lineTo(px + 6 * dpr, a + dpr);
-  x.lineTo(px, b - dpr);
-  x.closePath();
-  x.fill();
 }
 
 function drawTimeline() {
   const c = canvas.value; if (!c || !S.plan) return;
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const w = Math.max(10, Math.round(c.clientWidth * dpr)), h = Math.max(10, Math.round(c.clientHeight * dpr));
-  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  const {w, h, dpr} = fitCanvas(c);
   let { D, vd, off } = tlView();
   if (TL.z > 1 && S.playing && TL.drag < 0 && (S.t < off || S.t > off + vd * 0.92)) { TL.off = S.t - vd * 0.1; ({ D, vd, off } = tlView()); }
   if (!tlStatic || tlStatic.width !== w || tlStatic.height !== h) {
@@ -90,62 +200,75 @@ function drawTimeline() {
   tlStaticKey = tlCacheKey(w, h, off, vd);
   const x = c.getContext('2d')!;
   x.drawImage(tlStatic, 0, 0);
-  drawPlayhead(x, w, h, dpr, off, vd);
+  drawPlayheadLine(x, w, h, dpr, off, vd);
+  drawPanBar();
 }
 
-/* 播放帧：静态层命中就只叠加播放头；视图被自动跟随挪动或缓存失效才整幅重画 */
+/* 播放帧：静态层命中就只叠加播放头线；视图被自动跟随挪动或缓存失效才整幅重画 */
 function tlFrame() {
   const c = canvas.value;
   if (!c || !S.plan) return;
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const w = Math.max(10, Math.round(c.clientWidth * dpr)), h = Math.max(10, Math.round(c.clientHeight * dpr));
+  const {w, h, dpr} = fitCanvas(c);
   let {vd, off} = tlView();
   if (TL.z > 1 && S.playing && TL.drag < 0 && (S.t < off || S.t > off + vd * 0.92)) {
     drawTimeline();
+    drawPhBar();
     return;
   }
   if (!tlStatic || tlStaticKey !== tlCacheKey(w, h, off, vd)) {
     drawTimeline();
+    drawPhBar();
     return;
   }
   const x = c.getContext('2d')!;
   x.drawImage(tlStatic, 0, 0);
-  drawPlayhead(x, w, h, dpr, off, vd);
+  drawPlayheadLine(x, w, h, dpr, off, vd);
+  drawPhBar();
 }
 
 function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, vd: number, off: number, D: number) {
   const X = (t: number) => (t - off) / vd * w, T = (px: number) => off + px / w * vd;
   x.fillStyle = '#131316'; x.fillRect(0, 0, w, h);
-  const L = h * LANES.pan, P = h * (LANES.pan + LANES.ph);
-  // 平移条：亮块 = 当前可视窗口，按住左右拖平移视图；与底部缩放黄条同源
-  x.fillStyle = 'rgba(255,255,255,0.045)';
-  x.fillRect(0, 0, w, L);
-  if (TL.z > 1) {
-    x.fillStyle = 'rgba(245,165,12,0.45)';
-    x.fillRect(off / D * w, dpr * 1.5, Math.max(6 * dpr, vd / D * w), L - 3 * dpr);
-  } else {
-    x.fillStyle = 'rgba(255,255,255,0.09)';
-    x.fillRect(0, dpr * 1.5, w, L - 3 * dpr);
+  // 行界（最上带）：刻度线 + 三角手柄 + 行号
+  const mono = getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
+  const top = 16 * dpr, bot = h - 8 * dpr;
+  const LT: Record<string, number> = S.project.timing.lineTimes || {};
+  x.font = `${10 * dpr}px ${mono}`;
+  for (const ln of S.plan.lines) {
+    const lx = X(ln.start);
+    if (lx < -20 * dpr || lx > w + 2) continue;
+    const on = ln.index === TL.drag || ln.index === TL.hover, man = LT[ln.index] != null;
+    x.fillStyle = on ? '#f5a50c' : man ? '#6fb7c8' : '#5d5a63';
+    x.fillRect(lx - (on ? dpr : 0), 0, on ? 2 * dpr : 1, top);
+    x.beginPath();
+    x.moveTo(lx - 5 * dpr, 0);
+    x.lineTo(lx + 5 * dpr, 0);
+    x.lineTo(lx, 7 * dpr);
+    x.closePath();
+    x.fill();
+    x.fillStyle = on ? '#f5a50c' : '#8e8a94';
+    x.fillText(String(ln.index + 1).padStart(2, '0') + (ln.interlude ? ' 间奏' : ''), lx + 4 * dpr, 14 * dpr);
   }
-  x.fillStyle = 'rgba(255,255,255,0.10)';
-  x.fillRect(0, L - dpr, w, dpr);
-  // 播放头条：略暗的槽 + 中线，旗标（叠加层）在这里随播放头走
-  x.fillStyle = 'rgba(255,255,255,0.02)';
-  x.fillRect(0, L, w, P - L);
-  x.fillStyle = 'rgba(255,255,255,0.07)';
-  x.fillRect(0, (L + P) / 2 - dpr / 2, w, dpr);
+  // 波形（垫底）
   if (S.audio && S.audio.peaks) {
     const pk: Float32Array = S.audio.peaks, n = pk.length, sd = S.audio.duration;
     x.fillStyle = '#2b2b33';
-    for (let i = 0; i < w; i += 2) { const t = T(i); if (t > sd) break; if (t < 0) continue; const v = pk[Math.min(n - 1, Math.floor(t / sd * n))]; const hh = v * h * 0.8; x.fillRect(i, h * 0.6 - hh / 2, 1.5, hh); }
+    for (let i = 0; i < w; i += 2) {
+      const t = T(i);
+      if (t > sd) break;
+      if (t < 0) continue;
+      const v = pk[Math.min(n - 1, Math.floor(t / sd * n))];
+      const hh = v * (bot - top) * 0.85;
+      x.fillRect(i, top + (bot - top) / 2 - hh / 2, 1.5, hh);
+    }
   }
+  // 节拍刻度（底缘）
   const beats: number[] = S.plan.beats || [];
   x.fillStyle = '#3a3a44';
   for (const b of beats) { if (b < off) continue; if (b > off + vd) break; x.fillRect(Math.round(X(b)), h - 6 * dpr, 1, 6 * dpr); }
-  const top = P + h * 0.18, bot = h - 8 * dpr;
+  // 导出范围底色 + 切分块
   const R = exportRange();
   if (R) { x.fillStyle = 'rgba(245,165,12,0.10)'; x.fillRect(X(R.t0), 0, X(R.t1) - X(R.t0), h); }
-  const mono = getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
   for (const cut of S.plan.cuts) {
     const x0 = X(cut.start), x1 = X(cut.end);
     if (x1 < 0 || x0 > w) continue;
@@ -159,23 +282,6 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
       x.fillText(TL.z > 3 && cut.text ? cut.text : ((J.LAYOUTS[cut.layout] || {}).name || cut.layout), x0 + 5 * dpr, top + 13 * dpr); x.restore();
     }
   }
-  x.font = `${10 * dpr}px monospace`;
-  const LT: Record<string, number> = S.project.timing.lineTimes || {};
-  for (const ln of S.plan.lines) {
-    const lx = X(ln.start);
-    if (lx < -20 * dpr || lx > w + 2) continue;
-    const on = ln.index === TL.drag || ln.index === TL.hover, man = LT[ln.index] != null;
-    x.fillStyle = on ? '#f5a50c' : man ? '#6fb7c8' : '#5d5a63';
-    x.fillRect(lx - (on ? dpr : 0), P, on ? 2 * dpr : 1, top - P);
-    x.beginPath();
-    x.moveTo(lx - 5 * dpr, P);
-    x.lineTo(lx + 5 * dpr, P);
-    x.lineTo(lx, P + 7 * dpr);
-    x.closePath();
-    x.fill();
-    x.fillStyle = on ? '#f5a50c' : '#8e8a94';
-    x.fillText(String(ln.index + 1).padStart(2, '0') + (ln.interlude ? ' 间奏' : ''), lx + 4 * dpr, P + 17 * dpr);
-  }
   if (TL.z > 1) {
     x.fillStyle = 'rgba(255,255,255,0.18)'; x.fillRect(0, h - 2 * dpr, w, 2 * dpr);
     x.fillStyle = '#f5a50c'; x.fillRect(off / D * w, h - 2 * dpr, Math.max(4, vd / D * w), 2 * dpr);
@@ -187,22 +293,16 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
   }
 }
 
-function tlTime(ev: { clientX: number }) {
-  const r = canvas.value!.getBoundingClientRect(), { vd, off } = tlView();
-  return off + J.clamp((ev.clientX - r.left) / r.width, 0, 1) * vd;
-}
-function timelineSeek(ev: { clientX: number }) { seek(tlTime(ev)); }
-
-/* 指针下的行界手柄（两条车道以下、上带 ±7px；车道归平移条/播放头条） */
+/* 指针下的行界手柄（切分块上带 ±7px） */
 function tlHandleAt(ev: { clientX: number; clientY: number }) {
   const c = canvas.value!, r = c.getBoundingClientRect(), { vd, off } = tlView();
-  if (laneAt(ev) || ev.clientY - r.top > r.height * 0.55) return -1;
+  if (ev.clientY - r.top > r.height * 0.4) return -1;
   let best = -1, bd = 8;
   for (const ln of S.plan.lines) { const d = Math.abs((ln.start - off) / vd * r.width - (ev.clientX - r.left)); if (d < bd) { bd = d; best = ln.index; } }
   return best;
 }
 function tlDragTo(i: number, ev: { clientX: number; shiftKey: boolean }) {
-  let t = tlTime(ev);
+  let t = tlTimeOf(ev, canvas.value!.getBoundingClientRect());
   if (!ev.shiftKey && S.plan.beats && S.plan.beats.length) {   // 吸附最近节拍（Shift：自由）
     let bt: number | null = null, bd = 0.12;
     for (const b of S.plan.beats) { const d = Math.abs(b - t); if (d < bd) { bd = d; bt = b; } if (b > t + 0.2) break; }
@@ -217,61 +317,40 @@ function tlDragTo(i: number, ev: { clientX: number; shiftKey: boolean }) {
   replan(); seek(t + 0.001);
 }
 
-/* ---- 指针交互 ---- */
-let scrubDrag = false, panDrag = false, phDrag = false, panLastX = 0, dragRaf = 0;
+/* ---- 指针交互（下条本体） ---- */
+let scrubDrag = false, dragRaf = 0;
 function onDown(e: PointerEvent) {
-  const c = canvas.value!; c.setPointerCapture(e.pointerId);
-  if (!(S.tap || S.exporting)) {
-    const lane = laneAt(e);
-    if (lane === 'pan') {
-      panDrag = true;
-      panLastX = e.clientX;
-      c.style.cursor = 'grabbing';
-      return;
-    }   // 只平移视图
-    if (lane === 'ph') {
-      phDrag = true;
-      c.style.cursor = 'ew-resize';
-      timelineSeek(e);
-      return;
-    }        // 拖动播放头（自由）
+  const c = canvas.value!;
+  try {
+    c.setPointerCapture(e.pointerId);
+  } catch { /* 合成事件/无效指针：不影响后续逻辑 */
   }
-  const h = S.tap || S.exporting ? -1 : tlHandleAt(e);
-  if (h >= 0) { pushEdit(); TL.drag = h; pause(); c.style.cursor = 'ew-resize'; return; }
+  if (!(S.tap || S.exporting)) {
+    const h = tlHandleAt(e);
+    if (h >= 0) {
+      pushEdit();
+      TL.drag = h;
+      pause();
+      c.style.cursor = 'ew-resize';
+      return;
+    }
+  }
   scrubDrag = true; timelineSeek(e);
 }
 function onMove(e: PointerEvent) {
-  if (panDrag) {
-    const r = canvas.value!.getBoundingClientRect(), {vd} = tlView();
-    TL.off -= (e.clientX - panLastX) / r.width * vd;   // 行界跟着手指左右滑
-    panLastX = e.clientX;
-    tlView();
-    drawTimeline();
-    return;
-  }
-  if (phDrag) {
-    timelineSeek(e);
-    return;
-  }
   if (TL.drag >= 0) { const ev = { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey }; cancelAnimationFrame(dragRaf); dragRaf = requestAnimationFrame(() => tlDragTo(TL.drag, ev)); return; }
   if (scrubDrag) { timelineSeek(e); return; }
-  const lane = !(S.tap || S.exporting) ? laneAt(e) : null;
-  const hv: Hover = lane === 'pan' ? 'pan' : lane === 'ph' ? 'ph' : tlHandleAt(e);
+  const hv: Hover = !(S.tap || S.exporting) ? tlHandleAt(e) : -1;
   if (hv !== TL.hover) {
     TL.hover = hv;
-    const num = typeof hv === 'number' ? hv : -1;
-    canvas.value!.style.cursor = hv === 'pan' ? 'grab' : hv === 'ph' || num >= 0 ? 'ew-resize' : 'pointer';
+    canvas.value!.style.cursor = hv >= 0 ? 'ew-resize' : 'pointer';
     drawTimeline();
   }
 }
 function endDrag() {
   if (TL.drag >= 0) { TL.drag = -1; flushSave(); bus.emit('replan-sync'); drawTimeline(); }
-  if (panDrag) canvas.value!.style.cursor = 'grab';
-  panDrag = false;
-  phDrag = false;
   scrubDrag = false;
 }
-
 function onLeave() {
   if (TL.hover !== -1 && TL.drag < 0) {
     TL.hover = -1;
@@ -281,8 +360,7 @@ function onLeave() {
 function onWheel(e: WheelEvent) {
   e.preventDefault();
   const { vd } = tlView();
-  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) { TL.off += (e.shiftKey ? e.deltaY : e.deltaX) / canvas.value!.clientWidth * vd; tlView(); drawTimeline(); }
-  else tlZoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), tlTime(e));
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) { TL.off += (e.shiftKey ? e.deltaY : e.deltaX) / canvas.value!.clientWidth * vd; tlView(); drawTimeline(); } else tlZoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), tlTimeOf(e, canvas.value!.getBoundingClientRect()));
 }
 
 function undoEdit() { edGo(-1); }
@@ -294,13 +372,14 @@ onMounted(() => {
   offs.push(bus.on('replan-sync', drawTimeline));
   offs.push(bus.on('viewresize', drawTimeline));
   drawTimeline();
+  drawPhBar();
 });
 onUnmounted(() => offs.forEach(f => f()));
 </script>
 
 <template>
   <div class="flex justify-between items-center gap-2 my-2 mb-1 flex-wrap">
-    <span class="text-[11px] text-mut">上条左右滑视图，下条拖动播放头；行界刻度可拖动，<span class="kbd">Shift</span> 不吸附节拍；底部黄条为缩放范围</span>
+    <span class="text-[11px] text-mut">上条左右滑视图，中条拖动播放头；行界刻度可拖动，<span class="kbd">Shift</span> 不吸附节拍；底部黄条为缩放范围</span>
     <span class="flex gap-1 ml-auto">
       <button class="btn btn-ghost btn-sm" title="撤销歌词・时间修改（Ctrl+Z）" @click="undoEdit">撤销</button>
       <button aria-label="缩小时间轴" class="btn btn-ghost btn-sm min-w-7" title="缩小"
@@ -310,15 +389,36 @@ onUnmounted(() => offs.forEach(f => f()));
       <button class="btn btn-ghost btn-sm" title="显示整首" @click="TL.z = 1; TL.off = 0; drawTimeline()">全部</button>
     </span>
   </div>
-  <canvas
-    ref="canvas"
-    class="w-full h-[92px] block bg-panel border border-line rounded-md cursor-pointer touch-none"
-    aria-label="时间轴（点击移动・行界可拖动调整）"
-    @pointerdown="onDown"
-    @pointermove="onMove"
-    @pointerup="endDrag"
-    @pointercancel="endDrag"
-    @pointerleave="onLeave"
-    @wheel="onWheel"
-  ></canvas>
+  <div class="flex flex-col">
+    <canvas
+        ref="panCanvas"
+        aria-label="视图滑动条（左右拖动平移）"
+        class="w-full h-[16px] block bg-panel cursor-grab touch-none"
+        @pointercancel="onPanUp"
+        @pointerdown="onPanDown"
+        @pointermove="onPanMove"
+        @pointerup="onPanUp"
+        @wheel="onPanWheel"
+    ></canvas>
+    <canvas
+        ref="phCanvas"
+        aria-label="播放头条（拖动定位）"
+        class="w-full h-[20px] block bg-panel cursor-ew-resize touch-none"
+        @pointercancel="onPhUp"
+        @pointerdown="onPhDown"
+        @pointermove="onPhMove"
+        @pointerup="onPhUp"
+    ></canvas>
+    <canvas
+        ref="canvas"
+        aria-label="时间轴（点击移动・行界可拖动调整）"
+        class="w-full h-[60px] block bg-panel border border-line cursor-pointer touch-none"
+        @pointercancel="endDrag"
+        @pointerdown="onDown"
+        @pointerleave="onLeave"
+        @pointermove="onMove"
+        @pointerup="endDrag"
+        @wheel="onWheel"
+    ></canvas>
+  </div>
 </template>
