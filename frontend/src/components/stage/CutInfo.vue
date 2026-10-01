@@ -1,14 +1,23 @@
 <script setup lang="ts">
 /* 当前切分信息 chips + 手法替换面板（原 cutInfo / cutPick 的 Vue 化）
    详细模式：chip 点击打开替换网格；简单/手机模式：静态展示 */
-import { onMounted, onUnmounted, ref } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { replan, seek } from '../../jizura/engine';
-import { CHIP_GROUPS, groupName, cutGroupVal, cutTechSlot, cutQuietSlot, setCutTech, lyricCutK, rerollCurrentCut } from '../../jizura/look';
-import { registerThumbs } from '../../jizura/preview';
-import { badgesOf } from '../../jizura/ui-helpers';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {replan} from '../../jizura/engine';
+import {
+  CHIP_GROUPS,
+  cutGroupVal,
+  cutQuietSlot,
+  cutTechSlot,
+  groupName,
+  lyricCutK,
+  rerollCurrentCut,
+  setCutTech
+} from '../../jizura/look';
+import {registerThumbs} from '../../jizura/preview';
+import {badgesOf} from '../../jizura/ui-helpers';
 
 const cut = ref<any>(null);
 const items = ref<{ g: string; cls: string; label: string; value: string; forced: boolean; enabled: boolean }[]>([]);
@@ -112,7 +121,7 @@ onUnmounted(() => offs.forEach(f => f()));
       <button type="button" class="btn btn-accent btn-sm" :disabled="!items.some(it => it.enabled)" title="这个切分的手法全部随机" @click="rerollCurrentCut('omakase')">一键随机</button>
     </template>
   </div>
-  <div v-if="pick" class="border border-line rounded-md bg-panel p-2 max-h-[min(42vh,420px)] overflow-auto">
+  <div v-if="pick" class="cut-pick border border-line rounded-md bg-panel p-2 max-h-[min(42vh,420px)] overflow-auto">
     <div class="flex items-center gap-2 mb-2 sticky top-0 bg-panel z-[1] pb-1">
       <strong class="text-xs">{{ pick.title }}</strong>
       <span class="text-mut flex-1 text-[11px]">只替换这个切分</span>
