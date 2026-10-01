@@ -4,7 +4,12 @@ import {J} from '../engine';
 
 export type LoopMode = 'all' | 'line' | 'cut' | false;
 
-export const S = {
+/* 模块实例防撕裂：vite dev 下同一文件可能被多份求值（HMR ?t 变体跨分支残留），
+   编辑页曾因此出现「store 读到一份从未 boot 的死 S」→ 播放按钮/循环等 UI 永久冻结。
+   运行时状态一律锚在 globalThis 上：多少个模块副本都共享同一份 S/AP。 */
+const g = globalThis as any;
+
+const initialS = {
   project: null as any,
   plan: null as any,
   audio: null as any,
@@ -21,11 +26,14 @@ export const S = {
   curLine: -2,
   scrubbing: false,
 };
+export type EngineState = typeof initialS;
+export const S: EngineState = g.__jl_S || (g.__jl_S = initialS);
 
 export const LOOP_CYCLE: LoopMode[] = ['all', 'line', 'cut', false];
 
-/* WebAudio 播放器（沙箱页面里 blob media 可能被禁，AudioContext 稳妥） */
-export const AP = {
+/* WebAudio 播放器（沙箱页面里 blob media 可能被禁，AudioContext 稳妥）。
+   同样锚 globalThis：两个副本会各自 new 一个 AudioContext（浏览器有数量上限） */
+const initialAP = {
   ctx: null as AudioContext | null,
   src: null as AudioBufferSourceNode | null,
   startAt: 0,
@@ -63,6 +71,8 @@ export const AP = {
         }
     },
 };
+export type AudioPlayer = typeof initialAP;
+export const AP: AudioPlayer = g.__jl_AP || (g.__jl_AP = initialAP);
 
 /* 预览音量记忆 */
 export function initVolume() {

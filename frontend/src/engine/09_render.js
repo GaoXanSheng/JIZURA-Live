@@ -5,6 +5,13 @@
 'use strict';
 const E = J.E;
 
+  /* 内容 pass 描述符：模块级复用，frame() 里只刷色差偏移（每帧重建是纯 GC 饲料） */
+  const PASSES = [
+    {pass: 'B', lag: 1.6 / 24, off: [0, 0]},
+    {pass: 'A', lag: 0.8 / 24, off: [0, 0]},
+    {pass: 'main', lag: 0, off: [0, 0]},
+  ];
+
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, w | 0); c.height = Math.max(1, h | 0); return c; };
 
 J.cutAt = (plan, t) => {
@@ -121,11 +128,12 @@ class Renderer {
     }
     const shx = J.rs(step, 71) * shake * 16 * u, shy = J.rs(step, 72) * shake * 11 * u;
     // ---------- content passes ----------
-    const passes = [
-      { pass: 'B', lag: 1.6 / 24, off: [-3.4 * chroma * u, -1.3 * chroma * u] },
-      { pass: 'A', lag: 0.8 / 24, off: [3.2 * chroma * u, 1.9 * chroma * u] },
-      { pass: 'main', lag: 0, off: [0, 0] },
-    ];
+    // passes 预建复用（每帧重建 3 个对象+数组是纯 GC 饲料），只刷新色差偏移
+    const passes = PASSES;
+    passes[0].off[0] = -3.4 * chroma * u;
+    passes[0].off[1] = -1.3 * chroma * u;
+    passes[1].off[0] = 3.2 * chroma * u;
+    passes[1].off[1] = 1.9 * chroma * u;
     const ghostOn = (fx.chroma ?? 0.7) > 0.02 && (st.ghost ?? 1) > 0.02 && !opt.noGhost;
     // モーフ (統一感): during the first moments of a morph cut its lyric is drawn by drawMorph (glyphs glide / melt)
     const MC = !opt.noTrans && !opt.glyphLog && mainCut && mainCut.morph && mainCut.index > 0 ? mainCut : null;
@@ -191,7 +199,7 @@ class Renderer {
     if (morphOn && layer !== 'back') {
       const L = this.morphLogs(plan, mPrev, MC, cw, ch, scale, opt);
       const k = J.clamp(mlt / MC.morph.dur), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-      this.drawMorph(ctx, L, e, allowFilter);
+      this.morphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
     }
     // ---------- cut-to-cut transition: composite the previous cut's resting frame with this one ----------
     if (!opt.noTrans && mainCut && mainCut.trans && J.TRANS[mainCut.trans] && mainCut.index > 0) {
@@ -245,9 +253,50 @@ class Renderer {
     ctx.restore();
   }
 
+  /* モーフ帧位图缓存: drawMorph 按 e 量化 10 档缓存成位图（morph 窗口内逐字重绘
+     是最贵路径，且主页面/两路镜像都在跑同一内容）。命中时 morph 帧只做一次
+     drawImage；未命中才现绘（成本同旧路径，无回退）。位图降采样到 ≤960 宽存储。 */
+  morphShot(ctx, plan, A, B, cw, ch, scale, e, allowFilter, L) {
+    const shot = this.morphShotBuild(plan, A, B, cw, ch, scale, e, allowFilter, L);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.filter = 'none';
+    ctx.drawImage(shot, 0, 0, cw, ch);
+    ctx.restore();
+  }
+
+  /* 生成/取回某一档位的 morph 位图（预热直接调它填缓存） */
+  morphShotBuild(plan, A, B, cw, ch, scale, e, allowFilter, L) {
+    if (!this.morphShotCache || this.morphShotCache.plan !== plan) this.morphShotCache = {plan, map: new Map()};
+    const q = Math.min(9, Math.max(0, Math.round(e * 9))), eq = q / 9;
+    const key = A.index + ':' + B.index + ':' + cw + 'x' + ch + ':' + scale.toFixed(4) + ':' + q + (allowFilter ? 'f' : 'n');
+    const M = this.morphShotCache.map;
+    let shot = M.get(key);
+    if (!shot) {
+      const full = this.ensure(this.morphShotCv || (this.morphShotCv = mk(2, 2)), cw, ch);
+      const fx = full.getContext('2d');
+      fx.setTransform(1, 0, 0, 1, 0, 0);
+      fx.globalAlpha = 1;
+      fx.globalCompositeOperation = 'source-over';
+      fx.filter = 'none';
+      fx.clearRect(0, 0, cw, ch);
+      this.drawMorph(fx, L, eq, allowFilter);
+      const sw = Math.min(960, cw), sh = Math.max(1, Math.round(ch * sw / cw));
+      shot = mk(sw, sh);
+      shot.getContext('2d').drawImage(full, 0, 0, sw, sh);
+      M.set(key, shot);
+      if (M.size > 12) {
+        const old = M.keys().next().value;
+        M.delete(old);
+      }
+    }
+    return shot;
+  }
   /* モーフ: where every glyph of the previous cut rests at its end, and where this cut's glyphs land (cached) */
   morphLogs(plan, A, B, cw, ch, scale, opt) {
-    if (!this.morphCache || this.morphCache.plan !== plan) this.morphCache = { plan, map: new Map() };
+    if (!this.morphCache || this.morphCache.plan !== plan) this.morphCache = {plan, map: new Map()};
     const key = A.index + ':' + B.index + ':' + cw + 'x' + ch + ':' + scale.toFixed(4), M = this.morphCache.map;
     if (M.has(key)) return M.get(key);
     const cv = this.ensure(this.morphCv || (this.morphCv = mk(2, 2)), cw, ch), x = cv.getContext('2d');
@@ -260,12 +309,17 @@ class Renderer {
     return r;
   }
   drawMorph(ctx, L, e, allowFilter) {
-    const used = new Array(L.A.length).fill(false), pairs = [];
+    // used/pairs 复用（morph 帧热路径，每帧两次分配 → 零分配）
+    let used = this.morphUsed || (this.morphUsed = []);
+    let pairA = this.morphPairA || (this.morphPairA = []);
+    let pairB = this.morphPairB || (this.morphPairB = []);
+    used.length = pairA.length = pairB.length = 0;
     for (const g of L.B) {
       let j = -1;
       for (let q = 0; q < L.A.length; q++) if (!used[q] && L.A[q].ch === g.ch) { j = q; break; }
       if (j >= 0) used[j] = true;
-      pairs.push([j >= 0 ? L.A[j] : null, g]);
+      pairA.push(j >= 0 ? L.A[j] : null);
+      pairB.push(g);
     }
     const det = m => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1;
     const put = (g, col, alpha, blur) => {
@@ -285,7 +339,8 @@ class Renderer {
       put(a, a.color, a.a * Math.pow(1 - e, 1.4), e * a.px * 0.14 * det(a.m));
     });
     // …shared characters glide to their new place, new ones condense out of a blur
-    for (const [a, b] of pairs) {
+    for (let pi = 0; pi < pairB.length; pi++) {
+      const a = pairA[pi], b = pairB[pi];
       if (a) {
         const m = a.m.map((v, i) => v + (b.m[i] - v) * e);
         ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
