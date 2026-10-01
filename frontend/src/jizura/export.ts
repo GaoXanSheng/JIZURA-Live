@@ -1,5 +1,8 @@
 /* 导出流程（原 12_ui.js 的 syncOut/codecNote/runExport 的非 DOM 部分）
-   进度与状态经 bus 通知 OutTab / EasyPanel。 */
+   进度与状态经 bus 通知 OutTab / EasyPanel。
+   渲染+编码默认在专用 Worker 线程跑（worker/export-worker.ts）：导出期间主线程
+   （预览/UI）不再被逐帧渲染占用，也不与引擎抢主线程预算；Worker 失败自动回退
+   主线程同路径。「大视频直接写文件」需要主线程的文件句柄，不走 Worker。 */
 import {J} from '../engine';
 import {S} from './state';
 import {bus} from './bus';
@@ -26,6 +29,68 @@ export async function codecNote() {
       : '此浏览器不支持视频编码（WebCodecs）。请用最新版 Chrome / Edge 打开，或使用连号 PNG。',
   });
   return vc;
+}
+
+/* ---- Worker 导出线程 ----
+   kind=mp4/png/pnga/pngl 可进 Worker；mp4file 需要主线程弹出的可写文件流，不适用。
+   失败一律抛给调用方回退主线程同路径（Worker 侧字体缺失等错误在主线程多半能成）。 */
+const workerExportable = () =>
+    typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof VideoEncoder !== 'undefined';
+
+function runExportInWorker(kind: 'mp4' | 'png' | 'pnga' | 'pngl',
+                           onProgress: (p: number, m?: string) => void,
+                           signal: AbortSignal): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let w: Worker;
+    try {
+      w = new Worker(new URL('./worker/export-worker.ts', import.meta.url), {type: 'module'});
+    } catch (e: any) {
+      reject(Object.assign(new Error('worker 创建失败：' + (e && e.message || e)), {workerFallback: true}));
+      return;
+    }
+    let settled = false;
+    const onAbort = () => finish(() => reject(new Error('キャンセルしました')));
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      try {
+        w.terminate();
+      } catch { /* 已退出 */
+      }
+      fn();
+    };
+    signal.addEventListener('abort', onAbort);
+    w.onerror = (e) => finish(() => reject(Object.assign(new Error('worker 加载失败：' + (e.message || '')), {workerFallback: true})));
+    w.onmessage = (ev) => {
+      const m = ev.data;
+      if (m.type === 'progress') onProgress(m.p, m.msg);
+      else if (m.type === 'done') finish(() => resolve(m.result));
+      else if (m.type === 'error') finish(() => reject(Object.assign(new Error(m.message), {workerFallback: true})));
+    };
+
+    const start: any = {
+      cmd: 'start', kind,
+      project: S.project,
+      beats: S.audio ? (S.audio.beats || []) : [],
+      quality: S.project.quality || 'high',
+      range: exportRange(),
+      audio: null,
+    };
+    const transfer: Transferable[] = [];
+    // AudioBuffer 不可跨线程克隆：改发各声道数据（转移所有权），Worker 端重建
+    if (kind === 'mp4' && S.audio && S.project.includeAudio !== false) {
+      const buf = S.audio.buffer;
+      const channels: Float32Array[] = [];
+      for (let c = 0; c < Math.min(2, buf.numberOfChannels); c++) {
+        const d = buf.getChannelData(c).slice();
+        channels.push(d);
+        transfer.push(d.buffer);
+      }
+      start.audio = {channels, sampleRate: buf.sampleRate};
+    }
+    w.postMessage(start, transfer);
+  });
 }
 
 export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl') {
@@ -58,7 +123,29 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
     if (lost.length) throw new Error(`导入的字体（${[...new Set(lost as string[])].join('・')}）不在此浏览器中，已停止导出。请在「字体」里重新载入同一文件，或改用其它字体`);
     if (kind === 'mp4' || kind === 'mp4file') {
       const plan = S.plan, range = exportRange(), span = J.exportSpan(plan, range);
-      const r = await J.exportMP4({ plan, project: S.project, audio: S.project.includeAudio !== false ? S.audio : null, quality: S.project.quality || 'high', onProgress, signal: ac.signal, range, file });
+      let r: any = null;
+      if (kind === 'mp4' && workerExportable()) {
+        try {
+          r = await runExportInWorker('mp4', onProgress, ac.signal);
+        } catch (we: any) {
+          if (ac.signal.aborted) throw new Error('キャンセルしました');
+          console.warn('Worker 导出失败，回退主线程渲染：', we && we.message || we);
+          bus.emit('export-progress', 0, 'Worker 导出失败，回退主线程渲染…');
+          r = null;
+        }
+      }
+      if (!r) {
+        r = await J.exportMP4({
+          plan,
+          project: S.project,
+          audio: S.project.includeAudio !== false ? S.audio : null,
+          quality: S.project.quality || 'high',
+          onProgress,
+          signal: ac.signal,
+          range,
+          file
+        });
+      }
       file = null;
       let msg = `完成 ${r.blob ? (r.blob.size / 1048576).toFixed(1) + 'MB・' : ''}${r.codec}${r.audio ? ' + ' + r.audio.toUpperCase() : ''}・${((performance.now() - t0) / 1000).toFixed(0)}秒`;
       if (r.blob) {
@@ -74,7 +161,25 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
       } else if (S.project.includeAudio !== false && !S.audio && S.project.audioName) msg += '。未载入歌曲，导出为无音频（请从「载入歌曲」重新载入）';
       bus.emit('export-progress', 100, msg);
     } else {
-      const blob = await J.exportPNGZip({ plan: S.plan, project: S.project, transparent: kind === 'pnga', layers: kind === 'pngl', onProgress, signal: ac.signal, range: exportRange() });
+      let fromWorker: Blob | null = null;
+      if (workerExportable()) {
+        try {
+          fromWorker = (await runExportInWorker(kind, onProgress, ac.signal)).blob;
+        } catch (we: any) {
+          if (ac.signal.aborted) throw new Error('キャンセルしました');
+          console.warn('Worker 导出失败，回退主线程渲染：', we && we.message || we);
+          bus.emit('export-progress', 0, 'Worker 导出失败，回退主线程渲染…');
+        }
+      }
+      const blob = fromWorker ?? await J.exportPNGZip({
+        plan: S.plan,
+        project: S.project,
+        transparent: kind === 'pnga',
+        layers: kind === 'pngl',
+        onProgress,
+        signal: ac.signal,
+        range: exportRange()
+      });
       bus.emit('export-progress', 100, `完成 ${(blob.size / 1048576).toFixed(1)}MB`);
       await J.saveFile(baseName() + rangeSuffix() + (kind === 'pnga' ? '_alpha' : kind === 'pngl' ? '_layers' : '') + '_png.zip', blob);
     }

@@ -1,8 +1,8 @@
-using System.IO;
+using System.Text;
 using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
-using JizuraLive.Server;
+using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
 
@@ -17,14 +17,24 @@ internal sealed class AnalyzeController : WebApiController
     [Route(HttpVerbs.Post, "/api/analyze")]
     public async Task Analyze()
     {
-        using var ms = new MemoryStream();
-        await Request.InputStream.CopyToAsync(ms);
-        var body = ms.ToArray();
+        // 按声明长度一次读满，免去 MemoryStream+ToArray 的双重复制（长曲 payload 20MB+）
+        long len = Request.ContentLength64;
+        if (len < 12 || len > 512 * 1024 * 1024)
+        {
+            Response.StatusCode = 400;
+            await HttpContext.SendStringAsync("{\"ok\":false,\"error\":\"bad analyze payload\"}",
+                "application/json; charset=utf-8", Encoding.UTF8);
+            return;
+        }
+
+        var body = new byte[(int)len];
+        await Request.InputStream.ReadExactlyAsync(body);
 
         if (!AudioAnalyzer.TryParseRequest(body, out var mono, out var sampleRate))
         {
             Response.StatusCode = 400;
-            await HttpContext.SendStringAsync("{\"ok\":false,\"error\":\"bad analyze payload\"}", "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+            await HttpContext.SendStringAsync("{\"ok\":false,\"error\":\"bad analyze payload\"}",
+                "application/json; charset=utf-8", Encoding.UTF8);
             return;
         }
 
@@ -32,7 +42,7 @@ internal sealed class AnalyzeController : WebApiController
         var result = AudioAnalyzer.Analyze(mono, sampleRate, duration);
 
         await HttpContext.SendStringAsync(
-            Newtonsoft.Json.JsonConvert.SerializeObject(new
+            JsonConvert.SerializeObject(new
             {
                 ok = true,
                 bpm = result.Bpm,
@@ -41,6 +51,6 @@ internal sealed class AnalyzeController : WebApiController
                 energyRate = result.EnergyRate,
                 peaks = result.Peaks,
             }),
-            "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+            "application/json; charset=utf-8", Encoding.UTF8);
     }
 }

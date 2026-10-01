@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 
 namespace JizuraLive.Server;
 
@@ -143,7 +144,8 @@ internal static class AudioAnalyzer
         };
     }
 
-    /// <summary>解析请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道]</summary>
+    /// <summary>解析请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道]。
+    /// float 段用 MemoryMarshal.Cast 一次性重解释（x64 本就小端），免去逐样本循环。</summary>
     public static bool TryParseRequest(byte[] body, out float[] mono, out int sampleRate)
     {
         mono = Array.Empty<float>();
@@ -152,9 +154,7 @@ internal static class AudioAnalyzer
         sampleRate = BinaryPrimitives.ReadInt32LittleEndian(body);
         int count = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(4));
         if (sampleRate <= 0 || count <= 0 || body.Length < 8 + count * 4) return false;
-        mono = new float[count];
-        for (int i = 0; i < count; i++)
-            mono[i] = BinaryPrimitives.ReadSingleLittleEndian(body.AsSpan(8 + i * 4));
+        mono = MemoryMarshal.Cast<byte, float>(body.AsSpan(8, count * 4)).ToArray();
         return true;
     }
 
