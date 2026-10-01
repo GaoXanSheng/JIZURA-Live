@@ -33,7 +33,7 @@ public sealed class Settings
         {
             if (File.Exists(FilePath))
             {
-                string text = File.ReadAllText(FilePath);
+                var text = File.ReadAllText(FilePath);
                 var settings = JsonConvert.DeserializeObject<Settings>(text);
                 if (settings != null)
                 {

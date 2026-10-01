@@ -69,6 +69,7 @@ let thumbFonts = false;
 export function invalidateFontKey() {
     fontKey = '';
 }
+
 export async function ensureFonts() {
     const txt = S.project.lyrics + (S.project.title || '') + (S.project.artist || '') + HUD_CHARS;
     const keys = J.fontsOfPlan(S.plan);
@@ -88,6 +89,7 @@ export async function ensureFonts() {
     bus.emit('fonts');
     loadThumbFonts();
 }
+
 /* 风格缩略图需要每个风格 display 字体的两个字形 — 面板可见时才拉取 */
 export function loadThumbFonts() {
     if (thumbFonts) return;
@@ -205,12 +207,14 @@ export function play() {
     S.playing = true;
     bus.emit('playstate');
 }
+
 export function pause() {
     S.playing = false;
     AP.stop();
     S.need = true;
     bus.emit('playstate');
 }
+
 export function seek(t: number) {
     S.t = J.clamp(t, 0, Math.max(0, S.plan.duration - 1e-3));
     if (S.audio) {
@@ -228,6 +232,7 @@ export function togglePlay() {
 
 /* ---- 当前切分信息（原 updateCutInfo 的非 DOM 部分） ---- */
 let lastCutIdx = -2;
+
 export function updateCutInfo() {
     if (!S.plan) return;
     const cut = J.cutAt(S.plan, S.t);
@@ -244,6 +249,7 @@ export function updateCutInfo() {
 
 /* ---- 播放行跟随滚动（组件通过 bus 监听） ---- */
 let listTouched = 0;
+
 function followLine(li: number) {
     bus.emit('curline', li);
     if (!S.playing || li < 0 || !fixedLayout()) return;
@@ -253,6 +259,7 @@ function followLine(li: number) {
 
 /* ---- 音频装载 ---- */
 let audioSeq = 0;
+
 export async function loadAudioFile(f: File, restored = false) {
     const my = ++audioSeq;   // 只有最新一次选择生效（更早的慢分析直接丢弃）
     bus.emit('audioname', '解析中…');

@@ -52,7 +52,7 @@ public sealed class EmbeddedServer : IDisposable
 
     public static EmbeddedServer? Start()
     {
-        for (int port = PortBase; port < PortBase + 10; port++)
+        for (var port = PortBase; port < PortBase + 10; port++)
         {
             var server = new EmbeddedServer(port);
             if (server.TryStart()) return server;
@@ -96,7 +96,7 @@ public sealed class EmbeddedServer : IDisposable
             _runTask = _server.RunAsync(_cts.Token);
 
             _ = _runTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
-            for (int i = 0; i < 40; i++)
+            for (var i = 0; i < 40; i++)
             {
                 if (_server.State == WebServerState.Listening)
                 {

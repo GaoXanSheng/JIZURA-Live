@@ -4,12 +4,12 @@
    入口：包装 J.Renderer.prototype.frame —— 正式帧画完再叠加；
          转场/ morph 的离屏采样（noTrans）与分层导出（layer）不画。
    设置：localStorage jizura.kgsub；镜像窗口经 storage 事件实时跟随。 */
-import { J } from '../engine';
-import { S } from '../jizura/state';
-import { bus } from '../jizura/bus';
-import { seek } from '../jizura/engine';
-import { classifyLangRows, type LyricMap } from './krc';
-import { currentLyric } from './lyricStore';
+import {J} from '../engine';
+import {S} from '../jizura/state';
+import {bus} from '../jizura/bus';
+import {seek} from '../jizura/engine';
+import {classifyLangRows, type LyricMap} from './krc';
+import {currentLyric} from './lyricStore';
 
 export interface SubConfig {
   content: 'off' | 'trans' | 'roma' | 'both';
@@ -36,20 +36,30 @@ let cfg: SubConfig = loadCfg();
    优先于本页 localStorage（渲染进程不读写 localStorage）。 */
 let overrideCfg: SubConfig | null = null;
 let overrideMap: LyricMap | null = null;
+
 export function setSubOverride(o: SubConfig | null, map: LyricMap | null) {
   overrideCfg = o;
   overrideMap = map;
 }
 
 function loadCfg(): SubConfig {
-  try { return Object.assign({}, SUB_DEFAULT, JSON.parse(localStorage.getItem('jizura.kgsub') || '{}')); }
-  catch { return Object.assign({}, SUB_DEFAULT); }
+  try {
+    return Object.assign({}, SUB_DEFAULT, JSON.parse(localStorage.getItem('jizura.kgsub') || '{}'));
+  } catch {
+    return Object.assign({}, SUB_DEFAULT);
+  }
 }
 
-export function subConfig(): SubConfig { return { ...cfg }; }
+export function subConfig(): SubConfig {
+  return {...cfg};
+}
+
 export function saveSubConfig(p: Partial<SubConfig>) {
-  cfg = { ...cfg, ...p };
-  try { localStorage.setItem('jizura.kgsub', JSON.stringify(cfg)); } catch { /* 忽略 */ }
+  cfg = {...cfg, ...p};
+  try {
+    localStorage.setItem('jizura.kgsub', JSON.stringify(cfg));
+  } catch { /* 忽略 */
+  }
 }
 
 /* 镜像窗口跟随主窗口的设置变化 */
@@ -62,17 +72,20 @@ window.addEventListener('storage', e => {
 
 /* 暂停时引擎不主动重绘：按当前时间原地 seek 强制出一帧 */
 export function redrawSub() {
-  try { seek(S.t); } catch { /* 尚无方案时无需处理 */ }
+  try {
+    seek(S.t);
+  } catch { /* 尚无方案时无需处理 */
+  }
 }
 
 function fromNoteOf(line: any): { roma: string; trans: string } {
   const note = String(line.note || '');
-  if (!note) return { roma: '', trans: '' };
+  if (!note) return {roma: '', trans: ''};
   const roma: string[] = [], trans: string[] = [];
   for (const p of note.split('　').map((s: string) => s.trim()).filter(Boolean)) {
     (classifyLangRows([p]) === 'roma' ? roma : trans).push(p);
   }
-  return { roma: roma.join(' '), trans: trans.join(' ') };
+  return {roma: roma.join(' '), trans: trans.join(' ')};
 }
 
 function subTextFor(line: any): string {
@@ -104,18 +117,25 @@ function wrapSubtitle(ctx: CanvasRenderingContext2D, text: string, maxW: number)
   const out: string[] = [];
   for (const seg of text.split('　')) {
     if (!seg) continue;
-    if (ctx.measureText(seg).width <= maxW) { out.push(seg); continue; }
+    if (ctx.measureText(seg).width <= maxW) {
+      out.push(seg);
+      continue;
+    }
     let cur = '';
     for (const ch of seg) {
-      if (cur && ctx.measureText(cur + ch).width > maxW) { out.push(cur); cur = ch; }
-      else cur += ch;
+      if (cur && ctx.measureText(cur + ch).width > maxW) {
+        out.push(cur);
+        cur = ch;
+      } else cur += ch;
     }
     if (cur) out.push(cur);
   }
   return out;
 }
 
-function effCfg(): SubConfig { return overrideCfg || cfg; }
+function effCfg(): SubConfig {
+  return overrideCfg || cfg;
+}
 
 function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any) {
   const cfg = effCfg();
@@ -150,7 +170,7 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
     const padX = fontPx * 0.5, padY = fontPx * 0.3;
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
     ctx.fillRect(centerX - wmax / 2 - padX, baseY - fontPx * 0.82 - padY,
-                 wmax + padX * 2, blockH + padY * 2);
+        wmax + padX * 2, blockH + padY * 2);
   }
   ctx.lineWidth = strokePx;
   ctx.strokeStyle = cfg.strokeColor;
@@ -172,14 +192,19 @@ export function drawSubtitleFrame(ctx: CanvasRenderingContext2D, plan: any, t: n
 /* 正式帧画完再叠加（幂等：重复挂载不再包一层） */
 export function installSubtitleOverlay() {
   const proto = J.Renderer.prototype as any;
-  if ((proto as any).__jl_sub_patched) { return; }
+  if ((proto as any).__jl_sub_patched) {
+    return;
+  }
   const origFrame = proto.frame;
   proto.frame = function (this: any, ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
     origFrame.call(this, ctx, plan, t, opt);
     // 字幕分离：主通道页被 C# 注入 __jl_no_sub=true 时不叠加（字幕只走独立通道）
     if (window.__jl_no_sub) return;
     if (effCfg().content !== 'off') {
-      try { drawSubtitle(ctx, plan, t, opt); } catch { /* 字幕出错不影响渲染 */ }
+      try {
+        drawSubtitle(ctx, plan, t, opt);
+      } catch { /* 字幕出错不影响渲染 */
+      }
     }
   };
   proto.__jl_sub_patched = true;

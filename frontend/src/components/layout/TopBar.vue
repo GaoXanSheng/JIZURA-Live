@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import {onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -33,8 +33,15 @@ function syncFromProject() {
   artist.value = S.project?.artist || '';
 }
 
-function onTitle() { S.project.title = title.value; replanSoon(300); }
-function onArtist() { S.project.artist = artist.value; replanSoon(300); }
+function onTitle() {
+  S.project.title = title.value;
+  replanSoon(300);
+}
+
+function onArtist() {
+  S.project.artist = artist.value;
+  replanSoon(300);
+}
 
 function baseName() {
   const k = J.keyMode(S.project);
@@ -153,8 +160,10 @@ function seek0() {
 <template>
   <header class="flex items-center gap-3.5 flex-wrap py-2 px-4 border-b border-line bg-panel">
     <div class="flex gap-2 flex-[1_1_260px] min-w-0">
-      <input v-model="title" type="text" class="flex-[1_1_0] min-w-0" placeholder="曲名（标题卡・HUD 显示）" aria-label="曲名" @input="onTitle">
-      <input v-model="artist" type="text" class="flex-[1_1_0] min-w-0" placeholder="歌手" aria-label="歌手" @input="onArtist">
+      <input v-model="title" aria-label="曲名" class="flex-[1_1_0] min-w-0" placeholder="曲名（标题卡・HUD 显示）"
+             type="text" @input="onTitle">
+      <input v-model="artist" aria-label="歌手" class="flex-[1_1_0] min-w-0" placeholder="歌手" type="text"
+             @input="onArtist">
     </div>
     <div class="flex gap-2 flex-wrap">
       <label class="btn-file" title="打开工程（.jizuralive 全量恢复；老 .json 仅作样式配置导入）">打开<input

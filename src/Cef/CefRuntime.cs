@@ -43,12 +43,12 @@ public static class CefRuntime
         cefSettings.CefCommandLineArgs["disable-renderer-backgrounding"] = "1";
         cefSettings.CefCommandLineArgs["disable-background-timer-throttling"] = "1";
         cefSettings.CefCommandLineArgs["disable-features"] = "CalculateNativeWinOcclusion";
-        string extraArgs = Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
-        foreach (string tok in extraArgs.Split(
+        var extraArgs = Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
+        foreach (var tok in extraArgs.Split(
                      new[] { ' ', ',' },
                      StringSplitOptions.RemoveEmptyEntries))
         {
-            int eq = tok.IndexOf('=');
+            var eq = tok.IndexOf('=');
 
             if (eq > 0)
                 cefSettings.CefCommandLineArgs[tok[..eq]] = tok[(eq + 1)..];
@@ -57,8 +57,8 @@ public static class CefRuntime
         }
 
         int? cdpPort = null;
-        string envPort = Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
-        if (int.TryParse(envPort, out int envParsed) && envParsed > 0)
+        var envPort = Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
+        if (int.TryParse(envPort, out var envParsed) && envParsed > 0)
         {
             cdpPort = envParsed;
             Log.Info($"CDP 端口来自环境变量：JIZURA_CDP_PORT={envParsed}");
@@ -85,10 +85,10 @@ public static class CefRuntime
 
         foreach (var kv in cefSettings.CefCommandLineArgs)
             Log.Info($"CEF 命令行参数：{kv.Key}={kv.Value}");
-        bool success = false;
+        var success = false;
         try
         {
-            success = Cef.Initialize(cefSettings, performDependencyCheck: false);
+            success = Cef.Initialize(cefSettings, false);
         }
         catch (Exception ex)
         {

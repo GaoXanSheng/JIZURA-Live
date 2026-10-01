@@ -49,8 +49,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Spout 渲染进程加载的纯 canvas 页（/#/render 路由，100% 画布）。
-    /// 编辑页与渲染页同源，经 BroadcastChannel 直通工程/时间/字幕，互不打扰。
+    ///     Spout 渲染进程加载的纯 canvas 页（/#/render 路由，100% 画布）。
+    ///     编辑页与渲染页同源，经 BroadcastChannel 直通工程/时间/字幕，互不打扰。
     /// </summary>
     private string RenderUrl => _url + "render";
 
@@ -84,7 +84,7 @@ public partial class MainWindow : Window
             _settings.Width,
             _settings.Height,
             _settings.SpoutTransparent,
-            suppressSubtitle: _settings.SpoutLyricsEnabled);
+            _settings.SpoutLyricsEnabled);
 
         ApplySpoutLyrics();
     }
@@ -124,7 +124,7 @@ public partial class MainWindow : Window
             _settings.RenderFps,
             _settings.Width,
             _settings.Height,
-            transparent: true);
+            true);
     }
 
     private void RestartLyrics()
@@ -146,7 +146,7 @@ public partial class MainWindow : Window
             _settings.Width,
             _settings.Height,
             _settings.SpoutTransparent,
-            suppressSubtitle: _settings.SpoutLyricsEnabled);
+            _settings.SpoutLyricsEnabled);
 
         if (_settings.SpoutLyricsEnabled)
             RestartLyrics();
@@ -164,7 +164,7 @@ public partial class MainWindow : Window
         if (!Browser.IsBrowserInitialized)
             return;
 
-        int ms = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
+        var ms = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
         try
         {
             Browser.ExecuteScriptAsync($"window.__jlSyncMs = {ms};");
@@ -185,74 +185,72 @@ public partial class MainWindow : Window
             return;
 
         if (_clean)
-        {
             Browser.ExecuteScriptAsync(
                 "window.JizuraLive && JizuraLive.setClean(true);");
-        }
 
         // 采样节奏跟随设置里的"输出帧率"：60fps → 16ms，30fps → 33ms。
         // 间隔存在 window.__jlSyncMs 上，运行时改帧率时
         // ApplySyncRate() 热更新，无需刷新页面
-        int syncMs = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
+        var syncMs = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
 
-        string syncScript = """
-                            (function() {
-                                try {
-                                    if (window.__jl_sync_sender_hooked)
-                                        return;
+        var syncScript = """
+                         (function() {
+                             try {
+                                 if (window.__jl_sync_sender_hooked)
+                                     return;
 
-                                    window.__jl_sync_sender_hooked = true;
-                                    window.__jlSyncMs = __SYNC_MS__;
+                                 window.__jl_sync_sender_hooked = true;
+                                 window.__jlSyncMs = __SYNC_MS__;
 
-                                    window.__jlForceSync = function() {
-                                        window.__jlSyncDirty = true;
-                                    };
+                                 window.__jlForceSync = function() {
+                                     window.__jlSyncDirty = true;
+                                 };
 
-                                    let lastPlaying = false;
-                                    let lastT = 0;
+                                 let lastPlaying = false;
+                                 let lastT = 0;
 
-                                    (function loop() {
-                                        setTimeout(loop, window.__jlSyncMs || 33);
-                                        try {
-                                            if (!window.J || !J.ui)
-                                                return;
+                                 (function loop() {
+                                     setTimeout(loop, window.__jlSyncMs || 33);
+                                     try {
+                                         if (!window.J || !J.ui)
+                                             return;
 
-                                            const S = J.ui;
-                                            const p = !!S.playing;
-                                            const t = typeof S.t === 'number' ? S.t : 0;
-                                            const dirty = window.__jlSyncDirty === true;
+                                         const S = J.ui;
+                                         const p = !!S.playing;
+                                         const t = typeof S.t === 'number' ? S.t : 0;
+                                         const dirty = window.__jlSyncDirty === true;
 
-                                            if (dirty) {
-                                                window.__jlSyncDirty = false;
-                                            }
+                                         if (dirty) {
+                                             window.__jlSyncDirty = false;
+                                         }
 
-                                            // 阈值=半个采样间隔：推进超过半帧即上报，
-                                            // 帧内平滑由镜像端墙钟外推负责
-                                            const eps = (window.__jlSyncMs || 33) / 2000;
+                                         // 阈值=半个采样间隔：推进超过半帧即上报，
+                                         // 帧内平滑由镜像端墙钟外推负责
+                                         const eps = (window.__jlSyncMs || 33) / 2000;
 
-                                            if (dirty || p !== lastPlaying || Math.abs(t - lastT) > eps) {
-                                                lastPlaying = p;
-                                                lastT = t;
+                                         if (dirty || p !== lastPlaying || Math.abs(t - lastT) > eps) {
+                                             lastPlaying = p;
+                                             lastT = t;
 
-                                                if (window.CefSharp && CefSharp.PostMessage) {
-                                                    CefSharp.PostMessage({
-                                                        type: 'sync_play',
-                                                        playing: p,
-                                                        t: t
-                                                    });
-                                                }
-                                            }
-                                        }
-                                        catch(err) {
-                                            console.error('[MainWindow] sync error:', err);
-                                        }
-                                    })();
-                                }
-                                catch(err) {
-                                    console.error('[MainWindow] sync sender hook error:', err);
-                                }
-                            })();
-                            """.Replace("__SYNC_MS__", syncMs.ToString());
+                                             if (window.CefSharp && CefSharp.PostMessage) {
+                                                 CefSharp.PostMessage({
+                                                     type: 'sync_play',
+                                                     playing: p,
+                                                     t: t
+                                                 });
+                                             }
+                                         }
+                                     }
+                                     catch(err) {
+                                         console.error('[MainWindow] sync error:', err);
+                                     }
+                                 })();
+                             }
+                             catch(err) {
+                                 console.error('[MainWindow] sync sender hook error:', err);
+                             }
+                         })();
+                         """.Replace("__SYNC_MS__", syncMs.ToString());
 
         Browser.ExecuteScriptAsync(syncScript);
     }
@@ -269,9 +267,7 @@ public partial class MainWindow : Window
             if (e.Message is IDictionary<string, object> dict &&
                 dict.TryGetValue("type", out var typeObj) &&
                 string.Equals(typeObj?.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
-            {
                 HandleSyncPlay(dict);
-            }
         }
         catch (Exception ex)
         {
@@ -283,8 +279,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            bool playing = dict.TryGetValue("playing", out var playingObj) && Convert.ToBoolean(playingObj);
-            double time = dict.TryGetValue("t", out var timeObj) ? Convert.ToDouble(timeObj) : 0;
+            var playing = dict.TryGetValue("playing", out var playingObj) && Convert.ToBoolean(playingObj);
+            var time = dict.TryGetValue("t", out var timeObj) ? Convert.ToDouble(timeObj) : 0;
 
             // 只在播放态切换时记日志，否则 UI 线程上的日志 I/O 会造成可感知的卡顿
             if (playing != _lastSyncPlaying || !_lastSyncPlayingValid)
@@ -327,7 +323,6 @@ public partial class MainWindow : Window
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ButtonState == MouseButtonState.Pressed)
-        {
             try
             {
                 DragMove();
@@ -336,7 +331,6 @@ public partial class MainWindow : Window
             {
                 Log.Debug("DragMove failed: " + ex);
             }
-        }
     }
 
     private void BtnMin_Click(object sender, RoutedEventArgs e)

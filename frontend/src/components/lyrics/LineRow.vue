@@ -220,16 +220,19 @@ function onRng(ev: MouseEvent) {
 </script>
 
 <template>
-  <li ref="rootEl" :class="[active ? 'border-line2 bg-raised shadow-[inset_2px_0_0_var(--color-amber)]' : 'border-transparent hover:bg-raised', row.inRange ? '!border-amber' : '']"
+  <li ref="rootEl"
+      :class="[active ? 'border-line2 bg-raised shadow-[inset_2px_0_0_var(--color-amber)]' : 'border-transparent hover:bg-raised', row.inRange ? '!border-amber' : '']"
       :data-i="row.i"
       class="row-cv grid grid-cols-[22px_66px_minmax(0,1fr)] gap-x-1.5 gap-y-1 items-center p-1.5 rounded-md border transition-colors">
     <span class="font-mono text-[11px] text-faint text-right">{{ row.no }}</span>
-    <input :aria-label="`第 ${row.i + 1} 行的开始秒`" :class="row.manual ? '!border-cyan' : ''" :title="`开始（秒）${row.manual ? '・手动' : '・自动'}`"
+    <input :aria-label="`第 ${row.i + 1} 行的开始秒`" :class="row.manual ? '!border-cyan' : ''"
+           :title="`开始（秒）${row.manual ? '・手动' : '・自动'}`"
            :value="row.start.toFixed(2)" class="!h-[26px] !py-0.5 !px-1 text-xs w-full mono" min="0"
            step="0.01" type="number"
            @change="onTime">
     <input v-if="editing && editing.i === row.i" ref="editInput" v-model="editing.value"
-           class="!h-[26px] !py-0.5 !px-1.5 text-[13px] w-full" title="记法（/ 分隔・*强调*・行尾 !・| 注释・[间奏 8]）同样可用。Enter 确认、Esc 取消"
+           class="!h-[26px] !py-0.5 !px-1.5 text-[13px] w-full"
+           title="记法（/ 分隔・*强调*・行尾 !・| 注释・[间奏 8]）同样可用。Enter 确认、Esc 取消"
            type="text"
            @blur="finishEdit(true)" @keydown.enter.prevent="finishEdit(true)" @keydown.esc.prevent="finishEdit(false)">
     <span v-else :class="{ 'italic': row.interlude }" :title="row.full" class="truncate cursor-pointer"
@@ -239,8 +242,8 @@ function onRng(ev: MouseEvent) {
         <select v-for="cell in row.cuts" :key="cell.k"
                 :aria-label="`第 ${row.i + 1} 行 切分 ${cell.k + 1} 的布局`"
                 :class="{ '!border-amber': cell.forced }"
-                :style="{ borderColor: `hsla(${cell.hue},70%,58%,0.7)` }"
-                :data-cur="cell.forced || cell.layout" :title="cell.title"
+                :data-cur="cell.forced || cell.layout"
+                :style="{ borderColor: `hsla(${cell.hue},70%,58%,0.7)` }" :title="cell.title"
                 class="!h-[22px] !py-0 !px-1 text-[10px] max-w-[112px] w-auto border border-line2 rounded bg-raised text-fg"
                 @blur="onTechBlur" @change="onCutLayout(cell, $event)"
                 @focus="onTechOpen" @pointerdown="onCutSelectDown(cell, $event)"></select>
@@ -261,7 +264,8 @@ function onRng(ev: MouseEvent) {
                 @blur="onTechBlur" @change="onLayout" @focus="onTechOpen"></select>
         <button :aria-label="`从第 ${row.i + 1} 行开始打点`" class="btn btn-icon btn-ghost"
                 title="从这一行开始重新打点同步" @click="startTap(row.i)">
-          <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16"><circle cx="8" cy="8" fill="currentColor"
+          <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16"><circle cx="8" cy="8"
+                                                                                                fill="currentColor"
                                                                                                 r="2.2"/><circle
               cx="8" cy="8" r="5.5"/></svg>
         </button>
@@ -274,7 +278,8 @@ function onRng(ev: MouseEvent) {
         </button>
         <button v-if="!row.interlude" :aria-pressed="row.locked" :class="row.locked ? '!text-amber' : ''"
                 class="btn btn-icon btn-ghost" title="锁定这一行的构成" @click="onLock">
-          <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16"><rect height="7" rx="1.5" width="10"
+          <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16"><rect height="7" rx="1.5"
+                                                                                              width="10"
                                                                                               x="3" y="7"/><path
               d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
         </button>

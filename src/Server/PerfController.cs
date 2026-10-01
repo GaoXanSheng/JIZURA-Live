@@ -7,9 +7,9 @@ using EmbedIO.WebApi;
 namespace JizuraLive.Server;
 
 /// <summary>
-/// 渲染调试面板的服务端辅助端点：
-///   GET /api/perf/cdp-targets?port= —— 服务端转发 CEF CDP 的 /json/list，
-///   页面直连被 CORS 拦截时的兜底（CDP 需在设置里开启调试端口并重启应用）。
+///     渲染调试面板的服务端辅助端点：
+///     GET /api/perf/cdp-targets?port= —— 服务端转发 CEF CDP 的 /json/list，
+///     页面直连被 CORS 拦截时的兜底（CDP 需在设置里开启调试端口并重启应用）。
 /// </summary>
 internal sealed class PerfController : WebApiController
 {
@@ -18,8 +18,8 @@ internal sealed class PerfController : WebApiController
     [Route(HttpVerbs.Get, "/api/perf/cdp-targets")]
     public async Task CdpTargets()
     {
-        int port = 9222;
-        if (int.TryParse(HttpContext.Request.QueryString["port"], out int p) && p is >= 1 and <= 65535)
+        var port = 9222;
+        if (int.TryParse(HttpContext.Request.QueryString["port"], out var p) && p is >= 1 and <= 65535)
             port = p;
         try
         {

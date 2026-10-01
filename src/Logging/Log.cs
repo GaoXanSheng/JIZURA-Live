@@ -33,7 +33,7 @@ public static class Log
             MaximumFileSize = "10MB",
             StaticLogFileName = true,
             Layout = fileLayout,
-            Encoding = Encoding.UTF8,
+            Encoding = Encoding.UTF8
         };
         file.ActivateOptions();
 
@@ -86,7 +86,10 @@ public static class Log
     }
 
 
-    public static void Shutdown() => LogManager.Shutdown();
+    public static void Shutdown()
+    {
+        LogManager.Shutdown();
+    }
 }
 
 public sealed class PanelAppender : AppenderSkeleton
@@ -95,7 +98,7 @@ public sealed class PanelAppender : AppenderSkeleton
 
     protected override void Append(LoggingEvent loggingEvent)
     {
-        string line = RenderLoggingEvent(loggingEvent);
+        var line = RenderLoggingEvent(loggingEvent);
         Line?.Invoke(line);
     }
 }

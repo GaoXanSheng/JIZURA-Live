@@ -7,17 +7,17 @@ const filter = ref('');
 const openSet = new Set<string>();
 </script>
 
-<script setup lang="ts">
+<script lang="ts" setup>
 /* 手法 tab：套装开关（新增/和/文字排版/动态文字/恐怖）+ 分组折叠 + 实时预览卡 + 筛选/组锁 */
-import { onMounted, onUnmounted } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { replan, replanSoon } from '../../jizura/engine';
-import { remember, commit, toggleTechLock, locksOf, toast } from '../../jizura/look';
-import { badgesOf } from '../../jizura/ui-helpers';
-import { registerThumbs, resetWatch } from '../../jizura/preview';
-import { flushSave } from '../../jizura/project';
+import {onMounted, onUnmounted} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {replan, replanSoon} from '../../jizura/engine';
+import {remember, commit, toggleTechLock, locksOf, toast} from '../../jizura/look';
+import {badgesOf} from '../../jizura/ui-helpers';
+import {registerThumbs, resetWatch} from '../../jizura/preview';
+import {flushSave} from '../../jizura/project';
 
 const GROUPS: [string, string][] = [
   ['layout', '布局'], ['enter', '入场'], ['hold', '保持'], ['exit', '退场'], ['decor', '装饰'],
@@ -26,11 +26,19 @@ const GROUPS: [string, string][] = [
 const TECH_LOCK_ON = '锁定：一键生成不改变这一组的开/关';
 
 const SETS = [
-  { cls: 'extra', label: '使用新增特效', sub: '带“新增”标记的手法、风格和字体。关闭时，一键生成和随机编排只使用首个公开版的特效' },
-  { cls: 'wa', label: '使用和风特效', sub: '带“和”标记的手法和风格。关闭后，一键生成和随机编排不会选用（在新增内容的判断之后应用；逐行手动指定时仍可使用）' },
-  { cls: 'typo', label: '使用文字排版部件', sub: '标有“文”的手法。关闭后，一键生成与随机重排不会选用' },
-  { cls: 'kinetic', label: '使用动态文字部件', sub: '标有“动”的手法。关闭后，一键生成与随机重排不会选用' },
-  { cls: 'horror', label: '也使用恐怖特效', sub: '标有“恐”的手法与风格。一键生成只在“恐怖”氛围时使用' },
+  {
+    cls: 'extra',
+    label: '使用新增特效',
+    sub: '带“新增”标记的手法、风格和字体。关闭时，一键生成和随机编排只使用首个公开版的特效'
+  },
+  {
+    cls: 'wa',
+    label: '使用和风特效',
+    sub: '带“和”标记的手法和风格。关闭后，一键生成和随机编排不会选用（在新增内容的判断之后应用；逐行手动指定时仍可使用）'
+  },
+  {cls: 'typo', label: '使用文字排版部件', sub: '标有“文”的手法。关闭后，一键生成与随机重排不会选用'},
+  {cls: 'kinetic', label: '使用动态文字部件', sub: '标有“动”的手法。关闭后，一键生成与随机重排不会选用'},
+  {cls: 'horror', label: '也使用恐怖特效', sub: '标有“恐”的手法与风格。一键生成只在“恐怖”氛围时使用'},
 ] as const;
 
 const groups = ref<any[]>([]);
@@ -39,9 +47,9 @@ const listEls = new Map<string, HTMLElement>();
 const offs: (() => void)[] = [];
 
 const setVal = (cls: string) =>
-  cls === 'extra' ? S.project?.extra === true
-  : cls === 'wa' ? S.project?.wa !== false
-  : J.setOn(S.project, cls);
+    cls === 'extra' ? S.project?.extra === true
+        : cls === 'wa' ? S.project?.wa !== false
+            : J.setOn(S.project, cls);
 
 function onSet(cls: string, ev: Event) {
   const on = (ev.target as HTMLInputElement).checked;
@@ -49,10 +57,14 @@ function onSet(cls: string, ev: Event) {
   S.project[cls] = on;
   bus.emit('sync-ui');
   rebuild();
-  replan(); commit(); flushSave();
+  replan();
+  commit();
+  flushSave();
 }
 
-function techItems(g: string) { return J.order(g).filter((k: string) => J.registry(g)[k] && !J.registry(g)[k].special); }
+function techItems(g: string) {
+  return J.order(g).filter((k: string) => J.registry(g)[k] && !J.registry(g)[k].special);
+}
 
 function rebuild() {
   if (!S.project) return;
@@ -65,10 +77,12 @@ function rebuild() {
     const en = S.project.enabled[g] || (S.project.enabled[g] = {});
     const shown = q ? items.filter((k: string) => (tbl[k].name + ' ' + k).toLowerCase().includes(q)) : items;
     const onN = items.filter((k: string) => en[k] !== false).length;
-    total += items.length; onAll += onN;
+    total += items.length;
+    onAll += onN;
     if (q && !shown.length) return;
     const [W, H] = J.designSize(S.project.aspect || '16:9');
-    const h = 90; const tw = Math.max(80, Math.round(h * W / H)), th = h;
+    const h = 90;
+    const tw = Math.max(80, Math.round(h * W / H)), th = h;
     out.push({
       g, label,
       open: !!q || openSet.has(g),
@@ -79,8 +93,8 @@ function rebuild() {
         let offNote = '';
         if (!J.randomOk(S.project, g, k)) {
           offNote = def.extra && S.project.extra !== true ? '（新增特效未开启，自动不会选中）'
-            : def.set && !J.setOn(S.project, def.set) ? '（该套装未开启，自动不会选中）'
-            : '（和风特效未开启，自动不会选中）';
+              : def.set && !J.setOn(S.project, def.set) ? '（该套装未开启，自动不会选中）'
+                  : '（和风特效未开启，自动不会选中）';
         }
         return {
           k, name: def.name, badges: badgesOf(def), on: en[k] !== false,
@@ -100,8 +114,13 @@ function onToggle(g: string, ev: Event) {
   const open = (ev.target as HTMLDetailsElement).open;
   const rec = groups.value.find(x => x.g === g);
   if (rec) rec.open = open;   // v-if 的卡片网格跟随展开/收起
-  if (open) { openSet.add(g); requestAnimationFrame(() => { const el = listEls.get(g); if (el) registerThumbs(el); }); }
-  else openSet.delete(g);
+  if (open) {
+    openSet.add(g);
+    requestAnimationFrame(() => {
+      const el = listEls.get(g);
+      if (el) registerThumbs(el);
+    });
+  } else openSet.delete(g);
 }
 
 function onCheck(g: string, k: string, ev: Event) {
@@ -116,7 +135,9 @@ function onAll(g: string, a: 'on' | 'off' | 'flip') {
   remember();
   const items = techItems(g);
   const en = S.project.enabled[g] || (S.project.enabled[g] = {});
-  items.forEach((k: string) => { en[k] = a === 'on' ? true : a === 'off' ? false : en[k] === false; });
+  items.forEach((k: string) => {
+    en[k] = a === 'on' ? true : a === 'off' ? false : en[k] === false;
+  });
   if (g === 'layout' && !items.some((k: string) => en[k] !== false)) en.center = true;
   if (g === 'enter') en.cut = true;
   if (g === 'exit') en.cut = true;
@@ -126,19 +147,29 @@ function onAll(g: string, a: 'on' | 'off' | 'flip') {
   if (g === 'cam') en.push = true;
   S.project.mood = null;
   openSet.add(g);
-  rebuild(); replan();
+  rebuild();
+  replan();
 }
 
-function onLock(g: string) { toggleTechLock(g); rebuild(); }
+function onLock(g: string) {
+  toggleTechLock(g);
+  rebuild();
+}
 
 onMounted(() => {
   offs.push(bus.on('sync-ui', rebuild));
   offs.push(bus.on('tech-rebuilt', () => {
-    requestAnimationFrame(() => groups.value.forEach(g => { const el = listEls.get(g.g); if (el && g.open) registerThumbs(el); }));
+    requestAnimationFrame(() => groups.value.forEach(g => {
+      const el = listEls.get(g.g);
+      if (el && g.open) registerThumbs(el);
+    }));
   }));
   rebuild();
 });
-onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
+onUnmounted(() => {
+  offs.forEach(f => f());
+  resetWatch();
+});
 </script>
 
 <template>
@@ -152,16 +183,25 @@ onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
       </label>
     </div>
     <div class="row mb-2.5">
-      <input v-model="filter" type="text" placeholder="按名称筛选手法" class="flex-1" aria-label="按名称筛选手法" @input="rebuild()">
+      <input v-model="filter" aria-label="按名称筛选手法" class="flex-1" placeholder="按名称筛选手法" type="text"
+             @input="rebuild()">
       <span class="font-mono text-xs text-mut">{{ totalText }}</span>
     </div>
     <p class="hint mb-2">画面中可见的预览会自动循环播放。</p>
-    <details v-for="g in groups" :key="g.g" class="border border-line rounded-md bg-raised mb-2" :open="g.open" @toggle="onToggle(g.g, $event)">
-      <summary class="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer text-xs list-none [&::-webkit-details-marker]:hidden before:content-['▸'] before:text-mut before:mr-2 before:transition-transform open:before:rotate-90">
+    <details v-for="g in groups" :key="g.g" :open="g.open" class="border border-line rounded-md bg-raised mb-2"
+             @toggle="onToggle(g.g, $event)">
+      <summary
+          class="flex items-center gap-1.5 px-2.5 py-2 cursor-pointer text-xs list-none [&::-webkit-details-marker]:hidden before:content-['▸'] before:text-mut before:mr-2 before:transition-transform open:before:rotate-90">
         <span class="flex-1 font-semibold">{{ g.label }}</span>
         <span class="font-mono text-[11px] text-mut">{{ g.onN }}/{{ g.items.length }}</span>
-        <button type="button" class="btn btn-icon btn-ghost" :class="g.locked ? '!text-amber' : ''" :aria-pressed="g.locked" :title="g.locked ? '锁定中，点击解除' : TECH_LOCK_ON" @click.prevent.stop="onLock(g.g)">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+        <button :aria-pressed="g.locked" :class="g.locked ? '!text-amber' : ''"
+                :title="g.locked ? '锁定中，点击解除' : TECH_LOCK_ON"
+                class="btn btn-icon btn-ghost" type="button"
+                @click.prevent.stop="onLock(g.g)">
+          <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16">
+            <rect height="7" rx="1.5" width="10" x="3" y="7"/>
+            <path d="M5 7V5a3 3 0 0 1 6 0v2"/>
+          </svg>
         </button>
       </summary>
       <div class="flex gap-1.5 px-2.5 pb-2">
@@ -173,12 +213,16 @@ onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
            展开时才挂载（onToggle 的 rAF 里 registerThumbs），收起即卸载 -->
       <div v-if="g.open" :ref="(el: any) => { if (el) listEls.set(g.g, el); }"
            class="grid gap-2 px-2.5 pb-2.5 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]">
-        <label v-for="c in g.cards" :key="c.k" class="flex flex-col gap-1 p-0 border border-line rounded-md overflow-hidden bg-panel cursor-pointer" :class="{ 'opacity-50': c.off }" :title="c.title">
-          <canvas :width="c.tw" :height="c.th" :data-g="g.g" :data-k="c.k" class="w-full aspect-video block bg-ink"></canvas>
+        <label v-for="c in g.cards" :key="c.k"
+               :class="{ 'opacity-50': c.off }"
+               :title="c.title"
+               class="flex flex-col gap-1 p-0 border border-line rounded-md overflow-hidden bg-panel cursor-pointer">
+          <canvas :data-g="g.g" :data-k="c.k" :height="c.th" :width="c.tw"
+                  class="w-full aspect-video block bg-ink"></canvas>
           <span class="flex items-center gap-1 text-[11px] px-1.5 pb-1.5 min-w-0">
-            <input type="checkbox" :checked="c.on" @change="onCheck(g.g, c.k, $event)">
+            <input :checked="c.on" type="checkbox" @change="onCheck(g.g, c.k, $event)">
             <span class="truncate min-w-0">{{ c.name }}</span>
-            <i v-for="(b, i) in c.badges" :key="i" class="badge-set" :class="b.cls" :title="b.title">{{ b.text }}</i>
+            <i v-for="(b, i) in c.badges" :key="i" :class="b.cls" :title="b.title" class="badge-set">{{ b.text }}</i>
           </span>
         </label>
       </div>

@@ -7,17 +7,24 @@ type Handler = (...args: any[]) => void;
 const map: Map<string, Set<Handler>> = (globalThis as any).__jl_bus ||= new Map();
 
 export const bus = {
-  on(ev: string, fn: Handler): () => void {
-    let set = map.get(ev);
-    if (!set) { set = new Set(); map.set(ev, set); }
-    set.add(fn);
-    return () => set!.delete(fn);
-  },
-  emit(ev: string, ...args: any[]) {
-    const set = map.get(ev);
-    if (!set) return;
-    for (const fn of [...set]) {
-      try { fn(...args); } catch (e) { console.error(e); }
-    }
-  },
+    on(ev: string, fn: Handler): () => void {
+        let set = map.get(ev);
+        if (!set) {
+            set = new Set();
+            map.set(ev, set);
+        }
+        set.add(fn);
+        return () => set!.delete(fn);
+    },
+    emit(ev: string, ...args: any[]) {
+        const set = map.get(ev);
+        if (!set) return;
+        for (const fn of [...set]) {
+            try {
+                fn(...args);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    },
 };

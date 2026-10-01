@@ -6,8 +6,8 @@ import {createRouter, createWebHistory} from 'vue-router';
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', name: 'editor', component: () => import('../pages/EditorPage.vue') },
-    { path: '/render', name: 'render', component: () => import('../pages/RenderPage.vue') },
+    {path: '/', name: 'editor', component: () => import('../pages/EditorPage.vue')},
+    {path: '/render', name: 'render', component: () => import('../pages/RenderPage.vue')},
   ],
 });
 

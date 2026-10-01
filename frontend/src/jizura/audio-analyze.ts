@@ -4,18 +4,18 @@
    （同一套算法，比浏览器快一个量级），主线程零重活，载入歌曲不再卡顿。
    返回结构与引擎 J.analyzeAudio 完全一致。 */
 export interface AnalyzedAudio {
-  name: string;
-  duration: number;
-  sampleRate: number;
-  buffer: AudioBuffer;
-  bpm: number;
-  beats: number[];
-  energy: Float32Array;
-  energyRate: number;
-  peaks: Float32Array;
-  /* F0（Hz/帧，0=无声帧），帧率同 energyRate——K线主题用它驱动蜡烛涨跌 */
-  pitch: Float32Array | null;
-  pitchRate: number;
+    name: string;
+    duration: number;
+    sampleRate: number;
+    buffer: AudioBuffer;
+    bpm: number;
+    beats: number[];
+    energy: Float32Array;
+    energyRate: number;
+    peaks: Float32Array;
+    /* F0（Hz/帧，0=无声帧），帧率同 energyRate——K线主题用它驱动蜡烛涨跌 */
+    pitch: Float32Array | null;
+    pitchRate: number;
 }
 
 /* 11025 Hz 对节拍分析足够：onset 包络的帧率固定 50Hz（hop 随采样率自动缩放），
@@ -30,8 +30,8 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
     //    NAudio 解码 + 重采样 + 分析——不再走 OfflineAudioContext 和
     //    40MB 单声道 PCM 的主线程拷贝+上传（载入歌曲时的冻结源）。
     // ② 不可用（旧桌面版 / MediaFoundation 不认的格式）时回退旧 PCM 路径。
-  const AC = window.AudioContext || (window as any).webkitAudioContext;
-  const ac = new AC();
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
+    const ac = new AC();
 
     const fileP = fetch('/api/analyze/file', {
         method: 'POST',
@@ -77,21 +77,21 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
 
 /* 旧路径：OfflineAudioContext 重采样 + 40MB PCM 上传（/api/analyze）。回退用 */
 async function analyzePcmFallback(audioBuffer: AudioBuffer): Promise<any> {
-  const offLen = Math.max(1, Math.ceil(audioBuffer.duration * ANALYZE_RATE));
-  const off = new OfflineAudioContext(1, offLen, ANALYZE_RATE);
-  const src = off.createBufferSource();
-  src.buffer = audioBuffer;
-  src.connect(off.destination);
-  src.start(0);
-  const mono = (await off.startRendering()).getChannelData(0);
+    const offLen = Math.max(1, Math.ceil(audioBuffer.duration * ANALYZE_RATE));
+    const off = new OfflineAudioContext(1, offLen, ANALYZE_RATE);
+    const src = off.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(off.destination);
+    src.start(0);
+    const mono = (await off.startRendering()).getChannelData(0);
 
-  const payload = new ArrayBuffer(8 + mono.length * 4);
-  new DataView(payload).setInt32(0, ANALYZE_RATE, true);
-  new DataView(payload).setInt32(4, mono.length, true);
-  new Float32Array(payload, 8).set(mono);
-  const r = await fetch('/api/analyze', { method: 'POST', body: payload });
-  if (!r.ok) throw new Error('本机分析服务不可用（' + r.status + '）');
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || '分析失败');
+    const payload = new ArrayBuffer(8 + mono.length * 4);
+    new DataView(payload).setInt32(0, ANALYZE_RATE, true);
+    new DataView(payload).setInt32(4, mono.length, true);
+    new Float32Array(payload, 8).set(mono);
+    const r = await fetch('/api/analyze', {method: 'POST', body: payload});
+    if (!r.ok) throw new Error('本机分析服务不可用（' + r.status + '）');
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || '分析失败');
     return j;
 }

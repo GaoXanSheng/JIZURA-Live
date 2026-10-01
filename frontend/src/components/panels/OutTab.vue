@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 /* 导出 tab：参数 + MP4/PNG 导出（进度/取消）+ 编解码提示 */
 import {computed, onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
@@ -52,8 +52,11 @@ const toOpts = ref<{ v: string; t: string }[]>([{v: '-1', t: '—'}]);
 
 function sync() {
   if (!S.project) return;
-  aspect.value = S.project.aspect; res.value = String(S.project.res); fps.value = String(S.project.fps);
-  quality.value = S.project.quality || 'high'; includeAudio.value = S.project.includeAudio !== false;
+  aspect.value = S.project.aspect;
+  res.value = String(S.project.res);
+  fps.value = String(S.project.fps);
+  quality.value = S.project.quality || 'high';
+  includeAudio.value = S.project.includeAudio !== false;
   const k = J.keyMode(S.project) || 'off';
   keyBg.value = k;
   centerFree.value = !!S.project.centerFree;
@@ -66,6 +69,7 @@ function sync() {
   const r = rangeInfo2();
   rangeInfo.value = r || `全部（${(S.plan?.duration || 0).toFixed(1)}秒）`;
 }
+
 function rangeInfo2() {
   const R = exportRange();
   if (!R) return null;
@@ -75,19 +79,30 @@ function rangeInfo2() {
 function onFrom(ev: Event) {
   const v = +(ev.target as HTMLSelectElement).value;
   const R = exportRangeCuts();
-  S.project.exportRange = v < 0 ? null : { from: v, to: R ? Math.max(v, R.to) : v };
-  flushSaveSync(); sync();
+  S.project.exportRange = v < 0 ? null : {from: v, to: R ? Math.max(v, R.to) : v};
+  flushSaveSync();
+  sync();
 }
+
 function onTo(ev: Event) {
   const v = +(ev.target as HTMLSelectElement).value;
   const R = exportRangeCuts();
   if (!R) return;
-  S.project.exportRange = v < 0 ? { from: R.from, to: R.from } : { from: Math.min(R.from, v), to: Math.max(R.from, v) };
-  flushSaveSync(); sync();
+  S.project.exportRange = v < 0 ? {from: R.from, to: R.from} : {from: Math.min(R.from, v), to: Math.max(R.from, v)};
+  flushSaveSync();
+  sync();
 }
-function flushSaveSync() { flushSave(); bus.emit('replan-sync'); }
 
-function onCodec(c: any) { codecOk.value = c.ok; codecText.value = c.text; showMp4File.value = c.ok && canPickFile(); }
+function flushSaveSync() {
+  flushSave();
+  bus.emit('replan-sync');
+}
+
+function onCodec(c: any) {
+  codecOk.value = c.ok;
+  codecText.value = c.text;
+  showMp4File.value = c.ok && canPickFile();
+}
 
 onMounted(() => {
   offs.push(bus.on('out', sync));
@@ -95,10 +110,22 @@ onMounted(() => {
   offs.push(bus.on('replan', sync));
   offs.push(bus.on('replan-sync', sync));   // 行列表/时间轴上改了导出范围时，这里的下拉立即对齐
   offs.push(bus.on('codec', onCodec));
-  offs.push(bus.on('export-start', () => { busy.value = true; progress.value = 0; progressText.value = '准备中…'; share.value = null; }));
-  offs.push(bus.on('export-progress', (p: number, m?: string) => { progress.value = p; if (m) progressText.value = m; }));
-  offs.push(bus.on('export-end', () => { busy.value = false; }));
-  offs.push(bus.on('export-share', (s: any) => { share.value = s; }));
+  offs.push(bus.on('export-start', () => {
+    busy.value = true;
+    progress.value = 0;
+    progressText.value = '准备中…';
+    share.value = null;
+  }));
+  offs.push(bus.on('export-progress', (p: number, m?: string) => {
+    progress.value = p;
+    if (m) progressText.value = m;
+  }));
+  offs.push(bus.on('export-end', () => {
+    busy.value = false;
+  }));
+  offs.push(bus.on('export-share', (s: any) => {
+    share.value = s;
+  }));
   sync();
   codecNote();
 });
@@ -111,8 +138,19 @@ function doExport(kind: any) {
   }
   runExport(kind);
 }
-function abort() { if (S.exporting) S.exporting.abort(); }
-async function doShare() { const s = share.value; if (!s) return; try { await (navigator as any).share({ files: [s.file], title: s.name }); } catch {} }
+
+function abort() {
+  if (S.exporting) S.exporting.abort();
+}
+
+async function doShare() {
+  const s = share.value;
+  if (!s) return;
+  try {
+    await (navigator as any).share({files: [s.file], title: s.name});
+  } catch {
+  }
+}
 </script>
 
 <template>
@@ -125,17 +163,24 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
       </label>
       <label class="field">分辨率
         <select :value="res" @change="setRes(+($event.target as HTMLSelectElement).value)">
-          <option value="720">720p</option><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option>
+          <option value="720">720p</option>
+          <option value="1080">1080p</option>
+          <option value="1440">1440p</option>
+          <option value="2160">4K</option>
         </select>
       </label>
       <label class="field">fps
         <select :value="fps" @change="setFps(+($event.target as HTMLSelectElement).value)">
-          <option>24</option><option>30</option><option>60</option>
+          <option>24</option>
+          <option>30</option>
+          <option>60</option>
         </select>
       </label>
       <label class="field">画质
         <select :value="quality" @change="setQuality(($event.target as HTMLSelectElement).value)">
-          <option value="standard">标准</option><option value="high">高</option><option value="max">最高</option>
+          <option value="standard">标准</option>
+          <option value="high">高</option>
+          <option value="max">最高</option>
         </select>
       </label>
       <label class="field col-span-2">背景
@@ -146,15 +191,20 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
         </select>
       </label>
     </div>
-    <p class="note">选绿幕/黑幕后，只在单色背景上绘制白色文字与演出（背景花纹、纸质感、粒子、暗角都不含）。绿幕可用剪辑软件的色度键抠除，黑幕用「滤色」或亮度键合成。</p>
-    <label class="checkblock my-2.5"><input v-model="centerFree" type="checkbox" @change="setCenterFree(centerFree)"><span>留出画面中央（放角色用）<small>留白宽度在「设置」页自定义；预览会用虚线标出留空范围</small></span></label>
+    <p class="note">
+      选绿幕/黑幕后，只在单色背景上绘制白色文字与演出（背景花纹、纸质感、粒子、暗角都不含）。绿幕可用剪辑软件的色度键抠除，黑幕用「滤色」或亮度键合成。</p>
+    <label class="checkblock my-2.5"><input v-model="centerFree" type="checkbox"
+                                            @change="setCenterFree(centerFree)"><span>留出画面中央（放角色用）<small>留白宽度在「设置」页自定义；预览会用虚线标出留空范围</small></span></label>
     <label v-if="centerFree && tall" class="row" style="gap: 6px">竖屏时
-      <select :value="centerDir" aria-label="竖屏画面的分列方式" @change="setCenterDir(($event.target as HTMLSelectElement).value)">
+      <select :value="centerDir" aria-label="竖屏画面的分列方式"
+              @change="setCenterDir(($event.target as HTMLSelectElement).value)">
         <option value="tb">上下分列</option>
         <option value="lr">左右分列</option>
       </select>
     </label>
-    <label class="checkline" style="margin-top: 10px"><input v-model="includeAudio" type="checkbox" @change="setIncludeAudio(includeAudio)"> 把歌曲合进视频</label>
+    <label class="checkline" style="margin-top: 10px"><input v-model="includeAudio" type="checkbox"
+                                                             @change="setIncludeAudio(includeAudio)">
+      把歌曲合进视频</label>
     <div class="flex items-center gap-1.5 flex-wrap my-2.5 text-xs">
       <span class="text-[11px] text-mut">导出范围（按切分）</span>
       <select :value="rangeFrom" aria-label="导出范围的第一个切分" @change="onFrom($event)">
@@ -168,11 +218,19 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
       <span class="font-mono text-[11px] text-mut">{{ rangeInfo }}</span>
     </div>
     <div class="grid gap-2 mt-3">
-      <button class="btn btn-primary !py-2.5" :disabled="busy || !codecOk" title="导出 MP4 视频" @click="doExport('mp4')">导出 MP4</button>
-      <button v-if="showMp4File" class="btn btn-ghost !py-2.5" :disabled="busy" title="先选保存位置，边导出边直接写文件。长曲・1080p 以上浏览器内存不足时使用（Chrome / Edge）" @click="doExport('mp4file')">大视频用（直接写入文件）</button>
-      <button class="btn !py-2.5" :disabled="busy" @click="doExport('png')">连号 PNG（ZIP）</button>
-      <button class="btn !py-2.5" :disabled="busy" @click="doExport('pnga')">透明 PNG（ZIP・无背景）</button>
-      <button class="btn !py-2.5" :disabled="busy" title="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG" @click="doExport('pngl')">透明 PNG 前景/后景（ZIP）</button>
+      <button :disabled="busy || !codecOk" class="btn btn-primary !py-2.5" title="导出 MP4 视频"
+              @click="doExport('mp4')">导出 MP4
+      </button>
+      <button v-if="showMp4File" :disabled="busy" class="btn btn-ghost !py-2.5"
+              title="先选保存位置，边导出边直接写文件。长曲・1080p 以上浏览器内存不足时使用（Chrome / Edge）"
+              @click="doExport('mp4file')">大视频用（直接写入文件）
+      </button>
+      <button :disabled="busy" class="btn !py-2.5" @click="doExport('png')">连号 PNG（ZIP）</button>
+      <button :disabled="busy" class="btn !py-2.5" @click="doExport('pnga')">透明 PNG（ZIP・无背景）</button>
+      <button :disabled="busy" class="btn !py-2.5"
+              title="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
+              @click="doExport('pngl')">透明 PNG 前景/后景（ZIP）
+      </button>
       <button :disabled="busy" class="btn !py-2.5"
               title="完整 plan（v2）+ AE_MAP 对照表。在 AE 中运行 JIZURA_AE.jsx（上游发布）后选择该文件即可重建合成"
               @click="doExport('ae')">AE 工程（.json）

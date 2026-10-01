@@ -5,10 +5,10 @@ using EmbedIO;
 namespace JizuraLive.Server;
 
 /// <summary>
-/// 静态站点：前端产物以 EmbeddedResource（jizura-www/ 前缀）嵌在程序集内，
-/// 从内存直接 serve——磁盘上没有可被随手改动的散装前端文件。
-/// SPA history 路由（/render 等）回退到嵌入 index.html；
-/// api/ 前缀绝不回退，未匹配的 API 路径保持 404。
+///     静态站点：前端产物以 EmbeddedResource（jizura-www/ 前缀）嵌在程序集内，
+///     从内存直接 serve——磁盘上没有可被随手改动的散装前端文件。
+///     SPA history 路由（/render 等）回退到嵌入 index.html；
+///     api/ 前缀绝不回退，未匹配的 API 路径保持 404。
 /// </summary>
 internal sealed class StaticSiteModule : WebModuleBase
 {
@@ -23,7 +23,7 @@ internal sealed class StaticSiteModule : WebModuleBase
 
     protected override async Task<bool> OnRequestAsync(IHttpContext context)
     {
-        string rel = Uri.UnescapeDataString(context.Request.Url.AbsolutePath).TrimStart('/');
+        var rel = Uri.UnescapeDataString(context.Request.Url.AbsolutePath).TrimStart('/');
 
         if (rel == "" || rel == "index.html")
             return await SendEmbeddedAsync(context, "index.html");

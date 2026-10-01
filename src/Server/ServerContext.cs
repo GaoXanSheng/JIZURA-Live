@@ -4,10 +4,6 @@ namespace JizuraLive.Server;
 
 internal static class ServerContext
 {
-    public static KuGouClient KuGou { get; } = new();
-
-    public static NeteaseClient Netease { get; } = new();
-
     public static readonly Dictionary<string, string> MimeMap = new()
     {
         [".html"] = "text/html; charset=utf-8",
@@ -28,9 +24,15 @@ internal static class ServerContext
         [".ico"] = "image/x-icon",
         [".svg"] = "image/svg+xml",
         [".woff"] = "font/woff",
-        [".woff2"] = "font/woff2",
+        [".woff2"] = "font/woff2"
     };
 
-    public static string? MimeOf(string path) =>
-        MimeMap.TryGetValue(Path.GetExtension(path).ToLowerInvariant(), out var m) ? m : null;
+    public static KuGouClient KuGou { get; } = new();
+
+    public static NeteaseClient Netease { get; } = new();
+
+    public static string? MimeOf(string path)
+    {
+        return MimeMap.TryGetValue(Path.GetExtension(path).ToLowerInvariant(), out var m) ? m : null;
+    }
 }

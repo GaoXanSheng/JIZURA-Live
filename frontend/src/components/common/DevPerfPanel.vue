@@ -167,9 +167,10 @@ async function doRecord() {
            @click="pillClick"
            @mousedown="onDragStart">
         <span :class="fpsCls(data?.fps)">FPS {{ data ? data.fps.toFixed(0) : '—' }}</span>
-        <span :class="cdpUi.status === 'connected' ? 'bg-cyan' : cdpUi.status === 'connecting' ? 'bg-amber' : 'bg-faint'"
-              :title="'CDP ' + cdpUi.status"
-              class="w-1.5 h-1.5 rounded-full"></span>
+        <span
+            :class="cdpUi.status === 'connected' ? 'bg-cyan' : cdpUi.status === 'connecting' ? 'bg-amber' : 'bg-faint'"
+            :title="'CDP ' + cdpUi.status"
+            class="w-1.5 h-1.5 rounded-full"></span>
         <span class="text-mut hover:text-danger cursor-pointer pl-1" title="关闭面板（Ctrl+Alt+D）"
               @click.stop="toggleDevUi(false)">×</span>
       </div>

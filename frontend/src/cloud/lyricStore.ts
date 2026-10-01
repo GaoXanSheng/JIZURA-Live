@@ -14,20 +14,34 @@ export interface LyricSource {
   text: string;
   map: LyricMap;
   cands: LyricCandidate[];
-  raw?: { lrc: ReturnType<typeof neParseLrc>; trans: ReturnType<typeof neParseLrc>; roma: ReturnType<typeof neParseLrc> };
+  raw?: {
+    lrc: ReturnType<typeof neParseLrc>;
+    trans: ReturnType<typeof neParseLrc>;
+    roma: ReturnType<typeof neParseLrc>
+  };
 }
 
 let last: LyricSource | null = null;
-let opts: LyricOptions = { roma: true, trans: true };
+let opts: LyricOptions = {roma: true, trans: true};
 
-export function lyricOptions(): LyricOptions { return { ...opts }; }
+export function lyricOptions(): LyricOptions {
+  return {...opts};
+}
+
 export function setLyricOptions(p: Partial<LyricOptions>) {
-  opts = { ...opts, ...p };
+  opts = {...opts, ...p};
   localStorage.setItem('jizura.kglyricopts', JSON.stringify(opts));
 }
-try { const o = JSON.parse(localStorage.getItem('jizura.kglyricopts') || 'null'); if (o) opts = { roma: o.roma !== false, trans: o.trans !== false }; } catch {}
 
-export function currentLyric(): LyricSource | null { return last; }
+try {
+  const o = JSON.parse(localStorage.getItem('jizura.kglyricopts') || 'null');
+  if (o) opts = {roma: o.roma !== false, trans: o.trans !== false};
+} catch {
+}
+
+export function currentLyric(): LyricSource | null {
+  return last;
+}
 
 /* 镜像（渲染进程）浏览器拿不到主页面内存里的 last，
    映射+歌词版本候选持久化到 localStorage（两边共享），
@@ -35,11 +49,12 @@ export function currentLyric(): LyricSource | null { return last; }
    「歌词版本」下拉就消失（选择器要求 cands ≥ 2） */
 function persist() {
   try {
-      if (last && (last.map.size || last.cands.length)) localStorage.setItem('jizura.kgsubmap', JSON.stringify({
-          fmt: last.fmt, text: last.text || '', map: [...last.map], cands: last.cands || [],
+    if (last && (last.map.size || last.cands.length)) localStorage.setItem('jizura.kgsubmap', JSON.stringify({
+      fmt: last.fmt, text: last.text || '', map: [...last.map], cands: last.cands || [],
     }));
     else localStorage.removeItem('jizura.kgsubmap');
-  } catch { /* 映射过大存不下就算了 */ }
+  } catch { /* 映射过大存不下就算了 */
+  }
 }
 
 function takeSaved(saved: any): LyricSource | null {
@@ -54,6 +69,7 @@ function restore() {
     } catch { /* 忽略 */
     }
 }
+
 restore();
 
 /* 镜像窗口：主窗口换了歌/改了映射时实时跟随 */
@@ -80,13 +96,13 @@ export async function adoptKgLyric(ly: LyricResponse, keepCands = false, deferRe
   if (ly.fmt === 'krc') {
     const text = await decryptKrc(bin.buffer as ArrayBuffer);
     const map: LyricMap = new Map();
-    last = { fmt: 'krc', text, map, cands };
+    last = {fmt: 'krc', text, map, cands};
     persist();
-      applyLyrics(krcToLrc(text, opts, map), deferReplan);
+    applyLyrics(krcToLrc(text, opts, map), deferReplan);
   } else {
-    last = { fmt: 'lrc', text: new TextDecoder('utf-8').decode(bin), map: new Map(), cands };
+    last = {fmt: 'lrc', text: new TextDecoder('utf-8').decode(bin), map: new Map(), cands};
     persist();
-      applyLyrics(last.text, deferReplan);
+    applyLyrics(last.text, deferReplan);
   }
   bus.emit('lyric-versions');
   return ly.fmt as 'krc' | 'lrc';
@@ -98,7 +114,7 @@ export async function adoptNeLyric(ly: LyricResponse, deferReplan = false): Prom
   const roma = ly.roma ? neParseLrc(b64Text(ly.roma)) : [];
   const map: LyricMap = new Map();
   const text = neBuildLrc(lrc, trans, roma, opts, map);
-  last = { fmt: 'ne', text, map, raw: { lrc, trans, roma }, cands: [] };
+  last = {fmt: 'ne', text, map, raw: {lrc, trans, roma}, cands: []};
   persist();
     applyLyrics(text, deferReplan);
   bus.emit('lyric-versions');
@@ -108,7 +124,7 @@ export async function adoptNeLyric(ly: LyricResponse, deferReplan = false): Prom
 export async function adoptLocalKrc(file: File): Promise<void> {
   const text = await decryptKrc(await file.arrayBuffer());
   const map: LyricMap = new Map();
-  last = { fmt: 'krc', text, map, cands: [] };
+  last = {fmt: 'krc', text, map, cands: []};
   persist();
   applyLyrics(krcToLrc(text, opts, map));
   toast('歌词已载入：' + file.name);
@@ -133,7 +149,9 @@ export function versionLabel(c: LyricCandidate): string {
   return (c.from || '其他版本') + (c.nick && c.nick !== '热心用户' ? ' · ' + c.nick : '');
 }
 
-export function versions(): LyricCandidate[] { return (last && last.cands) || []; }
+export function versions(): LyricCandidate[] {
+  return (last && last.cands) || [];
+}
 
 export async function switchVersion(source: Source, idx: number): Promise<void> {
   const c = versions()[idx];
@@ -145,7 +163,7 @@ export async function switchVersion(source: Source, idx: number): Promise<void> 
     const fmt = await adoptKgLyric(ly, true);
     const bad = fmt === 'krc' && !/^\[\d\d:\d\d[.:]/m.test(S.project.lyrics);
     toast(bad ? '该版本格式暂不支持，请换个版本试试'
-              : '歌词版本：' + versionLabel(c) + (fmt === 'lrc' ? '（普通 LRC，没有音译/翻译）' : ''));
+        : '歌词版本：' + versionLabel(c) + (fmt === 'lrc' ? '（普通 LRC，没有音译/翻译）' : ''));
     bus.emit('lyric-versions');
   } catch (e: any) {
     toast('切换失败：' + (e.message || e));

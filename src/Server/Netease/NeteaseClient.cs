@@ -24,15 +24,15 @@ public sealed partial class NeteaseClient
             ["buildver"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),
             ["resolution"] = "1920x1080",
             ["os"] = "pc",
-            ["requestId"] = $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_0001",
+            ["requestId"] = $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_0001"
         };
-        string csrf = S(NeState(), "__csrf");
+        var csrf = S(NeState(), "__csrf");
         if (csrf.Length > 0) header["__csrf"] = csrf;
         data["header"] = header;
 
-        string cookie =
+        var cookie =
             $"os=pc; appver={AppVer}; versioncode=140; buildver={header["buildver"]}; resolution=1920x1080";
-        string musicU = S(NeState(), "MUSIC_U");
+        var musicU = S(NeState(), "MUSIC_U");
         if (musicU.Length > 0)
         {
             cookie += $"; MUSIC_U={musicU}";
@@ -41,7 +41,7 @@ public sealed partial class NeteaseClient
 
         if (csrf.Length > 0) cookie += $"; __csrf={csrf}";
 
-        string postUrl = eapi
+        var postUrl = eapi
             ? "https://interface3.music.163.com/eapi" + apiUrl["/api".Length..]
             : "https://music.163.com" + apiUrl.Replace("/api/", "/weapi/");
         using var req = new HttpRequestMessage(HttpMethod.Post, postUrl);
@@ -56,7 +56,7 @@ public sealed partial class NeteaseClient
             using var cts = new CancellationTokenSource(20000);
             using var resp = await Http.SendAsync(req, cts.Token);
             CollectCookies(resp, setCookies);
-            byte[] raw = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+            var raw = await resp.Content.ReadAsByteArrayAsync(cts.Token);
             string json;
             try
             {
@@ -96,12 +96,12 @@ public sealed partial class NeteaseClient
             ["s"] = kw,
             ["type"] = 1,
             ["limit"] = 30,
-            ["offset"] = Math.Max(0, page - 1) * 30,
-        }, eapi: true);
+            ["offset"] = Math.Max(0, page - 1) * 30
+        }, true);
         var r = new KgSearchResponse { Ok = true };
         foreach (var it in d["result"]?["songs"] as JArray ?? new JArray())
         {
-            long fee = it.Value<long?>("fee") ?? 0;
+            var fee = it.Value<long?>("fee") ?? 0;
             r.List.Add(new KgSong
             {
                 Source = "netease",
@@ -112,7 +112,7 @@ public sealed partial class NeteaseClient
                 Album = it["al"]?.Value<string>("name") ?? "",
                 Duration = (it.Value<long?>("dt") ?? 0) / 1000,
                 Pay = fee is 1 or 4 ? 1 : 0,
-                Cover = it["al"]?.Value<string>("picUrl") ?? "",
+                Cover = it["al"]?.Value<string>("picUrl") ?? ""
             });
         }
 
@@ -123,24 +123,24 @@ public sealed partial class NeteaseClient
     public async Task<KgUrlResponse> GetUrlAsync(string id, string quality)
     {
         if (string.IsNullOrEmpty(id)) return new KgUrlResponse { Ok = false, Error = "缺少 id" };
-        string level = quality switch
+        var level = quality switch
         {
             "320" => "exhigh",
             "flac" => "lossless",
-            _ => "standard",
+            _ => "standard"
         };
-        string encodeType = quality == "flac" ? "flac" : "mp3";
+        var encodeType = quality == "flac" ? "flac" : "mp3";
         var d = await PostAsync("/api/song/enhance/player/url/v1", new JObject
         {
             ["ids"] = $"[{id}]",
             ["level"] = level,
-            ["encodeType"] = encodeType,
-        }, eapi: true);
+            ["encodeType"] = encodeType
+        }, true);
         var hit = d["data"] is JArray arr && arr.Count > 0 ? arr[0] : null;
-        string? url = hit?.Value<string>("url");
+        var url = hit?.Value<string>("url");
         if (string.IsNullOrEmpty(url))
         {
-            string musicU = S(NeState(), "MUSIC_U");
+            var musicU = S(NeState(), "MUSIC_U");
             return new KgUrlResponse
             {
                 Ok = false,
@@ -148,7 +148,7 @@ public sealed partial class NeteaseClient
                 Stale = musicU.Length > 0,
                 Error = musicU.Length > 0
                     ? "网易云登录可能已失效，请重新扫码登录"
-                    : "这首需要网易云 VIP：请点「登录」扫码",
+                    : "这首需要网易云 VIP：请点「登录」扫码"
             };
         }
 
@@ -159,7 +159,7 @@ public sealed partial class NeteaseClient
             Ext = (hit?.Value<string>("type") ?? "mp3").ToLowerInvariant(),
             Quality = hit?.Value<string>("level") ?? level,
             Trial = hit?["freeTrialInfo"] != null && hit["freeTrialInfo"]!.Type != JTokenType.Null,
-            Logged = S(NeState(), "MUSIC_U").Length > 0,
+            Logged = S(NeState(), "MUSIC_U").Length > 0
         };
     }
 
@@ -171,28 +171,28 @@ public sealed partial class NeteaseClient
         {
             ["id"] = id,
             ["cv"] = 4796112,
-            ["lv"] = 0, ["kv"] = 0, ["tv"] = 0, ["rv"] = 0, ["yv"] = 0, ["ytv"] = 0, ["yrv"] = 0,
-        }, eapi: true);
-        string lrc = d["lrc"]?.Value<string>("lyric") ?? "";
+            ["lv"] = 0, ["kv"] = 0, ["tv"] = 0, ["rv"] = 0, ["yv"] = 0, ["ytv"] = 0, ["yrv"] = 0
+        }, true);
+        var lrc = d["lrc"]?.Value<string>("lyric") ?? "";
         if (lrc.Length == 0) return new KgLyricResponse { Ok = false, Error = "没有找到歌词" };
-        string trans = d["tlyric"]?.Value<string>("lyric") ?? "";
-        string roma = d["romalrc"]?.Value<string>("lyric") ?? "";
+        var trans = d["tlyric"]?.Value<string>("lyric") ?? "";
+        var roma = d["romalrc"]?.Value<string>("lyric") ?? "";
         return new KgLyricResponse
         {
             Ok = true,
             Fmt = "lrc",
             Content = B64(lrc),
             Trans = trans.Length > 0 ? B64(trans) : null,
-            Roma = roma.Length > 0 ? B64(roma) : null,
+            Roma = roma.Length > 0 ? B64(roma) : null
         };
     }
 
     public async Task<KgQrResponse> QrAsync()
     {
-        var d = await PostAsync("/api/login/qrcode/unikey", new JObject { ["type"] = 1 }, eapi: false);
-        string key = d.Value<string>("unikey") ?? "";
+        var d = await PostAsync("/api/login/qrcode/unikey", new JObject { ["type"] = 1 }, false);
+        var key = d.Value<string>("unikey") ?? "";
         if (key.Length == 0) return new KgQrResponse { Ok = false, Error = "二维码生成失败" };
-        string content = $"https://music.163.com/login?codekey={key}";
+        var content = $"https://music.163.com/login?codekey={key}";
         string img;
         using (var gen = new QRCodeGenerator())
         using (var data = gen.CreateQrCode(content, QRCodeGenerator.ECCLevel.M))
@@ -211,9 +211,9 @@ public sealed partial class NeteaseClient
         var d = await PostAsync("/api/login/qrcode/client/login", new JObject
         {
             ["key"] = key,
-            ["type"] = 1,
-        }, eapi: false, setCookies: cookies);
-        int code = d.Value<int?>("code") ?? 0;
+            ["type"] = 1
+        }, false, cookies);
+        var code = d.Value<int?>("code") ?? 0;
         if (code == 803)
         {
             // 登录成功：凭据在 Set-Cookie 头里（MUSIC_U / __csrf）；个别封装会把 cookie 串塞进 body，一并解析
@@ -224,7 +224,7 @@ public sealed partial class NeteaseClient
                 foreach (var part in raw.Split(';',
                              StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
                 {
-                    int eq = part.IndexOf('=');
+                    var eq = part.IndexOf('=');
                     if (eq <= 0) continue;
                     string k = part[..eq].Trim(), v = part[(eq + 1)..].Trim();
                     if ((k == "MUSIC_U" || k == "__csrf") && v.Length > 0) patch[k] = v;
@@ -250,7 +250,7 @@ public sealed partial class NeteaseClient
         {
             Ok = true,
             Logged = S(st, "MUSIC_U").Length > 0,
-            Nickname = S(st, "nickname"),
+            Nickname = S(st, "nickname")
         };
     }
 
@@ -265,7 +265,7 @@ public sealed partial class NeteaseClient
     // 歌单歌曲映射成搜索结果同款 DTO，前端渲染零改动
     private static KgSong TrackToSong(JObject it)
     {
-        long fee = it.Value<long?>("fee") ?? 0;
+        var fee = it.Value<long?>("fee") ?? 0;
         return new KgSong
         {
             Source = "netease",
@@ -276,7 +276,7 @@ public sealed partial class NeteaseClient
             Album = it["al"]?.Value<string>("name") ?? "",
             Duration = (it.Value<long?>("dt") ?? 0) / 1000,
             Pay = fee is 1 or 4 ? 1 : 0,
-            Cover = it["al"]?.Value<string>("picUrl") ?? "",
+            Cover = it["al"]?.Value<string>("picUrl") ?? ""
         };
     }
 
@@ -284,9 +284,9 @@ public sealed partial class NeteaseClient
     {
         if (S(NeState(), "MUSIC_U").Length == 0)
             return new PlaylistsResponse { Ok = false, Error = "请先扫码登录网易云" };
-        var acc = await PostAsync("/api/nuser/account/get", new JObject(), eapi: false);
-        string uid = acc["profile"]?.Value<long?>("userId")?.ToString()
-                     ?? acc["account"]?.Value<long?>("id")?.ToString() ?? "";
+        var acc = await PostAsync("/api/nuser/account/get", new JObject(), false);
+        var uid = acc["profile"]?.Value<long?>("userId")?.ToString()
+                  ?? acc["account"]?.Value<long?>("id")?.ToString() ?? "";
         if (uid.Length == 0)
             return new PlaylistsResponse { Ok = false, Error = "登录状态已失效，请重新扫码" };
         var d = await PostAsync("/api/user/playlist", new JObject
@@ -294,18 +294,16 @@ public sealed partial class NeteaseClient
             ["uid"] = long.Parse(uid),
             ["limit"] = 60,
             ["offset"] = 0,
-            ["includeVideoSong"] = true,
-        }, eapi: false);
+            ["includeVideoSong"] = true
+        }, false);
         var r = new PlaylistsResponse { Ok = true };
         foreach (var p in d["playlist"] as JArray ?? new JArray())
-        {
             r.List.Add(new PlaylistInfo
             {
                 Id = p.Value<long?>("id")?.ToString() ?? "",
                 Name = p.Value<string>("name") ?? "",
-                Count = p.Value<int?>("trackCount") ?? 0,
+                Count = p.Value<int?>("trackCount") ?? 0
             });
-        }
 
         return r;
     }
@@ -317,8 +315,8 @@ public sealed partial class NeteaseClient
         var d = await PostAsync("/api/v6/playlist/detail", new JObject
         {
             ["id"] = long.Parse(id.Trim()),
-            ["n"] = 1000,
-        }, eapi: false);
+            ["n"] = 1000
+        }, false);
         var r = new KgSearchResponse { Ok = true };
         foreach (var t in d["playlist"]?["tracks"] as JArray ?? new JArray())
             r.List.Add(TrackToSong((JObject)t));

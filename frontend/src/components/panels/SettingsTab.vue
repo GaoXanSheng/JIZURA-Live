@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 /* 设置 tab（导出前）：
    - 画布比例：与「导出」页画面比例同源（同一个 project.aspect，改一处两处同步，即时生效）
    - 渲染窗口分辨率/帧率（自定义输入，帧率 1~240）/Spout 输出与 ID/渲染透明背景/调试端口：
@@ -50,7 +50,9 @@ const fpsValid = computed(() => {
 });
 const canApply = computed(() => resValid.value && fpsValid.value);
 
-function markDirty() { dirty.value = true; }
+function markDirty() {
+  dirty.value = true;
+}
 
 /* 预览渲染尺寸：即时生效的应用偏好（不进草稿组，与重启按钮无关） */
 const previewRes = ref<PreviewResTier>(getPreviewRes());
@@ -75,7 +77,8 @@ async function load() {
     const r = await fetch('/api/app/settings');
     const j = await r.json();
     if (j.ok) Object.assign(form, j.settings);
-  } catch { /* 服务不在时保持默认 */ }
+  } catch { /* 服务不在时保持默认 */
+  }
   loading.value = false;
 }
 
@@ -86,7 +89,7 @@ async function applyAndRestart() {
   try {
     const r = await fetch('/api/app/settings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         width: Math.round(form.width), height: Math.round(form.height), fps: Math.round(form.fps),
         spoutEnabled: form.spoutEnabled, spoutName: form.spoutName,
@@ -100,7 +103,7 @@ async function applyAndRestart() {
     Object.assign(form, j.settings);
     dirty.value = false;
 
-    await fetch('/api/app/render/restart', { method: 'POST' });
+    await fetch('/api/app/render/restart', {method: 'POST'});
 
     const cdpChanged = j.changed && j.changed.some((c: string) => c.includes('调试端口'));
     toast(j.changed && j.changed.length ? `已生效：${j.changed.join('；')}` : '渲染引擎已重启');
@@ -143,16 +146,17 @@ onUnmounted(() => offs.forEach(f => f()));
   <div class="px-4 py-3.5">
     <div v-if="loading" class="py-6 grid place-items-center"><i class="spinner lg"></i></div>
     <template v-else>
-      <SubtitlePanel />
+      <SubtitlePanel/>
 
       <div class="sec !border-b-0 !px-0">
         <div class="sec-h"><span class="sec-title">自定义留出画面范围</span><span class="text-[11px] text-muted">给角色留出空白，文字与演出放两侧</span>
         </div>
-        <label class="checkline"><input v-model="centerFree" type="checkbox" @change="saveCenter"> 留出画面中央（导出页可开关，宽度用这里自定义的值）</label>
+        <label class="checkline"><input v-model="centerFree" type="checkbox" @change="saveCenter">
+          留出画面中央（导出页可开关，宽度用这里自定义的值）</label>
         <div v-if="centerFree" class="flex flex-col gap-2">
           <label class="flex items-center gap-3 text-xs">
             <span class="w-[110px] flex-none text-mut">留白位置</span>
-            <select v-model="centerZone" class="flex-1" aria-label="留白区域位置" @change="saveCenter">
+            <select v-model="centerZone" aria-label="留白区域位置" class="flex-1" @change="saveCenter">
               <option value="center">画面中央（文字分列两侧/上下）</option>
               <option value="left">左侧留白（文字排右侧）</option>
               <option value="right">右侧留白（文字排左侧）</option>
@@ -162,12 +166,13 @@ onUnmounted(() => offs.forEach(f => f()));
           </label>
           <label class="flex items-center gap-3 text-xs">
             <span class="w-[110px] flex-none text-mut">留白宽度 %</span>
-            <input v-model.number="centerGap" type="number" min="10" max="70" step="5" class="w-24" aria-label="留白宽度百分比" @change="saveCenter">
+            <input v-model.number="centerGap" aria-label="留白宽度百分比" class="w-24" max="70" min="10" step="5"
+                   type="number" @change="saveCenter">
             <span class="text-mut">%（10~70，按画面宽/高计）</span>
           </label>
           <label v-if="centerZone === 'center'" class="flex items-center gap-3 text-xs">
             <span class="w-[110px] flex-none text-mut">竖屏分列</span>
-            <select v-model="centerDir" class="w-40" aria-label="竖屏画面的分列方式" @change="saveCenter">
+            <select v-model="centerDir" aria-label="竖屏画面的分列方式" class="w-40" @change="saveCenter">
               <option value="tb">上下留白</option>
               <option value="lr">左右留白</option>
             </select>
@@ -178,7 +183,7 @@ onUnmounted(() => offs.forEach(f => f()));
       <div class="flex flex-col gap-2.5">
         <label class="flex items-center gap-3 text-xs">
           <span class="w-[110px] flex-none text-mut">画布比例</span>
-          <select :value="aspect" class="flex-1" aria-label="画布比例" @change="onAspect">
+          <select :value="aspect" aria-label="画布比例" class="flex-1" @change="onAspect">
             <option v-for="a in ASPECTS" :key="a" :value="a">{{ a }}</option>
           </select>
         </label>
@@ -186,27 +191,34 @@ onUnmounted(() => offs.forEach(f => f()));
 
         <label class="flex items-center gap-3 text-xs">
           <span class="w-[110px] flex-none text-mut">背景</span>
-          <select :value="keyBg" class="flex-1" aria-label="背景" @change="setKeyBg((($event.target) as HTMLSelectElement).value)">
+          <select :value="keyBg" aria-label="背景" class="flex-1"
+                  @change="setKeyBg((($event.target) as HTMLSelectElement).value)">
             <option value="off">常规（风格背景）</option>
             <option value="green">绿幕（用于合成）</option>
             <option value="black">黑幕（用于合成）</option>
           </select>
         </label>
-        <p class="hint !text-[11px] !mt-0">与「导出」页的背景同源：绿幕/黑幕时只在单色背景上绘制白色文字与演出，供合成抠像。</p>
+        <p class="hint !text-[11px] !mt-0">
+          与「导出」页的背景同源：绿幕/黑幕时只在单色背景上绘制白色文字与演出，供合成抠像。</p>
 
         <label class="flex items-center gap-3 text-xs">
           <span class="w-[110px] flex-none text-mut">渲染窗口分辨率</span>
           <span class="flex items-center gap-1.5 flex-1">
-            <input v-model.number="form.width" type="number" :min="RES_MIN" :max="RES_MAX" step="2" class="w-24" aria-label="渲染窗口宽" @input="markDirty">
+            <input v-model.number="form.width" :max="RES_MAX" :min="RES_MIN" aria-label="渲染窗口宽" class="w-24"
+                   step="2"
+                   type="number" @input="markDirty">
             <span class="text-mut">×</span>
-            <input v-model.number="form.height" type="number" :min="RES_MIN" :max="RES_MAX" step="2" class="w-24" aria-label="渲染窗口高" @input="markDirty">
+            <input v-model.number="form.height" :max="RES_MAX" :min="RES_MIN" aria-label="渲染窗口高" class="w-24"
+                   step="2"
+                   type="number" @input="markDirty">
             <span v-if="!resValid" class="text-danger text-[11px]">{{ RES_MIN }}~{{ RES_MAX }}</span>
           </span>
         </label>
         <label class="flex items-center gap-3 text-xs">
           <span class="w-[110px] flex-none text-mut">渲染帧率</span>
           <span class="flex items-center gap-1.5">
-            <input v-model.number="form.fps" type="number" min="1" max="240" step="1" class="w-24" aria-label="渲染帧率" @input="markDirty">
+            <input v-model.number="form.fps" aria-label="渲染帧率" class="w-24" max="240" min="1" step="1" type="number"
+                   @input="markDirty">
             <span class="text-mut">fps</span>
             <span v-if="!fpsValid" class="text-danger text-[11px]">1~240</span>
           </span>
@@ -214,12 +226,14 @@ onUnmounted(() => offs.forEach(f => f()));
       </div>
 
       <div class="flex flex-col gap-1.5 mt-3.5">
-        <label class="checkline"><input v-model="form.spoutEnabled" type="checkbox" @change="markDirty"> Spout 输出</label>
+        <label class="checkline"><input v-model="form.spoutEnabled" type="checkbox" @change="markDirty"> Spout
+          输出</label>
         <label class="flex items-center gap-3 text-xs pl-6">
           <span class="flex-none text-mut">Spout ID：</span>
-          <input v-model="form.spoutName" type="text" class="flex-1" @input="markDirty">
+          <input v-model="form.spoutName" class="flex-1" type="text" @input="markDirty">
         </label>
-        <label class="checkline"><input v-model="form.spoutTransparent" type="checkbox" @change="markDirty"> 渲染透明背景（输出透明图层）</label>
+        <label class="checkline"><input v-model="form.spoutTransparent" type="checkbox" @change="markDirty">
+          渲染透明背景（输出透明图层）</label>
         <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立
           Spout 字幕通道 <b>{{ form.spoutName || 'JIZURA-live' }}-LYRICS</b></label>
       </div>
@@ -227,17 +241,19 @@ onUnmounted(() => offs.forEach(f => f()));
       <div class="flex flex-col gap-1.5 mt-3.5">
         <label class="checkline">
           <input v-model="form.cdpEnabled" type="checkbox" @change="markDirty"> 调试端口（CDP）
-          <input v-model="form.cdpPort" type="number" class="w-28" min="1" max="65535" @change="markDirty">
+          <input v-model="form.cdpPort" class="w-28" max="65535" min="1" type="number" @change="markDirty">
         </label>
 
       </div>
 
-      <button class="btn btn-primary w-full mt-4" :disabled="applying || !canApply"
+      <button :disabled="applying || !canApply"
               :title="dirty ? '保存并重启渲染引擎使设置生效' : '以当前设置重启渲染引擎'"
+              class="btn btn-primary w-full mt-4"
               @click="applyAndRestart">
         {{ applying ? '正在重启…' : (dirty ? '保存并重启渲染引擎' : '重启渲染引擎') }}
       </button>
-      <p class="note">分辨率・帧率・Spout・透明背景的改动需点上方按钮保存并重启渲染引擎后生效；调试端口需重启应用。画布比例即时生效。</p>
+      <p class="note">
+        分辨率・帧率・Spout・透明背景的改动需点上方按钮保存并重启渲染引擎后生效；调试端口需重启应用。画布比例即时生效。</p>
 
       <details class="border border-line rounded-md bg-raised mt-4">
         <summary

@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import {onMounted, onUnmounted, ref, watch} from 'vue';
 import {J} from '../engine';
 import {useStage} from '../stores/stage';
@@ -55,26 +55,35 @@ onMounted(() => {
   const bridge = bindStageBroadcast(stage.sink());
   stopBridge = bridge.stop;
   connected.value = stage.connected;
-  watch(() => stage.connected, v => { connected.value = v; });
+  watch(() => stage.connected, v => {
+    connected.value = v;
+  });
   watch(() => [stage.subCfg, stage.subMap] as const, ([cfg, map]) => {
     if (cfg) setSubOverride(cfg, map);
-  }, { immediate: true });
+  }, {immediate: true});
 
   /* C# 宿主契约面：J.ui = store 本身（宿主侧脚本/排障直接读写） */
   J.ui = stage;
   J.uiApi = {
-    toast: () => {},
+    toast: () => {
+    },
     replan: () => stage.replan(),
-    syncUI: () => {},
-    pause: () => { stage.playing = false; },
-    play: () => {},
+    syncUI: () => {
+    },
+    pause: () => {
+      stage.playing = false;
+    },
+    play: () => {
+    },
     seek: (t: number) => {
       stage.t = t;
       stage.need = true;
     },
-    flushSave: () => {},
+    flushSave: () => {
+    },
     loadAudioFile: async () => false,
-    restartPreview: () => {},
+    restartPreview: () => {
+    },
     exportRange: () => null,
     exportRangeCuts: () => null,
   };
@@ -123,11 +132,12 @@ function draw(cv: HTMLCanvasElement) {
     if (isLyricLayer) {
       // 字幕通道：透明画布上只叠加字幕组件（翻译/音译字幕）
       ctx.clearRect(0, 0, cv.width, cv.height);
-      drawSubtitleFrame(ctx, plan, stage.t, { scale: cv.width / plan.W });
+      drawSubtitleFrame(ctx, plan, stage.t, {scale: cv.width / plan.W});
     } else {
-      renderer.frame(ctx, plan, stage.t, { scale: cv.width / plan.W, transparent: !!window.__jl_spout_transparent });
+      renderer.frame(ctx, plan, stage.t, {scale: cv.width / plan.W, transparent: !!window.__jl_spout_transparent});
     }
-  } catch { /* 单帧失败不中断泵 */ }
+  } catch { /* 单帧失败不中断泵 */
+  }
 }
 
 /* ================================================================
@@ -293,10 +303,11 @@ function startMirror(cv: HTMLCanvasElement) {
 </script>
 
 <template>
-  <div class="fixed inset-0 overflow-hidden" :class="isLyricLayer ? 'bg-transparent' : 'bg-black'">
+  <div :class="isLyricLayer ? 'bg-transparent' : 'bg-black'" class="fixed inset-0 overflow-hidden">
     <!-- id="view" 是镜像 isolate / 宿主抓图的 DOM 契约 -->
-    <canvas id="view" ref="canvas" width="1280" height="720" class="block w-full h-full"></canvas>
-    <div v-if="!connected" class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1">
+    <canvas id="view" ref="canvas" class="block w-full h-full" height="720" width="1280"></canvas>
+    <div v-if="!connected"
+         class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1">
       等待编辑页连接（BroadcastChannel）{{ isLyricLayer ? ' · 歌词通道' : '' }}
     </div>
   </div>

@@ -1,9 +1,9 @@
 /* 云端音乐 store：来源切换、搜索、歌单、双平台登录态 + 扫码轮询状态机。
    轮询定时器集中在 store 管理，弹窗关闭/组件卸载必须 stopQrPolling()。 */
-import { defineStore } from 'pinia';
-import { api } from '../cloud/api';
-import { toast } from '../jizura/look';
-import type { Song, Source, PlaylistInfo } from '../cloud/types';
+import {defineStore} from 'pinia';
+import {api} from '../cloud/api';
+import {toast} from '../jizura/look';
+import type {PlaylistInfo, Song, Source} from '../cloud/types';
 
 export type QrState = 'idle' | 'loading' | 'waiting' | 'scanned' | 'expired' | 'ok' | 'error';
 
@@ -30,8 +30,8 @@ export const useCloud = defineStore('cloud', {
 
     /* 每个平台独立登录态 */
     login: {
-      kugou: { logged: false, nickname: '' },
-      netease: { logged: false, nickname: '' },
+      kugou: {logged: false, nickname: ''},
+      netease: {logged: false, nickname: ''},
     } as Record<Source, { logged: boolean; nickname: string }>,
 
     /* 扫码弹层（当前只同时展示一个平台的二维码） */
@@ -54,14 +54,17 @@ export const useCloud = defineStore('cloud', {
         for (const s of source ? [source] : (['kugou', 'netease'] as Source[])) {
           try {
             const j = await api.login(s);
-            this.login[s] = { logged: !!j.logged, nickname: j.nickname || '' };
-          } catch { /* 服务不在就保持默认 */ }
+            this.login[s] = {logged: !!j.logged, nickname: j.nickname || ''};
+          } catch { /* 服务不在就保持默认 */
+          }
         }
       } finally {
         if (!source) {
           // 转圈至少显示 250ms：本机 API 毫秒级返回，不留最短时长会闪没看不见
           const remain = 250 - (Date.now() - t0);
-          if (remain > 0) setTimeout(() => { this.booting = false; }, remain);
+          if (remain > 0) setTimeout(() => {
+            this.booting = false;
+          }, remain);
           else this.booting = false;
         }
       }
@@ -102,14 +105,14 @@ export const useCloud = defineStore('cloud', {
         if (!j.ok) throw new Error(j.error || '读取失败');
         this.playlists = j.list || [];
         this.playlistTip = this.playlists.length
-          ? '点歌单载入全部歌曲；也可粘贴歌单链接 / ID 载入'
-          : '这个账号还没有歌单；可粘贴歌单链接 / ID 载入';
+            ? '点歌单载入全部歌曲；也可粘贴歌单链接 / ID 载入'
+            : '这个账号还没有歌单；可粘贴歌单链接 / ID 载入';
       } catch (e: any) {
         this.playlists = [];
         const msg = e.message || String(e);
         this.playlistsError = (msg === '请先扫码登录酷狗' || msg === '请先扫码登录网易云')
-          ? msg + '（在「账号」页扫码即可）'
-          : '加载失败：' + msg;
+            ? msg + '（在「账号」页扫码即可）'
+            : '加载失败：' + msg;
       } finally {
         this.playlistsLoading = false;
       }
@@ -118,7 +121,7 @@ export const useCloud = defineStore('cloud', {
     /* ---- 扫码 ---- */
     async openQr(source: Source) {
       this.stopQrPolling();
-      this.qr = { active: true, source, state: 'loading', img: '', tip: '正在获取二维码…', key: '' };
+      this.qr = {active: true, source, state: 'loading', img: '', tip: '正在获取二维码…', key: ''};
       try {
         const j = await api.qr(source);
         if (!j.ok) throw new Error(j.error || '二维码生成失败');
@@ -136,7 +139,8 @@ export const useCloud = defineStore('cloud', {
       this.stopQrPolling();
       const ne = this.qr.source === 'netease';
       // 酷狗状态：1 等待 / 2 已扫码 / 0 过期 / 4 成功；网易云：801 / 802 / 800 / 803
-      const S_WAIT = ne ? '801' : '1', S_SCAN = ne ? '802' : '2', S_EXPIRE = ne ? '800' : '0', S_OK = ne ? '803' : '4';
+      const S_WAIT = ne ? '801' : '1', S_SCAN = ne ? '802' : '2', S_EXPIRE = ne ? '800' : '0',
+          S_OK = ne ? '803' : '4';
       const key = this.qr.key;
       pollTimer = window.setInterval(async () => {
         if (!this.qr.active) return this.stopQrPolling();
@@ -144,9 +148,14 @@ export const useCloud = defineStore('cloud', {
           const j = await api.qrCheck(this.qr.source, key);
           const st = String(j.status);
           if (st === S_WAIT) this.qr.tip = '等待扫码…';
-          else if (st === S_SCAN) { this.qr.state = 'scanned'; this.qr.tip = '已扫码，请在手机上确认'; }
-          else if (st === S_EXPIRE) { this.qr.state = 'expired'; this.qr.tip = '二维码已过期'; this.stopQrPolling(); }
-          else if (st === S_OK) {
+          else if (st === S_SCAN) {
+            this.qr.state = 'scanned';
+            this.qr.tip = '已扫码，请在手机上确认';
+          } else if (st === S_EXPIRE) {
+            this.qr.state = 'expired';
+            this.qr.tip = '二维码已过期';
+            this.stopQrPolling();
+          } else if (st === S_OK) {
             this.qr.state = 'ok';
             this.stopQrPolling();
             this.qr.active = false;
@@ -154,11 +163,15 @@ export const useCloud = defineStore('cloud', {
             await this.refreshLogin(src);
             toast(src === 'netease' ? '网易云已登录，VIP 歌曲可以载入了' : '酷狗已登录，VIP 歌曲可以载入完整音质了');
           }
-        } catch { /* 网络抖动，下一轮再试 */ }
+        } catch { /* 网络抖动，下一轮再试 */
+        }
       }, 2000);
     },
     stopQrPolling() {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; }
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = 0;
+      }
     },
     closeQr() {
       this.stopQrPolling();

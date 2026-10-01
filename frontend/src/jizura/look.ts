@@ -6,10 +6,12 @@ import {autosave, flushSave} from './project';
 import {bus} from './bus';
 import {invalidateFontKey, pause, play, replan, seek} from './engine';
 
-export { flushSave };
+export {flushSave};
 
 /* ---- toast（组件监听渲染） ---- */
-export function toast(m: string, cols?: string[]) { bus.emit('toast', m, cols); }
+export function toast(m: string, cols?: string[]) {
+  bus.emit('toast', m, cols);
+}
 
 /* ---- 行覆盖 ---- */
 export function setOv(i: number, patch: Record<string, any>) {
@@ -41,7 +43,9 @@ export function markCutQuiet(i: number | null, k: number | null, groups: string[
   const cutQuiet = Object.assign({}, cur.cutQuiet || {});
   const q = Object.assign({}, cutQuiet[k] || cutQuiet[String(k)] || {});
   delete cutQuiet[String(k)];
-  groups.forEach(g => { if (on) q[g] = true; else delete q[g]; });
+  groups.forEach(g => {
+    if (on) q[g] = true; else delete q[g];
+  });
   if (Object.keys(q).length) cutQuiet[k] = q; else delete cutQuiet[k];
   if (Object.keys(cutQuiet).length) cur.cutQuiet = cutQuiet; else delete cur.cutQuiet;
   if (Object.keys(cur).length) S.project.overrides[i] = cur; else delete S.project.overrides[i];
@@ -51,7 +55,7 @@ export function cutTechSlot(line: number, k: number) {
   const o = (S.project.overrides || {})[line] || {};
   const t = (o.cutTech && (o.cutTech[k] || o.cutTech[String(k)])) || {};
   const lay = o.cutLayouts && (o.cutLayouts[k] || o.cutLayouts[String(k)]);
-  return lay && t.layout == null ? Object.assign({ layout: lay }, t) : t;
+  return lay && t.layout == null ? Object.assign({layout: lay}, t) : t;
 }
 
 export function cutGroupVal(cut: any, g: string) {
@@ -113,8 +117,8 @@ export function pickEnabledTech(g: string, opts: { n?: number; allowNone?: boole
 }
 
 /* ---- 歌词/时间编辑历史（Ctrl+Z，独立于外观◀▶） ---- */
-const ED = { undo: [] as string[], redo: [] as string[] };
-const edSnap = () => JSON.stringify({ lyrics: S.project.lyrics, lineTimes: S.project.timing.lineTimes || {} });
+const ED = {undo: [] as string[], redo: [] as string[]};
+const edSnap = () => JSON.stringify({lyrics: S.project.lyrics, lineTimes: S.project.timing.lineTimes || {}});
 
 export function pushEdit() {
   const s = edSnap();
@@ -127,11 +131,19 @@ export function edGo(d: number) {
   const from = d < 0 ? ED.undo : ED.redo, to = d < 0 ? ED.redo : ED.undo;
   if (!from.length) return;
   const o = JSON.parse(from.pop()!), cur = JSON.parse(edSnap());
-  if ('ov' in o) { cur.ov = S.project.overrides; cur.range = S.project.exportRange || null; }
+  if ('ov' in o) {
+    cur.ov = S.project.overrides;
+    cur.range = S.project.exportRange || null;
+  }
   to.push(JSON.stringify(cur));
-  S.project.lyrics = o.lyrics; S.project.timing.lineTimes = o.lineTimes;
-  if ('ov' in o) { S.project.overrides = o.ov || {}; S.project.exportRange = o.range || null; }
-  replan(); flushSave();
+  S.project.lyrics = o.lyrics;
+  S.project.timing.lineTimes = o.lineTimes;
+  if ('ov' in o) {
+    S.project.overrides = o.ov || {};
+    S.project.exportRange = o.range || null;
+  }
+  replan();
+  flushSave();
   bus.emit('lyrics-sync');
   toast(d < 0 ? '已撤销' : '已重做');
 }
@@ -157,12 +169,24 @@ export function resetLyricBinding() {
 export function clearLyrics() {
   if (S.tap || S.exporting) return;
   const P = S.project;
-  if (!P.lyrics.trim() && !Object.keys(P.timing.lineTimes || {}).length) { bus.emit('focus-lyrics'); return; }
-  const snap = JSON.parse(edSnap()); snap.ov = P.overrides || {}; snap.range = P.exportRange || null;
-  ED.undo.push(JSON.stringify(snap)); if (ED.undo.length > 60) ED.undo.shift(); ED.redo = [];
+  if (!P.lyrics.trim() && !Object.keys(P.timing.lineTimes || {}).length) {
+    bus.emit('focus-lyrics');
+    return;
+  }
+  const snap = JSON.parse(edSnap());
+  snap.ov = P.overrides || {};
+  snap.range = P.exportRange || null;
+  ED.undo.push(JSON.stringify(snap));
+  if (ED.undo.length > 60) ED.undo.shift();
+  ED.redo = [];
   pause();
-  P.lyrics = ''; P.timing.lineTimes = {}; P.overrides = {}; P.exportRange = null;
-  replan(); flushSave(); seek(0);
+  P.lyrics = '';
+  P.timing.lineTimes = {};
+  P.overrides = {};
+  P.exportRange = null;
+  replan();
+  flushSave();
+  seek(0);
   bus.emit('lyrics-sync');
   toast('歌词已清空（可用「撤销」或 Ctrl+Z 恢复）');
 }
@@ -172,7 +196,7 @@ export function exportRangeCuts() {
     const r = S.project.exportRange, n = S.plan ? S.plan.cuts.length : 0;
   if (!r || !n || !(r.from >= 0)) return null;
   const from = Math.min(n - 1, r.from | 0), to = Math.min(n - 1, Math.max(from, r.to | 0));
-  return { from, to };
+  return {from, to};
 }
 
 export function exportRange() {
@@ -181,7 +205,7 @@ export function exportRange() {
     const C = S.plan.cuts, a = C[R.from], b = C[R.to], last = R.to === C.length - 1;
   const t0 = Math.max(0, a.start - 0.25);
     const t1 = last ? S.plan.duration : Math.min(C[R.to + 1].start, b.end + 0.35);
-  return { t0, t1 };
+  return {t0, t1};
 }
 
 export function rangeSuffix() {
@@ -211,28 +235,40 @@ export function setExportRange(i: number, extend: boolean) {
 
 /* ---- 外观历史（◀ ▶）：只跟踪"外观"，歌词/时间/输出设置永不回滚 ---- */
 const HKEYS = ['style', 'mood', 'seed', 'fx', 'enabled', 'fonts', 'colors', 'overrides', 'locks'];
-const H = { list: [] as string[], i: -1 };
+const H = {list: [] as string[], i: -1};
 const lookSnap = () => JSON.stringify(Object.fromEntries(HKEYS.map(k => [k, S.project[k] ?? null])));
 
 export function remember() {          // 改外观之前调用：确保当前外观已入栈
   const s = lookSnap();
   if (H.i >= 0 && H.list[H.i] === s) return;
-  H.list = H.list.slice(0, H.i + 1); H.list.push(s); H.i = H.list.length - 1;
+  H.list = H.list.slice(0, H.i + 1);
+  H.list.push(s);
+  H.i = H.list.length - 1;
 }
 
 export function commit() {            // 改外观之后调用
   const s = lookSnap();
-  if (H.list[H.i] !== s) { H.list = H.list.slice(0, H.i + 1); H.list.push(s); H.i = H.list.length - 1; }
-  if (H.list.length > 80) { H.list.splice(0, H.list.length - 80); H.i = H.list.length - 1; }
+  if (H.list[H.i] !== s) {
+    H.list = H.list.slice(0, H.i + 1);
+    H.list.push(s);
+    H.i = H.list.length - 1;
+  }
+  if (H.list.length > 80) {
+    H.list.splice(0, H.list.length - 80);
+    H.i = H.list.length - 1;
+  }
   bus.emit('hist');
 }
 
-export function histInfo() { return { i: H.i, len: H.list.length, canBack: H.i > 0, canFwd: H.i < H.list.length - 1 }; }
+export function histInfo() {
+  return {i: H.i, len: H.list.length, canBack: H.i > 0, canFwd: H.i < H.list.length - 1};
+}
 
 export function histGo(d: number) {
   if (S.exporting) return;
   remember();
-  const j = H.i + d; if (j < 0 || j >= H.list.length) return;
+  const j = H.i + d;
+  if (j < 0 || j >= H.list.length) return;
   H.i = j;
   Object.assign(S.project, JSON.parse(H.list[j]));
   invalidateFontKey();
@@ -243,26 +279,37 @@ export function histGo(d: number) {
   restartPreview();
 }
 
-export function restartPreview() { seek(0); }
+export function restartPreview() {
+  seek(0);
+}
 
 /* ---- 锁（随机/重抽不能碰的东西） ---- */
 export function locksOf() {
   const P = S.project;
-  if (!P.locks) P.locks = { tech: {}, params: {} };
+  if (!P.locks) P.locks = {tech: {}, params: {}};
   if (!P.locks.tech) P.locks.tech = {};
   if (!P.locks.params) P.locks.params = {};
   return P.locks;
 }
-export function lockOn(k: string) { return !!locksOf().params[k]; }
+
+export function lockOn(k: string) {
+  return !!locksOf().params[k];
+}
+
 export function lockedEnabled() {
   const P = S.project, out: any = {};
   for (const g of Object.keys(locksOf().tech)) if (P.enabled && P.enabled[g]) out[g] = Object.assign({}, P.enabled[g]);
   return out;
 }
+
 export function restoreEnabled(keep: any) {
   const P = S.project;
-  for (const g of Object.keys(keep || {})) { P.enabled = P.enabled || {}; P.enabled[g] = keep[g]; }
+  for (const g of Object.keys(keep || {})) {
+    P.enabled = P.enabled || {};
+    P.enabled[g] = keep[g];
+  }
 }
+
 export function lockedParams() {
   const out: any = {}, L = locksOf(), F = S.project.fx;
   for (const k of Object.keys(L.params)) {
@@ -273,6 +320,7 @@ export function lockedParams() {
   }
   return out;
 }
+
 export function restoreParams(keep: any) {
   const P = S.project;
   for (const k of Object.keys(keep || {})) P.fx[k] = keep[k];
@@ -281,18 +329,30 @@ export function restoreParams(keep: any) {
 export function toggleTechLock(g: string) {
   const L = locksOf();
   remember();
-  if (L.tech[g]) { delete L.tech[g]; toast('已解锁：' + g); }
-  else { L.tech[g] = true; toast('已锁定：' + g); }
-  commit(); autosave();
+  if (L.tech[g]) {
+    delete L.tech[g];
+    toast('已解锁：' + g);
+  } else {
+    L.tech[g] = true;
+    toast('已锁定：' + g);
+  }
+  commit();
+  autosave();
   bus.emit('sync-ui');
 }
 
 export function toggleParamLock(k: string) {
   const L = locksOf();
   remember();
-  if (L.params[k]) { delete L.params[k]; toast('已解锁：' + k); }
-  else { L.params[k] = true; toast('已锁定：' + k); }
-  commit(); autosave();
+  if (L.params[k]) {
+    delete L.params[k];
+    toast('已解锁：' + k);
+  } else {
+    L.params[k] = true;
+    toast('已锁定：' + k);
+  }
+  commit();
+  autosave();
   bus.emit('sync-ui');
 }
 
@@ -303,10 +363,13 @@ export function randomPalette() {
   const sc0 = J.STYLES[S.project.style].schemes[0];
   const bg = c.enabled && c.bg ? c.bg : sc0.bg;
   let p: any, guard = 0;
-  do { p = J.randomPalette(bg); } while (guard++ < 6 && p.ghostA === c.ghostA && p.ghostB === c.ghostB);
-  Object.assign(c, { accent: p.accent, ghostA: p.ghostA, ghostB: p.ghostB, accentOn: true });
+  do {
+    p = J.randomPalette(bg);
+  } while (guard++ < 6 && p.ghostA === c.ghostA && p.ghostB === c.ghostB);
+  Object.assign(c, {accent: p.accent, ghostA: p.ghostA, ghostB: p.ghostB, accentOn: true});
   bus.emit('sync-ui');
-  replan(); commit();
+  replan();
+  commit();
   toast('配色：强调色・错位色A/B 已更换', [p.accent, p.ghostA, p.ghostB]);
 }
 
@@ -317,10 +380,12 @@ export function omakase() {
   const keepE = lockedEnabled(), keepP = lockedParams();
   const r = J.omakase(S.project);
   Object.assign(S.project, r);
-  restoreEnabled(keepE); restoreParams(keepP);
+  restoreEnabled(keepE);
+  restoreParams(keepP);
   invalidateFontKey();
   bus.emit('sync-ui');
-  replan(); commit();
+  replan();
+  commit();
   toast(`一键随机：${J.STYLES[r.style].name} × ${J.MOODS[r.mood].name}`, r.colors.accentOn ? [r.colors.accent, r.colors.ghostA, r.colors.ghostB] : undefined);
   restartPreview();
 }
@@ -331,18 +396,20 @@ export function startTap(from = 0) {
   if (!S.plan.lines.length) return;
   from = J.clamp(from | 0, 0, S.plan.lines.length - 1);
   pushEdit();
-  S.tap = { i: from, from, done: [] };
+  S.tap = {i: from, from, done: []};
   if (!S.project.timing.lineTimes) S.project.timing.lineTimes = {};
   const prev = from > 0 ? S.plan.lines[from - 1] : null, cur = S.plan.lines[from];
   const t0 = from === 0 ? 0 : Math.max(0, prev.start + 0.01, cur.start - 2.5);   // 比该行稍早，但不早于上一行
-  seek(t0); play(); bus.emit('tapstate');
+  seek(t0);
+  play();
+  bus.emit('tapstate');
   if (from > 0) toast(`从第 ${from + 1} 行开始打点同步（${J.fmtTime(t0)} 起播放）`);
 }
 
 export function tapNow() {
   if (!S.tap) return;
   const LT = S.project.timing.lineTimes, i = S.tap.i, t = +S.t.toFixed(3);
-  S.tap.done.push({ i, had: LT[i] });
+  S.tap.done.push({i, had: LT[i]});
   LT[i] = t;
   // 后面的行若在之前一轮被打过且早于本时间，清掉防止倒挂
   for (const k of Object.keys(LT)) if (+k > i && LT[k] <= t + 0.2) delete LT[k];
@@ -355,33 +422,43 @@ export function tapBack() {   // 回退一次打点并跳回一点
   if (!S.tap || !S.tap.done.length) return;
   const d = S.tap.done.pop()!, LT = S.project.timing.lineTimes;
   if (d.had != null) LT[d.i] = d.had; else delete LT[d.i];
-  S.tap.i = d.i; replan(); bus.emit('tapstate');
-  seek(Math.max(0, S.t - 3)); if (!S.playing) play();
+  S.tap.i = d.i;
+  replan();
+  bus.emit('tapstate');
+  seek(Math.max(0, S.t - 3));
+  if (!S.playing) play();
 }
 
 export function stopTap() {
   S.tap = null;
-  replan(); flushSave();
+  replan();
+  flushSave();
   bus.emit('tapstate');
 }
 
 /* 播放到循环终点时打断点同步（engine.tick 经 bus 通知，避免模块循环） */
-bus.on('tapend', () => { if (S.tap) stopTap(); });
+bus.on('tapend', () => {
+  if (S.tap) stopTap();
+});
 
 /* ---- 初始化：回到空白项目（歌曲/设置/两套历史全清） ---- */
 export async function resetAll() {
   if (S.exporting) return;
   if (S.tap) stopTap();
   pause();
-  const { resetAllProject } = await import('./project');
+  const {resetAllProject} = await import('./project');
   await resetAllProject();
-  ED.undo = []; ED.redo = [];
-  H.list = []; H.i = -1;
+  ED.undo = [];
+  ED.redo = [];
+  H.list = [];
+  H.i = -1;
   invalidateFontKey();
   bus.emit('audioname', '未载入歌曲（载入后自动检测节拍并对齐切分）');
   bus.emit('sync-ui');
   bus.emit('hist');
-  replan(); commit(); seek(0);
+  replan();
+  commit();
+  seek(0);
   flushSave();
   bus.emit('lyrics-sync');
   toast('已初始化');
@@ -392,7 +469,7 @@ const CHIP_GROUPS: [string, string, string][] = [
   ['layout', 'l', '布局'], ['enter', 'e', '入场'], ['hold', 'h', '保持'], ['exit', 'x', '退场'],
   ['decor', '', '装饰'], ['treat', 't', '文字处理'], ['bg', 'b', '背景'], ['cam', 'c', '运镜'], ['trans', 'c', '转场'],
 ];
-export { CHIP_GROUPS };
+export {CHIP_GROUPS};
 
 export function groupName(g: string, k: string) {
   if (!k) return '无';
@@ -404,14 +481,17 @@ export function rerollCurrentCut(kind: 'shuffle' | 'omakase') {
   if (S.exporting || S.tap) return;
   const cut = J.cutAt(S.plan, S.t);
   const k = lyricCutK(cut);
-  if (!cut || k < 0) { toast('这个位置的切分无法重抽'); return; }
+  if (!cut || k < 0) {
+    toast('这个位置的切分无法重抽');
+    return;
+  }
   remember();
   const n = [...String(cut.text || '').replace(/\s+/g, '')].length;
   const groups = kind === 'omakase' ? CHIP_GROUPS.map(x => x[0]) : ['layout', 'enter', 'hold', 'exit', 'cam', 'trans'];
   const t0 = S.t;
   groups.forEach(g => {
     const allowNone = g === 'decor' || g === 'trans';
-    const key = pickEnabledTech(g, { avoid: kind === 'omakase' ? cutGroupVal(cut, g) : undefined, allowNone, n });
+    const key = pickEnabledTech(g, {avoid: kind === 'omakase' ? cutGroupVal(cut, g) : undefined, allowNone, n});
     if (key) setCutTech(cut.line, k, g, key);
   });
   markCutQuiet(cut.line, k, groups, true);

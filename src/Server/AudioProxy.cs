@@ -11,10 +11,12 @@ internal static class AudioProxy
 {
     private static readonly string[] HostSuffixes = ["kugou.com", "kgimg.com", "kglink.cn", "music.126.net"];
 
-    public static bool AllowedHost(string host) =>
-        HostSuffixes.Any(s =>
+    public static bool AllowedHost(string host)
+    {
+        return HostSuffixes.Any(s =>
             string.Equals(host, s, StringComparison.OrdinalIgnoreCase) ||
             host.EndsWith("." + s, StringComparison.OrdinalIgnoreCase));
+    }
 
     public static async Task StreamAsync(IHttpContext ctx, HttpClient http, string? target)
     {
@@ -31,7 +33,7 @@ internal static class AudioProxy
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         using var upstreamReq = new HttpRequestMessage(HttpMethod.Get, uri);
-        string? range = ctx.Request.Headers["Range"];
+        var range = ctx.Request.Headers["Range"];
         if (!string.IsNullOrEmpty(range))
             upstreamReq.Headers.TryAddWithoutValidation("Range", range);
 
@@ -47,7 +49,7 @@ internal static class AudioProxy
         }
 
         res.StatusCode = (int)upstream.StatusCode;
-        string? ext = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
+        var ext = Path.GetExtension(uri.AbsolutePath).ToLowerInvariant();
         res.ContentType = ext?.Length > 1 && ServerContext.MimeMap.TryGetValue(ext, out var mime)
             ? mime
             : upstream.Content.Headers.ContentType?.MediaType ?? "application/octet-stream";

@@ -74,10 +74,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
     public Rect GetViewRect()
     {
         var browser = _owner._browser;
-        if (browser == null)
-        {
-            return new Rect(0, 0, 128, 128);
-        }
+        if (browser == null) return new Rect(0, 0, 128, 128);
 
         var size = browser.Size;
 
@@ -137,12 +134,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         if (type != PaintElementType.View)
             return;
-        if (buffer == IntPtr.Zero || width <= 0 || height <= 0)
-        {
-            return;
-        }
+        if (buffer == IntPtr.Zero || width <= 0 || height <= 0) return;
 
-        bool cpuFirstSeenWarn = false;
+        var cpuFirstSeenWarn = false;
         Exception? logEx = null;
 
         lock (_renderLock)
@@ -156,21 +150,17 @@ public sealed class MirrorRenderHandler : IRenderHandler
                 var mapped = context.MapSubresource(_cpuTexture, 0, MapMode.WriteDiscard, MapFlags.None);
                 try
                 {
-                    int srcStride = checked(width * 4);
-                    int dstStride = mapped.RowPitch;
+                    var srcStride = checked(width * 4);
+                    var dstStride = mapped.RowPitch;
                     if (dstStride == srcStride)
-                    {
                         Utilities.CopyMemory(mapped.DataPointer, buffer, checked(height * srcStride));
-                    }
                     else
-                    {
-                        for (int row = 0; row < height; row++)
+                        for (var row = 0; row < height; row++)
                         {
-                            IntPtr src = IntPtr.Add(buffer, row * srcStride);
-                            IntPtr dst = IntPtr.Add(mapped.DataPointer, row * dstStride);
+                            var src = IntPtr.Add(buffer, row * srcStride);
+                            var dst = IntPtr.Add(mapped.DataPointer, row * dstStride);
                             Utilities.CopyMemory(dst, src, srcStride);
                         }
-                    }
                 }
                 finally
                 {
@@ -192,16 +182,11 @@ public sealed class MirrorRenderHandler : IRenderHandler
         }
 
         if (cpuFirstSeenWarn)
-        {
             Log.Warn(
                 "[SpoutMirror] CPU 回退路径首次触发" +
                 "（OnPaint：GPU 共享纹理未生效）");
-        }
 
-        if (logEx != null)
-        {
-            Log.Error("[SpoutMirror] OnPaint 失败", logEx);
-        }
+        if (logEx != null) Log.Error("[SpoutMirror] OnPaint 失败", logEx);
     }
 
     public void OnAcceleratedPaint(PaintElementType type, Rect dirtyRect, AcceleratedPaintInfo info)
@@ -255,15 +240,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
             }
         }
 
-        if (ensureSharedTextureLog != null)
-        {
-            Log.Info(ensureSharedTextureLog);
-        }
+        if (ensureSharedTextureLog != null) Log.Info(ensureSharedTextureLog);
 
-        if (logEx != null)
-        {
-            Log.Error("[SpoutMirror] OnAcceleratedPaint 失败", logEx);
-        }
+        if (logEx != null) Log.Error("[SpoutMirror] OnAcceleratedPaint 失败", logEx);
     }
 
     // ====================================================================
@@ -335,10 +314,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
             _dxDevice = null!;
         }
 
-        foreach (var ex in logExs)
-        {
-            Log.Debug("Dispose object failed: " + ex);
-        }
+        foreach (var ex in logExs) Log.Debug("Dispose object failed: " + ex);
     }
 
     private void InitializeDirectX(
@@ -367,10 +343,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
     private void EnsureCpuTexture(int width, int height)
     {
-        if (_cpuTexture != null && _cpuTextureWidth == width && _cpuTextureHeight == height)
-        {
-            return;
-        }
+        if (_cpuTexture != null && _cpuTextureWidth == width && _cpuTextureHeight == height) return;
 
         _cpuTexture?.Dispose();
         var desc = new Texture2DDescription
@@ -395,9 +368,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
         var desc = source.Description;
         if (_sharedTexture != null && _sharedTextureWidth == desc.Width && _sharedTextureHeight == desc.Height &&
             _sharedTextureFormat == desc.Format)
-        {
             return null;
-        }
 
         _sharedTexture?.Dispose();
 

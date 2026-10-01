@@ -1,7 +1,6 @@
 <Window x:Class="JizuraLive.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:JizuraLive"
         xmlns:cef="clr-namespace:CefSharp.Wpf.HwndHost;assembly=CefSharp.Wpf"
         Title="字面 Live"
         Icon="pack://application:,,,/assets/app.ico"
@@ -18,30 +17,30 @@
                       ResizeBorderThickness="5"
                       GlassFrameThickness="0"
                       CornerRadius="0"
-                      UseAeroCaptionButtons="False"/>
+                      UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="36"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="36" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Height="36" Background="#FF151519"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
             <TextBlock Text="字面 Live"
                        VerticalAlignment="Center" Margin="14,0,0,0"
-                       FontSize="12" Opacity="0.65"/>
+                       FontSize="12" Opacity="0.65" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="BtnMin" Content="&#xE921;" Style="{StaticResource ChromeBtn}"
-                        FontFamily="Segoe MDL2 Assets" Click="BtnMin_Click" ToolTip="最小化"/>
+                        FontFamily="Segoe MDL2 Assets" Click="BtnMin_Click" ToolTip="最小化" />
                 <Button x:Name="BtnClose" Content="&#xE8BB;"
                         FontFamily="Segoe MDL2 Assets" Click="BtnClose_Click" ToolTip="退出">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource ChromeBtn}">
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Foreground" Value="White"/>
-                                    <Setter Property="Background" Value="#E5C42B1C"/>
+                                    <Setter Property="Foreground" Value="White" />
+                                    <Setter Property="Background" Value="#E5C42B1C" />
                                 </Trigger>
                             </Style.Triggers>
                         </Style>
@@ -52,7 +51,7 @@
         <!-- 四周留 5px 边框：CEF 是 Win32 句柄控件，若贴满边缘会把缩放热区整个盖住
              （鼠标消息进不了 WindowChrome 的命中测试），内缩后边缘归 WPF 才能拖拽缩放 -->
         <Grid Grid.Row="1" Margin="5" Background="#FF0F0F12">
-            <cef:ChromiumWebBrowser x:Name="Browser"/>
+            <cef:ChromiumWebBrowser x:Name="Browser" />
         </Grid>
     </Grid>
 </Window>

@@ -40,7 +40,10 @@ function previewTime(plan: any, g: string, now: number) {
   const c = plan.cuts[plan.cuts.length - 1];
   const u = now / 1000;
   if (g === 'enter') return c.start + ((u % 1.5) / 1.5) * Math.max(0.3, c.inDur);
-  if (g === 'exit') { const od = Math.max(0.3, c.outDur || 0.5); return c.end - od + ((u % 1.5) / 1.5) * od; }
+  if (g === 'exit') {
+    const od = Math.max(0.3, c.outDur || 0.5);
+    return c.end - od + ((u % 1.5) / 1.5) * od;
+  }
   if (g === 'trans') return c.start + ((u % 1.7) / 1.7) * (c.transDur || 0.35);
   if (g === 'fx') return (u % 1.05);
   const span = Math.max(1.6, c.dur * 0.96);
@@ -51,24 +54,30 @@ export function paintTechCanvas(cv: HTMLCanvasElement, g: string, k: string, t: 
   const plan = getPreviewPlan(g, k);
   const ctx = cv.getContext('2d')!;
   try {
-    previewR.frame(ctx, plan, t, { scale: cv.width / plan.W, fast: true, noHud: true, noGhost: g !== 'fx' });
+    previewR.frame(ctx, plan, t, {scale: cv.width / plan.W, fast: true, noHud: true, noGhost: g !== 'fx'});
   } catch {
-    ctx.fillStyle = '#131316'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#131316';
+    ctx.fillRect(0, 0, cv.width, cv.height);
   }
 }
 
 function ensureObs() {
   if (previewObs) return previewObs;
   previewObs = new IntersectionObserver((ents) => {
-    ents.forEach(e => { if (e.isIntersecting && e.intersectionRatio > 0) previewLive.add(e.target as HTMLCanvasElement); else previewLive.delete(e.target as HTMLCanvasElement); });
+    ents.forEach(e => {
+      if (e.isIntersecting && e.intersectionRatio > 0) previewLive.add(e.target as HTMLCanvasElement); else previewLive.delete(e.target as HTMLCanvasElement);
+    });
     kick();
-  }, { root: null, rootMargin: '40px 0px', threshold: [0, 0.12, 0.4] });
+  }, {root: null, rootMargin: '40px 0px', threshold: [0, 0.12, 0.4]});
   return previewObs;
 }
 
 export function resetWatch() {
   previewLive.clear();
-  if (previewObs) { previewObs.disconnect(); previewObs = null; }
+  if (previewObs) {
+    previewObs.disconnect();
+    previewObs = null;
+  }
 }
 
 /* 时间预算制 + 轮转：每轮最多花 BUDGET_MS 画预览卡，画不完的下轮从游标接着来——
@@ -92,7 +101,10 @@ function kick() {
     let drawn = 0;
     while (cursor < list.length) {
       const cv = list[cursor++];
-      if (!cv.isConnected) { previewLive.delete(cv); continue; }
+      if (!cv.isConnected) {
+        previewLive.delete(cv);
+        continue;
+      }
       const g = cv.dataset.g!, k = cv.dataset.k!;
       if (!g || !k) continue;
       paintTechCanvas(cv, g, k, previewTime(getPreviewPlan(g, k), g, performance.now()));
@@ -114,4 +126,6 @@ export function registerThumbs(list: HTMLElement) {
   kick();
 }
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden) kick(); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) kick();
+});

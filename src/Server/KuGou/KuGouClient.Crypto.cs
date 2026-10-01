@@ -76,14 +76,17 @@ public sealed partial class KuGouClient
         }
     }
 
-    private static string S(JObject o, string key) => o[key]?.ToString() ?? "";
+    private static string S(JObject o, string key)
+    {
+        return o[key]?.ToString() ?? "";
+    }
 
 
     private static JObject EnsureIdentity()
     {
         var st = KgState();
         var patch = new JObject();
-        string uuid = S(st, "uuid");
+        var uuid = S(st, "uuid");
         if (uuid.Length == 0)
         {
             uuid = Guid.NewGuid().ToString();
@@ -94,15 +97,15 @@ public sealed partial class KuGouClient
         if (S(st, "mid").Length == 0)
         {
             BigInteger midVal = 0;
-            foreach (char c in Md5(uuid)) midVal = midVal * 16 + (c <= '9' ? c - '0' : c - 'a' + 10);
-            string mid = midVal.ToString();
+            foreach (var c in Md5(uuid)) midVal = midVal * 16 + (c <= '9' ? c - '0' : c - 'a' + 10);
+            var mid = midVal.ToString();
             patch["mid"] = mid;
             st["mid"] = mid;
         }
 
         if (S(st, "dev").Length == 0)
         {
-            string dev = Md5(RandomKg(16));
+            var dev = Md5(RandomKg(16));
             patch["dev"] = dev;
             st["dev"] = dev;
         }
@@ -111,14 +114,16 @@ public sealed partial class KuGouClient
     }
 
 
-    private static string Md5(string s) =>
-        Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
+    private static string Md5(string s)
+    {
+        return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
+    }
 
     private static string RandomKg(int n)
     {
         const string cs = "1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ";
         var sb = new StringBuilder(n);
-        for (int i = 0; i < n; i++) sb.Append(cs[Random.Shared.Next(cs.Length)]);
+        for (var i = 0; i < n; i++) sb.Append(cs[Random.Shared.Next(cs.Length)]);
         return sb.ToString();
     }
 
@@ -126,18 +131,18 @@ public sealed partial class KuGouClient
     private static (string Url, string ClientTime) SignedUrl(
         string baseUrl, string urlPath, Dictionary<string, string> parameters, bool android, string data = "")
     {
-        string now = ((int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000)).ToString();
+        var now = ((int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000)).ToString();
         var q = new Dictionary<string, string>
         {
             ["dfid"] = "-", ["mid"] = "-", ["uuid"] = "-",
-            ["appid"] = AppId, ["clientver"] = ClientVer, ["clienttime"] = now,
+            ["appid"] = AppId, ["clientver"] = ClientVer, ["clienttime"] = now
         };
         foreach (var (k, v) in parameters) q[k] = v;
 
-        string salt = android ? AndroidSalt : WebSalt;
-        string plain = string.Concat(q.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => $"{k}={q[k]}"));
+        var salt = android ? AndroidSalt : WebSalt;
+        var plain = string.Concat(q.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => $"{k}={q[k]}"));
         q["signature"] = Md5($"{salt}{plain}{data}{salt}");
-        string qs = string.Join("&", q.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value)}"));
+        var qs = string.Join("&", q.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value)}"));
         return ($"{baseUrl}{urlPath}?{qs}", now);
     }
 
@@ -178,21 +183,21 @@ public sealed partial class KuGouClient
     private async Task<string> RegisterDevAsync(string token, long userid)
     {
         var st = EnsureIdentity();
-        string key6 = RandomKg(6).ToLowerInvariant();
-        string kmd5 = Md5(key6);
-        byte[] aesKey = Encoding.ASCII.GetBytes(kmd5[..16]);
-        byte[] aesIv = Encoding.ASCII.GetBytes(kmd5[16..32]);
+        var key6 = RandomKg(6).ToLowerInvariant();
+        var kmd5 = Md5(key6);
+        var aesKey = Encoding.ASCII.GetBytes(kmd5[..16]);
+        var aesIv = Encoding.ASCII.GetBytes(kmd5[16..32]);
 
-        string deviceJson = """
-                            {"availableRamSize":4983533568,"availableRomSize":48114719,"availableSDSize":48114717,"basebandVer":"","batteryLevel":100,"batteryStatus":3,"brand":"Redmi","buildSerial":"unknown","device":"marble","imei":"UUID","imsi":"","manufacturer":"Xiaomi","uuid":"UUID","accelerometer":false,"accelerometerValue":"","gravity":false,"gravityValue":"","gyroscope":false,"gyroscopeValue":"","light":false,"lightValue":"","magnetic":false,"magneticValue":"","orientation":false,"orientationValue":"","pressure":false,"pressureValue":"","step_counter":false,"step_counterValue":"","temperature":false,"temperatureValue":""}
-                            """.Replace("UUID", S(st, "uuid")).Replace("\r", "").Replace("\n", "");
-        string aesStr = AesCbc(aesKey, aesIv, deviceJson);
+        var deviceJson = """
+                         {"availableRamSize":4983533568,"availableRomSize":48114719,"availableSDSize":48114717,"basebandVer":"","batteryLevel":100,"batteryStatus":3,"brand":"Redmi","buildSerial":"unknown","device":"marble","imei":"UUID","imsi":"","manufacturer":"Xiaomi","uuid":"UUID","accelerometer":false,"accelerometerValue":"","gravity":false,"gravityValue":"","gyroscope":false,"gyroscopeValue":"","light":false,"lightValue":"","magnetic":false,"magneticValue":"","orientation":false,"orientationValue":"","pressure":false,"pressureValue":"","step_counter":false,"step_counterValue":"","temperature":false,"temperatureValue":""}
+                         """.Replace("UUID", S(st, "uuid")).Replace("\r", "").Replace("\n", "");
+        var aesStr = AesCbc(aesKey, aesIv, deviceJson);
 
         string portrait;
         using (var rsa = RSA.Create())
         {
             rsa.ImportFromPem(PubKeyPem);
-            string inner = $$"""{"aes":"{{key6}}","uid":{{userid}},"token":"{{token}}"}""";
+            var inner = $$"""{"aes":"{{key6}}","uid":{{userid}},"token":"{{token}}"}""";
             portrait = Convert.ToHexString(rsa.Encrypt(Encoding.UTF8.GetBytes(inner), RSAEncryptionPadding.Pkcs1))
                 .ToLowerInvariant();
         }
@@ -200,20 +205,20 @@ public sealed partial class KuGouClient
         var (url, clientTime) = SignedUrl("https://userservice.kugou.com", "/risk/v2/r_register_dev",
             new Dictionary<string, string>
             {
-                ["dfid"] = "-", ["mid"] = S(st, "mid"), ["part"] = "1", ["platid"] = "1", ["p"] = portrait,
-            }, android: true, data: aesStr);
+                ["dfid"] = "-", ["mid"] = S(st, "mid"), ["part"] = "1", ["platid"] = "1", ["p"] = portrait
+            }, true, aesStr);
 
         using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(aesStr) };
-        AddGatewayHeaders(req, dfid: "-", clientTime: clientTime, mid: S(st, "mid"));
+        AddGatewayHeaders(req, "-", clientTime, S(st, "mid"));
 
         using var cts = new CancellationTokenSource(20000);
         using var resp = await Http.SendAsync(req, cts.Token);
-        byte[] raw = await resp.Content.ReadAsByteArrayAsync(cts.Token);
+        var raw = await resp.Content.ReadAsByteArrayAsync(cts.Token);
         var body = JObject.Parse(AesCbcDec(aesKey, aesIv, raw));
-        string? dfid = body["data"]?["dfid"]?.ToString();
+        var dfid = body["data"]?["dfid"]?.ToString();
         if (string.IsNullOrEmpty(dfid))
         {
-            string rawJson = body.ToString(Formatting.None);
+            var rawJson = body.ToString(Formatting.None);
             throw new InvalidOperationException("register_dev 失败：" + rawJson[..Math.Min(200, rawJson.Length)]);
         }
 

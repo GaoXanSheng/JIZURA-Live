@@ -25,8 +25,8 @@ export async function codecNote() {
     ok: !!vc,
     label: vc ? vc.label : null,
     text: vc
-      ? `此浏览器将以 ${vc.label} 导出（${w}×${h} / ${S.project.fps}fps）。导出期间请保持页面打开。`
-      : '此浏览器不支持视频编码（WebCodecs）。请用最新版 Chrome / Edge 打开，或使用连号 PNG。',
+        ? `此浏览器将以 ${vc.label} 导出（${w}×${h} / ${S.project.fps}fps）。导出期间请保持页面打开。`
+        : '此浏览器不支持视频编码（WebCodecs）。请用最新版 Chrome / Edge 打开，或使用连号 PNG。',
   });
   return vc;
 }
@@ -100,9 +100,10 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
     try {
       const hnd = await (window as any).showSaveFilePicker({
         suggestedName: baseName() + rangeSuffix() + '.mp4',
-        types: [{ description: 'MP4', accept: { 'video/mp4': ['.mp4'] } }],
+        types: [{description: 'MP4', accept: {'video/mp4': ['.mp4']}}],
       });
-      file = await hnd.createWritable(); fileName = hnd.name;
+      file = await hnd.createWritable();
+      fileName = hnd.name;
     } catch (e: any) {
       if (e && e.name === 'AbortError') return;
       toast('无法打开保存位置：' + (e && e.message ? e.message : e));
@@ -110,12 +111,17 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
     }
   }
   pause();
-  const ac = new AbortController(); S.exporting = ac;
+  const ac = new AbortController();
+  S.exporting = ac;
   bus.emit('export-start');
   const onProgress = (p: number, m?: string) => bus.emit('export-progress', p * 100, m);
   bus.emit('export-progress', 0, '准备中…');
   let wake: any = null;
-  try { if ((navigator as any).wakeLock) wake = await (navigator as any).wakeLock.request('screen'); } catch { wake = null; }
+  try {
+    if ((navigator as any).wakeLock) wake = await (navigator as any).wakeLock.request('screen');
+  } catch {
+    wake = null;
+  }
   const t0 = performance.now();
   try {
     await ensureFonts();
@@ -186,11 +192,20 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
   } catch (e: any) {
     bus.emit('export-progress', 0, '错误: ' + (e && e.message ? e.message : e));
     console.error(e);
-    if (file) { try { await file.abort(); } catch {} }
+    if (file) {
+      try {
+        await file.abort();
+      } catch {
+      }
+    }
   } finally {
-    S.exporting = null; S.need = true;
+    S.exporting = null;
+    S.need = true;
     bus.emit('export-end');
-    try { if (wake) await wake.release(); } catch {}
+    try {
+      if (wake) await wake.release();
+    } catch {
+    }
     codecNote();
   }
 }
@@ -198,10 +213,14 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
 /* 手机：分享面板是进相册/文件的可靠途径 */
 function offerShare(blob: Blob, name: string) {
   let f: File | null = null;
-  try { f = new File([blob], name, { type: blob.type || 'video/mp4' }); } catch { return; }
+  try {
+    f = new File([blob], name, {type: blob.type || 'video/mp4'});
+  } catch {
+    return;
+  }
   const nav = navigator as any;
-  if (!nav.canShare || !nav.share || !nav.canShare({ files: [f] })) return;
-  bus.emit('export-share', { file: f, name });
+  if (!nav.canShare || !nav.share || !nav.canShare({files: [f]})) return;
+  bus.emit('export-share', {file: f, name});
 }
 
 /* 输出参数同步 + 广播（组件监听 'out' 事件刷新表单） */
@@ -209,9 +228,24 @@ function syncOut() {
   bus.emit('out');
 }
 
-export function setAspect(v: string) { S.project.aspect = v; syncOut(); invalidateFontKey(); replan(); }
-export function setRes(v: number) { S.project.res = v; syncOut(); autosave(); }
-export function setFps(v: number) { S.project.fps = v; syncOut(); replan(); }
+export function setAspect(v: string) {
+  S.project.aspect = v;
+  syncOut();
+  invalidateFontKey();
+  replan();
+}
+
+export function setRes(v: number) {
+  S.project.res = v;
+  syncOut();
+  autosave();
+}
+
+export function setFps(v: number) {
+  S.project.fps = v;
+  syncOut();
+  replan();
+}
 
 /* AE 工程 JSON：完整烤熟的 plan（v2，含每个切分的手法/参数/时间、events、
    字体表与语言映射、AE_MAP 对照表——本 fork 新增条目由它映射到最近似原版手法）。
@@ -223,19 +257,40 @@ export async function exportAeJson() {
     await J.saveFile(baseName() + rangeSuffix() + '_ae.json', new Blob([JSON.stringify(data, null, 1)], {type: 'application/json'}));
     toast('已导出 AE 工程 JSON：在 AE 中运行 JIZURA_AE.jsx 后选择该文件');
 }
-export function setQuality(v: string) { S.project.quality = v; autosave(); }
+
+export function setQuality(v: string) {
+  S.project.quality = v;
+  autosave();
+}
+
 export function setKeyBg(v: string) {
-  S.project.keyBg = v; syncOut(); bus.emit('sync-ui'); replan(); flushSave();
+  S.project.keyBg = v;
+  syncOut();
+  bus.emit('sync-ui');
+  replan();
+  flushSave();
   const k = J.keyMode(S.project);
   toast(k ? `背景：${k === 'green' ? '绿幕' : '黑幕'}（只有白色文字与演出）` : '背景：常规（风格配色）');
 }
-export function setIncludeAudio(v: boolean) { S.project.includeAudio = v; autosave(); }
+
+export function setIncludeAudio(v: boolean) {
+  S.project.includeAudio = v;
+  autosave();
+}
+
 export function setCenterFree(v: boolean) {
-  S.project.centerFree = v; syncOut(); replan(); flushSave();
+  S.project.centerFree = v;
+  syncOut();
+  replan();
+  flushSave();
   const tall = S.plan.H > S.plan.W * 1.1 && S.project.centerDir !== 'lr';
   toast(v ? `已留空中央：文字与演出置于${tall ? '上下' : '左右'}` : '已取消留空中央');
 }
+
 export function setCenterDir(v: string) {
-  S.project.centerDir = v; syncOut(); replan(); flushSave();
+  S.project.centerDir = v;
+  syncOut();
+  replan();
+  flushSave();
   toast(v === 'lr' ? '竖屏画面：左右分列' : '竖屏画面：上下分列');
 }

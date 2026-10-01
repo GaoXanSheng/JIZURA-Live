@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 /* 时间轴（原 12_ui.js timeline 体系）：三块独立 canvas，各画各的、各自可单独探查——
    上条 = 视图滑动条（缩放后左右平移可视窗口）
    中条 = 播放头条（拖动定位，自由、不吸附）
@@ -43,18 +43,23 @@ function fitCanvas(cv: HTMLCanvasElement): { w: number; h: number; dpr: number }
 function tlView() {
   const D = Math.max(0.001, S.plan.duration), vd = D / TL.z;
   TL.off = J.clamp(TL.off, 0, Math.max(0, D - vd));
-  return { D, vd, off: TL.off };
+  return {D, vd, off: TL.off};
 }
+
 function tlZoom(f: number, tc?: number) {
-  const { D, vd } = tlView();
+  const {D, vd} = tlView();
   const z = J.clamp(TL.z * f, 1, Math.max(1, D / 2));
   const c = tc == null ? S.t : tc, frac = (c - TL.off) / vd;
-  TL.z = z; TL.off = c - frac * (D / z); tlView(); drawTimeline();
+  TL.z = z;
+  TL.off = c - frac * (D / z);
+  tlView();
+  drawTimeline();
 }
+
 /* 放大播放时，播放头离开可视区就重绘（视图跟随） */
 function followTlPlayhead() {
   if (!(TL.z > 1) || TL.drag >= 0) return;
-  const { vd, off } = tlView();
+  const {vd, off} = tlView();
   if (S.t < off || S.t > off + vd * 0.92) drawTimeline();
 }
 
@@ -197,10 +202,14 @@ function drawPlayheadLine(x: CanvasRenderingContext2D, w: number, h: number, dpr
 }
 
 function drawTimeline() {
-  const c = canvas.value; if (!c || !S.plan) return;
+  const c = canvas.value;
+  if (!c || !S.plan) return;
   const {w, h, dpr} = fitCanvas(c);
-  let { D, vd, off } = tlView();
-  if (TL.z > 1 && S.playing && TL.drag < 0 && (S.t < off || S.t > off + vd * 0.92)) { TL.off = S.t - vd * 0.1; ({ D, vd, off } = tlView()); }
+  let {D, vd, off} = tlView();
+  if (TL.z > 1 && S.playing && TL.drag < 0 && (S.t < off || S.t > off + vd * 0.92)) {
+    TL.off = S.t - vd * 0.1;
+    ({D, vd, off} = tlView());
+  }
   if (!tlStatic || tlStatic.width !== w || tlStatic.height !== h) {
     tlStatic = document.createElement('canvas');
     tlStatic.width = w;
@@ -238,7 +247,8 @@ function tlFrame() {
 
 function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, vd: number, off: number, D: number) {
   const X = (t: number) => (t - off) / vd * w, T = (px: number) => off + px / w * vd;
-  x.fillStyle = '#131316'; x.fillRect(0, 0, w, h);
+  x.fillStyle = '#131316';
+  x.fillRect(0, 0, w, h);
   // 行界（最上带）：刻度线 + 三角手柄 + 行号
   const mono = getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
   const top = 16 * dpr, bot = h - 8 * dpr;
@@ -275,26 +285,41 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
   // 节拍刻度（底缘）
   const beats: number[] = S.plan.beats || [];
   x.fillStyle = '#3a3a44';
-  for (const b of beats) { if (b < off) continue; if (b > off + vd) break; x.fillRect(Math.round(X(b)), h - 6 * dpr, 1, 6 * dpr); }
+  for (const b of beats) {
+    if (b < off) continue;
+    if (b > off + vd) break;
+    x.fillRect(Math.round(X(b)), h - 6 * dpr, 1, 6 * dpr);
+  }
   // 导出范围底色 + 切分块
   const R = exportRange();
-  if (R) { x.fillStyle = 'rgba(245,165,12,0.10)'; x.fillRect(X(R.t0), 0, X(R.t1) - X(R.t0), h); }
+  if (R) {
+    x.fillStyle = 'rgba(245,165,12,0.10)';
+    x.fillRect(X(R.t0), 0, X(R.t1) - X(R.t0), h);
+  }
   for (const cut of S.plan.cuts) {
     const x0 = X(cut.start), x1 = X(cut.end);
     if (x1 < 0 || x0 > w) continue;
     const hue = layoutHue(cut.layout);
-    x.fillStyle = `hsla(${hue},70%,58%,0.28)`; x.fillRect(x0, top, Math.max(1, x1 - x0 - 1), bot - top);
-    x.fillStyle = `hsla(${hue},80%,62%,0.95)`; x.fillRect(x0, top, Math.max(1, 2 * dpr), bot - top);
+    x.fillStyle = `hsla(${hue},70%,58%,0.28)`;
+    x.fillRect(x0, top, Math.max(1, x1 - x0 - 1), bot - top);
+    x.fillStyle = `hsla(${hue},80%,62%,0.95)`;
+    x.fillRect(x0, top, Math.max(1, 2 * dpr), bot - top);
     if (x1 - x0 > 34 * dpr) {
       x.fillStyle = 'rgba(236,231,225,0.85)';
       x.font = `${10 * dpr}px ${mono}`;
-      x.save(); x.beginPath(); x.rect(x0, top, x1 - x0 - 3, bot - top); x.clip();
-      x.fillText(TL.z > 3 && cut.text ? cut.text : ((J.LAYOUTS[cut.layout] || {}).name || cut.layout), x0 + 5 * dpr, top + 13 * dpr); x.restore();
+      x.save();
+      x.beginPath();
+      x.rect(x0, top, x1 - x0 - 3, bot - top);
+      x.clip();
+      x.fillText(TL.z > 3 && cut.text ? cut.text : ((J.LAYOUTS[cut.layout] || {}).name || cut.layout), x0 + 5 * dpr, top + 13 * dpr);
+      x.restore();
     }
   }
   if (TL.z > 1) {
-    x.fillStyle = 'rgba(255,255,255,0.18)'; x.fillRect(0, h - 2 * dpr, w, 2 * dpr);
-    x.fillStyle = '#f5a50c'; x.fillRect(off / D * w, h - 2 * dpr, Math.max(4, vd / D * w), 2 * dpr);
+    x.fillStyle = 'rgba(255,255,255,0.18)';
+    x.fillRect(0, h - 2 * dpr, w, 2 * dpr);
+    x.fillStyle = '#f5a50c';
+    x.fillRect(off / D * w, h - 2 * dpr, Math.max(4, vd / D * w), 2 * dpr);
   }
   if (S.loop === 'line' || S.loop === 'cut') {
     const r = activeLoopRange();
@@ -305,30 +330,49 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
 
 /* 指针下的行界手柄（切分块上带 ±7px） */
 function tlHandleAt(ev: { clientX: number; clientY: number }) {
-  const c = canvas.value!, r = c.getBoundingClientRect(), { vd, off } = tlView();
+  const c = canvas.value!, r = c.getBoundingClientRect(), {vd, off} = tlView();
   if (ev.clientY - r.top > r.height * 0.4) return -1;
   let best = -1, bd = 8;
-  for (const ln of S.plan.lines) { const d = Math.abs((ln.start - off) / vd * r.width - (ev.clientX - r.left)); if (d < bd) { bd = d; best = ln.index; } }
+  for (const ln of S.plan.lines) {
+    const d = Math.abs((ln.start - off) / vd * r.width - (ev.clientX - r.left));
+    if (d < bd) {
+      bd = d;
+      best = ln.index;
+    }
+  }
   return best;
 }
+
 function tlDragTo(i: number, ev: { clientX: number; shiftKey: boolean }) {
   let t = tlTimeOf(ev, canvas.value!.getBoundingClientRect());
   if (!ev.shiftKey && S.plan.beats && S.plan.beats.length) {   // 吸附最近节拍（Shift：自由）
     let bt: number | null = null, bd = 0.12;
-    for (const b of S.plan.beats) { const d = Math.abs(b - t); if (d < bd) { bd = d; bt = b; } if (b > t + 0.2) break; }
+    for (const b of S.plan.beats) {
+      const d = Math.abs(b - t);
+      if (d < bd) {
+        bd = d;
+        bt = b;
+      }
+      if (b > t + 0.2) break;
+    }
     if (bt != null) t = bt;
   }
-  const L = S.plan.lines, lo = i > 0 ? L[i - 1].start + 0.2 : 0, hi = i < L.length - 1 ? L[i + 1].start - 0.2 : S.plan.duration - 0.2;
+  const L = S.plan.lines, lo = i > 0 ? L[i - 1].start + 0.2 : 0,
+      hi = i < L.length - 1 ? L[i + 1].start - 0.2 : S.plan.duration - 0.2;
   t = +J.clamp(t, lo, Math.max(lo, hi)).toFixed(3);
   if (!S.project.timing.lineTimes) S.project.timing.lineTimes = {};
   // 一并钉住相邻行界，移动一个不会带动后面的行
-  L.forEach((ln: any) => { if (S.project.timing.lineTimes[ln.index] == null) S.project.timing.lineTimes[ln.index] = +ln.start.toFixed(3); });
+  L.forEach((ln: any) => {
+    if (S.project.timing.lineTimes[ln.index] == null) S.project.timing.lineTimes[ln.index] = +ln.start.toFixed(3);
+  });
   S.project.timing.lineTimes[i] = t;
-  replan(); seek(t + 0.001);
+  replan();
+  seek(t + 0.001);
 }
 
 /* ---- 指针交互（下条本体） ---- */
 let scrubDrag = false, dragRaf = 0;
+
 function onDown(e: PointerEvent) {
   const c = canvas.value!;
   try {
@@ -345,11 +389,21 @@ function onDown(e: PointerEvent) {
       return;
     }
   }
-  scrubDrag = true; timelineSeek(e);
+  scrubDrag = true;
+  timelineSeek(e);
 }
+
 function onMove(e: PointerEvent) {
-  if (TL.drag >= 0) { const ev = { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey }; cancelAnimationFrame(dragRaf); dragRaf = requestAnimationFrame(() => tlDragTo(TL.drag, ev)); return; }
-  if (scrubDrag) { timelineSeek(e); return; }
+  if (TL.drag >= 0) {
+    const ev = {clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey};
+    cancelAnimationFrame(dragRaf);
+    dragRaf = requestAnimationFrame(() => tlDragTo(TL.drag, ev));
+    return;
+  }
+  if (scrubDrag) {
+    timelineSeek(e);
+    return;
+  }
   const hv: Hover = !(S.tap || S.exporting) ? tlHandleAt(e) : -1;
   if (hv !== TL.hover) {
     TL.hover = hv;
@@ -357,23 +411,37 @@ function onMove(e: PointerEvent) {
     drawTimeline();
   }
 }
+
 function endDrag() {
-  if (TL.drag >= 0) { TL.drag = -1; flushSave(); bus.emit('replan-sync'); drawTimeline(); }
+  if (TL.drag >= 0) {
+    TL.drag = -1;
+    flushSave();
+    bus.emit('replan-sync');
+    drawTimeline();
+  }
   scrubDrag = false;
 }
+
 function onLeave() {
   if (TL.hover !== -1 && TL.drag < 0) {
     TL.hover = -1;
     drawTimeline();
   }
 }
+
 function onWheel(e: WheelEvent) {
   e.preventDefault();
-  const { vd } = tlView();
-  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) { TL.off += (e.shiftKey ? e.deltaY : e.deltaX) / canvas.value!.clientWidth * vd; tlView(); drawTimeline(); } else tlZoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), tlTimeOf(e, canvas.value!.getBoundingClientRect()));
+  const {vd} = tlView();
+  if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    TL.off += (e.shiftKey ? e.deltaY : e.deltaX) / canvas.value!.clientWidth * vd;
+    tlView();
+    drawTimeline();
+  } else tlZoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), tlTimeOf(e, canvas.value!.getBoundingClientRect()));
 }
 
-function undoEdit() { edGo(-1); }
+function undoEdit() {
+  edGo(-1);
+}
 
 onMounted(() => {
   offs.push(bus.on('frame', tlFrame));

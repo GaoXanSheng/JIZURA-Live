@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 /* 行与切分列表（原 12_ui.js renderLines 的 Vue 化）
    行本体在 LineRow.vue：跨行只重渲新旧两行，replan 时才全量重建行数据。
 
@@ -34,7 +34,10 @@ const win = ref({from: 0, to: 0, top: 0, bottom: 0});
 let rafId = 0;
 
 function rebuild() {
-  if (!S.plan) { rows.value = []; return; }
+  if (!S.plan) {
+    rows.value = [];
+    return;
+  }
   const ov = S.project.overrides, R = exportRangeCuts();
   // 每行的切分序号区间（导出范围按切分算：行命中 = 它的切分与范围相交）
   const span: Record<number, [number, number]> = {};
@@ -48,15 +51,15 @@ function rebuild() {
     const manual = S.project.timing.lineTimes && S.project.timing.lineTimes[i] != null;
     const label = ln.interlude ? `〔间奏${ln.secs ? ' ' + ln.secs + '秒' : ''}〕` : ln.text;
     const cuts = S.plan.cuts
-      .filter((c: any) => c.line === i && J.LAYOUTS[c.layout] && !J.LAYOUTS[c.layout].special)
-      .map((c: any, k: number) => ({
-        k, layout: c.layout,
-        forced: (o.cutLayouts && (o.cutLayouts[k] ?? o.cutLayouts[String(k)])) || null,
-        hue: layoutHue(c.layout),
-        title: `${c.text}｜${J.ENTER[c.enter].name} → ${J.EXIT[c.exit].name}`,
-        start: c.start,
-        half: Math.min(c.dur * 0.5, c.inDur + 0.05),
-      }));
+        .filter((c: any) => c.line === i && J.LAYOUTS[c.layout] && !J.LAYOUTS[c.layout].special)
+        .map((c: any, k: number) => ({
+          k, layout: c.layout,
+          forced: (o.cutLayouts && (o.cutLayouts[k] ?? o.cutLayouts[String(k)])) || null,
+          hue: layoutHue(c.layout),
+          title: `${c.text}｜${J.ENTER[c.enter].name} → ${J.EXIT[c.exit].name}`,
+          start: c.start,
+          half: Math.min(c.dur * 0.5, c.inDur + 0.05),
+        }));
     const sp = span[i];
     return {
       i, no: String(i + 1).padStart(2, '0'),
@@ -168,7 +171,9 @@ watch(rows, async () => {
 
 <template>
   <div class="sec">
-    <div class="sec-h"><span class="sec-title">行与切分</span><span class="font-mono text-mut text-[11px]">{{ infoText }}</span></div>
+    <div class="sec-h"><span class="sec-title">行与切分</span><span class="font-mono text-mut text-[11px]">{{
+        infoText
+      }}</span></div>
     <ol ref="listEl" class="list-none m-0 p-0 grid gap-1.5">
       <li v-if="win.top > 0" :style="{ height: win.top + 'px' }" aria-hidden="true"></li>
       <LineRow v-for="r in rows.slice(win.from, win.to)" :key="r.i" :active="ed.curLine === r.i" :row="r"/>

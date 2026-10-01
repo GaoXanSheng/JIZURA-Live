@@ -33,19 +33,19 @@ public sealed class AppDownloadHandler : IDownloadHandler
         if (callback == null)
             return false;
 
-        string suggested =
+        var suggested =
             string.IsNullOrWhiteSpace(downloadItem.SuggestedFileName)
                 ? "download"
                 : downloadItem.SuggestedFileName;
 
         Log.Info($"浏览器下载请求：{suggested}");
 
-        string downloads =
+        var downloads =
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Downloads");
 
-        string ext = Path.GetExtension(suggested);
+        var ext = Path.GetExtension(suggested);
 
         // 回调来自 CEF 线程：Win32 对话框有线程亲和性，
         // 必须在 UI 线程上"创建并显示"，否则抛
@@ -55,7 +55,6 @@ public sealed class AppDownloadHandler : IDownloadHandler
 
         var app = Application.Current;
         if (app?.Dispatcher != null)
-        {
             app.Dispatcher.Invoke(() =>
             {
                 var dlg = new SaveFileDialog
@@ -67,13 +66,12 @@ public sealed class AppDownloadHandler : IDownloadHandler
                     Filter = string.IsNullOrEmpty(ext)
                         ? "所有文件|*.*"
                         : $"文件|*{ext}|所有文件|*.*",
-                    AddExtension = true,
+                    AddExtension = true
                 };
 
                 if (dlg.ShowDialog() == true)
                     path = dlg.FileName;
             });
-        }
 
         if (string.IsNullOrEmpty(path))
         {

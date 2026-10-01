@@ -14,7 +14,8 @@ async function restoreFonts() {
   const list = S.project.userFonts || [];
   if (!list.length) return;
   const missing = await J.restoreUserFonts(list);
-  invalidateFontKey(); replan();
+  invalidateFontKey();
+  replan();
   if (missing.length) look.toast(`导入的字体（${missing.join('・')}）不在此浏览器中，请在「字体」里重新载入（此前以近似字体显示）`);
 }
 
@@ -23,16 +24,41 @@ function bindKeys() {
     const tag = (e.target && (e.target as HTMLElement).tagName) || '';
     const typing = /INPUT|TEXTAREA|SELECT/.test(tag) && (e.target as HTMLInputElement).type !== 'range' && (e.target as HTMLInputElement).type !== 'checkbox';
     const dialogOpen = !!document.querySelector('dialog[open], .jl-modal-open');
-    if (S.tap && (e.code === 'Space' || e.code === 'Enter') && !typing) { e.preventDefault(); look.tapNow(); return; }
-    if (S.tap && e.code === 'Escape') { pause(); look.stopTap(); return; }
-    if (S.tap && e.code === 'Backspace' && !typing) { e.preventDefault(); look.tapBack(); return; }
-    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !typing && !S.tap) { e.preventDefault(); look.edGo(e.shiftKey ? 1 : -1); return; }
-    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY' && !typing && !S.tap) { e.preventDefault(); look.edGo(1); return; }
+    if (S.tap && (e.code === 'Space' || e.code === 'Enter') && !typing) {
+      e.preventDefault();
+      look.tapNow();
+      return;
+    }
+    if (S.tap && e.code === 'Escape') {
+      pause();
+      look.stopTap();
+      return;
+    }
+    if (S.tap && e.code === 'Backspace' && !typing) {
+      e.preventDefault();
+      look.tapBack();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ' && !typing && !S.tap) {
+      e.preventDefault();
+      look.edGo(e.shiftKey ? 1 : -1);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY' && !typing && !S.tap) {
+      e.preventDefault();
+      look.edGo(1);
+      return;
+    }
     if (typing || dialogOpen) return;
-    if (e.code === 'Space') { e.preventDefault(); S.playing ? pause() : play(); }
-    else if (e.code === 'ArrowRight') seek(S.t + (e.shiftKey ? 1 : 1 / S.plan.fps));
+    if (e.code === 'Space') {
+      e.preventDefault();
+      S.playing ? pause() : play();
+    } else if (e.code === 'ArrowRight') seek(S.t + (e.shiftKey ? 1 : 1 / S.plan.fps));
     else if (e.code === 'ArrowLeft') seek(S.t - (e.shiftKey ? 1 : 1 / S.plan.fps));
-    else if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey && !e.altKey && !S.exporting) { e.preventDefault(); look.omakase(); }
+    else if (e.code === 'KeyR' && !e.metaKey && !e.ctrlKey && !e.altKey && !S.exporting) {
+      e.preventDefault();
+      look.omakase();
+    }
   });
 }
 
@@ -69,7 +95,7 @@ export function boot() {
     loadAudioFile,
     restartPreview: look.restartPreview,
     exportRange: look.exportRange,
-      exportRangeCuts: look.exportRangeCuts,
+    exportRangeCuts: look.exportRangeCuts,
   };
   bus.emit('booted');
 }

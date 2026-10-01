@@ -1,8 +1,8 @@
 /* 编辑器响应式镜像：引擎运行时(S)是普通对象，这里存放 UI 需要的响应式投影。
    组件读这里，动作走 jizura/* 模块；高频帧数据由组件按需订阅 bus。 */
-import { defineStore } from 'pinia';
-import { S } from '../jizura/state';
-import { J } from '../engine';
+import {defineStore} from 'pinia';
+import {S} from '../jizura/state';
+import {J} from '../engine';
 
 export const useEditor = defineStore('editor', {
   state: () => ({

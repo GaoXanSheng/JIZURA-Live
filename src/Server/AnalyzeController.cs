@@ -8,22 +8,22 @@ using Newtonsoft.Json;
 namespace JizuraLive.Server;
 
 /// <summary>
-/// POST /api/analyze —— 音频节拍分析。
-/// 请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道 PCM]。
-/// 前端 decode 后把单声道 22kHz 采样发过来，数值计算在 C# 完成，
-/// 浏览器主线程零重活（不再有载入歌曲时的 UI 卡顿）。
+///     POST /api/analyze —— 音频节拍分析。
+///     请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道 PCM]。
+///     前端 decode 后把单声道 22kHz 采样发过来，数值计算在 C# 完成，
+///     浏览器主线程零重活（不再有载入歌曲时的 UI 卡顿）。
 /// </summary>
 internal sealed class AnalyzeController : WebApiController
 {
     /// <summary>
-    /// POST /api/analyze/file —— 整文件分析（原始 mp3/flac/m4a/wav 字节直传）。
-    /// C# 端 NAudio 解码 + 重采样 + 分析，前端不再做 OfflineAudioContext 重采样
-    /// 和 40MB 单声道 PCM 的拷贝/上传（载入歌曲时的主线程冻结源）。
+    ///     POST /api/analyze/file —— 整文件分析（原始 mp3/flac/m4a/wav 字节直传）。
+    ///     C# 端 NAudio 解码 + 重采样 + 分析，前端不再做 OfflineAudioContext 重采样
+    ///     和 40MB 单声道 PCM 的拷贝/上传（载入歌曲时的主线程冻结源）。
     /// </summary>
     [Route(HttpVerbs.Post, "/api/analyze/file")]
     public async Task AnalyzeFile()
     {
-        long len = Request.ContentLength64;
+        var len = Request.ContentLength64;
         if (len < 128 || len > 512 * 1024 * 1024)
         {
             Response.StatusCode = 400;
@@ -65,7 +65,7 @@ internal sealed class AnalyzeController : WebApiController
                     energyRate = result.EnergyRate,
                     peaks = result.Peaks,
                     pitch = result.Pitch,
-                    pitchRate = result.PitchRate,
+                    pitchRate = result.PitchRate
                 }),
                 "application/json; charset=utf-8", Encoding.UTF8);
         }
@@ -91,7 +91,7 @@ internal sealed class AnalyzeController : WebApiController
     public async Task Analyze()
     {
         // 按声明长度一次读满，免去 MemoryStream+ToArray 的双重复制（长曲 payload 20MB+）
-        long len = Request.ContentLength64;
+        var len = Request.ContentLength64;
         if (len < 12 || len > 512 * 1024 * 1024)
         {
             Response.StatusCode = 400;
@@ -111,7 +111,7 @@ internal sealed class AnalyzeController : WebApiController
             return;
         }
 
-        double duration = mono.Length / (double)sampleRate;
+        var duration = mono.Length / (double)sampleRate;
         var result = AudioAnalyzer.Analyze(mono, sampleRate, duration);
 
         await HttpContext.SendStringAsync(
@@ -124,7 +124,7 @@ internal sealed class AnalyzeController : WebApiController
                 energyRate = result.EnergyRate,
                 peaks = result.Peaks,
                 pitch = result.Pitch,
-                pitchRate = result.PitchRate,
+                pitchRate = result.PitchRate
             }),
             "application/json; charset=utf-8", Encoding.UTF8);
     }

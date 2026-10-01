@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script lang="ts" setup>
 import {onMounted, onUnmounted, ref} from 'vue';
 import {useEditor} from '../stores/editor';
 import {bus} from '../jizura/bus';
@@ -35,8 +35,13 @@ onMounted(() => {
   // 播放头平滑由 TimelineCanvas 直读 S.t 保证
   offs.push(bus.on('replan', () => ed.syncPlan()));
   offs.push(bus.on('replan-sync', () => ed.syncPlan()));
-  offs.push(bus.on('curline', (li: number) => { ed.curLine = li; }));
-  offs.push(bus.on('booted', () => { booted.value = true; ed.syncAll(); }));
+  offs.push(bus.on('curline', (li: number) => {
+    ed.curLine = li;
+  }));
+  offs.push(bus.on('booted', () => {
+    booted.value = true;
+    ed.syncAll();
+  }));
   booted.value = true;
   ed.syncAll();
 });
@@ -45,27 +50,34 @@ onUnmounted(() => offs.forEach(f => f()));
 
 <template>
   <div class="app flex flex-col h-full">
-    <TopBar />
-    <main class="work flex-1 grid grid-cols-[minmax(280px,340px)_minmax(0,1fr)_minmax(300px,370px)] min-h-0 max-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[760px]:grid-cols-[minmax(0,1fr)]">
-      <section class="flex flex-col min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-panel border-r border-line max-[760px]:border-r-0 max-[760px]:border-t max-[760px]:border-line" aria-label="歌词与时间">
-        <TapPanel />
-        <LyricsPanel />
-        <AudioPanel />
-        <LineList />
+    <TopBar/>
+    <main
+        class="work flex-1 grid grid-cols-[minmax(280px,340px)_minmax(0,1fr)_minmax(300px,370px)] min-h-0 max-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-[760px]:grid-cols-[minmax(0,1fr)]">
+      <section
+          aria-label="歌词与时间"
+          class="flex flex-col min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-panel border-r border-line max-[760px]:border-r-0 max-[760px]:border-t max-[760px]:border-line">
+        <TapPanel/>
+        <LyricsPanel/>
+        <AudioPanel/>
+        <LineList/>
       </section>
-      <section class="col-stage flex flex-col gap-2.5 px-4 py-3 min-w-0 min-h-0 overflow-hidden max-[1180px]:overflow-y-auto max-[1180px]:[grid-column:1/-1] max-[1180px]:[order:-1]" aria-label="预览">
-        <StageCanvas />
-        <Transport />
-        <TimelineCanvas />
-        <CutInfo />
+      <section
+          aria-label="预览"
+          class="col-stage flex flex-col gap-2.5 px-4 py-3 min-w-0 min-h-0 overflow-hidden max-[1180px]:overflow-y-auto max-[1180px]:[grid-column:1/-1] max-[1180px]:[order:-1]">
+        <StageCanvas/>
+        <Transport/>
+        <TimelineCanvas/>
+        <CutInfo/>
       </section>
-      <section class="flex flex-col min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-panel border-l border-line max-[1180px]:border-l-0 max-[760px]:border-l-0 max-[760px]:border-t max-[760px]:border-line" aria-label="风格与导出">
-        <RightPanel />
+      <section
+          aria-label="风格与导出"
+          class="flex flex-col min-w-0 min-h-0 overflow-y-auto overscroll-contain bg-panel border-l border-line max-[1180px]:border-l-0 max-[760px]:border-l-0 max-[760px]:border-t max-[760px]:border-line">
+        <RightPanel/>
       </section>
     </main>
-    <CloudMusicModal />
-    <Dialogs />
+    <CloudMusicModal/>
+    <Dialogs/>
     <DevPerfPanel/>
-    <ToastHost />
+    <ToastHost/>
   </div>
 </template>

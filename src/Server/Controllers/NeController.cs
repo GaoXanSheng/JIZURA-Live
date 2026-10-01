@@ -11,7 +11,7 @@ public sealed class NeController : WebApiController
     public async Task<KgSearchResponse> Search(
         [QueryField("kw")] string? kw, [QueryField("page")] string? page)
     {
-        int p = Math.Max(1, int.TryParse(page, out var v) ? v : 1);
+        var p = Math.Max(1, int.TryParse(page, out var v) ? v : 1);
         return await ServerContext.Netease.SearchAsync(kw ?? "", p);
     }
 
@@ -24,30 +24,50 @@ public sealed class NeController : WebApiController
     }
 
     [Route(HttpVerbs.Get, "/api/ne/lyric")]
-    public Task<KgLyricResponse> Lyric([QueryField("id")] string? id) =>
-        ServerContext.Netease.GetLyricAsync(id);
+    public Task<KgLyricResponse> Lyric([QueryField("id")] string? id)
+    {
+        return ServerContext.Netease.GetLyricAsync(id);
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/qr")]
-    public Task<KgQrResponse> Qr() => ServerContext.Netease.QrAsync();
+    public Task<KgQrResponse> Qr()
+    {
+        return ServerContext.Netease.QrAsync();
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/playlists")]
-    public Task<PlaylistsResponse> Playlists() => ServerContext.Netease.MyPlaylistsAsync();
+    public Task<PlaylistsResponse> Playlists()
+    {
+        return ServerContext.Netease.MyPlaylistsAsync();
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/playlist")]
-    public Task<KgSearchResponse> Playlist([QueryField("id")] string? id) =>
-        ServerContext.Netease.PlaylistSongsAsync(id);
+    public Task<KgSearchResponse> Playlist([QueryField("id")] string? id)
+    {
+        return ServerContext.Netease.PlaylistSongsAsync(id);
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/qr/check")]
-    public Task<KgQrCheckResponse> QrCheck([QueryField("key")] string? key) =>
-        ServerContext.Netease.QrCheckAsync(key ?? "");
+    public Task<KgQrCheckResponse> QrCheck([QueryField("key")] string? key)
+    {
+        return ServerContext.Netease.QrCheckAsync(key ?? "");
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/login")]
-    public KgLoginResponse Login() => ServerContext.Netease.LoginState();
+    public KgLoginResponse Login()
+    {
+        return ServerContext.Netease.LoginState();
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/logout")]
-    public KgLoginResponse Logout() => ServerContext.Netease.Logout();
+    public KgLoginResponse Logout()
+    {
+        return ServerContext.Netease.Logout();
+    }
 
     [Route(HttpVerbs.Get, "/api/ne/audio")]
-    public Task Audio([QueryField("u")] string? target) =>
-        AudioProxy.StreamAsync(HttpContext, ServerContext.Netease.Http, target);
+    public Task Audio([QueryField("u")] string? target)
+    {
+        return AudioProxy.StreamAsync(HttpContext, ServerContext.Netease.Http, target);
+    }
 }

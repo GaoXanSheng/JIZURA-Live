@@ -77,10 +77,15 @@ public sealed partial class NeteaseClient
         }
     }
 
-    private static string S(JObject o, string key) => o[key]?.ToString() ?? "";
+    private static string S(JObject o, string key)
+    {
+        return o[key]?.ToString() ?? "";
+    }
 
-    private static string Md5Hex(string s) =>
-        Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
+    private static string Md5Hex(string s)
+    {
+        return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
+    }
 
     /* ---------- weapi ---------- */
 
@@ -92,15 +97,15 @@ public sealed partial class NeteaseClient
         aes.Mode = CipherMode.CBC;
         aes.Padding = PaddingMode.PKCS7;
         using var enc = aes.CreateEncryptor();
-        byte[] b = Encoding.UTF8.GetBytes(plain);
+        var b = Encoding.UTF8.GetBytes(plain);
         return enc.TransformFinalBlock(b, 0, b.Length);
     }
 
     // 大端字节块 → 正 BigInteger（前补 0x00 防止符号位）
     private static BigInteger ToBig(byte[] bigEndian)
     {
-        byte[] le = new byte[bigEndian.Length + 1];
-        for (int i = 0; i < bigEndian.Length; i++) le[i] = bigEndian[bigEndian.Length - 1 - i];
+        var le = new byte[bigEndian.Length + 1];
+        for (var i = 0; i < bigEndian.Length; i++) le[i] = bigEndian[bigEndian.Length - 1 - i];
         le[bigEndian.Length] = 0;
         return new BigInteger(le);
     }
@@ -108,11 +113,11 @@ public sealed partial class NeteaseClient
     // RSA 无填充：数据左补零到 128 字节当大端整数，modpow(e, n)，结果 256 位十六进制
     private static string RsaNoPadHex(BigInteger n, BigInteger e, byte[] data)
     {
-        byte[] block = new byte[128];
+        var block = new byte[128];
         Array.Copy(data, 0, block, 128 - data.Length, data.Length);
-        byte[] be = BigInteger.ModPow(ToBig(block), e, n).ToByteArray();
+        var be = BigInteger.ModPow(ToBig(block), e, n).ToByteArray();
         Array.Reverse(be);
-        int start = 0;
+        var start = 0;
         while (start < be.Length - 1 && be[start] == 0) start++;
         return Convert.ToHexString(be, start, be.Length - start).ToLowerInvariant().PadLeft(256, '0');
     }
@@ -120,10 +125,10 @@ public sealed partial class NeteaseClient
     private static (string Params, string EncSecKey) WeapiEncrypt(string text)
     {
         const string cs = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        byte[] secKey = new byte[16];
-        for (int i = 0; i < secKey.Length; i++) secKey[i] = (byte)cs[Random.Shared.Next(cs.Length)];
-        string step1 = Convert.ToBase64String(AesCbc(Encoding.ASCII.GetBytes(WeapiPresetKey), text));
-        string p = Convert.ToBase64String(AesCbc(secKey, step1));
+        var secKey = new byte[16];
+        for (var i = 0; i < secKey.Length; i++) secKey[i] = (byte)cs[Random.Shared.Next(cs.Length)];
+        var step1 = Convert.ToBase64String(AesCbc(Encoding.ASCII.GetBytes(WeapiPresetKey), text));
+        var p = Convert.ToBase64String(AesCbc(secKey, step1));
         Array.Reverse(secKey);
         using var rsa = RSA.Create();
         rsa.ImportFromPem(PubKeyPem);
@@ -135,15 +140,15 @@ public sealed partial class NeteaseClient
 
     private static string EapiParams(string apiUrl, string text)
     {
-        string digest = Md5Hex($"nobody{apiUrl}use{text}md5forencrypt");
-        string plain = $"{apiUrl}-{EapiSep}-{text}-{EapiSep}-{digest}";
-        byte[] key = Encoding.ASCII.GetBytes(EapiKey);
+        var digest = Md5Hex($"nobody{apiUrl}use{text}md5forencrypt");
+        var plain = $"{apiUrl}-{EapiSep}-{text}-{EapiSep}-{digest}";
+        var key = Encoding.ASCII.GetBytes(EapiKey);
         using var aes = Aes.Create();
         aes.Key = key;
         aes.Mode = CipherMode.ECB;
         aes.Padding = PaddingMode.PKCS7;
         using var enc = aes.CreateEncryptor();
-        byte[] b = Encoding.UTF8.GetBytes(plain);
+        var b = Encoding.UTF8.GetBytes(plain);
         return Convert.ToHexString(enc.TransformFinalBlock(b, 0, b.Length));
     }
 
@@ -157,5 +162,8 @@ public sealed partial class NeteaseClient
         return Encoding.UTF8.GetString(dec.TransformFinalBlock(cipher, 0, cipher.Length));
     }
 
-    public static string B64(string s) => Convert.ToBase64String(Encoding.UTF8.GetBytes(s));
+    public static string B64(string s)
+    {
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(s));
+    }
 }

@@ -32,9 +32,9 @@ public sealed class SpoutPipeline : IDisposable
         {
             SenderName = senderName;
 
-            int safeFps = Math.Clamp(fps, 1, 240);
-            int safeW = Math.Max(64, initialW);
-            int safeH = Math.Max(64, initialH);
+            var safeFps = Math.Clamp(fps, 1, 240);
+            var safeW = Math.Max(64, initialW);
+            var safeH = Math.Max(64, initialH);
 
             var browserSettings = new BrowserSettings
             {
@@ -44,7 +44,7 @@ public sealed class SpoutPipeline : IDisposable
             // 镜像行为（泵/锚点应用/isolate/分辨率保持/工程跟随）已内置于页面本身
             //（RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本——
             // 只负责推 __jlApplySync 锚点、收 plan-size 消息
-            string mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle);
+            var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle);
 
             // ------------------------------------------------------------
             // 重要：
@@ -162,7 +162,6 @@ public sealed class SpoutPipeline : IDisposable
         var poke = SyncPoke;
 
         if (poke != null)
-        {
             _ = Task.Delay(1000).ContinueWith(_ =>
             {
                 try
@@ -176,7 +175,6 @@ public sealed class SpoutPipeline : IDisposable
                         ex.Message);
                 }
             });
-        }
     }
 
     private void OnMirrorMessage(
@@ -191,16 +189,13 @@ public sealed class SpoutPipeline : IDisposable
             if (!dict.TryGetValue("type", out var typeObj))
                 return;
 
-            string? type = typeObj?.ToString();
+            var type = typeObj?.ToString();
 
             if (string.Equals(
                     type,
                     "plan-size",
                     StringComparison.OrdinalIgnoreCase))
-            {
                 HandlePlanSize(dict);
-                return;
-            }
 
             // ------------------------------------------------------------
             // 注意：
@@ -230,8 +225,8 @@ public sealed class SpoutPipeline : IDisposable
             if (!dict.TryGetValue("h", out var hObj))
                 return;
 
-            int w = Convert.ToInt32(wObj);
-            int h = Convert.ToInt32(hObj);
+            var w = Convert.ToInt32(wObj);
+            var h = Convert.ToInt32(hObj);
 
             if (w <= 0 || h <= 0)
                 return;
@@ -245,9 +240,7 @@ public sealed class SpoutPipeline : IDisposable
 
             if (oldSize.Width == w &&
                 oldSize.Height == h)
-            {
                 return;
-            }
 
             Log.Info(
                 $"[SpoutMirror] 工程分辨率变更：" +
@@ -274,7 +267,7 @@ public sealed class SpoutPipeline : IDisposable
         bool transparent,
         bool suppressSubtitle)
     {
-        string sep = url.Contains('?') ? "&" : "?";
+        var sep = url.Contains('?') ? "&" : "?";
 
         return
             $"{url}{sep}mirror=1" +
@@ -304,10 +297,10 @@ public sealed class SpoutPipeline : IDisposable
                 t = time
             };
 
-            string json =
+            var json =
                 JsonSerializer.Serialize(payload);
 
-            string script =
+            var script =
                 $"window.__jlApplySync && " +
                 $"window.__jlApplySync({json});";
 
@@ -372,7 +365,7 @@ public sealed class SpoutPipeline : IDisposable
         if (!IsRunning)
             return;
 
-        string? oldName = SenderName;
+        var oldName = SenderName;
 
         CleanupLocked();
 

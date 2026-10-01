@@ -7,7 +7,7 @@ import {api, fetchAudioBlob} from './api';
 import {adoptKgLyric, adoptNeLyric} from './lyricStore';
 import type {Song, Source} from './types';
 
-const MIME: Record<string, string> = { mp3: 'audio/mpeg', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4' };
+const MIME: Record<string, string> = {mp3: 'audio/mpeg', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4'};
 
 let loadSeq = 0;
 
@@ -28,36 +28,41 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
     if (my !== loadSeq) return;
     const ext = (u.ext || (blob.type.match(/audio\/(\w+)/) || [])[1] || 'mp3').toLowerCase();
     const file = new File([blob], `${it.singer || ''} - ${it.name}.${ext}`.replace(/\s+-\s+\./, '.'),
-                          { type: MIME[ext] || blob.type || 'application/octet-stream' });
+        {type: MIME[ext] || blob.type || 'application/octet-stream'});
 
     let lyricNote = '';
-      let lyricDeferred = false;
+    let lyricDeferred = false;
     try {
       const ly = await api.lyric(source, it);
       if (my !== loadSeq) return;
       if (ly.ok) {
-          resetLyricBinding();   // 换歌：旧歌词的逐行时间/覆盖/导出范围绑定的是旧行号，先清空再填新词
-          // deferReplan：跳过这里的同步重排，loadAudioFile 末尾的 replan 一次到位——
-          // 载歌窗口里连做两轮全曲 plan + 行列表/时间轴级联，是可感知的一瞬卡顿
+        resetLyricBinding();   // 换歌：旧歌词的逐行时间/覆盖/导出范围绑定的是旧行号，先清空再填新词
+        // deferReplan：跳过这里的同步重排，loadAudioFile 末尾的 replan 一次到位——
+        // 载歌窗口里连做两轮全曲 plan + 行列表/时间轴级联，是可感知的一瞬卡顿
         if (source === 'netease') {
-            await adoptNeLyric(ly, true);
+          await adoptNeLyric(ly, true);
           lyricNote = (ly.trans || ly.roma) ? '，歌词已填入（含注音）' : '，歌词已填入（无音译/翻译）';
         } else {
-            const fmt = await adoptKgLyric(ly, false, true);
+          const fmt = await adoptKgLyric(ly, false, true);
           lyricNote = fmt === 'krc' ? '，歌词已填入' : '，歌词已填入（普通 LRC，无音译/翻译）';
         }
-          lyricDeferred = true;
+        lyricDeferred = true;
       } else lyricNote = '，没找到歌词';
-    } catch { lyricNote = '，歌词加载失败'; }
+    } catch {
+      lyricNote = '，歌词加载失败';
+    }
 
     // 音频分析完成后再装载（歌词已先行就位），并把播放位置归零。
     // 曲名/歌手不自动填：只能用户手动输入
     const loaded = await loadAudioFile(file);
     if (my !== loadSeq) return;
-    if (loaded) { bus.emit('sync-ui'); seek(0); } else if (lyricDeferred) replan();   // 音频装载失败：已写入的歌词仍要排进 plan
+    if (loaded) {
+      bus.emit('sync-ui');
+      seek(0);
+    } else if (lyricDeferred) replan();   // 音频装载失败：已写入的歌词仍要排进 plan
 
     toast(u.trial ? `只载入 60 秒试听（这首需要 VIP，可在「账号」页登录）：${it.name}${lyricNote}`
-                  : `已载入：${it.name}${lyricNote}`);
+        : `已载入：${it.name}${lyricNote}`);
     cloud.setLoading(songKey(it), '');
   } catch (e: any) {
     if (my === loadSeq) {
