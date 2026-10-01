@@ -332,8 +332,9 @@ public partial class MainWindow : Window
             {
                 DragMove();
             }
-            catch
+            catch (Exception ex)
             {
+                Log.Debug("DragMove failed: " + ex);
             }
         }
     }

@@ -22,6 +22,7 @@
     <ItemGroup>
         <PackageReference Include="EmbedIO" Version="3.5.2"/>
         <PackageReference Include="log4net" Version="3.4.0" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12"/>
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4"/>
         <PackageReference Include="QRCoder" Version="1.6.0"/>
         <PackageReference Include="CefSharp.Common" Version="152.0.100"/>
@@ -67,21 +68,16 @@
         <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"/>
         <!-- publish 时 OutDir 指向构建目录，发布目录需要单独补一份，
              否则 SpoutDXWrapper.dll 找不到原生依赖，镜像管线启动失败 -->
-        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true"
-              Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll')"/>
+        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll')"/>
     </Target>
 
     <!-- CefSharp 子进程 exe 的图标替换为 app.ico（任务管理器/资源管理器可见）。
          CefSharp 升级覆盖 exe 后，每次构建会自动重新打补丁；
          exe 被占用（程序正在运行）时只警告不阻断构建 -->
     <Target Name="PatchCefSubprocessIcon" AfterTargets="Build;Publish">
-        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(OutDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;"
-              ContinueOnError="WarnAndContinue"
-              Condition="Exists('$(OutDir)CefSharp.BrowserSubprocess.exe')"/>
+        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(OutDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;" ContinueOnError="WarnAndContinue" Condition="Exists('$(OutDir)CefSharp.BrowserSubprocess.exe')"/>
         <!-- publish 目录单独补一份（同 CopySpoutDx 的处理方式） -->
-        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(PublishDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;"
-              ContinueOnError="WarnAndContinue"
-              Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)CefSharp.BrowserSubprocess.exe')"/>
+        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(PublishDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;" ContinueOnError="WarnAndContinue" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)CefSharp.BrowserSubprocess.exe')"/>
     </Target>
 
     <!-- 发布产物不携带引用程序的 pdb/xml -->
@@ -120,12 +116,9 @@
         <!-- 产物目录被清空但戳记还在时强制重建 -->
         <Delete Files="$(FrontendStamp)" Condition="!Exists('$(FrontendDist)\index.html')"/>
     </Target>
-    <Target Name="BuildFrontend" BeforeTargets="BeforeBuild"
-            Inputs="@(FrontendSourceInputs)" Outputs="$(FrontendStamp)"
-            Condition="'$(SkipFrontendBuild)' != 'true'">
+    <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Inputs="@(FrontendSourceInputs)" Outputs="$(FrontendStamp)" Condition="'$(SkipFrontendBuild)' != 'true'">
         <Message Importance="high" Text="前端构建：vite build → $(FrontendDist)"/>
-        <Exec Command="npm install --no-audit --no-fund" WorkingDirectory="$(FrontendDir)"
-              Condition="!Exists('$(FrontendDir)node_modules')"/>
+        <Exec Command="npm install --no-audit --no-fund" WorkingDirectory="$(FrontendDir)" Condition="!Exists('$(FrontendDir)node_modules')"/>
         <Exec Command="npm run build --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
         <WriteLinesToFile File="$(FrontendStamp)" Lines="$([System.DateTime]::UtcNow.Ticks)" Overwrite="true"/>
     </Target>

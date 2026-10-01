@@ -9,10 +9,12 @@ namespace JizuraLive.Server;
 // 酷狗 / 网易云共用的音频流代理：只放行白名单域名的 http(s) 地址，透传 Range。
 internal static class AudioProxy
 {
-    private static readonly string[] HostSuffixes = [".kugou.com", ".kgimg.com", ".kglink.cn", ".music.126.net"];
+    private static readonly string[] HostSuffixes = ["kugou.com", "kgimg.com", "kglink.cn", "music.126.net"];
 
     public static bool AllowedHost(string host) =>
-        HostSuffixes.Any(s => host == s[1..] || host.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+        HostSuffixes.Any(s =>
+            string.Equals(host, s, StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith("." + s, StringComparison.OrdinalIgnoreCase));
 
     public static async Task StreamAsync(IHttpContext ctx, HttpClient http, string? target)
     {

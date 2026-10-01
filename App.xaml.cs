@@ -1,7 +1,4 @@
-using System;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
 using System.Windows;
 using JizuraLive.Server;
 
@@ -13,6 +10,8 @@ public partial class App : Application
     private Mutex? _mutex;
     private EmbeddedServer? _server;
     private Settings? _settings;
+
+    private bool _startupComplete;
     private string _url = "";
 
     /// <summary>开发模式时为 Vite dev server 地址（如 http://localhost:5174/），否则 null。</summary>
@@ -28,8 +27,9 @@ public partial class App : Application
         {
             return Process.GetProcessesByName("JizuraLive").Any(p => p.Id != self && !p.HasExited);
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug("AnotherRealInstanceRunning check failed: " + ex);
             return false;
         }
     }
@@ -39,6 +39,7 @@ public partial class App : Application
         base.OnStartup(e);
         Log.Init();
         HookGlobalExceptions();
+        HttpClientFactorySetup.Initialize();
 
         try
         {
@@ -57,6 +58,7 @@ public partial class App : Application
                 Shutdown(-2);
                 return;
             }
+
             Log.Info($"内嵌服务就绪：http://127.0.0.1:{_server.Port}/");
 
             // 设置必须在 CEF 初始化前加载：CDP 调试端口等参数
@@ -71,6 +73,7 @@ public partial class App : Application
                 Shutdown(-3);
                 return;
             }
+
             Log.Info("CEF 就绪");
 
             // 开发模式：设置环境变量 JIZURA_DEV=1（或 JIZURA_DEV=http://localhost:5174/ 指定地址），
@@ -96,7 +99,6 @@ public partial class App : Application
         }
     }
 
-    private bool _startupComplete;
     private void HookGlobalExceptions()
     {
         DispatcherUnhandledException += (s, e) =>
@@ -106,6 +108,7 @@ public partial class App : Application
             {
                 Shutdown(-9);
             }
+
             e.Handled = true;
         };
 

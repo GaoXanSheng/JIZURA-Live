@@ -1,6 +1,6 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -8,10 +8,7 @@ namespace JizuraLive.Server;
 
 public sealed partial class KuGouClient
 {
-    public HttpClient Http { get; } = new()
-    {
-        Timeout = TimeSpan.FromSeconds(100),
-    };
+    public HttpClient Http => HttpClientFactorySetup.Factory.CreateClient("KuGou");
 
     private async Task<JObject> GetJsonAsync(HttpRequestMessage req, int timeoutMs = 20000)
     {
@@ -46,8 +43,10 @@ public sealed partial class KuGouClient
             q["token"] = token;
             q["userid"] = userid.ToString();
         }
+
         if (extraParams != null)
-            foreach (var (k, v) in extraParams) q[k] = v;
+            foreach (var (k, v) in extraParams)
+                q[k] = v;
 
         string data = body == null ? "" : JsonConvert.SerializeObject(body);
         string plain = string.Concat(q.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => $"{k}={q[k]}"));
@@ -101,6 +100,7 @@ public sealed partial class KuGouClient
             q["token"] = token;
             q["userid"] = userid.ToString();
         }
+
         q["key"] = Md5($"{q["hash"]}{KeySalt}{AppId}{q["mid"]}{userid}");
         string plain = string.Concat(q.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => $"{k}={q[k]}"));
         q["signature"] = Md5($"{AndroidSalt}{plain}{AndroidSalt}");
@@ -112,8 +112,6 @@ public sealed partial class KuGouClient
         return await GetJsonAsync(req);
     }
 
-    private sealed record UrlHit(string Url, string Ext, long TimeLength);
-
     private static UrlHit? PickUrl(JObject d)
     {
         if (d.Value<int?>("status") != 1) return null;
@@ -123,7 +121,6 @@ public sealed partial class KuGouClient
         return new UrlHit(url!, ext, d.Value<long?>("timeLength") ?? 0);
     }
 
-    
 
     public async Task<KgSearchResponse> SearchAsync(string kw, int page)
     {
@@ -146,6 +143,7 @@ public sealed partial class KuGouClient
                 Cover = it["trans_param"]?["union_cover"]?.ToString()?.Replace("{size}", "240") ?? "",
             });
         }
+
         r.Total = d["data"]?.Value<long?>("total") ?? r.List.Count;
         return r;
     }
@@ -161,22 +159,25 @@ public sealed partial class KuGouClient
             var hit = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, token, userid));
             if (hit == null)
             {
-                
                 await RegisterDevAsync(token, userid);
                 hit = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, token, userid));
             }
+
             if (hit != null)
-                return new KgUrlResponse { Ok = true, Url = hit.Url, Ext = hit.Ext, Quality = quality.ToString(), Logged = true };
+                return new KgUrlResponse
+                    { Ok = true, Url = hit.Url, Ext = hit.Ext, Quality = quality.ToString(), Logged = true };
         }
 
-        
+
         var free = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, "", 0));
         if (free != null)
-            return new KgUrlResponse { Ok = true, Url = free.Url, Ext = free.Ext, Trial = false, Logged = false, Quality = "128" };
+            return new KgUrlResponse
+                { Ok = true, Url = free.Url, Ext = free.Ext, Trial = false, Logged = false, Quality = "128" };
 
         try
         {
-            var d = await GetJsonAsync($"http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={Uri.EscapeDataString(hash)}");
+            var d = await GetJsonAsync(
+                $"http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={Uri.EscapeDataString(hash)}");
             string u = d.Value<string>("url") ?? "";
             if (u.Length > 0)
                 return new KgUrlResponse
@@ -189,11 +190,15 @@ public sealed partial class KuGouClient
                     Quality = "128",
                 };
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log.Debug("Failed to get KuGou song info: " + ex);
+        }
 
         var trial = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, 128, 1, "", 0));
         if (trial != null)
-            return new KgUrlResponse { Ok = true, Url = trial.Url, Ext = trial.Ext, Trial = true, Logged = false, Quality = "128" };
+            return new KgUrlResponse
+                { Ok = true, Url = trial.Url, Ext = trial.Ext, Trial = true, Logged = false, Quality = "128" };
 
         return new KgUrlResponse
         {
@@ -208,13 +213,16 @@ public sealed partial class KuGouClient
     {
         async Task<(string Fmt, string Content)?> grab(string sid, string akey)
         {
-            var d = await GetJsonAsync($"https://lyrics.kugou.com/download?ver=1&client=pc&id={Uri.EscapeDataString(sid)}&accesskey={Uri.EscapeDataString(akey)}&fmt=krc&charset=utf8");
+            var d = await GetJsonAsync(
+                $"https://lyrics.kugou.com/download?ver=1&client=pc&id={Uri.EscapeDataString(sid)}&accesskey={Uri.EscapeDataString(akey)}&fmt=krc&charset=utf8");
             string fmt = "krc";
             if (d.Value<int?>("status") != 200 || (d.Value<string>("content") ?? "").Length == 0)
             {
-                d = await GetJsonAsync($"https://lyrics.kugou.com/download?ver=1&client=pc&id={Uri.EscapeDataString(sid)}&accesskey={Uri.EscapeDataString(akey)}&fmt=lrc&charset=utf8");
+                d = await GetJsonAsync(
+                    $"https://lyrics.kugou.com/download?ver=1&client=pc&id={Uri.EscapeDataString(sid)}&accesskey={Uri.EscapeDataString(akey)}&fmt=lrc&charset=utf8");
                 fmt = "lrc";
             }
+
             string content = d.Value<string>("content") ?? "";
             return d.Value<int?>("status") == 200 && content.Length > 0 ? (fmt, content) : null;
         }
@@ -244,7 +252,8 @@ public sealed partial class KuGouClient
                 From = x.Value<string>("product_from") ?? "",
                 Nick = x.Value<string>("nickname") ?? "",
             });
-        return new KgLyricResponse { Ok = true, Fmt = hit2.Value.Fmt, Content = hit2.Value.Content, Candidates = candidates };
+        return new KgLyricResponse
+            { Ok = true, Fmt = hit2.Value.Fmt, Content = hit2.Value.Content, Candidates = candidates };
     }
 
     /* ---------- 歌单（需登录） ---------- */
@@ -279,6 +288,7 @@ public sealed partial class KuGouClient
                 Count = p.Value<int?>("count") ?? 0,
             });
         }
+
         return r;
     }
 
@@ -304,7 +314,7 @@ public sealed partial class KuGouClient
     public async Task<KgSearchResponse> PlaylistSongsAsync(string? id)
     {
         string gcid = (id ?? "").Trim();
-        var m = System.Text.RegularExpressions.Regex.Match(gcid, @"[?&](?:global_collection_id|id)=([\w-]+)");
+        var m = Regex.Match(gcid, @"[?&](?:global_collection_id|id)=([\w-]+)");
         if (m.Success) gcid = m.Groups[1].Value;
         if (gcid.Length == 0)
             return new KgSearchResponse { Ok = false, Error = "缺少歌单 ID（可粘贴酷狗歌单链接或 global_collection_id）" };
@@ -339,11 +349,13 @@ public sealed partial class KuGouClient
                     Error = "酷狗歌单读取失败" + (msg.Length > 0 ? "：" + msg : "，请确认歌单 ID 或重新扫码登录"),
                 };
             }
+
             foreach (var it in d["data"]?["songs"] as JArray ?? new JArray())
                 r.List.Add(PlSongToSong((JObject)it));
             int count = d["data"]?.Value<int?>("count") ?? r.List.Count;
             if (r.List.Count >= count) break;
         }
+
         r.Total = r.List.Count;
         return r;
     }
@@ -374,16 +386,17 @@ public sealed partial class KuGouClient
     {
         if (string.IsNullOrEmpty(key)) return new KgQrCheckResponse { Ok = false, Error = "缺少 key" };
         var st = EnsureIdentity();
-        var (url, _) = SignedUrl("https://login-user.kugou.com", "/v2/get_userinfo_qrcode", new Dictionary<string, string>
-        {
-            ["dfid"] = "-",
-            ["mid"] = S(st, "mid"),
-            ["plat"] = "4",
-            ["appid"] = AppId,
-            ["srcappid"] = SrcAppId,
-            ["qrcode"] = key,
-            ["dev"] = S(st, "dev"),
-        }, android: false);
+        var (url, _) = SignedUrl("https://login-user.kugou.com", "/v2/get_userinfo_qrcode",
+            new Dictionary<string, string>
+            {
+                ["dfid"] = "-",
+                ["mid"] = S(st, "mid"),
+                ["plat"] = "4",
+                ["appid"] = AppId,
+                ["srcappid"] = SrcAppId,
+                ["qrcode"] = key,
+                ["dev"] = S(st, "dev"),
+            }, android: false);
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
         var d = await GetJsonAsync(req);
@@ -395,9 +408,16 @@ public sealed partial class KuGouClient
         {
             string userId = q?.Value<long?>("userid")?.ToString() is { Length: > 0 } u ? u : "0";
             KgSave(new JObject { ["token"] = token, ["userid"] = userId, ["nickname"] = nickname });
-            try { await RegisterDevAsync(token, long.TryParse(userId, out var uid2) ? uid2 : 0); }
-            catch {  }
+            try
+            {
+                await RegisterDevAsync(token, long.TryParse(userId, out var uid2) ? uid2 : 0);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to register KuGou dev: " + ex);
+            }
         }
+
         return new KgQrCheckResponse { Ok = true, Status = status?.ToString() ?? "", Nickname = nickname };
     }
 
@@ -418,4 +438,6 @@ public sealed partial class KuGouClient
         KgSave(new JObject { ["token"] = "", ["userid"] = "", ["nickname"] = "" });
         return new KgLoginResponse { Ok = true, Logged = false };
     }
+
+    private sealed record UrlHit(string Url, string Ext, long TimeLength);
 }

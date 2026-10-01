@@ -37,16 +37,16 @@ public sealed class EmbeddedServer : IDisposable
         {
             _server.Dispose();
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug("Server Dispose failed: " + ex);
         }
 
         // 共享 HttpClient 是进程级单例：端口探测失败的实例绝不能碰它，
         // 否则重试下一个端口后首个 API 调用就会 ObjectDisposedException
+        // (现在通过 IHttpClientFactory 管理，不再手动释放)
         if (_started)
         {
-            ServerContext.KuGou.Http.Dispose();
-            ServerContext.Netease.Http.Dispose();
         }
     }
 
@@ -60,8 +60,9 @@ public sealed class EmbeddedServer : IDisposable
             {
                 server.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                Log.Debug("Failed to dispose server on port probe: " + ex);
             }
         }
 
@@ -109,8 +110,9 @@ public sealed class EmbeddedServer : IDisposable
 
             return _started = _server.State == WebServerState.Listening;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug("Server TryStart failed: " + ex);
             return false;
         }
     }

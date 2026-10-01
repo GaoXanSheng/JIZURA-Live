@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
@@ -20,128 +21,145 @@ internal static class AudioAnalyzer
         int n = len / hop;
         rate = (int)Math.Round((double)sampleRate / hop);
         var energy = new float[n];
-        var flux = new float[n];
-        float prevHP = 0, prevX = 0;
-        for (int f = 0; f < n; f++)
-        {
-            double e = 0, eh = 0;
-            int start = f * hop, end = Math.Min(len, (f + 1) * hop);
-            for (int i = start; i < end; i++)
-            {
-                float x = mono[i];
-                e += x * (double)x;
-                float hp = 0.92f * (prevHP + x - prevX);
-                prevHP = hp;
-                prevX = x;
-                eh += hp * (double)hp;
-            }
 
-            energy[f] = (float)Math.Sqrt(e / hop);
-            flux[f] = (float)Math.Sqrt(eh / hop);
-        }
-
-        // onset 强度：高通能量对数对局部均值的正增量
-        var onset = new double[n];
-        for (int f = 1; f < n; f++)
-        {
-            double cur = Math.Log(1e-4 + flux[f]);
-            double m = 0;
-            int k = 0;
-            for (int j = Math.Max(0, f - 4); j < f; j++)
-            {
-                m += Math.Log(1e-4 + flux[j]);
-                k++;
-            }
-
-            onset[f] = Math.Max(0, cur - m / Math.Max(1, k));
-        }
-
-        // 自相关估 BPM（70..180），高斯先验偏置 125
         int minLag = (int)Math.Round(rate * 60.0 / 180), maxLag = (int)Math.Round(rate * 60.0 / 70);
-        double best = 0;
-        int bestLag = (int)Math.Round(rate * 0.5);
-        var scores = new double[maxLag + 2];
-        for (int lag = minLag; lag <= maxLag; lag++)
+
+        var flux = ArrayPool<float>.Shared.Rent(n);
+        var onset = ArrayPool<double>.Shared.Rent(n);
+        var scores = ArrayPool<double>.Shared.Rent(maxLag + 2);
+        var sorted = ArrayPool<float>.Shared.Rent(n);
+
+        try
         {
-            double s = 0;
-            for (int f = lag; f < n; f++) s += onset[f] * onset[f - lag];
-            double bpm = 60.0 * rate / lag;
-            double w = Math.Exp(-0.5 * Math.Pow(Math.Log2(bpm / 125.0) / 0.7, 2));
-            s *= w;
-            scores[lag] = s;
-            if (s > best)
+            Array.Clear(onset, 0, n);
+            Array.Clear(scores, 0, maxLag + 2);
+
+            float prevHP = 0, prevX = 0;
+            for (int f = 0; f < n; f++)
             {
-                best = s;
-                bestLag = lag;
-            }
-        }
+                double e = 0, eh = 0;
+                int start = f * hop, end = Math.Min(len, (f + 1) * hop);
+                for (int i = start; i < end; i++)
+                {
+                    float x = mono[i];
+                    e += x * (double)x;
+                    float hp = 0.92f * (prevHP + x - prevX);
+                    prevHP = hp;
+                    prevX = x;
+                    eh += hp * (double)hp;
+                }
 
-        double lagF = bestLag;
-        if (bestLag >= 1 && bestLag + 1 < scores.Length &&
-            (scores[bestLag - 1] != 0 || scores[bestLag + 1] != 0))
-        {
-            double a = scores[bestLag - 1], b = scores[bestLag], c = scores[bestLag + 1];
-            double d = a - 2 * b + c;
-            if (d != 0) lagF = bestLag + 0.5 * (a - c) / d;
-        }
-
-        double period = lagF / rate;
-
-        // 相位
-        int bestPh = 0;
-        double bestPS = -1;
-        for (double ph = 0; ph < lagF; ph += 0.5)
-        {
-            double s = 0;
-            for (double t = ph; t < n; t += lagF)
-            {
-                int idx = (int)Math.Round(t);
-                if (idx < n) s += onset[idx];
+                energy[f] = (float)Math.Sqrt(e / hop);
+                flux[f] = (float)Math.Sqrt(eh / hop);
             }
 
-            if (s > bestPS)
+            // onset 强度：高通能量对数对局部均值的正增量
+            for (int f = 1; f < n; f++)
             {
-                bestPS = s;
-                bestPh = (int)ph;
-            }
-        }
+                double cur = Math.Log(1e-4 + flux[f]);
+                double m = 0;
+                int k = 0;
+                for (int j = Math.Max(0, f - 4); j < f; j++)
+                {
+                    m += Math.Log(1e-4 + flux[j]);
+                    k++;
+                }
 
-        var beats = new List<double>((int)(duration * 60.0 / Math.Max(0.2, 60.0 / period)) + 8);
-        for (double t = bestPh / (double)rate; t < duration; t += period)
-            beats.Add(Math.Round(t, 4));
-
-        // 归一化能量（95 分位）
-        var sorted = (float[])energy.Clone();
-        Array.Sort(sorted);
-        float p95 = sorted.Length > 0 ? sorted[Math.Min(sorted.Length - 1, (int)(sorted.Length * 0.95))] : 1f;
-        if (p95 <= 0) p95 = 1f;
-        for (int f = 0; f < n; f++) energy[f] = Math.Min(1f, energy[f] / p95);
-
-        // 时间轴波形峰
-        const int bins = 1600;
-        var peaks = new float[bins];
-        int per = Math.Max(1, len / bins);
-        for (int b = 0; b < bins; b++)
-        {
-            float m = 0;
-            int start = b * per, end = Math.Min(len, (b + 1) * per);
-            for (int i = start; i < end; i += 4)
-            {
-                float v = Math.Abs(mono[i]);
-                if (v > m) m = v;
+                onset[f] = Math.Max(0, cur - m / Math.Max(1, k));
             }
 
-            peaks[b] = m;
-        }
+            // 自相关估 BPM（70..180），高斯先验偏置 125
+            double best = 0;
+            int bestLag = (int)Math.Round(rate * 0.5);
+            for (int lag = minLag; lag <= maxLag; lag++)
+            {
+                double s = 0;
+                for (int f = lag; f < n; f++) s += onset[f] * onset[f - lag];
+                double bpm = 60.0 * rate / lag;
+                double w = Math.Exp(-0.5 * Math.Pow(Math.Log2(bpm / 125.0) / 0.7, 2));
+                s *= w;
+                scores[lag] = s;
+                if (s > best)
+                {
+                    best = s;
+                    bestLag = lag;
+                }
+            }
 
-        return new Result
+            double lagF = bestLag;
+            if (bestLag >= 1 && bestLag + 1 < maxLag + 2 &&
+                (scores[bestLag - 1] != 0 || scores[bestLag + 1] != 0))
+            {
+                double a = scores[bestLag - 1], b = scores[bestLag], c = scores[bestLag + 1];
+                double d = a - 2 * b + c;
+                if (d != 0) lagF = bestLag + 0.5 * (a - c) / d;
+            }
+
+            double period = lagF / rate;
+
+            // 相位
+            int bestPh = 0;
+            double bestPS = -1;
+            for (double ph = 0; ph < lagF; ph += 0.5)
+            {
+                double s = 0;
+                for (double t = ph; t < n; t += lagF)
+                {
+                    int idx = (int)Math.Round(t);
+                    if (idx < n) s += onset[idx];
+                }
+
+                if (s > bestPS)
+                {
+                    bestPS = s;
+                    bestPh = (int)ph;
+                }
+            }
+
+            var beats = new List<double>((int)(duration * 60.0 / Math.Max(0.2, 60.0 / period)) + 8);
+            for (double t = bestPh / (double)rate; t < duration; t += period)
+                beats.Add(Math.Round(t, 4));
+
+            // 归一化能量（95 分位）
+            Array.Copy(energy, sorted, n);
+            Array.Sort(sorted, 0, n);
+            float p95 = n > 0 ? sorted[Math.Min(n - 1, (int)(n * 0.95))] : 1f;
+            if (p95 <= 0) p95 = 1f;
+            for (int f = 0; f < n; f++) energy[f] = Math.Min(1f, energy[f] / p95);
+
+            // 时间轴波形峰
+            const int bins = 1600;
+            var peaks = new float[bins];
+            int per = Math.Max(1, len / bins);
+            for (int b = 0; b < bins; b++)
+            {
+                float m = 0;
+                int start = b * per, end = Math.Min(len, (b + 1) * per);
+                for (int i = start; i < end; i += 4)
+                {
+                    float v = Math.Abs(mono[i]);
+                    if (v > m) m = v;
+                }
+
+                peaks[b] = m;
+            }
+
+            return new Result
+            {
+                Bpm = Math.Round(60.0 / period * 10) / 10,
+                Beats = beats.ToArray(),
+                Energy = energy,
+                EnergyRate = rate,
+                Peaks = peaks,
+            };
+        }
+        finally
         {
-            Bpm = Math.Round(60.0 / period * 10) / 10,
-            Beats = beats.ToArray(),
-            Energy = energy,
-            EnergyRate = rate,
-            Peaks = peaks,
-        };
+            ArrayPool<float>.Shared.Return(flux, clearArray: true);
+            ArrayPool<double>.Shared.Return(onset, clearArray: true);
+            ArrayPool<double>.Shared.Return(scores, clearArray: true);
+            ArrayPool<float>.Shared.Return(sorted, clearArray: true);
+        }
     }
 
     /// <summary>解析请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道]。

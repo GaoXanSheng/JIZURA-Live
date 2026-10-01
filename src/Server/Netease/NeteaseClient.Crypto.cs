@@ -30,28 +30,51 @@ public sealed partial class NeteaseClient
 
     // 登录状态（MUSIC_U cookie 等）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config（同 kg_login.json 惯例）
     private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "ne_login.json");
+    private static readonly SemaphoreSlim _stateLock = new(1, 1);
 
-    private static JObject NeState()
+    private static JObject NeStateInternal()
     {
         try
         {
             if (File.Exists(StateFile))
                 return JObject.Parse(File.ReadAllText(StateFile));
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug("Failed to read Netease state file: " + ex);
         }
 
         return [];
     }
 
+    private static JObject NeState()
+    {
+        _stateLock.Wait();
+        try
+        {
+            return NeStateInternal();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
     private static JObject NeSave(JObject patch)
     {
-        var s = NeState();
-        foreach (var p in patch.Properties()) s[p.Name] = p.Value;
-        Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
-        File.WriteAllText(StateFile, s.ToString(Formatting.Indented));
-        return s;
+        _stateLock.Wait();
+        try
+        {
+            var s = NeStateInternal();
+            foreach (var p in patch.Properties()) s[p.Name] = p.Value;
+            Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
+            File.WriteAllText(StateFile, s.ToString(Formatting.Indented));
+            return s;
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
     }
 
     private static string S(JObject o, string key) => o[key]?.ToString() ?? "";

@@ -29,28 +29,51 @@ public sealed partial class KuGouClient
 
     // 酷狗登录状态（含 cookie）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config
     private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "kg_login.json");
+    private static readonly SemaphoreSlim _stateLock = new(1, 1);
 
-    private static JObject KgState()
+    private static JObject KgStateInternal()
     {
         try
         {
             if (File.Exists(StateFile))
                 return JObject.Parse(File.ReadAllText(StateFile));
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug("Failed to read KuGou state file: " + ex);
         }
 
         return [];
     }
 
+    private static JObject KgState()
+    {
+        _stateLock.Wait();
+        try
+        {
+            return KgStateInternal();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
     private static JObject KgSave(JObject patch)
     {
-        var s = KgState();
-        foreach (var p in patch.Properties()) s[p.Name] = p.Value;
-        Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
-        File.WriteAllText(StateFile, s.ToString(Formatting.Indented));
-        return s;
+        _stateLock.Wait();
+        try
+        {
+            var s = KgStateInternal();
+            foreach (var p in patch.Properties()) s[p.Name] = p.Value;
+            Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
+            File.WriteAllText(StateFile, s.ToString(Formatting.Indented));
+            return s;
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
     }
 
     private static string S(JObject o, string key) => o[key]?.ToString() ?? "";

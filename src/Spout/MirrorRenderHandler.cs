@@ -1,4 +1,4 @@
-﻿using CefSharp;
+using CefSharp;
 using CefSharp.Enums;
 using CefSharp.OffScreen;
 using CefSharp.Structs;
@@ -142,6 +142,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
             return;
         }
 
+        bool cpuFirstSeenWarn = false;
+        Exception? logEx = null;
+
         lock (_renderLock)
         {
             try
@@ -179,16 +182,25 @@ public sealed class MirrorRenderHandler : IRenderHandler
                 if (!_cpuFirstSeen)
                 {
                     _cpuFirstSeen = true;
-
-                    Log.Warn(
-                        "[SpoutMirror] CPU 回退路径首次触发" +
-                        "（OnPaint：GPU 共享纹理未生效）");
+                    cpuFirstSeenWarn = true;
                 }
             }
             catch (Exception ex)
             {
-                Log.Error("[SpoutMirror] OnPaint 失败", ex);
+                logEx = ex;
             }
+        }
+
+        if (cpuFirstSeenWarn)
+        {
+            Log.Warn(
+                "[SpoutMirror] CPU 回退路径首次触发" +
+                "（OnPaint：GPU 共享纹理未生效）");
+        }
+
+        if (logEx != null)
+        {
+            Log.Error("[SpoutMirror] OnPaint 失败", logEx);
         }
     }
 
@@ -221,13 +233,16 @@ public sealed class MirrorRenderHandler : IRenderHandler
                 "（OnAcceleratedPaint）");
         }
 
+        Exception? logEx = null;
+        string? ensureSharedTextureLog = null;
+
         lock (_renderLock)
         {
             try
             {
                 using var cefTexture = _dxDevice1.OpenSharedResource1<Texture2D>(info.SharedTextureHandle);
                 if (cefTexture == null) return;
-                EnsureSharedTexture(cefTexture);
+                ensureSharedTextureLog = EnsureSharedTexture(cefTexture);
                 if (_sharedTexture == null)
                     return;
                 var context = _dxDevice.ImmediateContext;
@@ -236,8 +251,18 @@ public sealed class MirrorRenderHandler : IRenderHandler
             }
             catch (Exception ex)
             {
-                Log.Error("[SpoutMirror] OnAcceleratedPaint 失败", ex);
+                logEx = ex;
             }
+        }
+
+        if (ensureSharedTextureLog != null)
+        {
+            Log.Info(ensureSharedTextureLog);
+        }
+
+        if (logEx != null)
+        {
+            Log.Error("[SpoutMirror] OnAcceleratedPaint 失败", logEx);
         }
     }
 
@@ -252,22 +277,26 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         _disposed = true;
 
+        var logExs = new List<Exception>();
+
         lock (_renderLock)
         {
             try
             {
                 _spoutSender.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                logExs.Add(ex);
             }
 
             try
             {
                 _cpuTexture?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                logExs.Add(ex);
             }
 
             _cpuTexture = null;
@@ -276,8 +305,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
             {
                 _sharedTexture?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                logExs.Add(ex);
             }
 
             _sharedTexture = null;
@@ -286,8 +316,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
             {
                 _dxDevice1?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                logExs.Add(ex);
             }
 
             _dxDevice1 = null!;
@@ -296,11 +327,17 @@ public sealed class MirrorRenderHandler : IRenderHandler
             {
                 _dxDevice?.Dispose();
             }
-            catch
+            catch (Exception ex)
             {
+                logExs.Add(ex);
             }
 
             _dxDevice = null!;
+        }
+
+        foreach (var ex in logExs)
+        {
+            Log.Debug("Dispose object failed: " + ex);
         }
     }
 
@@ -353,13 +390,13 @@ public sealed class MirrorRenderHandler : IRenderHandler
     // GPU Shared Texture
     // ====================================================================
 
-    private void EnsureSharedTexture(Texture2D source)
+    private string? EnsureSharedTexture(Texture2D source)
     {
         var desc = source.Description;
         if (_sharedTexture != null && _sharedTextureWidth == desc.Width && _sharedTextureHeight == desc.Height &&
             _sharedTextureFormat == desc.Format)
         {
-            return;
+            return null;
         }
 
         _sharedTexture?.Dispose();
@@ -383,6 +420,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
         _sharedTextureHeight = desc.Height;
         _sharedTextureFormat = desc.Format;
 
-        Log.Info($"[SpoutMirror] 创建输出纹理：" + $"{desc.Width}x{desc.Height}, " + $"Format={desc.Format}");
+        return $"[SpoutMirror] 创建输出纹理：" + $"{desc.Width}x{desc.Height}, " + $"Format={desc.Format}";
     }
 }

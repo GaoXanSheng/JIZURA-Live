@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using QRCoder;
 
 namespace JizuraLive.Server;
 
@@ -10,10 +11,7 @@ namespace JizuraLive.Server;
 // 匿名可用；MUSIC_U cookie 存在时（ne_login.json）自动带上以解锁 VIP 歌曲。
 public sealed partial class NeteaseClient
 {
-    public HttpClient Http { get; } = new()
-    {
-        Timeout = TimeSpan.FromSeconds(100),
-    };
+    public HttpClient Http => HttpClientFactorySetup.Factory.CreateClient("Netease");
 
     // 统一加密 POST：apiUrl 形如 /api/cloudsearch/pc（eapi 直用；weapi 时把 /api/ 换成 /weapi/）。
     // setCookies 非空时收集响应的 Set-Cookie 头（扫码登录 803 的凭据在这里，不在 body）
@@ -38,8 +36,9 @@ public sealed partial class NeteaseClient
         if (musicU.Length > 0)
         {
             cookie += $"; MUSIC_U={musicU}";
-            if (eapi) header["MUSIC_U"] = musicU;   // eapi 的加密 header 里也要求带上
+            if (eapi) header["MUSIC_U"] = musicU; // eapi 的加密 header 里也要求带上
         }
+
         if (csrf.Length > 0) cookie += $"; __csrf={csrf}";
 
         string postUrl = eapi
@@ -59,8 +58,16 @@ public sealed partial class NeteaseClient
             CollectCookies(resp, setCookies);
             byte[] raw = await resp.Content.ReadAsByteArrayAsync(cts.Token);
             string json;
-            try { json = EapiDecrypt(raw); }
-            catch { json = Encoding.UTF8.GetString(raw); }
+            try
+            {
+                json = EapiDecrypt(raw);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("EapiDecrypt failed, falling back to UTF8: " + ex);
+                json = Encoding.UTF8.GetString(raw);
+            }
+
             return JObject.Parse(json);
         }
         else
@@ -108,6 +115,7 @@ public sealed partial class NeteaseClient
                 Cover = it["al"]?.Value<string>("picUrl") ?? "",
             });
         }
+
         r.Total = d["result"]?.Value<long?>("songCount") ?? r.List.Count;
         return r;
     }
@@ -143,6 +151,7 @@ public sealed partial class NeteaseClient
                     : "这首需要网易云 VIP：请点「登录」扫码",
             };
         }
+
         return new KgUrlResponse
         {
             Ok = true,
@@ -185,12 +194,13 @@ public sealed partial class NeteaseClient
         if (key.Length == 0) return new KgQrResponse { Ok = false, Error = "二维码生成失败" };
         string content = $"https://music.163.com/login?codekey={key}";
         string img;
-        using (var gen = new QRCoder.QRCodeGenerator())
-        using (var data = gen.CreateQrCode(content, QRCoder.QRCodeGenerator.ECCLevel.M))
-        using (var png = new QRCoder.PngByteQRCode(data))
+        using (var gen = new QRCodeGenerator())
+        using (var data = gen.CreateQrCode(content, QRCodeGenerator.ECCLevel.M))
+        using (var png = new PngByteQRCode(data))
         {
             img = "data:image/png;base64," + Convert.ToBase64String(png.GetGraphic(6));
         }
+
         return new KgQrResponse { Ok = true, Key = key, Img = img };
     }
 
@@ -208,9 +218,11 @@ public sealed partial class NeteaseClient
         {
             // 登录成功：凭据在 Set-Cookie 头里（MUSIC_U / __csrf）；个别封装会把 cookie 串塞进 body，一并解析
             var patch = new JObject();
+
             void eat(string raw)
             {
-                foreach (var part in raw.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                foreach (var part in raw.Split(';',
+                             StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
                 {
                     int eq = part.IndexOf('=');
                     if (eq <= 0) continue;
@@ -218,6 +230,7 @@ public sealed partial class NeteaseClient
                     if ((k == "MUSIC_U" || k == "__csrf") && v.Length > 0) patch[k] = v;
                 }
             }
+
             eat(d.Value<string>("cookie") ?? "");
             foreach (var line in cookies) eat(line);
             if (!patch.ContainsKey("MUSIC_U"))
@@ -225,7 +238,9 @@ public sealed partial class NeteaseClient
             patch["nickname"] = d["profile"]?.Value<string>("nickname") ?? "网易云账号";
             NeSave(patch);
         }
-        return new KgQrCheckResponse { Ok = true, Status = code.ToString(), Nickname = d["profile"]?.Value<string>("nickname") };
+
+        return new KgQrCheckResponse
+            { Ok = true, Status = code.ToString(), Nickname = d["profile"]?.Value<string>("nickname") };
     }
 
     public KgLoginResponse LoginState()
@@ -291,6 +306,7 @@ public sealed partial class NeteaseClient
                 Count = p.Value<int?>("trackCount") ?? 0,
             });
         }
+
         return r;
     }
 
