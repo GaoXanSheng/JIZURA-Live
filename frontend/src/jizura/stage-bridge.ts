@@ -12,8 +12,29 @@ const CHANNEL = 'jizura-live';
 
 type Msg =
   | { type: 'hello' }
-  | { type: 'state'; project: any; beats: number[]; duration: number; sub: any; map: [string, { roma: string; trans: string }][] | null }
-  | { type: 'project'; project: any; beats: number[]; duration: number; map: [string, { roma: string; trans: string }][] | null }
+    | {
+    type: 'state';
+    project: any;
+    beats: number[];
+    duration: number;
+    sub: any;
+    map: [string, { roma: string; trans: string }][] | null;
+    energy: Float32Array | null;
+    energyRate: number;
+    pitch: Float32Array | null;
+    pitchRate: number
+}
+    | {
+    type: 'project';
+    project: any;
+    beats: number[];
+    duration: number;
+    map: [string, { roma: string; trans: string }][] | null;
+    energy: Float32Array | null;
+    energyRate: number;
+    pitch: Float32Array | null;
+    pitchRate: number
+}
   | { type: 'time'; t: number; playing: boolean }
   | { type: 'sub'; sub: any };
 
@@ -32,6 +53,17 @@ function payloadMap() {
   return [...map];
 }
 
+/* 音频分析数组随消息走结构化克隆（Float32Array 原生支持）：
+   渲染页的 plan 一直缺 energy/pitch，K线等音频驱动风格在渲染端全是无数据画面 */
+function analysisOf() {
+    return {
+        energy: S.audio ? (S.audio.energy || null) : null,
+        energyRate: S.audio ? (S.audio.energyRate || 0) : 0,
+        pitch: S.audio ? (S.audio.pitch || null) : null,
+        pitchRate: S.audio ? (S.audio.pitchRate || 0) : 0,
+    };
+}
+
 function projectMsg(type: 'state' | 'project'): Msg {
   return {
     type,
@@ -39,6 +71,7 @@ function projectMsg(type: 'state' | 'project'): Msg {
     beats: beatsOf(),
     duration: S.audio?.duration || 0,
     map: payloadMap(),
+      ...analysisOf(),
     ...(type === 'state' ? { sub: subConfig() } : {}),
   } as Msg;
 }
@@ -68,9 +101,23 @@ export function bindEditorBroadcast() {
 }
 
 /* ---- 渲染端：接收并落到 pinia store（由 stores/stage.ts 组装） ---- */
+export interface AnalysisPayload {
+    energy: Float32Array | null;
+    energyRate: number;
+    pitch: Float32Array | null;
+    pitchRate: number
+}
+
 export interface StageSink {
-  setState(project: any, beats: number[], duration: number, sub: any, map: [string, { roma: string; trans: string }][] | null): void;
-  setProject(project: any, beats: number[], duration: number, map: [string, { roma: string; trans: string }][] | null): void;
+    setState(project: any, beats: number[], duration: number, sub: any, map: [string, {
+        roma: string;
+        trans: string
+    }][] | null, analysis?: AnalysisPayload): void;
+
+    setProject(project: any, beats: number[], duration: number, map: [string, {
+        roma: string;
+        trans: string
+    }][] | null, analysis?: AnalysisPayload): void;
   setTime(t: number, playing: boolean): void;
   setSub(sub: any): void;
   isConnected(): boolean;
@@ -81,8 +128,18 @@ export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendH
   try { c = new BroadcastChannel(CHANNEL); } catch { return { stop: () => {}, resendHello: () => {} }; }
   c.onmessage = (e: MessageEvent<Msg>) => {
     const m = e.data;
-    if (m.type === 'state') sink.setState(m.project, m.beats, m.duration, m.sub, m.map);
-    else if (m.type === 'project') sink.setProject(m.project, m.beats, m.duration, m.map);
+      if (m.type === 'state') sink.setState(m.project, m.beats, m.duration, m.sub, m.map, {
+          energy: m.energy,
+          energyRate: m.energyRate,
+          pitch: m.pitch,
+          pitchRate: m.pitchRate
+      });
+      else if (m.type === 'project') sink.setProject(m.project, m.beats, m.duration, m.map, {
+          energy: m.energy,
+          energyRate: m.energyRate,
+          pitch: m.pitch,
+          pitchRate: m.pitchRate
+      });
     else if (m.type === 'time') sink.setTime(m.t, m.playing);
     else if (m.type === 'sub') sink.setSub(m.sub);
   };

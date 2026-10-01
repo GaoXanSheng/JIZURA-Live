@@ -547,6 +547,8 @@ J.plan = (project, audio) => {
   plan.events.sort((a, b) => a.t - b.t);
   plan.energy = audio && audio.energy ? audio.energy : null;
   plan.energyRate = audio && audio.energyRate ? audio.energyRate : 0;
+  plan.pitch = audio && audio.pitch && audio.pitch.length ? audio.pitch : null;
+  plan.pitchRate = audio && audio.pitchRate ? audio.pitchRate : 0;
   return plan;
 };
 

@@ -40,6 +40,7 @@ import './11p_typo1.js';
 import './11p_typo2.js';
 import './11p_typo3.js';
 import './11q_sets.js';
-import './zh-labels.js';   // 简中标签覆盖（风格/部件名/示例歌词），必须在所有引擎文件之后
+import './11p_kline.js'; // K线（股票蜡烛图）风格：完全独立的音频驱动渲染器
+import './zh-labels.js'; // 简中标签覆盖（风格/部件名/示例歌词），必须在所有引擎文件之后
 
 export const J: any = (globalThis as any).J;

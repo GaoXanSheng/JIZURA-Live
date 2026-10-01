@@ -311,7 +311,7 @@ J.AE_MAP = {
 // The plan goes to the After Effects panel as-is (version 2): the panel builds every key it implements and
 // picks the closest counterpart itself (from the exported metadata / J.AE_MAP) for anything it lacks.
 J.planForAE = (plan, project, range) => {
-  const clean = JSON.parse(JSON.stringify(plan, (k, v) => (k === 'energy' || k === 'buffer' || k === 'peaks' ? undefined : v)));
+  const clean = JSON.parse(JSON.stringify(plan, (k, v) => (k === 'energy' || k === 'buffer' || k === 'peaks' || k === 'pitch' ? undefined : v)));
   clean.version = 2;
     clean.aeMap = J.AE_MAP;   // 新增包条目 → 原版 counterpart 的对照表：面板对未实现的 key 按它取最近似条目
   clean.width = J.outputSize(project)[0]; clean.height = J.outputSize(project)[1];

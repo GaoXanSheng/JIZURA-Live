@@ -66,6 +66,12 @@ class Renderer {
     const W = plan.W, H = plan.H, scale = opt.scale || 1;
     const cw = ctx.canvas.width, ch = ctx.canvas.height;
     const fx = plan.fx, st = plan.style, fps = plan.fps;
+    // K线风格：完全独立的渲染路径——图表+中心滚动歌词画满整帧后直接返回，
+    // 不进普通文字管线（无 morph/转场递归、无全屏特效），视角与画面稳定
+    if (st.kline && J.KLINE_RENDERER && opt.layer !== 'front') {
+      J.KLINE_RENDERER(ctx, plan, t, opt);
+      return;
+    }
     // motion is quantised to 'koma' drawings per second (24fps timebase); random flicker runs on a <=24Hz clock
     const stepDur = J.stepDur(fx, fps);
     const clock = J.komaOf(fx) > 0 ? stepDur : 1 / 24;
@@ -78,12 +84,11 @@ class Renderer {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.filter = 'none';
-    ctx.clearRect(0, 0, cw, ch);
+    if (!opt.klineBg) ctx.clearRect(0, 0, cw, ch);   // K线背景已画好，不能清掉
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     // ---------- background ----------
     const key = plan.keyBg && J.KEY_BG && J.KEY_BG[plan.keyBg] ? plan.keyBg : null;   // 合成用: white-on-black, finished in keyFinish()
-    if (key && !opt.transparent) { ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H); }
-    else if (!opt.transparent) {
+    if (key && !opt.transparent) { ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, W, H); } else if (!opt.transparent && !opt.klineBg) {
       ctx.fillStyle = sc.bg; ctx.fillRect(0, 0, W, H);
       const g = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, Math.hypot(W, H) * 0.6);
       const lift = J.lum(sc.bg) < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.10)';
@@ -119,7 +124,7 @@ class Renderer {
     // ---------- background graphic (per line) ----------
     // 透過PNG 前景／後景 (opt.layer): 'back' = background graphic + the decorations behind the lyrics, 'front' = the rest
     const layer = opt.transparent ? opt.layer || null : null;
-    if ((!opt.transparent || layer === 'back') && !key && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
+    if ((!opt.transparent || layer === 'back') && !key && !opt.klineBg && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
       const env = this.makeEnv(ctx, plan, mainCut, sc, {
         pass: 'main',
         t: tq,

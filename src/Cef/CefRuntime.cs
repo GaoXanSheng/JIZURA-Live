@@ -26,13 +26,6 @@ public static class CefRuntime
             CachePath = CachePath,
             LogSeverity = LogSeverity.Verbose,
             LogFile = LogFile,
-            // ------------------------------------------------------------
-            // 必须为 true：镜像（离屏）浏览器依赖 OSR（离屏渲染）。
-            // CEF 文档明确要求创建 windowless 浏览器时全局开启此开关；
-            // 关掉后离屏浏览器会退化为软件帧（OnPaint），GPU 共享纹理
-            //（OnAcceleratedPaint）永远不会触发。
-            // 主窗口是 HwndHost（有窗口渲染），不受此全局开关影响。
-            // ------------------------------------------------------------
             WindowlessRenderingEnabled = true,
             MultiThreadedMessageLoop = true,
             ResourcesDirPath = AppContext.BaseDirectory,
@@ -42,24 +35,8 @@ public static class CefRuntime
         // 镜像（离屏）浏览器没有用户手势，AudioContext 默认被自动播放策略拦停，
         // 播放时钟会走不动；主窗口本身有真实交互，放开无副作用
         cefSettings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
-
-        // ------------------------------------------------------------
-        // 关键修复：CefSharp 默认注入 disable-gpu-compositing（历史
-        // 遗留的稳定性开关），它强制 CEF 走软件合成，后果：
-        //   1. GPU 共享纹理（OnAcceleratedPaint）永远不会触发，
-        //      镜像只能走 CPU OnPaint（每帧全幅 8MB 内存拷贝）；
-        //   2. 页面画布退化为 CPU 光栅（1080p 单帧 ~16ms，仅 ~17fps）。
-        // 移除后启用 GPU 合成，两条链路都恢复 GPU。
-        // ------------------------------------------------------------
         cefSettings.CefCommandLineArgs.Remove("disable-gpu-compositing");
-
-        // ------------------------------------------------------------
-        // GPU 诊断/实验参数：环境变量 JIZURA_CEF_ARGS 注入，
-        // 空格或逗号分隔，"k=v" 或 "k"。
-        // 例：JIZURA_CEF_ARGS="ignore-gpu-blocklist use-angle=d3d11"
-        // ------------------------------------------------------------
         string extraArgs = Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
-
         foreach (string tok in extraArgs.Split(
                      new[] { ' ', ',' },
                      StringSplitOptions.RemoveEmptyEntries))
@@ -72,16 +49,8 @@ public static class CefRuntime
                 cefSettings.CefCommandLineArgs[tok] = "1";
         }
 
-        // ------------------------------------------------------------
-        // CDP 调试端口：默认关闭，设置面板开启后才监听（仅回环地址）。
-        // 环境变量 JIZURA_CDP_PORT 显式设置时优先（开发调试用）。
-        // RemoteDebuggingPort 只能在 Cef.Initialize 前配置，
-        // 因此面板里改动需重启应用生效
-        // ------------------------------------------------------------
         int? cdpPort = null;
-
         string envPort = Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
-
         if (int.TryParse(envPort, out int envParsed) && envParsed > 0)
         {
             cdpPort = envParsed;
@@ -97,10 +66,6 @@ public static class CefRuntime
         if (cdpPort.HasValue)
         {
             cefSettings.RemoteDebuggingPort = cdpPort.Value;
-            // 新版 Chromium 校验 DevTools WebSocket 的 Origin 头：页面直连
-            // ws://127.0.0.1:<port> 会被以 "Rejected an incoming WebSocket
-            // connection" 拒掉（渲染调试面板的 CDP 精确模式依赖这条连接），
-            // 放行所有来源——端口本就只监听回环，无外露风险
             cefSettings.CefCommandLineArgs["remote-allow-origins"] = "*";
             Log.Info(
                 $"CDP 远程调试端口已开启：" +
@@ -113,7 +78,6 @@ public static class CefRuntime
 
         foreach (var kv in cefSettings.CefCommandLineArgs)
             Log.Info($"CEF 命令行参数：{kv.Key}={kv.Value}");
-
         bool success = false;
         try
         {

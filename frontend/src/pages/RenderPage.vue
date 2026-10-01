@@ -20,18 +20,24 @@ let unwatch: (() => void) | null = null;
 let mirrorCleanup: (() => void) | null = null;
 
 /* 镜像模式时间同步——完整跟随编辑器时钟（时钟同步已恢复）。
-   时间来源（双路并存）：
-     BC time 每帧 + C# __jlApplySync ~30Hz 锚点；锚点之间泵按墙钟外推
-     （消除推送节奏与出画节奏的拍频）。暂停同值推送由变更检测静默。 */
-const anchor = {playing: false, lastT: 0, stamp: 0};
+   时间来源（双路并存）：BC time 每帧 + C# __jlApplySync ~30Hz 锚点。
+   两条通道 + 泵外推三方写 stage.t 会互相打架（锯齿闪烁：画面在两个时间
+   段之间跳）。播放中统一由泵外推时钟独占 stage.t；推送只作为锚点输入，
+   且只进不退——迟到的锚点（落后外推值 <0.35s）直接忽略，大回跳才算 seek。 */
+const anchor = {playing: false, lastT: 0, stamp: 0, has: false};
 
 function onMirrorTime(t: number, playing: boolean) {
   if (!Number.isFinite(t)) return;
   const now = performance.now();
+  if (playing && anchor.playing && anchor.has) {
+    const ext = anchor.lastT + (now - anchor.stamp) / 1000;
+    if (t < ext && ext - t < 0.35) return;   // 迟到的锚点：不回拨外推时钟
+  }
   const changed = playing !== anchor.playing || t !== anchor.lastT;
   anchor.playing = playing;
   anchor.lastT = t;
   anchor.stamp = now;
+  anchor.has = true;
   if (changed || playing) {
     stage.t = t;
     stage.need = true;
@@ -206,9 +212,20 @@ function startMirror(cv: HTMLCanvasElement) {
   (window as any).__jl_spout_mirror = true;
   (window as any).__jl_spout_transparent = spoutParams.get('transparent') === '1';
   (window as any).__jl_no_sub = spoutParams.get('nosub') === '1';
+  // 播放时钟由本页泵独占：BC/锚点推送都改走 onMirrorTime 再锚定（只进不退）
+  stage.extClock = onMirrorTime;
 
   const fps = Math.max(1, Number(spoutParams.get('fps')) || 60);
-  const PUMP_MS = Math.max(8, Math.floor(1000 / fps));
+  const PUMP_MS = Math.max(4, Math.floor(1000 / fps));
+
+  // ------------------------------------------------------------
+  // 高帧率泵：requestAnimationFrame 受 VSync 约束（≤60Hz），
+  // 即使 CEF 侧 WindowlessFrameRate=240 也只能出 60 帧。
+  // 改用 setTimeout 递归调度：最小粒度 ~4ms（~250Hz），
+  // 足够覆盖 240fps 目标。仅镜像（离屏）浏览器走此路径，
+  // 主窗口编辑器仍用 rAF 以保证流畅 + 节能。
+  // ------------------------------------------------------------
+  const useHighFreqPump = fps > 60;
   let lastW = 0, lastH = 0;
   let postedPending = false;
 
@@ -282,8 +299,12 @@ function startMirror(cv: HTMLCanvasElement) {
 
   let pumpLast = 0;
   let drawnT: number | undefined = undefined;
+  const schedulePump = useHighFreqPump
+      ? () => setTimeout(pump, PUMP_MS)
+      : () => requestAnimationFrame(pump);
+
   const pump = () => {
-    requestAnimationFrame(pump);
+    schedulePump();
     try {
       const now = performance.now();
       if (now - pumpLast < PUMP_MS) return;
@@ -307,7 +328,7 @@ function startMirror(cv: HTMLCanvasElement) {
     } catch { /* 泵不容错中断 */
     }
   };
-  requestAnimationFrame(pump);
+  schedulePump();
 
   // isolate 低频重入即可（自愈 DOM 变动）；分辨率保持已移入泵里
   const isolateTimer = window.setInterval(isolate, 500);
@@ -331,6 +352,7 @@ function startMirror(cv: HTMLCanvasElement) {
   mirrorCleanup = () => {
     window.removeEventListener('storage', onStorage);
     window.clearInterval(isolateTimer);
+    stage.extClock = null;
     delete (window as any).__jlApplySync;
   };
 }

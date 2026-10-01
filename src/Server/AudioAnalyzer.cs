@@ -127,6 +127,9 @@ internal static class AudioAnalyzer
             if (p95 <= 0) p95 = 1f;
             for (int f = 0; f < n; f++) energy[f] = Math.Min(1f, energy[f] / p95);
 
+            // 音高（F0）：70..1000 Hz，与能量同帧率。静音/无周期帧为 0
+            var pitch = EstimatePitch(mono, sampleRate, energy, hop, n, len);
+
             // 时间轴波形峰
             const int bins = 1600;
             var peaks = new float[bins];
@@ -151,6 +154,8 @@ internal static class AudioAnalyzer
                 Energy = energy,
                 EnergyRate = rate,
                 Peaks = peaks,
+                Pitch = pitch,
+                PitchRate = rate,
             };
         }
         finally
@@ -176,6 +181,120 @@ internal static class AudioAnalyzer
         return true;
     }
 
+    /// <summary>
+    /// 音高（F0）检测：窗口归一化互相关（NCCF），70..1000 Hz。
+    /// 窗口取 2*hop（50Hz 帧率下 40ms），保证下限频率约两个完整周期；
+    /// 能量门限（归一化后 &lt;0.04）与相关性门限（&lt;0.45）之外的帧输出 0（视为无声）；
+    /// 短周期峰达最高峰 88% 即优先取短周期（倍频抑制），帧间 3 值中值滤波去毛刺。
+    /// </summary>
+    private static float[] EstimatePitch(float[] mono, int sampleRate, float[] energy, int hop, int n, int len)
+    {
+        var pitch = new float[n];
+        int win = 2 * hop;
+        int minLag = Math.Max(2, (int)Math.Round((double)sampleRate / 1000.0));
+        int maxLag = Math.Min(win - 4, (int)Math.Round((double)sampleRate / 70.0));
+        if (maxLag <= minLag + 2) return pitch;
+
+        var wbuf = ArrayPool<float>.Shared.Rent(win);
+        var cc = ArrayPool<double>.Shared.Rent(maxLag + 2);
+        try
+        {
+            for (int f = 0; f < n; f++)
+            {
+                if (energy[f] < 0.04f) continue; // 静音帧：pitch 保持 0
+                int start = f * hop;
+                if (start + win > len) start = len - win;
+                if (start < 0) break;
+
+                double mean = 0;
+                for (int i = 0; i < win; i++) mean += mono[start + i];
+                mean /= win;
+                double e0 = 0;
+                for (int i = 0; i < win; i++)
+                {
+                    float v = mono[start + i] - (float)mean;
+                    wbuf[i] = v;
+                    e0 += v * (double)v;
+                }
+
+                if (e0 < 1e-9) continue;
+
+                double bestC = 0;
+                int bestLag = -1;
+                for (int lag = minLag; lag <= maxLag; lag++)
+                {
+                    double dot = 0, e1 = 0;
+                    for (int i = lag; i < win; i++)
+                    {
+                        dot += wbuf[i] * (double)wbuf[i - lag];
+                        e1 += wbuf[i - lag] * (double)wbuf[i - lag];
+                    }
+
+                    double c = e1 > 1e-12 ? dot / Math.Sqrt(e0 * e1) : 0;
+                    cc[lag] = c;
+                    if (c > bestC)
+                    {
+                        bestC = c;
+                        bestLag = lag;
+                    }
+                }
+
+                if (bestLag < 0 || bestC < 0.45) continue;
+
+                // 倍频抑制：短周期（高八度）峰接近最高峰时优先取短周期
+                int chosen = bestLag;
+                double thresh = bestC * 0.88;
+                for (int lag = minLag + 1; lag < bestLag; lag++)
+                {
+                    if (cc[lag] >= thresh && cc[lag] >= cc[lag - 1] && cc[lag] >= cc[lag + 1])
+                    {
+                        chosen = lag;
+                        break;
+                    }
+                }
+
+                // 抛物线插值细化周期
+                double lagF = chosen;
+                if (chosen > minLag && chosen < maxLag)
+                {
+                    double a = cc[chosen - 1], b = cc[chosen], c2 = cc[chosen + 1];
+                    double d = a - 2 * b + c2;
+                    if (d != 0) lagF = chosen + 0.5 * (a - c2) / d;
+                }
+
+                pitch[f] = (float)(sampleRate / lagF);
+            }
+
+            // 3 帧中值滤波：只对有声帧生效（零帧=无声，不外推假音高）
+            var smoothed = new float[n];
+            for (int f = 0; f < n; f++)
+            {
+                if (pitch[f] <= 0) continue;
+                float a = f > 0 ? pitch[f - 1] : pitch[f];
+                float b = pitch[f];
+                float c3 = f < n - 1 ? pitch[f + 1] : pitch[f];
+                if (a > 0 && c3 > 0)
+                {
+                    if (a > b) (a, b) = (b, a);
+                    if (b > c3) (b, c3) = (c3, b);
+                    if (a > b) (a, b) = (b, a);
+                    smoothed[f] = b;
+                }
+                else
+                {
+                    smoothed[f] = b;
+                }
+            }
+
+            return smoothed;
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(wbuf, clearArray: true);
+            ArrayPool<double>.Shared.Return(cc, clearArray: true);
+        }
+    }
+
     public sealed class Result
     {
         public double Bpm { get; init; }
@@ -183,5 +302,7 @@ internal static class AudioAnalyzer
         public float[] Energy { get; init; } = Array.Empty<float>();
         public int EnergyRate { get; init; }
         public float[] Peaks { get; init; } = Array.Empty<float>();
+        public float[] Pitch { get; init; } = Array.Empty<float>();
+        public int PitchRate { get; init; }
     }
 }

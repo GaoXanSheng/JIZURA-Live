@@ -50,6 +50,8 @@ internal sealed class AnalyzeController : WebApiController
                 energy = result.Energy,
                 energyRate = result.EnergyRate,
                 peaks = result.Peaks,
+                pitch = result.Pitch,
+                pitchRate = result.PitchRate,
             }),
             "application/json; charset=utf-8", Encoding.UTF8);
     }

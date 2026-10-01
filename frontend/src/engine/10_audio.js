@@ -65,9 +65,72 @@ J.analyzeAudio = async (file) => {
   // waveform peaks for the timeline
   const bins = 1600, peaks = new Float32Array(bins), per = Math.max(1, Math.floor(len / bins));
   for (let b = 0; b < bins; b++) { let m = 0; for (let i = b * per, e = Math.min(len, (b + 1) * per); i < e; i += 4) { const v = Math.abs(mono[i]); if (v > m) m = v; } peaks[b] = m; }
+  // pitch (F0) per frame — same algorithm as the C# analyzer (AudioAnalyzer.EstimatePitch): NCCF 70..1000 Hz,
+  // window decimated to ~11 kHz so the per-frame cost stays flat at any sample rate; silent frames stay 0
+  const pitch = new Float32Array(n);
+  {
+    const stride = Math.max(1, Math.round(sr / 11025));
+    const srate = sr / stride;
+    const win = 2 * hop, minLag = Math.max(2, Math.round(srate / 1000)),
+        maxLag = Math.min(win / stride - 4, Math.round(srate / 70));
+    const wbuf = new Float32Array(Math.ceil(win / stride));
+    if (maxLag > minLag + 2) {
+      const cc = new Float32Array(maxLag + 2);
+      for (let f = 0; f < n; f++) {
+        if (energyN[f] < 0.04) continue;
+        let start = f * hop;
+        if (start + win > len) start = len - win;
+        if (start < 0) break;
+        let mean = 0, m = 0;
+        for (let i = 0; i < win; i += stride) {
+          wbuf[m++] = mono[start + i];
+          mean += mono[start + i];
+        }
+        mean /= m;
+        let e0 = 0;
+        for (let i = 0; i < m; i++) {
+          wbuf[i] -= mean;
+          e0 += wbuf[i] * wbuf[i];
+        }
+        if (e0 < 1e-9) continue;
+        let bestC = 0, bestLag = -1;
+        for (let lag = minLag; lag <= maxLag; lag++) {
+          let dot = 0, e1 = 0;
+          for (let i = lag; i < m; i++) {
+            dot += wbuf[i] * wbuf[i - lag];
+            e1 += wbuf[i - lag] * wbuf[i - lag];
+          }
+          const c = e1 > 1e-12 ? dot / Math.sqrt(e0 * e1) : 0;
+          cc[lag] = c;
+          if (c > bestC) {
+            bestC = c;
+            bestLag = lag;
+          }
+        }
+        if (bestLag < 0 || bestC < 0.45) continue;
+        let chosen = bestLag;                                 // 倍频抑制: an octave-higher peak ≥88% wins
+        const thresh = bestC * 0.88;
+        for (let lag = minLag + 1; lag < bestLag; lag++) if (cc[lag] >= thresh && cc[lag] >= cc[lag - 1] && cc[lag] >= cc[lag + 1]) {
+          chosen = lag;
+          break;
+        }
+        let lagF = chosen;
+        if (chosen > minLag && chosen < maxLag) {
+          const a = cc[chosen - 1], b = cc[chosen], c2 = cc[chosen + 1], d = a - 2 * b + c2;
+          if (d !== 0) lagF = chosen + 0.5 * (a - c2) / d;
+        }
+        pitch[f] = srate / lagF;
+      }
+      for (let f = 0; f < n; f++) {                           // 3帧中值滤波（零帧=无声不外推）
+        if (pitch[f] <= 0) continue;
+        const tri = [f > 0 ? pitch[f - 1] : pitch[f], pitch[f], f < n - 1 ? pitch[f + 1] : pitch[f]].filter(v => v > 0).sort((a, b) => a - b);
+        pitch[f] = tri[Math.floor(tri.length / 2)];
+      }
+    }
+  }
   return {
     name: file.name, duration: audioBuffer.duration, sampleRate: sr, buffer: audioBuffer,
-    bpm: Math.round(60 / period * 10) / 10, beats, energy: energyN, energyRate: rate, peaks,
+    bpm: Math.round(60 / period * 10) / 10, beats, energy: energyN, energyRate: rate, peaks, pitch, pitchRate: rate,
   };
 };
 

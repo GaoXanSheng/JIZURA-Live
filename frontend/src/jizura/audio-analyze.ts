@@ -13,6 +13,9 @@ export interface AnalyzedAudio {
   energy: Float32Array;
   energyRate: number;
   peaks: Float32Array;
+  /* F0（Hz/帧，0=无声帧），帧率同 energyRate——K线主题用它驱动蜡烛涨跌 */
+  pitch: Float32Array | null;
+  pitchRate: number;
 }
 
 /* 11025 Hz 对节拍分析足够：onset 包络的帧率固定 50Hz（hop 随采样率自动缩放），
@@ -65,5 +68,7 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
     energy: Float32Array.from(j.energy),
     energyRate: j.energyRate,
     peaks: Float32Array.from(j.peaks),
+    pitch: j.pitch ? Float32Array.from(j.pitch) : null,
+    pitchRate: j.pitchRate || j.energyRate || 0,
   };
 }
