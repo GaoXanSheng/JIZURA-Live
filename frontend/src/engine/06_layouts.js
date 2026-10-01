@@ -42,17 +42,34 @@ J.drawFx = (env, it) => {
   let bb = null;
   const draw = () => {
     if (it.streak && it.streak.a > 0.01) {
+      const lay0 = it._lay || (it._lay = J.layoutText(it));   // 拖尾副本共享排版，免每帧每副本重排
       for (let k = it.streak.n; k >= 1; k--) {
-        const c = Object.assign({}, it, { x: it.x + it.streak.dx * k, y: it.y + (it.streak.dy || 0) * k, alpha: (it.alpha ?? 1) * it.streak.a * (1 - k / (it.streak.n + 1)), pieceFn: null, streak: null, echo: null, pre: null, post: null, shadow: null, extrude: null });
+        const c = Object.assign({}, it, {
+          x: it.x + it.streak.dx * k,
+          y: it.y + (it.streak.dy || 0) * k,
+          alpha: (it.alpha ?? 1) * it.streak.a * (1 - k / (it.streak.n + 1)),
+          pieceFn: null,
+          streak: null,
+          echo: null,
+          pre: null,
+          post: null,
+          shadow: null,
+          extrude: null,
+          _lay: lay0
+        });
         J.drawItem(env, c);
       }
     }
     if (it.echo && it.echo.n > 0) {            // stepped copies behind the item (outline or tinted)
       const E0 = it.echo;
+      const lay0 = it._lay || (it._lay = J.layoutText(it));   // 回声副本共享排版，免每帧每副本重排
       for (let k = E0.n; k >= 1; k--) {
         const c = Object.assign({}, it, { x: it.x + (E0.dx || 0) * k, y: it.y + (E0.dy || 0) * k, size: it.size * Math.pow(E0.scale || 1, k), rot: (it.rot || 0) + (E0.rot || 0) * k,
           alpha: (it.alpha ?? 1) * (E0.a ?? 0.5) * Math.pow(E0.decay ?? 0.7, k - 1), pieceFn: null, streak: null, echo: null, pre: null, post: null, shadow: null, extrude: null, pattern: null, gradient: null,
-          color: E0.color || it.color, _lay: null, _m: null });
+          color: E0.color || it.color,
+          _lay: lay0,
+          _m: null
+        });
         if (E0.outline) Object.assign(c, { fill: false, stroke: Math.max(1, it.size * 0.012), strokeColor: E0.color || it.color });
         J.drawItem(env, c);
       }

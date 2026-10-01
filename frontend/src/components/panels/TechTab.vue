@@ -98,6 +98,8 @@ function rebuild() {
 
 function onToggle(g: string, ev: Event) {
   const open = (ev.target as HTMLDetailsElement).open;
+  const rec = groups.value.find(x => x.g === g);
+  if (rec) rec.open = open;   // v-if 的卡片网格跟随展开/收起
   if (open) { openSet.add(g); requestAnimationFrame(() => { const el = listEls.get(g); if (el) registerThumbs(el); }); }
   else openSet.delete(g);
 }
@@ -167,7 +169,10 @@ onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
         <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'off')">全部关闭</button>
         <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'flip')">反转</button>
       </div>
-      <div :ref="(el: any) => { if (el) listEls.set(g.g, el); }" class="grid gap-2 px-2.5 pb-2.5 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]">
+      <!-- 折叠的组不渲染卡片网格：860+ 张卡 × 6-8 节点是手法 tab 的 DOM 暴增源。
+           展开时才挂载（onToggle 的 rAF 里 registerThumbs），收起即卸载 -->
+      <div v-if="g.open" :ref="(el: any) => { if (el) listEls.set(g.g, el); }"
+           class="grid gap-2 px-2.5 pb-2.5 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]">
         <label v-for="c in g.cards" :key="c.k" class="flex flex-col gap-1 p-0 border border-line rounded-md overflow-hidden bg-panel cursor-pointer" :class="{ 'opacity-50': c.off }" :title="c.title">
           <canvas :width="c.tw" :height="c.th" :data-g="g.g" :data-k="c.k" class="w-full aspect-video block bg-ink"></canvas>
           <span class="flex items-center gap-1 text-[11px] px-1.5 pb-1.5 min-w-0">

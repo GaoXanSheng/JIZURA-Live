@@ -20,14 +20,24 @@ const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 type Hover = number;
 const TL: { z: number; off: number; hover: Hover; drag: number } = {z: 1, off: 0, hover: -1, drag: -1};
 
+/* 尺寸缓存：tlFrame 每帧 ×3 块 canvas 读 clientWidth/Height 会强制重排
+   （CPU 剖面里 get clientWidth 774ms）。CSS 尺寸只在 resize 时会变，读一次缓存之 */
+let dimsDirty = true;
+const dimCache = new WeakMap<HTMLCanvasElement, { w: number; h: number; dpr: number }>();
+
 function fitCanvas(cv: HTMLCanvasElement): { w: number; h: number; dpr: number } {
+  const cached = dimCache.get(cv);
+  if (!dimsDirty && cached) return cached;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = Math.max(10, Math.round(cv.clientWidth * dpr)), h = Math.max(10, Math.round(cv.clientHeight * dpr));
   if (cv.width !== w || cv.height !== h) {
     cv.width = w;
     cv.height = h;
   }
-  return {w, h, dpr};
+  const out = {w, h, dpr};
+  dimCache.set(cv, out);
+  dimsDirty = false;
+  return out;
 }
 
 function tlView() {
@@ -370,7 +380,16 @@ onMounted(() => {
   offs.push(bus.on('playhead', followTlPlayhead));
   offs.push(bus.on('replan', drawTimeline));
   offs.push(bus.on('replan-sync', drawTimeline));
-  offs.push(bus.on('viewresize', drawTimeline));
+  offs.push(bus.on('viewresize', () => {
+    dimsDirty = true;
+    drawTimeline();
+  }));
+  const onWinResize = () => {
+    dimsDirty = true;
+    drawTimeline();
+  };
+  window.addEventListener('resize', onWinResize);
+  offs.push(() => window.removeEventListener('resize', onWinResize));
   drawTimeline();
   drawPhBar();
 });

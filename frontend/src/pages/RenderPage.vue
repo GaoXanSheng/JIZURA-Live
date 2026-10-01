@@ -71,7 +71,6 @@ onMounted(() => {
     seek: (t: number) => {
       stage.t = t;
       stage.need = true;
-      warmupNearMorphs();
     },
     flushSave: () => {},
     loadAudioFile: async () => false,
@@ -83,7 +82,6 @@ onMounted(() => {
   /* 工程分辨率画布：plan 就绪时把物理像素设为 plan 尺寸（镜像泵也会保持） */
   unwatch = watch(() => stage.plan, () => {
     fitPlanSize(cv);
-    warmMorphs(cv);
   }, {deep: false});
   fitPlanSize(cv);
 
@@ -113,73 +111,9 @@ function fitPlanSize(cv: HTMLCanvasElement) {
   }
 }
 
-/* morph 预热：morph 切分入场的第一帧会在帧内递归渲染两整帧取字形起止位置
-   （Renderer.morphLogs，结果按 plan 缓存）——播放正好走到那里才付这笔钱，
-   画面上就是一次可感知的顿挫。这里在 plan 就绪后的空闲时段提前算好全部
-   morph 缓存，播放时直取缓存。编辑页的 warm() 只预热 piece 动画字形，
-   且渲染页原本什么预热都没有 */
-let warmJob = 0;
-
-/* 临近 morph 档位预热：宿主推送 seek 后，把播放头前方 3 秒内第一个 morph 的
-   全部档位位图在 idle 里提前画好（镜像页 1080p 现绘更贵，且与主页面抢 GPU） */
-let nearWarmTimer = 0, nearWarmJob = 0;
-
-function warmupNearMorphs() {
-  clearTimeout(nearWarmTimer);
-  nearWarmTimer = setTimeout(() => {
-    const plan = stage.plan;
-    if (!plan || !plan.cuts) return;
-    const c = plan.cuts.find((x: any) => x.morph && x.index > 0 && plan.cuts[x.index - 1] && x.start >= stage.t - 0.05 && x.start - stage.t < 3);
-    if (!c) return;
-    const job = ++nearWarmJob;
-    const A = plan.cuts[c.index - 1];
-    const cw = (renderer as any) ? (document.querySelector('canvas') as HTMLCanvasElement)?.width || plan.W : plan.W;
-    const scale = cw / plan.W;
-    const ch = Math.round(cw * plan.H / plan.W);
-    const idle = (window as any).requestIdleCallback ?? ((f: any) => setTimeout(() => f({timeRemaining: () => 10}), 20));
-    let q = 0;
-    const step = (deadline: any) => {
-      if (job !== nearWarmJob || stage.plan !== plan) return;
-      try {
-        const L = (renderer as any).morphLogs(plan, A, c, cw, ch, scale, {transparent: !!window.__jl_spout_transparent});
-        while (q <= 9 && (!deadline || deadline.timeRemaining() > 4)) {
-          (renderer as any).morphShotBuild(plan, A, c, cw, ch, scale, q / 9, true, L);
-          q++;
-        }
-      } catch { /* 兜底 */
-      }
-      if (q <= 9) idle(step);
-    };
-    idle(step);
-  }, 60);
-}
-
-function warmMorphs(cv: HTMLCanvasElement) {
-  const plan = stage.plan;
-  if (!plan || !plan.cuts) return;
-  const cuts = plan.cuts.filter((c: any) => c.morph && c.index > 0);
-  if (!cuts.length) return;
-  const job = ++warmJob;
-  const scale = cv.width / plan.W;
-  const idle = (window as any).requestIdleCallback ?? ((f: any) => setTimeout(() => f({timeRemaining: () => 10}), 40));
-  let i = 0;
-  const step = (deadline: any) => {
-    if (job !== warmJob || stage.plan !== plan) return;   // 工程已变：作废，等新 plan 的预热
-    while (i < cuts.length && deadline.timeRemaining() > 8) {
-      const c = cuts[i++];
-      try {
-        const L = (renderer as any).morphLogs(plan, plan.cuts[c.index - 1], c, cv.width, cv.height, scale, {transparent: !!window.__jl_spout_transparent});
-        // morphShot 位图档位也预热：命中后 morph 帧只是贴图（否则首圈逐帧现绘）
-        for (let q = 0; q <= 9; q++) {
-          (renderer as any).morphShotBuild(plan, plan.cuts[c.index - 1], c, cv.width, cv.height, scale, q / 9, true, L);
-        }
-      } catch { /* 预热失败留回播放时的懒加载兜底 */
-      }
-    }
-    if (i < cuts.length) idle(step);
-  };
-  idle(step);
-}
+/* 无预热：与上游 JIZURA 对齐——morph/首帧播放时惰性构建（morphCache LRU），
+   镜像页不再起任何后台预热任务（实测全量 warmMorphs 会把共享 GPU 进程打满，
+   编辑器主界面成片掉帧） */
 
 function draw(cv: HTMLCanvasElement) {
   const plan = stage.plan;
