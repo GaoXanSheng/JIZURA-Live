@@ -34,9 +34,32 @@ export function mergeProject(p: any) {
         weight: J.clamp(parseInt(uf.weight, 10) || 400, 100, 900)
       }));
   for (const uf of o.userFonts) if (!J.FONTS[uf.key]) J.addUserFont(uf.key, uf.label, uf.family, uf.weight);
+  o.themeId = p && typeof p.themeId === 'string' && J.THEMES && J.THEMES[p.themeId] ? p.themeId : null;
+  migrateOrder(o, p);
   o.fonts = {};
   for (const [role, k] of Object.entries((p && p.fonts) || {})) if (typeof k === 'string' && J.FONTS[k] && /^[\w-]+$/.test(role)) o.fonts[role] = k;
   return o;
+}
+
+/* v0.10：混合 LRC 的无戳行不再排到最后——老工程里按行号存的逐行设置（时刻、
+   指定、导出范围）要跟着搬到新行序上，只搬一次（timingOrder 标记）。 */
+function migrateOrder(o: any, p: any) {
+  const was = p && p.timingOrder;
+  o.timingOrder = 2;
+  if (!p || was === 2) return;
+  const map = J.parseOrderV1 ? J.parseOrderV1(o.lyrics || '') : null;
+  if (!map) return;
+  const mv = (obj: any) => {
+    const r: any = {};
+    for (const [k, v] of Object.entries(obj || {})) {
+      const i = +k;
+      r[Number.isInteger(i) && map[i] != null ? map[i] : k] = v;
+    }
+    return r;
+  };
+  o.timing.lineTimes = mv(o.timing.lineTimes);
+  o.overrides = mv(o.overrides);
+  // 不迁移 exportRange：上游按行存，我们 fork 按切分存（语义不同，无法按行号映射）
 }
 
 export function loadLocal() {

@@ -17,7 +17,8 @@ export interface CutCell {
   hue: number;
   title: string;
   start: number;
-  half: number
+  half: number;
+  ct: number | null
 }
 
 export interface Row {
@@ -168,6 +169,21 @@ function onNcut(ev: Event) {
   seek(props.row.start + 0.001);
 }
 
+/* 切分开始时刻（第 2 个及以后的切分）：输入绝对时刻，存为行首起的偏移；清空 = 自动 */
+function onCutTime(cell: CutCell, ev: Event) {
+  const raw = (ev.target as HTMLInputElement).value;
+  const v = parseFloat(raw);
+  pushEdit();
+  const ln = S.plan.lines[props.row.i];
+  const cur = S.project.overrides[props.row.i] || {}, ct = Object.assign({}, cur.cutTime || {});
+  if (raw !== '' && isFinite(v) && v >= 0) ct[cell.k] = +Math.max(0, v - ln.start).toFixed(3);
+  else delete ct[cell.k];
+  setOv(props.row.i, {cutTime: Object.keys(ct).length ? ct : undefined});
+  replan();
+  seek(Math.max(0, isFinite(v) && raw !== '' ? v : cell.start) + 0.001);
+  commit();
+}
+
 function onDice() {
   const cur = S.project.overrides[props.row.i] || {};
   setOv(props.row.i, {seed: ((cur.seed | 0) + 1), lock: false, lockedSeed: undefined, lockedCuts: undefined});
@@ -239,14 +255,20 @@ function onRng(ev: MouseEvent) {
           @click="seekLine">{{ row.label }}</span>
     <div class="col-span-2 col-start-2 flex justify-between items-start gap-1.5 flex-wrap">
       <span class="flex gap-1 flex-wrap min-w-0 flex-[1_1_140px]">
-        <select v-for="cell in row.cuts" :key="cell.k"
-                :aria-label="`第 ${row.i + 1} 行 切分 ${cell.k + 1} 的布局`"
-                :class="{ '!border-amber': cell.forced }"
-                :data-cur="cell.forced || cell.layout"
-                :style="{ borderColor: `hsla(${cell.hue},70%,58%,0.7)` }" :title="cell.title"
-                class="!h-[22px] !py-0 !px-1 text-[10px] max-w-[112px] w-auto border border-line2 rounded bg-raised text-fg"
-                @blur="onTechBlur" @change="onCutLayout(cell, $event)"
-                @focus="onTechOpen" @pointerdown="onCutSelectDown(cell, $event)"></select>
+        <span v-for="cell in row.cuts" :key="cell.k" class="flex items-center gap-0.5">
+          <input v-if="cell.k > 0" :aria-label="`第 ${row.i + 1} 行 切分 ${cell.k + 1} 的开始秒`"
+                 :class="cell.ct != null ? '!border-cyan' : ''"
+                 :title="cell.ct != null ? '这个切分的开始时刻（手动）。清空则恢复自动' : '这个切分的开始时刻（自动）。输入数值则固定'"
+                 :value="cell.start.toFixed(2)" class="!h-[22px] !py-0 !px-0.5 text-[10px] w-[52px] mono"
+                 min="0" step="0.01" type="number" @change="onCutTime(cell, $event)">
+          <select :aria-label="`第 ${row.i + 1} 行 切分 ${cell.k + 1} 的布局`"
+                  :class="{ '!border-amber': cell.forced }"
+                  :data-cur="cell.forced || cell.layout"
+                  :style="{ borderColor: `hsla(${cell.hue},70%,58%,0.7)` }" :title="cell.title"
+                  class="!h-[22px] !py-0 !px-1 text-[10px] max-w-[112px] w-auto border border-line2 rounded bg-raised text-fg"
+                  @blur="onTechBlur" @change="onCutLayout(cell, $event)"
+                  @focus="onTechOpen" @pointerdown="onCutSelectDown(cell, $event)"></select>
+        </span>
       </span>
       <span class="flex gap-1 flex-wrap justify-end ml-auto">
         <button :aria-label="`修改第 ${row.i + 1} 行歌词`" class="btn btn-icon btn-ghost" title="修改这一行的歌词"

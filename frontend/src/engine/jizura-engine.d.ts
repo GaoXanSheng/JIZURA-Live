@@ -72,6 +72,8 @@ export interface JizuraEngine {
     typesetLine: (line: any, env: any) => any;
     layoutText: (item: any, env: any) => any;
     drawItem: (ctx: CanvasRenderingContext2D, item: any, t: number, env: any) => void;
+    decoTextKind: (t: string) => 'no' | 'time' | null;
+    hideDecoText: (env: any, text: string) => boolean;
     weightNow: (w: number, t: number) => number;
     varFontCSS: (key: string, w: number) => string;
     textPattern: (ctx: CanvasRenderingContext2D, item: any, env: any) => any;
@@ -136,6 +138,10 @@ export interface JizuraEngine {
     komaOf: (f: any) => any;
     stepDur: (bpm: number, div: number) => number;
     parseLyrics: (txt: string) => any[];
+    parseOrderV1: (txt: string) => number[] | null;
+    isWordLike: (t: string) => boolean;
+    joinWords: (arr: string[]) => string;
+    isLatinText: (t: string) => boolean;
     segments: (lines: any[]) => any[];
     chunkText: (txt: string, max: number) => string[];
     phraseChunks: (lines: any[]) => any[];
@@ -149,7 +155,9 @@ export interface JizuraEngine {
 
     // from 08b_omakase.js
     MOODS: Record<string, any>;
-    omakase: (project: any) => any;
+    THEMES: Record<string, any>;
+    THEME_ORDER: string[];
+    omakase: (project: any, rnd?: () => number, themeId?: string | null) => any;
 
     // from 09_render.js
     cutAt: (plan: any, t: number) => any;
@@ -167,6 +175,7 @@ export interface JizuraEngine {
 
     // from 11_export.js
     saveFile: (name: string, blob: Blob) => Promise<void>;
+    lrcText: (project: any, lines: any[], range: { from: number; to: number; t0: number } | null) => string;
     videoBitrate: number;
     pickVideoCodec: (w: number, h: number, fps: number, br: number) => Promise<any>;
     videoAttempts: number;

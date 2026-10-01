@@ -192,13 +192,39 @@
         for (const [g, map] of Object.entries(extra)) for (const [k, ms] of Object.entries(map)) ms.forEach(m => add(g, k, m));
     })();
 
-    J.omakase = (project, rnd = Math.random) => {
+    /* 主题：在一个方向内一键随机。主题在其氛围里挑、打开需要的部品开关
+       （随结果返回）、并让自身套装/和风的部品始终留在候选里。无主题 = 平时的一键随机。 */
+    J.THEMES = {
+        lyricpv: {name: '文字PV', moods: ['editorial', 'graphic', 'emotional'], set: 'typo'},
+        kinetic: {name: 'キネティック', moods: ['pop', 'graphic', 'glitch'], set: 'kinetic'},
+        wa: {name: '和風', moods: ['calm', 'emotional', 'editorial'], wa: true},
+        horror: {name: 'ホラー', moods: ['horror'], set: 'horror'},
+        pop: {name: 'ポップ', moods: ['pop']},
+        ballad: {name: 'バラード', moods: ['calm', 'emotional'], koma: [0, 0, 12]},
+    };
+    J.THEME_ORDER = Object.keys(J.THEMES);
+
+    J.omakase = (project, rnd = Math.random, themeId = null) => {
+        const T = themeId && J.THEMES[themeId] ? J.THEMES[themeId] : null;
+        const switches = {};
+        if (T && T.set) switches[T.set] = true;
+        if (T && T.wa) {
+            switches.wa = true;
+            switches.extra = true;     // 大多数和风部品属于「追加分」
+        }
+        if (T) project = Object.assign({}, project, switches);
+        const themePart = d => !!(T && d && ((T.set && d.set === T.set) || (T.wa && d.wa)));
         const pick = a => a[Math.floor(rnd() * a.length) % a.length];
         const range = r => +(r[0] + (r[1] - r[0]) * rnd()).toFixed(2);
         const moodOk = k => !J.MOODS[k].set || (J.setOn && J.setOn(project, J.MOODS[k].set));
-        const moods = Object.keys(J.MOODS).filter(k => k !== project.mood && moodOk(k));
-        // with the ホラー switch on, おまかせ leans to the ホラー mood (it may repeat)
-        const mood = moodOk('horror') && rnd() < 0.55 ? 'horror' : pick(moods), M = J.MOODS[mood];
+        let moods = Object.keys(J.MOODS).filter(k => k !== project.mood && moodOk(k));
+        if (T) {
+            const tm = T.moods.filter(k => J.MOODS[k] && moodOk(k));
+            moods = tm.filter(k => k !== project.mood);
+            if (!moods.length) moods = tm.length ? tm : Object.keys(J.MOODS).filter(moodOk);
+        }
+        // 开了ホラー开关时，一键随机偏向ホラー氛围（可以重复）——有主题时交给主题
+        const mood = !T && moodOk('horror') && rnd() < 0.55 ? 'horror' : pick(moods), M = J.MOODS[mood];
         // a set tied to a mood (ホラー) is only used in that mood
         const moodSetOk = d => !(d && d.set) || !Object.values(J.MOODS).some(m => m.set === d.set) || M.set === d.set;
         // style: mostly one that suits the mood, sometimes anything; never the same twice in a row
@@ -206,12 +232,16 @@
         const okStyle = k => J.STYLES[k] && (!J.randomOk || J.randomOk(project, 'style', k)) && moodSetOk(J.STYLES[k]);
         const moodStyles = [...new Set([...(M.styles || []), ...J.STYLE_ORDER.filter(k => (J.STYLES[k].moods || []).includes(mood))])].filter(okStyle);
         let pool = (moodStyles.length && rnd() < 0.72 ? moodStyles : J.STYLE_ORDER.filter(okStyle)).filter(k => k !== project.style);
+        if (T) {
+            const ts = J.STYLE_ORDER.filter(k => okStyle(k) && themePart(J.STYLES[k]) && k !== project.style);
+            if (ts.length && rnd() < 0.8) pool = ts;
+        }
         if (!pool.length) pool = J.STYLE_ORDER.filter(k => k !== project.style && okStyle(k));
         if (!pool.length) pool = J.STYLE_ORDER.filter(k => k !== project.style);
         const style = pick(pool);
         const fx = Object.assign({}, project.fx);
         for (const k of Object.keys(M.fx)) fx[k] = range(M.fx[k]);
-        fx.koma = pick({
+        fx.koma = pick(T && T.koma ? T.koma : {
             horror: [12, 8, 0],
             glitch: [12, 12, 8],
             pop: [12, 12, 8, 0],
@@ -231,6 +261,7 @@
             const order = J.order(g).filter(k => !(J.registry(g)[k] || {}).special && (!J.randomOk || J.randomOk(project, g, k)) && moodSetOk(J.registry(g)[k]));
             const hand = ['layout', 'enter', 'exit'].includes(g) && Array.isArray(M[g]) ? M[g] : [];   // (M.fx holds slider ranges, not a list)
             const prefer = mood === 'chaos' ? null : new Set([...hand, ...J.taggedWith(g, mood)]);
+            if (prefer && T) for (const k of order) if (themePart(J.registry(g)[k])) prefer.add(k);   // 主题自己的部品始终保留
             const on = {};
             // entries of a set tied to another mood are switched off explicitly (a missing key would count as enabled)
             for (const k of J.order(g)) if (!moodSetOk(J.registry(g)[k])) on[k] = false;
@@ -266,7 +297,16 @@
         }
         // keep locked lines, drop other per-line picks
         const overrides = {};
-        for (const [i, o] of Object.entries(project.overrides || {})) if (o.lock) overrides[i] = o;
-        return {mood, style, fx, enabled, fonts, colors, overrides, seed: Math.floor(rnd() * 1e9)};
+        for (const [i, o] of Object.entries(project.overrides || {})) if (o.lock) overrides[i] = o; else if (o.cutTime) overrides[i] = {cutTime: o.cutTime};   // 切分时刻属于时序，不属于外观
+        return Object.assign({
+            mood,
+            style,
+            fx,
+            enabled,
+            fonts,
+            colors,
+            overrides,
+            seed: Math.floor(rnd() * 1e9)
+        }, switches);
     };
 })();

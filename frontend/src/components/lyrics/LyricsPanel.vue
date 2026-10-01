@@ -4,7 +4,7 @@ import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {replan, replanSoon} from '../../jizura/engine';
-import {clearLyrics, commit, remember, toast} from '../../jizura/look';
+import {clearLyrics, commit, loadLrc, remember, toast} from '../../jizura/look';
 import {flushSave} from '../../jizura/project';
 import {
   applyLyricOptions,
@@ -84,6 +84,18 @@ function onVersion() {
   const idx = +verIdx.value;
   if (!Number.isNaN(idx) && verIdx.value !== '') switchVersion(cloud.source, idx);
 }
+
+function onLoadLrc() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.lrc,text/plain';
+  inp.onchange = () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    f.text().then(t => loadLrc(t)).catch(() => toast('无法读取该文件'));
+  };
+  inp.click();
+}
 </script>
 
 <template>
@@ -91,6 +103,8 @@ function onVersion() {
     <div class="sec-h">
       <span class="sec-title">歌词</span>
       <span class="inline-flex gap-1.5">
+        <button class="btn btn-ghost btn-sm" title="读取 .lrc：整份替换歌词并带上每行的开始时刻（可用 Ctrl+Z 撤销）"
+                @click="onLoadLrc">读取 LRC</button>
         <button class="btn btn-ghost btn-sm" title="清空歌词与逐行时间、指定、导出范围（可用 Ctrl+Z 撤销）"
                 @click="clearLyrics()">清空歌词</button>
         <button :aria-expanded="syntaxOpen" class="btn btn-ghost btn-sm" @click="syntaxOpen = !syntaxOpen">记法</button>

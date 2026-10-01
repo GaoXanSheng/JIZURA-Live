@@ -4,7 +4,7 @@ import {useEditor} from '../../stores/editor';
 import {AP, LOOP_CYCLE, refreshLoopHold, S, saveVolume} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {replan, seek, togglePlay} from '../../jizura/engine';
-import {commit, histGo, histInfo, omakase, remember} from '../../jizura/look';
+import {commit, histGo, histInfo, omakase, remember, setTheme} from '../../jizura/look';
 import {J} from '../../engine';
 
 const ed = useEditor();
@@ -15,6 +15,14 @@ const nowEl = ref<HTMLElement | null>(null);
 const barEl = ref<HTMLElement | null>(null);
 const fillEl = ref<HTMLElement | null>(null);
 const thumbEl = ref<HTMLElement | null>(null);
+
+/* 一键随机主题（v0.10）：空 = 平时的一键随机 */
+const themes = Object.entries(J.THEMES || {}) as [string, any][];
+const theme = ref(J.THEMES && J.THEMES[S.project?.themeId] ? S.project.themeId : '');
+
+function onTheme(e: Event) {
+  setTheme((e.target as HTMLSelectElement).value);
+}
 
 /* 按钮文案映射（内部模式值保持与引擎一致：'line'=整行、'cut'=单个切分）：
    用户术语「切分循环」= 循环这一整行的切分 → 挂在 'line' 上；
@@ -127,6 +135,9 @@ function doShuffle() {
 onMounted(() => {
   offs.push(bus.on('hist', onHist));
   offs.push(bus.on('sync-ui', onHist));
+  offs.push(bus.on('sync-ui', () => {
+    theme.value = J.THEMES && J.THEMES[S.project?.themeId] ? S.project.themeId : '';
+  }));
   offs.push(bus.on('frame', () => {
     const now = performance.now();
     if (nowEl.value && now - lastSync >= 80) {
@@ -270,6 +281,11 @@ onUnmounted(() => offs.forEach(f => f()));
               title="前往下一案" @click="histGo(1)">▶</button>
     </span>
     <button class="btn btn-accent" title="设置不变，仅构成重新抽选（锁定的行保留）" @click="doShuffle">重抽构成</button>
+    <select v-model="theme" aria-label="一键随机的主题" class="!h-[30px] !py-0 max-w-[92px]"
+            title="限定一键随机的方向：只在主题的氛围・风格・部品里抽，并自动开启需要的部品" @change="onTheme">
+      <option value="">无主题</option>
+      <option v-for="[k, t] in themes" :key="k" :value="k">{{ t.name }}</option>
+    </select>
     <button class="btn btn-primary" title="风格・氛围・演出・配色整体随机（快捷键 R）" @click="omakase()">一键随机
     </button>
   </div>

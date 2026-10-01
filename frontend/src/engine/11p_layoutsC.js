@@ -301,7 +301,7 @@
 
     /* one-call text row for dense secondary copy (main pass only); sp = extra px after each glyph */
     function fastRow(env, text, font, size, x, y, sp, color, alpha, align = 'left') {
-        if (env.pass !== 'main' || alpha <= 0.01 || !text) return;
+        if (env.pass !== 'main' || alpha <= 0.01 || !text || J.hideDecoText(env, text)) return;
         const ctx = env.ctx;
         if (!('letterSpacing' in ctx)) {
             env.draw({text, font, size, x, y, align, track: sp / size, color, alpha, ghost: false});
@@ -5676,7 +5676,7 @@
                 const hdr = bh * 0.2;
                 env.rect(x0, y0, bw, hdr, red, a, false);
                 env.draw({
-                    text: 'お買い得  ·  No.' + lineNo(env),
+                    text: '特价  ·  No.' + lineNo(env),
                     font: bodyF(env),
                     size: hdr * 0.5,
                     track: 0.2,
@@ -5901,7 +5901,7 @@
                 });
                 env.line([[x0 + bw * 0.06, fy + bh * 0.09], [x0 + bw * 0.94, fy + bh * 0.09]], bandC, Math.max(2, u * 0.003), a, false);
                 env.draw({
-                    text: 'なまえ',
+                    text: '名字',
                     font: bodyF(env),
                     size: bh * 0.07,
                     align: 'left',

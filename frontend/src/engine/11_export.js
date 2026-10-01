@@ -143,6 +143,34 @@
         return {t0, dur: Math.max(1 / plan.fps, t1 - t0)};
     };
 
+    /* ---------- LRC（带时间戳歌词） ----------
+       每行一个开始时刻：手工设定 > LRC 标签 > 估算；歌词按书写的行输出（/ * ! | 与间奏行保留）。
+       选了行范围时只输出那些行，时刻从导出视频的开头起算。 */
+    J.lrcText = (project, lines, range) => {
+        const parsed = J.parseLyrics(project.lyrics);
+        const tm = J.computeTiming(project, parsed, null);
+        const rows = String(project.lyrics || '').replace(/\r/g, '').split('\n');
+        const stamp = t => {
+            t = Math.max(0, t);
+            const m = Math.floor(t / 60), s = t - m * 60;
+            return `[${String(m).padStart(2, '0')}:${s.toFixed(2).padStart(5, '0')}]`;
+        };
+        const clean = r => String(r || '').trim().replace(/^(\[\d+:\d+(?:[.:]\d+)?\])+/, '').trim();
+        const out = [];
+        const ti = project.title || parsed.meta.ti, ar = project.artist || parsed.meta.ar;
+        if (ti) out.push(`[ti:${ti}]`);
+        if (ar) out.push(`[ar:${ar}]`);
+        if (parsed.meta.al) out.push(`[al:${parsed.meta.al}]`);
+        const from = range ? range.from : 0, to = range ? range.to : parsed.lines.length - 1, t0 = range ? range.t0 : 0;
+        for (let i = from; i <= to && i < parsed.lines.length; i++) {
+            const L = parsed.lines[i];
+            let txt = clean(rows[L.src]);
+            if (L.interlude && !/^\[/.test(txt)) txt = '[间奏]';
+            out.push(stamp(tm.starts[i] - t0) + txt);
+        }
+        return out.join('\n') + '\n';
+    };
+
     /* ---------- MP4 ---------- */
 
     /* The MP4 is written as it is encoded (mp4-muxer, moov at the end) instead of being assembled in one huge
@@ -387,6 +415,7 @@
     }
 
     /* ---------- PNG sequence as ZIP (store, no compression) ---------- */
+    const ZIP_TOO_BIG = 'ZIP 会变得过大（上限 65,535 个文件・4GB）。请缩小导出范围或降低分辨率';
     const CRC = (() => {
         const t = new Uint32Array(256);
         for (let n = 0; n < 256; n++) {
@@ -410,7 +439,11 @@
         }
 
         add(name, u8) {
-            const nb = new TextEncoder().encode(name), crc = crc32(u8);
+            const nb = new TextEncoder().encode(name);
+            // 普通 ZIP（无 ZIP64）：最多 65,535 个文件、4GB
+            if (this.central.length / 2 >= 0xffff) throw new Error(ZIP_TOO_BIG);
+            if (this.offset + 30 + nb.length + u8.length > 0xffffffff) throw new Error(ZIP_TOO_BIG);
+            const crc = crc32(u8);
             const lh = new DataView(new ArrayBuffer(30));
             lh.setUint32(0, 0x04034b50, true);
             lh.setUint16(4, 20, true);
@@ -444,6 +477,7 @@
         finish() {
             const cdSize = this.central.reduce((s, p) => s + (p.byteLength ?? p.length), 0);
             const n = this.central.length / 2;
+            if (this.offset + cdSize > 0xffffffff) throw new Error(ZIP_TOO_BIG);
             const end = new DataView(new ArrayBuffer(22));
             end.setUint32(0, 0x06054b50, true);
             end.setUint16(8, n, true);
@@ -465,6 +499,8 @@
         const ctx = canvas.getContext('2d');
         const R = new J.Renderer();
         const fps = plan.fps, total = Math.max(1, Math.round(span.dur * fps));
+        const nFiles = Math.ceil(total / every) * (layers ? 2 : 1);
+        if (nFiles > 0xffff) throw new Error(ZIP_TOO_BIG);        // 渲染开始前就报，而不是一小时之后
         const zip = new ZipWriter();
         const scale = w / plan.W;
         // 与 MP4 路径同口径：高分辨率导出提升字形分解上限（否则 1080p+ 的 PNG 比 MP4 模糊）

@@ -196,10 +196,39 @@
     cy: (Math.min(a.y0, b.y0) + Math.max(a.y1, b.y1)) / 2
   };
 
+  /* 拉丁文本：只在词与词之间断行，用能装下的最少行数做均衡分配（行数不会多于词数） */
+  const splitWords = (text, maxPer) => {
+    const ws = text.trim().split(/\s+/), n = ws.length;
+    const total = ws.reduce((a, w) => a + [...w].length, 0) + n - 1;
+    const nLines = Math.min(n, Math.ceil(total / maxPer));
+    if (nLines <= 1) return ws.join(' ');
+    // 均衡拆分：最小化与理想行长的平方差
+    const len = (a, b) => ws.slice(a, b).reduce((s, w) => s + [...w].length, 0) + (b - a - 1);
+    const ideal = total / nLines, memo = new Map();
+    const best = (i, l) => {
+      if (l === 1) {
+        const d = len(i, n) - ideal;
+        return {c: d * d, cuts: []};
+      }
+      const key = i + "," + l;
+      if (memo.has(key)) return memo.get(key);
+      let r = {c: Infinity, cuts: []};
+      for (let j = i + 1; j <= n - l + 1; j++) {
+        const d = len(i, j) - ideal, sub = best(j, l - 1), c = d * d + sub.c;
+        if (c < r.c) r = {c, cuts: [j, ...sub.cuts]};
+      }
+      memo.set(key, r);
+      return r;
+    };
+    const cuts = [0, ...best(0, nLines).cuts, n], out = [];
+    for (let k = 0; k < cuts.length - 1; k++) out.push(ws.slice(cuts[k], cuts[k + 1]).join(' '));
+    return out.join('\n');
+  };
   /* split long text into balanced lines, preferring script boundaries */
   J.splitLines = (text, maxPer) => {
     const arr = [...text];
     if (arr.length <= maxPer) return text;
+    if (J.isLatinText && J.isLatinText(text)) return /\s/.test(text.trim()) ? splitWords(text, maxPer) : text;   // 一个词保持完整
     const nLines = Math.ceil(arr.length / maxPer);
     const per = arr.length / nLines;
     const out = [];

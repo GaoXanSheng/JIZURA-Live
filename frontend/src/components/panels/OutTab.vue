@@ -4,7 +4,7 @@ import {computed, onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
-import {exportRange, exportRangeCuts} from '../../jizura/look';
+import {exportRange, exportRangeCuts, saveLrc} from '../../jizura/look';
 import {flushSave} from '../../jizura/project';
 import {
   canPickFile,
@@ -230,6 +230,10 @@ async function doShare() {
       <button :disabled="busy" class="btn !py-2.5"
               title="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
               @click="doExport('pngl')">透明 PNG 前景/后景（ZIP）
+      </button>
+      <button :disabled="busy" class="btn !py-2.5"
+              title="每行带开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行"
+              @click="saveLrc">歌词（LRC）
       </button>
       <button :disabled="busy" class="btn !py-2.5"
               title="完整 plan（v2）+ AE_MAP 对照表。在 AE 中运行 JIZURA_AE.jsx（上游发布）后选择该文件即可重建合成"

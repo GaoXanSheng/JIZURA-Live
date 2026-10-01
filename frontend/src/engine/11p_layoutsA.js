@@ -97,7 +97,7 @@
             });
             if (bi < 0) break;
             let parts = latin ? [words[bi]] : split2(words[bi]);
-            if (parts.length < 2 && force && words.length < force) parts = split2(words[bi], true);
+            if (parts.length < 2 && force && words.length < force && !latin) parts = split2(words[bi], true);   // 绝不切进拉丁词内部
             if (parts.length < 2) {
                 hard.add(words[bi]);
                 continue;
@@ -212,7 +212,7 @@
 
     /* one-call text row for dense secondary copy (main pass only); sp = extra px after each glyph */
     function fastRow(env, text, font, size, x, y, sp, color, alpha, align = 'left') {
-        if (env.pass !== 'main' || alpha <= 0.01 || !text) return;
+        if (env.pass !== 'main' || alpha <= 0.01 || !text || J.hideDecoText(env, text)) return;
         const ctx = env.ctx;
         if (!('letterSpacing' in ctx)) {
             env.draw({text, font, size, x, y, align, track: sp / size, color, alpha, ghost: false});
@@ -2384,6 +2384,7 @@
         },
         render(env) {
             const {W, H, sc, ctx} = env, p = env.cut.params, u = U(env), port = isPort(env);
+            const ltr = !port && J.isLatinText && J.isLatinText(env.cut.text);   // 拉丁歌词从左往右读
             let ch = p.chunks && p.chunks.length ? p.chunks : splitK(env.cut.text, 2, 2);
             const k = ch.length;
             const m = u * 0.05, g = u * 0.028, lw = Math.max(3, u * 0.0065);
@@ -2406,7 +2407,7 @@
                 const a0 = a + (i === 0 ? 0 : g / 2), b0 = b - (i === k - 1 ? 0 : g / 2);
                 // in reading-axis coordinates: (t, c) with c in [0, cross]
                 const q = [[a0 + sa, 0], [b0 + sb, 0], [b0 - sb, cross], [a0 - sa, cross]];
-                const poly = q.map(([t, c]) => (port ? [m + c, m + t] : [W - m - t, m + c]));
+                const poly = q.map(([t, c]) => (port ? [m + c, m + t] : ltr ? [m + t, m + c] : [W - m - t, m + c]));
                 poly.along = Math.min((b0 + sb) - (a0 + sa), (b0 - sb) - (a0 - sa));
                 polys.push(poly);
             }
@@ -2418,8 +2419,9 @@
                 // wipe along the reading direction
                 let rev = poly;
                 if (e < 1) {
-                    const xs = poly.map(q => (port ? q[1] : -q[0])), lo = Math.min(...xs), hi = Math.max(...xs);
-                    rev = clipHalf(poly, port ? 0 : -1, port ? 1 : 0, lo + (hi - lo) * e);
+                    const xs = poly.map(q => (port ? q[1] : ltr ? q[0] : -q[0])), lo = Math.min(...xs),
+                        hi = Math.max(...xs);
+                    rev = clipHalf(poly, port ? 0 : ltr ? 1 : -1, port ? 1 : 0, lo + (hi - lo) * e);
                 }
                 if (rev.length < 3) return;
                 const accent = i === p.acc % k;

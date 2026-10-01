@@ -449,7 +449,7 @@
    ============================================================ */
 
     /* 家紋 — a family crest (circles & arcs only) drawn on inside a double ring, with its name set small beneath */
-    const KAMON = ['丸に三つ巴', '丸に七宝', '丸に梅鉢', '丸に輪違い', '丸に三つ輪'];
+    const KAMON = ['三巴纹', '七宝纹', '梅钵纹', '轮违纹', '三轮纹'];
 
     function kamonPaths(kind) {            // unit-radius motif paths (closed polylines), local coordinates
         const out = [];

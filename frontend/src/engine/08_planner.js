@@ -11,6 +11,8 @@
 
     J.defaultProject = () => ({
         version: 1,
+        timingOrder: 2,                 // 歌词行围绕 LRC 时间戳保持书写顺序（v0.10）
+        themeId: null,                  // 一键随机的主题（J.THEMES 的 key）——只有一键随机读它
         title: '', artist: '',
         lyrics: J.SAMPLE_LYRICS,
         style: 'noir', mood: null,
@@ -39,7 +41,9 @@
             onTwos: true,
             koma: 12,
             hud: 'auto',
-            bgSwitch: 0.35
+            bgSwitch: 0.35,
+            hideNo: false,              // 不显示装饰性编号（No.01 等；歌词里自带的数字不受影响）
+            hideTime: false             // 不显示装饰性时刻（00:12.34 等）
         },
         enabled: Object.fromEntries(J.GROUP_KEYS.map(g => [g, Object.fromEntries(J.order(g).map(k => [k, true]))])),
         timing: {bpm: 0, offset: 0.4, snap: true, tail: 0.9, lineTimes: {}, lineScale: 1},
@@ -129,10 +133,32 @@
             if (times.length) times.forEach(t => lines.push(Object.assign({}, base, {lrc: t})));
             else lines.push(Object.assign({}, base, {lrc: null}));
         }
-        // 只有整份歌词都带时间戳时排序才有意义：混合 LRC 下 computeTiming 会忽略
-        // 时间标签改用估算时长，此时按 lrc 排序只会把无戳行压到末尾、打乱原文顺序
-        if (lines.length && lines.every(l => l.lrc != null)) lines.sort((a, b) => a.lrc - b.lrc);
+        // LRC：按时间排序。没有时间戳的行（间奏、手工补的行）紧跟它在文本里
+        // 前面的那行——旧版会把它们挪到最末尾（v0.10 起）。
+        // 混合 LRC 也不再退化成"整份都有戳才排序"：有戳行用戳，无戳行保持书写位置。
+        if (lines.some(l => l.lrc != null)) {
+            let key = -1, k = 0;
+            lines.forEach(l => {
+                if (l.lrc != null) {
+                    key = l.lrc;
+                    k = 0;
+                    l._key = l.lrc;
+                } else l._key = key + 1e-6 * ++k;
+            });
+            lines.sort((a, b) => a._key - b._key);
+            lines.forEach(l => {
+                delete l._key;
+            });
+        }
         return {lines, meta};
+    };
+    /* v0.10 之前歌词行的顺序（无戳行排最后）——只用于把老工程的逐行设置搬到新行序 */
+    J.parseOrderV1 = (raw) => {
+        const p = J.parseLyrics(raw), lines = p.lines.slice();
+        if (!lines.some(l => l.lrc != null) || lines.every(l => l.lrc != null)) return null;
+        const byRow = lines.map((l, i) => ({l, i}));
+        const old = byRow.slice().sort((a, b) => ((a.l.lrc ?? 1e9) - (b.l.lrc ?? 1e9)) || (a.l.src - b.l.src));
+        return old.map(x => x.i);          // 旧索引 -> 新索引
     };
 
     /* ---------------- chunking (bunsetsu-ish) ---------------- */
@@ -174,6 +200,24 @@
         }
         if (cur) out.push(cur);
         return out;
+    };
+    /* Latin / 韩文辅助：词与词之间用空格连接，连字符后面除外（never- + ending → never-ending） */
+    const WORDCH = /[A-Za-z\u00c0-\u024f0-9\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/;
+    J.isWordLike = t => /^[A-Za-z\u00c0-\u024f0-9\uac00-\ud7af'’.,!?‐–—-]+$/.test(t) && WORDCH.test(t);
+    J.joinWords = arr => {
+        const latin = /[A-Za-z]/.test(arr.join('')), HG = /[\uac00-\ud7af]/;
+        return arr.reduce((acc, w, i) => {
+            if (!i) return w;
+            if (/[-‐–—]$/.test(acc)) return acc + w;
+            return acc + (latin || (HG.test([...acc].pop()) && HG.test([...w][0])) ? ' ' : '') + w;
+        }, '');
+    };
+    /* 以拉丁字母为主的文本（英语、印尼语、越南语……歌词） */
+    J.isLatinText = t => {
+        const s = String(t || '').replace(/\s/g, '');
+        if (!s) return false;
+        const n = (s.match(/[A-Za-z\u00c0-\u024f\u1e00-\u1eff]/g) || []).length;
+        return n / [...s].length >= 0.6;
     };
     J.chunkText = (text) => {
         const segs = J.segments(text);
@@ -232,13 +276,18 @@
         const out = [];
         for (const c of chunks) {
             const n = [...c].length;
-            if (n > 10) {
+            if (n > 10 && J.isWordLike(c)) {
+                // 一个很长的拉丁/韩文词：绝不在词中间切——只在连字符后面分（never-ending → never- / ending）
+                const parts = c.split(/(?<=[-‐–—])(?=\S)/);
+                if (parts.length > 1) parts.forEach(x => out.push(x));
+                else out.push(c);
+            } else if (n > 10) {
                 J.splitLines(c, Math.ceil(n / Math.ceil(n / 8))).split('\n').forEach(x => out.push(x));
             } else out.push(c);
         }
         for (let i = out.length - 1; i > 0; i--) {
             if ([...out[i]].length === 1 && !J.isKanji(out[i])) {
-                out[i - 1] += out[i];
+                out[i - 1] += (WORDCH.test([...out[i - 1]].pop()) && WORDCH.test(out[i]) && !/[-‐–—]$/.test(out[i - 1]) ? ' ' : '') + out[i];
                 out.splice(i, 1);
             }
         }
@@ -250,7 +299,7 @@
         const out = [];
         let cur = [], letters = 0;
         const flush = () => {
-            if (cur.length) out.push(cur.join(' '));
+            if (cur.length) out.push(J.joinWords(cur));
             cur = [];
             letters = 0;
         };
@@ -264,7 +313,7 @@
         // a lone short word at the end joins the previous phrase
         if (out.length >= 2 && out[out.length - 1].replace(/[^A-Za-z]/g, '').length <= 4) {
             const last = out.pop();
-            out[out.length - 1] += ' ' + last;
+            out[out.length - 1] = J.joinWords([out[out.length - 1], last]);
         }
         return out.length ? out : words;
     };
@@ -274,24 +323,52 @@
         const T = project.timing || {};
         const lines = parsed.lines;
         const beat = T.bpm > 0 ? 60 / T.bpm : 0;
-        const starts = [];
-        const allLrc = lines.length && lines.every(l => l.lrc != null);
-        let t = T.offset ?? 0.4;
-        lines.forEach((l, i) => {
+        // 固定时刻：手工设定的时间（打字/打点/拖动）优先于 LRC 标签，其余行走估算
+        const fixed = lines.map((l, i) => {
             const man = T.lineTimes && T.lineTimes[i] != null ? +T.lineTimes[i] : null;
-            let s;
-            if (man != null && isFinite(man)) s = man;          // a hand-set time (typed, tapped, dragged) wins over the LRC tag
-            else if (allLrc) s = l.lrc;
-            else {
-                if (i > 0) {
-                    const n = [...lines[i - 1].text].length, pl = lines[i - 1];
-                    let d = pl.interlude ? (pl.secs > 0 ? pl.secs : 4) : J.clamp(0.8 + n * 0.17, 1.3, 5.2) * (T.lineScale || 1);
-                    if (beat && !(pl.interlude && pl.secs > 0)) d = Math.max(2, Math.round(d / beat)) * beat;
-                    s = starts[i - 1] + d + (l.gapBefore ? (beat ? beat * 2 : 0.8) : 0);
-                } else s = t;
-            }
-            starts.push(s);
+            if (man != null && isFinite(man)) return Math.max(0, man);
+            return l.lrc != null && isFinite(l.lrc) ? l.lrc : null;
         });
+        // 固定时刻不能倒退到更早的固定时刻之前（保存的值本身不动）
+        let lastFix = -Infinity;
+        for (let i = 0; i < fixed.length; i++) if (fixed[i] != null) {
+            if (fixed[i] < lastFix + 0.05) fixed[i] = lastFix + 0.05;
+            lastFix = fixed[i];
+        }
+        const natural = i => {         // 第 i 行的估算时长
+            const n = [...lines[i].text].length, L = lines[i];
+            let d = L.interlude ? (L.secs > 0 ? L.secs : 4) : J.clamp(0.8 + n * 0.17, 1.3, 5.2) * (T.lineScale || 1);
+            if (beat && !(L.interlude && L.secs > 0)) d = Math.max(2, Math.round(d / beat)) * beat;
+            return d;
+        };
+        const gapOf = i => (i > 0 && i < lines.length && lines[i].gapBefore ? (beat ? beat * 2 : 0.8) : 0);
+        const starts = new Array(lines.length);
+        let i = 0, t = T.offset ?? 0.4;
+        if (fixed.length && fixed[0] != null) t = fixed[0];
+        while (i < lines.length) {
+            if (fixed[i] != null) {
+                starts[i] = fixed[i];
+                t = fixed[i];
+                i++;
+                continue;
+            }
+            // 一段估算行 [i, j)，夹在上一个起点与下一个固定时刻之间（若有的话）
+            let j = i;
+            while (j < lines.length && fixed[j] == null) j++;
+            if (i === 0 && j < lines.length && t >= fixed[j]) t = 0;
+            const from = i > 0 ? starts[i - 1] : t;
+            // 链式推进方式与旧版一致（无固定时刻的 plan 结果完全不变）
+            for (let k = i; k < j; k++) starts[k] = k > 0 ? starts[k - 1] + natural(k - 1) + gapOf(k) : t;
+            if (j < lines.length) {
+                // 这些行都必须在下一个固定时刻之前开始：把它们挤进可用的空间里
+                const room = fixed[j] - from, need = starts[j - 1] + natural(j - 1) + gapOf(j) - from;
+                if (need > room) {
+                    const f = room > 0 ? room / need : 0;
+                    for (let k = i; k < j; k++) starts[k] = from + (starts[k] - from) * f;
+                }
+            }
+            i = j;
+        }
         const ends = starts.map((s, i) => {
             if (i < starts.length - 1) return Math.max(s + 0.35, starts[i + 1]);
             const n = [...lines[i].text].length, L = lines[i];
@@ -372,6 +449,8 @@
         let schemeIdx = 0;
         const nSchemes = st.schemes.length;
         const addEvent = (t, type, amp, dur) => plan.events.push({t, type, amp, dur});
+        const evOwner = new WeakMap();
+        Object.defineProperty(plan, 'evOwner', {value: evOwner});
 
         // title card
         const firstStart = tm.starts.length ? tm.starts[0] : 0;
@@ -413,6 +492,7 @@
                 plan.lines.push({
                     index: li,
                     src: ln.src,
+                    lrc: ln.lrc,
                     text: '',
                     interlude: true,
                     secs: ln.secs,
@@ -470,6 +550,7 @@
             plan.lines.push({
                 index: li,
                 src: ln.src,
+                lrc: ln.lrc,
                 text: ln.text,
                 start: s,
                 end: e,
@@ -486,7 +567,7 @@
             let nC = Math.round(D / L);
             const maxC = chunks.length + (chunks.length >= 2 && D > 2.0 ? 1 : 0);
             nC = J.clamp(nC, 1, Math.max(1, maxC));
-            const ovAny = Object.keys(ov).some(k2 => !['lock', 'lockedSeed', 'seed', 'cutTech', 'cutLayouts', 'cutQuiet'].includes(k2));
+            const ovAny = Object.keys(ov).some(k2 => !['lock', 'lockedSeed', 'seed', 'cutTech', 'cutLayouts', 'cutQuiet', 'cutTime'].includes(k2));
             const kime = !!(U && U.kime.has(li) && !ov.cuts);
             if (ov.single || kime) nC = 1;
             if (zones) nC = Math.max(1, Math.min(nC, Math.floor(chunks.length / 2)));   // 中央を空ける: each cut is split in two, so keep ≥ 2 words per cut
@@ -501,7 +582,7 @@
             let groups;
             const nG = Math.min(nC, chunks2.length);
             if (nG <= 1) groups = [ln.text];
-            else groups = partition(chunks2, nG).map(g => g.join(/[A-Za-z]/.test(g.join('')) ? ' ' : ''));
+            else groups = partition(chunks2, nG).map(g => J.joinWords(g));
             const recap = !fixedN && nC > groups.length && groups.length >= 2;
             let units = groups.map(g => ({text: g, w: [...g].length + 1.6}));
             if (recap) units.push({
@@ -527,6 +608,16 @@
                 // 相邻边界间距 < 0.44s 时下界会大于上界，clamp 需要先归序防 start>end 的负时长 cut
                 const lo = bounds[k - 1] + 0.22, hi = bounds[k + 1] - 0.22;
                 bounds[k] = J.clamp(snap(bounds[k]), Math.min(lo, hi), Math.max(lo, hi));
+            }
+            // 切分的开始时刻（详细模式）：行首起的秒数，手工填或打点（Tab）——保持顺序、互距至少 0.22s
+            if (ov.cutTime && typeof ov.cutTime === 'object') {
+                const nb = bounds.length - 1;
+                for (let k = 1; k < nb; k++) {
+                    const d = +ov.cutTime[k];
+                    if (ov.cutTime[k] != null && isFinite(d)) bounds[k] = J.clamp(s + d, s + 0.22 * k, visEnd - 0.22 * (nb - k));
+                }
+                for (let k = 1; k < nb; k++) if (bounds[k] < bounds[k - 1] + 0.22) bounds[k] = bounds[k - 1] + 0.22;
+                for (let k = nb - 1; k >= 1; k--) if (bounds[k] > bounds[k + 1] - 0.22) bounds[k] = bounds[k + 1] - 0.22;
             }
             // scheme per line
             if (nSchemes > 1 && li > 0 && (U ? U.sectionStart(li) && rng.chance(0.25 + fx.bgSwitch) : rng.chance(fx.bgSwitch * (ln.impact ? 1.8 : 1)))) schemeIdx = (schemeIdx + 1 + rng.int(0, nSchemes - 2)) % nSchemes;
@@ -843,6 +934,7 @@
                     let extra = 0;
                     for (const e of mine) if (e.type === 'chroma' || e.type === 'shake' && emph || extra++ < 1) plan.events.push(e);
                 }
+                for (let q = evMark; q < plan.events.length; q++) evOwner.set(plan.events[q], cut);   // 记下每个打点来自哪个切分（锁定用）
             });
             // interlude in long gaps
             const nextStart = li < parsed.lines.length - 1 ? tm.starts[li + 1] : null;
@@ -1197,6 +1289,18 @@
         }))));
         // each accent belongs to the cut it plays in (the ones just before a cut start belong to that cut)
         for (const e of plan.events) {
+            // 打点属于制造它的那个切分——包括行尾之后才播放的（收尾特效不再丢失）
+            const own = plan.evOwner && plan.evOwner.get(e);
+            if (own) {
+                const k = cuts.indexOf(own);
+                if (k >= 0) S[k].events.push({
+                    dt: +(e.t - cuts[k].start).toFixed(4),
+                    type: e.type,
+                    amp: e.amp,
+                    dur: e.dur
+                });
+                continue;
+            }
             let k = -1;
             // [start − 0.25, next start − 0.25): an accent just before the following cut belongs to that cut
             for (let j = 0; j < cuts.length; j++) {

@@ -55,6 +55,7 @@ function rebuild() {
         .map((c: any, k: number) => ({
           k, layout: c.layout,
           forced: (o.cutLayouts && (o.cutLayouts[k] ?? o.cutLayouts[String(k)])) || null,
+          ct: (o.cutTime && o.cutTime[k] != null && isFinite(+o.cutTime[k])) ? +o.cutTime[k] : null,
           hue: layoutHue(c.layout),
           title: `${c.text}｜${J.ENTER[c.enter].name} → ${J.EXIT[c.exit].name}`,
           start: c.start,

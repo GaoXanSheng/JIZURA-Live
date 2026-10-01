@@ -21,7 +21,16 @@ const initialS = {
   loopHold: null as any,
   need: true,
   exporting: null as AbortController | null,
-  tap: null as { i: number; from: number; done: { i: number; had: number | null }[] } | null,
+  tap: null as {
+    i: number;
+    from: number;
+    done: { i: number; had: number | null; cut?: boolean; li?: number; k?: number }[];
+    rate: number;
+    counting?: boolean;
+    cl?: number | null;
+    ck?: number;
+    cd?: number
+  } | null,
   slow: false,
   curLine: -2,
   scrubbing: false,
@@ -37,10 +46,11 @@ const initialAP = {
   ctx: null as AudioContext | null,
   src: null as AudioBufferSourceNode | null,
   startAt: 0,
+  rate: 1,
   gain: null as GainNode | null,
   vol: 0.8,
   muted: false,
-  play(buffer: AudioBuffer, offset: number) {
+  play(buffer: AudioBuffer, offset: number, rate = 1) {
     if (!this.ctx) this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     if (this.ctx.state === 'suspended') this.ctx.resume();
     this.stop();
@@ -55,6 +65,8 @@ const initialAP = {
     s.buffer = buffer;
     s.connect(this.gain);
     const off = Math.max(0, Math.min(offset, buffer.duration - 0.01));
+    this.rate = rate > 0 ? rate : 1;
+    s.playbackRate.value = this.rate;
     s.start(0, off);
     this.src = s;
     this.startAt = this.ctx.currentTime - off;
@@ -73,7 +85,7 @@ const initialAP = {
     }
   },
   time() {
-    return this.ctx ? this.ctx.currentTime - this.startAt : 0;
+    return this.ctx && this.src ? (this.ctx.currentTime - this.startAt) * this.rate : 0;
   },
   /* 仅预览音量（导出保持原始电平） */
   setVol(v: number | null, muted: boolean | null) {

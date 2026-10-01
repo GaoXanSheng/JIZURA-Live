@@ -29,6 +29,11 @@ function bindKeys() {
       look.tapNow();
       return;
     }
+    if (S.tap && e.code === 'Tab' && !typing) {
+      e.preventDefault();
+      look.tapCut();   // 刚打点的行的下一个切分从现在开始
+      return;
+    }
     if (S.tap && e.code === 'Escape') {
       pause();
       look.stopTap();

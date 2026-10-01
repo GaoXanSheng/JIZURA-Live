@@ -999,3 +999,17 @@
     };
   }
 })();
+
+/* 一键随机主题名（08b_omakase 的 J.THEMES）：随主题功能一起由本层覆盖为中文 */
+(() => {
+  'use strict';
+  const T = {
+    lyricpv: '文字PV',
+    kinetic: '动感',
+    wa: '和风',
+    horror: '恐怖',
+    pop: '波普',
+    ballad: '抒情',
+  };
+  for (const [k, n] of Object.entries(T)) if (J.THEMES && J.THEMES[k]) J.THEMES[k].name = n;
+})();

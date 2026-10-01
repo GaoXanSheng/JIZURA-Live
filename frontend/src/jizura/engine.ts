@@ -177,7 +177,7 @@ export function tick(now: number) {
     if (S.exporting) return;
     if (S.playing) {
         // rAF 时间戳可能早于 play()/seek() 打的 t0 → clamp 防负数
-        let t = Math.max(0, S.audio ? AP.time() : (now - S.t0) / 1000);
+        let t = Math.max(0, S.audio ? AP.time() : (now - S.t0) / 1000 * playRate());
         const range = activeLoopRange();
         if (t >= range.end - 1e-3) {
             if (S.loop && !S.tap) {
@@ -200,10 +200,16 @@ export function tick(now: number) {
 }
 
 /* ---- 播放控制 ---- */
+
+/* 打点同步中的播放速度（0.5×/0.75×）：只在打点时生效——存的仍是歌曲本来时刻 */
+export function playRate() {
+    return S.tap && S.tap.rate > 0 ? S.tap.rate : 1;
+}
+
 export function play() {
     refreshLoopHold();
-    if (S.audio) AP.play(S.audio.buffer, S.t);
-    else S.t0 = performance.now() - S.t * 1000;
+    if (S.audio) AP.play(S.audio.buffer, S.t, playRate());
+    else S.t0 = performance.now() - S.t * 1000 / playRate();
     S.playing = true;
     bus.emit('playstate');
 }
@@ -218,8 +224,8 @@ export function pause() {
 export function seek(t: number) {
     S.t = J.clamp(t, 0, Math.max(0, S.plan.duration - 1e-3));
     if (S.audio) {
-        if (S.playing) AP.play(S.audio.buffer, S.t);
-    } else S.t0 = performance.now() - S.t * 1000;
+        if (S.playing) AP.play(S.audio.buffer, S.t, playRate());
+    } else S.t0 = performance.now() - S.t * 1000 / playRate();
     refreshLoopHold();
     S.need = true;
     updateCutInfo();

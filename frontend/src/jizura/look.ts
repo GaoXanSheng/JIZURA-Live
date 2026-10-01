@@ -378,7 +378,8 @@ export function omakase() {
   if (S.exporting || S.tap) return;
   remember();
   const keepE = lockedEnabled(), keepP = lockedParams();
-  const r = J.omakase(S.project);
+  const th = J.THEMES[S.project.themeId] ? S.project.themeId : null;
+  const r = th ? J.omakase(S.project, Math.random, th) : J.omakase(S.project);
   Object.assign(S.project, r);
   restoreEnabled(keepE);
   restoreParams(keepP);
@@ -386,43 +387,120 @@ export function omakase() {
   bus.emit('sync-ui');
   replan();
   commit();
-  toast(`一键随机：${J.STYLES[r.style].name} × ${J.MOODS[r.mood].name}`, r.colors.accentOn ? [r.colors.accent, r.colors.ghostA, r.colors.ghostB] : undefined);
+  const thName = th && J.THEMES[th] ? `（${J.THEMES[th].name}）` : '';
+  toast(`一键随机${thName}：${J.STYLES[r.style].name} × ${J.MOODS[r.mood].name}`, r.colors.accentOn ? [r.colors.accent, r.colors.ghostA, r.colors.ghostB] : undefined);
   restartPreview();
 }
 
 /* ---- TAP 打点同步 ----
-   从任意行开始：播放从该行稍前开始，更早的行保持原时间 */
+   从任意行开始：播放从该行稍前开始，更早的行保持原时间。
+   打点中可减速播放（0.75×/0.5×，存的仍是歌曲本来时刻）、可开启 3-2-1 倒数；
+   Tab 把刚才打点的行的下一个切分对齐到现在（Backspace 回退一步）。 */
+export function setTheme(v: string) {
+  S.project.themeId = J.THEMES[v] ? v : null;
+  autosave();
+}
+
+function tapOpts(): { rate: number; count: boolean } {
+  let o: any = null;
+  try {
+    o = JSON.parse(localStorage.getItem('jizura.tapOpts') || 'null');
+  } catch { /* 坏值用默认 */
+  }
+  const rate = o && [1, 0.75, 0.5].includes(+o.rate) ? +o.rate : 1;
+  return {rate, count: !!(o && o.count)};
+}
+
+export function saveTapOpts(rate: number, count: boolean) {
+  try {
+    localStorage.setItem('jizura.tapOpts', JSON.stringify({rate, count}));
+  } catch { /* 写不进就算了 */
+  }
+}
+
 export function startTap(from = 0) {
   if (!S.plan.lines.length) return;
   from = J.clamp(from | 0, 0, S.plan.lines.length - 1);
   pushEdit();
-  S.tap = {i: from, from, done: []};
+  const opt = tapOpts();
+  S.tap = {i: from, from, done: [], rate: opt.rate, cl: null, ck: 1};
   if (!S.project.timing.lineTimes) S.project.timing.lineTimes = {};
   const prev = from > 0 ? S.plan.lines[from - 1] : null, cur = S.plan.lines[from];
   const t0 = from === 0 ? 0 : Math.max(0, prev.start + 0.01, cur.start - 2.5);   // 比该行稍早，但不早于上一行
   seek(t0);
-  play();
   bus.emit('tapstate');
   if (from > 0) toast(`从第 ${from + 1} 行开始打点同步（${J.fmtTime(t0)} 起播放）`);
+  // 倒数：3・2・1 之后歌曲才开始
+  const tap = S.tap;
+  if (opt.count) {
+    tap.counting = true;
+    let n = 3;
+    const step = () => {
+      if (S.tap !== tap) return;
+      if (n === 0) {
+        tap.counting = false;
+        bus.emit('tapstate');
+        play();
+        return;
+      }
+      toast(`${n}…`);
+      n--;
+      tap.cd = window.setTimeout(step, 700);
+    };
+    step();
+  } else play();
 }
 
 export function tapNow() {
-  if (!S.tap) return;
+  if (!S.tap || S.tap.counting) return;   // 倒数期间不打点
   const LT = S.project.timing.lineTimes, i = S.tap.i, t = +S.t.toFixed(3);
   S.tap.done.push({i, had: LT[i]});
   LT[i] = t;
   // 后面的行若在之前一轮被打过且早于本时间，清掉防止倒挂
   for (const k of Object.keys(LT)) if (+k > i && LT[k] <= t + 0.2) delete LT[k];
   S.tap.i++;
+  S.tap.cl = i;
+  S.tap.ck = 1;
   replan();
   if (S.tap.i >= S.plan.lines.length) stopTap(); else bus.emit('tapstate');
+}
+
+/* 打点中的 Tab：刚才打点的行的下一个切分从现在开始（多切分行） */
+export function tapCut() {
+  if (!S.tap || S.tap.counting || S.tap.cl == null) return;
+  const li = S.tap.cl, k = (S.tap.ck ?? 1) | 0, ln = S.plan.lines[li];
+  const n = S.plan.cuts.filter((c: any) => c.line === li && J.LAYOUTS[c.layout] && !J.LAYOUTS[c.layout].special).length;
+  if (!ln || k < 1 || k >= n) {
+    toast('这一行没有更多切分了');
+    return;
+  }
+  const cur = S.project.overrides[li] || {}, ct = Object.assign({}, cur.cutTime || {});
+  S.tap.done.push({i: li, had: ct[k], cut: true, li, k});
+  ct[k] = +Math.max(0, S.t - ln.start).toFixed(3);
+  setOv(li, {cutTime: ct});
+  S.tap.ck = k + 1;
+  replan();
+  bus.emit('tapstate');
 }
 
 export function tapBack() {   // 回退一次打点并跳回一点
   if (!S.tap || !S.tap.done.length) return;
   const d = S.tap.done.pop()!, LT = S.project.timing.lineTimes;
-  if (d.had != null) LT[d.i] = d.had; else delete LT[d.i];
-  S.tap.i = d.i;
+  if (d.cut) {
+    const ct = Object.assign({}, (S.project.overrides[d.li!] || {}).cutTime || {});
+    if (d.had != null) ct[d.k!] = d.had;
+    else delete ct[d.k!];
+    setOv(d.li!, {cutTime: Object.keys(ct).length ? ct : undefined});
+    S.tap.cl = d.li;
+    S.tap.ck = d.k ?? 1;
+  } else {
+    if (d.had != null) LT[d.i] = d.had;
+    else delete LT[d.i];
+    S.tap.i = d.i;
+    const prev = [...S.tap.done].reverse().find(x => !x.cut);   // 切分打点继续接在上一打点行后面
+    S.tap.cl = prev ? prev.i : null;
+    S.tap.ck = 1 + S.tap.done.filter(x => x.cut && prev && x.li === prev.i).length;
+  }
   replan();
   bus.emit('tapstate');
   seek(Math.max(0, S.t - 3));
@@ -430,7 +508,10 @@ export function tapBack() {   // 回退一次打点并跳回一点
 }
 
 export function stopTap() {
+  const slow = S.tap && S.tap.rate !== 1;
+  if (S.tap && S.tap.cd) clearTimeout(S.tap.cd);
   S.tap = null;
+  if (slow && S.playing) seek(S.t);   // 回到正常速度
   replan();
   flushSave();
   bus.emit('tapstate');
@@ -440,6 +521,47 @@ export function stopTap() {
 bus.on('tapend', () => {
   if (S.tap) stopTap();
 });
+
+/* ---- LRC 导入/导出 ---- */
+
+/* 读取 LRC：整份替换歌词（并清掉一切绑定行号的东西），可撤销 */
+export function loadLrc(text: string) {
+  if (S.tap || S.exporting) return;
+  const P = S.project;
+  const snap = JSON.parse(edSnap());
+  snap.ov = P.overrides || {};
+  snap.range = P.exportRange || null;
+  ED.undo.push(JSON.stringify(snap));
+  if (ED.undo.length > 60) ED.undo.shift();
+  ED.redo = [];
+  pause();
+  P.lyrics = String(text).replace(/^\ufeff/, '').replace(/\r\n?/g, '\n').trim();
+  P.timing.lineTimes = {};
+  P.overrides = {};
+  P.exportRange = null;
+  replan();
+  flushSave();
+  seek(0);
+  bus.emit('lyrics-sync');
+  const n = J.parseLyrics(P.lyrics).lines.filter((l: any) => l.lrc != null).length;
+  toast(`已读取 LRC（带时刻 ${n} 行・可用「撤销」恢复）`);
+}
+
+/* 导出 LRC：每行开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行（时刻从视频开头起算） */
+export function saveLrc() {
+  if (!S.plan) return;
+  const R = exportRangeCuts(), r = exportRange();
+  let range: { from: number; to: number; t0: number } | null = null;
+  if (R) {
+    // fork 的导出范围按切分存：换算回行范围
+    const from = S.plan.cuts[R.from] ? S.plan.cuts[R.from].line : 0;
+    const to = S.plan.cuts[R.to] ? S.plan.cuts[R.to].line : 0;
+    range = {from, to, t0: r ? r.t0 : 0};
+  }
+  const txt = J.lrcText(S.project, S.plan.lines, range);
+  const base = ((S.project.title || 'jizura').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'jizura');
+  J.saveFile(base + rangeSuffix() + '.lrc', new Blob([txt], {type: 'text/plain;charset=utf-8'}));
+}
 
 /* ---- 初始化：回到空白项目（歌曲/设置/两套历史全清） ---- */
 export async function resetAll() {

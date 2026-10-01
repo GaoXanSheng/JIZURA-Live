@@ -21,6 +21,8 @@ const typeset = ref(false);
 const flash = ref(false);
 const koma = ref('0');
 const hud = ref('auto');
+const hideNo = ref(false);
+const hideTime = ref(false);
 const seed = ref(0);
 const offs: (() => void)[] = [];
 
@@ -36,6 +38,8 @@ function rebuild() {
   flash.value = !!S.project.fx.flash;
   koma.value = String(J.komaOf(S.project.fx));
   hud.value = S.project.fx.hud || 'auto';
+  hideNo.value = !!S.project.fx.hideNo;
+  hideTime.value = !!S.project.fx.hideTime;
   seed.value = S.project.seed;
 }
 
@@ -78,6 +82,12 @@ function onKoma() {
 
 function onHud() {
   S.project.fx.hud = hud.value;
+  replan();
+}
+
+function onHideDeco() {
+  S.project.fx.hideNo = hideNo.value;
+  S.project.fx.hideTime = hideTime.value;
   replan();
 }
 
@@ -151,6 +161,12 @@ onUnmounted(() => offs.forEach(f => f()));
       <label class="field">种子<input v-model="seed" step="1" type="number" @change="onSeed"></label>
       <label class="field">&nbsp;<button class="btn btn-ghost" @click="newSeed">新种子</button>
       </label>
+    </div>
+    <div class="flex flex-col gap-1.5 mt-3">
+      <label class="checkline"><input v-model="hideNo" type="checkbox" @change="onHideDeco">
+        不显示装饰编号（No.01 等；歌词里的数字保留）</label>
+      <label class="checkline"><input v-model="hideTime" type="checkbox" @change="onHideDeco">
+        不显示装饰时刻（00:12.34 等；歌词里的时刻保留）</label>
     </div>
     <p class="note">相同的种子会生成相同的编排。逐行“重新随机”和“锁定”请在左侧行列表中操作。</p>
   </div>
