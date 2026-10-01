@@ -27,8 +27,7 @@ public sealed partial class KuGouClient
     private static readonly (string Key, string Value)[] GatewayHeaders =
         [("kg-rc", "1"), ("kg-thash", "5d816a0"), ("kg-rec", "1"), ("kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F")];
 
-    // 酷狗登录状态（含 cookie）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config；
-    // 旧版曾放 exe 旁 config 文件夹，由 AppDirs.MigrateLegacyConfig 首次启动时搬过来
+    // 酷狗登录状态（含 cookie）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config
     private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "kg_login.json");
 
     private static JObject KgState()

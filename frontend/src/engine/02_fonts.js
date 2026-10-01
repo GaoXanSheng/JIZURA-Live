@@ -93,11 +93,13 @@ function attachFamily(spec) {
     l.href = '/fonts/css/' + cssFileOf(spec);
     const done = () => res();
     l.onload = done;
-    l.onerror = () => {   // 本地没抓过这份字体 → 回退 Google CDN（原行为）
+      let timer = setTimeout(done, 5000);
+      l.onerror = () => {   // 本地没抓过这份字体 → 回退 Google CDN（原行为）；重置兜底计时再等 CDN 加载完
       l.onerror = null;
       l.href = 'https://fonts.googleapis.com/css2?family=' + spec + '&display=swap';
+          clearTimeout(timer);
+          timer = setTimeout(done, 15000);
     };
-    setTimeout(done, 5000);
     document.head.appendChild(l);
   });
   cssJobs.set(spec, job);
@@ -119,7 +121,7 @@ J.fontsOfPlan = (plan) => {
 /* make sure the glyphs we need are loaded (Google Fonts are unicode-range split). keys = null → every catalogue face */
 J.ensureFonts = async (text, keys) => {
   if (!document.fonts || !document.fonts.load) return;
-  const uniq = [...new Set([...text])].join('') || 'あ';
+    const uniq = [...new Set([...String(text || '')])].join('') || 'あ';
   if (keys && keys.includes('@var')) {
     await Promise.all(['Noto+Sans+JP:wght@100..900', 'Noto+Serif+JP:wght@200..900'].map(attachFamily));
     await Promise.all(['100 64px "Noto Sans JP"', '900 64px "Noto Sans JP"', '200 64px "Noto Serif JP"', '900 64px "Noto Serif JP"'].map(f => document.fonts.load(f, uniq).catch(() => null)));
@@ -272,9 +274,12 @@ function decompose(fontKey, ch, res) {
   return { ch, res, pieces };
 }
 
-/* split a piece into up to 3 convex fragments (for shatter) — local em coords around piece centre */
+    /* split a piece into up to 3 convex fragments (for shatter) — local em coords around piece centre.
+       缓存按 seed 键控：glyph 由 GlyphCache 按 font|ch|res 共享，不同碎裂 cut 的 seed 不同 */
 J.fragments = (pc, seed) => {
-  if (pc.frags) return pc.frags;
+    const by = pc.frags || (pc.frags = new Map());
+    let f = by.get(seed);
+    if (f) return f;
   const w = pc.w, h = pc.h;
   let polys = [[[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]];
   const cuts = Math.max(pc.w, pc.h) > 0.42 ? 2 : Math.max(pc.w, pc.h) > 0.2 ? 1 : 0;
@@ -290,11 +295,12 @@ J.fragments = (pc, seed) => {
     }
     polys = next.filter(p => p.length >= 3);
   }
-  pc.frags = polys.map(p => {
+    f = polys.map(p => {
     const cx = p.reduce((s, q) => s + q[0], 0) / p.length, cy = p.reduce((s, q) => s + q[1], 0) / p.length;
     return { poly: p, cx, cy };
   });
-  return pc.frags;
+    by.set(seed, f);
+    return f;
 };
 function clipHalf(poly, nx, ny, d0, sgn) {
   const out = [];

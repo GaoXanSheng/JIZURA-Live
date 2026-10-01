@@ -37,9 +37,6 @@ J.defaultProject = () => ({
   fonts: {},
 });
 
-/* the original (After Effects-implemented) sets, captured before any expression pack registers */
-J.CORE_ORDER = { layout: J.LAYOUT_ORDER.slice(), enter: J.ENTER_ORDER.slice(), exit: J.EXIT_ORDER.slice(), hold: J.HOLD_ORDER.slice(), decor: J.DECOR_ORDER.slice() };
-
 /* animation step length: 'koma' = drawings per second on a 24fps timebase (12 = on twos, 8 = on threes, 0 = every output frame) */
 J.komaOf = fx => (fx.koma != null ? +fx.koma : (fx.onTwos === false ? 0 : 12));
 J.stepDur = (fx, fps) => { const k = J.komaOf(fx); return k > 0 ? 1 / k : 1 / (fps || 24); };
@@ -72,7 +69,10 @@ J.parseLyrics = (raw) => {
     const bar = s.indexOf('|');
     if (bar >= 0) { note = s.slice(bar + 1).trim() || null; s = s.slice(0, bar).trim(); }
     let impact = false;
-    if (/[!！]$/.test(s) && s.length > 1 && /!$/.test(s)) { impact = true; s = s.slice(0, -1).trim(); }
+      if (/[!！]$/.test(s) && s.length > 1) {
+          impact = true;
+          s = s.slice(0, -1).trim();
+      }
     const emph = [];
     s = s.replace(/\*([^*]+)\*/g, (_, w) => { emph.push(w); return w; });
     let manual = null;
@@ -87,7 +87,9 @@ J.parseLyrics = (raw) => {
     if (times.length) times.forEach(t => lines.push(Object.assign({}, base, { lrc: t })));
     else lines.push(Object.assign({}, base, { lrc: null }));
   }
-  if (lines.some(l => l.lrc != null)) lines.sort((a, b) => (a.lrc ?? 1e9) - (b.lrc ?? 1e9));
+    // 只有整份歌词都带时间戳时排序才有意义：混合 LRC 下 computeTiming 会忽略
+    // 时间标签改用估算时长，此时按 lrc 排序只会把无戳行压到末尾、打乱原文顺序
+    if (lines.length && lines.every(l => l.lrc != null)) lines.sort((a, b) => a.lrc - b.lrc);
   return { lines, meta };
 };
 
@@ -326,7 +328,11 @@ J.plan = (project, audio) => {
       && ov.lockedCuts.every((c, k2) => c && c.utext === units[k2].text && J.LAYOUTS[c.layout]) ? ov.lockedCuts : null;
     let acc = s; const bounds = [s];
     units.forEach((u, k) => { acc += D * u.w / tot; bounds.push(k === units.length - 1 ? visEnd : acc); });
-    for (let k = 1; k < bounds.length - 1; k++) bounds[k] = J.clamp(snap(bounds[k]), bounds[k - 1] + 0.22, bounds[k + 1] - 0.22);
+      for (let k = 1; k < bounds.length - 1; k++) {
+          // 相邻边界间距 < 0.44s 时下界会大于上界，clamp 需要先归序防 start>end 的负时长 cut
+          const lo = bounds[k - 1] + 0.22, hi = bounds[k + 1] - 0.22;
+          bounds[k] = J.clamp(snap(bounds[k]), Math.min(lo, hi), Math.max(lo, hi));
+      }
     // scheme per line
     if (nSchemes > 1 && li > 0 && (U ? U.sectionStart(li) && rng.chance(0.25 + fx.bgSwitch) : rng.chance(fx.bgSwitch * (ln.impact ? 1.8 : 1)))) schemeIdx = (schemeIdx + 1 + rng.int(0, nSchemes - 2)) % nSchemes;
     const emphLine = ln.impact || ln.emph.length > 0;
@@ -340,7 +346,7 @@ J.plan = (project, audio) => {
       const txt = halves ? halves[0] : u.text;
       const nn = Math.max(...(halves || [u.text]).map(t => [...t.replace(/\s+/g, '')].length));
       const emph = kime || ln.impact && (k === 0 || u.recap) || ln.emph.some(w => u.text.includes(w));
-      const Z = zoneOf(li), LW = Z ? Z.w : W, LH = Z ? Z.h : H;       // the frame this cut is laid out in
+        const Z = zoneOf(), LW = Z ? Z.w : W, LH = Z ? Z.h : H;       // the frame this cut is laid out in
       const UU = U && !ovAny ? U : null;                              // per-line settings always win over 統一感
       const tech = cutTechOf(ov, k);                                  // このカットだけの指定
       let layout = ov.layout && J.LAYOUTS[ov.layout] ? ov.layout : pickLayout(rng, st, en, nn, dur, history, emph, u.recap, LH > LW);
@@ -493,7 +499,6 @@ J.plan = (project, audio) => {
       const hist = { layout, enter, exit, hold, treat, cam, trans, decor: decor.map(d => d.id) };
       for (const g of Object.keys(hist)) if (tech[g] !== undefined && drawn[g] !== undefined) hist[g] = g === 'enter' && drawn.trans ? 'cut' : drawn[g];
       history.push(hist);
-      // events at cut start
       // events at cut start — durations are on a 24fps timebase so every output rate looks the same
       const g = fx.glitch * (st.glitchBoost || 1);
       const fxOn = k2 => en.fx == null || en.fx[k2] !== false;
@@ -537,7 +542,7 @@ J.plan = (project, audio) => {
     c.index = i;
     if (!zones || c.zone) return;
     if (c.layout === 'interlude') { c.params = Object.assign({}, c.params, { showTitle: false }); return; }   // no lyric: the whole frame
-    c.zone = zoneOf(c.line);
+      c.zone = zoneOf();
   });
   plan.events.sort((a, b) => a.t - b.t);
   plan.energy = audio && audio.energy ? audio.energy : null;

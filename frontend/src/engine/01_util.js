@@ -158,10 +158,32 @@ J.VERT_ROTATE = 'ー〜～…‥―—-()（）「」『』【】〈〉《》〔
 (() => {
   const base = { あ: 'a', い: 'i', う: 'u', え: 'e', お: 'o', か: 'ka', き: 'ki', く: 'ku', け: 'ke', こ: 'ko', さ: 'sa', し: 'shi', す: 'su', せ: 'se', そ: 'so', た: 'ta', ち: 'chi', つ: 'tsu', て: 'te', と: 'to', な: 'na', に: 'ni', ぬ: 'nu', ね: 'ne', の: 'no', は: 'ha', ひ: 'hi', ふ: 'fu', へ: 'he', ほ: 'ho', ま: 'ma', み: 'mi', む: 'mu', め: 'me', も: 'mo', や: 'ya', ゆ: 'yu', よ: 'yo', ら: 'ra', り: 'ri', る: 'ru', れ: 're', ろ: 'ro', わ: 'wa', を: 'wo', ん: 'n', が: 'ga', ぎ: 'gi', ぐ: 'gu', げ: 'ge', ご: 'go', ざ: 'za', じ: 'ji', ず: 'zu', ぜ: 'ze', ぞ: 'zo', だ: 'da', ぢ: 'ji', づ: 'zu', で: 'de', ど: 'do', ば: 'ba', び: 'bi', ぶ: 'bu', べ: 'be', ぼ: 'bo', ぱ: 'pa', ぴ: 'pi', ぷ: 'pu', ぺ: 'pe', ぽ: 'po', ぁ: 'a', ぃ: 'i', ぅ: 'u', ぇ: 'e', ぉ: 'o', ゔ: 'vu' };
   const yo = { ゃ: 'ya', ゅ: 'yu', ょ: 'yo' };
+    // 半角片假名 → 全角 对照表（ﾞ/ﾟ 单独跟在后面，需合并成浊音/半浊音再转）
+    const HW = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ';
+    const FW = 'ヲァィゥェォッャュョーアイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン';
   J.romaji = s => {
     let out = '', i = 0;
-    const toH = c => (J.isKata(c) && c !== 'ー' ? String.fromCharCode(c.charCodeAt(0) - 0x60) : c);
-    const arr = [...s].map(toH);
+      const raw = [...String(s || '')];
+      const arr = [];
+      for (let k = 0; k < raw.length; k++) {
+          const h = HW.indexOf(raw[k]);
+          if (h < 0) {
+              const c = raw[k];
+              arr.push(J.isKata(c) && c !== 'ー' ? String.fromCharCode(c.charCodeAt(0) - 0x60) : c);   // 全角カタカナ → 平仮名
+              continue;
+          }
+          let f = FW[h];
+          const mark = raw[k + 1];
+          if (mark === 'ﾞ') {
+              if (f === 'ウ') f = 'ヴ';
+              else if ('カキクケコサシスセソタチツテトハヒフヘホ'.includes(f)) f = String.fromCharCode(f.charCodeAt(0) + 1);
+              if (f !== FW[h]) k++;
+          } else if (mark === 'ﾟ' && 'ハヒフヘホ'.includes(f)) {
+              f = String.fromCharCode(f.charCodeAt(0) + 2);
+              k++;
+          }
+          arr.push(f === 'ー' ? f : String.fromCharCode(f.charCodeAt(0) - 0x60));   // 全角カタカナ → 平仮名
+      }
     while (i < arr.length) {
       const c = arr[i], n = arr[i + 1];
       if (c === 'っ') { const nx = base[n] || ''; out += nx ? nx[0] : ''; i++; continue; }

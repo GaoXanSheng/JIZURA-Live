@@ -15,7 +15,6 @@ J.DECOR = {
     draw(env, bb, P) {
       const { W, H, sc } = env, g = H / (P.n || 8), a = 0.12 * inOut(env);
       if (a <= 0) return;
-      const pts = [];
       for (let x = (W / 2) % g; x < W; x += g) env.line([[x, 0], [x, H]], sc.sub, 1, a, false);
       for (let y = (H / 2) % g; y < H; y += g) env.line([[0, y], [W, y]], sc.sub, 1, a, false);
     },
@@ -84,7 +83,6 @@ J.DECOR = {
         else if (type === 'ring') env.circle(0, 0, r, null, col, Math.max(2, r * 0.12), 1, true);
         else if (type === 'square') env.rect(-r, -r, r * 2, r * 2, col, 1, true);
         else if (type === 'tri') env.poly([[0, -r], [r * 0.9, r * 0.6], [-r * 0.9, r * 0.6]], col, 1, true);
-        else if (type === 'cross') { env.rect(-r, -r * 0.18, r * 2, r * 0.36, col, 1, true); env.rect(-r * 0.18, -r, r * 0.36, r * 2, col, 1, true); }
         else { const d = r / 3.2; for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) { const rr = d * 0.45 * (1 - (Math.abs(i) + Math.abs(j)) / 8); if (rr > 0.5) env.circle(i * d, j * d, rr, col, null, 0, 1, true); } }
         ctx.restore();
       }
@@ -196,7 +194,8 @@ J.DECOR = {
     draw(env, bb, P) {
       bb = center(env, bb); const { W, H, sc } = env, s = P.seed;
       const e = E.outExpo(J.clamp((env.lt - 0.1) / 0.45)) * (1 - E.inCubic(env.pOut)); if (e <= 0) return;
-      const labels = [J.romaji(env.cut.text.replace(/\s+/g, '')) || env.cut.lineText, 'No.' + String((env.cut.line | 0) + 1).padStart(2, '0') + ' / ' + J.fmtTime(env.cut.start), env.cut.note || '─'];
+        // 两条引线（右上 / 左下）：第三条曾计划挂在 note 上，实际从未绘制
+        const labels = [J.romaji(env.cut.text.replace(/\s+/g, '')) || env.cut.lineText, 'No.' + String((env.cut.line | 0) + 1).padStart(2, '0') + ' / ' + J.fmtTime(env.cut.start)];
       const fs = J.clamp(H * 0.018, 11, 20);
       const anchors = [[bb.x1, bb.y0], [bb.x0, bb.y1], [bb.x1, bb.y1]];
       for (let k = 0; k < 2; k++) {

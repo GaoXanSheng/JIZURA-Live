@@ -94,7 +94,12 @@ internal sealed class SettingsController : WebApiController
                 changed.Add($"Spout 输出{(d.SpoutEnabled ? " 开启" : " 关闭")}");
             if (settings.SpoutTransparent != d.SpoutTransparent)
                 changed.Add($"渲染透明背景{(d.SpoutTransparent ? " 开启" : " 关闭")}");
-            if (settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled)
+
+            // 独立字幕通道开关变化：主通道需重注入 __jl_no_sub（字幕分离标志），
+            // 歌词通道随 RestartSpout 启停——整体重启一次到位。
+            // 必须在赋值前取差值：赋值后再比较永远为 false，重启不会触发
+            bool lyricsToggled = settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled;
+            if (lyricsToggled)
                 changed.Add($"独立 Spout 字幕通道{(d.SpoutLyricsEnabled ? " 开启" : " 关闭")}");
 
             settings.Width = d.Width;
@@ -115,9 +120,7 @@ internal sealed class SettingsController : WebApiController
 
             settings.Save();
 
-            // 独立字幕通道开关变化：主通道需重注入 __jl_no_sub（字幕分离标志），
-            // 歌词通道随 RestartSpout 启停——整体重启一次到位
-            if (settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled)
+            if (lyricsToggled)
             {
                 (Application.Current.MainWindow as MainWindow)?.RestartSpout();
             }

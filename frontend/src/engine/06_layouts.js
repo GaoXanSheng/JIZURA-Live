@@ -330,7 +330,7 @@ J.LAYOUTS = {
         const r = ang * J.DEG;
         const it = { text: ch, font: P.font, size: sizeRing, x: cx + Math.cos(r) * R, y: cy + Math.sin(r) * R, rot: P.orient === 'tangent' ? ang + 90 : 0, color: ch === '・' ? sc.accent : sc.fg, mi: i * 0.25, noHold: true };
         const b = J.mainDraw(env, it);
-        if (!bb) bb = unionBB(bb, b);
+          bb = unionBB(bb, b);   // 并入每个环上字符：只留首个字符的盒子会让 front decor 锚定到随时间旋转的单字上
       }
       return bb || { x0: cx - R, x1: cx + R, y0: cy - R, y1: cy + R, cx, cy, boxes: [] };
     },

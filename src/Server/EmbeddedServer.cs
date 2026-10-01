@@ -12,6 +12,7 @@ public sealed class EmbeddedServer : IDisposable
 
     private readonly WebServer _server;
     private Task? _runTask;
+    private bool _started;
 
     private EmbeddedServer(int port)
     {
@@ -31,6 +32,7 @@ public sealed class EmbeddedServer : IDisposable
     public void Dispose()
     {
         _cts.Cancel();
+        _cts.Dispose();
         try
         {
             _server.Dispose();
@@ -39,8 +41,13 @@ public sealed class EmbeddedServer : IDisposable
         {
         }
 
-        ServerContext.KuGou.Http.Dispose();
-        ServerContext.Netease.Http.Dispose();
+        // 共享 HttpClient 是进程级单例：端口探测失败的实例绝不能碰它，
+        // 否则重试下一个端口后首个 API 调用就会 ObjectDisposedException
+        if (_started)
+        {
+            ServerContext.KuGou.Http.Dispose();
+            ServerContext.Netease.Http.Dispose();
+        }
     }
 
     public static EmbeddedServer? Start()
@@ -90,12 +97,17 @@ public sealed class EmbeddedServer : IDisposable
             _ = _runTask.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
             for (int i = 0; i < 40; i++)
             {
-                if (_server.State == WebServerState.Listening) return true;
+                if (_server.State == WebServerState.Listening)
+                {
+                    _started = true;
+                    return true;
+                }
+
                 if (_runTask.IsCompleted) return false;
                 Thread.Sleep(50);
             }
 
-            return _server.State == WebServerState.Listening;
+            return _started = _server.State == WebServerState.Listening;
         }
         catch
         {

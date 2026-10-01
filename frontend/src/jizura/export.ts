@@ -1,12 +1,11 @@
 /* 导出流程（原 12_ui.js 的 syncOut/codecNote/runExport 的非 DOM 部分）
    进度与状态经 bus 通知 OutTab / EasyPanel。 */
-import { J } from '../engine';
-import { S } from './state';
-import { bus } from './bus';
-import { toast, exportRange, rangeSuffix } from './look';
-import { flushSave } from './project';
-import { ensureFonts, invalidateFontKey, pause, replan } from './engine';
-import { autosave } from './project';
+import {J} from '../engine';
+import {S} from './state';
+import {bus} from './bus';
+import {exportRange, rangeSuffix, toast} from './look';
+import {autosave, flushSave} from './project';
+import {ensureFonts, invalidateFontKey, pause, replan} from './engine';
 
 function baseName() {
   const k = J.keyMode(S.project);

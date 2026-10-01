@@ -42,9 +42,6 @@ for (const k of J.EXTRA_FONTS) if (J.FONTS[k]) J.FONTS[k].extra = true;
 // mark 和風
 for (const [g, keys] of Object.entries(J.WA)) for (const k of keys) { const d = def(g, k); if (d) d.wa = true; }
 
-J.isWa = (g, k) => { const d = def(g, k); return !!(d && d.wa); };
-J.isExtra = (g, k) => { const d = def(g, k); return !!(d && d.extra); };
-J.setOf = (g, k) => { const d = def(g, k); return (d && d.set) || null; };
 /* may random picks use this entry? (g: a group key, 'style' or 'font') — 追加分 first, then 和風 */
 J.randomOk = (project, g, k) => {
   const d = def(g, k); if (!d) return false;

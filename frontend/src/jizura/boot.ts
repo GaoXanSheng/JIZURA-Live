@@ -1,7 +1,7 @@
 /* 启动序列：对应旧 12_ui.js 的 boot()。
    另外维护 Spout 镜像依赖的两个全局契约：
-   - window.J.ui      —— 状态对象 S
-   - window.J.uiApi   —— 宿主动作（SeekSpoutPipeline.cs 注入脚本调用） */
+   - window.J.ui      —— 状态对象 S（MainWindow 的 sync 采样脚本读取）
+   - window.J.uiApi   —— 宿主动作 */
 import {J} from '../engine';
 import {initVolume, S} from './state';
 import {flushSave, loadLocal} from './project';

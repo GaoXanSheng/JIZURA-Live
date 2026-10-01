@@ -1,5 +1,16 @@
 /* /kg/* 与 /ne/* 本机服务 API 客户端（对应 KgController / NeController） */
-import type { Source, ApiBase, LoginResponse, LyricResponse, PlaylistsResponse, QrCheckResponse, QrResponse, SearchResponse, Song, UrlResponse } from './types';
+import type {
+    ApiBase,
+    LoginResponse,
+    LyricResponse,
+    PlaylistsResponse,
+    QrCheckResponse,
+    QrResponse,
+    SearchResponse,
+    Song,
+    Source,
+    UrlResponse
+} from './types';
 
 const OFFLINE = '连不上本机服务：请（重新）运行字面 Live';
 
@@ -35,7 +46,6 @@ export const api = {
   qrCheck: (source: Source, key: string) => call<QrCheckResponse>(source, 'qr/check', { key }),
   playlists: (source: Source) => call<PlaylistsResponse>(source, 'playlists'),
   playlist: (source: Source, id: string) => call<SearchResponse>(source, 'playlist', { id }),
-  audioProxyUrl: (source: Source, url: string) => `/kg/audio?u=${encodeURIComponent(url)}`.replace('/kg/audio', source === 'netease' ? '/ne/audio' : '/kg/audio'),
 };
 
 export async function fetchAudioBlob(source: Source, url: string): Promise<Blob> {

@@ -2,40 +2,13 @@ using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
 
-
-
-
 public class ApiResponse
 {
-    [JsonProperty("ok")]
-    public bool Ok { get; set; }
+    [JsonProperty("ok")] public bool Ok { get; set; }
 
     [JsonProperty("error", NullValueHandling = NullValueHandling.Ignore)]
     public string? Error { get; set; }
 }
-
-public sealed class UploadResponse : ApiResponse
-{
-    [JsonProperty("outputs", NullValueHandling = NullValueHandling.Ignore)]
-    public List<string>? Outputs { get; set; }
-}
-
-
-public sealed class ConvertedItem
-{
-    public ConvertedItem(string name, long size, long mtime)
-    {
-        Name = name;
-        Size = size;
-        Mtime = mtime;
-    }
-
-    [JsonProperty("name")] public string Name { get; }
-    [JsonProperty("size")] public long Size { get; }
-    [JsonProperty("mtime")] public long Mtime { get; }
-}
-
-
 
 public sealed class KgSong
 {
@@ -60,13 +33,26 @@ public sealed class KgSearchResponse : ApiResponse
 
 public sealed class KgUrlResponse : ApiResponse
 {
-    [JsonProperty("url", NullValueHandling = NullValueHandling.Ignore)] public string? Url { get; set; }
-    [JsonProperty("ext", NullValueHandling = NullValueHandling.Ignore)] public string? Ext { get; set; }
-    [JsonProperty("quality", NullValueHandling = NullValueHandling.Ignore)] public string? Quality { get; set; }
-    [JsonProperty("logged", NullValueHandling = NullValueHandling.Ignore)] public bool? Logged { get; set; }
-    [JsonProperty("trial", NullValueHandling = NullValueHandling.Ignore)] public bool? Trial { get; set; }
-    [JsonProperty("needVip", NullValueHandling = NullValueHandling.Ignore)] public bool? NeedVip { get; set; }
-    [JsonProperty("stale", NullValueHandling = NullValueHandling.Ignore)] public bool? Stale { get; set; }
+    [JsonProperty("url", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Url { get; set; }
+
+    [JsonProperty("ext", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Ext { get; set; }
+
+    [JsonProperty("quality", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Quality { get; set; }
+
+    [JsonProperty("logged", NullValueHandling = NullValueHandling.Ignore)]
+    public bool? Logged { get; set; }
+
+    [JsonProperty("trial", NullValueHandling = NullValueHandling.Ignore)]
+    public bool? Trial { get; set; }
+
+    [JsonProperty("needVip", NullValueHandling = NullValueHandling.Ignore)]
+    public bool? NeedVip { get; set; }
+
+    [JsonProperty("stale", NullValueHandling = NullValueHandling.Ignore)]
+    public bool? Stale { get; set; }
 }
 
 public sealed class KgLyricCandidate
@@ -79,31 +65,49 @@ public sealed class KgLyricCandidate
 
 public sealed class KgLyricResponse : ApiResponse
 {
-    [JsonProperty("fmt", NullValueHandling = NullValueHandling.Ignore)] public string? Fmt { get; set; }
-    [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)] public string? Content { get; set; }
+    [JsonProperty("fmt", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Fmt { get; set; }
+
+    [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Content { get; set; }
+
     // 网易云：翻译(tlyric)/音译(romalrc) LRC，base64，前端按时间戳对齐成注音
-    [JsonProperty("trans", NullValueHandling = NullValueHandling.Ignore)] public string? Trans { get; set; }
-    [JsonProperty("roma", NullValueHandling = NullValueHandling.Ignore)] public string? Roma { get; set; }
-    [JsonProperty("candidates", NullValueHandling = NullValueHandling.Ignore)] public List<KgLyricCandidate>? Candidates { get; set; }
+    [JsonProperty("trans", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Trans { get; set; }
+
+    [JsonProperty("roma", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Roma { get; set; }
+
+    [JsonProperty("candidates", NullValueHandling = NullValueHandling.Ignore)]
+    public List<KgLyricCandidate>? Candidates { get; set; }
 }
 
 public sealed class KgQrResponse : ApiResponse
 {
-    [JsonProperty("key", NullValueHandling = NullValueHandling.Ignore)] public string? Key { get; set; }
-    [JsonProperty("img", NullValueHandling = NullValueHandling.Ignore)] public string? Img { get; set; }
+    [JsonProperty("key", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Key { get; set; }
+
+    [JsonProperty("img", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Img { get; set; }
 }
 
 public sealed class KgQrCheckResponse : ApiResponse
 {
     [JsonProperty("status")] public string Status { get; set; } = "";
-    [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)] public string? Nickname { get; set; }
+
+    [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Nickname { get; set; }
 }
 
 public sealed class KgLoginResponse : ApiResponse
 {
     [JsonProperty("logged")] public bool Logged { get; set; }
-    [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)] public string? Nickname { get; set; }
-    [JsonProperty("userid", NullValueHandling = NullValueHandling.Ignore)] public string? UserId { get; set; }
+
+    [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Nickname { get; set; }
+
+    [JsonProperty("userid", NullValueHandling = NullValueHandling.Ignore)]
+    public string? UserId { get; set; }
 }
 
 // 歌单条目：酷狗（global_collection_id）与网易云共用同一形态

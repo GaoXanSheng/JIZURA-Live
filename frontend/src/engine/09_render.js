@@ -120,7 +120,17 @@ class Renderer {
     // 透過PNG 前景／後景 (opt.layer): 'back' = background graphic + the decorations behind the lyrics, 'front' = the rest
     const layer = opt.transparent ? opt.layer || null : null;
     if ((!opt.transparent || layer === 'back') && !key && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
-      const env = this.makeEnv(ctx, plan, mainCut, sc, { pass: 'main', t: tq, lt: tq - mainCut.start, ltb: tq - mainCut.start, step, scale, allowFilter, energy, beat: beatInfo, bgOnly: true });
+      const env = this.makeEnv(ctx, plan, mainCut, sc, {
+        pass: 'main',
+        t: tq,
+        lt: tq - mainCut.start,
+        ltb: tq - mainCut.start,
+        step,
+        scale,
+        allowFilter,
+        energy,
+        beat: beatInfo
+      });
       ctx.save();
       try { J.BG[mainCut.bg].draw(env, mainCut.bgP || {}); } catch (e) { console.warn('bg', mainCut.bg, e); }
       ctx.restore();
@@ -139,7 +149,6 @@ class Renderer {
     const MC = !opt.noTrans && !opt.glyphLog && mainCut && mainCut.morph && mainCut.index > 0 ? mainCut : null;
     const mPrev = MC ? plan.cuts[MC.index - 1] : null, mlt = MC ? tq - MC.start : 0;
     const morphOn = !!(MC && mPrev && mlt < MC.morph.dur && Math.abs(mPrev.end - MC.start) < 0.06);
-    let mainBB = null, mainEnv = null;
     // camera blur (focus pulls etc.) is applied ONCE to the whole content layer — a blur filter on every
     // individual draw call is extremely slow when a layout draws many text rows
     let layerBlur = 0, LX = null;
@@ -189,7 +198,6 @@ class Renderer {
       if (P.pass !== 'main') X.globalCompositeOperation = J.lum(csc.bg) > 0.55 ? 'multiply' : 'source-over';
       this.drawCut(env);
       X.restore();
-      if (P.pass === 'main' && cut === cut0) { mainEnv = env; }
       }
     }
     if (LX) {
@@ -425,11 +433,25 @@ class Renderer {
   drawCut(env) {
     const cut = env.cut, L = J.LAYOUTS[cut.layout] || J.LAYOUTS.center;
     const decor = cut.decor || [];
-    if (!env.lyricsOnly && env.layer !== 'front') for (const d of decor) { const D = J.DECOR[d.id]; if (D && D.layer === 'back') try { D.draw(env, null, d); } catch (e) { console.warn(e); } }
+    if (env.layer !== 'front') for (const d of decor) {
+      const D = J.DECOR[d.id];
+      if (D && D.layer === 'back') try {
+        D.draw(env, null, d);
+      } catch (e) {
+        console.warn(e);
+      }
+    }
     if (env.layer === 'back') return null;                // 後景だけ: the lyrics and the front decorations go to the other layer
     let bb = null;
     try { bb = L.render(env); } catch (e) { console.warn('layout', cut.layout, e); }
-    if (!env.lyricsOnly) for (const d of decor) { const D = J.DECOR[d.id]; if (D && D.layer === 'front') try { D.draw(env, bb, d); } catch (e) { console.warn(e); } }
+    for (const d of decor) {
+      const D = J.DECOR[d.id];
+      if (D && D.layer === 'front') try {
+        D.draw(env, bb, d);
+      } catch (e) {
+        console.warn(e);
+      }
+    }
     return bb;
   }
 
@@ -497,7 +519,12 @@ class Renderer {
         try {
           D.draw(ctx, ev, k, { cw, ch, S, sc, st: plan.style, step: st2, t, scale, renderer: this, allowFilter, opt, transparent: !!opt.transparent, tmp: (w, h) => this.ensure(this.tiny, w, h), tmp2: (w, h) => this.ensure(this.small2 || (this.small2 = mk(2, 2)), w, h) });
         } catch (e) { console.warn('fx', ev.type, e); }
+        // 插件 D.draw 后的状态复位：漏掉 shadow 会让设置过阴影的特效污染同帧后续事件
         ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none'; ctx.imageSmoothingEnabled = true;
+        ctx.shadowColor = 'rgba(0,0,0,0)';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
         if (guard) guard.end();
         continue;
       }

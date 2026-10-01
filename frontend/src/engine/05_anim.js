@@ -20,15 +20,6 @@ J.itemBands = (env, it, n, dxFn) => {
   return out;
 };
 
-/* vertical slices covering the item's horizontal extent: [[x0, x1, dy], ...] */
-J.itemVBands = (env, it, n, dyFn) => {
-  const m = it._m || (it._m = J.measure(it));
-  const w = Math.max(m.w, it.size) * 1.1 + 20;
-  const x0 = it.align === 'left' ? it.x - 10 : it.align === 'right' ? it.x - w + 10 : it.x - w / 2;
-  const out = [];
-  for (let i = 0; i < n; i++) out.push([x0 + i * w / n, x0 + (i + 1) * w / n + 0.5, dyFn(i, n)]);
-  return out;
-};
 /* the item's bounding box in design space (before rotation) */
 J.itemBox = (it) => {
   const m = it._m || (it._m = J.measure(it));

@@ -75,7 +75,7 @@ J.videoAttempts = async (w, h, fps, bitrate) => {
   for (const c of VIDEO_CANDS.filter(c => c.mux !== 'avc')) await add(c, 'prefer-software', Math.round(bitrate * 0.7));
   return out;
 };
-J.pickAudioCodec = async (sr, chn) => {
+    J.pickAudioCodec = async (chn) => {
   if (typeof AudioEncoder === 'undefined') return null;
   for (const c of [{ codec: 'mp4a.40.2', mux: 'aac', sr: 48000 }, { codec: 'opus', mux: 'opus', sr: 48000 }]) {
     try { const s = await AudioEncoder.isConfigSupported({ codec: c.codec, sampleRate: c.sr, numberOfChannels: chn, bitrate: 192000 }); if (s.supported) return c; } catch (e) {}
@@ -123,27 +123,52 @@ J.exportMP4 = async (o) => {
   const attempts = await J.videoAttempts(w, h, fps, bitrate);
   if (!attempts.length) throw new Error('このブラウザは動画エンコード（WebCodecs）に対応していません。Chrome か Edge の最新版で開いてください。');
   const tried = [];
-  for (let k = 0; k < attempts.length; k++) {
-    const vc = attempts[k];
+    let fileDone = false;   // encodeMP4 成功路径已 close；失败路径由这里 abort，别把用户选中的文件句柄挂死
     try {
-      if (file && k > 0) { await file.seek(0); await file.truncate(0); }
-      const r = await encodeMP4(Object.assign({}, o, { w, h, vc, note: k > 0 ? `（${vc.label}・ソフトウェアで再試行 ${k}）` : '' }));
-      r.tried = tried; return r;
-    } catch (e) {
-      if (signal && signal.aborted) throw new Error('キャンセルしました');
-      if (e && e.jzFatal) throw e;
-      tried.push(`${vc.label}/${vc.hw}: ${e && e.message ? e.message : e}`);
-      console.warn('MP4 export attempt failed', vc.codec, vc.hw, e);
+        for (let k = 0; k < attempts.length; k++) {
+            const vc = attempts[k];
+            try {
+                if (file && k > 0) {
+                    await file.seek(0);
+                    await file.truncate(0);
+                }
+                const r = await encodeMP4(Object.assign({}, o, {
+                    w,
+                    h,
+                    vc,
+                    note: k > 0 ? `（${vc.label}・ソフトウェアで再試行 ${k}）` : ''
+                }));
+                fileDone = true;
+                r.tried = tried;
+                return r;
+            } catch (e) {
+                if (signal && signal.aborted) throw new Error('キャンセルしました');
+                if (e && e.jzFatal) throw e;
+                tried.push(`${vc.label}/${vc.hw}: ${e && e.message ? e.message : e}`);
+                console.warn('MP4 export attempt failed', vc.codec, vc.hw, e);
+            }
+        }
+        const err = new Error('MP4 を書き出せませんでした。' + (file ? '' : '「大きな動画用（ファイルに直接保存）」か、') + '解像度・fps・画質を下げて試してください。詳細：' + tried.join(' ／ '));
+        err.detail = tried;
+        throw err;
+    } finally {
+        if (file && !fileDone) {
+            try {
+                await file.abort();
+            } catch (e) {
+                try {
+                    await file.close();
+                } catch {
+                }
+            }
+        }
     }
-  }
-  const err = new Error('MP4 を書き出せませんでした。' + (file ? '' : '「大きな動画用（ファイルに直接保存）」か、') + '解像度・fps・画質を下げて試してください。詳細：' + tried.join(' ／ '));
-  err.detail = tried; throw err;
 };
 async function encodeMP4({ plan, project, audio, onProgress, signal, range, file, w, h, vc, note }) {
   const span = J.exportSpan(plan, range);
   const fps = plan.fps;
   let ac = null;
-  if (audio && audio.buffer && project.includeAudio !== false) ac = await J.pickAudioCodec(48000, Math.min(2, audio.buffer.numberOfChannels));
+    if (audio && audio.buffer && project.includeAudio !== false) ac = await J.pickAudioCodec(Math.min(2, audio.buffer.numberOfChannels));
   const store = file ? null : new BlockStore();
   const target = file ? new Mp4Muxer.FileSystemWritableFileStreamTarget(file, { chunkSize: 8 * 1048576 })
     : new Mp4Muxer.StreamTarget({ onData: (data, pos) => store.write(data, pos), chunked: true, chunkSize: 8 * 1048576 });
@@ -250,16 +275,23 @@ J.exportPNGZip = async ({ plan, project, transparent, layers, onProgress, signal
   const fps = plan.fps, total = Math.max(1, Math.round(span.dur * fps));
   const zip = new ZipWriter();
   const scale = w / plan.W;
-  for (let i = 0; i < total; i += every) {
-    if (signal && signal.aborted) throw new Error('キャンセルしました');
-    const name = `jizura_${String(i).padStart(5, '0')}.png`;
-    for (const layer of layers ? ['back', 'front'] : [null]) {
-      R.frame(ctx, plan, span.t0 + i / fps, { scale, transparent: transparent || !!layers, layer });
-      const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-      zip.add((layer ? layer + '/' : '') + name, new Uint8Array(await blob.arrayBuffer()));
+    // 与 MP4 路径同口径：高分辨率导出提升字形分解上限（否则 1080p+ 的 PNG 比 MP4 模糊）
+    const prevRes = J.glyphs.maxRes;
+    J.glyphs.maxRes = h >= 1000 ? 768 : 512;
+    try {
+        for (let i = 0; i < total; i += every) {
+            if (signal && signal.aborted) throw new Error('キャンセルしました');
+            const name = `jizura_${String(i).padStart(5, '0')}.png`;
+            for (const layer of layers ? ['back', 'front'] : [null]) {
+                R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: transparent || !!layers, layer});
+                const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+                zip.add((layer ? layer + '/' : '') + name, new Uint8Array(await blob.arrayBuffer()));
+            }
+            onProgress && onProgress(i / total, `PNG ${i + 1}/${total}`);
+        }
+    } finally {
+        J.glyphs.maxRes = prevRes;
     }
-    onProgress && onProgress(i / total, `PNG ${i + 1}/${total}`);
-  }
   onProgress && onProgress(1, '完了');
   return zip.finish();
 };
@@ -281,6 +313,7 @@ J.AE_MAP = {
 J.planForAE = (plan, project, range) => {
   const clean = JSON.parse(JSON.stringify(plan, (k, v) => (k === 'energy' || k === 'buffer' || k === 'peaks' ? undefined : v)));
   clean.version = 2;
+    clean.aeMap = J.AE_MAP;   // 新增包条目 → 原版 counterpart 的对照表：面板对未实现的 key 按它取最近似条目
   clean.width = J.outputSize(project)[0]; clean.height = J.outputSize(project)[1];
   clean.extra = project.extra === true; clean.wa = project.wa !== false;
   if (J.setOn) for (const s of J.SET_ORDER) clean[s] = J.setOn(project, s);

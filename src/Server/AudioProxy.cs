@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using EmbedIO;
 
 namespace JizuraLive.Server;
@@ -21,7 +22,8 @@ internal static class AudioProxy
             !AllowedHost(uri.Host))
         {
             res.StatusCode = 400;
-            await ctx.SendStringAsync("{\"ok\":false,\"error\":\"不允许的地址\"}", "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+            await ctx.SendStringAsync("{\"ok\":false,\"error\":\"不允许的地址\"}", "application/json; charset=utf-8",
+                Encoding.UTF8);
             return;
         }
 
@@ -37,8 +39,8 @@ internal static class AudioProxy
         {
             res.StatusCode = 502;
             await ctx.SendStringAsync(
-                "{{\"ok\":false,\"error\":\"音频源返回 {(int)upstream.StatusCode}\"}}",
-                "application/json; charset=utf-8", System.Text.Encoding.UTF8);
+                $"{{\"ok\":false,\"error\":\"音频源返回 {(int)upstream.StatusCode}\"}}",
+                "application/json; charset=utf-8", Encoding.UTF8);
             return;
         }
 

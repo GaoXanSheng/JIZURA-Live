@@ -9,7 +9,6 @@
 (() => {
 'use strict';
 
-J.LANGS = ['auto', 'ja', 'zh-Hant', 'zh-Hans', 'ko', 'en'];
 J.LANG_LABEL = { auto: '自動判定', ja: '日本語', 'zh-Hant': '繁體中文', 'zh-Hans': '简体中文', ko: '한국어', en: 'English' };
 
 /* characters that differ between Traditional and Simplified Chinese (same order in both strings) */
@@ -103,7 +102,7 @@ J.LANG_FACES = {
 /* the language fonts are drawn in right now (set by the planner / renderer from plan.lang) */
 J.lang = 'ja';
 J.setLang = (l) => {
-  l = J.LANG_FACES[l] || l === 'en' ? l : 'ja';               // en: the styles' own faces (they all have Latin glyphs)
+    l = (J.LANG_FACES[l] || l === 'en') ? l : 'ja';               // en: the styles' own faces (they all have Latin glyphs)
   if (l === J.lang) return;
   J.lang = l;
   if (J.glyphs) J.glyphs.clear();

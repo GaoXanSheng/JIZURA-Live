@@ -204,7 +204,13 @@ J.drawItem = (env, it) => {
     const crot = (c ? c.rot || 0 : 0) + (g.r90 ? 90 : 0);
     const csx = sx * cs * (c && c.sx ? c.sx : 1), csy = sy * cs * (c && c.sy ? c.sy : 1);
     const gcol = (!ghostPass && c && c.color) || col;
-    boxes.push({ x: gx, y: gy, w: g.w * sx * cs / (g.fs || 1), h: g.h * sy * cs / (g.fs || 1) });
+      // bbox 与 layered 路径同口径：计入 per-glyph 缩放 c.sx/c.sy，否则压扁/拉伸入场时 decor 锚定偏小
+      boxes.push({
+          x: gx,
+          y: gy,
+          w: g.w * sx * cs / (g.fs || 1) * (c && c.sx ? Math.abs(c.sx) : 1),
+          h: g.h * sy * cs / (g.fs || 1) * (c && c.sy ? Math.abs(c.sy) : 1)
+      });
     // モーフ: record where each glyph ends up (device space) / leave the glyphs out while the morph draws them
     if (env.glyphLog && !ghostPass) {
       ctx.save(); ctx.translate(gx, gy); if (crot) ctx.rotate(crot * J.DEG); if (csx !== 1 || csy !== 1) ctx.scale(csx, csy);
@@ -239,7 +245,8 @@ J.drawItem = (env, it) => {
     if (it.stroke > 0 || outlineOnly || dash != null) {
       if (shadow && fill) { ctx.shadowColor = 'rgba(0,0,0,0)'; }
       ctx.lineJoin = 'round'; ctx.miterLimit = 2;
-      ctx.lineWidth = (it.stroke > 0 ? it.stroke : Math.max(1, size * 0.02)) / Math.sqrt(Math.abs(csx * csy));
+        // c.sx/c.sy 可为 0 而 alpha>0：除零会得到 Infinity 描边（Canvas 静默丢弃）
+        ctx.lineWidth = (it.stroke > 0 ? it.stroke : Math.max(1, size * 0.02)) / Math.max(0.05, Math.sqrt(Math.abs(csx * csy)));
       ctx.strokeStyle = (!ghostPass && c && c.color) || sCol;
       if (dash != null) { const L = size * 3.2; ctx.setLineDash([Math.max(0.01, L * dash), L]); ctx.lineDashOffset = 0; }
       else if (it.strokeDash) ctx.setLineDash(it.strokeDash);
@@ -319,14 +326,17 @@ function drawPieces(env, it, g, ch, gx, gy, crot, sx, sy, col, alpha, px) {
 }
 
 function fragList(glyph, seed) {
-  if (glyph.frags) return glyph.frags;
-  const out = [];
+    // 按 seed 键控：glyph 由缓存共享，不同碎裂 cut 的碎片图案必须各自独立
+    const by = glyph.frags || (glyph.frags = new Map());
+    let out = by.get(seed);
+    if (out) return out;
+    out = [];
   for (const p of glyph.pieces) {
     const fr = J.fragments(p, seed);
     if (fr.length <= 1) { out.push(p); continue; }
     for (const f of fr) out.push({ src: p, poly: f.poly, fx: f.cx, fy: f.cy, cx: p.cx + f.cx, cy: p.cy + f.cy, w: p.w, h: p.h, area: p.area / fr.length, id: p.id * 8 + out.length });
   }
-  glyph.frags = out;
+    by.set(seed, out);
   return out;
 }
 

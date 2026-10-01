@@ -119,8 +119,7 @@ async function main() {
         }
         console.error('reload wait timeout');
     } else {
-        const expr = argv[0];
-        console.log(JSON.stringify(await evalJs(expr || argv[0]), null, 2));
+      console.log(JSON.stringify(await evalJs(expr), null, 2));
     }
     ws.close();
 }

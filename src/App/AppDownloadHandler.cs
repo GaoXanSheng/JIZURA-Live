@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using CefSharp;
+using Microsoft.Win32;
 
 namespace JizuraLive;
 
@@ -48,15 +49,16 @@ public sealed class AppDownloadHandler : IDownloadHandler
 
         // 回调来自 CEF 线程：Win32 对话框有线程亲和性，
         // 必须在 UI 线程上"创建并显示"，否则抛
-        // "无法显示在其他线程上创建的对话框"
-        string path = null;
+        // "无法显示在其他线程上创建的对话框"。
+        // Dispatcher 不可用（无 UI 线程）时直接取消下载
+        string? path = null;
 
         var app = Application.Current;
         if (app?.Dispatcher != null)
         {
             app.Dispatcher.Invoke(() =>
             {
-                var dlg = new Microsoft.Win32.SaveFileDialog
+                var dlg = new SaveFileDialog
                 {
                     FileName = suggested,
                     InitialDirectory = Directory.Exists(downloads)
@@ -72,24 +74,11 @@ public sealed class AppDownloadHandler : IDownloadHandler
                     path = dlg.FileName;
             });
         }
-        else
-        {
-            var dlg = new Microsoft.Win32.SaveFileDialog
-            {
-                FileName = suggested,
-                Filter = string.IsNullOrEmpty(ext)
-                    ? "所有文件|*.*"
-                    : $"文件|*{ext}|所有文件|*.*",
-                AddExtension = true,
-            };
-
-            if (dlg.ShowDialog() == true)
-                path = dlg.FileName;
-        }
 
         if (string.IsNullOrEmpty(path))
         {
             // 返回 false = 取消该下载
+            callback.Dispose();
             return false;
         }
 
