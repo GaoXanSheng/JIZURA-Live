@@ -1,12 +1,11 @@
 /* 歌曲载入管线：搜索结果/歌单曲目 → 播放链接 → 音频代理下载 → 引擎装载 → 歌词拉取对齐 */
-import { S } from '../jizura/state';
-import { bus } from '../jizura/bus';
-import { useCloud } from '../stores/cloud';
-import { loadAudioFile, seek } from '../jizura/engine';
-import { toast } from '../jizura/look';
-import { api, fetchAudioBlob } from './api';
-import { adoptKgLyric, adoptNeLyric } from './lyricStore';
-import type { Song, Source } from './types';
+import {bus} from '../jizura/bus';
+import {useCloud} from '../stores/cloud';
+import {loadAudioFile, seek} from '../jizura/engine';
+import {resetLyricBinding, toast} from '../jizura/look';
+import {api, fetchAudioBlob} from './api';
+import {adoptKgLyric, adoptNeLyric} from './lyricStore';
+import type {Song, Source} from './types';
 
 const MIME: Record<string, string> = { mp3: 'audio/mpeg', flac: 'audio/flac', ogg: 'audio/ogg', m4a: 'audio/mp4' };
 
@@ -36,6 +35,7 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
       const ly = await api.lyric(source, it);
       if (my !== loadSeq) return;
       if (ly.ok) {
+          resetLyricBinding();   // 换歌：旧歌词的逐行时间/覆盖/导出范围绑定的是旧行号，先清空再填新词
         if (source === 'netease') {
           await adoptNeLyric(ly);
           lyricNote = (ly.trans || ly.roma) ? '，歌词已填入（含注音）' : '，歌词已填入（无音译/翻译）';

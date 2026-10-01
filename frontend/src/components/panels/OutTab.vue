@@ -1,14 +1,23 @@
 <script setup lang="ts">
 /* 导出 tab：参数 + MP4/PNG 导出（进度/取消）+ 编解码提示 */
-import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { exportRangeLines } from '../../jizura/look';
-import { flushSave } from '../../jizura/project';
+import {computed, onMounted, onUnmounted, ref} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {exportRange, exportRangeCuts} from '../../jizura/look';
+import {flushSave} from '../../jizura/project';
 import {
-  codecNote, canPickFile, runExport,
-  setAspect, setRes, setFps, setQuality, setKeyBg, setIncludeAudio, setCenterFree, setCenterDir,
+  canPickFile,
+  codecNote,
+  runExport,
+  setAspect,
+  setCenterDir,
+  setCenterFree,
+  setFps,
+  setIncludeAudio,
+  setKeyBg,
+  setQuality,
+  setRes,
 } from '../../jizura/export';
 
 const aspect = ref('16:9'), res = ref('1080'), fps = ref('30'), quality = ref('high');
@@ -28,12 +37,17 @@ const offs: (() => void)[] = [];
 const ASPECTS = ['16:9', '9:16', '4:3', '3:4', '1:1', '4:5', '21:9'];
 const tall = computed(() => J.designSize(aspect.value)[1] > J.designSize(aspect.value)[0] * 1.1);
 
-function lineOpts(first: string) {
-  const L = S.plan?.lines || [];
-  return [{ v: '-1', t: first }, ...L.map((ln: any, i: number) => ({ v: String(i), t: String(i + 1).padStart(2, '0') + ' ' + ((ln.interlude ? '〔间奏〕' : ln.text) as string).slice(0, 14) }))];
+/* 导出范围按切分选（与切分循环同粒度）：下拉列出每个切分 */
+function cutOpts(first: string) {
+  const C = S.plan?.cuts || [];
+  return [{v: '-1', t: first}, ...C.map((c: any, i: number) => {
+    const label = (c.text || '').trim().slice(0, 12) || '〔' + ((J.LAYOUTS[c.layout] || {}).name || c.layout) + '〕';
+    return {v: String(i), t: String(i + 1).padStart(2, '0') + ' ' + label};
+  })];
 }
-const fromOpts = computed(() => lineOpts('全部'));
-const toOpts = computed(() => lineOpts('—'));
+
+const fromOpts = ref<{ v: string; t: string }[]>([{v: '-1', t: '全部'}]);
+const toOpts = ref<{ v: string; t: string }[]>([{v: '-1', t: '—'}]);
 
 function sync() {
   if (!S.project) return;
@@ -43,29 +57,30 @@ function sync() {
   keyBg.value = k;
   centerFree.value = !!S.project.centerFree;
   centerDir.value = S.project.centerDir === 'lr' ? 'lr' : 'tb';
-  const R = exportRangeLines();
+  fromOpts.value = cutOpts('全部');
+  toOpts.value = cutOpts('—');
+  const R = exportRangeCuts();
   rangeFrom.value = R ? String(R.from) : '-1';
   rangeTo.value = R ? String(R.to) : '-1';
   const r = rangeInfo2();
   rangeInfo.value = r || `全部（${(S.plan?.duration || 0).toFixed(1)}秒）`;
 }
 function rangeInfo2() {
-  const R = exportRangeLines(); if (!R) return null;
-  const L = S.plan.lines, a = L[R.from], b = L[R.to], last = R.to === L.length - 1;
-  const t0 = Math.max(0, a.start - 0.25);
-  const t1 = last ? S.plan.duration : Math.min(L[R.to + 1].start, (b.interlude ? b.end : b.visEnd) + 0.35);
-  return `${J.fmtTime(t0)} 〜 ${J.fmtTime(t1)}（${(t1 - t0).toFixed(1)}秒）`;
+  const R = exportRange();
+  if (!R) return null;
+  return `${J.fmtTime(R.t0)} 〜 ${J.fmtTime(R.t1)}（${(R.t1 - R.t0).toFixed(1)}秒）`;
 }
 
 function onFrom(ev: Event) {
   const v = +(ev.target as HTMLSelectElement).value;
-  const R = exportRangeLines();
+  const R = exportRangeCuts();
   S.project.exportRange = v < 0 ? null : { from: v, to: R ? Math.max(v, R.to) : v };
   flushSaveSync(); sync();
 }
 function onTo(ev: Event) {
   const v = +(ev.target as HTMLSelectElement).value;
-  const R = exportRangeLines(); if (!R) return;
+  const R = exportRangeCuts();
+  if (!R) return;
   S.project.exportRange = v < 0 ? { from: R.from, to: R.from } : { from: Math.min(R.from, v), to: Math.max(R.from, v) };
   flushSaveSync(); sync();
 }
@@ -77,6 +92,7 @@ onMounted(() => {
   offs.push(bus.on('out', sync));
   offs.push(bus.on('sync-ui', sync));
   offs.push(bus.on('replan', sync));
+  offs.push(bus.on('replan-sync', sync));   // 行列表/时间轴上改了导出范围时，这里的下拉立即对齐
   offs.push(bus.on('codec', onCodec));
   offs.push(bus.on('export-start', () => { busy.value = true; progress.value = 0; progressText.value = '准备中…'; share.value = null; }));
   offs.push(bus.on('export-progress', (p: number, m?: string) => { progress.value = p; if (m) progressText.value = m; }));
@@ -133,10 +149,15 @@ async function doShare() { const s = share.value; if (!s) return; try { await (n
     </label>
     <label class="checkline" style="margin-top: 10px"><input v-model="includeAudio" type="checkbox" @change="setIncludeAudio(includeAudio)"> 把歌曲合进视频</label>
     <div class="flex items-center gap-1.5 flex-wrap my-2.5 text-xs">
-      <span class="text-[11px] text-mut">导出范围</span>
-      <select :value="rangeFrom" aria-label="导出范围的第一行" @change="onFrom($event)"><option v-for="o in fromOpts" :key="o.v" :value="o.v">{{ o.t }}</option></select>
+      <span class="text-[11px] text-mut">导出范围（按切分）</span>
+      <select :value="rangeFrom" aria-label="导出范围的第一个切分" @change="onFrom($event)">
+        <option v-for="o in fromOpts" :key="o.v" :value="o.v">{{ o.t }}</option>
+      </select>
       <span class="text-mut">〜</span>
-      <select :value="rangeTo" :disabled="rangeFrom === '-1'" aria-label="导出范围的最后一行" @change="onTo($event)"><option v-for="o in toOpts" :key="o.v" :value="o.v">{{ o.t }}</option></select>
+      <select :disabled="rangeFrom === '-1'" :value="rangeTo" aria-label="导出范围的最后一个切分"
+              @change="onTo($event)">
+        <option v-for="o in toOpts" :key="o.v" :value="o.v">{{ o.t }}</option>
+      </select>
       <span class="font-mono text-[11px] text-mut">{{ rangeInfo }}</span>
     </div>
     <div class="grid gap-2 mt-3">

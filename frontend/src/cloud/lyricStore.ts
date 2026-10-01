@@ -1,13 +1,13 @@
 /* 歌词源状态（原 kgLastLyric 体系）：当前载入的 KRC/LRC/网易云歌词、
    音译/翻译映射（字幕用，跨窗口镜像共享经 localStorage jizura.kgsubmap）、
    多歌词版本候选。载入新歌词统一走这里，再同步进项目。 */
-import { S } from '../jizura/state';
-import { bus } from '../jizura/bus';
-import { replan } from '../jizura/engine';
-import { toast } from '../jizura/look';
-import { api } from './api';
-import type { LyricResponse, LyricCandidate, Source } from './types';
-import { decryptKrc, krcToLrc, b64Text, neParseLrc, neBuildLrc, type LyricMap, type LyricOptions } from './krc';
+import {S} from '../jizura/state';
+import {bus} from '../jizura/bus';
+import {replan} from '../jizura/engine';
+import {toast} from '../jizura/look';
+import {api} from './api';
+import type {LyricCandidate, LyricResponse, Source} from './types';
+import {b64Text, decryptKrc, krcToLrc, type LyricMap, type LyricOptions, neBuildLrc, neParseLrc} from './krc';
 
 export interface LyricSource {
   fmt: 'krc' | 'lrc' | 'ne';
@@ -30,35 +30,39 @@ try { const o = JSON.parse(localStorage.getItem('jizura.kglyricopts') || 'null')
 export function currentLyric(): LyricSource | null { return last; }
 
 /* 镜像（渲染进程）浏览器拿不到主页面内存里的 last，
-   映射持久化到 localStorage（两边共享），载入时还原、storage 事件实时跟随 */
+   映射+歌词版本候选持久化到 localStorage（两边共享），
+   载入时还原、storage 事件实时跟随。候选不存的话，刷新后
+   「歌词版本」下拉就消失（选择器要求 cands ≥ 2） */
 function persist() {
   try {
-    if (last && last.map.size) localStorage.setItem('jizura.kgsubmap', JSON.stringify({
-      fmt: last.fmt, text: last.text || '', map: [...last.map],
+      if (last && (last.map.size || last.cands.length)) localStorage.setItem('jizura.kgsubmap', JSON.stringify({
+          fmt: last.fmt, text: last.text || '', map: [...last.map], cands: last.cands || [],
     }));
     else localStorage.removeItem('jizura.kgsubmap');
   } catch { /* 映射过大存不下就算了 */ }
 }
 
+function takeSaved(saved: any): LyricSource | null {
+    return saved && ((saved.map && saved.map.length) || (saved.cands && saved.cands.length))
+        ? {fmt: saved.fmt || 'krc', text: saved.text || '', map: new Map(saved.map || []), cands: saved.cands || []}
+        : null;
+}
+
 function restore() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('jizura.kgsubmap') || 'null');
-    last = saved && saved.map && saved.map.length
-      ? { fmt: saved.fmt || 'krc', text: saved.text || '', map: new Map(saved.map), cands: [] }
-      : null;
-  } catch { /* 忽略 */ }
+    try {
+        last = takeSaved(JSON.parse(localStorage.getItem('jizura.kgsubmap') || 'null'));
+    } catch { /* 忽略 */
+    }
 }
 restore();
 
 /* 镜像窗口：主窗口换了歌/改了映射时实时跟随 */
 window.addEventListener('storage', e => {
   if (e.key !== 'jizura.kgsubmap') return;
-  try {
-    const saved = JSON.parse(e.newValue || 'null');
-    last = saved && saved.map && saved.map.length
-      ? { fmt: saved.fmt || 'krc', text: saved.text || '', map: new Map(saved.map), cands: [] }
-      : null;
-  } catch { /* 忽略 */ }
+    try {
+        last = takeSaved(JSON.parse(e.newValue || 'null'));
+    } catch { /* 忽略 */
+    }
 });
 
 /* 把生成的 LRC 文本写进项目并触发重排（等价旧版的写 #lyrics + input 事件） */

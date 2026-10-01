@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /* 特效 tab：统一感/文字排列 + 强度滑杆（官方译名）+ 闪光/抽帧/HUD/种子，含锁定 */
-import { onMounted, onUnmounted, ref } from 'vue';
-import { J } from '../../engine';
-import { S } from '../../jizura/state';
-import { bus } from '../../jizura/bus';
-import { replan, replanSoon } from '../../jizura/engine';
-import { remember, commit, toggleParamLock, lockOn, toast } from '../../jizura/look';
-import { flushSave } from '../../jizura/project';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {J} from '../../engine';
+import {S} from '../../jizura/state';
+import {bus} from '../../jizura/bus';
+import {replan, replanSoon} from '../../jizura/engine';
+import {commit, lockOn, remember, toast, toggleParamLock} from '../../jizura/look';
+import {flushSave} from '../../jizura/project';
 
 const FX: [string, string][] = [
   ['motion', '动态强度'], ['glitch', '故障效果'], ['chroma', '色彩错位'], ['decor', '装饰量'],
@@ -81,8 +81,9 @@ onUnmounted(() => offs.forEach(f => f()));
 <template>
   <div class="px-4 py-3.5">
     <div class="flex flex-col gap-1.5 mb-3 pb-1.5 border-b border-line">
-      <label class="checkline"><input v-model="unify" type="checkbox" @change="onSet('unify')"><span>统一感</span></label>
-      <label class="checkline"><input v-model="typeset" type="checkbox" @change="onSet('typeset')"><span>文字排列</span></label>
+      <label class="checkline"><span class="switch"><input v-model="unify" type="checkbox"
+                                                           @change="onSet('unify')"><i></i></span><span>统一感</span></label>
+      <label class="checkline"><span class="switch"><input v-model="typeset" type="checkbox" @change="onSet('typeset')"><i></i></span><span>文字排列</span></label>
     </div>
     <div v-for="s in sliders" :key="s.k" class="grid grid-cols-[96px_minmax(0,1fr)_36px_30px] gap-2 items-center mb-2">
       <label :for="`fx_${s.k}`" class="text-xs">{{ s.label }}</label>

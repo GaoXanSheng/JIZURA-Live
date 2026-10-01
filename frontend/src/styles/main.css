@@ -140,6 +140,41 @@
   .checkblock { @apply flex items-start gap-2 text-xs cursor-pointer; }
   .checkblock small { @apply block text-[11px] text-mut; }
 
+    /* 开关（手法页「使用××特效」、特效页「统一感/文字排列」）：原生 checkbox 的视觉升级 */
+    .switch {
+        @apply relative inline-block w-[30px] h-[17px] shrink-0;
+    }
+
+    .switch input {
+        @apply absolute inset-0 w-full h-full m-0 opacity-0 cursor-pointer;
+    }
+
+    .switch i {
+        @apply absolute inset-0 rounded-full bg-line2 transition-colors duration-150 pointer-events-none;
+    }
+
+    .switch i::after {
+        content: '';
+        @apply absolute top-[2px] left-[2px] w-[13px] h-[13px] rounded-full bg-[#7a7680] transition-transform duration-150;
+    }
+
+    .switch input:checked + i {
+        @apply bg-amber/25;
+    }
+
+    .switch input:checked + i::after {
+        @apply translate-x-[13px] bg-amber;
+    }
+
+    .switch input:focus-visible + i {
+        outline: 2px solid var(--color-cyan);
+        outline-offset: 2px;
+    }
+
+    .switch input:disabled + i {
+        @apply opacity-40;
+    }
+
   .badge-set {
     @apply inline-block px-1 border border-amber rounded-sm text-amber text-[10px] leading-[15px] not-italic;
   }

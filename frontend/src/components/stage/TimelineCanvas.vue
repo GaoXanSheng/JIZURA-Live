@@ -12,7 +12,19 @@ const canvas = ref<HTMLCanvasElement | null>(null);
 const offs: (() => void)[] = [];
 
 const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
-const TL = { z: 1, off: 0, hover: -1, drag: -1 };
+type Hover = number | 'pan' | 'ph';
+const TL: { z: number; off: number; hover: Hover; drag: number } = {z: 1, off: 0, hover: -1, drag: -1};
+/* 顶部两条：上面一条平移视图（行界跟着滑），下面一条拖动播放头（自由、不吸附）。
+   播放位置也可以继续用播放进度条控制。hover 用 'pan'/'ph' 字符串与行号区分 */
+const LANES = {pan: 0.13, ph: 0.16};
+
+function laneAt(e: { clientY: number }): 'pan' | 'ph' | null {
+  const r = canvas.value!.getBoundingClientRect();
+  const y = e.clientY - r.top;
+  if (y <= r.height * LANES.pan) return 'pan';
+  if (y <= r.height * (LANES.pan + LANES.ph)) return 'ph';
+  return null;
+}
 
 function tlView() {
   const D = Math.max(0.001, S.plan.duration), vd = D / TL.z;
@@ -49,9 +61,17 @@ function tlCacheKey(w: number, h: number, off: number, vd: number): string {
 }
 
 function drawPlayhead(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, off: number, vd: number) {
-  const px = (S.t - off) / vd * w;
+  const px = Math.round((S.t - off) / vd * w);
   x.fillStyle = '#f5a50c';
-  x.fillRect(Math.round(px) - dpr, 0, 2 * dpr, h);
+  x.fillRect(px - dpr, 0, 2 * dpr, h);
+  // 播放头旗标：第二条车道里的一枚下指三角，按住车道拖动即可移动播放头
+  const a = h * LANES.pan, b = h * (LANES.pan + LANES.ph);
+  x.beginPath();
+  x.moveTo(px - 6 * dpr, a + dpr);
+  x.lineTo(px + 6 * dpr, a + dpr);
+  x.lineTo(px, b - dpr);
+  x.closePath();
+  x.fill();
 }
 
 function drawTimeline() {
@@ -96,6 +116,24 @@ function tlFrame() {
 function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: number, vd: number, off: number, D: number) {
   const X = (t: number) => (t - off) / vd * w, T = (px: number) => off + px / w * vd;
   x.fillStyle = '#131316'; x.fillRect(0, 0, w, h);
+  const L = h * LANES.pan, P = h * (LANES.pan + LANES.ph);
+  // 平移条：亮块 = 当前可视窗口，按住左右拖平移视图；与底部缩放黄条同源
+  x.fillStyle = 'rgba(255,255,255,0.045)';
+  x.fillRect(0, 0, w, L);
+  if (TL.z > 1) {
+    x.fillStyle = 'rgba(245,165,12,0.45)';
+    x.fillRect(off / D * w, dpr * 1.5, Math.max(6 * dpr, vd / D * w), L - 3 * dpr);
+  } else {
+    x.fillStyle = 'rgba(255,255,255,0.09)';
+    x.fillRect(0, dpr * 1.5, w, L - 3 * dpr);
+  }
+  x.fillStyle = 'rgba(255,255,255,0.10)';
+  x.fillRect(0, L - dpr, w, dpr);
+  // 播放头条：略暗的槽 + 中线，旗标（叠加层）在这里随播放头走
+  x.fillStyle = 'rgba(255,255,255,0.02)';
+  x.fillRect(0, L, w, P - L);
+  x.fillStyle = 'rgba(255,255,255,0.07)';
+  x.fillRect(0, (L + P) / 2 - dpr / 2, w, dpr);
   if (S.audio && S.audio.peaks) {
     const pk: Float32Array = S.audio.peaks, n = pk.length, sd = S.audio.duration;
     x.fillStyle = '#2b2b33';
@@ -104,7 +142,7 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
   const beats: number[] = S.plan.beats || [];
   x.fillStyle = '#3a3a44';
   for (const b of beats) { if (b < off) continue; if (b > off + vd) break; x.fillRect(Math.round(X(b)), h - 6 * dpr, 1, 6 * dpr); }
-  const top = h * 0.3, bot = h - 8 * dpr;
+  const top = P + h * 0.18, bot = h - 8 * dpr;
   const R = exportRange();
   if (R) { x.fillStyle = 'rgba(245,165,12,0.10)'; x.fillRect(X(R.t0), 0, X(R.t1) - X(R.t0), h); }
   const mono = getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
@@ -127,9 +165,16 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
     const lx = X(ln.start);
     if (lx < -20 * dpr || lx > w + 2) continue;
     const on = ln.index === TL.drag || ln.index === TL.hover, man = LT[ln.index] != null;
-    x.fillStyle = on ? '#f5a50c' : man ? '#6fb7c8' : '#5d5a63'; x.fillRect(lx - (on ? dpr : 0), 0, on ? 2 * dpr : 1, top);
-    x.beginPath(); x.moveTo(lx - 5 * dpr, 0); x.lineTo(lx + 5 * dpr, 0); x.lineTo(lx, 7 * dpr); x.closePath(); x.fill();
-    x.fillStyle = on ? '#f5a50c' : '#8e8a94'; x.fillText(String(ln.index + 1).padStart(2, '0') + (ln.interlude ? ' 间奏' : ''), lx + 4 * dpr, 17 * dpr);
+    x.fillStyle = on ? '#f5a50c' : man ? '#6fb7c8' : '#5d5a63';
+    x.fillRect(lx - (on ? dpr : 0), P, on ? 2 * dpr : 1, top - P);
+    x.beginPath();
+    x.moveTo(lx - 5 * dpr, P);
+    x.lineTo(lx + 5 * dpr, P);
+    x.lineTo(lx, P + 7 * dpr);
+    x.closePath();
+    x.fill();
+    x.fillStyle = on ? '#f5a50c' : '#8e8a94';
+    x.fillText(String(ln.index + 1).padStart(2, '0') + (ln.interlude ? ' 间奏' : ''), lx + 4 * dpr, P + 17 * dpr);
   }
   if (TL.z > 1) {
     x.fillStyle = 'rgba(255,255,255,0.18)'; x.fillRect(0, h - 2 * dpr, w, 2 * dpr);
@@ -147,10 +192,11 @@ function tlTime(ev: { clientX: number }) {
   return off + J.clamp((ev.clientX - r.left) / r.width, 0, 1) * vd;
 }
 function timelineSeek(ev: { clientX: number }) { seek(tlTime(ev)); }
-/* 指针下的行界手柄（顶带，±7px） */
+
+/* 指针下的行界手柄（两条车道以下、上带 ±7px；车道归平移条/播放头条） */
 function tlHandleAt(ev: { clientX: number; clientY: number }) {
   const c = canvas.value!, r = c.getBoundingClientRect(), { vd, off } = tlView();
-  if (ev.clientY - r.top > r.height * 0.45) return -1;
+  if (laneAt(ev) || ev.clientY - r.top > r.height * 0.55) return -1;
   let best = -1, bd = 8;
   for (const ln of S.plan.lines) { const d = Math.abs((ln.start - off) / vd * r.width - (ev.clientX - r.left)); if (d < bd) { bd = d; best = ln.index; } }
   return best;
@@ -172,24 +218,66 @@ function tlDragTo(i: number, ev: { clientX: number; shiftKey: boolean }) {
 }
 
 /* ---- 指针交互 ---- */
-let scrubDrag = false, dragRaf = 0;
+let scrubDrag = false, panDrag = false, phDrag = false, panLastX = 0, dragRaf = 0;
 function onDown(e: PointerEvent) {
   const c = canvas.value!; c.setPointerCapture(e.pointerId);
+  if (!(S.tap || S.exporting)) {
+    const lane = laneAt(e);
+    if (lane === 'pan') {
+      panDrag = true;
+      panLastX = e.clientX;
+      c.style.cursor = 'grabbing';
+      return;
+    }   // 只平移视图
+    if (lane === 'ph') {
+      phDrag = true;
+      c.style.cursor = 'ew-resize';
+      timelineSeek(e);
+      return;
+    }        // 拖动播放头（自由）
+  }
   const h = S.tap || S.exporting ? -1 : tlHandleAt(e);
   if (h >= 0) { pushEdit(); TL.drag = h; pause(); c.style.cursor = 'ew-resize'; return; }
   scrubDrag = true; timelineSeek(e);
 }
 function onMove(e: PointerEvent) {
+  if (panDrag) {
+    const r = canvas.value!.getBoundingClientRect(), {vd} = tlView();
+    TL.off -= (e.clientX - panLastX) / r.width * vd;   // 行界跟着手指左右滑
+    panLastX = e.clientX;
+    tlView();
+    drawTimeline();
+    return;
+  }
+  if (phDrag) {
+    timelineSeek(e);
+    return;
+  }
   if (TL.drag >= 0) { const ev = { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey }; cancelAnimationFrame(dragRaf); dragRaf = requestAnimationFrame(() => tlDragTo(TL.drag, ev)); return; }
   if (scrubDrag) { timelineSeek(e); return; }
-  const hv = tlHandleAt(e);
-  if (hv !== TL.hover) { TL.hover = hv; canvas.value!.style.cursor = hv >= 0 ? 'ew-resize' : 'pointer'; drawTimeline(); }
+  const lane = !(S.tap || S.exporting) ? laneAt(e) : null;
+  const hv: Hover = lane === 'pan' ? 'pan' : lane === 'ph' ? 'ph' : tlHandleAt(e);
+  if (hv !== TL.hover) {
+    TL.hover = hv;
+    const num = typeof hv === 'number' ? hv : -1;
+    canvas.value!.style.cursor = hv === 'pan' ? 'grab' : hv === 'ph' || num >= 0 ? 'ew-resize' : 'pointer';
+    drawTimeline();
+  }
 }
 function endDrag() {
   if (TL.drag >= 0) { TL.drag = -1; flushSave(); bus.emit('replan-sync'); drawTimeline(); }
+  if (panDrag) canvas.value!.style.cursor = 'grab';
+  panDrag = false;
+  phDrag = false;
   scrubDrag = false;
 }
-function onLeave() { if (TL.hover >= 0 && TL.drag < 0) { TL.hover = -1; drawTimeline(); } }
+
+function onLeave() {
+  if (TL.hover !== -1 && TL.drag < 0) {
+    TL.hover = -1;
+    drawTimeline();
+  }
+}
 function onWheel(e: WheelEvent) {
   e.preventDefault();
   const { vd } = tlView();
@@ -212,7 +300,7 @@ onUnmounted(() => offs.forEach(f => f()));
 
 <template>
   <div class="flex justify-between items-center gap-2 my-2 mb-1 flex-wrap">
-    <span class="text-[11px] text-mut">行界（上排刻度）可拖动。<span class="kbd">Shift</span> 不吸附节拍</span>
+    <span class="text-[11px] text-mut">上条左右滑视图，下条拖动播放头；行界刻度可拖动，<span class="kbd">Shift</span> 不吸附节拍；底部黄条为缩放范围</span>
     <span class="flex gap-1 ml-auto">
       <button class="btn btn-ghost btn-sm" title="撤销歌词・时间修改（Ctrl+Z）" @click="undoEdit">撤销</button>
       <button aria-label="缩小时间轴" class="btn btn-ghost btn-sm min-w-7" title="缩小"
@@ -224,7 +312,7 @@ onUnmounted(() => offs.forEach(f => f()));
   </div>
   <canvas
     ref="canvas"
-    class="w-full h-[76px] block bg-panel border border-line rounded-md cursor-pointer touch-none"
+    class="w-full h-[92px] block bg-panel border border-line rounded-md cursor-pointer touch-none"
     aria-label="时间轴（点击移动・行界可拖动调整）"
     @pointerdown="onDown"
     @pointermove="onMove"

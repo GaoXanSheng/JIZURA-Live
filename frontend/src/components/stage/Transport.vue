@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue';
 import {useEditor} from '../../stores/editor';
-import {AP, LOOP_CYCLE, S, saveVolume} from '../../jizura/state';
+import {AP, LOOP_CYCLE, refreshLoopHold, S, saveVolume} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {replan, seek, togglePlay} from '../../jizura/engine';
 import {commit, histGo, histInfo, omakase, remember} from '../../jizura/look';
@@ -16,10 +16,13 @@ const barEl = ref<HTMLElement | null>(null);
 const fillEl = ref<HTMLElement | null>(null);
 const thumbEl = ref<HTMLElement | null>(null);
 
+/* 按钮文案映射（内部模式值保持与引擎一致：'line'=整行、'cut'=单个切分）：
+   用户术语「切分循环」= 循环这一整行的切分 → 挂在 'line' 上；
+   用户术语「行循环」= 只循环单个切分 → 挂在 'cut' 上 */
 const LOOP_LABEL: Record<string, { text: string; title: string }> = {
   all: { text: '循环', title: '循环整首' },
-  line: { text: '行循环', title: '循环这一行' },
-  cut: { text: '切分循环', title: '循环这一切分' },
+  line: {text: '切分循环', title: '循环这一行的完整切分'},
+  cut: {text: '行循环', title: '只循环单个切分'},
   off: { text: '循环', title: '不循环' },
 };
 const loopLabel = computed(() => LOOP_LABEL[ed.loopMode] || LOOP_LABEL.off);
@@ -34,6 +37,9 @@ const durText = computed(() => fmt(ed.duration));
 function cycleLoop() {
   const i = LOOP_CYCLE.indexOf(S.loop);
   S.loop = LOOP_CYCLE[(i < 0 ? 0 : i + 1) % LOOP_CYCLE.length];
+  // 模式一换立即按当前位置取新范围：loopHold 只在 play/seek/replan 刷新，
+  // 播放中切到切分循环会沿用行循环留下的整行范围，「切分」就一直切不开
+  refreshLoopHold();
   ed.syncPlayState();
   S.need = true;
 }

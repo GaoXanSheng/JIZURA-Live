@@ -1,11 +1,12 @@
 /* 外观/覆盖层：双历史栈（外观◀▶ + 歌词编辑Ctrl+Z）、行覆盖、切分指定、
    导出范围、锁。原 12_ui.js 对应逻辑原样移植。 */
-import { J } from '../engine';
-import { S } from './state';
-import { autosave, flushSave } from './project';
+import {J} from '../engine';
+import {S} from './state';
+import {autosave, flushSave} from './project';
+import {bus} from './bus';
+import {invalidateFontKey, pause, play, replan, seek} from './engine';
+
 export { flushSave };
-import { bus } from './bus';
-import { replan, seek, pause, play, invalidateFontKey } from './engine';
 
 /* ---- toast（组件监听渲染） ---- */
 export function toast(m: string, cols?: string[]) { bus.emit('toast', m, cols); }
@@ -135,6 +136,23 @@ export function edGo(d: number) {
   toast(d < 0 ? '已撤销' : '已重做');
 }
 
+/* 换歌（网络载入新歌词）前调用：旧行号绑定的东西全部清掉，
+   否则旧歌词的逐行时间/逐行覆盖/导出范围会叠到新歌上。推入撤销栈可 Ctrl+Z 找回 */
+export function resetLyricBinding() {
+    const P = S.project;
+    if (S.exporting) return;
+    const snap = JSON.parse(edSnap());
+    snap.ov = P.overrides || {};
+    snap.range = P.exportRange || null;
+    if (!P.lyrics.trim() && !Object.keys(P.timing.lineTimes || {}).length && !Object.keys(P.overrides || {}).length && !P.exportRange) return;
+    ED.undo.push(JSON.stringify(snap));
+    if (ED.undo.length > 60) ED.undo.shift();
+    ED.redo = [];
+    P.timing.lineTimes = {};
+    P.overrides = {};
+    P.exportRange = null;
+}
+
 /* 清空歌词：歌词 + 一切绑定行号的东西（时间/逐行设置/导出范围）；可撤销 */
 export function clearLyrics() {
   if (S.tap || S.exporting) return;
@@ -149,37 +167,46 @@ export function clearLyrics() {
   toast('歌词已清空（可用「撤销」或 Ctrl+Z 恢复）');
 }
 
-/* ---- 导出范围 ---- */
-export function exportRangeLines() {
-  const r = S.project.exportRange, n = S.plan ? S.plan.lines.length : 0;
+/* ---- 导出范围（按切分：和切分循环同一粒度，而不是整行） ---- */
+export function exportRangeCuts() {
+    const r = S.project.exportRange, n = S.plan ? S.plan.cuts.length : 0;
   if (!r || !n || !(r.from >= 0)) return null;
   const from = Math.min(n - 1, r.from | 0), to = Math.min(n - 1, Math.max(from, r.to | 0));
   return { from, to };
 }
 
 export function exportRange() {
-  const R = exportRangeLines(); if (!R) return null;
-  const L = S.plan.lines, a = L[R.from], b = L[R.to], last = R.to === L.length - 1;
+    const R = exportRangeCuts();
+    if (!R) return null;
+    const C = S.plan.cuts, a = C[R.from], b = C[R.to], last = R.to === C.length - 1;
   const t0 = Math.max(0, a.start - 0.25);
-  const t1 = last ? S.plan.duration : Math.min(L[R.to + 1].start, (b.interlude ? b.end : b.visEnd) + 0.35);
+    const t1 = last ? S.plan.duration : Math.min(C[R.to + 1].start, b.end + 0.35);
   return { t0, t1 };
 }
 
 export function rangeSuffix() {
-  const R = exportRangeLines(); if (!R) return '';
+    const R = exportRangeCuts();
+    if (!R) return '';
   const f = (n: number) => String(n + 1).padStart(2, '0');
-  return '_L' + f(R.from) + (R.to > R.from ? '-' + f(R.to) : '');
+    return '_C' + f(R.from) + (R.to > R.from ? '-' + f(R.to) : '');
 }
 
+/* 行按钮：把这一行首尾切分设为范围（Shift 扩大；再点一次取消） */
 export function setExportRange(i: number, extend: boolean) {
-  const R = exportRangeLines();
-  if (extend && R) S.project.exportRange = { from: Math.min(R.from, i), to: Math.max(R.to, i) };
-  else if (R && R.from === i && R.to === i) S.project.exportRange = null;
-  else S.project.exportRange = { from: i, to: i };
+    const cs = S.plan.cuts.filter((c: any) => c.line === i);
+    if (!cs.length) {
+        toast('这一行没有切分');
+        return;
+    }
+    const from = cs[0].index, to = cs[cs.length - 1].index;
+    const R = exportRangeCuts();
+    if (extend && R) S.project.exportRange = {from: Math.min(R.from, from), to: Math.max(R.to, to)};
+    else if (R && R.from === from && R.to === to) S.project.exportRange = null;
+    else S.project.exportRange = {from, to};
   flushSave();
   bus.emit('replan-sync');   // 行列表的重渲染
-  const R2 = exportRangeLines();
-  toast(R2 ? `导出范围：第 ${R2.from + 1}${R2.to > R2.from ? '〜' + (R2.to + 1) : ''} 行` : '导出范围：全部');
+    const R2 = exportRangeCuts();
+    toast(R2 ? `导出范围：切分 ${R2.from + 1}${R2.to > R2.from ? '〜' + (R2.to + 1) : ''}` : '导出范围：全部');
 }
 
 /* ---- 外观历史（◀ ▶）：只跟踪"外观"，歌词/时间/输出设置永不回滚 ---- */

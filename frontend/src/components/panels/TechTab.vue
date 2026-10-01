@@ -1,7 +1,8 @@
 <script lang="ts">
 /* 模块级状态：RightPanel 对本 tab 用 v-if 卸载省内存（860 张预览 canvas 不再常驻），
    卸载重开后筛选词与折叠状态保留在这里不丢 */
-import { ref } from 'vue';
+import {ref} from 'vue';
+
 const filter = ref('');
 const openSet = new Set<string>();
 </script>
@@ -143,7 +144,8 @@ onUnmounted(() => { offs.forEach(f => f()); resetWatch(); });
   <div class="px-4 py-3.5" data-pane="tech">
     <div class="flex flex-col gap-1 mb-3">
       <label v-for="t in SETS" :key="t.cls" class="checkblock">
-        <input type="checkbox" :checked="setVal(t.cls)" @change="onSet(t.cls, $event)">
+        <span class="switch"><input :checked="setVal(t.cls)" type="checkbox"
+                                    @change="onSet(t.cls, $event)"><i></i></span>
         <span>{{ t.label }}<small>{{ t.sub }}</small></span>
       </label>
     </div>

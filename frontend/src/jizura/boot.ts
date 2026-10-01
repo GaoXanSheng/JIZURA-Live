@@ -2,13 +2,13 @@
    另外维护 Spout 镜像依赖的两个全局契约：
    - window.J.ui      —— 状态对象 S
    - window.J.uiApi   —— 宿主动作（SeekSpoutPipeline.cs 注入脚本调用） */
-import { J } from '../engine';
-import { S, initVolume } from './state';
-import { loadLocal, flushSave } from './project';
-import { replan, seek, bootEngine, loadAudioFile, pause, play, invalidateFontKey } from './engine';
+import {J} from '../engine';
+import {initVolume, S} from './state';
+import {flushSave, loadLocal} from './project';
+import {bootEngine, invalidateFontKey, loadAudioFile, pause, play, replan, seek} from './engine';
 import * as look from './look';
-import { bus } from './bus';
-import { installSubtitleOverlay } from '../cloud/subtitle';
+import {bus} from './bus';
+import {installSubtitleOverlay} from '../cloud/subtitle';
 
 async function restoreFonts() {
   const list = S.project.userFonts || [];
@@ -66,7 +66,7 @@ export function boot() {
     loadAudioFile,
     restartPreview: look.restartPreview,
     exportRange: look.exportRange,
-    exportRangeLines: look.exportRangeLines,
+      exportRangeCuts: look.exportRangeCuts,
   };
   bus.emit('booted');
 }

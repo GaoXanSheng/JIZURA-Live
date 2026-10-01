@@ -5,7 +5,7 @@ import {computed, onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
-import {exportRangeLines} from '../../jizura/look';
+import {exportRangeCuts} from '../../jizura/look';
 import {useEditor} from '../../stores/editor';
 import type {Row} from './LineRow.vue';
 import LineRow from './LineRow.vue';
@@ -19,7 +19,14 @@ const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 
 function rebuild() {
   if (!S.plan) { rows.value = []; return; }
-  const ov = S.project.overrides, R = exportRangeLines();
+  const ov = S.project.overrides, R = exportRangeCuts();
+  // 每行的切分序号区间（导出范围按切分算：行命中 = 它的切分与范围相交）
+  const span: Record<number, [number, number]> = {};
+  for (const c of S.plan.cuts as any[]) {
+    const s = span[c.line] || (span[c.line] = [c.index, c.index]);
+    s[0] = Math.min(s[0], c.index);
+    s[1] = Math.max(s[1], c.index);
+  }
   rows.value = S.plan.lines.map((ln: any, i: number): Row => {
     const o = ov[i] || {};
     const manual = S.project.timing.lineTimes && S.project.timing.lineTimes[i] != null;
@@ -34,11 +41,12 @@ function rebuild() {
         start: c.start,
         half: Math.min(c.dur * 0.5, c.inDur + 0.05),
       }));
+    const sp = span[i];
     return {
       i, no: String(i + 1).padStart(2, '0'),
       start: ln.start, label, full: label, interlude: !!ln.interlude,
       manual, layout: o.layout || '', ncut: o.cuts ? String(o.cuts) : '',
-      locked: !!o.lock, inRange: !!(R && i >= R.from && i <= R.to),
+      locked: !!o.lock, inRange: !!(R && sp && sp[0] <= R.to && sp[1] >= R.from),
       cuts,
     };
   });

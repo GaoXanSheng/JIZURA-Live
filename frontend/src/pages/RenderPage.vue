@@ -67,7 +67,7 @@ onMounted(() => {
     loadAudioFile: async () => false,
     restartPreview: () => {},
     exportRange: () => null,
-    exportRangeLines: () => null,
+    exportRangeCuts: () => null,
   };
 
   /* 工程分辨率画布：plan 就绪时把物理像素设为 plan 尺寸（镜像泵也会保持） */

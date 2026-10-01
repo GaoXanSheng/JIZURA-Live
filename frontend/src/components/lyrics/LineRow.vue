@@ -182,8 +182,9 @@ function onRng(ev: MouseEvent) {
                                                                                                 r="2.2"/><circle
               cx="8" cy="8" r="5.5"/></svg>
         </button>
-        <button :aria-label="`把第 ${row.i + 1} 行设为导出范围`" :aria-pressed="row.inRange" :class="row.inRange ? '!text-amber' : ''"
-                class="btn btn-icon btn-ghost" title="设为导出范围（Shift+点击扩大范围）"
+        <button :aria-label="`把第 ${row.i + 1} 行的切分设为导出范围`" :aria-pressed="row.inRange"
+                :class="row.inRange ? '!text-amber' : ''"
+                class="btn btn-icon btn-ghost" title="这一行的切分设为导出范围（Shift+点击扩大范围）"
                 @click="onRng">
           <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16"><path d="M3 3v10M13 3v10"/><path
               d="M5.5 8h5M8.5 5.5L11 8l-2.5 2.5"/></svg>
