@@ -23,6 +23,8 @@ let viewCanvas: HTMLCanvasElement | null = null;
 /* desynchronized：Chromium 低延迟提示，?dsync=0 关闭做 A/B。
    编辑器里画布被 msg/badge 等浮层遮挡时 Chromium 会静默忽略该提示 */
 const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: new URLSearchParams(location.search).get('dsync') !== '0'};
+/* desynchronized 开启时的离屏整帧缓冲（见 draw() 内注释） */
+let viewBuf: HTMLCanvasElement | null = null;
 
 export function attachView(el: HTMLElement, canvas: HTMLCanvasElement) {
     viewEl = el;
@@ -161,14 +163,33 @@ function drawCenterGuide(ctx: CanvasRenderingContext2D, k: number) {
 
 export function draw() {
     if (!viewCanvas || !S.plan) return;
-    const c = viewCanvas, ctx = c.getContext('2d', CTX_2D)!;
+    const c = viewCanvas;
     const t0 = performance.now();
-    S.renderer.frame(ctx, S.plan, S.t, {
+    /* desynchronized 的 2D 去闪烁：显示控制器可能扫到「clearRect 后未画完」的中间态。
+       preserveDrawingBuffer 是 WebGL 专属属性，2D 上下文不识别，帮不上忙；
+       按文档建议整帧先画进离屏缓冲，再 clear+drawImage 一次上屏。?dsync=0 走原直画路径 */
+    let target: CanvasRenderingContext2D;
+    if (CTX_2D.desynchronized) {
+        const b = viewBuf || (viewBuf = document.createElement('canvas'));
+        if (b.width !== c.width || b.height !== c.height) {
+            b.width = c.width;
+            b.height = c.height;
+        }
+        target = b.getContext('2d')!;
+    } else {
+        target = c.getContext('2d', CTX_2D)!;
+    }
+    S.renderer.frame(target, S.plan, S.t, {
         scale: c.width / S.plan.W,
         fast: S.playing && S.slow,
         transparent: !!window.__jl_spout_transparent
     });
-    if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(ctx, c.width / S.plan.W);
+    if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(target, c.width / S.plan.W);
+    if (CTX_2D.desynchronized) {
+        const ctx = c.getContext('2d', CTX_2D)!;
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.drawImage(viewBuf!, 0, 0);
+    }
     const dt = performance.now() - t0;
     S.slow = S.playing ? (dt > 30 ? true : dt < 14 ? false : S.slow) : false;
     updateCutInfo();
