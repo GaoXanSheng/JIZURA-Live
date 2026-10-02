@@ -13,6 +13,10 @@ const connected = ref(false);
 const spoutParams = new URLSearchParams(window.location.search);
 const isLyricLayer = spoutParams.get('layer') === 'lyric';
 const isMirror = spoutParams.get('mirror') === '1';
+/* desynchronized：Chromium 低延迟提示——canvas 更新绕过合成器排队直出，
+   代价是可能出现撕裂；?dsync=0 关闭做 A/B。画布被其他元素遮挡时 Chromium
+   会静默忽略该提示（镜像 isolate 后画布独占页面才稳定生效） */
+const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: spoutParams.get('dsync') !== '0'};
 let renderer: any = null;
 let stopBridge: (() => void) | null = null;
 let raf = 0;
@@ -148,7 +152,7 @@ function fitPlanSize(cv: HTMLCanvasElement) {
 function draw(cv: HTMLCanvasElement) {
   const plan = stage.plan;
   if (!plan) return;
-  const ctx = cv.getContext('2d')!;
+  const ctx = cv.getContext('2d', CTX_2D)!;
   try {
     if (isLyricLayer) {
       // 字幕通道：透明画布上只叠加字幕组件（翻译/音译字幕）
@@ -214,7 +218,8 @@ function startMirror(cv: HTMLCanvasElement) {
       // 铺满视口后 CSS 尺寸×dpr 恒等于纹理物理尺寸，任何缩放下精确 1:1 出图
       cv.style.cssText =
           'position:fixed;left:0;top:0;margin:0;width:100vw;height:100vh;' +
-          'z-index:2147483647;display:block;visibility:visible;';
+          'z-index:2147483647;display:block;visibility:visible;' +
+          'will-change:transform;contain:strict;';
       const kids = document.body.children;
       for (let i = 0; i < kids.length; i++) {
         if (kids[i] !== cv) (kids[i] as HTMLElement).style.display = 'none';
@@ -331,7 +336,8 @@ function startMirror(cv: HTMLCanvasElement) {
 <template>
   <div :class="isLyricLayer ? 'bg-transparent' : 'bg-black'" class="fixed inset-0 overflow-hidden">
     <!-- id="view" 是镜像 isolate / 宿主抓图的 DOM 契约 -->
-    <canvas id="view" ref="canvas" class="block w-full h-full" height="720" width="1280"></canvas>
+    <canvas id="view" ref="canvas" class="block w-full h-full" style="will-change:transform;contain:content;"
+            height="720" width="1280"></canvas>
     <div v-if="!connected"
          class="absolute bottom-3 left-1/2 -translate-x-1/2 text-mut text-xs bg-ink/70 border border-line2 rounded-full px-3 py-1">
       等待编辑页连接（BroadcastChannel）{{ isLyricLayer ? ' · 歌词通道' : '' }}

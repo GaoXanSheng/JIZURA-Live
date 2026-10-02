@@ -20,6 +20,9 @@ export function fixedLayout() {
 /* ---- 视图挂载（StageCanvas 组件调用） ---- */
 let viewEl: HTMLElement | null = null;
 let viewCanvas: HTMLCanvasElement | null = null;
+/* desynchronized：Chromium 低延迟提示，?dsync=0 关闭做 A/B。
+   编辑器里画布被 msg/badge 等浮层遮挡时 Chromium 会静默忽略该提示 */
+const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: new URLSearchParams(location.search).get('dsync') !== '0'};
 
 export function attachView(el: HTMLElement, canvas: HTMLCanvasElement) {
     viewEl = el;
@@ -158,7 +161,7 @@ function drawCenterGuide(ctx: CanvasRenderingContext2D, k: number) {
 
 export function draw() {
     if (!viewCanvas || !S.plan) return;
-    const c = viewCanvas, ctx = c.getContext('2d')!;
+    const c = viewCanvas, ctx = c.getContext('2d', CTX_2D)!;
     const t0 = performance.now();
     S.renderer.frame(ctx, S.plan, S.t, {
         scale: c.width / S.plan.W,
