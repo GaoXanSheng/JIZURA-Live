@@ -9,6 +9,7 @@ import {bootEngine, invalidateFontKey, loadAudioFile, pause, play, replan, seek}
 import * as look from './look';
 import {bus} from './bus';
 import {installSubtitleOverlay} from '../cloud/subtitle';
+import './agent-api'; // 副作用导入：挂载 window.J.mcp（/mcp 端点把 JSON-RPC 桥进页面用）
 
 async function restoreFonts() {
   const list = S.project.userFonts || [];

@@ -23,6 +23,10 @@ internal sealed class McpModule : WebModuleBase
     /// 放宽到 60 秒容纳导出前的大重排等慢路径。</summary>
     private static readonly TimeSpan ScriptTimeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>EmbedIO 的 SendStringAsync 会带上编码 preamble（BOM），
+    /// Node 系 MCP 客户端 JSON.parse 会被 BOM 呛死，这里必须用无 BOM 编码。</summary>
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
+
     public McpModule() : base(EndpointPath)
     {
     }
@@ -97,7 +101,7 @@ internal sealed class McpModule : WebModuleBase
         }
 
         context.Response.StatusCode = 200;
-        await context.SendStringAsync(resultJson, "application/json; charset=utf-8", Encoding.UTF8);
+        await context.SendStringAsync(resultJson, "application/json; charset=utf-8", Utf8NoBom);
         return true;
     }
 
@@ -112,7 +116,7 @@ internal sealed class McpModule : WebModuleBase
         };
         context.Response.StatusCode = 200;
         await context.SendStringAsync(response.ToString(Formatting.None),
-            "application/json; charset=utf-8", Encoding.UTF8);
+            "application/json; charset=utf-8", Utf8NoBom);
         return true;
     }
 
@@ -122,7 +126,7 @@ internal sealed class McpModule : WebModuleBase
         context.Response.Headers["Allow"] = "POST";
         await context.SendStringAsync(
             "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"仅支持 POST\"}}",
-            "application/json; charset=utf-8", Encoding.UTF8);
+            "application/json; charset=utf-8", Utf8NoBom);
         return true;
     }
 
@@ -132,7 +136,7 @@ internal sealed class McpModule : WebModuleBase
         context.Response.StatusCode = 403;
         await context.SendStringAsync(
             "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"已拦截来自其他网站的请求\"}}",
-            "application/json; charset=utf-8", Encoding.UTF8);
+            "application/json; charset=utf-8", Utf8NoBom);
         return true;
     }
 }
