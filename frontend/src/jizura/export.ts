@@ -15,7 +15,28 @@ function baseName() {
   return ((S.project.title || 'jizura').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'jizura') + (k ? (k === 'green' ? '_greenback' : '_blackback') : '');
 }
 
+/* 各 kind 的最终文件名（含后缀），「另存为」与静默下载共用 */
+function exportFileName(kind: string) {
+  return baseName() + rangeSuffix() + (
+      kind === 'mp4' ? '.mp4'
+          : kind === 'webm' ? '_alpha.webm'
+          : kind === 'webmfront' ? '_front.webm'
+          : kind === 'subwebm' ? '_subtitle.webm'
+          : kind === 'pnga' ? '_alpha_png.zip'
+          : kind === 'pngl' ? '_layers_png.zip'
+          : kind === 'pngf' ? '_front_png.zip'
+          : '_png.zip');
+}
+
 export const canPickFile = () => typeof (window as any).showSaveFilePicker === 'function' && typeof VideoEncoder !== 'undefined';
+
+/* 桌面版（CefSharp 宿主）消息通道：MCP 导出用它设置免确认落盘目录 */
+const postHost = (m: any) => {
+  try {
+    const c = (window as any).CefSharp;
+    if (c && typeof c.PostMessage === 'function') c.PostMessage(m);
+  } catch { /* 浏览器环境无宿主，忽略 */ }
+};
 
 /* 编解码检查在部分浏览器较慢：等首帧预览画完再问 */
 export async function codecNote() {
@@ -93,7 +114,8 @@ function runExportInWorker(kind: 'mp4' | 'png' | 'pnga' | 'pngl' | 'pngf' | 'web
   });
 }
 
-export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl' | 'pngf' | 'webm' | 'webmfront') {
+export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl' | 'pngf' | 'webm' | 'webmfront' | 'subwebm',
+                                opts: {dir?: string} = {}) {
   if (S.exporting) return;
   let file: any = null, fileName = '';
   if (kind === 'mp4file') {
@@ -110,6 +132,36 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
       return;
     }
   }
+  /* 「导出时询问保存位置」：showSaveFilePicker 需要用户手势，必须在点击现场把句柄选好，
+     导完直接写入该句柄；取消选择即放弃本次导出 */
+  let handle: any = null;
+  if (kind !== 'mp4file' && S.project.askSaveLocation && canPickFile()) {
+    const accept = kind === 'mp4' ? {description: 'MP4 视频', accept: {'video/mp4': ['.mp4']}}
+        : kind === 'webm' || kind === 'webmfront' ? {description: 'WebM 视频', accept: {'video/webm': ['.webm']}}
+        : {description: 'ZIP 压缩包', accept: {'application/zip': ['.zip']}};
+    try {
+      handle = await (window as any).showSaveFilePicker({suggestedName: exportFileName(kind), types: [accept]});
+    } catch (e: any) {
+      if (e && e.name === 'AbortError') return;
+      toast('无法打开保存位置：' + (e && e.message ? e.message : e));
+      return;
+    }
+  }
+  const persist = async (blob: Blob, name: string) => {
+    if (!handle) return J.saveFile(name, blob);
+    const w = await handle.createWritable();
+    await w.write(blob);
+    await w.close();
+    return 'saved';
+  };
+  /* MCP 指定导出目录：桌面版宿主把本次所有下载直接落盘到该目录，不弹另存为；
+     浏览器环境没有宿主，回退默认下载目录。导出结束（含出错）恢复弹另存为 */
+  if (opts.dir) postHost({type: 'set_autosave_dir', dir: opts.dir});
+  const savedNote = () => opts.dir ? `・已保存到 ${opts.dir}` : '';
+  /* 云字幕是预览叠加层，文件导出一律不烤入：与 Worker 路径行为保持一致
+     （Worker 里本就没有 overlay）。__jl_no_sub 是 subtitle overlay 的既有抑制开关 */
+  const prevNoSub = (window as any).__jl_no_sub;
+  (window as any).__jl_no_sub = true;
   pause();
   const ac = new AbortController();
   S.exporting = ac;
@@ -155,8 +207,8 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
       file = null;
       let msg = `完成 ${r.blob ? (r.blob.size / 1048576).toFixed(1) + 'MB・' : ''}${r.codec}${r.audio ? ' + ' + r.audio.toUpperCase() : ''}・${((performance.now() - t0) / 1000).toFixed(0)}秒`;
       if (r.blob) {
-        const name = baseName() + rangeSuffix() + '.mp4';
-        const res = await J.saveFile(name, r.blob);
+        const name = exportFileName('mp4');
+        const res = await persist(r.blob, name);
         if (res === 'declined') msg += '（保存已取消）';
         offerShare(r.blob, name);
       } else msg += `・已保存到「${fileName}」`;
@@ -165,10 +217,12 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
         await J.saveFile(baseName() + rangeSuffix() + '_audio.wav', J.audioWav(S.audio.buffer, span.dur, span.t0));
         msg += r.audio ? '。此浏览器音频为 Opus，iPhone・QuickTime 等可能无声，因此额外保存了 WAV 音频' : '。此浏览器无法导出音频，已单独保存 WAV（请在视频编辑软件中叠加）';
       } else if (S.project.includeAudio !== false && !S.audio && S.project.audioName) msg += '。未载入歌曲，导出为无音频（请从「载入歌曲」重新载入）';
+      msg += savedNote();
       bus.emit('export-progress', 100, msg);
-    } else if (kind === 'webm' || kind === 'webmfront') {
+    } else if (kind === 'webm' || kind === 'webmfront' || kind === 'subwebm') {
       let r: any = null;
-      if (workerExportable()) {
+      // subwebm 只走主线程：字幕绘制（翻译映射/样式配置）只存在于主线程，Worker 不参与
+      if (kind !== 'subwebm' && workerExportable()) {
         try {
           r = await runExportInWorker(kind, onProgress, ac.signal);
         } catch (we: any) {
@@ -179,21 +233,27 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
         }
       }
       if (!r) {
+        const customDraw = kind === 'subwebm' ? J.subtitleFrame : null;
+        if (kind === 'subwebm' && !customDraw) throw new Error('字幕模块未就绪，请刷新页面后重试');
+        if (customDraw && J.subtitleCfg && J.subtitleCfg().content === 'off') {
+          throw new Error('字幕渲染未开启：请先在「字幕」面板选择要导出的字幕内容（翻译/音译）');
+        }
         r = await J.exportWebM({
           plan: S.plan,
           project: S.project,
           frontOnly: kind === 'webmfront',
+          customDraw,
           onProgress,
           signal: ac.signal,
           range: exportRange()
         });
       }
-      const name = baseName() + rangeSuffix() + (kind === 'webm' ? '_alpha' : '_front') + '.webm';
+      const name = baseName() + rangeSuffix() + (kind === 'webm' ? '_alpha' : kind === 'webmfront' ? '_front' : '_subtitle') + '.webm';
       const res = await J.saveFile(name, r.blob);
       let msg = `完成 ${(r.blob.size / 1048576).toFixed(1)}MB・${r.codec}・${((performance.now() - t0) / 1000).toFixed(0)}秒`;
       if (res === 'declined') msg += '（保存已取消）';
       else offerShare(r.blob, name);
-      bus.emit('export-progress', 100, msg);
+      bus.emit('export-progress', 100, msg + savedNote());
     } else {
       let fromWorker: Blob | null = null;
       if (workerExportable()) {
@@ -215,7 +275,7 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
         signal: ac.signal,
         range: exportRange()
       });
-      bus.emit('export-progress', 100, `完成 ${(blob.size / 1048576).toFixed(1)}MB`);
+      bus.emit('export-progress', 100, `完成 ${(blob.size / 1048576).toFixed(1)}MB` + savedNote());
       await J.saveFile(baseName() + rangeSuffix() + (kind === 'pnga' ? '_alpha' : kind === 'pngl' ? '_layers' : kind === 'pngf' ? '_front' : '') + '_png.zip', blob);
     }
   } catch (e: any) {
@@ -228,6 +288,8 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
       }
     }
   } finally {
+    (window as any).__jl_no_sub = prevNoSub;
+    if (opts.dir) postHost({type: 'set_autosave_dir', dir: null});
     S.exporting = null;
     S.need = true;
     bus.emit('export-end');
@@ -304,6 +366,11 @@ export function setKeyBg(v: string) {
 
 export function setIncludeAudio(v: boolean) {
   S.project.includeAudio = v;
+  autosave();
+}
+
+export function setAskSaveLocation(v: boolean) {
+  S.project.askSaveLocation = v;
   autosave();
 }
 

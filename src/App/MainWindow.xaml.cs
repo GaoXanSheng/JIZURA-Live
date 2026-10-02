@@ -269,11 +269,25 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (e.Message is not IDictionary<string, object> dict ||
+                !dict.TryGetValue("type", out var typeObj) ||
+                typeObj == null)
+                return;
+
             // sync_play 是高频时间流（约 30 条/秒），先分流处理，不逐条记日志
-            if (e.Message is IDictionary<string, object> dict &&
-                dict.TryGetValue("type", out var typeObj) &&
-                string.Equals(typeObj?.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(typeObj.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
+            {
                 HandleSyncPlay(dict);
+                return;
+            }
+
+            // MCP 导出指定的免确认落盘目录（dir=null 表示导出结束，恢复弹另存为）
+            if (string.Equals(typeObj.ToString(), "set_autosave_dir", StringComparison.OrdinalIgnoreCase))
+            {
+                var dir = dict.TryGetValue("dir", out var dirObj) ? dirObj?.ToString() : null;
+                AppDownloadHandler.AutoSaveDir = string.IsNullOrWhiteSpace(dir) ? null : dir;
+                Log.Info("免确认导出目录：" + (AppDownloadHandler.AutoSaveDir ?? "（已清除，恢复另存为）"));
+            }
         }
         catch (Exception ex)
         {

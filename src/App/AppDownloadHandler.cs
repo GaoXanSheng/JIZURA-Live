@@ -15,6 +15,13 @@ public sealed class AppDownloadHandler : IDownloadHandler
 {
     public static readonly AppDownloadHandler Instance = new();
 
+    /// <summary>
+    ///     免确认落盘目录（由页面经 CefSharp.PostMessage 的 set_autosave_dir 设置，
+    ///     MCP 导出时由 agent 指定导出目录）。非 null 时下载直接写入该目录、不弹
+    ///     另存为；导出结束页面会置回 null。CEF 线程读 / UI 线程写，引用赋值本身原子。
+    /// </summary>
+    public static volatile string? AutoSaveDir;
+
     public bool CanDownload(
         IWebBrowser chromiumWebBrowser,
         IBrowser browser,
@@ -40,12 +47,29 @@ public sealed class AppDownloadHandler : IDownloadHandler
 
         Log.Info($"浏览器下载请求：{suggested}");
 
+        var ext = Path.GetExtension(suggested);
+
+        // MCP 指定了导出目录：直接落盘，不弹对话框（目录不可用时回退另存为）
+        var autoDir = AutoSaveDir;
+        if (!string.IsNullOrWhiteSpace(autoDir))
+            try
+            {
+                Directory.CreateDirectory(autoDir);
+                var target = Path.Combine(autoDir, suggested);
+                callback.Continue(target, false);
+                callback.Dispose();
+                Log.Info($"免确认下载：{target}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"免确认目录不可用（{autoDir}），回退另存为：{ex.Message}");
+            }
+
         var downloads =
             Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Downloads");
-
-        var ext = Path.GetExtension(suggested);
 
         // 回调来自 CEF 线程：Win32 对话框有线程亲和性，
         // 必须在 UI 线程上"创建并显示"，否则抛

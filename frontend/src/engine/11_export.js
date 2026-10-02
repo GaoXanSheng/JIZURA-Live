@@ -599,7 +599,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
 
     /* layers: transparent PNGs in two folders — back/ (background graphic + decorations behind the lyrics) and front/
        (lyrics, their decorations, ghosts, HUD). Screen effects are applied to both, so stacking front over back matches.
-       frontOnly: single front/ folder without HUD (subtitle-layer export; HUD is a composite element, not part of the lyrics). */
+       frontOnly: single front/ folder without HUD (foreground/lyrics-layer export; HUD is a composite element, not part of the lyrics). */
     J.exportPNGZip = async ({plan, project, transparent, layers, frontOnly, onProgress, signal, every = 1, range}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
@@ -636,9 +636,11 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
     };
 
     /* ---------- transparent video (WebM, VP9/VP8 alpha side data via mediabunny) ---------- */
-    /* frontOnly: lyrics + front decorations only, no HUD — the subtitle layer for stacking over other footage.
+    /* frontOnly: lyrics + front decorations only, no HUD — the foreground layer for stacking over other footage.
+       customDraw: (ctx, plan, t, opt) => void — replaces the standard frame render entirely
+       (subtitle-layer export draws only the 字幕渲染 overlay through it: no lyrics/decor/background).
        No audio track: an overlay has nothing to carry. */
-    J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly}) => {
+    J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly, customDraw}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
         const fps = plan.fps;
@@ -680,7 +682,8 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                     cancelled = true;
                     throw new Error('キャンセルしました');
                 }
-                R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: true, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
+                if (customDraw) customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                else R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: true, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
                 await source.add(i / fps, 1 / fps);   // await 即背压：编码器过载时挂起
                 if (i % 3 === 0) {
                     onProgress && onProgress(i / total, `WebM ${i + 1}/${total}`);

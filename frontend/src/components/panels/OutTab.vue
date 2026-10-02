@@ -11,6 +11,7 @@ import {
   codecNote,
   exportAeJson,
   runExport,
+  setAskSaveLocation,
   setAspect,
   setCenterDir,
   setCenterFree,
@@ -23,6 +24,7 @@ import {
 
 const aspect = ref('16:9'), res = ref('1080'), fps = ref('30'), quality = ref('high');
 const keyBg = ref('off'), includeAudio = ref(true);
+const askSave = ref(false);
 const centerFree = ref(false), centerDir = ref('tb');
 const rangeFrom = ref('-1'), rangeTo = ref('-1');
 const rangeInfo = ref('');
@@ -61,6 +63,7 @@ function sync() {
   keyBg.value = k;
   centerFree.value = !!S.project.centerFree;
   centerDir.value = S.project.centerDir === 'lr' ? 'lr' : 'tb';
+  askSave.value = !!S.project.askSaveLocation;
   fromOpts.value = cutOpts('全部');
   toOpts.value = cutOpts('—');
   const R = exportRangeCuts();
@@ -136,7 +139,91 @@ function doExport(kind: any) {
     exportAeJson();
     return;
   }
+  if (kind === 'lrc') {
+    saveLrc();
+    return;
+  }
   runExport(kind);
+}
+
+/* ---- 导出按钮按类折叠：状态记在 localStorage ---- */
+interface ExportItem {
+  kind: string;
+  label: string;
+  title?: string;
+  primary?: boolean;
+  needCodec?: boolean;
+  show?: () => boolean;
+}
+const GROUP_DEFS: { id: string; label: string; items: ExportItem[] }[] = [
+  {
+    id: 'video', label: '视频', items: [
+      {kind: 'mp4', label: '导出 MP4', title: '导出 MP4 视频', primary: true, needCodec: true},
+      {
+        kind: 'mp4file', label: '大视频用（直接写入文件）',
+        title: '先选保存位置，边导出边直接写文件。长曲・1080p 以上浏览器内存不足时使用（Chrome / Edge）',
+        show: () => showMp4File.value,
+      },
+      {
+        kind: 'webm', label: '透明视频（WebM・无背景）',
+        title: 'VP9 透明通道视频：无背景、含全部演出与特效、不含音频。剪映・DaVinci Resolve 等可直接叠放；PR/AE 请用透明 PNG 序列。部分播放器不支持透明通道会显示黑底，用 Chrome 打开或导入剪辑软件即可看到透明',
+      },
+      {
+        kind: 'subwebm', label: '字幕渲染视频（WebM・透明）',
+        title: '与设置里 Spout 独立字幕通道同一内容：按「字幕」面板样式的翻译/音译字幕，透明底、不含歌词动画与背景。需先在「字幕」面板开启字幕渲染',
+      },
+      {
+        kind: 'webmfront', label: '歌词动画视频（WebM・透明）',
+        title: '仅歌词与其前景装饰的透明视频（无背景、无 HUD、不含音频），即分层导出的前景层，用于叠到其它素材上',
+      },
+    ],
+  },
+  {
+    id: 'png', label: 'PNG 序列', items: [
+      {kind: 'png', label: '连号 PNG（ZIP）'},
+      {kind: 'pnga', label: '透明 PNG（ZIP・无背景）'},
+      {
+        kind: 'pngl', label: '透明 PNG 前景/后景（ZIP）',
+        title: '后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG',
+      },
+      {
+        kind: 'pngf', label: '歌词动画 PNG（ZIP・仅前景层）',
+        title: '只导出歌词前景层（歌词与其前景装饰，无 HUD、无背景）的透明 PNG 序列；PR/AE 等不吃 WebM 的软件用',
+      },
+    ],
+  },
+  {
+    id: 'misc', label: '歌词 / 工程', items: [
+      {kind: 'lrc', label: '歌词（LRC）', title: '每行带开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行'},
+      {
+        kind: 'ae', label: 'AE 工程（.json）',
+        title: '完整 plan（v2）+ AE_MAP 对照表。在 AE 中运行 JIZURA_AE.jsx（上游发布）后选择该文件即可重建合成',
+      },
+    ],
+  },
+];
+const GROUP_DEFAULTS: Record<string, boolean> = {video: true, png: false, misc: false};
+const openGroups = ref<Record<string, boolean>>(loadGroups());
+
+function loadGroups(): Record<string, boolean> {
+  try {
+    return {...GROUP_DEFAULTS, ...JSON.parse(localStorage.getItem('jizura.out.groups') || '{}')};
+  } catch {
+    return {...GROUP_DEFAULTS};
+  }
+}
+
+const groups = computed(() => GROUP_DEFS.map(g => {
+  const items = g.items.filter(it => !it.show || it.show());
+  return {id: g.id, label: g.label, items, count: items.length};
+}));
+
+function toggleGroup(id: string) {
+  openGroups.value[id] = !openGroups.value[id];
+  try {
+    localStorage.setItem('jizura.out.groups', JSON.stringify(openGroups.value));
+  } catch { /* 私密模式等 */
+  }
 }
 
 function abort() {
@@ -205,6 +292,9 @@ async function doShare() {
     <label class="checkline" style="margin-top: 10px"><input v-model="includeAudio" type="checkbox"
                                                              @change="setIncludeAudio(includeAudio)">
       把歌曲合进视频</label>
+    <label class="checkline" style="margin-top: 6px" title="导出时弹出「另存为」对话框选择保存位置；关闭则直接下载到下载目录（需 Chrome / Edge）">
+      <input v-model="askSave" type="checkbox" :disabled="!canPickFile()" @change="setAskSaveLocation(askSave)">
+      导出时询问保存位置（另存为）</label>
     <div class="flex items-center gap-1.5 flex-wrap my-2.5 text-xs">
       <span class="text-[11px] text-mut">导出范围（按切分）</span>
       <select :value="rangeFrom" aria-label="导出范围的第一个切分" @change="onFrom($event)">
@@ -217,40 +307,20 @@ async function doShare() {
       </select>
       <span class="font-mono text-[11px] text-mut">{{ rangeInfo }}</span>
     </div>
-    <div class="grid gap-2 mt-3">
-      <button :disabled="busy || !codecOk" class="btn btn-primary !py-2.5" title="导出 MP4 视频"
-              @click="doExport('mp4')">导出 MP4
-      </button>
-      <button v-if="showMp4File" :disabled="busy" class="btn btn-ghost !py-2.5"
-              title="先选保存位置，边导出边直接写文件。长曲・1080p 以上浏览器内存不足时使用（Chrome / Edge）"
-              @click="doExport('mp4file')">大视频用（直接写入文件）
-      </button>
-      <button :disabled="busy" class="btn !py-2.5"
-              title="VP9 透明通道视频：无背景、含全部演出与特效、不含音频。剪映・DaVinci Resolve 等可直接叠放；PR/AE 请用透明 PNG 序列"
-              @click="doExport('webm')">透明视频（WebM・无背景）
-      </button>
-      <button :disabled="busy" class="btn !py-2.5"
-              title="仅歌词与其前景装饰的透明视频（无背景、无 HUD、不含音频），用于把字幕层叠到其它素材上"
-              @click="doExport('webmfront')">字幕视频（WebM・仅字幕层）
-      </button>
-      <button :disabled="busy" class="btn !py-2.5" @click="doExport('png')">连号 PNG（ZIP）</button>
-      <button :disabled="busy" class="btn !py-2.5" @click="doExport('pnga')">透明 PNG（ZIP・无背景）</button>
-      <button :disabled="busy" class="btn !py-2.5"
-              title="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
-              @click="doExport('pngl')">透明 PNG 前景/后景（ZIP）
-      </button>
-      <button :disabled="busy" class="btn !py-2.5"
-              title="只导出字幕前景层的透明 PNG 序列（无 HUD、无背景）；PR/AE 等不吃 WebM 的软件用"
-              @click="doExport('pngf')">字幕层 PNG（ZIP・仅字幕层）
-      </button>
-      <button :disabled="busy" class="btn !py-2.5"
-              title="每行带开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行"
-              @click="saveLrc">歌词（LRC）
-      </button>
-      <button :disabled="busy" class="btn !py-2.5"
-              title="完整 plan（v2）+ AE_MAP 对照表。在 AE 中运行 JIZURA_AE.jsx（上游发布）后选择该文件即可重建合成"
-              @click="doExport('ae')">AE 工程（.json）
-      </button>
+    <div class="grid gap-1 mt-3">
+      <template v-for="g in groups" :key="g.id">
+        <button class="btn btn-ghost btn-sm row justify-between" :aria-expanded="!!openGroups[g.id]"
+                @click="toggleGroup(g.id)">
+          <span>{{ openGroups[g.id] ? '▾' : '▸' }} {{ g.label }}</span>
+          <span class="text-[11px] text-mut">{{ g.count }} 项</span>
+        </button>
+        <div v-show="openGroups[g.id]" class="grid gap-2">
+          <button v-for="it in g.items" :key="it.kind" :disabled="busy || (!!it.needCodec && !codecOk)"
+                  :class="it.primary ? 'btn btn-primary !py-2.5' : 'btn !py-2.5'" :title="it.title"
+                  @click="doExport(it.kind)">{{ it.label }}
+          </button>
+        </div>
+      </template>
     </div>
     <div v-if="busy || progressText !== '—'" class="mt-3">
       <button v-if="share" class="btn btn-primary w-full mb-2" @click="doShare">分享并保存</button>

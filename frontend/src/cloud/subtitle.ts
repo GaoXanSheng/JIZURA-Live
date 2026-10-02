@@ -1,4 +1,4 @@
-/* 字幕（渲染时叠加在画面上，预览与 MP4 导出都生效）
+/* 字幕（渲染时叠加在画面上，仅预览生效；文件导出经 __jl_no_sub 抑制，不烤入）
    数据：KRC/网易云载入时建的 音译/翻译 映射（jizura.kgsubmap，跨窗口镜像共享）；
          没有映射时退回行内注音（| 后的内容）按脚本分类。
    入口：包装 J.Renderer.prototype.frame —— 正式帧画完再叠加；
@@ -226,6 +226,11 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
 export function drawSubtitleFrame(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
   drawSubtitle(ctx, plan, t, opt);
 }
+
+/* 注册到引擎：字幕层导出（subwebm）与 Spout 独立字幕通道同一绘制入口。
+   cfg 一并暴露，供导出前校验「字幕渲染是否开启」（off 时导出只会得到空视频） */
+J.subtitleFrame = drawSubtitleFrame;
+J.subtitleCfg = () => ({...effCfg()});
 
 /* 正式帧画完再叠加（幂等：重复挂载不再包一层） */
 export function installSubtitleOverlay() {
