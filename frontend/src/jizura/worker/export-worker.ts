@@ -1,7 +1,7 @@
-/* 导出渲染线程：MP4（内存块）/ PNG ZIP 的逐帧渲染 + WebCodecs 编码整体搬进 Worker，
+/* 导出渲染线程：MP4（内存块）/ WebM alpha / PNG ZIP 的逐帧渲染 + WebCodecs 编码整体搬进 Worker，
    主线程导出期间不再假死，也不再和预览/引擎抢主线程预算。
    契约（与 export.ts 的消息协议）：
-     → {cmd:'start', kind:'mp4'|'png'|'pnga'|'pngl', project, beats, audio?, quality?, range?}
+     → {cmd:'start', kind:'mp4'|'png'|'pnga'|'pngl'|'webm'|'webmfront', project, beats, audio?, quality?, range?}
      → {cmd:'abort'}
      ← {type:'progress', p, msg?} | {type:'done', result} | {type:'error', message}
    project 即主线程的 S.project（纯 JSON）；plan 由本线程用同一引擎重建——
@@ -12,7 +12,7 @@ import {J} from '../../engine';
 
 interface StartMsg {
     cmd: 'start';
-    kind: 'mp4' | 'png' | 'pnga' | 'pngl';
+    kind: 'mp4' | 'png' | 'pnga' | 'pngl' | 'webm' | 'webmfront';
     project: any;
     beats: number[];
     quality?: string;
@@ -69,11 +69,18 @@ async function rebuildAudio(a: { channels: Float32Array[]; sampleRate: number })
                 quality: m.quality || 'high',
                 onProgress, signal, range: m.range,
             });
+        } else if (m.kind === 'webm' || m.kind === 'webmfront') {
+            result = await J.exportWebM({
+                plan, project,
+                frontOnly: m.kind === 'webmfront',
+                onProgress, signal, range: m.range,
+            });
         } else {
             const blob = await J.exportPNGZip({
                 plan, project,
                 transparent: m.kind === 'pnga',
                 layers: m.kind === 'pngl',
+                frontOnly: m.kind === 'pngf',
                 onProgress, signal, range: m.range,
             });
             result = {blob};

@@ -32,12 +32,12 @@ export async function codecNote() {
 }
 
 /* ---- Worker 导出线程 ----
-   kind=mp4/png/pnga/pngl 可进 Worker；mp4file 需要主线程弹出的可写文件流，不适用。
+   kind=mp4/png/pnga/pngl/pngf/webm/webmfront 可进 Worker；mp4file 需要主线程弹出的可写文件流，不适用。
    失败一律抛给调用方回退主线程同路径（Worker 侧字体缺失等错误在主线程多半能成）。 */
 const workerExportable = () =>
     typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof VideoEncoder !== 'undefined';
 
-function runExportInWorker(kind: 'mp4' | 'png' | 'pnga' | 'pngl',
+function runExportInWorker(kind: 'mp4' | 'png' | 'pnga' | 'pngl' | 'pngf' | 'webm' | 'webmfront',
                            onProgress: (p: number, m?: string) => void,
                            signal: AbortSignal): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -93,7 +93,7 @@ function runExportInWorker(kind: 'mp4' | 'png' | 'pnga' | 'pngl',
   });
 }
 
-export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl') {
+export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl' | 'pngf' | 'webm' | 'webmfront') {
   if (S.exporting) return;
   let file: any = null, fileName = '';
   if (kind === 'mp4file') {
@@ -166,6 +166,34 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
         msg += r.audio ? '。此浏览器音频为 Opus，iPhone・QuickTime 等可能无声，因此额外保存了 WAV 音频' : '。此浏览器无法导出音频，已单独保存 WAV（请在视频编辑软件中叠加）';
       } else if (S.project.includeAudio !== false && !S.audio && S.project.audioName) msg += '。未载入歌曲，导出为无音频（请从「载入歌曲」重新载入）';
       bus.emit('export-progress', 100, msg);
+    } else if (kind === 'webm' || kind === 'webmfront') {
+      let r: any = null;
+      if (workerExportable()) {
+        try {
+          r = await runExportInWorker(kind, onProgress, ac.signal);
+        } catch (we: any) {
+          if (ac.signal.aborted) throw new Error('キャンセルしました');
+          console.warn('Worker 导出失败，回退主线程渲染：', we && we.message || we);
+          bus.emit('export-progress', 0, 'Worker 导出失败，回退主线程渲染…');
+          r = null;
+        }
+      }
+      if (!r) {
+        r = await J.exportWebM({
+          plan: S.plan,
+          project: S.project,
+          frontOnly: kind === 'webmfront',
+          onProgress,
+          signal: ac.signal,
+          range: exportRange()
+        });
+      }
+      const name = baseName() + rangeSuffix() + (kind === 'webm' ? '_alpha' : '_front') + '.webm';
+      const res = await J.saveFile(name, r.blob);
+      let msg = `完成 ${(r.blob.size / 1048576).toFixed(1)}MB・${r.codec}・${((performance.now() - t0) / 1000).toFixed(0)}秒`;
+      if (res === 'declined') msg += '（保存已取消）';
+      else offerShare(r.blob, name);
+      bus.emit('export-progress', 100, msg);
     } else {
       let fromWorker: Blob | null = null;
       if (workerExportable()) {
@@ -180,14 +208,15 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
       const blob = fromWorker ?? await J.exportPNGZip({
         plan: S.plan,
         project: S.project,
-        transparent: kind === 'pnga',
+        transparent: kind === 'pnga' || kind === 'pngf',
         layers: kind === 'pngl',
+        frontOnly: kind === 'pngf',
         onProgress,
         signal: ac.signal,
         range: exportRange()
       });
       bus.emit('export-progress', 100, `完成 ${(blob.size / 1048576).toFixed(1)}MB`);
-      await J.saveFile(baseName() + rangeSuffix() + (kind === 'pnga' ? '_alpha' : kind === 'pngl' ? '_layers' : '') + '_png.zip', blob);
+      await J.saveFile(baseName() + rangeSuffix() + (kind === 'pnga' ? '_alpha' : kind === 'pngl' ? '_layers' : kind === 'pngf' ? '_front' : '') + '_png.zip', blob);
     }
   } catch (e: any) {
     bus.emit('export-progress', 0, '错误: ' + (e && e.message ? e.message : e));

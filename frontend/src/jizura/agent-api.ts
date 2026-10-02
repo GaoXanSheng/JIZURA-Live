@@ -321,7 +321,7 @@ function toolProject(a: any) {
 let exportJob: any = null;
 
 function toolStartExport(a: any) {
-    check(['mp4', 'png', 'pnga', 'pngl'].includes(a.kind), 'kind 限 mp4/png/pnga/pngl（mp4file 直存请用界面按钮）');
+    check(['mp4', 'png', 'pnga', 'pngl', 'pngf', 'webm', 'webmfront'].includes(a.kind), 'kind 限 mp4/png/pnga/pngl/pngf/webm/webmfront（mp4file 直存请用界面按钮）');
     check(!S.exporting, '已有导出在进行');
     const job: any = {id: 'job-' + Date.now(), kind: a.kind, status: 'running'};
     exportJob = job;
@@ -492,7 +492,7 @@ const TOOLS: McpTool[] = [
         revision: int(0, Number.MAX_SAFE_INTEGER)
     }, ['action']), toolTap),
     T('project', '读取当前工程 JSON 或写入 localStorage 自动保存（完整 .jizuralive 包与音频/字体请用界面「保存/打开」）', obj({action: choice(['get', 'save'])}, ['action']), toolProject),
-    T('start_export', '启动导出（WebCodecs，前端完成）：mp4 / png 序列 zip / pnga 透明 / pngl 分层。立即返回任务，用 get_export_status 轮询', obj({kind: choice(['mp4', 'png', 'pnga', 'pngl'])}, ['kind']), toolStartExport),
+    T('start_export', '启动导出（WebCodecs，前端完成）：mp4 / png 序列 zip / pnga 透明 / pngl 分层 / pngf 仅字幕层 / webm 透明视频（VP9 alpha）/ webmfront 仅字幕层透明视频。立即返回任务，用 get_export_status 轮询', obj({kind: choice(['mp4', 'png', 'pnga', 'pngl', 'pngf', 'webm', 'webmfront'])}, ['kind']), toolStartExport),
     T('get_export_status', '读取最近一次导出任务状态（running/completed/failed）', obj(), toolExportStatus, true),
     T('reset_project', '打开不可逆的「初始化」确认框（工具不会绕过确认，需用户在界面确认）', obj(), toolReset),
 ];

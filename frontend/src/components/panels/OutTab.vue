@@ -225,11 +225,23 @@ async function doShare() {
               title="先选保存位置，边导出边直接写文件。长曲・1080p 以上浏览器内存不足时使用（Chrome / Edge）"
               @click="doExport('mp4file')">大视频用（直接写入文件）
       </button>
+      <button :disabled="busy" class="btn !py-2.5"
+              title="VP9 透明通道视频：无背景、含全部演出与特效、不含音频。剪映・DaVinci Resolve 等可直接叠放；PR/AE 请用透明 PNG 序列"
+              @click="doExport('webm')">透明视频（WebM・无背景）
+      </button>
+      <button :disabled="busy" class="btn !py-2.5"
+              title="仅歌词与其前景装饰的透明视频（无背景、无 HUD、不含音频），用于把字幕层叠到其它素材上"
+              @click="doExport('webmfront')">字幕视频（WebM・仅字幕层）
+      </button>
       <button :disabled="busy" class="btn !py-2.5" @click="doExport('png')">连号 PNG（ZIP）</button>
       <button :disabled="busy" class="btn !py-2.5" @click="doExport('pnga')">透明 PNG（ZIP・无背景）</button>
       <button :disabled="busy" class="btn !py-2.5"
               title="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
               @click="doExport('pngl')">透明 PNG 前景/后景（ZIP）
+      </button>
+      <button :disabled="busy" class="btn !py-2.5"
+              title="只导出字幕前景层的透明 PNG 序列（无 HUD、无背景）；PR/AE 等不吃 WebM 的软件用"
+              @click="doExport('pngf')">字幕层 PNG（ZIP・仅字幕层）
       </button>
       <button :disabled="busy" class="btn !py-2.5"
               title="每行带开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行"

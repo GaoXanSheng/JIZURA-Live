@@ -188,6 +188,7 @@ export interface JizuraEngine {
     exportSpan: (plan: any, range: any) => any;
     exportMP4: (opts: any) => Promise<any>;
     exportPNGZip: (opts: any) => Promise<any>;
+    exportWebM: (opts: any) => Promise<any>;
     AE_MAP: any;
     planForAE: (plan: any) => any;
 

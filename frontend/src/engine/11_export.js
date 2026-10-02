@@ -1,7 +1,10 @@
 /* ============================================================
-   JIZURA — export: MP4 (WebCodecs + mp4-muxer), PNG sequence ZIP,
-   file saving (artifact download capability or plain browser download)
+   JIZURA — export: MP4 (WebCodecs + mp4-muxer), WebM with alpha
+   (mediabunny), PNG sequence ZIP, file saving (artifact download
+   capability or plain browser download)
    ============================================================ */
+import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputFormat} from 'mediabunny';
+
 (() => {
     'use strict';
 
@@ -595,8 +598,9 @@
     }
 
     /* layers: transparent PNGs in two folders — back/ (background graphic + decorations behind the lyrics) and front/
-       (lyrics, their decorations, ghosts, HUD). Screen effects are applied to both, so stacking front over back matches. */
-    J.exportPNGZip = async ({plan, project, transparent, layers, onProgress, signal, every = 1, range}) => {
+       (lyrics, their decorations, ghosts, HUD). Screen effects are applied to both, so stacking front over back matches.
+       frontOnly: single front/ folder without HUD (subtitle-layer export; HUD is a composite element, not part of the lyrics). */
+    J.exportPNGZip = async ({plan, project, transparent, layers, frontOnly, onProgress, signal, every = 1, range}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
         const canvas = document.createElement('canvas');
@@ -616,8 +620,9 @@
             for (let i = 0; i < total; i += every) {
                 if (signal && signal.aborted) throw new Error('キャンセルしました');
                 const name = `jizura_${String(i).padStart(5, '0')}.png`;
-                for (const layer of layers ? ['back', 'front'] : [null]) {
-                    R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: transparent || !!layers, layer});
+                const modes = layers ? ['back', 'front'] : frontOnly ? ['front'] : [null];
+                for (const layer of modes) {
+                    R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: transparent || !!layers || !!frontOnly, layer, noHud: !!frontOnly});
                     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
                     zip.add((layer ? layer + '/' : '') + name, new Uint8Array(await blob.arrayBuffer()));
                 }
@@ -628,6 +633,80 @@
         }
         onProgress && onProgress(1, '完了');
         return zip.finish();
+    };
+
+    /* ---------- transparent video (WebM, VP9/VP8 alpha side data via mediabunny) ---------- */
+    /* frontOnly: lyrics + front decorations only, no HUD — the subtitle layer for stacking over other footage.
+       No audio track: an overlay has nothing to carry. */
+    J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly}) => {
+        const span = J.exportSpan(plan, range);
+        const [w, h] = J.outputSize(project);
+        const fps = plan.fps;
+        const bitrate = J.videoBitrate(w, h, fps, project.quality || 'high');
+        let codec = null;
+        for (const c of ['vp9', 'vp8']) {
+            try {
+                if (await canEncodeVideo(c, {width: w, height: h, bitrate})) {
+                    codec = c;
+                    break;
+                }
+            } catch (e) {
+            }
+        }
+        if (!codec) throw new Error('このブラウザはVP9/VP8エンコードに対応していません。Chrome か Edge の最新版で開くか、透明 PNG（ZIP）をご利用ください。');
+        const output = new Output({format: new WebMOutputFormat(), target: new BufferTarget()});
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');   // 默认带 alpha：透明底画帧
+        const source = new CanvasSource(canvas, {
+            codec,
+            alpha: 'keep',
+            quality: new Quality({bitrate}),
+            latencyMode: 'quality',
+            keyFrameInterval: 2,
+        });
+        output.addVideoTrack(source, {frameRate: fps});
+        await output.start();
+        const R = new J.Renderer();
+        const total = Math.max(1, Math.round(span.dur * fps));
+        const scale = w / plan.W;
+        const prevRes = J.glyphs.maxRes;
+        J.glyphs.maxRes = h >= 1000 ? 768 : 512;
+        let cancelled = false;
+        try {
+            for (let i = 0; i < total; i++) {
+                if (signal && signal.aborted) {
+                    cancelled = true;
+                    throw new Error('キャンセルしました');
+                }
+                R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: true, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
+                await source.add(i / fps, 1 / fps);   // await 即背压：编码器过载时挂起
+                if (i % 3 === 0) {
+                    onProgress && onProgress(i / total, `WebM ${i + 1}/${total}`);
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+            onProgress && onProgress(0.995, 'ファイルを仕上げ中');
+            await output.finalize();
+        } catch (e) {
+            if (cancelled) {
+                try {
+                    await output.cancel();
+                } catch (e2) {
+                }
+            }
+            throw e;
+        } finally {
+            J.glyphs.maxRes = prevRes;
+        }
+        onProgress && onProgress(1, '完了');
+        return {
+            blob: new Blob([output.target.buffer], {type: 'video/webm'}),
+            codec: codec.toUpperCase() + ' alpha',
+            width: w,
+            height: h,
+        };
     };
 
     /* ---------- plan JSON for the After Effects panel ---------- */
