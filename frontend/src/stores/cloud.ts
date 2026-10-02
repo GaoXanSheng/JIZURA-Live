@@ -142,8 +142,12 @@ export const useCloud = defineStore('cloud', {
       const S_WAIT = ne ? '801' : '1', S_SCAN = ne ? '802' : '2', S_EXPIRE = ne ? '800' : '0',
           S_OK = ne ? '803' : '4';
       const key = this.qr.key;
+      let pollBusy = false;
       pollTimer = window.setInterval(async () => {
         if (!this.qr.active) return this.stopQrPolling();
+        // in-flight 防重入：本机服务响应 >2s 时跳过本轮，避免请求堆积
+        if (pollBusy) return;
+        pollBusy = true;
         try {
           const j = await api.qrCheck(this.qr.source, key);
           const st = String(j.status);
@@ -164,6 +168,8 @@ export const useCloud = defineStore('cloud', {
             toast(src === 'netease' ? '网易云已登录，VIP 歌曲可以载入了' : '酷狗已登录，VIP 歌曲可以载入完整音质了');
           }
         } catch { /* 网络抖动，下一轮再试 */
+        } finally {
+          pollBusy = false;
         }
       }, 2000);
     },

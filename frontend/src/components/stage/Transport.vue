@@ -3,7 +3,7 @@ import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue';
 import {useEditor} from '../../stores/editor';
 import {AP, LOOP_CYCLE, refreshLoopHold, S, saveVolume} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
-import {replan, seek, togglePlay} from '../../jizura/engine';
+import {beginScrub, endScrub, replan, seek, togglePlay} from '../../jizura/engine';
 import {commit, histGo, histInfo, omakase, remember, setTheme} from '../../jizura/look';
 import {J} from '../../engine';
 
@@ -184,6 +184,7 @@ function barSeek(ev: { clientX: number }) {
 function barDown(e: PointerEvent) {
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   scrubbing.value = true;
+  beginScrub();   // 拖动中音频静默跟随，松手恢复（seek 不再每次重启 BufferSource）
   barSeek(e);
 }
 
@@ -193,6 +194,7 @@ function barMove(e: PointerEvent) {
 
 function barUp() {
   scrubbing.value = false;
+  endScrub();
 }
 
 function barKey(e: KeyboardEvent) {
@@ -229,6 +231,7 @@ onMounted(() => {
 onUnmounted(() => {
   barRo?.disconnect();
   volRo?.disconnect();
+  endScrub();   // 拖动中卸载：不兜底会永久停掉播放推进与音频
 });
 onUnmounted(() => offs.forEach(f => f()));
 </script>

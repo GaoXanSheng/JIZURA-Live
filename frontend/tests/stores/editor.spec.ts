@@ -33,7 +33,7 @@ describe('Editor Store', () => {
         const editor = useEditor();
         expect(editor.booted).toBe(false);
         expect(editor.playing).toBe(false);
-        expect(editor.t).toBe(0);
+        expect((editor as any).t).toBeUndefined();
         expect(editor.duration).toBe(0);
         expect(editor.loopMode).toBe('all');
         expect(editor.hasAudio).toBe(false);
@@ -64,13 +64,13 @@ describe('Editor Store', () => {
         expect(editor.loopMode).toBe('line');
     });
 
-    it('syncTime updates t and duration', () => {
+    it('syncTime updates duration only (播放时间走 bus/直读 S.t，不进响应式)', () => {
         S.t = 10.5;
         S.plan = {duration: 200} as any;
         const editor = useEditor();
         editor.syncTime();
-        expect(editor.t).toBe(10.5);
         expect(editor.duration).toBe(200);
+        expect((editor as any).t).toBeUndefined();
     });
 
     it('syncPlan updates plan related states', () => {

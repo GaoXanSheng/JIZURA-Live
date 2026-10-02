@@ -32,9 +32,6 @@ internal sealed class AnalyzeController : WebApiController
             return;
         }
 
-        var body = new byte[(int)len];
-        await Request.InputStream.ReadExactlyAsync(body);
-
         // MF 按扩展名辅助识别格式：用原始文件名扩展写临时文件
         var ext = ".mp3";
         try
@@ -51,7 +48,14 @@ internal sealed class AnalyzeController : WebApiController
         var tmp = Path.Combine(Path.GetTempPath(), "jizura-analyze-" + Guid.NewGuid().ToString("N") + ext);
         try
         {
-            await File.WriteAllBytesAsync(tmp, body);
+            // 请求体流式直写临时文件：一次 new byte[512MB] 的 LOH 峰值
+            // 加上落盘拷贝，最坏 ≈1GB/请求；流式后内存恒定为缓冲区大小
+            await using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                81920, useAsync: true))
+            {
+                await Request.InputStream.CopyToAsync(fs, 81920);
+            }
+
             var mono = AudioAnalyzer.DecodeMonoAnalyzeRate(tmp, out var duration);
             var result = AudioAnalyzer.Analyze(mono, AudioAnalyzer.AnalyzeRate, duration);
 

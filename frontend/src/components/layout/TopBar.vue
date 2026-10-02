@@ -15,7 +15,7 @@ import {
   readPackage
 } from '../../jizura/pkg';
 
-const VERSION = '0.10.0';
+const VERSION = __APP_VERSION__;   // 单一事实源 package.json（vite define 注入）
 const title = ref(S.project?.title || '');
 const artist = ref(S.project?.artist || '');
 const fileProject = ref<HTMLInputElement | null>(null);

@@ -81,10 +81,19 @@ internal sealed class SettingsController : WebApiController
         // —— 只保存，不立即应用管线 ——
         // 渲染窗口分辨率/帧率/Spout ID/透明背景统一在「重启渲染引擎」时
         // 以 settings 当前值重建镜像（RestartRender），避免每次改动都实时打断输出
+        // 分辨率钳到 D3D11 合理纹理范围：POST 100000×100000 会一路传到 CEF
+        // 试图创建巨型纹理
+        var width = Math.Clamp(d.Width, 64, 8192);
+        var height = Math.Clamp(d.Height, 64, 8192);
+
+        // 独立字幕通道开关变化：主通道需重注入 __jl_no_sub（字幕分离标志），
+        // 歌词通道随 RestartSpout 启停。必须在赋值前取差值：赋值后再比较永远为 false
+        var lyricsToggled = settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled;
+
         Application.Current?.Dispatcher.Invoke(() =>
         {
-            if (settings.Width != d.Width || settings.Height != d.Height)
-                changed.Add($"渲染窗口分辨率 {d.Width}×{d.Height}");
+            if (settings.Width != width || settings.Height != height)
+                changed.Add($"渲染窗口分辨率 {width}×{height}");
 
             var fps = Math.Clamp(d.Fps, 1, 240);
             if (settings.RenderFps != fps)
@@ -97,19 +106,14 @@ internal sealed class SettingsController : WebApiController
                 changed.Add($"Spout 输出{(d.SpoutEnabled ? " 开启" : " 关闭")}");
             if (settings.SpoutTransparent != d.SpoutTransparent)
                 changed.Add($"渲染透明背景{(d.SpoutTransparent ? " 开启" : " 关闭")}");
-
-            // 独立字幕通道开关变化：主通道需重注入 __jl_no_sub（字幕分离标志），
-            // 歌词通道随 RestartSpout 启停——整体重启一次到位。
-            // 必须在赋值前取差值：赋值后再比较永远为 false，重启不会触发
-            var lyricsToggled = settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled;
             if (lyricsToggled)
                 changed.Add($"独立 Spout 字幕通道{(d.SpoutLyricsEnabled ? " 开启" : " 关闭")}");
 
-            settings.Width = d.Width;
-            settings.Height = d.Height;
-            settings.RenderFps = fps;
+            settings.Width = width;
+            settings.Height = height;
+            settings.RenderFps = Math.Clamp(d.Fps, 1, 240);
             settings.SpoutEnabled = d.SpoutEnabled;
-            settings.SpoutName = name;
+            settings.SpoutName = string.IsNullOrWhiteSpace(d.SpoutName) ? "JIZURA-live" : d.SpoutName.Trim();
             settings.SpoutTransparent = d.SpoutTransparent;
             settings.SpoutLyricsEnabled = d.SpoutLyricsEnabled;
 
@@ -120,11 +124,18 @@ internal sealed class SettingsController : WebApiController
                 settings.CdpPort = port;
                 changed.Add($"调试端口{(d.CdpEnabled ? $" {port}" : " 关闭")}（重启应用后生效）");
             }
-
-            settings.Save();
-
-            if (lyricsToggled) (Application.Current.MainWindow as MainWindow)?.RestartSpout();
         });
+
+        // 文件 IO 移出 UI 线程：Invoke 内只剩内存赋值与管线开关，
+        // HTTP 线程等待 UI 的时间不再包含写盘。保持「先保存后重启」的顺序
+        settings.Save();
+
+        // 独立字幕通道开关变化：主通道需重注入 __jl_no_sub（字幕分离标志），
+        // 歌词通道随 RestartSpout 启停——整体重启一次到位。
+        // CEF 浏览器创建必须在 Cef.Initialize 的线程（主线程）上
+        if (lyricsToggled)
+            Application.Current?.Dispatcher.Invoke(
+                () => (Application.Current.MainWindow as MainWindow)?.RestartSpout());
 
         await HttpContext.SendStringAsync(
             JsonConvert.SerializeObject(new

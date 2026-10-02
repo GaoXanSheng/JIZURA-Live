@@ -43,6 +43,11 @@ public sealed class MirrorRenderHandler : IRenderHandler
     private SpoutSender _spoutSender;
     private bool _zeroHandleWarned;
 
+    // 渲染回调失败按帧发生（设备移除等持续性故障），逐帧记 Error 会在几分钟内
+    // 写满滚动日志文件：首条立即记录，之后每 30 秒窗口汇总一条
+    private long _lastRenderErrorTick = -31_000;   // 非零初值：进程启动后的第一条错误必记
+    private int _renderErrorsSinceLastLog;
+
     public MirrorRenderHandler(
         SpoutPipeline owner)
     {
@@ -186,7 +191,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
                 "[SpoutMirror] CPU 回退路径首次触发" +
                 "（OnPaint：GPU 共享纹理未生效）");
 
-        if (logEx != null) Log.Error("[SpoutMirror] OnPaint 失败", logEx);
+        if (logEx != null) LogRenderError("OnPaint", logEx);
     }
 
     public void OnAcceleratedPaint(PaintElementType type, Rect dirtyRect, AcceleratedPaintInfo info)
@@ -232,7 +237,10 @@ public sealed class MirrorRenderHandler : IRenderHandler
                     return;
                 var context = _dxDevice.ImmediateContext;
                 context.CopyResource(cefTexture, _sharedTexture);
-                _spoutSender.SendTexture(cefTexture.NativePointer);
+                // 发送自己的稳定副本而非 CEF 源纹理：拷贝结果必须被消费，
+                // 否则 CEF 覆写下一帧时 Spout 端可能拿到撕裂帧（对齐 CefSharp
+                // 官方 shared-texture 示例：先拷贝到自有纹理再发送）
+                _spoutSender.SendTexture(_sharedTexture.NativePointer);
             }
             catch (Exception ex)
             {
@@ -242,7 +250,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         if (ensureSharedTextureLog != null) Log.Info(ensureSharedTextureLog);
 
-        if (logEx != null) Log.Error("[SpoutMirror] OnAcceleratedPaint 失败", logEx);
+        if (logEx != null) LogRenderError("OnAcceleratedPaint", logEx);
     }
 
     // ====================================================================
@@ -335,6 +343,23 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         _spoutSender.OpenDirectX(
             _dxDevice.NativePointer);
+    }
+
+    // 渲染回调失败按帧发生（设备移除等持续性故障），逐帧记 Error 会在几分钟内
+    // 写满滚动日志文件：首条立即记录，之后每 30 秒窗口汇总一条
+    private void LogRenderError(string where, Exception ex)
+    {
+        _renderErrorsSinceLastLog++;
+        var now = Environment.TickCount64;
+        if (now - _lastRenderErrorTick < 30_000) return;
+
+        var suppressed = _renderErrorsSinceLastLog - 1;
+        _renderErrorsSinceLastLog = 0;
+        _lastRenderErrorTick = now;
+        Log.Error(
+            $"[SpoutMirror] {where} 失败" +
+            (suppressed > 0 ? $"（节流：此前 {suppressed} 条同类错误未逐条记录）" : ""),
+            ex);
     }
 
     // ====================================================================

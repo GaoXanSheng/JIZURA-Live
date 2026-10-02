@@ -8,7 +8,7 @@ import {onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {activeLoopRange, S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
-import {pause, replan, seek} from '../../jizura/engine';
+import {beginScrub, endScrub, pause, replan, seek} from '../../jizura/engine';
 import {edGo, exportRange, flushSave, pushEdit} from '../../jizura/look';
 
 const canvas = ref<HTMLCanvasElement | null>(null);     // 下条：时间轴本体
@@ -168,6 +168,7 @@ function onPhDown(e: PointerEvent) {
   } catch { /* 合成事件/无效指针：不影响后续逻辑 */
   }
   phDrag = true;
+  beginScrub();   // 拖动中音频静默跟随，松手恢复
   timelineSeek(e);
 }
 
@@ -177,6 +178,7 @@ function onPhMove(e: PointerEvent) {
 
 function onPhUp() {
   phDrag = false;
+  endScrub();
 }
 
 /* ---- 下条：时间轴本体 ---- */
@@ -461,7 +463,10 @@ onMounted(() => {
   drawTimeline();
   drawPhBar();
 });
-onUnmounted(() => offs.forEach(f => f()));
+onUnmounted(() => {
+  endScrub();   // 拖动中卸载：不兜底会永久停掉播放推进与音频
+  offs.forEach(f => f());
+});
 </script>
 
 <template>

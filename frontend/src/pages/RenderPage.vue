@@ -19,6 +19,13 @@ let raf = 0;
 let unwatch: (() => void) | null = null;
 let mirrorCleanup: (() => void) | null = null;
 
+/* BC 通道最近一次推送工程/全量状态的时刻。
+   storage 事件（autosave 700ms 防抖落盘的回声）与 BC 推的是同一份工程文档，
+   两条通道都可达时渲染页会连做两次全量 J.plan——直播中镜像页持续双倍 CPU。
+   storage 路径在「BC 刚推过（2.5s 内）」时跳过；BC 失联时 lastBCProjectAt
+   保持在远古，storage 仍作兜底通道正常生效 */
+let lastBCProjectAt = -1e9;
+
 /* 镜像模式时间同步——完整跟随编辑器时钟（时钟同步已恢复）。
    时间来源（双路并存）：BC time 每帧 + C# __jlApplySync ~30Hz 锚点。
    两条通道 + 泵外推三方写 stage.t 会互相打架（锯齿闪烁：画面在两个时间
@@ -51,8 +58,22 @@ onMounted(() => {
 
   if (isMirror) startMirror(cv);
 
-  /* BroadcastChannel 直通：工程/字幕/时间全部来自编辑页（每帧时钟同步） */
-  const bridge = bindStageBroadcast(stage.sink());
+  /* BroadcastChannel 直通：工程/字幕/时间全部来自编辑页（每帧时钟同步）。
+     包一层 sink 记录工程推送时刻，供 storage 回声去重 */
+  const sink = stage.sink();
+  const bridge = bindStageBroadcast({
+    setState: (p, b, d, sub, map, an) => {
+      lastBCProjectAt = performance.now();
+      sink.setState(p, b, d, sub, map, an);
+    },
+    setProject: (p, b, d, map, an) => {
+      lastBCProjectAt = performance.now();
+      sink.setProject(p, b, d, map, an);
+    },
+    setTime: sink.setTime,
+    setSub: sink.setSub,
+    isConnected: sink.isConnected,
+  });
   stopBridge = bridge.stop;
   connected.value = stage.connected;
   watch(() => stage.connected, v => {
@@ -243,11 +264,13 @@ function startMirror(cv: HTMLCanvasElement) {
 
   let pumpLast = 0;
   let drawnT: number | undefined = undefined;
+  let pumpStopped = false;
   const schedulePump = useHighFreqPump
       ? () => setTimeout(pump, PUMP_MS)
       : () => requestAnimationFrame(pump);
 
   const pump = () => {
+    if (pumpStopped) return;   // 清理后终止递归链，避免双泵叠帧
     schedulePump();
     try {
       const now = performance.now();
@@ -281,6 +304,8 @@ function startMirror(cv: HTMLCanvasElement) {
   //（依赖镜像与主窗口共享默认 RequestContext）
   const onStorage = (ev: StorageEvent) => {
     if (ev.key !== 'jizura.project.v1' || !ev.newValue) return;
+    // BC 刚推过同一份工程：storage 是防抖落盘的回声，跳过重复 replan
+    if (performance.now() - lastBCProjectAt < 2500) return;
     try {
       stage.project = mergeProject(JSON.parse(ev.newValue));
       stage.replan();
@@ -294,6 +319,7 @@ function startMirror(cv: HTMLCanvasElement) {
   isolate();
 
   mirrorCleanup = () => {
+    pumpStopped = true;
     window.removeEventListener('storage', onStorage);
     window.clearInterval(isolateTimer);
     stage.extClock = null;

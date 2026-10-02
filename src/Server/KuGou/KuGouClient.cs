@@ -159,7 +159,16 @@ public sealed partial class KuGouClient
             var hit = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, token, userid));
             if (hit == null)
             {
-                await RegisterDevAsync(token, userid);
+                // QR 路径对此有捕获、这里也要：设备注册失败不能炸掉整个回退链
+                try
+                {
+                    await RegisterDevAsync(token, userid);
+                }
+                catch (Exception ex)
+                {
+                    Log.Debug("KuGou RegisterDev failed (url path): " + ex);
+                }
+
                 hit = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, token, userid));
             }
 

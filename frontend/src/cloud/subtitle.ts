@@ -133,6 +133,43 @@ function wrapSubtitle(ctx: CanvasRenderingContext2D, text: string, maxW: number)
   return out;
 }
 
+/* 折行结果缓存：字幕文本/字体/宽度不变时每帧逐字符 measureText 是纯浪费。
+   键含字体串（含像素）与 maxW，字体或画布尺寸一变自然失效 */
+const wrapCache = new Map<string, string[]>();
+
+function wrapSubtitleCached(ctx: CanvasRenderingContext2D, text: string, font: string, maxW: number): string[] {
+  const key = font + '|' + maxW + '|' + text;
+  let rows = wrapCache.get(key);
+  if (rows) return rows;
+  rows = wrapSubtitle(ctx, text, maxW);
+  if (wrapCache.size >= 64) {
+    const oldest = wrapCache.keys().next().value as string;
+    if (oldest !== undefined) wrapCache.delete(oldest);
+  }
+  wrapCache.set(key, rows);
+  return rows;
+}
+
+/* 行查找缓存：plan.lines.find 是每帧全表线性扫；字幕时间连续，命中后
+   下一帧大概率还在同一行（或紧邻下一行），只有换行才退回全表扫 */
+let subLinePlan: any = null;
+let subLineIdx = 0;
+
+function lineAt(plan: any, t: number): any {
+  const lines = plan.lines;
+  const ok = (l: any) => l && t >= l.start && t < (l.visEnd != null ? l.visEnd : l.end);
+  if (subLinePlan !== plan) {
+    subLinePlan = plan;
+    subLineIdx = 0;
+  }
+  if (ok(lines[subLineIdx])) return lines[subLineIdx];
+  if (ok(lines[subLineIdx + 1])) return lines[++subLineIdx];
+  const idx = lines.findIndex(ok);
+  if (idx < 0) return null;
+  subLineIdx = idx;
+  return lines[idx];
+}
+
 function effCfg(): SubConfig {
   return overrideCfg || cfg;
 }
@@ -141,7 +178,7 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
   const cfg = effCfg();
   if (cfg.content === 'off' || opt.noTrans || opt.layer) return;
   if (!plan || !plan.lines || !plan.W || !plan.H) return;
-  const line = plan.lines.find((l: any) => t >= l.start && t < (l.visEnd != null ? l.visEnd : l.end));
+  const line = lineAt(plan, t);
   const text = subTextFor(line);
   if (!text) return;
 
@@ -154,10 +191,11 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
 
   ctx.save();
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  ctx.font = subFont(fontPx);
+  const font = subFont(fontPx);
+  ctx.font = font;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  const rows = wrapSubtitle(ctx, text, maxW);
+  const rows = wrapSubtitleCached(ctx, text, font, maxW);
   const blockH = rows.length * lh;
   // 自定义位置：offX/offY 为画面宽/高的百分比偏移（默认 0 = 原生底部/顶部居中）
   const clampPct = (v: number) => Math.max(-50, Math.min(50, parseFloat(String(v)) || 0));

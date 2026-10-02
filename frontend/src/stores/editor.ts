@@ -8,8 +8,6 @@ export const useEditor = defineStore('editor', {
   state: () => ({
     booted: false,
     playing: false,
-    /* 播放时间（每帧更新，只有依赖它的组件重渲染） */
-    t: 0,
     duration: 0,
     curLine: -2,
     planVersion: 0,          // 每次 replan 自增，行列表/时间轴据此重建
@@ -37,8 +35,8 @@ export const useEditor = defineStore('editor', {
       this.playing = S.playing;
       this.loopMode = S.loop || 'off';
     },
+    /* 播放时间不进响应式投影：高频帧数据由组件订阅 bus 或直读 S.t */
     syncTime() {
-      this.t = S.t;
       this.duration = S.plan ? S.plan.duration : 0;
     },
     syncPlan() {

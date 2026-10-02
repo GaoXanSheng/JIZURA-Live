@@ -5,7 +5,7 @@
 import {J} from '../engine';
 import {AP, S} from './state';
 import {bus} from './bus';
-import {invalidateFontKey, pause, play, replan, replanSoon, seek} from './engine';
+import {invalidateFontKey, pause, play, replan, seek} from './engine';
 import {flushSave} from './project';
 import {
     clearLyrics,
@@ -255,7 +255,9 @@ function toolSetLocks(a: any) {
         check(k === 'none' || table[k] !== undefined || a.kind === 'params', '未知锁定项：' + k);
         table[k] = !!a.locked;
     }
-    replanSoon(60);
+    // 即时 replan（不用 replanSoon 防抖）：返回值携带的 revision 必须是真实当前值，
+    // 代理拿它做下一次写；防抖会让 revision 晚一拍
+    replan();
     return {kind: a.kind, locked: a.keys};
 }
 
@@ -372,10 +374,12 @@ const TOOLS: McpTool[] = [
     }, ['category']), toolListOptions, true),
     T('set_lyrics', '整体替换歌词（支持 LRC 与记法：/ 切分、*强调*、! 闪烁、| 注释、[间奏 N]）；或 clear=true 清空歌词与逐行时间', obj({
         text: str(200000),
-        clear: {type: 'boolean'}
+        clear: {type: 'boolean'},
+        revision: int(0, Number.MAX_SAFE_INTEGER)
     }), toolSetLyrics),
     T('update_settings', '按字段更新设置（只传需要改的）：曲名/歌手/语言/风格/seed/fx 参数/字体角色/套装开关/画幅/分辨率/fps/画质/键控背景/留白/导出范围。发现可选值用 list_options',
         obj({
+            revision: int(0, Number.MAX_SAFE_INTEGER),
             settings: obj({
                 title: str(1000),
                 artist: str(1000),
@@ -498,7 +502,21 @@ const TOOLS: McpTool[] = [
 function execTool(t: McpTool, a: any) {
     check(J.ui && S.project && S.plan, '编辑器尚未初始化');
     check(!S.exporting, '导出进行中，请稍后再试');
-    return t.run(a);
+    // revision 契约执行：提示词与 inputSchema 声明了「写操作带最新 revision」，
+    // 但此前从未校验——代理的乱序/并发写会静默互相覆盖。
+    // schema 里 revision 必填的工具缺参即拒；任何带 revision 的调用与当前值不符即拒
+    if (!t.readOnly) {
+        const required = t.inputSchema && (t.inputSchema.required as string[] | undefined);
+        if (required && required.includes('revision') && (a == null || typeof a.revision !== 'number'))
+            fail('stale_revision', `缺少 revision：先 get_state 读取最新值（当前 ${revision}）`);
+        if (a && a.revision !== undefined && a.revision !== revision)
+            fail('stale_revision', `revision 过期（提交 ${a.revision}，当前 ${revision}）：重新 get_state 后再写`);
+    }
+    const out = t.run(a);
+    // 写操作返回值带上新 revision（replan 已递增）：代理直接用返回值做下一次写，
+    // 不必为拿 revision 多打一次 get_state
+    if (!t.readOnly && out && typeof out === 'object') return {...out, revision};
+    return out;
 }
 
 function rpcMethod(method: string, params: any): any {
@@ -506,7 +524,7 @@ function rpcMethod(method: string, params: any): any {
         return {
             protocolVersion: params && params.protocolVersion || '2025-06-18',
             capabilities: {tools: {listChanged: true}},
-            serverInfo: {name: 'jizura-live', version: '1.0.0'},
+            serverInfo: {name: 'jizura-live', version: __APP_VERSION__},
         };
     }
     if (method === 'notifications/initialized' || method.startsWith('notifications/')) return undefined;

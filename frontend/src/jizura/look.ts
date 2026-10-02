@@ -553,9 +553,21 @@ export function saveLrc() {
   const R = exportRangeCuts(), r = exportRange();
   let range: { from: number; to: number; t0: number } | null = null;
   if (R) {
-    // fork 的导出范围按切分存：换算回行范围
-    const from = S.plan.cuts[R.from] ? S.plan.cuts[R.from].line : 0;
-    const to = S.plan.cuts[R.to] ? S.plan.cuts[R.to].line : 0;
+    // fork 的导出范围按切分存：换算回行范围。端点/范围内的标题卡与间奏切分
+    // line=-1（无词行），直接取会以 lines[-1] 炸掉 lrcText——
+    // 在所选切分范围内取有词行的最小/最大行号，全是无词行则提示后放弃
+    let from = Infinity, to = -1;
+    for (let ci = R.from; ci <= R.to && ci < S.plan.cuts.length; ci++) {
+      const ln = S.plan.cuts[ci].line;
+      if (ln >= 0) {
+        if (ln < from) from = ln;
+        if (ln > to) to = ln;
+      }
+    }
+    if (to < 0) {
+      toast('所选范围内没有可导出的歌词行');
+      return;
+    }
     range = {from, to, t0: r ? r.t0 : 0};
   }
   const txt = J.lrcText(S.project, S.plan.lines, range);

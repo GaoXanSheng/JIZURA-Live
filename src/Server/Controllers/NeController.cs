@@ -68,6 +68,6 @@ public sealed class NeController : WebApiController
     [Route(HttpVerbs.Get, "/api/ne/audio")]
     public Task Audio([QueryField("u")] string? target)
     {
-        return AudioProxy.StreamAsync(HttpContext, ServerContext.Netease.Http, target);
+        return AudioProxy.StreamAsync(HttpContext, target);
     }
 }

@@ -66,8 +66,7 @@ public sealed partial class KuGouClient
         {
             var s = KgStateInternal();
             foreach (var p in patch.Properties()) s[p.Name] = p.Value;
-            Directory.CreateDirectory(Path.GetDirectoryName(StateFile)!);
-            File.WriteAllText(StateFile, s.ToString(Formatting.Indented));
+            AtomicFile.Write(StateFile, s.ToString(Formatting.Indented));
             return s;
         }
         finally

@@ -175,7 +175,9 @@ export function draw() {
 export function tick(now: number) {
     requestAnimationFrame(tick);
     if (S.exporting) return;
-    if (S.playing) {
+    // scrub 拖动中暂停推进：AP 已被 beginScrub 停掉，AP.time() 会归零，
+    // 不能让它覆盖拖动中的 S.t（画面由 seek 的 need 驱动）
+    if (S.playing && !S.scrubbing) {
         // rAF 时间戳可能早于 play()/seek() 打的 t0 → clamp 防负数
         let t = Math.max(0, S.audio ? AP.time() : (now - S.t0) / 1000 * playRate());
         const range = activeLoopRange();
@@ -224,12 +226,34 @@ export function pause() {
 export function seek(t: number) {
     S.t = J.clamp(t, 0, Math.max(0, S.plan.duration - 1e-3));
     if (S.audio) {
-        if (S.playing) AP.play(S.audio.buffer, S.t, playRate());
+        // scrub 拖动中只挪时间不重启音频：每次 AP.play 都是 stop+新建
+        // BufferSource（一次拖动上百个节点 + 每步一次可闻爆音），endScrub 恢复
+        if (S.playing && !S.scrubbing) AP.play(S.audio.buffer, S.t, playRate());
     } else S.t0 = performance.now() - S.t * 1000 / playRate();
     refreshLoopHold();
     S.need = true;
     updateCutInfo();
     bus.emit('playhead');
+}
+
+/* ---- scrub 拖动降噪（S.scrubbing 语义接通）----
+   进度条/时间轴拖动的 down/up 各调一次；期间 seek 只改画面，音频静默跟随，
+   pointerup 时若拖动前在播放则从当前位置恢复出声 */
+export function beginScrub() {
+    if (S.scrubbing) return;
+    S.scrubbing = true;
+    if (S.playing) AP.stop();   // 不动 S.playing：播放按钮不闪，tick 由 scrubbing 挡推进
+    S.need = true;
+}
+
+export function endScrub() {
+    if (!S.scrubbing) return;
+    S.scrubbing = false;
+    if (S.playing) {
+        if (S.audio) AP.play(S.audio.buffer, S.t, playRate());
+        else S.t0 = performance.now() - S.t * 1000 / playRate();
+    }
+    S.need = true;
 }
 
 export function togglePlay() {

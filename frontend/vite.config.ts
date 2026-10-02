@@ -1,6 +1,7 @@
-import { defineConfig } from 'vite';
+import {defineConfig} from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
+import pkg from './package.json';
 
 // 产物输出到 obj/frontend-dist（git 忽略），由 csproj 的 EmbedFrontend 目标
 // 以 EmbeddedResource 形式嵌入 JizuraLive.dll（jizura-www/ 前缀），
@@ -9,6 +10,10 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   base: './',
   plugins: [vue(), tailwindcss()],
+  // 版本号单一事实源 = package.json，编译期注入（TopBar 写包 / MCP serverInfo 共用）
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   build: {
     outDir: '../obj/frontend-dist',
     emptyOutDir: true,

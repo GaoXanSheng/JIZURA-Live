@@ -58,7 +58,7 @@ public sealed class Settings
         try
         {
             Directory.CreateDirectory(ConfigDir);
-            File.WriteAllText(FilePath, JsonConvert.SerializeObject(this, Formatting.Indented));
+            AtomicFile.Write(FilePath, JsonConvert.SerializeObject(this, Formatting.Indented));
             Log.Info($"配置已保存至：{FilePath}");
         }
         catch (Exception ex)

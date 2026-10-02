@@ -75,6 +75,6 @@ public sealed class KgController : WebApiController
     [Route(HttpVerbs.Get, "/api/kg/audio")]
     public Task Audio([QueryField("u")] string? target)
     {
-        return AudioProxy.StreamAsync(HttpContext, ServerContext.KuGou.Http, target);
+        return AudioProxy.StreamAsync(HttpContext, target);
     }
 }
