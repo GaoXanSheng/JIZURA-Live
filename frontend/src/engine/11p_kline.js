@@ -1,16 +1,16 @@
 (() => {
     'use strict';
 
-    const CANDLE_DURATION = 0.3; // seconds per candle
+    const CANDLE_DURATION = 0.3; // 一根蜡烛多少秒
     let cachedPlanId = null;
     let candleData = null; // { candles, ma5, ma10, maxVol, lo, hi }
     let lyricList = null;  // 滚动字幕行（剔除标题卡与制作名单，按 start 排序）
 
-// 视口（固定）：范围在 prepareCandles 里按全曲范围一次算好，全程锁定——
-// 不跟踪、不平滑、无逐帧状态，机制上杜绝上下晃动
+    // 视口（固定）：范围在 prepareCandles 里按全曲范围一次算好，全程锁定——
+    // 不跟踪、不平滑、无逐帧状态，机制上杜绝上下晃动
     let viewLo = 0, viewHi = 100;
 
-// A股配色约定：红涨绿跌。阳线空心、阴线实心。
+    // A股配色约定：红涨绿跌。阳线空心、阴线实心。
     const UP_COLOR = '#ff3b47';     // 涨（音高上行）
     const DOWN_COLOR = '#00e07a';   // 跌（音高下行）
     const FLAT_COLOR = '#c9d3e3';   // 平盘（窗口内无有效音高）
@@ -25,9 +25,9 @@
 
     const midiOf = hz => 69 + 12 * Math.log2(hz / 440);
 
-    /* 蜡烛数据：音高驱动 OHLC（高音涨/低音跌），能量当成交量。
-       数值保持原始域（pitch=MIDI 半音，energy=0..100），纵向范围交给视口自适应。
-       窗口内全为无声帧（休止/间奏）→ 平盘横走的“停牌”蜡烛。 */
+    // 蜡烛数据：音高驱动 OHLC（高音涨/低音跌），能量当成交量。
+    // 数值保持原始域（pitch=MIDI 半音，energy=0..100），纵向范围交给视口自适应。
+    // 窗口内全为无声帧（休止/间奏）就是横走的"停牌"蜡烛
     function prepareCandles(plan) {
         const pitch = plan.pitch && plan.pitch.length ? plan.pitch : null;
         const energy = plan.energy && plan.energy.length ? plan.energy : null;
@@ -127,7 +127,7 @@
         return {candles, ma5: ma(5), ma10: ma(10), maxVol, lo: glo, hi: ghi};
     }
 
-    /* 视口固定：全曲范围一次算好，全程锁定（消除一切上下晃动） */
+    // 视口锁定：全曲范围一次算好，全程不动（消除一切上下晃动）
     function lockView() {
         viewLo = candleData.lo;
         viewHi = candleData.hi;
@@ -171,7 +171,6 @@
         }
         const {candles, ma5, ma10, maxVol} = candleData;
 
-        // beat pulse
         let beatPulse = 0;
         if (plan.beats && plan.beats.length) {
             for (let i = plan.beats.length - 1; i >= 0; i--) {
@@ -183,7 +182,6 @@
             }
         }
 
-        // ---------- 版面：图表占满画面（无侧轴），底部成交量+时间轴 ----------
         const timeH = Math.round(H * 0.034);                      // 底部时间轴
         const volH = Math.round(H * 0.1);                         // 成交量带
         const gap = Math.round(H * 0.008);
@@ -199,7 +197,7 @@
         const candleBodyWidth = Math.max(1, candleWidth - candleSpacing);
 
         const currentIdxFloat = t / CANDLE_DURATION;
-        // 数据尾停靠：蜡烛唱完后视角钉在最后几根上，不再继续左移扫过空白（“视角回退”）
+        // 数据尾停靠：蜡烛唱完后视角钉在最后几根上，不再继续左移扫过空白（"视角回退"）
         const endCap = Math.max(0, candles.length - visibleCandles * 0.92);
         const targetScrollIdx = Math.min(currentIdxFloat - visibleCandles * 0.7, endCap);
         const startIdx = Math.max(0, targetScrollIdx);
@@ -211,7 +209,6 @@
         const padY = chartH * 0.05;
         const getY = val => chartY + padY + (1 - (val - viewLo) / (viewHi - viewLo)) * (chartH - padY * 2);
 
-        // grid
         ctx.strokeStyle = `rgba(255,255,255,${0.09 + beatPulse * 0.16})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -231,7 +228,6 @@
         }
         ctx.stroke();
 
-        // ---------- 蜡烛 + 均线 ----------
         ctx.save();
         ctx.beginPath();
         ctx.rect(chartX, chartY, chartW, chartH);
@@ -299,7 +295,7 @@
         drawMA(ma5Points, '#ffd740');
         drawMA(ma10Points, '#00e5ff');
 
-        // ---------- 现价中心线：K线围绕它流动 ----------
+        // 现价中心线：K线围绕它流动
         const curIdx = Math.min(candles.length - 1, Math.max(0, Math.floor(currentIdxFloat)));
         const priceY = getY(candles[curIdx].close);
         ctx.setLineDash([10, 8]);
@@ -312,7 +308,6 @@
         ctx.setLineDash([]);
         ctx.restore();
 
-        // ---------- 成交量（能量） ----------
         ctx.save();
         ctx.beginPath();
         ctx.rect(chartX, volY, chartW, volH);
@@ -331,8 +326,7 @@
         ctx.globalAlpha = 1;
         ctx.restore();
 
-        // ---------- 时间游标 ----------
-        // 尾段视角停靠后游标继续向右滑到数据尽头，贴着最后一根蜡烛停住
+        // 时间游标：尾段视角停靠后游标继续向右滑到数据尽头，贴着最后一根蜡烛停住
         const cursorX = Math.min(chartX + chartW - candleWidth * 0.5,
             chartX + (currentIdxFloat - startIdx) * candleWidth);
         if (cursorX >= chartX && cursorX <= chartX + chartW) {
@@ -359,7 +353,7 @@
             ctx.fillText(fmtTime(t), Math.min(chartX + chartW - 40, Math.max(chartX + 40, cursorX)), volY + volH + gap);
         }
 
-        // ---------- 歌词：固定间距槽位排列（当前行居中，上/下一格一行） ----------
+        // 歌词：固定间距槽位排列，当前行居中，上/下一格一行
         if (plan.cuts && plan.cuts.length > 0) {
             const centerY = chartY + chartH * 0.5;
             const spacing = Math.round(H * 0.075);    // 固定行距：与歌词的实际时间间隔无关
@@ -411,7 +405,6 @@
         ctx.restore();
     };
 
-// Register style
     if (window.J && window.J.STYLES) {
         window.J.STYLES.kline = {
             name: 'K线·音高', desc: '音高K线——高音涨低音跌，红涨绿跌，能量当成交量',

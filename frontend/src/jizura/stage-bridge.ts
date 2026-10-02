@@ -1,8 +1,8 @@
-/* BroadcastChannel 直通桥：编辑页 ↔ 渲染页（/render）同源直连。
-   工程变化/字幕/歌词映射为低频消息；播放时间为每帧高频消息——
-   全部走内存消息通道，渲染进程不读写 localStorage，不增加落盘能耗。
-   Spout 渲染进程另有一条 C# __jlApplySync 锚点通道（SpoutPipeline 注入），
-   两者时间源相同（都来自编辑页时钟），可并存。 */
+// BroadcastChannel 直通桥：编辑页 ↔ 渲染页（/render）同源直连。
+// 工程变化/字幕/歌词映射是低频消息，播放时间是逐帧高频消息，
+// 全部走内存消息通道，渲染进程不读写 localStorage，不增加落盘能耗。
+// Spout 渲染进程另有 C# __jlApplySync 锚点通道（SpoutPipeline 注入），
+// 两者时间源相同（都来自编辑页时钟），可并存。
 import {S} from './state';
 import {bus} from './bus';
 import {currentLyric} from '../cloud/lyricStore';
@@ -53,8 +53,8 @@ function payloadMap() {
     return [...map];
 }
 
-/* 音频分析数组随消息走结构化克隆（Float32Array 原生支持）：
-   渲染页的 plan 一直缺 energy/pitch，K线等音频驱动风格在渲染端全是无数据画面 */
+// 音频分析数组随消息走结构化克隆（Float32Array 原生支持）。
+// 渲染页的 plan 一直缺 energy/pitch，K线这类音频驱动风格在渲染端会全是无数据画面
 function analysisOf() {
     return {
         energy: S.audio ? (S.audio.energy || null) : null,
@@ -76,7 +76,7 @@ function projectMsg(type: 'state' | 'project'): Msg {
     } as Msg;
 }
 
-/* ---- 编辑端：广播本页状态 ---- */
+// 编辑端：广播本页状态
 export function bindEditorBroadcast() {
     if (ch) return;
     try {
@@ -101,7 +101,7 @@ export function bindEditorBroadcast() {
         } catch {
         }
     });
-    // 播放时间：每帧（高频、纯内存）——镜像完整时钟同步需要逐帧时间
+    // 播放时间每帧推（高频、纯内存），镜像端完整时钟同步需要逐帧时间
     bus.on('frame', () => {
         try {
             ch!.postMessage({type: 'time', t: S.t, playing: S.playing} as Msg);
@@ -120,7 +120,7 @@ export function bindEditorBroadcast() {
     });
 }
 
-/* ---- 渲染端：接收并落到 pinia store（由 stores/stage.ts 组装） ---- */
+// 渲染端：接收并落到 pinia store（stores/stage.ts 组装）
 export interface AnalysisPayload {
     energy: Float32Array | null;
     energyRate: number;
@@ -181,7 +181,7 @@ export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendH
         }
     };
     hello();
-    // hello 是握手竞态敏感的：渲染页可能先于编辑页 channel 就绪时发出，
+    // hello 对握手竞态敏感：渲染页可能先于编辑页 channel 就绪发出，
     // 周期性重发直到连上（connected 由调用方判断）
     const retry = window.setInterval(() => {
         if (!sink.isConnected()) hello();

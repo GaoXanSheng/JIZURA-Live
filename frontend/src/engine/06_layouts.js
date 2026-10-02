@@ -1,13 +1,8 @@
-/* ============================================================
-   JIZURA — layouts (how a chunk of lyric is composed on screen)
-   plan(rng, cut, st)  -> params stored in the cut (also exported to AE)
-   render(env)         -> draws; returns bbox of the main text for decor
-   ============================================================ */
 (() => {
   'use strict';
   const E = J.E;
 
-  /* ---------- main-item pipeline: enter / hold / exit + draw ---------- */
+  // 单个 item 的进场、持续、退场流水线，末尾交给 drawFx
   J.mainDraw = (env, it) => {
     const cut = env.cut;
     it.seed = it.seed != null ? it.seed : J.h(cut.seed, (it.mi | 0) + 1, 7);
@@ -24,7 +19,7 @@
     const en = J.ENTER[it.enter || cut.enter] || J.ENTER.cut;
     const ex = J.EXIT[it.exit || cut.exit] || J.EXIT.cut;
     const ho = J.HOLD[it.hold || cut.hold] || J.HOLD.still;
-    // text treatment (outline, extrude, marker...) — layouts that paint their own plates opt out with it.plain
+    // it.plain：layout 自己画底板就置真，跳过文字特效
     if (cut.treat && !it.plain && J.TREAT && J.TREAT[cut.treat]) {
       try {
         J.TREAT[cut.treat].apply(env, it, cut.treatP || {});
@@ -47,7 +42,7 @@
     return J.drawFx(env, it);
   };
 
-  /* draw an item honouring bands / clip / streak / echo / wipe-bar / cursor / treatment hooks */
+  // 裁剪、streak/echo 副本、wipeBar、打字光标都叠在这一层
   J.drawFx = (env, it) => {
     const ctx = env.ctx;
     let bb = null;
@@ -71,9 +66,9 @@
           J.drawItem(env, c);
         }
       }
-      if (it.echo && it.echo.n > 0) {            // stepped copies behind the item (outline or tinted)
+      if (it.echo && it.echo.n > 0) {   // echo：主文字背后几层错位副本，描边或染色
         const E0 = it.echo;
-        const lay0 = it._lay || (it._lay = J.layoutText(it));   // 回声副本共享排版，免每帧每副本重排
+        const lay0 = it._lay || (it._lay = J.layoutText(it));   // 回声副本共享排版
         for (let k = E0.n; k >= 1; k--) {
           const c = Object.assign({}, it, {
             x: it.x + (E0.dx || 0) * k,
@@ -150,7 +145,7 @@
         draw();
         ctx.restore();
       }
-      // outside of the band range
+      // bands 区间之外的部分
       const lo = it.bands[0][0], hi = it.bands[it.bands.length - 1][1];
       ctx.save();
       ctx.beginPath();
@@ -196,13 +191,13 @@
     cy: (Math.min(a.y0, b.y0) + Math.max(a.y1, b.y1)) / 2
   };
 
-  /* 拉丁文本：只在词与词之间断行，用能装下的最少行数做均衡分配（行数不会多于词数） */
+  // 拉丁文本只在词间断行，行数取能装下的最少值，再做均衡分配
   const splitWords = (text, maxPer) => {
     const ws = text.trim().split(/\s+/), n = ws.length;
     const total = ws.reduce((a, w) => a + [...w].length, 0) + n - 1;
     const nLines = Math.min(n, Math.ceil(total / maxPer));
     if (nLines <= 1) return ws.join(' ');
-    // 均衡拆分：最小化与理想行长的平方差
+    // DP：最小化各行与理想行长的平方差
     const len = (a, b) => ws.slice(a, b).reduce((s, w) => s + [...w].length, 0) + (b - a - 1);
     const ideal = total / nLines, memo = new Map();
     const best = (i, l) => {
@@ -224,7 +219,7 @@
     for (let k = 0; k < cuts.length - 1; k++) out.push(ws.slice(cuts[k], cuts[k + 1]).join(' '));
     return out.join('\n');
   };
-  /* split long text into balanced lines, preferring script boundaries */
+  // 长文本均衡断行，断点优先挑标点/空格之后、小假名之前
   J.splitLines = (text, maxPer) => {
     const arr = [...text];
     if (arr.length <= maxPer) return text;
@@ -271,8 +266,8 @@
     boxes: []
   };
 
+  // layout 契约：fits(n) 筛台词，plan(rng, cut, st) 抽参数存进 cut.params 并随 AE 导出，render(env) 绘制并返回主体 bbox
   J.LAYOUTS = {
-    /* ------------------------------------------------ */
     center: {
       name: '中央', fits: n => true,
       plan: (rng, cut, st) => ({
@@ -324,7 +319,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     mixed: {
       name: '大小ミックス', fits: n => n >= 2 && n <= 16,
       plan: (rng, cut, st) => ({
@@ -378,7 +372,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     vcols: {
       name: '縦書き', fits: n => n <= 18,
       plan: (rng, cut, st) => {
@@ -445,7 +438,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     marquee: {
       name: '流れる帯', fits: n => n <= 12,
       plan: (rng, cut, st) => ({
@@ -506,7 +498,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     tile: {
       name: '敷き詰め', fits: n => n <= 12,
       plan: (rng, cut, st) => ({
@@ -561,7 +552,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     scatter: {
       name: '散らし', fits: n => n >= 2 && n <= 14,
       plan: (rng, cut, st) => ({
@@ -611,7 +601,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     ring: {
       name: '円環', fits: n => n >= 2 && n <= 16,
       plan: (rng, cut, st) => ({
@@ -673,13 +662,13 @@
             noHold: true
           };
           const b = J.mainDraw(env, it);
-          bb = unionBB(bb, b);   // 并入每个环上字符：只留首个字符的盒子会让 front decor 锚定到随时间旋转的单字上
+          // 每个环上字符的盒子都要并进来，只留首个字符会锚到随时间旋转的单字
+          bb = unionBB(bb, b);
         }
         return bb || {x0: cx - R, x1: cx + R, y0: cy - R, y1: cy + R, cx, cy, boxes: []};
       },
     },
 
-    /* ------------------------------------------------ */
     wave: {
       name: '波の軌跡', fits: n => n >= 2 && n <= 16,
       plan: (rng, cut, st) => ({
@@ -735,7 +724,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     huge: {
       name: '画面突き抜け', fits: n => n <= 8,
       plan: (rng, cut, st) => ({
@@ -784,7 +772,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     labels: {
       name: 'ラベル貼り', fits: n => n >= 1 && n <= 16,
       plan: (rng, cut, st) => ({
@@ -869,7 +856,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     condensed: {
       name: '縦長圧縮', fits: n => n <= 10,
       plan: (rng, cut, st) => {
@@ -910,7 +896,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     gloss: {
       name: '注釈', fits: n => n <= 12,
       plan: (rng, cut, st) => ({
@@ -1010,7 +995,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     type: {
       name: 'タイプ', fits: n => n <= 28,
       plan: (rng, cut, st) => ({
@@ -1061,7 +1045,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     diag: {
       name: '斜め帯', fits: n => n <= 14,
       plan: (rng, cut, st) => ({
@@ -1112,7 +1095,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     circle: {
       name: '円窓', fits: n => n <= 10,
       plan: (rng, cut, st) => ({
@@ -1165,7 +1147,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     stack: {
       name: '残像スタック', fits: n => n <= 12,
       plan: (rng, cut, st) => ({
@@ -1207,7 +1188,6 @@
       },
     },
 
-    /* ------------------------------------------------ */
     pill: {
       name: 'カプセル', fits: n => n <= 14,
       plan: (rng, cut, st) => ({
@@ -1263,7 +1243,7 @@
       },
     },
 
-    /* ------------------------------------------------ special: title card */
+    // special 布局不参与自动挑选，由标题卡、间奏直接指定
     title: {
       name: 'タイトル', special: true, fits: () => false,
       plan: (rng, cut, st) => ({font: rng.pick(fontsOf(st, ['display', 'serif']))}),
@@ -1294,14 +1274,14 @@
       },
     },
 
-    /* ------------------------------------------------ special: interlude */
     interlude: {
       name: '間奏', special: true, fits: () => false,
       plan: (rng) => ({variant: rng.pick(['counter', 'rings'])}),
       render(env) {
         const {W, H, sc} = env, P = env.cut.params, lb = env.ltb;
         const fs = J.clamp(H * 0.022, 12, 22);
-        if (P.variant === 'quiet') {                        // [間奏]: nothing but the song title on long interludes
+        // 长间奏的安静变体，只留曲名
+        if (P.variant === 'quiet') {
           if (P.showTitle && P.titleText) {
             const a = J.clamp(env.lt / 0.8) * J.clamp((env.cut.dur - env.lt) / 0.8);
             env.draw({

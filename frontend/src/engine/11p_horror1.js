@@ -1,5 +1,4 @@
-/* JIZURA pack: horror (1/3) — uneasy / found-footage layouts: flashlight, door gap, obsessive wall writing, CCTV, spirit board,
-   missing poster, the one wrong glyph, rising from the dark, redacted file, static TV, spirit photo, the wrong shadow */
+// horror 包 1/3：layout 构图
 (() => {
     'use strict';
     const E = J.E;
@@ -7,7 +6,6 @@
     const TAGS = ['horror'];
     const reg = (key, def) => J.register('layout', key, Object.assign({set: 'horror'}, def), P);
 
-    /* ------------------------------------------------------------------ helpers */
     const U = env => Math.min(env.W, env.H);
     const isPort = env => env.H > env.W * 1.08;
     const strip = t => String(t || '').replace(/\s+/g, '');
@@ -26,9 +24,9 @@
     const isDark = c => J.lum(c) < 0.45;
     const lightOf = sc => (J.lum(sc.fg) > J.lum(sc.bg) ? sc.fg : sc.bg);
     const darkOf = sc => (J.lum(sc.fg) > J.lum(sc.bg) ? sc.bg : sc.fg);
-    /* the colour of darkness over this scheme */
+    // 这个配色下"黑暗"用的颜色
     const nightC = sc => J.mix(sc.bg, '#000000', isDark(sc.bg) ? 0.72 : 0.9);
-    /* best readable scheme colour on a plate */
+    // 底板上可读性最好的配色颜色
     const onCol = (sc, fill) => {
         let best = null, bv = 0;
         for (const c of [sc.bg, sc.fg, sc.ink, sc.sub, sc.accent]) {
@@ -42,7 +40,7 @@
         return bv >= 2.6 ? best : (J.lum(fill) > 0.5 ? '#111111' : '#FFFFFF');
     };
     const redOn = (sc, fill) => J.fitContrast(sc.accent, fill, 2.4);
-    /* date / time strings from the cut seed (ASCII only) */
+    // 由 cut seed 生成的日期/时间串（纯 ASCII）
     const fakeDate = (seed, sep = '/') => {
         const y = 1987 + (J.h(seed, 1) % 19), m = 1 + (J.h(seed, 2) % 12), d = 1 + (J.h(seed, 3) % 28);
         return `${y}${sep}${pad2(m)}${sep}${pad2(d)}`;
@@ -51,7 +49,7 @@
         const s0 = 2 * 3600 + (J.h(seed, 4) % 7200) + Math.floor(Math.max(0, t));
         return `${pad2(Math.floor(s0 / 3600) % 24)}:${pad2(Math.floor(s0 / 60) % 60)}:${pad2(s0 % 60)}`;
     };
-    /* glyph centres of a laid-out text item (spaces left out) */
+    // 排版后逐字的中心点（跳过空格）
     const slots = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, out = [];
         for (const g of lay) {
@@ -60,7 +58,7 @@
         }
         return out;
     };
-    /* a full-screen veil with a soft hole: main pass only (it also hides the ghost passes' text) */
+    // 带软孔洞的全屏遮罩，只在 main pass 画，不然会盖住 ghost pass 的文字
     const veilHole = (env, cx, cy, R, a, col, inner = 0.35, ry = 1) => {
         if (env.pass !== 'main' || a <= 0.002) return;
         const ctx = env.ctx, W = env.W, H = env.H;
@@ -75,7 +73,7 @@
         ctx.fillRect(-W * 2 - cx, -(H * 2 + cy) / ry, W * 5, H * 5 / ry);
         ctx.restore();
     };
-    /* static noise tiles (built once, small, deterministic) */
+    // 噪点纹理块：只建一次，小尺寸、确定性
     const NOISE = [];
     const noiseCv = (k) => {
         k = ((k % 4) + 4) % 4;
@@ -103,13 +101,11 @@
         ctx.drawImage(N, sx, sy, N.width - sx, N.height - sy, x, y, w, h);
         ctx.restore();
     };
-    /* shaky hand line (stroke) */
     const shaky = (env, pts, col, lw, a, seed, amp) => {
         const out = pts.map((p, i) => [p[0] + J.rs(seed, i, 1) * amp, p[1] + J.rs(seed, i, 2) * amp]);
         env.line(out, col, lw, a, false);
     };
 
-    /* ================================================================== 1. flashlight */
     reg('hrFlashlight', {
         name: '懐中電灯',
         tags: TAGS.concat(['emotional']),
@@ -134,7 +130,7 @@
             const size = Math.min(J.fitSize(text, Pm.font, W * 0.8, H * 0.42, {track: 0.06, lead: 1.25}), H * 0.24);
             const it = {text, font: Pm.font, size, x: W / 2, y: H / 2, track: 0.06, lead: 1.25, color: sc.fg};
             const bb = J.mainDraw(env, it);
-            // the beam visits the glyphs in reading order, then opens up on the whole line
+            // 光束按阅读顺序逐字扫过，最后放大照亮整行
             const sl = slots(Object.assign({}, it));
             const m = J.measure(it);
             const R0 = Math.max(size * 0.9 * Pm.rk, U(env) * 0.1), Rall = Math.hypot(m.w, m.h) * 0.55 + size * 0.5;
@@ -152,7 +148,7 @@
                 by = sl.length === 1 ? a.y : J.lerp(a.y, b.y, k);
             }
             if (Pm.path === 'search' && lt < t0) {
-                // hunting around the dark before it finds the words
+                // 先在黑暗里乱晃，再找到字
                 const q = E.inOutSine(J.clamp(lt / t0)), sx = W * (0.5 + Pm.sx) + J.noise1(lt * 1.3, s) * W * 0.25,
                     sy = H * (0.5 + Pm.sy) + J.noise1(lt * 1.1, s + 3) * H * 0.2;
                 bx = J.lerp(sx, bx, q * q);
@@ -165,7 +161,7 @@
             bx = J.lerp(bx, W / 2, open);
             by = J.lerp(by, H / 2, open);
             let R = J.lerp(R0, Math.max(R0, Rall), open) * (0.3 + 0.7 * tin(env, 0, 0.35));
-            // a weak battery: rare dips
+            // 电池快没电：偶发骤暗
             const dip = J.r(s, env.step, 31) < 0.05 ? 0.55 : 1;
             const dark = Pm.dark * tin(env, 0, 0.25) * (1 - E.inCubic(env.pOut) * 0.6);
             veilHole(env, bx, by, R * dip, dark, nightC(sc), 0.32, 0.86);
@@ -181,7 +177,6 @@
         },
     });
 
-    /* ================================================================== 2. door gap */
     reg('hrDoorGap', {
         name: '扉の隙間',
         tags: TAGS.concat(['editorial']),
@@ -207,7 +202,7 @@
             const size = vert ? Math.min(J.fitSize(text, Pm.font, W * 0.3, H * 0.74, o), W * 0.2, H * 0.2) : Math.min(J.fitSize(text, Pm.font, W * 0.78, H * 0.36, o), H * 0.2);
             const it = Object.assign({text, font: Pm.font, size, x: W / 2, y: H / 2, color: sc.fg}, o);
             const m = J.measure(it);
-            // opening: a first crack, an uneasy pause, then wide enough to read; slams shut on the exit
+            // 开门：先一条细缝，不安地停顿，再开到能读；退场时猛地关上
             const full = (vert ? m.w : m.h) + size * 0.9;
             const d = cut.dur, a1 = J.clamp(lt / 0.5), a2 = J.clamp((lt - Math.max(0.35, d * Pm.pause)) / 0.6);
             let open = 0.18 * E.outCubic(a1) + 0.82 * E.inOutCubic(a2);
@@ -233,7 +228,7 @@
             ctx.fill('evenodd');
             ctx.restore();
             if (g > 1) {
-                // light rim on the gap edges + light spilling onto the floor
+                // 缝隙边缘的亮边 + 洒向地面的光
                 const rimA = 0.55 * Math.min(1, g / (size * 0.3));
                 if (vert) {
                     const h = m.h + size * 1.6, y0 = cy - h / 2, y1 = cy + h / 2;
@@ -251,7 +246,6 @@
         },
     });
 
-    /* ================================================================== 3. obsessive wall writing */
     reg('hrWallScrawl', {
         name: '壁の落書き', tags: TAGS.concat(['glitch']), w: 0.9, busy: true, ae: 'tile', fits: n => n >= 1 && n <= 14,
         plan(rng, cut, st) {
@@ -277,7 +271,7 @@
                 y0: H / 2 - mm.h / 2 - size * 0.35,
                 y1: H / 2 + mm.h / 2 + size * 0.35
             };
-            // copies written line after line, faster and faster
+            // 一行接一行地抄写，越来越密
             const rows = Pm.rows, rh = H / rows, fs = rh * 0.58;
             const cw = J.measure({text: unit, font: Pm.hand, size: fs, track: 0.02}).w;
             let slotsL = [];
@@ -343,7 +337,6 @@
         },
     });
 
-    /* ================================================================== 4. CCTV monitor */
     reg('hrCctv', {
         name: '監視モニター',
         tags: TAGS.concat(['glitch', 'editorial']),
@@ -412,7 +405,7 @@
                 env.rect(x0, y0, x1 - x0, y1 - y0, feedBg, inA, false);
                 const cx = (x0 + x1) / 2 + J.rs(s, k, 3) * (x1 - x0) * 0.12,
                     cy = (y0 + y1) / 2 + J.rs(s, k, 4) * (y1 - y0) * 0.08, w = (x1 - x0) * 0.16, h = (y1 - y0) * 0.2;
-                // a corridor seen from above a doorway
+                // 从门上方俯视的走廊
                 const c = J.mix(feedBg, LC, 0.25), a = 0.8 * inA * out;
                 env.line([[x0, y0], [cx - w, cy - h]], c, lw, a, false);
                 env.line([[x1, y0], [cx + w, cy - h]], c, lw, a, false);
@@ -449,7 +442,6 @@
                     osd(x0, y0, x0 + cw, y0 + chh, Pm.cam0 + k, false, fs * 0.8);
                 }
             } else env.rect(fx0, fy0, fx1 - fx0, fy1 - fy0, feedBg, inA, false);
-            // the live feed with the lyric
             const fw = fx1 - fx0, fh = fy1 - fy0;
             const text = J.splitLines(flat(cut.text), Pm.v === 'quad' ? (port ? 4 : 7) : (port ? 5 : 11));
             const size = Math.min(J.fitSize(text, Pm.font, fw * 0.82, fh * 0.46, {track: 0.05, lead: 1.2}), fh * 0.3);
@@ -464,7 +456,7 @@
                 lead: 1.2,
                 color: LC
             });
-            // scanlines over the live feed
+            // 实时画面上的扫描线
             if (env.pass === 'main') {
                 const sp = Math.max(3, fh / 90);
                 for (let y = fy0; y < fy1; y += sp * 2) env.rect(fx0, y, fw, sp * 0.6, '#000000', 0.12 * inA, false);
@@ -472,7 +464,7 @@
                 env.rect(fx0, ry, fw, fh * 0.05, LC, 0.03 * inA * out, false);
             }
             if (Pm.box && bb) {
-                // motion detection box hunting the words
+                // 追着文字动的侦测框
                 const e = tin(env, cut.inDur * 0.6, 0.25) * out, jx = J.rs(s, st >> 1, 21) * size * 0.08,
                     jy = J.rs(s, st >> 1, 22) * size * 0.08, pd = size * 0.25;
                 if (e > 0) {
@@ -503,7 +495,6 @@
         },
     });
 
-    /* ================================================================== 5. spirit board */
     const KANA = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん';
     const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     reg('hrOuija', {
@@ -519,7 +510,6 @@
         render(env) {
             const {W, H, sc} = env, cut = env.cut, Pm = cut.params, s = cut.seed | 0, lt = env.lt, port = isPort(env);
             const out = tout(env), inA = tin(env, 0, 0.35), u = U(env), lw = Math.max(1, u * 0.0018);
-            // board
             const bw = Math.min(W * 0.88, H * (port ? 0.62 : 1.2)), bh = bw * (port ? 0.72 : 0.52), bx = W / 2,
                 by = port ? H * 0.34 : H * 0.36;
             const plate = J.mix(sc.bg, sc.fg, isDark(sc.bg) ? 0.07 : 0.06);
@@ -592,7 +582,7 @@
                 ghost: false,
                 track: 0.3
             });
-            // lyric row + when each glyph is spelled out
+            // 歌词行，以及每个字被拼出的时刻
             const text = flat(cut.text), chars = [...text].filter(c => c !== ' ');
             const n = chars.length;
             const rowY = port ? H * 0.74 : H * 0.8;
@@ -623,7 +613,7 @@
                 if (!c) c = cells[J.h(s, i, 52) % cells.length];
                 return c;
             };
-            // planchette position
+            // 指灵盘指针（planchette）的位置
             let px = bx, py = by + bh * 0.1, cur = -1;
             for (let i = 0; i < n; i++) if (env.ltb >= times[i] - Math.min(0.4, (times[i] - (i ? times[i - 1] : 0)) * 0.75)) cur = i;
             if (cur >= 0) {
@@ -633,7 +623,7 @@
                 px = J.lerp(A.x, B.x, k) + Math.sin(k * Math.PI) * bh * 0.06;
                 py = J.lerp(A.y, B.y, k) + bf * 1.2;
             } else py += bf * 1.2;
-            // idle circling
+            // 没有目标时的游移
             px += Math.sin(env.ltb * 2.1 + s) * bf * 0.12;
             py += Math.cos(env.ltb * 1.7 + s) * bf * 0.1;
             const pr = bf * 1.2, pc = sc.fg, pa = inA * out;
@@ -670,7 +660,6 @@
         },
     });
 
-    /* ================================================================== 6. missing poster */
     reg('hrMissing', {
         name: '尋ね人',
         tags: TAGS.concat(['editorial']),
@@ -707,7 +696,6 @@
             const x0 = -pw / 2, y0 = -ph / 2;
             env.rect(x0 + u * 0.012, y0 + u * 0.016, pw, ph, '#000000', 0.25 * out, false);
             env.rect(x0, y0, pw, ph, paper, out, false);
-            // stains
             for (let k = 0; k < Pm.stains; k++) {
                 const sx = x0 + pw * J.rr(0.22, 0.78, s, k, 1), sy = y0 + ph * J.rr(0.2, 0.8, s, k, 2),
                     R = pw * J.rr(0.05, 0.12, s, k, 3), pts = [];
@@ -730,7 +718,7 @@
                 ghost: false,
                 sx: 0.92
             });
-            // photo with a faceless head-and-shoulders silhouette
+            // 照片里是无脸的头肩剪影
             const fw = pw * 0.52, fh = fw * 1.18, fx = -fw / 2, fy = y0 + ph * 0.17;
             const photo = J.mix(ink, paper, 0.25);
             env.rect(fx, fy, fw, fh, photo, out, false);
@@ -747,7 +735,6 @@
                 ctx.fillRect(fx, fy, fw, fh);
                 ctx.globalAlpha = 1;
             }
-            // tape
             for (const sgn of [-1, 1]) {
                 ctx.save();
                 ctx.translate(sgn * pw * 0.4, y0 + ph * 0.005);
@@ -755,7 +742,6 @@
                 env.rect(-pw * 0.1, -pw * 0.03, pw * 0.2, pw * 0.06, J.mix(paper, sc.sub, 0.25), 0.7 * out, false);
                 ctx.restore();
             }
-            // info lines
             const mono = monoF(env), fs = pw * 0.034, ly = fy + fh + ph * 0.24;
             env.draw({
                 text: 'LAST SEEN ' + fakeDate(s, '.') + '  ' + fakeTime(s, 0).slice(0, 5),
@@ -780,7 +766,7 @@
                 ghost: false,
                 track: 0.05
             });
-            // tear-off tabs
+            // 可撕的电话联，torn 个已被撕走
             const tabs = 7, tw = pw / tabs, ty = y0 + ph * 0.86, th = ph * 0.14;
             for (let k = 0; k < tabs; k++) {
                 if (J.h(s, k, 61) % 7 < Pm.torn) continue;
@@ -803,7 +789,7 @@
             }
             env.line([[x0, ty], [x0 + pw, ty]], J.mix(paper, ink, 0.4), Math.max(1, u * 0.001), out, false);
             ctx.restore();
-            // the lyric as the name
+            // 歌词写在寻人启事的姓名位置
             const text = J.splitLines(flat(cut.text), port ? 6 : 7);
             const lyY = fy + fh + ph * 0.1;
             const size = Math.min(J.fitSize(text, Pm.font, pw * 0.86, ph * 0.13, {track: 0.04, lead: 1.1}), pw * 0.16);
@@ -824,7 +810,6 @@
         },
     });
 
-    /* ================================================================== 7. the one wrong glyph */
     reg('hrWrongOne', {
         name: '一字だけ違う', tags: TAGS.concat(['editorial', 'calm']), w: 1, ae: 'mixed', fits: n => n >= 2 && n <= 16,
         plan(rng, cut, st) {
@@ -847,7 +832,7 @@
             const o = {track: 0.22, lead: 1.5};
             const size = Math.min(J.fitSize(text, Pm.font, W * 0.82, H * 0.46, o), H * 0.2);
             const all = slots(Object.assign({text, font: Pm.font, size, x: W / 2, y: H / 2}, o));
-            // index into the flat text (spaces kept) → slot index
+            // Pm.wrong 是含空格的扁平下标，这里换算成槽位下标
             const flatArr = [...flat(cut.text)];
             let wi = 0;
             for (let i = 0, k = 0; i < flatArr.length; i++) {
@@ -864,7 +849,7 @@
             all.forEach((g, i) => {
                 const it = {text: g.ch, font: Pm.font, size, x: g.x, y: g.y, color: sc.fg, mi: i};
                 if (i === wi) {
-                    // it turns slowly while the rest never move — with a sudden twitch now and then
+                    // 只有这个字缓慢转动，其余不动，偶尔猛地一抽
                     const q = E.inOutSine(J.clamp((lt - turnAt) / Math.max(0.5, d * 0.45)));
                     const twitch = J.r(s, env.step >> 1, 71) < 0.07 && lt > turnAt ? J.rs(s, env.step, 72) * 14 : 0;
                     it.rot = Pm.ang * q + twitch;
@@ -897,7 +882,6 @@
         },
     });
 
-    /* ================================================================== 8. rising out of the dark */
     reg('hrRisingDark', {
         name: '闇から這い出る', tags: TAGS.concat(['emotional']), w: 0.8, ae: 'wave', fits: n => n >= 1 && n <= 14,
         plan(rng, cut, st) {
@@ -921,7 +905,7 @@
             const T = cut.dur * Pm.span;
             let bb = null;
             all.forEach((g, i) => {
-                // hand over hand: a few sudden pulls at uneasy moments
+                // 一把一把往上爬，几个突然的发力点
                 let prog = 0;
                 for (let k = 0; k < Pm.pulls; k++) {
                     const tk = J.clamp(J.r(s, i, k, 81) * 0.8 + k * 0.2 / Pm.pulls * 1.0) * T * (k + 1) / Pm.pulls;
@@ -940,7 +924,7 @@
                     mi: 0
                 }));
             });
-            // the dark pool (drawn over the glyphs still under it)
+            // 黑水池，盖在还没露出的字上面
             if (env.pass === 'main') {
                 const pc = nightC(sc), pts = [], n = 48, a = tout(env), t = env.ltb;
                 for (let j = 0; j <= n; j++) {
@@ -966,7 +950,6 @@
         },
     });
 
-    /* ================================================================== 9. redacted file */
     reg('hrRedacted', {
         name: '黒塗り文書',
         tags: TAGS.concat(['editorial']),
@@ -990,7 +973,6 @@
             const mx = W * (port ? 0.08 : 0.12), mw = W - mx * 2, mono = monoF(env);
             const fs = J.clamp(u * 0.028, 12, 34), rh = fs * 2.1;
             const barC = J.mix(sc.fg, sc.bg, 0.08), txtC = sc.sub;
-            // header
             env.draw({
                 text: 'FILE No. ' + (J.h(s, 1) % 9000 + 1000) + '   ' + fakeDate(s, '.'),
                 font: mono,
@@ -1004,12 +986,11 @@
                 track: 0.08
             });
             env.line([[mx, H * 0.08 + fs], [mx + mw * inA, H * 0.08 + fs]], txtC, Math.max(1, u * 0.0012), 0.6 * out, false);
-            // the lyric line
             const text = J.splitLines(flat(cut.text), port ? 7 : 16);
             const nl = text.split('\n').length;
             const size = Math.min(J.fitSize(text, Pm.font, mw, H * 0.24, {track: 0.06, lead: 1.3}), H * 0.1, fs * 3.4);
             const ly = H * Pm.row, lh = nl * size * 1.3;
-            // filler rows: body text blacked out
+            // 填充行：正文被涂黑
             const body = flat(cut.lineText || cut.text) + '　';
             const rowsN = Math.floor((H * 0.84 - H * 0.14) / rh);
             for (let r = 0; r < rowsN; r++) {
@@ -1037,7 +1018,6 @@
                     });
                     ctx.restore();
                 }
-                // bars
                 let x = mx;
                 while (x < mx + mw * len) {
                     const w = mw * J.rr(0.08, 0.35, s, r, Math.round(x), 3),
@@ -1057,7 +1037,7 @@
                 lead: 1.3,
                 color: sc.fg
             });
-            // the bar over the lyric slides off, sticks, then goes
+            // 盖着歌词的黑条：滑开、停住、再滑走
             if (env.pass === 'main') {
                 const m = J.measure({text, font: Pm.font, size, align: 'left', track: 0.06, lead: 1.3});
                 const d0 = cut.inDur * 0.3, k1 = E.inOutCubic(J.clamp((lt - d0) / 0.25)) * 0.35,
@@ -1094,7 +1074,6 @@
         },
     });
 
-    /* ================================================================== 10. static TV */
     reg('hrStaticTv', {
         name: '砂嵐のテレビ',
         tags: TAGS.concat(['glitch']),
@@ -1118,7 +1097,7 @@
             const cx = W / 2 + Pm.off * W, cy = H / 2 + th * 0.06;
             const body = J.mix(sc.bg, sc.fg, isDark(sc.bg) ? 0.13 : 0.22), edge = J.mix(body, sc.fg, 0.3),
                 lw = Math.max(1, u * 0.0018);
-            // glow of the screen into the room
+            // 屏幕的光洒进房间
             if (env.pass === 'main') {
                 const g = ctx.createRadialGradient(cx, cy, th * 0.3, cx, cy, Math.max(W, H) * 0.7);
                 g.addColorStop(0, J.rgba(lightOf(sc), (0.1 * inA * out).toFixed(3)));
@@ -1126,7 +1105,6 @@
                 ctx.fillStyle = g;
                 ctx.fillRect(0, 0, W, H);
             }
-            // antenna, body, knobs
             const top = cy - th / 2;
             for (const sg of [-1, 1]) {
                 const a = (90 + sg * Pm.ant + Math.sin(env.ltb * 0.7 + sg) * 1.5) * J.DEG;
@@ -1139,7 +1117,7 @@
             for (let k = 0; k < 5; k++) env.line([[kx - tw * 0.04, top + th * (0.62 + k * 0.05)], [kx + tw * 0.04, top + th * (0.62 + k * 0.05)]], edge, lw, inA * out * 0.8, false);
             env.rect(cx - tw * 0.36, top + th, tw * 0.05, th * 0.06, body, inA * out, false);
             env.rect(cx + tw * 0.31, top + th, tw * 0.05, th * 0.06, body, inA * out, false);
-            // screen: static that slowly gives way to the words
+            // 屏幕：砂噪慢慢让位给文字
             const scr = J.mix(sc.bg, '#000000', 0.6);
             env.rrect(sx0, sy0, sw, sh, sh * 0.1, scr, inA, false);
             const tune = E.inOutCubic(J.clamp((lt - 0.15) / (cut.dur * Pm.tune)));
@@ -1173,7 +1151,7 @@
             });
             ctx.restore();
             if (env.pass === 'main') {
-                // curvature highlight + scanlines
+                // 玻璃反光 + 扫描线
                 const sp = Math.max(3, sh / 70);
                 for (let y = sy0; y < sy0 + sh; y += sp * 2) env.rect(sx0, y, sw, sp * 0.5, '#000000', 0.18 * inA, false);
                 env.rrect(sx0 + sw * 0.06, sy0 + sh * 0.05, sw * 0.4, sh * 0.12, sh * 0.06, J.rgba('#FFFFFF', 0.05), inA * out, false);
@@ -1182,7 +1160,6 @@
         },
     });
 
-    /* ================================================================== 11. spirit photo */
     reg('hrSpiritPhoto', {
         name: '心霊写真', tags: TAGS.concat(['emotional']), w: 0.8, ae: 'gloss', fits: n => n >= 1 && n <= 16,
         plan(rng, cut, st) {
@@ -1198,7 +1175,7 @@
             const {W, H, sc, ctx} = env, cut = env.cut, Pm = cut.params, s = cut.seed | 0, lt = env.lt,
                 port = isPort(env), u = U(env);
             const out = tout(env), inA = tin(env, 0, 0.3);
-            // photo placement: left (landscape) or top (portrait); the note on the other side
+            // 照片放左边（横屏）或上方（竖屏），便签在另一侧
             const pw = port ? W * 0.78 : Math.min(W * 0.46, H * 0.86 * 1.25), ph = pw / 1.25;
             const pcx = port ? W / 2 : (Pm.side > 0 ? W * 0.3 : W * 0.7), pcy = port ? H * 0.33 : H * 0.5;
             const rad = Pm.ang * J.DEG, cs = Math.cos(rad), sn = Math.sin(rad);
@@ -1247,7 +1224,7 @@
                 ghost: false,
                 track: 0.1
             });
-            // red marker ring around the smudge
+            // 围着污点的红笔圈
             const ringE = E.outCubic(J.clamp((lt - cut.dur * 0.3) / 0.5)) * out;
             if (ringE > 0) {
                 const pts = [], n = 40, rr = sr * 1.5;
@@ -1258,7 +1235,7 @@
                 env.polyPartial(pts, ringE, sc.accent, Math.max(2, u * 0.005), 0.95, false);
             }
             ctx.restore();
-            // arrow to the note and the note itself (the lyric, handwritten)
+            // 指向便签的箭头 + 手写便签（歌词）
             const text = J.splitLines(flat(cut.text), port ? 7 : 6);
             const nx = port ? W / 2 : (Pm.side > 0 ? W * 0.76 : W * 0.24), ny = port ? H * 0.75 : H * 0.5;
             const size = Math.min(J.fitSize(text, Pm.hand, port ? W * 0.84 : W * 0.38, H * (port ? 0.26 : 0.46), {
@@ -1297,7 +1274,6 @@
         },
     });
 
-    /* ================================================================== 12. the shadow that does not match */
     reg('hrWrongShadow', {
         name: '影が違う',
         tags: TAGS.concat(['emotional', 'graphic']),
@@ -1322,7 +1298,7 @@
             const m = J.measure(Object.assign({text, font: Pm.font, size}, o));
             const cy = H * 0.66 - m.h * 0.2;
             const out = tout(env);
-            // the lamp comes on with a stutter
+            // 灯光抖着亮起
             const on = lt < 0.08 ? 0 : lt < 0.16 ? 1 : lt < 0.24 ? 0.25 : 1;
             const flick = J.r(s, env.step, 101) < 0.04 ? 0.5 : 1;
             const L = on * flick * out;
@@ -1341,7 +1317,7 @@
                 ctx.fillStyle = g;
                 ctx.fillRect(-R, -R, R * 2, R * 2);
                 ctx.restore();
-                // the shadow: bigger, soft, and it moves on its own
+                // 影子更大更软，而且自己会动
                 const t = env.ltb, d = cut.dur;
                 const turn = E.inOutCubic(J.clamp((lt - d * Pm.turn) / 0.5));
                 const sxk = 1 - 2 * turn;
@@ -1365,7 +1341,6 @@
                 });
             }
             const bb = J.mainDraw(env, Object.assign({text, font: Pm.font, size, x: W / 2, y: cy, color: sc.fg}, o));
-            // floor line
             const fe = tin(env, 0.1, 0.5) * out;
             if (fe > 0) env.line([[W / 2 - m.w * 0.8 * fe, cy + m.h / 2 + size * 0.2], [W / 2 + m.w * 0.8 * fe, cy + m.h / 2 + size * 0.2]], sc.sub, Math.max(1, size * 0.012), 0.5, false);
             return bb;

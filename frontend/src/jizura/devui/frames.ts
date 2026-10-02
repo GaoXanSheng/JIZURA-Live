@@ -1,6 +1,6 @@
-/* 帧监控（渲染调试面板数据源）：rAF 帧间隔 + longtask + Vue 组件渲染耗时 + 堆/DOM 规模。
-   面板打开时 start，关闭时 stop，全部采集器随之停止，零常驻开销。
-   Vue 组件耗时依赖 app.config.performance（dev 构建才产生 User Timing measure）。 */
+// 帧监控（渲染调试面板数据源）：rAF 帧间隔 + longtask + Vue 组件渲染耗时 + 堆/DOM 规模。
+// 面板打开时 start，关闭时 stop，采集器随之全停，零常驻开销。
+// Vue 组件耗时依赖 app.config.performance（dev 构建才产生 User Timing measure）。
 
 export interface FrameSnapshot {
     fps: number;
@@ -72,7 +72,7 @@ export function startFrames() {
             }
         });
         ltObs.observe({entryTypes: ['longtask']});
-    } catch { /* 浏览器不支持 */
+    } catch { // 浏览器不支持
     }
     try {
         // Vue 组件渲染耗时：app.config.performance 开启时产生 "Vue:<组件> patch/mount" measure
@@ -85,7 +85,7 @@ export function startFrames() {
             }
         });
         measureObs.observe({type: 'measure', buffered: false} as any);
-    } catch { /* 浏览器不支持 */
+    } catch { // 浏览器不支持
     }
 }
 
@@ -104,7 +104,7 @@ export function isFramesRunning() {
     return running;
 }
 
-/* 帧间隔窗口统计：avg/p95/max 与推导 fps。纯函数便于单测。 */
+// 帧间隔窗口统计：avg/p95/max 与推导 fps，纯函数便于单测
 export function gapStats(gaps: number[]) {
     const n = gaps.length;
     if (!n) return {avg: 0, max: 0, p95: 0, fps: 0};

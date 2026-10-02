@@ -1,16 +1,15 @@
-/* JIZURA pack: fxB — more post-processing / accent effects: lens, print, film, glitch and manga-style overlays */
+// fxB 特效包：镜头光学、glitch、印刷/胶片质感、漫画系遮罩
 (() => {
     'use strict';
     const E = J.E;
     const PK = 'fxB';
     const DEG = J.DEG, TAU = J.TAU, clamp = J.clamp;
 
-    /* ================= helpers ================= */
     const isDark = c => J.lum(c) < 0.45;
     const bell = k => Math.sin(Math.PI * clamp(k));
     const evS = ev => J.h(Math.round(ev.t * 1000), 9127);
     const ampOf = ev => clamp(ev.amp ?? 1, 0.3, 1.6);
-// attack (0..a) → hold → release (b..1)
+// ahr：攻击(0..a)→保持→释放(b..1)
     const ahr = (k, a, b, inE = E.outCubic, outE = E.inCubic) => (k < a ? inE(k / a) : k > b ? 1 - outE((k - b) / Math.max(1e-3, 1 - b)) : 1);
     const hueD = (a, b) => {
         const d = Math.abs(a - b) % 360;
@@ -18,7 +17,7 @@
     };
     const lightest = list => list.filter(Boolean).reduce((a, b) => (J.lum(b) > J.lum(a) ? b : a));
     const darkest = list => list.filter(Boolean).reduce((a, b) => (J.lum(b) < J.lum(a) ? b : a));
-// the most colourful scheme colour (falls back to a cool blue for monochrome schemes)
+// 配色里最鲜艳的颜色；黑白配色回退到冷蓝
     const vivid = (sc, fb = '#4FB8FF') => {
         let best = null, bv = 0.18;
         for (const c of [sc.accent, sc.accent2, sc.ghostA, sc.ghostB, sc.fg]) {
@@ -31,7 +30,7 @@
         }
         return best || fb;
     };
-// two hues for a duotone: the scheme's most colourful hue + a clearly different second one
+// 双色调的两个色相：配色中最鲜艳的一个，再加一个色相差明显的
     const huePair = sc => {
         const cs = [sc.accent, sc.accent2, sc.ghostA, sc.ghostB, sc.fg, sc.bg].filter(Boolean)
             .map(c => {
@@ -43,7 +42,7 @@
         return [cs[0].h, B ? B.h : cs[0].h + 170];
     };
 
-// module-level offscreen buffers (created once, resized only when the output size changes)
+// 模块级离屏画布，按索引复用，只在输出尺寸变化时重设
     const BUF = [];
     const buf = (i, w, h) => {
         w = Math.max(1, w | 0);
@@ -68,7 +67,7 @@
         x.imageSmoothingEnabled = true;
         return x;
     };
-// |frame - bg| as a grey mask: ink bright on black (dark schemes) or ink dark on white (light schemes)
+// |帧-bg| 灰度蒙版：暗配色是黑底亮墨，亮配色再反相
     const greyMask = (T, S, sc, w, h, dk) => {
         const x = cx2(T);
         x.globalCompositeOperation = 'copy';
@@ -86,7 +85,7 @@
         }
         return T;
     };
-// the grey mask tinted `col` (add it with 'screen' on dark schemes, 'multiply' on light ones)
+// 蒙版染上 col：暗配色用 screen 叠加，亮配色用 multiply
     const tintMask = (T, M, col, dk) => {
         const x = cx2(T), w = T.width, h = T.height;
         x.globalCompositeOperation = 'copy';
@@ -96,7 +95,7 @@
         x.fillRect(0, 0, w, h);
         return T;
     };
-// draw `img` scaled by s around (cx, cy)
+// 以 (cx,cy) 为锚点把 img 缩放绘制
     const drawScaled = (ctx, img, s, cx, cy, cw, ch) => ctx.drawImage(img, 0, 0, img.width, img.height, cx - cx * s, cy - cy * s, cw * s, ch * s);
 
     const fx = (k, d) => J.register('fx', k, Object.assign({}, d, {
@@ -110,7 +109,6 @@
         },
     }), PK);
 
-    /* ================= lens / optics ================= */
     fx('radialChroma', {
         name: '放射色収差',
         tags: ['glitch', 'emotional', 'pop'],
@@ -176,7 +174,7 @@
                 ctx.fillStyle = J.rgba(sc.fg, (0.1 * a).toFixed(3));
                 ctx.fillRect(0, 0, cw, ch);
             } else {
-                // light schemes: over-exposure — the bright paper blooms over the ink, everything lifts towards white
+                // 亮配色走曝光过度：亮纸在墨上泛光，整体提向白
                 ctx.globalCompositeOperation = 'screen';
                 ctx.globalAlpha = 0.75 * a;
                 ctx.drawImage(T1, 0, 0, cw, ch);
@@ -186,7 +184,7 @@
         }
     });
 
-// separable lens warp: columns then rows, piecewise-linear strips (no seams)
+// 可分离的镜头扭曲：先列后行，分段线性条带（无接缝）
     fx('bulge', {
         name: '魚眼', tags: ['pop', 'graphic', 'glitch'], w: 0.8, dur: 5, amp: 1, mid: true, scratch: true, ae: 'zoom',
         draw(ctx, ev, k, I) {
@@ -222,8 +220,7 @@
         }
     });
 
-    /* ================= glitch ================= */
-// vertical "melt": runs of columns whose window is stretched down (or up), coherent via smooth noise
+// 纵向熔融：一段段列的窗口向下（或向上）拉伸，平滑噪声保证连贯
     fx('pixelSort', {
         name: 'ピクセルソート',
         tags: ['glitch'],
@@ -299,7 +296,7 @@
             const pat = x.createPattern(rowTile(L), 'repeat');
             try {
                 pat.setTransform(new DOMMatrix([1, 0, 0, 1, 0, (I.step % 2) * L]));
-            } catch (e) { /* older engines: no phase */
+            } catch (e) { /* 老引擎不支持 setTransform，忽略 */
             }
             x.fillStyle = pat;
             x.fillRect(0, 0, cw, ch);
@@ -307,7 +304,7 @@
         }
     });
 
-// compression artefacts: grid-aligned blocks go flat, smear down from their top row, quantise or slip
+// 压缩劣化：网格对齐的块被拉平、从顶行向下拖影、量化或错位
     fx('macroBlock', {
         name: 'ブロックノイズ',
         tags: ['glitch'],
@@ -335,18 +332,18 @@
                     const bx = (i0 + i) * B, by = clamp(j0 + j, 0, ny - 1) * B, bw = Math.min(B, cw - bx),
                         bh = Math.min(B, ch - by), m = J.r(st, c, id, 7);
                     if (bw < 1 || bh < 1) continue;
-                    if (m < 0.42) {           // datamosh bleed: the block's top row smeared down 1..3 blocks
+                    if (m < 0.42) { // datamosh：块的顶行向下拖 1..3 格
                         const n = 1 + (J.h(st, c, id, 9) % 3);
                         ctx.drawImage(S, bx, by, bw, 1, bx, by, bw, Math.min(ch - by, B * n));
-                    } else if (m < 0.7) {     // quantised to 3×3 flat cells
+                    } else if (m < 0.7) { // 量化成 3×3 平坦色块
                         tx.drawImage(S, bx, by, bw, bh, 0, 0, 3, 3);
                         ctx.imageSmoothingEnabled = false;
                         ctx.drawImage(T, 0, 0, 3, 3, bx, by, bw, bh);
                         ctx.imageSmoothingEnabled = true;
-                    } else if (m < 0.9) {     // slipped: copied from a neighbouring block
+                    } else if (m < 0.9) { // 从邻块拷贝（错位）
                         const sx = clamp(bx + (J.r(st, c, id, 10) < 0.5 ? -1 : 1) * (1 + (J.h(st, c, id, 12) % 2)) * B, 0, cw - bw);
                         ctx.drawImage(S, sx, by, bw, bh, bx, by, bw, bh);
-                    } else {                  // flat block
+                    } else { // 整块拉平
                         ctx.drawImage(S, Math.min(cw - 1, bx + bw / 2), Math.min(ch - 1, by + bh / 2), 1, 1, bx, by, bw, bh);
                     }
                     if (m >= 0.42 && J.r(st, c, id, 8) < 0.06 * a) {
@@ -362,7 +359,6 @@
         }
     });
 
-    /* ================= print / stylise ================= */
     const DOT = new Map();
     const dotTile = (c, r) => {
         const key = c + '|' + r;
@@ -393,7 +389,7 @@
             try {
                 const q = 45 * DEG;
                 pat.setTransform(new DOMMatrix([Math.cos(q), Math.sin(q), -Math.sin(q), Math.cos(q), cw / 2, ch / 2]));
-            } catch (e) { /* unrotated screen */
+            } catch (e) { /* 老引擎不支持时退化为不旋转的网屏 */
             }
             ctx.globalCompositeOperation = 'destination-in';
             ctx.fillStyle = pat;
@@ -453,7 +449,7 @@
         BAYER = c;
         return c;
     };
-// ordered dither → hard threshold (contrast filter) → mapped to the scheme's darkest / lightest colour
+// 有序抖动 → 硬阈值（contrast 滤镜）→ 映射到配色的最深/最浅色
     fx('ditherBit', {
         name: '1bitディザ',
         tags: ['glitch', 'graphic', 'pop'],
@@ -497,7 +493,6 @@
         }
     });
 
-    /* ================= frame motion ================= */
     fx('rotateSnap', {
         name: '傾きスナップ',
         tags: ['pop', 'graphic', 'glitch'],
@@ -511,7 +506,7 @@
             const {cw, ch, S, sc} = I;
             if (!S) return;
             const s = evS(ev), dir = J.r(s, 1) < 0.5 ? 1 : -1;
-            // snaps in on the first frame, then a damped spring back to level
+            // 首帧直接咬合到位，再以阻尼弹簧回正
             const e = k < 0.12 ? 1 : Math.exp(-4.5 * (k - 0.12)) * Math.cos((k - 0.12) * Math.PI * 2.4);
             const th = dir * (3 + 2 * J.r(s, 2)) * clamp(ampOf(ev), 0.5, 1.3) * e * DEG;
             if (Math.abs(th) < 0.0006) return;
@@ -531,7 +526,7 @@
         }
     });
 
-// stepped after-images of the frame ('lighten' on dark schemes / 'darken' on light ones keeps the background untouched)
+// 帧的阶梯残影；暗底用 lighten、亮底用 darken，背景不受影响
     fx('echoFrames', {
         name: '残像エコー',
         tags: ['emotional', 'pop', 'glitch'],
@@ -557,7 +552,7 @@
         }
     });
 
-// n mirrored wedges around the centre (true kaleidoscope, not an axis mirror)
+// 中心周围 n 个镜像楔形，真万华镜而不是轴镜像
     fx('kaleido', {
         name: '万華鏡',
         tags: ['pop', 'graphic', 'emotional'],
@@ -593,7 +588,6 @@
         }
     });
 
-    /* ================= inversion / light ================= */
     fx('bandInvert', {
         name: '帯反転', tags: ['glitch', 'graphic'], w: 0.7, dur: 3, amp: 1, glitchy: true, mid: true, ae: 'invert',
         draw(ctx, ev, k, I) {
@@ -669,7 +663,7 @@
                 ell(cw * 0.8, M * 0.05, [[0, J.rgba(col, (0.55 * a).toFixed(3))], [0.4, J.rgba(col, (0.18 * a).toFixed(3))], [1, J.rgba(col, 0)]]);
                 ell(cw * 0.62, M * 0.0065, [[0, `rgba(255,255,255,${(0.95 * a).toFixed(3)})`], [0.5, J.rgba(J.mix(col, '#ffffff', 0.5), (0.6 * a).toFixed(3))], [1, J.rgba(col, 0)]]);
                 ell(M * 0.07, M * 0.07, [[0, `rgba(255,255,255,${(0.8 * a).toFixed(3)})`], [1, 'rgba(255,255,255,0)']]);
-                // lens ghosts along the line through the frame centre
+                // 沿过画面中心直线的镜头鬼影
                 for (let j = 0; j < 3; j++) {
                     const f = [0.55, 1.1, 1.7][j], gx = cw / 2 + (cw / 2 - x) * f, gy = ch / 2 + (ch / 2 - y) * f,
                         r = M * [0.03, 0.06, 0.02][j];
@@ -688,7 +682,7 @@
         }
     });
 
-// double heartbeat: a coloured vignette closes in twice with a slight push
+// 双心跳：彩色暗角收拢两次，带一点推近
     fx('heartbeat', {
         name: '鼓動', tags: ['emotional', 'calm'], w: 0.8, dur: 10, amp: 1, mid: true, scratch: true, ae: 'zoom',
         draw(ctx, ev, k, I) {
@@ -714,7 +708,6 @@
         }
     });
 
-    /* ================= film / TV ================= */
     let STATIC = null;
     const staticTex = () => {
         if (STATIC) return STATIC;
@@ -740,7 +733,7 @@
             const pat = ctx.createPattern(N, 'repeat');
             try {
                 pat.setTransform(new DOMMatrix([sz * 2, 0, 0, sz, -Math.floor(J.r(st, 1) * 256) * sz * 2, -Math.floor(J.r(st, 2) * 256) * sz]));
-            } catch (e) { /* static pattern */
+            } catch (e) { /* 老引擎不支持则不偏移纹理 */
             }
             ctx.imageSmoothingEnabled = false;
             ctx.globalAlpha = Math.min(1, cov);
@@ -801,7 +794,6 @@
         }
     });
 
-    /* ================= film strip / 3D / water ================= */
     const rrect = (ctx, x, y, w, h, r) => {
         r = Math.min(r, w / 2, h / 2);
         ctx.moveTo(x + r, y);
@@ -811,7 +803,7 @@
         ctx.arcTo(x, y, x + w, y, r);
         ctx.closePath();
     };
-// the picture shrinks onto a strip of film with sprocket holes and the strip is pulled on by one frame
+// 画面缩进带齿孔的胶片条上，胶片被拉过一格
     fx('filmAdvance', {
         name: 'フィルム送り',
         tags: ['emotional', 'editorial', 'calm'],
@@ -849,7 +841,7 @@
         }
     });
 
-// the frame swings in 3D around its vertical (or horizontal) axis: projected strips form a perspective trapezoid
+// 画面绕竖直（或水平）轴做 3D 摆动：投影条带形成透视梯形
     fx('perspectiveTilt', {
         name: 'パース揺れ',
         tags: ['pop', 'graphic', 'emotional'],
@@ -883,7 +875,7 @@
         }
     });
 
-// water ripple: annuli around the drop point are each re-drawn slightly scaled (radial displacement)
+// 水波：落点周围的圆环逐个按径向位移轻微缩放重画
     fx('ripple', {
         name: '波紋', tags: ['emotional', 'calm', 'pop'], w: 0.8, dur: 10, amp: 1, mid: true, scratch: true, ae: 'zoom',
         draw(ctx, ev, k, I) {
@@ -908,7 +900,7 @@
                 ctx.drawImage(S, cx - cx * m, cy - cy * m, cw * m, ch * m);
                 ctx.restore();
             }
-            // crest highlights
+            // 波峰高光
             ctx.globalCompositeOperation = dk ? 'screen' : 'multiply';
             ctx.lineWidth = Math.max(1, dr * 0.9);
             for (let j = 0; j < 3; j++) {
@@ -923,9 +915,8 @@
         }
     });
 
-    /* ================= manga / graphic overlays ================= */
     const inkCol = sc => (isDark(sc.bg) ? lightest([sc.fg, sc.ink, '#FFFFFF']) : darkest([sc.fg, sc.ink, '#111111']));
-// 集中線: thin wedges converging on the centre, redrawn every frame like hand-drawn animation
+// 集中線：向中心汇聚的细楔形，每帧重画模拟手绘
     fx('focusLines', {
         name: '集中線', tags: ['pop', 'graphic', 'emotional'], w: 0.9, dur: 6, amp: 1, mid: true, ae: 'zoom',
         draw(ctx, ev, k, I) {
@@ -952,7 +943,7 @@
         }
     });
 
-// 流線: tapered streaks racing across the frame (clear of the centre band)
+// 流線：横穿画面的尖尾速度线，避开中央条带
     fx('speedLines', {
         name: '流線', tags: ['pop', 'graphic'], w: 0.8, dur: 6, amp: 1, mid: true,
         draw(ctx, ev, k, I) {
@@ -985,7 +976,7 @@
         }
     });
 
-// キラッ: 8-point glints popping in sequence around the lyric band
+// キラッ：歌词带周围的八角星光依次弹出
     fx('starGlint', {
         name: 'キラッ', tags: ['pop', 'emotional'], w: 0.8, dur: 9, amp: 1, mid: true, ae: 'flash',
         draw(ctx, ev, k, I) {
@@ -1023,7 +1014,7 @@
         }
     });
 
-// thin scheme-coloured bars sweeping across the frame at different speeds
+// 细色条以不同速度扫过画面
     fx('colorBars', {
         name: 'カラーバー', tags: ['pop', 'graphic', 'glitch'], w: 0.8, dur: 6, amp: 1, mid: true, ae: 'slice',
         draw(ctx, ev, k, I) {
@@ -1048,7 +1039,7 @@
         }
     });
 
-// three hard zoom steps (ダダダン), each with its own slight focus shift, then snap back
+// 三段硬变焦（ダダダン），每段焦点略偏，最后弹回
     fx('zoomStutter', {
         name: 'ズーム連打',
         tags: ['pop', 'graphic', 'glitch'],
@@ -1067,8 +1058,7 @@
         }
     });
 
-    /* ================= graphic inversions / stylise ================= */
-// an inverted ring (circle or diamond) bursts out from the centre, a thinner echo ring follows
+// 反转环（圆或菱形）从中心爆出，随后一圈更细的回声环
     fx('negativeRing', {
         name: '反転リング', tags: ['graphic', 'pop', 'glitch'], w: 0.8, dur: 6, amp: 1, mid: true, ae: 'invert',
         draw(ctx, ev, k, I) {
@@ -1103,7 +1093,7 @@
         }
     });
 
-// edge detection: |frame - shifted frame| → neon outlines on dark schemes, ink line drawing on light ones
+// 边缘检测：|帧-偏移帧| → 暗底霓虹描边、亮底墨线画
     const invHex = h => {
         const [r, g, b] = J.hex(h);
         return J.toHex(255 - r, 255 - g, 255 - b);
@@ -1133,7 +1123,7 @@
             x.fillStyle = '#808080';
             x.fillRect(0, 0, w, h);
             const T2 = buf(1, w, h), y = cx2(T2);
-            // noise floor: color-burn with a light grey = max(0, (v - 0.07) / 0.93) removes dithered-gradient steps; then gain ×4
+            // 噪底：浅灰 color-burn 即 max(0,(v-0.07)/0.93)，去掉抖动渐变的台阶；之后增益 ×4
             y.globalCompositeOperation = 'copy';
             y.drawImage(T, 0, 0);
             y.globalCompositeOperation = 'color-burn';
@@ -1143,7 +1133,7 @@
             y.drawImage(T2, 0, 0);
             y.drawImage(T2, 0, 0);
             const edge = dk ? J.mix(vivid(sc), '#ffffff', 0.45) : darkest([sc.fg, sc.ink, '#111111']);
-            // colour the edge map at half resolution, then one upscale: neon lines on a darkened ground / ink lines on the paper colour
+            // 半分辨率上色后一次放大：暗底压暗衬托霓虹线 / 亮底纸色上的墨线
             y.globalCompositeOperation = 'multiply';
             y.fillStyle = dk ? edge : invHex(edge);
             y.fillRect(0, 0, w, h);
@@ -1164,7 +1154,7 @@
         }
     });
 
-// glass shatter: cracks appear on the old frame, the new frame arrives in shards that drift apart and knit back together
+// 玻璃碎裂：旧帧先出裂纹，新帧以碎片漂离再拼回
     fx('shatter', {
         name: 'ガラス割れ',
         tags: ['glitch', 'pop', 'emotional'],
@@ -1233,7 +1223,7 @@
                 }
                 ctx.stroke();
             }
-            if (k < b * 1.5) {   // impact flash
+            if (k < b * 1.5) { // 撞击闪光
                 const f = 1 - k / (b * 1.5), g = ctx.createRadialGradient(px, py, 0, px, py, M * 0.25);
                 g.addColorStop(0, `rgba(255,255,255,${(0.85 * f).toFixed(3)})`);
                 g.addColorStop(1, 'rgba(255,255,255,0)');
@@ -1244,7 +1234,7 @@
         }
     });
 
-// rack focus: the picture drops out of focus (peak at the cut) and snaps back
+// 变焦虚焦：画面在切点失焦到峰值，再拉回
     fx('defocus', {
         name: 'ピンぼけ',
         tags: ['emotional', 'calm', 'editorial'],
@@ -1278,7 +1268,7 @@
         }
     });
 
-// camera shutter: white flash, the frame becomes a tilted instant photo on a dimmed backdrop, then zooms back
+// 快门：白闪，画面变成暗底上斜置的拍立得，再变焦回位
     fx('snapshot', {
         name: 'シャッター',
         tags: ['pop', 'emotional', 'editorial'],
@@ -1316,7 +1306,7 @@
         }
     });
 
-// elastic squash & stretch of the whole frame (damped spring)
+// 整帧的弹性挤压拉伸（阻尼弹簧）
     fx('squash', {
         name: '伸縮', tags: ['pop', 'graphic'], w: 0.8, dur: 6, amp: 1, mid: true, scratch: true, ae: 'zoom',
         draw(ctx, ev, k, I) {
@@ -1333,7 +1323,7 @@
         }
     });
 
-// scanner: a glowing bar sweeps the frame; what it has not reached yet is dimmed, rows just behind it jitter
+// 扫描：发光条扫过画面，未扫到的部分压暗，条后沿的行抖动
     fx('scanBar', {
         name: 'スキャン',
         tags: ['graphic', 'editorial', 'glitch'],
@@ -1373,7 +1363,7 @@
         }
     });
 
-// the whole frame scrolls one full width (wrapping round) with motion blur — ends exactly where it started
+// 整帧滚动一整屏宽（回绕）带运动模糊，终点恰为起点
     fx('loopScroll', {
         name: '横ループ',
         tags: ['pop', 'graphic', 'glitch'],

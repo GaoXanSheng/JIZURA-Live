@@ -1,7 +1,7 @@
-/* AI 代理（MCP）桥：页面内实现 MCP 协议语义与 17 个 jizura_* 工具。
-   C# 的 /mcp 端点把 JSON-RPC 原样桥进 window.J.mcp.rpc()（EvaluateScriptAsync），
-   因此工具定义/校验/执行的唯一事实源在这里；C# 只负责端点、鉴权与 UI 线程分发。
-   工具名与上游 JIZURA PR38 同名同语义，代理提示词可通用。 */
+// AI 代理（MCP）桥：页面内实现 MCP 协议语义与 17 个 jizura_* 工具。
+// C# 的 /mcp 端点把 JSON-RPC 原样桥进 window.J.mcp.rpc()（EvaluateScriptAsync），
+// 工具定义/校验/执行的唯一事实源在这里，C# 只管端点、鉴权与 UI 线程分发。
+// 工具名与上游 JIZURA PR38 同名同语义，代理提示词可通用。
 import {J} from '../engine';
 import {AP, S} from './state';
 import {bus} from './bus';
@@ -51,8 +51,6 @@ const lineIdx = (n: number) => {
     check(Number.isInteger(n) && n >= 1 && n <= S.plan.lines.length, '行不存在：' + n);
     return n - 1;
 };
-
-/* ---------- 工具实现 ---------- */
 
 function toolGetState(a: any) {
     const detail = a.detail !== false;
@@ -344,8 +342,6 @@ function toolReset() {
     return {status: 'needs_user_action', nextAction: '在应用里确认「初始化」对话框（工具不会绕过确认）'};
 }
 
-/* ---------- 工具注册表 ---------- */
-
 const T = (name: string, description: string, inputSchema: any, run: (a: any) => any, readOnly = false): McpTool => ({
     name,
     description,
@@ -498,14 +494,13 @@ const TOOLS: McpTool[] = [
     T('reset_project', '打开不可逆的「初始化」确认框（工具不会绕过确认，需用户在界面确认）', obj(), toolReset),
 ];
 
-/* ---------- 协议语义（MCP Streamable HTTP, stateless） ---------- */
-
+// MCP Streamable HTTP（stateless）协议语义
 function execTool(t: McpTool, a: any) {
     check(J.ui && S.project && S.plan, '编辑器尚未初始化');
     check(!S.exporting, '导出进行中，请稍后再试');
-    // revision 契约执行：提示词与 inputSchema 声明了「写操作带最新 revision」，
-    // 但此前从未校验——代理的乱序/并发写会静默互相覆盖。
-    // schema 里 revision 必填的工具缺参即拒；任何带 revision 的调用与当前值不符即拒
+    // revision 契约：提示词与 inputSchema 都声明写操作要带最新 revision，
+    // 这里负责真的校验，否则代理的乱序/并发写会静默互相覆盖。
+    // schema 里 revision 必填的工具缺参即拒；带 revision 但与当前值不符即拒
     if (!t.readOnly) {
         const required = t.inputSchema && (t.inputSchema.required as string[] | undefined);
         if (required && required.includes('revision') && (a == null || typeof a.revision !== 'number'))
@@ -560,8 +555,7 @@ export function mcpRpc(body: any) {
     }
 }
 
-/* ---------- 提示词（复制给 AI 代理） ---------- */
-
+// 提示词（复制给 AI 代理）
 function promptText() {
     const tools = TOOLS.map(t => '- ' + t.name + '：' + t.description).join('\n');
     return [
@@ -587,7 +581,6 @@ function promptText() {
     ].join('\n');
 }
 
-/* ---------- 暴露 ---------- */
 (window as any).J = (window as any).J || {};
 (window as any).J.mcp = {
     status: 'ready',

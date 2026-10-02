@@ -1,4 +1,4 @@
-/* JIZURA pack: typo (part 2) — typographic entrances, exits and holds: key glyph first, line wipes with rules, ruby, brackets, retyping, indices */
+// typo 手法包第 2 部分：排版风的入场/持续/退场
 (() => {
     'use strict';
     const E = J.E;
@@ -8,7 +8,6 @@
     const HIDE = Object.freeze({hide: true});
     const clamp = J.clamp, lerp = J.lerp, DEG = J.DEG;
 
-    /* ------------------------------------------------------------------ helpers */
     const isSp = c => c === ' ' || c === '　';
     const layOf = it => (it._m || (it._m = J.measure(it))).lay;
     const motionK = env => J.clamp((env.fx && env.fx.motion != null ? env.fx.motion : 0.7) / 0.7, 0, 1.6);
@@ -30,7 +29,7 @@
         } : fn;
     }
 
-    /* reading order 0..1 of every glyph (spaces skipped); single-glyph items use their mi within the cut */
+    // 每个 glyph 的阅读顺序 0..1（空格跳过）；单字 item 用它在 cut 内的 mi
     function orders(env, it) {
         const lay = layOf(it), out = new Array(lay.N).fill(0);
         const idx = [];
@@ -50,7 +49,7 @@
         return out;
     }
 
-    /* key glyph (first kanji of the longest kanji run, else first plain glyph) → layout index */
+    // 关键字：最长汉字串的首字，否则第一个普通字形 → layout 下标
     function keyOf(lay) {
         let best = -1, bl = 0;
         for (let i = 0; i < lay.length; i++) {
@@ -64,7 +63,7 @@
             i = j;
         }
         if (best >= 0) return lay[best].i;
-        // latin: first letter of the longest word
+        // 拉丁：最长单词的首字母
         let wb = -1, wl = 0;
         for (let i = 0; i < lay.length; i++) {
             if (!/[A-Za-z0-9]/.test(lay[i].ch)) continue;
@@ -81,7 +80,7 @@
         return lay.length ? lay[0].i : 0;
     }
 
-    /* per text line (vertical: per column): extents along the reading axis + cross position, in item-local units (sx/sy applied) */
+    // 每行（竖排则每列）沿阅读轴的范围 + 横向位置，item 本地单位（已乘 sx/sy）
     function lineInfo(it) {
         const lay = layOf(it), sx = it.sx || 1, sy = it.sy || 1, map = new Map();
         for (const g of lay) {
@@ -98,7 +97,7 @@
         return [...map.values()].sort((a, b) => a.li - b.li);
     }
 
-    /* run fn in item-local space (translate + rotation), main pass only */
+    // 在 item 本地空间（平移+旋转）里跑 fn，只在 main pass
     const inItem = (env, it, fn) => {
         if (env.pass !== 'main') return;
         const ctx = env.ctx;
@@ -111,15 +110,14 @@
             ctx.restore();
         }
     };
-    /* item box in design space (unrotated) */
+    // item 在设计空间的盒子（未旋转）
     const boxOf = it => {
         it._m = J.measure(it);
         return J.itemBox(it);
     };
 
-    /* ================================================================== ENTRANCES */
 
-    /* キー字先行 — the key glyph lands first (big → size), the rest slide out from behind it */
+    // キー字先行：关键字先落位（大→正常），其余从它背后滑出
     reg('enter', 'tyKeyFirst', {
         name: 'キー字先行', tags: ['pop', 'graphic', 'editorial', 'emotional'], ae: 'pop', w: 1,
         apply(env, it, p) {
@@ -149,7 +147,7 @@
         },
     });
 
-    /* 行送りワイプ — each line is wiped on in turn, an accent rule running ahead under it */
+    // 行送りワイプ：逐行擦入，accent 细线在行前跑
     reg('enter', 'tyLineWipe', {
         name: '行送りワイプ', tags: ['editorial', 'graphic', 'calm'], ae: 'wipe', w: 1,
         apply(env, it, p) {
@@ -187,7 +185,7 @@
         },
     });
 
-    /* 一字ずつ拡大 — glyphs are flashed one at a time, large in the middle, then set into their slot */
+    // 一字ずつ拡大：逐字在中央放大闪现，再落到各自位置
     reg('enter', 'tyZoomOne', {
         name: '一字ずつ拡大', tags: ['pop', 'graphic', 'emotional'], ae: 'zoom', w: 0.8, minDur: 1.0,
         inDur: (dur, n) => J.clamp(0.14 * n + 0.2, 0.4, Math.min(1.5, dur * 0.55)),
@@ -225,7 +223,7 @@
         },
     });
 
-    /* 下線から立つ — an underline is drawn, the glyphs grow up out of it, the line then retracts */
+    // 下線から立つ：先画下划线，字从线上长出来，最后线收回
     reg('enter', 'tyUnderLift', {
         name: '下線から立つ', tags: ['editorial', 'graphic', 'pop'], ae: 'stretch', w: 1,
         apply(env, it, p) {
@@ -251,7 +249,7 @@
         },
     });
 
-    /* 点から字 — every glyph starts as a middle dot (・) that pops and turns into the glyph */
+    // 点から字：每字先以中黑点（・）弹出，再变成字形
     reg('enter', 'tyDotGrow', {
         name: '点から字', tags: ['pop', 'calm', 'graphic'], ae: 'pop', w: 0.9,
         apply(env, it, p) {
@@ -266,7 +264,7 @@
         },
     });
 
-    /* 括弧が開く — 「 」 start together in the middle and slide apart, revealing the line between them */
+    // 括弧が開く：「 」从中间一起出现再向两侧滑开，露出中间的句子
     const drawBrackets = (e, V, cx, cy, half, w, h, size, col, a) => {
         if (a <= 0.01) return;
         const g = size * 0.18, L = Math.max(size * 0.28, (V ? w : h) * 0.3), lw = Math.max(2, size * 0.055);
@@ -295,7 +293,7 @@
         },
     });
 
-    /* 打ち直し — typed in with a cursor; one glyph is mistyped, deleted and typed again */
+    // 打ち直し：带光标打字；打错一个字，删除重打
     reg('enter', 'tyRetype', {
         name: '打ち直し', tags: ['editorial', 'glitch', 'emotional'], ae: 'type', w: 0.8, minDur: 1.0, cursor: true,
         inDur: (dur, n) => J.clamp(0.1 * n + 0.4, 0.45, Math.min(1.5, dur * 0.55)),
@@ -330,7 +328,7 @@
         },
     });
 
-    /* ルビから — each glyph appears small in the ruby position above its slot, then drops and grows into place */
+    // ルビから：每字先以小字出现在注音位，再落下来长到位
     reg('enter', 'tyRubyDrop', {
         name: 'ルビから', tags: ['calm', 'editorial', 'emotional'], ae: 'drop', w: 1,
         apply(env, it, p) {
@@ -352,9 +350,8 @@
         },
     });
 
-    /* ================================================================== EXITS */
 
-    /* 線で消す — a strike line is drawn through each line, the glyphs collapse onto it, then the line retracts */
+    // 線で消す：每行画一条删除线，字向线塌缩，然后线收回
     reg('exit', 'tyStrike', {
         name: '線で消す', tags: ['editorial', 'graphic', 'emotional'], ae: 'wipe', w: 1,
         apply(env, it, p) {
@@ -381,7 +378,7 @@
         },
     });
 
-    /* 点に戻る — glyphs shrink into middle dots (・), which then wink out */
+    // 点に戻る：字缩成中黑点（・），再眨掉
     reg('exit', 'tyToDot', {
         name: '点に戻る', tags: ['calm', 'pop', 'graphic'], ae: 'shrink', w: 0.9,
         apply(env, it, p) {
@@ -397,7 +394,7 @@
         },
     });
 
-    /* 改行送り — the text line-feeds upward in three steps and leaves through a window */
+    // 改行送り：整行分三步向上换行，从窗口里离开
     reg('exit', 'tyLineFeed', {
         name: '改行送り', tags: ['editorial', 'calm', 'graphic'], ae: 'wipe', w: 1,
         apply(env, it, p) {
@@ -416,7 +413,7 @@
         },
     });
 
-    /* 括弧閉じ — 「 」 appear at the ends and close in to the middle, taking the line with them */
+    // 括弧閉じ：「 」出现在两端向中间合拢，把句子带走
     reg('exit', 'tyBracketClose', {
         name: '括弧閉じ', tags: ['editorial', 'graphic', 'pop'], ae: 'wipe', w: 0.9,
         apply(env, it, p) {
@@ -433,7 +430,7 @@
         },
     });
 
-    /* 番号に変わる — each glyph turns into its small index number, then the numbers fade */
+    // 番号に変わる：每字变成自己的小序号，序号再淡出
     reg('exit', 'tyToIndex', {
         name: '番号に変わる', tags: ['editorial', 'glitch', 'graphic'], ae: 'scatter', w: 0.8,
         apply(env, it, p) {
@@ -456,7 +453,7 @@
         },
     });
 
-    /* 一字残し — everything folds into the key glyph, which then swells and fades */
+    // 一字残し：全部折进关键字，关键字胀大后淡出
     reg('exit', 'tyKeyLast', {
         name: '一字残し', tags: ['emotional', 'pop', 'graphic'], ae: 'shrink', w: 0.9,
         apply(env, it, p) {
@@ -467,7 +464,7 @@
             let md = 1;
             for (const g of plain) md = Math.max(md, Math.abs(g.i - ki));
             if (plain.length <= 1 && cutN(env) > 1) {
-                // per-glyph layouts: only the cut's first kanji stays, the others simply shrink away
+                // 单字布局：只留 cut 的首个汉字，其余直接缩没
                 const keep = J.isKanji((plain[0] || {}).ch || '') && (J.h(env.cut.seed | 0, Math.round(+it.mi || 0), 5) % 2 === 0);
                 it.charFns.push(() => {
                     if (!keep) {
@@ -493,7 +490,7 @@
         },
     });
 
-    /* 下線へ沈む — an underline is drawn, each glyph sinks into it (masked at the line), then the line retracts */
+    // 下線へ沈む：画下划线，每字沉进线里（按行遮罩），线再收回
     reg('exit', 'tyUnderSink', {
         name: '下線へ沈む', tags: ['editorial', 'calm', 'graphic'], ae: 'fall', w: 1,
         apply(env, it, p) {
@@ -518,7 +515,7 @@
         },
     });
 
-    /* 縦組に折れる — a horizontal line folds down into a vertical column (a column folds into a row), then fades */
+    // 縦組に折れる：横排折成竖列（竖排折成横排），再淡出
     reg('exit', 'tyFoldVert', {
         name: '縦組に折れる', tags: ['graphic', 'editorial', 'pop'], ae: 'fall', w: 0.9,
         apply(env, it, p) {
@@ -554,9 +551,8 @@
         },
     });
 
-    /* ================================================================== HOLDS */
 
-    /* 一字の鼓動 — only the key glyph pulses (on the beat when there is one) */
+    // 一字の鼓動：只有关键字脉动（有节拍就踩拍）
     reg('hold', 'tyKeyPulse', {
         name: '一字の鼓動', tags: ['emotional', 'pop', 'calm'], ae: 'breathe', w: 1,
         apply(env, it, amt) {
@@ -576,7 +572,7 @@
         },
     });
 
-    /* 読み送り — a reading cursor steps along the line: the current glyph lifts a little in the accent colour */
+    // 読み送り：阅读光标沿线步进，当前字以 accent 色微微抬起
     reg('hold', 'tyReadCursor', {
         name: '読み送り', tags: ['calm', 'editorial', 'pop'], ae: 'wave', w: 1,
         apply(env, it, amt) {
@@ -599,7 +595,7 @@
         },
     });
 
-    /* 白抜き明滅 — now and then one glyph switches to outline only for a moment */
+    // 白抜き明滅：偶尔一个字短暂切成只描边
     reg('hold', 'tyOutlineBlink', {
         name: '白抜き明滅', tags: ['glitch', 'graphic', 'pop'], ae: 'glitchtick', w: 0.9,
         apply(env, it, amt) {
@@ -613,7 +609,7 @@
         },
     });
 
-    /* 字間ステップ — letter spacing snaps between a few set values (on the beat), like a typographer trying options */
+    // 字間ステップ：字距在几个档位间跳变（踩拍），像排版员在试方案
     reg('hold', 'tyTrackStep', {
         name: '字間ステップ', tags: ['graphic', 'editorial', 'pop'], ae: 'breathe', w: 0.8,
         apply(env, it, amt) {

@@ -1,4 +1,4 @@
-/* JIZURA pack: typo (part 1) — 文字PV typography layouts: key glyphs, crossings, rules, grids, scale contrast, crops, annotation */
+// typo 第 1 包：文字 PV 版式（关键字、十字、罫线、网格、字号对比、裁切、注记）
 (() => {
     'use strict';
     const E = J.E;
@@ -6,9 +6,8 @@
     const SET = 'typo';
     const reg = (key, def) => J.register('layout', key, Object.assign({set: SET}, def), P);
 
-    /* ------------------------------------------------------------------ helpers */
     const clean = t => String(t || '').replace(/\s+/g, '');
-    /* glyph slots keeping single word gaps (latin lyrics) */
+    // 逐字槽位：拉丁歌词保留单词间的单个空格
     const slotsOf = t => [...String(t || '').trim().replace(/[\s　]+/g, ' ')];
     const isSp = c => c === ' ' || c === '　';
     const fontsOf = (st, roles) => J.fontsOf(st, roles);
@@ -26,7 +25,7 @@
         const r = J.romaji(c);
         return r ? r.toUpperCase() : null;
     };
-    /* J.splitLines, but never leave a line of punctuation only */
+    // J.splitLines 的变体：不允许某行只剩标点
     const splitL = (t, per) => {
         const ls = J.splitLines(t, Math.max(1, per)).split('\n');
         const out = [];
@@ -35,14 +34,14 @@
         }
         return out.join('\n');
     };
-    /* main-text lines for a width budget: portrait → short lines */
+    // 主文本折行：竖屏行更短
     const mainLines = (text, W, H, perL = 11, perP = 5) => {
         const t = String(text || '').trim(), n = J.glyphCount(t);
         const per = W < H ? perP : perL;
         if (n <= per) return t;
         return splitL(t, Math.ceil(n / Math.ceil(n / per)));
     };
-    /* glyph centres of a laid-out text item (design space, before rotation) */
+    // 排好版的字形中心，设计空间、未含旋转
     const glyphPts = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, out = [];
         for (const g of lay) {
@@ -60,7 +59,7 @@
         }
         return out;
     };
-    /* index of the "key" glyph: first kanji of the longest kanji run, else the first plain glyph */
+    // 关键字下标：最长汉字连串的首字，没有就取第一个普通字
     const keyIndex = (arr, mode) => {
         const ok = c => c && !isSp(c) && !J.isPunct(c) && !J.isSmallKana(c);
         if (mode === 'mid') {
@@ -85,7 +84,7 @@
         for (let i = 0; i < arr.length; i++) if (ok(arr[i])) return i;
         return 0;
     };
-    /* best-contrast scheme colour for text on a plate */
+    // 底板上对比最好的方案文字色
     const onCol = (sc, fill) => {
         let best = null, bv = 0;
         for (const c of [sc.bg, sc.fg, sc.ink, sc.accent, sc.sub]) {
@@ -103,7 +102,7 @@
         return sc.fg;
     };
     const accentOn = (sc) => (J.contrast(sc.accent, sc.bg) >= 1.8 ? sc.accent : sc.fg);
-    /* small annotation label (main pass only) */
+    // 小注记标签（只走主通道）
     const label = (env, text, x, y, o = {}) => env.draw(Object.assign({
         text: String(text),
         font: o.font || monoF(env),
@@ -119,7 +118,6 @@
     const isLatinT = t => /[A-Za-z]/.test(t) && !/[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]/.test(t);
     const labelSize = env => J.clamp(Math.min(env.W, env.H) * 0.018, 11, 22);
 
-    /* ================================================================== 1 tyKeySplit — 大字挟み */
     reg('tyKeySplit', {
         name: '大字挟み',
         tags: ['editorial', 'graphic', 'emotional'],
@@ -142,7 +140,7 @@
             const arr = slotsOf(cut.text);
             let ki = keyIndex(arr, Pm.mode), key = arr[ki] || '?';
             let before = arr.slice(0, ki).join('').trim(), after = arr.slice(ki + 1).join('').trim();
-            if (isLatinT(cut.text)) {             // latin: the longest word is the key
+            if (isLatinT(cut.text)) { // 拉丁文：最长的词当关键字
                 const ws = String(cut.text).trim().split(/\s+/);
                 let wi = 0;
                 ws.forEach((w, i) => {
@@ -225,7 +223,7 @@
                 }, o);
             }
             const out = outK(env), lw = hair(env);
-            // hairlines linking the small blocks to the key glyph
+            // 细线把两侧小块连到关键字上
             if (Pm.rule) {
                 const e = E.outCubic(J.clamp((lt - 0.2) / 0.6)) * out;
                 if (e > 0 && itB) {
@@ -266,7 +264,6 @@
         },
     });
 
-    /* ================================================================== 2 tyCropGiant — 見切れ大文字 */
     reg('tyCropGiant', {
         name: '見切れ大文字', tags: ['graphic', 'editorial', 'pop'], ae: 'huge', w: 1, fits: n => n >= 1 && n <= 14,
         plan(rng, cut, st) {
@@ -283,8 +280,8 @@
             const port = W < H, txt = String(cut.text).trim();
             const u = J.clamp(lt / Math.max(0.5, cut.dur));
             const inG = E.outCubic(J.clamp(lt / 0.8)), outG = E.inCubic(env.pOut);
-            const lowEdge = Pm.edge === 'a';        // landscape: bottom edge / portrait: right edge
-            // the giant copy, cropped by the frame edge
+            const lowEdge = Pm.edge === 'a'; // 横屏走下缘，竖屏走右缘
+            // 被画框裁掉一截的巨型副本
             const gi = {text: port ? clean(txt) : txt, font: Pm.font, ghost: false, alpha: 1};
             if (!port) {
                 const G = H * 0.66;
@@ -311,7 +308,7 @@
             });
             else gi.color = J.mix(sc.bg, sc.fg, 0.16);
             env.draw(gi);
-            // the readable lyric on the free side
+            // 空白侧的可读歌词
             const mt = mainLines(txt, W, H, 10, 6);
             const o = {lead: 1.18, track: 0.03};
             let it;
@@ -351,7 +348,6 @@
         },
     });
 
-    /* ================================================================== 3 tyCross — 十字組 */
     reg('tyCross', {
         name: '十字組', tags: ['graphic', 'editorial'], ae: 'vcols', w: 0.9, fits: n => n >= 3 && n <= 11,
         plan(rng, cut, st) {
@@ -439,7 +435,6 @@
         },
     });
 
-    /* ================================================================== 4 tyBandHide — 帯隠れ */
     reg('tyBandHide', {
         name: '帯隠れ', tags: ['graphic', 'pop', 'editorial'], ae: 'diag', w: 1, fits: n => n >= 1 && n <= 14,
         plan(rng, cut, st) {
@@ -508,7 +503,6 @@
         },
     });
 
-    /* ================================================================== 5 tyRuby — ルビ振り */
     reg('tyRuby', {
         name: 'ルビ振り', tags: ['editorial', 'calm', 'emotional'], ae: 'gloss', w: 1, fits: n => n >= 1 && n <= 14,
         plan(rng, cut, st) {
@@ -567,7 +561,6 @@
         },
     });
 
-    /* ================================================================== 6 tyBaseline — 罫線組 */
     reg('tyBaseline', {
         name: '罫線組', tags: ['editorial', 'calm', 'graphic'], ae: 'type', w: 1.1, fits: n => n >= 2 && n <= 18,
         plan(rng, cut, st) {
@@ -592,7 +585,7 @@
             for (const l of lines) size = Math.min(size, J.fitSize(l, Pm.font, port ? W * 0.76 : W * 0.74, 1e6, {track: 0.04}));
             const x0 = port ? W * 0.16 : W * 0.14, mx = W * 0.06, out = outK(env), lw = hair(env), mono = monoF(env),
                 ls = labelSize(env);
-            // key glyph (for the accent mark on its baseline)
+            // 关键字（基线上要打 accent 记号）
             const all = lines.join(''), arr = [...all];
             const ki = keyIndex(arr, 'kanji');
             let kEnd = ki;
@@ -640,7 +633,6 @@
         },
     });
 
-    /* ================================================================== 7 tyScaleSteps — 級数上げ */
     reg('tyScaleSteps', {
         name: '級数上げ', tags: ['graphic', 'editorial', 'pop'], ae: 'mixed', w: 1, fits: n => n >= 2 && n <= 16,
         plan(rng, cut, st) {
@@ -750,7 +742,6 @@
         },
     });
 
-    /* ================================================================== 8 tyJustify — 幅揃え */
     const groupLines = (units, L) => {
         const lens = units.map(u => J.glyphCount(u)), tot = lens.reduce((a, b) => a + b, 0), out = [];
         let cur = '', cl = 0, acc = 0;
@@ -834,7 +825,6 @@
         },
     });
 
-    /* ================================================================== 9 tyIndexTable — 一覧表 */
     reg('tyIndexTable', {
         name: '一覧表',
         tags: ['editorial', 'graphic', 'calm'],
@@ -901,7 +891,6 @@
         },
     });
 
-    /* ================================================================== 10 tySplitType — 断ち割り */
     reg('tySplitType', {
         name: '断ち割り', tags: ['graphic', 'glitch', 'pop'], ae: 'center', w: 1, fits: n => n >= 1 && n <= 14,
         plan(rng, cut, st) {
@@ -958,7 +947,6 @@
         },
     });
 
-    /* ================================================================== 11 tyErode — 削り反復 */
     reg('tyErode', {
         name: '削り反復',
         tags: ['emotional', 'editorial', 'calm'],
@@ -1012,7 +1000,6 @@
         },
     });
 
-    /* ================================================================== 12 tyVRuler — 縦目盛り */
     reg('tyVRuler', {
         name: '縦目盛り',
         tags: ['editorial', 'calm', 'graphic'],
@@ -1065,7 +1052,7 @@
                     align: Pm.side > 0 ? 'left' : 'right'
                 });
             });
-            // playhead
+            // 播放头
             const u = J.clamp(lt / Math.max(0.3, cut.dur * 0.92));
             const py = J.lerp(gl[0].y, gl[n - 1].y, u), ts = fs * 0.7, ac = accentOn(sc);
             env.poly([[rx - Pm.side * 2, py], [rx - Pm.side * (ts * 1.4), py - ts], [rx - Pm.side * (ts * 1.4), py + ts]], ac, e, false);
@@ -1073,7 +1060,6 @@
         },
     });
 
-    /* ================================================================== 13 tyFullTrack — 全幅字送り */
     reg('tyFullTrack', {
         name: '全幅字送り', tags: ['editorial', 'calm', 'graphic'], ae: 'center', w: 1, fits: n => n >= 3 && n <= 14,
         plan(rng, cut, st) {
@@ -1142,7 +1128,6 @@
         },
     });
 
-    /* ================================================================== 14 tyStatCount — 字数表示 */
     reg('tyStatCount', {
         name: '字数表示', tags: ['editorial', 'graphic'], ae: 'type', w: 0.8, fits: n => n >= 1 && n <= 16,
         plan(rng, cut, st) {
@@ -1223,7 +1208,6 @@
         },
     });
 
-    /* ================================================================== 15 tyMargin — 余白 */
     reg('tyMargin', {
         name: '余白',
         tags: ['calm', 'editorial', 'emotional'],
@@ -1289,7 +1273,6 @@
         },
     });
 
-    /* ================================================================== 16 tyRotBlock — 回転ブロック */
     reg('tyRotBlock', {
         name: '回転ブロック', tags: ['graphic', 'pop', 'editorial'], ae: 'sideways', w: 1, fits: n => n >= 4 && n <= 16,
         plan(rng, cut, st) {
@@ -1314,7 +1297,7 @@
             while (cutAt < n - 1 && (J.isSmallKana(arr[cutAt]) || J.isPunct(arr[cutAt]))) cutAt++;
             let A = arr.slice(0, cutAt).join('').trim() || arr[0], B = arr.slice(cutAt).join('').trim() || arr[n - 1];
             let labelA = false;
-            if (isLatinT(cut.text)) {             // latin: split at a word gap; one word → the rotated block is a small line label
+            if (isLatinT(cut.text)) { // 拉丁文：在词间空格处切；只有一个词时旋转块退化为行号小标签
                 const t = String(cut.text).trim(), sp = t.indexOf(' ');
                 if (sp > 0) {
                     A = t.slice(0, sp);
@@ -1387,7 +1370,6 @@
         },
     });
 
-    /* ================================================================== 17 tySquare — 方形組 */
     reg('tySquare', {
         name: '方形組', tags: ['graphic', 'editorial', 'pop'], ae: 'gridCells', w: 1, fits: n => n >= 3 && n <= 16,
         plan(rng, cut, st) {
@@ -1453,7 +1435,6 @@
         },
     });
 
-    /* ================================================================== 18 tyLineFocus — 行中強調 */
     reg('tyLineFocus', {
         name: '行中強調', tags: ['editorial', 'emotional', 'calm'], ae: 'center', w: 1, fits: n => n >= 1 && n <= 16,
         plan(rng, cut, st) {

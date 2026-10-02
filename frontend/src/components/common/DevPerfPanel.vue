@@ -1,13 +1,11 @@
 <script lang="ts" setup>
-/* 渲染调试面板（Ctrl+Alt+D 呼出）：折叠图标条（FPS）+ 展开弹窗（帧与主线程）。
-   EditorPage 常挂载，内部按 devUi.open 显隐；采集器启停逻辑在 jizura/devui/index.ts。 */
+// EditorPage 常挂载，按 devUi.open 显隐；采集器启停在 jizura/devui/index.ts
 import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
 import {devUi, toggleDevUi} from '../../jizura/devui';
 import {type FrameSnapshot, framesSnapshot} from '../../jizura/devui/frames';
 
 const data = ref<FrameSnapshot | null>(null);
 
-/* ---- 自由拖拽：折叠条整体 / 展开面板标题栏可拖，位置记忆 ---- */
 const POS_LS = 'jizura.devui.pos';
 const rootEl = ref<HTMLElement | null>(null);
 const pos = ref<{ x: number; y: number } | null>(readPos());
@@ -18,7 +16,7 @@ function readPos(): { x: number; y: number } | null {
   try {
     const j = JSON.parse(localStorage.getItem(POS_LS) || 'null');
     if (j && Number.isFinite(j.x) && Number.isFinite(j.y)) return j;
-  } catch { /* 损坏则回退默认位置 */
+  } catch { // 损坏就回退默认位置
   }
   return null;
 }
@@ -36,7 +34,7 @@ function onDragStart(e: MouseEvent) {
   const el = rootEl.value;
   if (!el) return;
   const r = el.getBoundingClientRect();
-  pos.value = {x: r.left, y: r.top};       // 由默认 right 定位切换为 left/top
+  pos.value = {x: r.left, y: r.top};       // 默认是 right 定位，拖起来切成 left/top
   dragOff = {x: e.clientX - r.left, y: e.clientY - r.top};
   didDrag = false;
   window.addEventListener('mousemove', onDragMove);
@@ -61,7 +59,7 @@ function onDragEnd() {
   }
 }
 
-/* 折叠条：拖拽结束时不算点击（避免拖完顺手展开） */
+// 折叠条拖完不算点击，免得顺手展开
 function pillClick() {
   if (!didDrag) devUi.expanded = true;
 }
@@ -77,12 +75,11 @@ function tick() {
 
 onMounted(() => {
   tick();
-  if (pos.value) pos.value = clampPos(pos.value);   // 记忆位置可能因窗口变小越界
+  if (pos.value) pos.value = clampPos(pos.value);   // 记忆的位置可能因窗口变小越界
   timer = window.setInterval(tick, 500);
 });
 onUnmounted(() => window.clearInterval(timer));
 
-/* ---- sparkline ---- */
 const spark = ref<HTMLCanvasElement | null>(null);
 
 function drawSpark() {
@@ -114,7 +111,6 @@ function drawSpark() {
 
 watch(data, () => requestAnimationFrame(drawSpark));
 
-/* ---- 展示格式化 ---- */
 const n1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : '—');
 const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 40 ? 'text-amber' : 'text-danger');
 </script>
@@ -124,7 +120,6 @@ const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 4
     <div v-if="devUi.open" ref="rootEl"
          :style="posStyle"
          class="fixed top-2 right-2 z-[6000] font-mono text-[10px] leading-[1.6] text-left select-none">
-      <!-- 折叠图标条 -->
       <div v-if="!devUi.expanded"
            class="flex items-center gap-2.5 bg-ink/90 border border-line2 rounded-md px-2.5 py-1.5 shadow-pop cursor-move"
            title="渲染调试面板 — 点击展开 / 拖拽移动（Ctrl+Alt+D 开关）"
@@ -135,7 +130,6 @@ const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 4
               @click.stop="toggleDevUi(false)">×</span>
       </div>
 
-      <!-- 展开面板 -->
       <div v-else
            class="w-[300px] max-h-[calc(100vh-1rem)] overflow-y-auto bg-ink/95 border border-line2 rounded-md shadow-modal">
         <div
@@ -149,7 +143,6 @@ const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 4
           </span>
         </div>
 
-        <!-- 帧与主线程 -->
         <div class="px-2.5 py-2">
           <div class="text-mut mb-1">帧与主线程</div>
           <canvas ref="spark" class="w-full mb-1" height="30" width="270"></canvas>

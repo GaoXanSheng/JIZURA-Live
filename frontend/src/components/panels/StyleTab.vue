@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-/* 风格 tab：风格网格（canvas 缩略图）、字体角色、自定义配色 */
 import {nextTick, onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -198,7 +197,7 @@ onMounted(async () => {
   offs.push(bus.on('fonts', () => {
     rebuildStyles();
   }));
-  await nextTick();          // v-for 的 canvas 要等 DOM flush 后才存在，同步画会扑空
+  await nextTick();          // v-for 的 canvas 要等 DOM flush 才存在，同步画会扑空
   onSyncUi();
   loadThumbFonts();
 });

@@ -1,11 +1,3 @@
-/* ============================================================
-   JIZURA — lyric language: auto-detection + per-language faces
-   The styles are designed around Japanese fonts. For Chinese
-   (Traditional / Simplified) and Korean lyrics every font key is
-   drawn with a face that has the glyphs, chosen to keep the same
-   character (gothic → sans, mincho → serif, pop → rounded, …).
-   project.lang: 'auto' | 'ja' | 'zh-Hant' | 'zh-Hans' | 'ko'
-   ============================================================ */
 (() => {
     'use strict';
 
@@ -18,14 +10,13 @@
         en: 'English'
     };
 
-    /* characters that differ between Traditional and Simplified Chinese (same order in both strings) */
+    // 繁简对照字，两个字符串逐字同序
     const TC = '們個說這會對時來還後過國開關與為從問間見長東車門愛聽學讓話號發點無現體經電實樣聲變離氣夢給覺當歡陽戀邊頭淚誰歲遠嗎萬難寫應讀憶樂麼麗傷將總結終紅綠線顏風飛鳥謝語請認識熱燈願獨夠紀帶滿靜輕別腦臉懷謊錯顆陣場讚淺溫記憑護壞歸媽隨銀聞態虛遙';
     const SC = '们个说这会对时来还后过国开关与为从问间见长东车门爱听学让话号发点无现体经电实样声变离气梦给觉当欢阳恋边头泪谁岁远吗万难写应读忆乐么丽伤将总结终红绿线颜风飞鸟谢语请认识热灯愿独够纪带满静轻别脑脸怀谎错颗阵场赞浅温记凭护坏归妈随银闻态虚遥';
     const TCSET = new Set([...TC]), SCSET = new Set([...SC]);
-// a few of the "Simplified" forms are also Japanese shinjitai (会 対 来 …) — kana decides Japanese first, so that is harmless
+// 部分简体形也是日文新字体（会 対 来…），不过日文先由假名判定，不会误伤
 
-    /* which language are these lyrics in? (almost only Latin letters → en (English / romaji), kana → ja, hangul → ko,
-       Han only → Traditional / Simplified by the distinctive forms, Traditional when there are none) */
+    // 判定规则：几乎全是拉丁字母 → en（英文/罗马字）；假名 → ja；谚文 → ko；只剩汉字时按繁简特有字形分，分不出归繁体
     J.detectLang = (text) => {
         let kana = 0, hangul = 0, han = 0, tc = 0, sc = 0, latin = 0;
         for (const c of String(text || '')) {
@@ -39,24 +30,25 @@
                 if (SCSET.has(c)) sc++;
             }
         }
-        // a CJK character carries about as much as a short word — weigh it ×3 against single Latin letters
+        // 一个汉字的信息量约等于一个短词，对单个拉丁字母按 ×3 计权
         const cjk = kana + hangul + han;
         if (latin >= 6 && latin >= (latin + cjk * 3) * 0.9) return 'en';
         if (hangul >= 2 && hangul > kana) return 'ko';
         if (kana >= 2 || (kana > 0 && kana >= han * 0.03)) return 'ja';
-        // Han without kana is Chinese even when no distinctive form appears (the shared forms render fine in the TC faces)
+        // 没有假名的汉字一律算中文，即使没出现特有字形（共有字形在繁体字体里也渲染正常）
         if (han >= 2) return sc > tc ? 'zh-Hans' : 'zh-Hant';
         return 'ja';
     };
-    /* project → the language actually used */
+    // project.lang 配置 → 实际使用的语言；auto 时按歌词文本判定
     J.resolveLang = (project) => {
         const l = project && project.lang;
         if (l && l !== 'auto' && J.LANG_LABEL[l]) return l;
         return J.detectLang(((project && project.lyrics) || '') + ' ' + ((project && project.title) || ''));
     };
 
-    /* per-language faces: key → [family, weight, Google Fonts spec]; keys left out keep their Japanese face
-       (with the language's fallback in front of the Japanese one, so missing glyphs never land in a Japanese face) */
+    // 字体按语言替换：样式都是围着日文字体设计的，中文/韩文歌词时每个 font key 换成有对应字形的字体，
+    // 气质对齐（gothic→黑体、mincho→宋体、pop→圆体）；没列出的 key 沿用日文字体，
+    // fb 里把本语言 fallback 排在日文字体前，缺字不会掉进日文字体
     const F = (family, weight, gf) => ({family, weight, gf});
     const NSTC = 'Noto+Sans+TC:wght@300;500;700;900', NSRTC = 'Noto+Serif+TC:wght@300;500;700;800;900';
     const NSSC = 'Noto+Sans+SC:wght@300;500;700;900', NSRSC = 'Noto+Serif+SC:wght@300;500;700;800;900';
@@ -151,17 +143,17 @@
         },
     };
 
-    /* the language fonts are drawn in right now (set by the planner / renderer from plan.lang) */
+    // 当前绘字用的语言，由 planner/renderer 按 plan.lang 设置
     J.lang = 'ja';
     J.setLang = (l) => {
-        l = (J.LANG_FACES[l] || l === 'en') ? l : 'ja';               // en: the styles' own faces (they all have Latin glyphs)
+        l = (J.LANG_FACES[l] || l === 'en') ? l : 'ja';               // en：样式自带字体都有拉丁字形，直接用
         if (l === J.lang) return;
         J.lang = l;
         if (J.glyphs) J.glyphs.clear();
         if (J.metrics) J.metrics.clear();
     };
-    /* random characters for scrambles, rain, slot reels, sign boards… — in the lyric's own writing system, so Chinese,
-       Korean or English lyrics don't get Japanese katakana around them (issue #16). Japanese keeps the original sets. */
+    // 随机字符池：scramble/雨/老虎机/招牌等用。取歌词自己的文字系统，中文、韩文、英文歌词
+    // 周围不再冒出日文假名（issue #16）；日文沿用原字符集
     const ZH_T = '的一是不了人我在有他這中大來上國個到說們為子和你地出道也時年得就那要下以生會自著去之過家學對可她裡後小麼心多天而能好都然沒日於起還發成事只作當想看文無開手十用主行方又如前所本見經頭面公同三已老從動兩長知民樣現分將外但身些與高意進把法此實回二理美點月明其種聲全工己話兒者向情部正名定女問力機給等幾很最間新什打便位因重被走電四第門相次東海口使西再平真聽世氣信北少關愛夢光影空夜星雨淚戀花風';
     const ZH_S = '的一是不了人我在有他这中大来上国个到说们为子和你地出道也时年得就那要下以生会自着去之过家学对可她里后小么心多天而能好都然没日于起还发成事只作当想看文无开手十用主行方又如前所本见经头面公同三已老从动两长知民样现分将外但身些与高意进把法此实回二理美点月明其种声全工己话儿者向情部正名定女问力机给等几很最间新什打便位因重被走电四第门相次东海口使西再平真听世气信北少关爱梦光影空夜星雨泪恋花风';
     const KO = '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허고노도로모보소오조초코토포호구누두루무부수우주추쿠투푸후그느드르므브스으즈츠크트프흐기니디리미비시이지치키티피히사랑별빛마음노래하늘바람꿈눈물너나우리';
@@ -215,11 +207,11 @@
     };
     const SERIF_KINDS = {mincho: 1, brush: 1, hand: 1};
     const faceCache = new Map();
-    /* the face a font key is drawn with in the current language: {family (quoted), weight, fb, gf, label, name (family, for captions)} */
+    // 当前语言下某 font key 实际绘字用的对象：{family(带引号), weight, fb, gf, label, name(family 原名，字幕用)}
     J.faceOf = (key) => {
         const f = J.FONTS[key] || J.FONTS.gothic_bold;
         const L = J.LANG_FACES[J.lang];
-        if (!L || f.user) return f;                               // Japanese: the catalogue face itself (fontCSS runs per draw — no allocation)
+        if (!L || f.user) return f;                               // 日文：直接用字体目录对象，fontCSS 每次绘制都会跑，不另分配
         const ck = J.lang + '|' + key;
         let r = faceCache.get(ck);
         if (r) return r;
@@ -237,7 +229,7 @@
         faceCache.set(ck, r);
         return r;
     };
-    /* extra faces to load for the current language (the fallback sans / serif that covers glyphs the mapped faces lack) */
+    // 当前语言要额外加载的字体：兜底 sans/serif，盖住映射字体缺的字形
     J.langBaseFaces = (keys) => {
         const L = J.LANG_FACES[J.lang];
         if (!L) return [];
@@ -245,6 +237,6 @@
         if ((keys || []).some(k => J.FONTS[k] && SERIF_KINDS[J.FONTS[k].kind])) out.push(L.serif);
         return out;
     };
-    /* segmenter locale for chunking */
+    // 分词 chunking 用的 locale
     J.segLocale = () => (J.lang === 'zh-Hant' ? 'zh-Hant' : J.lang === 'zh-Hans' ? 'zh-Hans' : J.lang === 'ko' ? 'ko' : J.lang === 'en' ? 'en' : 'ja');
 })();

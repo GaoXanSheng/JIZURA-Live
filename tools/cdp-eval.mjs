@@ -1,9 +1,5 @@
-/* CDP 调试辅助：向运行中的字面 Live 编辑页发 Runtime.evaluate / 截图
-   用法：
-     node tools/cdp-eval.mjs "<js 表达式>"          # 求值并打印 JSON 结果
-     node tools/cdp-eval.mjs --shot out.png          # 截图主编辑页
-     node tools/cdp-eval.mjs --list                  # 列出目标页
-   可选 --url <substring> 选页（默认选非 render 的主编辑页） */
+// CDP 调试辅助，对运行中的字面 Live（127.0.0.1:9222）
+// node tools/cdp-eval.mjs "<js>" 求值；--shot out.png 截图；--list 列页；--url <sub> 选页
 import {writeFileSync} from 'node:fs';
 
 const BASE = 'http://127.0.0.1:9222';

@@ -32,13 +32,12 @@ public static class CefRuntime
             BackgroundColor = Cef.ColorSetARGB(0, 0, 0, 0)
         };
 
-        // 镜像（离屏）浏览器没有用户手势，AudioContext 默认被自动播放策略拦停，
-        // 播放时钟会走不动；主窗口本身有真实交互，放开无副作用
+        // 镜像（离屏）浏览器没有用户手势，AudioContext 默认被自动播放策略拦停，播放时钟走不动；
+        // 主窗口有真实交互，放开无副作用
         cefSettings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
         cefSettings.CefCommandLineArgs.Remove("disable-gpu-compositing");
-        // 反节流三件套：本工具是实时 Spout 输出，主窗口被终端/别的窗口盖住、或失去焦点时，
-        // Chromium 默认会把被遮挡渲染器降频（rAF 掉到 1-4fps、定时器限流），表现为
-        // 「界面一卡一卡」。镜像页必须持续出帧，主窗口监控时也不允许被节流。
+        // 反节流：窗口被遮挡/失焦时 Chromium 会把渲染器降频（rAF 掉到 1-4fps、定时器限流），
+        // 界面一卡一卡。镜像页必须持续出帧，主窗口也不允许被节流
         cefSettings.CefCommandLineArgs["disable-backgrounding-occluded-windows"] = "1";
         cefSettings.CefCommandLineArgs["disable-renderer-backgrounding"] = "1";
         cefSettings.CefCommandLineArgs["disable-background-timer-throttling"] = "1";

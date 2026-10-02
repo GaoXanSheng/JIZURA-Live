@@ -1,9 +1,3 @@
-/* JIZURA pack: exitB — 39 more exits (退場) + 12 more holds (待機中の動き)
-   Exits:  p 0 (rest) → 1 (fully gone).   Holds: amt 0..1 × fx.motion, subtle idle motion.
-   Motion principles here are new to the engine: paper physics (peel / crumple / tear / shred / flutter), rigid-body
-   mechanics (hinge / domino / roll / bounce / rocket), masks with character (scorch edge / flood line / halftone / stripes /
-   clock / eraser lanes), path-following (snake / fan / tornado / vacuum) and signal effects (scan / mosaic / RGB split / rain).
-   Everything is relative to it.size / the item box and deterministic (it.seed, cut seed, glyph index, env.step). */
 (() => {
     'use strict';
     const E = J.E;
@@ -11,7 +5,6 @@
     const DEG = J.DEG, TAU = J.TAU;
     const HIDE = Object.freeze({hide: true});
 
-    /* ============================== helpers ============================== */
     const isHex = c => typeof c === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c);
     const mixC = (a, b, t) => {
         t = J.clamp(t);
@@ -26,11 +19,11 @@
     const box = it => {
         it._m = J.measure(it);
         return J.itemBox(it);
-    };       // fresh (sx/sy/size may have changed)
+    }; // 每次重算，sx/sy/size 可能刚变过
     const cutN = env => Math.max(1, J.glyphCount(String(env.cut && env.cut.text || '')));
-    const cutBit = (env, k) => (J.h(env.cut && env.cut.seed | 0, k, 1991) & 1) === 1;   // same choice for every item of a cut
+    const cutBit = (env, k) => (J.h(env.cut && env.cut.seed | 0, k, 1991) & 1) === 1; // 同一 cut 里所有 item 一致
     const cutR = (env, k) => J.r(env.cut && env.cut.seed | 0, k, 1993);
-    const isSingle = (env, it) => layOf(it).N === 1 && cutN(env) > 1;         // one glyph per item (mixed / scatter layouts)
+    const isSingle = (env, it) => layOf(it).N === 1 && cutN(env) > 1; // 一个 item 只有一个字形，mixed/scatter 布局才有
     const win = (p, o, spread) => J.clamp((p - o * spread) / (1 - spread));
     const rot2 = (x, y, r) => {
         const c = Math.cos(r), s = Math.sin(r);
@@ -41,7 +34,7 @@
         return [it.x + x, it.y + y];
     };
     const toL = (it, X, Y) => rot2(X - it.x, Y - it.y, -(it.rot || 0) * DEG);
-    /* design-space directions expressed in item space (so charFn offsets move along screen axes) */
+    // 设计坐标方向向量改用 item 空间表示，charFn 偏移才沿屏幕轴
     const downI = it => {
         const r = (it.rot || 0) * DEG;
         return [Math.sin(r), Math.cos(r)];
@@ -57,13 +50,13 @@
     const fadeEnd = (p, a = 0.85) => 1 - J.smooth(a, 1, p);
     const easeInPow = (x, k) => Math.pow(J.clamp(x), k);
 
-    /* sequential order 0..1 of glyph i; single-glyph items use their mi within the cut */
+    // 字形 i 在 cut 里的次序 0..1；单字 item 用它的 mi 排
     function orderOf(env, it) {
         const N = cutN(env), mi = +it.mi || 0;
         return (i, n) => (n > 1 ? i / (n - 1) : N > 1 ? J.clamp(mi / (N - 1)) : 0);
     }
 
-    /* merge per-glyph functions keeping every field drawItem understands */
+    // 合并每个字形的函数，drawItem 认识的字段都要保住
     function merged(fns) {
         return (i, g, n) => {
             let o = null;
@@ -119,7 +112,7 @@
         };
     }
 
-    /* main draw uses mainFn; each copyFn draws an extra copy of the item (after the main one) */
+    // 主绘制走 mainFn，每个 copyFn 在其后各画一份
     function withCopies(it, mainFn, copyFns, extra) {
         if (!it.charFns) it.charFns = [];
         const prev = it.charFns.slice();
@@ -141,7 +134,7 @@
         });
     }
 
-    /* a plain copy of a (post-hook) item that J.drawFx can draw with its own clip / bands / transform */
+    // post 阶段 item 的干净副本，交给 J.drawFx 带着自己的 clip/bands/transform 画
     const COPY_RESET = {
         pre: null,
         post: null,
@@ -158,7 +151,7 @@
     };
     const copyOf = (it2, over) => Object.assign({}, it2, COPY_RESET, over || null);
 
-    /* draw in the item's own (rotated) space */
+    // 在 item 自己的坐标系里画，含旋转
     function inItem(env, it, fn) {
         const ctx = env.ctx;
         ctx.save();
@@ -171,7 +164,7 @@
         }
     }
 
-    /* per-line (per-column when vertical) extents in item space */
+    // 每行（竖排每列）在 item 空间的范围
     function lineExt(it) {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, out = [];
         for (const g of lay) {
@@ -186,7 +179,7 @@
         return out.filter(Boolean);
     }
 
-    /* item box in item space (relative to it.x/it.y, unrotated) */
+    // item 空间的 box，相对 it.x/it.y，不旋转
     function lBox(it, pad = 0) {
         const b = box(it);
         return {
@@ -201,7 +194,7 @@
         };
     }
 
-    /* rotated item box → design-space AABB (+pad) */
+    // 旋转后的 item box 求设计空间 AABB，含 pad
     function dBox(it, pad = 0) {
         const b = box(it);
         let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -248,7 +241,7 @@
         it._m = null;
     }
 
-    /* rotate an item-like {x, y, rot} about a point given in its own item space */
+    // 绕 item 空间一点旋转 {x, y, rot}
     function rotateAbout(it, deg, ax, ay) {
         const r0 = (it.rot || 0) * DEG, r1 = r0 + deg * DEG;
         const [x0, y0] = rot2(ax, ay, r0), [x1, y1] = rot2(ax, ay, r1);
@@ -257,24 +250,23 @@
         it.rot = (it.rot || 0) + deg;
     }
 
-    /* item-space intervals → per-glyph clip fractions. gx, gy = the glyph's drawn centre (item space, incl. dx/dy),
-       kx, ky = extra glyph scale of the same charFn (s·sx, s·sy). xr / yr = [lo, hi] in item space or null. */
+    // item 空间区间换算成逐字形剪裁比例。gx/gy 是含 dx/dy 的绘制中心，kx/ky 是同一 charFn 的字形缩放，xr/yr 是 item 空间区间或 null
     function gclip(g, it, gx, gy, kx, ky, xr, yr) {
         const sx = (it.sx || 1) * kx, sy = (it.sy || 1) * ky, o = {};
         if (!g.r90) {
             if (xr) o.clipX = [(xr[0] - gx) / (g.w * sx), (xr[1] - gx) / (g.w * sx)];
             if (yr) o.clipY = [(yr[0] - gy) / (g.h * sy), (yr[1] - gy) / (g.h * sy)];
-        } else {        // glyph drawn rotated 90°: local x runs along item +y, local y along item −x
+        } else { // 字形转了 90°，局部 x 沿 item +y，局部 y 沿 item -x
             if (yr) o.clipX = [(yr[0] - gy) / (sx * g.w), (yr[1] - gy) / (sx * g.w)];
             if (xr) o.clipY = [-(xr[1] - gx) / (sy * g.h), -(xr[0] - gx) / (sy * g.h)];
         }
         return o;
     }
 
-    const gCX = (g, it) => (g.x + g.vx) * (it.sx || 1);       // glyph centre in item space (at rest)
+    const gCX = (g, it) => (g.x + g.vx) * (it.sx || 1); // 字形在 item 空间的中心，静止位
     const gCY = (g, it) => (g.y + g.vy) * (it.sy || 1);
 
-    /* half-plane {u > s} (sign +1) or {u < s} (sign −1) along unit direction (dx, dy), as a big quad path */
+    // 单位方向 (dx, dy) 上的半平面，sign +1 留 u>s、-1 留 u<s，画成大四边形
     function halfPlane(ctx, dx, dy, s, sign, L = 1e5) {
         const tx = -dy, ty = dx, a = sign > 0 ? s : s - L, b = sign > 0 ? s + L : s;
         ctx.moveTo(dx * a + tx * L, dy * a + ty * L);
@@ -284,7 +276,7 @@
         ctx.closePath();
     }
 
-    /* polygon given in item-local coords, drawn through the item's current transform */
+    // item 局部坐标的多边形，跟着 item 当前变换画
     function polyL(ctx, it, pts) {
         for (let k = 0; k < pts.length; k++) {
             const [X, Y] = toD(it, pts[k][0], pts[k][1]);
@@ -293,7 +285,7 @@
         ctx.closePath();
     }
 
-    /* does any glyph currently get a per-glyph blur (e.g. a focus treatment)? shadows on top of a glyph filter are very costly */
+    // 有没有字形吃到逐字 blur，比如 focus 类处理；字形 filter 上再叠 shadow 开销极大
     function glyphBlur(it) {
         if (!it.charFns || !it.charFns.length) return false;
         const lay = layOf(it);
@@ -304,7 +296,7 @@
         return false;
     }
 
-    /* scale every per-glyph blur of the item by k (folds the earlier fns into one) */
+    // item 上所有逐字 blur 乘 k，顺带把旧函数折叠成一个
     function scaleGlyphBlur(it, k) {
         if (!it.charFns || !it.charFns.length) return;
         const m = merged(it.charFns.splice(0));
@@ -318,15 +310,11 @@
     const beatSince = (env, fb) => (env.beat ? env.beat.since : ((env.ltb % fb) + fb) % fb);
     const beatIdx = (env, fb) => (env.beat ? env.beat.index : Math.floor(env.ltb / fb));
     const darkBg = env => J.lum(env.sc.bg) < 0.5;
-    const primary = it => (it.alpha ?? 1) > 0.9 && it.fill !== false;      // decorations only once per cut, not on faded / outline copies
+    const primary = it => (it.alpha ?? 1) > 0.9 && it.fill !== false; // 装饰只画一次，淡化副本和描边副本不画
 
-
-    /* ============================== EXITS ============================== */
     const X = {};
 
-    /* ---------------- paper ---------------- */
-
-    /* sticker peel: a fold line crosses the text diagonally; the peeled part is drawn mirrored (the back of the sticker) */
+    // 贴纸撕开：折线斜穿文字，撕起的部分镜像画，露出贴纸背面
     X.peelOff = {
         name: 'ステッカー剥がし', tags: ['pop', 'graphic'], w: 1, ae: 'wipe',
         outDur: dur => J.clamp(dur * 0.36, 0.3, 0.7),
@@ -374,7 +362,7 @@
         },
     };
 
-    /* crumple into a ball in three quick squeezes, then toss it away */
+    // 三下快速捏挤揉成纸团，再扔出去
     X.crumpleOut = {
         name: '丸めて捨てる', tags: ['pop', 'emotional'], w: 0.9, ae: 'shrink', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.42, 0.36, 0.85),
@@ -424,14 +412,14 @@
         },
     };
 
-    /* torn in two along a jagged line; the halves rotate apart and fall away */
+    // 沿锯齿线撕成两半，两半旋转着分开坠落
     X.tearOut = {
         name: '破り捨て', tags: ['emotional', 'graphic'], w: 0.9, ae: 'slice',
         outDur: dur => J.clamp(dur * 0.38, 0.3, 0.75),
         apply(env, it, p) {
             const vert = !!it.vertical, seed = it.seed | 0, sz = it.size;
             let polyA, polyB, piv;
-            if (isSingle(env, it) && !vert) {                        // one glyph per item: a single tear through the screen centre
+            if (isSingle(env, it) && !vert) { // 单字 item：撕口横贯屏幕中心
                 const cs = env.cut.seed | 0, bb = dBox(it, sz * 0.3), W = env.W;
                 const K = J.clamp(Math.ceil((bb.y1 - bb.y0) / (sz * 0.08)), 4, 40), jD = [];
                 for (let k = 0; k <= K; k++) {
@@ -451,10 +439,10 @@
                     const off = J.rs(seed, k, 331) * sz * 0.05 + J.noise1(k * 0.35, seed + 5) * sz * 0.16;
                     jag.push(vert ? [t, mid + off] : [mid + off, t]);
                 }
-                // half A = left (top when vertical), half B = right (bottom)
+                // A 是左半（竖排为上半），B 是右半（下半）
                 polyA = vert ? [[b.x0, b.y0 - sz], ...jag, [b.x1, b.y0 - sz]] : [[b.x0 - sz, b.y0], ...jag, [b.x0 - sz, b.y1]];
                 polyB = vert ? [[b.x0, b.y1 + sz], ...jag, [b.x1, b.y1 + sz]] : [[b.x1 + sz, b.y0], ...jag, [b.x1 + sz, b.y1]];
-                piv = jag[jag.length - 1];                             // the tear starts at the far end and opens from the near one
+                piv = jag[jag.length - 1]; // 从远端起撕，近端先张开
             }
             const o = E.outCubic(J.clamp(p / 0.32)), v = J.clamp((p - 0.26) / 0.74);
             const th = 7 * o + 40 * v * v;
@@ -489,12 +477,12 @@
         },
     };
 
-    /* a burning front with a rough, flickering edge eats across the text: heated band, glowing rim, soot, embers */
+    // 燃烧锋从一侧啃过文字：受热带、发亮边缘、烟灰、火星
     X.scorchOut = {
         name: '焦げて消える', tags: ['emotional', 'glitch'], w: 0.8, ae: 'wipe',
         outDur: dur => J.clamp(dur * 0.4, 0.32, 0.8),
         apply(env, it, p) {
-            const single = isSingle(env, it), q = p;          // single-glyph items share one screen-wide front
+            const single = isSingle(env, it), q = p; // 单字 item 共用一条贯穿屏幕的火线
             const vert = !!it.vertical, sz = it.size, t = env.ltb, acc = env.sc.accent, c0 = colOf(it), bg = env.sc.bg;
             const seed = single ? env.cut.seed | 0 : it.seed | 0, U = single ? Math.min(env.W, env.H) * 0.16 : sz;
             const bb = dBox(it, sz * 0.2);
@@ -525,7 +513,7 @@
                 return;
             }
             const far = Math.max(u1, uMax) + U * 4;
-            const path = (ctx, off0, off1) => {           // region between edge+off0 and edge+off1 (off1 = null → to far side)
+            const path = (ctx, off0, off1) => { // 画 edge+off0 到 edge+off1 之间的区域，off1 为 null 时伸到远端
                 edge.forEach(([u, w], k) => {
                     const P2 = pt(u + off0, w);
                     k ? ctx.lineTo(P2[0], P2[1]) : ctx.moveTo(P2[0], P2[1]);
@@ -556,7 +544,7 @@
                 env2.line(sp, soot, lw * 2.2, 0.8 * rimA, false);
                 env2.line(ep, acc, lw * 4, 0.22 * rimA, false);
                 env2.line(ep, acc, lw, rimA, false);
-                for (let j = 0; j < (single ? 6 : 22); j++) {                // embers: spawned at the edge, drifting back and up
+                for (let j = 0; j < (single ? 6 : 22); j++) { // 火星在火线处生成，向后上方飘
                     const t0 = J.r(seed, j, 341) * 0.85, age = (q - t0) / 0.28;
                     if (age <= 0 || age >= 1) continue;
                     const w = J.lerp(w0, w1, J.r(seed, j, 342));
@@ -569,9 +557,7 @@
         },
     };
 
-    /* ---------------- light ---------------- */
-
-    /* overexposure: the text blows out to white (bleaches to the paper on light schemes) with a bloom and a lens streak */
+    // 过曝：文字白化，浅色方案里褪成纸色，带 bloom 和一道镜头横纹
     X.overexposeOut = {
         name: '白飛び', tags: ['emotional', 'calm', 'pop'], w: 1, ae: 'blur',
         apply(env, it, p) {
@@ -582,19 +568,19 @@
             it.color = mixC(c0, hot, a);
             if (it.gradient) it.gradient = null;
             if (it.pattern) it.pattern = null;
-            scaleGlyphBlur(it, 1 - J.smooth(0, 0.12, p));             // focus blur gives way to the bloom (a glyph filter under a shadow is very costly)
-            if (p > 0.08) {                                             // the blow-out swallows depth effects (and keeps the bloom cheap);
+            scaleGlyphBlur(it, 1 - J.smooth(0, 0.12, p)); // 给 bloom 让路，字形 filter 上叠 shadow 太贵
+            if (p > 0.08) { // 过曝阶段把立体这类深度效果吞掉，bloom 也更便宜
                 it.extrude = null;
                 chainPre(it, (e2, i2) => {
                     i2.extrude = null;
-                });   // treatments may re-apply theirs in a pre hook
+                }); // 其他 treatment 可能在 pre 里再给回来
             }
             sizeAbout(it, 1 + 0.07 * e);
             it.track = (it.track || 0) + 0.06 * e;
             const fade = 1 - E.inOutSine(J.clamp((p - 0.38) / 0.62));
             if (env.pass === 'main') it.shadow = {color: J.rgba(glow, 0.95), blur: sz * (0.05 + 0.4 * e), dx: 0, dy: 0};
             it.alpha = (it.alpha ?? 1) * fade;
-            if (env.pass === 'main' && e > 0.02 && p > 0.12) {    // second, wider bloom underneath
+            if (env.pass === 'main' && e > 0.02 && p > 0.12) { // 下面再垫一层更宽的 bloom
                 const ga = it.alpha;
                 chainPre(it, (env2, it2) => J.drawItem(env2, copyOf(it2, {
                     color: glow,
@@ -621,9 +607,7 @@
         },
     };
 
-    /* ---------------- signal ---------------- */
-
-    /* a bright scan line runs down; behind it the raster breaks into interlaced lines that shear sideways and thin out */
+    // 亮扫描线往下扫，身后光栅裂成隔行条，侧向错开、变薄
     X.scanOut = {
         name: '走査線消去', tags: ['glitch', 'graphic'], w: 0.9, ae: 'slice',
         apply(env, it, p) {
@@ -632,7 +616,7 @@
             if (h / pitch > 64) pitch = h / 64;
             const n = Math.ceil(h / pitch), ph = h / n, single = isSingle(env, it);
             const L = single ? env.H * 0.14 : Math.max(sz * 0.9, h * 0.3);
-            const ys = single ? J.lerp(env.H * 0.2, env.H * 0.8 + L, p) : J.lerp(bb.y0 - sz * 0.02, bb.y1 + L, p);   // singles: one screen-wide scan
+            const ys = single ? J.lerp(env.H * 0.2, env.H * 0.8 + L, p) : J.lerp(bb.y0 - sz * 0.02, bb.y1 + L, p); // 单字 item 用一条贯穿屏幕的扫描线
             const rects = [];
             let lastScan = -1;
             for (let j = 0; j < n; j++) {
@@ -643,7 +627,7 @@
                 const hh = ph * keep * 0.8;
                 if (hh > 0.08) rects.push([yc - hh / 2, hh]);
             }
-            const yU = bb.y0 + (lastScan + 1) * ph;      // unscanned region starts here
+            const yU = bb.y0 + (lastScan + 1) * ph; // 没扫到的区域从这里开始
             if (!rects.length && yU >= bb.y1 - 0.5) {
                 it.alpha = 0;
                 return;
@@ -674,9 +658,7 @@
         },
     };
 
-    /* ---------------- graphic masks ---------------- */
-
-    /* slanted stripes, each wiped along its own length, alternating direction and staggered across the text */
+    // 斜条纹沿各自长度擦除，方向交替，条与条错开
     X.stripesOut = {
         name: 'ストライプ消去', tags: ['graphic', 'pop'], w: 0.9, ae: 'wipe',
         apply(env, it, p) {
@@ -722,14 +704,14 @@
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(tb.x0, tb.y0, tb.w, tb.h);
-                ctx.clip();      // ticks only where the text is
+                ctx.clip(); // 刻度只画在文字范围内
                 for (const [aa, ab, l, sg, ca] of caps) env2.poly([pt(aa + 0.5, l - sg * th), pt(ab - 0.5, l - sg * th), pt(ab - 0.5, l), pt(aa + 0.5, l)], acc, al * ca, false);
                 ctx.restore();
             });
         },
     };
 
-    /* the fill breaks into a halftone screen whose dots shrink away in a sweep */
+    // 填充裂成网点，网点随扫过依次缩没
     X.halftoneOut = {
         name: '網点に消える', tags: ['graphic', 'calm'], w: 0.9, ae: 'shrink',
         apply(env, it, p) {
@@ -760,7 +742,7 @@
         },
     };
 
-    /* blackboard eraser: a felt block zig-zags lane by lane, leaving a faint chalky smear that fades */
+    // 黑板擦：板擦逐条 S 形擦过去，留下慢慢淡掉的粉笔痕
     X.eraserOut = {
         name: '黒板消し', tags: ['editorial', 'calm'], w: 0.9, ae: 'wipe', minDur: 0.9,
         outDur: dur => J.clamp(dur * 0.42, 0.36, 0.85),
@@ -773,10 +755,10 @@
             const span = vert ? bb.w : bb.h, len = vert ? bb.h : bb.w;
             const K = single ? 3 : J.clamp(Math.round(span / (U * 0.7)), 2, 10), lh = span / K, ew = U * 0.8;
             const leg = len + ew, pos = J.clamp(p / 0.9) * K * leg;
-            const lane = Math.min(K - 1, Math.floor(pos / leg)), along = pos - lane * leg - ew / 2;   // eraser centre from the lane start
+            const lane = Math.min(K - 1, Math.floor(pos / leg)), along = pos - lane * leg - ew / 2; // 板擦中心到该条起点的距离
             const fwd = j => (j & 1) === 0;
-            // lane j rectangle as [a0, a1] (across) and the stroke axis [s0, s1]
-            const laneR = (j, s0, s1) => {                // s measured from the lane start in stroke direction
+            // 第 j 条的横向区间和擦除轴区间
+            const laneR = (j, s0, s1) => { // s 从条起点沿擦除方向量
                 const a0 = vert ? bb.x1 - (j + 1) * lh : bb.y0 + j * lh;
                 const L0 = vert ? bb.y0 : bb.x0;
                 const t0 = fwd(j) ? L0 + s0 : L0 + len - s1, t1 = fwd(j) ? L0 + s1 : L0 + len - s0;
@@ -798,7 +780,7 @@
             const eA = 1 - J.smooth(0.9, 1, p), acc = env.sc.accent, felt = mixC(acc, env.sc.bg, 0.45);
             const drawEraser = !single || Math.round(+it.mi || 0) === 0;
             chainPost(it, (env2, it2) => {
-                if (smear > 0.01 && gone.length && env2.pass === 'main') {       // chalk smear: blurred, dragged along the stroke
+                if (smear > 0.01 && gone.length && env2.pass === 'main') { // 粉笔痕：加模糊，顺擦除方向拖长
                     const sm = copyOf(it2, {
                         alpha: smear,
                         blur: Math.min(sz * 0.1, 28),
@@ -817,7 +799,7 @@
                 const x = r[0] - (vert ? lh * 0.03 : 0), y = r[1] - (vert ? 0 : lh * 0.03),
                     w = r[2] + (vert ? lh * 0.06 : 0), h = r[3] + (vert ? 0 : lh * 0.06);
                 env2.rrect(x, y, w, h, Math.min(w, h) * 0.18, acc, eA, false);
-                const k = 0.3;                          // felt strip on the trailing side
+                const k = 0.3; // 拖尾一侧的毛毡条
                 if (vert) {
                     const fy = fwd(lane) ? y : y + h * (1 - k);
                     env2.rrect(x, fy, w, h * k, Math.min(w, h) * 0.12, felt, eA, false);
@@ -829,7 +811,7 @@
         },
     };
 
-    /* sucked into a single point beyond the end of the line, nearest glyph first, stretching as it goes */
+    // 被吸进行末延长线上的一点，近的字形先走，边走边拉长
     X.vacuumOut = {
         name: '一点に吸われる', tags: ['pop', 'graphic'], w: 0.9, ae: 'shrink',
         apply(env, it, p) {
@@ -845,7 +827,7 @@
                     if (ring > 0 && ring < 1) env2.circle(T[0], T[1], sz * (0.15 + 0.5 * E.outCubic(ring)), null, acc, Math.max(1, sz * 0.03 * (1 - ring)), 1 - ring, false);
                 });
             };
-            if (single) {                                   // whole items travel to one screen point
+            if (single) { // 单字 item 整体飞向屏幕上一点
                 const T = [rev ? env.W * 0.08 : env.W * 0.92, env.H / 2];
                 const d0 = Math.hypot(T[0] - it.x, T[1] - it.y), dm = env.W * 0.85;
                 const q = win(p, J.clamp(d0 / dm), 0.6);
@@ -878,7 +860,7 @@
                 const e = Math.min(1, E.inQuad(q / 0.94)), bend = J.rs(seed, i, 63) * dd * 0.1 * Math.sin(Math.PI * e);
                 const nx = -vy / Math.max(1, dd), ny = vx / Math.max(1, dd);
                 const st = Math.min(1.8, 3 * q * q);
-                const along = alongX !== !!g.r90;            // stretch the glyph's local axis that lies along the travel
+                const along = alongX !== !!g.r90; // 拉伸沿行进方向的那个局部轴
                 return {
                     dx: vx * e + nx * bend,
                     dy: vy * e + ny * bend,
@@ -896,9 +878,7 @@
         },
     };
 
-    /* ---------------- particles ---------------- */
-
-    /* weathered into sand: grains lift off from the upwind side and stream away on the wind */
+    // 风化成沙：颗粒从迎风侧剥离，顺风散走
     X.sandOut = {
         name: '砂になって飛ぶ', tags: ['emotional', 'calm'], w: 1, ae: 'drift',
         outDur: dur => J.clamp(dur * 0.44, 0.36, 0.9), minDur: 0.8,
@@ -918,7 +898,7 @@
                 const along = D * x * x, lift = sz * 0.55 * x + Math.sin(x * 5 + k1 * 6) * sz * 0.07 * x;
                 return [wx * along + ux * lift, wy * along + uy * lift, k2];
             };
-            if (it.gradient || it.fill === false || it.dash != null || it.pattern) {     // no pieces possible: glyph-level fallback
+            if (it.gradient || it.fill === false || it.dash != null || it.pattern) { // 带这些属性做不了 piece，退回字形级近似
                 addC(it, (i, g) => {
                     const x = (p - posOf(gCX(g, it), gCY(g, it)) * 0.5) / 0.5;
                     if (x <= 0) return null;
@@ -940,7 +920,7 @@
         },
     };
 
-    /* fed down into a shredder slot: above it the text is intact, below it comes out as curling strips */
+    // 送进碎纸口：口以上完好，口以下出来的是卷曲纸条
     X.shredOut = {
         name: 'シュレッダー', tags: ['graphic', 'pop'], w: 0.8, ae: 'fall', minDur: 0.9,
         outDur: dur => J.clamp(dur * 0.44, 0.38, 0.9),
@@ -989,9 +969,7 @@
         },
     };
 
-    /* ---------------- mechanics ---------------- */
-
-    /* dominoes: each glyph topples over its bottom corner onto the next, in a chain */
+    // 多米诺：每个字形绕自己底角倒向下一个
     X.dominoOut = {
         name: 'ドミノ倒し', tags: ['pop', 'graphic'], w: 0.9, ae: 'fall', minDur: 0.8,
         outDur: (dur, n) => J.clamp(dur * 0.42, 0.36, 0.85),
@@ -1011,14 +989,14 @@
                     const u = (q - tf) / (1 - tf);
                     th = 90 - 10 * Math.sin(Math.PI * Math.min(1, u * 1.6)) * (1 - u);
                 }
-                const px = sgn * g.w * sx0 / 2, py = sz * sy0 * 0.5;   // bottom corner on the falling side (item space)
+                const px = sgn * g.w * sx0 / 2, py = sz * sy0 * 0.5; // 倒下那侧的底角，item 空间
                 const [rx, ry] = rot2(-px, -py, sgn * th * DEG);
                 return {dx: px + rx + dnx * sink, dy: py + ry + dny * sink, rot: sgn * th, a: fade};
             });
         },
     };
 
-    /* one pin pops: the text swings down on the other one, settles, then drops away */
+    // 一侧销钉脱落：绕另一销摆下去，回稳后整体坠落
     X.hingeOut = {
         name: '片留めが外れる', tags: ['pop', 'editorial'], w: 0.9, ae: 'fall', minDur: 0.9,
         outDur: dur => J.clamp(dur * 0.46, 0.42, 0.95),
@@ -1048,7 +1026,7 @@
         },
     };
 
-    /* launch: every glyph squats, shakes, then blasts upward off the screen on an exhaust trail */
+    // 发射：先蹲下抖动，然后拖着尾焰冲出屏幕
     X.rocketOff = {
         name: '打ち上げ', tags: ['pop'], w: 0.9, ae: 'drift', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.44, 0.36, 0.9),
@@ -1085,12 +1063,12 @@
                         if (q < 0.3 || q >= 1) continue;
                         const u = (q - 0.3) / 0.7, L = lift(u), hh = g.h * sy0 / 2;
                         const gx = gCX(g, it2), gy = gCY(g, it2);
-                        const bx = gx - dnx * L + dnx * hh, by = gy - dny * L + dny * hh;       // glyph bottom now
+                        const bx = gx - dnx * L + dnx * hh, by = gy - dny * L + dny * hh; // 字形底部当前位置
                         const tl = Math.min(L, sz * 2.6), a = 1 - u * 0.8;
                         env2.line([[bx, by], [bx + dnx * tl, by + dny * tl]], acc, Math.max(1.5, sz * 0.2 * (1 - u * 0.5)), 0.28 * a, false);
                         env2.line([[bx, by], [bx + dnx * tl * 0.75, by + dny * tl * 0.75]], acc, Math.max(1, sz * 0.08), 0.95 * a, false);
                         env2.poly([[bx - dny * sz * 0.1, by + dnx * sz * 0.1], [bx + dny * sz * 0.1, by - dnx * sz * 0.1], [bx + dnx * sz * 0.45, by + dny * sz * 0.45]], acc, a, false);
-                        const ox = gx + dnx * hh, oy = gy + dny * hh;                          // launch pad smoke
+                        const ox = gx + dnx * hh, oy = gy + dny * hh; // 发射台扬起的烟尘
                         for (let k = 0; k < 3; k++) env2.circle(ox + (k - 1) * sz * 0.25 * (0.4 + u), oy - sz * 0.05, sz * (0.08 + 0.22 * u) * (1 - Math.abs(k - 1) * 0.3), sub, null, 0, 0.35 * (1 - u), false);
                     }
                 });
@@ -1098,7 +1076,7 @@
         },
     };
 
-    /* bouncing out: glyphs hop away sideways in shrinking bounces, squashing on every landing */
+    // 弹跳离场：越跳越小的弹跳向侧面走，落地压扁
     function hops(q) {
         const R = 0.64, NH = 4;
         let S = 0;
@@ -1142,7 +1120,7 @@
         },
     };
 
-    /* balloons: each glyph floats up on a string, swaying like a pendulum below its balloon */
+    // 气球：字形挂在绳上升起，像气球下面的钟摆
     X.balloonOff = {
         name: '風船で飛ぶ', tags: ['emotional', 'calm', 'pop'], w: 0.9, ae: 'drift', minDur: 0.9,
         outDur: dur => J.clamp(dur * 0.48, 0.42, 1.0),
@@ -1179,7 +1157,7 @@
                             hh = g.h * sy0 / 2 * s.inf;
                         const bx = gCX(g, it2) + dx - Math.sin(r) * hh, by = gCY(g, it2) + dy + Math.cos(r) * hh;
                         const pts = [];
-                        for (let k = 0; k <= 6; k++) {                       // the string trails and lags the sway
+                        for (let k = 0; k <= 6; k++) { // 绳子拖尾，摆动带滞后
                             const u = k / 6, lag = Math.sin(q * 8 + J.r(seed, g.i, 142) * TAU - u * 1.6) * sz * 0.1 * u;
                             pts.push([bx + dnx * sz * 0.95 * u + rx * lag, by + dny * sz * 0.95 * u + ry * lag]);
                         }
@@ -1190,7 +1168,7 @@
         },
     };
 
-    /* a let-go balloon: each glyph puffs up, then zips around erratically while it shrinks to nothing */
+    // 放手的气球：先鼓起，然后乱窜着缩没
     X.deflateOut = {
         name: 'しぼんで飛ぶ', tags: ['pop'], w: 0.8, ae: 'scatter',
         outDur: dur => J.clamp(dur * 0.42, 0.36, 0.85),
@@ -1200,7 +1178,7 @@
                 const q = win(p, J.r(seed, i, 151) * 0.8, 0.4);
                 if (q <= 0) return null;
                 if (q >= 0.97) return HIDE;
-                if (q < 0.16) {                                       // puff up and strain
+                if (q < 0.16) { // 鼓起绷紧
                     const u = q / 0.16;
                     return {
                         s: 1 + 0.16 * E.outCubic(u),
@@ -1212,7 +1190,7 @@
                 const u = (q - 0.16) / 0.81, th0 = J.r(seed, i, 153) * TAU;
                 let x = 0, y = 0, th = th0;
                 const NS = 14, uu = u;
-                for (let k = 0; k < NS; k++) {                         // integrate an erratic heading
+                for (let k = 0; k < NS; k++) { // 分段积分乱窜的航向
                     const t = (k + 0.5) / NS * uu;
                     th = th0 + 7 * J.noise1(t * 5, seed + i * 7) + 3 * t;
                     const v = sz * 7.5 * (0.5 + t) * (uu / NS);
@@ -1232,7 +1210,7 @@
         },
     };
 
-    /* heat haze: the text wobbles in rippling slices, stretches upward and thins into the air */
+    // 热浪：条带状扭曲，向上拉伸，淡进空气
     X.hazeOut = {
         name: '陽炎に消える', tags: ['emotional', 'calm'], w: 0.9, ae: 'blur',
         apply(env, it, p) {
@@ -1263,7 +1241,7 @@
         },
     };
 
-    /* a pane of glass: an impact cracks it radially, then the shards drop away */
+    // 玻璃板：受击径向开裂，碎片随后坠落
     X.glassBreak = {
         name: 'ガラス割れ', tags: ['graphic', 'pop', 'glitch'], w: 0.8, ae: 'explode',
         outDur: dur => J.clamp(dur * 0.42, 0.36, 0.85),
@@ -1289,7 +1267,7 @@
                 shards.push([[ix, iy], R[k], R[k2]]);
                 shards.push([R[k], B[k], B[k2], R[k2]]);
             }
-            // corners of the box between two spokes belong to the outer shard
+            // 落在两根辐条之间的 box 角归外侧碎片
             for (let k = 0; k < K; k++) {
                 const k2 = (k + 1) % K, poly = shards[k * 2 + 1];
                 const a1 = Math.atan2(B[k][1] - iy, B[k][0] - ix), a2 = Math.atan2(B[k2][1] - iy, B[k2][0] - ix);
@@ -1316,7 +1294,7 @@
             }
             it.alpha = 0;
             chainPost(it, (env2, it2) => {
-                if (env2.pass !== 'main') return;              // shards are drawn once (the chroma ghosts drop out while it breaks)
+                if (env2.pass !== 'main') return; // 碎片只画一次，碎裂时色差 ghost 不画
                 shards.forEach((poly, j) => {
                     let cx = 0, cy = 0;
                     for (const [x, y] of poly) {
@@ -1343,7 +1321,7 @@
                         y1 = Math.max(y1, y);
                     }
                     const sx2 = it2.sx || 1, sy2 = it2.sy || 1, vt = !!it2.vertical;
-                    const cf = merged([it2.charFn || (() => null), (i, g) => {           // only the glyphs this shard can show
+                    const cf = merged([it2.charFn || (() => null), (i, g) => { // 只留这块碎片能露出的字形
                         const gx = gCX(g, it2), gy = gCY(g, it2), hw = (vt ? it2.size : g.w) * sx2 * 0.6,
                             hh = (vt ? g.h : it2.size) * sy2 * 0.6;
                         return gx + hw < x0 || gx - hw > x1 || gy + hh < y0 || gy - hh > y1 ? HIDE : null;
@@ -1364,7 +1342,7 @@
         },
     };
 
-    /* zipper: a slider runs along each line; behind it the glyphs are pinched shut onto a line of teeth */
+    // 拉链：滑块沿行走，身后字形捏合到一排链齿上
     X.zipOut = {
         name: 'ジッパー', tags: ['graphic', 'pop'], w: 0.8, ae: 'wipe',
         apply(env, it, p) {
@@ -1403,11 +1381,11 @@
                         const z0 = rev ? Math.max(sp, a0 - sz * 0.1) : a0 - sz * 0.1,
                             z1 = rev ? a1 + sz * 0.1 : Math.min(sp, a1 + sz * 0.1);
                         const tp = Math.max(3, sz * 0.09), th = sz * 0.05;
-                        for (let a = z0, k = 0; a < z1; a += tp, k++) {           // teeth
+                        for (let a = z0, k = 0; a < z1; a += tp, k++) { // 链齿
                             const o = (k & 1 ? 1 : -1) * th * 0.5;
                             if (vert) env2.rect(mid - th * 0.5 + o, a, th, tp * 0.6, sub, fa, false); else env2.rect(a, mid - th * 0.5 + o, tp * 0.6, th, sub, fa, false);
                         }
-                        if (sp > a0 - sz * 0.5 && sp < a1 + sz * 0.5) {           // slider + pull tab
+                        if (sp > a0 - sz * 0.5 && sp < a1 + sz * 0.5) { // 滑块和拉片
                             const w = sz * 0.3, h = sz * 0.46;
                             if (vert) {
                                 env2.rrect(mid - h / 2, sp - w / 2, h, w, w * 0.3, acc, fa, false);
@@ -1423,7 +1401,7 @@
         },
     };
 
-    /* both halves slam into a seam at the centre and vanish into it, with an impact flash */
+    // 两半撞向中央接缝消失，带撞击闪光
     X.clapShut = {
         name: '中央で閉じる', tags: ['graphic', 'pop'], w: 0.9, ae: 'wipe',
         apply(env, it, p) {
@@ -1472,7 +1450,7 @@
                     inItem(env2, it2, () => {
                         const mc = vert ? b.cx : b.cy;
                         if (vert) env2.rect(mc - ext / 2, seam - lw / 2, ext, lw, acc, fa, false); else env2.rect(seam - lw / 2, mc - ext / 2, lw, ext, acc, fa, false);
-                        for (let k = 0; k < 4; k++) {                   // impact sparks
+                        for (let k = 0; k < 4; k++) { // 撞击火花
                             const a = (k + 0.5) / 4 * TAU + 0.3, r0 = sz * (0.2 + 0.6 * hit),
                                 r1 = r0 + sz * 0.25 * (1 - hit);
                             const cx = vert ? mc : seam, cy = vert ? seam : mc;
@@ -1484,7 +1462,7 @@
         },
     };
 
-    /* the sign loses power: glyphs flicker on a failing supply and die one by one, leaving dark tubes that fade */
+    // 霓虹断电：供电不稳，字形逐个闪烁熄灭，留下变暗的灯管
     X.lampOff = {
         name: '消灯', tags: ['glitch', 'emotional'], w: 0.8, ae: 'glitch',
         apply(env, it, p) {
@@ -1514,7 +1492,7 @@
         },
     };
 
-    /* slot reels: every glyph spins up like a reel, faster and faster, and stops on an empty cell */
+    // 老虎机滚轮：字形像滚轮越转越快，停在空格上
     X.slotOut = {
         name: 'スロット回転', tags: ['glitch', 'pop'], w: 0.8, ae: 'glitch',
         outDur: dur => J.clamp(dur * 0.38, 0.3, 0.7),
@@ -1547,7 +1525,7 @@
         },
     };
 
-    /* clock wipe: every glyph is swept away by its own little clock hand (a square "cooldown" wipe), one after another */
+    // 时钟擦除：每个字形被自己的小表针按扇形扫掉，一个个来
     X.clockOut = {
         name: '時計ワイプ', tags: ['graphic', 'editorial'], w: 0.9, ae: 'wipe',
         apply(env, it, p) {
@@ -1576,7 +1554,7 @@
                     t = Math.min(Math.abs(ca) > 1e-6 ? c.hw / Math.abs(ca) : 1e9, Math.abs(sa) > 1e-6 ? c.hh / Math.abs(sa) : 1e9);
                 return [c.cx + ca * t, c.cy + sa * t];
             };
-            const region = c => {                          // centre → hand → corners (in sweep order) → 12 o'clock
+            const region = c => { // 中心 → 表针 → 按扫过顺序的角点 → 12 点方向
                 const ah = a0 + sg * c.e * TAU, span = (1 - c.e) * TAU, pts = [[c.cx, c.cy], P2(c, ah)];
                 const cor = [[c.hw, -c.hh], [c.hw, c.hh], [-c.hw, c.hh], [-c.hw, -c.hh]].map(([x, y]) => {
                     const rel = (((Math.atan2(y, x) - ah) * sg) % TAU + TAU) % TAU;
@@ -1606,7 +1584,7 @@
         },
     };
 
-    /* digital rain: glyphs decode into falling columns of characters that pour off the bottom */
+    // 数字雨：字形解码成下落的字符列，从底部倾泻
     X.matrixOut = {
         name: 'デジタル雨', tags: ['glitch'], w: 0.8, ae: 'glitch',
         outDur: dur => J.clamp(dur * 0.42, 0.34, 0.85),
@@ -1640,7 +1618,7 @@
         },
     };
 
-    /* tornado: the glyphs are caught in a vortex, orbiting a vertical axis (front / back depth) while they are lifted away */
+    // 龙卷：字形卷进涡旋，绕竖轴公转分出前后，同时被卷走
     X.tornadoOut = {
         name: '竜巻', tags: ['pop'], w: 0.8, ae: 'scatter', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.45, 0.38, 0.9),
@@ -1655,7 +1633,7 @@
                 R0 = W * 0.45;
             } else for (const g of lay) R0 = Math.max(R0, Math.abs(toD(it, gCX(g, it), gCY(g, it))[0] - cx));
             R0 += sz * 0.3;
-            const orbit = (X0, i, q, hx) => {              // X0 = glyph design x → new design x offset, lift, depth; hx = helix step 0..1
+            const orbit = (X0, i, q, hx) => { // X0 是字形设计坐标 x，hx 是螺旋进度 0..1
                 const ox = X0 - cx, th0 = Math.asin(J.clamp(ox / R0, -1, 1)), r = J.r(seed, i, 212);
                 const th = th0 + dir * Math.PI * (3.2 + r) * q * q;
                 const lift = up * Math.pow(q, 2.2) * (0.8 + 0.3 * r) + sz * 1.4 * hx * E.outCubic(q);
@@ -1685,7 +1663,7 @@
         },
     };
 
-    /* rolled up like a poster: a paper roll travels along the line, swallowing the text as it goes */
+    // 卷起：纸卷沿行走，把文字卷进去
     X.rollUpOut = {
         name: '巻き取る', tags: ['graphic', 'editorial'], w: 0.8, ae: 'wipe',
         outDur: dur => J.clamp(dur * 0.4, 0.32, 0.8),
@@ -1697,21 +1675,21 @@
             const c0x = vert ? b.x0 : b.y0, c1x = vert ? b.x1 : b.y1;
             let Xr, r0 = sz * 0.26;
             const e = E.inOutSine(J.clamp(p / 0.86));
-            if (single) {                                  // one roll across the whole screen
+            if (single) { // 单字 item：纸卷横穿整个屏幕
                 const X0 = env.W * 0.03 - it.x, X1 = env.W * 0.97 - it.x;
                 Xr = rev ? J.lerp(X1, X0, e) : J.lerp(X0, X1, e);
             } else Xr = rev ? J.lerp(a1 + r0, a0 - r0 * 3, e) : J.lerp(a0 - r0, a1 + r0 * 3, e);
             const rolled = rev ? Math.max(0, (single ? env.W * 0.97 - it.x : a1) - Xr) : Math.max(0, Xr - (single ? env.W * 0.03 - it.x : a0));
             const r = r0 * Math.sqrt(1 + rolled / (sz * 2));
-            const sg = rev ? -1 : 1;                        // roll moves in +sg along the axis
-            const edge = Xr + sg * r;                      // the flat paper starts here
+            const sg = rev ? -1 : 1; // 纸卷沿轴的 +sg 方向走
+            const edge = Xr + sg * r; // 平纸从这条边开始
             addC(it, (i, g) => {
                 const c = vert ? gCY(g, it) : gCX(g, it), hw = (vert ? g.h * sy0 : g.w * sx0) / 2;
-                const d = (c - edge) * sg;                   // distance ahead of the roll
+                const d = (c - edge) * sg; // 到纸卷前方的距离
                 if (d + hw <= 0) return HIDE;
                 const near = J.clamp(1 - (d - hw) / (r * 2.6));
                 if (near <= 0) return null;
-                const k = 1 - 0.55 * Math.pow(near, 1.6), nc = c - sg * (1 - k) * hw;   // the paper bunches up as it curls onto the roll
+                const k = 1 - 0.55 * Math.pow(near, 1.6), nc = c - sg * (1 - k) * hw; // 纸往卷上缠时会聚拢起皱
                 const alongLocalX = vert ? !!g.r90 : !g.r90, kx = alongLocalX ? k : 1, ky = alongLocalX ? 1 : k;
                 const o = Object.assign({
                     color: mixC(c0, bg, 0.45 * near),
@@ -1726,7 +1704,7 @@
             if (fa <= 0.01) return;
             chainPost(it, (env2, it2) => {
                 inItem(env2, it2, () => {
-                    const lift = E.inCubic(J.clamp((p - 0.8) / 0.18)), cm = (c0x + c1x) / 2;       // finally the roll is lifted away (shrinks to its middle)
+                    const lift = E.inCubic(J.clamp((p - 0.8) / 0.18)), cm = (c0x + c1x) / 2; // 最后纸卷被拿走，收缩到中点
                     const ext0 = J.lerp(c0x - sz * 0.06, cm, lift), ext1 = J.lerp(c1x + sz * 0.06, cm, lift),
                         x0 = Xr - r * (1 - lift), w = 2 * r * (1 - lift);
                     if (w < 0.3 || ext1 - ext0 < 0.3) return;
@@ -1739,13 +1717,13 @@
         },
     };
 
-    /* train: the line runs along itself, bends round a curve and leaves the screen, every glyph following the one before */
+    // 列车：整行沿自身行进，拐过圆弧后离屏，字形依次跟随
     X.snakeOut = {
         name: '列になって去る', tags: ['calm', 'pop'], w: 0.9, ae: 'stretch', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.45, 0.38, 0.9),
         apply(env, it, p) {
             const sz = it.size, rev = cutBit(env, 231), n = cutBit(env, 232) ? 1 : -1, W = env.W, H = env.H;
-            const d = (a2, o, aEnd, R) => {                 // path point for along-coordinate a2 and offset o → [a, o, rotDeg]
+            const d = (a2, o, aEnd, R) => { // 行进坐标 a2、横向偏移 o，返回路径点 [a, o, rotDeg]
                 if (a2 <= aEnd) return [a2, o, 0];
                 const s = a2 - aEnd, arc = R * Math.PI / 2;
                 if (s <= arc) {
@@ -1757,7 +1735,7 @@
             const ease = x => 0.35 * x * x + 0.65 * Math.pow(x, 2.4);
             if (isSingle(env, it)) {
                 const ux = rev ? -1 : 1, aEnd = rev ? -W * 0.1 : W * 0.9, R = Math.min(W, H) * 0.2;
-                const a = it.x * ux, o = (it.y - H / 2) * ux;   // v = rot90(u) = (0, ux)
+                const a = it.x * ux, o = (it.y - H / 2) * ux; // v = rot90(u) = (0, ux)
                 const Dt = W * 1.2 + R * 2 + H * 0.8, [na, no, rd] = d(a + Dt * ease(p), o, aEnd, R);
                 it.x = na * ux;
                 it.y = H / 2 + no * ux;
@@ -1788,7 +1766,7 @@
         },
     };
 
-    /* paper leaves: glyphs detach one by one and flutter down, swaying, tilting and flipping over */
+    // 落叶：字形逐片脱落，摇摆、倾斜、翻面飘下
     X.flutterOut = {
         name: 'ひらひら落ちる', tags: ['emotional', 'calm'], w: 1, ae: 'fall', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.48, 0.42, 1.0),
@@ -1815,7 +1793,7 @@
         },
     };
 
-    /* rolling boxes: each glyph tips over its corner and rolls away like a die, leading edge first */
+    // 翻滚：字形绕角前滚，前缘先动，像骰子滚走
     X.rollOff = {
         name: '転がって去る', tags: ['pop'], w: 0.8, ae: 'scatter', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.45, 0.38, 0.9),
@@ -1831,15 +1809,15 @@
                 const [gxD] = toD(it, gCX(g, it), gCY(g, it));
                 const dist = dir > 0 ? env.W - gxD + sz * 1.3 : gxD + sz * 1.3;
                 const r = Math.max(g.w * sx0, sz * sy0 * 0.8) / 2;
-                const along = dist * Math.pow(q, 1.7), th = along / r;                 // rolling without slipping
+                const along = dist * Math.pow(q, 1.7), th = along / r; // 按无滑动滚动算
                 const ph = ((th % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-                const rise = r * (Math.SQRT2 * Math.cos(ph - Math.PI / 4) - 1);        // the centre rides up over each corner
+                const rise = r * (Math.SQRT2 * Math.cos(ph - Math.PI / 4) - 1); // 中心越过每个角时抬高
                 return {dx: rx * dir * along - dnx * rise, dy: ry * dir * along - dny * rise, rot: dir * th / DEG};
             });
         },
     };
 
-    /* folding fan: the line bends into an arc round a pivot, then the ribs close onto one edge and the fan shrinks away */
+    // 折扇：整行弯成绕轴的弧，扇骨收向一边，扇子缩小离场
     X.fanClose = {
         name: '扇を閉じる', tags: ['graphic', 'editorial', 'emotional'], w: 0.9, ae: 'shrink', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.44, 0.36, 0.85),
@@ -1848,7 +1826,7 @@
                 close = E.inOutCubic(J.clamp((p - 0.24) / 0.5));
             const fin = J.clamp((p - 0.72) / 0.28), fs = 1 - 0.75 * E.inQuad(fin), alpha = 1 - J.smooth(0.8, 0.99, p);
             const spin = (rev ? 1 : -1) * 0.5 * E.inQuad(fin);
-            /* a = along the line from the centre, w = offset towards the pivot (which sits R away on that side) */
+            // a 是沿行方向到中心的距离，w 是朝轴心的偏移，轴心在该侧 R 远处
             const place = (a, w, R, aLim) => {
                 const alT = J.lerp(a / R, aLim, close) + spin, rr = (R - w);
                 return [J.lerp(a, Math.sin(alT) * rr, bend), J.lerp(w, R - Math.cos(alT) * rr, bend), alT * bend / DEG];
@@ -1866,7 +1844,7 @@
                 return;
             }
             const vert = !!it.vertical, b = lBox(it), lay = layOf(it);
-            const u = vert ? [0, 1] : [1, 0], v = [-u[1], u[0]];          // pivot on the +v side: below horizontal text, left of vertical
+            const u = vert ? [0, 1] : [1, 0], v = [-u[1], u[0]]; // 轴心在 +v 一侧：横排在下方，竖排在左边
             const ac = b.cx * u[0] + b.cy * u[1], oc = b.cx * v[0] + b.cy * v[1];
             let aMin = 1e9, aMax = -1e9;
             for (const g of lay) {
@@ -1891,7 +1869,7 @@
         },
     };
 
-    /* colour separation: the text splits into its ghost / accent channels which drift apart with a jitter and fade */
+    // 色分离：拆成 ghost/accent 通道，带着抖动漂移淡出
     X.rgbSplitOut = {
         name: '色分解', tags: ['glitch', 'pop'], w: 0.9, ae: 'glitch',
         apply(env, it, p) {
@@ -1927,13 +1905,13 @@
         },
     };
 
-    /* shockwave: an implosion, then a ring bursts outward and every glyph is blown away as the ring passes it */
+    // 冲击波：先内缩，环向外爆开，扫到谁就把谁吹走
     X.shockOut = {
         name: '衝撃波', tags: ['pop', 'graphic'], w: 0.9, ae: 'explode',
         apply(env, it, p) {
             const sz = it.size, seed = it.seed | 0, acc = env.sc.accent, single = isSingle(env, it);
             const pre = Math.sin(Math.PI * J.clamp(p / 0.16)) * (p < 0.16 ? 1 : 0);
-            const push = (dd, i) => {                      // → [radial displacement, scale, alpha, rot]
+            const push = (dd, i) => { // 返回 [径向位移, 缩放, alpha, rot]
                 const passed = r - dd;
                 if (passed <= 0) return [-pre * sz * 0.08, 1 - 0.05 * pre, 1, 0];
                 const k = 1 - Math.exp(-passed / (sz * 0.7));
@@ -1973,7 +1951,7 @@
         },
     };
 
-    /* flood: a wavy water line rises through the text; what is under water wobbles, tints and sinks out of sight */
+    // 水没：波动的水平面升过文字，水下部分晃动、染色、下沉
     X.floodOut = {
         name: '水没', tags: ['emotional', 'calm'], w: 0.9, ae: 'wipe',
         outDur: dur => J.clamp(dur * 0.4, 0.32, 0.8),
@@ -2006,7 +1984,7 @@
             it.clipFn = above;
             const a0 = it.alpha ?? 1, uw = (1 - J.smooth(0.3, 0.95, p)) * 0.5, fa = 1 - J.smooth(0.82, 0.98, p);
             chainPost(it, (env2, it2) => {
-                if (uw > 0.01 && env2.pass === 'main') {    // under the surface: refracted, tinted, fading
+                if (uw > 0.01 && env2.pass === 'main') { // 水下部分：折射、染色、淡出
                     const n = 6, h = bb.h + sz, out = [];
                     for (let j = 0; j < n; j++) {
                         const y = bb.y0 - sz * 0.5 + j * h / n;
@@ -2026,7 +2004,7 @@
                 if (env2.pass !== 'main' || fa <= 0.01) return;
                 env2.line(surf, acc, Math.max(4, U * 0.1), 0.15 * fa, false);
                 env2.line(surf, acc, Math.max(1.5, U * 0.028), fa, false);
-                for (let j = 0; j < 7; j++) {                 // bubbles rising to the surface
+                for (let j = 0; j < 7; j++) { // 往水面冒的气泡
                     const x = J.lerp(x0, x1, J.r(it2.seed | 0, j, 291)),
                         ph = ((p * 2.2 + J.r(it2.seed | 0, j, 292)) % 1);
                     const y = Y + A + (1 - ph) * sz * 0.9;
@@ -2037,7 +2015,7 @@
         },
     };
 
-    /* one clean sword stroke: a flash along the line, a beat, then the upper half slides off along the cut */
+    // 一刀两断：沿行闪过刀光，顿一拍，上半沿切口滑走
     X.slashOut = {
         name: '一刀両断', tags: ['graphic', 'emotional', 'pop'], w: 1, ae: 'slice',
         outDur: dur => J.clamp(dur * 0.4, 0.32, 0.8),
@@ -2050,8 +2028,8 @@
                 const o = [c[0] + n[0] * sign * L, c[1] + n[1] * sign * L];
                 return [[c[0] - d[0] * L, c[1] - d[1] * L], [c[0] + d[0] * L, c[1] + d[1] * L], [o[0] + d[0] * L, o[1] + d[1] * L], [o[0] - d[0] * L, o[1] - d[1] * L]];
             };
-            const lower = halfL(1), upper = halfL(-1);    // +n = the side below the cut for horizontal text
-            const down = d[1] > 0 ? d : [-d[0], -d[1]];   // downhill along the cut
+            const lower = halfL(1), upper = halfL(-1); // 横排时 +n 是切口下方
+            const down = d[1] > 0 ? d : [-d[0], -d[1]]; // 沿切口的下坡方向
             const fl = J.clamp(p / 0.12), gap = J.smooth(0.12, 0.3, p), v = J.clamp((p - 0.3) / 0.7);
             const slide = sz * 0.06 * gap + sz * 2.2 * E.inQuad(v), a0 = it.alpha ?? 1;
             const [ux, uy] = rot2(down[0] * slide - n[0] * sz * 0.05 * gap, down[1] * slide - n[1] * sz * 0.05 * gap, (it.rot || 0) * DEG);
@@ -2086,7 +2064,7 @@
         },
     };
 
-    /* mosaic: the text is pixelated into ever larger blocks (an off-screen low-res copy scaled up without smoothing) */
+    // 马赛克：离屏低分辨率副本无平滑放大，块越来越大
     let MOS = null;
     X.mosaicOut = {
         name: 'モザイク', tags: ['glitch', 'graphic'], w: 0.9, ae: 'glitch',
@@ -2096,7 +2074,7 @@
             const a0 = it.alpha ?? 1, fade = 1 - J.smooth(0.55, 0.97, p), bb = dBox(it, sz * 0.15);
             it.alpha = 0;
             chainPost(it, (env2, it2) => {
-                if (env2.pass !== 'main' || typeof document === 'undefined') return;      // one off-screen pass per frame; the chroma ghosts drop out
+                if (env2.pass !== 'main' || typeof document === 'undefined') return; // 每帧只离屏一次，色差 ghost 不参与
                 let b = blk, ow = Math.ceil(bb.w / b), oh = Math.ceil(bb.h / b);
                 if (ow > 360 || oh > 360) {
                     b *= Math.max(ow, oh) / 360;
@@ -2129,7 +2107,7 @@
         },
     };
 
-    /* scribbled out: a thick marker scrawls back and forth over each line, then text and scribble fade together */
+    // 涂抹：粗马克笔逐行来回涂，文字和涂痕一起淡出
     X.scribbleOut = {
         name: 'ぐしゃぐしゃ消し', tags: ['editorial', 'emotional', 'pop'], w: 0.8, ae: 'wipe',
         outDur: dur => J.clamp(dur * 0.4, 0.32, 0.8),
@@ -2142,14 +2120,14 @@
                 const half = (vert ? L.x1 - L.x0 : L.y1 - L.y0) / 2, len = a1 - a0, pts = [];
                 const P = (a, o) => (vert ? [mid + o, a] : [a, mid + o]);
                 let a = a0, k = 0;
-                while (a < a1 && k < 200) {                  // forward: uneven strokes, the hand drifts up and down
+                while (a < a1 && k < 200) { // 去程：笔触不匀，手上下漂
                     const drift = Math.sin(a / sz * 1.3 + li) * half * 0.18;
                     pts.push(P(a, drift + (k & 1 ? 1 : -1) * half * (0.8 + 0.45 * J.r(seed, li, k, 312))));
                     a += sz * (0.14 + 0.2 * J.r(seed, li, k, 311));
                     k++;
                 }
                 a = a1;
-                while (a > a0 && k < 400) {                   // back again, flatter and faster, filling the gaps
+                while (a > a0 && k < 400) { // 回程：更平更快，补缝
                     const drift = Math.sin(a / sz * 2.1 + li * 3) * half * 0.25;
                     pts.push(P(a, drift + (k & 1 ? 1 : -1) * half * (0.45 + 0.4 * J.r(seed, li, k, 314))));
                     a -= sz * (0.2 + 0.25 * J.r(seed, li, k, 313));
@@ -2197,7 +2175,7 @@
         },
     };
 
-    /* blown out like candles: a breath travels along the line, each glyph leans, flickers, goes out and leaves a curl of smoke */
+    // 吹蜡烛：气息沿行走，字形倾斜、闪烁、熄灭，留一缕烟
     X.candleOut = {
         name: '吹き消す', tags: ['emotional', 'calm'], w: 0.9, ae: 'drift',
         outDur: dur => J.clamp(dur * 0.45, 0.38, 0.9),
@@ -2242,8 +2220,7 @@
         },
     };
 
-    /* ============================== registration ============================== */
-    /* safety net: whatever a recipe leaves at the very end, p≈1 is always fully gone */
+    // 兜底：配方最后不管留下什么，p≈1 时一定完全消失
     for (const k of Object.keys(X)) {
         const f = X[k].apply;
         X[k].apply = (env, it, p, ctx) => {
@@ -2256,10 +2233,9 @@
         J.register('exit', k, X[k], P);
     }
 
-    /* ============================== HOLDS ============================== */
     const H = {};
 
-    /* candle glow: a warm halo that breathes and gutters irregularly, with a tiny upward lick of the glyphs */
+    // 烛光：暖光晕呼吸般忽明忽暗，字形微微向上舔
     H.glowFlicker = {
         name: '灯火のゆらぎ', tags: ['calm', 'emotional'], w: 0.5, ae: 'breathe',
         apply(env, it, amt) {
@@ -2284,7 +2260,7 @@
         },
     };
 
-    /* gusts: every couple of seconds a gust sweeps along the line, the glyphs lean and are pushed, then spring back */
+    // 阵风：隔几秒一阵风扫过，字形被压弯推走再弹回
     H.windGust = {
         name: '突風', tags: ['pop', 'emotional'], w: 0.5, ae: 'wave',
         apply(env, it, amt) {
@@ -2300,7 +2276,7 @@
                 const per = 2.2, T = env.ltb - 0.5 - (cs % 5) * 0.06;
                 cyc = Math.floor(T / per);
                 since = T - cyc * per;
-            }   // first gust ~0.5 s into the cut
+            } // 第一阵风在 cut 开始约 0.5s 后
             const dir = J.r(cs, cyc, 601) < 0.5 ? 1 : -1, str = 0.7 + 0.3 * J.r(cs, cyc, 602);
             addC(it, (i, g, n) => {
                 const tau = since - (dir > 0 ? ord(i, n) : 1 - ord(i, n)) * 0.4;
@@ -2311,7 +2287,7 @@
         },
     };
 
-    /* dangling: every glyph hangs from its own top edge and swings like a small pendulum, each at its own tempo */
+    // 悬挂：每个字形从顶边垂着，各自节奏小幅摆动
     H.dangle = {
         name: 'ぶら下がり', tags: ['calm', 'emotional'], w: 0.5, ae: 'wave',
         apply(env, it, amt) {
@@ -2321,13 +2297,13 @@
             addC(it, (i, g) => {
                 const w = TAU * (0.5 + 0.28 * J.r(seed, i, 611)), ph = J.r(seed, i, 612) * TAU;
                 const th = (6.5 * Math.sin(w * t + ph) + 1.6 * Math.sin(w * 2.7 * t + ph * 2)) * k * DEG;
-                const hh = (vert ? g.h : sz) * sy0 / 2;      // pivot on the glyph's top edge
+                const hh = (vert ? g.h : sz) * sy0 / 2; // 轴在字形顶边
                 return {dx: -hh * Math.sin(th), dy: hh * (Math.cos(th) - 1), rot: th / DEG};
             });
         },
     };
 
-    /* equaliser: glyphs stretch up from their baseline like level-meter bars, driven by the song's loudness */
+    // 电平表：字形从基线像音量条一样随响度伸缩
     H.eqBounce = {
         name: '音圧で伸びる', tags: ['pop', 'graphic'], w: 0.5, ae: 'breathe',
         apply(env, it, amt) {
@@ -2347,7 +2323,7 @@
         },
     };
 
-    /* beat flash: on every beat one glyph is punched out in inverse video — an accent block with the glyph knocked out */
+    // 拍闪：每拍反色打一个字形，accent 色块上把字形抠掉
     H.flashBox = {
         name: '拍で反転', tags: ['pop', 'graphic', 'glitch'], w: 0.4, ae: 'glitchtick',
         apply(env, it, amt) {
@@ -2379,13 +2355,13 @@
         },
     };
 
-    /* glint: now and then a slanted band of light slides across the letters */
+    // 高光：时不时一道斜光带扫过字面
     H.glintSweep = {
         name: '光沢', tags: ['graphic', 'calm'], w: 0.5, ae: 'still',
         apply(env, it, amt) {
             const k = amt * motionK(env);
             if (k < 0.05 || env.pass !== 'main') return;
-            const per = 2.4, T = env.ltb - 0.5 - (+it.mi || 0) * 0.04, u = ((T % per) + per) % per / 0.75;   // first sweep ~0.5 s into the cut
+            const per = 2.4, T = env.ltb - 0.5 - (+it.mi || 0) * 0.04, u = ((T % per) + per) % per / 0.75; // 第一次扫过在 cut 开始约 0.5s 后
             if (u >= 1) return;
             const sz = it.size, bb = dBox(it, sz * 0.2), c0 = colOf(it);
             const gc = J.lum(c0) > 0.72 ? env.sc.accent : mixC(c0, '#ffffff', 0.85);
@@ -2418,7 +2394,7 @@
         },
     };
 
-    /* flip swap: now and then one glyph flips over like a card, shows a stray katakana on its back, and flips home */
+    // 翻牌：时不时一个字形像卡片翻面，背面闪过一个片假名再翻回
     H.flipSwap = {
         name: '時々裏返る', tags: ['glitch', 'pop'], w: 0.4, ae: 'glitchtick',
         apply(env, it, amt) {
@@ -2461,7 +2437,7 @@
         },
     };
 
-    /* swaying shadow: a long soft shadow that swings slowly as if the light source were moving */
+    // 摇影：长软影慢慢摆，像光源在移动
     H.shadowSway = {
         name: '影が揺れる', tags: ['calm', 'emotional'], w: 0.5, ae: 'drift',
         apply(env, it, amt) {
@@ -2475,7 +2451,7 @@
         },
     };
 
-    /* magnetism: an invisible magnet wanders round the text; nearby glyphs lean and buzz towards it */
+    // 磁力：隐形磁极在文字附近游走，近处的字形被吸过去还发颤
     H.magnetJiggle = {
         name: '磁力', tags: ['pop', 'glitch'], w: 0.4, ae: 'jitter',
         apply(env, it, amt) {
@@ -2503,7 +2479,7 @@
         },
     };
 
-    /* typewriter: an uneven, hand-struck baseline; on each beat a few keys are struck again — a dip, then a new resting place */
+    // 打字机：参差的手打基线，每拍有几枚键再敲一下，沉一下换个落点
     H.typeRattle = {
         name: 'タイプの震え', tags: ['editorial', 'glitch'], w: 0.5, ae: 'jitter',
         apply(env, it, amt) {
@@ -2528,7 +2504,7 @@
         },
     };
 
-    /* rack focus: a plane of focus drifts along the line; glyphs away from it soften and grow slightly */
+    // 移焦：焦平面沿行漂移，离开焦点的字变虚、略放大
     H.focusRack = {
         name: 'ピント送り', tags: ['calm', 'emotional'], w: 0.5, ae: 'breathe',
         apply(env, it, amt) {
@@ -2536,7 +2512,7 @@
             if (k < 0.01) return;
             const ord = orderOf(env, it), t = env.ltb, seed = it.seed | 0, sz = it.size, kk = Math.min(1, k);
             const fpos = 0.5 + 0.62 * Math.sin(t * TAU / 4.6 + ((env.cut.seed | 0) % 7));
-            const maxB = env.pass === 'main' && env.allowFilter && !it.extrude ? Math.min(sz * 0.065, 18) * kk : 0;   // no per-glyph blur on extruded text (too costly)
+            const maxB = env.pass === 'main' && env.allowFilter && !it.extrude ? Math.min(sz * 0.065, 18) * kk : 0; // 立体文字不做逐字 blur，太贵
             addC(it, (i, g, n) => {
                 const df = J.clamp((Math.abs(ord(i, n) - fpos) - 0.1) / 0.5);
                 if (df <= 0) return null;
@@ -2545,7 +2521,7 @@
         },
     };
 
-    /* plucked string: the line vibrates as a standing wave between its ends, plucked again every few beats and ringing down */
+    // 拨弦：整行按驻波振动，隔几拍再拨一次，振幅衰减
     H.pluckString = {
         name: '弦の振動', tags: ['pop', 'emotional'], w: 0.4, ae: 'wave',
         apply(env, it, amt) {

@@ -1,15 +1,11 @@
 <script lang="ts">
-/* 行组件：从 LineList 拆出。行独立成组件后 props 不变即跳过重渲——
-   播放跨行只重渲新旧两行；此前每次跨行都会全量 patch 全部行的下拉框，
-   把 ~2.8 万个 <option> 的 value 属性重写一遍（184 种布局 × 每行数个 select）。
-
-   option 风暴根治：184 个布局 option 只保留一份「共享池」，哪个下拉打开就临时
-   挂进哪个 select，关闭（change/blur）立即移出，平时每个 select 只带一个
-   当前值的 option。此前常驻 option 数随规模线性涨（341 切分工程 ≈ 7.8 万个
-   <option>），Chrome 给每个 option 配一套内部 shadow 节点（label span + slot
-   + ShadowRoot，×3），堆快照实测 29.6 万 option-label span、7.5 万 ShadowRoot
-   滞留不释放——heap 57MB / DOM 7.8 万节点的「option slot span 风暴」。 */
-const techPoolHolder: { pool: HTMLOptionElement[] | null } = {pool: null};   // 模块级：全应用仅此一份
+// 行独立成组件后 props 不变就跳过重渲，播放跨行只重渲新旧两行。
+// 手法下拉的共享 option 池是给 Chrome 的 option 风暴善后：全量 option 常驻
+// 会随规模线性涨（341 切分工程约 7.8 万个），Chrome 给每个 option 配一套
+// 内部 shadow 节点且滞留不释放，堆快照实测 29.6 万 option-label span、
+// 7.5 万 ShadowRoot，heap 57MB。所以全池只留一份，哪个下拉打开临时挂给谁，
+// 关闭立即移出，平时每个 select 只带当前值一个 option。
+const techPoolHolder: { pool: HTMLOptionElement[] | null } = {pool: null};   // 模块级，全应用就这一份
 export interface CutCell {
   k: number;
   layout: string;
@@ -50,7 +46,6 @@ const props = defineProps<{ row: Row; active: boolean }>();
 
 const cutCountOpts = [1, 2, 3, 4, 5, 6];
 
-/* ---- 手法下拉：共享选项池（techPoolHolder 在模块级，跨所有行实例复用） ---- */
 function techPoolOpts(): HTMLOptionElement[] {
   if (!techPoolHolder.pool) {
     techPoolHolder.pool = [{v: '', t: '自动'}, ...J.LAYOUT_ORDER.map((k: string) => ({v: k, t: J.LAYOUTS[k].name}))]
@@ -68,9 +63,9 @@ function techLabel(v: string) {
   return v && J.LAYOUTS[v] ? J.LAYOUTS[v].name : '自动';
 }
 
-/* 关合状态：select 只带一个当前值的 option */
+// 收合态：只留当前值一个 option
 function techSync(sel: HTMLSelectElement, cur: string) {
-  if (sel.options.length > 1) return;                        // 打开中：不碰
+  if (sel.options.length > 1) return;                        // 打开中不碰
   if (sel.options.length === 1 && sel.options[0].value === cur) return;
   sel.textContent = '';
   const opt = document.createElement('option');
@@ -80,7 +75,7 @@ function techSync(sel: HTMLSelectElement, cur: string) {
   sel.value = cur;
 }
 
-/* 打开：挂入全量池 */
+// 打开：挂入全量池
 function techOpen(sel: HTMLSelectElement, cur: string) {
   if (sel.options.length > 1) return;
   const keep = sel.value || cur;
@@ -89,7 +84,7 @@ function techOpen(sel: HTMLSelectElement, cur: string) {
   sel.value = keep;
 }
 
-/* 关闭：移出全量池，回到单 option */
+// 关闭：移出全量池，回到单 option
 function techRelease(sel: HTMLSelectElement, cur: string) {
   if (sel.options.length <= 1) return;
   sel.textContent = '';
@@ -169,7 +164,7 @@ function onNcut(ev: Event) {
   seek(props.row.start + 0.001);
 }
 
-/* 切分开始时刻（第 2 个及以后的切分）：输入绝对时刻，存为行首起的偏移；清空 = 自动 */
+// 切分开始时刻（第 2 个起）：输入绝对时刻，存成行首起的偏移；清空即自动
 function onCutTime(cell: CutCell, ev: Event) {
   const raw = (ev.target as HTMLInputElement).value;
   const v = parseFloat(raw);
@@ -311,9 +306,8 @@ function onRng(ev: MouseEvent) {
 </template>
 
 <style scoped>
-/* 不可见的行不参与排版/绘制：长歌词列表的布局成本随行数线性涨，
-   content-visibility 让视口外的行跳过 layout+paint（可交互性保留，
-   滚动到即渲染）；72px 为估算行高，首次排版后浏览器自动替换为实测值 */
+/* 视口外的行跳过 layout+paint，可交互性保留、滚到即渲染。
+   72px 是估算行高，首次排版后浏览器自动换成实测值 */
 .row-cv {
   content-visibility: auto;
   contain-intrinsic-size: auto 72px;

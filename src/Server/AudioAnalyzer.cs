@@ -5,11 +5,8 @@ using NAudio.Wave;
 
 namespace JizuraLive.Server;
 
-/// <summary>
-///     音频节拍/能量分析（与前端引擎 10_audio.js 的 J.analyzeAudio 同一套算法）。
-///     前端只负责 decode 与传输，数值计算全部在这里跑——
-///     同样的循环 C# 比浏览器快一个量级，且完全不影响 UI 线程。
-/// </summary>
+// 音频节拍/能量分析，与前端引擎 10_audio.js 的 J.analyzeAudio 同一套算法。
+// 前端只负责 decode 与传输，数值计算全在这里跑：同样的循环 C# 快一个量级，且不碰 UI 线程
 internal static class AudioAnalyzer
 {
     public const int AnalyzeRate = 11025;
@@ -18,7 +15,7 @@ internal static class AudioAnalyzer
     {
         var len = mono.Length;
 
-        // 能量 / 高通能量通量（50Hz hop）
+        // 能量与高通能量通量（50Hz hop）
         var rate = 50;
         var hop = Math.Max(1, (int)Math.Round((double)sampleRate / rate));
         var n = len / hop;
@@ -170,10 +167,8 @@ internal static class AudioAnalyzer
         }
     }
 
-    /// <summary>
-    ///     解析请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道]。
-    ///     float 段用 MemoryMarshal.Cast 一次性重解释（x64 本就小端），免去逐样本循环。
-    /// </summary>
+    // 请求体 [int32 sampleRate][int32 sampleCount][float32×count 单声道]。
+    // float 段用 MemoryMarshal.Cast 一次性重解释（x64 本就小端），免去逐样本循环
     public static bool TryParseRequest(byte[] body, out float[] mono, out int sampleRate)
     {
         mono = Array.Empty<float>();
@@ -186,12 +181,10 @@ internal static class AudioAnalyzer
         return true;
     }
 
-    /// <summary>
-    ///     音高（F0）检测：窗口归一化互相关（NCCF），70..1000 Hz。
-    ///     窗口取 2*hop（50Hz 帧率下 40ms），保证下限频率约两个完整周期；
-    ///     能量门限（归一化后 &lt;0.04）与相关性门限（&lt;0.45）之外的帧输出 0（视为无声）；
-    ///     短周期峰达最高峰 88% 即优先取短周期（倍频抑制），帧间 3 值中值滤波去毛刺。
-    /// </summary>
+    // F0 检测：窗口归一化互相关（NCCF），70..1000 Hz。
+    // 窗口取 2*hop（50Hz 帧率下 40ms），保证下限频率约两个完整周期；
+    // 能量门限（归一化后 <0.04）与相关性门限（<0.45）之外的帧输出 0（视为无声）；
+    // 短周期峰达最高峰 88% 即优先取短周期（倍频抑制），帧间 3 值中值滤波去毛刺
     private static float[] EstimatePitch(float[] mono, int sampleRate, float[] energy, int hop, int n, int len)
     {
         var pitch = new float[n];
@@ -206,7 +199,7 @@ internal static class AudioAnalyzer
         {
             for (var f = 0; f < n; f++)
             {
-                if (energy[f] < 0.04f) continue; // 静音帧：pitch 保持 0
+                if (energy[f] < 0.04f) continue;
                 var start = f * hop;
                 if (start + win > len) start = len - win;
                 if (start < 0) break;
@@ -298,10 +291,8 @@ internal static class AudioAnalyzer
         }
     }
 
-    /// <summary>
-    ///     原始音频文件（mp3/flac/m4a/wav…，MediaFoundation 支持的格式）→ 单声道 11025Hz float[]。
-    ///     前端不再自己 decode+重采样+拷 40MB PCM，整文件直接丢过来。
-    /// </summary>
+    // 任意 MediaFoundation 支持的音频文件（mp3/flac/m4a/wav…）→ 单声道 11025Hz float[]，
+    // 前端不再自己 decode+重采样+拷 40MB PCM，整文件直接丢过来
     public static float[] DecodeMonoAnalyzeRate(string filePath, out double duration)
     {
         using var mf = new MediaFoundationReader(filePath);

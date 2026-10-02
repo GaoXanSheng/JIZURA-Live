@@ -1,7 +1,6 @@
 <script lang="ts" setup>
-/* TAP 打点同步面板（原 tapPanel）。
-   打点中可减速播放（存的是歌曲本来时刻）、可开启 3-2-1 倒数；
-   Tab 把刚才打点的行的下一个切分对齐到现在（多切分行）。 */
+// 打点中可减速播放，存的仍是歌曲本来时刻；Tab 把刚打点那行的
+// 下一个切分对齐到现在（多切分行用）
 import {onMounted, onUnmounted, ref} from 'vue';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
@@ -46,7 +45,7 @@ onMounted(() => {
       if ([1, 0.75, 0.5].includes(+o.rate)) rate.value = +o.rate;
       count.value = !!o.count;
     }
-  } catch { /* 无记忆就用默认 */
+  } catch { // 没存过就用默认
   }
   offs.push(bus.on('tapstate', refresh));
   offs.push(bus.on('replan', refresh));

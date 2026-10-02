@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-/* 右栏宿主：风格 / 特效 / 手法 / 导出 四个 tab */
 import {ref} from 'vue';
 import StyleTab from './StyleTab.vue';
 import FxTab from './FxTab.vue';
@@ -27,8 +26,8 @@ const tabs = [
   </nav>
   <StyleTab v-show="active === 'style'"/>
   <FxTab v-show="active === 'fx'"/>
-  <!-- 手法 tab 用 v-if 整体卸载：860 张预览 canvas 只在 tab 打开时存在，
-       切走即释放 renderer + GPU 两侧的常驻内存；筛选/折叠状态在 TechTab 模块级保留 -->
+  <!-- 手法 tab 用 v-if 整体卸载：860 张预览 canvas 切走即释放，
+       renderer 和 GPU 两侧的常驻内存都省下来；筛选/折叠状态存在 TechTab 模块级，不丢 -->
   <TechTab v-if="active === 'tech'"/>
   <SettingsTab v-if="active === 'settings'"/>
   <OutTab v-show="active === 'out'"/>

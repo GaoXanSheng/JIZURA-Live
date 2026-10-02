@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-/* 歌曲结果列表（搜索结果与歌单歌曲共用） */
+// 搜索结果和歌单里的歌曲共用这份列表
 import {useCloud} from '../../stores/cloud';
 import {loadSong, songKey} from '../../cloud/songLoader';
 import {fmtDur} from '../../cloud/api';

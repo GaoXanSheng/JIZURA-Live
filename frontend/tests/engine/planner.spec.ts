@@ -1,14 +1,12 @@
-/* planner 单元测试：确定性、切分结构不变量、歌词行覆盖、标题/间奏、节拍网格。
-   全部跑在 jsdom + 假 canvas 度量上（见 tests/setup.ts），完全离线可复现。 */
-import { describe, it, expect } from 'vitest';
-import { J } from '../../src/engine';
+import {describe, expect, it} from 'vitest';
+import {J} from '../../src/engine';
 
 const LYRICS = [
   '# 测试歌词',
   '[00:02.00]こんにちは世界',
   '[00:06.50]ふたつめの*ライン*!',
   '[00:10.00]三行目 / 二段目',
-  '[00:13.00][間奏 3]',   // 有时间戳的间奏；computeTiming 要求全行都有时间戳才采用 LRC 时间
+  '[00:13.00][間奏 3]', // 有时间戳的间奏；computeTiming 要求全行都有时间戳才采用 LRC 时间
   '[00:16.00]ラスト',
 ].join('\n');
 
@@ -17,7 +15,7 @@ function makeProject(over: any = {}) {
   p.lyrics = LYRICS;
   p.title = 'テスト曲';
   p.artist = 'テスト歌手';
-  // snap=false：行时间直接用 LRC 时间戳（默认会吸附到节拍/能量，时间不可预测）
+  // snap=false：行时间直接用 LRC 时间戳，默认会吸附到节拍/能量，时间就不可预测了
   p.timing = Object.assign(p.timing, { snap: false });
   return Object.assign(p, over);
 }

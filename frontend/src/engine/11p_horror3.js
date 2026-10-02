@@ -1,4 +1,4 @@
-/* JIZURA pack: horror (3/3) — decorations, backgrounds, camera moves, screen effects, cut transitions and three styles */
+// horror 包 3/3：decor、背景、运镜、屏幕特效、转场和三个风格
 (() => {
     'use strict';
     const E = J.E;
@@ -7,7 +7,6 @@
     const reg = (g, key, def) => J.register(g, key, Object.assign({set: 'horror'}, def), P);
     const clamp = J.clamp, TAU = J.TAU, DEG = J.DEG;
 
-    /* ------------------------------------------------------------------ helpers */
     const U = env => Math.min(env.W, env.H);
     const isDark = c => J.lum(c) < 0.45;
     const lightOf = sc => (J.lum(sc.fg) > J.lum(sc.bg) ? sc.fg : sc.bg);
@@ -24,7 +23,7 @@
     const inOut = (env, d = 0.35) => E.outCubic(clamp(env.lt / d)) * (1 - E.inCubic(env.pOut));
     const wrap = (v, m) => ((v % m) + m) % m;
     const overlaps = (bb, x0, y0, x1, y1, pad = 0) => !(x1 < bb.x0 - pad || x0 > bb.x1 + pad || y1 < bb.y0 - pad || y0 > bb.y1 + pad);
-    /* static noise tiles (built once, deterministic) */
+    // 噪点纹理块：只建一次，确定性
     const NOISE = [];
     const noiseCv = (k) => {
         k = ((k % 4) + 4) % 4;
@@ -42,7 +41,7 @@
         NOISE[k] = c;
         return c;
     };
-    /* time since this background started (consecutive cuts with the same bg + seed count as one run) */
+    // bgT：该背景从开始算起的时间；相邻同 bg 且同 seed 的 cut 视为同一次
     const bgRun = new WeakMap();
     const bgT = env => {
         const c = env.cut;
@@ -70,16 +69,14 @@
             }
         }
     }));
-    /* failing-light level 0..1 on a ≤24 Hz clock (mostly on, stutters now and then) */
+    // 灯光亮度 0..1，按 ≤24Hz 时钟采样：大部分时间亮着，偶尔闪断
     const lamp = (t, seed, rate = 1) => {
         const st = Math.floor(t * 24), run = st >> 2;
         if (J.r(seed, run, 7) < 0.1 * rate) return J.r(seed, st, 8) < 0.5 ? 0.15 : 0.55;
         return 0.88 + 0.12 * J.r(seed, st, 9);
     };
 
-    /* ================================================================== DECOR */
-
-    /* claw scratches: parallel jagged gouges scraped in around the words */
+    // 抓痕：绕开文字的几道平行锯齿刮痕
     reg('decor', 'hrScratches', {
         name: '引っ掻き傷', tags: TAGS.concat(['glitch']), w: 0.9, layer: 'front', ae: 'slash',
         draw(env, bb0, Pd) {
@@ -106,7 +103,7 @@
                         const f = i / m, j = J.rs(s, g, k, i) * u * 0.004;
                         pts.push([x0 + dx * len * f + px * j, y0 + dy * len * f + py * j]);
                     }
-                    // tapered: thick in the middle, thin at the ends
+                    // 中间粗、两端细
                     const lw = u * 0.011;
                     for (let i = 0; i < m; i++) env.line([pts[i], pts[i + 1]], col, Math.max(1, lw * Math.sin(Math.PI * (i + 0.5) / m)), 0.85, false);
                 }
@@ -114,7 +111,7 @@
         },
     });
 
-    /* sigil: a slow-turning ring of marks and a seven-pointed star drawn in faint lines behind the words */
+    // 魔法阵：文字背后缓缓转动的刻度环和七芒星（{7/3}）
     reg('decor', 'hrSigil', {
         name: '魔法陣', tags: TAGS.concat(['graphic']), w: 0.7, layer: 'back', subtle: true, ae: 'rings',
         draw(env, bb0, Pd) {
@@ -130,14 +127,13 @@
             env.arc(cx, cy, R, -90, -90 + 360 * e, col, lw * 1.4, a, false);
             env.arc(cx, cy, R * 0.9, 90, 90 + 360 * e, col, lw, a, false);
             env.arc(cx, cy, R * 0.62, -90, -90 + 360 * e, col, lw, a * 0.8, false);
-            // heptagram {7/3}
             const pts = [];
             for (let i = 0; i <= 7; i++) {
                 const an = rot - Math.PI / 2 + (i * 3 % 7) / 7 * TAU;
                 pts.push([cx + Math.cos(an) * R * 0.9, cy + Math.sin(an) * R * 0.9]);
             }
             env.polyPartial(pts, clamp((env.lt - 0.3) / 1.2), col, lw, a, false);
-            // ring of marks between the circles
+            // 两圈之间的刻痕
             const m = 42;
             for (let i = 0; i < m * e; i++) {
                 const an = rot * -0.6 + i / m * TAU, t = J.h(s, i, 3) % 4, r0 = R * 0.915, r1 = R * 0.985,
@@ -152,7 +148,7 @@
         },
     });
 
-    /* the eye: a simple outline eye in a corner that opens, follows the words and blinks at the wrong moments */
+    // 角落的线稿眼睛：会睁开、盯着文字看、在不该眨的时候眨
     reg('decor', 'hrWatchEye', {
         name: '見ている目', tags: TAGS.concat(['graphic']), w: 0.8, layer: 'front', ae: 'reticle',
         draw(env, bb0, Pd) {
@@ -163,7 +159,7 @@
                 y = Pd.low ? H - u * 0.08 - eh : u * 0.08 + eh;
             if (overlaps(bb, x - ew / 2, y - eh, x + ew / 2, y + eh, u * 0.02)) y = Pd.low ? Math.max(y, Math.min(H - eh * 1.2, bb.y1 + eh * 1.6)) : Math.min(y, Math.max(eh * 1.2, bb.y0 - eh * 1.6));
             let open = E.outCubic(clamp((env.lt - 0.2) / 0.6)) * (1 - E.inCubic(env.pOut));
-            // blinks at irregular moments
+            // 不定期眨眼
             const bt = env.ltb;
             for (let k = 0; k < 3; k++) {
                 const at = 0.9 + J.r(s, k, 5) * 3 + k * 1.3, d = Math.abs(bt - at);
@@ -183,7 +179,7 @@
                 return pts;
             };
             const top = lid(-1), bot = lid(1);
-            // iris + pupil clipped to the eye opening, looking at the words
+            // 虹膜和瞳孔裁剪在眼眶里，望向文字
             const tx = (bb.x0 + bb.x1) / 2, ty = (bb.y0 + bb.y1) / 2, an = Math.atan2(ty - y, tx - x),
                 look = Math.min(1, Math.hypot(tx - x, ty - y) / u);
             const ix = x + Math.cos(an) * ew * 0.18 * look + J.noise1(bt * 0.8, s) * ew * 0.03,
@@ -206,7 +202,7 @@
         },
     });
 
-    /* static patches: small rectangles of TV snow flicker at the edges of the frame */
+    // 画面边缘闪烁的雪花噪点小块
     reg('decor', 'hrStaticPatch', {
         name: '砂嵐の欠片', tags: TAGS.concat(['glitch']), w: 0.8, layer: 'front', ae: 'glitchRects',
         draw(env, bb0, Pd) {
@@ -235,7 +231,7 @@
         },
     });
 
-    /* light shaft: a slanted beam from a high window with dust hanging in it */
+    // 高窗斜进来的光柱，里面浮着灰尘
     reg('decor', 'hrDustBeam', {
         name: '光の筋と埃', tags: TAGS.concat(['calm', 'emotional']), w: 0.8, layer: 'back', subtle: true, ae: 'sparks',
         draw(env, bb0, Pd) {
@@ -252,7 +248,7 @@
             g.addColorStop(1, J.rgba(L, 0));
             ctx.save();
             if (!isDark(sc.bg)) {
-                // on light paper the room around the beam is dimmed instead
+                // 亮纸配色：改为压暗光柱之外的房间
                 ctx.fillStyle = J.rgba(nightC(sc), (0.12 * a).toFixed(3));
                 ctx.beginPath();
                 ctx.rect(-10, -10, W + 20, H + 20);
@@ -278,7 +274,7 @@
         },
     });
 
-    /* drips: dark ink running down from the top edge of the frame, slowly */
+    // 从画面顶边慢慢淌下来的墨
     reg('decor', 'hrDrips', {
         name: '垂れる墨', tags: TAGS.concat(['emotional']), w: 0.8, layer: 'front', ae: 'blobs',
         draw(env, bb0, Pd) {
@@ -305,7 +301,7 @@
         },
     });
 
-    /* cracks: fine fractures creep out of a corner of the frame */
+    // 从角落爬出的细裂纹
     reg('decor', 'hrCracks', {
         name: 'ひび割れ', tags: TAGS.concat(['graphic', 'glitch']), w: 0.7, layer: 'front', ae: 'lineBurst',
         draw(env, bb0, Pd) {
@@ -338,8 +334,6 @@
         },
     });
 
-    /* ================================================================== BACKGROUNDS */
-
     bgReg('hrFailingLamp', {
         ae: 'vignettePulse',
         name: '切れかけの灯', tags: TAGS.concat(['emotional']), w: 0.9, subtle: true,
@@ -359,7 +353,7 @@
             v.addColorStop(1, J.rgba(dk, ((0.75 - 0.25 * lv) * fi).toFixed(3)));
             ctx.fillStyle = v;
             ctx.fillRect(0, 0, W, H);
-            // the tube itself
+            // 顶上的灯管本身
             ctx.globalAlpha = (0.25 + 0.5 * lv) * fi;
             ctx.fillStyle = layC(sc, isDark(sc.bg) ? 0.35 : 0.15);
             ctx.fillRect(cx - u * 0.12, u * 0.012, u * 0.24, Math.max(2, u * 0.006));
@@ -380,11 +374,11 @@
             const {W, H, sc} = env, t = bgT(env), u = U(env), fi = E.outCubic(clamp(t / 0.6));
             const vx = W * (Pm.vx || 0.5), vy = H * (Pm.vy || 0.5), bw = W * 0.08, bh = H * 0.1;
             const col = layC(sc, isDark(sc.bg) ? 0.28 : 0.22), lw = Math.max(1.2, u * 0.0026);
-            // depth map: z in (0,1], 1 = at the screen edge, small = far away
+            // 深度：z∈(0,1]，1=屏幕边缘，越小越远
             const at = (z, fx, fy) => [vx + (fx - vx) * z + (bw * (fx < vx ? -1 : 1)) * (1 - z) * 0, vy + (fy - vy) * z];
             const back = [[vx - bw, vy - bh], [vx + bw, vy - bh], [vx + bw, vy + bh], [vx - bw, vy + bh]];
             const corners = [[0, 0], [W, 0], [W, H], [0, H]];
-            // the light at the far end (flickers)
+            // 尽头的灯（会闪）
             const lv = lamp(env.t, (Pm.seed | 0) + 1, 1);
             const g = ctx.createRadialGradient(vx, vy, 0, vx, vy, Math.max(bw, bh) * 3);
             g.addColorStop(0, J.rgba(lightOf(sc), ((isDark(sc.bg) ? 0.22 : 0.3) * lv * fi).toFixed(3)));
@@ -400,7 +394,7 @@
                 ctx.lineTo(back[i][0], back[i][1]);
             }
             ctx.rect(vx - bw, vy - bh, bw * 2, bh * 2);
-            // frames sliding towards the camera
+            // 朝镜头滑来的门框
             const n = 7, sp = Pm.spd || 0.35;
             for (let k = 0; k < n; k++) {
                 const f = wrap(k / n + t * sp * 0.12, 1), z = Math.pow(f, 2.2);
@@ -411,7 +405,7 @@
                 ctx.moveTo(x0, y1);
                 ctx.lineTo(x1, y1);
                 if (Pm.doors && k % 2 === 0) {
-                    // a door on each wall: two verticals between the ceiling and floor edges
+                    // 两侧墙上的门：天花线和地脚线之间的竖线
                     const z2 = Math.pow(wrap(f + 0.05, 1), 2.2);
                     if (z2 > z) for (const side of [0, 1]) {
                         const xa = side ? x1 : x0, xb = side ? J.lerp(vx + bw, W, z2) : J.lerp(vx - bw, 0, z2);
@@ -463,7 +457,7 @@
                 ctx.closePath();
                 ctx.stroke();
                 ctx.restore();
-                // speckles around the edge of the stain
+                // 污渍边缘的斑点
                 for (let j = 0; j < 14; j++) {
                     const a = J.r(s, i, j, 5) * TAU, r = R * J.rr(1.02, 1.25, s, i, j, 6);
                     env.circle(cx + Math.cos(a) * r, cy + Math.sin(a) * r, u * J.rr(0.002, 0.008, s, i, j, 7), stain, null, 0, 0.9, false);
@@ -511,7 +505,6 @@
         }
     });
 
-    /* ================================================================== CAMERA */
     const KM = env => clamp((env.fx.motion ?? 0.7) * 1.25, 0, 1.25);
 
     reg('cam', 'hrNervous', {
@@ -523,7 +516,7 @@
             let x = (J.noise1(t * f * 1.7, sd) * 0.6 + J.noise1(t * f * 5.3, sd + 1) * 0.4) * env.W * 0.009 * K;
             let y = (J.noise1(t * f * 1.4, sd + 2) * 0.6 + J.noise1(t * f * 4.7, sd + 3) * 0.4) * env.H * 0.011 * K + Math.sin(t * 2.2) * env.H * 0.004 * K;
             let rot = J.noise1(t * f * 1.1, sd + 4) * 1.2 * K;
-            // a sudden flinch now and then, settling fast
+            // 偶尔猛地一缩，很快稳住
             const per = 1.6, cyc = Math.floor(t / per), since = t - cyc * per - J.r(sd, cyc, 5) * per * 0.6;
             if (since > 0 && J.r(sd, cyc, 6) < 0.65 * (Pm.jerk || 0.8)) {
                 const d = Math.exp(-since * 9) * K;
@@ -550,7 +543,6 @@
         }
     });
 
-    /* ================================================================== SCREEN EFFECTS */
     const evS = ev => J.h(Math.round(ev.t * 1000), 9127);
     const fx = (k, d) => reg('fx', k, Object.assign({}, d, {
         draw(ctx, ev, k2, I) {
@@ -563,7 +555,7 @@
         }
     }));
 
-    /* one frame of a zoomed, red-stained negative */
+    // 一帧放大的红色污染负片
     fx('hrSubliminal', {
         name: 'サブリミナル',
         tags: TAGS.concat(['glitch']),
@@ -594,7 +586,7 @@
         }
     });
 
-    /* the picture tears, drops to black with a signal-lost caption, and rolls back in */
+    // 画面撕裂、黑屏出"无信号"字样、再滚回来
     fx('hrSignalLoss', {
         name: '映像の途切れ',
         tags: TAGS.concat(['glitch', 'editorial']),
@@ -643,14 +635,14 @@
         }
     });
 
-    /* something tall and dark crosses the frame in a few frames */
+    // 高大的暗影在几帧内横穿画面
     fx('hrPassingShadow', {
         name: '横切る影', tags: TAGS.concat(['emotional']), w: 0.5, dur: 5, amp: 1, mid: true, ae: 'flash',
         draw(ctx, ev, k, I) {
             const {cw, ch} = I, s = evS(ev), dir = J.r(s, 1) < 0.5 ? 1 : -1, M = Math.min(cw, ch);
             const x = dir > 0 ? J.lerp(-cw * 0.25, cw * 1.25, k) : J.lerp(cw * 1.25, -cw * 0.25, k);
             const w = M * J.rr(0.22, 0.32, s, 2), h = ch * 1.1, top = ch * J.rr(0.05, 0.2, s, 3);
-            // dark on light pictures, a pale figure on dark ones; a wider faint copy stands in for a soft edge
+            // 亮底画黑影、暗底画淡影；用更宽的半透明拷贝冒充软边
             const dk = isDark(I.sc.bg);
             ctx.fillStyle = dk ? J.mix(I.sc.fg, I.sc.bg, 0.35) : '#000000';
             const fig = (g, a) => {
@@ -671,7 +663,6 @@
         }
     });
 
-    /* ================================================================== TRANSITIONS */
     const trReg = (k, d) => reg('trans', k, Object.assign({}, d, {
         draw(ctx, A, B, p, I) {
             ctx.save();
@@ -683,7 +674,7 @@
         }
     }));
 
-    /* static cut: the old shot drowns in snow, the new one surfaces out of it */
+    // 砂噪转场：旧镜头被雪花淹没，新镜头从雪花里浮出
     trReg('hrStaticCut', {
         name: '砂嵐カット', tags: TAGS.concat(['glitch']), w: 0.9, dur: 0.4, ae: 'pixelate',
         plan: rng => ({roll: rng.chance(0.6)}),
@@ -697,7 +688,7 @@
             const sz = Math.max(1, Math.round(ch / 400));
             try {
                 pat.setTransform(new DOMMatrix([sz * 2, 0, 0, sz, -Math.floor(J.r(st, 1) * 128) * sz * 2, -Math.floor(J.r(st, 2) * 96) * sz]));
-            } catch (e) { /* plain */
+            } catch (e) { /* 老引擎不支持，纹理原样平铺 */
             }
             ctx.imageSmoothingEnabled = false;
             ctx.globalAlpha = Math.min(1, nz * 1.15);
@@ -709,7 +700,7 @@
         }
     });
 
-    /* blink: eyelids close on the old shot and open on the new one */
+    // 眨眼转场：眼睑在旧镜头上合拢、在新镜头上睁开
     trReg('hrBlink', {
         name: 'まばたき', tags: TAGS.concat(['emotional']), w: 0.8, dur: 0.45, ae: 'irisOpen',
         plan: rng => ({half: rng.chance(0.3)}),
@@ -734,7 +725,7 @@
             ctx.quadraticCurveTo(cw / 2, ch - h - bow, 0, ch - h + bow);
             ctx.closePath();
             ctx.fill();
-            // a soft edge around the lids
+            // 眼睑周围的软边
             const g = ctx.createLinearGradient(0, 0, 0, ch);
             g.addColorStop(0, 'rgba(0,0,0,0.6)');
             g.addColorStop(0.5, 'rgba(0,0,0,0)');
@@ -745,7 +736,6 @@
         }
     });
 
-    /* ================================================================== STYLES */
     const LAY = {
         hrFlashlight: 1.6,
         hrDoorGap: 1.3,

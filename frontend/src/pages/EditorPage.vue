@@ -23,16 +23,15 @@ const ed = useEditor();
 const booted = ref(false);
 const offs: (() => void)[] = [];
 
-/* setup 阶段就启动：必须早于全部子组件的创建（它们同步读 S.project） */
-boot();                    // 编辑页引导启动（渲染页不跑：不读 localStorage、不绑键盘）
-bindEditorBroadcast();     // 向 /render 渲染页广播工程/时间/字幕（BroadcastChannel 直通）
+// setup 阶段就得跑，早于全部子组件创建，它们同步读 S.project
+boot(); // 只有编辑页跑，渲染页不读 localStorage、不绑键盘
+bindEditorBroadcast(); // 向 /render 广播工程/时间/字幕
 
 onMounted(() => {
   offs.push(bus.on('playstate', () => ed.syncPlayState()));
-  // 时间码/进度条由 Transport 自行在 frame 里命令式更新（12.5Hz）。
-  // 不要在这里挂 playhead/frame → syncTime：响应式链路会连带整页级重绘
-  // （实测 Paint 事件以 12.5Hz 落满 document/html 根层，连右栏 nav 都整层重画）。
-  // 播放头平滑由 TimelineCanvas 直读 S.t 保证
+  // 时间码/进度条由 Transport 自己在 frame 里命令式更新（12.5Hz）
+  // 别在这挂 playhead/frame → syncTime：响应式链路会带着整页重绘，
+  // 实测 Paint 事件以 12.5Hz 落满 document/html 根层，连右栏 nav 都整层重画
   offs.push(bus.on('replan', () => ed.syncPlan()));
   offs.push(bus.on('replan-sync', () => ed.syncPlan()));
   offs.push(bus.on('curline', (li: number) => {

@@ -1,14 +1,8 @@
-/* ============================================================
-   JIZURA — export: MP4 (WebCodecs + mp4-muxer), WebM with alpha
-   (mediabunny), PNG sequence ZIP, file saving (artifact download
-   capability or plain browser download)
-   ============================================================ */
 import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputFormat} from 'mediabunny';
 
 (() => {
     'use strict';
 
-    /* ---------- saving ---------- */
     J.saveFile = async (filename, data) => {
         const blob = data instanceof Blob ? data : new Blob([data]);
         try {
@@ -34,7 +28,6 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return 'saved';
     };
 
-    /* ---------- codec negotiation ---------- */
     const VIDEO_CANDS = [
         {codec: 'avc1.640034', mux: 'avc', label: 'H.264 High'},
         {codec: 'avc1.640033', mux: 'avc', label: 'H.264 High'},
@@ -43,7 +36,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         {codec: 'vp09.00.51.08', mux: 'vp9', label: 'VP9'},
         {codec: 'av01.0.12M.08', mux: 'av1', label: 'AV1'},
     ];
-// hardware encoders often refuse very high bitrates (52 Mbps+ for 1080p60 at 最高) — keep them in a range they accept
+    // 硬编码器常拒收超高码率（1080p60 最高档要 52 Mbps 以上），压到它们肯收的范围
     J.videoBitrate = (w, h, fps, quality) => {
         const want = w * h * fps * (quality === 'max' ? 0.42 : quality === 'high' ? 0.28 : 0.16);
         const px = w * h, cap = px <= 2.2e6 ? 40e6 : px <= 3.8e6 ? 60e6 : 90e6;
@@ -65,7 +58,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         }
     }
 
-    const codecMemo = new Map();   // the answer never changes for a page load; asking the browser again costs ~100 ms
+    const codecMemo = new Map();   // 一次页面加载内答案不变；再问浏览器一次要 ~100 ms
     J.pickVideoCodec = (w, h, fps, bitrate) => {
         const key = [w, h, fps, bitrate].join('/');
         if (!codecMemo.has(key)) codecMemo.set(key, (async () => {
@@ -78,8 +71,8 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         })());
         return codecMemo.get(key).then(vc => vc && Object.assign({}, vc, {cfg: Object.assign({}, vc.cfg)}));
     };
-    /* the encoders to try, best first: the browser's choice, then the same codec in software (GPU encoders are the usual
-       reason an export fails every time on one PC), then a simpler profile / lower bitrate in software, then VP9 */
+    // 依次尝试：浏览器首选 → 同编码器转软件（GPU 编码器是某些机器上导出必挂的常见原因）
+    // → 软件降档/降码率 → VP9
     J.videoAttempts = async (w, h, fps, bitrate) => {
         if (typeof VideoEncoder === 'undefined') return [];
         const out = [], seen = new Set();
@@ -129,13 +122,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return null;
     };
 
-    /* ---------- 音频特效（预览与导出共用一套图） ----------
-       预览：AP 在实时 AudioContext 里按 project.audioFx 建图；
-       导出：resample 在 OfflineAudioContext 里用同一构建器离线渲染。
-       LFO 一律用 OscillatorNode 接 AudioParam（不用 rAF 推参数）：
-       离线渲染同样成立 ⇒ 导出完全确定，预览零每帧 JS 开销。
-       sanitize / 曲线采样 / 扬声器增益是纯函数，可脱离音频栈测试。 */
-    /* EQ 频段（Hz）：7 段 peaking，增益 -12..+12 dB */
+    // 音频特效，预览与导出共用一套图：预览在实时 AudioContext 建图，导出在
+    // OfflineAudioContext 用同一构建器离线渲染。LFO 一律 OscillatorNode 接 AudioParam，
+    // 不用 rAF 推参数，离线渲染同样成立 ⇒ 导出完全确定，预览也没有每帧 JS 开销
+    // EQ 频段 Hz：7 段 peaking，增益 -12..+12 dB
     J.AUDIO_EQ_BANDS = [60, 150, 400, 1000, 2400, 6000, 15000];
 
     J.sanitizeAudioFx = (fx) => {
@@ -150,12 +140,11 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             preset: PRESETS.includes(o.preset) ? o.preset : 'none',
             rate: clamp(o.rate, 0.02, 2, 0.125),    // 摆动/旋转速度 Hz
             depth: clamp(o.depth, 0, 1, 0.7),        // 强度 0..1
-            eq                                        // 各频段 dB 增益
+            eq                                       // 各频段 dB 增益
         };
     };
 
-    /* 构建特效图（任意 BaseAudioContext：实时 AudioContext 或 OfflineAudioContext）。
-       返回 { input, output, channels } 或 null（preset=none）。 */
+    // 构建特效图，实时或离线 BaseAudioContext 都行；返回 { input, output, channels }，preset=none 时 null
     J.buildAudioFx = (ctx, cfg, opts = {}) => {
         const fx = J.sanitizeAudioFx(cfg);
         if (fx.preset === 'none') return null;
@@ -164,7 +153,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         const deg = d => d * Math.PI / 180;
 
         if (fx.preset === 'pan') {
-            /* 环绕音：立体声左右摆动 */
+            // 环绕音：立体声左右摆动
             const panner = ctx.createStereoPanner();
             const lfo = ctx.createOscillator();
             lfo.frequency.value = fx.rate;
@@ -174,9 +163,9 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             input.connect(panner).connect(output);
             lfo.start(st);
         } else if (fx.preset === 'spatial') {
-            /* 3D 丽音：左右声道各自 HRTF 定位（∓40°）做空间展宽。
-               两个 panner 的立体声输出直接汇入 output——节点相加按声道对齐，
-               不能过 ChannelMerger（每路会被下混成单声道，抹掉双耳线索） */
+            // 3D 丽音：左右声道各自 HRTF 定位（∓40°）做空间展宽。两个 panner 的立体声
+            // 输出直接汇进 output，节点相加按声道对齐；不能过 ChannelMerger，
+            // 每路会被下混成单声道，抹掉双耳线索
             const splitter = ctx.createChannelSplitter(2);
             input.connect(splitter);
             const r = 1.5 + fx.depth;
@@ -189,7 +178,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 p.connect(output);
             });
         } else if (fx.preset === 'orbit') {
-            /* 3D 旋转（8D）：HRTF 声源绕听者转圈，sin/cos 双 LFO（相位差 90°）驱动坐标 */
+            // 3D 旋转（8D）：HRTF 声源绕听者转圈，sin/cos 双 LFO 驱动坐标
             const p = ctx.createPanner();
             p.panningModel = 'HRTF';
             const r = 1.2 + fx.depth * 1.8;
@@ -205,8 +194,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             sx.start(st);
             sz.start(st + 1 / (4 * fx.rate));   // 相位差 90°
         } else if (fx.preset === 'eq') {
-            /* 自定义 EQ：7 段 peaking 串联（60Hz〜15kHz，各 -12..+12dB）。
-               串联 peaking 相邻频段影响轻微（Q=1），足够「自定义音色」用 */
+            // 7 段 peaking 串联；相邻频段相互影响轻微（Q=1），做「自定义音色」够用
             let node = input;
             for (let i = 0; i < J.AUDIO_EQ_BANDS.length; i++) {
                 const f = ctx.createBiquadFilter();
@@ -224,7 +212,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
     };
 
     async function resample(buffer, sr, duration, offset = 0, fx = null) {
-        // 特效图与预览共用 J.buildAudioFx 构建（同一构建器 ⇒ 预览与导出听感一致）
+        // 特效图与预览共用 J.buildAudioFx 构建，同一构建器 ⇒ 预览与导出听感一致
         const chn = Math.min(2, buffer.numberOfChannels);
         const len = Math.ceil(duration * sr);
         const oc = new OfflineAudioContext(chn, len, sr);
@@ -241,15 +229,14 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return oc.startRendering();
     }
 
-    /* part of the song to export: range = { t0, t1 } in seconds (選んだ行だけ), default the whole plan */
+    // 导出哪段歌：range = { t0, t1 } 秒（選んだ行だけ），缺省整曲
     J.exportSpan = (plan, range) => {
         const t0 = range ? Math.max(0, range.t0) : 0, t1 = range ? Math.min(plan.duration, range.t1) : plan.duration;
         return {t0, dur: Math.max(1 / plan.fps, t1 - t0)};
     };
 
-    /* ---------- LRC（带时间戳歌词） ----------
-       每行一个开始时刻：手工设定 > LRC 标签 > 估算；歌词按书写的行输出（/ * ! | 与间奏行保留）。
-       选了行范围时只输出那些行，时刻从导出视频的开头起算。 */
+    // LRC：每行一个开始时刻，手工设定 > LRC 标签 > 估算；歌词按书写的行输出，
+    // / * ! | 与间奏行保留。选了行范围就只输出那些行，时刻从导出视频开头起算
     J.lrcText = (project, lines, range) => {
         const parsed = J.parseLyrics(project.lyrics);
         const tm = J.computeTiming(project, parsed, null);
@@ -275,13 +262,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return out.join('\n') + '\n';
     };
 
-    /* ---------- MP4 ---------- */
-
-    /* The MP4 is written as it is encoded (mp4-muxer, moov at the end) instead of being assembled in one huge
-       ArrayBuffer: into many small memory blocks (file: null), or straight into a file the user picked
-       (file: a FileSystemWritableFileStream, the "large video" button). A long 1080p / 1440p song used to need one contiguous
-       buffer of several hundred MB, doubled on finalize, which is what made those exports fail. */
-    class BlockStore {                    // positioned writes into a list of blocks → Blob (no single giant buffer)
+    // MP4 边编码边写（moov 在末尾），不攒一整块巨型 ArrayBuffer：file 为 null 时写进
+    // 一串小块，file 是用户选中的文件时直接写文件。以前 1080p/1440p 长歌要几百 MB
+    // 连续缓冲，finalize 时还要翻倍，大视频导出总失败就是这个原因
+    class BlockStore {
         constructor() {
             this.blocks = [];
             this.end = 0;
@@ -293,7 +277,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 this.blocks.push({pos: this.end, u: new Uint8Array(pos - this.end)});
                 this.end = pos;
             }
-            // overwrite what already exists (mp4-muxer patches the mdat size at finalize)
+            // 覆写已有区间：mp4-muxer 在 finalize 时回填 mdat 大小
             for (const b of this.blocks) {
                 if (pos >= this.end || !u.length) break;
                 const s0 = Math.max(pos, b.pos), s1 = Math.min(pos + u.length, b.pos + b.u.length);
@@ -364,7 +348,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         const span = J.exportSpan(plan, range);
         const fps = plan.fps;
         let ac = null, audioChn = 0;
-        // 音频特效（project.audioFx）：特效图在导出时于 OfflineAudioContext 里渲染
+        // 音频特效（project.audioFx）：导出时在 OfflineAudioContext 里渲染特效图
         const fx = audio && audio.buffer && project.includeAudio !== false ? J.sanitizeAudioFx(project.audioFx) : null;
         if (fx) {
             audioChn = Math.min(2, audio.buffer.numberOfChannels);
@@ -437,12 +421,12 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                     vf.close();
                 }
                 let spins = 0;
-                // (time in the background doesn't count: a phone pauses the encoder while the page is hidden)
+                // 页面在后台的时间不算数：隐藏时编码器被挂起，别按墙钟判死
                 while (venc.encodeQueueSize > 4 && !err) {
                     await new Promise(r => setTimeout(r, 2));
                     if (!document.hidden && ++spins > 15000) throw new Error('エンコーダーが応答しません');
                 }
-                // an encoder that accepts frames but never returns any has failed silently (seen with some GPU drivers)
+                // 收帧不出帧的编码器是静默失败（某些 GPU 驱动上见过）
                 if (i === Math.min(total - 1, fps * 3) && outFrames === 0) {
                     await venc.flush();
                     if (!outFrames) throw new Error('エンコーダーが出力を返しません');
@@ -501,9 +485,9 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 const e = new Error(m);
                 e.jzFatal = true;
                 return e;
-            };    // audio problems: another video encoder won't help
+            };    // 音频问题换视频编码器也没用，jzFatal 让外层不再重试
             if (aErr) throw fatal('音声のエンコードに失敗しました: ' + (aErr.message || aErr));
-            // the encoder must have produced the whole soundtrack — otherwise report it instead of writing a silent file
+            // 编码器必须产出完整音轨，否则报错，不能写个没声的文件出去
             if (!aChunks || aEnd < (Math.min(span.dur, audio.buffer.duration - span.t0) - 0.5) * 1e6) throw fatal('音声のエンコードが途中で止まりました（' + aChunks + '）。もう一度書き出してください');
         }
         onProgress && onProgress(0.995, 'ファイルを仕上げ中');
@@ -523,7 +507,6 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         };
     }
 
-    /* ---------- PNG sequence as ZIP (store, no compression) ---------- */
     const ZIP_TOO_BIG = 'ZIP 会变得过大（上限 65,535 个文件・4GB）。请缩小导出范围或降低分辨率';
     const CRC = (() => {
         const t = new Uint32Array(256);
@@ -597,9 +580,9 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         }
     }
 
-    /* layers: transparent PNGs in two folders — back/ (background graphic + decorations behind the lyrics) and front/
-       (lyrics, their decorations, ghosts, HUD). Screen effects are applied to both, so stacking front over back matches.
-       frontOnly: single front/ folder without HUD (foreground/lyrics-layer export; HUD is a composite element, not part of the lyrics). */
+    // 分层：透明 PNG 分两层，back/（背景图+歌词后面的装饰）和 front/（歌词、装饰、
+    // ghost、HUD）。屏幕特效两层都吃，front 叠回 back 上效果一致。
+    // frontOnly：只有 front/ 且不带 HUD，HUD 是合成元素，不算歌词本体
     J.exportPNGZip = async ({plan, project, transparent, layers, frontOnly, onProgress, signal, every = 1, range}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
@@ -635,12 +618,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return zip.finish();
     };
 
-    /* ---------- transparent video (WebM, VP9/VP8 alpha side data via mediabunny) ---------- */
-    /* frontOnly: lyrics + front decorations only, no HUD — the foreground layer for stacking over other footage.
-       customDraw: (ctx, plan, t, opt) => void — replaces the standard frame render entirely
-       (subtitle-layer export draws only the 字幕渲染 overlay through it: no lyrics/decor/background);
-       the canvas is cleared before each customDraw call, since overlay-style drawers don't clear themselves.
-       No audio track: an overlay has nothing to carry. */
+    // frontOnly：只导歌词+前景装饰、无 HUD，作叠加在别的画面上的前景层。
+    // customDraw：(ctx, plan, t, opt) => {}，完全接管逐帧绘制（字幕层导出只画
+    // 字幕 overlay 就走它）；它是叠加型画法自身不清底，每帧画前先清空。
+    // 无音轨：overlay 没有可承载的声音
     J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly, customDraw}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
@@ -720,9 +701,8 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         };
     };
 
-    /* ---------- plan JSON for the After Effects panel ---------- */
-    /* The After Effects panel implements the original expression set. Newer pack entries are exported as their
-       closest original counterpart (the browser key is kept in web* fields so nothing is lost). */
+    // AE 面板实现的是原版表达式集。新版包条目按最接近的原版条目导出，
+    // 浏览器侧的 key 保留在 web* 字段里，信息不丢
     J.AE_MAP = {
         layout: {
             lowerThird: 'center',
@@ -957,12 +937,12 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             crtOff: 'flash'
         },
     };
-// The plan goes to the After Effects panel as-is (version 2): the panel builds every key it implements and
-// picks the closest counterpart itself (from the exported metadata / J.AE_MAP) for anything it lacks.
+    // plan 原样交给 AE 面板（version 2）：面板构建它实现的每个 key，
+    // 缺的按导出元数据 / J.AE_MAP 自己挑最近似条目
     J.planForAE = (plan, project, range) => {
         const clean = JSON.parse(JSON.stringify(plan, (k, v) => (k === 'energy' || k === 'buffer' || k === 'peaks' || k === 'pitch' ? undefined : v)));
         clean.version = 2;
-        clean.aeMap = J.AE_MAP;   // 新增包条目 → 原版 counterpart 的对照表：面板对未实现的 key 按它取最近似条目
+        clean.aeMap = J.AE_MAP;   // 新增包条目 → 原版 counterpart 对照表：面板对未实现的 key 按它取最近似条目
         clean.width = J.outputSize(project)[0];
         clean.height = J.outputSize(project)[1];
         clean.extra = project.extra === true;
@@ -976,7 +956,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             weight: f.weight,
             kind: f.kind
         }]));
-        // lyric language: the face each key is drawn with in the browser for this plan (the panel maps keys → AE fonts per language)
+        // 歌词语言：本方案里各 key 在浏览器实际用的字体（面板再按语言映射到 AE 字体）
         clean.lang = plan.lang || 'ja';
         if (J.setLang && J.faceOf && clean.lang !== 'ja') {
             J.setLang(clean.lang);
@@ -986,15 +966,15 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 clean.fontTable[k].langWeight = f.weight;
             }
         }
-        // モーフ has no After Effects counterpart yet: build it as the closest transition (an ink-blob dissolve)
+        // モーフ在 AE 里还没有对应物：先用最接近的转场顶上（inkBlob 墨团溶解）
         for (const c of clean.cuts || []) if (c.morph && !c.trans) {
             c.trans = 'inkBlob';
             c.transDur = c.morph.dur;
             c.transP = {};
             c.webMorph = true;
         }
-        // 行の範囲だけ: keep the cuts / events inside [t0, t1] and move them to start at 0.
-        // audioOffset tells the AE panel to slide the song layer left by t0 so it stays in sync.
+        // 行の範囲だけ：留下 [t0, t1] 内的 cuts/events 并平移到从 0 开始。
+        // audioOffset 让 AE 面板把歌曲层左移 t0，保持同步
         if (range) {
             const sp = J.exportSpan(plan, range), t0 = sp.t0, t1 = t0 + sp.dur, eps = 1e-3;
             const sh = o => {
@@ -1010,7 +990,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             for (const l of clean.lines || []) {
                 sh(l);
                 if (l.visEnd != null) l.visEnd -= t0;
-            }   // all lines stay (cut.line indexes them)
+            }   // 所有行都保留（cut.line 按行号索引）
             clean.duration = sp.dur;
             clean.audioOffset = t0;
             clean.range = {t0, t1};

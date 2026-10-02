@@ -1,6 +1,5 @@
-/* 专用工程包（jizura/pkg）单元测试：JZLV 容器布局、往返一致性、坏输入拒绝。
-   Node 没有 CompressionStream('br')，这里自动落 gzip 路径；brotli 路径由
-   CEF（Chrome 152+）承担，并与 C# 解析器 src/Server/JizuraPackage.cs 做交叉验证。 */
+// Node 没有 CompressionStream('br')，会自动落 gzip 路径；brotli 归 CEF（Chrome 152+），
+// 并和 C# 解析器 src/Server/JizuraPackage.cs 交叉验证
 import {describe, expect, it} from 'vitest';
 import {J} from '../../src/engine';
 import {mergeProject} from '../../src/jizura/project';
@@ -91,7 +90,7 @@ describe('JZLV 容器', () => {
 
     it('buildProjectPackage：至少带 project.json，且 app 标记在', async () => {
         S.project = {lyrics: '[00:01.00]忆华年', title: '青丝', artist: '苏瑾'} as any;
-        anyJ.loadSong = undefined;   // 无歌环境：包里只有工程
+        anyJ.loadSong = undefined; // 无歌环境，包里只有工程
         const blob = await buildProjectPackage('0.0.0-test');
         const entries = await readPackage(new Uint8Array(await blob.arrayBuffer()));
         expect(entries).toHaveLength(1);

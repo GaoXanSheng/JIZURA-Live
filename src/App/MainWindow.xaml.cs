@@ -24,8 +24,7 @@ public partial class MainWindow : Window
         _url = url;
         _clean = settings.Clean;
 
-        // 页面"保存"按钮走浏览器下载（a[download]）：
-        // 不设 DownloadHandler 时 CEF 会静默取消下载，按钮表现为无效
+        // 保存按钮走 a[download] 下载，不设 DownloadHandler 会被 CEF 静默取消，按钮表现为无效
         Browser.Address = url;
         Browser.DownloadHandler = AppDownloadHandler.Instance;
         Browser.MenuHandler = AppContextMenuHandler.Instance;
@@ -34,7 +33,7 @@ public partial class MainWindow : Window
         Browser.LoadError += (_, e) =>
             Log.Error($"Browser LoadError: {e.ErrorCode}, {e.ErrorText}, URL: {e.FailedUrl}");
 
-        // MCP 端点（/mcp）经此桥把 JSON-RPC 派发进页面执行
+        // /mcp 端点经此桥把 JSON-RPC 派发进页面执行
         McpBridge.EvaluateAsync = EvaluateMcpAsync;
 
         Loaded += (_, _) =>
@@ -54,21 +53,14 @@ public partial class MainWindow : Window
         };
     }
 
-    /// <summary>
-    ///     Spout 渲染进程加载的纯 canvas 页（/#/render 路由，100% 画布）。
-    ///     编辑页与渲染页同源，经 BroadcastChannel 直通工程/时间/字幕，互不打扰。
-    /// </summary>
+    // 渲染页路由 /#/render，纯 canvas；与编辑页同源，经 BroadcastChannel 直通工程/时间/字幕
     private string RenderUrl => _url + "render";
 
-    /// <summary>歌词独立通道的渲染页（透明底、只画歌词文字）。</summary>
+    // 独立歌词通道的渲染页，透明底只画歌词
     private string LyricsRenderUrl => RenderUrl + "?layer=lyric";
 
-    /// <summary>歌词独立通道的 Spout 发送端名。</summary>
+    // 独立歌词通道的 Spout 发送端名
     private string LyricsSenderName => _settings.SpoutName + "-LYRICS";
-
-    // ====================================================================
-    // Spout
-    // ====================================================================
 
     public void StartSpout()
     {
@@ -101,11 +93,7 @@ public partial class MainWindow : Window
         _lyricsPipeline.Stop();
     }
 
-    // --------------------------------------------------------------------
-    // 独立 Spout 字幕通道：按设置开关启停，透明底、只画歌词，
-    // 输出到 <SpoutID>-LYRICS。时间锚点与主通道同源（sync_play 同时喂两路）。
-    // --------------------------------------------------------------------
-
+    // 独立歌词通道：按设置开关启停，时间锚点与主通道同源（sync_play 同时喂两路）
     public void ApplySpoutLyrics()
     {
         if (_settings.SpoutLyricsEnabled)
@@ -160,11 +148,7 @@ public partial class MainWindow : Window
             _lyricsPipeline.Stop();
     }
 
-    // --------------------------------------------------------------------
-    // 采样钟热更新：设置里改输出帧率后调用，
-    // 主页面采样间隔立即跟随（__jlSyncMs 由注入脚本读取）
-    // --------------------------------------------------------------------
-
+    // 采样钟热更新：设置里改输出帧率后调，主页面采样间隔立即跟随（__jlSyncMs 由注入脚本读取）
     public void ApplySyncRate()
     {
         if (!Browser.IsBrowserInitialized)
@@ -181,10 +165,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // ====================================================================
-    // 主浏览器加载完成
-    // ====================================================================
-
     private void OnBrowserFrameLoadEnd(object? sender, FrameLoadEndEventArgs e)
     {
         if (!e.Frame.IsMain)
@@ -194,9 +174,7 @@ public partial class MainWindow : Window
             Browser.ExecuteScriptAsync(
                 "window.JizuraLive && JizuraLive.setClean(true);");
 
-        // 采样节奏跟随设置里的"输出帧率"：60fps → 16ms，30fps → 33ms。
-        // 间隔存在 window.__jlSyncMs 上，运行时改帧率时
-        // ApplySyncRate() 热更新，无需刷新页面
+        // 采样间隔 = 1000/输出帧率，落在 window.__jlSyncMs；运行时改帧率走 ApplySyncRate 热更新
         var syncMs = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
 
         var syncScript = """
@@ -261,10 +239,6 @@ public partial class MainWindow : Window
         Browser.ExecuteScriptAsync(syncScript);
     }
 
-    // ====================================================================
-    // 主浏览器 JS -> C#
-    // ====================================================================
-
     private void OnJavascriptMessageReceived(object? sender, JavascriptMessageReceivedEventArgs e)
     {
         try
@@ -274,14 +248,14 @@ public partial class MainWindow : Window
                 typeObj == null)
                 return;
 
-            // sync_play 是高频时间流（约 30 条/秒），先分流处理，不逐条记日志
+            // sync_play 是高频时间流（约 30 条/秒），分流处理不逐条记日志
             if (string.Equals(typeObj.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
             {
                 HandleSyncPlay(dict);
                 return;
             }
 
-            // MCP 导出指定的免确认落盘目录（dir=null 表示导出结束，恢复弹另存为）
+            // MCP 导出指定的免确认落盘目录，dir=null 表示导出结束、恢复另存为
             if (string.Equals(typeObj.ToString(), "set_autosave_dir", StringComparison.OrdinalIgnoreCase))
             {
                 var dir = dict.TryGetValue("dir", out var dirObj) ? dirObj?.ToString() : null;
@@ -319,10 +293,6 @@ public partial class MainWindow : Window
         }
     }
 
-    // ====================================================================
-    // 强制同步
-    // ====================================================================
-
     public void ForceSyncResend()
     {
         try
@@ -336,14 +306,8 @@ public partial class MainWindow : Window
         }
     }
 
-    // ====================================================================
-    // MCP 桥：HTTP 端点 -> 页面内 window.J.mcp.rpc
-    // ====================================================================
-
-    /// <summary>
-    ///     在页面里执行脚本并取回 JSON.stringify 的结果字符串（null = 通知）。
-    ///     McpModule 在 HTTP 线程调用，这里先切到 UI 线程再交给 CEF。
-    /// </summary>
+    // 页面里执行脚本并取回 JSON.stringify 的结果（null = 通知）。
+    // McpModule 在 HTTP 线程调，先切 UI 线程再交给 CEF
     private Task<string?> EvaluateMcpAsync(string script)
     {
         return Dispatcher.InvokeAsync(() => EvaluateMcpOnUiAsync(script)).Task.Unwrap();
@@ -360,10 +324,6 @@ public partial class MainWindow : Window
 
         return response.Result as string;
     }
-
-    // ====================================================================
-    // 窗口控制
-    // ====================================================================
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {

@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-/* 云端音乐统一弹窗：搜索 / 我的歌单 / 账号 三合一。
-   Esc / 遮罩关闭；关闭时停掉扫码轮询。 */
 import {onMounted, onUnmounted, watch} from 'vue';
 import {useCloud} from '../../stores/cloud';
 import {bus} from '../../jizura/bus';
@@ -24,7 +22,7 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('keydown', onKey, true);
   offs.push(bus.on('cloud-vip-needed', (src: string) => {
-    // VIP 提示：打开账号页引导登录
+    // 收到 VIP 提示就切到账号页，按来源刷新登录态
     cloud.pane = 'account';
     cloud.refreshLogin(src as any);
   }));

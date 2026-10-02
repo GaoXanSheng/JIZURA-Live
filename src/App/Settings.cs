@@ -9,18 +9,17 @@ public sealed class Settings
     public bool Clean { get; set; }
     public bool SpoutEnabled { get; set; } = true;
 
-    // Spout 输出透明背景：镜像页面跳过背景填充（只输出歌词+特效的透明图层），
-    // 供 OBS 等下游合成；主界面预览不受影响。改动重启镜像后生效
+    // Spout 输出透明底：镜像跳过背景填充，只出歌词+特效透明图层给 OBS 合成；主界面预览不受影响，重启镜像生效
     public bool SpoutTransparent { get; set; }
 
-    // 独立 Spout 字幕通道：把歌词层单独输出到 <SpoutID>-LYRICS 通道（透明底，供分层合成）
+    // 独立歌词通道：歌词层单独输出到 <SpoutID>-LYRICS，透明底供分层合成
     public bool SpoutLyricsEnabled { get; set; }
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;
 
-    // CDP 调试端口：默认关闭；开启后 CEF 仅在本机回环地址监听该端口。
-    // RemoteDebuggingPort 必须在 Cef.Initialize 前配置，改动重启后生效
+    // CDP 调试端口，默认关；开启后 CEF 只监听本机回环。
+    // RemoteDebuggingPort 必须在 Cef.Initialize 前配置，重启生效
     public bool CdpEnabled { get; set; }
     public int CdpPort { get; set; } = 9222;
 

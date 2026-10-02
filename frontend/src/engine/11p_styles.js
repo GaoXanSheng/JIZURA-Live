@@ -1,11 +1,10 @@
-/* JIZURA pack: styles — twelve more style packs (配色セット: colour schemes, font roles, texture, tendencies) */
+// 追加风格包：12 个风格（配色 schemes、字体角色、纹理、bias 倾向）
 (() => {
     'use strict';
 
-    /* scheme: bg, fg, sub, accent, accent2, ink (sticker / plate colour — text on it is drawn in bg), dim (faint bg text),
-       ghostA, ghostB (chromatic ghost passes: drawn source-over on dark backgrounds, multiplied on light ones), grad?, paper? */
+    // scheme 字段：bg/fg/sub/accent/accent2；ink=贴纸和色块的颜色，其上的文字用 bg 画；dim=弱化的背景文字
+    // ghostA/ghostB=色差残影（暗底 source-over、亮底 multiply）；grad?/paper?=可选的渐变色对与纸张质感
     const S = {
-        /* ---------------------------------------------------------------- 桜 */
         sakura: {
             name: 'サクラ',
             desc: '淡い桜色・深い梅紫・夜桜・丸文字と明朝',
@@ -112,7 +111,6 @@
             glow: 0.9,
         },
 
-        /* ---------------------------------------------------------------- 深海 */
         ocean: {
             name: '深海', desc: '濃紺の深海・シアンの発光・泡と細いゴシック', moods: ['calm', 'emotional'],
             schemes: [
@@ -208,7 +206,6 @@
             }, hud: false, glow: 1.6,
         },
 
-        /* ---------------------------------------------------------------- 夕焼け */
         sunset: {
             name: '夕焼けグラデ',
             desc: '橙から菫へのグラデーション・太い明朝・逆光',
@@ -306,7 +303,6 @@
             useGrad: true,
         },
 
-        /* ---------------------------------------------------------------- 森 */
         forest: {
             name: '森の手帖', desc: '苔と生成り・樹皮の茶・鉛筆の手書き文字', moods: ['calm', 'editorial', 'emotional'],
             schemes: [
@@ -408,7 +404,6 @@
             }, hud: false,
         },
 
-        /* ---------------------------------------------------------------- ヴェイパー */
         vapor: {
             name: 'ヴェイパー',
             desc: '薄紫とパステルのピンク/水色・明朝・VHSのにじみ',
@@ -514,7 +509,6 @@
             useGrad: true,
         },
 
-        /* ---------------------------------------------------------------- 新聞 */
         newsprint: {
             name: '新聞', desc: '灰色の更紙・墨と赤・見出し明朝・CMYの版ズレと網点', moods: ['editorial', 'graphic'],
             schemes: [
@@ -633,7 +627,6 @@
             }, hud: false,
         },
 
-        /* ---------------------------------------------------------------- シンセ */
         synth80: {
             name: 'シンセ80s',
             desc: '黒地にネオンのマゼンタ/シアン・立体文字・走査線',
@@ -750,7 +743,6 @@
             glitchBoost: 1.15,
         },
 
-        /* ---------------------------------------------------------------- クラフト紙 */
         kraft: {
             name: 'クラフト紙',
             desc: 'クラフト紙と生成り・スタンプの朱と藍・マステ',
@@ -869,7 +861,6 @@
             hud: false,
         },
 
-        /* ---------------------------------------------------------------- キャンディ */
         candy: {
             name: 'キャンディ', desc: 'ミント/いちご/レモン/ぶどうのパステル・丸く弾む文字', moods: ['pop'],
             schemes: [
@@ -1002,7 +993,6 @@
             }, hud: false, glow: 0.4,
         },
 
-        /* ---------------------------------------------------------------- アシッド */
         acid: {
             name: 'アシッド', desc: '黒×酸性グリーン×マゼンタ・荒い書体と壊れた画面', moods: ['glitch', 'graphic'],
             schemes: [
@@ -1141,7 +1131,6 @@
             }, hud: true, glow: 0.8, glitchBoost: 1.6,
         },
 
-        /* ---------------------------------------------------------------- 墨 */
         sumi: {
             name: '墨と朱', desc: '和紙の生成り・墨の筆文字・朱の落款', moods: ['calm', 'emotional', 'editorial'],
             schemes: [
@@ -1260,7 +1249,6 @@
             }, hud: false, glow: 0.4,
         },
 
-        /* ---------------------------------------------------------------- 金夜 */
         gold: {
             name: '金夜', desc: '漆黒と金箔・象牙の明朝・きらめく光', moods: ['emotional', 'calm', 'editorial'],
             schemes: [
@@ -1392,7 +1380,7 @@
     };
 
     for (const [k, v] of Object.entries(S)) {
-        if (J.STYLES[k]) continue;              // never overwrite a core style
+        if (J.STYLES[k]) continue; // 不覆盖核心风格
         J.STYLES[k] = v;
         if (!J.STYLE_ORDER.includes(k)) J.STYLE_ORDER.push(k);
     }

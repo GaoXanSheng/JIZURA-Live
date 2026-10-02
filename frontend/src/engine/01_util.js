@@ -1,6 +1,3 @@
-/* ============================================================
-   JIZURA — util: math, easing, deterministic randomness, colour
-   ============================================================ */
 'use strict';
 const J = (window.J = window.J || {});
 
@@ -65,9 +62,9 @@ J.E = {
     },
 };
 
-/* ---- deterministic hashing: numbers only on the hot path ---- */
+// 确定性哈希，热路径只吃数字；字符串走 sid 的缓存
 const _sidCache = new Map();
-J.sid = s => {                       // string -> uint32 (cached)
+J.sid = s => {                       // 字符串 → uint32，带缓存
     let v = _sidCache.get(s);
     if (v !== undefined) return v;
     let h = 2166136261 >>> 0;
@@ -79,7 +76,7 @@ J.sid = s => {                       // string -> uint32 (cached)
     _sidCache.set(s, v);
     return v;
 };
-J.h = function (a, b, c, d, e) {      // up to 5 numeric keys -> uint32
+J.h = function (a, b, c, d, e) {      // 最多 5 个数字 key，输出 uint32
     let h = 0x9e3779b9 ^ (a | 0);
     h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
     h = (h + Math.imul((b | 0) + 0x632be5ab, 0xc2b2ae35)) | 0;
@@ -101,7 +98,7 @@ J.rs = (a, b, c, d, e) => J.r(a, b, c, d, e) * 2 - 1;               // -1..1
 J.rr = (lo, hi, a, b, c, d, e) => lo + (hi - lo) * J.r(a, b, c, d, e);
 J.pick = (arr, a, b, c, d) => arr[Math.floor(J.r(a, b, c, d) * arr.length) % arr.length];
 
-J.rng = seed => {                    // mulberry32 stream
+J.rng = seed => {                    // mulberry32
     let s = seed >>> 0;
     const f = () => {
         s = (s + 0x6d2b79f5) >>> 0;
@@ -114,7 +111,7 @@ J.rng = seed => {                    // mulberry32 stream
     f.int = (lo, hi) => Math.floor(lo + (hi - lo + 1) * f());
     f.pick = arr => arr[Math.floor(f() * arr.length) % arr.length];
     f.chance = p => f() < p;
-    f.wpick = list => {               // [{w, v}] or [[v,w]]
+    f.wpick = list => {               // 元素为 {w, v} 或 [v, w]
         let tot = 0;
         for (const it of list) tot += Array.isArray(it) ? it[1] : it.w;
         let x = f() * tot;
@@ -128,13 +125,12 @@ J.rng = seed => {                    // mulberry32 stream
     return f;
 };
 
-/* smooth 1D value noise (for drift / wiggle) */
+// 平滑一维 value noise，漂移/摆动用
 J.noise1 = (x, seed = 0) => {
     const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
     return J.lerp(J.rs(seed, i), J.rs(seed, i + 1), u);
 };
 
-/* ---- colour ---- */
 J.hex = h => {
     h = String(h || '#000').replace('#', '');
     if (h.length === 3) h = h.split('').map(c => c + c).join('');
@@ -155,7 +151,7 @@ J.lum = h => {
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 };
 J.toHex = (r, g, b) => '#' + [r, g, b].map(v => Math.round(J.clamp(v, 0, 255)).toString(16).padStart(2, '0')).join('').toUpperCase();
-J.hsl = (h, s, l) => {                 // h 0..360, s/l 0..1 -> hex
+J.hsl = (h, s, l) => {                 // h 0..360, s/l 0..1，返回 hex
     h = ((h % 360) + 360) % 360 / 360;
     const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
     const f = t => {
@@ -172,7 +168,7 @@ J.toHsl = hex => {
     const h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
     return [h * 60, s, l];
 };
-J.contrast = (a, b) => {               // WCAG contrast ratio
+J.contrast = (a, b) => {               // WCAG 对比度
     const L = h => {
         const c = J.hex(h).map(v => {
             v /= 255;
@@ -183,7 +179,7 @@ J.contrast = (a, b) => {               // WCAG contrast ratio
     const x = L(a), y = L(b);
     return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 };
-J.fitContrast = (hex, bg, min = 3) => {  // nudge lightness away from the background until it reads
+J.fitContrast = (hex, bg, min = 3) => {  // 对比度不够就往远离背景的方向调明度，直到达标
     if (J.contrast(hex, bg) >= min) return hex.toUpperCase();
     let [h, s, l] = J.toHsl(hex);
     const dark = J.lum(bg) < 0.5;
@@ -194,7 +190,7 @@ J.fitContrast = (hex, bg, min = 3) => {  // nudge lightness away from the backgr
     }
     return dark ? '#FFFFFF' : '#111111';
 };
-/* random accent + chromatic ghost pair that works on the given background */
+// 随机 accent + 幽灵色对，都保证在背景上可读
 J.GHOST_PAIRS = [['#16F4D4', '#F5A50C'], ['#FF2A2A', '#2AA8FF'], ['#FF2BD6', '#2BFF88'], ['#FFE600', '#7B2BFF'], ['#FF6A00', '#00C2B8'],
     ['#FF6FAE', '#B6FF3B'], ['#00E0FF', '#FF3D6E'], ['#C8FF00', '#FF00A8'], ['#4D6BFF', '#FFB000'], ['#FF4B2B', '#2BD9FF']];
 J.randomPalette = (bg, rnd = Math.random) => {
@@ -215,7 +211,7 @@ J.randomPalette = (bg, rnd = Math.random) => {
         a = J.hsl(h, s, l);
         b = J.hsl(h + gap, s, l);
     }
-    // accent: one of the pair, or the hue between them, made readable on the background
+    // accent：取对里一色或两色间的色相，调到背景上可读
     const r = rnd();
     const ha = J.toHsl(a)[0], hb = J.toHsl(b)[0];
     let acc = r < 0.35 ? a : r < 0.6 ? b : J.hsl((ha + hb) / 2 + (rnd() < 0.5 ? 0 : 180), 0.9, dark ? 0.6 : 0.45);
@@ -223,7 +219,6 @@ J.randomPalette = (bg, rnd = Math.random) => {
     return {accent: acc, ghostA: a, ghostB: b, mode};
 };
 
-/* ---- script classes for Japanese text ---- */
 J.isKanji = c => /[㐀-鿿豈-﫿々〆ヶ]/.test(c);
 J.isHira = c => /[ぁ-ゟ]/.test(c);
 J.isKata = c => /[゠-ヿㇰ-ㇿｦ-ﾟ]/.test(c);
@@ -232,7 +227,7 @@ J.isPunct = c => /[、。，．,.!?！？…‥・「」『』（）()【】〈�
 J.isLatin = c => /[A-Za-z0-9]/.test(c);
 J.VERT_ROTATE = 'ー〜～…‥―—-()（）「」『』【】〈〉《》〔〕[]［］→←:：;；=＝';
 
-/* ---- kana → romaji (for annotation labels; kanji left out) ---- */
+// 假名转 romaji，注音标签用；汉字不在支持范围
 (() => {
     const base = {
         あ: 'a',

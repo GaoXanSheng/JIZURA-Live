@@ -5,21 +5,16 @@ using Microsoft.Win32;
 
 namespace JizuraLive;
 
-// --------------------------------------------------------------------
-// 页面里的"保存"按钮（工程 .json / AE json / WAV 等）通过
-// <a download> 触发浏览器下载。CefSharp 不设置 DownloadHandler 时
-// 下载会被静默取消——按钮点了毫无反应。这里弹保存对话框落盘。
-// --------------------------------------------------------------------
+// 页面「保存」按钮走 <a download> 触发浏览器下载，CefSharp 不设 DownloadHandler
+// 时下载被静默取消，按钮点了毫无反应。这里弹保存对话框落盘
 
 public sealed class AppDownloadHandler : IDownloadHandler
 {
     public static readonly AppDownloadHandler Instance = new();
 
-    /// <summary>
-    ///     免确认落盘目录（由页面经 CefSharp.PostMessage 的 set_autosave_dir 设置，
-    ///     MCP 导出时由 agent 指定导出目录）。非 null 时下载直接写入该目录、不弹
-    ///     另存为；导出结束页面会置回 null。CEF 线程读 / UI 线程写，引用赋值本身原子。
-    /// </summary>
+    // 免确认落盘目录：页面经 set_autosave_dir 设置，MCP 导出时也可指定。
+    // 非 null 时直接写入不弹另存为，导出结束页面置回 null。
+    // CEF 线程读、UI 线程写，volatile 引用赋值本身原子
     public static volatile string? AutoSaveDir;
 
     public bool CanDownload(
@@ -49,7 +44,7 @@ public sealed class AppDownloadHandler : IDownloadHandler
 
         var ext = Path.GetExtension(suggested);
 
-        // MCP 指定了导出目录：直接落盘，不弹对话框（目录不可用时回退另存为）
+        // 指定了免确认目录：直接落盘，目录不可用再回退另存为
         var autoDir = AutoSaveDir;
         if (!string.IsNullOrWhiteSpace(autoDir))
             try
@@ -71,10 +66,9 @@ public sealed class AppDownloadHandler : IDownloadHandler
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Downloads");
 
-        // 回调来自 CEF 线程：Win32 对话框有线程亲和性，
-        // 必须在 UI 线程上"创建并显示"，否则抛
-        // "无法显示在其他线程上创建的对话框"。
-        // Dispatcher 不可用（无 UI 线程）时直接取消下载
+        // 回调来自 CEF 线程，Win32 对话框有线程亲和性，
+        // 必须切到 UI 线程"创建并显示"，否则抛"无法显示在其他线程上创建的对话框"。
+        // Dispatcher 不可用（无 UI 线程）时下载直接取消
         string? path = null;
 
         var app = Application.Current;
@@ -99,12 +93,12 @@ public sealed class AppDownloadHandler : IDownloadHandler
 
         if (string.IsNullOrEmpty(path))
         {
-            // 返回 false = 取消该下载
+            // false = 取消该下载
             callback.Dispose();
             return false;
         }
 
-        // 保存对话框已由我们自己弹出，showDialog 传 false
+        // 对话框已由我们自己弹出，showDialog 传 false
         callback.Continue(path, false);
 
         callback.Dispose();
@@ -118,7 +112,7 @@ public sealed class AppDownloadHandler : IDownloadHandler
         DownloadItem downloadItem,
         IDownloadItemCallback callback)
     {
-        // 已选路径，交给 CEF 继续写文件；进度不需要 UI
+        // 路径已定，交给 CEF 继续写文件；进度不上 UI
         callback.Dispose();
     }
 }

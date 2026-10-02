@@ -1,4 +1,4 @@
-/* /kg/* 与 /ne/* 本机服务 API 客户端（对应 KgController / NeController） */
+// 本机服务 API 客户端，对应服务端的 KgController / NeController
 import type {
     ApiBase,
     LoginResponse,
@@ -61,7 +61,7 @@ export const fmtDur = (sec?: number) => {
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 };
 
-/* 粘贴歌单链接 / ID 的解析（酷狗 global_collection_id / 网易云 id / 纯 ID） */
+// 粘贴的歌单链接或纯 ID 都行，依次试酷狗 global_collection_id、网易云 id、裸 ID
 export function parsePlaylistId(s: string): string {
     s = String(s || '').trim();
     const m = s.match(/[?&]global_collection_id=([\w-]+)/) || s.match(/[?&]id=([\w-]+)/) || s.match(/^([\w-]{5,})$/);

@@ -1,4 +1,4 @@
-/* JIZURA pack: horror (2/3) — entrances, exits, holds and text treatments with an uneasy, J-horror / found-footage feel */
+// horror 包 2/3：入场、退场、保持动效与文字处理
 (() => {
     'use strict';
     const E = J.E;
@@ -7,7 +7,6 @@
     const reg = (g, key, def) => J.register(g, key, Object.assign({set: 'horror'}, def), P);
     const HIDE = Object.freeze({hide: true});
 
-    /* ------------------------------------------------------------------ helpers */
     const isHex = c => typeof c === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c);
     const colOf = it => (isHex(it.color) ? it.color : '#ffffff');
     const mixC = (a, b, t) => (isHex(a) && isHex(b) ? J.mix(a, b, J.clamp(t)) : (t < 0.5 ? a : b));
@@ -15,19 +14,19 @@
     const layOf = it => (it._m || (it._m = J.measure(it))).lay;
     const cutN = env => Math.max(1, J.glyphCount(String((env.cut && env.cut.text) || '')));
     const cseed = env => (env.cut && env.cut.seed) | 0;
-    /* position of glyph i along the whole lyric (0..1): within the item, or by motion index for one-glyph items */
+    // 字 i 在整句歌词中的位置 0..1：多字项内按 i/(n-1)，单字项按 motion index
     const orderOf = (env, it) => {
         const N = cutN(env), mi = +it.mi || 0;
         return (i, n) => (n > 1 ? i / (n - 1) : N > 1 ? J.clamp(mi / (N - 1)) : 0);
     };
-    /* integer index of glyph i within the whole lyric */
+    // 字 i 在整句歌词中的整数下标
     const indexOf = (env, it) => {
         const N = cutN(env), mi = Math.round(+it.mi || 0);
         return (i, n) => (n > 1 ? i : N > 1 ? Math.min(N - 1, mi) : 0);
     };
     const isDarkBg = env => J.lum(env.sc.bg) < 0.45;
     const nightC = sc => J.mix(sc.bg, '#000000', J.lum(sc.bg) < 0.45 ? 0.72 : 0.9);
-    /* item-space centre of the laid-out text */
+    // 排版结果在项内空间的中心
     const layCenter = it => {
         const lay = layOf(it);
         let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
@@ -39,7 +38,7 @@
         }
         return lay.length ? [(x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0] : [0, 0, 0, 0];
     };
-    /* irregular (uneasy) timeline: cumulative random gaps, some long, normalised to 0..span */
+    // 别扭的时间轴：随机累加间隔（有些特别长），归一化到 0..span
     const uneasyTimes = (seed, N, span) => {
         const gaps = [];
         let tot = 0;
@@ -94,7 +93,7 @@
         blend: null,
         _lay: null
     }, extra || {});
-    /* visible glyphs in item space following the per-glyph motion */
+    // 项内空间里应用逐字动效后的可见字形
     const glyphList = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, out = [];
         for (const g of lay) {
@@ -114,7 +113,7 @@
         }
         return out;
     };
-    /* run fn in item space (translate / rotate / skew of the item) */
+    // 在项内空间里执行 fn（应用位移/旋转/斜切）
     const inItem = (env, it, fn) => {
         const ctx = env.ctx;
         ctx.save();
@@ -129,9 +128,7 @@
     };
     const alive = (it, amin = 0.9) => it.fill !== false && (it.alpha ?? 1) >= amin && !!it.text && it.size > 1;
 
-    /* ================================================================== ENTRANCES */
-
-    /* between blinks: every time the screen blinks, the glyphs are closer */
+    // 眨眼之间：屏幕每闪一次，字就更近一步
     reg('enter', 'hrBlinkCreep', {
         name: '瞬きの間に', tags: TAGS.concat(['emotional']), w: 0.9, ae: 'flicker', minDur: 1,
         inDur: dur => J.clamp(dur * 0.5, 0.6, 1.3),
@@ -160,7 +157,7 @@
         },
     });
 
-    /* jump scare: faint and tiny, then it snaps at you and settles */
+    // 惊吓：先又小又淡，然后扑到你脸上再稳住
     reg('enter', 'hrJumpScare', {
         name: '飛び出し', tags: TAGS.concat(['glitch', 'pop']), w: 0.7, ae: 'zoom', minDur: 0.9,
         inDur: dur => J.clamp(dur * 0.42, 0.45, 1),
@@ -182,7 +179,7 @@
         },
     });
 
-    /* uneasy timing: glyphs arrive one by one after irregular, too-long pauses, each with a twitch */
+    // 别扭的节奏：逐字出现，间隔不规律地偏长，每个都带一下抽动
     reg('enter', 'hrUneasy', {
         name: '間の悪い出現', tags: TAGS.concat(['editorial']), w: 1, ae: 'type', minDur: 0.9,
         inDur: (dur, n) => J.clamp(dur * 0.55, 0.5, 1.6),
@@ -204,7 +201,7 @@
         },
     });
 
-    /* vertical hold: the line rolls through the frame like a TV losing sync, then locks */
+    // 垂直失步：整行像丢同步的电视一样滚过画面，然后锁定
     reg('enter', 'hrVhold', {
         name: '垂直同期', tags: TAGS.concat(['glitch']), w: 0.8, ae: 'slice',
         inDur: dur => J.clamp(dur * 0.4, 0.35, 0.8),
@@ -227,7 +224,7 @@
         },
     });
 
-    /* mirror writing: it appears reversed, shudders, and snaps the right way round */
+    // 镜像文字：反着出现、发抖，再弹回正向
     reg('enter', 'hrMirrorSnap', {
         name: '鏡文字', tags: TAGS.concat(['glitch']), w: 0.8, ae: 'flicker', minDur: 0.8,
         inDur: dur => J.clamp(dur * 0.45, 0.5, 1.1),
@@ -243,7 +240,7 @@
         },
     });
 
-    /* manifesting: it wavers in and out, each glyph on its own breath, and finally holds */
+    // 显形：每个字按自己的呼吸忽隐忽现，最后定住
     reg('enter', 'hrManifest', {
         name: '浮かび上がる', tags: TAGS.concat(['emotional', 'calm']), w: 1, ae: 'blur', minDur: 0.8,
         inDur: dur => J.clamp(dur * 0.5, 0.5, 1.4),
@@ -264,7 +261,7 @@
         },
     });
 
-    /* claw marks: four slanted tears open across the line and widen until it is all there */
+    // 爪痕：四道斜裂口横贯整行，逐渐撑开到全部露出
     reg('enter', 'hrClawReveal', {
         name: '爪痕から', tags: TAGS.concat(['graphic']), w: 0.8, ae: 'wipe',
         inDur: dur => J.clamp(dur * 0.36, 0.3, 0.7),
@@ -278,7 +275,7 @@
                     const q = J.clamp((p - J.clamp(k, 0, n - 1) * 0.08) / 0.7) * (k < 0 || k >= n ? J.smooth(0.5, 0.9, p) : 1);
                     if (q <= 0) continue;
                     const e = E.inOutCubic(q), cx = x0 + (k + 0.5) * sp, w = sp * 0.08 + sp * 1.1 * e * e;
-                    // a slanted band, drawn in the swipe from one end to the other
+                    // 斜向条带，从一端扫到另一端
                     const reach = E.outCubic(J.clamp(q * 3)), ya = dir > 0 ? y0 : y1,
                         yb = J.lerp(ya, dir > 0 ? y1 : y0, reach);
                     const off = (y) => (y - y0) / Hh * slope - slope / 2;
@@ -295,9 +292,7 @@
         },
     });
 
-    /* ================================================================== EXITS */
-
-    /* pulled under: glyphs are yanked down one by one; the last one clings and trembles first */
+    // 拖下去：字被一个个拽落；最后一个先挣扎发抖
     reg('exit', 'hrPulledDown', {
         name: '引きずり込み', tags: TAGS.concat(['glitch', 'emotional']), w: 1, ae: 'fall',
         outDur: dur => J.clamp(dur * 0.4, 0.4, 0.9),
@@ -329,7 +324,7 @@
         },
     });
 
-    /* one stays behind: the line vanishes at once except one glyph, which turns to look, then is gone */
+    // 留下一个：整行瞬间消失，只剩一字转过来看，然后也没了
     reg('exit', 'hrLookBack', {
         name: '一字残る', tags: TAGS.concat(['emotional']), w: 0.9, ae: 'cut', minDur: 1,
         outDur: dur => J.clamp(dur * 0.45, 0.55, 1.2),
@@ -360,7 +355,7 @@
         },
     });
 
-    /* turning away: each glyph turns its back (edge-on, then reversed and darkened) and fades */
+    // 背过身去：每个字转到侧棱、翻成反向并压暗，然后淡出
     reg('exit', 'hrTurnAway', {
         name: '背を向ける', tags: TAGS.concat(['calm', 'emotional']), w: 0.9, ae: 'stretch',
         outDur: dur => J.clamp(dur * 0.4, 0.4, 0.9),
@@ -381,7 +376,7 @@
         },
     });
 
-    /* shiver: a tremor that keeps growing, and glyphs drop out of existence between frames */
+    // 发抖：颤抖越来越大，字会在帧间突然消失
     reg('exit', 'hrShiver', {
         name: '震えて消える', tags: TAGS.concat(['glitch']), w: 0.9, ae: 'glitch',
         outDur: dur => J.clamp(dur * 0.35, 0.35, 0.8),
@@ -396,7 +391,7 @@
         },
     });
 
-    /* swallowed: a stain of darkness spreads from one point and eats the line */
+    // 吞没：一片黑渍从一点扩散，吃掉整行
     reg('exit', 'hrSwallow', {
         name: '闇に呑まれる', tags: TAGS.concat(['emotional', 'graphic']), w: 0.9, ae: 'wipe',
         outDur: dur => J.clamp(dur * 0.4, 0.4, 0.9),
@@ -427,7 +422,7 @@
         },
     });
 
-    /* dying light: the words strobe out, with single frames where they come back wrong */
+    // 灯灭：文字频闪着消失，偶尔闪回一帧错乱的样子
     reg('exit', 'hrFlickerDie', {
         name: '明滅して消える', tags: TAGS.concat(['glitch']), w: 0.9, ae: 'glitch',
         outDur: dur => J.clamp(dur * 0.38, 0.35, 0.8),
@@ -445,7 +440,7 @@
         },
     });
 
-    /* draining: the ink level sinks inside each glyph while drips run out of the bottom */
+    // 流干：字内的墨位下沉，底部滴出墨滴
     reg('exit', 'hrDrain', {
         name: '滴り落ちる', tags: TAGS.concat(['emotional']), w: 0.8, ae: 'wipe', minDur: 0.8,
         outDur: dur => J.clamp(dur * 0.45, 0.5, 1.1),
@@ -481,9 +476,7 @@
         },
     });
 
-    /* ================================================================== HOLDS */
-
-    /* twitch: dead still, then a rare violent jerk of one glyph (or the whole line) */
+    // 抽搐：死寂不动，偶尔一个字（或整行）猛地一抽
     reg('hold', 'hrTwitch', {
         name: '痙攣', tags: TAGS.concat(['glitch']), w: 1, ae: 'glitchtick',
         apply(env, it, amt) {
@@ -504,7 +497,7 @@
         },
     });
 
-    /* staring: now and then one glyph slowly tilts its head towards you, holds, and snaps back */
+    // 凝视：偶尔一个字慢慢歪头看你，停住，再弹回去
     reg('hold', 'hrStare', {
         name: '見つめる字', tags: TAGS.concat(['emotional']), w: 0.8, ae: 'drift',
         apply(env, it, amt) {
@@ -523,7 +516,7 @@
         },
     });
 
-    /* the late one: the line sways together, one glyph follows a moment too late */
+    // 慢半拍：整行一起晃，有一个字晚一拍才跟上
     reg('hold', 'hrLagOne', {
         name: '遅れる一字', tags: TAGS.concat(['calm']), w: 0.8, ae: 'drift',
         apply(env, it, amt) {
@@ -540,7 +533,7 @@
         },
     });
 
-    /* failing light: the words buzz, dim and drop out for a frame or two */
+    // 灯光将熄：文字嗡鸣、变暗、偶尔缺一两帧
     reg('hold', 'hrFlickerLight', {
         name: '切れかけの灯', tags: TAGS.concat(['glitch', 'emotional']), w: 0.9, ae: 'glitchtick',
         apply(env, it, amt) {
@@ -556,9 +549,7 @@
         },
     });
 
-    /* ================================================================== TREATMENTS */
-
-    /* ink bleed: a dark halo seeps out of the letters and thin drips run down from some of them */
+    // 洇墨：字缘渗出暗色晕，部分字往下淌细墨
     reg('treat', 'hrInkBleed', {
         name: '滲み垂れ', tags: TAGS.concat(['emotional']), w: 0.8, ae: 'softShadow',
         plan: rng => ({drips: rng.range(0.25, 0.45), red: rng.chance(0.4)}),
@@ -597,7 +588,7 @@
         },
     });
 
-    /* eroded: letters worn away with pits and scratches in the background colour */
+    // 风化：用背景色在字上打出麻点和划痕
     reg('treat', 'hrEroded', {
         name: '風化', tags: TAGS.concat(['editorial', 'graphic']), w: 0.8, ae: 'halftone',
         plan: rng => ({dens: rng.range(0.7, 1.2), scr: rng.chance(0.7)}),
@@ -625,7 +616,7 @@
         },
     });
 
-    /* redacted: a black bar covers part of the line and is pulled off later, leaving its outline */
+    // 黑条：盖住一段文字，之后再揭走，留个描边
     reg('treat', 'hrRedact', {
         name: '黒塗り', tags: TAGS.concat(['editorial', 'graphic']), w: 0.7, ae: 'boxed',
         plan: rng => ({at: rng.range(0.25, 0.5), frac: rng.range(0.3, 0.6), from: rng.range(0, 1)}),
@@ -633,7 +624,7 @@
             if (!alive(it)) return;
             const lay = layOf(it), N = lay.N, cs = cseed(env), ord = orderOf(env, it);
             if (N === 1 && cutN(env) > 1) {
-                // one-glyph items: cover a run of glyphs of the lyric
+                // 单字项：按它在整句歌词中的位置决定是否参与遮盖
                 const o = ord(0, 1), a = P.from * (1 - P.frac);
                 if (o < a || o > a + P.frac) return;
             }
@@ -668,7 +659,7 @@
         },
     });
 
-    /* double exposure: a second, fainter take of the line drifts out of register */
+    // 二重曝光：一版更淡的错位拷贝慢慢漂出
     reg('treat', 'hrDoubleExp', {
         name: '二重露光', tags: TAGS.concat(['emotional', 'glitch']), w: 0.8, ae: 'echoOutline',
         plan: rng => ({amp: rng.range(0.18, 0.28), k: rng.range(1.03, 1.08)}),

@@ -1,9 +1,3 @@
-/* 字幕（渲染时叠加在画面上，仅预览生效；文件导出经 __jl_no_sub 抑制，不烤入）
-   数据：KRC/网易云载入时建的 音译/翻译 映射（jizura.kgsubmap，跨窗口镜像共享）；
-         没有映射时退回行内注音（| 后的内容）按脚本分类。
-   入口：包装 J.Renderer.prototype.frame —— 正式帧画完再叠加；
-         转场/ morph 的离屏采样（noTrans）与分层导出（layer）不画。
-   设置：localStorage jizura.kgsub；镜像窗口经 storage 事件实时跟随。 */
 import {J} from '../engine';
 import {S} from '../jizura/state';
 import {bus} from '../jizura/bus';
@@ -32,8 +26,8 @@ export const SUB_DEFAULT: SubConfig = {
 
 let cfg: SubConfig = loadCfg();
 
-/* 渲染进程（/render 页）的字幕配置/映射经 BroadcastChannel 注入，
-   优先于本页 localStorage（渲染进程不读写 localStorage）。 */
+// /render 渲染进程不读写 localStorage，配置和映射经 BroadcastChannel 注入
+// 有注入值时优先于本页 localStorage
 let overrideCfg: SubConfig | null = null;
 let overrideMap: LyricMap | null = null;
 
@@ -58,11 +52,11 @@ export function saveSubConfig(p: Partial<SubConfig>) {
   cfg = {...cfg, ...p};
   try {
     localStorage.setItem('jizura.kgsub', JSON.stringify(cfg));
-  } catch { /* 忽略 */
+  } catch {
   }
 }
 
-/* 镜像窗口跟随主窗口的设置变化 */
+// 镜像窗口跟随主窗口的设置变化
 window.addEventListener('storage', e => {
   if (e.key === 'jizura.kgsub') {
     cfg = loadCfg();
@@ -70,11 +64,11 @@ window.addEventListener('storage', e => {
   }
 });
 
-/* 暂停时引擎不主动重绘：按当前时间原地 seek 强制出一帧 */
+// 暂停时引擎不会自己重绘，按当前时间原地 seek 强制出一帧
 export function redrawSub() {
   try {
     seek(S.t);
-  } catch { /* 尚无方案时无需处理 */
+  } catch { // 方案还没加载，无事可做
   }
 }
 
@@ -92,7 +86,7 @@ function subTextFor(line: any): string {
   if (!line || line.interlude) return '';
   const fromNote = () => fromNoteOf(line);
   if (overrideCfg) {
-    // 字幕通道：映射经广播注入；缺失时与主画面一致回退行内注音
+    // 映射是广播注入的，没有就回退行内注音，跟主画面行为一致
     const m = overrideMap && overrideMap.get(line.text);
     const parts = m || fromNote();
     if (overrideCfg.content === 'roma') return parts.roma || '';
@@ -113,7 +107,7 @@ function subFont(px: number): string {
 }
 
 function wrapSubtitle(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-  // 先按全角空格分段（音译/翻译各占一段），超宽的段再按字符折行
+  // 先按全角空格分段，音译/翻译各占一段，超宽的段再逐字符折行
   const out: string[] = [];
   for (const seg of text.split('　')) {
     if (!seg) continue;
@@ -133,8 +127,8 @@ function wrapSubtitle(ctx: CanvasRenderingContext2D, text: string, maxW: number)
   return out;
 }
 
-/* 折行结果缓存：字幕文本/字体/宽度不变时每帧逐字符 measureText 是纯浪费。
-   键含字体串（含像素）与 maxW，字体或画布尺寸一变自然失效 */
+// 逐字符 measureText 每帧做一遍太浪费，缓存折行结果
+// 键里带字体串和 maxW，字体或画布尺寸一变自然失效
 const wrapCache = new Map<string, string[]>();
 
 function wrapSubtitleCached(ctx: CanvasRenderingContext2D, text: string, font: string, maxW: number): string[] {
@@ -150,8 +144,8 @@ function wrapSubtitleCached(ctx: CanvasRenderingContext2D, text: string, font: s
   return rows;
 }
 
-/* 行查找缓存：plan.lines.find 是每帧全表线性扫；字幕时间连续，命中后
-   下一帧大概率还在同一行（或紧邻下一行），只有换行才退回全表扫 */
+// plan.lines.find 是每帧全表扫；字幕时间连续，命中后下一帧多半还在同一行
+// 换行时才退回全表找
 let subLinePlan: any = null;
 let subLineIdx = 0;
 
@@ -197,7 +191,7 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
   ctx.textBaseline = 'alphabetic';
   const rows = wrapSubtitleCached(ctx, text, font, maxW);
   const blockH = rows.length * lh;
-  // 自定义位置：offX/offY 为画面宽/高的百分比偏移（默认 0 = 原生底部/顶部居中）
+  // offX/offY 是画面宽/高的百分比偏移，0 就是默认的底部/顶部居中
   const clampPct = (v: number) => Math.max(-50, Math.min(50, parseFloat(String(v)) || 0));
   const centerX = W * (0.5 + clampPct(cfg.offX) / 100);
   let baseY = cfg.pos === 'top' ? H * 0.055 + fontPx : H - H * 0.055 - blockH + fontPx;
@@ -222,17 +216,17 @@ function drawSubtitle(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: 
   ctx.restore();
 }
 
-/* 独立字幕通道绘制入口：/render?layer=lyric 只画字幕（不渲染歌词动画） */
+// /render?layer=lyric 的独立字幕通道只画字幕，不渲染歌词动画
 export function drawSubtitleFrame(ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
   drawSubtitle(ctx, plan, t, opt);
 }
 
-/* 注册到引擎：字幕层导出（subwebm）与 Spout 独立字幕通道同一绘制入口。
-   cfg 一并暴露，供导出前校验「字幕渲染是否开启」（off 时导出只会得到空视频） */
+// subwebm 字幕层导出和 Spout 独立字幕通道都走这个入口
+// subtitleCfg 给导出前校验用：content 是 off 的话导出只会得到空视频
 J.subtitleFrame = drawSubtitleFrame;
 J.subtitleCfg = () => ({...effCfg()});
 
-/* 正式帧画完再叠加（幂等：重复挂载不再包一层） */
+// 正式帧画完再叠加；重复挂载不再包一层
 export function installSubtitleOverlay() {
   const proto = J.Renderer.prototype as any;
   if ((proto as any).__jl_sub_patched) {
@@ -241,12 +235,12 @@ export function installSubtitleOverlay() {
   const origFrame = proto.frame;
   proto.frame = function (this: any, ctx: CanvasRenderingContext2D, plan: any, t: number, opt: any = {}) {
     origFrame.call(this, ctx, plan, t, opt);
-    // 字幕分离：主通道页被 C# 注入 __jl_no_sub=true 时不叠加（字幕只走独立通道）
+    // 字幕分离：主通道页被 C# 注入 __jl_no_sub 时不叠加，字幕只走独立通道
     if (window.__jl_no_sub) return;
     if (effCfg().content !== 'off') {
       try {
         drawSubtitle(ctx, plan, t, opt);
-      } catch { /* 字幕出错不影响渲染 */
+      } catch { // 字幕出错不能拖垮渲染
       }
     }
   };

@@ -1,12 +1,11 @@
-/* scrub 拖动降噪（jizura/engine beginScrub/endScrub）单元测试：
-   拖动期间 seek 只挪时间不重启 AudioBufferSource（每次重启 = 一次可闻爆音
-   + 一个废弃节点），pointerup 时若拖动前在播放则从当前位置恢复出声。 */
+// 拖动期间 seek 只挪时间，不许重启 AudioBufferSource——
+// 每次重启都是一声可闻爆音加一个废弃节点；pointerup 时若拖动前在播就从当前位置恢复出声
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {J} from '../../src/engine';
 import {AP, S} from '../../src/jizura/state';
 import {beginScrub, endScrub, seek} from '../../src/jizura/engine';
 
-/* cutAt 在 plan 桩上不可用（无 cuts 结构），桩掉——updateCutInfo 只需要 null */
+// plan 桩上没有 cuts 结构，cutAt 不可用；updateCutInfo 拿到 null 就行
 vi.spyOn(J, 'cutAt').mockReturnValue(null);
 
 const playSpy = vi.spyOn(AP, 'play').mockImplementation(() => {});

@@ -1,7 +1,3 @@
-/* MCP revision 契约（jizura/agent-api）单元测试：
-   提示词与 inputSchema 声明「写操作必须带 get_state 返回的最新 revision」，
-   execTool 负责执行该契约：revision 必填工具缺参即拒（stale_revision）、
-   带了但过期即拒、写操作返回值携带最新 revision。 */
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {mcpRpc} from '../../src/jizura/agent-api';
 import {S} from '../../src/jizura/state';
@@ -13,8 +9,8 @@ vi.hoisted(() => {
     }
 });
 
-/* 引擎本体（58k 行 JS）在纯契约测试里没必要加载——桩掉；
-   replan 用真 bus 发事件，让 agent-api 的 revision 计数真实自增 */
+// 引擎本体 58k 行 JS，纯契约测试没必要加载，桩掉；
+// replan 走真 bus 发事件，agent-api 的 revision 计数才能真实自增
 vi.mock('../../src/engine', () => ({
     J: {
         ui: {},

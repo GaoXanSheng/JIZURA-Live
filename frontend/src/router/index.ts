@@ -1,8 +1,6 @@
 import {createRouter, createWebHistory} from 'vue-router';
 
-/* 两个页面：
-   /        编辑器（完整 UI）
-   /render  纯 canvas 渲染页（100% 画布，Spout 渲染进程 / 双窗口监看加载） */
+// /render 是纯 canvas 渲染页，给 Spout 渲染进程和双窗口监看用
 const router = createRouter({
   history: createWebHistory(),
   routes: [

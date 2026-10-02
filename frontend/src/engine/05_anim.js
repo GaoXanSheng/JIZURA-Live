@@ -1,14 +1,8 @@
-/* ============================================================
-   JIZURA — motion recipes: entrances / holds / exits
-   Each recipe mutates a text item: it.size/sx/alpha/blur/clip/bands,
-   and pushes per-glyph (charFns) or per-piece (pieceFns) functions.
-   ============================================================ */
 (() => {
     'use strict';
     const E = J.E;
 
-
-    /* bands helper: horizontal slices covering the item's vertical extent */
+    // 横向条带，盖住 item 的纵向范围
     J.itemBands = (env, it, n, dxFn) => {
         const m = it._m || (it._m = J.measure(it));
         const h = Math.max(m.h, it.size) * 1.25 + 20, y0 = it.y - h / 2;
@@ -21,7 +15,7 @@
         return out;
     };
 
-    /* the item's bounding box in design space (before rotation) */
+    // item 在设计空间的包围盒（未旋转）
     J.itemBox = (it) => {
         const m = it._m || (it._m = J.measure(it));
         const x0 = it.vertical ? it.x - m.w / 2 : it.align === 'left' ? it.x : it.align === 'right' ? it.x - m.w : it.x - m.w / 2;
@@ -29,7 +23,8 @@
         return {x0, y0, x1: x0 + m.w, y1: y0 + m.h, w: m.w, h: m.h, cx: x0 + m.w / 2, cy: y0 + m.h / 2};
     };
 
-    /* ---------------- ENTRANCES ---------------- */
+    // 入场配方：直接改 item 的 size/sx/alpha/blur/clip/bands，
+    // 并往 charFns / pieceFns 里推逐字/逐片的函数
     J.ENTER = {
         cut: {
             name: 'カット', apply() {
@@ -195,7 +190,7 @@
         return n1 * (x -= 2.625 / d1) * x + 0.984375;
     }
 
-    /* ---------------- HOLDS (whole cut; amplitude eased in) ---------------- */
+    // hold：贯穿整段，幅度随 amt 渐入
     J.HOLD = {
         still: {
             name: '静止', apply() {
@@ -250,7 +245,6 @@
         },
     };
 
-    /* ---------------- EXITS ---------------- */
     J.EXIT = {
         cut: {
             name: 'カット', apply() {
@@ -287,7 +281,7 @@
                 it.pieceFns.push((ci, pj) => {
                     const x = lt - J.r(seed, ci, pj, 21) * ctx.outDur * 0.4;
                     if (x <= 0) {
-                        const tr = lt > -0.25 ? 1 : 0;           // tremble just before collapse
+                        const tr = lt > -0.25 ? 1 : 0;           // 塌落前先抖一下
                         return tr ? J.PT(J.rs(seed, env.step, ci, pj) * it.size * 0.012, 0) : J.PID;
                     }
                     const v = g * x;
@@ -394,7 +388,6 @@
         },
     };
 
-    /* combine glyph / piece functions */
     J.combineChar = (fns) => {
         if (!fns.length) return null;
         if (fns.length === 1) return fns[0];

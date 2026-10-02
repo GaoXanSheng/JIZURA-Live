@@ -1,7 +1,6 @@
-/* 极简事件总线：引擎运行时（非响应式）→ Vue 组件（响应式）的通知通道。
-   高频事件（frame）只给需要的组件用，禁止把整个引擎状态响应式化。
-   handler 表锚在 globalThis：vite dev 的模块多实例（HMR ?t 变体）下，
-   引擎侧和组件侧即使拿到不同副本也共享同一张表，事件不会失联。 */
+// 引擎（非响应式）向 Vue 组件发通知用。frame 这类高频事件只给确实需要的组件订阅，
+// 不要把引擎状态整个做成响应式。handler 表挂 globalThis：vite dev 的 HMR 会产生
+// 模块多实例，引擎和组件可能各拿一个副本，锚在同一张表上事件才不会失联。
 type Handler = (...args: any[]) => void;
 
 const map: Map<string, Set<Handler>> = (globalThis as any).__jl_bus ||= new Map();

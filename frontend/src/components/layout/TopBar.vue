@@ -15,7 +15,7 @@ import {
   readPackage
 } from '../../jizura/pkg';
 
-const VERSION = __APP_VERSION__;   // 单一事实源 package.json（vite define 注入）
+const VERSION = __APP_VERSION__;   // 来自 package.json，vite define 注入
 const title = ref(S.project?.title || '');
 const artist = ref(S.project?.artist || '');
 const fileProject = ref<HTMLInputElement | null>(null);
@@ -48,8 +48,8 @@ function baseName() {
   return ((S.project.title || 'jizuralive').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'jizuralive') + (k ? (k === 'green' ? '_greenback' : '_blackback') : '');
 }
 
-/* 保存：专用格式 .jizuralive（JZLV 容器）——工程（歌词/逐字时间/覆盖/配置）+ 歌曲 + 上传字体一并打包。
-   不再输出老格式；读取侧的 .json 兼容只留在「打开」。 */
+// .jizuralive（JZLV 容器）：工程 + 歌曲 + 上传字体打成一个包
+// 老格式只读不写，.json 兼容只留在「打开」一侧
 async function onSave() {
   bus.emit('msg', '正在打包工程（含歌曲）…');
   try {
@@ -69,7 +69,7 @@ function onAE() {
 }
 
 async function onReset() {
-  bus.emit('open-reset');   // 原生 <dialog> 确认（Dialogs.vue）
+  bus.emit('open-reset');   // 确认框在 Dialogs.vue
 }
 
 const JZLV_MAGIC = [0x4a, 0x5a, 0x4c, 0x56];
@@ -79,7 +79,7 @@ async function onOpenProject(e: Event) {
   const inp = e.target as HTMLInputElement;
   const f = inp.files && inp.files[0];
   if (!f) return;
-  // 先让"载入中"提示画出来，再同步解析+规划（大工程会有几百毫秒阻塞）
+  // 先让「载入中」提示画出来再解析，大工程同步规划会卡几百毫秒
   bus.emit('msg', '正在载入工程…');
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
   try {
@@ -93,8 +93,8 @@ async function onOpenProject(e: Event) {
   inp.value = '';
 }
 
-/* 老格式 .json：只当样式配置用（原行为）。歌词/逐字时间/BGM 一律清空，
-   避免"配置是 A 歌、歌词 BGM 还是 B 歌"串台 */
+// 老 .json 只当样式配置用，歌词/逐字时间/BGM 一律清空
+// 免得配置是 A 歌、歌词和 BGM 还是 B 歌的串台
 async function openLegacyJson(f: File) {
   S.project = mergeProject(JSON.parse(await f.text()));
   pause();
@@ -117,7 +117,7 @@ async function openLegacyJson(f: File) {
   toast('配置已载入：歌词与歌曲已清空，请重新载入歌曲');
 }
 
-/* 专用格式 .jizuralive：全量恢复——工程 + 歌曲 + 上传字体 */
+// .jizuralive：全量恢复，工程 + 歌曲 + 上传字体
 async function openPackage(f: File) {
   const entries = await readPackage(new Uint8Array(await f.arrayBuffer()));
   const pj = entries.find(en => en.name === PROJECT_ENTRY);

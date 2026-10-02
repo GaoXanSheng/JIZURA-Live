@@ -1,4 +1,3 @@
-/* v0.10 上游功能迁移测试：LRC 行序/时序、老工程迁移、主题、拉丁分词、装饰文本隐藏、LRC 导出。 */
 import {describe, expect, it} from 'vitest';
 import {J} from '../../src/engine';
 import {mergeProject} from '../../src/jizura/project';

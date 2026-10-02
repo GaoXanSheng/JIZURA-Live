@@ -1,9 +1,3 @@
-/* ============================================================
-   JIZURA — おまかせ (randomise everything into a coherent mood)
-   Each call rolls a mood, a style, effect strengths, a technique
-   subset, fonts, colours and a new seed. Lyrics / timing / output
-   settings and locked lines are left untouched.
-   ============================================================ */
 (() => {
     'use strict';
 
@@ -105,7 +99,7 @@
             exit: ['drift', 'explode', 'fall', 'blur'],
             styles: ['noir', 'paper', 'hud', 'mono', 'crimson']
         },
-        // ホラー: only offered when the project's ホラー switch is on (the horror set's parts come with it)
+        // ホラー：仅当项目开了ホラー开关才参与抽取，horror 套装部品随之一起来
         horror: {
             name: 'ホラー',
             set: 'horror',
@@ -143,7 +137,7 @@
         },
     };
 
-    /* mood tags for the core (pre-pack) items */
+    // 给核心（基础包）部品补 mood 标签
     (() => {
         const add = (g, k, m) => {
             const d = J.registry(g)[k];
@@ -192,8 +186,8 @@
         for (const [g, map] of Object.entries(extra)) for (const [k, ms] of Object.entries(map)) ms.forEach(m => add(g, k, m));
     })();
 
-    /* 主题：在一个方向内一键随机。主题在其氛围里挑、打开需要的部品开关
-       （随结果返回）、并让自身套装/和风的部品始终留在候选里。无主题 = 平时的一键随机。 */
+    // 主题：在一个方向内一键随机。主题在其氛围里挑、打开需要的部品开关
+    // （随结果返回）、并让自身套装/和风的部品始终留在候选里。无主题 = 平时的一键随机。
     J.THEMES = {
         lyricpv: {name: '文字PV', moods: ['editorial', 'graphic', 'emotional'], set: 'typo'},
         kinetic: {name: 'キネティック', moods: ['pop', 'graphic', 'glitch'], set: 'kinetic'},
@@ -204,6 +198,8 @@
     };
     J.THEME_ORDER = Object.keys(J.THEMES);
 
+    // 一键随机：掷 mood、样式、特效强度、手法开关、字体、配色和新 seed；
+    // 歌词、时序、输出设置不动，锁定行保留
     J.omakase = (project, rnd = Math.random, themeId = null) => {
         const T = themeId && J.THEMES[themeId] ? J.THEMES[themeId] : null;
         const switches = {};
@@ -223,12 +219,11 @@
             moods = tm.filter(k => k !== project.mood);
             if (!moods.length) moods = tm.length ? tm : Object.keys(J.MOODS).filter(moodOk);
         }
-        // 开了ホラー开关时，一键随机偏向ホラー氛围（可以重复）——有主题时交给主题
+        // 开了ホラー开关时一键随机偏向ホラー氛围（可重复）；有主题时交给主题
         const mood = !T && moodOk('horror') && rnd() < 0.55 ? 'horror' : pick(moods), M = J.MOODS[mood];
-        // a set tied to a mood (ホラー) is only used in that mood
+        // 绑定氛围的套装（ホラー）只在该氛围里启用
         const moodSetOk = d => !(d && d.set) || !Object.values(J.MOODS).some(m => m.set === d.set) || M.set === d.set;
-        // style: mostly one that suits the mood, sometimes anything; never the same twice in a row
-        // (only styles the 追加分 / 和風 switches allow)
+        // style：多半选合氛围的，偶尔任选；不与当前重复；仅限追加分/和風开关放行的样式
         const okStyle = k => J.STYLES[k] && (!J.randomOk || J.randomOk(project, 'style', k)) && moodSetOk(J.STYLES[k]);
         const moodStyles = [...new Set([...(M.styles || []), ...J.STYLE_ORDER.filter(k => (J.STYLES[k].moods || []).includes(mood))])].filter(okStyle);
         let pool = (moodStyles.length && rnd() < 0.72 ? moodStyles : J.STYLE_ORDER.filter(okStyle)).filter(k => k !== project.style);
@@ -253,17 +248,17 @@
         fx.onTwos = fx.koma > 0;
         fx.flash = rnd() < 0.65;
         fx.hud = pick(['auto', 'auto', 'on', 'off']);
-        // technique subset per group: everything tagged with the mood (plus the mood's hand-picked core items),
-        // a sprinkle of everything else, and a minimum count so the planner always has room to vary
+        // 每组的手法开关：氛围标签命中的全开（外加氛围自带的核心清单），其余撒一点，
+        // 再保一个最小数量，planner 才有变化余地
         const enabled = {};
         const MIN = {layout: 6, enter: 5, exit: 5, hold: 3, decor: 6, treat: 4, bg: 4, cam: 3, fx: 4, trans: 3};
         for (const g of J.GROUP_KEYS) {
             const order = J.order(g).filter(k => !(J.registry(g)[k] || {}).special && (!J.randomOk || J.randomOk(project, g, k)) && moodSetOk(J.registry(g)[k]));
-            const hand = ['layout', 'enter', 'exit'].includes(g) && Array.isArray(M[g]) ? M[g] : [];   // (M.fx holds slider ranges, not a list)
+            const hand = ['layout', 'enter', 'exit'].includes(g) && Array.isArray(M[g]) ? M[g] : [];   // M.fx 存滑杆区间，不是列表
             const prefer = mood === 'chaos' ? null : new Set([...hand, ...J.taggedWith(g, mood)]);
             if (prefer && T) for (const k of order) if (themePart(J.registry(g)[k])) prefer.add(k);   // 主题自己的部品始终保留
             const on = {};
-            // entries of a set tied to another mood are switched off explicitly (a missing key would count as enabled)
+            // 属于其他氛围套装的条目要显式关掉，缺 key 会被当作开启
             for (const k of J.order(g)) if (!moodSetOk(J.registry(g)[k])) on[k] = false;
             for (const k of order) on[k] = prefer ? (prefer.has(k) || rnd() < (M.sprinkle || 0.22)) : rnd() < 0.8;
             const offs = order.filter(k => !on[k]);
@@ -282,20 +277,20 @@
         if (enabled.cam) enabled.cam.push = true;
         for (const k of (M.noHold || [])) if (enabled.hold[k] !== undefined) enabled.hold[k] = false;
         enabled.hold.still = true;
-        // fonts: sometimes swap the headline / mincho faces for another catalogue face
+        // 字体：偶尔把标题/明朝位换成目录里其他字体
         const fonts = {};
         const faces = Object.entries(J.FONTS).filter(([k, f]) => !f.user && !['mono', 'pixel'].includes(f.kind) && (!J.randomOk || J.randomOk(project, 'font', k)));
         if (rnd() < 0.4) fonts.display = pick(faces.filter(([k, f]) => f.weight >= 700 || f.kind === 'display' || f.kind === 'round'))[0];
         if (rnd() < 0.3) fonts.serif = pick(faces.filter(([k, f]) => f.kind === 'mincho' || f.kind === 'brush'))[0];
         if (mood === 'chaos' && rnd() < 0.2) fonts.display = 'dot';
-        // colours: style palette most of the time, a fresh accent / ghost pair otherwise
+        // 配色：多数用样式自带色板，偶尔换新的 accent/幽灵色对
         const colors = Object.assign({}, project.colors, {enabled: false, accentOn: false});
         if (rnd() < 0.38) {
             const bg = J.STYLES[style].schemes[0].bg;
             Object.assign(colors, J.randomPalette(bg, rnd), {accentOn: true});
             delete colors.mode;
         }
-        // keep locked lines, drop other per-line picks
+        // 锁定行保留，其余逐行选择丢弃
         const overrides = {};
         for (const [i, o] of Object.entries(project.overrides || {})) if (o.lock) overrides[i] = o; else if (o.cutTime) overrides[i] = {cutTime: o.cutTime};   // 切分时刻属于时序，不属于外观
         return Object.assign({

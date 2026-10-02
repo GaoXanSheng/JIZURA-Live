@@ -3,7 +3,6 @@ import {createPinia, setActivePinia} from 'pinia';
 import {useEditor} from '../../src/stores/editor';
 import {S} from '../../src/jizura/state';
 
-// Mock engine modules
 vi.mock('../../src/jizura/state', () => {
     return {
         S: {
@@ -20,7 +19,6 @@ vi.mock('../../src/jizura/state', () => {
 describe('Editor Store', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
-        // Reset S state
         S.project = null;
         S.plan = null;
         S.audio = null;

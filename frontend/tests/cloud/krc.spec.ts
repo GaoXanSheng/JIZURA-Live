@@ -1,8 +1,6 @@
-/* 歌词解析（cloud/krc）单元测试：krc 解密回环、语言分类、krc→LRC 转换、
-   网易 LRC 解析/合成。全部纯函数，Node 环境直接跑。 */
-import { describe, it, expect } from 'vitest';
-import { decryptKrc, classifyLangRows, krcToLrc, neParseLrc, neBuildLrc } from '../../src/cloud/krc';
-import type { LyricMap } from '../../src/cloud/krc';
+import {describe, expect, it} from 'vitest';
+import type {LyricMap} from '../../src/cloud/krc';
+import {classifyLangRows, decryptKrc, krcToLrc, neBuildLrc, neParseLrc} from '../../src/cloud/krc';
 
 const KRC_KEY = [0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47, 0x51, 0x36, 0x31, 0x2D, 0xCE, 0xD2, 0x6E, 0x69];
 
@@ -12,7 +10,7 @@ async function deflate(buf: Uint8Array): Promise<Uint8Array> {
 }
 
 async function makeKrc(text: string): Promise<ArrayBuffer> {
-  // KRC 格式 = 'krc1' + XOR(deflate(文本))：先压缩、后异或（与 decryptKrc 的顺序镜像）
+  // KRC 格式 = 'krc1' + XOR(deflate(文本))，先压缩后异或，顺序和 decryptKrc 相反
   const zipped = await deflate(new TextEncoder().encode(text));
   for (let i = 0; i < zipped.length; i++) zipped[i] ^= KRC_KEY[i % 16];
   const out = new Uint8Array(4 + zipped.length);
@@ -67,7 +65,7 @@ describe('krcToLrc', () => {
     const out = krcToLrc(KRC, { roma: true, trans: true });
     const lines = out.trim().split('\n');
     expect(lines[0]).toBe('[00:00.00]こんにちは|konnitiha　你好');
-    expect(lines[1]).toBe('[00:02.50]世界／!');   // 注音行不足两条时只对齐到存在的行
+    expect(lines[1]).toBe('[00:02.50]世界／!'); // 注音行不足两条时，只对齐到存在的行
   });
 
   it('`/` 被转成全角（JIZURA 切镜头指令保护）', () => {
@@ -122,7 +120,7 @@ describe('neBuildLrc', () => {
     const main = neParseLrc('[00:00.00]はじめ\n作詞：誰か\n[00:06.00]おわり');
     const out = neBuildLrc(main, [], [], {});
     const lines = out.trim().split('\n');
-    expect(lines[1]).toMatch(/^\[00:03\.00\]作詞：誰か$/);   // prev 0 + (next-prev) * 1/(run+1) = 6000/2
+    expect(lines[1]).toMatch(/^\[00:03\.00\]作詞：誰か$/); // prev 0 + (next-prev) * 1/(run+1) = 6000/2
   });
 
   it('关掉勾选后不拼注音（map 不受影响）', () => {

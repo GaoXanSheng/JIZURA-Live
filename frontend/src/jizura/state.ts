@@ -1,12 +1,11 @@
-/* 引擎运行时状态（12_ui.js 的 S + AP，原样移植）。
-   刻意保持非响应式：S.t 每帧变化，走 bus 通知，不进 Vue 响应式系统。 */
+// 引擎运行时状态。刻意保持非响应式：S.t 每帧变化，走 bus 通知，不进 Vue 响应式系统。
 import {J} from '../engine';
 
 export type LoopMode = 'all' | 'line' | 'cut' | false;
 
-/* 模块实例防撕裂：vite dev 下同一文件可能被多份求值（HMR ?t 变体跨分支残留），
-   编辑页曾因此出现「store 读到一份从未 boot 的死 S」→ 播放按钮/循环等 UI 永久冻结。
-   运行时状态一律锚在 globalThis 上：多少个模块副本都共享同一份 S/AP。 */
+// 模块实例防撕裂：vite dev 下同一文件可能被多份求值（HMR ?t 变体跨分支残留），
+// 编辑页曾因此出现「store 读到一份从未 boot 的死 S」，播放按钮/循环等 UI 永久冻结。
+// 运行时状态一律锚在 globalThis 上，多少个模块副本都共享同一份 S/AP。
 const g = globalThis as any;
 
 const initialS = {
@@ -40,10 +39,10 @@ export const S: EngineState = g.__jl_S || (g.__jl_S = initialS);
 
 export const LOOP_CYCLE: LoopMode[] = ['all', 'line', 'cut', false];
 
-/* WebAudio 播放器（沙箱页面里 blob media 可能被禁，AudioContext 稳妥）。
-   同样锚 globalThis：两个副本会各自 new 一个 AudioContext（浏览器有数量上限）
-   播放图：src → 音频特效图（project.audioFx，J.buildAudioFx 构建，与导出共用）
-          → 主音量 gain → destination；特效图按需重建，主音量独立于特效 */
+// WebAudio 播放器（沙箱页面里 blob media 可能被禁，AudioContext 稳妥），同样锚 globalThis：
+// 两个副本会各自 new 一个 AudioContext（浏览器有数量上限）。
+// 播放图：src → 音频特效图（project.audioFx，J.buildAudioFx 构建，与导出共用）
+// → 主音量 gain → destination。特效图按需重建，主音量独立于特效。
 const initialAP = {
   ctx: null as AudioContext | null,
   src: null as AudioBufferSourceNode | null,
@@ -61,11 +60,11 @@ const initialAP = {
     if (!this.gain) {
       this.gain = this.ctx.createGain();
       this.gain.connect(this.ctx.destination);
-      // 初值直接写死：gain 节点默认是 1，若靠 setTargetAtTime 滑到目标，
-      // 静音状态下首次播放会以全音量漏出几十毫秒（听感就是「卡出一声」）
+      // 初值直接写死：gain 默认是 1，若靠 setTargetAtTime 滑到目标，
+      // 静音下首次播放会以全音量漏出几十毫秒（听感就是「卡出一声」）
       this.gain.gain.value = this.muted ? 0 : this.vol * this.vol;
     }
-    // 特效图重建：曲线包络的自动化按播放起点铺排（其余预设仅在配置变化时重建）
+    // 特效图重建：曲线包络的自动化按播放起点铺排，其余预设仅在配置变化时重建
     this.rebuildFx(buffer, offset);
     const s = this.ctx.createBufferSource();
     s.buffer = buffer;
@@ -77,7 +76,7 @@ const initialAP = {
     this.src = s;
     this.startAt = this.ctx.currentTime - off;
   },
-  /* 按当前 project.audioFx 重建特效图；曲线包络每次起点都重铺自动化 */
+  // 按当前 project.audioFx 重建特效图；曲线包络每次起点都重铺自动化
   rebuildFx(buffer: AudioBuffer, offset: number) {
     const ctx = this.ctx!;
     const cfg = (S.project && S.project.audioFx) || null;
@@ -118,7 +117,7 @@ const initialAP = {
   time() {
     return this.ctx && this.src ? (this.ctx.currentTime - this.startAt) * this.rate : 0;
   },
-  /* 仅预览音量（导出保持原始电平） */
+  // 仅预览音量，导出保持原始电平
   setVol(v: number | null, muted: boolean | null) {
     if (v != null) this.vol = Math.max(0, Math.min(1, v));
     if (muted != null) this.muted = !!muted;
@@ -139,8 +138,8 @@ const initialAP = {
 export type AudioPlayer = typeof initialAP;
 export const AP: AudioPlayer = g.__jl_AP || (g.__jl_AP = initialAP);
 
-/* 音频特效配置变化时调用：播放中立即重建特效图并重连当前源；
-   未播放则只作废缓存（下次 play 生效）。导出侧无需通知（导出时现读现建） */
+// 音频特效配置变化时调用：播放中立即重建特效图并重连当前源，
+// 未播放则只作废缓存（下次 play 生效）。导出侧无需通知（导出现读现建）。
 export function applyAudioFx() {
   if (!AP.ctx || !S.audio) return;
   if (S.playing) {
@@ -156,7 +155,7 @@ export function applyAudioFx() {
   }
 }
 
-/* 预览音量记忆 */
+// 预览音量记忆
 export function initVolume() {
   let v = 0.8, m = false;
   try {
@@ -178,9 +177,8 @@ export function saveVolume() {
   }
 }
 
-/* ---- 循环范围 ----
-   切分循环 = 循环当前这一份切分；行循环 = 循环当前这一行（首切分到末切分）。
-   两者语义不同，导出范围（选段）不干预循环范围 */
+// 循环范围：切分循环 = 循环当前这一份切分；行循环 = 循环当前这一行（首切分到末切分）。
+// 两者语义不同，导出范围（选段）不干预循环范围。
 export function cutAround(t: number) {
   const c = J.cutAt(S.plan, t);
   if (c) return c;

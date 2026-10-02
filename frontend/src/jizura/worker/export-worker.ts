@@ -1,11 +1,11 @@
-/* 导出渲染线程：MP4（内存块）/ WebM alpha / PNG ZIP 的逐帧渲染 + WebCodecs 编码整体搬进 Worker，
-   主线程导出期间不再假死，也不再和预览/引擎抢主线程预算。
-   契约（与 export.ts 的消息协议）：
-     → {cmd:'start', kind:'mp4'|'png'|'pnga'|'pngl'|'webm'|'webmfront', project, beats, audio?, quality?, range?}
-     → {cmd:'abort'}
-     ← {type:'progress', p, msg?} | {type:'done', result} | {type:'error', message}
-   project 即主线程的 S.project（纯 JSON）；plan 由本线程用同一引擎重建——
-   同 seed 确定性输出与主线程一致，且规避 style 定义里不可克隆的成员。 */
+// 导出渲染线程：逐帧渲染 + WebCodecs 编码整体搬进 Worker
+// （MP4 内存块 / WebM alpha / PNG ZIP），主线程导出期间不再假死，
+// 也不再和预览/引擎抢主线程预算。
+// 消息协议（与 export.ts 对应）：
+//   start {kind, project, beats, audio?, quality?, range?} / abort
+//   回 {type:'progress', p, msg?} | {type:'done', result} | {type:'error', message}
+// project 即主线程的 S.project（纯 JSON）；plan 在这里用同一引擎重建，
+// 同 seed 输出与主线程一致，也绕开 style 定义里不可克隆的成员。
 
 import './export-worker-shims'; // 必须先于引擎：shims 提供 window/document/font 桩
 import {J} from '../../engine';

@@ -1,13 +1,10 @@
-/* ============================================================
-   JIZURA — fonts: catalogue, loading, glyph decomposition
-   ============================================================ */
 (() => {
     'use strict';
 
     const JP_SANS_FB = '"Noto Sans JP","Noto Sans CJK JP","Hiragino Sans","Yu Gothic","Meiryo",sans-serif';
     const JP_SERIF_FB = '"Noto Serif JP","Noto Serif CJK JP","Hiragino Mincho ProN","Yu Mincho",serif';
 
-    /* role catalogue: key -> {label, family, weight, kind} */
+    // 字体目录：key -> {label, family, weight, kind}
     J.FONTS = {
         gothic_black: {
             label: 'Noto Sans JP Black',
@@ -187,12 +184,12 @@
             gf: 'IBM+Plex+Sans+JP:wght@400;500;700'
         },
     };
-    /* user fonts (local family names or uploaded files) */
+    // 用户字体（本地 family 名或上传的文件）
     J.addUserFont = (key, label, family, weight = 400, kind = 'custom') => {
         J.FONTS[key] = {label, family: `"${family.replace(/"/g, '')}"`, weight, kind, fb: JP_SANS_FB, user: true};
         J.glyphs.clear();
     };
-    /* only plain keys / family names ever reach the page (project files are untrusted input) */
+    // 页面只接受纯 key / family 名（project 文件是不可信输入）
     J.SAFE_FONT_KEY = /^user_[A-Za-z0-9_-]{1,80}$/;
     J.safeFamily = s => String(s || '').replace(/[^\w\- ]/g, '_').slice(0, 80);
     J.loadFontFile = async (file) => {
@@ -204,10 +201,10 @@
         const key = 'user_' + fam, label = file.name.replace(/\.[^.]+$/, '').slice(0, 80);
         J.addUserFont(key, label, fam, 400, 'custom');
         J.FONTS[key].loaded = true;
-        if (J.saveFontData) J.saveFontData(key, buf);        // kept in this browser, so a reload keeps the face
+        if (J.saveFontData) J.saveFontData(key, buf);        // 存进本浏览器，刷新后字体还在
         return {key, label, family: fam, weight: 400};
     };
-    /* uploaded faces of a project: register them from this browser's copy; returns the labels that are not available */
+    // 项目用到的上传字体：从本浏览器的存档注册；返回拿不到的 label 列表
     J.restoreUserFonts = async (list) => {
         const missing = [];
         for (const uf of list || []) {
@@ -233,21 +230,21 @@
         }
         return missing;
     };
-    /* uploaded faces the plan draws with but this page does not have */
+    // plan 要画、但本页面没有的上传字体
     J.missingUserFonts = (keys) => (keys || []).filter(k => J.FONTS[k] && J.FONTS[k].user && !J.FONTS[k].loaded).map(k => J.FONTS[k].label);
 
     J.fontCSS = (key, px) => {
-        const f = J.faceOf ? J.faceOf(key) : (J.FONTS[key] || J.FONTS.gothic_bold);   // per-language face (02b_lang.js)
+        const f = J.faceOf ? J.faceOf(key) : (J.FONTS[key] || J.FONTS.gothic_bold);   // 按语言选脸（02b_lang.js）
         return `${f.weight} ${px.toFixed(2)}px ${f.family},${f.fb}`;
     };
 
-    /* Font stylesheets are attached lazily, one family at a time, only for the faces a plan actually uses —
-       adding faces to the catalogue therefore costs nothing until a style or setting picks them.
-       首选本地自托管（scripts/fetch-fonts.mjs 抓到 public/fonts/，构建后完全离线）；本地缺失时回退 CDN。 */
+    // 样式表按需挂载，一次一个 family，只挂 plan 真正用到的脸——目录里加脸不花钱，
+    // 直到某风格/设置选到它。首选本地自托管（scripts/fetch-fonts.mjs 抓到 public/fonts/，
+    // 构建后完全离线），本地缺再回退 CDN
     const cssJobs = new Map();
-    /* 本地文件名由 fetch-fonts.mjs 的 safe 规则生成（spec.replace(/[^\w.-]+/g, '_')），
-       必须用同一规则请求——encodeURIComponent 会把 + : @ ; 编码成 %xx 而全部 404。
-       例: 'Noto+Sans+JP:wght@100..900' → 'Noto_Sans_JP_wght_100..900.css' */
+    // 本地文件名按 fetch-fonts.mjs 的 safe 规则生成（spec.replace(/[^\w.-]+/g, '_')），
+    // 请求必须用同一规则——encodeURIComponent 会把 + : @ ; 编成 %xx 而全部 404。
+    // 例: 'Noto+Sans+JP:wght@100..900' → 'Noto_Sans_JP_wght_100..900.css'
     const cssFileOf = spec => spec.replace(/[^\w.-]+/g, '_') + '.css';
 
     function attachFamily(spec) {
@@ -272,7 +269,7 @@
         return job;
     }
 
-    /* font keys a plan draws with: style roles, per-cut font params, mono for HUD */
+    // plan 会用到的字体 key：风格角色、各 cut 的字体参数、HUD 的 mono
     J.fontsOfPlan = (plan) => {
         const set = new Set(['mono']);
         if (!plan) return [...set];
@@ -284,10 +281,10 @@
             });
         }
         const out = [...set].filter(k => J.FONTS[k]);
-        if ((plan.cuts || []).some(c => c.weightGrow)) out.push('@var');     // 太さ: the variable Noto Sans / Serif JP
+        if ((plan.cuts || []).some(c => c.weightGrow)) out.push('@var');     // 太さ：可变的 Noto Sans / Serif JP
         return out;
     };
-    /* make sure the glyphs we need are loaded (Google Fonts are unicode-range split). keys = null → every catalogue face */
+    // 确保要画的字形已加载（Google Fonts 按 unicode-range 切分）。keys = null → 目录全部
     J.ensureFonts = async (text, keys) => {
         if (!document.fonts || !document.fonts.load) return;
         const uniq = [...new Set([...String(text || '')])].join('') || 'あ';
@@ -296,7 +293,7 @@
             await Promise.all(['100 64px "Noto Sans JP"', '900 64px "Noto Sans JP"', '200 64px "Noto Serif JP"', '900 64px "Noto Serif JP"'].map(f => document.fonts.load(f, uniq).catch(() => null)));
         }
         const list = (keys || Object.keys(J.FONTS)).filter(k => J.FONTS[k]);
-        // faces in the current lyric language (+ its fallback sans / serif), each with the weight it is drawn at
+        // 当前歌词语言的脸（含它的 fallback sans/serif），各自按实际绘制的字重加载
         const faces = list.map(k => (J.faceOf ? J.faceOf(k) : J.FONTS[k]));
         if (J.langBaseFaces) for (const b of J.langBaseFaces(list)) faces.push({
             family: '"' + b.family + '"',
@@ -317,14 +314,13 @@
         J.metrics.clear();
     };
 
-    /* ---------- metrics (advance widths) ---------- */
     const _mc = document.createElement('canvas').getContext('2d');
     J.metrics = {
         m: new Map(),
         clear() {
             this.m.clear();
         },
-        adv(fontKey, ch) {               // advance in em
+        adv(fontKey, ch) {               // 步进，em 计
             const k = fontKey + '\u0000' + ch;
             let v = this.m.get(k);
             if (v === undefined) {
@@ -337,11 +333,8 @@
         },
     };
 
-    /* ---------- glyph decomposition (raster connected components) ----------
-       A glyph is rasterised once per (font, char, resolution bucket); its alpha
-       mask is split into connected pieces (strokes / radicals / dots) so that
-       each can be flown, shattered or dropped independently. Works with any
-       font the browser can render, including local and uploaded ones.        */
+    // 字形分解（光栅连通域）：每个 (font, char, 分辨率档) 只光栅化一次，alpha 掩膜
+    // 按连通块拆成笔画/部首/点，各自能飞、碎、掉。浏览器能渲染的字体都行，本地和上传的也一样
     class GlyphCache {
         constructor() {
             this.map = new Map();
@@ -382,7 +375,7 @@
             this.tint.clear();
         }
 
-        sprite(piece, color) {              // tinted copy of a white piece sprite
+        sprite(piece, color) {              // 白色 piece sprite 的染色副本
             if (color === '#ffffff' || color === '#fff') return piece.cv;
             let m = this.tint.get(piece.id);
             if (!m) {
@@ -456,7 +449,7 @@
             }
             boxes[nl] = {x0, y0, x1, y1, area};
         }
-        // attach anti-aliased fringe pixels to neighbouring labels (two dilation passes)
+        // 把抗锯齿的边缘像素贴给相邻标签（两轮膨胀）
         for (let pass = 0; pass < 2; pass++) {
             const L2 = L.slice();
             for (let p = 0; p < N; p++) {
@@ -476,7 +469,7 @@
             }
             L.set(L2);
         }
-        // merge specks into nearest bigger piece
+        // 小斑点并入最近的大块
         const minA = res * res * 0.0012;
         const remap = new Int32Array(nl + 1);
         for (let l = 1; l <= nl; l++) remap[l] = l;
@@ -526,7 +519,7 @@
             px.putImageData(id, 0, 0);
             pieces.push({
                 id: ++_pid, cv: pc, res,
-                // centre & size in em units, relative to glyph centre
+                // 中心与尺寸以 em 计，相对字形中心
                 cx: ((b.x0 + b.x1 + 1) / 2 - half) / res, cy: ((b.y0 + b.y1 + 1) / 2 - half) / res,
                 w: w / res, h: h / res, area: b.area / (res * res),
                 frags: null,
@@ -536,8 +529,8 @@
         return {ch, res, pieces};
     }
 
-    /* split a piece into up to 3 convex fragments (for shatter) — local em coords around piece centre.
-       缓存按 seed 键控：glyph 由 GlyphCache 按 font|ch|res 共享，不同碎裂 cut 的 seed 不同 */
+    // 把 piece 切成最多 3 个凸碎片（shatter 用），局部 em 坐标、绕 piece 中心。
+    // 缓存按 seed 键控：glyph 由 GlyphCache 按 font|ch|res 共享，不同碎裂 cut 的 seed 不同
     J.fragments = (pc, seed) => {
         const by = pc.frags || (pc.frags = new Map());
         let f = by.get(seed);

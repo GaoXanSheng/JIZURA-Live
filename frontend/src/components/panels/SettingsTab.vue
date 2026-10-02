@@ -1,10 +1,9 @@
 <script lang="ts" setup>
-/* 设置 tab（导出前）：
-   - 画布比例：与「导出」页画面比例同源（同一个 project.aspect，改一处两处同步，即时生效）
-   - 渲染窗口分辨率/帧率（自定义输入，帧率 1~240）/Spout 输出与 ID/渲染透明背景/调试端口：
-     改动只存草稿，点「重启渲染引擎」才保存并统一生效（避免随手改动实时打断输出）
-   - 高级设置（默认收起）：预览渲染尺寸档位——预览画布分辨率与字幕设计尺寸解绑，
-     只影响主编辑器预览的清晰度/性能，即时生效，不进草稿组 */
+// 画布比例和「导出」页同源，都是 project.aspect，改一处两处同步、即时生效。
+// 分辨率/帧率/Spout/透明背景/调试端口只存草稿，点「重启渲染引擎」才统一生效，
+// 免得随手一改把正在跑的输出打断。
+// 预览渲染尺寸是例外：即时生效、不进草稿组，只管主编辑器预览的清晰度和性能，
+// 预览画布分辨率与字幕设计尺寸是解绑的。
 import {computed, onMounted, onUnmounted, reactive, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -54,7 +53,7 @@ function markDirty() {
   dirty.value = true;
 }
 
-/* 预览渲染尺寸：即时生效的应用偏好（不进草稿组，与重启按钮无关） */
+// 预览渲染尺寸：即时生效的应用偏好，不进草稿组
 const previewRes = ref<PreviewResTier>(getPreviewRes());
 
 function onPreviewRes(e: Event) {
@@ -62,13 +61,13 @@ function onPreviewRes(e: Event) {
   const v: PreviewResTier = raw === 'auto' ? 'auto' : Number(raw) as PreviewResTier;
   previewRes.value = v;
   setPreviewRes(v);
-  sizeViewport();   // 重建画布物理像素并置 need 立即重绘
+  sizeViewport();   // 重建画布物理像素，置 need 立即重绘
 }
 
 function onAspect(e: Event) {
   const v = (e.target as HTMLSelectElement).value;
   aspect.value = v;
-  setAspect(v);   // 与导出页画面比例同源：写 project.aspect 并广播
+  setAspect(v);   // 和导出页同源，写 project.aspect 并广播
 }
 
 async function load() {
@@ -77,12 +76,12 @@ async function load() {
     const r = await fetch('/api/app/settings');
     const j = await r.json();
     if (j.ok) Object.assign(form, j.settings);
-  } catch { /* 服务不在时保持默认 */
+  } catch { // 服务不在就用默认值
   }
   loading.value = false;
 }
 
-/* 保存草稿 → 重启渲染引擎（以保存的值重建镜像，一次生效） */
+// 先保存草稿，再重启渲染引擎，保存的值一次生效
 async function applyAndRestart() {
   if (!canApply.value || applying.value) return;
   applying.value = true;

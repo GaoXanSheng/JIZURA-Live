@@ -3,14 +3,10 @@ using EmbedIO;
 
 namespace JizuraLive.Server;
 
-/// <summary>
-///     API 防跨站请求中间件。服务只绑 127.0.0.1，但受害者浏览器里任何网页
-///     都能向 http://127.0.0.1:{port}/api/* 发跨站请求——比如
-///     &lt;img src="/api/ne/logout"&gt; 静默登出、text/plain「简单请求」POST 改写设置。
-///     依据 Chromium 的 Sec-Fetch-Site / Origin 头拦截跨站请求；
-///     无这些头的非浏览器客户端（本机脚本、dev 工具）不受影响。
-///     只管 /api 前缀，静态资源放行；注册在最前，命中即终结请求。
-/// </summary>
+// /api 防跨站守卫。服务只绑 127.0.0.1，但受害者浏览器里任何网页都能向
+// http://127.0.0.1:{port}/api/* 发跨站请求：img src 静默登出、text/plain「简单请求」改写设置。
+// 按 Chromium 的 Sec-Fetch-Site/Origin 头拦截；无这些头的非浏览器客户端（本机脚本、dev 工具）不受影响。
+// 只管 /api 前缀，注册在最前，命中即终结
 internal sealed class ApiGuardModule : WebModuleBase
 {
     public ApiGuardModule() : base("/api")
@@ -25,11 +21,7 @@ internal sealed class ApiGuardModule : WebModuleBase
         return detail == null ? Task.FromResult(false) : Reject(context, detail);
     }
 
-    /// <summary>
-    ///     跨站判定：返回拒绝原因，本站/非浏览器请求返回 null。
-    ///     /api 与 /mcp 共用——服务只绑 127.0.0.1，但受害者浏览器里任何网页
-    ///     都能向本机端口发跨站请求。
-    /// </summary>
+    // 跨站判定：本站/非浏览器请求返回 null，否则返回拒绝原因。/api 与 /mcp 共用
     internal static string? CrossSiteDetail(IHttpContext context)
     {
         var site = context.Request.Headers["Sec-Fetch-Site"];
@@ -42,7 +34,7 @@ internal sealed class ApiGuardModule : WebModuleBase
             var self = context.Request.Url;
             var sameAuthority = string.Equals(o.Authority, self.Authority,
                 StringComparison.OrdinalIgnoreCase);
-            // 回环变体放行：vite dev 代理转发时 Origin 指向 dev server（localhost:5173）
+            // 回环地址放行：vite dev 代理转发时 Origin 指向 dev server（localhost:5173）
             var loopback = o.Host is "127.0.0.1" or "::1" or "localhost";
             if (!sameAuthority && !loopback)
                 return "origin=" + o.Authority;

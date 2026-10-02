@@ -1,6 +1,6 @@
 <script lang="ts">
-/* 模块级状态：RightPanel 对本 tab 用 v-if 卸载省内存（860 张预览 canvas 不再常驻），
-   卸载重开后筛选词与折叠状态保留在这里不丢 */
+// RightPanel 对本 tab 用 v-if 卸载省内存，卸载重开后
+// 筛选词和折叠状态留在这里不丢
 import {ref} from 'vue';
 
 const filter = ref('');
@@ -8,7 +8,6 @@ const openSet = new Set<string>();
 </script>
 
 <script lang="ts" setup>
-/* 手法 tab：套装开关（新增/和/文字排版/动态文字/恐怖）+ 分组折叠 + 实时预览卡 + 筛选/组锁 */
 import {onMounted, onUnmounted} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -113,7 +112,7 @@ function rebuild() {
 function onToggle(g: string, ev: Event) {
   const open = (ev.target as HTMLDetailsElement).open;
   const rec = groups.value.find(x => x.g === g);
-  if (rec) rec.open = open;   // v-if 的卡片网格跟随展开/收起
+  if (rec) rec.open = open;   // 卡片网格的 v-if 跟着这个开/收
   if (open) {
     openSet.add(g);
     requestAnimationFrame(() => {
@@ -173,7 +172,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- data-pane="tech"：预览循环 paneOpen() 的判定依据，勿删 -->
+  <!-- data-pane="tech" 是预览循环 paneOpen() 的判定依据，别删 -->
   <div class="px-4 py-3.5" data-pane="tech">
     <div class="flex flex-col gap-1 mb-3">
       <label v-for="t in SETS" :key="t.cls" class="checkblock">
@@ -209,8 +208,8 @@ onUnmounted(() => {
         <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'off')">全部关闭</button>
         <button class="btn btn-ghost btn-sm" @click="onAll(g.g, 'flip')">反转</button>
       </div>
-      <!-- 折叠的组不渲染卡片网格：860+ 张卡 × 6-8 节点是手法 tab 的 DOM 暴增源。
-           展开时才挂载（onToggle 的 rAF 里 registerThumbs），收起即卸载 -->
+      <!-- 折叠的组不渲染卡片网格：860+ 张卡 × 6-8 节点会把 DOM 撑爆。
+           展开才挂载（onToggle 的 rAF 里 registerThumbs），收起即卸载 -->
       <div v-if="g.open" :ref="(el: any) => { if (el) listEls.set(g.g, el); }"
            class="grid gap-2 px-2.5 pb-2.5 [grid-template-columns:repeat(auto-fill,minmax(128px,1fr))]">
         <label v-for="c in g.cards" :key="c.k"

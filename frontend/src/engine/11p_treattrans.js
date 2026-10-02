@@ -1,4 +1,3 @@
-/* JIZURA pack: treattrans — text treatments (neon, chrome, karaoke, reflection, ransom…) + cut-to-cut transitions (カット間のつなぎ) */
 (() => {
     'use strict';
     const E = J.E;
@@ -6,7 +5,6 @@
     const reg = (g, k, d) => J.register(g, k, d, PK);
     const DEG = J.DEG, TAU = J.TAU, clamp = J.clamp;
 
-    /* ================= colour helpers ================= */
     const ctr = (a, b) => J.contrast(a, b);
     const isDark = c => J.lum(c) < 0.45;
     const firstOK = (list, test, fb) => {
@@ -25,17 +23,16 @@
         }
         return b;
     };
-// an accent that differs from colour `col` and still reads on the scheme background
+// 挑一个和 col 拉得开、在背景上也读得出的 accent
     const accentFor = (sc, col, min = 1.6) => firstOK([sc.accent, sc.accent2, sc.ghostA, sc.ghostB], c => ctr(c, col) >= min && ctr(c, sc.bg) >= 1.5, J.fitContrast(sc.accent, col, min + 0.3));
-// text colour for glyphs sitting on `box`: keep `pref` when it reads, else the best scheme colour
+// 画在 box 底色上的文字色：pref 对比够就沿用，不然从方案色里挑最清楚的
     const textOn = (box, pref, sc) => (ctr(pref, box) >= 3 ? pref : best([sc.bg, sc.fg, sc.ink, '#111111', '#FFFFFF'], box));
-// a colour that stands out from the scheme background (for marks drawn next to the text)
+// 在背景上够显眼的标记色，画在文字旁边用
     const markCol = (sc, col) => firstOK([sc.accent, sc.accent2, col], c => ctr(c, sc.bg) >= 2, col);
     const TR = 'rgba(0,0,0,0)';
-// text coloured like the background sits on a layout's own plate: colour marks / recolouring would vanish into it
+// 文字色和背景太近 = 躺在版面自己的底板上，改色或加标记都会被吞掉
     const onPlate = (sc, col) => ctr(col, sc.bg) < 1.5;
 
-    /* ================= item helpers ================= */
     const alive = (it, amin = 0.9) => it.fill !== false && (it.alpha ?? 1) >= amin && !!it.text && it.size > 1;
     const colOf = (env, it) => it.color || env.sc.fg;
     const addPre = (it, f) => {
@@ -52,7 +49,7 @@
             f(e, i, b);
         } : f;
     };
-// size-dependent fields: set now and refresh right before drawing (after enter / hold / exit changed the size)
+// 尺寸相关字段先设初值，画之前再刷新一遍，出入场会改 size
     const sized = (it, env, f) => {
         f(it, env);
         addPre(it, (e, i) => f(i, e));
@@ -60,14 +57,14 @@
     const inP = (env, it, d, len) => clamp((env.lt - (it.delay || 0) - d) / len);
     const glyphN = t => [...String(t || '')].filter(c => c.trim()).length;
     const isSp = ch => ch === ' ' || ch === '　';
-// true while a piece-based entrance / exit is moving (gradient / no-fill / copies would fight its pieces)
+// 碎块型出入场进行中返回 true；渐变、去填充、叠副本都会跟碎块打架
     const inPieces = (env, it) => {
         const c = env.cut, en = J.ENTER[it.enter || c.enter], ex = J.EXIT[it.exit || c.exit];
         if (en && en.pieces && env.lt - (it.delay || 0) < c.inDur * 1.3 + 0.05) return true;
         if (ex && ex.pieces && c.outDur > 0 && env.lt > c.dur - c.outDur - 0.3) return true;
         return false;
     };
-    /* run fn() under the same clip / bands / blur as J.drawFx applies to the text; local=true also moves into item space */
+    // 让 fn 处在和 J.drawFx 画文字相同的 clip/bands/blur 下；local=true 再变换到 item 坐标
     const withFx = (env, it, fn, local = true) => {
         const ctx = env.ctx, W = env.W, H = env.H;
         ctx.save();
@@ -133,7 +130,7 @@
             ctx.restore();
         }
     };
-// per text line (vertical: per column) extents in item space from the static layout; glyphs hidden by charFn are left out
+// 逐行（竖排逐列）在 item 空间的行范围，取自静态布局；charFn 藏掉的字不算
     const lineSpans = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, map = new Map();
         for (const g of lay) {
@@ -154,7 +151,7 @@
         }
         return [...map.values()].sort((a, b) => a.li - b.li);
     };
-// visible glyphs in item space, following the per-glyph motion (dx/dy/scale/rotation) of enter / hold / exit
+// item 空间里的可见字形，带上出入场/驻留的逐字位移缩放旋转
     const glyphList = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, out = [];
         for (const g of lay) {
@@ -174,7 +171,7 @@
         }
         return out;
     };
-// a plain copy of an item for extra passes (shadows, rims…): no hooks, no effects of its own
+// 复制一份干净 item 给叠加通道用（阴影、描边圈…），钩子与特效字段全清空
     const bare = (i, extra) => Object.assign({}, i, {
         pre: null,
         post: null,
@@ -198,12 +195,10 @@
         blend: null,
         _lay: null
     }, extra || {});
-// is the item mid "dash" draw-on (stroke tracing) — copies built from fills would give it away
+// dash 描字没画完时别叠 fill 副本，会露馅
     const tracing = i => i.dash != null && i.dash < 1;
 
-    /* ================= TREATMENTS ================= */
-
-    /* ---- neon tube: bright thin outline + coloured bloom, no fill, rare flicker ---- */
+    // 霓虹管：细亮描边加彩色泛光，无填充，偶尔闪
     reg('treat', 'neonOutline', {
         name: 'ネオン管', tags: ['glitch', 'emotional', 'pop'], w: 0.8,
         plan: rng => ({k: rng.range(0.024, 0.032), fl: rng.chance(0.75)}),
@@ -219,7 +214,7 @@
                 i.stroke = Math.max(1.4, i.size * P.k);
                 i.shadow = {color: J.rgba(gc, dk ? 1 : 0.7), blur: i.size * 0.07, dx: 0, dy: 0};
             });
-            addPre(it, (e, i) => {                       // wide soft bloom under the tube (main pass only)
+            addPre(it, (e, i) => { // 泛光垫底，只画主通道
                 if (e.pass !== 'main' || tracing(i)) return;
                 const s = i.size;
                 const c = bare(i, {
@@ -241,7 +236,7 @@
         }
     });
 
-    /* ---- chrome: multi-stop metallic fill with a hard horizon + keyline ---- */
+    // 镀铬：多段金属渐变，硬地平线加轮廓线
     reg('treat', 'chrome', {
         name: 'クローム', tags: ['pop', 'graphic'], w: 0.7,
         plan: rng => ({v: rng.pick(['silver', 'silver', 'sunset']), h: rng.range(0.5, 0.56)}),
@@ -262,7 +257,7 @@
         }
     });
 
-    /* ---- rainbow: colours drift across the glyphs through the scheme palette ---- */
+    // 虹色：方案色板沿字形漂移
     reg('treat', 'rainbow', {
         name: '虹色', tags: ['pop', 'emotional'], w: 0.7,
         plan: rng => ({
@@ -290,7 +285,7 @@
         }
     });
 
-    /* ---- colour-plate misregistration: two tinted copies split sideways, jolting on glitch steps ---- */
+    // 色版错位：两份染色副本左右分开，glitch 步进时抖一下
     reg('treat', 'glitchSplit', {
         name: '色版ズレ', tags: ['glitch', 'pop'], w: 0.8,
         plan: rng => ({d: rng.range(0.06, 0.08), up: rng.chance(0.3)}),
@@ -327,7 +322,7 @@
         }
     });
 
-    /* ---- stacked shadows: 3 separated copies in different scheme colours ---- */
+    // 多重影：三四个不同方案色的错位副本
     reg('treat', 'shadowStack', {
         name: '多重影', tags: ['pop', 'graphic'], w: 0.8,
         plan: rng => ({
@@ -365,7 +360,7 @@
         }
     });
 
-    /* ---- stencil: bridges cut through every glyph (per-glyph clips, so the chromatic ghosts get them too); they open during the entrance ---- */
+    // 镂空字：每个字切开留桥（charFn 级 clip，色差副本同样被切），入场时张开
     reg('treat', 'stencilGap', {
         name: 'ステンシル字', tags: ['graphic', 'editorial', 'glitch'], w: 0.6,
         plan: rng => ({v: rng.pick(['one', 'one', 'two']), at: rng.range(-0.05, 0.06), g: rng.range(0.034, 0.048)}),
@@ -393,7 +388,7 @@
         }
     });
 
-    /* ---- water level: outlined glyphs fill up with colour, the surface bobs, drains on exit ---- */
+    // 水位：描边字里灌色，水面晃动，出场时排空
     reg('treat', 'waterline', {
         name: '水位', tags: ['emotional', 'pop', 'calm'], w: 0.6,
         plan: rng => ({lvl: rng.range(0.46, 0.58), c: rng.int(0, 1), k: rng.range(0.02, 0.026)}),
@@ -412,7 +407,7 @@
         }
     });
 
-    /* ---- karaoke: a colour wipe runs through the words over the length of the cut ---- */
+    // 卡拉OK：一抹颜色按镜长扫过词句
     reg('treat', 'karaoke', {
         name: 'カラオケ', tags: ['emotional', 'pop', 'editorial'], w: 0.9,
         plan: rng => ({sp: rng.range(0.7, 0.85), ol: rng.chance(0.55)}),
@@ -459,7 +454,7 @@
         }
     });
 
-    /* ---- size rhythm: glyph sizes alternate / follow script / ramp away, re-spaced tightly on a shared baseline ---- */
+    // 大小节奏：字交替/按字种/渐变缩放，重排靠拢共用基线
     reg('treat', 'sizeWave', {
         name: '大小リズム', tags: ['pop', 'graphic', 'editorial'], w: 0.7,
         plan: rng => ({
@@ -487,7 +482,7 @@
                 if (J.isPunct(g.ch)) s = Math.min(s, 0.9);
                 S[g.i] = s;
             }
-            // re-space along each line so smaller glyphs close up (offsets stored in em units)
+            // 沿行重排让小字靠拢；偏移按 em 存
             const F = new Array(N).fill(0), size0 = it.size, tr = (it.track || 0) * size0, vert = !!it.vertical;
             const byLine = new Map();
             for (const g of lay) {
@@ -514,7 +509,7 @@
         }
     });
 
-    /* ---- alternating tilt: glyphs lean left / right like hand-set type ---- */
+    // 摇摆字：左右交替倾斜，活字排版的手感
     reg('treat', 'rotateAlt', {
         name: '揺れ字', tags: ['pop', 'emotional'], w: 0.7, safe: true,
         plan: rng => ({a: rng.range(9, 14), v: rng.pick(['alt', 'alt', 'rand'])}),
@@ -529,7 +524,7 @@
         }
     });
 
-    /* ---- baseline shift: alternate up/down, stairs or an arch ---- */
+    // 基线错位：上下交替、阶梯或拱形
     reg('treat', 'baselineShift', {
         name: '段違い', tags: ['pop', 'graphic'], w: 0.7, safe: true,
         plan: rng => ({
@@ -551,7 +546,7 @@
         }
     });
 
-    /* ---- faux bold: same-colour stroke thickens every stem ---- */
+    // 伪粗体：同色描边加粗笔画
     reg('treat', 'fauxBold', {
         name: '極太', tags: ['graphic', 'pop', 'editorial'], w: 0.5, safe: true,
         plan: rng => ({k: rng.range(0.035, 0.05)}),
@@ -565,7 +560,7 @@
         }
     });
 
-    /* ---- circled glyphs: each character sits in its own ring (or solid disc) ---- */
+    // 圈字：每个字一个圆环（或实心圆盘）
     reg('treat', 'circled', {
         name: '丸囲み', tags: ['pop', 'graphic', 'editorial'], w: 0.6,
         plan: rng => ({v: rng.pick(['ring', 'ring', 'disc']), k: rng.range(0.68, 0.74)}),
@@ -594,7 +589,7 @@
         }
     });
 
-    /* ---- 「」 corner quotes drawn around the whole lyric ---- */
+    // 「」引号画在整段歌词外围
     const QUOTED = new WeakMap();
     reg('treat', 'bracketsQuote', {
         name: 'かぎ括弧', tags: ['editorial', 'emotional', 'calm'], w: 0.6,
@@ -608,7 +603,7 @@
             if (!open && !close) return;
             if (mine === whole) QUOTED.set(env, true);
             else if ([...mine].length === 1) {
-                // one-glyph items (mixed, scatter…): only the first / last glyph by motion index — and none once the whole lyric got its pair
+                // 单字 item（mixed、scatter…）：按 mi 只认整句的首/末字，整句配过对后全部跳过
                 const n = [...whole].length, mi = it.mi;
                 if (QUOTED.get(env) || mi == null || mi !== Math.round(mi)) return;
                 open = open && mi === 0;
@@ -616,7 +611,7 @@
                 if (!open && !close) return;
             }
             const sc = env.sc, lc = markCol(sc, colOf(env, it));
-            // leave room for the brackets
+            // 超宽就缩字号，给括弧让位
             const m = J.measure(it), along = it.vertical ? m.h : m.w, room = it.size * 1.1,
                 cap = (it.vertical ? env.H : env.W) * 0.92;
             if (along + room > cap && along < cap * 1.05) it.size *= Math.max(0.72, cap / (along + room));
@@ -648,7 +643,7 @@
         }
     });
 
-    /* ---- reflection: a flipped, fading copy of the last line on an imaginary floor ---- */
+    // 倒影：末行翻转渐隐的镜像，落在假想地面上
     reg('treat', 'reflection', {
         name: '映り込み', tags: ['emotional', 'calm', 'editorial'], w: 0.6,
         plan: rng => ({k: rng.range(0.6, 0.78), a: rng.range(0.34, 0.46), gap: rng.range(0.04, 0.09)}),
@@ -681,7 +676,7 @@
         }
     });
 
-    /* ---- inline (インライン): a hairline in the background colour runs just inside every stroke, like display type ---- */
+    // 内线：描边内侧走一圈背景色细线，展示字体的做法
     reg('treat', 'inline', {
         name: 'インライン', tags: ['editorial', 'pop', 'graphic'], w: 0.6,
         plan: rng => ({a: rng.range(0.017, 0.022), b: rng.range(0.016, 0.021), c: rng.chance(0.3)}),
@@ -702,7 +697,7 @@
         }
     });
 
-    /* ---- die-cut sticker: thick white paper border (+ keyline for light text), soft drop shadow, slightly tilted ---- */
+    // 贴纸：白纸厚边（浅色字再加键线），软投影，微微倾斜
     reg('treat', 'sticker', {
         name: 'シール縁', tags: ['pop', 'graphic'], w: 0.8,
         plan: rng => ({
@@ -736,7 +731,7 @@
         }
     });
 
-    /* ---- glint sweep / tide: an animated gradient runs through the letters ---- */
+    // 光泽扫过/潮汐：动画渐变流过文字
     reg('treat', 'gradientSweep', {
         name: '光沢スイープ', tags: ['pop', 'emotional'], w: 0.7,
         plan: rng => ({v: rng.pick(['glint', 'glint', 'tide']), per: rng.range(1.5, 2.3), ph: rng.range(0, 1)}),
@@ -756,7 +751,7 @@
         }
     });
 
-    /* ---- wide tracking: letter-spaced, a size smaller (editorial caption look) ---- */
+    // 宽字距：拉开字距并缩小一号，编辑说明字的感觉
     reg('treat', 'kerningWide', {
         name: '字間広め', tags: ['editorial', 'calm', 'emotional'], w: 0.6, safe: true,
         plan: rng => ({t: rng.range(0.32, 0.55), grow: rng.range(1.04, 1.14)}),
@@ -771,7 +766,7 @@
         }
     });
 
-    /* ---- manuscript paper (原稿用紙): glyphs snap into equal square cells of a ruled grid ---- */
+    // 原稿用纸：字吸附进方格纸的等大方格
     reg('treat', 'monoGrid', {
         name: '原稿用紙風', tags: ['editorial', 'calm', 'emotional'], w: 0.5,
         plan: rng => ({pitch: rng.range(1.18, 1.26), c: rng.chance(0.65) ? 1 : 0}),
@@ -794,7 +789,7 @@
                 dy: (tgt(g, g.w) - g.y) * (it.sy || 1),
                 s: 0.86
             } : {dx: (tgt(g, g.h) - g.x) * (it.sx || 1), s: 0.86}));
-            if (glyphN(it.text) < 2 || onPlate(sc, col)) return;             // one-glyph items (scatter…) / text on a plate: just the snapping
+            if (glyphN(it.text) < 2 || onPlate(sc, col)) return; // 单字 item、底板上的文字只吸附不画格
             const tint = J.mix(sc.bg, lc, isDark(sc.bg) ? 0.1 : 0.08);
             addPre(it, (e, i) => withFx(e, i, () => {
                 const q = E.outCubic(inP(e, i, 0, 0.45)) * (1 - E.inCubic(e.pOut));
@@ -804,7 +799,7 @@
                 const cell = P.pitch * s, lw = Math.max(1, s * 0.013), gut = cell * 0.24;
                 const rows = new Map();
                 for (const g of lay) if (!rows.has(g.li)) rows.set(g.li, g);
-                // rect in item space: (u0..u1 along the line, v0..v1 across it)
+                // item 空间矩形：u 沿行方向，v 横穿
                 const R = (u0, u1, v0, v1) => (vert ? [v0 * sx, u0 * sy, (v1 - v0) * sx, (u1 - u0) * sy] : [u0 * sx, v0 * sy, (u1 - u0) * sx, (v1 - v0) * sy]);
                 const L = (u0, u1, v) => (vert ? [[v * sx, u0 * sy], [v * sx, u1 * sy]] : [[u0 * sx, v * sy], [u1 * sx, v * sy]]);
                 for (const g of rows.values()) {
@@ -821,7 +816,7 @@
                     }
                     e.line(L(c0, c0 + len, v0), lc, lw, a * 0.85, false);
                     e.line(L(c0, c0 + len, v1), lc, lw, a * 0.85, false);
-                    // ruby gutter: a second rule beside the row (above horizontal rows, right of vertical columns)
+                    // 注音槽：行旁多画一条线，横排在上方，竖排在右侧
                     e.line(L(c0 - cell * 0.1, c0 + len + cell * 0.1, vert ? v1 + gut : v0 - gut), lc, lw, a * 0.55, false);
                     for (let k = 0; k <= n; k++) {
                         const p = c0 + k * cell;
@@ -833,7 +828,7 @@
         }
     });
 
-    /* ---- misregistered print: hollow outline on top, solid colour fill knocked off-register ---- */
+    // 套印错位：上层空心描边，实心色版偏开一点
     reg('treat', 'outlineOffset', {
         name: '版ズレ袋文字', tags: ['pop', 'graphic', 'editorial'], w: 0.8,
         plan: rng => ({
@@ -863,7 +858,7 @@
         }
     });
 
-    /* ---- screen-tone shadow: an offset shadow printed as dots / hatching (manga tone) ---- */
+    // 网点影：偏移的影子印成点/排线，漫画网点风
     reg('treat', 'toneShadow', {
         name: 'トーン影', tags: ['pop', 'graphic', 'editorial'], w: 0.7,
         plan: rng => ({
@@ -891,7 +886,7 @@
         }
     });
 
-    /* ---- fade: glyph opacity trails off along the line (or toward both ends) ---- */
+    // 渐隐：透明度沿行尾递减（或向两端）
     reg('treat', 'fadeChars', {
         name: '余韻', tags: ['emotional', 'calm'], w: 0.5, safe: true,
         plan: rng => ({v: rng.pick(['tail', 'tail', 'both', 'head']), lo: rng.range(0.3, 0.4)}),
@@ -906,7 +901,7 @@
         }
     });
 
-    /* ---- cut & shift: every glyph is sliced through, the lower (vertical: right) half slides off ---- */
+    // 切断错位：每个字被切开，下半（竖排为右半）滑走
     reg('treat', 'cutShift', {
         name: '断ち切り', tags: ['graphic', 'glitch', 'pop'], w: 0.7,
         plan: rng => ({
@@ -940,14 +935,14 @@
         }
     });
 
-    /* ---- rack focus: a band of sharpness travels through the line, the rest is soft ---- */
+    // 焦点转移：一条清晰带扫过整行，其余发虚
     reg('treat', 'focusPull', {
         name: 'ぼかし送り', tags: ['emotional', 'calm', 'editorial'], w: 0.6,
         plan: rng => ({b: rng.range(0.035, 0.05), rev: rng.chance(0.3)}),
         apply(env, it, P) {
             if (!alive(it, 0.9)) return;
             const cut = env.cut, lay = J.layoutText(it), N = lay.N, whole = glyphN(cut.text), mi = it.mi;
-            // position of each glyph along the lyric (0..1): within the item, or — for one-glyph items — by motion index
+            // 每个字在整句里的 0..1 位置：多字 item 按字内序号，单字 item 按 mi
             let pos;
             if (N >= 3) pos = gi => gi / (N - 1);
             else if (whole >= 3 && mi != null && mi === Math.round(mi) && mi < whole) pos = () => mi / (whole - 1);
@@ -963,7 +958,7 @@
     });
 
     const SPOT = new WeakMap();
-    /* ---- spotlight glyph: one character (a kanji) is set in an accent disc / square / diamond ---- */
+    // 一字强调：挑一个汉字放进 accent 圆盘/方块/菱形
     reg('treat', 'spotChar', {
         name: '一字マーク', tags: ['pop', 'graphic', 'editorial', 'emotional'], w: 0.7,
         plan: rng => ({
@@ -973,7 +968,7 @@
         }),
         apply(env, it, P) {
             if (!alive(it, 0.9)) return;
-            if (SPOT.get(env)) return;                                       // one spotlight per lyric
+            if (SPOT.get(env)) return; // 整句只挑一处
             const lay = J.layoutText(it), gs = lay.filter(g => !isSp(g.ch) && !J.isPunct(g.ch));
             if (!gs.length) return;
             const choose = list => {
@@ -983,7 +978,7 @@
             };
             let T;
             if (gs.length === 1) {
-                // one-glyph items (mixed / scatter layouts): only the item that holds the chosen glyph of the whole lyric
+                // 单字 item（mixed/scatter）：只有持有整句选中字形的那个 item 才画
                 const all = [...String(env.cut.text)].filter(c => !isSp(c)).map((ch, i) => ({
                     ch,
                     i
@@ -1021,7 +1016,7 @@
         }
     });
 
-    /* ---- ransom note (切り抜き文字): every glyph on its own scrap of paper, tilted and resized ---- */
+    // 剪贴字：每个字各贴一张纸片，带倾斜和缩放
     reg('treat', 'ransom', {
         name: '切り貼り文字', tags: ['pop', 'glitch', 'graphic'], w: 0.6,
         plan: rng => ({s: rng.int(1, 1e6)}),
@@ -1073,21 +1068,19 @@
         }
     });
 
-
-    /* ================= CUT-TO-CUT TRANSITIONS (カット間のつなぎ) =================
-       draw(ctx, A, B, p, I): A = previous cut's resting frame, B = this cut's frame, both device-pixel canvases.
-       The wrapper guarantees p<=0 → exactly A and p>=1 → exactly B, and a clean ctx state afterwards. */
+    // draw(ctx, A, B, p, I)：A 是上一镜的静帧，B 是本镜帧，都是设备像素画布
+    // trReg 的包装保证 p<=0 精确输出 A、p>=1 精确输出 B，结束时 ctx 状态干净
     const bell = k => Math.sin(Math.PI * clamp(k));
     const ioQuart = k => (k < 0.5 ? 8 * k * k * k * k : 1 - 8 * Math.pow(1 - k, 4));
     const minD = I => Math.min(I.cw, I.ch);
     const lwOf = (I, k = 0.006) => Math.max(2, minD(I) * k);
-// an accent that reads against both backgrounds
+// 在前后两个背景上都读得出的 accent
     const tAcc = (I, second) => {
         const sc = I.sc, pb = (I.scPrev || sc).bg;
         const list = second ? [sc.accent2, sc.accent, sc.fg] : [sc.accent, sc.accent2, sc.fg];
         return firstOK(list, c => ctr(c, sc.bg) >= 1.8 && ctr(c, pb) >= 1.4, sc.fg);
     };
-// copy the sub-rectangle (x, y, w, h) of canvas C to the same place (+dx, dy), clamped to the canvas
+// 把 C 的子矩形 (x,y,w,h) 原地平移 (dx,dy)，越界部分裁掉
     const part = (ctx, C, x, y, w, h, dx = 0, dy = 0) => {
         let x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
         const x1 = Math.min(C.width, Math.ceil(x + w)), y1 = Math.min(C.height, Math.ceil(y + h));
@@ -1109,7 +1102,7 @@
     }));
     const dirPick = (rng, list = ['L', 'R', 'U', 'D'], w) => (w ? rng.wpick(list.map((k, i) => [k, w[i]])) : rng.pick(list));
 
-    /* ---- straight wipe with a bright leading edge ---- */
+    // 直线擦除，前沿一条亮边
     trReg('wipe', {
         name: 'エッジワイプ', tags: ['graphic', 'editorial', 'pop'], w: 1.2, dur: 0.35,
         plan: rng => ({dir: dirPick(rng, ['L', 'R', 'U', 'D'], [3, 2, 1.4, 0.8])}),
@@ -1138,21 +1131,21 @@
             ctx.globalAlpha = a;
             ctx.fillStyle = ac;
             ctx.fillRect(bar[0], bar[1], bar[2], bar[3]);
-            // a thin trailing hairline on the B side
+            // B 侧再拖一条细线
             const off = lw * 3.2 * bar[4];
             ctx.globalAlpha = a * 0.5;
             if (bar[2] === lw) ctx.fillRect(bar[0] + off, 0, Math.max(1, lw * 0.35), ch); else ctx.fillRect(0, bar[1] + off, cw, Math.max(1, lw * 0.35));
         }
     });
 
-    /* ---- slanted wipe: an accent band runs ahead of the new cut ---- */
+    // 斜切擦除：accent 色带跑在新镜前面
     trReg('diagonalWipe', {
         name: '斜め帯ワイプ', tags: ['pop', 'graphic'], w: 1, dur: 0.35,
         plan: rng => ({k: rng.range(0.3, 0.55) * (rng.chance(0.5) ? 1 : -1), rev: rng.chance(0.4)}),
         draw(ctx, A, B, p, I, P) {
             const {cw, ch} = I, e = E.inOutCubic(p), sl = P.k * ch, band = minD(I) * 0.07 * bell(p);
             const span = cw + Math.abs(sl) + band * 2 + 4;
-            let X = -Math.abs(sl) / 2 - band - 2 + span * e;                  // the boundary (B side = left of it)
+            let X = -Math.abs(sl) / 2 - band - 2 + span * e; // 斜边界，B 在其左侧
             const poly = (x0, x1) => {
                 ctx.beginPath();
                 ctx.moveTo(x0 - sl / 2, 0);
@@ -1165,7 +1158,7 @@
             if (P.rev) {
                 ctx.translate(cw, 0);
                 ctx.scale(-1, 1);
-            }            // mirrored geometry (the images are drawn un-mirrored below)
+            } // 只镜像几何，贴图时再翻回来
             ctx.save();
             poly(-cw * 2, X);
             ctx.clip();
@@ -1187,7 +1180,7 @@
         }
     });
 
-    /* ---- clock wipe: a radial sweep from 12 o'clock ---- */
+    // 时钟擦除：从 12 点方向径向扫过
     trReg('clockWipe', {
         name: 'クロックワイプ', tags: ['graphic', 'pop', 'editorial'], w: 0.7, dur: 0.45,
         plan: rng => ({dir: rng.chance(0.7) ? 1 : -1, a0: rng.pick([-90, -90, 0, 180])}),
@@ -1219,7 +1212,7 @@
         }
     });
 
-    /* ---- iris: a circle opens on the new cut, rimmed with two accent rings ---- */
+    // 圆形划入：圆孔张开露出新镜，两圈 accent 描边
     trReg('irisOpen', {
         name: 'アイリスイン', tags: ['emotional', 'pop', 'editorial'], w: 0.8, dur: 0.4,
         plan: rng => ({x: 0.5 + rng.range(-0.12, 0.12), y: 0.5 + rng.range(-0.1, 0.1)}),
@@ -1251,7 +1244,7 @@
         }
     });
 
-    /* ---- push: the new cut shoves the old one out ---- */
+    // 推镜：新镜把旧镜顶出去
     trReg('pushSlide', {
         name: 'プッシュ', tags: ['graphic', 'pop', 'editorial'], w: 1, dur: 0.35,
         plan: rng => ({dir: dirPick(rng, ['L', 'R', 'U', 'D'], [3, 1.6, 1.4, 0.6])}),
@@ -1272,7 +1265,7 @@
         }
     });
 
-    /* ---- cover: the new cut slides in over the old one, which dims and drifts back ---- */
+    // 盖上：新镜滑入盖住旧镜，旧镜变暗后退
     trReg('cover', {
         name: 'カバー', tags: ['editorial', 'graphic', 'calm'], w: 0.9, dur: 0.35,
         plan: rng => ({dir: dirPick(rng, ['L', 'R', 'U', 'D'], [2, 2, 1.5, 1])}),
@@ -1285,7 +1278,7 @@
             ctx.globalAlpha = 0.45 * e;
             ctx.fillRect(0, 0, cw, ch);
             ctx.globalAlpha = 1;
-            // soft shadow ahead of the incoming edge
+            // 入场边前方一道软阴影
             const sw = minD(I) * 0.06, edge = (h ? (sg > 0 ? cw + bo : bo) : (sg > 0 ? ch + bo : bo));
             const g = h ? ctx.createLinearGradient(edge, 0, edge + sg * sw, 0) : ctx.createLinearGradient(0, edge, 0, edge + sg * sw);
             g.addColorStop(0, 'rgba(0,0,0,0.45)');
@@ -1298,7 +1291,7 @@
         }
     });
 
-    /* ---- uncover: the old cut slides away and uncovers the new one waiting underneath ---- */
+    // 揭开：旧镜滑走，露出底下候场的新镜
     trReg('uncover', {
         name: 'アンカバー', tags: ['editorial', 'calm', 'emotional'], w: 0.8, dur: 0.35,
         plan: rng => ({dir: dirPick(rng, ['L', 'R', 'U', 'D'], [2, 2, 1.6, 1])}),
@@ -1326,7 +1319,7 @@
         }
     });
 
-    /* ---- zoom through: the old cut rushes past the camera while the new one settles in ---- */
+    // 穿越变焦：旧镜冲过镜头，新镜就位
     trReg('zoomThrough', {
         name: 'ズームスルー', tags: ['pop', 'emotional', 'glitch'], w: 1, dur: 0.35,
         plan: rng => ({z: rng.range(1.5, 2.2)}),
@@ -1347,7 +1340,7 @@
         }
     });
 
-    /* ---- doors: the old cut splits down the middle and swings open ---- */
+    // 双开门：旧镜从中缝分开甩开
     trReg('doorsOpen', {
         name: '観音開き', tags: ['graphic', 'pop', 'emotional'], w: 0.7, dur: 0.4,
         plan: rng => ({vert: rng.chance(0.3)}),
@@ -1382,7 +1375,7 @@
         }
     });
 
-    /* ---- blinds: slats flip over one after another ---- */
+    // 百叶：板片一条条依次翻面
     trReg('blinds', {
         name: 'ブラインド転換', tags: ['graphic', 'editorial', 'calm'], w: 0.7, dur: 0.4,
         plan: rng => ({n: rng.int(7, 12), vert: rng.chance(0.35), rev: rng.chance(0.4)}),
@@ -1406,7 +1399,7 @@
         }
     });
 
-    /* ---- checker: squares open in two chequered waves ---- */
+    // 市松：方格按棋盘波次张开
     trReg('checker', {
         name: '市松転換', tags: ['pop', 'graphic'], w: 0.6, dur: 0.45,
         plan: rng => ({n: rng.int(4, 6), rev: rng.chance(0.5)}),
@@ -1434,7 +1427,7 @@
         }
     });
 
-    /* ---- block dissolve: random blocks flip to the new cut, each with a short accent flash ---- */
+    // 块状溶解：随机方块翻到新镜，闪一下 accent
     trReg('blockDissolve', {
         name: 'ブロック崩し', tags: ['glitch', 'graphic'], w: 0.8, dur: 0.4,
         plan: rng => ({n: rng.int(7, 11), side: rng.pick([0, 0, 1, 2])}),
@@ -1460,7 +1453,7 @@
         }
     });
 
-    /* ---- whip pan: both frames rush sideways, smeared by motion blur ---- */
+    // 甩镜头：两帧横冲，动态模糊拖影
     trReg('whipPan', {
         name: 'ホイップパン', tags: ['pop', 'emotional', 'glitch'], w: 1, dur: 0.3,
         plan: rng => ({dir: rng.chance(0.65) ? -1 : 1, vert: rng.chance(0.2)}),
@@ -1486,7 +1479,7 @@
             x.filter = 'none';
             x.fillStyle = I.sc.bg;
             x.fillRect(0, 0, w, h);
-            const n = I.allowFilter ? 12 : 6;                                   // fewer taps in the fast preview
+            const n = I.allowFilter ? 12 : 6; // 快速预览减采样
             for (let i = 0; i < n; i++) {
                 const o = (i / (n - 1) - 0.5) * blur;
                 x.globalAlpha = 1 / (i + 1);
@@ -1499,7 +1492,7 @@
         }
     });
 
-    /* ---- spin out: the old cut spins away into the distance, revealing the new one ---- */
+    // 旋出：旧镜旋转着退远，露出新镜
     trReg('spinOut', {
         name: '回転アウト', tags: ['pop', 'glitch'], w: 0.6, dur: 0.45,
         plan: rng => ({rot: rng.range(100, 200) * (rng.chance(0.5) ? 1 : -1)}),
@@ -1527,7 +1520,7 @@
         }
     });
 
-    /* ---- ink blob: an organic splash spreads from a point, rimmed in accent ink ---- */
+    // 墨滴：墨迹从一点晕开，边缘勾 accent 墨线
     const blobPath = (ctx, cx, cy, r, s0, ph, n = 56) => {
         const pts = [];
         for (let i = 0; i < n; i++) {
@@ -1562,7 +1555,7 @@
                 ctx.fillStyle = tAcc(I);
                 blobPath(ctx, cx, cy, r + rim, s0, ph);
                 ctx.fill();
-                for (let k = 0; k < 6; k++) {                                     // droplets ahead of the splash
+                for (let k = 0; k < 6; k++) { // 溅出的飞沫
                     const a = J.r(s0, k, 7) * TAU, d = r * (1.12 + 0.3 * J.r(s0, k, 8)) + rim,
                         rr = minD(I) * (0.008 + 0.02 * J.r(s0, k, 9)) * clamp(p * 4);
                     ctx.beginPath();
@@ -1581,7 +1574,7 @@
         }
     });
 
-    /* ---- shatter: the old cut breaks into tiles that tumble down ---- */
+    // 瓦砾：旧镜碎成瓷砖块坠落
     trReg('shatterTiles', {
         name: 'タイル崩落', tags: ['glitch', 'pop', 'emotional'], w: 0.6, dur: 0.5,
         plan: rng => ({n: rng.int(6, 9), x: rng.range(0.3, 0.7), y: rng.range(0.3, 0.6)}),
@@ -1633,7 +1626,7 @@
         }
     });
 
-    /* ---- slice shift: horizontal strips slide in alternate directions, trading the old cut for the new ---- */
+    // 短册错位：横条交错滑动，旧镜换新镜
     trReg('sliceShift', {
         name: '短冊ずらし', tags: ['glitch', 'graphic', 'pop'], w: 0.8, dur: 0.35,
         plan: rng => ({n: rng.int(5, 9), vert: rng.chance(0.25)}),
@@ -1660,7 +1653,7 @@
         }
     });
 
-    /* ---- cube turn: faux-3D rotation — the old cut turns away as the next face comes round ---- */
+    // 立方体：伪 3D 旋转，旧镜转走，下一面转上来
     trReg('cubeTurn', {
         name: 'キューブ', tags: ['graphic', 'pop'], w: 0.6, dur: 0.45,
         plan: rng => ({dir: rng.chance(0.6) ? 1 : -1}),
@@ -1670,7 +1663,7 @@
             const back = J.mix(J.mix((I.scPrev || I.sc).bg, I.sc.bg, p), '#000000', 0.55);
             ctx.fillStyle = back;
             ctx.fillRect(0, 0, cw, ch);
-            // rotate (x, z) of the cube's vertical edges, project to screen x and half-height
+            // 竖棱的 (x,z) 旋转后投影成屏幕 x 和半高
             const prj = (x, z) => {
                 const xr = (x * cs - z * sn) * P.dir, zr = x * sn + z * cs, k = f / (D - zr);
                 return [cw / 2 + xr * k * cw / 2, k * ch / 2];
@@ -1699,13 +1692,13 @@
                     ctx.globalAlpha = 1;
                 }
             };
-            // A = front face (edges (-1,1)→(1,1)); B = side face (edges (1,1)→(1,-1)) — mirrored for dir < 0
+            // A 贴正面，B 贴侧面；dir<0 时镜像
             face(A, [-1, 1], [1, 1], 0.55 * (1 - cs));
             face(B, [1, 1], [1, -1], 0.55 * (1 - sn));
         }
     });
 
-    /* ---- flash cross: a quick flash of light carries the cut over ---- */
+    // 闪白叠化：一道闪光带过换镜
     trReg('flashCross', {
         name: 'フラッシュ転換', tags: ['emotional', 'pop', 'calm'], w: 0.9, dur: 0.3,
         plan: rng => ({c: rng.chance(0.3) ? 'accent' : 'white'}),
@@ -1728,7 +1721,7 @@
         }
     });
 
-    /* ---- pixelate: the old cut breaks down into big pixels, the new one resolves out of them ---- */
+    // 像素化：旧镜碎成大像素，新镜从马赛克里浮现
     trReg('pixelate', {
         name: 'モザイク転換', tags: ['glitch', 'pop'], w: 0.6, dur: 0.4,
         plan: rng => ({k: rng.range(11, 17)}),

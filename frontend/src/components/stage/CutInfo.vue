@@ -1,6 +1,5 @@
 <script lang="ts" setup>
-/* 当前切分信息 chips + 手法替换面板（原 cutInfo / cutPick 的 Vue 化）
-   详细模式：chip 点击打开替换网格；简单/手机模式：静态展示 */
+// 切分信息 chips + 手法替换面板；简单/手机模式下 chips 只是静态展示
 import {onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -46,7 +45,7 @@ function refresh(c: any) {
       return {g, cls, label, value: groupName(g, v), forced, enabled: k >= 0};
     }),
   ];
-  // 保留已打开的替换面板跟随当前切分
+  // 已打开的替换面板跟着当前切分走
   if (pick.value && k >= 0) {
     pick.value.line = c.line;
     pick.value.k = k;
@@ -95,7 +94,7 @@ function fillPick() {
     cards.push({key, name: def.name, badges: badgesOf(def), isNone: false, on: key === onKey, tw, th});
   });
   pickCards.value = cards;
-  // 换了手法组才滚回顶部；同组内（选卡 / 播放跟随刷新）保持原位
+  // 换了组才滚回顶部；同组内选卡或播放跟随都保持原位
   const groupChanged = lastGroup !== p.g;
   lastGroup = p.g;
   requestAnimationFrame(() => {
@@ -151,8 +150,8 @@ onUnmounted(() => offs.forEach(f => f()));
       </button>
     </template>
   </div>
-  <!-- 固定头 + 内部滚动区：滚动容器不能带顶部 padding，否则滚动的行会从 sticky 头上方的
-       padding 空隙里穿出来（表现为"标题上方挂着一条滚不掉的碎条"） -->
+  <!-- 固定头 + 内部滚动区。滚动容器不能带顶部 padding，不然滚动的行会从
+       sticky 头上方的空隙穿出来，表现为标题上方挂着一条滚不掉的碎条 -->
   <div v-if="pick"
        class="cut-pick border border-line rounded-md bg-panel max-h-[min(42vh,420px)] flex flex-col overflow-hidden">
     <div class="flex items-center gap-2 px-2 pt-2 pb-1 flex-none">
@@ -161,8 +160,8 @@ onUnmounted(() => offs.forEach(f => f()));
       <button class="btn btn-ghost btn-sm" type="button" @click="onPickAuto">自动</button>
       <button aria-label="关闭" class="btn btn-ghost btn-sm" type="button" @click="closePick">✕</button>
     </div>
-    <!-- grid-auto-rows 锁 min-content：卡片带 overflow-hidden（自动最小尺寸=0），
-         容器高度确定时 auto 行会被压扁而不是溢出滚动 -->
+    <!-- grid-auto-rows 锁 min-content：卡片带 overflow-hidden 时自动最小尺寸是 0，
+         容器高度一定 auto 行会被压扁，就没法溢出滚动了 -->
     <div ref="pickGrid"
          class="grid gap-2 px-2 pb-2 overflow-auto min-h-0 flex-1 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))] [grid-auto-rows:min-content]">
       <button v-for="card in pickCards" :key="card.key"

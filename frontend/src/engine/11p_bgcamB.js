@@ -1,4 +1,4 @@
-/* JIZURA pack: bgcamB — background graphics (gradients, wa / textile patterns, scenes, textures) + camera moves */
+// bgcamB 手法包：bg 背景（渐变、和柄/织物纹样、场景、质感）+ cam 运镜
 (() => {
     'use strict';
     const E = J.E;
@@ -6,15 +6,14 @@
     const reg = (g, k, d) => J.register(g, k, d, PK);
     const DEG = J.DEG, TAU = J.TAU, clamp = J.clamp, lerp = J.lerp;
 
-    /* ================= shared helpers ================= */
     const isDark = c => J.lum(c) < 0.45;
-    const layC = (sc, k) => J.mix(sc.bg, sc.fg, k);          // faint layer tone (k ≈ 0.04..0.15)
-    const tintC = (sc, k) => J.mix(sc.bg, sc.accent, k);     // faint accent tone
+    const layC = (sc, k) => J.mix(sc.bg, sc.fg, k); // 淡淡的底色层，k 大致在 0.04..0.15
+    const tintC = (sc, k) => J.mix(sc.bg, sc.accent, k); // 淡淡的强调色
     const Umin = env => Math.min(env.W, env.H);
     const bs = rng => rng.int(1, 1e9);
     const wrap = (v, m) => ((v % m) + m) % m;
     const fract = v => v - Math.floor(v);
-// colourful scheme colours that stand apart from the background (accent first, no duplicates)
+// 从配色里挑跟背景拉得开的颜色，accent 优先，去重
     const hues = sc => {
         const out = [];
         for (const c of [sc.accent, sc.accent2, sc.ghostA, sc.ghostB, sc.fg]) {
@@ -24,16 +23,16 @@
         }
         return out.length ? out : [sc.fg];
     };
-// a colour clearly lighter than a dark background (for light / glow effects)
+// 深色背景上明显更亮的颜色，做光效用
     const glowOf = sc => {
         const L = J.lum(sc.bg);
         for (const c of [sc.accent, sc.accent2, sc.ghostA, sc.ghostB, sc.fg]) if (c && J.lum(c) > L + 0.25) return c;
         return sc.fg;
     };
-// light that still shows on light backgrounds: white on mid-light (yellow / pink), a tint on near-white paper
+// 浅背景上也看得清的光色：中浅底给纯白，接近纸白就改用 accent 混白
     const lightOn = sc => (isDark(sc.bg) ? glowOf(sc) : J.lum(sc.bg) < 0.78 ? '#FFFFFF' : J.mix(sc.accent, '#FFFFFF', 0.2));
 
-// time since this background started (consecutive cuts that share the same bg + seed count as one run)
+// 当前背景播了多久；相邻切分同 bg 同 seed 算同一段连续播放
     const bgRun = new WeakMap();
     const bgT = env => {
         const c = env.cut;
@@ -63,7 +62,7 @@
         }
     }));
 
-    /* pre-render cache (tiles, sprites, textures) — small LRU, keyed by params + size + colour */
+    // 预渲染缓存（瓦片/精灵/纹理），小 LRU，key 是参数+尺寸+颜色
     const CV = new Map();
     const mkCv = (w, h) => {
         const c = document.createElement('canvas');
@@ -84,7 +83,7 @@
         return c;
     };
     const resQ = env => Math.min(2, Math.max(0.1, env.scale || 1));
-// a periodic tile (period pw × ph design px) rendered at output resolution
+// 周期性瓦片，周期 pw × ph 设计像素，按输出分辨率渲染
     const tileCv = (key, env, pw, ph, paint) => {
         const q = resQ(env), w = Math.max(2, Math.round(pw * q)), h = Math.max(2, Math.round(ph * q));
         return cached(`${key}|${w}x${h}`, () => {
@@ -94,7 +93,7 @@
             return c;
         });
     };
-// fill rect (x0, y0, w, h) of the current space with the tile, pattern origin shifted by (ox, oy)
+// 用瓦片填当前空间的 (x0,y0,w,h) 矩形，pattern 原点偏移 (ox,oy)
     const fillTile = (ctx, cv, pw, ph, x0, y0, w, h, ox = 0, oy = 0) => {
         const pat = ctx.createPattern(cv, 'repeat');
         if (!pat) return;
@@ -102,7 +101,7 @@
         ctx.save();
         ctx.fillStyle = pat;
         if (!m.b && !m.c && Math.abs(kx - 1) < 0.05 && Math.abs(ky - 1) < 0.05) {
-            // tile pixels map ~1:1 to device pixels: fill in device space so every repeat lands on whole pixels (no resampling seams)
+            // 瓦片像素和设备像素约 1:1 时改在设备空间填，每次重复都落在整数像素上，避免重采样接缝
             const ex = Math.round(m.e + ox * m.a), fy = Math.round(m.f + oy * m.d);
             ctx.setTransform(1, 0, 0, 1, ex, fy);
             ctx.fillRect(m.e + x0 * m.a - ex, m.f + y0 * m.d - fy, w * m.a, h * m.d);
@@ -114,7 +113,7 @@
         }
         ctx.restore();
     };
-// fast 2D value noise (0..1) for pre-renders and per-frame fields
+// 快速 2D value noise，输出 0..1，预渲染和逐帧场都用
     const hash2 = (x, y, s) => {
         let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 144665)) | 0;
         h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -146,7 +145,7 @@
             f *= 2.1;
         }
         return v / n;
-    };   // -1..1
+    }; // 输出 -1..1
     const conic = (ctx, a, x, y) => (ctx.createConicGradient ? ctx.createConicGradient(a, x, y) : null);
     const pathPoly = (ctx, pts) => {
         ctx.moveTo(pts[0][0], pts[0][1]);
@@ -154,8 +153,7 @@
         ctx.closePath();
     };
 
-    /* frame-size plates: expensive fills (tiled patterns, ring sets, textures) are rendered ONCE at output resolution with one
-       scroll period of margin, then blitted every frame at whole device pixels — the cheapest canvas path */
+    // 整帧底板：贵的填充（平铺纹样、环组、纹理）按输出分辨率只画一次，多留一个滚动周期的余量，之后每帧整像素 blit，最省的画法
     const PL = new Map();
     const plate = (key, env, mx, my, paint) => {
         const q = resQ(env), w = Math.ceil((env.W + mx) * q) + 2, h = Math.ceil((env.H + my) * q) + 2,
@@ -168,7 +166,7 @@
         }
         let px = w * h;
         for (const v of PL.values()) px += v.width * v.height;
-        const budget = Math.max(30e6, w * h * 3.2);            // ≈120 MB, but always room for the 3 plates one background may use
+        const budget = Math.max(30e6, w * h * 3.2); // 上限约 120 MB，保证同一个背景的 3 块底板同时放得下
         while (PL.size && (PL.size >= 12 || px > budget)) {
             const k0 = PL.keys().next().value, v = PL.get(k0);
             px -= v.width * v.height;
@@ -181,7 +179,7 @@
         PL.set(k, c);
         return c;
     };
-// draw a plate so that its point (ox, oy) (design px) lands on the frame's top-left corner, snapped to device pixels
+// 把底板的 (ox,oy)（设计像素）对到画面左上角，并吸附到整数设备像素
     const blit = (ctx, env, cv, ox, oy) => {
         const m = ctx.getTransform(), s = m.a / resQ(env);
         ctx.save();
@@ -190,7 +188,7 @@
         if (Math.abs(s - 1) < 1e-3) ctx.drawImage(cv, dx, dy); else ctx.drawImage(cv, dx, dy, cv.width * s, cv.height * s);
         ctx.restore();
     };
-// soft, large-area effects (gradients, glows) are drawn into a reused low-resolution canvas and scaled up once
+// 大面积柔效果（渐变、光晕）画到复用的低分辨率画布上，一次性放大
     const LOWC = new Map();
     const drawLow = (ctx, env, div, fn) => {
         const q = env.scale || 1, w = Math.max(8, Math.ceil(env.W * q / div)),
@@ -213,8 +211,7 @@
         ctx.drawImage(c, 0, 0, env.W, env.H);
     };
 
-    /* ================= GRADIENT ================= */
-// one vertical curtain strip per colour: transparent top → bright lower edge
+// 每种颜色一条竖直帘条：顶部透明，下沿最亮
     const auroraStrip = col => cached('aurS|' + col, () => {
         const c = mkCv(4, 256), x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 256);
         g.addColorStop(0, J.rgba(col, 0));
@@ -254,7 +251,7 @@
                         const ray = Math.pow(0.5 + 0.5 * J.noise1(u * 34 + t * 0.9 * dir, s + r * 31), 1.4) * (0.7 + 0.3 * J.noise1(u * 13 - t * 0.4, s + r * 3));
                         const a = k * (0.2 + 1.1 * ray) * J.smooth(0, 0.18, u) * J.smooth(1, 0.82, u) * (0.75 + 0.25 * J.noise1(u * 1.5 + t * 0.1, s + r));
                         if (a <= 0.004) continue;
-                        // columns snapped to (low-res) pixels so neighbouring strips meet without seams
+                        // 列吸附到低分辨率像素上，相邻条带才接得上无缝
                         const x0 = Math.round(xx * q) / q, x1 = Math.round((xx + cw) * q) / q;
                         if (x1 <= x0) continue;
                         x.globalAlpha = a;
@@ -320,7 +317,7 @@
                 x.globalAlpha = 0.9 * e;
                 x.fillStyle = g;
                 x.fillRect(0, 0, W, H);
-                // soft sheen travelling around with the sweep
+                // 跟着扫掠一起转的柔高光
                 const g2 = conic(x, a * 1.6 + 1, cx, cy);
                 if (g2) {
                     const hl = J.rgba(lightOn(sc), 0.07 * e), z = 'rgba(0,0,0,0)';
@@ -379,7 +376,7 @@
             ctx.beginPath();
             ctx.arc(cx, cy, R, Math.PI, TAU);
             ctx.stroke();
-            // a bright flare sliding slowly along the limb
+            // 沿行星边缘慢慢滑的亮斑
             const fa = -Math.PI / 2 + 0.22 * Math.sin(t * 0.12 + ((P.seed || 1) % 13)), fx = cx + Math.cos(fa) * R,
                 fy = cy + Math.sin(fa) * R, fr = U * 0.3;
             const g2 = ctx.createRadialGradient(fx, fy, 0, fx, fy, fr);
@@ -391,7 +388,6 @@
         }
     });
 
-    /* ================= PATTERN ================= */
     bgReg('seigaiha', {
         name: '青海波', tags: ['calm', 'editorial', 'graphic'], w: 0.8,
         plan: rng => ({
@@ -489,7 +485,7 @@
             const ox = wrap(t * a * 0.08 * (P.dx || 1), a), oy = wrap(t * h * 0.05 + (1 - e) * h, 2 * h);
             ctx.globalAlpha = e;
             blit(ctx, env, pl, ox, oy);
-            // a slow diagonal band of light re-draws the pattern brighter (nested bands → soft edges)
+            // 慢速斜向光带把图案重画得更亮，三层嵌套出软边
             const D = W + H, c = (wrap(bgT(env) * (P.sweep || 0.09) + 0.4, 1.5) - 0.25) * D, bw = Umin(env) * 0.22;
             for (const [f, al] of [[1, 0.4], [0.6, 0.4], [0.3, 0.45]]) {
                 ctx.save();
@@ -554,7 +550,7 @@
             const {W, H, sc} = env, t = env.t, u = Umin(env) * (P.u || 0.038), e = fadeIn(env, 0.7), k = P.k || 0.08,
                 rot = P.rot || 45;
             const cA = layC(sc, k), cB = layC(sc, k * 0.45), key = `hrb|${cA}|${cB}|${u.toFixed(2)}`,
-                Pd = 4 * u * Math.SQRT2;   // screen-space period of the 45° weave
+                Pd = 4 * u * Math.SQRT2; // 45° 编织在屏幕空间的周期
             const pl = plate(key + '|' + rot, env, Pd, Pd, (x, w, h) => {
                 const tile = tileCv(key, env, 4 * u, 4 * u, (y) => {
                     const g = u * 0.1;
@@ -574,10 +570,10 @@
                 x.rotate(rot * DEG);
                 fillTile(x, tile, 4 * u, 4 * u, -D, -D, 2 * D, 2 * D);
             });
-            const sp = t * u * 0.6 * (P.dir || 1);          // travel along the zig-zag columns
+            const sp = t * u * 0.6 * (P.dir || 1); // 沿之字列的行进量
             ctx.globalAlpha = e;
             blit(ctx, env, pl, rot > 0 ? Pd / 2 : wrap(sp, Pd), rot > 0 ? wrap(sp, Pd) : Pd / 2);
-            // slow sheen band across the weave
+            // 缓缓扫过织物的高光带
             const L = W + H, bx = (wrap(t * 0.1, 1.6) - 0.3) * L, bw = Umin(env) * 0.35, hc = lightOn(sc);
             const gl = ctx.createLinearGradient(bx - bw, 0, bx + bw, 0);
             gl.addColorStop(0, J.rgba(hc, 0));
@@ -656,7 +652,7 @@
                 cT = tintC(sc, k * 2.4);
             const w1 = P.w1 || 0.22, w2 = P.w2 || 0.1,
                 key = `tart|${cA}|${cB}|${cL}|${cT}|${w1.toFixed(3)}|${w2.toFixed(3)}|${S.toFixed(1)}`;
-            // one sett of stripes, mirrored: wide band / thin line / mid band / hairline
+            // 一组镜像的 tartan 条纹：宽带/细线/中带/发丝线
             const sett = [[0, w1, cA, 0.6], [w1 + 0.04, 0.012, cL, 0.9], [w1 + 0.1, w2, cB, 0.55], [0.72, 0.008, cT, 0.9], [0.84, 0.02, cL, 0.7]];
             const stripe = (x, len, span) => {
                 for (const [p, w, c, a] of sett) {
@@ -737,7 +733,7 @@
                     y.fill();
                 }), pw, ph, 0, 0, w, h));
             });
-            // the light direction turns slowly, so the three face sets trade brightness
+            // 光向慢慢转，三个面的亮度轮流当主
             const L = (P.l0 || 0) + t * (P.spd || 0.25), dirs = [-Math.PI / 2, Math.PI * 5 / 6, Math.PI / 6];
             const ox = wrap(t * s * 0.25, pw), oy = wrap(t * s * 0.25 / r3 * 1.5, ph);
             faces.forEach((cv, fi) => {
@@ -836,7 +832,7 @@
             const {W, H, sc} = env, t = env.t, U = Umin(env), gap = U * (P.gap || 0.018), amp = U * (P.amp || 0.07),
                 e = fadeIn(env, 0.8), s = (P.seed || 1) % 17;
             const col = layC(sc, P.k || 0.1), M = amp * 2.2;
-            // one ring set, rendered once with a margin; the two interfering copies are blits of the same plate
+            // 一组同心环只渲染一次并留边，两个干涉副本是同一块底板的两次 blit
             const pl = plate(`moi|${col}|${gap.toFixed(2)}|${M.toFixed(1)}`, env, M * 2, M * 2, (x, w, h) => {
                 const cx = w / 2, cy = h / 2, Rm = Math.hypot(w, h) / 2;
                 x.lineWidth = gap * 0.42;
@@ -866,9 +862,9 @@
         draw(env, P, ctx) {
             const {W, H, sc} = env, t = env.t, U = Umin(env), r = P.r || 1.26, lr = Math.log(r), e = fadeIn(env, 0.5);
             const z = t * (P.spd || 0.45) + (1 - e) * 1.5, S0 = U * 0.08, maxS = Math.hypot(W, H) * 1.05;
-            // square n has half-size S0 * r^(z - n): it grows as z advances (flying forward)
+            // 第 n 个方块的半边长是 S0 * r^(z - n)，z 前进即向前飞
             let nLo = Math.floor(z - Math.log(maxS / S0) / lr) - 2;
-            nLo -= ((nLo % 2) + 2) % 2;    // keep the parity of the outermost square fixed
+            nLo -= ((nLo % 2) + 2) % 2; // 固定最外层方块的奇偶，避免闪变
             const nHi = Math.ceil(z - Math.log((U * 0.035) / S0) / lr);
             ctx.translate(W / 2, H / 2);
             ctx.beginPath();
@@ -924,7 +920,7 @@
         }
     });
 
-// marching squares: segment end points for each of the 16 corner cases (edges: 0 top, 1 right, 2 bottom, 3 left)
+// marching squares：16 种角点情形的线段端点（边号 0 上 1 右 2 下 3 左）
     const MS = [[], [[3, 2]], [[2, 1]], [[3, 1]], [[0, 1]], [[0, 1], [3, 2]], [[0, 2]], [[3, 0]], [[3, 0]], [[0, 2]], [[3, 0], [2, 1]], [[0, 1]], [[3, 1]], [[2, 1]], [[3, 2]], []];
     bgReg('topoLines', {
         name: '等高線', tags: ['calm', 'editorial', 'graphic'], w: 0.8,
@@ -1014,7 +1010,6 @@
         }
     });
 
-    /* ================= SCENE ================= */
     bgReg('starfield', {
         name: '星空', tags: ['emotional', 'calm'], w: 0.9,
         plan: rng => ({
@@ -1094,7 +1089,7 @@
                 my = H * (port ? 0.2 : 0.27) + (1 - e) * H * 0.06;
             const moonC = dk ? J.mix(sc.bg, glowOf(sc) === sc.fg ? sc.fg : J.mix(sc.fg, glowOf(sc), 0.3), P.k || 0.22) : J.mix(sc.bg, '#FFFFFF', 0.55);
             const haloC = dk ? moonC : J.mix(sc.bg, '#FFFFFF', 0.7);
-            // stars (sparse, twinkling)
+            // 稀疏的星星，带闪烁
             const nS = Math.round(28 * Math.sqrt(W * H / (1920 * 1080)));
             ctx.fillStyle = dk ? layC(sc, 0.55) : layC(sc, 0.2);
             for (let i = 0; i < nS; i++) {
@@ -1133,7 +1128,7 @@
                 ctx.fill();
             }
             ctx.restore();
-            // thin cloud streaks drifting across the moon
+            // 横掠月亮的薄云条
             const cloudC = dk ? J.mix(sc.bg, sc.fg, 0.07) : J.mix(sc.bg, sc.fg, 0.05);
             const cap = (x, y, w, h) => {
                 ctx.moveTo(x + h / 2, y);
@@ -1165,7 +1160,7 @@
             const {W, H, sc} = env, t = env.t, sd = P.seed || 1, U = Umin(env), dk = isDark(sc.bg),
                 e = fadeIn(env, 0.9), k = P.k || 0.09;
             const Lp = Math.max(W, H) * 1.5, rise = (1 - e) * H * 0.25;
-            // horizon glow behind the city
+            // 城市背后的地平线光晕
             const gc = dk ? glowOf(sc) : sc.accent, g = ctx.createLinearGradient(0, H * 0.5, 0, H);
             g.addColorStop(0, J.rgba(gc, 0));
             g.addColorStop(1, J.rgba(gc, (dk ? 0.1 : 0.08) * e));
@@ -1246,7 +1241,7 @@
             ctx.globalAlpha = e;
             ctx.fillStyle = layC(sc, 0.14);
             ctx.fillRect(0, hz - 0.5, W, Math.max(1, U * 0.0016));
-            // water: shimmering reflection strokes under the sun + faint swell lines
+            // 水面：太阳下的碎光倒影，加几道淡淡的涌浪线
             ctx.fillStyle = sunC;
             for (let j = 0; j < 18; j++) {
                 const y = hz + U * 0.012 * Math.pow(j + 1, 1.3);
@@ -1335,7 +1330,7 @@
             ctx.globalAlpha = 1;
             ctx.fillStyle = fog;
             ctx.fillRect(0, H * 0.62, W, H * 0.38);
-            // drops on the glass: sit, grow, then slide down leaving a trail
+            // 玻璃上的水滴：先停在原地长大，再往下滑并拖出尾迹
             const dc = layC(sc, k * 1.5), hc = dk ? layC(sc, k * 3.5) : J.mix(sc.bg, '#FFFFFF', 0.7);
             for (let i = 0; i < (P.drops || 12); i++) {
                 const per = J.rr(3.5, 6.5, sd, i, 11), u = wrap(t + J.r(sd, i, 12) * per, per) / per, u0 = 0.6;
@@ -1449,7 +1444,7 @@
                 ctx.stroke();
                 ctx.fillStyle = dk ? J.mix(c, '#FFFFFF', 0.5) : c;
                 for (let j = 0; j < heads.length; j++) {
-                    if (a > 0.9 && J.r(sd, b, j, env.step) < 0.35) continue;         // crackle at the end
+                    if (a > 0.9 && J.r(sd, b, j, env.step) < 0.35) continue; // 尾段噼啪闪烁
                     ctx.globalAlpha = K * fade;
                     const r = U * 0.0028;
                     ctx.fillRect(heads[j][0] - r, heads[j][1] - r, r * 2, r * 2);
@@ -1548,7 +1543,6 @@
         }
     });
 
-    /* ================= TEXTURE / EFFECT ================= */
     bgReg('filmStrip', {
         name: 'フィルム', tags: ['editorial', 'emotional', 'glitch'], w: 0.7,
         plan: rng => ({seed: bs(rng), dir: rng.pick([1, -1]), spd: rng.range(0.6, 1.2), scratch: rng.chance(0.7)}),
@@ -1559,7 +1553,7 @@
             const band = dk ? layC(sc, 0.05) : layC(sc, 0.13),
                 hole = dk ? layC(sc, 0.17) : J.mix(sc.bg, '#FFFFFF', 0.55), edge = dk ? layC(sc, 0.12) : layC(sc, 0.22);
             const p = b * 0.62, hw = b * 0.3, hh = b * 0.38, off = wrap(t * p * (P.spd || 0.9) * (P.dir || 1), p);
-            const R = (a, c, w, h) => (vert ? ctx.rect(c, a, h, w) : ctx.rect(a, c, w, h));     // a: along, c: across
+            const R = (a, c, w, h) => (vert ? ctx.rect(c, a, h, w) : ctx.rect(a, c, w, h)); // a 是沿条带方向，c 是横向
             for (const side of [0, 1]) {
                 const c0 = side ? (vert ? W : H) - b + slide : -slide;
                 ctx.fillStyle = band;
@@ -1577,13 +1571,13 @@
                     if (vert) ctx.roundRect ? ctx.roundRect(y, x, hh, hw, r) : ctx.rect(y, x, hh, hw); else ctx.roundRect ? ctx.roundRect(x, y, hw, hh, r) : ctx.rect(x, y, hw, hh);
                 }
                 ctx.fill();
-                // frame dividers every 4 perforations
+                // 每 4 个齿孔一道分帧线
                 ctx.fillStyle = edge;
                 ctx.beginPath();
                 for (let a = wrap(off, p * 4) - p * 4; a < L + p; a += p * 4) R(a, c0 + b * (side ? 0.72 : 0.08), Math.max(1, U * 0.002), b * 0.2);
                 ctx.fill();
             }
-            if (P.scratch !== false) {        // flickering scratches + dust (change on the drawing clock)
+            if (P.scratch !== false) { // 闪烁的划痕和灰尘，跟着绘制帧的时钟换
                 const st = env.step;
                 ctx.fillStyle = dk ? layC(sc, 0.35) : layC(sc, 0.3);
                 for (let i = 0; i < 3; i++) {
@@ -1603,7 +1597,7 @@
         }
     });
 
-// VHS speckle noise, pre-rendered once per colour / size (3 variants swapped on the drawing clock)
+// VHS 斑点噪声，每个颜色/尺寸预渲染一次，3 个变体按绘制帧轮换
     const vhsNoise = (col, w, h, v) => cached(`vhs|${col}|${w}x${h}|${v}`, () => {
         const c = mkCv(w, h), x = c.getContext('2d'), id = x.createImageData(w, h), d = id.data, [r, g, b] = J.hex(col);
         for (let y = 0; y < h; y++) {
@@ -1639,7 +1633,7 @@
                 nz = vhsNoise(col, nw, nh, ((st % 3) + 3) % 3);
             const bh = H * (P.h || 0.09), y = wrap(t * H * (P.spd || 0.12) + J.r(sd, 1) * H, H * 1.3) - H * 0.15;
             ctx.imageSmoothingEnabled = false;
-            // rolling band: noise, soft smear and a couple of tracking lines
+            // 滚动噪带：噪声 + 软拖影 + 几条跟踪线
             const sh = Math.min(nh, Math.ceil(bh * q)), sy = Math.floor(J.r(sd, st, 2) * Math.max(1, nh - sh));
             ctx.globalAlpha = k;
             ctx.drawImage(nz, 0, sy, nw, sh, J.rs(sd, st, 3) * U * 0.01, y, W, bh);
@@ -1656,7 +1650,7 @@
                 ctx.globalAlpha = e * 0.5;
                 ctx.fillRect(lx, ly, W * J.rr(0.2, 0.6, sd, st, i, 6), Math.max(1, U * 0.0016));
             }
-            // head-switching strip at the bottom: torn, horizontally displaced noise
+            // 底部 head-switching 条：横向错位的撕裂噪声
             const hb = H * 0.028, rows = 4;
             for (let r = 0; r < rows; r++) {
                 const ry = H - hb + hb * r / rows, dx = J.rs(sd, st, r, 7) * U * 0.03 + U * 0.02 * (rows - r) / rows;
@@ -1674,7 +1668,7 @@
                 k = P.k || 0.065;
             let v = P.v || 'tb';
             if (v === 'side' && H > W) v = 'tb';
-            // [A, B, n] = edge from A to B, the sheet covers the side of the normal n
+            // [A, B, n]：撕边从 A 到 B，纸盖在法线 n 指的那一侧
             const S = v === 'diag' ? [[[-W * 0.05, H * 0.58], [W * 0.5, H * 1.05], [-0.7, 0.7]], [[W * 0.55, -H * 0.05], [W * 1.05, H * 0.48], [0.7, -0.7]]]
                 : v === 'side' ? [[[W * 0.13, -H * 0.05], [W * 0.1, H * 1.05], [-1, 0]], [[W * 0.9, -H * 0.05], [W * 0.87, H * 1.05], [1, 0]]]
                     : [[[-W * 0.05, H * 0.83], [W * 1.05, H * 0.79], [0, 1]], [[-W * 0.05, H * 0.13], [W * 1.05, H * 0.17], [0, -1]]];
@@ -1704,7 +1698,7 @@
                 ctx.beginPath();
                 pathPoly(ctx, poly);
                 ctx.fill();
-                // fibrous torn rim (the paper core shows lighter along the tear)
+                // 撕口的纤维毛边，撕痕处纸芯更亮
                 ctx.strokeStyle = dk ? layC(sc, k * 2.4) : J.mix(tones[i % 2], '#FFFFFF', 0.75);
                 ctx.lineWidth = Math.max(1, U * 0.004);
                 ctx.lineJoin = 'round';
@@ -1739,7 +1733,7 @@
                     const w = (1.2 + 3.6 * J.r(sd, i, 2)) * DEG * (0.75 + 0.25 * J.noise1(t * 0.4 + i, sd + 7));
                     const lv = 0.5 + 0.5 * J.noise1(t * 0.35 + i * 2.1, sd + 3),
                         dim = lv > 0.66 ? 0 : lv > 0.33 ? 1 : 2;
-                    [0.45, 1, 1.8].forEach((f, q) => {          // nested wedges → soft falloff across the beam
+                    [0.45, 1, 1.8].forEach((f, q) => { // 三层嵌套楔形，光束的衰减才柔和
                         const p = paths[Math.min(2, q + dim)], ww = w * f;
                         p.moveTo(sx, sy);
                         p.lineTo(sx + Math.cos(a - ww / 2) * L, sy + Math.sin(a - ww / 2) * L);
@@ -1758,7 +1752,7 @@
                     x.fill(paths[l]);
                 });
             });
-            if (P.dust !== false) {        // dust motes drifting through the light
+            if (P.dust !== false) { // 光柱里飘的尘埃
                 ctx.fillStyle = rc;
                 for (let i = 0; i < 26; i++) {
                     const x = wrap(J.r(sd, i, 11) * W + t * U * J.rs(sd, i, 12) * 0.02 + Math.sin(t * 0.5 + i) * U * 0.01, W),
@@ -1850,7 +1844,7 @@
             ctx.strokeStyle = tintC(sc, k * 2.4);
             ctx.lineWidth = Math.max(1, U * 0.0028);
             ctx.stroke(lineP);
-            // faint polygon rings anchoring the symmetry
+            // 淡淡的多边形环，撑住对称感
             ctx.strokeStyle = layC(sc, k * 0.9);
             ctx.lineWidth = Math.max(1, U * 0.002);
             ctx.globalAlpha = e;
@@ -1863,7 +1857,7 @@
         }
     });
 
-// marble veins: computed once per seed / size / colour at low resolution, then slowly turned
+// 大理石纹：每个 seed/尺寸/颜色低分辨率算一次，之后慢慢转
     const marbleCv = (P, px, c1, c2) => cached(`marb|${P.seed}|${px}|${c1}|${c2}|${P.acc ? 1 : 0}`, () => {
         const c = mkCv(px, px), x = c.getContext('2d'), id = x.createImageData(px, px), d = id.data, sd = P.seed || 1;
         const a = P.ang || 0.7, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(a + 1.1), sb = Math.sin(a + 1.1),
@@ -1907,7 +1901,7 @@
         draw(env, P, ctx) {
             const {W, H, sc} = env, t = env.t, e = fadeIn(env, 1), U = Umin(env), M = U * 0.12, s = (P.seed || 1) % 13;
             const c2 = J.contrast(sc.accent, sc.bg) > 1.3 ? sc.accent : sc.accent2 || sc.fg;
-            // low-res vein texture → upscaled once into a frame plate with drift margin → whole-pixel blits per frame
+            // 低清纹理一次性放大进带漂移余量的整帧底板，每帧再做整像素 blit
             const key = `marbP|${P.seed}|${(P.ang || 0).toFixed(3)}|${(P.freq || 0).toFixed(3)}|${(P.turb || 0).toFixed(3)}|${P.acc ? 1 : 0}|${sc.fg}|${c2}`;
             const pl = plate(key, env, M * 2, M * 2, (x, w, h) => {
                 const D = Math.max(w, h), px = clamp(Math.round(D * Math.min(0.2, resQ(env) * 0.28)), 96, 440);
@@ -1935,7 +1929,7 @@
                 L = P.L || 3, k = P.k || 0.075, pe = 2 / (P.p || 2.8);
             const cx = W / 2, cy = H / 2, N = 144, lobes = P.lobes || 6;
             for (let i = 0; i < L; i++) {
-                const d = L > 1 ? (L - 1 - i) / (L - 1) : 0;                   // 1 = back layer (smallest opening)
+                const d = L > 1 ? (L - 1 - i) / (L - 1) : 0; // 1 是最里层，开口最小
                 const inP = E.outCubic(clamp((bt - i * 0.1) / 0.8)), grow = 1 + (1 - inP) * 0.7;
                 const rx = W * (0.41 + 0.17 * (1 - d)) * grow, ry = H * (0.38 + 0.17 * (1 - d)) * grow,
                     ph = J.r(sd, i, 1) * TAU, sw = t * 0.25 * (i % 2 ? 1 : -1);
@@ -1964,12 +1958,11 @@
         }
     });
 
-    /* ================= CAMERA ================= */
     const KM = env => clamp((env.fx.motion ?? 0.7) * 1.25, 0, 1.25);
     const cuOf = env => clamp(env.lt / Math.max(0.3, env.cut.dur));
     const lagOf = env => Math.max(0, (env.ltb ?? env.lt) - env.lt);
     const seedOf = env => (env.cut.seed | 0);
-// time since the last beat for this (time-lagged) pass; without beats a fixed period on the cut clock
+// 这条带时间滞后的通路距上个节拍的时间；没有节拍就按固定周期取模
     const beatSince = (env, per) => {
         if (env.beat && env.beat.len > 0.15) {
             let s = env.beat.since - lagOf(env);
@@ -2000,7 +1993,7 @@
         get: (env, P) => {
             const K = Math.min(1, KM(env)), q = clamp(env.lt / (P.d || 0.5));
             if (q >= 1) return {};
-            const r = 1 - E.outBack(q, 1.3);            // quick roll that overshoots a touch and settles level
+            const r = 1 - E.outBack(q, 1.3); // 快速翻转，稍微过冲再回正
             return {
                 rot: (P.dir || 1) * (P.a || 90) * K * r,
                 s: 1 - 0.12 * K * Math.sin(Math.PI * Math.min(1, q * 1.25)),
@@ -2013,8 +2006,8 @@
         name: '振り子', tags: ['emotional', 'pop', 'calm'], w: 0.7,
         plan: rng => ({a: rng.range(1.8, 2.6), per: rng.range(2, 3), side: rng.pick([1, -1])}),
         get: (env, P) => {
-            // the frame hangs from a pivot above the screen: rotation and sideways travel are coupled
-            const K = KM(env), damp = 0.75 + 0.25 * Math.exp(-env.lt * 0.6), L = env.W * 0.62;   // sideways travel ≈ 3% of the width in any aspect
+            // 画面挂在屏幕上方的支点上，旋转和横移是联动的
+            const K = KM(env), damp = 0.75 + 0.25 * Math.exp(-env.lt * 0.6), L = env.W * 0.62; // 这样横移在任意画幅下都约是宽度的 3%
             const phi = (P.a || 2.2) * K * (P.side || 1) * Math.cos(env.lt / (P.per || 2.4) * TAU) * damp * DEG;
             return {x: -L * Math.sin(phi), y: -L * (1 - Math.cos(phi)), rot: phi / DEG, s: 1.02};
         }
@@ -2025,7 +2018,7 @@
         plan: rng => ({d: rng.range(0.5, 0.8), b: rng.range(10, 15)}),
         get: (env, P) => {
             const K = KM(env), q = E.outCubic(clamp(env.lt / (P.d || 0.65)));
-            return {blur: (1 - q) * (P.b || 12) * Math.min(1, K), s: 1 + 0.03 * (1 - q) + 0.012 * K * cuOf(env)};     // lens breathing while focusing
+            return {blur: (1 - q) * (P.b || 12) * Math.min(1, K), s: 1 + 0.03 * (1 - q) + 0.012 * K * cuOf(env)}; // 对焦时的镜头呼吸
         }
     });
 
@@ -2043,7 +2036,7 @@
         name: '地震', tags: ['glitch', 'pop', 'emotional'], w: 0.5, strong: true,
         plan: rng => ({per: rng.range(0.55, 0.8), a: rng.range(0.85, 1.1)}),
         get: (env, P) => {
-            // a low rumble all the time, a jolt on every beat (vertical-heavy, on the ≤24 Hz random clock)
+            // 一直有低频晃动，节拍上再叠一下猛的；纵向为主，跑在 ≤24Hz 的随机时钟上
             const K = KM(env) * (P.a || 1), hit = Math.exp(-beatSince(env, P.per || 0.65) * 7), amp = K * (0.14 + hit),
                 sd = seedOf(env), st = env.step;
             return {
@@ -2074,7 +2067,7 @@
         name: 'めまい', tags: ['emotional', 'glitch'], w: 0.6,
         plan: rng => ({dir: rng.pick([1, -1]), a: rng.range(0.05, 0.07)}),
         get: (env, P) => {
-            // a creeping dolly-in whose perspective keeps warping: stretch / shear waver grows with the zoom
+            // 缓慢推进但透视一直在变形：拉伸/错切随缩放变大
             const K = KM(env), z = E.inOutSine(cuOf(env)), w = Math.sin(env.lt * 2.3), d = P.dir || 1;
             return {
                 s: 1 + (P.a || 0.06) * K * z,
@@ -2090,7 +2083,7 @@
         name: 'ティルトダウン', tags: ['calm', 'editorial', 'emotional'], w: 0.8,
         plan: rng => ({a: rng.range(0.024, 0.032)}),
         get: (env, P) => {
-            // camera tilts down onto the line: it rises into frame from below and settles, easing out of a slight zoom
+            // 镜头向下摇：从画面下方升进来再停稳，顺带从轻微的 zoom 里缓出来
             const K = KM(env), q = E.outCubic(cuOf(env)), a = env.H * (P.a || 0.028) * K;
             return {y: a * (1.2 - 1.6 * q), s: 1.035 - 0.02 * q};
         }
@@ -2131,7 +2124,7 @@
         name: 'スナップパン', tags: ['pop', 'glitch', 'graphic'], w: 0.7,
         plan: rng => ({dir: rng.pick([1, -1]), a: rng.range(0.024, 0.032), at: rng.range(0.45, 0.6)}),
         get: (env, P) => {
-            // holds one framing, then whips to the opposite framing mid-cut (on a beat when there is one) and holds again
+            // 先保持一个构图，中途猛甩到相反构图（有节拍就卡节拍），再保持住
             const K = KM(env), dur = env.cut.dur, d = P.dir || 1, A = env.W * (P.a || 0.028) * K * d,
                 drift = env.W * 0.005 * K * d * (cuOf(env) - 0.5);
             if (dur < 1.1) return {x: A * 0.5 * (1 - 2 * cuOf(env)), s: 1.02};
@@ -2145,7 +2138,7 @@
         name: 'ぷるん', tags: ['pop', 'graphic'], w: 0.7,
         plan: rng => ({a: rng.range(0.045, 0.065), f: rng.range(18, 24)}),
         get: (env, P) => {
-            // squash-and-stretch wobble: lands squashed at the cut start, re-wobbles on beats
+            // 挤压拉伸的晃动：切分开始时压扁落地，节拍上再晃一次
             const K = KM(env), t = env.lt, f = P.f || 21;
             let w = Math.exp(-t * 5) * Math.cos(t * f);
             if (env.beat && env.beat.len > 0.2 && t > 0.6) {

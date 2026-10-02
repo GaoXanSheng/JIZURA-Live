@@ -4,7 +4,7 @@ using EmbedIO.WebApi;
 
 namespace JizuraLive.Server;
 
-// 网易云在线搜歌 / 取词 / 扫码登录（前端 cloud/ 里的「网易云」来源走这里）
+// 网易云在线搜歌/取词/扫码登录，前端 cloud/ 里的「网易云」来源走这里
 public sealed class NeController : WebApiController
 {
     [Route(HttpVerbs.Get, "/api/ne/search")]

@@ -1,6 +1,4 @@
-/* 预览渲染尺寸档位（jizura/previewres）单元测试：
-   档位→画布宽度上限的换算，与 localStorage 偏好读写/坏值回退。
-   上限语义：短边=档位像素，另一边按画幅比例放大——比例恒跟随画幅，不会变形。 */
+// 上限语义：短边=档位像素，另一边按画幅比例放大，比例恒跟随画幅不变形
 import {beforeEach, describe, expect, it} from 'vitest';
 import {getPreviewRes, previewWidthCap, setPreviewRes, tierWidthCap} from '../../src/jizura/previewres';
 

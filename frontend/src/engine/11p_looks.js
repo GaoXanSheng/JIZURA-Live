@@ -1,4 +1,4 @@
-/* JIZURA pack: looks — text treatments, background graphics, camera moves and post / transition effects */
+// 注册 treat / bg / cam / fx 四组效果
 (() => {
     'use strict';
     const E = J.E;
@@ -6,7 +6,6 @@
     const reg = (g, k, d) => J.register(g, k, d, PK);
     const DEG = J.DEG, TAU = J.TAU, clamp = J.clamp;
 
-    /* ================= colour helpers ================= */
     const ctr = (a, b) => J.contrast(a, b);
     const isDark = c => J.lum(c) < 0.45;
     const firstOK = (list, test, fb) => {
@@ -25,14 +24,13 @@
         }
         return b;
     };
-// an accent that differs from colour `col` and still reads on the scheme background
+    // 和 col 拉开差距、又在方案背景上读得清的 accent
     const accentFor = (sc, col, min = 1.6) => firstOK([sc.accent, sc.accent2, sc.ghostA, sc.ghostB], c => ctr(c, col) >= min && ctr(c, sc.bg) >= 1.5, J.fitContrast(sc.accent, col, min + 0.3));
-// text colour for glyphs sitting on `box`: keep `pref` when it reads, else the best scheme colour
+    // 压在 box 上的文字色：pref 够得清就用，否则从方案色里挑对比最好的
     const textOn = (box, pref, sc) => (ctr(pref, box) >= 3 ? pref : best([sc.bg, sc.fg, sc.ink, '#111111', '#FFFFFF'], box));
-// a colour that stands out from the scheme background (for marks drawn next to the text)
+    // 和方案背景拉开差距的颜色，画在文字旁的记号用
     const markCol = (sc, col) => firstOK([sc.accent, sc.accent2, col], c => ctr(c, sc.bg) >= 2, col);
 
-    /* ================= item helpers (treatments) ================= */
     const alive = (it, amin = 0.9) => it.fill !== false && (it.alpha ?? 1) >= amin && !!it.text && it.size > 1;
     const colOf = (env, it) => it.color || env.sc.fg;
     const addPre = (it, f) => {
@@ -49,21 +47,21 @@
             f(e, i, b);
         } : f;
     };
-// size-dependent fields: set now and refresh right before drawing (after enter / hold / exit changed the size)
+    // 依赖 size 的字段：先设一次，画前再刷新，入场/hold/退场可能改过 size
     const sized = (it, env, f) => {
         f(it, env);
         addPre(it, (e, i) => f(i, e));
     };
     const inP = (env, it, d, len) => clamp((env.lt - (it.delay || 0) - d) / len);
     const glyphN = t => [...String(t || '')].filter(c => c.trim()).length;
-// true while a piece-based entrance / exit is moving (gradient / no-fill would disable its pieces)
+    // piece 型入场/退场进行中为 true；带 gradient 或无填充会废掉 piece
     const inPieces = (env, it) => {
         const c = env.cut, en = J.ENTER[it.enter || c.enter], ex = J.EXIT[it.exit || c.exit];
         if (en && en.pieces && env.lt - (it.delay || 0) < c.inDur * 1.3 + 0.05) return true;
         if (ex && ex.pieces && c.outDur > 0 && env.lt > c.dur - c.outDur - 0.3) return true;
         return false;
     };
-    /* run fn() under the same clip / bands / blur as J.drawFx applies to the text; local=true also moves into item space */
+    // 在和 J.drawFx 相同的 clip/bands/blur 下跑 fn；local=true 再进 item 空间
     const withFx = (env, it, fn, local = true) => {
         const ctx = env.ctx, W = env.W, H = env.H;
         ctx.save();
@@ -129,7 +127,7 @@
             ctx.restore();
         }
     };
-// per text line (vertical: per column) extents in item space from the static layout; glyphs hidden by charFn are left out
+    // 静态布局下每行（竖排每列）的 item 空间范围；被 charFn 藏掉的字形不算
     const lineSpans = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, map = new Map();
         for (const g of lay) {
@@ -149,7 +147,7 @@
         }
         return [...map.values()];
     };
-// visible glyphs in item space, following the per-glyph motion (dx/dy/scale/rotation) of enter / hold / exit
+    // 可见字形列表，位置带上入场/hold/退场的逐字 dx/dy/缩放/旋转
     const glyphList = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, out = [];
         for (const g of lay) {
@@ -163,7 +161,7 @@
         }
         return out;
     };
-// fraction (0..1) of each glyph centre along its line — used to flip the colour of glyphs a marker has reached
+    // 字形中心在行内的 0..1 位置，marker 划过哪几个字就翻哪几个的色
     const lineFracs = (it) => {
         const lay = J.layoutText(it), ext = new Map(), fr = [];
         for (const g of lay) {
@@ -180,7 +178,6 @@
         return fr;
     };
 
-    /* ================= TREATMENTS ================= */
     reg('treat', 'outline', {
         name: '袋文字', tags: ['graphic', 'pop', 'glitch', 'emotional'], w: 1.2,
         plan: rng => ({k: rng.range(0.022, 0.038)}),
@@ -221,7 +218,7 @@
             sized(it, env, i => {
                 i.stroke = Math.max(2, i.size * P.a);
             });
-            addPre(it, (e, i) => {                       // outer ring: thick stroke-only copy under the item
+            addPre(it, (e, i) => { // 外圈：item 底下垫一份只描边的粗副本
                 const c = Object.assign({}, i, {
                     pre: null,
                     post: null,
@@ -316,8 +313,7 @@
         }
     });
 
-    /* soft halo: the item is drawn small into a reusable offscreen canvas, blurred there and scaled back up
-       (cost does not grow with the blur radius, unlike canvas shadows / filters on the full frame) */
+    // 软光晕：把 item 缩小画进复用的离屏 canvas，在那边模糊再放大回来；开销不随模糊半径涨，全帧 shadow/filter 就做不到
     const HALO = {};
     const haloCv = (k, w, h) => {
         let c = HALO[k];
@@ -396,7 +392,7 @@
             const sc = env.sc, col = colOf(env, it), dk = isDark(sc.bg);
             const gc = dk ? firstOK(P.self ? [col, sc.accent, sc.accent2] : [sc.accent, sc.accent2, col], c => J.lum(c) > J.lum(sc.bg) + 0.2, col)
                 : firstOK([sc.accent, sc.accent2, sc.ghostA, sc.ghostB], c => ctr(c, sc.bg) >= 2 && J.lum(c) > 0.08 && ctr(c, col) >= 1.4, col);
-            const small = i => i.size < Math.min(env.W, env.H) * 0.09;   // small items: a plain canvas shadow is cheap and enough
+            const small = i => i.size < Math.min(env.W, env.H) * 0.09; // 小字直接用 canvas shadow，便宜也够
             sized(it, env, (i, e) => {
                 i.shadow = e.allowFilter && !small(i) ? null : {
                     color: J.rgba(gc, 0.95),
@@ -660,7 +656,7 @@
         name: '平体', tags: ['graphic', 'pop'], w: 0.7, safe: true,
         apply(env, it) {
             if (!it.text) return;
-            if (!it.vertical) {            // keep lines that fitted the frame inside it
+            if (!it.vertical) { // 别让原本放得下的行超出版面
                 const w0 = J.measure(it).w, lim = env.W * 0.9;
                 it.sx = (it.sx || 1) * 1.1;
                 if (w0 <= lim && w0 * 1.1 > lim) it.size *= lim / (w0 * 1.1);
@@ -743,12 +739,11 @@
         }
     });
 
-    /* ================= BACKGROUNDS ================= */
-    const layC = (sc, k) => J.mix(sc.bg, sc.fg, k);        // faint layer tone, k ≈ 0.05..0.15
-    const tintC = (sc, k) => J.mix(sc.bg, sc.accent, k);   // faint accent tone
+    const layC = (sc, k) => J.mix(sc.bg, sc.fg, k); // 淡的层次色，k 大约 0.05..0.15
+    const tintC = (sc, k) => J.mix(sc.bg, sc.accent, k); // 淡的 accent 色
     const Umin = env => Math.min(env.W, env.H);
     const bs = rng => rng.int(1, 1e9);
-// time since this background started (runs of consecutive cuts with the same bg count as one)
+    // 当前背景已经跑了多久；同一背景连续的几个 cut 算一段
     const bgRun = new WeakMap();
     const bgT = env => {
         const c = env.cut;
@@ -837,7 +832,7 @@
         }
     });
 
-// halftone field is pre-rendered once per line / size / colour (drawing ~2000 dots every frame is too slow) and scrolled by < 1 cell
+    // 网点底图按尺寸/颜色预渲染一次，每帧画两千个点太慢；滚动量小于一格，贴图就够
     const htCache = new Map();
     bgReg('halftoneFade', {
         name: '網点グラデ', tags: ['pop', 'graphic', 'editorial'], w: 1,
@@ -1389,7 +1384,7 @@
             const bt = env.beat ? Math.exp(-env.beat.since * 6) : Math.exp(-wrap(t * 2, 1) * 4);
             const e = E.outCubic(clamp(bgT(env) / 0.4)), mode = P.mode || 'bottom', segH = bw * 0.45;
             const main = layC(sc, P.k || 0.11), cap = tintC(sc, 0.4);
-            const bar = (x, y0, h, dir) => {           // dir: 1 grows down from y0, -1 grows up
+            const bar = (x, y0, h, dir) => { // dir 1 从 y0 向下长，-1 向上长
                 if (h < 1) return;
                 if (P.seg) {
                     for (let y = 0; y + segH * 0.7 <= h; y += segH) ctx.rect(x, dir > 0 ? y0 + y : y0 - y - segH * 0.7, bw * 0.62, segH * 0.7);
@@ -1491,7 +1486,6 @@
         }
     });
 
-    /* ================= CAMERA ================= */
     const KM = env => clamp((env.fx.motion ?? 0.7) * 1.25, 0, 1.25);
     const cuOf = env => clamp(env.lt / Math.max(0.3, env.cut.dur));
     const panP = u => u * 0.6 + E.inOutSine(u) * 0.4;
@@ -1680,11 +1674,11 @@
         }
     });
 
-    /* ================= POST / TRANSITION EFFECTS (device px) ================= */
+    // 后期/转场效果，坐标一律设备像素
     const bell = k => Math.sin(Math.PI * clamp(k));
     const evS = ev => J.h(Math.round(ev.t * 1000), 7331);
     const ampOf = ev => clamp(ev.amp ?? 1, 0.3, 1.6);
-// 0 → 1 (fully covered at the boundary b) → 0
+    // 0 到 1，在边界 b 处全遮，再落回 0
     const cover = (k, b, inE = E.inCubic, outE = E.outCubic) => (k < b ? inE(k / b) : 1 - outE((k - b) / Math.max(0.01, 1 - b)));
     const inkOf = sc => firstOK([sc.ink, sc.fg], c => ctr(c, sc.bg) >= 1.6, sc.fg);
     const fxReg = (k, d) => reg('fx', k, Object.assign({}, d, {
@@ -1800,7 +1794,7 @@
             const a = ampOf(ev), dk = isDark(sc.bg), st = I.step + evS(ev);
             const d = Math.max(2, cw * (0.006 + 0.01 * J.r(st, 5)) * a * (1 - 0.6 * k)),
                 dy = J.rs(st, 6) * ch * 0.004 * a;
-            // ink mask: |frame - bg| isolates the text, so the tinted copies only add colour fringes (the background keeps its colour)
+                // 墨版：帧和背景做差把文字抠出来，着色副本只添色边，背景不被染色
             const hw = Math.max(2, Math.round(cw / 2)), hh = Math.max(2, Math.round(ch / 2));
             const tint = (T, c) => {
                 const x = T.getContext('2d');
@@ -1882,7 +1876,7 @@
         }
     });
 
-// streaky noise texture for tracking noise (built once, deterministic)
+    // trackingNoise 用的条纹噪点纹理，建一次，结果确定
     let NOISE = null;
     const noiseTex = () => {
         if (NOISE) return NOISE;
@@ -1995,7 +1989,7 @@
         draw(ctx, ev, k, I) {
             const {cw, ch, S, sc} = I;
             if (!S) return;
-            const kk = Number.isFinite(k) ? clamp(k, 0, 1) : 1;                 // progress past the end (short event at low fps) → NaN alpha before
+            const kk = Number.isFinite(k) ? clamp(k, 0, 1) : 1; // 进度可能越过终点，低帧率下的短事件；不拦住会得到 NaN alpha
             const s = evS(ev), a = Math.pow(1 - kk, 0.8) * Math.min(1, ampOf(ev)),
                 deg = Math.round(90 + 180 * J.r(s, 3)), dk = isDark(sc.bg);
             if (!(a > 0.002)) return;

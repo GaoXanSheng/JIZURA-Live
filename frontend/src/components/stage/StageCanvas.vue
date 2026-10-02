@@ -44,8 +44,8 @@ onUnmounted(() => {
 <template>
   <div ref="viewport"
        class="relative w-full flex-1 min-h-[180px] bg-black border border-line rounded-[10px] grid place-items-center overflow-hidden">
-    <!-- id="view" 是 Spout 镜像脚本(SpoutPipeline.cs)的 DOM 契约，不能改名。
-         will-change/contain：画布独占合成层，UI 浮层重绘不再 invalidate 画布层 -->
+    <!-- id="view" 是 Spout 镜像脚本（SpoutPipeline.cs）的 DOM 契约，不能改名。
+         will-change/contain 让画布独占合成层，UI 浮层重绘不会再 invalidate 它 -->
     <canvas id="view" ref="canvas" class="block w-full h-auto max-h-[68vh] object-contain max-[1180px]:max-h-[50vh]"
             style="will-change:transform;contain:content;"
             height="720"

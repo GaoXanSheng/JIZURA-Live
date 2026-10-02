@@ -1,4 +1,4 @@
-/* JIZURA pack: enterB — 47 more entrances (physics, paper, light, digital devices, graphic masks) */
+// enterB 手法包：第二批入场（物理、纸张、光、数码、图形类），共 47 个
 (() => {
     'use strict';
     const E = J.E;
@@ -7,7 +7,6 @@
     const clamp = J.clamp, lerp = J.lerp;
     const HIDE = Object.freeze({hide: true});
 
-    /* ---------------- easing ---------------- */
     const oCubic = x => 1 - Math.pow(1 - clamp(x), 3);
     const oQuart = x => 1 - Math.pow(1 - clamp(x), 4);
     const oQuint = x => 1 - Math.pow(1 - clamp(x), 5);
@@ -21,13 +20,12 @@
     };
     const oBack = (x, s) => E.outBack(clamp(x), s);
     const sstep = (a, b, x) => J.smooth(a, b, x);
-// damped spring: 1 at t=0 → exactly 0 at t=1 (overshoots through 0)
+// 阻尼弹簧：t=0 时是 1，t=1 时正好到 0，中途会过冲穿过 0
     const spring = (t, k, f) => {
         t = clamp(t);
         return Math.exp(-k * t) * Math.cos(f * PI * t) * (1 - t * t * t);
     };
 
-    /* ---------------- stagger ---------------- */
     const stg = (p, k, spread) => clamp((p - spread * k) / (1 - spread));
     const ordLR = (i, n) => (n > 1 ? i / (n - 1) : 0);
     const ordRL = (i, n) => (n > 1 ? 1 - i / (n - 1) : 0);
@@ -42,11 +40,10 @@
         return J.lum(bg) < 0.5 ? '#ffffff' : pick(env.sc.accent, env.sc.fg);
     };
     const isBlank = ch => ch === ' ' || ch === '　';
-// the lyric's primary item (not a faded / outline copy, not one glyph of a multi-item layout): helper graphics only go here
+// 主歌词条目判定：排除淡出/描边副本和多条目布局里的单字，装饰图形只挂在它身上
     const isPrimary = it => (it.alpha ?? 1) >= 0.85 && it.fill !== false && glyphN(it) > 1;
     const isMain = it => (it.alpha ?? 1) >= 0.85 && it.fill !== false;
 
-    /* ---------------- hooks & glyph functions ---------------- */
     function addPre(it, fn) {
         const prev = it.pre;
         it.pre = prev ? (env, x) => {
@@ -69,7 +66,7 @@
         return fn;
     }
 
-    /* draw an extra copy of the item (all passes); `fn` replaces `main` among the item's glyph functions */
+    // 再画一份条目（所有 pass 都画）；fn 用来顶替 glyph 函数里的 main
     const STRIP = {
         pieceFn: null,
         streak: null,
@@ -89,7 +86,7 @@
         return J.drawItem(env, c);
     }
 
-    /* ---------------- geometry (item-local space: origin at it.x/it.y, before rotation) ---------------- */
+    // 条目本地空间：原点在 it.x/it.y，旋转之前
     function box(it) {
         const m = J.measure(it);
         const x0 = it.vertical ? -m.w / 2 : it.align === 'left' ? 0 : it.align === 'right' ? -m.w : -m.w / 2;
@@ -145,14 +142,14 @@
         });
     }
 
-    /* move the item by a vector given in its local (rotated) frame */
+    // 按条目本地（已旋转）坐标系平移
     function moveLocal(it, dx, dy) {
         const r = (it.rot || 0) * DEG, c = Math.cos(r), s = Math.sin(r);
         it.x += c * dx - s * dy;
         it.y += s * dx + c * dy;
     }
 
-    /* scale x / y about the item's own box centre */
+    // 以条目自身盒子中心为基准缩放 x/y
     function scaleXY(it, kx, ky, b) {
         b = b || box(it);
         it.sx = (it.sx || 1) * kx;
@@ -173,7 +170,7 @@
 
     const glyphPos = (g, isx, isy) => [(g.x + g.vx) * isx, (g.y + g.vy) * isy];
 
-    /* per-line extents in local coords: [{li, u0, u1, v, n}] where u = reading axis, v = line centre across it */
+    // 每行的局部范围 [{li, u0, u1, v, n}]：u 沿阅读方向，v 是行在横向的中心
     function lines(it, b) {
         const vert = !!it.vertical, isx = it.sx || 1, isy = it.sy || 1, map = new Map();
         for (const g of b.lay) {
@@ -197,13 +194,10 @@
 
     const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
-    /* ================================================================ */
     const DEFS = {
 
-        /* ================= PHYSICS ================= */
-
         springIn: {
-            // every glyph is fired up from below on a loose spring: overshoots the line, dips back, settles
+            // 每个字从下方松弹簧弹上来：冲过基线再落回来停稳
             name: 'バネ', tags: ['pop'], w: 0.9, ae: 'drop', minDur: 0.5,
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
@@ -225,7 +219,7 @@
         },
 
         pendulum: {
-            // glyphs hang from a pin above them and swing into place like hanging tags
+            // 字挂在上方的钉子上，像吊牌一样摆进位
             name: '振り子', tags: ['pop', 'emotional', 'calm'], w: 0.9, ae: 'spin', minDur: 0.5,
             inDur: dur => clamp(dur * 0.5, 0.22, 0.9),
             apply(env, it, p) {
@@ -260,13 +254,13 @@
         },
 
         rollIn: {
-            // glyphs roll in along the line like wheels (rotation coupled to distance travelled)
+            // 字沿线滚进来，像轮子（旋转量和位移绑定）
             name: '転がり', tags: ['pop', 'graphic'], w: 0.9, ae: 'spin',
             apply(env, it, p) {
                 const vert = !!it.vertical, isx = it.sx || 1, isy = it.sy || 1, size = it.size, dir = dirOf(env, 43);
                 const D = size * 2.3 * (0.75 + 0.4 * env.fx.motion);
                 glyphs(it, (i, g, n) => {
-                    // the glyph at the front of the train starts first, so the wheels never roll through each other
+                    // 队首的字先出发，轮子才不会互相碾过去
                     const q = stg(p, dir < 0 ? ordRL(i, n) : ordLR(i, n), 0.22);
                     if (q <= 0) return HIDE;
                     if (q >= 1) return null;
@@ -278,7 +272,7 @@
         },
 
         slingshot: {
-            // the line is drawn back on two elastic bands, released, overshoots and settles
+            // 整行被两根皮筋拉住回弹，松手后过冲再停稳
             name: 'パチンコ', tags: ['pop', 'graphic'], w: 0.7, ae: 'stretch', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -318,7 +312,7 @@
         },
 
         rockSettle: {
-            // glyphs drop in tilted, land on a corner and rock side to side until they sit flat
+            // 字斜着落下，角先着地，左右摇晃到摆平
             name: 'ぐらぐら着地', tags: ['pop'], w: 0.8, ae: 'drop', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.22, 0.9),
             apply(env, it, p) {
@@ -345,7 +339,7 @@
         },
 
         bounceBall: {
-            // karaoke ball: an accent ball hops from glyph to glyph, each landing kicks its glyph into place
+            // 卡拉OK球：accent 色小球逐字跳，每次落地把那个字砸到位
             name: 'バウンドボール', tags: ['pop', 'emotional'], w: 0.8, ae: 'pop', minDur: 0.8, maxChars: 20,
             inDur: (dur, n) => clamp(0.3 + n * 0.06, 0.45, Math.max(0.45, Math.min(1.25, dur * 0.6))),
             apply(env, it, p) {
@@ -368,7 +362,7 @@
                     };
                 });
                 const R = Math.max(3, size * 0.13), solo = n === 1;
-                // contact point on each glyph (top edge; right edge for vertical text) and "up" direction
+                // 每个字的接触点（横排顶边，竖排右边）和「上方」方向
                 const contact = g => {
                     const [gx, gy] = glyphPos(g, isx, isy);
                     return vert ? [gx + g.w * isx * 0.5 + R, gy] : [gx, gy - g.h * isy * 0.5 - R];
@@ -404,7 +398,7 @@
         },
 
         snapRail: {
-            // glyphs float off the line at random heights; an accent rail draws in and they all snap onto it
+            // 字先随机飘离基线，然后一条 accent 导轨画出来，大家一齐吸上去
             name: 'スナップ整列', tags: ['graphic', 'pop', 'editorial'], w: 0.9, ae: 'assemble', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -463,12 +457,12 @@
         },
 
         fanOpen: {
-            // glyphs start stacked like the ribs of a closed folding fan and sweep open around a pivot
+            // 字先像合拢扇子的扇骨一样叠着，再绕支点扫开
             name: '扇開き', tags: ['emotional', 'graphic', 'calm'], w: 0.9, ae: 'spin',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
                 const vert = !!it.vertical, isx = it.sx || 1, isy = it.sy || 1, size = it.size, b = box(it);
-                // pivot under the start of the line (left of the top of a vertical column): the closed fan reads in order along one rib
+                // 支点在行首下方（竖排列顶端的左侧）：合拢时字沿一根扇骨按顺序排好
                 const R0 = size * 0.8 + (vert ? b.w : b.h) / 2;
                 const pv = vert ? [b.x0 - R0, b.y0 + size * 0.5] : [b.x0 + size * 0.5, b.y1 + R0];
                 let aMin = 1e9;
@@ -487,7 +481,7 @@
             },
         },
         cylinder: {
-            // the line is printed on a turning drum: glyphs wrap round from the back, then the drum unrolls flat
+            // 整行印在一个转筒上：字从背面转出来，最后滚筒摊平
             name: '円筒回転', tags: ['graphic', 'pop', 'editorial'], w: 0.9, ae: 'spin',
             apply(env, it, p) {
                 const vert = !!it.vertical, isx = it.sx || 1, isy = it.sy || 1, size = it.size, b = box(it);
@@ -517,7 +511,7 @@
         },
 
         shuffle: {
-            // the glyphs appear in shuffled slots, then trade places along over/under arcs like a shell game
+            // 字先出现在打乱的位置，再沿上/下弧线换位，像猜豆子的贝壳戏法
             name: 'シャッフル', tags: ['pop', 'glitch', 'graphic'], w: 0.9, ae: 'scramble', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -548,7 +542,7 @@
                     const ex = sx0 - tx, ey = sy0 - ty, d = Math.hypot(ex, ey), e = ioCubic(q);
                     if (d < 0.5) return {a: A, s: lerp(0.8, 1, oBack(q, 2))};
                     const sgn = (vert ? ey : ex) > 0 ? 1 : -1, h = Math.min(size * 0.85, d * 0.4) * Math.sin(PI * e);
-                    const nx = -ey / d * sgn, ny = ex / d * sgn;                         // perpendicular: moving forward arcs "over"
+                    const nx = -ey / d * sgn, ny = ex / d * sgn; // 垂直方向：前进时弧线拱到「上面」
                     return {
                         dx: ex * (1 - e) + nx * h * (vert ? -1 : 1),
                         dy: ey * (1 - e) + ny * h * (vert ? -1 : 1),
@@ -560,7 +554,7 @@
         },
 
         stopMotion: {
-            // stop-motion: glyphs jump toward their place in a handful of held key poses, each slightly off
+            // 定格动画：字分几帧跳到位，每帧姿态都略歪
             name: 'コマ撮り', tags: ['pop', 'emotional'], w: 0.8, ae: 'pop', minDur: 0.5,
             inDur: dur => clamp(dur * 0.45, 0.25, 0.8),
             apply(env, it, p) {
@@ -583,7 +577,7 @@
         },
 
         ripple: {
-            // a ring wave spreads from the middle; each glyph surfaces as the crest passes and bobs once
+            // 圆环波从中心扩散，波峰扫过时字浮出来，上下浮一下
             name: '波紋', tags: ['emotional', 'calm', 'graphic'], w: 1, ae: 'pop',
             apply(env, it, p) {
                 const isx = it.sx || 1, isy = it.sy || 1, size = it.size, b0 = box(it);
@@ -615,7 +609,7 @@
         },
 
         zipper: {
-            // a zip slider runs along the line; ahead of it the glyphs are split up/down like open teeth
+            // 拉链头沿线走，走过之处上下像拉开的链齿分开
             name: 'ジッパー', tags: ['graphic', 'pop'], w: 0.8, ae: 'slice',
             inDur: dur => clamp(dur * 0.42, 0.18, 0.75),
             apply(env, it, p) {
@@ -650,7 +644,7 @@
         },
 
         zoomAlt: {
-            // depth alternates: odd glyphs dive in from in front of the lens, even ones grow from far away
+            // 纵深交替：奇数序号从镜头前扎进来，偶数从远处长出来
             name: '交互ズーム', tags: ['pop', 'graphic', 'glitch'], w: 0.9, ae: 'zoom',
             apply(env, it, p) {
                 const size = it.size, bl = Math.min(30, size * 0.1);
@@ -668,7 +662,7 @@
         },
 
         tiltUp: {
-            // the line lies flat on the floor and swings up on a hinge along its bottom edge
+            // 整行平躺在地上，沿底边铰链立起来
             name: '起立', tags: ['graphic', 'editorial', 'pop'], w: 0.9, ae: 'stretch',
             apply(env, it, p) {
                 const th = 86 * spring(p, 3.2, 1.25), k = Math.max(0.03, Math.cos(th * DEG)), b = box(it),
@@ -691,22 +685,21 @@
         },
 
         stickerPeel: {
-            // every glyph is pressed on like a die-cut sticker: the stuck part grows from one corner while
-            // the rest is still folded back as a mirrored flap
+            // 每个字像模切贴纸一样按上去：贴住的部分从一个角长出来，其余还是翻起的镜像折片
             name: 'シール貼り', tags: ['pop', 'graphic', 'editorial'], w: 0.9, ae: 'wipe', minDur: 0.5,
             inDur: dur => clamp(dur * 0.45, 0.2, 0.85),
             apply(env, it, p) {
                 const isx = it.sx || 1, isy = it.sy || 1, size = it.size, pad = size * 0.12, bg = pick(env.sc.bg),
                     col = colOf(it);
                 const qf = (i, n) => stg(p, ordLR(i, n), 0.5);
-                // glyph box and fold offset along the 45° diagonal (bottom-left → top-right)
+                // 字盒和沿 45° 对角线（左下 → 右上）的折叠进度
                 const geo = (g, u) => {
                     const [gx, gy] = glyphPos(g, isx, isy), hw = g.w * isx / 2 + pad, hh = g.h * isy / 2 + pad;
                     const L = gx - hw, B = gy + hh, Sd = hw * 2 + hh * 2;
                     return {gx, gy, L, R: gx + hw, T: gy - hh, B, c: lerp(-0.02, 1.02, ioCubic(u)) * Sd};
                 };
                 const quad = G => [[G.L, G.T], [G.R, G.T], [G.R, G.B], [G.L, G.B]];
-                const side = G => v => G.c - ((v[0] - G.L) + (G.B - v[1]));        // ≥ 0 on the stuck side
+                const side = G => v => G.c - ((v[0] - G.L) + (G.B - v[1])); // ≥ 0 表示已贴住的一侧
                 clipLocal(it, (ctx, b, x) => {
                     const n = b.lay.N;
                     let any = false;
@@ -722,8 +715,8 @@
                     }
                     if (!any) ctx.rect(0, 0, 0, 0);
                 });
-                // the free part of each sticker is still lifted ~62° off the surface: seen from the front it is the
-                // glyph foreshortened toward the fold line (drawn in every pass so the chromatic ghosts stay consistent)
+                // 没贴住的部分仍翘起约 62°，正面看就是把字朝折痕方向透视压扁
+                // 每个 pass 都画这一份，色差重影才前后一致
                 addPost(it, (env2, x) => {
                     const A = clamp(x.alpha ?? 1);
                     if (A <= 0.01) return;
@@ -766,10 +759,8 @@
             },
         },
 
-        /* ================= PAPER ================= */
-
         crumple: {
-            // each glyph arrives as a crumpled ball of its own strokes and springs open flat
+            // 每个字先是一团揉皱的笔画球，再弹开摊平
             name: 'くしゃ戻り',
             tags: ['pop', 'graphic', 'emotional'],
             w: 0.7,
@@ -823,8 +814,7 @@
         },
 
         noteUnfold: {
-            // every glyph is a note folded in four: the top-left quarter shows, the right half swings open on the
-            // vertical crease, then the bottom half swings down on the horizontal crease
+            // 每个字是折成四折的信纸：先露左上角，右半沿竖折痕展开，下半再沿横折痕放下来
             name: '手紙開き', tags: ['emotional', 'calm', 'graphic'], w: 0.8, ae: 'pop', minDur: 0.6,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -864,7 +854,7 @@
                         lw = Math.max(1, size * 0.012), cc = env2.sc.sub;
                     ctx.save();
                     toLocal(ctx, x);
-                    for (const g of lay) {                                                // faint creases while the note is still folded
+                    for (const g of lay) { // 还折着时的淡淡折痕
                         if (isBlank(g.ch) || g.r90) continue;
                         const q = qf(g.i, n);
                         if (q <= 0 || q >= 1) continue;
@@ -879,20 +869,20 @@
         },
 
         tornJoin: {
-            // the line is torn in two along a ragged seam; the halves slide in from opposite sides and butt together
+            // 整行沿毛边撕成两半，两半从两侧滑入对接
             name: '破れ合わせ', tags: ['graphic', 'emotional', 'pop'], w: 0.8, ae: 'slice',
             inDur: dur => clamp(dur * 0.42, 0.18, 0.75),
             apply(env, it, p) {
                 const vert = !!it.vertical, size = it.size, seed = it.seed | 0, b0 = box(it);
                 const D = size * 2 + (vert ? b0.h : b0.w) * 0.25, e = oQuart(p / 0.72), k = 1 - e;
                 const hit = sstep(0.62, 0.72, p) * (1 - sstep(0.72, 1, p));
-                const seam = b => {                                                   // ragged seam across the reading axis (local coords)
+                const seam = b => { // 横跨阅读方向的毛边（局部坐标）
                     const U = vert ? b.cy : b.cx, V0 = (vert ? b.x0 : b.y0) - size * 0.15,
                         V1 = (vert ? b.x1 : b.y1) + size * 0.15, K = 11, out = [];
                     for (let j = 0; j <= K; j++) out.push([U + J.rs(seed, j, 95) * size * 0.1 + (j % 2 ? 1 : -1) * size * 0.03, lerp(V0, V1, j / K)]);
                     return out;
                 };
-                const half = (b, side, ov = 0) => {                                   // polygon of one half in local coords (ov: overlap into the other half)
+                const half = (b, side, ov = 0) => { // 半边的多边形（局部坐标），ov 是压进另一半的重叠量
                     const s = seam(b), far = (vert ? b.h : b.w) + size * 6, U = vert ? b.cy : b.cx;
                     const pts = s.map(([u, v]) => pt(vert, u - side * ov, v));
                     const cap = [pt(vert, U + side * far, s[s.length - 1][1]), pt(vert, U + side * far, s[0][1])];
@@ -913,14 +903,14 @@
                 it.alpha = (it.alpha ?? 1) * clamp(p * 5);
                 const jolt = hit * size * 0.035 * Math.sin(p * 90);
                 if (vert) it.x += jolt; else it.y += jolt;
-                const fibres = (env2, q) => {                                         // paper fibres along a torn edge
+                const fibres = (env2, q) => { // 撕边上的纸纤维
                     const ctx = env2.ctx;
                     ctx.save();
                     toLocal(ctx, q);
                     env2.line(seam(box(q)).map(([u, v]) => pt(vert, u, v)), J.mix(fib, pick(env2.sc.bg), 0.35), Math.max(1, size * 0.018), fa * 0.8 * clamp(q.alpha ?? 1), false);
                     ctx.restore();
                 };
-                if (k <= 1e-4) {                                                      // the halves have met: draw the line whole, only the fibres linger
+                if (k <= 1e-4) { // 两半已接上：整行直接画，只剩纤维残留
                     if (fa > 0.01 && prim) addPost(it, (env2, x) => {
                         if (env2.pass === 'main') fibres(env2, x);
                     });
@@ -952,7 +942,7 @@
         },
 
         splitFlap: {
-            // split-flap display (パタパタ): each glyph flaps through a few random characters before landing on its own
+            // 翻牌显示屏（パタパタ）：每个字翻过几个随机字符才落到自己
             name: 'パタパタ', tags: ['glitch', 'editorial', 'graphic'], w: 0.9, ae: 'scramble', minDur: 0.75,
             inDur: (dur, n) => clamp(0.35 + n * 0.03, 0.45, Math.max(0.45, Math.min(1.0, dur * 0.55))),
             apply(env, it, p) {
@@ -975,7 +965,7 @@
                     return Object.assign({clipY: [-0.64, -0.64 * c1], clipX: [-0.7, 0.7]}, ch(S.newCh));
                 });
                 addPre(it, (env2, x) => {
-                    copyDraw(env2, x, main, (i, g, n) => {                               // old character's bottom half, until the new leaf covers it
+                    copyDraw(env2, x, main, (i, g, n) => { // 旧字的下半，翻页盖住前一直显示
                         const S = st(i, n);
                         if (S.q <= 0 || S.q >= 1 || g.r90 || S.oldCh === null) return HIDE;
                         const c2 = S.f >= 0.5 ? -Math.cos(S.f * PI) : 0;
@@ -983,7 +973,7 @@
                     }, {shadow: null});
                 });
                 addPost(it, (env2, x) => {
-                    copyDraw(env2, x, main, (i, g, n) => {                               // the falling leaf
+                    copyDraw(env2, x, main, (i, g, n) => { // 正在翻落的那一页
                         const S = st(i, n);
                         if (S.q <= 0 || S.q >= 1 || g.r90) return HIDE;
                         if (S.f < 0.5) {
@@ -1008,7 +998,7 @@
                     const A = clamp(x.alpha ?? 1), lay = J.layoutText(x), n = lay.N, ctx = env2.ctx;
                     ctx.save();
                     toLocal(ctx, x);
-                    for (const g of lay) {                                              // the hairline gap between the two flaps
+                    for (const g of lay) { // 两页之间的细缝
                         if (isBlank(g.ch) || g.r90) continue;
                         const S = st(g.i, n);
                         if (S.q <= 0 || S.q >= 1) continue;
@@ -1020,10 +1010,8 @@
             },
         },
 
-        /* ================= LIGHT ================= */
-
         overexpose: {
-            // the line flashes in blown-out white (bloom + glow) and the exposure is pulled down to its real colour
+            // 整行以过曝的白闪入（bloom + glow），曝光再落回本色
             name: '露出オーバー', tags: ['emotional', 'pop', 'glitch'], w: 1, ae: 'blur',
             inDur: dur => clamp(dur * 0.42, 0.18, 0.75),
             apply(env, it, p) {
@@ -1050,7 +1038,7 @@
         },
 
         glint: {
-            // the line waits as a faint ghost; a slanted glint sweeps across and leaves it lit behind the highlight
+            // 整行先以淡幽灵态等着，一道斜向高光扫过，扫过之处点亮
             name: 'グリント', tags: ['editorial', 'emotional', 'graphic'], w: 1, ae: 'wipe',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
@@ -1071,7 +1059,7 @@
                         big: (U1 - U0) + size * 8
                     };
                 };
-                // region where u + kS·(v - vc) is between a and b
+                // u + kS·(v - vc) 落在 [a, b] 之间的区域
                 const band = (ctx, G, a, b) => {
                     const q = [[a - kS * (G.V0 - G.vc), G.V0], [b - kS * (G.V0 - G.vc), G.V0], [b - kS * (G.V1 - G.vc), G.V1], [a - kS * (G.V1 - G.vc), G.V1]];
                     q.forEach(([u, v], j) => {
@@ -1123,7 +1111,7 @@
         },
 
         loupe: {
-            // a magnifying glass slides along the line; glyphs swell under the lens and are left sharp behind it
+            // 放大镜沿线滑动，镜下字胀大，扫过之处恢复清晰
             name: 'ルーペ', tags: ['editorial', 'pop', 'calm'], w: 0.8, ae: 'zoom', minDur: 0.6,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -1162,7 +1150,7 @@
         },
 
         filmFeed: {
-            // projector losing its loop: the frame rolls through the gate with a frame line, the lamp flickers, then it locks
+            // 放映机跑带：画面带着分帧线滚过片门，灯闪，最后锁定
             name: 'フィルム送り', tags: ['emotional', 'glitch', 'editorial'], w: 0.8, ae: 'flicker', minDur: 0.55,
             inDur: dur => clamp(dur * 0.48, 0.22, 0.85),
             apply(env, it, p) {
@@ -1191,7 +1179,7 @@
         },
 
         backlight: {
-            // a halo of light rises behind the line first, the glyphs read as dark silhouettes against it, then light up
+            // 先有一圈光晕在字后面升起，字呈暗剪影，随后点亮
             name: '逆光', tags: ['emotional', 'calm'], w: 0.9, ae: 'blur', minDur: 0.5,
             inDur: dur => clamp(dur * 0.48, 0.22, 0.85),
             apply(env, it, p) {
@@ -1222,7 +1210,7 @@
         },
 
         lightLeak: {
-            // a warm light leak drifts along the line; each glyph burns in hot where it passes and cools to its colour
+            // 一道暖色漏光沿线漂移，扫过的字先烧白再冷却回本色
             name: '光漏れ', tags: ['emotional', 'calm', 'pop'], w: 0.9, ae: 'blur',
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -1265,14 +1253,14 @@
         },
 
         heatHaze: {
-            // the line shimmers in through heat haze: thin slices wobble sideways and calm down
+            // 整行透过热浪闪进来：薄切片左右扭动，慢慢平静
             name: '陽炎', tags: ['emotional', 'calm', 'glitch'], w: 0.9, ae: 'slice',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
                 const vert = !!it.vertical, size = it.size, R = dRange(it, box(it)), t = env.lt;
                 const amp = size * 0.36 * (1 - E.inOutSine(p));
                 it.alpha = (it.alpha ?? 1) * E.outCubic(clamp(p * 2.4));
-                if (env.pass !== 'main' || amp < 0.5) return;                        // the lagged ghost copies stay undistorted (cost)
+                if (env.pass !== 'main' || amp < 0.5) return; // 滞后的残影副本不跟着变形（省性能）
                 const pad = size * 0.3;
                 if (!vert) {
                     const y0 = R.y0 - pad, h = R.y1 - R.y0 + pad * 2, n = clamp(Math.round(h / (size * 0.085)), 8, 14);
@@ -1286,10 +1274,8 @@
             },
         },
 
-        /* ================= DIGITAL ================= */
-
         crtOn: {
-            // CRT power-on: a bright dot stretches into a scan line, which opens vertically into the text
+            // CRT 开机：亮点拉成一条扫描线，再纵向展开成文字
             name: 'CRT電源', tags: ['glitch', 'pop', 'graphic'], w: 0.9, ae: 'stretch',
             apply(env, it, p) {
                 const size = it.size, b = box(it), hot = hotOf(env, it), col = colOf(it), prim = isPrimary(it);
@@ -1314,7 +1300,7 @@
         },
 
         interlace: {
-            // interlaced scan: the even scanlines are drawn top to bottom, then a second field fills the odd ones
+            // 隔行扫描：偶数扫描线从上往下先画，第二场再补奇数
             name: 'インターレース', tags: ['glitch', 'graphic', 'editorial'], w: 0.9, ae: 'slice',
             apply(env, it, p) {
                 const size = it.size, hr = Math.max(2.5, size * 0.065);
@@ -1346,7 +1332,7 @@
         },
 
         loadingBar: {
-            // a progress bar fills in uneven bursts (with a % counter); glyphs pop up as the bar passes under them
+            // 进度条一顿一顿地填充（带 % 计数），经过的字依次弹出
             name: 'ローディング', tags: ['graphic', 'editorial', 'glitch'], w: 0.8, ae: 'wipe', minDur: 0.7,
             inDur: dur => clamp(dur * 0.55, 0.3, 1.0),
             apply(env, it, p) {
@@ -1410,7 +1396,7 @@
         },
 
         dither: {
-            // ordered (Bayer 4×4) dither dissolve: the line fills in through a regular crosshatch of pixels
+            // 有序（Bayer 4×4）抖动溶解：整行以规则的像素棋盘浮现
             name: 'ディザ', tags: ['glitch', 'graphic'], w: 0.9, ae: 'flicker',
             apply(env, it, p) {
                 const size = it.size, dir = dirOf(env, 101);
@@ -1443,7 +1429,7 @@
         },
 
         odometer: {
-            // odometer reels: each glyph rolls up through a few characters inside its own window and clicks to a stop
+            // 里程计滚轮：每个字在自己的窗口里滚过几个字符，咔哒停住
             name: 'ドラム回転', tags: ['glitch', 'editorial', 'pop'], w: 0.9, ae: 'scramble', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -1453,7 +1439,7 @@
                     const q = stg(p, ordLR(i, n), 0.45), R = 3 + (J.h(seed, i, 111) % 3);
                     return {q, R, s: R * (1 - oBack(q, 1.15))};
                 };
-                const cell = (g, j, s, chs) => {                              // character j of the reel (0 = the real glyph), masked to the window
+                const cell = (g, j, s, chs) => { // 滚轮上第 j 个字符（0 是真字），裁到窗口内
                     const f = (s - j) * 1.02;
                     if (Math.abs(f) >= 1) return HIDE;
                     const o = {
@@ -1487,14 +1473,14 @@
         },
 
         matrixRain: {
-            // data rain: each glyph falls in as the bright head of a short stream of flickering characters
+            // 数据雨：每个字作为一串闪烁字符的亮头落下来
             name: 'データ降下', tags: ['glitch', 'graphic'], w: 0.8, ae: 'scramble', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
                 const vert = !!it.vertical, isy = it.sy || 1, size = it.size, seed = it.seed | 0, step = env.step;
                 const hot = hotOf(env, it), acc = pick(env.sc.accent, env.sc.fg), col = colOf(it), K = 4, land = 0.62;
                 const lay0 = J.layoutText(it), nL = lay0.reduce((m, g) => Math.max(m, g.li + 1), 1);
-                // lower glyphs land first so no stream ever runs over a glyph that has already landed
+                // 位置低的字先落地，雨丝不会盖过已落地的字
                 const key = g => 0.35 * J.r(seed, g.i, 121) + 0.65 * (vert ? (g.n > 1 ? 1 - g.ci / (g.n - 1) : 0) : (nL > 1 ? (nL - 1 - g.li) / (nL - 1) : 0));
                 const st = g => {
                     const q = stg(p, key(g), 0.45), D = size * (2.2 + J.r(seed, g.i, 122));
@@ -1522,10 +1508,8 @@
             },
         },
 
-        /* ================= GRAPHIC ================= */
-
         hatchFill: {
-            // each glyph is first printed as a hatch / halftone pattern with a hairline outline, then the solid ink fills in
+            // 每个字先以网线/网点纹样加细描边印出，然后实墨填满
             name: 'ハッチ→ベタ', tags: ['graphic', 'editorial'], w: 0.9, ae: 'blur',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
@@ -1561,13 +1545,13 @@
         },
 
         brushReveal: {
-            // dry-brush stroke: a ragged-edged brush pass (its bristle tips in the accent colour) paints each line in, line after line
+            // 干笔扫过：毛边笔刷（笔锋尖用 accent 色）逐行把字刷出来
             name: '筆払い', tags: ['emotional', 'editorial', 'calm'], w: 1, ae: 'wipe',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.85),
             apply(env, it, p) {
                 const vert = !!it.vertical, size = it.size, seed = it.seed | 0, K = 14, tail = size * 1.1,
                     pad = size * 0.2;
-                // every bristle strip of every line: fn(line, v, thickness, u-start, u-end, q)
+                // 遍历每行每根笔毛条：fn(line, v, 厚度, u起点, u终点, q)
                 const strips = (x, b, fn) => {
                     const Ls = lines(x, b), nL = Ls.length;
                     for (const L of Ls) {
@@ -1605,7 +1589,7 @@
         },
 
         inkDrop: {
-            // an ink drop lands inside every glyph and spreads outwards in an irregular blot that reveals it
+            // 一滴墨落在每个字里，向外晕开成不规则的墨渍，把字显出来
             name: 'インク滴', tags: ['calm', 'emotional', 'graphic'], w: 1, ae: 'blur',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.85),
             apply(env, it, p) {
@@ -1655,13 +1639,13 @@
         },
 
         quarters: {
-            // the line is cut into four quadrants that fly in from the four corners and lock together
+            // 整行切成四块，从四角飞入拼合
             name: '四方集結', tags: ['graphic', 'pop'], w: 0.9, ae: 'assemble',
             apply(env, it, p) {
                 const size = it.size, b0 = box(it),
                     D = size * (glyphN(it) > 1 ? 1.1 : 0.5) + Math.max(b0.w, b0.h) * 0.12, big = size * 30,
                     dir = dirOf(env, 161);
-                const Q = [[-1, -1, 0], [1, 1, 1], [1, -1, 2], [-1, 1, 3]];                  // diagonal pairs arrive together
+                const Q = [[-1, -1, 0], [1, 1, 1], [1, -1, 2], [-1, 1, 3]]; // 对角的两块同时到
                 const ek = k => oQuint(stg(p, k < 2 ? 0 : 1, 0.2));
                 const place = (x, k) => {
                     const [sx, sy] = Q[k], e = ek(k), o = Object.assign({}, x);
@@ -1674,7 +1658,7 @@
                     ctx.rect(sx < 0 ? b.cx - big : b.cx - ov, sy < 0 ? b.cy - big : b.cy - ov, big + ov, big + ov);
                 };
                 it.alpha = (it.alpha ?? 1) * clamp(p * 5);
-                if (ek(0) > 0.9995 && ek(2) > 0.9995) return;                         // locked together: draw the line whole
+                if (ek(0) > 0.9995 && ek(2) > 0.9995) return; // 已拼合：整行直接画
                 const m = place(it, 0), dX = m.x - it.x, dY = m.y - it.y, dR = (m.rot || 0) - (it.rot || 0);
                 it.x = m.x;
                 it.y = m.y;
@@ -1699,7 +1683,7 @@
         },
 
         invertBox: {
-            // a solid block wipes on with the lyric knocked out of it, then drops away and leaves the plain text
+            // 一块实心色版带着镂空歌词擦入，随后脱落露出原文字
             name: '反転抜け', tags: ['graphic', 'editorial', 'pop'], w: 0.9, ae: 'wipe',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
@@ -1744,7 +1728,7 @@
         },
 
         printRegister: {
-            // misregistered riso print: two halftone colour plates sit offset and jolt into register in a few hard steps
+            // 套色错位的 Riso 印刷：两块网点色版错开着，分几步硬生生对齐
             name: '版ズレ', tags: ['graphic', 'pop', 'editorial'], w: 0.9, ae: 'slice',
             inDur: dur => clamp(dur * 0.45, 0.2, 0.8),
             apply(env, it, p) {
@@ -1782,7 +1766,7 @@
         },
 
         echoCount: {
-            // count-in: three stepped copies trail behind the line and drop off one per beat (3, 2, 1, on)
+            // 倒数预备：三级重影跟在字后，逐拍掉一个（3、2、1、走）
             name: 'カウントイン', tags: ['pop', 'graphic', 'glitch'], w: 0.8, ae: 'zoom', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -1804,7 +1788,7 @@
         },
 
         liquidFill: {
-            // the glyphs fill up like glasses: a wavy liquid level rises through hairline outlines
+            // 字像杯子一样被灌满：波浪形液面沿细描边上升
             name: '水位上昇', tags: ['emotional', 'calm', 'pop'], w: 0.9, ae: 'wipe', minDur: 0.5,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -1855,7 +1839,7 @@
         },
 
         windBlown: {
-            // the strokes of every glyph are blown in from one side on a gust, fluttering like leaves before they settle
+            // 笔画被一阵风从一侧吹进来，像落叶一样翻飞后落定
             name: '風に乗って', tags: ['emotional', 'calm'], w: 0.8, ae: 'assemble', pieces: true, minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -1891,7 +1875,7 @@
         },
 
         strokeOrder: {
-            // each glyph is built up stroke by stroke, top-left to bottom-right, as if written by hand
+            // 每个字按笔画一笔笔写出来，从左上到右下，像手写
             name: '一画ずつ',
             tags: ['calm', 'emotional', 'editorial'],
             w: 0.9,
@@ -1923,7 +1907,7 @@
         },
 
         clockWipe: {
-            // every glyph is uncovered by a clock hand sweeping once around its centre
+            // 每个字由绕中心扫一圈的表针揭开
             name: '時計回り', tags: ['graphic', 'pop', 'editorial'], w: 0.9, ae: 'wipe',
             apply(env, it, p) {
                 const isx = it.sx || 1, isy = it.sy || 1, size = it.size, seed = it.seed | 0;
@@ -1976,7 +1960,7 @@
         },
 
         shadowFirst: {
-            // each glyph's shadow lands first; the glyph drops from above the lens straight onto it
+            // 每个字的影子先落地，字再从镜头上方直落到影子上
             name: '影落とし', tags: ['pop', 'graphic', 'emotional'], w: 0.9, ae: 'drop', minDur: 0.5,
             inDur: dur => clamp(dur * 0.48, 0.22, 0.85),
             apply(env, it, p) {
@@ -2016,7 +2000,7 @@
         },
 
         bubbles: {
-            // glyphs float up inside soap bubbles, wobbling, and pop out full size when the bubbles burst
+            // 字在肥皂泡里晃着上浮，泡泡破裂时弹回原尺寸
             name: '泡', tags: ['pop', 'emotional', 'calm'], w: 0.8, ae: 'pop', minDur: 0.55,
             inDur: dur => clamp(dur * 0.5, 0.25, 0.9),
             apply(env, it, p) {
@@ -2056,7 +2040,7 @@
         },
 
         tokoroten: {
-            // ところてん: the line is pushed out through a slit, glyphs squeezed thin at the slit and relaxing as they emerge
+            // ところてん：整行从缝口挤出来，字在缝口被压扁，出来后慢慢舒展
             name: 'ところてん', tags: ['pop', 'graphic'], w: 0.7, ae: 'stretch', minDur: 0.5,
             inDur: dur => clamp(dur * 0.48, 0.22, 0.85),
             apply(env, it, p) {
@@ -2065,7 +2049,7 @@
                     L = U1 - U0 + size * 0.3;
                 const off = -(1 - E.inOutSine(clamp(p / 0.9))) * L, rel = size * 2, km = 0.18,
                     c = 1 - sstep(0.55, 1, p);
-                // squeeze factor ramps from km at the slit to 1 at `rel` past it; d() = compressed distance travelled past the slit
+                // 压缩率从缝口的 km 渐变到过缝 rel 距离后的 1；d() 是过缝后的压缩距离
                 const kAt = e => 1 - c * (1 - (km + (1 - km) * clamp(e / rel)));
                 const d = e => {
                     if (e <= 0) return e * (1 - c * (1 - km));
@@ -2097,7 +2081,7 @@
 
     };
 
-    /* Sutherland–Hodgman: keep the part of a polygon where f(v) >= 0 (f linear) */
+    // Sutherland–Hodgman 裁剪：保留 f(v) >= 0（f 线性）的那部分多边形
     function clipHalf(poly, f) {
         const out = [];
         for (let k = 0; k < poly.length; k++) {
@@ -2111,7 +2095,7 @@
         return out;
     }
 
-    /* design-space AABB of a local box (rotation aware) */
+    // 局部盒子在设计空间的 AABB（考虑旋转）
     function dRange(it, b) {
         const r = (it.rot || 0) * DEG, c = Math.cos(r), s = Math.sin(r);
         let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;

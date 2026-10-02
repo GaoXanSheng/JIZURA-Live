@@ -1,14 +1,5 @@
-/* ============================================================
-   简体中文标签包（引擎零改动，运行时覆盖注册表 name/desc）
-     1) 部件名（布局/入场/保持/退场/装饰/加工/背景/镜头/效果/衔接
-        + 恐怖/文字PV/动感套装 + 追加风格）——转制自上游 app/chinese_hans.js
-     2) 风格名/描述、氛围名、示例歌词——由上游 app/i18n_zh_hans.py 经
-        i18n.names_js 生成
-     3) 导出错误信息翻译（源自 i18n_zh_hans.EXPORT 字面量表）
-   必须在全部引擎文件之后导入（依赖 J.registry 已填充）。
-   ============================================================ */
-/* Simplified Chinese part names (converted from the Traditional Chinese labels in app/chinese.js, with mainland
-   wording). Styles, moods and the sample lyrics come from app/i18n_zh_hans.py. Internal IDs stay language independent. */
+// 简体中文标签包：运行时覆盖注册表里的 name/desc，引擎零改动
+// 必须在全部引擎文件之后导入，依赖 J.registry 已填充
 (() => {
   'use strict';
   const titles = {
@@ -722,11 +713,11 @@
   };
   for (const group of J.GROUP_KEYS) {
     const table = J.registry(group), names = titles[group] || {};
-    for (const key of Object.keys(table)) if (names[key]) table[key].name = names[key];   // includes the special title / interlude layouts
+    for (const key of Object.keys(table)) if (names[key]) table[key].name = names[key];   // 含 title / interlude 两个特殊布局
   }
 })();
 
-/* part sets (horror / typo / kinetic): names, styles and the horror mood */
+// 套装（horror / typo / kinetic）的部件名、风格名和恐怖氛围名
 (() => {
   'use strict';
   const P = {
@@ -1000,7 +991,7 @@
   }
 })();
 
-/* 一键随机主题名（08b_omakase 的 J.THEMES）：随主题功能一起由本层覆盖为中文 */
+// 一键随机主题名（08b_omakase 的 J.THEMES）也在这层覆盖成中文
 (() => {
   'use strict';
   const T = {

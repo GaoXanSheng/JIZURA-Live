@@ -1,8 +1,6 @@
-/* 音频分析（C# 版）：
-   decode 在主线程（WebAudio 限制，native 异步不阻塞 UI），
-   单声道低采样 PCM POST 给本机服务 /api/analyze——数值计算全部在 C# 完成
-   （同一套算法，比浏览器快一个量级），主线程零重活，载入歌曲不再卡顿。
-   返回结构与引擎 J.analyzeAudio 完全一致。 */
+// 音频分析（C# 版）：decode 在主线程（WebAudio 限制，原生异步不阻塞 UI），
+// 数值计算全部在 C# 完成（同一套算法，比浏览器快一个量级），主线程零重活。
+// 返回结构与引擎 J.analyzeAudio 完全一致。
 export interface AnalyzedAudio {
     name: string;
     duration: number;
@@ -13,23 +11,22 @@ export interface AnalyzedAudio {
     energy: Float32Array;
     energyRate: number;
     peaks: Float32Array;
-    /* F0（Hz/帧，0=无声帧），帧率同 energyRate——K线主题用它驱动蜡烛涨跌 */
+    // F0（Hz/帧，0=无声帧），帧率同 energyRate，K线主题用它驱动蜡烛涨跌
     pitch: Float32Array | null;
     pitchRate: number;
 }
 
-/* 11025 Hz 对节拍分析足够：onset 包络的帧率固定 50Hz（hop 随采样率自动缩放），
-   BPM/相位/能量全部工作在 50Hz 帧上，波形峰也只取 1600 桶——
-   采样率减半直接把 POST 体积（长曲 20MB+）和 C# 端 O(n) 循环都砍半 */
+// 11025 Hz 对节拍分析足够：onset 包络帧率固定 50Hz（hop 随采样率自动缩放），
+// BPM/相位/能量全在 50Hz 帧上，波形峰也只取 1600 桶。
+// 采样率减半，POST 体积（长曲 20MB+）和 C# 端 O(n) 循环都跟着砍半。
 const ANALYZE_RATE = 11025;
 
 export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> {
-    // 两条并行，互不占主线程：
-    // ① 播放用 AudioBuffer：decodeAudioData 原生异步解码；
-    // ② 数值分析：原始文件（几 MB）直接 POST 给 C# /api/analyze/file，
-    //    NAudio 解码 + 重采样 + 分析——不再走 OfflineAudioContext 和
-    //    40MB 单声道 PCM 的主线程拷贝+上传（载入歌曲时的冻结源）。
-    // ② 不可用（旧桌面版 / MediaFoundation 不认的格式）时回退旧 PCM 路径。
+    // 两条并行：播放用 AudioBuffer 走 decodeAudioData 原生异步解码；
+    // 数值分析把原始文件（几 MB）直接 POST 给 C# /api/analyze/file，
+    // NAudio 解码 + 重采样 + 分析，不走 OfflineAudioContext 和
+    // 40MB 单声道 PCM 的主线程拷贝+上传（载入歌曲卡顿的源头）。
+    // /api/analyze/file 不可用（旧桌面版 / MediaFoundation 不认的格式）时回退旧 PCM 路径。
     const AC = window.AudioContext || (window as any).webkitAudioContext;
     const ac = new AC();
 
@@ -51,7 +48,7 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
         const buf = await ac.decodeAudioData((await file.arrayBuffer()).slice(0));
         try {
             ac.close();
-        } catch { /* 已关 */
+        } catch { // 已关
         }
         return buf;
     })();
@@ -75,7 +72,7 @@ export async function analyzeAudioOffThread(file: File): Promise<AnalyzedAudio> 
     };
 }
 
-/* 旧路径：OfflineAudioContext 重采样 + 40MB PCM 上传（/api/analyze）。回退用 */
+// 旧路径：OfflineAudioContext 重采样 + 40MB PCM 上传（/api/analyze），仅作回退
 async function analyzePcmFallback(audioBuffer: AudioBuffer): Promise<any> {
     const offLen = Math.max(1, Math.ceil(audioBuffer.duration * ANALYZE_RATE));
     const off = new OfflineAudioContext(1, offLen, ANALYZE_RATE);

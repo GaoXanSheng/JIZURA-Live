@@ -6,14 +6,13 @@ using EmbedIO;
 
 namespace JizuraLive.Server;
 
-// 酷狗 / 网易云共用的音频流代理：只放行白名单域名的 http(s) 地址，透传 Range。
+// 酷狗/网易云共用的音频流代理：只放行白名单域名的 http(s) 地址，透传 Range
 internal static class AudioProxy
 {
     private static readonly string[] HostSuffixes = ["kugou.com", "kgimg.com", "kglink.cn", "music.126.net"];
 
-    // 流式代理专用客户端：HttpClient.Timeout 覆盖整个请求周期（ResponseHeadersRead
-    // 下也包含内容流读取），共享客户端的 100s 上限会把长曲传输拦腰截断。
-    // 无限超时 + 拷贝阶段的停滞看门狗兜底死连接
+    // 流式代理专用：HttpClient.Timeout 覆盖整个请求周期（ResponseHeadersRead 下也含内容流读取），
+    // 共享客户端的 100s 上限会把长曲传输拦腰截断。无限超时 + 拷贝阶段停滞看门狗兜底死连接
     private static readonly HttpClient StreamHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
 
     public static bool AllowedHost(string host)
@@ -37,9 +36,7 @@ internal static class AudioProxy
             return;
         }
 
-        // 限时只覆盖握手；响应体拷贝不限总时长——直播中一首长 FLAC / 慢 CDN
-        // 曲目超过 60 秒被硬性掐断是用户可感知的播放中断。
-        // 拷贝阶段用「每次读至少 1 字节就续命 60s」的停滞看门狗兜底死连接
+        // 30s 只管握手；拷贝阶段每次读到数据就续命 60s，死连接由看门狗断开
         using var handshakeCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         using var watchdogCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         using var upstreamReq = new HttpRequestMessage(HttpMethod.Get, uri);
@@ -50,7 +47,7 @@ internal static class AudioProxy
         using var upstream = await http.SendAsync(upstreamReq,
             HttpCompletionOption.ResponseHeadersRead, handshakeCts.Token);
 
-        // HttpClient 默认跟随重定向：跳转可能落到白名单之外，以最终请求 URI 复检
+        // HttpClient 默认跟随重定向，跳转可能落到白名单之外，以最终请求 URI 复检
         var finalHost = upstream.RequestMessage?.RequestUri?.Host ?? uri.Host;
         if (!upstream.IsSuccessStatusCode && upstream.StatusCode != HttpStatusCode.PartialContent)
         {
@@ -70,7 +67,6 @@ internal static class AudioProxy
         }
 
         res.StatusCode = (int)upstream.StatusCode;
-        // 最终 URI 在白名单内已验证，取其扩展名辅助猜 MIME
         var finalPath = upstream.RequestMessage?.RequestUri?.AbsolutePath ?? uri.AbsolutePath;
         var ext = Path.GetExtension(finalPath).ToLowerInvariant();
         res.ContentType = ext?.Length > 1 && ServerContext.MimeMap.TryGetValue(ext, out var mime)
@@ -94,12 +90,12 @@ internal static class AudioProxy
         }
         catch (OperationCanceledException)
         {
-            // 60 秒零数据（读/写停滞）：死连接，正常断开即可（响应已开始，无法再写错误体）
+            // 60 秒零数据 = 死连接；响应已开始没法再写错误体，直接断
             Log.Debug($"[AudioProxy] 传输停滞超时断开：{uri.Host}");
         }
         catch (IOException ex)
         {
-            // 客户端切歌/暂停中断下载、或上游连接复位——都是常规路径
+            // 客户端切歌/暂停中断下载、上游连接复位，都是常规路径
             Log.Debug($"[AudioProxy] 流中断（客户端或上游断开）：{ex.Message}");
         }
     }

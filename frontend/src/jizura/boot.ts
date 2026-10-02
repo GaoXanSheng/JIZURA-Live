@@ -1,7 +1,5 @@
-/* 启动序列：对应旧 12_ui.js 的 boot()。
-   另外维护 Spout 镜像依赖的两个全局契约：
-   - window.J.ui      —— 状态对象 S（MainWindow 的 sync 采样脚本读取）
-   - window.J.uiApi   —— 宿主动作 */
+// 启动序列。同时维护 Spout 镜像依赖的两个全局契约：
+// window.J.ui 是状态对象 S（MainWindow 的 sync 采样脚本读取），window.J.uiApi 是宿主动作。
 import {J} from '../engine';
 import {initVolume, S} from './state';
 import {flushSave, loadLocal} from './project';
@@ -9,7 +7,7 @@ import {bootEngine, invalidateFontKey, loadAudioFile, pause, play, replan, seek}
 import * as look from './look';
 import {bus} from './bus';
 import {installSubtitleOverlay} from '../cloud/subtitle';
-import './agent-api'; // 副作用导入：挂载 window.J.mcp（/mcp 端点把 JSON-RPC 桥进页面用）
+import './agent-api'; // 副作用导入：挂 window.J.mcp，/mcp 端点把 JSON-RPC 桥进页面
 
 async function restoreFonts() {
   const list = S.project.userFonts || [];
@@ -71,14 +69,14 @@ function bindKeys() {
 export function boot() {
   if ((globalThis as any).__jl_booted) return;   // 路由往返时只启动一次
   (globalThis as any).__jl_booted = true;
-  installSubtitleOverlay();   // 字幕叠加（Renderer.frame 包装，幂等）
+  installSubtitleOverlay();   // 字幕叠加（包装 Renderer.frame），幂等
   S.project = loadLocal();
   initVolume();
   replan();
   restoreFonts();
   look.commit();
   bindKeys();
-  // 打开在有代表性的帧（第一个切分入场的中段）
+  // 打开在有代表性的帧：第一个切分入场的中段
   const c0 = S.plan.cuts.find((c: any) => c.line >= 0);
   if (c0) seek(c0.start + Math.min(c0.dur * 0.6, c0.inDur + 0.25));
   bootEngine();
@@ -88,7 +86,7 @@ export function boot() {
     if (f && f.name === S.project.audioName && !S.audio) loadAudioFile(f, true);
   });
 
-  // ---- 宿主契约（Spout 镜像脚本 / AE 面板） ----
+  // 宿主契约：Spout 镜像脚本 / AE 面板从这两个全局对象取状态和动作
   J.ui = S;
   J.uiApi = {
     toast: look.toast,

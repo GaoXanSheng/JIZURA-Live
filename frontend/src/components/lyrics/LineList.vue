@@ -1,14 +1,10 @@
 <script lang="ts" setup>
-/* 行与切分列表（原 12_ui.js renderLines 的 Vue 化）
-   行本体在 LineRow.vue：跨行只重渲新旧两行，replan 时才全量重建行数据。
-
-   窗口化渲染：82+ 行全量挂载时每行 ~43 节点，DOM 光歌词列表就 3.5k+。
-   这里只挂「可视区 ± 缓冲」的行，上下用定高 spacer 占位：
-   - 行高实测回填：渲染后量 offsetHeight，未渲染行按 72px 估算（行自带
-     content-visibility，真实高度首次可见后回填，滚动锚定误差自愈）；
-   - bus 'scrolltoline'（播放行跟随）把滚动容器滚到活动行——纯坐标计算，
-     未渲染的行也能滚；滚到即挂载；
-   - 行的编辑态/打开的下拉随滚出视口销毁、滚回重建（行数据都在 rows，无损失）。 */
+// 行本体在 LineRow.vue，跨行只重渲新旧两行，replan 时才全量重建行数据。
+// 窗口化渲染：82+ 行全量挂载光歌词就 3.5k+ 节点，这里只挂可视区 ± 缓冲的行，
+// 上下用定高 spacer 占位。行高渲染后量 offsetHeight 回填，没渲染的按 72px 估
+// （行自带 content-visibility，首次可见后真实高度会补上，滚动锚定误差自愈）。
+// 'scrolltoline' 播放行跟随走纯坐标计算，没挂载的行也能滚，滚到即挂。
+// 编辑态和打开的下拉随滚出视口销毁、滚回重建，数据都在 rows 里，无损失。
 import {computed, nextTick, onMounted, onUnmounted, ref, watch} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -27,7 +23,7 @@ const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 
 const listEl = ref<HTMLOListElement | null>(null);
 let scroller: HTMLElement | null = null;
-const EST = 72, BUF = 420;             // 行高估算 / 可视区上下缓冲（px）
+const EST = 72, BUF = 420;             // 行高估算 / 上下缓冲，px
 let rowH: number[] = [];
 let pos: number[] = [0];               // 行首坐标前缀和
 const win = ref({from: 0, to: 0, top: 0, bottom: 0});
@@ -39,7 +35,7 @@ function rebuild() {
     return;
   }
   const ov = S.project.overrides, R = exportRangeCuts();
-  // 每行的切分序号区间（导出范围按切分算：行命中 = 它的切分与范围相交）
+  // 每行的切分序号区间。导出范围按切分算：行的切分和范围相交就算命中
   const span: Record<number, [number, number]> = {};
   for (const c of S.plan.cuts as any[]) {
     const s = span[c.line] || (span[c.line] = [c.index, c.index]);

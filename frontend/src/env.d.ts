@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
-// package.json 的 version 经 vite define 编译期注入（见 vite.config.ts）
+// version 来自 package.json，vite define 编译期注入（见 vite.config.ts）
 declare const __APP_VERSION__: string;
 
-// 歌词引擎以 IIFE 形式挂载在 window.J 上（原样保留，不做模块化改写）
+// 歌词引擎是 IIFE 挂在 window.J 上的，刻意保持原样不模块化
 declare interface Window {
     J: import('./engine/jizura-engine').JizuraEngine;
     Mp4Muxer?: any;

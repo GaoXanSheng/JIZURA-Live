@@ -71,7 +71,7 @@ public sealed class KgLyricResponse : ApiResponse
     [JsonProperty("content", NullValueHandling = NullValueHandling.Ignore)]
     public string? Content { get; set; }
 
-    // 网易云：翻译(tlyric)/音译(romalrc) LRC，base64，前端按时间戳对齐成注音
+    // 网易云翻译(tlyric)/音译(romalrc) LRC，base64，前端按时间戳对齐成注音
     [JsonProperty("trans", NullValueHandling = NullValueHandling.Ignore)]
     public string? Trans { get; set; }
 
@@ -110,7 +110,7 @@ public sealed class KgLoginResponse : ApiResponse
     public string? UserId { get; set; }
 }
 
-// 歌单条目：酷狗（global_collection_id）与网易云共用同一形态
+// 歌单条目，酷狗（global_collection_id）与网易云共用同一形态
 public sealed class PlaylistInfo
 {
     [JsonProperty("id")] public string Id { get; set; } = "";

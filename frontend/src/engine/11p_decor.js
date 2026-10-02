@@ -1,15 +1,11 @@
-/* JIZURA pack: decor — 45 refined graphic accents: HUD / measuring marks, geometry, particles & light, hand-drawn marks, type ornaments */
 (() => {
     'use strict';
     const E = J.E;
     const PK = 'decor';
     const DEG = J.DEG, TAU = J.TAU;
 
-    /* ============================================================
-       shared helpers
-       ============================================================ */
-    const U = env => Math.min(env.W, env.H) / 1080;                    // 1 at 1080p short side
-    const MG = env => Math.round(Math.min(env.W, env.H) * 0.05);        // safe margin
+    const U = env => Math.min(env.W, env.H) / 1080; // 1080p 短边时为 1
+    const MG = env => Math.round(Math.min(env.W, env.H) * 0.05); // 安全边距
     const monoF = env => (env.st.fonts.mono && env.st.fonts.mono[0]) || 'mono';
     const bodyF = env => (env.st.fonts.body && env.st.fonts.body[0]) || 'gothic_med';
     const serifF = env => (env.st.fonts.serif && env.st.fonts.serif[0]) || 'mincho';
@@ -18,9 +14,9 @@
     const outE = env => 1 - E.inCubic(env.pOut);
     const L2 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
     const colOf = (env, c, g) => (env.pass === 'main' ? c : g ? env.passColor : null);
-    const FS = env => Math.max(12, 16 * U(env));                         // small label size
+    const FS = env => Math.max(12, 16 * U(env)); // 小标签字号
 
-    /* lyric bbox: remember the last real one per cut so decor never jumps to the centre while the text is hidden */
+    // 每个 cut 记住最近一次有效 bbox，歌词隐藏期间 decor 不会跳回屏幕中心
     const BBC = new WeakMap();
     const getBB = (env, bb) => {
         if (bb && isFinite(bb.x0 + bb.x1 + bb.y0 + bb.y1) && bb.x1 > bb.x0 && bb.y1 > bb.y0) {
@@ -50,7 +46,7 @@
     const bw = bb => bb.x1 - bb.x0, bh = bb => bb.y1 - bb.y0;
     const hitBB = (x0, y0, x1, y1, bb, pad = 0) => !(x1 < bb.x0 - pad || x0 > bb.x1 + pad || y1 < bb.y0 - pad || y0 > bb.y1 + pad);
 
-    /* place a w×h box next to the lyric (outside it, inside the safe margin). returns {x, y, cx, cy, ok, sx, sy} (top-left + centre) */
+    // 在歌词旁找一个 w×h 的位置（安全边距内、不压歌词），返回 {x, y, cx, cy, ok, sx, sy}（左上角加中心）
     function nearBB(env, bb, w, h, P, gap) {
         const {W, H} = env, m = MG(env) * 0.8;
         const sx0 = P.right ? 1 : -1, sy0 = P.low ? 1 : -1;
@@ -77,7 +73,7 @@
         return cornerSpot(env, bb, w, h, P);
     }
 
-    /* a screen corner (inside the margin) that keeps clear of the lyric */
+    // 安全边距内的屏幕角落，尽量避开歌词
     function cornerSpot(env, bb, w, h, P, mk = 1) {
         const {W, H} = env, m = MG(env) * mk;
         const sx0 = P.right ? 1 : -1, sy0 = P.low ? 1 : -1;
@@ -95,7 +91,7 @@
         return best;
     }
 
-    /* stroke a polyline (round caps optional); ghost=false → main pass only */
+    // 画折线（o 可设 cap/join/close）；g=false 时只在 main pass 上色
     function stroke(env, pts, c, lw, a = 1, g = false, o) {
         const k = colOf(env, c, g);
         if (!k || a <= 0.003 || !pts || pts.length < 2) return;
@@ -115,7 +111,7 @@
         ctx.lineJoin = 'miter';
     }
 
-    /* many straight segments [[x0,y0,x1,y1],…] in one path */
+    // 一个路径里画一批直线段 [[x0,y0,x1,y1],…]
     function segs(env, list, c, lw, a = 1, g = false, cap) {
         const k = colOf(env, c, g);
         if (!k || a <= 0.003 || !list.length) return;
@@ -134,7 +130,7 @@
         ctx.lineCap = 'butt';
     }
 
-    /* many filled circles [[x,y,r],…] in one path */
+    // 一个路径里画一批实心圆 [[x,y,r],…]
     function dots(env, list, c, a = 1, g = false) {
         const k = colOf(env, c, g);
         if (!k || a <= 0.003 || !list.length) return;
@@ -151,7 +147,7 @@
         ctx.globalAlpha = 1;
     }
 
-    /* many filled rects [[x,y,w,h],…] */
+    // 一批实心矩形 [[x,y,w,h],…]
     function rects(env, list, c, a = 1, g = false) {
         const k = colOf(env, c, g);
         if (!k || a <= 0.003 || !list.length) return;
@@ -164,7 +160,7 @@
         ctx.globalAlpha = 1;
     }
 
-    /* filled polygons [[pts],…] in one path */
+    // 一个路径里画一批实心多边形 [[pts],…]
     function polys(env, list, c, a = 1, g = false) {
         const k = colOf(env, c, g);
         if (!k || a <= 0.003 || !list.length) return;
@@ -182,7 +178,7 @@
         ctx.globalAlpha = 1;
     }
 
-    /* dashed straight line (main pass only) */
+    // 直线虚线，只画 main pass
     function dash(env, x0, y0, x1, y1, on, off, c, lw, a = 1, phase = 0) {
         if (env.pass !== 'main' || a <= 0.003) return;
         const L = Math.hypot(x1 - x0, y1 - y0);
@@ -196,7 +192,7 @@
         segs(env, list, c, lw, a, false);
     }
 
-    /* sub-polyline between length fractions e0..e1 */
+    // 取折线上长度占比 e0..e1 的一段
     function part(pts, e0, e1) {
         e0 = J.clamp(e0);
         e1 = J.clamp(e1);
@@ -218,7 +214,7 @@
         return out;
     }
 
-    /* small secondary text (never ghosted) */
+    // 小号辅助文字，永不 ghost
     const label = (env, text, x, y, o) => env.draw(Object.assign({
         text: String(text),
         font: monoF(env),
@@ -233,7 +229,7 @@
     const textW = (text, font, size, track = 0.08) => J.measure({text: String(text), font, size, track}).w;
     const pad2 = (n, k = 2) => String(Math.max(0, Math.floor(n))).padStart(k, '0');
 
-    /* a character from the lyric: prefer kanji, then kana */
+    // 从歌词里挑一个字：优先汉字，其次假名
     function lyricChar(env, salt) {
         const arr = [...String(env.cut.text || env.cut.lineText || '')].filter(c => c.trim() && !J.isPunct(c));
         if (!arr.length) return '';
@@ -251,15 +247,15 @@
         }
         return o;
     };
-    const glint = (cx, cy, R, w, rot = 0) => {        // 4-point concave star
+    const glint = (cx, cy, R, w, rot = 0) => { // 四角凹边星形
         const o = [];
         const n = 4;
         for (let i = 0; i < n * 2; i++) {
             const a = rot * DEG + i * Math.PI / n, q = i % 2 ? w : R;
             o.push([cx + Math.cos(a) * q, cy + Math.sin(a) * q]);
         }
-        // add concave in-between control points
-        const out = [];                                   // pull each edge midpoint inward → concave sides
+        // 每条边中点向圆心收，形成凹边
+        const out = [];
         for (let i = 0; i < o.length; i++) {
             out.push(o[i]);
             out.push(L2(L2(o[i], o[(i + 1) % o.length], 0.5), [cx, cy], 0.35));
@@ -279,11 +275,6 @@
 
     const DEF = {};
 
-    /* ============================================================
-       HUD / technical
-       ============================================================ */
-
-    /* 照準線 — hairlines through the lyric centre, broken around it, graduated near the gap */
     DEF.crosshair = {
         name: '照準線', tags: ['graphic', 'editorial', 'glitch'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -294,7 +285,7 @@
             const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
             const gx = 26 * u + bw(bb) * 0.02, gy = 22 * u + bh(bb) * 0.1;
             const v = (P.v | 0) % 3, lw = Math.max(1, 1.3 * u);
-            // vertical arms always; horizontal arms only where there is room beside the lyric
+            // 竖臂总画；横臂只在歌词旁边有空间时才画
             const arms = [[[cx, bb.y0 - gy], [cx, m * 0.5]], [[cx, bb.y1 + gy], [cx, H - m * 0.5]], [[bb.x0 - gx, cy], [m * 0.5, cy]], [[bb.x1 + gx, cy], [W - m * 0.5, cy]]];
             const pOut = E.inCubic(env.pOut);
             arms.forEach(([a, b], i) => {
@@ -304,7 +295,7 @@
                 if (ee <= pOut) return;
                 stroke(env, [L2(a, b, pOut), L2(a, b, ee)], sc.sub, lw, 0.75);
                 const dx = (b[0] - a[0]) / len, dy = (b[1] - a[1]) / len, nx = -dy, ny = dx;
-                if (v !== 2 || i < 2) {        // graduation near the gap
+                if (v !== 2 || i < 2) { // 缺口附近的渐变刻度
                     const st = 10 * u, nt = Math.min(20, Math.floor(len * 0.5 / st)), list = [];
                     for (let t = 1; t <= nt; t++) {
                         const d = t * st;
@@ -314,7 +305,7 @@
                     }
                     segs(env, list, sc.fg, lw, 0.8 * o);
                 }
-                const cap = 9 * u * ee;          // accent cap at the inner end
+                const cap = 9 * u * ee; // 内端的高亮端帽
                 if (pOut < 0.02) stroke(env, [[a[0] - nx * cap, a[1] - ny * cap], [a[0] + nx * cap, a[1] + ny * cap]], i < 2 || P.accent ? sc.accent : sc.fg, 2.4 * u, ee * o);
                 if (v === 1) env.circle(b[0], b[1], 3 * u * ee, null, sc.fg, lw, o * ee, false);
             });
@@ -332,7 +323,6 @@
         },
     };
 
-    /* トンボ — printer's crop / registration marks around the lyric */
     DEF.cropMarks = {
         name: 'トンボ', tags: ['editorial', 'graphic', 'calm'], w: 1.1, layer: 'front',
         draw(env, bb0, P) {
@@ -355,7 +345,7 @@
                 segs(env, [[...hl(Y)[0], ...hl(Y)[1]], [...vl(X)[0], ...vl(X)[1]]], col, lw, 0.9 * o);
                 segs(env, [[...hl(Y + sy * b)[0], ...hl(Y + sy * b)[1]], [...vl(X + sx * b)[0], ...vl(X + sx * b)[1]]], col, lw, 0.55 * o);
             });
-            // centre marks (十) + register circles
+            // 中央十字 + 套准圆
             const e2 = inE(env, 0.45, 0.15);
             if (e2 <= 0) return;
             const cx = (X0 + X1) / 2, cy = (Y0 + Y1) / 2, cl = 20 * u * e2, rr = 6 * u;
@@ -370,7 +360,6 @@
         },
     };
 
-    /* ロックオン — a targeting reticle that shrinks, spins and locks beside the lyric */
     DEF.reticle = {
         name: 'ロックオン', tags: ['glitch', 'graphic'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -418,7 +407,6 @@
         },
     };
 
-    /* レーダー — a small scope with a sweeping beam and blips in a free corner */
     DEF.radar = {
         name: 'レーダー', tags: ['glitch', 'graphic'], w: 0.7, layer: 'front',
         draw(env, bb0, P) {
@@ -463,7 +451,6 @@
         },
     };
 
-    /* 進行リング — a thin gauge that fills with the cut's progress */
     DEF.progressRing = {
         name: '進行リング', tags: ['graphic', 'editorial', 'calm'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -507,7 +494,6 @@
         },
     };
 
-    /* タイムコード — rolling SMPTE readout + a mini scrub bar with in/out points */
     DEF.timecodeBar = {
         name: 'タイムコード', tags: ['editorial', 'glitch', 'graphic'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -536,7 +522,7 @@
                 align: 'right',
                 alpha: a * e
             });
-            // scrub bar
+            // 进度条和 IN/OUT 点
             const by = y0 + h - fs * 0.6, lw = Math.max(1, u), prog = J.clamp(env.lt / Math.max(0.1, env.cut.dur));
             stroke(env, [[x0, by], [x0 + w * e, by]], sc.sub, lw, 0.6 * a);
             const tk = [];
@@ -561,7 +547,6 @@
         },
     };
 
-    /* 端の定規 — a graduated ruler on one screen edge whose markers track the lyric */
     DEF.rulerEdge = {
         name: '端の定規', tags: ['editorial', 'graphic', 'calm'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -599,7 +584,7 @@
                     alpha: 0.7 * a
                 });
             }
-            // lyric markers
+            // 歌词位置标记
             const em = inE(env, 0.5, 0.2, E.outCubic) * o;
             if (em <= 0) return;
             const lo = vert ? bb.y0 : bb.x0, hi = vert ? bb.y1 : bb.x1, mid = (lo + hi) / 2;
@@ -622,7 +607,6 @@
         },
     };
 
-    /* 寸法線 — drafting dimension lines measuring the lyric (width / height) */
     DEF.dimension = {
         name: '寸法線', tags: ['editorial', 'graphic'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -643,10 +627,10 @@
             const lab = `${Math.round(x1 - x0)}`;
             const lwid = textW(lab, monoF(env), fs, 0.08) + 14 * u;
             const X0 = J.lerp(cx, x0, e), X1 = J.lerp(cx, x1, e);
-            // extension lines
+            // 延长线
             const ext = [[x0, (below ? bb.y1 : bb.y0) + sy * 6 * u, x0, y + sy * 8 * u], [x1, (below ? bb.y1 : bb.y0) + sy * 6 * u, x1, y + sy * 8 * u]];
             segs(env, ext.map(s => [s[0], s[1], s[2], J.lerp(s[1], s[3], e2)]), sc.sub, lw, 0.7 * o);
-            // dimension line with a gap for the value
+            // 尺寸线，中间留空放数值
             if (X1 - X0 > lwid) {
                 segs(env, [[X0, y, cx - lwid / 2, y], [cx + lwid / 2, y, X1, y]], sc.fg, lw, 0.9 * o);
             }
@@ -654,7 +638,7 @@
             if (arch) segs(env, [[x0 - 5 * u, y + 5 * u, x0 + 5 * u, y - 5 * u], [x1 - 5 * u, y + 5 * u, x1 + 5 * u, y - 5 * u]], sc.fg, 1.6 * u, ea);
             else polys(env, [[[x0, y], [x0 + 10 * u, y - 3.5 * u], [x0 + 10 * u, y + 3.5 * u]], [[x1, y], [x1 - 10 * u, y - 3.5 * u], [x1 - 10 * u, y + 3.5 * u]]], sc.fg, ea);
             label(env, lab, cx, y, {size: fs, align: 'center', color: P.accent ? sc.accent : sc.fg, alpha: e2 * o});
-            // height dimension on one side
+            // 一侧的高度尺寸
             if (P.big || (P.v | 0) % 3 === 0) {
                 const gx = 20 * u + bw(bb) * 0.02;
                 let right = !!P.right, x = right ? bb.x1 + gx : bb.x0 - gx;
@@ -675,7 +659,6 @@
         },
     };
 
-    /* 通し番号 — a thin numeral "03 / 12" with rolling digits in a free corner */
     DEF.indexNum = {
         name: '通し番号', tags: ['editorial', 'graphic', 'calm'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -694,13 +677,13 @@
             const a = o * (sp.ok ? 1 : 0.35) * E.outCubic(J.clamp(env.lt / 0.2)), x0 = sp.x, base = sp.y + S * 0.8;
             const ctx = env.ctx, digits = [...num];
             let x = x0;
-            // rolling digits (clipped window, main pass only)
+            // 数字滚动，clip 窗口内绘制
             if (env.pass === 'main') {
                 digits.forEach((d, i) => {
                     const dw = textW(d, font, S, 0.02);
                     const p = E.outExpo(J.clamp((env.lt - 0.04 - i * 0.08) / 0.55));
                     const steps = P.mode === 'count' ? 6 + i * 3 : 3;
-                    const off = (1 - p) * steps;                   // how many digits still to roll
+                    const off = (1 - p) * steps; // 还要滚过几位
                     ctx.save();
                     ctx.beginPath();
                     ctx.rect(x - 2, base - S * 0.5, dw + 4, S * 0.98);
@@ -738,7 +721,6 @@
         },
     };
 
-    /* 日付写真 — orange seven-segment date imprint like an old film camera */
     const SEG = {
         0: 'abcdef',
         1: 'bc',
@@ -818,7 +800,6 @@
         },
     };
 
-    /* QR風 — a QR-like module block that scans in, with finder squares */
     DEF.qrBlock = {
         name: 'QR風ブロック', tags: ['graphic', 'glitch', 'pop'], w: 0.7, layer: 'front',
         draw(env, bb0, P) {
@@ -856,7 +837,7 @@
             }
             rects(env, fg, sc.fg, a);
             rects(env, acc, sc.accent, a);
-            // scan line during the build
+            // 生成期间的扫描线
             if (e < 1) {
                 const sy = y0 + S * e * 1.1;
                 if (sy < y0 + S) stroke(env, [[x0 - 6 * u, sy], [x0 + S + 6 * u, sy]], sc.accent, 1.5 * u, a);
@@ -869,7 +850,6 @@
         },
     };
 
-    /* グリッチ片 — flickering data slivers and hollow frames hugging the lyric's sides */
     DEF.glitchRects = {
         name: 'グリッチ片', tags: ['glitch'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -890,7 +870,7 @@
                     y = J.lerp(bb.y0, bb.y1, r(2));
                     w = Math.min(w, room - 8 * u);
                     x = right ? bb.x1 + gap + r(5) * Math.max(0, room - w - 8 * u) * 0.5 : bb.x0 - gap - w - r(5) * Math.max(0, room - w - 8 * u) * 0.5;
-                } else {                                   // cramped sides: hug the top / bottom edge instead
+                } else { // 两侧太挤就改贴上下边
                     const top = r(9) < 0.5;
                     y = top ? bb.y0 - gap - r(2) * 40 * u : bb.y1 + gap + r(2) * 40 * u;
                     x = J.lerp(bb.x0, bb.x1 - w, r(5));
@@ -915,11 +895,6 @@
         },
     };
 
-    /* ============================================================
-       geometry
-       ============================================================ */
-
-    /* 同心四角 — nested hairline squares: a slow twist or an endless tunnel */
     DEF.concentricSquares = {
         name: '同心四角', tags: ['graphic', 'calm', 'editorial'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -955,7 +930,6 @@
         },
     };
 
-    /* 回転三角 — a huge hairline triangle whose edges circle clear of the lyric, or a counter-rotating pair with an orbiting solid */
     DEF.triangleSpin = {
         name: '回転三角', tags: ['graphic', 'pop', 'glitch'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -973,7 +947,7 @@
             };
             const dir = P.right ? 1 : -1;
             const rin = Math.hypot(bw(bb) / 2, bh(bb) / 2) + 18 * u;
-            if (P.big && rin * 2 < Math.max(W, H) * 0.62) {          // one big triangle whose edges stay clear of the lyric
+            if (P.big && rin * 2 < Math.max(W, H) * 0.62) { // 大三角模式：边缘始终避开歌词
                 const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2,
                     R = rin * 2 * (1 + 0.08 * E.inCubic(env.pOut));
                 const rot = dir * ((1 - e) * -70 + env.ltb * 5) + P.r * 120;
@@ -982,7 +956,7 @@
                 stroke(env, part(tri(cx, cy, R * 1.07, -rot * 0.6 + 60), 0, E.outExpo(J.clamp((env.lt - 0.12) / 0.6))), P.accent ? sc.accent : sc.sub, lw, 0.45 * o);
                 return;
             }
-            // counter-rotating concentric pair + a small solid triangle orbiting them
+            // 反向旋转的同心双三角，外加一颗环绕的实心小三角
             const S = J.clamp(Math.min(W, H) * 0.19, 110 * u, 230 * u);
             const sp = P.corner ? cornerSpot(env, bb, S, S, P) : nearBB(env, bb, S, S, P, 24 * u),
                 a = o * (sp.ok ? 1 : 0.35);
@@ -1000,7 +974,6 @@
         },
     };
 
-    /* 放射線 — short emphasis dashes radiating from the lyric's outline */
     const superR = (a, b, p, th) => {
         const c = Math.abs(Math.cos(th)), s = Math.abs(Math.sin(th));
         return 1 / Math.pow(Math.pow(c / a, p) + Math.pow(s / b, p), 1 / p);
@@ -1013,7 +986,7 @@
             if (o <= 0.003 || env.lt < 0 || env.pass !== 'main') return;
             const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2, pad = 18 * u + bh(bb) * 0.14;
             const A = bw(bb) / 2 * 1.08 + pad, B = bh(bb) / 2 * 1.12 + pad;
-            // sample the outline and space the dashes evenly along its length
+            // 采样轮廓，让短线沿周长均匀分布
             const M = 180, pts = [], cum = [0];
             for (let i = 0; i <= M; i++) {
                 const th = i / M * TAU, r = superR(A, B, 4, th);
@@ -1048,7 +1021,6 @@
         },
     };
 
-    /* プラス格子 — a precise grid of + marks with a scanning highlight */
     DEF.plusGrid = {
         name: 'プラス格子', tags: ['graphic', 'editorial', 'calm'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -1081,7 +1053,6 @@
         },
     };
 
-    /* ガイド線 — dashed layout guides along the lyric's edges, with handles and readouts */
     DEF.guides = {
         name: 'ガイド線', tags: ['editorial', 'graphic', 'calm'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -1108,7 +1079,6 @@
         },
     };
 
-    /* 波線 — a long, precise sine hairline pair drifting across the free band */
     function freeBand(env, bb, low) {
         const {H} = env, m = MG(env);
         const above = bb.y0 - m * 0.5, below = H - m * 0.5 - bb.y1;
@@ -1153,7 +1123,6 @@
         },
     };
 
-    /* 渦巻き — an Archimedean or square spiral drawn on from its centre */
     DEF.spiralLine = {
         name: '渦巻き', tags: ['graphic', 'pop', 'calm'], w: 0.8, layer: 'front',
         draw(env, bb0, P) {
@@ -1193,7 +1162,6 @@
         },
     };
 
-    /* 網点 — a halftone (dot or line screen) gradient bleeding from a screen corner, under the lyric */
     DEF.halftonePatch = {
         name: '網点', tags: ['graphic', 'pop', 'editorial'], w: 1, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1237,7 +1205,6 @@
         },
     };
 
-    /* 市松 — a small checkerboard band that wipes open and scrolls */
     DEF.checkerStrip = {
         name: '市松の帯', tags: ['pop', 'graphic'], w: 0.8, layer: 'front',
         draw(env, bb0, P) {
@@ -1270,7 +1237,6 @@
         },
     };
 
-    /* 拍の輪 — thin rings that ripple outward from the centre on every beat (under the lyric) */
     DEF.beatRing = {
         name: '拍の輪', tags: ['pop', 'emotional', 'calm'], w: 1, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1301,7 +1267,6 @@
         },
     };
 
-    /* 周回する点 — a tilted orbit around the lyric; dots and trails pass "behind" the text */
     DEF.orbitDots = {
         name: '周回する点', tags: ['calm', 'emotional', 'graphic'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -1321,7 +1286,7 @@
             const pad = 8 * u,
                 inside = p => p[0] > bb.x0 - pad && p[0] < bb.x1 + pad && p[1] > bb.y0 - pad && p[1] < bb.y1 + pad;
             const e = E.inOutCubic(J.clamp(env.lt / 0.7)), th0 = P.r * TAU;
-            // orbit path, skipping the parts hidden by the lyric
+            // 轨道线，跳过被歌词挡住的段落
             const M = 160, segsL = [];
             let prev = null;
             for (let k = 0; k <= M * e; k++) {
@@ -1347,7 +1312,6 @@
         },
     };
 
-    /* 星座 — a small constellation: stars joined by hairlines, drawn in sequence */
     DEF.constellation = {
         name: '星座', tags: ['calm', 'emotional', 'editorial'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -1402,17 +1366,13 @@
         },
     };
 
-    /* ============================================================
-       organic / atmosphere
-       ============================================================ */
-    /* alpha that fades a particle out near the lyric (front particles never cover it) */
+    // 粒子越靠近歌词越透明，前景粒子不遮字
     const clearOf = (bb, x, y, pad, soft) => {
         const dx = Math.max(bb.x0 - pad - x, 0, x - bb.x1 - pad), dy = Math.max(bb.y0 - pad - y, 0, y - bb.y1 - pad);
         return J.clamp(Math.hypot(dx, dy) / soft);
     };
     const wrap = (v, lo, span) => lo + (((v - lo) % span) + span) % span;
 
-    /* 紙吹雪 — tumbling confetti drifting down around (never over) the lyric */
     DEF.confetti = {
         name: '紙吹雪', tags: ['pop', 'emotional'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -1445,7 +1405,6 @@
         },
     };
 
-    /* 花びら — cherry petals tumbling diagonally on the wind, clear of the lyric */
     const PETAL = (() => {
         const h = [[0, -0.5], [0.16, -0.38], [0.3, -0.18], [0.36, 0.04], [0.32, 0.24], [0.22, 0.42], [0.1, 0.5], [0, 0.4]];
         return h.concat(h.slice(1, -1).reverse().map(([x, y]) => [-x, y]));
@@ -1482,7 +1441,6 @@
         },
     };
 
-    /* 雨の筋 — fine slanted rain streaks falling behind the lyric */
     DEF.rainStreaks = {
         name: '雨の筋', tags: ['emotional', 'calm', 'glitch'], w: 0.9, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1507,7 +1465,6 @@
         },
     };
 
-    /* 雪 — soft snow in three depth layers, gently swaying (under the lyric) */
     DEF.snow = {
         name: '雪', tags: ['calm', 'emotional'], w: 0.8, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1531,7 +1488,6 @@
         },
     };
 
-    /* 光漏れ — a soft warm light leak breathing in from a screen edge (main pass only) */
     DEF.lightLeak = {
         name: '光漏れ', tags: ['emotional', 'calm', 'pop'], w: 1, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1571,7 +1527,6 @@
         },
     };
 
-    /* ボケ玉 — out-of-focus light discs (or aperture hexagons) that pull into focus */
     DEF.bokeh = {
         name: 'ボケ玉', tags: ['emotional', 'calm', 'pop'], w: 1, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1605,7 +1560,6 @@
         },
     };
 
-    /* 集中線 — manga speed lines rushing in from the edges, stopping short of the lyric */
     DEF.speedCorner = {
         name: '集中線', tags: ['pop', 'emotional', 'glitch'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -1641,7 +1595,6 @@
         },
     };
 
-    /* 立ち上る粒 — small embers / light motes rising and fading (under the lyric) */
     DEF.risingParticles = {
         name: '立ち上る粒', tags: ['emotional', 'calm', 'glitch'], w: 0.9, layer: 'back', subtle: true,
         draw(env, bb, P) {
@@ -1658,7 +1611,7 @@
                 const p = J.clamp(1 - y / H), fade = Math.pow(Math.sin(Math.PI * J.clamp(p)), 0.7);
                 if (fade <= 0.05) continue;
                 const ph = r(5) * 6, f = 0.7 + r(4), sw = 14 * u;
-                const x = r(3) * W + Math.sin(env.ltb * f + ph) * sw, dx = Math.cos(env.ltb * f + ph) * f * sw;   // dx: sway velocity
+                const x = r(3) * W + Math.sin(env.ltb * f + ph) * sw, dx = Math.cos(env.ltb * f + ph) * f * sw; // dx 是摆动速度，拖尾方向要用它
                 const s = (1.6 + r(6) * 2.6) * u, b = fade > 0.66 ? 2 : fade > 0.33 ? 1 : 0, tl = vy * 0.28;
                 if (shape === 2) heads[b].push([[x, y - s * 1.6], [x + s, y], [x, y + s * 1.6], [x - s, y]]);
                 else heads[b].push([x, y, s]);
@@ -1674,7 +1627,6 @@
         },
     };
 
-    /* きらめき — four-point glints twinkling just outside the lyric's corners */
     DEF.twinkle = {
         name: 'きらめき', tags: ['pop', 'emotional', 'calm'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -1722,11 +1674,6 @@
         },
     };
 
-    /* ============================================================
-       hand-drawn
-       ============================================================ */
-
-    /* 筆の払い — a dry-brush sweep with bristle streaks and a tapering flick (under the lyric) */
     DEF.brushStroke = {
         name: '筆の払い', tags: ['emotional', 'editorial', 'pop'], w: 1, layer: 'back',
         draw(env, bb, P) {
@@ -1735,7 +1682,7 @@
             const o = outE(env);
             if (o <= 0.003) return;
             const v = (P.v | 0) % 3;
-            // colour + opacity chosen so the lyric (sc.fg) keeps >= 3:1 contrast on top of the stroke
+            // 颜色和透明度要保证歌词文字压在笔触上仍有 >= 3:1 对比度
             const cands = v === 1 ? [sc.dim, sc.accent2, sc.sub] : [sc.accent, sc.accent2, sc.ghostA, sc.ghostB, sc.sub, sc.dim];
             let col = null, al = 0;
             for (const c of cands.filter(Boolean)) {
@@ -1759,7 +1706,7 @@
             ctx.lineJoin = 'round';
             ctx.globalAlpha = al;
             ctx.strokeStyle = col;
-            // bristles: all in one path per width band, so overlaps never darken (no alpha build-up)
+            // 笔毛按宽度分两组，各自一条路径一次画完，重叠处不会叠深
             const bands = [[], []];
             for (let j = 0; j < K; j++) {
                 const f = j / (K - 1) - 0.5, r = k => J.r(P.seed, j, k);
@@ -1802,7 +1749,6 @@
         },
     };
 
-    /* マスキングテープ — translucent tape pieces pinning the lyric's corners */
     DEF.tapePieces = {
         name: 'マスキングテープ', tags: ['pop', 'emotional', 'editorial'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -1829,7 +1775,7 @@
                 for (let i = 0; i <= teeth; i++) pts.push([-hl + (i % 2 ? 3 : 0) * u + J.rs(P.seed, k, i, 2) * 2 * u, -hh + i / teeth * Ht]);
                 for (let i = teeth; i >= 0; i--) pts.push([hl - (i % 2 ? 3 : 0) * u + J.rs(P.seed, k, i, 3) * 2 * u, -hh + i / teeth * Ht]);
                 polys(env, [pts], col, 0.62 * eq * o);
-                if (v !== 1) {                                     // printed stripes on the tape
+                if (v !== 1) {
                     ctx.save();
                     ctx.beginPath();
                     ctx.rect(-hl + 3 * u, -hh, Lt - 6 * u, Ht);
@@ -1844,14 +1790,13 @@
         },
     };
 
-    /* 手描きの囲み — a loose hand-drawn loop around the lyric */
     function handLoop(env, bb, P, turns) {
         const u = U(env), {W, H} = env, pad = 14 * u + Math.min(bw(bb), bh(bb)) * 0.08;
         const hw = bw(bb) / 2, hh = bh(bb) / 2, cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
         const lx = Math.max(hw * 0.9, Math.min(cx, W - cx) - 10 * u),
             ly = Math.max(hh * 0.9, Math.min(cy, H - cy) - 10 * u);
         let A = Math.min(hw * 1.22 + pad, lx), B = Math.min(hh * 1.22 + pad, ly);
-        // keep the lyric's corners inside the loop (a loose ring may graze them when the screen is tight)
+        // 屏幕太紧时松环可能擦到歌词四角，这里把它们包进环内
         if ((hw / A) ** 2 + (hh / B) ** 2 > 1) {
             if (A < hw * 1.22 + pad) B = Math.min(ly, hh / Math.sqrt(Math.max(0.06, 1 - (hw / A) ** 2)) * 0.96 + pad * 0.3);
             else A = Math.min(lx, hw / Math.sqrt(Math.max(0.06, 1 - (hh / B) ** 2)) * 0.96 + pad * 0.3);
@@ -1883,7 +1828,6 @@
         },
     };
 
-    /* 手描き下線 — a hand-drawn underline: a double swipe, a wavy line or a zig-zag scribble */
     DEF.scribbleUnder = {
         name: '手描き下線', tags: ['pop', 'emotional', 'editorial'], w: 1.1, layer: 'front',
         draw(env, bb0, P) {
@@ -1931,7 +1875,6 @@
         },
     };
 
-    /* 取り消し線 — a small "draft" word beside the lyric, struck out by hand */
     DEF.crossOut = {
         name: '推敲の走り書き', tags: ['editorial', 'emotional'], w: 0.4, layer: 'front',
         draw(env, bb0, P) {
@@ -1967,7 +1910,7 @@
                 cap: 'round',
                 join: 'round'
             }));
-            // a little hand-drawn arrow to the nearest edge of the lyric
+            // 画一条指向歌词最近边的手绘箭头
             const e3 = E.outCubic(J.clamp((env.lt - 0.6) / 0.3));
             if (e3 <= 0) return;
             let c1, c3;
@@ -2006,7 +1949,6 @@
         },
     };
 
-    /* 蛍光マーカー — a highlighter swipe under the lower half of each lyric line (screen / multiply, so glyphs stay crisp) */
     DEF.highlightMark = {
         name: '蛍光マーカー', tags: ['pop', 'editorial', 'emotional'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -2015,9 +1957,9 @@
             const o = outE(env);
             if (o <= 0.003) return;
             const dk = dark(env);
-            // marker colour: visible on the background AND clearly different from the text colour
+            // 荧光笔颜色要在背景上可见，且与文字颜色明显区分
             const cands = [sc.accent, sc.accent2, sc.ghostA, sc.ghostB, sc.sub].filter(Boolean);
-            // light text → screen a lighter colour; dark text → multiply a darker one (the glyphs themselves stay untouched)
+            // 亮字用 screen 叠浅色，暗字用 multiply 叠深色，字形本身不动
             const lighten = J.lum(sc.fg) > J.lum(sc.bg), lb = J.lum(sc.bg);
             const side = c => (lighten ? J.lum(c) > lb + 0.06 : J.lum(c) < lb - 0.06);
             const pool = cands.filter(side);
@@ -2028,7 +1970,7 @@
                 weak = 0.7;
             }
             const vert = bh(bb) > bw(bb) * 1.25;
-            // group glyph boxes into lines (or columns)
+            // 把字形框按行归组（竖排按列）
             let lines = [];
             if (bb.boxes && bb.boxes.length && bb.cx != null) {
                 const bx = bb.boxes.map(b => ({
@@ -2077,7 +2019,6 @@
         },
     };
 
-    /* ハートと星 — little hearts / stars popping around the lyric */
     DEF.heartsStars = {
         name: 'ハートと星', tags: ['pop', 'emotional'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -2123,11 +2064,6 @@
         },
     };
 
-    /* ============================================================
-       type ornaments
-       ============================================================ */
-
-    /* 透かし大漢字 — one character of the lyric, huge and dim, cropped by the screen edge */
     DEF.watermarkKanji = {
         name: '透かし大漢字', tags: ['editorial', 'emotional', 'calm'], w: 1, layer: 'back',
         draw(env, bb, P) {
@@ -2158,7 +2094,6 @@
         },
     };
 
-    /* 縦書き帯 — the whole lyric line set small and vertical at a screen edge, with a hairline rule */
     DEF.verticalStrip = {
         name: '縦書き帯', tags: ['editorial', 'calm', 'emotional'], w: 1, layer: 'front',
         draw(env, bb0, P) {
@@ -2171,7 +2106,7 @@
             const fs = J.clamp(Math.min(W, H) * 0.022, 15 * u, 24 * u), track = 0.28, step = fs * (1 + track),
                 clear = 44 * u;
             const font = (P.v | 0) % 2 ? serifF(env) : bodyF(env);
-            // pick the edge / end with the most room (the strip never approaches the lyric)
+            // 挑空间最大的边和端；竖排条绝不靠近歌词
             let best = null;
             for (const right of [!!P.right, !P.right]) for (const top of [!P.low, !!P.low]) {
                 const x = right ? W - m * 0.95 : m * 0.95,
@@ -2209,7 +2144,6 @@
         },
     };
 
-    /* ローマ字 — a thin, widely-tracked latin line under the lyric that decodes letter by letter */
     const AZ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     DEF.romajiLine = {
         name: 'ローマ字', tags: ['editorial', 'calm', 'graphic'], w: 1, layer: 'front',
@@ -2256,7 +2190,7 @@
                 if (env.lt < ti - 0.22) return ' ';
                 return AZ[J.h(P.seed, i, env.step) % 26];
             }).join('');
-            // keep glyph positions stable: draw with left alignment from the final string's start
+            // 用左对齐从最终字符串的起点画，逐字解码时位置才不会晃
             label(env, out, cx - tw / 2, y, {
                 font,
                 size: fs,
@@ -2269,8 +2203,7 @@
         },
     };
 
-    /* 隅付き括弧 — bold 【 】 lenticular brackets clasping the lyric (︻ ︼ for vertical text) */
-    function lentil(xo, yT, yB, aw, tb, side) {           // xo = outer straight edge; side -1 = 【 (tips to the right), 1 = 】
+    function lentil(xo, yT, yB, aw, tb, side) { // xo 是外侧直边；side -1 为【（尖朝右），1 为】
         const pts = [[xo, yT], [xo - side * aw, yT]], M = 16, h = yB - yT;
         for (let i = 1; i < M; i++) {
             const t = i / M, b = Math.pow(Math.sin(t * Math.PI), 0.7);
@@ -2315,7 +2248,6 @@
         },
     };
 
-    /* 落款 — a red seal stamp with one character of the lyric, pressed beside it */
     DEF.seal = {
         name: '落款', tags: ['editorial', 'emotional', 'calm'], w: 0.9, layer: 'front',
         draw(env, bb0, P) {
@@ -2376,6 +2308,5 @@
         },
     };
 
-    /* ============================================================ registration */
     for (const k of Object.keys(DEF)) J.register('decor', k, DEF[k], PK);
 })();

@@ -1,18 +1,16 @@
-/* JIZURA pack: layoutsD — kinetic / faux-3D / physical / pop-graphic layouts (cube, cylinder, flags, pendulums, signs, puzzles, masks …) */
 (() => {
     'use strict';
     const E = J.E;
     const P = 'layoutsD';
     const reg = (key, def) => J.register('layout', key, def, P);
 
-    /* ------------------------------------------------------------------ helpers */
     const U = env => Math.min(env.W, env.H);
     const isPort = env => env.H > env.W * 1.08;
     const strip = t => String(t || '').replace(/\s+/g, '');
     const hasLatin = t => /[A-Za-z]/.test(t);
-    /* text as one run: latin keeps single word spaces, Japanese drops them */
+    // 整段当一个 run：拉丁文保留词间空格，日文直接去掉空白
     const flat = t => (hasLatin(t) ? String(t || '').trim().replace(/\s+/g, ' ') : strip(t));
-    /* glyph slots keeping single word gaps (latin lyrics): a ' ' slot is left empty */
+    // 字形槽位，拉丁歌词的词间空格也占一槽，' ' 槽留空不画
     const slotsOf = t => [...flat(t)];
     const fontsOf = (st, roles) => J.fontsOf(st, roles);
     const bodyF = env => (env.st.fonts.body && env.st.fonts.body[0]) || 'gothic_med';
@@ -24,11 +22,11 @@
     const pad2 = n => String(n).padStart(2, '0');
     const lineNo = env => pad2(Math.max(0, env.cut.line | 0) + 1);
     const smallSize = env => J.clamp(U(env) * 0.024, 13, 32);
-    /* motion index that makes J.mainDraw start this item's entrance at local time t */
+    // 算 motion index，让 J.mainDraw 在本地时间 t 起播这一项的入场
     const miAt = (env, t) => Math.max(0, t) / Math.max(0.005, env.cut.stagger || 0.04);
-    /* chromatic ghosts on big plates only while they fly in */
+    // 大色板飞入期间才上彩色重影
     const gIn = env => env.lt < 0.6 && env.pOut <= 0;
-    /* text printed on an object only takes holds that keep it in place */
+    // 印在物体上的文字只吃不挪位的 hold
     const plateHold = env => !['still', 'jitter', 'breathe', 'glitchtick'].includes(env.cut.hold);
     const romajiOf = env => {
         const c = strip(env.cut.text);
@@ -44,7 +42,7 @@
     const lightOf = sc => (J.lum(sc.fg) > J.lum(sc.bg) ? sc.fg : sc.bg);
     const darkOf = sc => (J.lum(sc.fg) > J.lum(sc.bg) ? sc.bg : sc.fg);
     const _onc = new Map();
-    /* best-contrast scheme colour for text on a plate of colour `fill` */
+    // fill 底色上对比度最高的配色
     const onCol = (sc, fill) => {
         const key = fill + sc.bg + sc.fg + sc.ink + sc.accent;
         let v = _onc.get(key);
@@ -63,14 +61,14 @@
         _onc.set(key, v);
         return v;
     };
-    /* first scheme colour that stands out from the background (for plates / objects) */
+    // 配色里第一个在背景上够显眼的，拿来做色板和物体
     const plateCol = (sc, pref) => {
         for (const c of pref) if (c && J.contrast(c, sc.bg) >= 1.6) return c;
         return sc.fg;
     };
-    /* shade a plate colour towards the scheme's light (s > 0) or dark (s < 0) end */
+    // s>0 往配色亮端偏，s<0 往暗端偏
     const shade = (sc, c, s) => (s >= 0 ? J.mix(c, lightOf(sc), Math.min(0.9, s)) : J.mix(c, darkOf(sc), Math.min(0.9, -s)));
-    /* palette of object colours (plates, magnets, balloons …) that read on the bg */
+    // 背景上可读的物体色板，色板、磁贴、气球都用它
     const objCols = sc => {
         const out = [];
         for (const c of [sc.accent, sc.fg, sc.accent2, sc.ink, sc.sub]) if (c && J.contrast(c, sc.bg) >= 1.7 && !out.includes(c)) out.push(c);
@@ -78,7 +76,7 @@
     };
     const adv = (font, ch) => (ch === ' ' ? 0.34 : J.metrics.adv(font, ch));
 
-    /* ---- chunking: k balanced groups of words (J.chunkText / latin words), long words split at natural points ---- */
+    // 分块：切成 k 个字形数均衡的组，超长词在自然断点再切
     const splitWord = w => {
         const n = [...w].length;
         if (/[A-Za-z]/.test(w)) {
@@ -123,7 +121,7 @@
             if (bi < 0) break;
             splitAt(bi);
         }
-        // contiguous partition into k groups with the most even glyph counts (small DP)
+        // 连续划分成 k 组，字形数尽量均衡，小型 DP
         const part = () => {
             const n = words.length, kk = Math.min(k, n), L = words.map(w => gl(w) + 0.4);
             const pre = [0];
@@ -167,18 +165,18 @@
         return groups.map(g => g.map((w, i) => w.t + (i < g.length - 1 && w.sp ? ' ' : '')).join('')).filter(Boolean);
     }
 
-    /* rows of glyph slots (a ' ' slot is a word gap) broken at chunk boundaries */
+    // 字形槽位行，' ' 是词间隙，按分块边界断行
     const rowsOf = (text, maxPer) => {
         const t = flat(text), n = J.glyphCount(t);
         return (n > maxPer ? chunksK(t, Math.ceil(n / maxPer)) : [t]).map(r => [...r.trim()]);
     };
-    /* balanced display line breaks at chunk boundaries */
+    // 显示用的均衡断行
     const brk = (text, maxPer) => {
         const t = flat(text), n = J.glyphCount(t);
         return n <= maxPer ? t : chunksK(t, Math.ceil(n / maxPer)).join('\n');
     };
 
-    /* ---- affine helpers: draw the lyric through a matrix, map its bbox back to design space ---- */
+    // 仿射工具：歌词过一个矩阵绘制，再把 bbox 映射回设计空间
     const mapPt = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
     const mapBB = (bb, m) => {
         if (!bb) return null;
@@ -208,7 +206,6 @@
         c.restore();
     };
     const polyPts = (m, pts) => pts.map(([x, y]) => mapPt(m, x, y));
-    /* rounded-rect path */
     const rrPath = (ctx, x, y, w, h, r) => {
         r = Math.max(0, Math.min(r, w / 2, h / 2));
         ctx.moveTo(x + r, y);
@@ -218,11 +215,10 @@
         ctx.arcTo(x, y, x + w, y, r);
         ctx.closePath();
     };
-    /* outline of a polygon (main pass) */
     const outline = (env, pts, col, lw, a = 1) => {
         if (pts.length > 1) env.line(pts.concat([pts[0]]), col, lw, a, false);
     };
-    /* pool of glyphs taken from the line (for decoys / fillers) */
+    // 从本行取的字形池，给诱饵和填充字用
     const _pool = new Map();
     const poolOf = cut => {
         const key = J.lang + '|' + (cut.lineText || '') + '|' + cut.text;
@@ -235,7 +231,7 @@
         }
         return p;
     };
-    /* per-font glyph memo reset when font metrics are rebuilt (fonts loading late) */
+    // 字体晚到会重建度量，靠 SENT 探针把 MEMO 清空
     const MEMO = new Map(), SENT = '\u0001layoutsD';
     const memo = (key, fn) => {
         const mm = J.metrics && J.metrics.m;
@@ -251,8 +247,7 @@
         }
         return v;
     };
-    /* ================================================================== 1 cube — 立方体 */
-    /* orthographic cube (yaw θ, pitch φ): every face is a parallelogram, so text maps onto it exactly with one affine matrix */
+    // 正交投影立方体（yaw θ, pitch φ）：每个面都是平行四边形，一个仿射矩阵就能把文字精确贴上面
     const cubeFaces = (cx, cy, h, th, ph) => {
         const cp = Math.cos(ph), sp = Math.sin(ph), faces = [];
         for (let f = 0; f < 4; f++) {
@@ -301,7 +296,7 @@
             const topC = Pm.top === 'accent' && J.contrast(sc.accent, pc) > 1.3 ? sc.accent : shade(sc, pc, 0.22);
             const out = tout(env);
             const pop = E.outBack(J.clamp(lt / 0.4), 1.3) * (1 - 0.15 * E.inCubic(env.pOut));
-            // yaw schedule
+            // yaw 时间线
             let th, seg = 0;
             const k = chunks.length;
             const spinIn = 1 - E.outBack(J.clamp(lt / 0.8), 1.1);
@@ -323,14 +318,14 @@
             const hs = h * pop;
             if (hs < 1 || out <= 0) return null;
             const faces = cubeFaces(cx, cy, hs, th, ph);
-            // contact shadow: the (hidden) bottom face pushed down
+            // 接触阴影：把看不见的底面往下推一点
             const bm = faces[4].m.slice();
             bm[5] = cy + hs * Math.cos(ph) + hs * 0.14;
             env.poly(polyPts(bm, [[-hs * 1.04, -hs * 1.04], [hs * 1.04, -hs * 1.04], [hs * 1.04, hs * 1.04], [-hs * 1.04, hs * 1.04]]), darkOf(sc), 0.35 * out, false);
             const lw = Math.max(1.2, u * 0.0022);
             let bb = null;
             const sq = s => [[-s, -s], [s, -s], [s, s], [-s, s]];
-            // which face carries which chunk
+            // 哪个面贴哪块字
             const faceOf = mode === 'turn' ? (f => {
                     const idx = ((dir > 0 ? f : (4 - f) % 4));
                     return idx < k ? idx : -1;
@@ -345,7 +340,7 @@
                 outline(env, pts, J.mix(col, darkOf(sc), 0.35), lw, out);
                 if (F.vis < 0.08) continue;
                 const lm = F.m.slice();
-                // content in face-local px (face size 2h, unscaled): compose the pop scale into the matrix
+                // 面内局部坐标按面尺寸 2h 未缩放绘制，pop 缩放并进矩阵
                 const s0 = hs / h;
                 lm[0] *= s0;
                 lm[1] *= s0;
@@ -418,7 +413,6 @@
         },
     });
 
-    /* ================================================================== 2 cylinder — 円筒 */
     reg('cylinder', {
         name: '円筒', tags: ['graphic', 'calm', 'emotional'], w: 0.9, ae: 'ring', fits: n => n >= 2 && n <= 16,
         enterBias: {cut: 1.4, blur: 1.3, slice: 0.3, wipe: 0.4, stretch: 0.5},
@@ -441,7 +435,7 @@
             const t0 = flat(cut.text), n = J.glyphCount(t0);
             const rowsT = n > (port ? 7 : 9) ? chunksK(t0, 2) : [t0];
             const R = Math.min(W * (port ? 0.38 : 0.3), H * 0.42), cx = W / 2, ek = Pm.tilt;
-            const span = 2.1;                                                  // radians the lyric may cover on the front
+            const span = 2.1;                                                  // 歌词在正面最多占的弧度
             let size = H * 0.2;
             for (const r of rowsT) {
                 let a = 0;
@@ -453,7 +447,7 @@
             const nR = rowsT.length;
             const out = tout(env), dir = Pm.dir || 1;
             const spin = -(1 - E.outCubic(J.clamp(lt / 0.8))) * 1.7 * dir + Math.sin(env.ltb * 0.8) * 0.05 * (env.fx.motion ?? 0.7) + E.inCubic(env.pOut) * 1.9 * dir;
-            // secondary rings above and below
+            // 主行上下的次要环
             const ss = Math.max(12, size * 0.3), unit = [...(flat(cut.lineText || cut.text) + Pm.sep)];
             const nSec = Pm.rings;
             const yMid = H / 2;
@@ -474,7 +468,7 @@
                 }
                 return pts;
             };
-            // glass body
+            // 玻璃筒身
             if (Pm.glass && ea > 0) {
                 const lw = Math.max(1, u * 0.0016);
                 env.line(ell(yTop - ek * R * 0, -Math.PI, Math.PI, 60), sc.sub, lw, 0.45 * ea, false);
@@ -482,7 +476,7 @@
                 env.line([[cx - R, yTop], [cx - R, J.lerp(yTop, yBot, ea)]], sc.sub, lw, 0.45 * ea, false);
                 env.line([[cx + R, yTop], [cx + R, J.lerp(yTop, yBot, ea)]], sc.sub, lw, 0.45 * ea, false);
             }
-            // wrap band behind the lyric
+            // 歌词后面的包裹带
             const bandC = plateCol(sc, [sc.accent, sc.ink]);
             const onBand = Pm.band;
             if (onBand && ea > 0) {
@@ -509,7 +503,7 @@
                     ctx.restore();
                 } else env.poly(pts, bandC, ea, gIn(env));
             }
-            // secondary rings: one item each, glyphs placed round the drum (back half mirrored & dim)
+            // 次要环：一环一个 item，字符绕鼓排，后半圈镜像且变暗
             if (env.pass === 'main') {
                 for (const rg of ringY) {
                     const a = tin(env, 0.05 + rg.k * 0.08, 0.5, E.outCubic) * out;
@@ -544,7 +538,7 @@
                     env.draw(it);
                 }
             }
-            // the lyric rows on the front of the drum
+            // 鼓面正面的歌词行
             let bb = null;
             rowsT.forEach((row, ri) => {
                 const y0 = yMid + (ri - (nR - 1) / 2) * rowGap;
@@ -579,7 +573,6 @@
         },
     });
 
-    /* ================================================================== 3 flipCards — カード列 */
     reg('flipCards', {
         name: 'カードめくり',
         tags: ['pop', 'graphic'],
@@ -626,7 +619,7 @@
             });
             const lw = Math.max(1, k * 0.012), rr = k * 0.08;
             const drawCard = (x, y, p, ch, isFace, key, alpha, lift) => {
-                // p: 0 face-down … 1 face-up; card rotates round its vertical axis
+                // p：0 背面朝上 … 1 正面朝上，卡片绕竖直轴翻
                 const ang = p * Math.PI, c = Math.cos(ang), sn = Math.sin(ang);
                 const w = cw * Math.max(0.02, Math.abs(c)), sc2 = 1 + 0.1 * sn * lift;
                 const hL = chh * sc2 * (1 + 0.1 * sn * (c > 0 ? 1 : -1)),
@@ -634,7 +627,6 @@
                 const ws = w * sc2;
                 const pts = [[x - ws / 2, y - hL / 2], [x + ws / 2, y - hR / 2], [x + ws / 2, y + hR / 2], [x - ws / 2, y + hL / 2]];
                 const up = p >= 0.5;
-                // shadow
                 env.poly(pts.map(([a, b]) => [a + k * 0.05 * (1 + sn * 1.5), b + k * 0.07 * (1 + sn * 1.5)]), darkOf(sc), 0.25 * alpha, false);
                 if (up) {
                     env.poly(pts, faceC, alpha, gIn(env));
@@ -652,7 +644,7 @@
                 return {up, c, sc2, hs: (hL + hR) / 2 / chh};
             };
             let bb = null;
-            // decoy table rows (face-down)
+            // 诱饵牌行，背面朝上
             if (Pm.table) {
                 const ta = tin(env, 0, 0.4, E.outCubic) * (1 - E.inCubic(J.clamp((env.pOut - 0.4) / 0.6)));
                 for (const rr0 of [-1, rowsL]) {
@@ -660,7 +652,7 @@
                         const x = W / 2 + (j - (per - 1) / 2) * sx, y = H / 2 + (rr0 - (rowsL - 1) / 2) * sy;
                         let p = 0, ch = null;
                         if (Pm.peek) {
-                            // one decoy peeks now and then (flips up, shows a random glyph, flips back)
+                            // 偶尔一张诱饵偷看：翻上来亮个随机字符再翻回去
                             const T = 1.3, kk = Math.floor(env.ltb / T), f = env.ltb / T - kk;
                             if (kk >= 1 && J.h(s, kk, 5) % (per * 2) === j + (rr0 < 0 ? 0 : per)) {
                                 p = f < 0.25 ? E.inOutCubic(f / 0.25) : f < 0.6 ? 1 : 1 - E.inOutCubic((f - 0.6) / 0.25);
@@ -732,7 +724,6 @@
         },
     });
 
-    /* ================================================================== 4 accordion — 蛇腹 */
     reg('accordion', {
         name: '蛇腹',
         tags: ['pop', 'graphic', 'editorial'],
@@ -768,7 +759,7 @@
             const rowsA = rowsOf(cut.text, vert ? 10 : port ? 5 : 9);
             const rows = rowsA.length, per = Math.max(...rowsA.map(r => r.length));
             const cA = Math.cos(Pm.fold * J.DEG);
-            // unfolded panel size from the rest angle
+            // 由静息角算展开面板的尺寸
             const Pw = Math.min((vert ? H * 0.82 : W * 0.86) / (per * cA + 0.5), (vert ? W * 0.5 : H * 0.62 / rows) / 1.25, u * 0.3);
             const Ph = Pw * 1.2;
             const pc = plateCol(sc, Pm.plate === 'accent' ? [sc.accent, sc.ink] : Pm.plate === 'fg' ? [sc.fg, sc.ink] : [sc.ink, sc.fg]);
@@ -784,9 +775,9 @@
                 const cy = (vert ? W : H) / 2 + (r - (rows - 1) / 2) * Ph * 1.3;
                 const c0 = (vert ? H : W) / 2 - tot / 2;
                 const edgeH = j => Ph * (1 + kap * sa * ((j + (Pm.start > 0 ? 0 : 1)) % 2 ? -1 : 1));
-                // map (along, across) → screen
+                // (along, across) 映到屏幕
                 const P2 = (a, b) => (vert ? [b, a] : [a, b]);
-                // shadow under the strip
+                // 条带下的影子
                 const sh = [];
                 for (let j = 0; j <= cnt; j++) sh.push(P2(c0 + j * pw + Ph * 0.06, cy + edgeH(j) / 2 + Ph * 0.07));
                 for (let j = cnt; j >= 0; j--) sh.push(P2(c0 + j * pw + Ph * 0.06, cy + edgeH(j) / 2 + Ph * 0.02));
@@ -795,7 +786,7 @@
                     const a0 = c0 + j * pw, a1 = a0 + pw, h0 = edgeH(j), h1 = edgeH(j + 1);
                     const q = J.clamp((lt - j * 0.03) / 0.2) * out;
                     if (q <= 0) continue;
-                    const facing = h1 > h0 ? 1 : -1;               // panel turning towards / away from the light
+                    const facing = h1 > h0 ? 1 : -1;               // 面板朝光/背光
                     const col = facing > 0 ? dim : lit;
                     const pts = [P2(a0, cy - h0 / 2), P2(a1, cy - h1 / 2), P2(a1, cy + h1 / 2), P2(a0, cy + h0 / 2)];
                     env.poly(pts, col, q, gIn(env));
@@ -830,7 +821,6 @@
         },
     });
 
-    /* ================================================================== 5 flag — はためく旗 */
     reg('flag', {
         name: 'はためく旗',
         tags: ['emotional', 'pop', 'graphic'],
@@ -874,7 +864,7 @@
             const col = plateCol(sc, Pm.cloth === 'ink' ? [sc.ink, sc.accent] : [sc.accent, sc.ink]);
             const tc = onCol(sc, col);
             const trimC = J.contrast(sc.fg, col) > 1.5 ? (col === sc.accent ? onCol(sc, col) : sc.accent) : sc.accent;
-            // sample the cloth
+            // 采样旗面
             const S = [];
             let xAcc = 0;
             for (let i = 0; i <= N; i++) {
@@ -893,13 +883,12 @@
                     hs
                 });
             }
-            // pole
             const pa = tin(env, 0, 0.3, E.outCubic) * (Pm.mode === 'raise' ? 1 - E.inCubic(J.clamp((env.pOut - 0.5) / 0.5)) : out);
             const pw = Math.max(3, u * 0.011), ptop = H / 2 - Hf / 2 - H * 0.03 - Hf * 0.3;
             env.rect(poleX - pw / 2, ptop, pw, H * 1.2, sc.sub, pa, false);
             env.circle(poleX, ptop, pw * 1.5, sc.accent, null, 0, pa, false);
             if (unf * out <= 0.001 || y0 > H * 1.2) return null;
-            // cloth: one silhouette (with a swallowtail notch), trims and fold shading clipped inside it
+            // 旗面：一个整体轮廓，燕尾带缺口，饰带和褶皱明暗都裁在轮廓内
             const sw = Pm.tail === 'swallow';
             const at0 = uu => {
                 const f = J.clamp(uu / ext) * N, i = Math.min(N - 1, Math.floor(f)), t = f - i, a = S[i], b = S[i + 1];
@@ -939,10 +928,10 @@
                 }
                 ctx.restore();
             }
-            // rope rings
+            // 旗杆绳圈
             env.circle(poleX + side * pw * 0.2, S[0].top + Hf * 0.04, pw * 0.9, null, sc.sub, Math.max(1, pw * 0.3), out, false);
             env.circle(poleX + side * pw * 0.2, S[0].bot - Hf * 0.04, pw * 0.9, null, sc.sub, Math.max(1, pw * 0.3), out, false);
-            // lyric printed on the cloth: glyph centres in flag-local (u, v)
+            // 印在旗面上的歌词：字形中心用旗面局部坐标 (u, v)
             const o = {track: 0.04, lead: 1.15};
             const size = Math.min(J.fitSize(text, Pm.font, Wf * (Pm.tail === 'swallow' ? 0.66 : 0.78), Hf * (Pm.trim === 'bands' ? 0.58 : 0.68), o), Hf * 0.42);
             const lay = J.layoutText({text, font: Pm.font, size, track: o.track, lead: o.lead});
@@ -983,7 +972,6 @@
         },
     });
 
-    /* ================================================================== 6 ribbon — リボン */
     reg('ribbon', {
         name: 'リボン',
         tags: ['pop', 'emotional', 'graphic'],
@@ -1016,7 +1004,7 @@
             const mot = env.fx.motion ?? 0.7;
             let bb = null;
             const x0 = W * 0.09, x1 = W * 0.91, L = x1 - x0;
-            // common text size so the rows match
+            // 各行共用一个字号
             let size = u * 0.16;
             for (const r of rowsT) {
                 let a = 0;
@@ -1031,7 +1019,7 @@
                 const ph = Pm.ph + ri * 2.1 + env.ltb * 0.9 * mot * 0.6;
                 const tl = Math.tan(Pm.tilt * J.DEG) * (ri % 2 ? -1 : 1);
                 const path = x => [x, cy + A * Math.sin(J.TAU * Pm.freq * (x - x0) / L + ph) + (x - W / 2) * tl];
-                // arc-length table
+                // 弧长表
                 const NS = 90, pts = [], acc = [0];
                 for (let i = 0; i <= NS; i++) pts.push(path(x0 + L * i / NS));
                 for (let i = 1; i <= NS; i++) acc.push(acc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
@@ -1048,14 +1036,14 @@
                     const ang = Math.atan2(pts[hi][1] - pts[lo][1], pts[hi][0] - pts[lo][0]);
                     return {p, ang};
                 };
-                // twist: flat front in the middle, ends folded to show the back
+                // 扭转：中段平展，两端折起露背面
                 const tau = f => {
                     const d = Math.abs(f - 0.5);
                     return d < 0.33 ? 1 : Math.cos(Math.PI * (d - 0.33) / 0.17);
                 };
                 const e = E.inOutCubic(J.clamp((lt - ri * 0.12) / 0.75)) * (1 - E.inCubic(env.pOut));
                 const vis = f => (Pm.reveal === 'left' ? f <= e : Math.abs(f - 0.5) <= e / 2);
-                // shadow + band
+                // 影子加缎带
                 const NB = 64, seg = [];
                 for (let i = 0; i <= NB; i++) {
                     const f = i / NB, q = atS(f * TL), t = tau(f), nx = -Math.sin(q.ang), ny = Math.cos(q.ang);
@@ -1070,7 +1058,7 @@
                 }
                 const sh = size * 0.1, vs = seg.filter(q => vis(q.f));
                 if (vs.length > 1) env.poly(vs.map(q => [q.a[0] + sh, q.a[1] + sh * 1.4]).concat(vs.slice().reverse().map(q => [q.b[0] + sh, q.b[1] + sh * 1.4])), darkOf(sc), 0.22, false);
-                // runs of segments facing the same way → one polygon each; the twist shading is laid over it
+                // 朝向相同的连续段各画一个多边形，扭转明暗再叠上去
                 let run = [];
                 const flush = () => {
                     if (run.length > 1) {
@@ -1101,7 +1089,7 @@
                     if (Math.abs(t) > 0.97) continue;
                     env.poly([A0.a, B0.a, B0.b, A0.b], darkOf(sc), (1 - Math.abs(t)) * 0.4, false);
                 }
-                // notched tails
+                // 两端燕尾缺口
                 for (const end of [0, NB]) {
                     const S0 = seg[end];
                     if (!vis(S0.f)) continue;
@@ -1110,7 +1098,7 @@
                     const c = shade(sc, back, -0.12);
                     env.poly([S0.a, [S0.a[0] + ext[0], S0.a[1] + ext[1]], [S0.p[0] + ext[0] * 0.45, S0.p[1] + ext[1] * 0.45], [S0.b[0] + ext[0], S0.b[1] + ext[1]], S0.b], c, 1, false);
                 }
-                // lyric along the flat middle
+                // 歌词沿中段平展处排
                 const chars = [...row], ads = chars.map(ch => adv(Pm.font, ch) * size * 1.05),
                     tot = ads.reduce((a, b) => a + b, 0);
                 let s0 = TL / 2 - tot / 2;
@@ -1139,7 +1127,6 @@
         },
     });
 
-    /* ================================================================== 7 pendulum — 振り子 */
     reg('pendulum', {
         name: '振り子',
         tags: ['calm', 'pop', 'emotional'],
@@ -1184,7 +1171,6 @@
                 const L = Math.min(H * 0.42, r * 5.2);
                 const cx = W / 2, x0 = cx - (n - 1) * r;
                 const py = H / 2 - L * 0.62, by = py + L;
-                // frame
                 const fw = (n - 1) * r + r * 2.6, fb = by + r + H * 0.06;
                 const fc = sc.sub;
                 env.line([[cx - fw, fb], [cx - fw, py], [cx + fw, py], [cx + fw, fb]], fc, Math.max(2, u * 0.006), fa, false);
@@ -1210,7 +1196,7 @@
                     env.circle(bx, byy, r * 0.985, pc, null, 0, out, gIn(env));
                     env.circle(bx - r * 0.35, byy - r * 0.38, r * 0.2, lightOf(sc), null, 0, 0.35 * out, false);
                     env.circle(bx, byy, r * 0.985, null, J.mix(pc, darkOf(sc), 0.4), lw, out, false);
-                    // impact sparks
+                    // 碰撞火花
                     if (tau > 0 && ((i === 0 && n > 1) || i === n - 1)) {
                         const ph = ((w * tau) / Math.PI) % 2, near = Math.min(Math.abs(ph - 0.5), Math.abs(ph - 1.5));
                         if (near < 0.08 && ((i === 0) === (Math.abs(ph - 0.5) < 0.08))) {
@@ -1232,7 +1218,7 @@
                 });
                 return bb;
             }
-            // single pivot: several pendulums of different length (a pendulum wave)
+            // 单支点：多根不同摆长的摆，即摆波
             const items = mode === 'fan' ? chs.map(c => ({t: c})) : (Pm.chunks && Pm.chunks.length ? Pm.chunks : chunksK(cut.text, 3)).map(c => ({t: flat(c)}));
             const k = items.length;
             const px = W / 2 + (mode === 'chunks' && !port ? 0 : 0), py = H * 0.06;
@@ -1261,7 +1247,7 @@
                 const grow = E.outCubic(J.clamp((lt - i * 0.04) / 0.4));
                 return {L: L * grow, th, grow};
             });
-            // strings first, bobs on top so the fan never cuts through a glyph
+            // 先画摆线再画摆锤，摆线才不会切到字形
             pos.forEach((q, i) => {
                 if (q.grow > 0) env.line([[px, py], [px + Math.sin(q.th) * q.L, py + Math.cos(q.th) * q.L - (mode === 'fan' ? size * 0.55 : size * 0.62)]], sc.sub, lw, 0.75 * out, false);
             });
@@ -1298,7 +1284,6 @@
         },
     });
 
-    /* ================================================================== 8 pile — 文字の山 */
     reg('pile', {
         name: '文字の山', tags: ['pop', 'emotional', 'graphic'], w: 0.8, ae: 'scatter', fits: n => n >= 1 && n <= 14,
         enterBias: {cut: 2.4, drop: 1.2, pop: 0.8, slice: 0.2, wipe: 0.2, stretch: 0.3, assemble: 0.4},
@@ -1339,11 +1324,11 @@
             const rise = (1 - E.outCubic(J.clamp(lt / 0.5))) * Hm * 1.1 + E.inCubic(env.pOut) * Hm * 0.5;
             const bump = x => Math.sin(x / W * 17 + s % 7) * H * 0.006 + Math.sin(x / W * 31 + (s % 5)) * H * 0.004;
             const surf = x => yBase + rise - Hm / (1 + Math.pow((x - cx) / sig, 4)) + bump(x);
-            // heap of small glyphs under the surface (one item, glyphs placed by charFn)
+            // 表面下的小字堆，一个 item 由 charFn 摆位
             const pool = poolOf(cut), NP = pool.length;
             const cell = J.clamp(u * 0.045, 16, 60);
             const heap = [];
-            // the body of the mound (dim), glyphs only in the top few layers
+            // 土丘主体用暗色，只有顶部几层放字
             const mound = [];
             for (let i = 0; i <= 48; i++) {
                 const x = -W * 0.02 + W * 1.04 * i / 48;
@@ -1393,11 +1378,11 @@
                 };
                 env.draw(it);
             }
-            // lyric glyphs fall onto the heap and settle along its slope
+            // 歌词字落到字堆上，沿坡度停稳
             const fd = 0.34, gap = J.clamp(cut.dur * 0.3 / n, 0.03, 0.09);
             let bb = null, idx = 0;
             const order = [];
-            for (let ri = nR - 1; ri >= 0; ri--) {                  // lower layers land first
+            for (let ri = nR - 1; ri >= 0; ri--) {                  // 底层先落
                 const chars = [...rowsT[ri]];
                 const ord = chars.map((c, i) => i);
                 if (Pm.order === 'random') ord.sort((a, b) => J.r(s, ri, a, 21) - J.r(s, ri, b, 21));
@@ -1456,7 +1441,6 @@
         },
     });
 
-    /* ================================================================== 9 blocks — 積み木 */
     reg('blocks', {
         name: '積み木', tags: ['pop', 'graphic'], w: 0.8, treat: 'safe', ae: 'labels', fits: n => n >= 1 && n <= 14,
         enterBias: {cut: 2.5, drop: 1.4, pop: 1, blur: 0.4, slice: 0.2, wipe: 0.2, stretch: 0.3},
@@ -1477,7 +1461,7 @@
             const port = isPort(env);
             const rowsB = rowsOf(cut.text, port ? 4 : n <= 6 ? 6 : Math.min(8, Math.ceil(n / 2)));
             const rows = rowsB.length, per = Math.max(...rowsB.map(r => r.length));
-            const dk = 0.34, gk = 1.07;                                         // depth of the oblique side / top
+            const dk = 0.34, gk = 1.07;                                         // 斜侧/顶面的深度系数
             const deco = Pm.deco && (!port || n <= 3);
             const extra = deco ? 2 : 0;
             const k = Math.min(W * 0.84 / (per * gk + extra * 0.95 + dk), H * 0.7 / (rows * 1.02 + dk + 0.2), u * 0.26);
@@ -1488,7 +1472,7 @@
             const lw = Math.max(1, k * 0.012);
             env.line([[W * 0.08, floorY], [W * 0.92, floorY]], sc.sub, Math.max(1, u * 0.002), 0.6 * tin(env, 0, 0.4) * out, false);
             const blk = [];
-            // lyric blocks: bottom row first so the upper rows land on them
+            // 歌词方块先摆底层，上层才有着落
             let gi = 0;
             const byRow = rowsB.map(() => []);
             rowsB.forEach((row, r) => row.forEach((ch, j) => {
@@ -1505,7 +1489,7 @@
                 blk.push(b0);
                 byRow[r].push(b0);
             }));
-            // blank blocks under any overhang so the upper rows always rest on something
+            // 悬空处垫空白方块，上层永远踩得着
             for (let r = 0; r < rows - 1; r++) for (const b0 of byRow[r]) {
                 if (byRow[r + 1].some(q => Math.abs(q.x - b0.x) < k * 0.6)) continue;
                 const f = {
@@ -1554,7 +1538,7 @@
             }
             const gap = J.clamp(cut.dur * 0.3 / (n + 2), 0.035, 0.1), fd = 0.3;
             let bb = null;
-            // hop on the beat (or every 0.6 s)
+            // 跟节拍跳一下，无节拍就每 0.6s
             let hopI = -1, hopF = 0;
             if (Pm.hop && lt > 0.3 + (n + 2) * gap + fd) {
                 if (env.beat && env.beat.len > 0.2) {
@@ -1596,7 +1580,7 @@
                 env.rrect(-hk + kz * 0.08, -hk + kz * 0.08, kz * 0.84, kz * 0.84, kz * 0.06, null, out, false, J.mix(b.col, onCol(sc, b.col), 0.35), lw * 1.5);
                 if (b.ch == null) {
                     const tcol = J.mix(b.col, onCol(sc, b.col), 0.8), q = kz * 0.26;
-                    if (b.shape === 3) { /* plain support block */
+                    if (b.shape === 3) {
                     } else if (b.shape === 0) env.circle(0, 0, q, tcol, null, 0, out, false);
                     else if (b.shape === 1) env.poly([[0, -q * 1.1], [q * 1.05, q * 0.8], [-q * 1.05, q * 0.8]], tcol, out, false);
                     else env.poly([[0, -q], [q, 0], [0, q], [-q, 0]], tcol, out, false);
@@ -1620,7 +1604,6 @@
         },
     });
 
-    /* ================================================================== 10 balloons — 文字風船 */
     reg('balloons', {
         name: '文字風船',
         tags: ['pop', 'emotional', 'calm'],
@@ -1684,7 +1667,7 @@
                     });
                 });
             });
-            // strings (behind the balloons)
+            // 气球线，画在气球后面
             const lw = Math.max(1, u * 0.0016);
             for (const g of glyphs) {
                 if (g.e <= 0) continue;
@@ -1706,7 +1689,7 @@
                 if (g.e <= 0) continue;
                 const q = E.outBack(g.e, 2.2), sz = size * (0.3 + 0.7 * q);
                 const dark = shade(sc, g.col, -0.38);
-                // puffy rim, body, gloss
+                // 鼓边、主体、高光
                 env.draw({
                     text: g.ch,
                     font: Pm.font,
@@ -1753,7 +1736,6 @@
         },
     });
 
-    /* ================================================================== 11 magnets — マグネット文字 */
     const DECOY = 'ABCDEFGHKMNPRSTXYZ0123456789★♥♪?!';
     reg('magnets', {
         name: 'マグネット',
@@ -1781,7 +1763,7 @@
             if (!n) return null;
             const out = tout(env);
             const ba = tin(env, 0, 0.45, E.outCubic) * out;
-            // the board (fridge door)
+            // 冰箱门底板
             const mx = W * 0.04, my = H * 0.05, bw = W - mx * 2, bh = H - my * 2, rr = u * 0.03;
             const board = J.mix(sc.bg, sc.fg, J.lum(sc.bg) < 0.5 ? 0.07 : 0.06);
             env.rrect(mx, my + (1 - ba) * H * 0.04, bw, bh, rr, board, ba, false, J.mix(sc.bg, sc.fg, 0.16), Math.max(1, u * 0.002));
@@ -1801,7 +1783,7 @@
             }
             const hx = Pm.handle > 0 ? mx + bw - u * 0.05 : mx + u * 0.035, hh = bh * 0.34;
             env.rrect(hx, H / 2 - hh / 2, u * 0.016, hh, u * 0.008, J.mix(board, sc.fg, 0.2), ba, false);
-            // lyric layout in rows
+            // 歌词分行排布
             const per = port ? 4 : 8;
             const rowsT = n > per ? chunksK(flat(cut.text), Math.ceil(n / per)) : [flat(cut.text)];
             const nR = rowsT.length;
@@ -1836,7 +1818,7 @@
                     });
                 });
             });
-            // decoy magnets around the edges (never over the lyric band)
+            // 边缘一圈诱饵磁贴，绝不压到歌词带
             const bandY0 = H / 2 - nR * base * 0.62, bandY1 = H / 2 + nR * base * 0.62;
             if (env.pass === 'main') {
                 for (let d = 0; d < Pm.decoys; d++) {
@@ -1921,7 +1903,6 @@
         },
     });
 
-    /* ================================================================== 12 tiles — 文字タイル */
     const LPTS = {
         A: 1,
         B: 3,
@@ -1996,7 +1977,7 @@
                 const row = rowsT[r], cnt = row.length;
                 const rowY = H / 2 + (r - (rows - 1) / 2) * k * 1.75;
                 const rw = cnt * k * 1.08 + k * 0.5;
-                // rack: back slot + slanted front lip + shadow
+                // 字母架：背槽、前斜唇、阴影
                 const ry = rowY + k * 0.42;
                 const rw2 = rw * (0.3 + 0.7 * ra);
                 env.poly([[W / 2 - rw2 / 2 + k * 0.06, ry + k * 0.34], [W / 2 + rw2 / 2 + k * 0.06, ry + k * 0.34], [W / 2 + rw2 / 2 + k * 0.2, ry + k * 0.42], [W / 2 - rw2 / 2 + k * 0.2, ry + k * 0.42]], darkOf(sc), 0.25 * ra, false);
@@ -2022,7 +2003,7 @@
                         rot = (1 - e) * 10 + (f < 1 ? 0 : 0);
                         ty = y - Math.sin(Math.PI * f) * k * 0.15;
                     }
-                    // exit: slide out to the left, staggered
+                    // 出场：错峰向左滑出
                     const po = E.inCubic(J.clamp(env.pOut * 1.4 - j / Math.max(1, cnt) * 0.4));
                     tx -= po * (x + k * 2 - (-k));
                     const lean = -k * 0.05;
@@ -2092,7 +2073,7 @@
         },
     });
 
-    /* resample a closed polygon outline at a fixed spacing */
+    // 闭合多边形按固定间距重采样
     const resample = (pts, d, maxN = 160) => {
         const seg = [];
         let L = 0;
@@ -2125,7 +2106,6 @@
         return out;
     };
 
-    /* ================================================================== 13 bulbs — 電球サイン */
     reg('bulbs', {
         name: '電球サイン',
         tags: ['pop', 'emotional', 'graphic'],
@@ -2167,7 +2147,7 @@
             const board = dark ? J.mix(sc.bg, sc.fg, 0.1) : darkOf(sc);
             const bulbC = [sc.accent, lightOf(sc), sc.accent2].find(c => c && J.contrast(c, board) >= 2) || lightOf(sc);
             const textC = [lightOf(sc), sc.fg, sc.accent].find(c => J.contrast(c, board) >= 3) || onCol(sc, board);
-            // outline of the sign
+            // 招牌轮廓
             let shape;
             if (arrow) {
                 const tip = Pm.dir > 0 ? [x0 + bw + bh * 0.5, cy] : [x0 - bh * 0.5, cy];
@@ -2179,7 +2159,7 @@
             env.poly(sp.map(([x, y]) => [x + u * 0.012, y + u * 0.016]), darkOf(sc), 0.3 * out, false);
             env.poly(sp, board, out, gIn(env));
             outline(env, sp, J.mix(board, bulbC, 0.35), Math.max(1.5, u * 0.003), out);
-            // bulbs round the rim (and an inner ring for 'double')
+            // 沿边一圈灯泡，'double' 再加内圈
             const r = J.clamp(size * 0.075, 4, u * 0.022);
             const inset = (k) => {
                 if (arrow) return sp.map(([x, y]) => [cx + (x - cx) * k, cy + (y - cy) * k]);
@@ -2238,7 +2218,6 @@
         },
     });
 
-    /* ================================================================== 14 ledScroll — 電光掲示板 */
     const _ledTiles = new Map();
     const ledTile = (kind, col, bg, T) => {
         const key = kind + col + bg + T;
@@ -2305,7 +2284,7 @@
             const hw = fw / 2 * e;
             env.rrect(W / 2 - hw, fy0, hw * 2, fh, fr * 0.6, frameC, out, false);
             if (e < 0.05) return null;
-            // module seams + bolts
+            // 模块接缝、铆钉
             const mods = Pm.mods, mw = fw / mods;
             for (let i = 1; i < mods; i++) {
                 const x = fx0 + i * mw;
@@ -2414,7 +2393,7 @@
                     }
                 }
                 ctx.restore();
-                // punch the LED holes (everything between dots back to panel colour)
+                // 打 LED 孔：点阵间隙统一填回面板色
                 if (env.pass === 'main') {
                     const pt = pat('mask', '', panel, gx, gy);
                     if (pt) {
@@ -2430,7 +2409,6 @@
         },
     });
 
-    /* ================================================================== 15 billboard — 看板 */
     reg('billboard', {
         name: '看板',
         tags: ['pop', 'emotional', 'graphic'],
@@ -2462,7 +2440,7 @@
             const steel = J.mix(darkOf(sc), sc.sub, 0.35);
             const faceC = Pm.face === 'accent' || J.lum(sc.bg) > 0.55 ? (J.lum(sc.bg) > 0.55 ? [sc.accent, sc.ink, sc.fg].find(c => J.contrast(c, sc.bg) >= 1.8) || sc.fg : plateCol(sc, [sc.accent, sc.ink])) : J.mix(lightOf(sc), sc.accent, 0.06);
             const tc = onCol(sc, faceC);
-            // posts, bracing, catwalk
+            // 立柱、斜撑、检修走道
             const pw = bw * 0.035;
             for (const px of [bx + bw * 0.22, bx + bw * 0.78]) env.rect(px - pw / 2, y0 + bh, pw, groundY - y0 - bh, steel, a0, false);
             const lw = Math.max(1.2, u * 0.0025);
@@ -2475,10 +2453,9 @@
             for (let i = 0; i <= 10; i++) env.rect(bx + bw * (0.04 + 0.92 * i / 10) - lw / 2, cwY - bh * 0.07, lw, bh * 0.07, steel, a0 * 0.8, false);
             env.line([[bx + bw * 0.04, cwY - bh * 0.07], [bx + bw * 0.96, cwY - bh * 0.07]], steel, lw, a0 * 0.8, false);
             env.line([[W * 0.03, groundY], [W * 0.97, groundY]], sc.sub, lw, 0.5 * a0, false);
-            // board
             env.rect(bx - bw * 0.015, y0 - bw * 0.015, bw * 1.03, bh + bw * 0.03, steel, a0, false);
             env.rect(bx, y0, bw, bh, J.mix(faceC, darkOf(sc), 0.28), a0, gIn(env));
-            // lamps: flicker on one by one, cones sweep across the face
+            // 灯逐个闪亮，光锥扫过板面
             const L = Pm.lamps;
             const lampOn = [];
             for (let i = 0; i < L; i++) {
@@ -2517,7 +2494,7 @@
                 ctx.fillRect(bx, y0, bw, bh);
                 ctx.restore();
             }
-            // lamp housings
+            // 灯罩
             for (let i = 0; i < L; i++) {
                 const lx = bx + bw * (i + 0.5) / L, ly = y0 + bh + bh * 0.06;
                 env.line([[lx, cwY], [lx, ly + bh * 0.02]], steel, lw * 1.5, a0, false);
@@ -2568,7 +2545,6 @@
         },
     });
 
-    /* ================================================================== 16 crowdBubbles — 吹き出しの群れ */
     const REACT = ['…', '！？', '♪', '？', '！', '…！', '♡'];
     reg('crowdBubbles', {
         name: '吹き出しの群れ',
@@ -2601,7 +2577,7 @@
             const cx = W / 2, cy = H / 2 - bh * 0.05;
             const bigC = [sc.accent, lightOf(sc)].find(c => J.contrast(c, sc.bg) >= 1.8) || lightOf(sc),
                 tc = onCol(sc, bigC);
-            // fragments for the crowd
+            // 人群气泡里的碎片文案
             const words = [];
             for (const w of J.chunkText(flat(cut.lineText || cut.text)).concat(J.chunkText(flat(cut.text)))) for (const q of J.splitLines(w, 4).split('\n')) if (q && !words.includes(q)) words.push(q);
             const frag = i => {
@@ -2609,7 +2585,7 @@
                 if (r < 6 && words.length) return words[J.h(s, i, 42) % words.length];
                 return REACT[J.h(s, i, 43) % REACT.length];
             };
-            // candidate slots around the big bubble
+            // 大气泡周围的候选槽位
             const slots = [];
             const gxN = port ? 3 : 6, gyN = port ? 8 : 5;
             for (let gy = 0; gy < gyN; gy++) for (let gx = 0; gx < gxN; gx++) {
@@ -2643,7 +2619,7 @@
                     if (!fill) env.poly(tail, sc.bg, a, false);
                 }
             };
-            // the crowd: each bubble lives for a while, pops, and another takes its place
+            // 人群：每个气泡活一阵就破，另一个顶上
             if (env.pass === 'main') {
                 const life = J.clamp(cut.dur * 0.7, 1.2, 3);
                 const jx = W * 0.8 / gxN * 0.18, jy = H * 0.8 / gyN * 0.14;
@@ -2675,7 +2651,7 @@
                     });
                 }
             }
-            // the big bubble with the lyric
+            // 装歌词的大气泡
             const q = E.outBack(J.clamp((lt - 0.05) / 0.3), 1.8) * (1 - 0.2 * E.inCubic(env.pOut));
             const bk = Pm.big;
             bubble(cx, cy, bw * q * (bk === 'shout' ? 1.25 : 1), bh * q * (bk === 'shout' ? 1.3 : 1), bk, Pm.side, bigC, null, out, gIn(env));
@@ -2692,7 +2668,6 @@
         },
     });
 
-    /* ================================================================== 17 crossword — クロスワード */
     reg('crossword', {
         name: 'クロスワード',
         tags: ['editorial', 'graphic', 'pop'],
@@ -2728,7 +2703,7 @@
             const gx = (W - gw - (clueW ? W * clueW : 0)) / 2, gy = (H - gh - (below ? fsC * 5 : 0)) / 2;
             const rowsW = words.length > 1 ? [1, 5] : [Math.floor(R / 2)];
             const c0 = words.map(w => Math.floor((C - w.length) / 2) - (J.h(s, w.length) % 2 && C - w.length > 2 ? 1 : 0));
-            // black cells: symmetric scatter that keeps the lyric entries (and their end caps) intact
+            // 黑格对称散布，但保住歌词词条和首尾封口格
             const key = (r, c) => r * 64 + c;
             const lyr = new Map();
             words.forEach((w, wi) => w.forEach((ch, j) => lyr.set(key(rowsW[wi], c0[wi] + j), {ch, wi, j})));
@@ -2747,7 +2722,7 @@
                 if (c0[wi] + w.length < C) black.add(key(r, c0[wi] + w.length));
             });
             const isW = (r, c) => r >= 0 && c >= 0 && r < R && c < C && !black.has(key(r, c));
-            // numbering
+            // 横竖词条起点编号
             const num = new Map();
             let k = 1;
             for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
@@ -2755,7 +2730,7 @@
                 const ac = !isW(r, c - 1) && isW(r, c + 1), dn = !isW(r - 1, c) && isW(r + 1, c);
                 if (ac || dn) num.set(key(r, c), k++);
             }
-            // pencilled crossing entries (down words through some lyric cells)
+            // 铅笔交叉词，穿过部分歌词格的竖词
             const pool = poolOf(cut), NP = pool.length;
             const pencil = new Map();
             let fills = 0;
@@ -2775,7 +2750,7 @@
             const lw = Math.max(1, cell * 0.035);
             env.rect(gx - lw * 2, gy - lw * 2, gw + lw * 4, gh * ga + lw * 4, inkC, out, false);
             env.rect(gx, gy, gw, gh * ga, paperC, out, gIn(env));
-            // typing progress
+            // 打字进度
             const T1 = 0.25, per = J.clamp(cut.dur * 0.4 / n, 0.04, 0.11);
             const typed = Math.floor((lt - T1) / per);
             let cur = -1, gi = 0;
@@ -2865,7 +2840,6 @@
         },
     });
 
-    /* ================================================================== 18 wordSearch — 文字探し */
     reg('wordSearch', {
         name: '文字探し',
         tags: ['pop', 'graphic', 'editorial'],
@@ -2913,7 +2887,7 @@
             if (dir === 'v') C = Math.min(C, Math.max(5, Math.floor(150 / R)));
             const cell = Math.min(W * 0.86 / C, H * 0.8 / R, u * 0.16);
             const gx = W / 2 - C * cell / 2, gy = H / 2 - R * cell / 2;
-            // lyric path
+            // 歌词藏的路径
             let r0, c0, dr = 0, dc = 1;
             if (dir === 'h') {
                 r0 = Math.floor(R / 2) + (J.h(s, 1) % 3) - 1;
@@ -2938,7 +2912,7 @@
             const ga = tin(env, 0, 0.4, E.outCubic) * out;
             const panelC = J.mix(sc.bg, sc.fg, J.lum(sc.bg) < 0.5 ? 0.06 : 0.05);
             env.rrect(gx - cell * 0.35, gy - cell * 0.35, C * cell + cell * 0.7, R * cell + cell * 0.7, cell * 0.3, panelC, ga, false, J.mix(sc.bg, sc.fg, 0.2), Math.max(1, u * 0.0018));
-            // decoy capsules (words found earlier)
+            // 诱饵圈，像之前圈过的词
             const cap = (ra, ca, rb, cb, col, a, stroke) => {
                 const x1 = gx + (ca + 0.5) * cell, y1 = gy + (ra + 0.5) * cell, x2 = gx + (cb + 0.5) * cell,
                     y2 = gy + (rb + 0.5) * cell;
@@ -2956,11 +2930,11 @@
                 if (clash) continue;
                 cap(rr, cc, rr, cc + len - 1, sc.sub, 0.5 * ga, true);
             }
-            // grid letters (one item; glyphs placed on cells)
+            // 格子字母，一个 item 按格摆字形
             if (env.pass === 'main' && ga > 0) {
                 const gs = cell * 0.56;
                 if ('letterSpacing' in ctx) {
-                    // one fillText per row: full-width glyphs advance exactly one em, the spacing makes up the cell pitch
+                    // 每行一次 fillText：全角字形恰好一个 em，letterSpacing 补足格距
                     ctx.save();
                     ctx.font = J.fontCSS(Pm.gf, gs);
                     ctx.letterSpacing = (cell - gs).toFixed(2) + 'px';
@@ -3003,7 +2977,7 @@
                     env.draw(it);
                 }
             }
-            // the find: capsule sweeps along the lyric, glyphs light up as it passes
+            // 找到词：胶囊沿歌词扫过，字逐个点亮
             const T1 = 0.35, sweep = J.clamp(cut.dur * 0.3, 0.35, 0.8);
             const f = E.inOutCubic(J.clamp((lt - T1) / sweep)) * (1 - E.inCubic(J.clamp(env.pOut * 1.3)));
             if (f > 0) {
@@ -3031,8 +3005,7 @@
         },
     });
 
-    /* ================================================================== 19 puzzle — パズル */
-    /* one jigsaw edge from (x0,y0) to (x1,y1); s = ±1 knob side (0 = straight) */
+    // 一条拼图边 (x0,y0)→(x1,y1)，s=±1 是凸凹方向，0 为直边
     const jigEdge = (ctx, x0, y0, x1, y1, s) => {
         if (!s) {
             ctx.lineTo(x1, y1);
@@ -3086,8 +3059,8 @@
             const plate = Pm.plate === 'light' ? J.mix(lightOf(sc), sc.accent, 0.08) : plateCol(sc, Pm.plate === 'accent' ? [sc.accent, sc.ink] : [sc.ink, sc.accent]);
             const tc = onCol(sc, plate);
             const out = tout(env);
-            const hS = (r, c) => (J.h(s, r, c, 1) & 1 ? 1 : -1);             // horizontal seam under row r
-            const vS = (r, c) => (J.h(s, r, c, 2) & 1 ? 1 : -1);             // vertical seam right of col c
+            const hS = (r, c) => (J.h(s, r, c, 1) & 1 ? 1 : -1);             // r 行下方的横缝方向
+            const vS = (r, c) => (J.h(s, r, c, 2) & 1 ? 1 : -1);             // c 列右侧的竖缝方向
             const N = R * C;
             const ord = [];
             for (let i = 0; i < N; i++) ord.push(i);
@@ -3193,7 +3166,7 @@
                     ctx.restore();
                 }
             }
-            // the last piece lands with a flash
+            // 最后一块落位时闪光
             if (Pm.last && N > 1) {
                 const p = ord[N - 1], tl = lt - tOf(p) - fd;
                 if (tl > 0 && tl < 0.35) {
@@ -3215,7 +3188,6 @@
         },
     });
 
-    /* ================================================================== 20 shadowPlay — 影絵 */
     reg('shadowPlay', {
         name: '影絵', tags: ['emotional', 'calm', 'graphic'], w: 0.9, ae: 'stack', fits: n => n >= 1 && n <= 14,
         enterBias: {cut: 1.2, blur: 1.3, drop: 1.2, pop: 0.6, slice: 0.4},
@@ -3240,12 +3212,12 @@
                 const size = Math.min(J.fitSize(text, Pm.font, W * 0.8, H * (port ? 0.22 : 0.3), o), u * 0.22);
                 const m = J.measure(Object.assign({text, font: Pm.font, size}, o));
                 const yb = H * (port ? 0.56 : 0.6), ty = yb - m.h / 2 - size * 0.04;
-                // floor plane
+                // 地面
                 const fa = tin(env, 0, 0.5, E.outCubic) * out;
                 const floorC = J.mix(sc.bg, sc.fg, dark ? 0.13 : 0.07);
                 env.rect(0, yb, W, (H - yb) * fa + 2, floorC, fa, false);
                 env.line([[W * 0.5 - W * 0.5 * fa, yb], [W * 0.5 + W * 0.5 * fa, yb]], sc.sub, Math.max(1, u * 0.002), 0.6, false);
-                // the sun crosses the sky; the cast shadow sweeps like a sundial
+                // 太阳横穿天空，投影像日晷一样扫
                 const phi = (J.lerp(74, 38, E.inOutSine(k)) * (0.85 + 0.15 * Pm.sweep) * Pm.dir) * J.DEG;
                 if (Pm.sun) {
                     const sr0 = u * 0.045, sr = sr0 * tin(env, 0.1, 0.5, E.outBack);
@@ -3270,7 +3242,7 @@
                     ctx.rect(-W, yb, W * 3, H * 2);
                     ctx.clip();
                     drawAff(env, Object.assign({}, base, {color: shC, alpha: 0.85, ghost: false, plain: true}), mS);
-                    // the far end of the shadow fades into the floor
+                    // 影子远端渐隐进地面
                     const g = ctx.createLinearGradient(0, yb, 0, yb + m.h * d * 1.15 + size * 0.1);
                     g.addColorStop(0, J.rgba(floorC, 0));
                     g.addColorStop(0.35, J.rgba(floorC, 0));
@@ -3281,7 +3253,7 @@
                 }
                 return J.mainDraw(env, Object.assign({}, base, {color: sc.fg}));
             }
-            // wall: a small lamp in front throws a big soft shadow on the wall behind
+            // 墙模式：身前小灯在背后墙上投出放大的软影
             const size = Math.min(J.fitSize(text, Pm.font, W * 0.6, H * (port ? 0.2 : 0.26), o), u * 0.17);
             const tx = W / 2, ty = H * 0.5;
             const lx = W / 2 + Math.sin(env.ltb * 0.45 + (Pm.dir > 0 ? 0 : 2)) * W * 0.16,
@@ -3308,7 +3280,6 @@
                 ghost: false,
                 plain: true
             }), mS);
-            // the lamp
             const fr = u * 0.02;
             env.circle(lx, ly, fr * 3.5, sc.accent, null, 0, 0.15 * la * flick, false);
             env.poly([[lx, ly - fr * 2.2 * flick], [lx + fr * 0.8, ly - fr * 0.2], [lx, ly + fr * 0.6], [lx - fr * 0.8, ly - fr * 0.2]], sc.accent, la, false);
@@ -3317,7 +3288,6 @@
         },
     });
 
-    /* ================================================================== 21 kaleido — 万華鏡 */
     reg('kaleido', {
         name: '万華鏡',
         tags: ['glitch', 'emotional', 'graphic'],
@@ -3360,7 +3330,7 @@
                     ctx.rotate(a0 + al / 2);
                     if (w % 2) ctx.scale(1, -1);
                     for (let j = 0; j < M + 1; j++) {
-                        const f = (j * spacing + ph);                        // 0..1 radius fraction, flowing outward
+                        const f = (j * spacing + ph);                        // 0..1 半径比例，向外流动
                         const r = Rr * (0.12 + f * 0.95);
                         const sz = r * Math.tan(al / 2) * 1.2;
                         const a = Math.min(1, f * 4) * (1 - f * 0.55) * out * e;
@@ -3381,7 +3351,7 @@
                     ctx.restore();
                 }
             }
-            // centre: the lyric on a disc or a band
+            // 中心：歌词放圆盘或横带
             const disc = Pm.center === 'disc' && n <= (isPort(env) ? 8 : 9);
             const text = disc ? brk(t0, n <= 4 ? 4 : Math.ceil(n / 2)) : brk(t0, isPort(env) ? 5 : 8);
             const o = {track: 0.03, lead: 1.1};
@@ -3405,7 +3375,6 @@
         },
     });
 
-    /* ================================================================== 22 dominoes — ドミノ */
     const PIPS = [[], [[0, 0]], [[-1, -1], [1, 1]], [[-1, -1], [0, 0], [1, 1]], [[-1, -1], [1, -1], [-1, 1], [1, 1]], [[-1, -1], [1, -1], [0, 0], [-1, 1], [1, 1]], [[-1, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [1, 1]]];
     reg('dominoes', {
         name: 'ドミノ',
@@ -3450,7 +3419,7 @@
                     if (row[j] === ' ') continue;
                     const i = gi++;
                     const xc = W / 2 + (j - (cnt - 1) / 2) * (w + g);
-                    // stand up in a wave from the left, fall in a chain to the right at the end
+                    // 从左起波浪式立起，结尾向右连锁倒下
                     const ti = T0 + i * dT;
                     const fu = J.clamp((lt - ti) / rise);
                     let th = 0, pivot = 0;
@@ -3466,7 +3435,7 @@
                     const px = xc + pivot * w / 2, py = yF;
                     const ca = Math.cos(th * J.DEG), sa = Math.sin(th * J.DEG);
                     const M = [ca, sa, -sa, ca, px - (ca * pivot * w / 2) + 0, py - sa * pivot * w / 2];
-                    // tile corners in tile space (origin at the tile's bottom-centre)
+                    // 牌面角点，局部原点在牌底中点
                     const T = (x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]];
                     const vis = J.clamp((lt - ti + 0.08) / 0.1) * (1 - E.inCubic(J.clamp((env.pOut - 0.7) / 0.3)));
                     if (vis <= 0) continue;
@@ -3499,7 +3468,6 @@
         },
     });
 
-    /* ================================================================== 23 burst — 爆発プレート */
     reg('burst', {
         name: 'ドカン',
         tags: ['pop', 'graphic', 'emotional'],
@@ -3546,7 +3514,7 @@
                 }
                 return pts;
             };
-            // shock ring + speed lines + debris
+            // 冲击环、速度线、碎片
             const ring = J.clamp(lt / 0.45);
             if (ring < 1) env.circle(cx, cy, Math.max(rx, ry) * (0.6 + ring * 1.1), null, A, Math.max(2, u * 0.012) * (1 - ring), (1 - ring) * out, false);
             if (Pm.lines && env.pass === 'main') {
@@ -3584,7 +3552,6 @@
         },
     });
 
-    /* ================================================================== 24 fisheye — 魚眼 */
     reg('fisheye', {
         name: '魚眼レンズ',
         tags: ['pop', 'graphic', 'glitch'],
@@ -3617,7 +3584,7 @@
             s0 = Math.min(s0, H * 0.6 / (nR * (1.4 + A * 0.5)));
             const sig = s0 * 1.25;
             const out = tout(env);
-            // lens position: one pass over all rows (sweep) or back and forth on every row (pingpong)
+            // 透镜位置：sweep 一趟扫过所有行，pingpong 每行来回
             const T = J.clamp((lt - 0.2) / Math.max(0.4, cut.dur - 0.5));
             const lensIn = E.outCubic(J.clamp((lt - 0.1) / 0.4)) * (1 - E.inCubic(env.pOut));
             let bb = null, lensPos = null;
@@ -3631,7 +3598,7 @@
                     const f = T * nR - ri;
                     lx = f < 0 || f > 1 ? null : xL - sig + (tot0 + sig * 2) * E.inOutSine(f);
                 } else lx = xL + tot0 * (0.5 - 0.5 * Math.cos(env.ltb * 1.6 + ri * 1.3));
-                // scale each glyph by the bulge at its rest position, then re-flow the row round the centre
+                // 按静止位置的鼓包缩放每个字，再绕中心重排整行
                 let acc = 0;
                 const sc0 = base.map((w, i) => {
                     const x = xL + acc + w / 2;
@@ -3641,7 +3608,7 @@
                 const widths = base.map((w, i) => w * sc0[i]), tot = widths.reduce((a, b) => a + b, 0);
                 let x = W / 2 - tot / 2;
                 if (lx != null) {
-                    // keep the lens over the bulge after re-flowing
+                    // 重排后让透镜对准鼓包中心
                     let acc2 = 0, best = 0, bw = 0;
                     base.forEach((w, i) => {
                         if (sc0[i] > bw) {
@@ -3701,7 +3668,6 @@
         },
     });
 
-    /* ================================================================== 25 wall — 壁面パース */
     reg('wall', {
         name: '壁面パース',
         tags: ['graphic', 'editorial', 'emotional'],
@@ -3725,12 +3691,12 @@
         render(env) {
             const {W, H, sc, ctx} = env, cut = env.cut, Pm = cut.params, u = U(env), lt = env.lt;
             const port = isPort(env);
-            const side = Pm.side || 1;                             // +1: lyric on the right-hand wall
+            const side = Pm.side || 1;                             // +1：歌词在右手边的墙上
             const out = tout(env);
             const f = Math.max(W, H) * 1.05, D = f;
             const a0 = E.outCubic(J.clamp(lt / 0.9));
             const yaw = (Pm.yaw + (1 - a0) * Pm.orbit * 2.2 + Math.sin(env.ltb * 0.35) * Pm.orbit * 0.15 + E.inCubic(env.pOut) * Pm.orbit * 1.5) * J.DEG;
-            // the lyric wall runs from the corner towards `side`, the other wall the other way
+            // 歌词墙从墙角伸向 side 一侧，另一面墙朝反向
             const dL = [side * Math.sin(yaw), Math.cos(yaw)], dO = [-side * Math.cos(yaw), Math.sin(yaw)];
             const ccx = W / 2 - side * W * (port ? 0.3 : 0.22), ccy = H * (0.5 + Pm.eye);
             const P = (X, Y, Z) => [ccx + f * X / Z, ccy + f * Y / Z];
@@ -3742,7 +3708,7 @@
             const plate = Pm.tone === 'plate' ? plateCol(sc, [sc.ink, sc.fg]) : J.mix(sc.bg, sc.fg, J.lum(sc.bg) < 0.5 ? 0.1 : 0.07);
             const litW = shade(sc, plate, 0.06), dimW = shade(sc, plate, -0.3);
             const tc = Pm.tone === 'plate' ? onCol(sc, plate) : sc.fg;
-            // ground + horizon
+            // 地面和地平线
             env.rect(0, ccy, W, H - ccy, J.mix(sc.bg, darkOf(sc), 0.35), 0.5 * wa, false);
             env.line([[0, ccy], [W, ccy]], sc.sub, 1, 0.25 * wa, false);
             env.poly(face(dO, LO * wa, -Ht, Hb), dimW, out, false);
@@ -3752,15 +3718,15 @@
             if (Pm.stripe) {
                 for (const [d, L] of [[dL, LL], [dO, LO]]) env.poly(face(d, L * wa, Hb * 0.55, Hb * 0.72), sc.accent, 0.9 * out, false);
             }
-            // per-glyph perspective: local x runs along the wall (dir), local y is world-vertical; numeric Jacobian
+            // 逐字透视：局部 x 沿墙面，局部 y 世界竖直，数值雅可比
             const glyphM = (d, s, Y, flip) => {
                 const p0 = P(...at(d, s, Y)), e = 1;
                 const p1 = P(...at(d, s + e * (flip ? -1 : 1), Y)), p2 = P(...at(d, s, Y + e));
                 return [p1[0] - p0[0], p1[1] - p0[1], p2[0] - p0[0], p2[1] - p0[1], p0[0], p0[1]];
             };
-            // wall position (along d) of reading offset u: walls receding to the right read outwards, to the left read towards the corner
+            // 阅读偏移 u 对应的墙面位置：向右延伸的墙向外读，向左的朝墙角读
             const posOn = (d, L, u, tot, m0) => (d[0] >= 0 ? m0 + u : m0 + tot - u);
-            // other wall: rows of the line in small type
+            // 另一面墙：整行歌词的小字排
             const oc = flat(cut.lineText || cut.text), rowsO = port ? 3 : 4, fsO = Ht * 0.12;
             if (env.pass === 'main') {
                 const fo = bodyF(env), chars = [...(oc + '　・　' + oc + '　・　' + oc)].slice(0, 40);
@@ -3791,7 +3757,7 @@
                     }
                 }
             }
-            // the lyric along the main wall
+            // 主墙上的歌词
             const t0 = flat(cut.text), n = J.glyphCount(t0);
             const lines = (n > (port ? 5 : 8) ? chunksK(t0, port ? Math.ceil(n / 5) : 2) : [t0]);
             const nl = lines.length;
@@ -3829,7 +3795,6 @@
         },
     });
 
-    /* ================================================================== 26 origami — 折り紙 */
     reg('origami', {
         name: '折り紙',
         tags: ['calm', 'pop', 'emotional'],
@@ -3857,7 +3822,7 @@
                 tc = onCol(sc, paper) === paper ? darkOf(sc) : (J.contrast(darkOf(sc), paper) > 3 ? darkOf(sc) : onCol(sc, paper));
             const crease = J.mix(paper, darkOf(sc), 0.22);
             const cx = W / 2, cy = H / 2;
-            const fl = 0.36, st = 0.13;                                   // flap time, stagger
+            const fl = 0.36, st = 0.13;                                   // 翻折时长、错峰间隔
             const outF = J.clamp(env.pOut * 1.3);
             const flapAng = k => {
                 const tin0 = 0.1 + k * st, tout0 = k * 0.12;
@@ -3869,7 +3834,7 @@
             const text0 = flat(cut.text), n = J.glyphCount(text0);
             let bb = null;
             if (Pm.mode === 'gate' && !port) {
-                // a wide sheet with two doors folding open from the middle
+                // 宽纸两扇门从中间折开
                 const text = brk(text0, 9);
                 const o = {track: 0.04, lead: 1.12};
                 const size = Math.min(J.fitSize(text, Pm.font, W * 0.66, H * 0.4, o), u * 0.2);
@@ -3886,7 +3851,7 @@
                     for (let k = 0; k < 2; k++) {
                         const ph = flapAng(k), c = Math.cos(ph);
                         if ((c < 0) !== under) continue;
-                        const hx = k ? x0 + sw * 3 / 4 : x0 + sw / 4, dir = k ? -1 : 1;      // hinge line, direction the folded flap points
+                        const hx = k ? x0 + sw * 3 / 4 : x0 + sw / 4, dir = k ? -1 : 1;      // 铰链线与折页指向
                         const ex = hx + dir * sw / 4 * c;
                         const skew = Math.sin(ph) * sh * 0.05;
                         const pts = [[hx, y0], [ex, y0 - skew], [ex, y0 + sh + skew], [hx, y0 + sh]];
@@ -3910,23 +3875,23 @@
                 drawGate(false);
                 return bb || box(x0, y0, x0 + sw, y0 + sh);
             }
-            // blintz: a diamond sheet, four corners folded to the centre and opened one by one
-            const S = Math.min(W * 0.84, H * 0.84, u * 0.95) * shrink;          // sheet diagonal
+            // blintz 折法：菱形纸四角折向中心，再逐个翻开
+            const S = Math.min(W * 0.84, H * 0.84, u * 0.95) * shrink;          // 纸的对角线
             if (S < 2) return null;
             const R = S / 2;
             const C = [[cx, cy - R], [cx + R, cy], [cx, cy + R], [cx - R, cy]];
             const M = C.map((p, i) => [(p[0] + C[(i + 1) % 4][0]) / 2, (p[1] + C[(i + 1) % 4][1]) / 2]);
             env.poly(C.map(([x, y]) => [x + u * 0.012, y + u * 0.018]), darkOf(sc), 0.3 * out, false);
             env.poly(C, paper, out, gIn(env));
-            // creases
+            // 折痕
             for (let i = 0; i < 4; i++) env.line([M[i], M[(i + 1) % 4]], crease, 1, 0.8 * out, false);
             env.line([C[0], C[2]], crease, 1, 0.35 * out, false);
             env.line([C[1], C[3]], crease, 1, 0.35 * out, false);
             const text = n <= 4 ? text0 : brk(text0, n <= 9 ? Math.ceil(n / 2) : Math.ceil(n / 3));
             const o = {track: 0.02, lead: 1.08};
-            const inner = R * 0.94;                                        // side of the inner (axis-aligned) square ≈ R
+            const inner = R * 0.94;                                        // 内接正方形边长 ≈ R
             const size = Math.min(J.fitSize(text, Pm.font, inner * 0.84, inner * 0.84, o), u * 0.2);
-            // flaps (hinge = inner-square edge, apex travels centre → corner); opened flaps lie under the text, closed ones over it
+            // 折页铰链在内接正方形边上，顶点从中心移向角；翻开的压在文字下，未翻开的盖在上面
             const drawFlaps = under => {
                 for (let q = 0; q < 4; q++) {
                     const k = (q + Pm.order) % 4;
@@ -3958,7 +3923,6 @@
         },
     });
 
-    /* ================================================================== 27 zipper — ジッパー */
     reg('zipper', {
         name: 'ジッパー',
         tags: ['pop', 'graphic', 'emotional'],
@@ -3982,7 +3946,7 @@
             const t0 = flat(cut.text), n = J.glyphCount(t0);
             const vert = port && n <= 10 && !hasLatin(t0);
             const out = tout(env);
-            // work in a frame where the seam runs along +X; map to the screen by swapping for the vertical zip
+            // 在接缝沿 +X 的坐标系里算，竖版拉链靠交换 xy 映回屏幕
             const Lw = vert ? H : W, Lh = vert ? W : H;
             const S = (a, b) => (vert ? [b, a] : [a, b]);
             const x0 = Lw * 0.05, x1 = Lw * 0.95;
@@ -4002,7 +3966,7 @@
             const cy = Lh / 2;
             const cloth = plateCol(sc, Pm.cloth === 'accent' ? [sc.accent, sc.ink] : [sc.ink, sc.accent]);
             const tape = shade(sc, cloth, -0.25), toothC = J.mix(sc.sub, lightOf(sc), 0.4);
-            // the lyric sits under the cloth
+            // 歌词压在布料下面
             const bb = J.mainDraw(env, Object.assign({
                 text,
                 font: Pm.font,
@@ -4018,7 +3982,7 @@
                 pts.push([x, gap(x)]);
             }
             const tw = u * 0.022, pitch = u * 0.02;
-            const off = (1 - cin + cout) * Lh * 0.62;                  // halves slide in from the edges, and back out at the very end
+            const off = (1 - cin + cout) * Lh * 0.62;                  // 两片从两侧滑入，结尾再滑出
             if (off > Lh * 0.6) return bb;
             for (const s2 of [-1, 1]) {
                 const poly = [S(-Lw * 0.05, cy + s2 * (Lh * 0.6 + off))].concat(pts.map(([x, g]) => S(x, cy + s2 * (g + off)))).concat([S(Lw * 1.05, cy + s2 * (Lh * 0.6 + off))]);
@@ -4034,7 +3998,7 @@
                     }
                 }
             }
-            // teeth: interlocked where closed, following each edge where open
+            // 链齿：闭合处互相咬合，拉开处沿各自边走
             if (off < 1 && (env.pass === 'main' || gIn(env))) {
                 for (let x = x0; x <= x1; x += pitch) {
                     const g = gap(x), k = Math.round((x - x0) / pitch);
@@ -4048,7 +4012,7 @@
                     env.poly(q, toothC, out, false);
                 }
             }
-            // slider + pull tab
+            // 拉头和拉片
             if (off >= 1) return bb;
             const sxp = xs, syp = cy;
             const bw = u * 0.05, bh = u * 0.035;
@@ -4063,7 +4027,6 @@
         },
     });
 
-    /* ================================================================== 28 sliceStack — スライス積層 */
     reg('sliceStack', {
         name: 'スライス積層',
         tags: ['glitch', 'graphic', 'pop'],
@@ -4098,14 +4061,14 @@
             const tbx = W / 2, tby = H / 2;
             let bb = null;
             if (blinds) {
-                // venetian blind: slats carrying the lyric turn open, a ripple runs through them, they turn shut again
+                // 百叶窗：载着歌词的叶片转开，波纹掠过再合上
                 const padX = size * 0.45, padY = size * 0.3;
                 const bh = m.h + padY * 2, hs = bh / Sn, gp = hs * 0.08;
                 const x0 = tbx - m.w / 2 - padX, w = m.w + padX * 2, yTop = tby - bh / 2;
                 const pc = plateCol(sc, Pm.plate === 'accent' ? [sc.accent, sc.ink] : [sc.ink, sc.accent]);
                 const tc = onCol(sc, pc), backC = shade(sc, pc, -0.45);
                 const mot = env.fx.motion ?? 0.7;
-                // cord + rail
+                // 拉绳和导轨
                 const ra = tin(env, 0, 0.3, E.outCubic) * out;
                 env.rect(x0 - size * 0.08, yTop - hs * 0.55, w + size * 0.16, hs * 0.3, shade(sc, pc, -0.2), ra, false);
                 for (const cxr of [x0 + w * 0.2, x0 + w * 0.8]) env.line([[cxr, yTop - hs * 0.3], [cxr, yTop + bh * ra]], sc.sub, Math.max(1, u * 0.0015), 0.6 * ra, false);
@@ -4204,7 +4167,6 @@
         },
     });
 
-    /* ================================================================== 29 glitchGrid — グリッチ格子 */
     reg('glitchGrid', {
         name: 'グリッチ格子', tags: ['glitch', 'graphic'], w: 0.8, busy: true, ae: 'tile', fits: n => n >= 1 && n <= 14,
         enterBias: {cut: 2.5, flicker: 1.5, scramble: 1.2, blur: 0.4, slice: 0.8, wipe: 0.3},
@@ -4223,7 +4185,7 @@
             const C = port ? 3 : sq ? 3 : 4, R = port ? 5 : 3;
             const g = u * Pm.gut, mx = W * 0.04, my = H * 0.05;
             const cw = (W - mx * 2 - g * (C - 1)) / C, ch = (H - my * 2 - g * (R - 1)) / R;
-            // the clean cell: a full middle row in portrait, the middle two (or three) cells otherwise
+            // 干净格：竖屏占满中间一行，横屏是中间两三格
             const cr = Math.floor(R / 2);
             const cc0 = port ? 0 : C === 4 ? 1 : 0, cc1 = port ? C - 1 : C === 4 ? 2 : C - 1;
             const out = tout(env);
@@ -4278,7 +4240,6 @@
                 }
                 env.rrect(x, y, w, h, 0, null, out, false, J.mix(sc.bg, sc.fg, 0.2), lw);
             }
-            // the clean cell
             const [x, y, w, h] = cellRect(cr, cc0, cc1);
             const e = E.outExpo(J.clamp(lt / 0.35));
             env.rrect(x + w / 2 - w / 2 * e, y, w * e, h, 0, null, out, false, sc.accent, Math.max(2, u * 0.003));
@@ -4306,7 +4267,6 @@
         },
     });
 
-    /* ================================================================== 30 mosaicTiles — タイル画 */
     let _mcv = null;
     const mosaicSample = (text, font, D, lead) => memo('mos|' + text + '|' + font + '|' + D + '|' + lead, () => {
         const SS = 4, fpx = D * SS;
@@ -4371,7 +4331,7 @@
             const out = tout(env);
             const col = Pm.col === 'accent' && J.contrast(sc.accent, sc.bg) > 1.8 ? sc.accent : sc.fg;
             const tileW = p * 0.86, rr = p * 0.14;
-            // grout floor: every cell of the panel as a faint tile
+            // 底板：整面板每格一块淡瓷砖
             if (Pm.floor && env.pass === 'main') {
                 const fa = tin(env, 0, 0.4, E.outCubic) * out;
                 ctx.save();
@@ -4386,7 +4346,7 @@
                 ctx.fill();
                 ctx.restore();
             }
-            // lit tiles: a clip path of (animated) tiles, then the lyric drawn fat through it
+            // 亮格：把动画中的格子拼成裁剪路径，歌词加粗透过它画
             const L = smp.lit, NT = L.length / 2;
             const span = J.clamp(cut.dur * 0.3, 0.3, 0.8);
             const ord = (c, r) => Pm.wave === 'diag' ? (c + r) / (smp.cols + smp.rows) : Pm.wave === 'center' ? Math.hypot(c - smp.cols / 2, r - smp.rows / 2) / Math.hypot(smp.cols / 2, smp.rows / 2) : J.r(s, c, r, 3);
@@ -4428,7 +4388,7 @@
                 noHold: true,
                 mi: 0
             });
-            // tile-to-tile colour variation + bevel highlight
+            // 瓷砖间色差和斜面高光
             if (env.pass === 'main') {
                 for (let k = 0; k < L.length; k += 2) {
                     const c = L[k], r = L[k + 1], h = J.r(s, c, r, 6);
@@ -4442,8 +4402,7 @@
         },
     });
 
-    /* ================================================================== 31 maskReveal — 文字窓 */
-    /* give an item a per-glyph fill (pattern / gradient) that survives J.mainDraw resetting charFns */
+    // 给 item 定义 charFns 存取器：J.mainDraw 重设 charFns 时逐字 fill 会自动回插到最前，pattern/渐变因此不被冲掉
     const withFill = (it, fillOf) => {
         let arr = [];
         const fn = () => (it.pieceFn ? null : {color: fillOf()});
@@ -4502,7 +4461,7 @@
             const A = [sc.accent, sc.fg].find(c => J.contrast(c, sc.bg) >= 1.8) || sc.fg;
             const B = [sc.fg, lightOf(sc), sc.accent2].find(c => c && c !== A && J.contrast(c, sc.bg) >= 1.8) || A;
             const sk = env.scale || 1, tb = env.ltb * Pm.speed;
-            // the scene seen through the letters, as a pattern / gradient in glyph space (it moves with time)
+            // 透过字母看到的场景：字形空间里的 pattern 或渐变，随时间移动
             const fillOf = () => {
                 let pat = null;
                 if (Pm.scene === 'shine') {
@@ -4593,7 +4552,6 @@
         },
     });
 
-    /* ================================================================== 32 contour — 等高線 */
     reg('contour', {
         name: '等高線', tags: ['calm', 'graphic', 'emotional'], w: 0.9, ae: 'huge', fits: n => n >= 1 && n <= 16,
         enterBias: {blur: 1.3, cut: 1.2, wipe: 1, slice: 0.6},
@@ -4618,7 +4576,7 @@
             const bs = Math.min(H * 0.95, W * (port ? 1.05 : 0.7));
             const bx = W / 2 + Pm.side * W * (port ? 0.12 : 0.2), by = H * 0.5;
             const lineC = Pm.col === 'accent' ? sc.accent : sc.sub;
-            // contour rings: a fat stroke in the line colour, then a slightly thinner one in the ground colour → one thin line per level
+            // 等高线：线色粗描一遍，再用略细的背景色描一遍，得到每级一圈细线
             const cin = tin(env, 0, 0.5, E.outCubic) * out;
             if (env.pass === 'main' && big && cin > 0.01) {
                 const K = Pm.rings, gap = bs * 0.03, lw = Math.max(1.2, bs * 0.0028);
@@ -4651,7 +4609,7 @@
                 ctx.strokeText(big, bx, by);
                 ctx.restore();
             }
-            // the lyric, small and solid, in the calm area beside the big character
+            // 歌词小字实色，放在大字旁的安静区
             const text = brk(cut.text, port ? 6 : 8);
             const o = {track: 0.06, lead: 1.25};
             const size = Math.min(J.fitSize(text, Pm.font, W * (port ? 0.8 : 0.5), H * 0.3, o), u * 0.12);
@@ -4681,9 +4639,8 @@
         },
     });
 
-    /* ================================================================== 33 halftoneBig — 網点巨大文字 */
     let _hcv = null;
-    /* alpha coverage of a text block, sampled once (em = 64 px) and memoised */
+    // 文字块的 alpha 覆盖，按 em=64px 采样一次并 memo
     const coverage = (text, font, lead, track) => memo('cov|' + text + '|' + font + '|' + lead + '|' + track, () => {
         const S = 64, lay = J.layoutText({text, font, size: S, lead, track});
         const pad = 8, cw = Math.ceil(lay.W) + pad * 2, ch = Math.ceil(lay.H) + pad * 2;
@@ -4741,7 +4698,7 @@
             }
             const cov = coverage(text, Pm.font, o.lead, o.track);
             if (env.pass !== 'main' || !cov) return J.mainDraw(env, it());
-            // dots of a rotated screen whose centre falls inside the letters; the text is drawn through them
+            // 旋转网屏上落在字母内的网点，文字透过这些点画
             const pitch = Math.max(6, size * 0.068);
             const a = Pm.ang * J.DEG, ca = Math.cos(a), sa = Math.sin(a);
             const grow = E.outCubic(J.clamp(lt / 0.7)) * (1 - 0.6 * E.inCubic(env.pOut));
@@ -4785,7 +4742,6 @@
         },
     });
 
-    /* ================================================================== 34 stencil — ステンシル */
     reg('stencil', {
         name: 'ステンシル',
         tags: ['graphic', 'pop', 'editorial'],
@@ -4824,7 +4780,7 @@
                 mi: 0
             }, o);
             const x0 = W / 2 - m.w / 2, x1 = W / 2 + m.w / 2, y0 = H / 2 - m.h / 2, y1 = H / 2 + m.h / 2;
-            // glyph boxes at rest (item space → design space through the tilt)
+            // 静止时的字形盒，item 空间经倾斜映射到设计空间
             const lay = m.lay, tr = Pm.tilt * J.DEG, ct = Math.cos(tr), st2 = Math.sin(tr);
             const boxes = [];
             for (const g of lay) if (g.ch !== ' ' && g.ch !== '　' && !J.isPunct(g.ch)) boxes.push({
@@ -4859,7 +4815,7 @@
                     ghost: false
                 });
             }
-            // clip: sprayed side of the nozzle, minus the stencil bridges (even-odd holes)
+            // 裁剪：喷头已喷的一侧，再减去模板桥接处，evenodd 挖洞
             ctx.save();
             ctx.beginPath();
             if (Pm.dir > 0) ctx.rect(-W, -H, head + W, H * 3); else ctx.rect(head, -H, W * 2, H * 3);
@@ -4883,7 +4839,7 @@
             const bb = J.mainDraw(env, it());
             ctx.restore();
             if (env.pass !== 'main') return bb;
-            // overspray mist, drips, and the nozzle's cloud while spraying
+            // 飞雾、流挂、喷涂中的雾点
             ctx.save();
             ctx.translate(W / 2, H / 2);
             ctx.rotate(tr);

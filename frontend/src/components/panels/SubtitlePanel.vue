@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-/* 字幕设置面板（右栏底部）：渲染时叠加的音译/翻译字幕 */
 import {onMounted, onUnmounted, reactive} from 'vue';
 import {redrawSub, saveSubConfig, subConfig} from '../../cloud/subtitle';
 import {bus} from '../../jizura/bus';

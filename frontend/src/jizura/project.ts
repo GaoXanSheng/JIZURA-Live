@@ -1,5 +1,5 @@
-/* 项目持久化：mergeProject（不信任外部输入的合并清洗）+ localStorage 自动保存。
-   键与旧版完全一致（jizura.project.v1），老项目无缝兼容。 */
+// 项目持久化：mergeProject（不信任外部输入的合并清洗）+ localStorage 自动保存。
+// 键保持 jizura.project.v1，老项目无缝兼容。
 import {J} from '../engine';
 import {S} from './state';
 
@@ -43,8 +43,8 @@ export function mergeProject(p: any) {
   return o;
 }
 
-/* v0.10：混合 LRC 的无戳行不再排到最后——老工程里按行号存的逐行设置（时刻、
-   指定、导出范围）要跟着搬到新行序上，只搬一次（timingOrder 标记）。 */
+// v0.10 起混合 LRC 的无戳行不再排到最后，老工程里按行号存的逐行设置（时刻、指定）
+// 要搬到新行序上。只搬一次，用 timingOrder 标记。
 function migrateOrder(o: any, p: any) {
   const was = p && p.timingOrder;
   o.timingOrder = 2;
@@ -61,7 +61,7 @@ function migrateOrder(o: any, p: any) {
   };
   o.timing.lineTimes = mv(o.timing.lineTimes);
   o.overrides = mv(o.overrides);
-  // 不迁移 exportRange：上游按行存，我们 fork 按切分存（语义不同，无法按行号映射）
+  // exportRange 不迁移：上游按行存，本 fork 按切分存，语义不同无法按行号映射
 }
 
 export function loadLocal() {

@@ -7,19 +7,12 @@ using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
 
-/// <summary>
-///     POST /api/analyze —— 音频节拍分析。
-///     请求体：[int32 sampleRate][int32 sampleCount][float32×count 单声道 PCM]。
-///     前端 decode 后把单声道 22kHz 采样发过来，数值计算在 C# 完成，
-///     浏览器主线程零重活（不再有载入歌曲时的 UI 卡顿）。
-/// </summary>
+// POST /api/analyze，音频节拍分析。请求体 [int32 sampleRate][int32 sampleCount][float32×count 单声道 PCM]，
+// 数值计算在 C# 完成，浏览器主线程零重活
 internal sealed class AnalyzeController : WebApiController
 {
-    /// <summary>
-    ///     POST /api/analyze/file —— 整文件分析（原始 mp3/flac/m4a/wav 字节直传）。
-    ///     C# 端 NAudio 解码 + 重采样 + 分析，前端不再做 OfflineAudioContext 重采样
-    ///     和 40MB 单声道 PCM 的拷贝/上传（载入歌曲时的主线程冻结源）。
-    /// </summary>
+    // POST /api/analyze/file：整文件原始字节直传，C# 端 NAudio 解码+重采样+分析。
+    // 免去前端 OfflineAudioContext 重采样和 40MB 单声道 PCM 的拷贝上传（载歌时主线程冻结的源头）
     [Route(HttpVerbs.Post, "/api/analyze/file")]
     public async Task AnalyzeFile()
     {
@@ -32,7 +25,7 @@ internal sealed class AnalyzeController : WebApiController
             return;
         }
 
-        // MF 按扩展名辅助识别格式：用原始文件名扩展写临时文件
+        // MediaFoundation 按扩展名认格式，用原始文件名的扩展名建临时文件
         var ext = ".mp3";
         try
         {
@@ -42,14 +35,13 @@ internal sealed class AnalyzeController : WebApiController
         }
         catch
         {
-            /* 保底 .mp3 */
         }
 
         var tmp = Path.Combine(Path.GetTempPath(), "jizura-analyze-" + Guid.NewGuid().ToString("N") + ext);
         try
         {
             // 请求体流式直写临时文件：一次 new byte[512MB] 的 LOH 峰值
-            // 加上落盘拷贝，最坏 ≈1GB/请求；流式后内存恒定为缓冲区大小
+            // 加落盘拷贝最坏 ≈1GB/请求，流式后内存恒定为缓冲区大小
             await using (var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 81920, useAsync: true))
             {
@@ -94,7 +86,7 @@ internal sealed class AnalyzeController : WebApiController
     [Route(HttpVerbs.Post, "/api/analyze")]
     public async Task Analyze()
     {
-        // 按声明长度一次读满，免去 MemoryStream+ToArray 的双重复制（长曲 payload 20MB+）
+        // 按声明长度一次读满，免掉 MemoryStream+ToArray 的双重复制（长曲 payload 20MB+）
         var len = Request.ContentLength64;
         if (len < 12 || len > 512 * 1024 * 1024)
         {

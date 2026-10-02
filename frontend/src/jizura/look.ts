@@ -1,5 +1,4 @@
-/* 外观/覆盖层：双历史栈（外观◀▶ + 歌词编辑Ctrl+Z）、行覆盖、切分指定、
-   导出范围、锁。原 12_ui.js 对应逻辑原样移植。 */
+// 外观/覆盖层：双历史栈（外观◀▶ + 歌词编辑 Ctrl+Z）、行覆盖、切分指定、导出范围、锁。
 import {J} from '../engine';
 import {S} from './state';
 import {autosave, flushSave} from './project';
@@ -8,12 +7,12 @@ import {invalidateFontKey, pause, play, replan, seek} from './engine';
 
 export {flushSave};
 
-/* ---- toast（组件监听渲染） ---- */
+// toast（组件监听渲染）
 export function toast(m: string, cols?: string[]) {
   bus.emit('toast', m, cols);
 }
 
-/* ---- 行覆盖 ---- */
+// 行覆盖
 export function setOv(i: number, patch: Record<string, any>) {
   const cur = Object.assign({}, S.project.overrides[i] || {}, patch);
   for (const k of Object.keys(cur)) if (cur[k] === undefined || cur[k] === false || cur[k] === '') delete cur[k];
@@ -95,7 +94,7 @@ export function setCutTech(i: number | null, k: number | null, group: string, ke
   if (Object.keys(cur).length) S.project.overrides[i] = cur; else delete S.project.overrides[i];
 }
 
-/* ---- 手法候选挑选（当前切分重抽用） ---- */
+// 手法候选挑选（当前切分重抽用）
 export function pickEnabledTech(g: string, opts: { n?: number; allowNone?: boolean; avoid?: string } = {}) {
   const tbl = J.registry(g) || {};
   const en = (S.project.enabled || {})[g] || {};
@@ -116,7 +115,7 @@ export function pickEnabledTech(g: string, opts: { n?: number; allowNone?: boole
   return keys[(Math.random() * keys.length) | 0];
 }
 
-/* ---- 歌词/时间编辑历史（Ctrl+Z，独立于外观◀▶） ---- */
+// 歌词/时间编辑历史（Ctrl+Z，独立于外观◀▶）
 const ED = {undo: [] as string[], redo: [] as string[]};
 const edSnap = () => JSON.stringify({lyrics: S.project.lyrics, lineTimes: S.project.timing.lineTimes || {}});
 
@@ -148,8 +147,9 @@ export function edGo(d: number) {
   toast(d < 0 ? '已撤销' : '已重做');
 }
 
-/* 换歌（网络载入新歌词）前调用：旧行号绑定的东西全部清掉，
-   否则旧歌词的逐行时间/逐行覆盖/导出范围会叠到新歌上。推入撤销栈可 Ctrl+Z 找回 */
+// 换歌（网络载入新歌词）前调用：旧行号绑定的东西全部清掉，
+// 否则旧歌词的逐行时间/逐行覆盖/导出范围会叠到新歌上。
+// 推入撤销栈，可 Ctrl+Z 找回
 export function resetLyricBinding() {
     const P = S.project;
     if (S.exporting) return;
@@ -165,7 +165,7 @@ export function resetLyricBinding() {
     P.exportRange = null;
 }
 
-/* 清空歌词：歌词 + 一切绑定行号的东西（时间/逐行设置/导出范围）；可撤销 */
+// 清空歌词：歌词 + 一切绑定行号的东西（时间/逐行设置/导出范围），可撤销
 export function clearLyrics() {
   if (S.tap || S.exporting) return;
   const P = S.project;
@@ -191,7 +191,7 @@ export function clearLyrics() {
   toast('歌词已清空（可用「撤销」或 Ctrl+Z 恢复）');
 }
 
-/* ---- 导出范围（按切分：和切分循环同一粒度，而不是整行） ---- */
+// 导出范围按切分存，和切分循环同一粒度，而不是整行
 export function exportRangeCuts() {
     const r = S.project.exportRange, n = S.plan ? S.plan.cuts.length : 0;
   if (!r || !n || !(r.from >= 0)) return null;
@@ -215,7 +215,7 @@ export function rangeSuffix() {
     return '_C' + f(R.from) + (R.to > R.from ? '-' + f(R.to) : '');
 }
 
-/* 行按钮：把这一行首尾切分设为范围（Shift 扩大；再点一次取消） */
+// 行按钮：把这一行首尾切分设为范围（Shift 扩大；再点一次取消）
 export function setExportRange(i: number, extend: boolean) {
     const cs = S.plan.cuts.filter((c: any) => c.line === i);
     if (!cs.length) {
@@ -233,12 +233,13 @@ export function setExportRange(i: number, extend: boolean) {
     toast(R2 ? `导出范围：切分 ${R2.from + 1}${R2.to > R2.from ? '〜' + (R2.to + 1) : ''}` : '导出范围：全部');
 }
 
-/* ---- 外观历史（◀ ▶）：只跟踪"外观"，歌词/时间/输出设置永不回滚 ---- */
+// 外观历史（◀ ▶）只跟踪外观，歌词/时间/输出设置永不回滚
 const HKEYS = ['style', 'mood', 'seed', 'fx', 'enabled', 'fonts', 'colors', 'overrides', 'locks'];
 const H = {list: [] as string[], i: -1};
 const lookSnap = () => JSON.stringify(Object.fromEntries(HKEYS.map(k => [k, S.project[k] ?? null])));
 
-export function remember() {          // 改外观之前调用：确保当前外观已入栈
+// 改外观之前调用：确保当前外观已入栈
+export function remember() {
   const s = lookSnap();
   if (H.i >= 0 && H.list[H.i] === s) return;
   H.list = H.list.slice(0, H.i + 1);
@@ -246,7 +247,8 @@ export function remember() {          // 改外观之前调用：确保当前外
   H.i = H.list.length - 1;
 }
 
-export function commit() {            // 改外观之后调用
+// 改外观之后调用
+export function commit() {
   const s = lookSnap();
   if (H.list[H.i] !== s) {
     H.list = H.list.slice(0, H.i + 1);
@@ -283,7 +285,7 @@ export function restartPreview() {
   seek(0);
 }
 
-/* ---- 锁（随机/重抽不能碰的东西） ---- */
+// 锁：随机/重抽不能碰的东西
 export function locksOf() {
   const P = S.project;
   if (!P.locks) P.locks = {tech: {}, params: {}};
@@ -356,7 +358,6 @@ export function toggleParamLock(k: string) {
   bus.emit('sync-ui');
 }
 
-/* ---- 配色随机 ---- */
 export function randomPalette() {
   remember();
   const c = S.project.colors;
@@ -373,7 +374,7 @@ export function randomPalette() {
   toast('配色：强调色・错位色A/B 已更换', [p.accent, p.ghostA, p.ghostB]);
 }
 
-/* ---- おまかせ（一键随机） ---- */
+// おまかせ（一键随机）
 export function omakase() {
   if (S.exporting || S.tap) return;
   remember();
@@ -392,10 +393,9 @@ export function omakase() {
   restartPreview();
 }
 
-/* ---- TAP 打点同步 ----
-   从任意行开始：播放从该行稍前开始，更早的行保持原时间。
-   打点中可减速播放（0.75×/0.5×，存的仍是歌曲本来时刻）、可开启 3-2-1 倒数；
-   Tab 把刚才打点的行的下一个切分对齐到现在（Backspace 回退一步）。 */
+// TAP 打点同步：从任意行开始，播放从该行稍前开始，更早的行保持原时间。
+// 打点中可减速播放（0.75×/0.5×，存的仍是歌曲本来时刻）、可开 3-2-1 倒数；
+// Tab 把刚才打点的行的下一个切分对齐到现在，Backspace 回退一步。
 export function setTheme(v: string) {
   S.project.themeId = J.THEMES[v] ? v : null;
   autosave();
@@ -405,7 +405,7 @@ function tapOpts(): { rate: number; count: boolean } {
   let o: any = null;
   try {
     o = JSON.parse(localStorage.getItem('jizura.tapOpts') || 'null');
-  } catch { /* 坏值用默认 */
+  } catch { // 坏值用默认
   }
   const rate = o && [1, 0.75, 0.5].includes(+o.rate) ? +o.rate : 1;
   return {rate, count: !!(o && o.count)};
@@ -414,7 +414,7 @@ function tapOpts(): { rate: number; count: boolean } {
 export function saveTapOpts(rate: number, count: boolean) {
   try {
     localStorage.setItem('jizura.tapOpts', JSON.stringify({rate, count}));
-  } catch { /* 写不进就算了 */
+  } catch { // 写不进就算了
   }
 }
 
@@ -465,7 +465,7 @@ export function tapNow() {
   if (S.tap.i >= S.plan.lines.length) stopTap(); else bus.emit('tapstate');
 }
 
-/* 打点中的 Tab：刚才打点的行的下一个切分从现在开始（多切分行） */
+// 打点中的 Tab：刚才打点的行的下一个切分从现在开始（多切分行）
 export function tapCut() {
   if (!S.tap || S.tap.counting || S.tap.cl == null) return;
   const li = S.tap.cl, k = (S.tap.ck ?? 1) | 0, ln = S.plan.lines[li];
@@ -483,7 +483,8 @@ export function tapCut() {
   bus.emit('tapstate');
 }
 
-export function tapBack() {   // 回退一次打点并跳回一点
+// 回退一次打点并跳回一点
+export function tapBack() {
   if (!S.tap || !S.tap.done.length) return;
   const d = S.tap.done.pop()!, LT = S.project.timing.lineTimes;
   if (d.cut) {
@@ -517,14 +518,12 @@ export function stopTap() {
   bus.emit('tapstate');
 }
 
-/* 播放到循环终点时打断点同步（engine.tick 经 bus 通知，避免模块循环） */
+// 播放到循环终点时打断点同步（engine.tick 经 bus 通知，避免模块循环）
 bus.on('tapend', () => {
   if (S.tap) stopTap();
 });
 
-/* ---- LRC 导入/导出 ---- */
-
-/* 读取 LRC：整份替换歌词（并清掉一切绑定行号的东西），可撤销 */
+// 读取 LRC：整份替换歌词（并清掉一切绑定行号的东西），可撤销
 export function loadLrc(text: string) {
   if (S.tap || S.exporting) return;
   const P = S.project;
@@ -547,7 +546,7 @@ export function loadLrc(text: string) {
   toast(`已读取 LRC（带时刻 ${n} 行・可用「撤销」恢复）`);
 }
 
-/* 导出 LRC：每行开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行（时刻从视频开头起算） */
+// 导出 LRC：每行开始时刻（手工 > LRC 标签 > 估算）；选了导出范围时只导那些行（时刻从视频开头起算）
 export function saveLrc() {
   if (!S.plan) return;
   const R = exportRangeCuts(), r = exportRange();
@@ -575,7 +574,7 @@ export function saveLrc() {
   J.saveFile(base + rangeSuffix() + '.lrc', new Blob([txt], {type: 'text/plain;charset=utf-8'}));
 }
 
-/* ---- 初始化：回到空白项目（歌曲/设置/两套历史全清） ---- */
+// 初始化：回到空白项目（歌曲/设置/两套历史全清）
 export async function resetAll() {
   if (S.exporting) return;
   if (S.tap) stopTap();
@@ -598,7 +597,7 @@ export async function resetAll() {
   toast('已初始化');
 }
 
-/* ---- 当前切分重抽 ---- */
+// 当前切分重抽
 const CHIP_GROUPS: [string, string, string][] = [
   ['layout', 'l', '布局'], ['enter', 'e', '入场'], ['hold', 'h', '保持'], ['exit', 'x', '退场'],
   ['decor', '', '装饰'], ['treat', 't', '文字处理'], ['bg', 'b', '背景'], ['cam', 'c', '运镜'], ['trans', 'c', '转场'],

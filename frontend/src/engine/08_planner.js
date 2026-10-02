@@ -1,6 +1,4 @@
-/* ============================================================
-   JIZURA — planner: lyrics -> lines -> chunks -> timed cuts + events
-   ============================================================ */
+// planner：歌词 → 行 → 词块 → 带时刻的切分 + 事件
 (() => {
     'use strict';
 
@@ -11,23 +9,23 @@
 
     J.defaultProject = () => ({
         version: 1,
-        timingOrder: 2,                 // 歌词行围绕 LRC 时间戳保持书写顺序（v0.10）
-        themeId: null,                  // 一键随机的主题（J.THEMES 的 key）——只有一键随机读它
+        timingOrder: 2, // 歌词行按书写顺序，围绕 LRC 时间戳排序（v0.10）
+        themeId: null, // 一键随机的主题（J.THEMES 的 key），只有一键随机读它
         title: '', artist: '',
         lyrics: J.SAMPLE_LYRICS,
         style: 'noir', mood: null,
-        extra: false,                   // random picks may use the parts added after the first version (追加分)
-        wa: true,                       // …and the 和風 motifs (提灯・障子・家紋…) — applied after 'extra'
-        horror: false,                  // parts sets (independent of 'extra'): ホラー (also enables the ホラー mood)
-        typo: true,                     // 文字PV系 typographic parts
-        kinetic: true,                  // キネティック parts
-        lang: 'auto',                   // 歌詞の言語: 'auto' | 'ja' | 'zh-Hant' | 'zh-Hans' | 'ko' — picks the faces each font key is drawn with
-        keyBg: 'off',                   // 合成用の背景: 'off' | 'green' (グリーンバック) | 'black' (ブラックバック)
-        unify: false,                   // 統一感: part palettes, repeats shown the same way, キメ, モーフ, 太さ
-        typeset: false,                 // 文字整列: kana tracking, small particles / big first character, Latin sizing, 0.2 s lead, restraint
-        centerDir: 'tb',                // 中央を空ける on tall frames: 'tb' = top / bottom, 'lr' = left / right
-        centerFree: false,              // 中央を空ける: lay the cuts out in side bands (left / right or top / bottom) around a character
-        centerZone: 'center',           // 留白位置: center / left / right / top / bottom（设置页自定义）
+        extra: false, // 随机可以选用初版之后追加的手法（追加分）
+        wa: true, // 和風纹样（提灯・障子・家紋…），在 extra 之后生效
+        horror: false, // 独立于 extra 的手法集：ホラー（同时会启用ホラー情绪）
+        typo: true, // 文字PV系 typographic 手法
+        kinetic: true, // キネティック 手法
+        lang: 'auto', // 歌词语言: 'auto' | 'ja' | 'zh-Hant' | 'zh-Hans' | 'ko'，决定各 font key 用哪些字体
+        keyBg: 'off', // 抠像合成背景: 'off' | 'green' グリーンバック | 'black' ブラックバック
+        unify: false, // 統一感：段落调色板、重复行同款、キメ、モーフ、太さ
+        typeset: false, // 文字整列：假名疏排、小粒子/首字放大、西文字号、提前 0.2s、整体收敛
+        centerDir: 'tb', // 竖屏中央留白方向: 'tb' = 上下, 'lr' = 左右
+        centerFree: false, // 中央を空ける：切分排进两侧条带（左右或上下），中间留给角色
+        centerZone: 'center', // 留白位置: center / left / right / top / bottom（设置页自定义）
         seed: 20260922,
         aspect: '16:9', res: 1080, fps: 24,
         fx: {
@@ -42,25 +40,24 @@
             koma: 12,
             hud: 'auto',
             bgSwitch: 0.35,
-            hideNo: false,              // 不显示装饰性编号（No.01 等；歌词里自带的数字不受影响）
-            hideTime: false             // 不显示装饰性时刻（00:12.34 等）
+            hideNo: false, // 不显示装饰性编号（No.01 等；歌词里自带的数字不受影响）
+            hideTime: false // 不显示装饰性时刻（00:12.34 等）
         },
         enabled: Object.fromEntries(J.GROUP_KEYS.map(g => [g, Object.fromEntries(J.order(g).map(k => [k, true]))])),
         timing: {bpm: 0, offset: 0.4, snap: true, tail: 0.9, lineTimes: {}, lineScale: 1},
         overrides: {},
-        locks: {tech: {}, params: {}},   // groups and values Randomize / Shuffle must not change (UI side only)
+        locks: {tech: {}, params: {}}, // 随机/重抽不能动的组和值（只在 UI 侧用）
         colors: {enabled: false},
         fonts: {},
     });
 
-    /* animation step length: 'koma' = drawings per second on a 24fps timebase (12 = on twos, 8 = on threes, 0 = every output frame) */
+    // 动画步长：koma 是 24fps 时间轴上每秒作画张数（12 = 二拍一，8 = 三拍一，0 = 每个输出帧）
     J.komaOf = fx => (fx.koma != null ? +fx.koma : (fx.onTwos === false ? 0 : 12));
     J.stepDur = (fx, fps) => {
         const k = J.komaOf(fx);
         return k > 0 ? 1 / k : 1 / (fps || 24);
     };
 
-    /* ---------------- lyric parsing ---------------- */
     J.parseLyrics = (raw) => {
         const lines = [];
         const meta = {};
@@ -86,7 +83,7 @@
                 s = s.slice(m[0].length);
             }
             s = s.trim();
-            // 間奏: [間奏] / [間奏 8] (8 seconds) — also [interlude] [inst] [间奏] [간주]; no lyrics, only background and decorations
+            // 間奏：[間奏] / [間奏 8]（8 秒），也认 [interlude] [inst] [间奏] [간주]；没歌词，只出背景和装饰
             const im = s.match(/^\[\s*(間奏|间奏|interlude|instrumental|inst|간주)(?:\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:s|sec|秒|초)?)?\s*\]$/i);
             if (im) {
                 const base = {
@@ -133,9 +130,8 @@
             if (times.length) times.forEach(t => lines.push(Object.assign({}, base, {lrc: t})));
             else lines.push(Object.assign({}, base, {lrc: null}));
         }
-        // LRC：按时间排序。没有时间戳的行（间奏、手工补的行）紧跟它在文本里
-        // 前面的那行——旧版会把它们挪到最末尾（v0.10 起）。
-        // 混合 LRC 也不再退化成"整份都有戳才排序"：有戳行用戳，无戳行保持书写位置。
+        // LRC：按时间排序；无戳行（间奏、手工补的行）跟在文本里前一行后面，旧版会把它们挪到最后（v0.10 起）
+        // 混合 LRC 不再要求整份都有戳才排：有戳行用戳，无戳行保持书写位置
         if (lines.some(l => l.lrc != null)) {
             let key = -1, k = 0;
             lines.forEach(l => {
@@ -152,17 +148,16 @@
         }
         return {lines, meta};
     };
-    /* v0.10 之前歌词行的顺序（无戳行排最后）——只用于把老工程的逐行设置搬到新行序 */
+    // v0.10 之前的行序（无戳行排最后），只用来把老工程的逐行设置搬过来
     J.parseOrderV1 = (raw) => {
         const p = J.parseLyrics(raw), lines = p.lines.slice();
         if (!lines.some(l => l.lrc != null) || lines.every(l => l.lrc != null)) return null;
         const byRow = lines.map((l, i) => ({l, i}));
         const old = byRow.slice().sort((a, b) => ((a.l.lrc ?? 1e9) - (b.l.lrc ?? 1e9)) || (a.l.src - b.l.src));
-        return old.map(x => x.i);          // 旧索引 -> 新索引
+        return old.map(x => x.i); // 旧索引 → 新索引
     };
 
-    /* ---------------- chunking (bunsetsu-ish) ---------------- */
-    const segmenters = {};   // one per lyric language (J.segLocale: ja / zh-Hant / zh-Hans / ko)
+    const segmenters = {}; // 每种歌词语言一个（J.segLocale: ja / zh-Hant / zh-Hans / ko）
     const segmenterOf = () => {
         if (typeof Intl === 'undefined' || !Intl.Segmenter) return null;
         const loc = J.segLocale ? J.segLocale() : 'ja';
@@ -201,7 +196,7 @@
         if (cur) out.push(cur);
         return out;
     };
-    /* Latin / 韩文辅助：词与词之间用空格连接，连字符后面除外（never- + ending → never-ending） */
+    // 拉丁/韩文辅助：词间补空格，连字符后不补（never- + ending → never-ending）
     const WORDCH = /[A-Za-z\u00c0-\u024f0-9\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/;
     J.isWordLike = t => /^[A-Za-z\u00c0-\u024f0-9\uac00-\ud7af'’.,!?‐–—-]+$/.test(t) && WORDCH.test(t);
     J.joinWords = arr => {
@@ -212,7 +207,7 @@
             return acc + (latin || (HG.test([...acc].pop()) && HG.test([...w][0])) ? ' ' : '') + w;
         }, '');
     };
-    /* 以拉丁字母为主的文本（英语、印尼语、越南语……歌词） */
+    // 以拉丁字母为主的文本（英语、印尼语、越南语……歌词）
     J.isLatinText = t => {
         const s = String(t || '').replace(/\s/g, '');
         if (!s) return false;
@@ -272,12 +267,12 @@
             cur = {s: sg, k: t, hasH: t === 'H'};
         }
         close();
-        // split very long chunks, merge lonely single kana
+        // 拆超长词块，合并落单的假名
         const out = [];
         for (const c of chunks) {
             const n = [...c].length;
             if (n > 10 && J.isWordLike(c)) {
-                // 一个很长的拉丁/韩文词：绝不在词中间切——只在连字符后面分（never-ending → never- / ending）
+                // 很长的拉丁/韩文词绝不在词中间切，只在连字符后面分（never-ending → never- / ending）
                 const parts = c.split(/(?<=[-‐–—])(?=\S)/);
                 if (parts.length > 1) parts.forEach(x => out.push(x));
                 else out.push(c);
@@ -294,7 +289,7 @@
         return out.length ? out : [text];
     };
 
-    /* English lyrics: cut by short phrases, not word by word (a Japanese chunk holds about as much as 2–3 English words) */
+    // 英文歌词按短语切，不逐词（一个日语词块大约相当于 2–3 个英文单词）
     J.phraseChunks = (words) => {
         const out = [];
         let cur = [], letters = 0;
@@ -310,7 +305,7 @@
             if (letters >= 9 || cur.length >= 3 || /[,.;:!?]$/.test(w)) flush();
         }
         flush();
-        // a lone short word at the end joins the previous phrase
+        // 结尾落单的短词并进上一段
         if (out.length >= 2 && out[out.length - 1].replace(/[^A-Za-z]/g, '').length <= 4) {
             const last = out.pop();
             out[out.length - 1] = J.joinWords([out[out.length - 1], last]);
@@ -318,7 +313,6 @@
         return out.length ? out : words;
     };
 
-    /* ---------------- timing ---------------- */
     J.computeTiming = (project, parsed, audio) => {
         const T = project.timing || {};
         const lines = parsed.lines;
@@ -335,7 +329,7 @@
             if (fixed[i] < lastFix + 0.05) fixed[i] = lastFix + 0.05;
             lastFix = fixed[i];
         }
-        const natural = i => {         // 第 i 行的估算时长
+        const natural = i => { // 第 i 行的估算时长
             const n = [...lines[i].text].length, L = lines[i];
             let d = L.interlude ? (L.secs > 0 ? L.secs : 4) : J.clamp(0.8 + n * 0.17, 1.3, 5.2) * (T.lineScale || 1);
             if (beat && !(L.interlude && L.secs > 0)) d = Math.max(2, Math.round(d / beat)) * beat;
@@ -357,7 +351,7 @@
             while (j < lines.length && fixed[j] == null) j++;
             if (i === 0 && j < lines.length && t >= fixed[j]) t = 0;
             const from = i > 0 ? starts[i - 1] : t;
-            // 链式推进方式与旧版一致（无固定时刻的 plan 结果完全不变）
+            // 链式推进方式与旧版一致（无固定时刻时 plan 结果完全不变）
             for (let k = i; k < j; k++) starts[k] = k > 0 ? starts[k - 1] + natural(k - 1) + gapOf(k) : t;
             if (j < lines.length) {
                 // 这些行都必须在下一个固定时刻之前开始：把它们挤进可用的空间里
@@ -381,7 +375,6 @@
         return {starts, ends, duration};
     };
 
-    /* ---------------- planning ---------------- */
     const wkey = (obj, k, d = 1) => (obj && obj[k] != null ? obj[k] : d);
 
     function cutTechOf(ov, k) {
@@ -397,38 +390,37 @@
         const title = project.title || parsed.meta.ti || '';
         const artist = project.artist || parsed.meta.ar || '';
         const tm = J.computeTiming(project, parsed, audio);
-        // 文字整列: the lyrics appear 0.2 s before the voice (reading ahead feels in time)
+        // 文字整列：歌词比人声早 0.2s 出现，提前读着才觉得合拍
         if (project.typeset) {
             const LEAD = 0.2;
             tm.starts = tm.starts.map(t => Math.max(0, t - LEAD));
             tm.ends = tm.ends.map((t, i) => Math.max(tm.starts[i] + 0.3, t - LEAD));
         }
         const [W, H] = J.designSize(project.aspect);
-        // enabled map: anything not explicitly switched off is on (new pack entries appear enabled in old projects);
-        // then the 追加分 / 和風 switches decide what random picks may use (a per-line override still works)
+        // enabled：没显式关掉的都算开（老工程里新手法包的条目自动可用）；
+        // 追加分/和風 开关决定随机能选什么（逐行 override 不受影响）
         const en = {};
         for (const g of J.GROUP_KEYS) {
             en[g] = {};
             const src = (project.enabled || {})[g] || {};
             for (const k of J.order(g)) en[g][k] = src[k] !== false && (!J.randomOk || J.randomOk(project, g, k));
         }
-        // 中央を空ける (キャラクター用): every cut is laid out in a side band — left / right on wide frames, top / bottom on tall
-        // ones — alternating line by line; the centre keeps only the full-frame background and screen effects
+        // 中央を空ける（给角色留位）：每个切分排进侧边条带，宽帧左右、竖帧上下，逐行交替；中间只留整帧背景和屏幕特效
         const zones = project.centerFree ? J.sideZones(W, H, project.centerDir, project.centerGap, project.centerZone) : null;
-        // the lyric of every cut is split in two: the first half in band 0 (left / top), the second in band 1 (right / bottom)
+        // 每个切分的歌词拆两半：前半进条带 0（左/上），后半进条带 1（右/下）
         const zoneOf = () => (zones ? Object.assign({}, zones[0]) : null);
-        if (zones && en.bg) en.bg.bigChar = false;               // the one background that draws the lyric itself (big, centred)
+        if (zones && en.bg) en.bg.bigChar = false; // 唯一会自己画歌词的背景（大字居中）
         const plan = {
             version: 1, generator: 'JIZURA', appVersion: '@VERSION@', title, artist, W, H, fps: project.fps || 24,
             duration: tm.duration, styleKey: project.style, style: st, fx, seed: project.seed,
             lines: [], cuts: [], events: [], beats: audio && audio.beats ? audio.beats.slice() : [],
             hud: fx.hud === 'on' ? true : fx.hud === 'off' ? false : !!st.hud,
-            keyBg: J.keyMode ? J.keyMode(project) : null,   // 'green' | 'black' | null — 合成用の背景
+            keyBg: J.keyMode ? J.keyMode(project) : null, // 'green' | 'black' | null，抠像合成背景
             centerFree: !!zones, zones,
             typeset: !!project.typeset, unify: !!project.unify,
-            lang: J.resolveLang ? J.resolveLang(project) : 'ja',   // 歌詞の言語 (auto → detected)
+            lang: J.resolveLang ? J.resolveLang(project) : 'ja', // 歌词语言（auto → 检测结果）
         };
-        if (J.setLang) J.setLang(plan.lang);                     // chunking + measuring below use this language
+        if (J.setLang) J.setLang(plan.lang); // 下面的切词和排版量测都用这个语言
         if (J.setTypeset) J.setTypeset(plan.typeset);
         const beats = plan.beats;
         const snap = (t) => {
@@ -452,7 +444,7 @@
         const evOwner = new WeakMap();
         Object.defineProperty(plan, 'evOwner', {value: evOwner});
 
-        // title card
+        // 片头标题卡
         const firstStart = tm.starts.length ? tm.starts[0] : 0;
         if (title && firstStart >= 1.1) {
             const rng = J.rng(J.h(project.seed, 999));
@@ -474,7 +466,7 @@
             }));
         }
 
-        // 統一感: sections, repeated lines, キメ lines and the per-section palettes (see makeUnify below)
+        // 統一感：段落、重复行、キメ 行和各段调色板，见下面的 makeUnify
         const U = plan.unify ? makeUnify(parsed.lines, {
             st,
             en,
@@ -488,7 +480,7 @@
             const ov = (project.overrides || {})[li] || {};
             const lineSeed = ov.lock && ov.lockedSeed != null ? ov.lockedSeed : J.h(project.seed, li + 1, ov.seed | 0);
             const rng = J.rng(lineSeed);
-            if (ln.interlude) {                                    // [間奏]: background, decorations and screen effects only
+            if (ln.interlude) { // [間奏]：只有背景、装饰和屏幕特效
                 plan.lines.push({
                     index: li,
                     src: ln.src,
@@ -534,7 +526,7 @@
                     camP: {}
                 }));
                 if (en.fx == null || en.fx.chroma !== false) addEvent(s, 'chroma', 1 + fx.chroma, 0.25);
-                for (let t = s + 1.2; t < e - 0.8; t += J.clamp(dur / 4, 1.6, 3.2)) {          // a few effect accents so a long interlude keeps moving
+                for (let t = s + 1.2; t < e - 0.8; t += J.clamp(dur / 4, 1.6, 3.2)) { // 长间奏加几个特效点缀，免得太死
                     const pick = pickFx(rng, st, en, fx, false, fxHistory, 'mid');
                     if (pick) {
                         const D2 = J.FXE[pick];
@@ -570,15 +562,14 @@
             const ovAny = Object.keys(ov).some(k2 => !['lock', 'lockedSeed', 'seed', 'cutTech', 'cutLayouts', 'cutQuiet', 'cutTime'].includes(k2));
             const kime = !!(U && U.kime.has(li) && !ov.cuts);
             if (ov.single || kime) nC = 1;
-            if (zones) nC = Math.max(1, Math.min(nC, Math.floor(chunks.length / 2)));   // 中央を空ける: each cut is split in two, so keep ≥ 2 words per cut
-            // カット数の指定 (per line): exactly that many cuts — chunks are split further when the line has fewer
+            if (zones) nC = Math.max(1, Math.min(nC, Math.floor(chunks.length / 2))); // 中央を空ける：每个切分要拆成两半，所以每半至少留 2 个词
+            // 指定切分数（按行）：就切这么多刀，块不够就继续拆
             const fixedN = ov.cuts > 0 ? Math.min(12, ov.cuts | 0) : 0;
             let chunks2 = chunks;
             if (fixedN) {
                 nC = fixedN;
                 chunks2 = splitToCount(chunks, fixedN);
             }
-            // groups of chunks
             let groups;
             const nG = Math.min(nC, chunks2.length);
             if (nG <= 1) groups = [ln.text];
@@ -590,12 +581,12 @@
                 w: (units.reduce((a, u) => a + u.w, 0) / units.length) * 1.25,
                 recap: true
             });
-            // a locked line keeps its own cuts too (the cut count would otherwise follow the 細かさ slider or おまかせ)
+            // 锁定的行也保留自己的切分，否则数量会跟着细密度滑块或おまかせ走
             if (ov.lock && Array.isArray(ov.lockedCuts) && ov.lockedCuts.length && ov.lockedCuts.every(c => c && typeof c.utext === 'string' && ln.text.includes(c.utext.trim())))
                 units = ov.lockedCuts.map(c => ({text: c.utext, w: [...c.utext].length + 1.6, recap: !!c.recap}));
             const tot = units.reduce((a, u) => a + u.w, 0);
-            // ロック: a locked line keeps exactly what it showed when it was locked (layouts, motion, decorations, colours,
-            // accents) — rerolling other lines changes the shared "recently used" state, so the seed alone is not enough
+            // ロック：锁定的行原样保留锁定时的内容（版式、动态、装饰、配色、强调）；
+            // 重抽别的行会动共享的「最近用过」状态，光靠 seed 不够
             const lockSpecs = ov.lock && Array.isArray(ov.lockedCuts) && ov.lockedCuts.length === units.length
             && ov.lockedCuts.every((c, k2) => c && c.utext === units[k2].text && J.LAYOUTS[c.layout]) ? ov.lockedCuts : null;
             let acc = s;
@@ -605,11 +596,11 @@
                 bounds.push(k === units.length - 1 ? visEnd : acc);
             });
             for (let k = 1; k < bounds.length - 1; k++) {
-                // 相邻边界间距 < 0.44s 时下界会大于上界，clamp 需要先归序防 start>end 的负时长 cut
+                // 相邻边界间距 < 0.44s 时下界会大于上界，clamp 要先归序，防止出现 start>end 的负时长 cut
                 const lo = bounds[k - 1] + 0.22, hi = bounds[k + 1] - 0.22;
                 bounds[k] = J.clamp(snap(bounds[k]), Math.min(lo, hi), Math.max(lo, hi));
             }
-            // 切分的开始时刻（详细模式）：行首起的秒数，手工填或打点（Tab）——保持顺序、互距至少 0.22s
+            // 切分开始时刻（详细模式）：行首起的秒数，手工填或打点（Tab），保持顺序、互距至少 0.22s
             if (ov.cutTime && typeof ov.cutTime === 'object') {
                 const nb = bounds.length - 1;
                 for (let k = 1; k < nb; k++) {
@@ -619,22 +610,22 @@
                 for (let k = 1; k < nb; k++) if (bounds[k] < bounds[k - 1] + 0.22) bounds[k] = bounds[k - 1] + 0.22;
                 for (let k = nb - 1; k >= 1; k--) if (bounds[k] > bounds[k + 1] - 0.22) bounds[k] = bounds[k + 1] - 0.22;
             }
-            // scheme per line
+            // 配色方案按行切换
             if (nSchemes > 1 && li > 0 && (U ? U.sectionStart(li) && rng.chance(0.25 + fx.bgSwitch) : rng.chance(fx.bgSwitch * (ln.impact ? 1.8 : 1)))) schemeIdx = (schemeIdx + 1 + rng.int(0, nSchemes - 2)) % nSchemes;
             const emphLine = ln.impact || ln.emph.length > 0;
-            // background graphic: chosen per line, occasionally re-rolled per cut
+            // 背景图形按行选，偶尔在切分上重抽
             let lineBg = ov.bg && J.BG[ov.bg] ? ov.bg : pickBg(rng, st, en, fx, bgHistory);
             bgHistory.push(lineBg);
             let lineBgP = J.BG[lineBg] && J.BG[lineBg].plan ? J.BG[lineBg].plan(rng, st) : {};
             units.forEach((u, k) => {
                 const cs = bounds[k], ce = bounds[k + 1], dur = ce - cs;
-                const halves = zones ? splitHalf(u.text, plan.lang) : null;               // 中央を空ける: 「花が」｜「咲いた」
+                const halves = zones ? splitHalf(u.text, plan.lang) : null; // 中央を空ける：「花が」｜「咲いた」
                 const txt = halves ? halves[0] : u.text;
                 const nn = Math.max(...(halves || [u.text]).map(t => [...t.replace(/\s+/g, '')].length));
                 const emph = kime || ln.impact && (k === 0 || u.recap) || ln.emph.some(w => u.text.includes(w));
-                const Z = zoneOf(), LW = Z ? Z.w : W, LH = Z ? Z.h : H;       // the frame this cut is laid out in
-                const UU = U && !ovAny ? U : null;                              // per-line settings always win over 統一感
-                const tech = cutTechOf(ov, k);                                  // このカットだけの指定
+                const Z = zoneOf(), LW = Z ? Z.w : W, LH = Z ? Z.h : H; // 这个切分布局用的画面区域
+                const UU = U && !ovAny ? U : null; // 逐行设置优先于統一感
+                const tech = cutTechOf(ov, k); // 只作用于这个切分的指定
                 let layout = ov.layout && J.LAYOUTS[ov.layout] ? ov.layout : pickLayout(rng, st, en, nn, dur, history, emph, u.recap, LH > LW);
                 if (UU) layout = UU.layout(li, layout, {nn, dur, emph, kime, rng, portrait: LH > LW, recap: u.recap});
                 let enter = ov.enter && J.ENTER[ov.enter] ? ov.enter : pickEnter(rng, st, en, layout, dur, history, emph, nn);
@@ -685,7 +676,7 @@
                 if (UU) cam = UU.cam(li, cam, {kime, emph, rng});
                 let camP = J.CAMERA[cam].plan ? J.CAMERA[cam].plan(rng, st) : {};
                 let cutSeed = J.h(lineSeed, k, 17);
-                // 統一感: a line that comes back (サビ etc.) is shown exactly as the first time
+                // 統一感：重复出现的行（サビ 等）和第一次完全一样
                 const again = UU ? UU.again(li, k, txt) : null;
                 if (again) {
                     ({layout, enter, exit, hold, params, decor, treat, treatP, cam, camP, weightGrow} = again);
@@ -726,8 +717,8 @@
                     inDur = LS.inDur;
                     outDur = LS.outDur;
                 }
-                // このカットだけの指定: applied on top of the draw with its own random stream, so changing one cut never
-                // shifts the other cuts (history below keeps what was drawn, as if nothing had been changed here)
+                // 单切分指定：叠加在抽取结果之上，用独立的随机流，改一个切分不会挪动其他切分
+                // （下面的 history 记录的仍是画出来的东西，当作这里什么都没改）
                 const drawn = {layout, enter, exit, hold, treat, cam, decor: decor.map(d => d.id)};
                 let techBgP = null;
                 if (tech.layout && J.LAYOUTS[tech.layout] && !J.LAYOUTS[tech.layout].special) {
@@ -757,20 +748,20 @@
                     cam = tech.cam;
                     camP = J.CAMERA[cam].plan ? J.CAMERA[cam].plan(J.rng(J.h(lineSeed, k, 95)), st) : {};
                 }
-                if (tech.enter || tech.exit) {               // keep the (locked) durations unless the motions changed
+                if (tech.enter || tech.exit) { // 动作没变就保留（锁定的）时长
                     const [i2, o2] = durs(enter, exit);
                     if (tech.enter && J.ENTER[tech.enter]) inDur = i2;
                     if (tech.exit && J.EXIT[tech.exit]) outDur = o2;
                 }
-                // cut-to-cut transition (replaces the previous cut's exit and this cut's entrance)
+                // 切分间转场（顶掉上一刀的 exit 和这一刀的 enter）
                 const prevCut = plan.cuts[plan.cuts.length - 1];
                 let trans = null, transP = {}, transDur = 0, morph = null;
                 const joinSaved = {enter, inDur, prevExit: prevCut && prevCut.exit, prevOut: prevCut && prevCut.outDur};
-                // a locked line keeps its own exit: the next (unlocked) line may not replace it with a transition / morph
+                // 锁定行保留自己的 exit：下一个未锁定行不许用转场/モーフ顶掉它
                 const prevLockedOther = prevCut && prevCut.line !== li && !LS && ((project.overrides || {})[prevCut.line] || {}).lock;
                 const canTrans = prevCut && Math.abs(prevCut.end - cs) < 0.06 && prevCut.layout !== 'interlude' && dur > 0.5 && !prevLockedOther;
-                // 統一感: モーフ — the next part of the same line grows out of this one (shared characters glide, the rest melts)
-                if (LS) {                                       // locked: the same join as before, when the cuts still touch
+                // 統一感：モーフ——同一行的下一部分从这一部分里长出来（共享字滑动，其余融化）
+                if (LS) { // 锁定行：切分仍相接时沿用之前的接法
                     if (canTrans && LS.morph) {
                         morph = {dur: LS.morph.dur};
                         prevCut.exit = 'cut';
@@ -788,7 +779,7 @@
                     inDur = 0.12;
                     prevCut.exit = 'cut';
                     prevCut.outDur = 0;
-                } else if (canTrans && again && !ov.trans) {    // 統一感: a repeated line joins its cuts the same way as the first time
+                } else if (canTrans && again && !ov.trans) { // 統一感：重复行的切分接法和第一次相同
                     if (again.trans && J.TRANS[again.trans]) {
                         trans = again.trans;
                         transP = again.transP || {};
@@ -812,7 +803,7 @@
                     }
                 }
                 drawn.trans = trans;
-                if (tech.trans === 'none') {                  // このカットだけ「つなぎなし」: undo the join
+                if (tech.trans === 'none') { // 单切分指定「つなぎなし」：撤销接缝
                     if (trans || morph) {
                         enter = joinSaved.enter;
                         inDur = joinSaved.inDur;
@@ -876,7 +867,7 @@
                 if (morph) cut.morph = morph;
                 if (UU) UU.remember(li, k, txt, cut);
                 if (zones) splitCut(cut, halves, zones, st, dur, LS);
-                // 文字整列: effects don't pile up — one decoration, no text treatment on top of it
+                // 文字整列：特效不叠加——至多一个装饰，上面不再叠文字处理
                 if (plan.typeset) {
                     cut.decor = cut.decor.slice(0, 1);
                     if (cut.decor.length && cut.treat !== 'none') {
@@ -886,11 +877,11 @@
                 }
                 plan.cuts.push(cut);
                 const evMark = plan.events.length;
-                // history = what the draw gave (with the usual join), so a per-cut pick never shifts the later cuts
+                // history 记抽取结果（含通常的接缝），单切分的改选才不会挪动后面的切分
                 const hist = {layout, enter, exit, hold, treat, cam, trans, decor: decor.map(d => d.id)};
                 for (const g of Object.keys(hist)) if (tech[g] !== undefined && drawn[g] !== undefined) hist[g] = g === 'enter' && drawn.trans ? 'cut' : drawn[g];
                 history.push(hist);
-                // events at cut start — durations are on a 24fps timebase so every output rate looks the same
+                // 切分开始处的事件——时长按 24fps 时间轴计，任何输出帧率下观感一致
                 const g = fx.glitch * (st.glitchBoost || 1);
                 const fxOn = k2 => en.fx == null || en.fx[k2] !== false;
                 const F = 1 / 24;
@@ -899,7 +890,7 @@
                 if (fxOn('block') && rng.chance(g * 0.22)) addEvent(cs + rng.range(0, 0.05), 'block', 0.5 + g, rng.pick([2, 4]) * F);
                 if (fxOn('shake') && (emph || rng.chance(fx.motion * 0.18))) addEvent(cs, 'shake', (emph ? 1 : 0.5) * fx.motion, 0.3);
                 if (fxOn('flash') && fx.flash && (ln.impact && k === 0 || kime)) addEvent(cs, 'flash', 1, 3 * F);
-                if (kime) {                                  // キメ: a hard accent where the line lands
+                if (kime) { // キメ：行落点上的重音
                     if (fxOn('zoom')) addEvent(cs, 'zoom', 1.1, 0.25);
                     if (fxOn('shake')) addEvent(cs + 0.04, 'shake', 1.1 * Math.max(0.5, fx.motion), 0.35);
                 }
@@ -907,7 +898,7 @@
                 if (fxOn('zoom') && (emph && rng.chance(0.6) || rng.chance(0.06 * fx.motion))) addEvent(cs, 'zoom', 0.7 + 0.5 * fx.motion, 0.22);
                 if (fxOn('mosaic') && rng.chance(0.04 * g)) addEvent(cs, 'mosaic', 1, 3 * F);
                 if (fxOn('slice') && dur > 0.8 && rng.chance(g * 0.4)) addEvent(cs + rng.range(0.35, 0.8) * dur, 'slice', 0.4 + g * 0.4, 2 * F);
-                // the newer effect library: at most one per cut boundary (plus rare mid-cut accents)
+                // 新特效库：每个切分边界至多一个，偶尔切分中段加一个
                 if (plan.cuts.length > 1 || k > 0 || li > 0) {
                     const pick = pickFx(rng, st, en, fx, emph, fxHistory, 'edge');
                     if (pick) {
@@ -928,15 +919,15 @@
                     plan.events.splice(evMark);
                     for (const e of LS.events) plan.events.push({t: cs + e.dt, type: e.type, amp: e.amp, dur: e.dur});
                 }
-                // 文字整列: at most one screen effect per cut besides the colour split (the キメ line keeps its accents)
+                // 文字整列：除色差外每个切分至多一个屏幕特效（キメ 行保留全部）
                 if (plan.typeset && !cut.kime && !LS) {
                     const mine = plan.events.splice(evMark);
                     let extra = 0;
                     for (const e of mine) if (e.type === 'chroma' || e.type === 'shake' && emph || extra++ < 1) plan.events.push(e);
                 }
-                for (let q = evMark; q < plan.events.length; q++) evOwner.set(plan.events[q], cut);   // 记下每个打点来自哪个切分（锁定用）
+                for (let q = evMark; q < plan.events.length; q++) evOwner.set(plan.events[q], cut); // 记下每个打点来自哪个切分（锁定用）
             });
-            // interlude in long gaps
+            // 长空档里补间奏
             const nextStart = li < parsed.lines.length - 1 ? tm.starts[li + 1] : null;
             if (nextStart != null && nextStart - visEnd > 1.3 && !parsed.lines[li + 1].interlude) {
                 const r2 = J.rng(J.h(lineSeed, 404));
@@ -966,7 +957,7 @@
             if (c.layout === 'interlude') {
                 c.params = Object.assign({}, c.params, {showTitle: false});
                 return;
-            }   // no lyric: the whole frame
+            } // 没歌词的占整帧
             c.zone = zoneOf();
         });
         plan.events.sort((a, b) => a.t - b.t);
@@ -977,13 +968,12 @@
         return plan;
     };
 
-    /* ---------- 統一感 (unify): the conventions of a hand-made lyric video ----------
-       · each part (a block between blank lines) keeps a small palette of layouts / motions / camera / decorations,
-         so the part reads as one idea; a new part may bring a new palette and colour scheme
-       · a line that comes back (サビ) is shown exactly as it was the first time
-       · directional moves alternate (left ↔ right, up ↔ down), strong moves are kept for the lines that matter
-       · キメ: lines ending in ! — or, when none is marked, the first line of a part that repeats — get one big cut
-       · モーフ between the parts of a line, and 太さ (thin → bold) now and then */
+    // 統一感：手写歌词视频的惯例
+    // 空行隔出的每段保持一小套版式/动态/运镜/装饰，整段像一个想法；新段落可以换调色板和配色
+    // 重复出现的行和第一次完全一样
+    // 方向性动作左右上下交替，强的动作留给重要的行
+    // キメ：以 ! 结尾的行；一个都没有时取重复段落的首行，给一个大切分
+    // 行内各部分之间用モーフ，偶尔用太さ（细→粗）
     const DIR_PAIRS = {
         enter: [['slideL', 'slideR'], ['riseMask', 'dropMask'], ['trackIn', 'trackOut'], ['flipX', 'flipY']],
         exit: [['slideOutL', 'slideOutR'], ['sinkMask', 'riseOut'], ['flipOutX', 'flipOutY']],
@@ -1005,7 +995,7 @@
     function makeUnify(lines, C) {
         const {st, en, fx, history} = C;
         const norm = t => String(t || '').replace(/[\s、。，．,.!！?？…・「」『』（）()"'“”‘’~〜ー―-]/g, '');
-        // sections
+        // 段落：空行或间奏切开的块
         const sec = [], starts = new Set([0]);
         let si = 0;
         lines.forEach((ln, i) => {
@@ -1015,7 +1005,7 @@
             }
             sec.push(si);
         });
-        // repeats
+        // 重复行：归一化文本相同的行
         const first = new Map(), repeatOf = [], count = new Map();
         lines.forEach((ln, i) => {
             const k = norm(ln.text);
@@ -1029,7 +1019,7 @@
                 repeatOf.push(null);
             }
         });
-        // キメ
+        // キメ 行
         const kime = new Set();
         lines.forEach((ln, i) => {
             if (ln.impact && !ln.interlude) kime.add(i);
@@ -1053,7 +1043,7 @@
             });
             return pals.get(s2);
         };
-        // keep up to max distinct picks per part; once full, mostly reuse them
+        // 每段最多存 max 个不同选择，满了之后大多复用
         const sticky = (i, g, v, max, rng, fits = () => true, reuse = 0.85) => {
             const P = pal(i)[g];
             if (P.length >= max && rng.chance(reuse)) {
@@ -1063,7 +1053,7 @@
             if (!P.includes(v) && P.length < max) P.push(v);
             return v;
         };
-        // alternate directions within a part
+        // 段内方向交替
         const alternate = (i, g, v) => {
             const key = sec[i] + ':' + g, prev = last.get(key);
             for (const pr of DIR_PAIRS[g] || []) {
@@ -1076,7 +1066,7 @@
             last.set(key, v);
             return v;
         };
-        const strongRun = new Map();                 // was the previous cut of this part strong?
+        const strongRun = new Map(); // 上一刀是不是强动作
         const calm = (i, g, v, emph, repick, rng) => {
             const key = sec[i] + ':' + g;
             if (!emph && STRONG[g] && STRONG[g].includes(v) && (strongRun.get(key) || rng.chance(0.55))) {
@@ -1183,13 +1173,12 @@
         };
     }
 
-    /* 中央を空ける: one scene, the lyric split in two — 「花が」 in the left (top) band, 「咲いた」 in the right (bottom) one.
-       Both halves use the same layout, motion, decorations and camera (the same random draws), so it reads as one picture
-       with the centre left for the character; the second half follows a beat later. */
+    // 中央を空ける：一幅画面，歌词拆两半——「花が」在左（上）带，「咲いた」在右（下）带。两半用同一套
+    // 版式/动态/装饰/运镜（同一批随机数），读起来是一张图，中间留给角色；后半晚一拍出现
     function splitHalf(text, lang) {
         const t = String(text || '').trim();
         const n = [...t.replace(/\s+/g, '')].length;
-        // between words, as near the middle as possible (「花が」｜「咲いた」, "Good night," | "see you tomorrow")
+        // 尽量从词与词之间、靠近正中处分开（「花が」｜「咲いた」，"Good night," | "see you tomorrow"）
         const words = (lang === 'en' ? J.phraseChunks(J.chunkText(t)) : J.chunkText(t)).map(w => String(w));
         if (words.length >= 2) {
             const L = w => [...w.replace(/\s+/g, '')].length, total = words.reduce((a2, w) => a2 + L(w), 0);
@@ -1205,12 +1194,12 @@
             const sep = /[A-Za-z]/.test(t) ? ' ' : '';
             return [words.slice(0, best).join(sep).trim(), words.slice(best).join(sep).trim()];
         }
-        // one word: short ones (and single English words) stand on both sides; longer ones split near the middle
+        // 单个词：短的（和英文单词）两边都放整词，长的在中间附近切
         if (n <= 3 || /^[A-Za-z0-9'’-]+$/.test(t)) return [t, t];
         const two = splitToCount([t], 2);
         if (two.length < 2) return [t, t];
         let a = two[0].trim(), b = two.slice(1).join('').trim();
-        // a half never starts with a particle, punctuation or a small kana: 「夜明けの色を」｜「覚えてる」, not 「…色」｜「を…」
+        // 后半不能以助词、标点或小假名开头：「夜明けの色を」｜「覚えてる」，而不是「…色」｜「を…」
         for (let g = 0; g < 3 && b.length > 1 && HEAD_BAD.test(b[0]); g++) {
             a += b[0];
             b = b.slice(1);
@@ -1233,7 +1222,7 @@
         cut.lineText = halves[0];
         cut.words = J.chunkText(halves[0]);
         cut.zone = Object.assign({}, zones[0]);
-        cut.params = LS && LS.params && LS.twinParams ? LS.params : planFor(halves[0], zones[0]);   // a locked line keeps its own
+        cut.params = LS && LS.params && LS.twinParams ? LS.params : planFor(halves[0], zones[0]); // 锁定行用自己的参数
         const delay = Math.min(0.12, dur * 0.08);
         const twin = Object.assign({}, cut, {
             text: halves[1],
@@ -1255,7 +1244,7 @@
         cut.companion = twin;
     }
 
-    /* ロック: what a line shows, so it can be kept as it is (stored in project.overrides[line].lockedCuts) */
+    // ロック：把一行显示的东西存下来，便于原样保留（存在 project.overrides[line].lockedCuts）
     J.lineSnapshot = (plan, li) => {
         const cuts = plan.cuts.filter(c => c.line === li && c.utext != null);
         if (!cuts.length) return null;
@@ -1287,9 +1276,9 @@
             twinParams: c.companion ? c.companion.params : null,
             events: []
         }))));
-        // each accent belongs to the cut it plays in (the ones just before a cut start belong to that cut)
+        // 每个打点归属它所在的切分（紧贴切分开始前的算给这个切分）
         for (const e of plan.events) {
-            // 打点属于制造它的那个切分——包括行尾之后才播放的（收尾特效不再丢失）
+            // 打点属于制造它的那个切分，包括行尾之后才播放的（收尾特效不再丢失）
             const own = plan.evOwner && plan.evOwner.get(e);
             if (own) {
                 const k = cuts.indexOf(own);
@@ -1302,7 +1291,7 @@
                 continue;
             }
             let k = -1;
-            // [start − 0.25, next start − 0.25): an accent just before the following cut belongs to that cut
+            // [start − 0.25, 下一刀 start − 0.25)：贴着下一刀前面的打点归下一刀
             for (let j = 0; j < cuts.length; j++) {
                 const until = j < cuts.length - 1 ? cuts[j + 1].start - 0.25 : cuts[j].end - 0.3;
                 if (e.t >= cuts[j].start - 0.25 && e.t < until) k = j;
@@ -1312,11 +1301,10 @@
         return S;
     };
 
-    /* side bands for 中央を空ける: [a, b] in design pixels. Wide frames: left / right thirds (a little narrower on 21:9);
-       tall frames: top / bottom; square-ish frames count as wide.
-       gapPct: 中央留白占画面宽/高的百分比（10..70，设置页自定义）；缺省用原来的固定比例。
-       zonePos: 留白位置 center / left / right / top / bottom（设置页自定义）；
-       单侧留白时文字排进剩余区域，切成上下（左右留白时）或左右（上下留白时）两个矩形。 */
+    // side bands for 中央を空ける，设计像素。宽帧分左右第三（21:9 再窄一点），竖帧分上下，接近方形的算宽帧
+    // gapPct：留白占画面宽/高的百分比（10..70，设置页自定义），缺省用原来的固定比例
+    // zonePos：留白位置 center / left / right / top / bottom；单侧留白时文字排进剩余区域，
+    // 切成上下（左右留白时）或左右（上下留白时）两个矩形
     J.sideZones = (W, H, dir, gapPct, zonePos) => {
         const gap = !(gapPct > 0) ? 0 : Math.min(70, Math.max(10, +gapPct)) / 100;
         const bw = Math.round(W * (gap || 0.3));
@@ -1365,7 +1353,7 @@
         if (H > W * 1.1 && dir === 'lr') {
             const w = Math.round(W * (gap ? (1 - gap) / 2 : 0.34));
             return [{x: 0, y: 0, w, h: H, side: 'left'}, {x: W - w, y: 0, w, h: H, side: 'right'}];
-        }   // 縦長で左右に分ける
+        } // 竖长帧也分左右
         if (H > W * 1.1) {
             const h = Math.round(H * (gap || 0.33));
             return [{x: 0, y: 0, w: W, h, side: 'top'}, {x: 0, y: H - h, w: W, h, side: 'bottom'}];
@@ -1397,7 +1385,7 @@
         return c;
     }
 
-    /* split chunks until there are at least n pieces (longest first: words for Latin text, characters otherwise) */
+    // 拆词块直到至少 n 块，每次拆最长的（拉丁文按词，其他按字）
     function splitToCount(chunks, n) {
         const out = chunks.slice();
         let guard = 0;
@@ -1418,7 +1406,7 @@
                 a = w.slice(0, h).join(' ');
                 b = w.slice(h).join(' ');
             } else {
-                // at a word boundary nearest the middle when there is one (夜明け|の), else between characters
+                // 有分词边界就取最靠近中间的（夜明け|の），否则按字切
                 const ch = [...c], segs = J.segments ? J.segments(c) : [];
                 let cut = Math.ceil(ch.length / 2);
                 if (segs.length > 1) {
@@ -1594,7 +1582,7 @@
         return out;
     }
 
-// text treatment: plain most of the time; the "decor" slider raises how often a treatment is used
+// 文字处理：大多数时候不加，decor 滑块提高使用频率
     function pickTreat(rng, st, en, fx, LD, emph, history) {
         if (LD.treat === false) return 'none';
         if (!rng.chance(0.18 + 0.42 * (fx.decor ?? 0.5) + (emph ? 0.15 : 0))) return 'none';
@@ -1630,7 +1618,7 @@
         return cands.length ? rng.wpick(cands) : null;
     }
 
-// kind 'edge' = transition at a cut boundary, 'mid' = accent in the middle of a cut
+// kind 'edge' = 切分边界上的转场，'mid' = 切分中段的点缀
     function pickFx(rng, st, en, fx, emph, fxHist, kind) {
         const g = fx.glitch ?? 0.55;
         const p = kind === 'edge' ? 0.12 + 0.38 * g + 0.12 * (fx.motion ?? 0.7) + (emph ? 0.15 : 0) : 0.05 + 0.2 * g;
@@ -1649,7 +1637,7 @@
         return cands.length ? rng.wpick(cands) : null;
     }
 
-    /* one-cut (or two-cut, for transitions) plan used by the 手法 tab thumbnails */
+    // 手法标签页缩略图用的单切分 plan（转场是两切分）
     J.previewPlan = (project, group, key) => {
         const enUI = typeof document !== 'undefined' && document.documentElement && document.documentElement.lang === 'en';
         const st = J.resolveStyle(project);

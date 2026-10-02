@@ -1,4 +1,3 @@
-/* 歌曲载入管线：搜索结果/歌单曲目 → 播放链接 → 音频代理下载 → 引擎装载 → 歌词拉取对齐 */
 import {bus} from '../jizura/bus';
 import {useCloud} from '../stores/cloud';
 import {loadAudioFile, replan, seek} from '../jizura/engine';
@@ -36,9 +35,9 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
       const ly = await api.lyric(source, it);
       if (my !== loadSeq) return;
       if (ly.ok) {
-        resetLyricBinding();   // 换歌：旧歌词的逐行时间/覆盖/导出范围绑定的是旧行号，先清空再填新词
-        // deferReplan：跳过这里的同步重排，loadAudioFile 末尾的 replan 一次到位——
-        // 载歌窗口里连做两轮全曲 plan + 行列表/时间轴级联，是可感知的一瞬卡顿
+        resetLyricBinding(); // 换歌了：旧歌词的逐行时间/覆盖/导出范围绑的是旧行号，先清掉
+        // deferReplan 跳过这里的同步重排，loadAudioFile 末尾的 replan 一次到位
+        // 不然载首歌连跑两轮全曲 plan，能感觉到一瞬卡顿
         if (source === 'netease') {
           await adoptNeLyric(ly, true);
           lyricNote = (ly.trans || ly.roma) ? '，歌词已填入（含注音）' : '，歌词已填入（无音译/翻译）';
@@ -52,14 +51,13 @@ export async function loadSong(source: Source, it: Song, quality: string): Promi
       lyricNote = '，歌词加载失败';
     }
 
-    // 音频分析完成后再装载（歌词已先行就位），并把播放位置归零。
-    // 曲名/歌手不自动填：只能用户手动输入
+    // 曲名/歌手不自动填，只能用户手动输
     const loaded = await loadAudioFile(file);
     if (my !== loadSeq) return;
     if (loaded) {
       bus.emit('sync-ui');
       seek(0);
-    } else if (lyricDeferred) replan();   // 音频装载失败：已写入的歌词仍要排进 plan
+    } else if (lyricDeferred) replan(); // 音频装载失败时，已写入的歌词也得排进 plan
 
     toast(u.trial ? `只载入 60 秒试听（这首需要 VIP，可在「账号」页登录）：${it.name}${lyricNote}`
         : `已载入：${it.name}${lyricNote}`);

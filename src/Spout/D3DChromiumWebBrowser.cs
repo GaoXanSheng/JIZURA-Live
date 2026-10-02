@@ -15,7 +15,7 @@ public sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
         : base(
             url,
             browserSettings,
-            // null = 默认 RequestContext：必须与主窗口浏览器共享同一存储分区，
+            // RequestContext 传 null = 与主窗口浏览器共享同一存储分区，
             // 否则 localStorage 互不相通，工程跟随（storage 事件）永远不会触发
             null,
             false)

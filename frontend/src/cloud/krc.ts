@@ -1,10 +1,6 @@
-/* 歌词解析引擎（原 11b_kggkrc.js 的 krc/网易 LRC 处理，纯函数 TS 化）
-   - .krc 浏览器内解密（固定 key 异或 + DecompressionStream inflate）→ 带时间戳 LRC
-   - 酷狗 [language:] 块的音译/翻译提取（按字符脚本分类，type 字段不可靠）
-   - 网易云主 LRC + 翻译(tlyric)/音译(romalrc) 按时间戳对齐
-   输出统一为 JIZURA 语法的 LRC（/ 切镜头转全角、空行=停顿、| 注音） */
+// 酷狗 krc / 网易云歌词解析，输出统一成 JIZURA 语法的 LRC
 const KRC_KEY = new Uint8Array([0x40, 0x47, 0x61, 0x77, 0x5E, 0x32, 0x74, 0x47,
-    0x51, 0x36, 0x31, 0x2D, 0xCE, 0xD2, 0x6E, 0x69]);
+    0x51, 0x36, 0x31, 0x2D, 0xCE, 0xD2, 0x6E, 0x69]); // 酷狗固定的解密 key
 
 export interface LyricOptions {
     roma: boolean;
@@ -18,13 +14,12 @@ export interface LyricMapValue {
 
 export type LyricMap = Map<string, LyricMapValue>;
 
-/* ---------- krc 解密 ---------- */
-
 async function inflate(buf: Uint8Array): Promise<Uint8Array> {
     const stream = new Blob([buf as unknown as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate'));
     return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+// krc1 魔数之后整段按 key 循环异或，再 inflate
 export async function decryptKrc(buf: ArrayBuffer): Promise<string> {
     const all = new Uint8Array(buf);
     const head = new Uint8Array(all.subarray(0, 4));
@@ -33,8 +28,6 @@ export async function decryptKrc(buf: ArrayBuffer): Promise<string> {
     for (let i = 0; i < body.length; i++) body[i] ^= KRC_KEY[i % 16];
     return new TextDecoder('utf-8').decode(await inflate(body));
 }
-
-/* ---------- krc → LRC ---------- */
 
 const RE_TIMED = /^\[(\d+),(\d+)\](.*)$/;
 const RE_WORD = /<(\d+),(\d+),\d+>/g;
@@ -47,8 +40,8 @@ function fmtMs(ms: number): string {
         String(cs).padStart(2, '0');
 }
 
-/* KRC [language:] 块里 type 字段不可靠（同一首歌可能 type:1 是翻译、type:0 是音译），
-   按字符脚本分类：拉丁字母为主 → 音译；假名/汉字/谚文为主 → 翻译 */
+// [language:] 块里的 type 字段不可靠，同一首歌可能 1 是翻译 0 是音译
+// 所以按字符脚本猜：拉丁为主算音译，假名/汉字/谚文为主算翻译
 export function classifyLangRows(rows: string[]): 'roma' | 'trans' | 'none' {
     let latin = 0, cjk = 0;
     for (const r of rows) {
@@ -64,7 +57,7 @@ export function classifyLangRows(rows: string[]): 'roma' | 'trans' | 'none' {
 function parseLangBlobs(text: string): { roma: string[] | null; trans: string[] | null } {
     const raw = text.split('\n').find(l => l.startsWith('[language:'));
     if (!raw) return {roma: null, trans: null};
-    const line = raw.trim();   // KRC 是 CRLF：不先去 \r 的话结尾 ] 会被误当 base64 一部分
+    const line = raw.trim(); // KRC 是 CRLF，不先去 \r 的话结尾 ] 会被算进 base64
     try {
         const bin = Uint8Array.from(atob(line.slice('[language:'.length, -1)), c => c.charCodeAt(0));
         const j = JSON.parse(new TextDecoder('utf-8').decode(bin));
@@ -92,7 +85,7 @@ export function krcToLrc(text: string, opts: Partial<LyricOptions>, mapOut?: Lyr
     const blobs = parseLangBlobs(text);
     const roma = wantRoma ? blobs.roma : null;
     const trans = wantTrans ? blobs.trans : null;
-    const allRoma = blobs.roma, allTrans = blobs.trans;   // map 不受勾选影响：字幕始终拿得到两轨
+    const allRoma = blobs.roma, allTrans = blobs.trans; // map 不吃勾选，字幕始终拿得到两轨
     let offsetMs = 0;
     for (const tag of ['offset', 'manualoffset']) {
         const m = text.match(new RegExp('^\\[' + tag + ':(-?\\d+)\\]', 'm'));
@@ -100,7 +93,7 @@ export function krcToLrc(text: string, opts: Partial<LyricOptions>, mapOut?: Lyr
     }
 
     const out: string[] = [];
-    let idx = -1;   // 第几条带时间戳的行：音译/翻译按它对齐（间奏空行也占位）
+    let idx = -1; // 音译/翻译按第几条带时间戳的行对齐，间奏空行也占位
     for (const raw of text.split('\n')) {
         const line = raw.replace(/\r$/, '');
         if (!line.trim()) continue;
@@ -121,8 +114,8 @@ export function krcToLrc(text: string, opts: Partial<LyricOptions>, mapOut?: Lyr
         if (!textLine) {
             out.push('');
             continue;
-        }        // 空行 = 停顿（JIZURA 语法）
-        textLine = textLine.replace(/\//g, '／');          // `/` 是 JIZURA 的切镜头指令
+        } // 空行 = JIZURA 的停顿
+        textLine = textLine.replace(/\//g, '／'); // 半角 / 是 JIZURA 的切镜头指令，换成全角
         const notes: string[] = [];
         for (const rows of [roma, trans]) {
             let s = rows && rows[idx];
@@ -144,8 +137,6 @@ export function krcToLrc(text: string, opts: Partial<LyricOptions>, mapOut?: Lyr
     return out.join('\n').replace(/\n+$/, '') + '\n';
 }
 
-/* ---------- 网易云歌词 ---------- */
-
 export function b64Text(b64: string): string {
     return new TextDecoder('utf-8').decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
 }
@@ -157,19 +148,19 @@ export interface NeRow {
     text: string
 }
 
-// 一份 LRC → [{ms(毫秒|null), text}]；多时间戳行展开成多条
+// 多时间戳行展开成多条；ms 是毫秒，没时间戳就是 null
 export function neParseLrc(src: string): NeRow[] {
     const out: NeRow[] = [];
     for (const raw of String(src || '').split('\n')) {
         const line = raw.replace(/\r$/, '');
         if (!line.trim()) continue;
         if (/^\s*\{"/.test(line)) {
-            // 制作信息行（JSON）：转纯文本，不带时间戳
+            // 网易的制作信息行是一段 JSON，转成纯文本
             try {
                 const j = JSON.parse(line.trim());
                 const text = (j.c || []).map((p: any) => p.tx || '').join('').trim();
                 if (text) out.push({ms: null, text});
-            } catch { /* 不是合法 JSON 就丢掉 */
+            } catch {
             }
             continue;
         }
@@ -181,7 +172,7 @@ export function neParseLrc(src: string): NeRow[] {
             last = NE_STAMP.lastIndex;
         }
         if (!stamps.length) {
-            // 元数据标签（[ti:..] [offset:..] 等）跳过；其余无时间戳行保留，后面补默认时间
+            // [ti:..] [offset:..] 这类元数据标签跳过；其他没时间戳的行留着，后面补默认时间
             if (/^\s*\[[a-zA-Z]+:.*]\s*$/.test(line)) continue;
             out.push({ms: null, text: line.trim()});
             continue;
@@ -199,9 +190,9 @@ function neFmtMs(ms: number): string {
         String(Math.floor(ms % 1000 / 10)).padStart(2, '0');
 }
 
-// 按音译/翻译勾选合成 LRC；mapOut 建 歌词原文 → {roma, trans}（字幕用）。
-// 无时间戳的行（作词/作曲等）补默认时间：在上一句与下一句之间均摊，作为开场字幕。
-// 全曲都没时间戳时不补（交给 JIZURA 的自动排时）。
+// mapOut 存 歌词原文 → {roma, trans}，给字幕用
+// 没时间戳的行（作词作曲之类）在上一句和下一句之间均摊时间，当好开场字幕
+// 整首都没时间戳就不补，交给 JIZURA 自动排时
 export function neBuildLrc(lrc: NeRow[], trans: NeRow[], roma: NeRow[], opts: Partial<LyricOptions>, mapOut?: LyricMap): string {
     const at = (rows: NeRow[]) => {
         const m = new Map<number, string>();
@@ -238,12 +229,12 @@ export function neBuildLrc(lrc: NeRow[], trans: NeRow[], roma: NeRow[], opts: Pa
         if (ts == null) {
             if (e.text) out.push(e.text.replace(/\//g, '／'));
             continue;
-        }  // 全曲无时间戳的兜底
+        } // 全曲没时间戳时的兜底
         const text = e.text.replace(/\//g, '／');
         if (!text) {
             out.push('');
             continue;
-        }  // 空行 = 停顿（JIZURA 语法）
+        } // 空行 = JIZURA 的停顿
         const notes: string[] = [];
         for (const [get, want] of [[getRoma, opts.roma !== false], [getTrans, opts.trans !== false]] as const) {
             if (!want) continue;

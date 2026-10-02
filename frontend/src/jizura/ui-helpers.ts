@@ -1,4 +1,4 @@
-/* 徽章（追加/和/ホ・文・キ等套装标记）与通用 UI 帮手 */
+// 徽章（追加/和/恐・文・动等套装标记）与通用 UI 帮手
 import {J} from '../engine';
 
 const SET_UI: Record<string, { name: string; badge: string }> = {

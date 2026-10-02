@@ -1,5 +1,4 @@
-/* JIZURA pack: typo (part 3) — typographic decor (colophon, running head, glyph bodies, text rules, type scale, big quote marks),
-   text treatments (hollow key glyph, head / foot rules, large head glyph, glyph indices) and two type-driven transitions */
+// typo 手法包第 3 部分：排版装饰、文字 treat、两个打字机式转场
 (() => {
     'use strict';
     const E = J.E;
@@ -8,7 +7,6 @@
     const reg = (g, key, def) => J.register(g, key, Object.assign({set: SET}, def), P);
     const clamp = J.clamp, lerp = J.lerp, DEG = J.DEG;
 
-    /* ------------------------------------------------------------------ shared helpers */
     const U = env => Math.min(env.W, env.H) / 1080;
     const MG = env => Math.round(Math.min(env.W, env.H) * 0.05);
     const monoF = env => (env.st.fonts.mono && env.st.fonts.mono[0]) || 'mono';
@@ -21,7 +19,7 @@
     const accentOf = sc => (J.contrast(sc.accent, sc.bg) >= 1.8 ? sc.accent : sc.fg);
     const bw = bb => bb.x1 - bb.x0, bh = bb => bb.y1 - bb.y0;
     const hitBB = (x0, y0, x1, y1, bb, pad = 0) => !(x1 < bb.x0 - pad || x0 > bb.x1 + pad || y1 < bb.y0 - pad || y0 > bb.y1 + pad);
-    /* remember the last real bbox of a cut so decor does not jump while the lyric is hidden */
+    // 记住 cut 最近一次的真实 bbox，歌词隐藏时 decor 不至于跳位
     const BBC = new WeakMap();
     const getBB = (env, bb) => {
         if (bb && isFinite(bb.x0 + bb.x1 + bb.y0 + bb.y1) && bb.x1 > bb.x0 && bb.y1 > bb.y0) {
@@ -41,7 +39,7 @@
         return c || Object.assign({boxes: []}, J.centerBB(env, null));
     };
 
-    /* a screen corner (inside the margin) clear of the lyric; ok=false when none is free */
+    // 边距内一块不压到歌词的屏幕角落；ok=false 表示四个角都放不下
     function cornerSpot(env, bb, w, h, P) {
         const {W, H} = env, m = MG(env);
         const sx0 = P.right ? 1 : -1, sy0 = P.low ? 1 : -1;
@@ -70,7 +68,7 @@
         const k = arr.find(c => J.isKanji(c)) || arr.find(c => !isSp(c) && !J.isPunct(c) && !J.isSmallKana(c)) || arr.find(c => !isSp(c));
         return k || null;
     };
-    /* glyph edge positions of the lyric (x for horizontal lines of text), from the bbox glyph boxes or evenly spread */
+    // 歌词的字形边缘位置（横排取 x），取自 bbox 的 glyph boxes，缺了就均匀铺
     const glyphEdges = (env, bb) => {
         const out = [];
         if (bb.boxes && bb.boxes.length && bb.cx != null && bb.boxes.length <= 40) {
@@ -89,9 +87,7 @@
         return ded.slice(0, 34);
     };
 
-    /* ================================================================== DECOR */
-
-    /* 奥付 — a small colophon block (line, time, glyph count, reading) typed into a free corner, with a hairline */
+    // 奥付：角落里一行小版权块（行号、时间、字数、罗马音），逐字打出，带一条细线
     reg('decor', 'tyColophon', {
         name: '奥付', tags: ['editorial', 'calm', 'graphic'], ae: 'leaders', w: 1, layer: 'front',
         draw(env, bb0, Pd) {
@@ -128,7 +124,7 @@
         },
     });
 
-    /* 柱とノンブル — a running head (line number + lyric line + hairline) at the top and a folio number at the bottom */
+    // 柱とノンブル：顶部柱（行号+歌词句+细线），底部页码
     reg('decor', 'tyRunningHead', {
         name: '柱とノンブル', tags: ['editorial', 'calm'], ae: 'timecodeBar', w: 1, layer: 'front',
         draw(env, bb0, Pd) {
@@ -160,7 +156,7 @@
         },
     });
 
-    /* 字割り線 — hairlines at every glyph body edge run from the lyric out to the frame edges, like a type specimen */
+    // 字割り線：每个字形边缘引细线到画面边缘，字样帖的感觉
     reg('decor', 'tyGlyphBody', {
         name: '字割り線', tags: ['editorial', 'graphic', 'calm'], ae: 'guides', w: 0.9, layer: 'front',
         draw(env, bb0, Pd) {
@@ -168,7 +164,7 @@
             const bb = getBB(env, bb0), {W, H, sc} = env, u = U(env), m = MG(env) * 0.6;
             const o = outE(env);
             if (o <= 0.003 || env.lt < 0) return;
-            if (bh(bb) > bw(bb) * 1.3) return;        // vertical lyrics: nothing to divide horizontally
+            if (bh(bb) > bw(bb) * 1.3) return;        // 竖排歌词：横向没有可分的线
             const xs = glyphEdges(env, bb), gap = 10 * u + bh(bb) * 0.06, lw = Math.max(1, 0.9 * u);
             const col = sc.sub, a = 0.45 * o;
             xs.forEach((x, i) => {
@@ -178,7 +174,7 @@
                 if (t0 > m) env.line([[x, t0], [x, t1]], col, lw, a, false);
                 if (b0 < H - m) env.line([[x, b0], [x, b1]], col, lw, a, false);
             });
-            // body top / bottom lines out to the side margins
+            // 身体上下线引到左右边距
             const e = inE(env, 0.8, 0.1) * o, ac = accentOf(sc);
             for (const y of [bb.y0, bb.y1]) {
                 env.line([[bb.x0 - gap, y], [bb.x0 - gap - (bb.x0 - gap - m) * e, y]], col, lw, a, false);
@@ -193,7 +189,7 @@
         },
     });
 
-    /* 文字罫 — a rule made of tiny repeated lyric text runs along the top and bottom edges, drifting in opposite directions */
+    // 文字罫：上下边缘用歌词小字重复排成的"文字罫"，两行反向漂移
     reg('decor', 'tyTextRule', {
         name: '文字罫', tags: ['editorial', 'graphic', 'calm'], ae: 'verticalStrip', w: 1, layer: 'front', subtle: true,
         draw(env, bb0, Pd) {
@@ -235,7 +231,7 @@
         },
     });
 
-    /* 級数見本 — the key glyph of the lyric set at five falling sizes on one baseline, each with its size, in a free corner */
+    // 級数見本：歌词关键字按五档字号排在同一基线上，各标字号，放在空角
     reg('decor', 'tyTypeScale', {
         name: '級数見本', tags: ['editorial', 'graphic'], ae: 'indexNum', w: 0.8, layer: 'front',
         draw(env, bb0, Pd) {
@@ -284,7 +280,7 @@
         },
     });
 
-    /* 大きな約物 — huge dim 「 」 (or 『 』 / “ ”) glyphs set behind the lyric at its opposite corners */
+    // 大きな約物：巨大暗色「 」（或『 』/引号）垫在歌词对角背后
     reg('decor', 'tyBigPunct', {
         name: '大きな約物', tags: ['editorial', 'emotional', 'graphic'], ae: 'bracketsJP', w: 0.9, layer: 'front',
         draw(env, bb0, Pd) {
@@ -299,7 +295,7 @@
             const e = E.outCubic(clamp(env.lt / 0.7)), sl = (1 - e) * S * 0.25;
             const font = (env.st.fonts.serif && env.st.fonts.serif[0]) || 'mincho';
             const col = Pd.accent ? J.mix(sc.bg, sc.accent, 0.42) : J.mix(sc.bg, sc.fg, 0.2);
-            // ink boxes: 「 sits in the upper right of its em box, 」 in the lower left, quotes high in the middle
+            // 墨盒位置：「 在字身框右上、」在左下、引号靠中偏上
             let xl, yt, xr, yb;
             if (!quote) {
                 xl = bb.x0 - gap - 0.2 * S;
@@ -317,7 +313,6 @@
         },
     });
 
-    /* ================================================================== TREATMENTS */
     const alive = (it, amin = 0.9) => it.fill !== false && (it.alpha ?? 1) >= amin && !!it.text && it.size > 1;
     const addPost = (it, f) => {
         const p = it.post;
@@ -327,7 +322,7 @@
         } : f;
     };
     const nonSp = it => [...String(it.text || '')].filter(c => !/\s/.test(c)).length;
-    /* per text line extents in item space (static layout) */
+    // 每行的范围，item 空间（静态 layout）
     const lineSpans = (it) => {
         const lay = J.layoutText(it), sx = it.sx || 1, sy = it.sy || 1, map = new Map();
         for (const g of lay) {
@@ -370,7 +365,7 @@
         }
     };
 
-    /* 一字抜き — the key glyph is set hollow (outline only) among solid glyphs, or the reverse */
+    // 一字抜き：关键字空心（只描边），其余实心；rev 反过来
     reg('treat', 'tyHollowKey', {
         name: '一字抜き', tags: ['graphic', 'editorial', 'pop'], ae: 'spotChar', w: 0.9, safe: true,
         plan: rng => ({rev: rng.chance(0.35)}),
@@ -392,7 +387,7 @@
         },
     });
 
-    /* 天地罫 — a heavy rule above and a hairline below every line (right / left of a vertical column) */
+    // 天地罫：每行上方粗线、下方细线（竖排则在列的右/左）
     reg('treat', 'tyHeadRules', {
         name: '天地罫', tags: ['editorial', 'graphic', 'calm'], ae: 'underline', w: 0.8,
         plan: rng => ({k: rng.range(0.06, 0.09), acc: rng.chance(0.5)}),
@@ -418,7 +413,7 @@
         },
     });
 
-    /* 頭字強調 — the first glyph of the line is set larger (baseline kept) in the accent colour, the rest make room */
+    // 頭字強調：行首字放大（基线不变）并上 accent 色，其余字让位
     reg('treat', 'tyHeadBig', {
         name: '頭字強調', tags: ['editorial', 'pop', 'emotional'], ae: 'sizeWave', w: 0.9,
         plan: rng => ({k: rng.range(1.35, 1.6), acc: rng.chance(0.7)}),
@@ -451,7 +446,7 @@
         },
     });
 
-    /* 字番号 — a tiny superscript index number beside every glyph */
+    // 字番号：每个字旁一个小上标序号
     reg('treat', 'tyIndexSup', {
         name: '字番号', tags: ['editorial', 'graphic'], ae: 'emphasisDots', w: 0.7,
         plan: rng => ({acc: rng.chance(0.6)}),
@@ -494,7 +489,6 @@
         },
     });
 
-    /* ================================================================== TRANSITIONS */
     const bell = k => Math.sin(Math.PI * clamp(k));
     const part = (ctx, C, x, y, w, h) => {
         const x0 = Math.max(0, Math.floor(x)), y0 = Math.max(0, Math.floor(y));
@@ -520,7 +514,7 @@
         }
     }));
 
-    /* 罫線ワイプ — the frame is ruled into text lines; each line is "typed" across from the left, a cursor bar leading it */
+    // 罫線ワイプ：画面按行打罫，每行从左"打字"扫入，光标条领头
     trReg('tyRuleWipe', {
         name: '罫線ワイプ', tags: ['editorial', 'graphic', 'calm'], ae: 'blinds', w: 0.9, dur: 0.45,
         plan: rng => ({n: rng.int(7, 12), rtl: rng.chance(0.25)}),
@@ -541,7 +535,7 @@
                     ctx.fillRect(xc, y0 + bh * 0.2, cwid, bh * 0.6);
                 }
             }
-            // ruled lines between the bands, fading in and out
+            // 条带之间的罫线，随进度淡入淡出
             ctx.globalAlpha = 0.6 * bell(p);
             ctx.fillStyle = ac;
             for (let i = 1; i < n; i++) ctx.fillRect(0, Math.round(i * bh) - lw / 2, cw, lw);
@@ -549,7 +543,7 @@
         }
     });
 
-    /* 升目送り — a manuscript grid; the new cut fills in cell by cell in vertical reading order (columns right to left) */
+    // 升目送り：原稿纸网格，新 cut 按竖排阅读顺序（列从右到左）逐格填入
     trReg('tyGridCells', {
         name: '升目送り', tags: ['editorial', 'graphic'], ae: 'checker', w: 0.8, dur: 0.5,
         plan: rng => ({rows: rng.int(4, 6), tate: rng.chance(0.7)}),

@@ -1,15 +1,11 @@
-/* ============================================================
-   JIZURA — text items: layout + drawing (whole glyphs or pieces)
-   ============================================================ */
 (() => {
     'use strict';
 
     J.PID = Object.freeze({dx: 0, dy: 0, rot: 0, s: 1, st: 1, sdir: 0, a: 1});
     J.PT = (dx = 0, dy = 0, rot = 0, s = 1, st = 1, sdir = 0, a = 1) => ({dx, dy, rot, s, st, sdir, a});
 
-    /* ---------- 文字整列 (typeset): set per plan by the planner / renderer (J.setTypeset) ----------
-       kana set a little tighter, particles smaller and the first character larger, Latin a little larger with a
-       small gap to Japanese. Only the size / advance of each glyph changes, so every layout keeps working. */
+    // 文字整列（typeset），planner/renderer 按方案设置：假名排紧、助词缩小、
+    // 首字放大、拉丁稍大且和日语之间留小空隙。只改每个字的字号/步进，layout 都仍适用
     J.TYPESET = false;
     J.setTypeset = on => {
         J.TYPESET = !!on;
@@ -27,7 +23,7 @@
         return nextOK && cp !== 'S' && cp !== 'P' && !(cp === 'H' && cn === 'H');
     }
 
-    /* per character: f = size factor, gap = extra space before it (in em) */
+    // 每个字：f = 字号系数，gap = 它前面多出的空隙（em）
     J.typesetLine = (arr) => {
         const out = arr.map(() => ({f: 1, gap: 0, adv: 1}));
         if (!J.TYPESET) return out;
@@ -36,7 +32,7 @@
         arr.forEach((ch, i) => {
             const c = cls(ch), o = out[i];
             if (c === 'S') return;
-            if (c === 'H' || c === 'T') o.adv = J.isSmallKana(ch) ? 0.86 : ch === 'ー' ? 0.94 : 0.9;       // kana: set tighter
+            if (c === 'H' || c === 'T') o.adv = J.isSmallKana(ch) ? 0.86 : ch === 'ー' ? 0.94 : 0.9;       // 假名排紧
             if (c === 'L') o.f = 1.08;
             if ((c === 'H' || c === 'T') && content >= 3 && isParticle(arr, i)) o.f = 0.78;
             if (first && content >= 3 && (c === 'K' || c === 'H' || c === 'T')) o.f = 1.18;               // 頭の字を大きく
@@ -47,7 +43,7 @@
         return out;
     };
 
-    /* layout: glyph centres relative to the item origin, in unscaled item space */
+    // 排版：每个字形的中心，相对 item 原点，未乘 sx/sy 的 item 空间
     J.layoutText = (it) => {
         const text = String(it.text ?? '');
         const size = it.size, track = it.track || 0, sx = it.sx || 1, sy = it.sy || 1;
@@ -75,7 +71,7 @@
                 arr.forEach((ch, ci) => {
                     const t = ts[ci], a = J.metrics.adv(it.font, ch) * size * t.adv * t.f;
                     x += t.gap * size;
-                    // smaller / larger glyphs keep the line's baseline
+                    // 大小不同的字形保持行基线
                     out.push({
                         ch,
                         i: gi++,
@@ -107,7 +103,7 @@
                                       }) => arr.reduce((h, ch, i) => h + (vAdv(it.font, ch, size) * ts[i].adv * ts[i].f + ts[i].gap * size) + track * size, 0) - track * size);
             const maxH = Math.max(1, ...heights);
             sets.forEach(({arr, ts}, li) => {
-                let y = it.align === 'left' ? 0 : -heights[li] / 2;         // 'left' == top-aligned for vertical
+                let y = it.align === 'left' ? 0 : -heights[li] / 2;         // 竖排时 'left' 即顶对齐
                 const x = -(li - (lines.length - 1) / 2) * lead;
                 arr.forEach((ch, ci) => {
                     const t = ts[ci], a = vAdv(it.font, ch, size) * t.adv * t.f;
@@ -151,15 +147,15 @@
         return /[A-Za-z0-9]/.test(ch) ? J.metrics.adv(font, ch) * size : size;
     }
 
-    /* Blurred / glowing items are drawn ONCE into an offscreen layer and the blur / glow is applied to the whole
-       layer — a filter or shadowBlur on every glyph (× 3 chromatic passes) is very slow on canvas. */
+    // 模糊/发光的 item 只画一次到离屏层，整层做 blur/glow：每个字都挂 filter 或
+    // shadowBlur（再乘 3 个色差 pass）在 canvas 上非常慢
     let layerCv = null;
 
     function drawItemLayered(env, it) {
         const ctx = env.ctx;
         const lay = it._lay || (it._lay = J.layoutText(it));
         const size = it.size, sx = it.sx || 1, sy = it.sy || 1;
-        // item-local bounds of every glyph including per-glyph offsets
+        // 全部字形的 item 本地包围盒，含每字偏移
         let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
         for (const g of lay) {
             const c = it.charFn ? it.charFn(g.i, g, lay.N) : null;
@@ -182,7 +178,7 @@
         y1 += pad;
         const T = ctx.getTransform(), k = Math.max(0.05, Math.hypot(T.a, T.b));
         const ow = Math.ceil((x1 - x0) * k), oh = Math.ceil((y1 - y0) * k);
-        if (ow < 2 || oh < 2 || ow * oh > ctx.canvas.width * ctx.canvas.height * 1.6) return undefined;   // fall back to the direct path
+        if (ow < 2 || oh < 2 || ow * oh > ctx.canvas.width * ctx.canvas.height * 1.6) return undefined;   // 层太大画不下，走直画路径
         if (!layerCv) layerCv = document.createElement('canvas');
         if (layerCv.width < ow || layerCv.height < oh) {
             layerCv.width = Math.max(ow, layerCv.width);
@@ -222,9 +218,8 @@
         });
     }
 
-    /* draw one text item. env = {ctx, pass, passColor, scale}. Returns design-space bbox + glyph boxes. */
-    /* 不显示装饰性数字・时刻：内容只是数字（No.01、#03、128）或时刻（00:12.34、REC 1:05）的装饰文本。
-       出现在切分歌词里的组合属于歌词，保留。 */
+    // 装饰性数字/时刻的识别：内容只是编号（No.01、#03、128）或时刻（00:12.34、REC 1:05）。
+    // 同样组合出现在切分歌词里时算歌词，保留
     const CJK = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
     J.decoTextKind = (t) => {
         t = String(t || '').trim();
@@ -264,19 +259,19 @@
         if (it.skew) ctx.transform(1, 0, Math.tan(it.skew * J.DEG), 1, 0, 0);
         if (it.blend) ctx.globalCompositeOperation = it.blend;
         if (it.blur > 0.4 && env.allowFilter) ctx.filter = `blur(${(it.blur * env.scale).toFixed(1)}px)`;
-        // 太さ (統一感): the lyric grows from a hairline to heavy on a variable face (Noto Sans / Serif JP)
+        // 太さ（統一感）：歌词在可变字体（Noto Sans / Serif JP）上从细长长到粗
         const wg = env.cut && env.cut.weightGrow && !it.noWeight ? J.weightNow(env) : 0;
         ctx.font = wg ? J.varFontCSS(it.font, size, wg) : J.fontCSS(it.font, size);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         let grad = null;
         if (!ghostPass && it.gradient && fill) {
-            // gradient coordinates live in each glyph's local space (the fill happens after the per-glyph translate)
+            // 渐变坐标在每字形自己的局部空间（fill 在每字形 translate 之后才发生）
             grad = ctx.createLinearGradient(0, -size * 0.5, 0, size * 0.5);
             if (it.gradient.length === 2) {
                 grad.addColorStop(0, it.gradient[0]);
                 grad.addColorStop(1, it.gradient[1]);
-            } else it.gradient.forEach(([o, c]) => grad.addColorStop(o, c));      // [[offset, colour], ...] for hard splits
+            } else it.gradient.forEach(([o, c]) => grad.addColorStop(o, c));      // [[offset, colour], ...] 硬分割用
         }
         if (!ghostPass && it.pattern && fill && !grad) grad = J.textPattern(ctx, it.pattern, it.patternColor || it.color || '#fff', it.patternBg, size, env.scale || 1);
         const fillA = it.fillAlpha ?? 1;
@@ -312,7 +307,7 @@
                 w: g.w * sx * cs / (g.fs || 1) * (c && c.sx ? Math.abs(c.sx) : 1),
                 h: g.h * sy * cs / (g.fs || 1) * (c && c.sy ? Math.abs(c.sy) : 1)
             });
-            // モーフ: record where each glyph ends up (device space) / leave the glyphs out while the morph draws them
+            // モーフ：记录每个字形的落点（设备空间）/ morph 绘制期间本处先不出字形
             if (env.glyphLog && !ghostPass) {
                 ctx.save();
                 ctx.translate(gx, gy);
@@ -333,7 +328,6 @@
                 });
             }
             if (env.hideText) continue;
-            // ---- piece mode ----
             if (it.pieceFn && fill && !(c && c.ch) && !it.gradient && dash == null && !(c && (c.clipY || c.clipX || c.outline))) {
                 if (drawPieces(env, it, g, ch, gx, gy, crot, csx, csy, gcol, a, pxScale * cs)) continue;
             }
@@ -342,7 +336,7 @@
             if (crot) ctx.rotate(crot * J.DEG);
             if (c && c.skew) ctx.transform(1, 0, Math.tan(c.skew * J.DEG), 1, 0, 0);
             if (csx !== 1 || csy !== 1) ctx.scale(csx, csy);
-            if (c && (c.clipY || c.clipX)) {           // per-glyph mask, in fractions of the glyph box (centre = 0)
+            if (c && (c.clipY || c.clipX)) {           // 每字形遮罩，字形盒子的比例值（中心为 0）
                 const cy = c.clipY || [-0.7, 0.7], cx = c.clipX || [-0.7, 0.7];
                 ctx.beginPath();
                 ctx.rect(cx[0] * g.w, cy[0] * g.h, (cx[1] - cx[0]) * g.w, (cy[1] - cy[0]) * g.h);
@@ -372,7 +366,7 @@
                 }
                 ctx.lineJoin = 'round';
                 ctx.miterLimit = 2;
-                // c.sx/c.sy 可为 0 而 alpha>0：除零会得到 Infinity 描边（Canvas 静默丢弃）
+                // c.sx/c.sy 可为 0 而 alpha>0：除零会得到 Infinity 描边（Canvas 会静默丢弃）
                 ctx.lineWidth = (it.stroke > 0 ? it.stroke : Math.max(1, size * 0.02)) / Math.max(0.05, Math.sqrt(Math.abs(csx * csy)));
                 ctx.strokeStyle = (!ghostPass && c && c.color) || sCol;
                 if (dash != null) {
@@ -391,7 +385,7 @@
             ctx.restore();
         }
         ctx.restore();
-        // bbox in design space (rotation ignored except translate)
+        // 设计空间 bbox（旋转只算平移）
         if (!boxes.length) return null;
         let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
         for (const b of boxes) {
@@ -403,7 +397,7 @@
         return {x0: it.x + x0, y0: it.y + y0, x1: it.x + x1, y1: it.y + y1, boxes, cx: it.x, cy: it.y};
     };
 
-    /* 太さ: growth 0..1 of the current cut (never exactly 0, so it also means "on"); eased, over the first half of the cut */
+    // 太さ：当前 cut 的生长度 0..1（永不到 0，非 0 同时表示"开"）；eased，前半段走完
     J.weightNow = (env) => {
         const span = Math.max(0.5, Math.min(1.4, env.cut.dur * 0.5));
         const k = J.clamp(((env.ltb ?? env.lt) || 0) / span);
@@ -415,7 +409,7 @@
         return `${w} ${px.toFixed(2)}px ${serif ? '"Noto Serif JP"' : '"Noto Sans JP"'},${f.fb || 'sans-serif'}`;
     };
 
-    /* returns true if pieces were drawn (i.e. not at rest) */
+    // 返回 true 表示 pieces 画了（不在静止位）
     function drawPieces(env, it, g, ch, gx, gy, crot, sx, sy, col, alpha, px) {
         const glyph = J.glyphs.get(it.font, ch, px);
         const list = it.shatter ? fragList(glyph, it.seed || 1) : glyph.pieces;
@@ -427,7 +421,7 @@
         const cr = Math.cos(crot * J.DEG), sr = Math.sin(crot * J.DEG);
         for (let j = 0; j < list.length; j++) {
             const p = list[j];
-            const ex = p.cx * size * sx, ey = p.cy * size * sy;          // piece centre offset (em->px, scaled)
+            const ex = p.cx * size * sx, ey = p.cy * size * sy;          // piece 中心偏移（em→px，乘缩放）
             const ox = gx + ex * cr - ey * sr, oy = gy + ex * sr + ey * cr;
             const t = it.pieceFn(g.i, j, p, ox, oy, g);
             pts[j] = t;
@@ -455,7 +449,7 @@
             ctx.scale(sx * k, sy * k);
             ctx.globalAlpha = alpha * t.a;
             if (p.poly) {
-                // fragment: clip to polygon (coords in em around fragment centre) then draw parent sprite
+                // fragment：先按多边形裁剪（em 坐标，绕 fragment 中心），再画母 sprite
                 const src = p.src;
                 ctx.beginPath();
                 p.poly.forEach((q, qi) => {
@@ -474,7 +468,7 @@
     }
 
     function fragList(glyph, seed) {
-        // 按 seed 键控：glyph 由缓存共享，不同碎裂 cut 的碎片图案必须各自独立
+        // 按 seed 键控：glyph 是缓存共享的，不同碎裂 cut 的碎片图案必须各自独立
         const by = glyph.frags || (glyph.frags = new Map());
         let out = by.get(seed);
         if (out) return out;
@@ -502,7 +496,7 @@
         return out;
     }
 
-    /* fill patterns for text: 'dots' | 'stripes' | 'hatch' | 'grid' | 'lines' — cell size follows the text size */
+    // 文字填充图案：'dots' | 'stripes' | 'hatch' | 'grid' | 'lines'，格子大小跟随字号
     const patCache = new Map();
     J.textPattern = (ctx, kind, color, bg, size, scale) => {
         const cell = Math.max(3, Math.round(size * (kind === 'dots' ? 0.075 : 0.06))),
@@ -558,13 +552,13 @@
         return pat;
     };
 
-    /* measure an item's laid-out size in design px (after sx/sy) */
+    // 量 item 排版后的尺寸（设计像素，已乘 sx/sy）
     J.measure = (it) => {
         const l = J.layoutText(it);
         return {w: l.W * (it.sx || 1), h: l.H * (it.sy || 1), lay: l};
     };
 
-    /* size that makes text fit a box */
+    // 求正好装进盒子的字号
     J.fitSize = (text, font, maxW, maxH, opt = {}) => {
         const probe = Object.assign({text, font, size: 100, track: 0}, opt);
         const m = J.measure(probe);

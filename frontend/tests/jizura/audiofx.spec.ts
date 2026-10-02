@@ -1,5 +1,5 @@
-/* 音频特效纯函数单元测试（engine 11_export.js）：配置清洗（不信任外部输入）与 EQ 频段。
-   图构建本身需要真实 AudioContext，不在 jsdom 覆盖范围（预览/导出共走同一构建器）。 */
+// 只测配置清洗（不信任外部输入）和 EQ 频段
+// 图构建要真实 AudioContext，jsdom 覆盖不了；预览/导出共走同一构建器
 import {describe, expect, it} from 'vitest';
 import {J} from '../../src/engine';
 

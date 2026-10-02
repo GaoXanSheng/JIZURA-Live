@@ -1,4 +1,4 @@
-/* JIZURA pack: kinetic (2) — word-by-word entrances, exits and holds */
+// kinetic 第 2 包：逐词的 enter / exit / hold
 (() => {
     'use strict';
     const E = J.E;
@@ -7,7 +7,6 @@
     const HIDE = Object.freeze({hide: true});
     const reg = (g, key, def) => J.register(g, key, Object.assign(def, {set: 'kinetic'}), P);
 
-    /* ---------------------------------------------------------------- helpers */
     const strip = t => String(t || '').replace(/\s+/g, '');
     const hasLatin = t => /[A-Za-z]/.test(String(t || ''));
     const isBlank = ch => ch === ' ' || ch === '　';
@@ -16,7 +15,7 @@
         const c = Math.cos(a * DEG), s = Math.sin(a * DEG);
         return [x * c - y * s, x * s + y * c];
     };
-// damped wobble that starts at 0: 0 → out → back, t in seconds
+// 从 0 起振的阻尼摆动，出去再荡回来；t 秒
     const kick = (t, k = 9, f = 26) => (t <= 0 ? 0 : Math.exp(-k * t) * Math.sin(f * t));
 
     function bounceE(x) {
@@ -27,7 +26,7 @@
         return n1 * (x -= 2.625 / d1) * x + 0.984375;
     }
 
-// staggered local progress for element k of n (spread = share of the time used for the stagger)
+// n 个元素里第 k 个的错峰进度，spread 是错峰占掉的时间比例
     const stg = (p, k, n, spread) => clamp((p - (n > 1 ? k / (n - 1) : 0) * spread) / (1 - spread));
     const glyphs = (it, fn) => {
         (it.charFns || (it.charFns = [])).push(fn);
@@ -36,7 +35,7 @@
     const beatSince = (env, per) => (env.beat && env.beat.len > 0.15 ? env.beat.since : (((env.ltb ?? env.lt) % per) + per) % per);
     const beatIdx = (env, per) => (env.beat && env.beat.len > 0.15 ? env.beat.index : Math.floor((env.ltb ?? env.lt) / per));
 
-    /* ---- word geometry of an item: which word each glyph belongs to, word boxes at size 1 ---- */
+    // item 的词几何：每个字属于哪个词、size 1 下的词框
     const geoCache = new Map();
 
     function wordsFor(env, text) {
@@ -127,7 +126,7 @@
         return G;
     }
 
-// words grouped by text line, in reading order: [[li, [j…]], …]
+// 词按文本行分组、按阅读序：[[li, [j…]], …]
     const lineWords = G => {
         if (G._lw) return G._lw;
         const m = new Map();
@@ -138,18 +137,17 @@
         }
         return (G._lw = [...m.entries()]);
     };
-// size ratio of the drawn glyph to the size-1 layout, and its offset from a point given in size-1 units
+// 画出的字相对 size-1 布局的尺寸比；gpos 给出 size-1 坐标点的当前位置
     const kOf = (G, g, it) => {
         const r = G.L1[g.i];
         return r && r.w > 1e-6 ? g.w / r.w : it.size;
     };
     const gpos = (g, it) => [(g.x + g.vx) * (it.sx || 1), (g.y + g.vy) * (it.sy || 1)];
 
-    /* ================================================================ ENTRANCES */
     const WIN = dur => clamp(dur * 0.45, 0.32, 1.0);
 
     reg('enter', 'knWordSlam', {
-        // words slam down one after another from a huge scale; the ones already down take a knock at each impact
+        // 词从超大尺寸逐个砸下；已落地的词在每次撞击时震一下
         name: '語ごとスラム', tags: ['pop', 'graphic', 'glitch'], w: 1.1, ae: 'pop', minDur: 0.5, inDur: WIN,
         apply(env, it, p, ctx) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.62 : 0, secs = ctx.inDur * (1 - sp);
@@ -182,7 +180,7 @@
     });
 
     reg('enter', 'knTypeToSlam', {
-        // each word is typed small at its start, then snaps up to full size
+        // 每个词先以小尺寸打出来，再弹到全尺寸
         name: '打鍵→拡大', tags: ['pop', 'editorial', 'graphic'], w: 0.9, ae: 'type', minDur: 0.55, inDur: WIN,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.55 : 0;
@@ -202,7 +200,7 @@
     });
 
     reg('enter', 'knReplaceIn', {
-        // the words flash big in the middle one by one, replacing each other, then all fly to their places
+        // 词逐个在中央大字闪现替换，最后全体飞回各自位置
         name: '入れ替わり登場',
         tags: ['pop', 'graphic', 'glitch'],
         w: 0.9,
@@ -235,14 +233,14 @@
                     cy = lerp(B.cy, b.cy, fly) * k;
                     a = last ? 1 : clamp(fly * 3);
                 }
-                // glyph offset from its word centre, scaled, placed around (cx, cy)
+                // 字相对词中心的偏移，缩放后摆到 (cx, cy) 周围
                 return {s, dx: cx + (gx - b.cx * k) * s - gx, dy: cy + (gy - b.cy * k) * s - gy, a};
             });
         },
     });
 
     reg('enter', 'knHingeDrop', {
-        // each word swings down from upright on a hinge at its bottom-left corner and bounces level
+        // 每个词立着，绕左下角铰链倒下，弹两下放平
         name: '蝶番おろし', tags: ['pop', 'graphic'], w: 0.9, ae: 'drop', minDur: 0.5, inDur: WIN,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.5 : 0,
@@ -262,7 +260,7 @@
     });
 
     reg('enter', 'knLoopIn', {
-        // every glyph rides the same looping track into its place, one after another like a train
+        // 所有字走同一条环轨进位，一节节像列车
         name: 'ループ入り',
         tags: ['pop', 'graphic'],
         w: 0.8,
@@ -290,12 +288,12 @@
     });
 
     reg('enter', 'knPushIn', {
-        // words arrive at the end of the line one by one and push the ones before them into place
+        // 词逐个赶到行尾，把前面的词顶进位
         name: '押し込み', tags: ['pop', 'editorial', 'graphic'], w: 1, ae: 'type', minDur: 0.45, inDur: WIN,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, vert = G.vert;
             const f = p * n, k0 = Math.min(n - 1, Math.floor(f)), e = E.outBack(clamp((f - k0) / 0.75), 1.5);
-            // each text line is pushed on its own: its visible words sit against the line's final end
+            // 每行单独推：已出现的词贴住该行的最终末端
             const S = new Map();
             for (const [li, js] of lineWords(G)) {
                 const end = vert ? G.wb[js[js.length - 1]].y1 : G.wb[js[js.length - 1]].x1,
@@ -318,7 +316,7 @@
     });
 
     reg('enter', 'knInertia', {
-        // the line brakes into place: the front stops first, the rest bunch up behind it and spring apart
+        // 整行刹车进场：车头先停，后面的挤上来再弹开
         name: '急ブレーキ',
         tags: ['pop', 'graphic'],
         w: 0.9,
@@ -326,10 +324,10 @@
         minDur: 0.45,
         inDur: dur => clamp(dur * 0.4, 0.3, 0.8),
         apply(env, it, p) {
-            const vert = !!it.vertical, dir = (J.h(env.cut.seed | 0, it.mi | 0, 67) & 1) ? 1 : -1;   // 1: comes from the left
+            const vert = !!it.vertical, dir = (J.h(env.cut.seed | 0, it.mi | 0, 67) & 1) ? 1 : -1; // 1 = 从左来
             const D = (vert ? env.H : env.W) * 0.6;
             glyphs(it, (i, g, n) => {
-                const back = n > 1 ? (dir > 0 ? (n - 1 - i) / (n - 1) : i / (n - 1)) : 0;    // 0 = front of the train
+                const back = n > 1 ? (dir > 0 ? (n - 1 - i) / (n - 1) : i / (n - 1)) : 0; // 0 = 车头
                 const q = clamp((p - back * 0.3) / 0.7);
                 const e = E.outBack(q, 2.1), v = (E.outBack(Math.min(1, q + 0.02), 2.1) - e) / 0.02;
                 const off = -dir * D * (1 - e), st = 1 + Math.min(0.5, Math.abs(v) * 0.08);
@@ -340,7 +338,7 @@
     });
 
     reg('enter', 'knWordSpin', {
-        // each word spins in as one rigid piece, neighbours turning the opposite way
+        // 每个词整体刚性旋入，相邻词反向转
         name: '語ごと回転', tags: ['pop', 'graphic'], w: 0.9, ae: 'spin', inDur: WIN,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.5 : 0;
@@ -358,7 +356,7 @@
     });
 
     reg('enter', 'knDiveIn', {
-        // words fly in from behind the camera one after another, huge and soft, landing sharp
+        // 词从镜头背后逐个飞来，又大又虚，落点变实
         name: '手前から語', tags: ['pop', 'emotional', 'graphic'], w: 0.9, ae: 'zoom', inDur: WIN,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.55 : 0;
@@ -380,7 +378,7 @@
     });
 
     reg('enter', 'knStretchOut', {
-        // each word shoots out from its first letter like a tape measure and snaps back to length
+        // 每个词从首字母拉出来，像卷尺，到位后绷紧
         name: '伸び出し', tags: ['pop', 'graphic'], w: 0.9, ae: 'stretch', inDur: WIN,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.55 : 0;
@@ -400,11 +398,10 @@
         },
     });
 
-    /* ================================================================ EXITS */
     const WOUT = dur => clamp(dur * 0.32, 0.3, 0.75);
 
     reg('exit', 'knWordKick', {
-        // the words are kicked out one after another, up and down in turn, tumbling
+        // 词逐个被踢出去，上下交替翻滚
         name: '語ごと蹴り出し', tags: ['pop', 'graphic'], w: 1, ae: 'scatter', outDur: WOUT,
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, sp = n > 1 ? 0.4 : 0, H = env.H;
@@ -428,12 +425,12 @@
     });
 
     reg('exit', 'knPushOut', {
-        // the line is shunted along in word-sized steps; each word fades as it passes the line's start
+        // 整行按词宽逐格推移；经过行首的词淡出
         name: '押し出し退場', tags: ['editorial', 'graphic', 'pop'], w: 0.9, ae: 'wipe', outDur: WOUT,
         apply(env, it, p) {
             const G = wgeo(env, it), vert = G.vert;
             const st = j => (vert ? G.wb[j].y0 : G.wb[j].x0), en = j => (vert ? G.wb[j].y1 : G.wb[j].x1);
-            // every text line is shunted on its own, in steps of its own words
+            // 每行单独推，步长按本行的词
             const S = new Map(), start = new Map();
             for (const [li, js] of lineWords(G)) {
                 const m = js.length, s0 = st(js[0]), f = p * m, k0 = Math.min(m - 1, Math.floor(f)),
@@ -456,7 +453,7 @@
     });
 
     reg('exit', 'knDiveGlyph', {
-        // the camera dives into one letter: the line blows up around it and the rest flies past
+        // 镜头扎进一个字：整行绕它放大，其余的字擦身飞过
         name: '一字へ突入',
         tags: ['pop', 'emotional', 'graphic'],
         w: 0.9,
@@ -474,7 +471,7 @@
             if (one) {
                 it.alpha = (it.alpha ?? 1) * (1 - J.smooth(0.3, 1, p));
             } else {
-                // the chosen letter drifts to the middle of the frame while the camera dives in
+                // 俯冲时选中的字漂到画面中央
                 const e = E.inOutCubic(p), fx0 = (f.x + f.vx) * (it.sx || 1) * it.size,
                     fy0 = (f.y + f.vy) * (it.sy || 1) * it.size;
                 if (!it.rot) {
@@ -498,7 +495,7 @@
     });
 
     reg('exit', 'knLaunch', {
-        // the line pulls away: the front glyph goes first, the rest follow on a stretching chain
+        // 整行弹射离场：车头的字先走，后面像拉长的链子跟上
         name: '急発進', tags: ['pop', 'graphic'], w: 0.9, ae: 'stretch', outDur: dur => clamp(dur * 0.3, 0.3, 0.65),
         apply(env, it, p) {
             const vert = !!it.vertical, dir = (J.h(env.cut.seed | 0, it.mi | 0, 71) & 1) ? 1 : -1,
@@ -506,7 +503,7 @@
             glyphs(it, (i, g, n) => {
                 const back = n > 1 ? (dir > 0 ? (n - 1 - i) / (n - 1) : i / (n - 1)) : 0;
                 const q = clamp((p - back * 0.35) / 0.65);
-                const antic = -0.06 * bellK(clamp(p / 0.18));                     // a small wind-up before the pull
+                const antic = -0.06 * bellK(clamp(p / 0.18)); // 出发前先小小回拉蓄力
                 const e = E.inCubic(q) + antic, v = 3 * q * q;
                 const st = 1 + Math.min(1.2, v * 0.35);
                 if (q >= 1) return HIDE;
@@ -520,7 +517,7 @@
     });
 
     reg('exit', 'knWordBlink', {
-        // one word at a time: a punch in the accent colour, then gone — on the beat when there is one
+        // 一次一个词：accent 色冲一下就消失；有节拍就跟节拍
         name: '一語ずつ消灯',
         tags: ['pop', 'glitch', 'graphic'],
         w: 0.9,
@@ -532,7 +529,7 @@
                 const j0 = G.map[i];
                 if (j0 < 0) return null;
                 const j = rev ? n - 1 - j0 : j0;
-                // single-word items (one glyph per item layouts) blink out at their own moment
+                // 单字 item（一字一 item 的版式）按自己的时刻闪没
                 const w0 = n > 1 ? j / n : J.r(env.cut.seed | 0, it.mi | 0, 74) * 0.6,
                     w1 = n > 1 ? (j + 1) / n : w0 + 0.4;
                 if (p >= w1 || p >= 0.999) return HIDE;
@@ -551,7 +548,7 @@
     });
 
     reg('exit', 'knCloseGap', {
-        // words drop out one by one and the rest slide together, re-centring, until the last one pops
+        // 词逐个消失，剩下的滑拢重新居中，最后一个弹掉
         name: '詰めて消える',
         tags: ['editorial', 'graphic', 'pop'],
         w: 0.9,
@@ -560,7 +557,7 @@
         apply(env, it, p) {
             const G = wgeo(env, it), n = G.nW, vert = G.vert;
             const lo = j => (vert ? G.wb[j].y0 : G.wb[j].x0), hi = j => (vert ? G.wb[j].y1 : G.wb[j].x1);
-            // removal order: alternating ends towards the middle
+            // 消失顺序：两端交替、向中间推进
             const ord = [];
             for (let a = 0, b = n - 1; a <= b; a++, b--) {
                 ord.push(a);
@@ -572,7 +569,7 @@
             });
             const c = new Array(n);
             for (let j = 0; j < n; j++) c[j] = E.inOutCubic(clamp(p * n - rank[j]));
-            // new layout along the reading axis, line by line
+            // 沿阅读轴逐行重排
             const ctr = new Array(n).fill(0), byLine = new Map();
             for (let j = 0; j < n; j++) {
                 const li = G.wb[j].li | 0;
@@ -609,7 +606,7 @@
     });
 
     reg('exit', 'knJumpCutOut', {
-        // three hard jump cuts (closer, wider, tilted) and the line is gone — no in-betweens
+        // 三次硬跳切（更近、更远、倾斜）后整行消失，没有中间帧
         name: 'ジャンプカット',
         tags: ['pop', 'glitch', 'graphic'],
         w: 0.8,
@@ -633,7 +630,7 @@
     });
 
     reg('exit', 'knStackAway', {
-        // the words hop into a tower one by one, then the whole tower drops out of frame
+        // 词逐个跳成一座塔，然后整塔掉出画面
         name: '積んで落とす',
         tags: ['pop', 'graphic'],
         w: 0.8,
@@ -648,7 +645,7 @@
                 if (j < 0) return null;
                 const b = G.wb[j], k = kOf(G, g, it), [gx, gy] = gpos(g, it);
                 const q = E.inOutCubic(clamp((p * (1 / T) - j / Math.max(1, n) * 0.7) / 0.3 + 0));
-                // tower slot: words stacked upwards from the first one, centred on the line
+                // 塔位：从第一个词起向上堆叠，对齐行中心
                 const h = G.vert ? (b.x1 - b.x0) : Math.max(1e-3, b.y1 - b.y0);
                 const tx = G.vert ? G.box.cx - (j - (n - 1) / 2) * h * 1.05 : G.box.cx,
                     ty = G.vert ? G.box.cy : G.box.cy - (j - (n - 1) / 2) * h * 1.05;
@@ -663,9 +660,8 @@
         },
     });
 
-    /* ================================================================ HOLDS */
     reg('hold', 'knWordPulse', {
-        // one word at a time swells on the beat, cycling through the line
+        // 按拍轮流：一次一个词鼓一下，沿整行循环
         name: '語ごとの拍', tags: ['pop', 'graphic'], w: 1, ae: 'breathe',
         apply(env, it, amt) {
             const G = wgeo(env, it), n = G.nW;
@@ -683,7 +679,7 @@
     });
 
     reg('hold', 'knCounterRock', {
-        // neighbouring words rock the opposite way, like meshed gears
+        // 相邻词反向摇摆，像咬合的齿轮
         name: '逆回転ゆれ', tags: ['pop', 'calm', 'graphic'], w: 0.9, ae: 'wave',
         apply(env, it, amt) {
             const G = wgeo(env, it), n = G.nW, t = env.ltb ?? env.lt;
@@ -701,7 +697,7 @@
     });
 
     reg('hold', 'knWordRide', {
-        // a slow swell travels along the line; each word rides it as one piece, tilting with the slope
+        // 一道慢波沿行推进；每个词整体骑在波上，随坡度倾斜
         name: '語の波乗り', tags: ['calm', 'emotional', 'pop'], w: 0.9, ae: 'wave',
         apply(env, it, amt) {
             const G = wgeo(env, it), t = env.ltb ?? env.lt, A = it.size * 0.07 * amt * (0.4 + mot(env));
@@ -722,7 +718,7 @@
     });
 
     reg('hold', 'knTickShift', {
-        // the line ticks sideways on every beat like a second hand: snap, tiny overshoot, hold
+        // 每拍横移一格，像秒针：弹到位、微微过冲、停住
         name: '刻みシフト', tags: ['graphic', 'pop', 'editorial'], w: 0.8, ae: 'jitter',
         apply(env, it, amt) {
             const per = 0.5, s0 = beatSince(env, per), idx = beatIdx(env, per);
@@ -735,7 +731,7 @@
     });
 
     reg('hold', 'knBeatLean', {
-        // on each beat the words lean over, alternately forward and back, and spring upright
+        // 每拍词向前向后交替倾倒，再弹回直立
         name: '拍で傾く', tags: ['pop', 'glitch', 'graphic'], w: 0.8, ae: 'jitter',
         apply(env, it, amt) {
             const G = wgeo(env, it), s0 = beatSince(env, 0.55), idx = beatIdx(env, 0.55);
@@ -750,7 +746,7 @@
     });
 
     reg('hold', 'knGapBreath', {
-        // the spaces between words breathe in and out; the words themselves keep still
+        // 词间距一呼一吸，词本身不动
         name: '語間の呼吸', tags: ['calm', 'editorial', 'emotional'], w: 0.9, ae: 'breathe',
         apply(env, it, amt) {
             const G = wgeo(env, it), n = G.nW, t = env.ltb ?? env.lt;

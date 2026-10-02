@@ -43,9 +43,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
     private SpoutSender _spoutSender;
     private bool _zeroHandleWarned;
 
-    // 渲染回调失败按帧发生（设备移除等持续性故障），逐帧记 Error 会在几分钟内
-    // 写满滚动日志文件：首条立即记录，之后每 30 秒窗口汇总一条
-    private long _lastRenderErrorTick = -31_000;   // 非零初值：进程启动后的第一条错误必记
+    // 渲染回调失败按帧发生（设备移除等持续性故障），逐帧记 Error 几分钟就写满滚动日志：
+    // 首条立即记（初值非零保证这一点），之后每 30 秒汇总一条
+    private long _lastRenderErrorTick = -31_000;
     private int _renderErrorsSinceLastLog;
 
     public MirrorRenderHandler(
@@ -57,16 +57,11 @@ public sealed class MirrorRenderHandler : IRenderHandler
             _owner.SenderName ?? "JIZURA-live");
     }
 
-    // ====================================================================
-    // IRenderHandler
-    // ====================================================================
-
     public ScreenInfo? GetScreenInfo()
     {
-        // 缩放系数必须钉死为 1：返回 null 时 CEF 按显示器 DPI 推导缩放
-        //（实测推得 0.9），CSS 视口(2133x1200)≠出图纹理(1920x1080)，
-        // canvas 钉在左上角只占一角，右侧/底部留出 alpha=0 透明带，
-        // OBS 合成到黑底上就是大黑边。=1 保证 CSS 像素 = 纹理像素
+        // 缩放系数必须钉死 1：返回 null 时 CEF 按显示器 DPI 推导（实测推得 0.9），
+        // CSS 视口(2133x1200)≠出图纹理(1920x1080)，canvas 缩在左上角、右侧/底部留出
+        // alpha=0 透明带，OBS 合成到黑底就是大黑边。=1 保证 CSS 像素 = 纹理像素
         var size = GetViewRect();
         return new ScreenInfo
         {
@@ -237,9 +232,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
                     return;
                 var context = _dxDevice.ImmediateContext;
                 context.CopyResource(cefTexture, _sharedTexture);
-                // 发送自己的稳定副本而非 CEF 源纹理：拷贝结果必须被消费，
-                // 否则 CEF 覆写下一帧时 Spout 端可能拿到撕裂帧（对齐 CefSharp
-                // 官方 shared-texture 示例：先拷贝到自有纹理再发送）
+                // 发自己的稳定副本而非 CEF 源纹理：拷贝结果必须被消费，
+                // 否则 CEF 覆写下一帧时 Spout 端可能拿到撕裂帧
+                // （对齐 CefSharp 官方 shared-texture 示例：先拷贝到自有纹理再发送）
                 _spoutSender.SendTexture(_sharedTexture.NativePointer);
             }
             catch (Exception ex)
@@ -252,10 +247,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         if (logEx != null) LogRenderError("OnAcceleratedPaint", logEx);
     }
-
-    // ====================================================================
-    // Dispose
-    // ====================================================================
 
     public void Dispose()
     {
@@ -345,8 +336,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
             _dxDevice.NativePointer);
     }
 
-    // 渲染回调失败按帧发生（设备移除等持续性故障），逐帧记 Error 会在几分钟内
-    // 写满滚动日志文件：首条立即记录，之后每 30 秒窗口汇总一条
     private void LogRenderError(string where, Exception ex)
     {
         _renderErrorsSinceLastLog++;
@@ -361,10 +350,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
             (suppressed > 0 ? $"（节流：此前 {suppressed} 条同类错误未逐条记录）" : ""),
             ex);
     }
-
-    // ====================================================================
-    // CPU Fallback
-    // ====================================================================
 
     private void EnsureCpuTexture(int width, int height)
     {
@@ -384,10 +369,7 @@ public sealed class MirrorRenderHandler : IRenderHandler
         _cpuTextureHeight = height;
     }
 
-    // ====================================================================
-    // GPU Shared Texture
-    // ====================================================================
-
+    // GPU 共享纹理：CEF 每帧给出源纹理，这里维护一份同尺寸/格式的自有副本
     private string? EnsureSharedTexture(Texture2D source)
     {
         var desc = source.Description;

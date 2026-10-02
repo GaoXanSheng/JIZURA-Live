@@ -41,25 +41,20 @@ public sealed class SpoutPipeline : IDisposable
                 WindowlessFrameRate = safeFps
             };
 
-            // 镜像行为（泵/锚点应用/isolate/分辨率保持/工程跟随）已内置于页面本身
-            //（RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本——
+            // 镜像行为（泵/锚点应用/isolate/分辨率保持/工程跟随）已内置在页面本身
+            // （RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本，
             // 只负责推 __jlApplySync 锚点、收 plan-size 消息
             var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle);
 
-            // ------------------------------------------------------------
-            // 重要：
-            // RenderHandler 必须在 CreateBrowser() 之前准备好。
-            // ------------------------------------------------------------
+            // RenderHandler 必须在 CreateBrowser() 之前准备好
             _renderHandler = new MirrorRenderHandler(this);
 
             _browser = new D3DChromiumWebBrowser(
                 mirrorUrl,
                 browserSettings);
 
-            // RenderHandler 必须先设置
             _browser.RenderHandler = _renderHandler;
             _browser.AudioHandler = new CAudioHandler();
-            // JS / 页面事件
             _browser.FrameLoadEnd += OnFrameLoadEnd;
             _browser.JavascriptMessageReceived += OnMirrorMessage;
 
@@ -69,12 +64,8 @@ public sealed class SpoutPipeline : IDisposable
             // 同步播放时不静音会出现双重音频
             _browser.BrowserInitialized += OnMirrorBrowserInitialized;
 
-            // 尺寸先设置好
             _browser.Size = new Size(safeW, safeH);
 
-            // ------------------------------------------------------------
-            // 最后才真正 CreateBrowser()
-            // ------------------------------------------------------------
             _browser.CreateD3DBrowser();
 
             _ = WaitInitialLoadAsync(_browser);
@@ -154,7 +145,7 @@ public sealed class SpoutPipeline : IDisposable
             return;
 
         // 镜像行为由页面原生处理（RenderPage.vue ?mirror=1），无脚本可注入。
-        // 页面脚本需要一点时间完成初始化
+        // 页面脚本初始化要一点时间，延迟后再推一次同步锚点
         Log.Info(
             $"[SpoutMirror] 页面加载完成：" +
             $"{e.Url}（镜像模式由页面原生处理）。");
@@ -197,14 +188,8 @@ public sealed class SpoutPipeline : IDisposable
                     StringComparison.OrdinalIgnoreCase))
                 HandlePlanSize(dict);
 
-            // ------------------------------------------------------------
-            // 注意：
-            // sync_play 是主窗口浏览器发过来的，
-            // 主窗口自己的 MainWindow 会处理。
-            //
-            // SpoutPipeline 这里只负责镜像端产生的消息。
-            // 所以这里不处理 sync_play。
-            // ------------------------------------------------------------
+            // sync_play 由主窗口浏览器发出、MainWindow 自己处理，
+            // 这里只管镜像端产生的消息
         }
         catch (Exception ex)
         {
@@ -256,11 +241,7 @@ public sealed class SpoutPipeline : IDisposable
         }
     }
 
-    // --------------------------------------------------------------------
-    // 镜像参数走 URL 传给页面（RenderPage.vue ?mirror=1 原生处理），
-    // 不再注入脚本
-    // --------------------------------------------------------------------
-
+    // 镜像参数走 URL 传给页面（RenderPage.vue ?mirror=1 原生处理），不注入脚本
     private static string AppendMirrorParams(
         string url,
         int fps,
@@ -275,10 +256,6 @@ public sealed class SpoutPipeline : IDisposable
             $"&transparent={(transparent ? 1 : 0)}" +
             $"&nosub={(suppressSubtitle ? 1 : 0)}";
     }
-
-    // --------------------------------------------------------------------
-    // 主窗口 -> 镜像窗口
-    // --------------------------------------------------------------------
 
     public void ApplyPlaybackSync(
         bool playing,
@@ -304,8 +281,7 @@ public sealed class SpoutPipeline : IDisposable
                 $"window.__jlApplySync && " +
                 $"window.__jlApplySync({json});";
 
-            // 时间流每秒约 30 次，不逐条记日志（会拖慢 UI 线程）
-
+            // 时间流约 30 条/秒，不逐条记日志（会拖慢 UI 线程）
             browser
                 .GetMainFrame()
                 .ExecuteJavaScriptAsync(script);

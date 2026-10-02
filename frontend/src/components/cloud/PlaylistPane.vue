@@ -10,7 +10,7 @@ onMounted(() => {
   cloud.loadPlaylists();
 });
 
-// 切换来源（酷狗/网易云）后自动重新加载我的歌单
+// 换了搜索来源就重拉一遍我的歌单
 watch(() => cloud.source, () => {
   cloud.loadPlaylists();
 });

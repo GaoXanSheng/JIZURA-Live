@@ -13,14 +13,11 @@ internal enum JzCodec : byte
 
 internal sealed record JizuraPackageEntry(string Name, JzCodec Codec, long RawSize, byte[] Data);
 
-/// <summary>
-///     字面 Live 专用工程包（.jizuralive / JZLV 容器）解析器。
-///     布局与前端 src/jizura/pkg.ts 逐字节对齐（改动必须两边同步）：
-///     "JZLV" | u16 version | u16 entryCount | u32 reserved
-///     每条目: u8 nameLen | name(UTF-8) | u8 codec(0=raw,1=brotli,2=gzip) | u64 rawSize | u64 packSize | u64 offset
-///     之后是各条目负载连续排列。全部小端。
-///     音频/字体条目按设计裸存（本体已是压缩格式），project.json 为 brotli（旧写入端可能是 gzip）。
-/// </summary>
+// .jizuralive（JZLV）容器解析。布局与前端 src/jizura/pkg.ts 逐字节对齐，改动必须两边同步：
+//   "JZLV" | u16 version | u16 entryCount | u32 reserved
+//   每条目: u8 nameLen | name(UTF-8) | u8 codec(0=raw,1=brotli,2=gzip) | u64 rawSize | u64 packSize | u64 offset
+//   之后是各条目负载连续排列，全部小端。
+// 音频/字体条目按设计裸存（本体已是压缩格式），project.json 为 brotli（旧写入端可能是 gzip）
 internal static class JizuraPackage
 {
     public const int LatestVersion = 1;
@@ -75,7 +72,7 @@ internal static class JizuraPackage
         return entries;
     }
 
-    /// <summary>名字只当条目标签用；禁止路径分隔与盘符语法，防止未来落盘提取时越界。</summary>
+    // 名字只当条目标签用，禁掉路径分隔与盘符语法，防止未来落盘提取时越界
     private static bool IsSafeName(string name)
     {
         return name.Length > 0 && name.Length <= 255

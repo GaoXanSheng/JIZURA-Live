@@ -7,10 +7,9 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Server;
 
-// 网易云加密与登录态。
-// 加密方案与常量经 2026-09 实测验证（对齐 NeteaseCloudMusicApi v4.2.0 的 util/crypto.js）：
+// 网易云加密与登录态。加密方案与常量经 2026-09 实测验证（对齐 NeteaseCloudMusicApi v4.2.0 的 util/crypto.js）：
 //   weapi：AES-CBC 两重（presetKey → 随机 16 字符 key），RSA 无填充加密反转后的随机 key
-//   eapi ：AES-128-ECB，明文 = url-36cd479b6b5-text-36cd479b6b5-md5("nobody"+url+"use"+text+"md5forencrypt")，响应同样用 eapi key 解密
+//   eapi ：AES-128-ECB，明文为 url/明文/md5 摘要以分隔符拼接（见 EapiParams），响应同 key 解密
 public sealed partial class NeteaseClient
 {
     private const string WeapiPresetKey = "0CoJUm6Qyw8W8jud";
@@ -28,7 +27,7 @@ public sealed partial class NeteaseClient
                                      -----END PUBLIC KEY-----
                                      """;
 
-    // 登录状态（MUSIC_U cookie 等）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config（同 kg_login.json 惯例）
+    // 登录态（MUSIC_U 等）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config，同 kg_login.json 惯例
     private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "ne_login.json");
     private static readonly SemaphoreSlim _stateLock = new(1, 1);
 
@@ -86,8 +85,6 @@ public sealed partial class NeteaseClient
         return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
     }
 
-    /* ---------- weapi ---------- */
-
     private static byte[] AesCbc(byte[] key, string plain)
     {
         using var aes = Aes.Create();
@@ -100,7 +97,7 @@ public sealed partial class NeteaseClient
         return enc.TransformFinalBlock(b, 0, b.Length);
     }
 
-    // 大端字节块 → 正 BigInteger（前补 0x00 防止符号位）
+    // 大端字节块转正 BigInteger，前补 0x00 防止符号位
     private static BigInteger ToBig(byte[] bigEndian)
     {
         var le = new byte[bigEndian.Length + 1];
@@ -134,8 +131,6 @@ public sealed partial class NeteaseClient
         var pk = rsa.ExportParameters(false);
         return (p, RsaNoPadHex(ToBig(pk.Modulus!), ToBig(pk.Exponent!), secKey));
     }
-
-    /* ---------- eapi ---------- */
 
     private static string EapiParams(string apiUrl, string text)
     {

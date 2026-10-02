@@ -1,6 +1,6 @@
-/* @font-face 样式表解析（纯函数，供 worker 字体桩与单测共用）。
-   worker 没有 <link> stylesheet，attachFamily 的字体清单改由这里从 CSS 文本提取：
-   兼容本地 fetch-fonts.mjs 产物与 Google Fonts css2 两种格式。 */
+// 解析 @font-face，纯函数，worker 字体桩和单测共用。
+// worker 里没有 <link> stylesheet，attachFamily 的字体清单只能从 CSS 文本提取，
+// 得同时兼容本地 fetch-fonts.mjs 产物和 Google Fonts css2 两种格式。
 
 export interface ParsedFontFace {
     family: string;

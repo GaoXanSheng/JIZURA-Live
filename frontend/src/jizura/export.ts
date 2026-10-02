@@ -1,8 +1,7 @@
-/* 导出流程（原 12_ui.js 的 syncOut/codecNote/runExport 的非 DOM 部分）
-   进度与状态经 bus 通知 OutTab / EasyPanel。
-   渲染+编码默认在专用 Worker 线程跑（worker/export-worker.ts）：导出期间主线程
-   （预览/UI）不再被逐帧渲染占用，也不与引擎抢主线程预算；Worker 失败自动回退
-   主线程同路径。「大视频直接写文件」需要主线程的文件句柄，不走 Worker。 */
+// 导出流程：进度与状态经 bus 通知 OutTab / EasyPanel。
+// 渲染+编码默认在专用 Worker 线程跑（worker/export-worker.ts），导出期间主线程
+// （预览/UI）不再被逐帧渲染占用；Worker 失败自动回退主线程同路径。
+// 「大视频直接写文件」需要主线程的文件句柄，不走 Worker。
 import {J} from '../engine';
 import {applyAudioFx, S} from './state';
 import {bus} from './bus';
@@ -15,7 +14,7 @@ function baseName() {
   return ((S.project.title || 'jizura').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 60) || 'jizura') + (k ? (k === 'green' ? '_greenback' : '_blackback') : '');
 }
 
-/* 各 kind 的最终文件名（含后缀），「另存为」与静默下载共用 */
+// 各 kind 的最终文件名（含后缀），另存为与静默下载共用
 function exportFileName(kind: string) {
   return baseName() + rangeSuffix() + (
       kind === 'mp4' ? '.mp4'
@@ -30,15 +29,16 @@ function exportFileName(kind: string) {
 
 export const canPickFile = () => typeof (window as any).showSaveFilePicker === 'function' && typeof VideoEncoder !== 'undefined';
 
-/* 桌面版（CefSharp 宿主）消息通道：MCP 导出用它设置免确认落盘目录 */
+// 桌面版（CefSharp 宿主）消息通道：MCP 导出用它设置免确认落盘目录
 const postHost = (m: any) => {
   try {
     const c = (window as any).CefSharp;
     if (c && typeof c.PostMessage === 'function') c.PostMessage(m);
-  } catch { /* 浏览器环境无宿主，忽略 */ }
+  } catch { // 浏览器环境无宿主，忽略
+  }
 };
 
-/* 编解码检查在部分浏览器较慢：等首帧预览画完再问 */
+// 编解码检查在部分浏览器较慢：等首帧预览画完再问
 export async function codecNote() {
   const [w, h] = J.outputSize(S.project);
   const vc = await J.pickVideoCodec(w, h, S.project.fps, 12e6);
@@ -52,9 +52,9 @@ export async function codecNote() {
   return vc;
 }
 
-/* ---- Worker 导出线程 ----
-   kind=mp4/png/pnga/pngl/pngf/webm/webmfront 可进 Worker；mp4file 需要主线程弹出的可写文件流，不适用。
-   失败一律抛给调用方回退主线程同路径（Worker 侧字体缺失等错误在主线程多半能成）。 */
+// Worker 导出线程：kind=mp4/png/pnga/pngl/pngf/webm/webmfront 可进 Worker；
+// mp4file 需要主线程弹出的可写文件流，不适用。
+// 失败一律抛回调用方走主线程同路径（Worker 侧字体缺失等错误在主线程多半能成）
 const workerExportable = () =>
     typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof VideoEncoder !== 'undefined';
 
@@ -77,7 +77,7 @@ function runExportInWorker(kind: 'mp4' | 'png' | 'pnga' | 'pngl' | 'pngf' | 'web
       signal.removeEventListener('abort', onAbort);
       try {
         w.terminate();
-      } catch { /* 已退出 */
+      } catch { // 已退出
       }
       fn();
     };
@@ -132,8 +132,8 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
       return;
     }
   }
-  /* 「导出时询问保存位置」：showSaveFilePicker 需要用户手势，必须在点击现场把句柄选好，
-     导完直接写入该句柄；取消选择即放弃本次导出 */
+  // 「导出时询问保存位置」：showSaveFilePicker 需要用户手势，必须在点击现场把句柄选好，
+  // 导完直接写入该句柄；取消选择即放弃本次导出
   let handle: any = null;
   if (kind !== 'mp4file' && S.project.askSaveLocation && canPickFile()) {
     const accept = kind === 'mp4' ? {description: 'MP4 视频', accept: {'video/mp4': ['.mp4']}}
@@ -154,12 +154,12 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
     await w.close();
     return 'saved';
   };
-  /* MCP 指定导出目录：桌面版宿主把本次所有下载直接落盘到该目录，不弹另存为；
-     浏览器环境没有宿主，回退默认下载目录。导出结束（含出错）恢复弹另存为 */
+  // MCP 指定导出目录：桌面版宿主把本次所有下载直接落盘到该目录，不弹另存为；
+  // 浏览器环境没有宿主，回退默认下载目录。导出结束（含出错）恢复弹另存为
   if (opts.dir) postHost({type: 'set_autosave_dir', dir: opts.dir});
   const savedNote = () => opts.dir ? `・已保存到 ${opts.dir}` : '';
-  /* 云字幕是预览叠加层，文件导出一律不烤入：与 Worker 路径行为保持一致
-     （Worker 里本就没有 overlay）。__jl_no_sub 是 subtitle overlay 的既有抑制开关 */
+  // 云字幕是预览叠加层，文件导出一律不烤入，与 Worker 路径行为保持一致
+  // （Worker 里本就没有 overlay）。__jl_no_sub 是 subtitle overlay 的既有抑制开关
   const prevNoSub = (window as any).__jl_no_sub;
   (window as any).__jl_no_sub = true;
   pause();
@@ -301,7 +301,7 @@ export async function runExport(kind: 'mp4' | 'mp4file' | 'png' | 'pnga' | 'pngl
   }
 }
 
-/* 手机：分享面板是进相册/文件的可靠途径 */
+// 手机：分享面板是进相册/文件的可靠途径
 function offerShare(blob: Blob, name: string) {
   let f: File | null = null;
   try {
@@ -314,7 +314,7 @@ function offerShare(blob: Blob, name: string) {
   bus.emit('export-share', {file: f, name});
 }
 
-/* 输出参数同步 + 广播（组件监听 'out' 事件刷新表单） */
+// 输出参数同步 + 广播（组件监听 'out' 事件刷新表单）
 function syncOut() {
   bus.emit('out');
 }
@@ -338,10 +338,10 @@ export function setFps(v: number) {
   replan();
 }
 
-/* AE 工程 JSON：完整烤熟的 plan（v2，含每个切分的手法/参数/时间、events、
-   字体表与语言映射、AE_MAP 对照表——本 fork 新增条目由它映射到最近似原版手法）。
-   在 AE 里运行上游发布的 JIZURA_AE.jsx（File→Scripts→Run Script File），
-   面板里选择本文件即可逐步重建合成；morph 在 AE 侧以 inkBlob 转场近似（webMorph 标记）。 */
+// AE 工程 JSON：完整烤熟的 plan（v2，含每个切分的手法/参数/时间、events、字体表与
+// 语言映射、AE_MAP 对照表，本 fork 新增条目由它映射到最近似原版手法）。
+// 在 AE 里 File→Scripts→Run Script File 跑上游发布的 JIZURA_AE.jsx，面板里选本文件
+// 即可逐步重建合成；morph 在 AE 侧以 inkBlob 转场近似（webMorph 标记）。
 export async function exportAeJson() {
     if (!S.plan) return;
     const data = J.planForAE(S.plan, S.project, exportRange());
@@ -374,7 +374,7 @@ export function setAskSaveLocation(v: boolean) {
   autosave();
 }
 
-/* 音频特效（预览与导出同时生效）：清洗后落 project，立即更新预览图并广播 */
+// 音频特效（预览与导出同时生效）：清洗后落 project，立即更新预览图并广播
 export function setAudioFx(patch: any) {
   S.project.audioFx = J.sanitizeAudioFx(Object.assign({}, S.project.audioFx || {}, patch || {}));
   autosave();

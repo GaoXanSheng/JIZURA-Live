@@ -1,6 +1,5 @@
-/* 引擎驱动层：replan / 渲染循环 / 播放控制 / 音频装载。
-   原 12_ui.js 的对应逻辑，DOM 操作替换为 bus 事件通知。
-   无预热：与上游 JIZURA 对齐，morph/首帧全部播放时惰性构建（morphCache LRU）。 */
+// 引擎驱动层：replan / 渲染循环 / 播放控制 / 音频装载，DOM 操作换成 bus 事件通知。
+// 无预热，与上游一致：morph/首帧全部在播放时惰性构建（morphCache LRU）。
 import {J} from '../engine';
 import {analyzeAudioOffThread} from './audio-analyze';
 import {activeLoopRange, AP, refreshLoopHold, S} from './state';
@@ -17,13 +16,13 @@ export function fixedLayout() {
     return !!(fixedMq && fixedMq.matches) && document.documentElement.classList.contains('fixed-ok');
 }
 
-/* ---- 视图挂载（StageCanvas 组件调用） ---- */
+// 视图挂载（StageCanvas 组件调用）
 let viewEl: HTMLElement | null = null;
 let viewCanvas: HTMLCanvasElement | null = null;
-/* desynchronized：Chromium 低延迟提示，?dsync=0 关闭做 A/B。
-   编辑器里画布被 msg/badge 等浮层遮挡时 Chromium 会静默忽略该提示 */
+// desynchronized：Chromium 低延迟提示，?dsync=0 关闭可做 A/B。
+// 编辑器里画布被 msg/badge 等浮层遮挡时，Chromium 会静默忽略该提示
 const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: new URLSearchParams(location.search).get('dsync') !== '0'};
-/* desynchronized 开启时的离屏整帧缓冲（见 draw() 内注释） */
+// desynchronized 开启时的离屏整帧缓冲，见 draw() 内注释
 let viewBuf: HTMLCanvasElement | null = null;
 
 export function attachView(el: HTMLElement, canvas: HTMLCanvasElement) {
@@ -86,7 +85,7 @@ export async function ensureFonts() {
         await J.ensureFonts(txt, keys);
     } catch {
     }
-    // 字体就绪前若做过渲染，产物里嵌的是 fallback 字形——morph 缓存作废重建
+    // 字体就绪前若渲染过，产物嵌的是 fallback 字形，morph 缓存作废重建
     S.renderer.morphCache = null;
     S.renderer.morphShotCache = null;
     showMsg(null);
@@ -95,7 +94,7 @@ export async function ensureFonts() {
     loadThumbFonts();
 }
 
-/* 风格缩略图需要每个风格 display 字体的两个字形 — 面板可见时才拉取 */
+// 风格缩略图需要每个风格 display 字体的两个字形，面板可见时才拉取
 export function loadThumbFonts() {
     if (thumbFonts) return;
     const visible = document.getElementById('styleGrid');
@@ -110,7 +109,6 @@ export function showMsg(m: string | null) {
     bus.emit('msg', m);
 }
 
-/* ---- 视口尺寸 ---- */
 export function sizeViewport() {
     if (!viewEl || !viewCanvas || !S.plan) return;
     const vp = viewEl, c = viewCanvas;
@@ -122,7 +120,7 @@ export function sizeViewport() {
         cssW = cssH * ar;
     }
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    /* 预览渲染尺寸档位（设置-高级）：'auto' 时上限=字幕设计宽，即历史行为 */
+    // 预览渲染尺寸档位（设置-高级）：'auto' 时上限=字幕设计宽，历史行为
     const pw = Math.round(Math.min(previewWidthCap(S.plan.W, S.plan.H), cssW * dpr)), ph = Math.round(pw / ar);
     if (c.width !== pw || c.height !== ph) {
         c.width = pw;
@@ -133,7 +131,7 @@ export function sizeViewport() {
     S.need = true;
 }
 
-/* 中央を空ける的预览参考线（仅预览，导出不含） */
+// 中央を空ける的预览参考线（仅预览，导出不含）
 function drawCenterGuide(ctx: CanvasRenderingContext2D, k: number) {
     const P = S.plan, z = P.zones;
     if (!z || z.length < 2) return;
@@ -165,9 +163,9 @@ export function draw() {
     if (!viewCanvas || !S.plan) return;
     const c = viewCanvas;
     const t0 = performance.now();
-    /* desynchronized 的 2D 去闪烁：显示控制器可能扫到「clearRect 后未画完」的中间态。
-       preserveDrawingBuffer 是 WebGL 专属属性，2D 上下文不识别，帮不上忙；
-       按文档建议整帧先画进离屏缓冲，再 clear+drawImage 一次上屏。?dsync=0 走原直画路径 */
+    // desynchronized 的 2D 去闪烁：显示控制器可能扫到「clearRect 后未画完」的中间态。
+    // preserveDrawingBuffer 是 WebGL 专属属性，2D 上下文不识别，帮不上忙；
+    // 按文档建议整帧先画进离屏缓冲，再 clear+drawImage 一次上屏。?dsync=0 走原直画路径
     let target: CanvasRenderingContext2D;
     if (CTX_2D.desynchronized) {
         const b = viewBuf || (viewBuf = document.createElement('canvas'));
@@ -225,9 +223,7 @@ export function tick(now: number) {
     }
 }
 
-/* ---- 播放控制 ---- */
-
-/* 打点同步中的播放速度（0.5×/0.75×）：只在打点时生效——存的仍是歌曲本来时刻 */
+// 打点同步中的播放速度（0.5×/0.75×）只在打点时生效，存的仍是歌曲本来时刻
 export function playRate() {
     return S.tap && S.tap.rate > 0 ? S.tap.rate : 1;
 }
@@ -260,9 +256,8 @@ export function seek(t: number) {
     bus.emit('playhead');
 }
 
-/* ---- scrub 拖动降噪（S.scrubbing 语义接通）----
-   进度条/时间轴拖动的 down/up 各调一次；期间 seek 只改画面，音频静默跟随，
-   pointerup 时若拖动前在播放则从当前位置恢复出声 */
+// scrub 拖动降噪：进度条/时间轴拖动的 down/up 各调一次。期间 seek 只改画面，
+// 音频静默跟随，pointerup 时若拖动前在播放则从当前位置恢复出声
 export function beginScrub() {
     if (S.scrubbing) return;
     S.scrubbing = true;
@@ -284,7 +279,7 @@ export function togglePlay() {
     S.playing ? pause() : play();
 }
 
-/* ---- 当前切分信息（原 updateCutInfo 的非 DOM 部分） ---- */
+// 当前切分信息
 let lastCutIdx = -2;
 
 export function updateCutInfo() {
@@ -301,7 +296,7 @@ export function updateCutInfo() {
     bus.emit('cutchange', cut);
 }
 
-/* ---- 播放行跟随滚动（组件通过 bus 监听） ---- */
+// 播放行跟随滚动（组件通过 bus 监听）
 let listTouched = 0;
 
 function followLine(li: number) {
@@ -311,7 +306,7 @@ function followLine(li: number) {
     bus.emit('scrolltoline', li);
 }
 
-/* ---- 音频装载 ---- */
+// 音频装载
 let audioSeq = 0;
 
 export async function loadAudioFile(f: File, restored = false) {
@@ -319,7 +314,7 @@ export async function loadAudioFile(f: File, restored = false) {
     bus.emit('audioname', '解析中…');
     try {
         pause();
-        const a = await analyzeAudioOffThread(f);   // 数值计算在 Worker：主线程不卡
+        const a = await analyzeAudioOffThread(f);   // 数值分析不占主线程
         if (my !== audioSeq) return false;
         S.audio = a;
         bus.emit('audioname', `${f.name}（${J.fmtTime(S.audio.duration)}・约${S.audio.bpm}BPM）` + (restored ? '・上次的歌曲' : ''));
@@ -337,7 +332,6 @@ export async function loadAudioFile(f: File, restored = false) {
     }
 }
 
-/* ---- 启动 ---- */
 export function bootEngine() {
     requestAnimationFrame(tick);
     window.addEventListener('resize', () => {

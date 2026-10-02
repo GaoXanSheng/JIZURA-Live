@@ -1,6 +1,5 @@
-/* 文字排版（03_text）单元测试：假 canvas 度量下验证字形布局的确定性与结构。 */
-import { describe, it, expect } from 'vitest';
-import { J } from '../../src/engine';
+import {describe, expect, it} from 'vitest';
+import {J} from '../../src/engine';
 
 describe('J.layoutText', () => {
   it('每个字符产出字形，横排宽度/高度为正', () => {
@@ -74,7 +73,7 @@ describe('J.typesetLine', () => {
     try {
       const ts = J.typesetLine([...'あっあ']);
       expect(ts[0].adv).toBeLessThan(1);
-      expect(ts[1].adv).toBeLessThan(ts[0].adv);   // っ 是小书名
+      expect(ts[1].adv).toBeLessThan(ts[0].adv); // っ 是小书名
     } finally { J.TYPESET = prev; }
   });
 });

@@ -1,6 +1,3 @@
-/* ============================================================
-   JIZURA — decor (graphic elements around / behind the lyric) + HUD
-   ============================================================ */
 (() => {
     'use strict';
     const E = J.E;
@@ -16,7 +13,6 @@
     const inOut = env => E.outCubic(J.clamp(env.lt / 0.3)) * (1 - E.inCubic(env.pOut));
 
     J.DECOR = {
-        /* ---------------- back layer ---------------- */
         grid: {
             name: 'グリッド', layer: 'back',
             draw(env, bb, P) {
@@ -130,7 +126,6 @@
             },
         },
 
-        /* ---------------- front layer ---------------- */
         brackets: {
             name: '枠マーク', layer: 'front',
             draw(env, bb, P) {
@@ -207,7 +202,7 @@
                     for (let i = 0; i < 3; i++) {
                         const on = (env.step + i) % 3 !== 0;
                         const x = xEdge + side * (i * gap + (1 - e) * W * 0.2);
-                        const d = -side;                                   // chevrons point toward text
+                        const d = -side; // 箭头指向文字
                         env.line([[x - d * s * 0.35, cy - s * 0.5], [x + d * s * 0.35, cy], [x - d * s * 0.35, cy + s * 0.5]], i === 0 ? sc.accent : sc.fg, Math.max(2, s * 0.14), on ? 1 : 0.3, false);
                     }
                 }
@@ -258,7 +253,7 @@
                 const {W, H, sc} = env, s = P.seed;
                 const e = E.outExpo(J.clamp((env.lt - 0.1) / 0.45)) * (1 - E.inCubic(env.pOut));
                 if (e <= 0) return;
-                // 两条引线（右上 / 左下）：第三条曾计划挂在 note 上，实际从未绘制
+                // 引线只画右上和左下两条；第三条曾计划挂在 note 上，实际从未绘制
                 const labels = [J.romaji(env.cut.text.replace(/\s+/g, '')) || env.cut.lineText, 'No.' + String((env.cut.line | 0) + 1).padStart(2, '0') + ' / ' + J.fmtTime(env.cut.start)];
                 const fs = J.clamp(H * 0.018, 11, 20);
                 const anchors = [[bb.x1, bb.y0], [bb.x0, bb.y1], [bb.x1, bb.y1]];
@@ -330,7 +325,6 @@
     };
     J.DECOR_ORDER = ['brackets', 'rings', 'dots', 'arrows', 'slash', 'sparks', 'leaders', 'waveform', 'barcode', 'grid', 'stripes', 'blobs', 'bars', 'shapes', 'counter'];
 
-    /* global HUD overlay (frame, title, timecode, rec, counter) */
     J.drawHUD = (env, plan) => {
         const {W, H, sc, ctx} = env;
         const m = Math.round(H * 0.045), L = H * 0.035, c = sc.sub, fs = J.clamp(H * 0.016, 10, 18), mono = monoF(env);

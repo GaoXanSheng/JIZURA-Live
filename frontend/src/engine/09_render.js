@@ -1,11 +1,8 @@
-/* ============================================================
-   JIZURA — frame renderer: background, chroma passes, HUD, post FX
-   ============================================================ */
 (() => {
   'use strict';
   const E = J.E;
 
-  /* 内容 pass 描述符：模块级复用，frame() 里只刷色差偏移（每帧重建是纯 GC 饲料） */
+  // 内容 pass 描述符，模块级复用；frame() 里只刷色差偏移，每帧重建是纯 GC 饲料
   const PASSES = [
     {pass: 'B', lag: 1.6 / 24, off: [0, 0]},
     {pass: 'A', lag: 0.8 / 24, off: [0, 0]},
@@ -125,26 +122,26 @@
       return c;
     }
 
-    /* main entry: draw frame at time t into ctx (canvas px = design * scale) */
+    // 主入口：把 t 时刻的一帧画进 ctx，画布像素 = 设计尺寸 * scale
     frame(ctx, plan, t, opt = {}) {
       const W = plan.W, H = plan.H, scale = opt.scale || 1;
       const cw = ctx.canvas.width, ch = ctx.canvas.height;
       const fx = plan.fx, st = plan.style, fps = plan.fps;
-      // K线风格：完全独立的渲染路径——图表+中心滚动歌词画满整帧后直接返回，
-      // 不进普通文字管线（无 morph/转场递归、无全屏特效），视角与画面稳定
+      // K线风格走完全独立的渲染路径：图表+中心滚动歌词画满整帧直接返回，
+      // 不进普通文字管线（无 morph、无转场递归、无全屏特效），视角与画面稳定
       if (st.kline && J.KLINE_RENDERER && opt.layer !== 'front') {
         J.KLINE_RENDERER(ctx, plan, t, opt);
         return;
       }
-      // motion is quantised to 'koma' drawings per second (24fps timebase); random flicker runs on a <=24Hz clock
+      // 动作按 koma 量化（24fps 作画基准）；随机闪烁走 <=24Hz 时钟
       const stepDur = J.stepDur(fx, fps);
       const clock = J.komaOf(fx) > 0 ? stepDur : 1 / 24;
       const tq = Math.floor(t / stepDur + 1e-6) * stepDur;
       const mainCut = J.cutAt(plan, tq);
       const sc = st.schemes[mainCut ? mainCut.scheme % st.schemes.length : 0] || st.schemes[0];
       const allowFilter = this.filterOK && !opt.fast;
-      if (J.setLang) J.setLang(plan.lang || 'ja');           // faces follow the plan's lyric language
-      if (J.setTypeset) J.setTypeset(plan.typeset);          // 文字整列
+      if (J.setLang) J.setLang(plan.lang || 'ja');          // 字体随歌词语言
+      if (J.setTypeset) J.setTypeset(plan.typeset);         // 文字整列
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'source-over';
@@ -152,8 +149,7 @@
       ctx.filter = 'none';
       if (!opt.klineBg) ctx.clearRect(0, 0, cw, ch);   // K线背景已画好，不能清掉
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      // ---------- background ----------
-      const key = plan.keyBg && J.KEY_BG && J.KEY_BG[plan.keyBg] ? plan.keyBg : null;   // 合成用: white-on-black, finished in keyFinish()
+      const key = plan.keyBg && J.KEY_BG && J.KEY_BG[plan.keyBg] ? plan.keyBg : null;   // keyBg 合成用：黑底白字，最后 keyFinish() 收尾
       if (key && !opt.transparent) {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, W, H);
@@ -177,7 +173,6 @@
           ctx.globalCompositeOperation = 'source-over';
         }
       }
-      // ---------- camera & chroma amounts ----------
       const u = H / 1080;
       const events = plan.events;
       let spike = 0, shake = 0, beatPulse = 0;
@@ -197,8 +192,7 @@
       const step = Math.floor(tq / clock + 1e-6);
       const beatInfo = plan.beats && plan.beats.length ? beatAt(plan.beats, tq) : null;
       const energy = plan.energy ? plan.energy[Math.min(plan.energy.length - 1, Math.max(0, Math.floor(t * plan.energyRate)))] : null;
-      // ---------- background graphic (per line) ----------
-      // 透過PNG 前景／後景 (opt.layer): 'back' = background graphic + the decorations behind the lyrics, 'front' = the rest
+      // 透過PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
       const layer = opt.transparent ? opt.layer || null : null;
       if ((!opt.transparent || layer === 'back') && !key && !opt.klineBg && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
         const env = this.makeEnv(ctx, plan, mainCut, sc, {
@@ -224,20 +218,17 @@
         ctx.filter = 'none';
       }
       const shx = J.rs(step, 71) * shake * 16 * u, shy = J.rs(step, 72) * shake * 11 * u;
-      // ---------- content passes ----------
-      // passes 预建复用（每帧重建 3 个对象+数组是纯 GC 饲料），只刷新色差偏移
       const passes = PASSES;
       passes[0].off[0] = -3.4 * chroma * u;
       passes[0].off[1] = -1.3 * chroma * u;
       passes[1].off[0] = 3.2 * chroma * u;
       passes[1].off[1] = 1.9 * chroma * u;
       const ghostOn = (fx.chroma ?? 0.7) > 0.02 && (st.ghost ?? 1) > 0.02 && !opt.noGhost;
-      // モーフ (統一感): during the first moments of a morph cut its lyric is drawn by drawMorph (glyphs glide / melt)
+      // morph：cut 开头一小段时间，歌词改由 drawMorph 画（字形滑移/融化）
       const MC = !opt.noTrans && !opt.glyphLog && mainCut && mainCut.morph && mainCut.index > 0 ? mainCut : null;
       const mPrev = MC ? plan.cuts[MC.index - 1] : null, mlt = MC ? tq - MC.start : 0;
       const morphOn = !!(MC && mPrev && mlt < MC.morph.dur && Math.abs(mPrev.end - MC.start) < 0.06);
-      // camera blur (focus pulls etc.) is applied ONCE to the whole content layer — a blur filter on every
-      // individual draw call is extremely slow when a layout draws many text rows
+      // 镜头虚焦整层只做一次 blur：每个 draw call 都挂 blur filter，多行文字时慢得没法用
       let layerBlur = 0, LX = null;
       if (allowFilter && mainCut && J.CAMERA[mainCut.cam] && mainCut.cam !== 'push') {
         try {
@@ -273,7 +264,7 @@
         const cut0 = P.lag ? J.cutAt(plan, tp) : mainCut;
         if (!cut0) continue;
         if (morphOn && cut0 !== mainCut) continue;
-        // 中央を空ける: the cut in its band, and its companion (echo / whole line / decorations) in the other band
+        // 中央を空ける：cut 画在自己一侧的 band，companion 画在另一侧
         for (const cut of plan.centerFree && cut0.companion ? [cut0, cut0.companion] : [cut0]) {
           const csc = st.schemes[cut.scheme % st.schemes.length] || st.schemes[0];
           const lt = tp - cut.start;
@@ -296,7 +287,7 @@
             glyphLog: P.pass === 'main' ? opt.glyphLog || null : null,
           });
           X.save();
-          // 中央を空ける: the cut (text, decorations, its camera) is drawn in its band and clipped to it
+          // cut 的文字、装饰、镜头都裁剪在自己的 band 内
           if (Z) {
             X.beginPath();
             X.rect(Z.x, Z.y, Z.w, Z.h);
@@ -304,7 +295,7 @@
             X.translate(Z.x, Z.y);
           }
           const W = env.W, H = env.H;
-          // camera move for this cut (default: slow push-in)
+          // 该 cut 的镜头运动，默认缓推
           let cam = null;
           const CD = J.CAMERA[cut.cam] || J.CAMERA.push;
           try {
@@ -336,12 +327,12 @@
       if (morphOn && layer !== 'back') {
         const L = this.morphLogs(plan, mPrev, MC, cw, ch, scale, opt);
         const k = J.clamp(mlt / MC.morph.dur), e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
-        // koma=0（逐输出帧，如 60fps 工程）：morph 连续现绘（同上游），位图只有
-        // 10 档 + ≤960 宽，满帧率下会看到阶梯；koma>0（24 基准作画）维持位图路径
+        // koma=0（逐输出帧，如 60fps 工程）时 morph 连续现绘；位图只有 10 档 +
+        // ≤960 宽，满帧率下会看到阶梯。koma>0（24 基准作画）维持位图路径
         if (J.komaOf(fx) === 0) this.drawMorph(ctx, L, e, allowFilter);
         else this.morphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
       }
-      // ---------- cut-to-cut transition: composite the previous cut's resting frame with this one ----------
+      // cut 间转场：用上一 cut 的收尾帧和当前帧合成
       if (!opt.noTrans && mainCut && mainCut.trans && J.TRANS[mainCut.trans] && mainCut.index > 0) {
         const lt = tq - mainCut.start, dur = mainCut.transDur || 0.35;
         const prev = plan.cuts[mainCut.index - 1];
@@ -364,8 +355,8 @@
           ctx.globalAlpha = 1;
           ctx.globalCompositeOperation = 'source-over';
           ctx.filter = 'none';
-          // 透過出力（Spout 透明 / PNG alpha・分层导出）与 post 特效同规加 alphaGuard：
-          // 转场普遍从 sc.bg 全幅填充起画（uncover/zoomThrough 等），不 fence 会把空背景涂实
+          // 透過出力（Spout 透明 / PNG alpha・分层导出）跟 post 一样套 alphaGuard：
+          // 转场普遍从 sc.bg 全幅填起（uncover/zoomThrough 等），不 fence 会把空背景涂实
           const tg = opt.transparent ? this.alphaGuard(ctx, [A, B], sc) : null;
           if (tg) tg.begin();
           try {
@@ -390,7 +381,6 @@
           ctx.restore();
         }
       }
-      // ---------- HUD ----------
       if (plan.hud && !opt.noHud && layer !== 'back') {
         const env = this.makeEnv(ctx, plan, mainCut, sc, {
           pass: 'main',
@@ -406,15 +396,12 @@
         J.drawHUD(env, plan);
       }
       ctx.restore();
-      // ---------- post ----------
       if (!opt.noPost) this.post(ctx, plan, t, tq, step, sc, scale, opt, allowFilter);
       if (key && !opt.noPost) this.keyFinish(ctx, key, opt);
     }
 
-    /* 合成用の背景: make the finished frame monochrome (white text + effects only) and put it on the key colour.
-       black: as rendered (black = empty).  green: screened onto #00FF00, so black → green, white stays white and
-       the soft greys (ghosts, glow, fades) turn into partial transparency when keyed — the same result as
-       screen-blending the black version. */
+    // 合成用收尾：整帧先做成黑底白字（黑=空）。key=green 时再 screen 上 #00FF00，
+    // 黑变绿、白保持白，灰阶（ghost/辉光/淡出）键控后即成半透明
     keyFinish(ctx, key, opt) {
       const cw = ctx.canvas.width, ch = ctx.canvas.height;
       ctx.save();
@@ -422,7 +409,7 @@
       ctx.globalAlpha = 1;
       ctx.filter = 'none';
       if (opt.transparent) {
-        // keep the alpha: desaturate through a copy
+        // 保留 alpha：过一层拷贝再去色
         const S = this.ensure(this.scratch, cw, ch), sx = S.getContext('2d');
         sx.setTransform(1, 0, 0, 1, 0, 0);
         sx.globalAlpha = 1;
@@ -443,7 +430,7 @@
         ctx.globalCompositeOperation = 'copy';
         ctx.drawImage(S, 0, 0);
       } else {
-        // opaque frame: the 'saturation' blend with any grey keeps luminosity and drops colour
+        // 不透明帧：和任意灰做 saturation 混合，保明度去色
         ctx.globalCompositeOperation = 'saturation';
         ctx.fillStyle = '#808080';
         ctx.fillRect(0, 0, cw, ch);
@@ -456,9 +443,9 @@
       ctx.restore();
     }
 
-    /* モーフ帧位图缓存: drawMorph 按 e 量化 10 档缓存成位图（morph 窗口内逐字重绘
-       是最贵路径，且主页面/两路镜像都在跑同一内容）。命中时 morph 帧只做一次
-       drawImage；未命中才现绘（成本同旧路径，无回退）。位图降采样到 ≤960 宽存储。 */
+    // morph 帧位图缓存：按 e 量化 10 档存位图。morph 窗口内逐字重绘是最贵路径，
+    // 且主页面/两路镜像跑同一内容；命中时整帧只做一次 drawImage，未命中才现绘。
+    // 位图降到 ≤960 宽存储
     morphShot(ctx, plan, A, B, cw, ch, scale, e, allowFilter, L) {
       const shot = this.morphShotBuild(plan, A, B, cw, ch, scale, e, allowFilter, L);
       ctx.save();
@@ -470,7 +457,7 @@
       ctx.restore();
     }
 
-    /* 生成/取回某一档位的 morph 位图（预热直接调它填缓存） */
+    // 生成/取回某一档位的 morph 位图，预热可直接调它填缓存
     morphShotBuild(plan, A, B, cw, ch, scale, e, allowFilter, L) {
       if (!this.morphShotCache || this.morphShotCache.plan !== plan) this.morphShotCache = {plan, map: new Map()};
       const q = Math.min(9, Math.max(0, Math.round(e * 9))), eq = q / 9;
@@ -498,7 +485,7 @@
       return shot;
     }
 
-    /* モーフ: where every glyph of the previous cut rests at its end, and where this cut's glyphs land (cached) */
+    // 上一 cut 每个字形的停驻位置 + 本 cut 字形的落点（glyphLog 抓取，带缓存）
     morphLogs(plan, A, B, cw, ch, scale, opt) {
       if (!this.morphCache || this.morphCache.plan !== plan) this.morphCache = {plan, map: new Map()};
       const key = A.index + ':' + B.index + ':' + cw + 'x' + ch + ':' + scale.toFixed(4), M = this.morphCache.map;
@@ -523,7 +510,7 @@
     }
 
     drawMorph(ctx, L, e, allowFilter) {
-      // used/pairs 复用（morph 帧热路径，每帧两次分配 → 零分配）
+      // used/pairs 复用：morph 帧热路径，每帧两次分配改零分配
       let used = this.morphUsed || (this.morphUsed = []);
       let pairA = this.morphPairA || (this.morphPairA = []);
       let pairB = this.morphPairB || (this.morphPairB = []);
@@ -558,7 +545,7 @@
         }
       };
       ctx.save();
-      // the rest of the old line melts away (drips, swells, blurs)…
+      // 旧句剩下的字化掉：下坠、膨胀、模糊
       L.A.forEach((a, q) => {
         if (used[q]) return;
         ctx.setTransform(a.m[0], a.m[1], a.m[2], a.m[3], a.m[4], a.m[5]);
@@ -566,7 +553,7 @@
         ctx.scale(1 + e * 0.12, 1 + e * 0.6);
         put(a, a.color, a.a * Math.pow(1 - e, 1.4), e * a.px * 0.14 * det(a.m));
       });
-      // …shared characters glide to their new place, new ones condense out of a blur
+      // 共有字滑到新位置，新字从模糊里凝出
       for (let pi = 0; pi < pairB.length; pi++) {
         const a = pairA[pi], b = pairB[pi];
         if (a) {
@@ -587,7 +574,7 @@
     }
 
     makeEnv(ctx, plan, cut, sc, o) {
-      const W = o.zone ? o.zone.w : plan.W, H = o.zone ? o.zone.h : plan.H;   // 中央を空ける: a cut lives in its side band
+      const W = o.zone ? o.zone.w : plan.W, H = o.zone ? o.zone.h : plan.H;   // 中央を空ける：cut 住在侧边 band
       const env = Object.assign({ctx, W, H, sc, st: plan.style, fx: plan.fx, fps: plan.fps, cut, plan}, o);
       if (cut) {
         env.pIn = J.clamp(o.lt / Math.max(0.01, cut.inDur));
@@ -741,7 +728,7 @@
           console.warn(e);
         }
       }
-      if (env.layer === 'back') return null;                // 後景だけ: the lyrics and the front decorations go to the other layer
+      if (env.layer === 'back') return null;   // 後景だけ：歌词和前景装饰归另一层
       let bb = null;
       try {
         bb = L.render(env);
@@ -759,18 +746,16 @@
       return bb;
     }
 
-    /* 透過PNG: screen effects are written for an opaque frame (they paint the background colour, wash the whole frame,
-       or redraw a shifted copy over it). In transparent mode each effect is fenced:
-         - a full-frame opaque fill (background colour, black/white frame…) clears instead — it hid everything anyway
-         - afterwards, alpha is limited to where content was (before the effect) plus where the effect drew the
-           content again (shifted / scaled / mirrored copies of the scratch copy), so washes, flashes and strobes
-           tint the lyrics and the graphics but never turn the empty background opaque                            */
+    // 透過PNG：特效都是按不透明帧写的（整幅涂底色、洗白整帧、把偏移副本盖回来）。
+    // 透明模式下逐特效围栏：整幅不透明填充改成 clear；结束时 alpha 只保留
+    // 特效前已有的内容加上特效重画的位置（scratch 的偏移/缩放/镜像副本），
+    // 洗白、闪光、频闪只染到歌词和图形，空背景不会变不透明
     alphaGuard(ctx, S, sc) {
       const cw = ctx.canvas.width, ch = ctx.canvas.height, R = this;
       const P = this.ensure(this.guardP || (this.guardP = mk(2, 2)), cw, ch), px = P.getContext('2d');
       const M = this.ensure(this.guardM || (this.guardM = mk(2, 2)), cw, ch), mx = M.getContext('2d');
       let cleared = false, bgN = null;
-      // S 是"帧内容"的来源画布：post 传 scratch 单画布，转场传 [A, B] 两块；tmp 类画布不认（可能带不透明底）
+      // S 是"帧内容"的来源画布：post 传 scratch 单画布，转场传 [A, B] 两块；tmp 类画布不认，可能带不透明底
       const content = img => img === S || (Array.isArray(S) && S.includes(img));
       const own = ['fillRect', 'drawImage'];
       return {
@@ -779,7 +764,7 @@
           const fs0 = ctx.fillStyle;
           ctx.fillStyle = sc.bg;
           bgN = ctx.fillStyle;
-          ctx.fillStyle = fs0;   // the background colour, normalised
+          ctx.fillStyle = fs0;   // 归一化后的背景色
           px.setTransform(1, 0, 0, 1, 0, 0);
           px.globalAlpha = 1;
           px.globalCompositeOperation = 'copy';
@@ -845,10 +830,10 @@
         sx.drawImage(ctx.canvas, 0, 0);
         sx.globalCompositeOperation = 'source-over';
       };
-      const clock24 = Math.floor(t * 24);           // glitch randomness changes at most 24 times a second at any output fps
-      const guard = opt.transparent ? this.alphaGuard(ctx, S, sc) : null;   // 透過: effects must not fill the empty background
+      const clock24 = Math.floor(t * 24);           // glitch 随机数在任何输出帧率下至多 24 次/秒
+      const guard = opt.transparent ? this.alphaGuard(ctx, S, sc) : null;   // 透過：特效不许填实空背景
       for (const ev of active) {
-        // progress clamped to 0..1 (an event shorter than one output frame is still shown for that frame — k would pass 1)
+        // 进度钳到 0..1：比一输出帧还短的事件也要显示那一帧，否则 k 会冲过 1
         const k0 = (t - ev.t) / Math.max(ev.dur, 1e-3), k = Number.isFinite(k0) ? J.clamp(k0, 0, 1) : 0;
         const st2 = clock24;
         const D = J.FXE[ev.type];
@@ -875,7 +860,7 @@
           } catch (e) {
             console.warn('fx', ev.type, e);
           }
-          // 插件 D.draw 后的状态复位：漏掉 shadow 会让设置过阴影的特效污染同帧后续事件
+          // 插件 D.draw 后复位状态：漏掉 shadow 的话，设过阴影的特效会污染同帧后续事件
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.globalAlpha = 1;
           ctx.globalCompositeOperation = 'source-over';
@@ -949,7 +934,6 @@
         ctx.globalCompositeOperation = 'source-over';
         if (guard) guard.end();
       }
-      // bloom
       const glow = (st.glow || 0.6) * 0.5 * (fx.texture ?? 0.6);
       if (!opt.fast && allowFilter && glow > 0.05 && !opt.transparent) {
         const sw = Math.round(cw / 4), sh = Math.round(ch / 4);
@@ -966,7 +950,6 @@
         ctx.globalCompositeOperation = 'source-over';
       }
       if (!opt.transparent && !plan.keyBg) {
-        // scanlines
         const scan = (st.texture.scan || 0) * (fx.texture ?? 0.6);
         if (scan > 0.03) {
           const pat = ctx.createPattern(this.scan, 'repeat');
@@ -979,7 +962,6 @@
           ctx.fillRect(0, 0, cw / k, ch / k);
           ctx.restore();
         }
-        // grain
         const gr = (st.texture.grain || 0) * (fx.texture ?? 0.6);
         if (gr > 0.02) {
           const img = this.grain[((step % 4) + 4) % 4];
@@ -998,7 +980,6 @@
           ctx.fillRect(0, 0, cw / k + 256, ch / k + 256);
           ctx.restore();
         }
-        // vignette
         const vg = ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.35, cw / 2, ch / 2, Math.hypot(cw, ch) * 0.62);
         vg.addColorStop(0, 'rgba(0,0,0,0)');
         vg.addColorStop(1, `rgba(0,0,0,${0.28 * (fx.texture ?? 0.6)})`);
@@ -1009,7 +990,6 @@
     }
   }
 
-  /* beat context at time t: time since the previous beat, beat length and index */
   function beatAt(beats, t) {
     let lo = 0, hi = beats.length - 1, i = -1;
     while (lo <= hi) {

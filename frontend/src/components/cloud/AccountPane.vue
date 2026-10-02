@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-/* 账号页：双平台登录状态卡 + 扫码弹层（轮询状态机在 cloud store） */
+// 扫码轮询的状态机在 stores/cloud，这里只管展示和触发
 import {onMounted, onUnmounted} from 'vue';
 import {useCloud} from '../../stores/cloud';
 import {toast} from '../../jizura/look';
@@ -9,7 +9,7 @@ const offs: (() => void)[] = [];
 
 onMounted(() => {
   cloud.refreshLogin();
-  offs.push(() => cloud.stopQrPolling());   // 离开账号页/关弹窗都停轮询
+  offs.push(() => cloud.stopQrPolling());   // 卸载、关弹窗都靠它停轮询
 });
 onUnmounted(() => offs.forEach(f => f()));
 

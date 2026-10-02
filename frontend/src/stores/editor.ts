@@ -1,5 +1,5 @@
-/* 编辑器响应式镜像：引擎运行时(S)是普通对象，这里存放 UI 需要的响应式投影。
-   组件读这里，动作走 jizura/* 模块；高频帧数据由组件按需订阅 bus。 */
+// 引擎运行时 S 是普通对象，这里放 UI 要用的响应式投影
+// 组件读这里，动作走 jizura/* 模块；高频帧数据由组件订阅 bus 或直读 S
 import {defineStore} from 'pinia';
 import {S} from '../jizura/state';
 import {J} from '../engine';
@@ -35,7 +35,7 @@ export const useEditor = defineStore('editor', {
       this.playing = S.playing;
       this.loopMode = S.loop || 'off';
     },
-    /* 播放时间不进响应式投影：高频帧数据由组件订阅 bus 或直读 S.t */
+    // 播放时间不进投影，太高频，组件订阅 bus 或直读 S.t
     syncTime() {
       this.duration = S.plan ? S.plan.duration : 0;
     },

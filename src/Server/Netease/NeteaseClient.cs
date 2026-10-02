@@ -6,15 +6,15 @@ using QRCoder;
 
 namespace JizuraLive.Server;
 
-// 网易云音乐在线搜索 / 播放地址 / 歌词 / 扫码登录。
+// 网易云在线搜索/播放地址/歌词/扫码登录。
 // 端点与参数对齐 NeteaseCloudMusicApi v4.2.0（搜索与播放地址走 eapi，扫码登录走 weapi），
-// 匿名可用；MUSIC_U cookie 存在时（ne_login.json）自动带上以解锁 VIP 歌曲。
+// 匿名可用；ne_login.json 里有 MUSIC_U 时自动带上解锁 VIP 歌曲
 public sealed partial class NeteaseClient
 {
     public HttpClient Http => HttpClientFactorySetup.Factory.CreateClient("Netease");
 
-    // 统一加密 POST：apiUrl 形如 /api/cloudsearch/pc（eapi 直用；weapi 时把 /api/ 换成 /weapi/）。
-    // setCookies 非空时收集响应的 Set-Cookie 头（扫码登录 803 的凭据在这里，不在 body）
+    // 统一加密 POST，apiUrl 形如 /api/cloudsearch/pc（eapi 直用，weapi 时把 /api/ 换成 /weapi/）。
+    // setCookies 非空时收集响应 Set-Cookie 头：扫码登录 803 的凭据在这里，不在 body
     private async Task<JObject> PostAsync(string apiUrl, JObject data, bool eapi, List<string>? setCookies = null)
     {
         var header = new JObject
@@ -163,7 +163,7 @@ public sealed partial class NeteaseClient
         };
     }
 
-    // 返回 LRC 明文（base64），翻译/音译随行（同为 base64），前端按时间戳对齐成注音
+    // LRC 明文（base64），翻译/音译随行（同为 base64），前端按时间戳对齐成注音
     public async Task<KgLyricResponse> GetLyricAsync(string? id)
     {
         if (string.IsNullOrEmpty(id)) return new KgLyricResponse { Ok = false, Error = "缺少 id" };
@@ -216,7 +216,7 @@ public sealed partial class NeteaseClient
         var code = d.Value<int?>("code") ?? 0;
         if (code == 803)
         {
-            // 登录成功：凭据在 Set-Cookie 头里（MUSIC_U / __csrf）；个别封装会把 cookie 串塞进 body，一并解析
+            // 登录成功，凭据在 Set-Cookie 头里（MUSIC_U / __csrf）；个别封装会把 cookie 串塞进 body，一并解析
             var patch = new JObject();
 
             void eat(string raw)
@@ -259,8 +259,6 @@ public sealed partial class NeteaseClient
         NeSave(new JObject { ["MUSIC_U"] = "", ["__csrf"] = "", ["nickname"] = "" });
         return new KgLoginResponse { Ok = true, Logged = false };
     }
-
-    /* ---------- 歌单（需登录） ---------- */
 
     // 歌单歌曲映射成搜索结果同款 DTO，前端渲染零改动
     private static KgSong TrackToSong(JObject it)

@@ -1,8 +1,8 @@
-/* 渲染调试面板（DevTools 式）：Ctrl+Alt+D 呼出，任意页面可用。
-   折叠图标条：FPS；展开为完整面板（帧与主线程）。
-   关闭时采集器停止，零常驻开销。
-   （曾有的元素标框/CDP 精确模式已移除——启发式标框噪音大，
-   CDP 需求直接用 RemoteDebuggingPort + chrome://inspect 或 /json 原生工具。） */
+// 渲染调试面板，Ctrl+Alt+D 呼出，任意页面可用。
+// 折叠时只有 FPS 图标条，展开是完整面板（帧与主线程）。
+// 关闭时采集器停止，无常驻开销。
+// 元素标框/CDP 精确模式已移除：启发式标框噪音大，要 CDP 直接用
+// RemoteDebuggingPort + chrome://inspect 或 /json 原生工具。
 
 import type {App} from 'vue';
 import {reactive, watch} from 'vue';

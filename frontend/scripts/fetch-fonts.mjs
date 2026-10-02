@@ -1,17 +1,11 @@
 #!/usr/bin/env node
-/* 把 Google Fonts（JIZURA 字体表用到的全部家族）抓到本地自托管，彻底去掉字体 CDN 网络依赖。
- *
- * 用法：  node scripts/fetch-fonts.mjs [--force]
- * 产物：  public/fonts/css/<spec>.css   每个字体规格一份切片 CSS（unicode-range 保留，
- *                                       url() 已改写为本地相对路径）
- *         public/fonts/files/*.woff2    全部切片字体文件（按 URL 文件名去重）
- *
- * - spec 列表直接从 src/engine/02_fonts.js 的 `gf: '...'` 解析（自维护，加字体不用改这里），
- *   另补 Noto Sans/Serif JP 的可变字重规格（太さ @var 用）。
- * - 双源：fonts.googleapis.com → fonts.loli.net（大陆镜像），文件源 gstatic.com → gstatic.loli.net。
- * - 已存在的文件跳过（断点续传）；--force 全部重抓。
- * - 字体均为 OFL 开源协议，自托管合规；目录已 gitignore（约 40-80MB，构建时随 public/ 打进应用）。
- */
+// 把 JIZURA 字体表用到的 Google Fonts 家族抓到本地自托管，去掉字体 CDN 依赖
+// 用法： node scripts/fetch-fonts.mjs [--force]
+// 产物： public/fonts/css/<spec>.css（unicode-range 保留，url() 改成相对路径）
+//        public/fonts/files/*.woff2（按 URL 文件名去重）
+// spec 列表直接解析 src/engine/02_fonts.js 的 `gf: '...'`，加字体不用改这里
+// 双源：googleapis + loli.net 大陆镜像；已有文件跳过当断点续传，--force 全抓
+// 字体都是 OFL 协议，目录已 gitignore（40-80MB，构建时随 public/ 打进应用）
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {dirname, join, resolve} from 'node:path';
@@ -45,10 +39,10 @@ async function main() {
   await mkdir(cssDir, { recursive: true });
   await mkdir(fileDir, { recursive: true });
 
-  // 1. 解析引擎源码里的全部字体规格（自维护，加字体不用改这里）
+  // 从引擎源码解析全部字体规格
   const fontsSrc = await readFile(join(root, 'src', 'engine', '02_fonts.js'), 'utf8');
   const langSrc = await readFile(join(root, 'src', 'engine', '02b_lang.js'), 'utf8');
-  // 02b_lang.js 的 LANG_FACES：const 常量（含一行多声明）+ F(family, weight, 'spec'|常量) 调用
+  // 02b_lang.js 的 LANG_FACES：const 常量（有一行多声明）+ F(family, weight, 'spec'|常量) 调用
   const consts = new Map([...langSrc.matchAll(/(\w+)\s*=\s*'([A-Za-z0-9+:@.;]+)'/g)].map(m => [m[1], m[2]]));
   const langSpecs = [];
   for (const m of langSrc.matchAll(/F\('[^']+',\s*\d+,\s*'([^']+)'\)/g)) langSpecs.push(m[1]);
@@ -75,9 +69,9 @@ async function main() {
     try { ({ body: css } = await fetchWithHosts(cssPath, CSS_HOSTS)); }
     catch (e) { failed.push(`${spec} (css: ${e.message})`); continue; }
 
-    // 2. 改写 url() 到本地并下载 woff2（按文件名去重，多规格共享同一切片）
-    //    路径必须写成 ../files/：css 落在 fonts/css/ 下，浏览器按 css 所在目录解析相对路径，
-    //    写 ./files/ 会解析成 /fonts/css/files/（404），文件实际在 /fonts/files/
+    // 改写 url() 指到本地并下载 woff2，多规格共享同一切片
+    // 路径必须 ../files/：css 落在 fonts/css/ 下，相对路径按 css 所在目录解析，
+    // 写 ./files/ 会变成 /fonts/css/files/ 直接 404
     const urls = [...new Set([...css.matchAll(/url\((https:[^)]+)\)/g)].map(m => m[1]))];
     let i = 0;
     for (const u of urls) {

@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-/* 原生 <dialog>：初始化确认 + 输出物权利说明 + 音频特效设置（简中重写） */
 import {nextTick, onMounted, onUnmounted, ref} from 'vue';
 import {bus} from '../../jizura/bus';
 import {resetAll} from '../../jizura/look';
@@ -54,7 +53,6 @@ onUnmounted(() => {
   clearTimeout(eqTimer);
 });
 
-/* ---- 音频特效弹窗状态 ---- */
 const fx = ref(J.sanitizeAudioFx(null));
 const EQ_LABEL = ['60', '150', '400', '1k', '2.4k', '6k', '15k'];
 const eqCanvas = ref<HTMLCanvasElement | null>(null);
@@ -64,11 +62,11 @@ let eqTimer = 0;
 function applyFx(patch: any) {
   setAudioFx(patch);
   fx.value = J.sanitizeAudioFx(S.project.audioFx);
-  if (fx.value.preset === 'eq') nextTick(drawEq);   // 切到 EQ 时画布才刚 v-if 出现，必须等挂载后重绘
+  if (fx.value.preset === 'eq') nextTick(drawEq);   // 切到 EQ 时画布才刚 v-if 出现，得等挂载完再画
 }
 
-/* EQ 画布：7 个频段把手，拖动改增益（-12..+12dB）。拖动中节流提交，
-   边拖边听；松手提交最终值 */
+// EQ 画布：7 个把手各管一个频段，增益 -12..+12dB
+// 拖动中节流提交，边拖边听；松手提交最终值
 const eqX = (i: number, W: number) => 30 + i * (W - 42) / (J.AUDIO_EQ_BANDS.length - 1);
 const eqY = (db: number, H: number) => H / 2 - (Math.min(12, Math.max(-12, db)) / 12) * (H / 2 - 8);
 
@@ -99,7 +97,6 @@ function drawEq() {
     x.arc(eqX(i, W), eqY(db, H), 4, 0, Math.PI * 2);
     x.fill();
   });
-  // dB 刻度
   x.fillStyle = 'rgba(255,255,255,0.4)';
   x.font = '9px monospace';
   x.fillText('+12', 2, 10);
@@ -114,7 +111,7 @@ function eqPick(e: PointerEvent): number {
   const n = J.AUDIO_EQ_BANDS.length;
   let best = 0, bd = 1e9;
   for (let i = 0; i < n; i++) {
-    const d = Math.abs(eqX(i, c.width) / c.width - fxPos);   // 与绘制同一映射
+    const d = Math.abs(eqX(i, c.width) / c.width - fxPos);   // 和绘制用同一套映射
     if (d < bd) { bd = d; best = i; }
   }
   return best;
@@ -134,7 +131,7 @@ function eqApply(e: PointerEvent) {
 function eqDown(e: PointerEvent) {
   try {
     eqCanvas.value!.setPointerCapture(e.pointerId);
-  } catch { /* 合成事件 */ }
+  } catch { /* 合成事件会抛错，忽略 */ }
   eqDrag = eqPick(e);
   eqApply(e);
 }
@@ -152,7 +149,7 @@ function eqUp() {
 </script>
 
 <template>
-  <!-- 模态用普通 fixed 层（原生 dialog 的 top layer 提升在本页有 ~470ms 的层树重建开销） -->
+  <!-- 不用原生 dialog：top layer 提升在本页有 ~470ms 的层树重建开销，改用普通 fixed 层 -->
   <Teleport to="body">
     <Transition name="fade">
       <div v-if="resetOpen" class="jl-modal-open fixed inset-0 z-[3000] grid place-items-center p-6"

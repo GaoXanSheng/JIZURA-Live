@@ -1,5 +1,4 @@
-/* 云端音乐 store：来源切换、搜索、歌单、双平台登录态 + 扫码轮询状态机。
-   轮询定时器集中在 store 管理，弹窗关闭/组件卸载必须 stopQrPolling()。 */
+// 云端音乐 store。扫码轮询的定时器集中在这里管，弹窗关闭/组件卸载必须 stopQrPolling()
 import {defineStore} from 'pinia';
 import {api} from '../cloud/api';
 import {toast} from '../jizura/look';
@@ -7,12 +6,12 @@ import type {PlaylistInfo, Song, Source} from '../cloud/types';
 
 export type QrState = 'idle' | 'loading' | 'waiting' | 'scanned' | 'expired' | 'ok' | 'error';
 
-let pollTimer = 0;   // 轮询定时器不放响应式 state 里
+let pollTimer = 0; // 定时器不放响应式 state 里
 
 export const useCloud = defineStore('cloud', {
   state: () => ({
     open: false,
-    booting: false,   // 弹窗打开后的初始加载（登录态等），期间内容区转圈
+    booting: false, // 弹窗打开后的初始加载（登录态等），期间内容区转圈
     pane: 'search' as 'search' | 'playlists' | 'account',
     source: 'kugou' as Source,
     quality: '320' as string,
@@ -28,13 +27,12 @@ export const useCloud = defineStore('cloud', {
     playlistInput: '',
     playlistTip: '',
 
-    /* 每个平台独立登录态 */
     login: {
       kugou: {logged: false, nickname: ''},
       netease: {logged: false, nickname: ''},
     } as Record<Source, { logged: boolean; nickname: string }>,
 
-    /* 扫码弹层（当前只同时展示一个平台的二维码） */
+    // 扫码弹层，同时只展示一个平台的二维码
     qr: {
       active: false,
       source: 'kugou' as Source,
@@ -55,12 +53,12 @@ export const useCloud = defineStore('cloud', {
           try {
             const j = await api.login(s);
             this.login[s] = {logged: !!j.logged, nickname: j.nickname || ''};
-          } catch { /* 服务不在就保持默认 */
+          } catch { // 本机服务不在就保持默认
           }
         }
       } finally {
         if (!source) {
-          // 转圈至少显示 250ms：本机 API 毫秒级返回，不留最短时长会闪没看不见
+          // 转圈至少亮 250ms，本机 API 毫秒级返回，不留最短时长会一闪而过
           const remain = 250 - (Date.now() - t0);
           if (remain > 0) setTimeout(() => {
             this.booting = false;
@@ -76,7 +74,7 @@ export const useCloud = defineStore('cloud', {
       this.resultsError = '';
       this.playlistInput = '';
       this.playlistTip = '';
-      // 我的歌单跟着来源走：旧平台列表立即清掉，歌单页会自动重新加载
+      // 歌单跟着平台走，旧平台列表立刻清掉，歌单页会自动重新加载
       this.playlists = [];
       this.playlistsError = '';
     },
@@ -118,7 +116,6 @@ export const useCloud = defineStore('cloud', {
       }
     },
 
-    /* ---- 扫码 ---- */
     async openQr(source: Source) {
       this.stopQrPolling();
       this.qr = {active: true, source, state: 'loading', img: '', tip: '正在获取二维码…', key: ''};
@@ -138,14 +135,14 @@ export const useCloud = defineStore('cloud', {
     startQrPolling() {
       this.stopQrPolling();
       const ne = this.qr.source === 'netease';
-      // 酷狗状态：1 等待 / 2 已扫码 / 0 过期 / 4 成功；网易云：801 / 802 / 800 / 803
+      // 酷狗状态码：1 等待 / 2 已扫码 / 0 过期 / 4 成功；网易云：801 / 802 / 800 / 803
       const S_WAIT = ne ? '801' : '1', S_SCAN = ne ? '802' : '2', S_EXPIRE = ne ? '800' : '0',
           S_OK = ne ? '803' : '4';
       const key = this.qr.key;
       let pollBusy = false;
       pollTimer = window.setInterval(async () => {
         if (!this.qr.active) return this.stopQrPolling();
-        // in-flight 防重入：本机服务响应 >2s 时跳过本轮，避免请求堆积
+        // 防重入：本机服务响应超 2s 时跳过本轮，避免请求堆积
         if (pollBusy) return;
         pollBusy = true;
         try {
@@ -167,7 +164,7 @@ export const useCloud = defineStore('cloud', {
             await this.refreshLogin(src);
             toast(src === 'netease' ? '网易云已登录，VIP 歌曲可以载入了' : '酷狗已登录，VIP 歌曲可以载入完整音质了');
           }
-        } catch { /* 网络抖动，下一轮再试 */
+        } catch { // 网络抖动，等下一轮
         } finally {
           pollBusy = false;
         }

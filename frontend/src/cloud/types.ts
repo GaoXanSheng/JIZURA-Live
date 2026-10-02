@@ -1,4 +1,4 @@
-/* 云端歌曲类型（对应服务端 ApiModels.cs 的小驼峰 DTO） */
+// 对应服务端 ApiModels.cs 里的 DTO，字段名转成小驼峰
 export interface Song {
     source: 'kugou' | 'netease' | string;
     hash?: string;

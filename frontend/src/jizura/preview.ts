@@ -1,5 +1,4 @@
-/* 手法预览循环（原 12_ui.js 的 previewR/previewPlans/IntersectionObserver 体系）
-   Vue 组件把含 canvas[data-g][data-k] 的容器注册进来，循环只画可见的。 */
+// 手法预览循环：Vue 组件把含 canvas[data-g][data-k] 的容器注册进来，循环只画可见的。
 import {J} from '../engine';
 import {S} from './state';
 
@@ -10,7 +9,7 @@ let previewObs: IntersectionObserver | null = null;
 let previewRaf = 0;
 let previewLast = 0;
 
-/* 手法 tab 可见 或 切分替换面板打开 时才跑预览循环 */
+// 手法 tab 可见或切分替换面板打开时才跑预览循环
 function paneOpen(): boolean {
   const pane = document.querySelector('[data-pane="tech"]') as HTMLElement | null;
   if (pane && pane.offsetParent) return true;
@@ -80,9 +79,9 @@ export function resetWatch() {
   }
 }
 
-/* 时间预算制 + 轮转：每轮最多花 BUDGET_MS 画预览卡，画不完的下轮从游标接着来——
-   860 个可见卡也不会把主线程吃满（此前一轮全画，贵的卡单次 379ms，主线程完全饱和、
-   rAF 间隔被拉到 4 秒以上） */
+// 时间预算制 + 轮转：每轮最多花 BUDGET_MS 画预览卡，画不完的下轮从游标接着来，
+// 860 个可见卡也不会把主线程吃满。此前一轮全画，贵的卡单次 379ms，
+// 主线程完全饱和、rAF 间隔被拉到 4 秒以上。
 const FRAME_MS = 90;
 const BUDGET_MS = 8;
 let cursor = 0;
@@ -115,9 +114,9 @@ function kick() {
   previewRaf = requestAnimationFrame(tickFn);
 }
 
-/* 注册容器内的所有 canvas[data-g]（组件挂载/展开/过滤后调用）。
-   不做同步首画——首画交给预算循环按可见性轮转（同步全画会造成秒级长任务）。
-   占位底色由 canvas 元素自身样式提供。 */
+// 注册容器内所有 canvas[data-g]，组件挂载/展开/过滤后调用。
+// 不做同步首画，首画交给预算循环按可见性轮转（同步全画会造成秒级长任务），
+// 占位底色由 canvas 元素自身样式提供。
 export function registerThumbs(list: HTMLElement) {
   list.querySelectorAll<HTMLCanvasElement>('canvas[data-g]').forEach(cv => {
     previewLive.add(cv);

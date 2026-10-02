@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-/* 导出 tab：参数 + MP4/PNG 导出（进度/取消）+ 编解码提示 */
 import {computed, onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
@@ -40,7 +39,7 @@ const offs: (() => void)[] = [];
 const ASPECTS = ['16:9', '9:16', '4:3', '3:4', '1:1', '4:5', '21:9'];
 const tall = computed(() => J.designSize(aspect.value)[1] > J.designSize(aspect.value)[0] * 1.1);
 
-/* 导出范围按切分选（与切分循环同粒度）：下拉列出每个切分 */
+// 导出范围按切分选，和切分循环同粒度
 function cutOpts(first: string) {
   const C = S.plan?.cuts || [];
   return [{v: '-1', t: first}, ...C.map((c: any, i: number) => {
@@ -111,7 +110,7 @@ onMounted(() => {
   offs.push(bus.on('out', sync));
   offs.push(bus.on('sync-ui', sync));
   offs.push(bus.on('replan', sync));
-  offs.push(bus.on('replan-sync', sync));   // 行列表/时间轴上改了导出范围时，这里的下拉立即对齐
+  offs.push(bus.on('replan-sync', sync));   // 行列表/时间轴上改了导出范围，这里下拉要跟着对齐
   offs.push(bus.on('codec', onCodec));
   offs.push(bus.on('export-start', () => {
     busy.value = true;
@@ -146,7 +145,6 @@ function doExport(kind: any) {
   runExport(kind);
 }
 
-/* ---- 导出按钮按类折叠：状态记在 localStorage ---- */
 interface ExportItem {
   kind: string;
   label: string;
@@ -222,7 +220,7 @@ function toggleGroup(id: string) {
   openGroups.value[id] = !openGroups.value[id];
   try {
     localStorage.setItem('jizura.out.groups', JSON.stringify(openGroups.value));
-  } catch { /* 私密模式等 */
+  } catch { // 私密模式等会抛
   }
 }
 

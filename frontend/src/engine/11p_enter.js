@@ -1,4 +1,4 @@
-/* JIZURA pack: enter — 40 extra entrances (glyph masks, flips, squash & stretch, graphic wipes, glitch, neon, stamps) */
+// enter 手法包：40 个入场（字遮罩、翻转、挤压拉伸、图形擦除、glitch、霓虹、印章）
 (() => {
     'use strict';
     const E = J.E;
@@ -7,7 +7,6 @@
     const clamp = J.clamp, lerp = J.lerp;
     const HIDE = Object.freeze({hide: true});
 
-    /* ---------------- easing ---------------- */
     const oQuart = x => 1 - Math.pow(1 - clamp(x), 4);
     const oQuint = x => 1 - Math.pow(1 - clamp(x), 5);
     const ioQuart = x => {
@@ -16,8 +15,7 @@
     };
     const oBack = (x, s) => E.outBack(clamp(x), s);
 
-    /* ---------------- stagger ---------------- */
-// k = 0..1 order fraction of a glyph, spread = share of the entrance used for staggering
+// k 是字的 0..1 次序，spread 是入场进度里拿来做错峰的比例
     const stg = (p, k, spread) => clamp((p - spread * k) / (1 - spread));
     const ordLR = (i, n) => (n > 1 ? i / (n - 1) : 0);
     const ordC = (i, n) => (n > 1 ? Math.abs(i - (n - 1) / 2) / ((n - 1) / 2) : 0);
@@ -28,10 +26,8 @@
     const dirOf = (env, salt) => (J.r(env.cut.seed | 0, salt, 5) < 0.5 ? -1 : 1);
     const glyphN = it => [...String(it.text || '').replace(/\s/g, '')].length;
 
-    /* ---------------- per-glyph functions ----------------
-       J.combineChar only merges dx/dy/rot/s/a/sx/sy/ch/color. When a hold (jitter, wave…) or a treatment
-       adds its own charFn during the entrance, the extended fields (clipX/clipY/skew/blur/outline) would be
-       dropped, so every item we touch re-merges its glyph functions right before drawing. */
+    // J.combineChar 只合并 dx/dy/rot/s/a/sx/sy/ch/color；hold（抖动、波浪等）或 treatment 在入场期间挂自己的
+    // charFn 时，clipX/clipY/skew/blur/outline 这些扩展字段会被丢掉，所以碰过的条目都在绘制前重新合并
     function mergeChar(fns) {
         if (fns.length === 1) return fns[0];
         return (i, g, n) => {
@@ -88,7 +84,7 @@
         return fn;
     }
 
-    /* ---------------- geometry (item-local space: origin at it.x/it.y, before rotation) ---------------- */
+    // 条目本地空间：原点在 it.x/it.y，旋转之前
     function box(it) {
         const m = J.measure(it);
         const x0 = it.vertical ? -m.w / 2 : it.align === 'left' ? 0 : it.align === 'right' ? -m.w : -m.w / 2;
@@ -102,7 +98,7 @@
         if (it.skew) ctx.transform(1, 0, Math.tan(it.skew * DEG), 1, 0, 0);
     }
 
-    /* clip path built in item-local coords: fn(ctx, box, item, env) */
+    // 在条目本地坐标里建裁剪路径：fn(ctx, box, item, env)
     function clipLocal(it, fn) {
         it.clipFn = (ctx, env, x) => {
             const b = box(x);
@@ -113,7 +109,7 @@
         };
     }
 
-    /* graphics drawn after the item, in item-local coords: fn(env, box, item, itemAlpha) */
+    // 条目之后再画的图形，本地坐标：fn(env, box, item, itemAlpha)
     function postLocal(it, fn) {
         addPost(it, (env, x) => {
             const A = clamp(x.alpha ?? 1);
@@ -130,7 +126,7 @@
         });
     }
 
-    /* design-space AABB of the local box (rotation aware) */
+    // 局部盒子在设计空间的 AABB（考虑旋转）
     function dRange(it, b) {
         const r = (it.rot || 0) * DEG, c = Math.cos(r), s = Math.sin(r);
         let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
@@ -144,7 +140,7 @@
         return {x0, x1, y0, y1};
     }
 
-    /* scale the item about its own box centre (layouts anchor some items at the left / top) */
+    // 以条目自身盒子中心缩放（有些布局把条目锚在左/上）
     function scaleAbout(it, k, b) {
         if (k === 1) return;
         b = b || box(it);
@@ -157,7 +153,7 @@
         }
     }
 
-    /* change tracking but keep the box centred where it rests */
+    // 改字距但让盒子停在原地
     function setTrack(it, tr) {
         const b0 = box(it);
         it.track = tr;
@@ -170,7 +166,7 @@
         }
     }
 
-    /* horizontal glitch bands over the item (design space) */
+    // 盖在条目上的横向 glitch 切条（设计空间）
     function hBands(it, n, dxFn) {
         const R = dRange(it, box(it)), pad = it.size * 0.3, y0 = R.y0 - pad, h = R.y1 - R.y0 + pad * 2;
         const cuts = [0];
@@ -182,7 +178,7 @@
         return out;
     }
 
-    /* per-glyph mask that stays at the glyph's resting box while the glyph is moved by (fx, fy) glyph-boxes */
+    // 单字遮罩：遮罩停在字的落位盒上，字本身位移 (fx, fy) 个字盒
     function masked(g, fx, fy, isx, isy) {
         const o = {dx: fx * g.w * isx, dy: fy * g.h * isy};
         if (g.r90) {
@@ -199,10 +195,8 @@
     const glyphPos = (g, isx, isy) => [(g.x + g.vx) * isx, (g.y + g.vy) * isy];
 
 
-    /* ================================================================ */
     const DEFS = {
 
-        /* ---------- glyph masks ---------- */
         riseMask: {
             name: '下から出現', tags: ['editorial', 'graphic', 'calm', 'emotional'], w: 1.4,
             apply(env, it, p) {
@@ -229,7 +223,6 @@
             },
         },
 
-        /* ---------- slides ---------- */
         slideL: {
             name: '左からスライド', tags: ['editorial', 'calm', 'pop'], w: 1,
             apply(env, it, p) {
@@ -245,7 +238,7 @@
         },
 
         slideR: {
-            // each glyph slides in from the right inside its own box
+            // 每个字在自己盒子里从右侧滑入
             name: '右からスライド', tags: ['editorial', 'graphic', 'pop'], w: 1,
             apply(env, it, p) {
                 const isx = it.sx || 1, isy = it.sy || 1;
@@ -268,9 +261,8 @@
             },
         },
 
-        /* ---------- flips & folds ---------- */
         flipX: {
-            // card flip around the vertical axis: an accent tile turns over to reveal each glyph
+            // 绕竖轴翻卡片：一块 accent 色牌翻过来露出字
             name: '縦軸フリップ', tags: ['pop', 'graphic', 'editorial'], w: 1,
             apply(env, it, p) {
                 const col = colOf(it), bg = pick(env.sc.bg),
@@ -294,7 +286,7 @@
         },
 
         flipY: {
-            // three-quarter tumble around the horizontal axis (shows the mirrored back once)
+            // 绕横轴翻四分之三圈（中间会露出一次镜像背面）
             name: '横軸フリップ', tags: ['pop', 'graphic'], w: 0.9,
             apply(env, it, p) {
                 const col = colOf(it), bg = pick(env.sc.bg);
@@ -323,7 +315,7 @@
                     const q = stg(p, ordLR(i, n), 0.55);
                     if (q <= 0) return HIDE;
                     if (q >= 1) return null;
-                    const th = (1 - oBack(q, 1.5)) * 90 * DEG;           // lying on its right side → upright, pivot = bottom-right corner
+                    const th = (1 - oBack(q, 1.5)) * 90 * DEG; // 从右侧倒下到立起，支点是右下角
                     const hw = g.w * isx / 2, hh = g.h * isy / 2, vx = -hw, vy = -hh;
                     const c = Math.cos(th), s = Math.sin(th);
                     return {dx: c * vx - s * vy - vx, dy: s * vx + c * vy - vy, rot: th / DEG, a: clamp(q * 4)};
@@ -332,7 +324,7 @@
         },
 
         fold: {
-            // accordion: glyphs unfold alternately from their top and bottom edge
+            // 手风琴：字交替从上边和下边展开
             name: '折り開き', tags: ['graphic', 'editorial'], w: 0.9,
             apply(env, it, p) {
                 const isy = it.sy || 1, col = colOf(it), bg = pick(env.sc.bg);
@@ -381,7 +373,6 @@
             },
         },
 
-        /* ---------- line work ---------- */
         strokeDraw: {
             name: '線画から塗り', tags: ['calm', 'emotional', 'editorial'], w: 1, minDur: 0.8,
             inDur: dur => clamp(dur * 0.5, 0.2, 0.95),
@@ -443,7 +434,7 @@
         },
 
         splitJoin: {
-            // top and bottom halves of every glyph slide in from opposite sides, each inside the glyph's own box
+            // 每个字的上下两半从相反两侧滑入，各自都在字盒内
             name: '上下合体', tags: ['graphic', 'editorial'], w: 0.9,
             apply(env, it, p) {
                 const vert = !!it.vertical, isx = it.sx || 1, isy = it.sy || 1, dir = dirOf(env, 13);
@@ -475,7 +466,6 @@
             },
         },
 
-        /* ---------- graphic masks ---------- */
         vSlice: {
             name: '縦スライス', tags: ['graphic', 'glitch'], w: 1,
             apply(env, it, p) {
@@ -548,12 +538,12 @@
         },
 
         diagWipe: {
-            // a slanted accent block sweeps in, covers the line, then retracts and leaves the text behind it
+            // 一块斜的 accent 色版扫入盖住整行，再收回，字留在原地
             name: '斜めワイプ', tags: ['graphic', 'editorial', 'pop'], w: 1,
             apply(env, it, p) {
                 const vert = !!it.vertical, size = it.size, dir = dirOf(env, 17), k = 0.5;
                 const eL = oQuart(p / 0.5), eT = E.inOutCubic((p - 0.18) / 0.74);
-                // (u, v): u along the reading direction, v across it
+                // u 沿阅读方向，v 横向
                 const geo = b => {
                     const U0 = vert ? b.y0 : b.x0, U1 = vert ? b.y1 : b.x1, V0 = vert ? b.x0 : b.y0,
                         V1 = vert ? b.x1 : b.y1;
@@ -659,7 +649,6 @@
             },
         },
 
-        /* ---------- squash & stretch ---------- */
         bounceBig: {
             name: '大ジャンプ', tags: ['pop'], w: 0.7, minDur: 0.7,
             inDur: dur => clamp(dur * 0.5, 0.2, 0.95),
@@ -728,7 +717,6 @@
             },
         },
 
-        /* ---------- digital ---------- */
         glitchIn: {
             name: 'グリッチ出現', tags: ['glitch'], w: 1.2,
             apply(env, it, p) {
@@ -754,7 +742,7 @@
         },
 
         echoIn: {
-            // concentric accent outlines of every glyph collapse onto it while the glyph fades in
+            // 字淡入时，几圈同心 accent 描边向它收拢
             name: '残像集束', tags: ['graphic', 'emotional', 'pop'], w: 1,
             apply(env, it, p) {
                 const col = pick(env.sc.accent, env.sc.fg);
@@ -796,7 +784,6 @@
             },
         },
 
-        /* ---------- motion ---------- */
         whip: {
             name: 'ホイップ', tags: ['pop', 'graphic'], w: 1,
             inDur: dur => clamp(dur * 0.3, 0.12, 0.45),
@@ -854,7 +841,6 @@
             },
         },
 
-        /* ---------- soft ---------- */
         blurStagger: {
             name: 'ブラー段差', tags: ['calm', 'emotional'], w: 1.2,
             apply(env, it, p) {
@@ -928,7 +914,6 @@
             },
         },
 
-        /* ---------- reveal devices ---------- */
         resolve: {
             name: '解読', tags: ['glitch', 'editorial'], w: 0.9, minDur: 0.6,
             inDur: (dur, n) => clamp(0.2 + n * 0.045, 0.3, Math.max(0.3, Math.min(0.95, dur * 0.55))),

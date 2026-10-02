@@ -19,10 +19,9 @@ public sealed class EmbeddedServer : IDisposable
         _server = new WebServer(o => o
                 .WithUrlPrefix($"http://127.0.0.1:{port}/")
                 .WithMode(HttpListenerMode.EmbedIO))
-            // 防跨站守卫在最前（api/ 前缀命中即终结，其余放行）；
-            // 静态站其次：WebApiModule 未命中路由会直接 404 终结而不是传递，
-            // 放前面会把 /render 等 SPA 路径吞掉。API 侧由 StaticSiteModule 的
-            // 回退排除（api/ 前缀不回退）保证到达控制器。
+            // 模块顺序有讲究：守卫最前（api/ 前缀命中即终结，其余放行）；
+            // 静态站其次——WebApiModule 未命中路由会直接 404 终结而不是传递，
+            // 放它前面会被吞掉 /render 这类 SPA 路径；api/ 前缀不参与静态站回退，API 请求才能到达控制器
             .WithModule(new ApiGuardModule())
             .WithModule(new McpModule())
             .WithModule(new StaticSiteModule())
@@ -68,8 +67,8 @@ public sealed class EmbeddedServer : IDisposable
     private static WebApiModule BuildApiModule()
     {
         var api = new WebApiModule("/", SerializeWithNewtonsoft);
-        // 控制器异常不再透传成 EmbedIO 的 500 HTML（前端 response.json() 会挂）：
-        // EmbedIO 已把响应重置为空 500，这里补 JSON 体，前端能拿到真实错误
+        // 控制器异常时 EmbedIO 已把响应重置成空 500，这里补 JSON 体，
+        // 不然前端 response.json() 拿到的是 HTML 直接挂
         api.OnUnhandledException = (ctx, ex) =>
         {
             Log.Error("[Api] 控制器未处理异常：" + ctx.Request.Url, ex);
@@ -99,7 +98,7 @@ public sealed class EmbeddedServer : IDisposable
         {
             _runTask = _server.RunAsync(_cts.Token);
 
-            // 服务器异常退出不再静默丢弃；主动 Dispose 触发的取消不算故障
+            // 异常退出要留日志；主动 Dispose 触发的取消不算故障
             _ = _runTask.ContinueWith(t =>
             {
                 var ex = t.Exception?.GetBaseException();

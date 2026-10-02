@@ -1,8 +1,7 @@
-/* 工程持久化（jizura/project）单元测试：mergeProject 对不可信外部输入的清洗。
-   这是导出文件/云端数据进入引擎的唯一入口，安全不变量都在这里。 */
-import { describe, it, expect } from 'vitest';
-import { J } from '../../src/engine';
-import { mergeProject, LS_KEY } from '../../src/jizura/project';
+// mergeProject 是导出文件/云端数据进引擎的唯一入口，清洗（安全不变量）全在这
+import {describe, expect, it} from 'vitest';
+import {J} from '../../src/engine';
+import {LS_KEY, mergeProject} from '../../src/jizura/project';
 
 const anyJ = J as any;
 

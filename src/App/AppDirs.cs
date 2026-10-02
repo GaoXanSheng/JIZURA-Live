@@ -2,11 +2,8 @@ using System.IO;
 
 namespace JizuraLive;
 
-// --------------------------------------------------------------------
-// 运行时可写数据（config/logs/CEF 缓存）统一放 %LOCALAPPDATA%\JizuraLive。
-// 不放安装目录的原因：Program Files 普通权限不可写；dotnet publish 与
-// 升级覆盖都会清掉 exe 旁的文件（设置/登录态每发布一次就丢一次）。
-// --------------------------------------------------------------------
+// 不放 exe 旁边：Program Files 普通权限写不进，publish/升级覆盖还会清掉，
+// 设置和登录态每发一版丢一次
 public static class AppDirs
 {
     public static string Root { get; } = Path.Combine(

@@ -1,6 +1,5 @@
-/* 选段 LRC 导出（jizura/look.saveLrc）单元测试：
-   导出范围按切分存，端点/范围内的标题卡与间奏切分 line=-1（无词行），
-   直接取会以 lines[-1] 炸掉 J.lrcText——修复后取范围内有词行的最小/最大行号。 */
+// 导出范围按切分存，端点可能是标题卡/间奏切分（line=-1 无词行），
+// 直接取会拿 lines[-1] 炸掉 J.lrcText，修复后取范围内有词行的最小/最大行号
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {J} from '../../src/engine';
 import {bus} from '../../src/jizura/bus';
@@ -24,7 +23,7 @@ beforeEach(() => {
 
 describe('saveLrc 切分范围换行号', () => {
     it('端点是标题卡/间奏切分（line=-1）时不再崩溃', () => {
-        S.plan.cuts = [{line: -1}, {line: 0}, {line: 1}] as any;   // 范围 [0..1]：首切分无词
+        S.plan.cuts = [{line: -1}, {line: 0}, {line: 1}] as any; // 范围 [0..1]，首切分无词
         S.project.exportRange = {from: 0, to: 1};
         saveLrc();
         expect(saveFile).toHaveBeenCalledTimes(1);

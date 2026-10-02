@@ -30,7 +30,7 @@ onMounted(() => {
     tapActive.value = !!S.tap;
   }));
   offs.push(bus.on('replan', syncFields));
-  // 整页拖拽：.krc → 歌词
+  // 整页拖拽：.krc 文件当歌词导入
   window.addEventListener('dragover', onDragOver);
   window.addEventListener('drop', onDrop);
   syncFields();

@@ -1,12 +1,8 @@
-/* ============================================================
-   JIZURA — style packs (palettes, type roles, texture, tendencies)
-   Each pack = a set of colour schemes the cuts can swap between,
-   font roles, texture, ghost (chromatic) colours and recipe biases.
-   ============================================================ */
 (() => {
     'use strict';
 
-    /* scheme: bg, fg, sub, accent, accent2, ink (sticker/box colour), dim (bg text), ghostA, ghostB, grad */
+    // 风格包：每包 = cut 间轮换的几套配色 scheme + 字体角色 + 质感 + ghost 色 + 版式/手法倾向 bias
+    // scheme 字段：bg/fg/sub/accent/accent2/ink（贴纸和盒子的底色）/dim（压暗文字）/ghostA/ghostB/grad
     J.STYLES = {
         noir: {
             name: 'ノワール・クロマ', desc: '黒地・白文字・シアン/琥珀の色ズレ',
@@ -576,14 +572,14 @@
     };
     J.STYLE_ORDER = ['noir', 'crimson', 'caution', 'magenta', 'paper', 'hud', 'mint', 'specimen', 'transit', 'blueprint', 'rouge', 'mono'];
 
-    /* resolve style + user colour/font overrides into an effective style */
+    // 把风格包和用户的颜色/字体覆盖合成出最终生效的 style
     J.resolveStyle = (project) => {
         const base = J.STYLES[project.style] || J.STYLES.noir;
         const st = JSON.parse(JSON.stringify(base));
         const ov = project.colors || {};
-        // base colours (background / text) replace the main scheme only
+        // 底色（背景/文字）只替换第一套 scheme
         if (ov.enabled) st.schemes[0] = Object.assign({}, st.schemes[0], pickDefined(ov, ['bg', 'fg', 'sub']));
-        // accent + chromatic ghost colours apply to every scheme; accent is re-lit per background for contrast
+        // accent 和色差 ghost 色应用到每套 scheme；accent 按各自背景重新调对比度
         if (ov.accentOn) {
             st.schemes = st.schemes.map(s => {
                 const o = Object.assign({}, s);
@@ -591,7 +587,7 @@
                     o.accent = J.fitContrast(ov.accent, s.bg, 2.4);
                     if (s.ink === s.accent) o.ink = o.accent;
                 }
-                // ghosts only need to stay visible against this scheme's background
+                // ghost 只要在该 scheme 的背景上看得清就行，对比度门槛放低
                 if (ov.ghostA) o.ghostA = J.fitContrast(ov.ghostA, s.bg, 1.35);
                 if (ov.ghostB) o.ghostB = J.fitContrast(ov.ghostB, s.bg, 1.35);
                 if (ov.accent && s.grad) o.grad = [J.fitContrast(ov.accent, s.bg, 2.4), J.mix(ov.accent, '#000000', 0.7)];
@@ -603,10 +599,8 @@
         if (J.keyMode(project)) keyStyle(st);
         return st;
     };
-    /* ---- 合成用の背景（グリーンバック / ブラックバック） ----
-       Every scheme becomes white-on-black (so every part behaves as on a dark background), textures go away,
-       and the renderer turns the finished frame monochrome and — for green — screens it onto pure green.
-       Black stays the "empty" colour, so a keyer (green) or a screen / luma blend (black) gives the same result. */
+    // 合成用背景（绿幕/黑幕）：每套 scheme 都改成黑底白字、质感归零，渲染器最后把整帧
+    // 去色，green 再 screen 上纯绿。黑始终代表"空"，键控（green）和 screen/明度混合（black）等价
     J.KEY_BG = {green: '#00FF00', black: '#000000'};
     J.keyMode = project => (project && J.KEY_BG[project.keyBg] ? project.keyBg : null);
 

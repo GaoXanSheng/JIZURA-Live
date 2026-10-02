@@ -23,7 +23,7 @@ public sealed partial class KuGouClient
         return GetJsonAsync(new HttpRequestMessage(HttpMethod.Get, url), timeoutMs);
     }
 
-    // gateway 通用调用：android 签名（query 按 key 排序拼 k=v，再夹 body 原文与 AndroidSalt 取 MD5）
+    // gateway 通用调用，android 签名：query 按 key 排序拼 k=v，前后夹 AndroidSalt、中间夹 body 原文取 MD5
     private async Task<JObject> GatewayAsync(string path, string? router,
         Dictionary<string, string>? extraParams, JObject? body)
     {
@@ -159,7 +159,7 @@ public sealed partial class KuGouClient
             var hit = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, token, userid));
             if (hit == null)
             {
-                // QR 路径对此有捕获、这里也要：设备注册失败不能炸掉整个回退链
+                // 设备注册失败不能炸掉整个回退链，QR 路径对此同样捕获
                 try
                 {
                     await RegisterDevAsync(token, userid);
@@ -264,8 +264,6 @@ public sealed partial class KuGouClient
         return new KgLyricResponse
             { Ok = true, Fmt = hit2.Value.Fmt, Content = hit2.Value.Content, Candidates = candidates };
     }
-
-    /* ---------- 歌单（需登录） ---------- */
 
     public async Task<PlaylistsResponse> MyPlaylistsAsync()
     {

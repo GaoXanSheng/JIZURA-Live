@@ -1,8 +1,7 @@
-/* 测试环境桩：必须在任何 engine 模块导入前生效。
-   - canvas 2d：jsdom 不实现 getContext（返回 null），而 02_fonts.js 在模块加载期就创建
-     2d context 做字体度量。这里给一个确定性的假 context——measureText 按字符类给固定宽度
-     （CJK=1em，字母数字=0.55em），排版/planner 测试因此完全可复现。
-   - requestAnimationFrame：jsdom 默认没有，用 setTimeout(16) 兜底（帧统计等模块的 rAF 循环）。 */
+// 这些桩必须在任何 engine 模块导入前生效
+// jsdom 不实现 canvas getContext，而 02_fonts.js 加载期就要 2d context 做字体度量，
+// 这里给确定性的假 measureText：CJK=1em、字母数字=0.55em，排版/planner 测试因此可复现
+// rAF jsdom 也没有，setTimeout(16) 兜底给帧统计那类模块的 rAF 循环
 
 type AnyObj = Record<string | symbol, any>;
 
@@ -102,7 +101,7 @@ if (typeof window.requestAnimationFrame !== 'function') {
   (window as AnyObj).cancelAnimationFrame = (id: number) => clearTimeout(id);
 }
 
-/* jsdom 的 Blob 没有 .stream()（krc 解密的 DecompressionStream 管线需要）——换成 Node 原生 Blob */
+// jsdom 的 Blob 没有 .stream()，krc 解密要走 DecompressionStream 管线，换成 Node 原生 Blob
 import {Blob as NodeBlob} from 'node:buffer';
 
 (globalThis as AnyObj).Blob = NodeBlob;

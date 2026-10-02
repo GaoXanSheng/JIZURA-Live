@@ -1,4 +1,4 @@
-/* JIZURA pack: kinetic (3) — word-timed cameras, transitions, treatments and decor */
+// kinetic 第 3 包：按词计时的 cam / trans / treat / decor
 (() => {
     'use strict';
     const E = J.E;
@@ -6,7 +6,6 @@
     const DEG = J.DEG, TAU = J.TAU, clamp = J.clamp, lerp = J.lerp;
     const reg = (g, key, def) => J.register(g, key, Object.assign(def, {set: 'kinetic'}), P);
 
-    /* ---------------------------------------------------------------- helpers */
     const strip = t => String(t || '').replace(/\s+/g, '');
     const isBlank = ch => ch === ' ' || ch === '　';
     const bellK = k => Math.sin(Math.PI * clamp(k));
@@ -19,7 +18,7 @@
         } : f;
     };
 
-    /* word clock of a cut (same rule as the kinetic layouts): onsets spread over the first half, locked to beats nearby */
+    // 镜内词时钟（与 kinetic 版式同一规则）：词时刻铺在前半段，靠近节拍就吸附
     const clockCache = new WeakMap();
 
     function wordTimes(env, nMax = 6) {
@@ -57,9 +56,8 @@
         return k;
     };
 
-    /* ================================================================ CAMERA */
     reg('cam', 'knReadPan', {
-        // the frame steps along with the reading: one snap per word, then it settles back to centre
+        // 画框跟着阅读节奏走：一词一步，最后回正
         name: '読み追い', tags: ['pop', 'graphic', 'editorial'], w: 0.8, ae: 'snapPan',
         plan: rng => ({a: rng.range(0.026, 0.036)}),
         get(env, P) {
@@ -76,7 +74,7 @@
     });
 
     reg('cam', 'knTiltKick', {
-        // every new word kicks the frame into a lean, alternating sides, and the last one sets it level
+        // 每来一个词画框就歪向一边、左右交替，最后一个词摆平
         name: '語で傾く', tags: ['pop', 'graphic', 'emotional'], w: 0.8, ae: 'dutch',
         plan: rng => ({dir: rng.pick([1, -1]), a: rng.range(2.4, 3.4)}),
         get(env, P) {
@@ -92,7 +90,7 @@
     });
 
     reg('cam', 'knCardFlip', {
-        // the frame flips over like a card to show the cut, and pinches on each new word
+        // 画框像卡片一样翻面亮出本镜，每来一个词捏一下
         name: 'カード返し', tags: ['pop', 'graphic'], w: 0.7, ae: 'barrelRoll', strong: true,
         plan: rng => ({vert: rng.chance(0.3), dir: rng.pick([1, -1])}),
         get(env, P) {
@@ -114,7 +112,7 @@
     });
 
     reg('cam', 'knShearKick', {
-        // a sideways shear kick on every word (or beat) that springs back upright
+        // 每个词（或每拍）来一次横向剪切踢，随即弹正
         name: 'シアーキック', tags: ['pop', 'glitch', 'graphic'], w: 0.8, ae: 'jelly',
         plan: rng => ({a: rng.range(5, 8)}),
         get(env, P) {
@@ -133,7 +131,7 @@
     });
 
     reg('cam', 'knJumpCut', {
-        // hard reframes on every word (tighter, wider, off-centre) with no in-betweens, then back to centre
+        // 每个词硬切构图（更近、更远、偏心），没有中间帧，最后回正
         name: 'ジャンプカット', tags: ['pop', 'glitch', 'editorial'], w: 0.7, ae: 'stepZoom',
         plan: rng => ({s0: rng.int(0, 99)}),
         get(env, P) {
@@ -151,7 +149,7 @@
     });
 
     reg('cam', 'knRushIn', {
-        // the whole frame rushes up from far away, overshoots a touch and locks
+        // 整个画框从远处冲过来，微微过冲后锁定
         name: '奥から突進', tags: ['pop', 'graphic', 'emotional'], w: 0.7, ae: 'crashZoom', strong: true,
         plan: rng => ({z: rng.range(0.66, 0.76), r: rng.range(-4, 4)}),
         get(env, P) {
@@ -162,7 +160,6 @@
         }
     });
 
-    /* ================================================================ TRANSITIONS */
     const minD = I => Math.min(I.cw, I.ch);
     const tAcc = I => {
         const sc = I.sc;
@@ -182,7 +179,7 @@
     }));
 
     trReg('knCornerSwing', {
-        // the old frame swings away round a corner, the new one swings in behind it — a quarter turn to the next line
+        // 旧画框绕角旋走，新画框跟在后面旋入，转四分之一圈换行
         name: 'コーナースイング', tags: ['pop', 'graphic'], w: 0.8, ae: 'spinOut', dur: 0.42,
         plan: rng => ({c: rng.int(0, 3)}),
         draw(ctx, A, B, p, I, P) {
@@ -201,7 +198,7 @@
             };
             put(B, -90 * sg * (1 - e), 0.35 * (1 - e));
             put(A, 90 * sg * e, 0.25 * e);
-            // a thin accent edge along the swinging seam
+            // 旋转缝上的一条 accent 细边
             const lw = Math.max(2, minD(I) * 0.006);
             ctx.save();
             ctx.translate(px, py);
@@ -214,7 +211,7 @@
     });
 
     trReg('knStutterCut', {
-        // rhythm cut: old and new frames trade places in hard cuts before the new one holds
+        // 节奏切：新旧画框硬切互换几拍，新镜才站稳
         name: '刻みカット', tags: ['pop', 'glitch', 'graphic'], w: 0.7, ae: 'flashCross', dur: 0.36,
         plan: rng => ({z: rng.range(1.05, 1.1), o: rng.range(0.02, 0.035) * rng.pick([1, -1])}),
         draw(ctx, A, B, p, I, P) {
@@ -227,7 +224,7 @@
             ctx.fillStyle = (C === A ? (I.scPrev || I.sc) : I.sc).bg;
             ctx.fillRect(0, 0, cw, ch);
             ctx.drawImage(C, cw / 2 - cw * s / 2 + dx, ch / 2 - ch * s / 2, cw * s, ch * s);
-            // a one-frame accent bar on each cut
+            // 每次切闪一条一帧的 accent 横条
             const since = k > 0 ? p - cuts[k - 1] : 1;
             if (since < 0.06) {
                 const h = Math.max(3, ch * 0.012);
@@ -240,7 +237,7 @@
     });
 
     trReg('knStripSlam', {
-        // the new frame drops in as tall strips, one after another, each landing with a small bounce
+        // 新画框拆成竖条逐条砸下，每条落地小弹一下
         name: '短冊スラム', tags: ['pop', 'graphic'], w: 0.8, ae: 'sliceShift', dur: 0.45,
         plan: rng => ({n: rng.int(3, 5), rev: rng.chance(0.5), up: rng.chance(0.25)}),
         draw(ctx, A, B, p, I, P) {
@@ -253,7 +250,7 @@
             for (let i = 0; i < n; i++) {
                 const k = P.rev ? n - 1 - i : i, d = k / n * 0.45, q = clamp((p - d) / 0.55);
                 if (q <= 0) continue;
-                // gravity drop, then a bounce that dies out
+                // 先重力下坠，再衰减弹跳
                 const tl = 0.62;
                 let y;
                 if (q < tl) {
@@ -276,9 +273,8 @@
         }
     });
 
-    /* ================================================================ TREATMENTS */
     const alive = (it, amin = 0.9) => it.fill !== false && (it.alpha ?? 1) >= amin && !!it.text && it.size > 1;
-// word of every glyph (cut's word chunks, else chunks of the item's own text)
+// 每个字所属的词（用整句切词，不行就切 item 自己的文本）
     const tmCache = new Map();
 
     function treatGeo(env, it) {
@@ -318,7 +314,7 @@
     }
 
     reg('treat', 'knWordScale', {
-        // one key word is set big, the rest small — the line re-flows around the contrast
+        // 挑一个关键词放大、其余缩小，整行围绕对比重新排版
         name: '大小語', tags: ['pop', 'graphic', 'editorial'], w: 0.9, ae: 'sizeWave', safe: true,
         plan: rng => ({
             big: rng.range(1.28, 1.42),
@@ -332,7 +328,7 @@
             const key = [it.text, it.font, it.track || 0, P.big, P.small, P.pick, G.nW].join('|');
             let R = it._knws && it._knws.key === key ? it._knws : null;
             if (!R) {
-                // choose the key word
+                // 选关键词
                 const cnt = new Array(G.nW).fill(0), kan = new Array(G.nW).fill(0);
                 G.L1.forEach(g => {
                     const j = G.map[g.i];
@@ -342,7 +338,7 @@
                     }
                 });
                 let kw = P.pick === 'last' ? G.nW - 1 : P.pick === 'first' ? 0 : cnt.reduce((b, v, j) => (v + kan[j] * 0.5 > cnt[b] + kan[b] * 0.5 ? j : b), 0);
-                // key word big, the rest small; the whole set scaled so the line never grows longer
+                // 关键词大、其余小；整体再缩一档保证行长不变
                 let tb = 0, ts2 = 0;
                 G.L1.forEach(g => {
                     const j = G.map[g.i];
@@ -352,7 +348,7 @@
                 });
                 const norm = Math.min(1, (tb + ts2) / Math.max(1e-6, tb * P.big + ts2 * P.small));
                 const f = j => (j === kw ? P.big : P.small) * norm;
-                // new advances along each line, keeping the line's own alignment
+                // 沿行重算步进，保持该行原有对齐
                 const vert = !!it.vertical, lines = new Map();
                 G.L1.forEach(g => {
                     const L = lines.get(g.li) || [];
@@ -390,7 +386,7 @@
     });
 
     reg('treat', 'knWordPlate', {
-        // every other word is knocked out of a solid plate that follows the word as it moves
+        // 隔一个词反白：实心底板跟着词走
         name: '語ごと反転', tags: ['pop', 'graphic', 'glitch'], w: 0.8, ae: 'boxed',
         plan: rng => ({
             first: rng.chance(0.5),
@@ -457,11 +453,10 @@
         }
     });
 
-    /* ================================================================ DECOR */
     const getBB = (env, bb) => J.centerBB(env, bb);
 
     reg('decor', 'knSpeedTrail', {
-        // speed lines stream off the back of the lyric and follow it wherever it moves
+        // 速度线从歌词背后流出，歌词动它也跟着动
         name: '追従スピード線', tags: ['pop', 'graphic', 'glitch'], w: 0.8, ae: 'slash', layer: 'front',
         draw(env, bb0, P) {
             if (env.pass !== 'main') return;
@@ -469,7 +464,7 @@
             const o = E.outCubic(clamp(env.lt / 0.3)) * (1 - E.inCubic(env.pOut));
             if (o <= 0.01) return;
             const vert = (bb.y1 - bb.y0) > (bb.x1 - bb.x0) * 1.3;
-            // trailing side: the one with more room (P.right breaks ties)
+            // 拖尾方向：哪边空就朝哪边（P.right 决定平局）
             const roomA = vert ? bb.y0 : bb.x0, roomB = vert ? H - bb.y1 : W - bb.x1;
             const side = Math.abs(roomA - roomB) < u * 0.05 ? (P.right ? 1 : -1) : (roomB > roomA ? 1 : -1);
             const N = 8 + (P.n | 0) * 3, t = env.ltb;
@@ -479,13 +474,13 @@
                 const r = k => J.r(P.seed, i, k);
                 const f = (i + 0.5) / N, lw = Math.max(1.5, u * (0.003 + r(1) * 0.006));
                 const L = u * (0.18 + r(2) * 0.3) * o;
-                // start a little inside the text's trailing edge so the streaks read even when there is no room
+                // 起点缩进尾缘内侧一点，空间不够时线条也看得见
                 const tight = Math.max(roomA, roomB) < u * 0.14;
                 const st = tight ? len * (0.2 + r(3) * 0.3) : -u * (0.015 + 0.02 * r(3));
                 const ph = ((t * (1.3 + r(4) * 1.5) + r(5)) % 1), s0 = st * -1 + ph * L * 0.6,
                     s1 = s0 + L * (0.35 + 0.65 * (1 - ph));
                 const a = (0.35 + 0.35 * r(6)) * o * (1 - ph * 0.5);
-                // no room at the back: the streaks run in two bands just outside the text's long edges instead
+                // 背后没空间时：线条改走长边外侧的两条带
                 const c = tight ? (i % 2 ? (vert ? bb.x1 : bb.y1) + span * (0.05 + 0.3 * f) : (vert ? bb.x0 : bb.y0) - span * (0.05 + 0.3 * f))
                     : lerp(vert ? bb.x0 : bb.y0, vert ? bb.x1 : bb.y1, 0.08 + 0.84 * f) + (r(7) - 0.5) * span * 0.04;
                 const e0 = side < 0 ? (vert ? bb.y0 : bb.x0) : (vert ? bb.y1 : bb.x1);
@@ -496,7 +491,7 @@
     });
 
     reg('decor', 'knWordTicks', {
-        // a small segmented bar that fills one segment per word as the words arrive, with a running count
+        // 小分段条：每来一个词点亮一格，旁边跑计数
         name: '語カウンター',
         tags: ['graphic', 'editorial', 'pop'],
         w: 0.8,

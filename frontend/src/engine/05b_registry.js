@@ -1,23 +1,4 @@
-/* ============================================================
-   JIZURA — registries for the newer expression groups + a single
-   registration helper used by every expression pack (src/11p_*.js)
-
-   group    registry      order array          picked per
-   layout   J.LAYOUTS     J.LAYOUT_ORDER       cut
-   enter    J.ENTER       J.ENTER_ORDER        cut
-   hold     J.HOLD        J.HOLD_ORDER         cut
-   exit     J.EXIT        J.EXIT_ORDER         cut
-   decor    J.DECOR       J.DECOR_ORDER        cut (0..n)
-   treat    J.TREAT       J.TREAT_ORDER        cut   text treatment (outline, extrude, marker…)
-   bg       J.BG          J.BG_ORDER           line  full-screen background graphic
-   cam      J.CAMERA      J.CAMERA_ORDER       cut   camera move over the cut
-   fx       J.FXE         J.FXE_ORDER          event post-processing / transition effect
-   trans    J.TRANS       J.TRANS_ORDER        cut   how this cut takes over from the previous one (both frames composited)
-
-   Common optional fields on every entry:
-     name  (Japanese label, required)   tags  (mood keys it suits: glitch calm pop graphic editorial emotional)
-     w     (base pick weight, default 1)  pack (set by J.register)
-   ============================================================ */
+// 新表现组的注册表；src/11p_*.js 各表现包都通过 J.register 往里注册
 (() => {
     'use strict';
 
@@ -42,7 +23,7 @@
         },
     };
     J.CAMERA_ORDER = ['push'];
-// post / transition effects. Entries without draw() are handled by the renderer's built-in branch.
+// 事件后期 / 转场效果；没写 draw() 的条目走渲染器内置分支
     J.FXE = {
         slice: {name: 'スライスグリッチ', builtin: true},
         block: {name: 'ブロックグリッチ', builtin: true},
@@ -54,10 +35,11 @@
         chroma: {name: '色ズレの跳ね', builtin: true},
     };
     J.FXE_ORDER = ['chroma', 'shake', 'slice', 'block', 'invert', 'flash', 'zoom', 'mosaic'];
-// cut-to-cut transitions: draw(ctx, A, B, p, info) composites the previous cut (A) and this cut (B) in device pixels
+// 切到切的转场：draw(ctx, A, B, p, info) 在设备像素下把上一刀画面 A 和本刀 B 合成
     J.TRANS = {};
     J.TRANS_ORDER = [];
 
+    // group key → [注册表, 顺序数组]；layout~decor 每个切分取一项，bg 按行取整屏背景，treat 是文字加工，cam 是切分上的镜头运动
     const GROUPS = {
         layout: ['LAYOUTS', 'LAYOUT_ORDER'],
         enter: ['ENTER', 'ENTER_ORDER'],
@@ -74,7 +56,8 @@
     J.registry = g => J[GROUPS[g][0]];
     J.order = g => J[GROUPS[g][1]];
 
-    /* J.register('layout', 'myKey', { name: '…', … }, 'packName') */
+    // J.register('layout', 'myKey', { name: '…', … }, 'packName')
+    // 条目通用字段：name 日文标签必填；tags 是适配的氛围 key（glitch calm pop graphic editorial emotional）；w 抽取权重默认 1；pack 由这里写入
     J.register = (group, key, def, pack) => {
         const G = GROUPS[group];
         if (!G) throw new Error('unknown group ' + group);
@@ -87,7 +70,7 @@
         return def;
     };
 
-    /* items whose tags include a mood key (used by おまかせ) */
+    // tags 含该氛围 key 的条目，おまかせ 用
     J.taggedWith = (group, mood) => J.order(group).filter(k => {
         const d = J.registry(group)[k];
         return d && d.tags && d.tags.includes(mood);

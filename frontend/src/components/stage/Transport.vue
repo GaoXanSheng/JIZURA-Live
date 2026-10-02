@@ -16,7 +16,7 @@ const barEl = ref<HTMLElement | null>(null);
 const fillEl = ref<HTMLElement | null>(null);
 const thumbEl = ref<HTMLElement | null>(null);
 
-/* 一键随机主题（v0.10）：空 = 平时的一键随机 */
+// 一键随机主题，空串 = 平时的一键随机
 const themes = Object.entries(J.THEMES || {}) as [string, any][];
 const theme = ref(J.THEMES && J.THEMES[S.project?.themeId] ? S.project.themeId : '');
 
@@ -24,9 +24,9 @@ function onTheme(e: Event) {
   setTheme((e.target as HTMLSelectElement).value);
 }
 
-/* 按钮文案映射（内部模式值保持与引擎一致：'line'=整行、'cut'=单个切分）：
-   用户术语「切分循环」= 循环这一整行的切分 → 挂在 'line' 上；
-   用户术语「行循环」= 只循环单个切分 → 挂在 'cut' 上 */
+// 内部值跟引擎走：'line'=整行、'cut'=单个切分。
+// 用户术语是反的：「切分循环」（循环整行的切分）挂在 'line'，
+// 「行循环」（只循环单个切分）挂在 'cut'
 const LOOP_LABEL: Record<string, { text: string; title: string }> = {
   all: {text: '循环', title: '循环整首'},
   line: {text: '切分循环', title: '循环这一行的完整切分'},
@@ -41,15 +41,15 @@ function fmt(t: number) {
 
 const durText = computed(() => fmt(ed.duration));
 
-/* 时间码/进度条不走 Vue：响应式更新会连带整页级重绘（实测 Paint 事件以
-   12.5Hz 落在 document/html 根层上）。改为 frame 里命令式写 textContent
-   和 transform，Vue 只管播放态/循环/音量这些低频状态 */
+// 时间码/进度条不走 Vue：响应式更新会连带整页重绘（实测 Paint 以
+// 12.5Hz 落在 document/html 根层）。改成 frame 里命令式写 textContent
+// 和 transform，Vue 只管播放态/循环/音量这类低频状态
 
 function cycleLoop() {
   const i = LOOP_CYCLE.indexOf(S.loop);
   S.loop = LOOP_CYCLE[(i < 0 ? 0 : i + 1) % LOOP_CYCLE.length];
   // 模式一换立即按当前位置取新范围：loopHold 只在 play/seek/replan 刷新，
-  // 播放中切到切分循环会沿用行循环留下的整行范围，「切分」就一直切不开
+  // 不然播放中切到切分循环会沿用行循环留下的整行范围，一直切不开
   refreshLoopHold();
   ed.syncPlayState();
   S.need = true;
@@ -58,9 +58,9 @@ function cycleLoop() {
 const vol = ref(Math.round(AP.vol * 100));
 const muted = ref(AP.muted);
 const fxOn = ref(!!(S.project as any)?.audioFx && (S.project as any).audioFx.preset !== 'none');
-/* 音量条与进度条同款自绘：原生 range 的 :value 绑定在拖动时以指针频率
-   触发 Vue 全量 patch（同款文档级失效）。拖动中只写 transform + 引擎音量，
-   vol/muted 状态与落盘在松手时一次性提交 */
+// 音量条与进度条同款自绘：原生 range 的 value 绑定拖动时以指针频率
+// 触发 Vue 全量 patch（同款文档级失效）。拖动中只写 transform 和引擎音量，
+// vol/muted 状态与落盘松手时一次提交
 const volBarEl = ref<HTMLElement | null>(null);
 const volFillEl = ref<HTMLElement | null>(null);
 const volThumbEl = ref<HTMLElement | null>(null);
@@ -84,7 +84,7 @@ function volApply(clientX: number) {
 function volDown(e: PointerEvent) {
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   volDragging = true;
-  if (muted.value) muted.value = false;   // 拖动即解除消音（一次渲染）
+  if (muted.value) muted.value = false;   // 拖动即解除消音
   volApply(e.clientX);
 }
 
@@ -161,9 +161,9 @@ onMounted(() => {
 let lastSync = 0;
 let lastScrub = 0;
 
-/* ---- 自绘进度条：transform 走合成器。原生 range 的 value 写入会触发
-   Chromium 文档级失效（contain/will-change/分层均无法隔离，实测 Paint 以
-   全视口 clip 落在 document/html/nav 三层、12.5Hz 闪烁全页），故弃用 ---- */
+// 自绘进度条，transform 走合成器。原生 range 的 value 写入会触发 Chromium
+// 文档级失效，contain/will-change/分层都隔不住：实测 Paint 以全视口 clip
+// 落在 document/html/nav 三层，12.5Hz 闪烁全页，所以弃用
 const barW = ref(0);
 let barRo: ResizeObserver | null = null;
 
@@ -228,7 +228,7 @@ onMounted(() => {
   volRo = new ResizeObserver(() => {
     if (volBarEl.value) {
       volW = volBarEl.value.clientWidth;
-      setVolBar(AP.muted ? 0 : AP.vol);   // 启动即消音（恢复的记忆音量）时条也要显示静音
+      setVolBar(AP.muted ? 0 : AP.vol);   // 启动即消音（恢复记忆音量）时条也得显示静音
     }
   });
   if (volBarEl.value) volRo.observe(volBarEl.value);

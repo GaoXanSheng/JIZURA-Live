@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-/* 特效 tab：统一感/文字排列 + 强度滑杆（官方译名）+ 闪光/抽帧/HUD/种子，含锁定 */
 import {onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';

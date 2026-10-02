@@ -1,4 +1,4 @@
-/* JIZURA pack: kinetic (1) — kinetic typography layouts: word-timed stacks, turns, swaps, dives and flows */
+// kinetic 第 1 包：按词计时的版式 layout（堆叠、直角转弯、交换、潜字、流动）
 (() => {
     'use strict';
     const E = J.E;
@@ -6,7 +6,6 @@
     const DEG = J.DEG, TAU = J.TAU, clamp = J.clamp, lerp = J.lerp;
     const reg = (key, def) => J.register('layout', key, Object.assign(def, {set: 'kinetic'}), P);
 
-    /* ---------------------------------------------------------------- helpers */
     const U = env => Math.min(env.W, env.H);
     const isPort = env => env.H > env.W * 1.08;
     const strip = t => String(t || '').replace(/\s+/g, '');
@@ -21,16 +20,16 @@
     const em = (text, font, o) => meas(text, font, 100, o).w / 100;
     const box = (x0, y0, x1, y1) => ({x0, y0, x1, y1, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, boxes: []});
     const UB = (a, b) => J.unionBB(a, b);
-    /* motion index that makes J.mainDraw start this item's entrance at local time t */
+    // 换算成 motion index，让 J.mainDraw 在本地时间 t 开始这个 item 的入场
     const miAt = (env, t) => Math.max(0, t) / Math.max(0.005, env.cut.stagger || 0.04);
     const rotV = (x, y, a) => {
         const c = Math.cos(a * DEG), s = Math.sin(a * DEG);
         return [x * c - y * s, x * s + y * c];
     };
-// damped spring 1 → 0 (overshoots through 0), t in seconds
+// 阻尼弹簧 1 → 0，会冲过 0 再荡回来；t 秒
     const sprg = (t, k = 7, f = 18) => (t <= 0 ? 1 : Math.exp(-k * t) * Math.cos(f * t));
     const bellK = k => Math.sin(Math.PI * clamp(k));
-    /* text colour that reads on a plate colour */
+    // 在底板色上读得出的文字色
     const onCol = (sc, fill) => {
         let best = null, bv = 0;
         for (const c of [sc.bg, sc.fg, sc.ink, sc.accent, sc.sub]) {
@@ -43,15 +42,15 @@
         }
         return bv >= 2.6 ? best : (J.lum(fill) > 0.5 ? '#111111' : '#FFFFFF');
     };
-// accent that reads on the background (else fg)
+// 背景上读得出的 accent，不然退回 fg
     const accOn = (sc) => (J.contrast(sc.accent, sc.bg) >= 1.7 ? sc.accent : sc.fg);
 
-    /* ---- word units: the cut's word chunks, merged / split to a usable count ---- */
+    // 词单元：把整句切成数量好用的词块
     const unitCache = new Map();
 
     function splitUnit(s) {
         const t = String(s).trim();
-        if (/\s/.test(t)) {                                   // latin phrase: at the space nearest the middle
+        if (/\s/.test(t)) { // 拉丁文：在靠中间的空格处切
             const mid = t.length / 2;
             let bi = -1, bd = 1e9;
             for (let i = 0; i < t.length; i++) if (t[i] === ' ' && Math.abs(i - mid) < bd) {
@@ -74,7 +73,7 @@
         w = (cut.words && cut.words.length ? cut.words : (J.chunkText ? J.chunkText(text) : text.split(/\s+/))).map(s => String(s).trim()).filter(Boolean);
         if (strip(w.join('')) !== strip(text)) w = J.chunkText ? J.chunkText(text).map(s => String(s).trim()).filter(Boolean) : [text.trim()];
         if (!w.length) w = [text.trim() || '…'];
-        while (w.length > maxU) {                             // merge the shortest neighbouring pair
+        while (w.length > maxU) { // 合并最短的一对相邻词
             let bi = 0, bv = 1e9;
             for (let i = 0; i < w.length - 1; i++) {
                 const v = gcount(w[i]) + gcount(w[i + 1]);
@@ -85,7 +84,7 @@
             }
             w.splice(bi, 2, w[bi] + (lat ? ' ' : '') + w[bi + 1]);
         }
-        for (let g = 0; g < 8 && w.length < minU; g++) {      // split the longest splittable unit
+        for (let g = 0; g < 8 && w.length < minU; g++) { // 拆开最长的可拆单元
             let bi = -1, bv = 1;
             w.forEach((s, i) => {
                 const n = gcount(s), ok = /\s/.test(s) || (!hasLatin(s) && n >= 2);
@@ -104,7 +103,7 @@
         return w;
     }
 
-    /* ---- word clock: onset time of each unit inside the cut (locked to beats when they fall close) ---- */
+    // 词时钟：每个词的入场时刻；靠近节拍就吸附到节拍上
     const clockCache = new WeakMap();
 
     function onsets(env, n, o = {}) {
@@ -141,14 +140,14 @@
         return v;
     }
 
-// index of the latest unit whose onset has passed (-1 before the first)
+// 当前时刻已过的最新词序号，第一个词之前是 -1
     const curIdx = (ts, t) => {
         let k = -1;
         for (let i = 0; i < ts.length; i++) if (t >= ts[i]) k = i;
         return k;
     };
 
-    /* ---- flow units into balanced lines that fit a box; positions are unit centres relative to the box centre ---- */
+    // 把词流进等重的行并塞进框里；pos 是词中心相对框中心的坐标
     function partitions(n, L) {
         const out = [];
         const rec = (start, left, acc) => {
@@ -199,9 +198,6 @@
         return {size, pos, L: best.L, w: Math.max(...best.lw) * size, h: (best.L * lead - (lead - 1)) * size, ws};
     }
 
-    /* ---------------------------------------------------------------- layouts */
-
-    /* ================================================================== 1 knSlamStack — 積み上げ */
     reg('knSlamStack', {
         name: '積み上げ', tags: ['pop', 'graphic'], w: 1.1, ae: 'justified', fits: n => n >= 2 && n <= 18,
         enterBias: {cut: 3, blur: 0.7, pop: 0.8, slice: 0.3, wipe: 0.4},
@@ -226,7 +222,7 @@
                 let w = maxW, sizes = [];
                 for (let q = 0; q < 5; q++) {
                     sizes = ms.slice(0, k).map(m => Math.min(w / m, cap));
-                    const lo = Math.min(...sizes) * 2.2;                // keep the size contrast readable
+                    const lo = Math.min(...sizes) * 2.2; // 最小字之上最多留 2.2 倍，保持大小对比可读
                     sizes = sizes.map(s => Math.min(s, lo));
                     const S = sizes.reduce((a, b) => a + b, 0) + gap * sizes[0] * (k - 1);
                     if (S <= Hb) break;
@@ -267,7 +263,7 @@
                         x += (i % 2 ? 1 : -1) * W * 0.9 * f;
                     }
                 }
-                // impact: the rest of the stack takes a knock when a new line lands
+                // 新一行砸下时，已落地的行跟着震一下
                 const land = lt - ts[k - 1] - 0.12;
                 if (!fresh && k > 1 && land > 0) y += A.sizes[k - 1] * 0.07 * sprg(land, 9, 26) * (land < 0.6 ? 1 : 0);
                 let px = cx + x, py = cy + y;
@@ -303,7 +299,6 @@
         },
     }, P);
 
-    /* ================================================================== 2 knQuarterTurn — 直角ターン */
     reg('knQuarterTurn', {
         name: '直角ターン',
         tags: ['pop', 'graphic', 'editorial'],
@@ -325,7 +320,7 @@
             const {W, H, sc} = env, c = env.cut, Pm = c.params, lt = env.lt, u = U(env);
             const units = unitsOf(c, 4, 2), n = units.length;
             const ts = onsets(env, n, {frac: 0.46, gap: 0.5});
-            // chain in em units: word i runs along direction a_i, turning 90° at each joint (staircase: turns alternate)
+            // 以 em 串链：词 i 沿方向 a_i 走，拐角处转 90°（阶梯式，转向左右交替）
             const L = units.map(t => em(t, Pm.font, {track: 0.03}));
             const lastAdv = units.map(t => {
                 const ch = [...t.trim()].pop() || '字';
@@ -350,10 +345,10 @@
                     ey: sy0 + d[1] * L[i]
                 });
             }
-            // camera per word: rotate so that the word reads level, centre it, zoom to fit
+            // 每个词一台机位：转正、居中、缩放到放得下
             const zW = i => Math.min(W * 0.76 / L[i], H * 0.3, W * 0.42);
             const cams = ch.map((g, i) => ({r: -g.a, x: g.cx, y: g.cy, z: zW(i)}));
-            // overview: everything at once, first word level
+            // 全景机位：一眼看全，第一个词保持水平
             let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
             ch.forEach((g, i) => {
                 const hw = L[i] / 2, hh = 0.55, v = Math.abs(g.a % 180) > 45;
@@ -405,7 +400,7 @@
                     alpha: i === 0 ? 1 : clamp(q * 4)
                 };
                 bb = UB(bb, J.mainDraw(env, it));
-                // joint marks: a small accent square where the line turns
+                // 拐角标记：转折处放一小块 accent 方点
                 if (Pm.joint && i > 0) {
                     const pg = ch[i - 1], pd = rotV(1, 0, pg.a);
                     const jx = pg.ex + pd[0] * 0.35, jy = pg.ey + pd[1] * 0.35;
@@ -426,7 +421,6 @@
         },
     }, P);
 
-    /* ================================================================== 3 knSwapCenter — 入れ替わり */
     reg('knSwapCenter', {
         name: '入れ替わり', tags: ['pop', 'graphic', 'glitch'], w: 1, ae: 'slotMachine', fits: n => n >= 2 && n <= 18,
         enterBias: {cut: 3, pop: 0.7, blur: 0.8, slice: 0.3, wipe: 0.3},
@@ -500,7 +494,7 @@
                 }
                 return bb;
             }
-            // resolve: every word flies to its place in the full line
+            // 收束：每个词飞回整行里的位置
             for (let i = 0; i < n; i++) {
                 const last = i === n - 1, q = E.outExpo(clamp((lt - tR - (last ? 0 : 0.05 + i * 0.035)) / 0.42));
                 const p = F.pos[i], size = last ? lerp(big[i], F.size, q) : F.size * lerp(0.3, 1, q);
@@ -521,7 +515,6 @@
         },
     }, P);
 
-    /* ================================================================== 4 knZoomDive — 文字へ潜る */
     reg('knZoomDive', {
         name: '文字へ潜る',
         tags: ['pop', 'emotional', 'graphic'],
@@ -539,7 +532,7 @@
             const k = curIdx(ts, lt);
             if (k < 0) return null;
             const size = i => Math.min(J.fitSize(units[i], Pm.font, W * 0.78, H * 0.4, {track: 0.02}), H * 0.34, W * 0.6);
-            // focus glyph: the first kanji (else the middle glyph), as an offset from the word centre in em
+            // 焦点字：第一个汉字（没有就取中间字），em 单位、相对词中心
             const focus = i => {
                 const lay = J.layoutText({text: units[i], font: Pm.font, size: 1, track: 0.02});
                 const gs = lay.filter(g => g.ch.trim());
@@ -549,7 +542,7 @@
             const cx = W / 2, cy = H / 2, accC = accOn(sc);
             let bb = null;
             const T = 0.42;
-            // the previous word blows up around its focus glyph: the camera dives through the letter
+            // 上一个词绕焦点字放大，镜头从这个字里穿过去
             if (k > 0) {
                 const e = clamp((lt - ts[k]) / T);
                 if (e < 1) {
@@ -586,7 +579,7 @@
                 };
                 bb = J.mainDraw(env, it);
             }
-            // the whole line as a caption once the last word has settled
+            // 最后一个词落定后，整句缩成底部小字幕
             if (Pm.cap && n > 1 && k === n - 1 && bb) {
                 const a = E.outCubic(clamp((lt - ts[k] - 0.55) / 0.35)) * tout(env);
                 if (a > 0.01) {
@@ -612,7 +605,6 @@
         },
     }, P);
 
-    /* ================================================================== 5 knFlowSnap — 流れて整列 */
     reg('knFlowSnap', {
         name: '流れて整列',
         tags: ['graphic', 'pop', 'editorial'],
@@ -632,7 +624,7 @@
         render(env) {
             const {W, H, sc} = env, c = env.cut, Pm = c.params, lt = env.lt, u = U(env), port = isPort(env);
             const lat = hasLatin(c.text), t0 = flat(c.text), chars = [...t0], n = chars.length;
-            // final arrangement: a glyph grid (Japanese) or balanced lines (latin)
+            // 终态排版：日文方格阵，拉丁文均衡分行
             let ft, trk;
             if (lat) {
                 ft = J.splitLines(t0, port ? 10 : 18);
@@ -658,7 +650,7 @@
             });
             const mm = {w: lay.W, h: lay.H}, ox = W / 2 - (lat ? 0 : mm.w / 2), oy = H / 2;
             const gl = lay.filter(g => g.ch !== '\n');
-            // snap time: about 40% into the cut
+            // 吸附时刻：约在镜内 40% 处
             const tS = clamp(c.dur * 0.42, 0.45, 1.5);
             const advs = gl.map((g, i) => J.metrics.adv(Pm.font, g.ch) * 1.08 + (i > 0 && g.li !== gl[i - 1].li ? 0.35 : 0)),
                 totA = advs.reduce((a, b) => a + b, 0);
@@ -667,7 +659,7 @@
                 offs[i] = (a + b / 2) * fs;
                 return a + b;
             }, 0);
-            // the train rushes in from the right edge, brakes towards the centre, then snaps
+            // 字列从右缘冲入，向中间减速，然后吸附到位
             const Xs = W / 2 - totA * fs / 2, X0 = W + fs * 0.8;
             const A = Math.min(H * Pm.amp, W * 0.16), lam = W * Pm.lam * (port ? 1.7 : 1);
             const flowAt = (i, t) => {
@@ -702,7 +694,7 @@
                 };
                 bb = UB(bb, J.mainDraw(env, it));
             });
-            // grid lines draw in with the snap
+            // 格线跟着吸附一起画出来
             const ge = E.outExpo(clamp((lt - tS - 0.08) / 0.5)) * out;
             if (ge > 0.01) {
                 const lw = Math.max(1, u * 0.0016);
@@ -729,7 +721,7 @@
                     });
                 }
             }
-            // the path the line flowed along, fading after the snap
+            // 字列流过的轨迹，吸附后淡出
             const pa = (1 - clamp((lt - tS) / 0.25)) * clamp(lt / 0.15) * 0.35;
             if (pa > 0.01) {
                 const pts = [];
@@ -740,7 +732,6 @@
         },
     }, P);
 
-    /* ================================================================== 6 knSeesaw — シーソー */
     reg('knSeesaw', {
         name: 'シーソー',
         tags: ['pop', 'graphic'],
@@ -768,7 +759,7 @@
             });
             const size = F.size, th = Math.max(4, size * 0.1), half = F.w / 2 + size * 0.6;
             const px = W / 2, py = H * (port ? 0.55 : 0.6);
-            // landing order: left to right, or from the middle outwards
+            // 落地顺序：从左到右，或从中间向两边
             const ord = units.map((_, i) => i);
             if (Pm.order === 'out') ord.sort((a, b) => Math.abs(F.pos[a].x) - Math.abs(F.pos[b].x));
             const ts0 = onsets(env, n, {frac: 0.45, gap: 0.4}), fall = 0.24;
@@ -778,7 +769,7 @@
             });
             const mass = units.map(t => gcount(t));
             const M = mass.reduce((a, b) => a + b, 0);
-            // plank angle: each landing pulls it towards the torque of what has landed; balanced when all are on
+            // 板子角度：每次落地往已落词的力矩方向压，全员落定后回平
             const targ = [0];
             let tq = 0;
             ord.forEach((i, r) => {
@@ -794,7 +785,7 @@
             const ang = th0;
             const e = E.outExpo(clamp(lt / 0.35)), out = tout(env);
             const plateC = sc.sub, accC = accOn(sc);
-            // fulcrum + plank
+            // 支点和跷板
             const fh = size * 0.62;
             if (Pm.fulc === 'tri') env.poly([[px, py + th / 2], [px - fh * 0.62 * e, py + th / 2 + fh * e], [px + fh * 0.62 * e, py + th / 2 + fh * e]], accC, out, false);
             else env.circle(px, py + th / 2 + fh * 0.45, fh * 0.45 * e, accC, null, 0, out, false);
@@ -841,7 +832,6 @@
         },
     }, P);
 
-    /* ================================================================== 7 knTypeSlam — タイプ→スラム */
     reg('knTypeSlam', {
         name: 'タイプ→スラム', tags: ['pop', 'graphic', 'editorial'], w: 1, ae: 'type', fits: n => n >= 2 && n <= 24,
         enterBias: {cut: 3, blur: 0.5, pop: 0.5, slice: 0.2, wipe: 0.3},
@@ -879,7 +869,7 @@
             const nG = [...t0].length;
             const tType = clamp(nG * 0.045, 0.25, Math.min(1.1, c.dur * 0.4)), tS = tType + 0.14;
             const x0 = W / 2 - tm.w / 2;
-            // typed line: revealed glyph by glyph (clip), cursor riding at the end
+            // 打字行：clip 逐字露出，光标跟在末尾
             const k = Math.floor(clamp(lt / tType) * nG + 1e-6);
             const pre = [...t0].slice(0, k).join('');
             const wk = k >= nG ? tm.w + ts : J.measure({
@@ -907,7 +897,7 @@
             if (k < nG || env.step % 2 === 0) {
                 if (lt < tS + 0.6) env.rect(x0 + wk + ts * 0.1, ty - ts * 0.5, ts * 0.55, ts, accC, out, false);
             }
-            // key word slams in
+            // 关键词砸进来
             if (lt >= tS) {
                 const q = clamp((lt - tS) / 0.16), f = 1 - E.inQuad(q);
                 const land = lt - tS - 0.16;
@@ -936,7 +926,7 @@
                         env.line([[W / 2 + Math.cos(an) * r0 * sx, ky + Math.sin(an) * r0 * syy], [W / 2 + Math.cos(an) * r1 * sx, ky + Math.sin(an) * r1 * syy]], accC, lw, a * out, false);
                     }
                 }
-                // mark the key word inside the typed line
+                // 在打字行里给关键词下划线
                 const idx = t0.indexOf(key.trim());
                 if (idx >= 0 && land > 0) {
                     const a0 = J.measure({
@@ -954,7 +944,6 @@
         },
     }, P);
 
-    /* ================================================================== 8 knRhythmCuts — 語のカット割り */
     const SHOTS = ['huge', 'vert', 'small', 'crop', 'band', 'tilt'];
     reg('knRhythmCuts', {
         name: '語のカット割り', tags: ['pop', 'graphic', 'glitch'], w: 0.9, ae: 'panels', fits: n => n >= 2 && n <= 18,
@@ -1037,7 +1026,7 @@
                 it.size *= punch;
                 return J.mainDraw(env, it);
             }
-            // final shot: the whole line, clean
+            // 收尾镜头：整行干净排版
             const F = flowUnits(units, Pm.fontB, W * 0.84, H * (port ? 0.42 : 0.34), {maxSize: H * 0.16, track: 0.04});
             const left = Pm.fin === 'left', ox = left ? W * 0.08 + F.w / 2 : W / 2;
             const dt = lt - tF, punch = 1 + 0.06 * Math.exp(-dt * 14);
@@ -1063,7 +1052,6 @@
         },
     }, P);
 
-    /* ================================================================== 9 knPathRide — ループ軌道 */
     const pathCache = new Map();
 
     function loopPath(W, H, xT, yL, R, side) {
@@ -1072,7 +1060,7 @@
         if (P0) return P0;
         const pts = [[-W * 0.9, yL], [xT, yL]];
         const N = 72;
-        // a full loop tangent to the line at (xT, yL): up and back over the top (side 1) or under it (side -1)
+        // 在 (xT, yL) 与直线相切的一整圈：side 1 从上方绕回，side -1 从下方
         for (let i = 1; i <= N; i++) {
             const a = i / N * TAU;
             pts.push([xT + Math.sin(a) * R, yL - side * (1 - Math.cos(a)) * R]);
@@ -1129,7 +1117,7 @@
             let sHead = lerp(sStart, sEnd, 1 - Math.pow(1 - q, 2.6));
             sHead += E.inCubic(env.pOut) * W * 1.3;
             const out = tout(env), accC = accOn(sc);
-            // the rail
+            // 轨道
             const ra = E.outCubic(clamp(lt / 0.3)) * out * (1 - 0.6 * J.smooth(T, T + 0.5, lt));
             if (ra > 0.01) {
                 const lw = Math.max(1.2, u * 0.0022), pts = P0.pts.filter(p => p[0] > -W * 0.1 && p[0] < W * 1.1);
@@ -1164,7 +1152,6 @@
         },
     }, P);
 
-    /* ================================================================== 10 knGearWords — 歯車 */
     reg('knGearWords', {
         name: '歯車', tags: ['pop', 'graphic'], w: 0.7, ae: 'circleWords', treat: 'safe', fits: n => n >= 2 && n <= 16,
         enterBias: {cut: 3, pop: 0.5, blur: 0.4, slice: 0.1, wipe: 0.1},
@@ -1187,7 +1174,7 @@
             });
             const med = rs0.slice().sort((a, b) => a - b)[Math.floor(n / 2)];
             const rs = rs0.map(r => clamp(r, med * 0.75, med * 1.3)), tk = rs0.map((r, i) => Math.min(1, rs[i] / r));
-            // gears touch along a row (landscape) or a zigzag column (portrait)
+            // 齿轮横排相切（横屏）或竖向之字形（竖屏）
             const gap = 0.1;
             let tot = rs.reduce((a, b) => a + b * 2, 0) + gap * (n - 1);
             const mr = Math.max(...rs);
@@ -1204,7 +1191,7 @@
             let bb = null;
             for (let i = 0; i < n; i++) {
                 if (lt < ts[i]) continue;
-                // every arrival turns the whole train one full turn (neighbours counter-rotate, the new gear rolls in)
+                // 每来一个词整列车转一整圈（相邻反转，新齿轮滚入）
                 let ang = 0;
                 for (let j = i; j < n; j++) {
                     if (lt >= ts[j]) ang += 360 * (1 - E.inOutCubic(clamp((lt - ts[j]) / 0.62))) * (j === i ? 1 : rs[j] / rs[i] * 0.35);
@@ -1245,7 +1232,6 @@
         },
     }, P);
 
-    /* ================================================================== 11 knCollide — 正面衝突 */
     reg('knCollide', {
         name: '正面衝突', tags: ['pop', 'graphic', 'glitch'], w: 0.9, ae: 'splitHalves', fits: n => n >= 2 && n <= 16,
         enterBias: {cut: 3.5, pop: 0.3, blur: 0.4, slice: 0.2, wipe: 0.2},
@@ -1260,7 +1246,7 @@
         render(env) {
             const {W, H, sc} = env, c = env.cut, Pm = c.params, lt = env.lt, u = U(env), port = isPort(env);
             const all = unitsOf(c, 8, 2), lat = hasLatin(c.text);
-            // two halves by glyph count
+            // 按字数切成两半
             let best = 1, bd = 1e9, tot = all.reduce((a, t) => a + gcount(t), 0), acc = 0;
             for (let i = 1; i < all.length; i++) {
                 acc += gcount(all[i - 1]);
@@ -1288,7 +1274,7 @@
                 pb = [W / 2, H / 2 + size * 0.62];
                 axis = 1;
             }
-            // each half starts just outside the frame and accelerates into the other
+            // 两半从画框外起步，加速对撞
             const D = axis ? Math.max(pa[1], H - pb[1]) + size * 0.7 : Math.max(pa[0] + em(A, Pm.font, {track: 0.02}) * size / 2, W - pb[0] + em(B, Pm.font, {track: 0.02}) * size / 2) + size * 0.2;
             let offA, sqA = 1;
             if (d < 0) {
@@ -1316,7 +1302,7 @@
             };
             let bb = mk(A, pa, 1, Pm.acc === 'A' ? accC : sc.fg);
             bb = UB(bb, mk(B, pb, -1, Pm.acc === 'B' ? accC : sc.fg));
-            // speed lines behind both halves while they fly; sparks at the contact point
+            // 飞行时身后拖速度线，接触点迸火花
             const lw = Math.max(1.5, u * 0.0028);
             if (d < 0 && lt > 0.02) {
                 const q = clamp(lt / tC), a = 0.7 * q * out;
@@ -1348,7 +1334,6 @@
         },
     }, P);
 
-    /* ================================================================== 12 knTumble — 箱転がし */
     reg('knTumble', {
         name: '箱転がし', tags: ['pop', 'graphic'], w: 0.8, ae: 'dominoes', fits: n => n >= 2 && n <= 16,
         enterBias: {cut: 3.5, pop: 0.3, blur: 0.4, slice: 0.1, wipe: 0.1},
@@ -1383,7 +1368,7 @@
                     env.line([[x1 - (x1 - x0) * e, base + lw], [x1, base + lw]], sc.sub, lw, 0.8, false);
                 }
                 if (lt < ts[i]) continue;
-                // rolls in from the right over its bottom-left edge: quarter turns, footprint alternating w / h
+                // 从右侧绕左下角滚入：四分之一圈一步，落点宽高交替
                 const m = Math.min(3, Math.max(1, Math.ceil((W - xF) / (2 * (w + h))))), steps = 4 * m;
                 const Tm = T * (0.7 + 0.3 * m), q = clamp((lt - ts[i]) / Tm) * steps,
                     j = Math.min(steps - 1, Math.floor(q)), f = q >= steps ? 1 : q - j;
@@ -1425,7 +1410,6 @@
         },
     }, P);
 
-    /* ================================================================== 13 knReflow — 縦から横へ */
     reg('knReflow', {
         name: '縦から横へ',
         tags: ['editorial', 'graphic', 'emotional'],
@@ -1479,7 +1463,7 @@
                 const q = E.inOutCubic(clamp((lt - tR - i * Math.min(0.05, 0.5 / m)) / 0.5));
                 const ax = W / 2 + a.x + a.vx, ay = H / 2 + a.y + a.vy, bx = W / 2 + b.x + b.vx,
                     by = H / 2 + b.y + b.vy;
-                // along an arc that bulges sideways: the glyphs swirl from one setting to the other
+                // 沿一条侧向鼓起的弧线：字形打着旋从竖排换到横排
                 const mx = (ax + bx) / 2, my = (ay + by) / 2, dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1,
                     k = Pm.swirl * 0.35 * (i % 2 ? 1 : 0.6);
                 const cx = mx - dy / L * L * k, cy = my + dx / L * L * k;
@@ -1502,7 +1486,6 @@
         },
     }, P);
 
-    /* ================================================================== 14 knPadGrid — パッド */
     reg('knPadGrid', {
         name: 'パッド', tags: ['pop', 'graphic', 'glitch'], w: 0.8, ae: 'gridCells', fits: n => n >= 2 && n <= 18,
         enterBias: {cut: 3, pop: 0.8, blur: 0.4, slice: 0.2, wipe: 0.2},
@@ -1535,7 +1518,7 @@
                 const ix = x + cw / 2 * (1 - e), iy = y + chh / 2 * (1 - e);
                 env.rrect(ix, iy, cw * e, chh * e, Pm.round ? chh * 0.12 : 0, null, 1, false, sc.sub, lw);
                 if (i >= n || lt < ts[i]) continue;
-                // hit: the pad flashes full, then decays to a faint glow; beats re-trigger one pad at a time
+                // 命中：格子全亮再衰减成微光；节拍每次只重触发一格
                 let fl = Math.exp(-(lt - ts[i]) * 6);
                 if (Pm.beat && env.beat && lt > ts[n - 1] + 0.4 && env.beat.index % n === i) fl = Math.max(fl, 0.55 * Math.exp(-env.beat.since * 7));
                 const pf = 0.1 + 0.9 * fl;

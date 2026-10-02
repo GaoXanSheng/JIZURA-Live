@@ -1,6 +1,3 @@
-/* ============================================================
-   JIZURA — audio: decode, energy envelope, onset, BPM & beat grid
-   ============================================================ */
 (() => {
     'use strict';
 
@@ -39,7 +36,7 @@
             energy[f] = Math.sqrt(e / hop);
             flux[f] = Math.sqrt(eh / hop);
         }
-        // onset strength: positive change of log high-passed energy vs local mean
+        // onset 强度：高通能量取 log 后相对局部均值的正增量
         const onset = new Float32Array(n);
         for (let f = 1; f < n; f++) {
             const cur = Math.log(1e-4 + flux[f]);
@@ -50,7 +47,7 @@
             }
             onset[f] = Math.max(0, cur - m / Math.max(1, k));
         }
-        // tempo via autocorrelation (70..180 BPM)
+        // 自相关估节奏，搜索范围 70..180 BPM
         const minLag = Math.round(rate * 60 / 180), maxLag = Math.round(rate * 60 / 70);
         let best = 0, bestLag = Math.round(rate * 0.5);
         const scores = [];
@@ -73,7 +70,7 @@
             if (d !== 0) lagF = bestLag + 0.5 * (a - c) / d;
         }
         const period = lagF / rate;
-        // phase
+        // 相位：在周期内找节拍网格的最佳起点
         let bestPh = 0, bestPS = -1;
         for (let ph = 0; ph < lagF; ph += 0.5) {
             let s = 0;
@@ -85,12 +82,12 @@
         }
         const beats = [];
         for (let t = bestPh / rate; t < audioBuffer.duration; t += period) beats.push(+t.toFixed(4));
-        // normalised energy (0..1, 95th percentile)
+        // 能量归一化 0..1，用 95 分位当上限
         const sorted = Array.from(energy).sort((a, b) => a - b);
         const p95 = sorted[Math.floor(sorted.length * 0.95)] || 1;
         const energyN = new Float32Array(n);
         for (let f = 0; f < n; f++) energyN[f] = Math.min(1, energy[f] / p95);
-        // waveform peaks for the timeline
+        // 时间轴用的波形峰值
         const bins = 1600, peaks = new Float32Array(bins), per = Math.max(1, Math.floor(len / bins));
         for (let b = 0; b < bins; b++) {
             let m = 0;
@@ -100,8 +97,8 @@
             }
             peaks[b] = m;
         }
-        // pitch (F0) per frame — same algorithm as the C# analyzer (AudioAnalyzer.EstimatePitch): NCCF 70..1000 Hz,
-        // window decimated to ~11 kHz so the per-frame cost stays flat at any sample rate; silent frames stay 0
+        // 逐帧 F0，与 C# 端 AudioAnalyzer.EstimatePitch 同一套算法：NCCF，70..1000 Hz
+        // 窗口抽稀到 ~11 kHz，任意采样率下单帧开销恒定；静音帧保持 0
         const pitch = new Float32Array(n);
         {
             const stride = Math.max(1, Math.round(sr / 11025));
@@ -143,7 +140,7 @@
                         }
                     }
                     if (bestLag < 0 || bestC < 0.45) continue;
-                    let chosen = bestLag;                                 // 倍频抑制: an octave-higher peak ≥88% wins
+                    let chosen = bestLag;                                 // 倍频抑制：高八度峰 ≥88% 就选它
                     const thresh = bestC * 0.88;
                     for (let lag = minLag + 1; lag < bestLag; lag++) if (cc[lag] >= thresh && cc[lag] >= cc[lag - 1] && cc[lag] >= cc[lag + 1]) {
                         chosen = lag;
@@ -178,8 +175,8 @@
         };
     };
 
-    /* 16-bit PCM WAV of an AudioBuffer, cut / padded to `duration` seconds (the soundtrack next to an MP4 whose
-       audio track some players cannot play, or when the browser has no audio encoder) */
+    // AudioBuffer 转 16-bit PCM WAV，按 duration 秒裁剪/补零
+    // 给 MP4 音轨放不出来的播放器配音轨用，或浏览器没有音频编码器时兜底
     J.audioWav = (buffer, duration, offset = 0) => {
         const sr = buffer.sampleRate, chn = Math.min(2, buffer.numberOfChannels);
         const n = Math.max(1, Math.round((duration > 0 ? duration : buffer.duration) * sr));
@@ -212,7 +209,7 @@
         return new Blob([ab], {type: 'audio/wav'});
     };
 
-    /* the last song, kept in this browser (IndexedDB) so a reload does not silently drop the audio from exports */
+    // 上一首歌存在浏览器 IndexedDB 里，刷新后导出不会悄悄丢掉音频
     const IDB = {db: null};
     IDB.open = () => IDB.db || (IDB.db = new Promise((res, rej) => {
         if (typeof indexedDB === 'undefined') return rej(new Error('no IndexedDB'));
@@ -295,7 +292,7 @@
         }
     };
 
-    /* rebuild a beat grid from a user BPM + first-beat offset */
+    // 按用户 BPM + 首拍偏移重建节拍网格
     J.beatGrid = (bpm, offset, duration) => {
         const out = [];
         if (!(bpm > 0)) return out;

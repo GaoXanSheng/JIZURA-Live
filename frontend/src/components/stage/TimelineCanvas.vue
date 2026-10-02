@@ -1,9 +1,8 @@
 <script lang="ts" setup>
-/* 时间轴（原 12_ui.js timeline 体系）：三块独立 canvas，各画各的、各自可单独探查——
-   上条 = 视图滑动条（缩放后左右平移可视窗口）
-   中条 = 播放头条（拖动定位，自由、不吸附）
-   下条 = 时间轴本体（波形 + 节拍 + 切分块 + 行界拖动手柄 + 缩放范围）
-   此前三块塞在同一个 canvas 的三条横带里，调试时要靠像素坐标去抠横带，问题不好定位。 */
+// 三块独立 canvas，各画各的、可以单独探查：
+// 上条视图滑动（缩放后平移可视窗口），中条播放头（自由定位、不吸附），
+// 下条是时间轴本体（波形/节拍/切分块/行界拖动手柄/缩放范围）。
+// 早先三块挤在同一个 canvas 的三条横带里，调试得靠像素坐标去抠横带。
 import {onMounted, onUnmounted, ref} from 'vue';
 import {J} from '../../engine';
 import {activeLoopRange, S} from '../../jizura/state';
@@ -20,8 +19,8 @@ const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
 type Hover = number;
 const TL: { z: number; off: number; hover: Hover; drag: number } = {z: 1, off: 0, hover: -1, drag: -1};
 
-/* 尺寸缓存：tlFrame 每帧 ×3 块 canvas 读 clientWidth/Height 会强制重排
-   （CPU 剖面里 get clientWidth 774ms）。CSS 尺寸只在 resize 时会变，读一次缓存之 */
+// 尺寸缓存：tlFrame 每帧 ×3 块 canvas 读 clientWidth/Height 会强制重排
+// （CPU 剖面里 get clientWidth 占 774ms）。CSS 尺寸只在 resize 时变，读一次缓存
 let dimsDirty = true;
 const dimCache = new WeakMap<HTMLCanvasElement, { w: number; h: number; dpr: number }>();
 
@@ -56,7 +55,7 @@ function tlZoom(f: number, tc?: number) {
   drawTimeline();
 }
 
-/* 放大播放时，播放头离开可视区就重绘（视图跟随） */
+// 放大播放时播放头出可视区就重绘，视图跟着走
 function followTlPlayhead() {
   if (!(TL.z > 1) || TL.drag >= 0) return;
   const {vd, off} = tlView();
@@ -72,7 +71,6 @@ function timelineSeek(ev: { clientX: number }) {
   seek(tlTimeOf(ev, phCanvas.value!.getBoundingClientRect()));
 }
 
-/* ---- 上条：视图滑动条 ---- */
 function drawPanBar() {
   const c = panCanvas.value;
   if (!c || !S.plan) return;
@@ -97,11 +95,11 @@ let panDrag = false, panLastX = 0;
 function onPanDown(e: PointerEvent) {
   try {
     panCanvas.value!.setPointerCapture(e.pointerId);
-  } catch { /* 合成事件/无效指针：不影响后续逻辑 */
+  } catch { // 合成事件/无效指针，不影响后续
   }
   panDrag = true;
   panLastX = e.clientX;
-  // 音量条语义：点哪，视窗块中心就瞬移到哪，随后块跟手 1:1 拖动
+  // 音量条语义：点哪，视窗块中心瞬移到哪，之后块跟手 1:1 拖
   const r = panCanvas.value!.getBoundingClientRect();
   const frac = J.clamp((e.clientX - r.left) / r.width, 0, 1);
   const {D, vd} = tlView();
@@ -114,7 +112,7 @@ function onPanDown(e: PointerEvent) {
 function onPanMove(e: PointerEvent) {
   if (!panDrag) return;
   const r = panCanvas.value!.getBoundingClientRect(), {D} = tlView();
-  // 滚动条语义：握住视窗块直接拖，块跟手 1:1（拖内容语义是 off -= dx，块会反向移动）
+  // 滚动条语义：握住视窗块直接拖，块跟手 1:1。拖内容语义是 off -= dx，块会反向走
   TL.off += (e.clientX - panLastX) / r.width * D;
   panLastX = e.clientX;
   tlView();
@@ -136,7 +134,6 @@ function onPanWheel(e: WheelEvent) {
   } else tlZoom(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)));
 }
 
-/* ---- 中条：播放头条 ---- */
 function drawPhBar() {
   const c = phCanvas.value;
   if (!c || !S.plan) return;
@@ -165,7 +162,7 @@ let phDrag = false;
 function onPhDown(e: PointerEvent) {
   try {
     phCanvas.value!.setPointerCapture(e.pointerId);
-  } catch { /* 合成事件/无效指针：不影响后续逻辑 */
+  } catch { // 合成事件/无效指针，不影响后续
   }
   phDrag = true;
   beginScrub();   // 拖动中音频静默跟随，松手恢复
@@ -181,9 +178,8 @@ function onPhUp() {
   endScrub();
 }
 
-/* ---- 下条：时间轴本体 ---- */
-/* 静态层缓存：波形/节拍/切分/行界很少变。播放中每帧只需叠加播放头线；
-   视图或内容一变（缩放/平移/拖动/replan/导出范围/循环模式/换音频）整幅重建。 */
+// 静态层缓存：波形/节拍/切分/行界很少变，播放中每帧只叠播放头线；
+// 视图或内容一变（缩放/平移/拖动/replan/导出范围/循环模式/换音频）就整幅重建
 let tlStatic: HTMLCanvasElement | null = null;
 let tlStaticKey = '';
 
@@ -330,7 +326,7 @@ function drawStatic(x: CanvasRenderingContext2D, w: number, h: number, dpr: numb
   }
 }
 
-/* 指针下的行界手柄（切分块上带 ±7px） */
+// 指针下的行界手柄
 function tlHandleAt(ev: { clientX: number; clientY: number }) {
   const c = canvas.value!, r = c.getBoundingClientRect(), {vd, off} = tlView();
   if (ev.clientY - r.top > r.height * 0.4) return -1;
@@ -372,14 +368,13 @@ function tlDragTo(i: number, ev: { clientX: number; shiftKey: boolean }) {
   seek(t + 0.001);
 }
 
-/* ---- 指针交互（下条本体） ---- */
 let scrubDrag = false, dragRaf = 0;
 
 function onDown(e: PointerEvent) {
   const c = canvas.value!;
   try {
     c.setPointerCapture(e.pointerId);
-  } catch { /* 合成事件/无效指针：不影响后续逻辑 */
+  } catch { // 合成事件/无效指针，不影响后续
   }
   if (!(S.tap || S.exporting)) {
     const h = tlHandleAt(e);

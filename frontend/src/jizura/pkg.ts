@@ -1,11 +1,12 @@
-/* 字面 Live 专用工程包（.jizuralive / JZLV 容器）：保存时歌曲、歌词（整个工程）一并带走，
-   读取不再兼容老格式——老的 .json 只保留「打开」作样式配置导入。
-   布局（全小端）与 C# 解析器 src/Server/JizuraPackage.cs 逐字节对齐，改动必须两边同步：
-     "JZLV" | u16 version | u16 entryCount | u32 reserved
-     × entryCount: u8 nameLen | name(UTF-8) | u8 codec(0=raw,1=brotli,2=gzip) | u64 rawSize | u64 packSize | u64 offset
-     之后是各条目的负载连续排列。
-   压缩策略即压缩率策略：mp3/flac/woff2 本体已是压缩格式，裸存不白费 CPU；
-   project.json（歌词/时间/覆盖/配置）走 brotli，浏览器不支持时回退 gzip。 */
+// 字面 Live 工程包（.jizuralive / JZLV 容器）：保存时歌曲、歌词（整个工程）一并带走。
+// 不再兼容老格式，老的 .json 只留「打开」当样式配置导入。
+// 布局全小端，与 C# 解析器 src/Server/JizuraPackage.cs 逐字节对齐，改动必须两边同步：
+//   "JZLV" | u16 version | u16 entryCount | u32 reserved
+//   × entryCount: u8 nameLen | name(UTF-8) | u8 codec(0=raw,1=brotli,2=gzip)
+//     | u64 rawSize | u64 packSize | u64 offset
+//   之后是各条目负载连续排列。
+// 压缩策略即压缩率策略：mp3/flac/woff2 本体已是压缩格式，裸存不白费 CPU；
+// project.json（歌词/时间/覆盖/配置）走 brotli，浏览器不支持时回退 gzip。
 import {J} from '../engine';
 import {S} from './state';
 
@@ -59,7 +60,7 @@ async function encodeEntry(data: Uint8Array): Promise<{ codec: 0 | 1 | 2; bytes:
     if (brotliOk()) {
         try {
             return {codec: 1, bytes: await pipeFmt(data, 'br', 'c')};
-        } catch { /* 回退 gzip */
+        } catch { // 回退 gzip
         }
     }
     return {codec: 2, bytes: await pipeFmt(data, 'gzip', 'c')};
@@ -83,7 +84,7 @@ export function buildPackage(entries: PkgEntryInput[]): Promise<Uint8Array> {
         }
         let payload = 0;
         for (const e of encoded) payload += e.bytes.length;
-        /* 条目头 = nameLen(1) + name + codec(1) + rawSize(8) + packSize(8) + offset(8) = nameLen + 26 */
+        // 条目头 = nameLen(1) + name + codec(1) + rawSize(8) + packSize(8) + offset(8) = nameLen + 26
         const headerLen = 16 + encoded.reduce((n, e) => n + 2 + e.name.length + 24, 0);
         const out = new Uint8Array(headerLen + payload);
         out.set(head);
@@ -143,7 +144,7 @@ export async function readPackage(bytes: Uint8Array): Promise<PkgEntry[]> {
 
 export const entryText = (e: PkgEntry) => new TextDecoder().decode(e.data);
 
-/* 打包当前工程：project.json（全部字段：歌词/逐字时间/覆盖/配置）+ 歌曲（原始编码字节）+ 上传字体 */
+// 打包当前工程：project.json（全部字段：歌词/逐字时间/覆盖/配置）+ 歌曲（原始编码字节）+ 上传字体
 export async function buildProjectPackage(appVersion: string): Promise<Blob> {
     const project = JSON.stringify(Object.assign({}, S.project, {app: 'jizura-live', appVersion}));
     const entries: PkgEntryInput[] = [{name: PROJECT_ENTRY, data: new TextEncoder().encode(project)}];
@@ -151,7 +152,7 @@ export async function buildProjectPackage(appVersion: string): Promise<Blob> {
         try {
             const song = await J.loadSong();
             if (song) entries.push({name: AUDIO_ENTRY_PREFIX + 'bin', data: new Uint8Array(await song.arrayBuffer())});
-        } catch { /* 歌曲取不到就先不带 */
+        } catch { // 歌曲取不到就先不带
         }
     }
     if (J.loadFontData) {
@@ -160,7 +161,7 @@ export async function buildProjectPackage(appVersion: string): Promise<Blob> {
             try {
                 const buf = await J.loadFontData(key);
                 if (buf) entries.push({name: FONT_ENTRY_PREFIX + key, data: new Uint8Array(buf)});
-            } catch { /* 单个字体缺失不阻断 */
+            } catch { // 单个字体缺失不阻断
             }
         }
     }
