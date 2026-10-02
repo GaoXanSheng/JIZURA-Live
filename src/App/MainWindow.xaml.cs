@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
 using CefSharp;
+using JizuraLive.Server;
 
 namespace JizuraLive;
 
@@ -32,6 +33,9 @@ public partial class MainWindow : Window
         Browser.LoadError += (_, e) =>
             Log.Error($"Browser LoadError: {e.ErrorCode}, {e.ErrorText}, URL: {e.FailedUrl}");
 
+        // MCP 端点（/mcp）经此桥把 JSON-RPC 派发进页面执行
+        McpBridge.EvaluateAsync = EvaluateMcpAsync;
+
         Loaded += (_, _) =>
         {
             if (_clean)
@@ -43,6 +47,7 @@ public partial class MainWindow : Window
 
         Closed += (_, _) =>
         {
+            McpBridge.EvaluateAsync = null;
             SpoutPipeline.Instance.Stop();
             _lyricsPipeline.Stop();
         };
@@ -314,6 +319,31 @@ public partial class MainWindow : Window
         {
             Log.Warn("ForceSyncResend 失败：" + ex.Message);
         }
+    }
+
+    // ====================================================================
+    // MCP 桥：HTTP 端点 -> 页面内 window.J.mcp.rpc
+    // ====================================================================
+
+    /// <summary>
+    ///     在页面里执行脚本并取回 JSON.stringify 的结果字符串（null = 通知）。
+    ///     McpModule 在 HTTP 线程调用，这里先切到 UI 线程再交给 CEF。
+    /// </summary>
+    private Task<string?> EvaluateMcpAsync(string script)
+    {
+        return Dispatcher.InvokeAsync(() => EvaluateMcpOnUiAsync(script)).Task.Unwrap();
+    }
+
+    private async Task<string?> EvaluateMcpOnUiAsync(string script)
+    {
+        if (!Browser.IsBrowserInitialized || !Browser.CanExecuteJavascriptInMainFrame)
+            throw new InvalidOperationException("页面尚未加载完成");
+
+        var response = await Browser.EvaluateScriptAsync(script, TimeSpan.FromSeconds(60));
+        if (!response.Success)
+            throw new InvalidOperationException(response.Message);
+
+        return response.Result as string;
     }
 
     // ====================================================================

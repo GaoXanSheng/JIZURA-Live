@@ -21,9 +21,20 @@ internal sealed class ApiGuardModule : WebModuleBase
 
     protected override Task<bool> OnRequestAsync(IHttpContext context)
     {
+        var detail = CrossSiteDetail(context);
+        return detail == null ? Task.FromResult(false) : Reject(context, detail);
+    }
+
+    /// <summary>
+    ///     跨站判定：返回拒绝原因，本站/非浏览器请求返回 null。
+    ///     /api 与 /mcp 共用——服务只绑 127.0.0.1，但受害者浏览器里任何网页
+    ///     都能向本机端口发跨站请求。
+    /// </summary>
+    internal static string? CrossSiteDetail(IHttpContext context)
+    {
         var site = context.Request.Headers["Sec-Fetch-Site"];
         if (string.Equals(site, "cross-site", StringComparison.OrdinalIgnoreCase))
-            return Reject(context, "cross-site");
+            return "cross-site";
 
         var origin = context.Request.Headers["Origin"];
         if (!string.IsNullOrEmpty(origin) && Uri.TryCreate(origin, UriKind.Absolute, out var o))
@@ -34,10 +45,10 @@ internal sealed class ApiGuardModule : WebModuleBase
             // 回环变体放行：vite dev 代理转发时 Origin 指向 dev server（localhost:5173）
             var loopback = o.Host is "127.0.0.1" or "::1" or "localhost";
             if (!sameAuthority && !loopback)
-                return Reject(context, "origin=" + o.Authority);
+                return "origin=" + o.Authority;
         }
 
-        return Task.FromResult(false);
+        return null;
     }
 
     private static async Task<bool> Reject(IHttpContext context, string detail)
