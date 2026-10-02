@@ -81,7 +81,6 @@ public sealed class EmbeddedServer : IDisposable
         api.WithController<NeController>();
         api.WithController<AnalyzeController>();
         api.WithController<SettingsController>();
-        api.WithController<PerfController>();
         return api;
     }
 

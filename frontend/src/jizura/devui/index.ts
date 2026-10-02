@@ -1,13 +1,12 @@
 /* 渲染调试面板（DevTools 式）：Ctrl+Alt+D 呼出，任意页面可用。
-   折叠图标条：FPS / CDP 状态点；展开为完整面板
-   （帧与主线程、CDP 精确模式、元素标框）。
-   关闭时全部采集器停止，零常驻开销。 */
+   折叠图标条：FPS；展开为完整面板（帧与主线程）。
+   关闭时采集器停止，零常驻开销。
+   （曾有的元素标框/CDP 精确模式已移除——启发式标框噪音大，
+   CDP 需求直接用 RemoteDebuggingPort + chrome://inspect 或 /json 原生工具。） */
 
 import type {App} from 'vue';
 import {reactive, watch} from 'vue';
 import {startFrames, stopFrames} from './frames';
-import {setBoxerModes, stopBoxer} from './boxer';
-import {cdpSetWant, setPaintFlashing} from './cdp';
 
 const LS = 'jizura.devui';
 
@@ -29,26 +28,13 @@ function lsSet(k: string, v: string) {
 export const devUi = reactive({
     open: new URLSearchParams(window.location.search).get('devui') === '1' || lsGet(LS) === '1',
     expanded: lsGet(LS + '.expanded') === '1',
-    flash: lsGet(LS + '.flash') === '1',
-    hover: lsGet(LS + '.hover') === '1',
-    cdp: lsGet(LS + '.cdp') === '1',            // 是否维持 CDP 连接
-    paintFlash: lsGet(LS + '.paintflash') === '1',
 });
 
 let appRef: App | null = null;
 
 function applyCollectors() {
-    if (devUi.open) {
-        startFrames();
-        if (devUi.flash || devUi.hover) setBoxerModes(devUi.flash, devUi.hover);
-        else stopBoxer();
-        cdpSetWant(devUi.cdp);
-        if (devUi.cdp && devUi.paintFlash) setPaintFlashing(true);
-    } else {
-        stopFrames();
-        stopBoxer();
-        cdpSetWant(false);
-    }
+    if (devUi.open) startFrames();
+    else stopFrames();
 }
 
 export function toggleDevUi(v?: boolean) {
@@ -68,21 +54,5 @@ export function installDevUi(app: App) {
         }
     });
     if (devUi.open) applyCollectors();
-    watch(() => [devUi.flash, devUi.hover], () => {
-        lsSet(LS + '.flash', devUi.flash ? '1' : '');
-        lsSet(LS + '.hover', devUi.hover ? '1' : '');
-        if (devUi.open) {
-            if (devUi.flash || devUi.hover) setBoxerModes(devUi.flash, devUi.hover);
-            else stopBoxer();
-        }
-    });
-    watch(() => devUi.cdp, () => {
-        lsSet(LS + '.cdp', devUi.cdp ? '1' : '');
-        cdpSetWant(devUi.cdp);
-    });
-    watch(() => devUi.paintFlash, () => {
-        lsSet(LS + '.paintflash', devUi.paintFlash ? '1' : '');
-        setPaintFlashing(devUi.paintFlash);
-    });
     watch(() => devUi.expanded, () => lsSet(LS + '.expanded', devUi.expanded ? '1' : ''));
 }

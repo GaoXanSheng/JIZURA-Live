@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         // 不设 DownloadHandler 时 CEF 会静默取消下载，按钮表现为无效
         Browser.Address = url;
         Browser.DownloadHandler = AppDownloadHandler.Instance;
+        Browser.MenuHandler = AppContextMenuHandler.Instance;
         Browser.FrameLoadEnd += OnBrowserFrameLoadEnd;
         Browser.JavascriptMessageReceived += OnJavascriptMessageReceived;
         Browser.LoadError += (_, e) =>
