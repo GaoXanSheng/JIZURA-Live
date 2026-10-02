@@ -93,8 +93,16 @@ onUnmounted(() => {
             输入的歌词与歌曲只在本地处理，不会上传到任何服务器。在线搜索功能经由本机服务代理访问音乐平台。</p>
           <details class="text-xs text-mut my-3.5">
             <summary class="cursor-pointer">使用的开源组件</summary>
-            <p class="mt-1.5">MP4 导出：mp4-muxer（MIT License）<br>字体：Google Fonts 发布的各字体（SIL Open Font License
-              1.1）<br>界面：Vue 3（MIT License）</p>
+            <p class="mt-1.5">
+              界面：Vue 3、Pinia、Vue Router、Tailwind CSS（MIT License）<br>
+              MP4 导出：mp4-muxer（MIT License）<br>
+              内嵌浏览器：CefSharp + Chromium Embedded Framework（BSD 3-Clause License）<br>
+              运行时：.NET 及官方扩展库（MIT License）<br>
+              本机服务与音频处理：EmbedIO / Unosquare Swan、NAudio、Newtonsoft.Json、QRCoder（MIT License）、log4net（Apache License
+              2.0）<br>
+              图形输出：SharpDX（MIT License）、Spout2 / SpoutDX（BSD 2-Clause License）<br>
+              字体：Google Fonts 发布的各字体（SIL Open Font License 1.1）
+            </p>
           </details>
           <div class="flex justify-between items-center gap-3 border-t border-line pt-3">
             <span class="font-mono text-xs text-mut">字面 Live 测试版</span>

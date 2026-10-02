@@ -169,7 +169,6 @@ function seek0() {
       <label class="btn-file" title="打开工程（.jizuralive 全量恢复；老 .json 仅作样式配置导入）">打开<input
           ref="fileProject" accept=".jizuralive,.json,application/json" type="file" @change="onOpenProject"></label>
       <button class="btn" title="保存为字面 Live 专用工程包（.jizuralive：含歌曲与歌词）" @click="onSave">保存</button>
-      <button class="btn" title="导出可供 After Effects 面板使用的构成数据" @click="onAE">导出到AE</button>
       <button class="btn btn-ghost" title="清空歌词、歌曲、设置和历史，回到初始状态" @click="onReset">初始化</button>
       <button class="btn btn-ghost" title="输出物的权利与许可证" @click="bus.emit('open-terms')">使用说明</button>
     </div>
