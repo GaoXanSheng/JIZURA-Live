@@ -638,7 +638,8 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
     /* ---------- transparent video (WebM, VP9/VP8 alpha side data via mediabunny) ---------- */
     /* frontOnly: lyrics + front decorations only, no HUD — the foreground layer for stacking over other footage.
        customDraw: (ctx, plan, t, opt) => void — replaces the standard frame render entirely
-       (subtitle-layer export draws only the 字幕渲染 overlay through it: no lyrics/decor/background).
+       (subtitle-layer export draws only the 字幕渲染 overlay through it: no lyrics/decor/background);
+       the canvas is cleared before each customDraw call, since overlay-style drawers don't clear themselves.
        No audio track: an overlay has nothing to carry. */
     J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly, customDraw}) => {
         const span = J.exportSpan(plan, range);
@@ -682,7 +683,14 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                     cancelled = true;
                     throw new Error('キャンセルしました');
                 }
-                if (customDraw) customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                if (customDraw) {
+                    // customDraw 是叠加型画法（如字幕）自身不清底：每帧先清空，否则残影越叠越多
+                    ctx.save();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    ctx.clearRect(0, 0, w, h);
+                    ctx.restore();
+                    customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                }
                 else R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: true, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
                 await source.add(i / fps, 1 / fps);   // await 即背压：编码器过载时挂起
                 if (i % 3 === 0) {
