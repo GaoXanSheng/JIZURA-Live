@@ -41,3 +41,5 @@ frontend/public/perf-fixtures/
 
 # 本地自托管字体（约 50MB，scripts/fetch-fonts.mjs 抓取；构建时随 public/ 打包）
 frontend/public/fonts/
+
+.agents/
