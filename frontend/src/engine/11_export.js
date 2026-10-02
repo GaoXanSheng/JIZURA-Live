@@ -117,7 +117,7 @@
                     codec: c.codec,
                     sampleRate: c.sr,
                     numberOfChannels: chn,
-                    bitrate: 192000
+                    bitrate: chn >= 6 ? 448000 : 192000
                 });
                 if (s.supported) return c;
             } catch (e) {
@@ -126,13 +126,114 @@
         return null;
     };
 
-    async function resample(buffer, sr, duration, offset = 0) {
+    /* ---------- 音频特效（预览与导出共用一套图） ----------
+       预览：AP 在实时 AudioContext 里按 project.audioFx 建图；
+       导出：resample 在 OfflineAudioContext 里用同一构建器离线渲染。
+       LFO 一律用 OscillatorNode 接 AudioParam（不用 rAF 推参数）：
+       离线渲染同样成立 ⇒ 导出完全确定，预览零每帧 JS 开销。
+       sanitize / 曲线采样 / 扬声器增益是纯函数，可脱离音频栈测试。 */
+    /* EQ 频段（Hz）：7 段 peaking，增益 -12..+12 dB */
+    J.AUDIO_EQ_BANDS = [60, 150, 400, 1000, 2400, 6000, 15000];
+
+    J.sanitizeAudioFx = (fx) => {
+        const PRESETS = ['none', 'pan', 'spatial', 'orbit', 'eq'];
+        const o = fx && typeof fx === 'object' ? fx : {};
+        const clamp = (v, a, b, d) => (typeof v === 'number' && isFinite(v)) ? Math.min(b, Math.max(a, v)) : d;
+        const eq = J.AUDIO_EQ_BANDS.map((hz, i) => {
+            const v = Array.isArray(o.eq) ? o.eq[i] : 0;
+            return clamp(v, -12, 12, 0);
+        });
+        return {
+            preset: PRESETS.includes(o.preset) ? o.preset : 'none',
+            rate: clamp(o.rate, 0.02, 2, 0.125),    // 摆动/旋转速度 Hz
+            depth: clamp(o.depth, 0, 1, 0.7),        // 强度 0..1
+            eq                                        // 各频段 dB 增益
+        };
+    };
+
+    /* 构建特效图（任意 BaseAudioContext：实时 AudioContext 或 OfflineAudioContext）。
+       返回 { input, output, channels } 或 null（preset=none）。 */
+    J.buildAudioFx = (ctx, cfg, opts = {}) => {
+        const fx = J.sanitizeAudioFx(cfg);
+        if (fx.preset === 'none') return null;
+        const input = ctx.createGain(), output = ctx.createGain();
+        const st = opts.anchorT || 0;
+        const deg = d => d * Math.PI / 180;
+
+        if (fx.preset === 'pan') {
+            /* 环绕音：立体声左右摆动 */
+            const panner = ctx.createStereoPanner();
+            const lfo = ctx.createOscillator();
+            lfo.frequency.value = fx.rate;
+            const amt = ctx.createGain();
+            amt.gain.value = fx.depth;
+            lfo.connect(amt).connect(panner.pan);
+            input.connect(panner).connect(output);
+            lfo.start(st);
+        } else if (fx.preset === 'spatial') {
+            /* 3D 丽音：左右声道各自 HRTF 定位（∓40°）做空间展宽。
+               两个 panner 的立体声输出直接汇入 output——节点相加按声道对齐，
+               不能过 ChannelMerger（每路会被下混成单声道，抹掉双耳线索） */
+            const splitter = ctx.createChannelSplitter(2);
+            input.connect(splitter);
+            const r = 1.5 + fx.depth;
+            [[0, -40], [1, 40]].forEach(([ch, az]) => {
+                const p = ctx.createPanner();
+                p.panningModel = 'HRTF';
+                p.positionX.value = Math.sin(deg(az)) * r;
+                p.positionZ.value = -Math.cos(deg(az)) * r;
+                splitter.connect(p, ch, 0);
+                p.connect(output);
+            });
+        } else if (fx.preset === 'orbit') {
+            /* 3D 旋转（8D）：HRTF 声源绕听者转圈，sin/cos 双 LFO（相位差 90°）驱动坐标 */
+            const p = ctx.createPanner();
+            p.panningModel = 'HRTF';
+            const r = 1.2 + fx.depth * 1.8;
+            const sx = ctx.createOscillator(), sz = ctx.createOscillator();
+            sx.frequency.value = fx.rate;
+            sz.frequency.value = fx.rate;
+            const gx = ctx.createGain(), gz = ctx.createGain();
+            gx.gain.value = r;
+            gz.gain.value = r;
+            sx.connect(gx).connect(p.positionX);
+            sz.connect(gz).connect(p.positionZ);
+            input.connect(p).connect(output);
+            sx.start(st);
+            sz.start(st + 1 / (4 * fx.rate));   // 相位差 90°
+        } else if (fx.preset === 'eq') {
+            /* 自定义 EQ：7 段 peaking 串联（60Hz〜15kHz，各 -12..+12dB）。
+               串联 peaking 相邻频段影响轻微（Q=1），足够「自定义音色」用 */
+            let node = input;
+            for (let i = 0; i < J.AUDIO_EQ_BANDS.length; i++) {
+                const f = ctx.createBiquadFilter();
+                f.type = 'peaking';
+                f.frequency.value = J.AUDIO_EQ_BANDS[i];
+                f.Q.value = 1;
+                f.gain.value = fx.eq[i];
+                node.connect(f);
+                node = f;
+            }
+            node.connect(output);
+        }
+
+        return {input, output, channels: 2};
+    };
+
+    async function resample(buffer, sr, duration, offset = 0, fx = null) {
+        // 特效图与预览共用 J.buildAudioFx 构建（同一构建器 ⇒ 预览与导出听感一致）
         const chn = Math.min(2, buffer.numberOfChannels);
         const len = Math.ceil(duration * sr);
         const oc = new OfflineAudioContext(chn, len, sr);
         const src = oc.createBufferSource();
         src.buffer = buffer;
-        src.connect(oc.destination);
+        const graph = fx ? J.buildAudioFx(oc, fx, {songDur: buffer.duration, fromT: offset, toT: offset + duration}) : null;
+        if (graph) {
+            src.connect(graph.input);
+            graph.output.connect(oc.destination);
+        } else {
+            src.connect(oc.destination);
+        }
         src.start(0, Math.max(0, offset));
         return oc.startRendering();
     }
@@ -259,8 +360,13 @@
     async function encodeMP4({plan, project, audio, onProgress, signal, range, file, w, h, vc, note}) {
         const span = J.exportSpan(plan, range);
         const fps = plan.fps;
-        let ac = null;
-        if (audio && audio.buffer && project.includeAudio !== false) ac = await J.pickAudioCodec(Math.min(2, audio.buffer.numberOfChannels));
+        let ac = null, audioChn = 0;
+        // 音频特效（project.audioFx）：特效图在导出时于 OfflineAudioContext 里渲染
+        const fx = audio && audio.buffer && project.includeAudio !== false ? J.sanitizeAudioFx(project.audioFx) : null;
+        if (fx) {
+            audioChn = Math.min(2, audio.buffer.numberOfChannels);
+            ac = await J.pickAudioCodec(audioChn);
+        }
         const store = file ? null : new BlockStore();
         const target = file ? new Mp4Muxer.FileSystemWritableFileStreamTarget(file, {chunkSize: 8 * 1048576})
             : new Mp4Muxer.StreamTarget({
@@ -276,7 +382,7 @@
         };
         if (ac) muxOpts.audio = {
             codec: ac.mux,
-            numberOfChannels: Math.min(2, audio.buffer.numberOfChannels),
+            numberOfChannels: audioChn,
             sampleRate: ac.sr
         };
         const muxer = new Mp4Muxer.Muxer(muxOpts);
@@ -355,7 +461,7 @@
         if (outFrames < total * 0.98) throw new Error(`動画のフレームが足りません（${outFrames}/${total}）`);
         if (ac) {
             onProgress && onProgress(0.99, '音声をエンコード中');
-            const rs = await resample(audio.buffer, ac.sr, span.dur, span.t0);
+            const rs = await resample(audio.buffer, ac.sr, span.dur, span.t0, fx && fx.preset !== 'none' ? fx : null);
             const chn = rs.numberOfChannels;
             let aChunks = 0, aEnd = 0, aErr = null;
             const aenc = new AudioEncoder({

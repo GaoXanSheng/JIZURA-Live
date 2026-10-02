@@ -312,7 +312,7 @@ internal static class AudioAnalyzer
         while (true)
         {
             var buf = new float[AnalyzeRate * 10]; // 每次读 10 秒
-            var read = sp.Read(buf, 0, buf.Length);
+            var read = sp.Read(buf);
             if (read <= 0) break;
             Array.Resize(ref buf, read);
             chunks.Add(buf);

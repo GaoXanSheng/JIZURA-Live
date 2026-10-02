@@ -166,6 +166,11 @@ export interface JizuraEngine {
     // from 10_audio.js
     analyzeAudio: (buf: AudioBuffer) => Promise<any>;
     audioWav: (buf: AudioBuffer, dur: number, offset: number) => Blob;
+    /* 音频特效（预览与导出共用图；定义见 11_export.js） */
+    readonly AUDIO_EQ_BANDS: number[];
+    sanitizeAudioFx: (fx: any) => { preset: 'none' | 'pan' | 'spatial' | 'orbit' | 'eq'; rate: number; depth: number; eq: number[] };
+    buildAudioFx: (ctx: BaseAudioContext, cfg: any, opts?: { songDur?: number; fromT?: number; toT?: number; anchorT?: number }) =>
+        { input: AudioNode; output: AudioNode; channels: number } | null;
     saveSong: (f: File) => Promise<void>;
     loadSong: () => Promise<File | null>;
     saveFontData: (k: string, b: ArrayBuffer) => Promise<void>;

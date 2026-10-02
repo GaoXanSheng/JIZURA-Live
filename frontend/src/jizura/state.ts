@@ -41,7 +41,9 @@ export const S: EngineState = g.__jl_S || (g.__jl_S = initialS);
 export const LOOP_CYCLE: LoopMode[] = ['all', 'line', 'cut', false];
 
 /* WebAudio 播放器（沙箱页面里 blob media 可能被禁，AudioContext 稳妥）。
-   同样锚 globalThis：两个副本会各自 new 一个 AudioContext（浏览器有数量上限） */
+   同样锚 globalThis：两个副本会各自 new 一个 AudioContext（浏览器有数量上限）
+   播放图：src → 音频特效图（project.audioFx，J.buildAudioFx 构建，与导出共用）
+          → 主音量 gain → destination；特效图按需重建，主音量独立于特效 */
 const initialAP = {
   ctx: null as AudioContext | null,
   src: null as AudioBufferSourceNode | null,
@@ -50,6 +52,8 @@ const initialAP = {
   gain: null as GainNode | null,
   vol: 0.8,
   muted: false,
+  fx: null as { input: AudioNode; output: AudioNode; channels: number } | null,
+  fxKey: '',
   play(buffer: AudioBuffer, offset: number, rate = 1) {
     if (!this.ctx) this.ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -61,15 +65,42 @@ const initialAP = {
       // 静音状态下首次播放会以全音量漏出几十毫秒（听感就是「卡出一声」）
       this.gain.gain.value = this.muted ? 0 : this.vol * this.vol;
     }
+    // 特效图重建：曲线包络的自动化按播放起点铺排（其余预设仅在配置变化时重建）
+    this.rebuildFx(buffer, offset);
     const s = this.ctx.createBufferSource();
     s.buffer = buffer;
-    s.connect(this.gain);
+    s.connect(this.fx ? this.fx.input : this.gain);
     const off = Math.max(0, Math.min(offset, buffer.duration - 0.01));
     this.rate = rate > 0 ? rate : 1;
     s.playbackRate.value = this.rate;
     s.start(0, off);
     this.src = s;
     this.startAt = this.ctx.currentTime - off;
+  },
+  /* 按当前 project.audioFx 重建特效图；曲线包络每次起点都重铺自动化 */
+  rebuildFx(buffer: AudioBuffer, offset: number) {
+    const ctx = this.ctx!;
+    const cfg = (S.project && S.project.audioFx) || null;
+    const want = cfg && cfg.preset && cfg.preset !== 'none';
+    const key = want ? JSON.stringify(cfg) : '';
+    if (!want) {
+      if (this.fx) {
+        try { this.fx.output.disconnect(); } catch { /* 已断开 */ }
+        this.fx = null;
+      }
+      this.fxKey = '';
+      return;
+    }
+    if (this.fx && this.fxKey === key) return;
+    if (this.fx) {
+      try { this.fx.output.disconnect(); } catch { /* 已断开 */ }
+    }
+    const f = J.buildAudioFx(ctx, cfg, {
+      songDur: buffer.duration, fromT: offset, toT: buffer.duration, anchorT: ctx.currentTime,
+    });
+    if (f) f.output.connect(this.gain!);
+    this.fx = f;
+    this.fxKey = key;
   },
   stop() {
     if (this.src) {
@@ -107,6 +138,23 @@ const initialAP = {
 };
 export type AudioPlayer = typeof initialAP;
 export const AP: AudioPlayer = g.__jl_AP || (g.__jl_AP = initialAP);
+
+/* 音频特效配置变化时调用：播放中立即重建特效图并重连当前源；
+   未播放则只作废缓存（下次 play 生效）。导出侧无需通知（导出时现读现建） */
+export function applyAudioFx() {
+  if (!AP.ctx || !S.audio) return;
+  if (S.playing) {
+    AP.rebuildFx(S.audio.buffer, S.t);
+    if (AP.src) {
+      try {
+        AP.src.disconnect();
+      } catch { /* 已断开 */ }
+      AP.src.connect(AP.fx ? AP.fx.input : AP.gain!);
+    }
+  } else {
+    AP.fxKey = '';
+  }
+}
 
 /* 预览音量记忆 */
 export function initVolume() {

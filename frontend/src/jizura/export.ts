@@ -4,7 +4,7 @@
    （预览/UI）不再被逐帧渲染占用，也不与引擎抢主线程预算；Worker 失败自动回退
    主线程同路径。「大视频直接写文件」需要主线程的文件句柄，不走 Worker。 */
 import {J} from '../engine';
-import {S} from './state';
+import {applyAudioFx, S} from './state';
 import {bus} from './bus';
 import {exportRange, rangeSuffix, toast} from './look';
 import {autosave, flushSave} from './project';
@@ -276,6 +276,15 @@ export function setKeyBg(v: string) {
 export function setIncludeAudio(v: boolean) {
   S.project.includeAudio = v;
   autosave();
+}
+
+/* 音频特效（预览与导出同时生效）：清洗后落 project，立即更新预览图并广播 */
+export function setAudioFx(patch: any) {
+  S.project.audioFx = J.sanitizeAudioFx(Object.assign({}, S.project.audioFx || {}, patch || {}));
+  autosave();
+  applyAudioFx();
+  syncOut();
+  bus.emit('sync-ui');   // Transport 的「特效」按钮点亮态
 }
 
 export function setCenterFree(v: boolean) {

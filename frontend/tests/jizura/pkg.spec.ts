@@ -3,6 +3,7 @@
    CEF（Chrome 152+）承担，并与 C# 解析器 src/Server/JizuraPackage.cs 做交叉验证。 */
 import {describe, expect, it} from 'vitest';
 import {J} from '../../src/engine';
+import {mergeProject} from '../../src/jizura/project';
 import {S} from '../../src/jizura/state';
 import {
     AUDIO_ENTRY_PREFIX,
@@ -99,5 +100,32 @@ describe('JZLV 容器', () => {
         expect(project.app).toBe('jizura-live');
         expect(project.appVersion).toBe('0.0.0-test');
         expect(project.lyrics).toContain('忆华年');
+    });
+});
+
+describe('audioFx 随工程包往返', () => {
+    it('project.json 里的音频特效经打包→读取→mergeProject 后完整恢复', async () => {
+        const project = JSON.stringify({
+            lyrics: 'テスト',
+            audioFx: {preset: 'eq', eq: [3, 0, 0, 0, 0, 0, -4], rate: 0.3, depth: 0.5},
+        });
+        const bytes = await buildPackage([{name: PROJECT_ENTRY, data: new TextEncoder().encode(project)}]);
+        const entries = await readPackage(bytes);
+        const restored = mergeProject(JSON.parse(entryText(entries[0])));
+        expect(restored.audioFx.preset).toBe('eq');
+        expect(restored.audioFx.eq).toEqual([3, 0, 0, 0, 0, 0, -4]);
+    });
+
+    it('旧工程包没有 audioFx 时回退默认（none）', () => {
+        const restored = mergeProject({lyrics: 'x'});
+        expect(restored.audioFx.preset).toBe('none');
+        expect(restored.audioFx.eq).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    });
+
+    it('工程包里的非法 audioFx 被清洗', () => {
+        const restored = mergeProject({audioFx: {preset: 'room51', rate: 999, eq: 'x'}});
+        expect(restored.audioFx.preset).toBe('none');   // room51 已移除，未知预设回退 none
+        expect(restored.audioFx.rate).toBe(2);          // 合法数值越界 → 钳制到上限而非丢弃
+        expect(restored.audioFx.eq).toEqual([0, 0, 0, 0, 0, 0, 0]);   // 非数组 → 全零
     });
 });

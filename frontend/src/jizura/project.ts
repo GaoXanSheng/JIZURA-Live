@@ -14,6 +14,8 @@ export function mergeProject(p: any) {
   for (const g of Object.keys(en)) en[g] = Object.assign(en[g], ((p && p.enabled) || {})[g] || {});
   o.enabled = en;
   o.overrides = (p && p.overrides) || {};
+  // 音频特效（预览+导出共用）：不信任外部输入，统一清洗
+  o.audioFx = J.sanitizeAudioFx((p && p.audioFx) || {});
   o.locks = {tech: {}, params: {}};
   // 项目文件不可信：只允许锁 plain key，且只能开（不能是我们没写过的值）
   for (const [g, on] of Object.entries((p && p.locks && p.locks.tech) || {})) if (on === true && /^[\w-]+$/.test(g)) o.locks.tech[g] = true;

@@ -57,6 +57,7 @@ function cycleLoop() {
 
 const vol = ref(Math.round(AP.vol * 100));
 const muted = ref(AP.muted);
+const fxOn = ref(!!(S.project as any)?.audioFx && (S.project as any).audioFx.preset !== 'none');
 /* 音量条与进度条同款自绘：原生 range 的 :value 绑定在拖动时以指针频率
    触发 Vue 全量 patch（同款文档级失效）。拖动中只写 transform + 引擎音量，
    vol/muted 状态与落盘在松手时一次性提交 */
@@ -117,6 +118,8 @@ function volKey(e: KeyboardEvent) {
 function toggleMute() {
   AP.setVol(null, !AP.muted);
   muted.value = AP.muted;
+  // 音量条同步渲染为静音/恢复：否则按钮变青而条还停在原音量，状态说谎
+  setVolBar(AP.muted ? 0 : AP.vol);
   saveVolume();
 }
 
@@ -137,6 +140,8 @@ onMounted(() => {
   offs.push(bus.on('sync-ui', onHist));
   offs.push(bus.on('sync-ui', () => {
     theme.value = J.THEMES && J.THEMES[S.project?.themeId] ? S.project.themeId : '';
+    const p = (S.project as any)?.audioFx;
+    fxOn.value = !!p && p.preset !== 'none';
   }));
   offs.push(bus.on('frame', () => {
     const now = performance.now();
@@ -223,7 +228,7 @@ onMounted(() => {
   volRo = new ResizeObserver(() => {
     if (volBarEl.value) {
       volW = volBarEl.value.clientWidth;
-      setVolBar(AP.vol);
+      setVolBar(AP.muted ? 0 : AP.vol);   // 启动即消音（恢复的记忆音量）时条也要显示静音
     }
   });
   if (volBarEl.value) volRo.observe(volBarEl.value);
@@ -263,8 +268,9 @@ onUnmounted(() => offs.forEach(f => f()));
     </button>
     <span class="inline-flex items-center gap-1">
       <button :aria-pressed="muted" :class="muted ? '!text-cyan' : ''" class="btn btn-ghost btn-sm"
-              title="点击消音／解除（仅预览，导出音量不变）" @click="toggleMute">音量</button>
+              title="点击消音／解除（仅预览，导出音量不变）" @click="toggleMute">{{ muted ? '静音' : '声音' }}</button>
       <div ref="volBarEl" :aria-valuenow="vol" aria-label="预览音量"
+           :class="muted ? 'opacity-45' : ''"
            aria-valuemax="100"
            aria-valuemin="0" class="relative w-20 h-[26px] flex items-center cursor-pointer select-none" role="slider"
            tabindex="0"
@@ -276,6 +282,9 @@ onUnmounted(() => offs.forEach(f => f()));
              class="absolute left-0 top-1/2 -mt-[6px] w-3 h-3 rounded-full bg-amber shadow-[0_0_4px_rgba(0,0,0,0.6)]"
              style="will-change: transform;"></div>
       </div>
+      <button :class="fxOn ? '!text-cyan' : ''" aria-label="音频特效" class="btn btn-ghost btn-sm"
+              title="音频特效：环绕音 / 3D / 5.1 / EQ（预览与导出同时生效）" @click="bus.emit('open-audiofx')">特效
+      </button>
     </span>
     <span class="inline-flex gap-1">
       <button :disabled="!hist.canBack" aria-label="上一案" class="btn btn-ghost btn-sm !text-[10px] min-w-7"
