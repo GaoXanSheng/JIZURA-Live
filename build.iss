@@ -1,6 +1,6 @@
 #define AppName "JizuraLive"
 #define AppId "{{C5A3E1D2-9B47-4F86-A2C1-7E0B3D94F6A8}"
-#define AppVersion "1.4.0"
+#define AppVersion "1.5.0"
 #define AppExeName "JizuraLive.exe"
 
 [Setup]
@@ -34,15 +34,42 @@ Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
-; Excludes 挡掉开发机上跑 bin\publish 时产生的运行时数据（含设置与登录 cookie）
-Source: "bin\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion; Excludes: "config\*;logs\*;cef-cache\*"
+; 运行时数据（config/logs/CEF 缓存）已统一放 %LOCALAPPDATA%\JizuraLive，
+; publish 产物里不会再混入，无需 Excludes
+Source: "bin\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+[UninstallDelete]
+; 用户数据目录（设置与登录态 config、日志 logs、CEF 缓存 cef-cache）随卸载一并删除
+Type: filesandordirs; Name: "{localappdata}\JizuraLive"
+
 [Code]
-function InitializeSetup(): Boolean;
+// 首次安装判定：注册表里没有我们的卸载项，且用户数据目录还不存在
+function IsFirstInstall(): Boolean;
 begin
-  Result := True;
+  Result := (not RegKeyExists(HKLM,
+    'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1'))
+    and (not DirExists(ExpandConstant('{localappdata}\JizuraLive')));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // 升级覆盖时先清掉旧版日志：日志目录由程序启动时自动重建，可整目录删除
+  if (CurStep = ssInstall) and (not IsFirstInstall()) then
+    if DirExists(ExpandConstant('{localappdata}\JizuraLive\logs')) then
+      DelTree(ExpandConstant('{localappdata}\JizuraLive\logs'), True, True, True);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+begin
+  // 卸载开始前结束仍在运行的程序，避免 logs/cef-cache 被占用导致用户数据删不干净
+  if CurUninstallStep = usUninstall then
+    Exec(ExpandConstant('{cmd}'),
+      '/C taskkill /F /T /IM {#AppExeName} >nul 2>&1',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
