@@ -76,6 +76,29 @@ function projectMsg(type: 'state' | 'project'): Msg {
     } as Msg;
 }
 
+// 镜像宿主进程里 BC 不可达，有 CefSharp 上行时把消息镜像给宿主（宿主转镜像页 __jlApplyMsg）。
+// 标记键不能 __ 开头（CefSharp 转换会丢）；energy/pitch 转 Array——JSON 出来的 Float32Array
+// 是对象，镜像端 .length 全断
+function hostPost(msg: Msg): void {
+    try {
+        const w = window as any;
+        if (w.CefSharp && w.CefSharp.PostMessage)
+            w.CefSharp.PostMessage({jlHostRelay: 1, ...msg});
+    } catch {
+    }
+}
+
+function hostSafe(msg: Msg): Msg {
+    if (msg.type !== 'state' && msg.type !== 'project')
+        return msg;
+    const m = msg as any;
+    return {
+        ...m,
+        energy: m.energy ? Array.from(m.energy) : null,
+        pitch: m.pitch ? Array.from(m.pitch) : null,
+    } as Msg;
+}
+
 // 编辑端：广播本页状态
 export function bindEditorBroadcast() {
     if (ch) return;
@@ -88,7 +111,9 @@ export function bindEditorBroadcast() {
     ch.onmessage = (e: MessageEvent<Msg>) => {
         if (e.data.type === 'hello') {
             try {
-                ch!.postMessage(projectMsg('state'));
+                const m = projectMsg('state');
+                ch!.postMessage(m);
+                hostPost(hostSafe(m));
             } catch {
             }
         }
@@ -97,14 +122,28 @@ export function bindEditorBroadcast() {
     // 工程变化：replan 后推全量（低频）
     bus.on('replan', () => {
         try {
-            ch!.postMessage(projectMsg('project'));
+            const m = projectMsg('project');
+            ch!.postMessage(m);
+            hostPost(hostSafe(m));
         } catch {
         }
     });
-    // 播放时间每帧推（高频、纯内存），镜像端完整时钟同步需要逐帧时间
+    // 播放时间推镜像：30Hz 节流对齐 C# 锚点（镜像泵外推，逐帧推白烧镜像主线程）。
+    // 暂停且 t/playing 没变不推；playing 翻转和暂停期 seek 不节流
+    let lastTimePushAt = 0;
+    let pushedT = -1;
+    let pushedPlaying: boolean | null = null;
     bus.on('frame', () => {
+        const t = S.t;
+        const playing = S.playing;
+        const playingChanged = playing !== pushedPlaying;
+        if (!playing && !playingChanged && t === pushedT) return;
+        if (!playingChanged && playing && performance.now() - lastTimePushAt < 33) return;
+        lastTimePushAt = performance.now();
+        pushedT = t;
+        pushedPlaying = playing;
         try {
-            ch!.postMessage({type: 'time', t: S.t, playing: S.playing} as Msg);
+            ch!.postMessage({type: 'time', t, playing} as Msg);
         } catch {
         }
     });
@@ -114,10 +153,21 @@ export function bindEditorBroadcast() {
         if (json === lastSubJson) return;
         lastSubJson = json;
         try {
-            ch!.postMessage({type: 'sub', sub: subConfig()} as Msg);
+            const m: Msg = {type: 'sub', sub: subConfig()};
+            ch!.postMessage(m);
+            hostPost(m);
         } catch {
         }
     });
+
+    // 宿主中继补发戳：镜像页(重)加载后由宿主经 C# 调用，重推当前全量 state。
+    // 与 __jlForceSync（时间补发）同构，见 MainWindow 的 FrameLoadEnd 注入
+    (window as any).__jlHostResend = () => {
+        try {
+            hostPost(hostSafe(projectMsg('state')));
+        } catch {
+        }
+    };
 }
 
 // 渲染端：接收并落到 pinia store（stores/stage.ts 组装）
@@ -146,7 +196,11 @@ export interface StageSink {
     isConnected(): boolean;
 }
 
-export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendHello: () => void } {
+export function bindStageBroadcast(sink: StageSink): {
+    stop: () => void;
+    resendHello: () => void;
+    dispatch: (m: Msg) => void;
+} {
     let c: BroadcastChannel | null = null;
     try {
         c = new BroadcastChannel(CHANNEL);
@@ -154,11 +208,12 @@ export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendH
         return {
             stop: () => {
             }, resendHello: () => {
+            }, dispatch: () => {
             }
         };
     }
-    c.onmessage = (e: MessageEvent<Msg>) => {
-        const m = e.data;
+    // 分发器单独提出：宿主模式下 C# 经 window.__jlApplyMsg 注入同一协议消息
+    const dispatch = (m: Msg) => {
         if (m.type === 'state') sink.setState(m.project, m.beats, m.duration, m.sub, m.map, {
             energy: m.energy,
             energyRate: m.energyRate,
@@ -174,6 +229,7 @@ export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendH
         else if (m.type === 'time') sink.setTime(m.t, m.playing);
         else if (m.type === 'sub') sink.setSub(m.sub);
     };
+    c.onmessage = (e: MessageEvent<Msg>) => dispatch(e.data);
     const hello = () => {
         try {
             c!.postMessage({type: 'hello'} as Msg);
@@ -195,5 +251,6 @@ export function bindStageBroadcast(sink: StageSink): { stop: () => void; resendH
             }
         },
         resendHello: hello,
+        dispatch,
     };
 }

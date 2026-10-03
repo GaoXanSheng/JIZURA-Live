@@ -17,6 +17,27 @@ public sealed class SpoutPipeline : IDisposable
 
     public Action? SyncPoke { get; set; }
 
+    // 页面主 frame 加载完成（含重载）；宿主模式由 MirrorHostApp 订阅：重放缓存再要新 state
+    public Action? PageLoaded;
+
+    // 在镜像页主 frame 执行脚本（宿主模式注入 __jlApplyMsg 用）
+    public void EvaluateScript(string script)
+    {
+        var browser = _browser;
+
+        if (browser == null)
+            return;
+
+        try
+        {
+            browser.GetMainFrame().ExecuteJavaScriptAsync(script);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[SpoutMirror] EvaluateScript 失败：" + ex.Message);
+        }
+    }
+
     public void Dispose()
     {
         Stop();
@@ -44,14 +65,12 @@ public sealed class SpoutPipeline : IDisposable
             // 镜像行为（泵/锚点应用/isolate/分辨率保持/工程跟随）已内置在页面本身
             // （RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本，
             // 只负责推 __jlApplySync 锚点、收 plan-size 消息
-            var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle);
+            var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle, safeW, safeH);
 
             // RenderHandler 必须在 CreateBrowser() 之前准备好
             _renderHandler = new MirrorRenderHandler(this);
 
-            _browser = new D3DChromiumWebBrowser(
-                mirrorUrl,
-                browserSettings);
+            _browser = new D3DChromiumWebBrowser(mirrorUrl, browserSettings);
 
             _browser.RenderHandler = _renderHandler;
             _browser.AudioHandler = new CAudioHandler();
@@ -150,6 +169,15 @@ public sealed class SpoutPipeline : IDisposable
             $"[SpoutMirror] 页面加载完成：" +
             $"{e.Url}（镜像模式由页面原生处理）。");
 
+        try
+        {
+            PageLoaded?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[SpoutMirror] PageLoaded 回调失败：" + ex.Message);
+        }
+
         var poke = SyncPoke;
 
         if (poke != null)
@@ -241,12 +269,20 @@ public sealed class SpoutPipeline : IDisposable
         }
     }
 
-    // 镜像参数走 URL 传给页面（RenderPage.vue ?mirror=1 原生处理），不注入脚本
+    // 镜像参数走 URL 传给页面（RenderPage.vue ?mirror=1 原生处理），不注入脚本。
+    // outw/outh = 输出分辨率（设置里的渲染窗口尺寸）：页面把场景按它缩放绘制，
+    // 且不再回发 plan-size 覆盖浏览器尺寸——设置的分辨率是输出的唯一事实源。
+    // dsync=0：desynchronized 画布的交换链只有两三块缓冲，present 要等 C# 侧
+    // 取纹理→Spout 释放，消费稍慢就阻塞 GPU 主线程 100-270ms（循环 wrap 双镜像
+    // 同时全帧重绘时必现，BeginFrame 断供就是卡顿来源）。关掉走合成器路径，
+    // 代价约一帧延迟（60fps 下 16.7ms），远比间歇数百毫秒的停顿划算
     private static string AppendMirrorParams(
         string url,
         int fps,
         bool transparent,
-        bool suppressSubtitle)
+        bool suppressSubtitle,
+        int outW,
+        int outH)
     {
         var sep = url.Contains('?') ? "&" : "?";
 
@@ -254,7 +290,10 @@ public sealed class SpoutPipeline : IDisposable
             $"{url}{sep}mirror=1" +
             $"&fps={fps.ToString(CultureInfo.InvariantCulture)}" +
             $"&transparent={(transparent ? 1 : 0)}" +
-            $"&nosub={(suppressSubtitle ? 1 : 0)}";
+            $"&nosub={(suppressSubtitle ? 1 : 0)}" +
+            $"&outw={outW.ToString(CultureInfo.InvariantCulture)}" +
+            $"&outh={outH.ToString(CultureInfo.InvariantCulture)}" +
+            "&dsync=0";
     }
 
     public void ApplyPlaybackSync(

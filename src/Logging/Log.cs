@@ -16,11 +16,12 @@ public static class Log
     public static string? LogFile { get; private set; }
 
 
-    public static void Init()
+    public static void Init(string? fileName = null)
     {
         LogDir = AppDirs.LogsDir;
         Directory.CreateDirectory(LogDir);
-        LogFile = Path.Combine(LogDir, "jizura.log");
+        // 镜像宿主进程写独立日志：双进程并发追加同一文件会互相穿插
+        LogFile = Path.Combine(LogDir, fileName ?? "jizura.log");
 
         var fileLayout = new PatternLayout("%date [%2thread] %-5level %logger - %message%newline");
         fileLayout.ActivateOptions();

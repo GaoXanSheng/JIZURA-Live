@@ -26,28 +26,20 @@ public sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
 
     public void CreateD3DBrowser()
     {
-        if (_created)
-            return;
+        if (_created) return;
 
-        var windowInfo =
-            new WindowInfo();
+        var windowInfo = new WindowInfo();
 
-        windowInfo.SetAsWindowless(
-            IntPtr.Zero);
+        windowInfo.SetAsWindowless(IntPtr.Zero);
 
-        windowInfo.WindowlessRenderingEnabled =
-            true;
+        windowInfo.WindowlessRenderingEnabled = true;
 
-        windowInfo.ExternalBeginFrameEnabled =
-            false;
+        windowInfo.ExternalBeginFrameEnabled = false;
 
-        windowInfo.SharedTextureEnabled =
-            true;
+        windowInfo.SharedTextureEnabled = true;
 
         _created = true;
 
-        CreateBrowser(
-            windowInfo,
-            _browserSettings);
+        CreateBrowser(windowInfo, _browserSettings);
     }
 }

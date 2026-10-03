@@ -1,11 +1,18 @@
 // /render 渲染页的 store：工程与时间经 BroadcastChannel 从编辑页直通进来（内存消息，不走 localStorage）
 // 本页只做 replan 和画帧；J.ui 兼容影子供 Spout 注入脚本读写（SpoutPipeline.cs 的 __jlApplySync / pump 直接操作它）
 import {defineStore} from 'pinia';
+import {markRaw} from 'vue';
 import {J} from '../engine';
 import {mergeProject} from '../jizura/project';
 import type {AnalysisPayload, StageSink} from '../jizura/stage-bridge';
 import type {SubConfig} from '../cloud/subtitle';
 
+// plan/project/字幕映射/音频分析都是整存整取的大对象图：只换引用、从不原地改。
+// 它们绝不能进 Pinia 的深度响应式——devtools 模式下 pinia 给 store 挂了一个
+// flush:'sync' 的深度订阅，任何 state 写入都会同步 traverse 整棵 state，
+// plan 图实测 ~3.2 万属性、一次写入 5ms+，镜像泵每帧写两次 t/need 直接被打满。
+// markRaw 后 traverse 首行按 __v_skip 整棵剪枝，写入回到微秒级（生产构建无此税，
+// 但 dev 是日常调优环境，必须治）
 export const useStage = defineStore('stage', {
     state: () => ({
         // 供 Spout 注入脚本读写的兼容影子（mirror 脚本读写 S.t / S.need / S.plan）
@@ -42,29 +49,29 @@ export const useStage = defineStore('stage', {
                     pitchRate: a.pitchRate || 0
                 } : {}),
             };
-            this.plan = J.plan(this.project, like);
+            this.plan = markRaw(J.plan(this.project, like));
             this.need = true;
         },
         sink(): StageSink {
             const applyMap = (map: [string, { roma: string; trans: string }][] | null) => {
-                this.subMap = map && map.length ? new Map(map) : null;
+                this.subMap = map && map.length ? markRaw(new Map(map)) : null;
             };
             return {
                 setState: (project, beats, duration, sub, map, analysis) => {
-                    this.project = mergeProject(project);
-                    this.audioBeats = beats || [];
+                    this.project = markRaw(mergeProject(project));
+                    this.audioBeats = markRaw(beats || []);
                     this.audioDuration = duration || 0;
-                    this.audioAnalysis = analysis || null;
-                    this.subCfg = sub || null;
+                    this.audioAnalysis = analysis ? markRaw(analysis) : null;
+                    this.subCfg = sub ? markRaw(sub) : null;
                     applyMap(map);
                     this.replan();
                     this.connected = true;
                 },
                 setProject: (project, beats, duration, map, analysis) => {
-                    this.project = mergeProject(project);
-                    this.audioBeats = beats || [];
+                    this.project = markRaw(mergeProject(project));
+                    this.audioBeats = markRaw(beats || []);
                     this.audioDuration = duration || 0;
-                    if (analysis) this.audioAnalysis = analysis;
+                    if (analysis) this.audioAnalysis = markRaw(analysis);
                     applyMap(map);
                     this.replan();
                 },
@@ -83,7 +90,7 @@ export const useStage = defineStore('stage', {
                     if (changed || playing) this.need = true;
                 },
                 setSub: (sub) => {
-                    this.subCfg = sub || null;
+                    this.subCfg = sub ? markRaw(sub) : null;
                     this.need = true;
                 },
                 isConnected: () => this.connected,

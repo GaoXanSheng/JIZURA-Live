@@ -63,6 +63,8 @@
         <Content Update="frontend\LICENSE-JIZURA">
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
+        <None Remove="tools\cdp-clean-ab.mjs" />
+        <None Remove="tools\cdp-ab-test.mjs" />
     </ItemGroup>
 
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish" Condition="Exists('native\SpoutDX.dll')">
@@ -75,7 +77,7 @@
     <!-- CefSharp 子进程 exe 的图标替换为 app.ico（任务管理器/资源管理器可见）。
          CefSharp 升级覆盖 exe 后，每次构建会自动重新打补丁；
          exe 被占用（程序正在运行）时只警告不阻断构建 -->
-    <Target Name="PatchCefSubprocessIcon" AfterTargets="Build;Publish">
+    <Target Name="PatchCefSubprocessIcon" AfterTargets="Build;Publish" Condition="Exists('$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1')">
         <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(OutDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;" ContinueOnError="WarnAndContinue" Condition="Exists('$(OutDir)CefSharp.BrowserSubprocess.exe')"/>
         <!-- publish 目录单独补一份（同 CopySpoutDx 的处理方式） -->
         <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(PublishDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;" ContinueOnError="WarnAndContinue" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)CefSharp.BrowserSubprocess.exe')"/>
@@ -120,7 +122,8 @@
     <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Inputs="@(FrontendSourceInputs)" Outputs="$(FrontendStamp)" Condition="'$(SkipFrontendBuild)' != 'true'">
         <Message Importance="high" Text="前端构建：vite build → $(FrontendDist)"/>
         <Exec Command="npm install --no-audit --no-fund" WorkingDirectory="$(FrontendDir)" Condition="!Exists('$(FrontendDir)node_modules')"/>
-        <Exec Command="npm run build --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
+        <!-- 双短横分隔符必须有：npm 会把不认识的 outDir 当自己的配置吞掉，vite 拿不到参数 -->
+        <Exec Command="npm run build -- --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
         <WriteLinesToFile File="$(FrontendStamp)" Lines="$([System.DateTime]::UtcNow.Ticks)" Overwrite="true"/>
     </Target>
     <!-- 增量跳过 npm 时也要重新收集嵌入项（AfterTargets 无论上游是否跳过都会执行） -->

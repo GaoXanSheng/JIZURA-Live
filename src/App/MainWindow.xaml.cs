@@ -36,6 +36,10 @@ public partial class MainWindow : Window
         // /mcp 端点经此桥把 JSON-RPC 派发进页面执行
         McpBridge.EvaluateAsync = EvaluateMcpAsync;
 
+        // 镜像宿主拆分模式：宿主回调接回本窗口（等价同进程模式里管线直接持有的引用）
+        if (MirrorHostBridge.Instance is { Enabled: true } bridge)
+            WireMirrorHostBridge(bridge);
+
         Loaded += (_, _) =>
         {
             if (_clean)
@@ -53,7 +57,45 @@ public partial class MainWindow : Window
         };
     }
 
-    // 渲染页路由 /#/render，纯 canvas；与编辑页同源，经 BroadcastChannel 直通工程/时间/字幕
+    // 拆分模式：Spout 管线在独立宿主进程里，本窗口只发命令不建管线
+    private bool Split => MirrorHostBridge.Instance is { Enabled: true };
+
+    private void WireMirrorHostBridge(MirrorHostBridge bridge)
+    {
+        bridge.PokeSync = ForceSyncResend;
+        // 镜像页(重)加载后由页面 __jlHostResend 补发全量 state；宿主 ready 常早于编辑器就绪，带重试
+        bridge.NeedEditorState = () => _ = PokeEditorStateWithRetryAsync();
+    }
+
+    // 拆分开关切换：按目标模式重建管线，无需重启应用（镜像输出会黑 1~2 秒）
+    public void ApplySplitMode(bool enabled)
+    {
+        if (enabled)
+        {
+            if (Split)
+                return;
+
+            Log.Info("切换到镜像宿主拆分模式");
+            SpoutPipeline.Instance.Stop();
+            _lyricsPipeline.Stop();
+
+            var bridge = new MirrorHostBridge(_settings, _url);
+            WireMirrorHostBridge(bridge);
+            bridge.Start();
+            if (_settings.SpoutEnabled)
+                bridge.SendCmd("start");
+        }
+        else
+        {
+            if (!Split)
+                return;
+
+            Log.Info("切回同进程镜像模式");
+            MirrorHostBridge.Instance!.Dispose(); // 优雅关闭宿主，Instance 置 null，Split 变 false
+            if (_settings.SpoutEnabled)
+                StartSpout();
+        }
+    }
     private string RenderUrl => _url + "render";
 
     // 独立歌词通道的渲染页，透明底只画歌词
@@ -64,6 +106,12 @@ public partial class MainWindow : Window
 
     public void StartSpout()
     {
+        if (Split)
+        {
+            MirrorHostBridge.Instance!.SendCmd("start");
+            return;
+        }
+
         var pipeline = SpoutPipeline.Instance;
 
         if (pipeline.IsRunning)
@@ -89,6 +137,12 @@ public partial class MainWindow : Window
 
     public void StopSpout()
     {
+        if (Split)
+        {
+            MirrorHostBridge.Instance!.SendCmd("stop");
+            return;
+        }
+
         SpoutPipeline.Instance.Stop();
         _lyricsPipeline.Stop();
     }
@@ -96,6 +150,12 @@ public partial class MainWindow : Window
     // 独立歌词通道：按设置开关启停，时间锚点与主通道同源（sync_play 同时喂两路）
     public void ApplySpoutLyrics()
     {
+        if (Split)
+        {
+            MirrorHostBridge.Instance!.SendCmd("apply-lyrics");
+            return;
+        }
+
         if (_settings.SpoutLyricsEnabled)
         {
             if (_lyricsPipeline.IsRunning)
@@ -112,10 +172,12 @@ public partial class MainWindow : Window
     private void StartLyrics()
     {
         _lyricsPipeline.SyncPoke = ForceSyncResend;
+        // 字幕通道限 30fps：与编辑器/主通道共享同一个 CEF gpu-process（单线程光栅），
+        // 1080p60 满帧会把主通道拖到 30fps 以下；字幕层变化慢，30 足够顺滑
         _lyricsPipeline.Start(
             LyricsRenderUrl,
             LyricsSenderName,
-            _settings.RenderFps,
+            Math.Min(_settings.RenderFps, 30),
             _settings.Width,
             _settings.Height,
             true);
@@ -129,6 +191,12 @@ public partial class MainWindow : Window
 
     public void RestartSpout()
     {
+        if (Split)
+        {
+            MirrorHostBridge.Instance!.SendCmd("restart");
+            return;
+        }
+
         var pipeline = SpoutPipeline.Instance;
         pipeline.Stop();
         pipeline.SyncPoke = ForceSyncResend;
@@ -173,8 +241,6 @@ public partial class MainWindow : Window
         if (_clean)
             Browser.ExecuteScriptAsync(
                 "window.JizuraLive && JizuraLive.setClean(true);");
-
-        // 采样间隔 = 1000/输出帧率，落在 window.__jlSyncMs；运行时改帧率走 ApplySyncRate 热更新
         var syncMs = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
 
         var syncScript = """
@@ -237,6 +303,23 @@ public partial class MainWindow : Window
                          """.Replace("__SYNC_MS__", syncMs.ToString());
 
         Browser.ExecuteScriptAsync(syncScript);
+
+        // 编辑页(重)加载后全局丢失，等页面就绪戳一次 __jlHostResend 补发最新 state
+        if (Split)
+        {
+            _ = Task.Delay(1500).ContinueWith(_ =>
+                Dispatcher.InvokeAsync(() =>
+                {
+                    try
+                    {
+                        Browser.ExecuteScriptAsync("window.__jlHostResend && window.__jlHostResend();");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("编辑页 state 补发戳失败：" + ex.Message);
+                    }
+                }));
+        }
     }
 
     private void OnJavascriptMessageReceived(object? sender, JavascriptMessageReceivedEventArgs e)
@@ -248,12 +331,21 @@ public partial class MainWindow : Window
                 typeObj == null)
                 return;
 
-            // sync_play 是高频时间流（约 30 条/秒），分流处理不逐条记日志
-            if (string.Equals(typeObj.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
-            {
-                HandleSyncPlay(dict);
-                return;
-            }
+        // sync_play 是高频时间流（约 30 条/秒），分流处理不逐条记日志
+        if (string.Equals(typeObj.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleSyncPlay(dict);
+            return;
+        }
+
+        // 镜像宿主中继：编辑页 bindEditorBroadcast 镜像给宿主的 BC 消息（state/project/sub）。
+        // 标记键不能下划线开头——CefSharp 的 V8→CLR 转换会丢 __ 开头的键
+        if (dict.ContainsKey("jlHostRelay"))
+        {
+            Log.Info($"[中继] 收到编辑页消息：{typeObj}");
+            MirrorHostBridge.Instance?.SendMsg(dict);
+            return;
+        }
 
             // MCP 导出指定的免确认落盘目录，dir=null 表示导出结束、恢复另存为
             if (string.Equals(typeObj.ToString(), "set_autosave_dir", StringComparison.OrdinalIgnoreCase))
@@ -284,6 +376,13 @@ public partial class MainWindow : Window
                 Log.Info($"[MainWindow] sync_play 状态切换：playing={playing}, t={time:F3}");
             }
 
+            // 锚点经管道喂宿主里的两路管线
+            if (Split)
+            {
+                MirrorHostBridge.Instance!.SendPlay(playing, time);
+                return;
+            }
+
             SpoutPipeline.Instance.ApplyPlaybackSync(playing, time);
             _lyricsPipeline.ApplyPlaybackSync(playing, time);
         }
@@ -304,6 +403,30 @@ public partial class MainWindow : Window
         {
             Log.Warn("ForceSyncResend 失败：" + ex.Message);
         }
+    }
+
+    // 宿主 ready/镜像页加载常早于编辑器浏览器初始化完成，state 补发戳带重试直到页面可执行脚本
+    private async Task PokeEditorStateWithRetryAsync()
+    {
+        for (var i = 0; i < 30; i++)
+        {
+            try
+            {
+                if (Browser.IsBrowserInitialized && Browser.CanExecuteJavascriptInMainFrame)
+                {
+                    Browser.ExecuteScriptAsync("window.__jlHostResend && window.__jlHostResend();");
+                    return;
+                }
+            }
+            catch
+            {
+                // 浏览器尚在初始化，等下一轮
+            }
+
+            await Task.Delay(500);
+        }
+
+        Log.Warn("编辑页 15s 未就绪，宿主 state 补发放弃（等下一次镜像页加载再触发）");
     }
 
     // 页面里执行脚本并取回 JSON.stringify 的结果（null = 通知）。

@@ -13,6 +13,11 @@ const connected = ref(false);
 const spoutParams = new URLSearchParams(window.location.search);
 const isLyricLayer = spoutParams.get('layer') === 'lyric';
 const isMirror = spoutParams.get('mirror') === '1';
+// 输出分辨率（设置里的渲染窗口尺寸）：镜像画布钉在它上面，场景等比缩放进画布，
+// 工程分辨率变化不再覆盖输出尺寸。缺省（旧宿主）回退工程分辨率
+const outW = Math.max(0, Number(spoutParams.get('outw')) || 0);
+const outH = Math.max(0, Number(spoutParams.get('outh')) || 0);
+const hasOutSize = outW > 0 && outH > 0;
 // desynchronized 是给 Chromium 的低延迟提示，画布更新绕过合成器直出，代价是可能撕裂
 // ?dsync=0 关掉做 A/B；画布被遮挡时 Chromium 会静默忽略该提示（镜像 isolate 后画布独占页面才稳定生效）
 const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: spoutParams.get('dsync') !== '0'};
@@ -76,6 +81,8 @@ onMounted(() => {
     isConnected: sink.isConnected,
   });
   stopBridge = bridge.stop;
+  // 宿主模式：编辑页消息由 C# 经管道送来，从这里进（独立进程里 BC 不可达）
+  (window as any).__jlApplyMsg = bridge.dispatch;
   connected.value = stage.connected;
   watch(() => stage.connected, v => {
     connected.value = v;
@@ -134,6 +141,8 @@ onUnmounted(() => {
 });
 
 function fitPlanSize(cv: HTMLCanvasElement) {
+  // 镜像模式钉了输出尺寸时画布归 fit() 管，不被工程分辨率拖回去
+  if (isMirror && hasOutSize) return;
   const plan = stage.plan;
   if (!plan || !plan.W) return;
   if (cv.width !== plan.W || cv.height !== plan.H) {
@@ -145,20 +154,37 @@ function fitPlanSize(cv: HTMLCanvasElement) {
 // 不做后台预热，与上游 JIZURA 一致：morph/首帧播放时惰性构建（morphCache LRU）
 // 实测全量 warmMorphs 会把共享 GPU 进程打满，编辑器主界面成片掉帧
 
+// 自适应质量：与编辑器 S.slow 同迟滞逻辑。draw 实测超预算就传 fast 给引擎
+// （跳 glow 整屏模糊/ctx.filter 特效——密集段这两项能把帧成本顶到 30ms），
+// 降下来再恢复。镜像必须自己做这件事，编辑器的 S.slow 管不到这个进程
+let fastDraw = false;
+
 function draw(cv: HTMLCanvasElement) {
   const plan = stage.plan;
   if (!plan) return;
   const ctx = cv.getContext('2d', CTX_2D)!;
+  const t0 = performance.now();
   try {
     if (isLyricLayer) {
       // 透明画布上只叠字幕
       ctx.clearRect(0, 0, cv.width, cv.height);
-      drawSubtitleFrame(ctx, plan, stage.t, {scale: cv.width / plan.W});
+      drawSubtitleFrame(ctx, plan, stage.t, {scale: drawScale(cv, plan)});
     } else {
-      renderer.frame(ctx, plan, stage.t, {scale: cv.width / plan.W, transparent: !!window.__jl_spout_transparent});
+      renderer.frame(ctx, plan, stage.t, {scale: drawScale(cv, plan), transparent: !!window.__jl_spout_transparent, fast: fastDraw});
     }
   } catch { // 单帧失败不中断泵
   }
+  // 预算按泵周期算：60fps 预算 16.7ms，>20ms 降级、<10ms 恢复，滞回防抖
+  const dt = performance.now() - t0;
+  if (dt > 20) fastDraw = true;
+  else if (dt < 10) fastDraw = false;
+}
+
+// 场景 → 画布的等比缩放：min(宽比, 高比)，宽高比不一致时上左对齐、右/下留边。
+// 满幅 1:1 时与旧的 cv.width/plan.W 完全一致
+function drawScale(cv: HTMLCanvasElement, plan: any) {
+  if (!plan.W || !plan.H) return 1;
+  return Math.min(cv.width / plan.W, cv.height / plan.H);
 }
 
 // Spout 镜像模式（?mirror=1），行为对齐原 C# 注入脚本 SpoutPipeline.MirrorScript：
@@ -219,7 +245,10 @@ function startMirror(cv: HTMLCanvasElement) {
   function fit() {
     const plan = stage.plan;
     if (!plan) return false;
-    const w = Number(plan.W) || 0, h = Number(plan.H) || 0;
+    // 画布目标尺寸：有 outw/outh 时钉在输出分辨率（设置 wins，不再被工程分辨率覆盖）；
+    // plan-size 只在无输出尺寸参数时回发（旧宿主按工程分辨率跟随）
+    const w = hasOutSize ? outW : (Number(plan.W) || 0);
+    const h = hasOutSize ? outH : (Number(plan.H) || 0);
     if (w <= 0 || h <= 0) return false;
     let changed = false;
     if (cv.width !== w || cv.height !== h) {
@@ -231,7 +260,7 @@ function startMirror(cv: HTMLCanvasElement) {
     if (w !== lastW || h !== lastH) {
       lastW = w;
       lastH = h;
-      postedPending = !postHost({type: 'plan-size', w: lastW, h: lastH});
+      if (!hasOutSize) postedPending = !postHost({type: 'plan-size', w: lastW, h: lastH});
       changed = true;
     } else if (postedPending) {
       postedPending = !postHost({type: 'plan-size', w: lastW, h: lastH});
@@ -257,13 +286,17 @@ function startMirror(cv: HTMLCanvasElement) {
   const schedulePump = useHighFreqPump
       ? () => setTimeout(pump, PUMP_MS)
       : () => requestAnimationFrame(pump);
+  // rAF 模式且 fps 接近刷新率（≥50）时关掉 PUMP_MS 门限，节拍交给 vsync：
+  // 门限 ≈ BeginFrame 周期，间隔稍有抖动（16.5ms < 16.7ms）就随机丢一帧，
+  // 主窗口 75Hz / 镜像 60Hz 混跑时表现为规律性跳帧。低于 50fps 仍按门限隔帧抽
+  const vsyncPaced = !useHighFreqPump && fps >= 50;
 
   const pump = () => {
     if (pumpStopped) return; // 清理后终止递归链，别叠出双泵
     schedulePump();
     try {
       const now = performance.now();
-      if (now - pumpLast < PUMP_MS) return;
+      if (now - pumpLast < PUMP_MS && !vsyncPaced) return;
       pumpLast = now;
       const sizeChanged = fit();
       // 播放中在锚点间按墙钟外推满帧率出画；暂停只在画面真会变时
@@ -311,6 +344,7 @@ function startMirror(cv: HTMLCanvasElement) {
     pumpStopped = true;
     window.removeEventListener('storage', onStorage);
     window.clearInterval(isolateTimer);
+    delete (window as any).__jlApplyMsg;
     stage.extClock = null;
     delete (window as any).__jlApplySync;
   };

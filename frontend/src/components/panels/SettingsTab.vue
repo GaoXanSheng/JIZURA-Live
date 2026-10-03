@@ -25,6 +25,7 @@ const form = reactive({
   spoutName: 'JIZURA-live',
   spoutTransparent: false,
   spoutLyricsEnabled: false,
+  splitMirrorHost: true,
   cdpEnabled: false,
   cdpPort: 9222,
 });
@@ -94,6 +95,7 @@ async function applyAndRestart() {
         spoutEnabled: form.spoutEnabled, spoutName: form.spoutName,
         spoutTransparent: form.spoutTransparent,
         spoutLyricsEnabled: form.spoutLyricsEnabled,
+        splitMirrorHost: form.splitMirrorHost,
         cdpEnabled: form.cdpEnabled, cdpPort: form.cdpPort,
       }),
     });
@@ -235,6 +237,9 @@ onUnmounted(() => offs.forEach(f => f()));
           渲染透明背景（输出透明图层）</label>
         <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立
           Spout 字幕通道 <b>{{ form.spoutName || 'JIZURA-live' }}-LYRICS</b></label>
+        <label class="checkline"><input v-model="form.splitMirrorHost" type="checkbox" @change="markDirty">
+          镜像独立进程渲染（GPU 隔离）</label>
+        <p class="hint !text-[11px] !mt-0 !pl-6">渲染独立宿主进程，与编辑器互不抢占 GPU：镜像光栅打满时编辑器预览不再被拖去等待。 切换会重建镜像输出（短暂黑 1~2 秒）</p>
       </div>
 
       <div class="flex flex-col gap-1.5 mt-3.5">
@@ -252,7 +257,7 @@ onUnmounted(() => offs.forEach(f => f()));
         {{ applying ? '正在重启…' : (dirty ? '保存并重启渲染引擎' : '重启渲染引擎') }}
       </button>
       <p class="note">
-        分辨率・帧率・Spout・透明背景的改动需点上方按钮保存并重启渲染引擎后生效；调试端口需重启应用。画布比例即时生效。</p>
+        分辨率・帧率・Spout・透明背景・镜像独立进程的改动需点上方按钮保存后生效（镜像独立进程即时切换，无需重启应用）；调试端口需重启应用。画布比例即时生效。</p>
 
       <details class="border border-line rounded-md bg-raised mt-4">
         <summary

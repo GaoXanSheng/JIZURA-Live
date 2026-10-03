@@ -11,8 +11,9 @@ export default defineConfig({
   plugins: [
     vue(),
     tailwindcss(),
-    // CEF 装不了 Chrome 扩展，用页内嵌版的 devtools 调组件树/状态
-    VueDevTools(),
+    // CEF 装不了 Chrome 扩展，用页内嵌版的 devtools 调组件树/状态；
+    // VITE_NO_DEVTOOLS=1 跳过注入，压测/录 trace 时排除 devtools 钩子的干扰
+    ...(process.env.VITE_NO_DEVTOOLS ? [] : [VueDevTools()]),
   ],
   // 版本号单一事实源是 package.json，编译期注入，TopBar 写包和 MCP serverInfo 共用
   define: {

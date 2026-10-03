@@ -10,7 +10,9 @@ public static class CefRuntime
     public static string CachePath { get; private set; } = "";
     public static string LogFile { get; private set; } = "";
 
-    public static bool Initialize(Settings? settings = null)
+    // cacheDirName: CEF 锁定 cache 目录，同机多 CEF 实例（如镜像独立宿主进程）必须各用一份；
+    // cdpPortOverride: 宿主进程的 CDP 端口与主进程错开，环境变量 JIZURA_CDP_PORT 仍最优先
+    public static bool Initialize(Settings? settings = null, string cacheDirName = "cef-cache", int? cdpPortOverride = null)
     {
         if (_initialized || Cef.IsInitialized == true)
         {
@@ -18,7 +20,7 @@ public static class CefRuntime
             return true;
         }
 
-        CachePath = Path.Combine(AppDirs.Root, "cef-cache");
+        CachePath = Path.Combine(AppDirs.Root, cacheDirName);
         LogFile = Path.Combine(CachePath, "cef_debug.log");
         var cefSettings = new CefSettings
         {
@@ -31,20 +33,15 @@ public static class CefRuntime
             ResourcesDirPath = AppContext.BaseDirectory,
             BackgroundColor = Cef.ColorSetARGB(0, 0, 0, 0)
         };
-
-        // 镜像（离屏）浏览器没有用户手势，AudioContext 默认被自动播放策略拦停，播放时钟走不动；
-        // 主窗口有真实交互，放开无副作用
         cefSettings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
         cefSettings.CefCommandLineArgs.Remove("disable-gpu-compositing");
-        // 反节流：窗口被遮挡/失焦时 Chromium 会把渲染器降频（rAF 掉到 1-4fps、定时器限流），
-        // 界面一卡一卡。镜像页必须持续出帧，主窗口也不允许被节流
         cefSettings.CefCommandLineArgs["disable-backgrounding-occluded-windows"] = "1";
         cefSettings.CefCommandLineArgs["disable-renderer-backgrounding"] = "1";
         cefSettings.CefCommandLineArgs["disable-background-timer-throttling"] = "1";
         cefSettings.CefCommandLineArgs["disable-features"] = "CalculateNativeWinOcclusion";
         var extraArgs = Environment.GetEnvironmentVariable("JIZURA_CEF_ARGS") ?? "";
         foreach (var tok in extraArgs.Split(
-                     new[] { ' ', ',' },
+                     new[] { ' ' },
                      StringSplitOptions.RemoveEmptyEntries))
         {
             var eq = tok.IndexOf('=');
@@ -61,6 +58,11 @@ public static class CefRuntime
         {
             cdpPort = envParsed;
             Log.Info($"CDP 端口来自环境变量：JIZURA_CDP_PORT={envParsed}");
+        }
+        else if (cdpPortOverride.HasValue && cdpPortOverride.Value > 0)
+        {
+            cdpPort = cdpPortOverride;
+            Log.Info($"CDP 端口来自角色覆盖：{cdpPort.Value}");
         }
         else if (settings != null &&
                  settings.CdpEnabled &&

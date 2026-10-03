@@ -19,9 +19,9 @@ export function fixedLayout() {
 // 视图挂载（StageCanvas 组件调用）
 let viewEl: HTMLElement | null = null;
 let viewCanvas: HTMLCanvasElement | null = null;
-// desynchronized：Chromium 低延迟提示，?dsync=0 关闭可做 A/B。
-// 编辑器里画布被 msg/badge 等浮层遮挡时，Chromium 会静默忽略该提示
-const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: new URLSearchParams(location.search).get('dsync') !== '0'};
+// desynchronized 只为 Spout 镜像压延迟（RenderPage 有自己的开关）；编辑器开了反而
+// 每帧强制 Finish 同步等 GPU（镜像满载时单次 20-47ms，即播放掉帧来源），默认关，?dsync=1 才开
+const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: new URLSearchParams(location.search).get('dsync') === '1'};
 // desynchronized 开启时的离屏整帧缓冲，见 draw() 内注释
 let viewBuf: HTMLCanvasElement | null = null;
 

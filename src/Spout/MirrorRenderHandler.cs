@@ -18,8 +18,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
 {
     private readonly SpoutPipeline _owner;
 
-    private readonly object _renderLock = new();
-
     private bool _accelFirstSeen;
     private bool _cpuFirstSeen;
 
@@ -33,13 +31,6 @@ public sealed class MirrorRenderHandler : IRenderHandler
     private Device _dxDevice = null!;
     private Device1 _dxDevice1 = null!;
 
-    private Texture2D? _sharedTexture;
-
-    private Format _sharedTextureFormat;
-    private int _sharedTextureHeight;
-
-    private int _sharedTextureWidth;
-
     private SpoutSender _spoutSender;
     private bool _zeroHandleWarned;
 
@@ -48,13 +39,11 @@ public sealed class MirrorRenderHandler : IRenderHandler
     private long _lastRenderErrorTick = -31_000;
     private int _renderErrorsSinceLastLog;
 
-    public MirrorRenderHandler(
-        SpoutPipeline owner)
+    public MirrorRenderHandler(SpoutPipeline owner)
     {
         _owner = owner;
 
-        InitializeDirectX(
-            _owner.SenderName ?? "JIZURA-live");
+        InitializeDirectX(_owner.SenderName ?? "JIZURA-live");
     }
 
     public ScreenInfo? GetScreenInfo()
@@ -138,48 +127,45 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         var cpuFirstSeenWarn = false;
         Exception? logEx = null;
-
-        lock (_renderLock)
+        try
         {
+            EnsureCpuTexture(width, height);
+            if (_cpuTexture == null)
+                return;
+            var context = _dxDevice.ImmediateContext;
+            var mapped = context.MapSubresource(_cpuTexture, 0, MapMode.WriteDiscard, MapFlags.None);
             try
             {
-                EnsureCpuTexture(width, height);
-                if (_cpuTexture == null)
-                    return;
-                var context = _dxDevice.ImmediateContext;
-                var mapped = context.MapSubresource(_cpuTexture, 0, MapMode.WriteDiscard, MapFlags.None);
-                try
-                {
-                    var srcStride = checked(width * 4);
-                    var dstStride = mapped.RowPitch;
-                    if (dstStride == srcStride)
-                        Utilities.CopyMemory(mapped.DataPointer, buffer, checked(height * srcStride));
-                    else
-                        for (var row = 0; row < height; row++)
-                        {
-                            var src = IntPtr.Add(buffer, row * srcStride);
-                            var dst = IntPtr.Add(mapped.DataPointer, row * dstStride);
-                            Utilities.CopyMemory(dst, src, srcStride);
-                        }
-                }
-                finally
-                {
-                    context.UnmapSubresource(_cpuTexture, 0);
-                }
-
-                _spoutSender.SendTexture(_cpuTexture.NativePointer);
-
-                if (!_cpuFirstSeen)
-                {
-                    _cpuFirstSeen = true;
-                    cpuFirstSeenWarn = true;
-                }
+                var srcStride = checked(width * 4);
+                var dstStride = mapped.RowPitch;
+                if (dstStride == srcStride)
+                    Utilities.CopyMemory(mapped.DataPointer, buffer, checked(height * srcStride));
+                else
+                    for (var row = 0; row < height; row++)
+                    {
+                        var src = IntPtr.Add(buffer, row * srcStride);
+                        var dst = IntPtr.Add(mapped.DataPointer, row * dstStride);
+                        Utilities.CopyMemory(dst, src, srcStride);
+                    }
             }
-            catch (Exception ex)
+            finally
             {
-                logEx = ex;
+                context.UnmapSubresource(_cpuTexture, 0);
+            }
+
+            _spoutSender.SendTexture(_cpuTexture.NativePointer);
+
+            if (!_cpuFirstSeen)
+            {
+                _cpuFirstSeen = true;
+                cpuFirstSeenWarn = true;
             }
         }
+        catch (Exception ex)
+        {
+            logEx = ex;
+        }
+
 
         if (cpuFirstSeenWarn)
             Log.Warn(
@@ -219,31 +205,17 @@ public sealed class MirrorRenderHandler : IRenderHandler
         }
 
         Exception? logEx = null;
-        string? ensureSharedTextureLog = null;
 
-        lock (_renderLock)
+        try
         {
-            try
-            {
-                using var cefTexture = _dxDevice1.OpenSharedResource1<Texture2D>(info.SharedTextureHandle);
-                if (cefTexture == null) return;
-                ensureSharedTextureLog = EnsureSharedTexture(cefTexture);
-                if (_sharedTexture == null)
-                    return;
-                var context = _dxDevice.ImmediateContext;
-                context.CopyResource(cefTexture, _sharedTexture);
-                // 发自己的稳定副本而非 CEF 源纹理：拷贝结果必须被消费，
-                // 否则 CEF 覆写下一帧时 Spout 端可能拿到撕裂帧
-                // （对齐 CefSharp 官方 shared-texture 示例：先拷贝到自有纹理再发送）
-                _spoutSender.SendTexture(_sharedTexture.NativePointer);
-            }
-            catch (Exception ex)
-            {
-                logEx = ex;
-            }
+            using var cefTexture = _dxDevice1.OpenSharedResource1<Texture2D>(info.SharedTextureHandle);
+            if (cefTexture == null) return;
+            _spoutSender.SendTexture(cefTexture.NativePointer);
         }
-
-        if (ensureSharedTextureLog != null) Log.Info(ensureSharedTextureLog);
+        catch (Exception ex)
+        {
+            logEx = ex;
+        }
 
         if (logEx != null) LogRenderError("OnAcceleratedPaint", logEx);
     }
@@ -257,61 +229,48 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         var logExs = new List<Exception>();
 
-        lock (_renderLock)
+        try
         {
-            try
-            {
-                _spoutSender.Dispose();
-            }
-            catch (Exception ex)
-            {
-                logExs.Add(ex);
-            }
-
-            try
-            {
-                _cpuTexture?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                logExs.Add(ex);
-            }
-
-            _cpuTexture = null;
-
-            try
-            {
-                _sharedTexture?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                logExs.Add(ex);
-            }
-
-            _sharedTexture = null;
-
-            try
-            {
-                _dxDevice1?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                logExs.Add(ex);
-            }
-
-            _dxDevice1 = null!;
-
-            try
-            {
-                _dxDevice?.Dispose();
-            }
-            catch (Exception ex)
-            {
-                logExs.Add(ex);
-            }
-
-            _dxDevice = null!;
+            _spoutSender.Dispose();
         }
+        catch (Exception ex)
+        {
+            logExs.Add(ex);
+        }
+
+        try
+        {
+            _cpuTexture?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            logExs.Add(ex);
+        }
+
+        _cpuTexture = null;
+
+        try
+        {
+            _dxDevice1?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            logExs.Add(ex);
+        }
+
+        _dxDevice1 = null!;
+
+        try
+        {
+            _dxDevice?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            logExs.Add(ex);
+        }
+
+        _dxDevice = null!;
+
 
         foreach (var ex in logExs) Log.Debug("Dispose object failed: " + ex);
     }
@@ -367,37 +326,5 @@ public sealed class MirrorRenderHandler : IRenderHandler
         _cpuTexture = new Texture2D(_dxDevice, desc);
         _cpuTextureWidth = width;
         _cpuTextureHeight = height;
-    }
-
-    // GPU 共享纹理：CEF 每帧给出源纹理，这里维护一份同尺寸/格式的自有副本
-    private string? EnsureSharedTexture(Texture2D source)
-    {
-        var desc = source.Description;
-        if (_sharedTexture != null && _sharedTextureWidth == desc.Width && _sharedTextureHeight == desc.Height &&
-            _sharedTextureFormat == desc.Format)
-            return null;
-
-        _sharedTexture?.Dispose();
-
-        var targetDesc = new Texture2DDescription
-        {
-            Width = desc.Width,
-            Height = desc.Height,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = desc.Format,
-            SampleDescription = new SampleDescription(1, 0),
-            Usage = ResourceUsage.Default,
-            BindFlags = BindFlags.ShaderResource | BindFlags.RenderTarget,
-            CpuAccessFlags = CpuAccessFlags.None,
-            OptionFlags = ResourceOptionFlags.None
-        };
-
-        _sharedTexture = new Texture2D(_dxDevice, targetDesc);
-        _sharedTextureWidth = desc.Width;
-        _sharedTextureHeight = desc.Height;
-        _sharedTextureFormat = desc.Format;
-
-        return $"[SpoutMirror] 创建输出纹理：" + $"{desc.Width}x{desc.Height}, " + $"Format={desc.Format}";
     }
 }

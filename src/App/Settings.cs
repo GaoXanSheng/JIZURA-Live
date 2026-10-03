@@ -18,6 +18,10 @@ public sealed class Settings
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;
 
+    // 镜像跑独立宿主进程（同 exe --mirror-host）：独立 GPU 进程，编辑器不被镜像光栅拖累。
+    // false 或 JIZURA_MIRROR_HOST=0 回退同进程模式
+    public bool SplitMirrorHost { get; set; } = true;
+
     // CDP 调试端口，默认关；开启后 CEF 只监听本机回环。
     // RemoteDebuggingPort 必须在 Cef.Initialize 前配置，重启生效
     public bool CdpEnabled { get; set; }

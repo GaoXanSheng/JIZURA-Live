@@ -23,6 +23,7 @@ internal sealed class SettingsController : WebApiController
             spoutName = s.SpoutName,
             spoutTransparent = s.SpoutTransparent,
             spoutLyricsEnabled = s.SpoutLyricsEnabled,
+            splitMirrorHost = s.SplitMirrorHost,
             cdpEnabled = s.CdpEnabled,
             cdpPort = s.CdpPort
         };
@@ -83,6 +84,7 @@ internal sealed class SettingsController : WebApiController
 
         // 开关差值必须在赋值前取：赋值后再比较永远为 false
         var lyricsToggled = settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled;
+        var splitToggled = settings.SplitMirrorHost != d.SplitMirrorHost;
 
         Application.Current?.Dispatcher.Invoke(() =>
         {
@@ -102,6 +104,8 @@ internal sealed class SettingsController : WebApiController
                 changed.Add($"渲染透明背景{(d.SpoutTransparent ? " 开启" : " 关闭")}");
             if (lyricsToggled)
                 changed.Add($"独立 Spout 字幕通道{(d.SpoutLyricsEnabled ? " 开启" : " 关闭")}");
+            if (splitToggled)
+                changed.Add($"镜像独立进程渲染{(d.SplitMirrorHost ? " 开启" : " 关闭")}");
 
             settings.Width = width;
             settings.Height = height;
@@ -110,6 +114,7 @@ internal sealed class SettingsController : WebApiController
             settings.SpoutName = string.IsNullOrWhiteSpace(d.SpoutName) ? "JIZURA-live" : d.SpoutName.Trim();
             settings.SpoutTransparent = d.SpoutTransparent;
             settings.SpoutLyricsEnabled = d.SpoutLyricsEnabled;
+            settings.SplitMirrorHost = d.SplitMirrorHost;
 
             var port = Math.Clamp(d.CdpPort, 1, 65535);
             if (settings.CdpEnabled != d.CdpEnabled || settings.CdpPort != port)
@@ -126,7 +131,13 @@ internal sealed class SettingsController : WebApiController
 
         // 字幕通道开关变了：主通道要重注入 __jl_no_sub（字幕分离标志），歌词通道随 RestartSpout 启停，
         // 整体重启一次到位。CEF 浏览器创建必须在 Cef.Initialize 的线程（主线程）上
-        if (lyricsToggled)
+        if (splitToggled)
+        {
+            // 拆分开关整体重建管线，已覆盖歌词开关的效果
+            Application.Current?.Dispatcher.Invoke(
+                () => (Application.Current.MainWindow as MainWindow)?.ApplySplitMode(d.SplitMirrorHost));
+        }
+        else if (lyricsToggled)
             Application.Current?.Dispatcher.Invoke(
                 () => (Application.Current.MainWindow as MainWindow)?.RestartSpout());
 
@@ -176,6 +187,7 @@ internal sealed class SettingsController : WebApiController
         public string SpoutName { get; set; } = "";
         public bool SpoutTransparent { get; set; }
         public bool SpoutLyricsEnabled { get; set; }
+        public bool SplitMirrorHost { get; set; } = true;
         public bool CdpEnabled { get; set; }
         public int CdpPort { get; set; }
     }
