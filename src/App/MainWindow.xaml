@@ -33,6 +33,9 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="BtnMin" Content="&#xE921;" Style="{StaticResource ChromeBtn}"
                         FontFamily="Segoe MDL2 Assets" Click="BtnMin_Click" ToolTip="最小化" />
+                <!-- 最大化 ↔ 窗口化共用一个按钮，图标和提示随窗口状态切换（见 UpdateMaxButton） -->
+                <Button x:Name="BtnMax" Content="&#xE739;" Style="{StaticResource ChromeBtn}"
+                        FontFamily="Segoe MDL2 Assets" Click="BtnMax_Click" ToolTip="最大化" />
                 <Button x:Name="BtnClose" Content="&#xE8BB;"
                         FontFamily="Segoe MDL2 Assets" Click="BtnClose_Click" ToolTip="退出">
                     <Button.Style>

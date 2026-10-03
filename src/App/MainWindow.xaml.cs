@@ -1,5 +1,7 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using CefSharp;
 using JizuraLive.Server;
 
@@ -49,12 +51,44 @@ public partial class MainWindow : Window
                 StartSpout();
         };
 
+        // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
+        StateChanged += (_, _) => UpdateMaxButton();
+
         Closed += (_, _) =>
         {
             McpBridge.EvaluateAsync = null;
             SpoutPipeline.Instance.Stop();
             _lyricsPipeline.Stop();
         };
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        ((HwndSource)PresentationSource.FromVisual(this))?.AddHook(WndProc);
+        UpdateMaxButton();
+    }
+
+    // WindowStyle=None 的窗口最大化默认盖住任务栏、边缘还悬出屏幕一截：
+    // 挂 WM_GETMINMAXINFO 把最大化尺寸/位置钉到最近显示器的 work area（任务栏以内）解决
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != WM_GETMINMAXINFO)
+            return IntPtr.Zero;
+
+        var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+        var mi = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        var hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if (hMonitor == IntPtr.Zero || !GetMonitorInfo(hMonitor, ref mi))
+            return IntPtr.Zero;
+
+        mmi.ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+        mmi.ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+        mmi.ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+        mmi.ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+        Marshal.StructureToPtr(mmi, lParam, true);
+        handled = true;
+        return IntPtr.Zero;
     }
 
     // 拆分模式：Spout 管线在独立宿主进程里，本窗口只发命令不建管线
@@ -450,6 +484,13 @@ public partial class MainWindow : Window
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // 双击标题栏在最大化/窗口化之间切换（标准窗口行为）
+        if (e.ClickCount == 2)
+        {
+            BtnMax_Click(sender, e);
+            return;
+        }
+
         if (e.ButtonState == MouseButtonState.Pressed)
             try
             {
@@ -465,6 +506,63 @@ public partial class MainWindow : Window
     {
         WindowState = WindowState.Minimized;
     }
+
+    private void BtnMax_Click(object sender, RoutedEventArgs e)
+    {
+        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    }
+
+    // 最大化态显示「窗口化」图标（还原），普通态显示「最大化」
+    private void UpdateMaxButton()
+    {
+        var max = WindowState == WindowState.Maximized;
+        BtnMax.Content = max ? "\uE923" : "\uE739";
+        BtnMax.ToolTip = max ? "窗口化" : "最大化";
+    }
+
+    private const int WM_GETMINMAXINFO = 0x0024;
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MINMAXINFO
+    {
+        public POINT ptReserved;
+        public POINT ptMaxSize;
+        public POINT ptMaxPosition;
+        public POINT ptMinTrackSize;
+        public POINT ptMaxTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int left;
+        public int top;
+        public int right;
+        public int bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     private void BtnClose_Click(object sender, RoutedEventArgs e)
     {

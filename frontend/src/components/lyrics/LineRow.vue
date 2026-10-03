@@ -249,10 +249,10 @@ function onRng(ev: MouseEvent) {
            @blur="finishEdit(true)" @keydown.enter.prevent="finishEdit(true)" @keydown.esc.prevent="finishEdit(false)">
     <span v-else :class="{ 'italic': row.interlude }" :title="row.full" class="truncate cursor-pointer"
           @click="seekLine">{{ row.label }}</span>
-    <!-- 固定两带：切分条单行不换行（放不下就横向滚），动作带常驻右对齐；行高由此稳定不因换行抖动 -->
+    <!-- 每个切分独占一行（时间框第 2 个起，排在该段手法下拉左侧），纵向排布固定不折行 -->
     <div class="col-span-2 col-start-2 flex flex-col items-stretch gap-1 min-w-0">
-      <div v-if="row.cuts.length" class="flex items-center gap-1 flex-nowrap overflow-x-auto min-w-0 py-0.5">
-        <span v-for="cell in row.cuts" :key="cell.k" class="flex items-center gap-0.5 shrink-0">
+      <div v-if="row.cuts.length" class="flex flex-col items-start gap-1 min-w-0">
+        <span v-for="cell in row.cuts" :key="cell.k" class="flex items-center gap-0.5">
           <input v-if="cell.k > 0" :aria-label="`第 ${row.i + 1} 行：切分 ${cell.k} 结束・切分 ${cell.k + 1} 开始（秒）`"
                  :class="cell.ct != null ? '!border-cyan' : ''"
                  :title="`切分 ${cell.k} 的结束 ＝ 切分 ${cell.k + 1} 的开始（秒・${cell.ct != null ? '手动' : '自动'}）。切分首尾相接，两段共用这条边界。${cell.ct != null ? '清空则恢复自动' : '输入数值则固定'}`"
