@@ -122,103 +122,20 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return null;
     };
 
-    // 音频特效，预览与导出共用一套图：预览在实时 AudioContext 建图，导出在
-    // OfflineAudioContext 用同一构建器离线渲染。LFO 一律 OscillatorNode 接 AudioParam，
-    // 不用 rAF 推参数，离线渲染同样成立 ⇒ 导出完全确定，预览也没有每帧 JS 开销
-    // EQ 频段 Hz：7 段 peaking，增益 -12..+12 dB
-    J.AUDIO_EQ_BANDS = [60, 150, 400, 1000, 2400, 6000, 15000];
-
-    J.sanitizeAudioFx = (fx) => {
-        const PRESETS = ['none', 'pan', 'spatial', 'orbit', 'eq'];
-        const o = fx && typeof fx === 'object' ? fx : {};
-        const clamp = (v, a, b, d) => (typeof v === 'number' && isFinite(v)) ? Math.min(b, Math.max(a, v)) : d;
-        const eq = J.AUDIO_EQ_BANDS.map((hz, i) => {
-            const v = Array.isArray(o.eq) ? o.eq[i] : 0;
-            return clamp(v, -12, 12, 0);
-        });
-        return {
-            preset: PRESETS.includes(o.preset) ? o.preset : 'none',
-            rate: clamp(o.rate, 0.02, 2, 0.125),    // 摆动/旋转速度 Hz
-            depth: clamp(o.depth, 0, 1, 0.7),        // 强度 0..1
-            eq                                       // 各频段 dB 增益
-        };
-    };
-
-    // 构建特效图，实时或离线 BaseAudioContext 都行；返回 { input, output, channels }，preset=none 时 null
-    J.buildAudioFx = (ctx, cfg, opts = {}) => {
-        const fx = J.sanitizeAudioFx(cfg);
-        if (fx.preset === 'none') return null;
-        const input = ctx.createGain(), output = ctx.createGain();
-        const st = opts.anchorT || 0;
-        const deg = d => d * Math.PI / 180;
-
-        if (fx.preset === 'pan') {
-            // 环绕音：立体声左右摆动
-            const panner = ctx.createStereoPanner();
-            const lfo = ctx.createOscillator();
-            lfo.frequency.value = fx.rate;
-            const amt = ctx.createGain();
-            amt.gain.value = fx.depth;
-            lfo.connect(amt).connect(panner.pan);
-            input.connect(panner).connect(output);
-            lfo.start(st);
-        } else if (fx.preset === 'spatial') {
-            // 3D 丽音：左右声道各自 HRTF 定位（∓40°）做空间展宽。两个 panner 的立体声
-            // 输出直接汇进 output，节点相加按声道对齐；不能过 ChannelMerger，
-            // 每路会被下混成单声道，抹掉双耳线索
-            const splitter = ctx.createChannelSplitter(2);
-            input.connect(splitter);
-            const r = 1.5 + fx.depth;
-            [[0, -40], [1, 40]].forEach(([ch, az]) => {
-                const p = ctx.createPanner();
-                p.panningModel = 'HRTF';
-                p.positionX.value = Math.sin(deg(az)) * r;
-                p.positionZ.value = -Math.cos(deg(az)) * r;
-                splitter.connect(p, ch, 0);
-                p.connect(output);
-            });
-        } else if (fx.preset === 'orbit') {
-            // 3D 旋转（8D）：HRTF 声源绕听者转圈，sin/cos 双 LFO 驱动坐标
-            const p = ctx.createPanner();
-            p.panningModel = 'HRTF';
-            const r = 1.2 + fx.depth * 1.8;
-            const sx = ctx.createOscillator(), sz = ctx.createOscillator();
-            sx.frequency.value = fx.rate;
-            sz.frequency.value = fx.rate;
-            const gx = ctx.createGain(), gz = ctx.createGain();
-            gx.gain.value = r;
-            gz.gain.value = r;
-            sx.connect(gx).connect(p.positionX);
-            sz.connect(gz).connect(p.positionZ);
-            input.connect(p).connect(output);
-            sx.start(st);
-            sz.start(st + 1 / (4 * fx.rate));   // 相位差 90°
-        } else if (fx.preset === 'eq') {
-            // 7 段 peaking 串联；相邻频段相互影响轻微（Q=1），做「自定义音色」够用
-            let node = input;
-            for (let i = 0; i < J.AUDIO_EQ_BANDS.length; i++) {
-                const f = ctx.createBiquadFilter();
-                f.type = 'peaking';
-                f.frequency.value = J.AUDIO_EQ_BANDS[i];
-                f.Q.value = 1;
-                f.gain.value = fx.eq[i];
-                node.connect(f);
-                node = f;
-            }
-            node.connect(output);
-        }
-
-        return {input, output, channels: 2};
-    };
-
-    async function resample(buffer, sr, duration, offset = 0, fx = null) {
+    // 音频特效（J.AFX_UNITS/J.buildAudioFx/J.sanitizeAudioFx）在 10b_audiofx.js：
+    // 预览与导出共用同一构建器与预设，这里只负责在 OfflineAudioContext 里渲染。
+    // resample：按墙钟时长 duration 渲染 [offset, offset+duration*speed] 的歌曲段，
+    // speed 即 J.fxSpeed 的变速倍率（buffer 以 playbackRate 播，渲染长度=墙钟时长）
+    async function resample(buffer, sr, duration, offset = 0, fx = null, speed = 1) {
         // 特效图与预览共用 J.buildAudioFx 构建，同一构建器 ⇒ 预览与导出听感一致
         const chn = Math.min(2, buffer.numberOfChannels);
         const len = Math.ceil(duration * sr);
         const oc = new OfflineAudioContext(chn, len, sr);
         const src = oc.createBufferSource();
         src.buffer = buffer;
-        const graph = fx ? J.buildAudioFx(oc, fx, {songDur: buffer.duration, fromT: offset, toT: offset + duration}) : null;
+        src.playbackRate.value = speed;
+        // toT 是缓冲区窗口（速度×墙钟），供曲线包络类特效按歌曲时刻铺自动化
+        const graph = fx ? J.buildAudioFx(oc, fx, {songDur: buffer.duration, fromT: offset, toT: offset + duration * speed}) : null;
         if (graph) {
             src.connect(graph.input);
             graph.output.connect(oc.destination);
@@ -269,14 +186,15 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         if (!audio || !audio.buffer) throw new Error('未载入歌曲，无法导出音频（请从「载入歌曲」重新载入）');
         const span = J.exportSpan(plan, range);
         const fx = J.sanitizeAudioFx(project.audioFx);
+        const spd = J.fxSpeed(project);
         onProgress && onProgress(0.1, '音声をレンダリング中');
         if (signal && signal.aborted) throw new Error('キャンセルしました');
-        const rs = await resample(audio.buffer, audio.buffer.sampleRate, span.dur, span.t0, fx.preset !== 'none' ? fx : null);
+        const rs = await resample(audio.buffer, audio.buffer.sampleRate, span.dur / spd, span.t0, fx.units.length ? fx : null, spd);
         if (signal && signal.aborted) throw new Error('キャンセルしました');
         onProgress && onProgress(0.9, 'WAV を書き出し中');
         const blob = J.audioWav(rs, rs.duration, 0);
         onProgress && onProgress(1, '完了');
-        return {blob, sampleRate: rs.sampleRate, channels: rs.numberOfChannels, duration: span.dur};
+        return {blob, sampleRate: rs.sampleRate, channels: rs.numberOfChannels, duration: span.dur / spd};
     };
 
     // MP4 边编码边写（moov 在末尾），不攒一整块巨型 ArrayBuffer：file 为 null 时写进
@@ -368,6 +286,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         // 音频特效（project.audioFx）：导出时在 OfflineAudioContext 里渲染特效图。
         // 要不要音轨由调用方决定（audio 传不传），引擎不再读 includeAudio 开关
         const fx = audio && audio.buffer ? J.sanitizeAudioFx(project.audioFx) : null;
+        // 变速（J.fxSpeed）：视频/音频都按墙钟输出——画面取歌曲时刻 t0+speed·i/fps，
+        // 歌词/节拍按歌曲原时刻存，速度变化天然同步；span 仍是歌曲时刻区间
+        const spd = J.fxSpeed(project);
+        const wallDur = span.dur / spd;
         if (fx) {
             audioChn = Math.min(2, audio.buffer.numberOfChannels);
             ac = await J.pickAudioCodec(audioChn);
@@ -410,7 +332,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         canvas.height = h;
         const ctx = canvas.getContext('2d', {alpha: false});
         const R = new J.Renderer();
-        const total = Math.max(1, Math.round(span.dur * fps));
+        const total = Math.max(1, Math.round(wallDur * fps));
         const scale = w / plan.W;
         const prevRes = J.glyphs.maxRes;
         J.glyphs.maxRes = h >= 1000 ? 768 : 512;
@@ -428,10 +350,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 }
                 if (err) throw err;
                 if (venc.state === 'closed') throw new Error('エンコーダーが停止しました');
-                R.frame(ctx, plan, span.t0 + i / fps, {scale});
+                R.frame(ctx, plan, span.t0 + spd * i / fps, {scale});
                 // 字幕烤入：预览叠加层不进导出帧（export.ts 导出期间关掉全局叠加），
                 // mp4 靠这个显式回调把字幕叠在正式帧上；overlay 为空即不烤
-                if (overlay) overlay(ctx, plan, span.t0 + i / fps, {scale});
+                if (overlay) overlay(ctx, plan, span.t0 + spd * i / fps, {scale});
                 const vf = new VideoFrame(canvas, {
                     timestamp: Math.round(i * 1e6 / fps),
                     duration: Math.round(1e6 / fps)
@@ -469,7 +391,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         if (outFrames < total * 0.98) throw new Error(`動画のフレームが足りません（${outFrames}/${total}）`);
         if (ac) {
             onProgress && onProgress(0.99, '音声をエンコード中');
-            const rs = await resample(audio.buffer, ac.sr, span.dur, span.t0, fx && fx.preset !== 'none' ? fx : null);
+            const rs = await resample(audio.buffer, ac.sr, wallDur, span.t0, fx && fx.units.length ? fx : null, spd);
             const chn = rs.numberOfChannels;
             let aChunks = 0, aEnd = 0, aErr = null;
             const aenc = new AudioEncoder({
@@ -509,7 +431,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             };    // 音频问题换视频编码器也没用，jzFatal 让外层不再重试
             if (aErr) throw fatal('音声のエンコードに失敗しました: ' + (aErr.message || aErr));
             // 编码器必须产出完整音轨，否则报错，不能写个没声的文件出去
-            if (!aChunks || aEnd < (Math.min(span.dur, audio.buffer.duration - span.t0) - 0.5) * 1e6) throw fatal('音声のエンコードが途中で止まりました（' + aChunks + '）。もう一度書き出してください');
+            if (!aChunks || aEnd < (Math.min(wallDur, (audio.buffer.duration - span.t0) / spd) - 0.5) * 1e6) throw fatal('音声のエンコードが途中で止まりました（' + aChunks + '）。もう一度書き出してください');
         }
         onProgress && onProgress(0.995, 'ファイルを仕上げ中');
         muxer.finalize();
@@ -614,7 +536,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         canvas.height = h;
         const ctx = canvas.getContext('2d');
         const R = new J.Renderer();
-        const fps = plan.fps, total = Math.max(1, Math.round(span.dur * fps));
+        const fps = plan.fps, spd = J.fxSpeed(project), total = Math.max(1, Math.round(span.dur / spd * fps));
         const nFiles = Math.ceil(total / every) * (layers ? 2 : 1);
         if (nFiles > 0xffff) throw new Error(ZIP_TOO_BIG);        // 渲染开始前就报，而不是一小时之后
         const zip = new ZipWriter();
@@ -634,10 +556,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                         ctx.setTransform(1, 0, 0, 1, 0, 0);
                         ctx.clearRect(0, 0, w, h);
                         ctx.restore();
-                        customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                        customDraw(ctx, plan, span.t0 + spd * i / fps, {scale});
                     } else {
-                        R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: transparent || !!layers || !!frontOnly, layer, noHud: !!frontOnly});
-                        if (overlay && layer !== 'back') overlay(ctx, plan, span.t0 + i / fps, {scale});
+                        R.frame(ctx, plan, span.t0 + spd * i / fps, {scale, transparent: transparent || !!layers || !!frontOnly, layer, noHud: !!frontOnly});
+                        if (overlay && layer !== 'back') overlay(ctx, plan, span.t0 + spd * i / fps, {scale});
                     }
                     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
                     zip.add((layer ? layer + '/' : '') + name, new Uint8Array(await blob.arrayBuffer()));
@@ -688,7 +610,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         output.addVideoTrack(source, {frameRate: fps});
         await output.start();
         const R = new J.Renderer();
-        const total = Math.max(1, Math.round(span.dur * fps));
+        const spd = J.fxSpeed(project), total = Math.max(1, Math.round(span.dur / spd * fps));
         const scale = w / plan.W;
         const prevRes = J.glyphs.maxRes;
         J.glyphs.maxRes = h >= 1000 ? 768 : 512;
@@ -705,10 +627,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                     ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, w, h);
                     ctx.restore();
-                    customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                    customDraw(ctx, plan, span.t0 + spd * i / fps, {scale});
                 } else {
-                    R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: !!transparent, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
-                    if (overlay) overlay(ctx, plan, span.t0 + i / fps, {scale});
+                    R.frame(ctx, plan, span.t0 + spd * i / fps, {scale, transparent: !!transparent, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
+                    if (overlay) overlay(ctx, plan, span.t0 + spd * i / fps, {scale});
                 }
                 await source.add(i / fps, 1 / fps);   // await 即背压：编码器过载时挂起
                 if (i % 3 === 0) {

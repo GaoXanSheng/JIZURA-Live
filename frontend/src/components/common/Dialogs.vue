@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {nextTick, onMounted, onUnmounted, ref} from 'vue';
+import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue';
 import {bus} from '../../jizura/bus';
 import {resetAll} from '../../jizura/look';
 import {J} from '../../engine';
@@ -64,20 +64,73 @@ onUnmounted(() => {
   clearTimeout(eqTimer);
 });
 
+// ---------- 音频特效 v2：预设包 + 效果链 rack + 变速 ----------
 const fx = ref(J.sanitizeAudioFx(null));
+const UNIT: any = J.AFX_UNITS, PRESETS: any[] = J.AFX_PRESETS;
 const EQ_LABEL = ['60', '150', '400', '1k', '2.4k', '6k', '15k'];
 const eqCanvas = ref<HTMLCanvasElement | null>(null);
 let eqDrag = -1;
 let eqTimer = 0;
+const openUnit = ref(-1);
+const addId = ref('');
+
+const eqIdx = computed(() => fx.value.units.findIndex((u: any) => u.id === 'eq'));
+const addable = computed(() => Object.keys(UNIT).filter(id => !fx.value.units.some((u: any) => u.id === id)));
+
+const round = (v: number) => Math.abs(v) >= 100 ? Math.round(v) : +Number(v).toFixed(2);
+const fmtDur = (s: number) => s >= 60 ? `${Math.floor(s / 60)}分${(s % 60).toFixed(0)}秒` : `${s.toFixed(1)}秒`;
 
 function applyFx(patch: any) {
   setAudioFx(patch);
   fx.value = J.sanitizeAudioFx(S.project.audioFx);
-  if (fx.value.preset === 'eq') nextTick(drawEq);   // 切到 EQ 时画布才刚 v-if 出现，得等挂载完再画
+  if (eqIdx.value >= 0) nextTick(drawEq);   // EQ 画布随链变化，得等挂载完再画
 }
 
-// EQ 画布：7 个把手各管一个频段，增益 -12..+12dB
-// 拖动中节流提交，边拖边听；松手提交最终值
+function usePreset(p: any) {
+  applyFx(p.cfg);
+  openUnit.value = -1;
+}
+
+function addUnit() {
+  if (!addId.value) return;
+  applyFx({units: [...fx.value.units, {id: addId.value, on: true, params: {...UNIT[addId.value].defaults}}]});
+  openUnit.value = fx.value.units.length - 1;
+  addId.value = '';
+}
+
+function rmUnit(i: number) {
+  applyFx({units: fx.value.units.filter((_: any, k: number) => k !== i)});
+}
+
+function moveUnit(i: number, d: number) {
+  const j = i + d;
+  if (j < 0 || j >= fx.value.units.length) return;
+  const units = fx.value.units.slice();
+  [units[i], units[j]] = [units[j], units[i]];
+  applyFx({units});
+}
+
+function toggleUnit(i: number) {
+  applyFx({units: fx.value.units.map((u: any, k: number) => k === i ? {...u, on: !u.on} : u)});
+}
+
+function setParam(i: number, key: string, v: any) {
+  applyFx({units: fx.value.units.map((u: any, k: number) => k === i ? {...u, params: {...u.params, [key]: v}} : u)});
+}
+
+function paramSummary(u: any): string {
+  return UNIT[u.id].params.map((s: any) => {
+    if (s.type === 'eq') return eqIdx.value >= 0 && fx.value.units[eqIdx.value].params.gains.some((g: number) => g) ? '自定义曲线' : '平直';
+    return `${s.label} ${round(u.params[s.key])}${s.unit || ''}`;
+  }).join('・');
+}
+
+// EQ 画布：绑定链上的 eq 单元（没有就不画）
+function eqGains(): number[] {
+  const i = eqIdx.value;
+  return i >= 0 ? fx.value.units[i].params.gains : [0, 0, 0, 0, 0, 0, 0];
+}
+
 const eqX = (i: number, W: number) => 30 + i * (W - 42) / (J.AUDIO_EQ_BANDS.length - 1);
 const eqY = (db: number, H: number) => H / 2 - (Math.min(12, Math.max(-12, db)) / 12) * (H / 2 - 8);
 
@@ -85,7 +138,7 @@ function drawEq() {
   const c = eqCanvas.value;
   if (!c) return;
   const x = c.getContext('2d')!;
-  const W = c.width, H = c.height;
+  const W = c.width, H = c.height, gains = eqGains();
   x.fillStyle = '#131316';
   x.fillRect(0, 0, W, H);
   x.strokeStyle = 'rgba(255,255,255,0.18)';
@@ -97,13 +150,13 @@ function drawEq() {
   x.strokeStyle = '#f5a50c';
   x.lineWidth = 2;
   x.beginPath();
-  fx.value.eq.forEach((db: number, i: number) => {
+  gains.forEach((db: number, i: number) => {
     const px = eqX(i, W);
     if (i) x.lineTo(px, eqY(db, H)); else x.moveTo(px, eqY(db, H));
   });
   x.stroke();
   x.fillStyle = '#f5a50c';
-  fx.value.eq.forEach((db: number, i: number) => {
+  gains.forEach((db: number, i: number) => {
     x.beginPath();
     x.arc(eqX(i, W), eqY(db, H), 4, 0, Math.PI * 2);
     x.fill();
@@ -129,14 +182,15 @@ function eqPick(e: PointerEvent): number {
 }
 
 function eqApply(e: PointerEvent) {
+  const i = eqIdx.value;
+  if (i < 0) return;
   const r = eqCanvas.value!.getBoundingClientRect();
   const db = Math.max(-12, Math.min(12, ((r.height / 2 - (e.clientY - r.top)) / (r.height / 2 - 8)) * 12));
-  const eq = fx.value.eq.slice();
-  eq[eqDrag] = +db.toFixed(1);
-  fx.value = {...fx.value, eq};
+  const gains = eqGains().slice();
+  gains[eqDrag] = +db.toFixed(1);
   drawEq();
   clearTimeout(eqTimer);
-  eqTimer = window.setTimeout(() => setAudioFx({eq}), 60);
+  eqTimer = window.setTimeout(() => setParam(i, 'gains', gains), 60);
 }
 
 function eqDown(e: PointerEvent) {
@@ -155,7 +209,7 @@ function eqUp() {
   if (eqDrag < 0) return;
   eqDrag = -1;
   clearTimeout(eqTimer);
-  setAudioFx({eq: fx.value.eq});
+  if (eqIdx.value >= 0) setParam(eqIdx.value, 'gains', eqGains());
 }
 </script>
 
@@ -244,31 +298,69 @@ function eqUp() {
         <button aria-label="关闭" class="absolute right-3.5 top-3 text-mut hover:!text-white text-[15px] leading-none z-10"
                 @click="audioFxOpen = false">✕</button>
         <h2 id="audiofxTitle" class="text-[15px] tracking-wider font-semibold mb-2.5">音频特效</h2>
-        <div class="flex items-center gap-2 flex-wrap text-xs mb-1.5">
-          <select :value="fx.preset" aria-label="特效类型" class="!h-[30px]"
-                  title="预览与导出 MP4 同时生效"
-                  @change="applyFx({preset: ($event.target as HTMLSelectElement).value})">
-            <option value="none">关闭（原始声音）</option>
-            <option value="pan">环绕音（左右摆动）</option>
-            <option value="spatial">3D 丽音（双耳空间展宽）</option>
-            <option value="orbit">3D 旋转（8D 环绕）</option>
-            <option value="eq">自定义 EQ（音色均衡）</option>
-          </select>
-          <button v-if="fx.preset === 'eq'" class="btn btn-ghost btn-sm" @click="applyFx({eq: [0,0,0,0,0,0,0]})">EQ 归零
+        <!-- 预设包：一键写整条链 -->
+        <div class="flex flex-wrap gap-1 mb-2.5">
+          <button v-for="p in PRESETS" :key="p.id" class="btn btn-sm btn-ghost" :title="'套用预设：' + p.label"
+                  @click="usePreset(p)">{{ p.label }}
           </button>
         </div>
-        <div v-if="fx.preset !== 'none' && fx.preset !== 'eq'" class="flex items-center gap-5 text-xs my-2.5">
-          <label class="flex items-center gap-1.5 text-mut">速度
-            <input type="range" min="0.02" max="1" step="0.005" :value="fx.rate" class="w-32"
-                   @change="applyFx({rate: +($event.target as HTMLInputElement).value})"></label>
-          <label class="flex items-center gap-1.5 text-mut">强度
-            <input type="range" min="0" max="1" step="0.01" :value="fx.depth" class="w-32"
-                   @change="applyFx({depth: +($event.target as HTMLInputElement).value})"></label>
+        <!-- 变速：改出声快慢，歌词/节拍按歌曲原时刻自动同步 -->
+        <div v-if="S.audio" class="row gap-2 text-xs mb-2">
+          <span class="text-mut shrink-0">变速</span>
+          <input type="range" min="0.5" max="2" step="0.05" :value="fx.speed" class="flex-1"
+                 aria-label="变速倍率"
+                 @change="applyFx({speed: +($event.target as HTMLInputElement).value})">
+          <span class="font-mono w-12 text-right">×{{ fx.speed.toFixed(2) }}</span>
+          <span class="font-mono text-mut w-20 text-right">{{ fmtDur(S.audio.duration / fx.speed) }}</span>
         </div>
-        <canvas v-if="fx.preset === 'eq'" ref="eqCanvas" width="512" height="120"
-                class="block w-full my-2 cursor-crosshair rounded" @pointerdown="eqDown"
-                @pointermove="eqMove" @pointerup="eqUp" @pointercancel="eqUp"></canvas>
-        <p class="note !text-[10px]">环绕音=左右摆动；3D 系特效建议戴耳机听；EQ 拖动 7 个频段把手调音色（±12dB，60Hz〜15kHz）。特效只作用于歌曲音频，预览音量与消音不受影响。</p>
+        <!-- 效果链 rack -->
+        <div class="grid gap-1 mb-2">
+          <div v-for="(u, i) in fx.units" :key="u.id + i" class="rounded border border-line">
+            <div class="row gap-2 px-2 py-1 text-[13px]">
+              <input type="checkbox" :checked="u.on" :title="UNIT[u.id].note" @change="toggleUnit(i)">
+              <button class="font-semibold" :aria-expanded="openUnit === i"
+                      @click="openUnit = openUnit === i ? -1 : i">{{ UNIT[u.id].label }} {{ openUnit === i ? '▾' : '▸' }}
+              </button>
+              <span class="text-mut text-[11px] truncate flex-1">{{ paramSummary(u) }}</span>
+              <button class="btn btn-ghost btn-sm !px-1.5" :disabled="i === 0" aria-label="上移" @click="moveUnit(i, -1)">↑
+              </button>
+              <button class="btn btn-ghost btn-sm !px-1.5" :disabled="i === fx.units.length - 1" aria-label="下移"
+                      @click="moveUnit(i, 1)">↓
+              </button>
+              <button class="btn btn-ghost btn-sm !px-1.5" aria-label="移除" @click="rmUnit(i)">✕</button>
+            </div>
+            <div v-if="openUnit === i" class="px-3 pb-2 grid gap-1.5">
+              <p class="note !text-[10px] mb-0">{{ UNIT[u.id].note }}</p>
+              <template v-for="s in UNIT[u.id].params" :key="s.key">
+                <label v-if="!s.type" class="row gap-2 text-xs">
+                  <span class="text-mut w-14 shrink-0">{{ s.label }}</span>
+                  <input type="range" class="flex-1" :min="s.min" :max="s.max" :step="s.step"
+                         :value="u.params[s.key]"
+                         @change="setParam(i, s.key, +($event.target as HTMLInputElement).value)">
+                  <span class="font-mono w-16 text-right">{{ round(u.params[s.key]) }}{{ s.unit || '' }}</span>
+                </label>
+                <div v-else-if="s.type === 'eq'">
+                  <canvas ref="eqCanvas" width="512" height="120"
+                          class="block w-full my-1 cursor-crosshair rounded" @pointerdown="eqDown"
+                          @pointermove="eqMove" @pointerup="eqUp" @pointercancel="eqUp"></canvas>
+                  <div class="row justify-between text-[9px] text-mut font-mono -mt-1">
+                    <span v-for="l in EQ_LABEL" :key="l">{{ l }}</span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+          <p v-if="!fx.units.length" class="note mb-0">链上没有效果——从上面挑个预设，或在下方添加效果单元自由组合。</p>
+        </div>
+        <!-- 添加效果 -->
+        <div class="row gap-1.5 text-xs">
+          <select v-model="addId" class="flex-1" aria-label="添加效果">
+            <option value="" disabled>添加效果…</option>
+            <option v-for="id in addable" :key="id" :value="id">{{ UNIT[id].label }}</option>
+          </select>
+          <button class="btn btn-sm" :disabled="!addId" @click="addUnit()">添加</button>
+        </div>
+        <p class="note !text-[10px]">效果按顺序串联，↑↓ 调整先后（顺序影响听感）；预览与导出 MP4/WAV 同时生效。变速改变歌曲时长，歌词与节拍自动跟随；混响等需要噪声的效果用固定种子，导出与预览逐样本一致。</p>
       </div>
     </div>
   </Transition>

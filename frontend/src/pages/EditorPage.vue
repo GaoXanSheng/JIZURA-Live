@@ -64,8 +64,9 @@ onUnmounted(() => offs.forEach(f => f()));
           aria-label="预览"
           class="col-stage flex flex-col gap-2.5 px-4 py-3 min-w-0 min-h-0 overflow-hidden max-[1180px]:overflow-y-auto max-[1180px]:[grid-column:1/-1] max-[1180px]:[order:-1]">
         <StageCanvas/>
-        <Transport/>
-        <TimelineCanvas/>
+        <!-- flex-none：中间列里只允许舞台画布伸缩，播放条/时间轴被压瘪会坏 -->
+        <Transport class="flex-none"/>
+        <TimelineCanvas class="flex-none"/>
         <CutInfo/>
       </section>
       <section

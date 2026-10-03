@@ -164,7 +164,8 @@ function onNcut(ev: Event) {
   seek(props.row.start + 0.001);
 }
 
-// 切分开始时刻（第 2 个起）：输入绝对时刻，存成行首起的偏移；清空即自动
+// 切分边界时刻（第 2 个起）：切分首尾相接，这个数既是一段的结束也是下一段的开始；
+// 输入绝对时刻，存成行首起的偏移；清空即自动
 function onCutTime(cell: CutCell, ev: Event) {
   const raw = (ev.target as HTMLInputElement).value;
   const v = parseFloat(raw);
@@ -236,8 +237,8 @@ function onRng(ev: MouseEvent) {
       :data-i="row.i"
       class="row-cv grid grid-cols-[22px_66px_minmax(0,1fr)] gap-x-1.5 gap-y-1 items-center p-1.5 rounded-md border transition-colors">
     <span class="font-mono text-[11px] text-faint text-right">{{ row.no }}</span>
-    <input :aria-label="`第 ${row.i + 1} 行的开始秒`" :class="row.manual ? '!border-cyan' : ''"
-           :title="`开始（秒）${row.manual ? '・手动' : '・自动'}`"
+    <input :aria-label="`第 ${row.i + 1} 行 行开始秒`" :class="row.manual ? '!border-cyan' : ''"
+           :title="`行开始（秒）${row.manual ? '・手动' : '・自动'}`"
            :value="row.start.toFixed(2)" class="!h-[26px] !py-0.5 !px-1 text-xs w-full mono" min="0"
            step="0.01" type="number"
            @change="onTime">
@@ -248,12 +249,13 @@ function onRng(ev: MouseEvent) {
            @blur="finishEdit(true)" @keydown.enter.prevent="finishEdit(true)" @keydown.esc.prevent="finishEdit(false)">
     <span v-else :class="{ 'italic': row.interlude }" :title="row.full" class="truncate cursor-pointer"
           @click="seekLine">{{ row.label }}</span>
-    <div class="col-span-2 col-start-2 flex justify-between items-start gap-1.5 flex-wrap">
-      <span class="flex gap-1 flex-wrap min-w-0 flex-[1_1_140px]">
-        <span v-for="cell in row.cuts" :key="cell.k" class="flex items-center gap-0.5">
-          <input v-if="cell.k > 0" :aria-label="`第 ${row.i + 1} 行 切分 ${cell.k + 1} 的开始秒`"
+    <!-- 固定两带：切分条单行不换行（放不下就横向滚），动作带常驻右对齐；行高由此稳定不因换行抖动 -->
+    <div class="col-span-2 col-start-2 flex flex-col items-stretch gap-1 min-w-0">
+      <div v-if="row.cuts.length" class="flex items-center gap-1 flex-nowrap overflow-x-auto min-w-0 py-0.5">
+        <span v-for="cell in row.cuts" :key="cell.k" class="flex items-center gap-0.5 shrink-0">
+          <input v-if="cell.k > 0" :aria-label="`第 ${row.i + 1} 行：切分 ${cell.k} 结束・切分 ${cell.k + 1} 开始（秒）`"
                  :class="cell.ct != null ? '!border-cyan' : ''"
-                 :title="cell.ct != null ? '这个切分的开始时刻（手动）。清空则恢复自动' : '这个切分的开始时刻（自动）。输入数值则固定'"
+                 :title="`切分 ${cell.k} 的结束 ＝ 切分 ${cell.k + 1} 的开始（秒・${cell.ct != null ? '手动' : '自动'}）。切分首尾相接，两段共用这条边界。${cell.ct != null ? '清空则恢复自动' : '输入数值则固定'}`"
                  :value="cell.start.toFixed(2)" class="!h-[22px] !py-0 !px-0.5 text-[10px] w-[52px] mono"
                  min="0" step="0.01" type="number" @change="onCutTime(cell, $event)">
           <select :aria-label="`第 ${row.i + 1} 行 切分 ${cell.k + 1} 的布局`"
@@ -264,8 +266,9 @@ function onRng(ev: MouseEvent) {
                   @blur="onTechBlur" @change="onCutLayout(cell, $event)"
                   @focus="onTechOpen" @pointerdown="onCutSelectDown(cell, $event)"></select>
         </span>
-      </span>
-      <span class="flex gap-1 flex-wrap justify-end ml-auto">
+      </div>
+      <!-- ml-auto 而非 justify-end：溢出时内容从行尾侧超出、可滚动到达，不会出现滚不到的按钮 -->
+      <div class="flex items-center gap-0.5 flex-nowrap overflow-x-auto min-w-0 py-0.5 [&>*]:shrink-0 [&>*:first-child]:ml-auto">
         <button :aria-label="`修改第 ${row.i + 1} 行歌词`" class="btn btn-icon btn-ghost" title="修改这一行的歌词"
                 @click="startEdit">
           <svg fill="none" stroke="currentColor" stroke-width="1.4" viewBox="0 0 16 16"><path
@@ -300,7 +303,7 @@ function onRng(ev: MouseEvent) {
                                                                                               x="3" y="7"/><path
               d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
         </button>
-      </span>
+      </div>
     </div>
   </li>
 </template>

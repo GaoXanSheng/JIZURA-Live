@@ -103,7 +103,20 @@ describe('JZLV 容器', () => {
 });
 
 describe('audioFx 随工程包往返', () => {
-    it('project.json 里的音频特效经打包→读取→mergeProject 后完整恢复', async () => {
+    it('v2 特效链经打包→读取→mergeProject 后完整恢复', async () => {
+        const project = JSON.stringify({
+            lyrics: 'テスト',
+            audioFx: {speed: 1.1, units: [{id: 'reverb', on: true, params: {size: 2.4, damp: 0.4, wet: 0.3}}, {id: 'echo', on: false, params: {time: 0.2, feedback: 0.3, tone: 5000, wet: 0.3}}]},
+        });
+        const bytes = await buildPackage([{name: PROJECT_ENTRY, data: new TextEncoder().encode(project)}]);
+        const entries = await readPackage(bytes);
+        const restored = mergeProject(JSON.parse(entryText(entries[0])));
+        expect(restored.audioFx.speed).toBe(1.1);
+        expect(restored.audioFx.units[0]).toMatchObject({id: 'reverb', on: true, params: {size: 2.4, damp: 0.4, wet: 0.3}});
+        expect(restored.audioFx.units[1]).toMatchObject({id: 'echo', on: false});
+    });
+
+    it('v1 旧工程包（preset 模型）自动迁移成等价链', async () => {
         const project = JSON.stringify({
             lyrics: 'テスト',
             audioFx: {preset: 'eq', eq: [3, 0, 0, 0, 0, 0, -4], rate: 0.3, depth: 0.5},
@@ -111,20 +124,20 @@ describe('audioFx 随工程包往返', () => {
         const bytes = await buildPackage([{name: PROJECT_ENTRY, data: new TextEncoder().encode(project)}]);
         const entries = await readPackage(bytes);
         const restored = mergeProject(JSON.parse(entryText(entries[0])));
-        expect(restored.audioFx.preset).toBe('eq');
-        expect(restored.audioFx.eq).toEqual([3, 0, 0, 0, 0, 0, -4]);
+        expect(restored.audioFx.units).toHaveLength(1);
+        expect(restored.audioFx.units[0]).toMatchObject({id: 'eq', on: true});
+        expect(restored.audioFx.units[0].params.gains).toEqual([3, 0, 0, 0, 0, 0, -4]);
     });
 
-    it('旧工程包没有 audioFx 时回退默认（none）', () => {
+    it('旧工程包没有 audioFx 时回退默认（空链・速度 1）', () => {
         const restored = mergeProject({lyrics: 'x'});
-        expect(restored.audioFx.preset).toBe('none');
-        expect(restored.audioFx.eq).toEqual([0, 0, 0, 0, 0, 0, 0]);
+        expect(restored.audioFx.speed).toBe(1);
+        expect(restored.audioFx.units).toEqual([]);
     });
 
     it('工程包里的非法 audioFx 被清洗', () => {
         const restored = mergeProject({audioFx: {preset: 'room51', rate: 999, eq: 'x'}});
-        expect(restored.audioFx.preset).toBe('none');   // room51 已移除，未知预设回退 none
-        expect(restored.audioFx.rate).toBe(2);          // 合法数值越界 → 钳制到上限而非丢弃
-        expect(restored.audioFx.eq).toEqual([0, 0, 0, 0, 0, 0, 0]);   // 非数组 → 全零
+        expect(restored.audioFx.units).toEqual([]);   // 未知预设 → 空链
+        expect(restored.audioFx.speed).toBe(1);
     });
 });

@@ -78,11 +78,12 @@ const initialAP = {
     this.src = s;
     this.startAt = this.ctx.currentTime - off;
   },
-  // 按当前 project.audioFx 重建特效图；曲线包络每次起点都重铺自动化
+  // 按当前 project.audioFx 重建特效图；曲线包络每次起点都重铺自动化。
+  // v2 模型：units 链里任一开启才建图（speed 变速不出现在图里，走播放速率）
   rebuildFx(buffer: AudioBuffer, offset: number) {
     const ctx = this.ctx!;
     const cfg = (S.project && S.project.audioFx) || null;
-    const want = cfg && cfg.preset && cfg.preset !== 'none';
+    const want = !!(cfg && Array.isArray(cfg.units) && cfg.units.some((u: any) => u.on));
     const key = want ? JSON.stringify(cfg) : '';
     if (!want) {
       if (this.fx) {

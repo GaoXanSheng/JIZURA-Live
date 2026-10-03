@@ -23,6 +23,7 @@ const items = ref<{ g: string; cls: string; label: string; value: string; forced
 const pick = ref<{ g: string; line: number; k: number; title: string } | null>(null);
 const pickCards = ref<any[]>([]);
 const pickGrid = ref<HTMLElement | null>(null);
+const pickRoot = ref<HTMLElement | null>(null);
 const offs: (() => void)[] = [];
 
 const layoutHue = (k: string) => (J.LAYOUT_ORDER.indexOf(k) * 37 + 30) % 360;
@@ -100,6 +101,8 @@ function fillPick() {
   requestAnimationFrame(() => {
     if (!pickGrid.value) return;
     if (groupChanged) pickGrid.value.scrollTop = 0;
+    // 面板展开在列尾，中间列空间不够时要能滚到它（nearest 已可见时不动）
+    pickRoot.value?.scrollIntoView({block: 'nearest'});
     registerThumbs(pickGrid.value);
   });
 }
@@ -151,9 +154,10 @@ onUnmounted(() => offs.forEach(f => f()));
     </template>
   </div>
   <!-- 固定头 + 内部滚动区。滚动容器不能带顶部 padding，不然滚动的行会从
-       sticky 头上方的空隙穿出来，表现为标题上方挂着一条滚不掉的碎条 -->
-  <div v-if="pick"
-       class="cut-pick border border-line rounded-md bg-panel max-h-[min(42vh,420px)] flex flex-col overflow-hidden">
+       sticky 头上方的空隙穿出来，表现为标题上方挂着一条滚不掉的碎条。
+       flex-none：空间不够时宁可让中间列出滚动条，也不能把面板压瘪成一条 -->
+  <div v-if="pick" ref="pickRoot"
+       class="cut-pick border border-line rounded-md bg-panel max-h-[min(42vh,420px)] flex flex-col overflow-hidden flex-none">
     <div class="flex items-center gap-2 px-2 pt-2 pb-1 flex-none">
       <strong class="text-xs">{{ pick.title }}</strong>
       <span class="text-mut flex-1 text-[11px]">只替换这个切分</span>

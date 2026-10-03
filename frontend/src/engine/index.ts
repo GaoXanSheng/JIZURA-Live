@@ -14,6 +14,7 @@ import './08_planner.js';
 import './08b_omakase.js';
 import './09_render.js';
 import './10_audio.js';
+import './10b_audiofx.js'; // 音频特效 v2：效果器架 + 预设 + 变速（11_export 的 resample 依赖它）
 import './11_export.js';
 import './11p_bgcamB.js';
 import './11p_decor.js';

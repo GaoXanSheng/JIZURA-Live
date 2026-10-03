@@ -230,9 +230,15 @@ export function playRate() {
     return S.tap && S.tap.rate > 0 ? S.tap.rate : 1;
 }
 
+// 实际出声速率 = 打点练习速率 × 音效变速（J.fxSpeed）。S.t 始终是歌曲原时刻，
+// 速度只改变它前进的快慢——歌词/节拍天然同步
+export function outRate() {
+    return playRate() * (S.audio ? J.fxSpeed(S.project) : 1);
+}
+
 export function play() {
     refreshLoopHold();
-    if (S.audio) AP.play(S.audio.buffer, S.t, playRate());
+    if (S.audio) AP.play(S.audio.buffer, S.t, outRate());
     else S.t0 = performance.now() - S.t * 1000 / playRate();
     S.playing = true;
     bus.emit('playstate');
@@ -250,7 +256,7 @@ export function seek(t: number) {
     if (S.audio) {
         // scrub 拖动中只挪时间不重启音频：每次 AP.play 都是 stop+新建
         // BufferSource（一次拖动上百个节点 + 每步一次可闻爆音），endScrub 恢复
-        if (S.playing && !S.scrubbing) AP.play(S.audio.buffer, S.t, playRate());
+        if (S.playing && !S.scrubbing) AP.play(S.audio.buffer, S.t, outRate());
     } else S.t0 = performance.now() - S.t * 1000 / playRate();
     refreshLoopHold();
     S.need = true;
@@ -271,7 +277,7 @@ export function endScrub() {
     if (!S.scrubbing) return;
     S.scrubbing = false;
     if (S.playing) {
-        if (S.audio) AP.play(S.audio.buffer, S.t, playRate());
+        if (S.audio) AP.play(S.audio.buffer, S.t, outRate());
         else S.t0 = performance.now() - S.t * 1000 / playRate();
     }
     S.need = true;

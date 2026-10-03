@@ -57,7 +57,12 @@ function cycleLoop() {
 
 const vol = ref(Math.round(AP.vol * 100));
 const muted = ref(AP.muted);
-const fxOn = ref(!!(S.project as any)?.audioFx && (S.project as any).audioFx.preset !== 'none');
+const fxOn = ref(fxActive());
+// 音效链上有没有开启的单元（特效按钮点亮态）；speed 变速不算特效
+function fxActive() {
+  const fx = (S.project as any)?.audioFx;
+  return !!(fx && Array.isArray(fx.units) && fx.units.some((u: any) => u.on));
+}
 // 音量条与进度条同款自绘：原生 range 的 value 绑定拖动时以指针频率
 // 触发 Vue 全量 patch（同款文档级失效）。拖动中只写 transform 和引擎音量，
 // vol/muted 状态与落盘松手时一次提交
@@ -140,8 +145,7 @@ onMounted(() => {
   offs.push(bus.on('sync-ui', onHist));
   offs.push(bus.on('sync-ui', () => {
     theme.value = J.THEMES && J.THEMES[S.project?.themeId] ? S.project.themeId : '';
-    const p = (S.project as any)?.audioFx;
-    fxOn.value = !!p && p.preset !== 'none';
+    fxOn.value = fxActive();
   }));
   offs.push(bus.on('frame', () => {
     const now = performance.now();

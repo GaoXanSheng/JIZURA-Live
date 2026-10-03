@@ -512,6 +512,10 @@
 
     html.fixed-ok .work {
         overflow: hidden;
+        /* 行高锁成可用高度：默认 auto 行会随内容（如切分手法替换面板）一起长高，
+           把 .col-stage 撑出容器、被这里的 overflow:hidden 裁掉——
+           列自己的 overflow-y:auto 永远等不到溢出，表现为中间屏怎么都滚不动 */
+        grid-template-rows: minmax(0, 1fr);
     }
 
     html.fixed-ok .col-left, html.fixed-ok .col-right {

@@ -14,7 +14,7 @@ import {buildSpec, type ExportCfg, type ExportSpec, normalizeCfg, specFromLegacy
 import {bus} from './bus';
 import {exportRange, rangeSuffix, toast} from './look';
 import {autosave, flushSave} from './project';
-import {ensureFonts, invalidateFontKey, pause, replan} from './engine';
+import {ensureFonts, invalidateFontKey, pause, play, replan} from './engine';
 
 function baseName() {
   const k = J.keyMode(S.project);
@@ -492,9 +492,12 @@ export function setAskSaveLocation(v: boolean) {
 
 // 音频特效（预览与导出同时生效）：清洗后落 project，立即更新预览图并广播
 export function setAudioFx(patch: any) {
+  const prevSpeed = J.fxSpeed(S.project);
   S.project.audioFx = J.sanitizeAudioFx(Object.assign({}, S.project.audioFx || {}, patch || {}));
   autosave();
   applyAudioFx();
+  // 变速改的是出声速率：播放中重新起播立即生效（特效图在 AP.play 里也会按需重建）
+  if (S.playing && S.audio && J.fxSpeed(S.project) !== prevSpeed) play();
   syncOut();
   bus.emit('sync-ui');   // Transport 的「特效」按钮点亮态
 }
