@@ -90,7 +90,8 @@ function kick() {
   if (previewRaf) return;
   const tickFn = (now: number) => {
     previewRaf = requestAnimationFrame(tickFn);
-    if (document.hidden || S.exporting || !previewLive.size || !paneOpen()) return;
+    // 主线程逐帧导出才让路；Worker 导出期间小窗实时预览照常
+    if (document.hidden || (S.exporting && S.exportOnMain) || !previewLive.size || !paneOpen()) return;
     if (now - previewLast < FRAME_MS) return;
     previewLast = now;
 

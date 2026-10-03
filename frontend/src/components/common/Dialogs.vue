@@ -5,10 +5,14 @@ import {resetAll} from '../../jizura/look';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {setAudioFx} from '../../jizura/export';
+import {answerConfirm} from '../../jizura/confirm';
 
 const resetOpen = ref(false);
 const termsOpen = ref(false);
 const audioFxOpen = ref(false);
+const confirmOpen = ref(false);
+const confirmTitle = ref('确认');
+const confirmText = ref('');
 const busy = ref(false);
 const offs: (() => void)[] = [];
 
@@ -16,6 +20,8 @@ function closeAll() {
   resetOpen.value = false;
   termsOpen.value = false;
   audioFxOpen.value = false;
+  if (confirmOpen.value) answerConfirm(false);   // Esc/关按钮=取消，别把等待方挂死
+  confirmOpen.value = false;
 }
 
 async function doReset() {
@@ -26,7 +32,7 @@ async function doReset() {
 }
 
 function onEsc(e: KeyboardEvent) {
-  if (e.key === 'Escape' && (resetOpen.value || termsOpen.value || audioFxOpen.value)) closeAll();
+  if (e.key === 'Escape' && (resetOpen.value || termsOpen.value || audioFxOpen.value || confirmOpen.value)) closeAll();
 }
 
 onMounted(() => {
@@ -44,6 +50,11 @@ onMounted(() => {
     fx.value = J.sanitizeAudioFx(S.project.audioFx);
     audioFxOpen.value = true;
     nextTick(drawEq);
+  }));
+  offs.push(bus.on('confirm-open', (p: any) => {
+    confirmTitle.value = (p && p.title) || '确认';
+    confirmText.value = (p && p.text) || '';
+    confirmOpen.value = true;
   }));
   window.addEventListener('keydown', onEsc);
 });
@@ -258,6 +269,25 @@ function eqUp() {
                 class="block w-full my-2 cursor-crosshair rounded" @pointerdown="eqDown"
                 @pointermove="eqMove" @pointerup="eqUp" @pointercancel="eqUp"></canvas>
         <p class="note !text-[10px]">环绕音=左右摆动；3D 系特效建议戴耳机听；EQ 拖动 7 个频段把手调音色（±12dB，60Hz〜15kHz）。特效只作用于歌曲音频，预览音量与消音不受影响。</p>
+      </div>
+    </div>
+  </Transition>
+
+  <!-- 通用确认框：askConfirm(text, title) → Promise<boolean>，是/否或 Esc 取消 -->
+  <Transition name="fade">
+    <div v-if="confirmOpen" class="jl-modal-open fixed inset-0 z-[3100] grid place-items-center p-6"
+         style="background: rgba(6, 6, 8, 0.6)" @click.self="closeAll()">
+      <div
+          aria-labelledby="confirmTitle"
+          aria-modal="true"
+          class="relative w-[min(420px,calc(100vw-32px))] bg-panel border border-line2 rounded-[14px] shadow-modal p-5 pb-4"
+          role="dialog">
+        <h2 id="confirmTitle" class="text-[14px] tracking-wider font-semibold mb-2.5">{{ confirmTitle }}</h2>
+        <p class="text-[13px] leading-relaxed mb-3 whitespace-pre-line">{{ confirmText }}</p>
+        <div class="flex justify-end items-center gap-1.5 border-t border-line pt-3">
+          <button class="btn btn-ghost" @click="closeAll()">取消</button>
+          <button class="btn btn-primary" @click="confirmOpen = false; answerConfirm(true)">确定</button>
+        </div>
       </div>
     </div>
   </Transition>

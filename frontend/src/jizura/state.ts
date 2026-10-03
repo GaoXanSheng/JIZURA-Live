@@ -20,6 +20,8 @@ const initialS = {
   loopHold: null as any,
   need: true,
   exporting: null as AbortController | null,
+  // 导出是否正在主线程逐帧渲染（Worker 路径为 false）：true 时预览 rAF 循环让路
+  exportOnMain: false,
   tap: null as {
     i: number;
     from: number;

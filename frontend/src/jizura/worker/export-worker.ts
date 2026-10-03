@@ -2,22 +2,28 @@
 // （MP4 内存块 / WebM alpha / PNG ZIP），主线程导出期间不再假死，
 // 也不再和预览/引擎抢主线程预算。
 // 消息协议（与 export.ts 对应）：
-//   start {kind, project, beats, audio?, quality?, range?} / abort
+//   start {spec, project, beats, audio?, quality?, range?, sub?} / abort
 //   回 {type:'progress', p, msg?} | {type:'done', result} | {type:'error', message}
+// spec 即 export-spec.ts 的 ExportSpec（纯 JSON 可克隆），kind 只会是 mp4/webm/png——
+// mp4file 需要主线程文件句柄、纯字幕层（customDrawOnly）依赖主线程字幕模块，都不进 Worker。
 // project 即主线程的 S.project（纯 JSON）；plan 在这里用同一引擎重建，
 // 同 seed 输出与主线程一致，也绕开 style 定义里不可克隆的成员。
 
 import './export-worker-shims'; // 必须先于引擎：shims 提供 window/document/font 桩
 import {J} from '../../engine';
+import {makeSubtitleOverlay, type SubPayload} from '../../cloud/subtitle-draw';
+import type {ExportSpec} from '../export-spec';
 
 interface StartMsg {
     cmd: 'start';
-    kind: 'mp4' | 'png' | 'pnga' | 'pngl' | 'webm' | 'webmfront';
+    spec: ExportSpec;
     project: any;
     beats: number[];
     quality?: string;
     range?: { t0: number; t1: number } | null;
     audio?: { channels: Float32Array[]; sampleRate: number } | null;
+    // 烤入字幕：主线程预解析好的每行文本 + 排版配置（见 cloud/subtitle.ts）
+    sub?: SubPayload | null;
 }
 
 const post = (m: any) => (self as any).postMessage(m);
@@ -47,6 +53,8 @@ async function rebuildAudio(a: { channels: Float32Array[]; sampleRate: number })
     const onProgress = (p: number, msg?: string) => post({type: 'progress', p, msg});
     try {
         const project = m.project;
+        const spec: ExportSpec = m.spec;
+        if (!spec || spec.customDrawOnly) throw new Error('この種類の書き出しは Worker に対応していません');
         const like = m.beats && m.beats.length ? {beats: m.beats} : null;
         const plan = J.plan(project, like);
 
@@ -55,32 +63,40 @@ async function rebuildAudio(a: { channels: Float32Array[]; sampleRate: number })
             await J.restoreUserFonts(project.userFonts);
         }
         const keys = J.fontsOfPlan(plan);
-        await J.ensureFonts((project.lyrics || '') + (project.title || '') + (project.artist || ''), keys);
+        // 字幕文本（翻译/音译）常含歌词里没有的字符，一并纳入子集加载范围
+        await J.ensureFonts((project.lyrics || '') + (project.title || '') + (project.artist || '')
+            + (m.sub ? (m.sub.texts || []).join('') : ''), keys);
         const lost = J.missingUserFonts(keys.concat(Object.values(project.fonts || {})));
         if (lost.length) {
             throw new Error(`导入的字体（${[...new Set(lost as string[])].join('・')}）不在此浏览器中，已停止导出。请在「字体」里重新载入同一文件，或改用其它字体`);
         }
 
+        // plan 由同一引擎按同 seed 重建，行序与主线程一致，texts 按下标对得上
+        const overlay = m.sub && spec.bakeSubs ? makeSubtitleOverlay(m.sub) : null;
         let result: any;
-        if (m.kind === 'mp4') {
+        if (spec.kind === 'mp4' || spec.kind === 'mp4file') {
             const audio = m.audio ? await rebuildAudio(m.audio) : null;
             result = await J.exportMP4({
-                plan, project, audio,
+                plan, project, audio: spec.embedAudio ? audio : null,
                 quality: m.quality || 'high',
                 onProgress, signal, range: m.range,
+                overlay,
             });
-        } else if (m.kind === 'webm' || m.kind === 'webmfront') {
+        } else if (spec.kind === 'webm') {
             result = await J.exportWebM({
                 plan, project,
-                frontOnly: m.kind === 'webmfront',
+                frontOnly: spec.layer === 'front',
+                transparent: spec.transparent,
+                overlay,
                 onProgress, signal, range: m.range,
             });
         } else {
             const blob = await J.exportPNGZip({
                 plan, project,
-                transparent: m.kind === 'pnga',
-                layers: m.kind === 'pngl',
-                frontOnly: m.kind === 'pngf',
+                transparent: spec.transparent,
+                layers: spec.layers,
+                frontOnly: spec.layer === 'front' && !spec.layers,
+                overlay,
                 onProgress, signal, range: m.range,
             });
             result = {blob};

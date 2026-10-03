@@ -376,7 +376,8 @@ function onDown(e: PointerEvent) {
     c.setPointerCapture(e.pointerId);
   } catch { // 合成事件/无效指针，不影响后续
   }
-  if (!(S.tap || S.exporting)) {
+  // 打点模式与主线程逐帧导出期间禁时间轴交互；Worker 导出期间照常可拖
+  if (!(S.tap || (S.exporting && S.exportOnMain))) {
     const h = tlHandleAt(e);
     if (h >= 0) {
       pushEdit();
@@ -401,7 +402,7 @@ function onMove(e: PointerEvent) {
     timelineSeek(e);
     return;
   }
-  const hv: Hover = !(S.tap || S.exporting) ? tlHandleAt(e) : -1;
+  const hv: Hover = !(S.tap || (S.exporting && S.exportOnMain)) ? tlHandleAt(e) : -1;
   if (hv !== TL.hover) {
     TL.hover = hv;
     canvas.value!.style.cursor = hv >= 0 ? 'ew-resize' : 'pointer';

@@ -26,6 +26,7 @@ import {
     tapNow
 } from './look';
 import {runExport} from './export';
+import {normalizeCfg} from './export-spec';
 
 export interface McpTool {
     name: string;
@@ -148,8 +149,14 @@ function toolUpdateSettings(a: any) {
         }
     }
     for (const k of ['extra', 'wa', 'horror', 'typo', 'kinetic', 'unify', 'typeset', 'centerFree', 'includeAudio']) if (p[k] !== undefined) P[k] = !!p[k];
+    // includeAudio 已由导出勾选模型的 exportCfg.audio 接管：MCP 老问法保持可用，双向镜像
+    if (p.includeAudio !== undefined) S.project.exportCfg = normalizeCfg(Object.assign({}, S.project.exportCfg, {audio: !!p.includeAudio}));
     if (p.centerDir !== undefined) P.centerDir = p.centerDir;
-    if (p.keyBg !== undefined) P.keyBg = p.keyBg;
+    if (p.keyBg !== undefined) {
+        P.keyBg = p.keyBg;
+        // keyBg 与导出勾选的 bgStyle 是同一件事（bgStyle 镜像 keyBg），MCP 设置也要同步
+        S.project.exportCfg = normalizeCfg(Object.assign({}, S.project.exportCfg, {bgStyle: p.keyBg}));
+    }
     if (p.aspect !== undefined) check(['16:9', '9:16', '4:3', '3:4', '1:1', '4:5', '21:9'].includes(p.aspect), 'bad aspect'), P.aspect = p.aspect;
     if (p.res !== undefined) P.res = p.res;
     if (p.fps !== undefined) P.fps = p.fps;

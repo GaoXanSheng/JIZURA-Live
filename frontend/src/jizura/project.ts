@@ -2,6 +2,7 @@
 // 键保持 jizura.project.v1，老项目无缝兼容。
 import {J} from '../engine';
 import {S} from './state';
+import {normalizeCfg} from './export-spec';
 
 export const LS_KEY = 'jizura.project.v1';
 
@@ -16,6 +17,13 @@ export function mergeProject(p: any) {
   o.overrides = (p && p.overrides) || {};
   // 音频特效（预览+导出共用）：不信任外部输入，统一清洗
   o.audioFx = J.sanitizeAudioFx((p && p.audioFx) || {});
+  // keyBg 只认三态（plan 渲染读它做抠像底色）
+  if (o.keyBg !== 'green' && o.keyBg !== 'black') o.keyBg = 'off';
+  // 导出勾选（export-spec 勾选模型）：清洗 + 旧字段迁移——老工程没有 exportCfg，
+  // 「把歌曲合进视频」开关（includeAudio=false）迁为 audio=false；keyBg 镜像为 bgStyle
+  const rawCfg: any = Object.assign({}, (p && p.exportCfg) || {});
+  if (rawCfg.audio === undefined) rawCfg.audio = !(p && p.includeAudio === false);
+  o.exportCfg = normalizeCfg(Object.assign(rawCfg, {bgStyle: o.keyBg}));
   o.locks = {tech: {}, params: {}};
   // 项目文件不可信：只允许锁 plain key，且只能开（不能是我们没写过的值）
   for (const [g, on] of Object.entries((p && p.locks && p.locks.tech) || {})) if (on === true && /^[\w-]+$/.test(g)) o.locks.tech[g] = true;

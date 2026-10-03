@@ -2,7 +2,6 @@ import {defineConfig} from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
 import VueDevTools from 'vite-plugin-vue-devtools';
-import pkg from './package.json';
 
 // 产物进 obj/frontend-dist，由 csproj 以 EmbeddedResource 嵌进 JizuraLive.dll（jizura-www/ 前缀），
 // 运行时 StaticSiteModule 从程序集内存直接 serve，磁盘上不留散装产物
@@ -11,14 +10,8 @@ export default defineConfig({
   plugins: [
     vue(),
     tailwindcss(),
-    // CEF 装不了 Chrome 扩展，用页内嵌版的 devtools 调组件树/状态；
-    // VITE_NO_DEVTOOLS=1 跳过注入，压测/录 trace 时排除 devtools 钩子的干扰
-    ...(process.env.VITE_NO_DEVTOOLS ? [] : [VueDevTools()]),
+    VueDevTools(),
   ],
-  // 版本号单一事实源是 package.json，编译期注入，TopBar 写包和 MCP serverInfo 共用
-  define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
-  },
   build: {
     outDir: '../obj/frontend-dist',
     emptyOutDir: true,

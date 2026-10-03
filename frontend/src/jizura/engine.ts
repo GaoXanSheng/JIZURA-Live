@@ -196,7 +196,9 @@ export function draw() {
 
 export function tick(now: number) {
     requestAnimationFrame(tick);
-    if (S.exporting) return;
+    // 只有主线程逐帧导出（Worker 失败回退）才让预览循环让路；Worker 导出期间
+    // 渲染/编码都在 Worker 线程，预览照常跑——时间轴可拖、播放/seek 画面实时刷新
+    if (S.exporting && S.exportOnMain) return;
     // scrub 拖动中暂停推进：AP 已被 beginScrub 停掉，AP.time() 会归零，
     // 不能让它覆盖拖动中的 S.t（画面由 seek 的 need 驱动）
     if (S.playing && !S.scrubbing) {

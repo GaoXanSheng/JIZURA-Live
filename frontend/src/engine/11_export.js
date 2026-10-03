@@ -262,6 +262,23 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         return out.join('\n') + '\n';
     };
 
+    // 独立音频导出（WAV）：与 MP4 音轨同一条链路——exportSpan 选段 + resample
+    // 离线渲染（含 audioFx），只是不走编码器直接落 PCM。WebM/PNG 无法内嵌音轨、
+    // 剪辑软件对轨，都靠它
+    J.exportWav = async ({plan, project, audio, onProgress, signal, range}) => {
+        if (!audio || !audio.buffer) throw new Error('未载入歌曲，无法导出音频（请从「载入歌曲」重新载入）');
+        const span = J.exportSpan(plan, range);
+        const fx = J.sanitizeAudioFx(project.audioFx);
+        onProgress && onProgress(0.1, '音声をレンダリング中');
+        if (signal && signal.aborted) throw new Error('キャンセルしました');
+        const rs = await resample(audio.buffer, audio.buffer.sampleRate, span.dur, span.t0, fx.preset !== 'none' ? fx : null);
+        if (signal && signal.aborted) throw new Error('キャンセルしました');
+        onProgress && onProgress(0.9, 'WAV を書き出し中');
+        const blob = J.audioWav(rs, rs.duration, 0);
+        onProgress && onProgress(1, '完了');
+        return {blob, sampleRate: rs.sampleRate, channels: rs.numberOfChannels, duration: span.dur};
+    };
+
     // MP4 边编码边写（moov 在末尾），不攒一整块巨型 ArrayBuffer：file 为 null 时写进
     // 一串小块，file 是用户选中的文件时直接写文件。以前 1080p/1440p 长歌要几百 MB
     // 连续缓冲，finalize 时还要翻倍，大视频导出总失败就是这个原因
@@ -344,12 +361,13 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
         }
     };
 
-    async function encodeMP4({plan, project, audio, onProgress, signal, range, file, w, h, vc, note}) {
+    async function encodeMP4({plan, project, audio, onProgress, signal, range, file, w, h, vc, note, overlay}) {
         const span = J.exportSpan(plan, range);
         const fps = plan.fps;
         let ac = null, audioChn = 0;
-        // 音频特效（project.audioFx）：导出时在 OfflineAudioContext 里渲染特效图
-        const fx = audio && audio.buffer && project.includeAudio !== false ? J.sanitizeAudioFx(project.audioFx) : null;
+        // 音频特效（project.audioFx）：导出时在 OfflineAudioContext 里渲染特效图。
+        // 要不要音轨由调用方决定（audio 传不传），引擎不再读 includeAudio 开关
+        const fx = audio && audio.buffer ? J.sanitizeAudioFx(project.audioFx) : null;
         if (fx) {
             audioChn = Math.min(2, audio.buffer.numberOfChannels);
             ac = await J.pickAudioCodec(audioChn);
@@ -411,6 +429,9 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 if (err) throw err;
                 if (venc.state === 'closed') throw new Error('エンコーダーが停止しました');
                 R.frame(ctx, plan, span.t0 + i / fps, {scale});
+                // 字幕烤入：预览叠加层不进导出帧（export.ts 导出期间关掉全局叠加），
+                // mp4 靠这个显式回调把字幕叠在正式帧上；overlay 为空即不烤
+                if (overlay) overlay(ctx, plan, span.t0 + i / fps, {scale});
                 const vf = new VideoFrame(canvas, {
                     timestamp: Math.round(i * 1e6 / fps),
                     duration: Math.round(1e6 / fps)
@@ -500,7 +521,7 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
             size,
             codec: vc.label + (vc.hw === 'prefer-software' ? '（ソフトウェア）' : ''),
             audio: ac ? ac.mux : null,
-            audioWanted: !!(audio && audio.buffer && project.includeAudio !== false),
+            audioWanted: !!(audio && audio.buffer),
             width: w,
             height: h,
             toFile: !!file
@@ -583,7 +604,9 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
     // 分层：透明 PNG 分两层，back/（背景图+歌词后面的装饰）和 front/（歌词、装饰、
     // ghost、HUD）。屏幕特效两层都吃，front 叠回 back 上效果一致。
     // frontOnly：只有 front/ 且不带 HUD，HUD 是合成元素，不算歌词本体
-    J.exportPNGZip = async ({plan, project, transparent, layers, frontOnly, onProgress, signal, every = 1, range}) => {
+    // customDraw/overlay：同 exportWebM——customDraw 完全接管（先清透明底再画），
+    // overlay 在正式帧后叠加字幕（back 层除外，字幕属于前景）
+    J.exportPNGZip = async ({plan, project, transparent, layers, frontOnly, overlay, customDraw, onProgress, signal, every = 1, range}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
         const canvas = document.createElement('canvas');
@@ -605,7 +628,17 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                 const name = `jizura_${String(i).padStart(5, '0')}.png`;
                 const modes = layers ? ['back', 'front'] : frontOnly ? ['front'] : [null];
                 for (const layer of modes) {
-                    R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: transparent || !!layers || !!frontOnly, layer, noHud: !!frontOnly});
+                    if (customDraw) {
+                        // 叠加型画法自身不清底：透明底每帧先清空，否则残影越叠越多
+                        ctx.save();
+                        ctx.setTransform(1, 0, 0, 1, 0, 0);
+                        ctx.clearRect(0, 0, w, h);
+                        ctx.restore();
+                        customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                    } else {
+                        R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: transparent || !!layers || !!frontOnly, layer, noHud: !!frontOnly});
+                        if (overlay && layer !== 'back') overlay(ctx, plan, span.t0 + i / fps, {scale});
+                    }
                     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
                     zip.add((layer ? layer + '/' : '') + name, new Uint8Array(await blob.arrayBuffer()));
                 }
@@ -621,8 +654,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
     // frontOnly：只导歌词+前景装饰、无 HUD，作叠加在别的画面上的前景层。
     // customDraw：(ctx, plan, t, opt) => {}，完全接管逐帧绘制（字幕层导出只画
     // 字幕 overlay 就走它）；它是叠加型画法自身不清底，每帧画前先清空。
-    // 无音轨：overlay 没有可承载的声音
-    J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly, customDraw}) => {
+    // overlay：(ctx, plan, t, opt) => {}，正式帧画完后叠加（字幕烤入，主线程与
+    // worker 用同一份载荷构建，见 cloud/subtitle-draw.ts）。
+    // transparent=false：画不透明成片（带风格背景与 HUD）。无音轨：WebM 承载不了
+    J.exportWebM = async ({plan, project, onProgress, signal, range, frontOnly, customDraw, overlay, transparent = true}) => {
         const span = J.exportSpan(plan, range);
         const [w, h] = J.outputSize(project);
         const fps = plan.fps;
@@ -671,8 +706,10 @@ import {BufferTarget, canEncodeVideo, CanvasSource, Output, Quality, WebMOutputF
                     ctx.clearRect(0, 0, w, h);
                     ctx.restore();
                     customDraw(ctx, plan, span.t0 + i / fps, {scale});
+                } else {
+                    R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: !!transparent, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
+                    if (overlay) overlay(ctx, plan, span.t0 + i / fps, {scale});
                 }
-                else R.frame(ctx, plan, span.t0 + i / fps, {scale, transparent: true, layer: frontOnly ? 'front' : null, noHud: !!frontOnly});
                 await source.add(i / fps, 1 / fps);   // await 即背压：编码器过载时挂起
                 if (i % 3 === 0) {
                     onProgress && onProgress(i / total, `WebM ${i + 1}/${total}`);
