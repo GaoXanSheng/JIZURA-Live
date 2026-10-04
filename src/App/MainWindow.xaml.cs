@@ -92,7 +92,9 @@ public partial class MainWindow : Window
     }
 
     // 拆分模式：Spout 管线在独立宿主进程里，本窗口只发命令不建管线
-    private bool Split => MirrorHostBridge.Instance is { Enabled: true };
+    // 拆分模式：管线在宿主进程里，本进程 SpoutPipeline.IsRunning 恒为 false，
+    // RestartRender 等外部调用方据此判断该走 IPC 而不是看本进程管线状态
+    public bool Split => MirrorHostBridge.Instance is { Enabled: true };
 
     private void WireMirrorHostBridge(MirrorHostBridge bridge)
     {
@@ -561,7 +563,7 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
-    [DllImport("user32.dll", ExactSpelling = true)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     private void BtnClose_Click(object sender, RoutedEventArgs e)

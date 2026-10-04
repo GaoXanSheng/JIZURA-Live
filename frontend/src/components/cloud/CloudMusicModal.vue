@@ -5,6 +5,7 @@ import {bus} from '../../jizura/bus';
 import SearchPane from './SearchPane.vue';
 import PlaylistPane from './PlaylistPane.vue';
 import AccountPane from './AccountPane.vue';
+import FollowPane from './FollowPane.vue';
 
 const cloud = useCloud();
 const offs: (() => void)[] = [];
@@ -12,6 +13,7 @@ const offs: (() => void)[] = [];
 const PANES = [
   {id: 'search', icon: '', label: '搜索'},
   {id: 'playlists', icon: '', label: '我的歌单'},
+  {id: 'follow', icon: '', label: '跟随播放器'},
   {id: 'account', icon: '', label: '账号'},
 ] as const;
 
@@ -77,6 +79,7 @@ watch(() => cloud.open, (v) => {
               <div class="flex-1 min-w-0 flex flex-col px-4 py-3.5">
                 <SearchPane v-if="cloud.pane === 'search'"/>
                 <PlaylistPane v-else-if="cloud.pane === 'playlists'"/>
+                <FollowPane v-else-if="cloud.pane === 'follow'"/>
                 <AccountPane v-else/>
               </div>
             </div>

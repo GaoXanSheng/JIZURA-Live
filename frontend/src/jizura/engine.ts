@@ -203,10 +203,13 @@ export function tick(now: number) {
     // 不能让它覆盖拖动中的 S.t（画面由 seek 的 need 驱动）
     if (S.playing && !S.scrubbing) {
         // rAF 时间戳可能早于 play()/seek() 打的 t0 → clamp 防负数
-        let t = Math.max(0, S.audio ? AP.time() : (now - S.t0) / 1000 * playRate());
+        // 跟随外部播放器（S.follow）时一律走无音频时钟：SMTC 每次轮询重锚定 t0
+        let t = Math.max(0, S.audio && !S.follow ? AP.time() : (now - S.t0) / 1000 * playRate());
         const range = activeLoopRange();
         if (t >= range.end - 1e-3) {
-            if (S.loop && !S.tap) {
+            if (S.follow) {
+                // 跟随模式：播完停在尾部，交给播放器切歌/暂停，本地不循环不暂停
+            } else if (S.loop && !S.tap) {
                 seek(range.start);
                 t = range.start;
             } else {
@@ -238,7 +241,7 @@ export function outRate() {
 
 export function play() {
     refreshLoopHold();
-    if (S.audio) AP.play(S.audio.buffer, S.t, outRate());
+    if (S.audio && !S.follow) AP.play(S.audio.buffer, S.t, outRate());
     else S.t0 = performance.now() - S.t * 1000 / playRate();
     S.playing = true;
     bus.emit('playstate');
@@ -253,7 +256,7 @@ export function pause() {
 
 export function seek(t: number) {
     S.t = J.clamp(t, 0, Math.max(0, S.plan.duration - 1e-3));
-    if (S.audio) {
+    if (S.audio && !S.follow) {
         // scrub 拖动中只挪时间不重启音频：每次 AP.play 都是 stop+新建
         // BufferSource（一次拖动上百个节点 + 每步一次可闻爆音），endScrub 恢复
         if (S.playing && !S.scrubbing) AP.play(S.audio.buffer, S.t, outRate());

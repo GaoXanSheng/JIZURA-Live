@@ -7,6 +7,7 @@ import {bootEngine, invalidateFontKey, loadAudioFile, pause, play, replan, seek}
 import * as look from './look';
 import {bus} from './bus';
 import {installSubtitleOverlay} from '../cloud/subtitle';
+import {followRestore} from '../cloud/follow';
 import './agent-api'; // 副作用导入：挂 window.J.mcp，/mcp 端点把 JSON-RPC 桥进页面
 
 async function restoreFonts() {
@@ -102,4 +103,5 @@ export function boot() {
     exportRangeCuts: look.exportRangeCuts,
   };
   bus.emit('booted');
+  followRestore(); // 上次跟着外部播放器播，刷新后自动接上
 }

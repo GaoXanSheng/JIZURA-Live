@@ -165,7 +165,10 @@ internal sealed class SettingsController : WebApiController
             var main = Application.Current.MainWindow as MainWindow;
             if (settings.SpoutEnabled)
             {
-                if (SpoutPipeline.Instance.IsRunning)
+                // 拆分模式下管线在宿主进程，本进程 SpoutPipeline.IsRunning 恒为 false：
+                // 不能拿它决定 restart/start，否则「重启」会退化成宿主侧的 start
+                // （宿主对运行中的管线只重建 ID 变了的），宽高/帧率/透明/字幕通道全部不生效
+                if (main is { Split: true } || SpoutPipeline.Instance.IsRunning)
                     main?.RestartSpout();
                 else
                     main?.StartSpout();

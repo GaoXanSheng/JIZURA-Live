@@ -23,6 +23,7 @@ public sealed class EmbeddedServer : IDisposable
             // 静态站其次——WebApiModule 未命中路由会直接 404 终结而不是传递，
             // 放它前面会被吞掉 /render 这类 SPA 路径；api/ 前缀不参与静态站回退，API 请求才能到达控制器
             .WithModule(new ApiGuardModule())
+            .WithModule(new SmtcSseModule())
             .WithModule(new McpModule())
             .WithModule(new StaticSiteModule())
             .WithModule(BuildApiModule());
@@ -78,6 +79,7 @@ public sealed class EmbeddedServer : IDisposable
         };
         api.WithController<KgController>();
         api.WithController<NeController>();
+        api.WithController<SmtcController>();
         api.WithController<AnalyzeController>();
         api.WithController<SettingsController>();
         return api;

@@ -35,6 +35,9 @@ const initialS = {
   slow: false,
   curLine: -2,
   scrubbing: false,
+  // 跟随外部播放器（cloud/follow.ts）：时间轴由 SMTC 进度重锚定驱动，
+  // 本地音频（若有）不出声，engine 忽略尾段暂停/循环
+  follow: false,
 };
 export type EngineState = typeof initialS;
 export const S: EngineState = g.__jl_S || (g.__jl_S = initialS);

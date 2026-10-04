@@ -12,7 +12,7 @@ export const useCloud = defineStore('cloud', {
   state: () => ({
     open: false,
     booting: false, // 弹窗打开后的初始加载（登录态等），期间内容区转圈
-    pane: 'search' as 'search' | 'playlists' | 'account',
+    pane: 'search' as 'search' | 'playlists' | 'account' | 'follow',
     source: 'kugou' as Source,
     quality: '320' as string,
 

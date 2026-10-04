@@ -31,6 +31,8 @@ internal static class ServerContext
 
     public static NeteaseClient Netease { get; } = new();
 
+    public static SmtcService Smtc { get; } = new();
+
     public static string? MimeOf(string path)
     {
         return MimeMap.TryGetValue(Path.GetExtension(path).ToLowerInvariant(), out var m) ? m : null;
