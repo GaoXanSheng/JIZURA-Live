@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CefSharp;
 using CefSharp.Enums;
 using CefSharp.OffScreen;
@@ -14,9 +15,95 @@ using Range = CefSharp.Structs.Range;
 
 namespace JizuraLive;
 
+// 帧间隔直方图统计：1ms 桶（0..63ms，>=64ms 落尾桶），周期性汇报 avg/p95/max。
+// 回调按帧发生，观测零成本；汇报窗口自带门控，避免逐帧日志写满滚动日志
+internal sealed class FrameIntervalStats
+{
+    private const int BucketCount = 64;
+
+    private readonly object _gate = new();
+    private readonly ulong[] _buckets = new ulong[BucketCount];
+
+    private long _lastTs;
+    private long _windowStartTs;
+    private ulong _count;
+    private double _sumMs;
+    private double _maxMs;
+
+    public void Observe()
+    {
+        var now = Stopwatch.GetTimestamp();
+
+        lock (_gate)
+        {
+            if (_lastTs != 0)
+            {
+                var ms = (now - _lastTs) * 1000.0 / Stopwatch.Frequency;
+                _count++;
+                _sumMs += ms;
+                if (ms > _maxMs)
+                    _maxMs = ms;
+                _buckets[ms >= BucketCount ? BucketCount - 1 : (int)ms]++;
+            }
+            else
+            {
+                _windowStartTs = now;
+            }
+
+            _lastTs = now;
+        }
+    }
+
+    // 自上一次汇报累计满 windowMs 且有样本才返回统计文本并清零窗口，否则 null
+    public string? ReportIfDue(int windowMs = 5000)
+    {
+        var now = Stopwatch.GetTimestamp();
+
+        lock (_gate)
+        {
+            if (_lastTs == 0 || _count == 0)
+                return null;
+
+            var elapsed = (now - _windowStartTs) * 1000.0 / Stopwatch.Frequency;
+            if (elapsed < windowMs)
+                return null;
+
+            var avg = _sumMs / _count;
+            var p95Target = (ulong)Math.Ceiling(_count * 0.95);
+            ulong acc = 0;
+            var p95 = BucketCount - 1;
+            for (var i = 0; i < BucketCount; i++)
+            {
+                acc += _buckets[i];
+                if (acc >= p95Target)
+                {
+                    p95 = i;
+                    break;
+                }
+            }
+
+            var text =
+                $"帧间隔（{elapsed / 1000.0:F1}s, n={_count}）：" +
+                $"avg={avg:F1}ms, p95={p95}ms, max={_maxMs:F1}ms";
+
+            _count = 0;
+            _sumMs = 0;
+            _maxMs = 0;
+            Array.Clear(_buckets);
+            _windowStartTs = now;
+
+            return text;
+        }
+    }
+}
+
 public sealed class MirrorRenderHandler : IRenderHandler
 {
     private readonly SpoutPipeline _owner;
+
+    // GPU 共享纹理路径 / CPU 回退路径分开统计，掉出 GPU 路径时一眼可见
+    private readonly FrameIntervalStats _gpuStats = new();
+    private readonly FrameIntervalStats _cpuStats = new();
 
     private bool _accelFirstSeen;
     private bool _cpuFirstSeen;
@@ -125,6 +212,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
             return;
         if (buffer == IntPtr.Zero || width <= 0 || height <= 0) return;
 
+        _cpuStats.Observe();
+        ReportFrameStats();
+
         var cpuFirstSeenWarn = false;
         Exception? logEx = null;
         try
@@ -194,6 +284,9 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
             return;
         }
+
+        _gpuStats.Observe();
+        ReportFrameStats();
 
         if (!_accelFirstSeen)
         {
@@ -293,6 +386,18 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         _spoutSender.OpenDirectX(
             _dxDevice.NativePointer);
+    }
+
+    // 两条路径各自 5s 一个统计窗口，谁有帧谁报；GPU/CPU 都没帧时静默
+    private void ReportFrameStats()
+    {
+        var gpu = _gpuStats.ReportIfDue();
+        if (gpu != null)
+            Log.Info($"[SpoutMirror] GPU 共享纹理路径{gpu}");
+
+        var cpu = _cpuStats.ReportIfDue();
+        if (cpu != null)
+            Log.Warn($"[SpoutMirror] CPU 回退路径{cpu}");
     }
 
     private void LogRenderError(string where, Exception ex)

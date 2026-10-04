@@ -22,6 +22,16 @@ public sealed class Settings
     // false 或 JIZURA_MIRROR_HOST=0 回退同进程模式
     public bool SplitMirrorHost { get; set; } = true;
 
+    // 镜像 External BeginFrame：帧节奏由宿主按输出帧率主动 SendExternalBeginFrame 驱动，
+    // 绕开 Chromium 合成器自调度（BeginFrame 断供、稳态帧间隔被量化到 ~25ms 的来源）。
+    // 重启镜像生效；JIZURA_MIRROR_EBF=1/0 环境变量可覆盖
+    public bool MirrorExternalBeginFrame { get; set; }
+
+    // 镜像 desynchronized 画布（低延迟交换链）。默认关走合成器路径（dsync=0）：
+    // 合成器调度下 present 会被消费端反压阻塞 100-270ms。EBF 开启后 present 节奏
+    // 归宿主管，可尝试开启换更低延迟；JIZURA_MIRROR_DSYNC=1/0 环境变量可覆盖
+    public bool MirrorDsync { get; set; }
+
     // CDP 调试端口，默认关；开启后 CEF 只监听本机回环。
     // RemoteDebuggingPort 必须在 Cef.Initialize 前配置，重启生效
     public bool CdpEnabled { get; set; }

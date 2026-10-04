@@ -166,7 +166,8 @@ public partial class MainWindow : Window
             _settings.Width,
             _settings.Height,
             _settings.SpoutTransparent,
-            _settings.SpoutLyricsEnabled);
+            _settings.SpoutLyricsEnabled,
+            _settings);
 
         ApplySpoutLyrics();
     }
@@ -216,7 +217,9 @@ public partial class MainWindow : Window
             Math.Min(_settings.RenderFps, 30),
             _settings.Width,
             _settings.Height,
-            true);
+            true,
+            false,
+            _settings);
     }
 
     private void RestartLyrics()
@@ -244,7 +247,8 @@ public partial class MainWindow : Window
             _settings.Width,
             _settings.Height,
             _settings.SpoutTransparent,
-            _settings.SpoutLyricsEnabled);
+            _settings.SpoutLyricsEnabled,
+            _settings);
 
         if (_settings.SpoutLyricsEnabled)
             RestartLyrics();

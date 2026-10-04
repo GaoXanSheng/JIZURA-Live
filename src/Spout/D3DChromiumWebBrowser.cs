@@ -24,7 +24,7 @@ public sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
             browserSettings;
     }
 
-    public void CreateD3DBrowser()
+    public void CreateD3DBrowser(bool externalBeginFrame = false)
     {
         if (_created) return;
 
@@ -34,7 +34,10 @@ public sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
 
         windowInfo.WindowlessRenderingEnabled = true;
 
-        windowInfo.ExternalBeginFrameEnabled = false;
+        // ExternalBeginFrame=true 时帧节奏改由宿主泵（SpoutPipeline）逐帧
+        // SendExternalBeginFrame 驱动，绕开合成器自调度（BeginFrame 断供、
+        // 稳态帧间隔被量化到 ~25ms 的来源）；false 保留合成器路径作回退
+        windowInfo.ExternalBeginFrameEnabled = externalBeginFrame;
 
         windowInfo.SharedTextureEnabled = true;
 

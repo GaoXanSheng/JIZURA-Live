@@ -304,7 +304,8 @@ public sealed class MirrorHostApp
             settings.Width,
             settings.Height,
             settings.SpoutTransparent,
-            settings.SpoutLyricsEnabled);
+            settings.SpoutLyricsEnabled,
+            settings);
     }
 
     // 字幕通道保持 30fps 上限
@@ -319,7 +320,9 @@ public sealed class MirrorHostApp
                 Math.Min(settings.RenderFps, 30),
                 settings.Width,
                 settings.Height,
-                true);
+                true,
+                false,
+                settings);
         }
     }
 

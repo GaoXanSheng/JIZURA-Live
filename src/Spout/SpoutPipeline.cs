@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.Text.Json;
@@ -16,6 +17,17 @@ public sealed class SpoutPipeline : IDisposable
     public string? SenderName { get; private set; }
 
     public Action? SyncPoke { get; set; }
+
+    private bool _externalBeginFrame;
+
+    // ExternalBeginFrame 泵线程与在途标记：上一拍还没被 CEF UI 线程消费就跳过本拍，
+    // CEF 落后时不堆积 BeginFrame（猝发帧比背压队列难看）
+    private Thread? _beginFramePump;
+    private volatile bool _pumpRunning;
+    private int _beginFrameInFlight;
+
+    private long _lastBfErrorTick = -61_000;
+    private int _bfErrorsSinceLastLog;
 
     // 页面主 frame 加载完成（含重载）；宿主模式由 MirrorHostApp 订阅：重放缓存再要新 state
     public Action? PageLoaded;
@@ -43,8 +55,33 @@ public sealed class SpoutPipeline : IDisposable
         Stop();
     }
 
+    // ExternalBeginFrame 开关：设置项 MirrorExternalBeginFrame，
+    // 环境变量 JIZURA_MIRROR_EBF=1/0 优先（仿 JIZURA_MIRROR_HOST=0 的一票否决模式）
+    public static bool ResolveExternalBeginFrame(Settings? settings)
+    {
+        var env = Environment.GetEnvironmentVariable("JIZURA_MIRROR_EBF");
+
+        if (string.Equals(env, "1", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(env, "0", StringComparison.OrdinalIgnoreCase)) return false;
+
+        return settings?.MirrorExternalBeginFrame ?? false;
+    }
+
+    // desynchronized 画布开关：默认关（URL 带 dsync=0，合成器路径）。
+    // EBF 开启后 present 节奏归宿主管、不再被消费端反压，可开 dsync 换低延迟；
+    // JIZURA_MIRROR_DSYNC=1/0 环境变量优先
+    public static bool ResolveDsync(Settings? settings)
+    {
+        var env = Environment.GetEnvironmentVariable("JIZURA_MIRROR_DSYNC");
+
+        if (string.Equals(env, "1", StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(env, "0", StringComparison.OrdinalIgnoreCase)) return false;
+
+        return settings?.MirrorDsync ?? false;
+    }
+
     public bool Start(string url, string senderName, int fps, int initialW, int initialH, bool transparent = false,
-        bool suppressSubtitle = false)
+        bool suppressSubtitle = false, Settings? settings = null)
     {
         if (IsRunning)
             return true;
@@ -59,13 +96,18 @@ public sealed class SpoutPipeline : IDisposable
 
             var browserSettings = new BrowserSettings
             {
+                // EBF 开启时此项被绕过（帧率归宿主泵），保留作回退路径
                 WindowlessFrameRate = safeFps
             };
+
+            _externalBeginFrame = ResolveExternalBeginFrame(settings);
+            var dsync = ResolveDsync(settings);
 
             // 镜像行为（泵/锚点应用/isolate/分辨率保持/工程跟随）已内置在页面本身
             // （RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本，
             // 只负责推 __jlApplySync 锚点、收 plan-size 消息
-            var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle, safeW, safeH);
+            var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle, safeW, safeH,
+                dsync);
 
             // RenderHandler 必须在 CreateBrowser() 之前准备好
             _renderHandler = new MirrorRenderHandler(this);
@@ -85,7 +127,10 @@ public sealed class SpoutPipeline : IDisposable
 
             _browser.Size = new Size(safeW, safeH);
 
-            _browser.CreateD3DBrowser();
+            _browser.CreateD3DBrowser(_externalBeginFrame);
+
+            if (_externalBeginFrame)
+                StartBeginFramePump(safeFps);
 
             _ = WaitInitialLoadAsync(_browser);
 
@@ -96,6 +141,8 @@ public sealed class SpoutPipeline : IDisposable
                 $"url={url}, " +
                 $"通道={senderName}, " +
                 $"fps={safeFps}, " +
+                $"externalBeginFrame={_externalBeginFrame}, " +
+                $"dsync={dsync}, " +
                 $"初始视口={safeW}x{safeH}");
 
             return true;
@@ -272,17 +319,19 @@ public sealed class SpoutPipeline : IDisposable
     // 镜像参数走 URL 传给页面（RenderPage.vue ?mirror=1 原生处理），不注入脚本。
     // outw/outh = 输出分辨率（设置里的渲染窗口尺寸）：页面把场景按它缩放绘制，
     // 且不再回发 plan-size 覆盖浏览器尺寸——设置的分辨率是输出的唯一事实源。
-    // dsync=0：desynchronized 画布的交换链只有两三块缓冲，present 要等 C# 侧
-    // 取纹理→Spout 释放，消费稍慢就阻塞 GPU 主线程 100-270ms（循环 wrap 双镜像
-    // 同时全帧重绘时必现，BeginFrame 断供就是卡顿来源）。关掉走合成器路径，
-    // 代价约一帧延迟（60fps 下 16.7ms），远比间歇数百毫秒的停顿划算
+    // dsync：desynchronized 画布开关，默认关（dsync=0）——desynchronized 的交换链
+    // 只有两三块缓冲，合成器调度下 present 要等 C# 取纹理→Spout 释放，消费稍慢就
+    // 阻塞 GPU 主线程 100-270ms（循环 wrap 双镜像同时全帧重绘时必现，BeginFrame
+    // 断供就是卡顿来源），宁要多一帧（16.7ms）合成器延迟。EBF 开启后 present 节奏
+    // 归宿主泵管、不再被反压，可经 Settings.MirrorDsync / JIZURA_MIRROR_DSYNC 打开换低延迟
     private static string AppendMirrorParams(
         string url,
         int fps,
         bool transparent,
         bool suppressSubtitle,
         int outW,
-        int outH)
+        int outH,
+        bool dsync)
     {
         var sep = url.Contains('?') ? "&" : "?";
 
@@ -293,7 +342,7 @@ public sealed class SpoutPipeline : IDisposable
             $"&nosub={(suppressSubtitle ? 1 : 0)}" +
             $"&outw={outW.ToString(CultureInfo.InvariantCulture)}" +
             $"&outh={outH.ToString(CultureInfo.InvariantCulture)}" +
-            "&dsync=0";
+            $"&dsync={(dsync ? 1 : 0)}";
     }
 
     public void ApplyPlaybackSync(
@@ -336,6 +385,8 @@ public sealed class SpoutPipeline : IDisposable
     private void CleanupLocked()
     {
         IsRunning = false;
+
+        StopBeginFramePump();
 
         if (_browser != null)
         {
@@ -386,5 +437,114 @@ public sealed class SpoutPipeline : IDisposable
 
         Log.Info(
             $"Spout 管线已停止：通道={oldName}");
+    }
+
+    // ---------------- External BeginFrame 泵 ----------------
+
+    // 独立线程按 1/fps 节拍驱动 BeginFrame。不用 DispatcherTimer（受系统计时器
+    // ~15.6ms 分辨率拖累）也不用链式驱动（页面暂停无帧输出时会断供）；空闲 tick
+    // （页面无 damage）不出帧，成本可忽略。Start 在 WPF UI 线程被调（同进程模式
+    // 在主窗口、宿主模式在宿主 Dispatcher），但泵线程独立于两者
+    private void StartBeginFramePump(int fps)
+    {
+        StopBeginFramePump();
+
+        _pumpRunning = true;
+        _beginFramePump = new Thread(PumpLoop)
+        {
+            IsBackground = true,
+            Name = "MirrorBeginFramePump"
+        };
+        _beginFramePump.Start(TimeSpan.FromMilliseconds(1000.0 / Math.Max(1, fps)));
+    }
+
+    private void PumpLoop(object? state)
+    {
+        var interval = (TimeSpan)state!;
+        var nextTickTicks = (long)(interval.TotalSeconds * Stopwatch.Frequency);
+
+        while (_pumpRunning)
+        {
+            SendBeginFrame();
+
+            // 高精度等待下一拍：粗睡留 2ms 余量，末段自旋补齐
+            var next = Stopwatch.GetTimestamp() + nextTickTicks;
+            while (_pumpRunning)
+            {
+                var remainMs = (next - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
+                if (remainMs <= 0)
+                    break;
+                if (remainMs > 2)
+                    Thread.Sleep(1);
+                else
+                    Thread.SpinWait(64);
+            }
+        }
+    }
+
+    private void SendBeginFrame()
+    {
+        var browser = _browser;
+
+        if (browser == null)
+            return;
+
+        // 上一拍还没被 CEF UI 线程消费就跳过：CEF 落后时不堆积 BeginFrame
+        if (Interlocked.CompareExchange(ref _beginFrameInFlight, 1, 0) != 0)
+            return;
+
+        try
+        {
+            // IBrowserHost 方法要求 CEF UI 线程；MultiThreadedMessageLoop 下
+            // 泵线程必须经 UIThreadTaskFactory 投递，不能直接调
+            Cef.UIThreadTaskFactory.StartNew(() =>
+            {
+                try
+                {
+                    browser.GetBrowser()?.GetHost()?.SendExternalBeginFrame();
+                }
+                catch (Exception ex)
+                {
+                    LogBeginFrameError(ex);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _beginFrameInFlight, 0);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Exchange(ref _beginFrameInFlight, 0);
+            LogBeginFrameError(ex);
+        }
+    }
+
+    private void StopBeginFramePump()
+    {
+        _pumpRunning = false;
+
+        var pump = _beginFramePump;
+        _beginFramePump = null;
+
+        if (pump != null && pump.IsAlive && pump != Thread.CurrentThread)
+            pump.Join(500);
+    }
+
+    private void LogBeginFrameError(Exception ex)
+    {
+        _bfErrorsSinceLastLog++;
+
+        var now = Environment.TickCount64;
+        if (now - _lastBfErrorTick < 30_000)
+            return;
+
+        var suppressed = _bfErrorsSinceLastLog - 1;
+        _bfErrorsSinceLastLog = 0;
+        _lastBfErrorTick = now;
+        Log.Warn(
+            "[SpoutMirror] SendExternalBeginFrame 失败" +
+            (suppressed > 0 ? $"（节流：此前 {suppressed} 条同类错误未逐条记录）" : "") +
+            "：" + ex.Message);
     }
 }
