@@ -91,7 +91,7 @@ function rebuildFonts() {
       return {v: k, t: f.label + alt};
     })],
   });
-  fontRoles.value = [mk('display', '标题'), mk('serif', '明朝枠'), mk('body', '小文字')];
+  fontRoles.value = [mk('display', '标题'), mk('serif', '衬线体'), mk('body', '正文')];
 }
 
 function onFontRole(role: string, ev: Event) {
