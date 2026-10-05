@@ -2,10 +2,12 @@ using System.IO;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using JizuraLive.App;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Netease;
 
 // 网易云加密与登录态。加密方案与常量经 2026-09 实测验证（对齐 NeteaseCloudMusicApi v4.2.0 的 util/crypto.js）：
 //   weapi：AES-CBC 两重（presetKey → 随机 16 字符 key），RSA 无填充加密反转后的随机 key

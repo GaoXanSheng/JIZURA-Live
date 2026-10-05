@@ -1,7 +1,7 @@
 ﻿using CefSharp;
 using CefSharp.Structs;
 
-namespace JizuraLive;
+namespace JizuraLive.Spout;
 
 public class CAudioHandler : IAudioHandler
 {

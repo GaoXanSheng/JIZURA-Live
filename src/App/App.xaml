@@ -1,4 +1,4 @@
-<Application x:Class="JizuraLive.App"
+<Application x:Class="JizuraLive.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnMainWindowClose">

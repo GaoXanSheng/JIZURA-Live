@@ -3,8 +3,10 @@ using System.Drawing;
 using System.Globalization;
 using System.Text.Json;
 using CefSharp;
+using JizuraLive.App;
+using JizuraLive.Logging;
 
-namespace JizuraLive;
+namespace JizuraLive.Spout;
 
 public sealed class SpoutPipeline : IDisposable
 {
@@ -511,7 +513,7 @@ public sealed class SpoutPipeline : IDisposable
         {
             // IBrowserHost 方法要求 CEF UI 线程；MultiThreadedMessageLoop 下
             // 泵线程必须经 UIThreadTaskFactory 投递，不能直接调
-            Cef.UIThreadTaskFactory.StartNew(() =>
+            CefSharp.Cef.UIThreadTaskFactory.StartNew(() =>
             {
                 try
                 {

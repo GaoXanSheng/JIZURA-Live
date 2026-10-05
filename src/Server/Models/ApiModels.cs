@@ -1,6 +1,6 @@
 using Newtonsoft.Json;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Models;
 
 public class ApiResponse
 {

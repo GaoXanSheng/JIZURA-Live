@@ -3,10 +3,12 @@ using System.Net.Http;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using JizuraLive.App;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.KuGou;
 
 public sealed partial class KuGouClient
 {

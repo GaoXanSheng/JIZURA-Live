@@ -1,8 +1,9 @@
 using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
+using JizuraLive.Server.Smtc;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Controllers;
 
 // 外部播放器进度（SMTC）查询，前端 cloud/follow.ts 轮询这里驱动跟随模式
 public sealed class SmtcController : WebApiController

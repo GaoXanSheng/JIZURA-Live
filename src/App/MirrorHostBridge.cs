@@ -3,11 +3,12 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 // 主程序侧：拉起/守护 --mirror-host 子进程，经命名管道转发播放锚点、编辑页消息、管线命令。
 // 关联保障：Job 兜底主死宿亡；令牌握手防新旧宿主并存；崩溃重启限频；退出 shutdown→3s→Kill

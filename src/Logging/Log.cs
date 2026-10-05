@@ -1,12 +1,13 @@
 using System.IO;
 using System.Text;
+using JizuraLive.App;
 using log4net;
 using log4net.Appender;
 using log4net.Config;
 using log4net.Core;
 using log4net.Layout;
 
-namespace JizuraLive;
+namespace JizuraLive.Logging;
 
 public static class Log
 {

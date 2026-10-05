@@ -1,8 +1,9 @@
 using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
+using JizuraLive.Server.Models;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Controllers;
 
 public sealed class KgController : WebApiController
 {

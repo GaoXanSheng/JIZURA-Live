@@ -24,7 +24,7 @@ MainWindow.EvaluateMcpAsync（CefSharp EvaluateScriptAsync，60s 超时）
 
 ## 请求生命周期
 
-1. 客户端 POST JSON-RPC 2.0 单对象（不支持批量）到 `/mcp`。
+1. 客户端 POST JSON-RPC 2.0 单对象（不支持批量；数组/标量回 `-32600`）到 `/mcp`。
 2. McpModule 校验：
    - 精确路径 `/mcp`（base 前缀可能放过 `/mcpx` 之类）；
    - 跨站防护（`Sec-Fetch-Site: cross-site` 或非本站 `Origin` → 403），逻辑与 `/api` 共用（`ApiGuardModule.CrossSiteDetail`）；

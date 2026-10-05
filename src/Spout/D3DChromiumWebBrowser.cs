@@ -1,7 +1,7 @@
 ﻿using CefSharp;
 using CefSharp.OffScreen;
 
-namespace JizuraLive;
+namespace JizuraLive.Spout;
 
 public sealed class D3DChromiumWebBrowser : ChromiumWebBrowser
 {

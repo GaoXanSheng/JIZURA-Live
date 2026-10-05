@@ -1,10 +1,12 @@
 using System.Net.Http;
 using System.Text;
+using JizuraLive.Logging;
+using JizuraLive.Server.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using QRCoder;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Netease;
 
 // 网易云在线搜索/播放地址/歌词/扫码登录。
 // 端点与参数对齐 NeteaseCloudMusicApi v4.2.0（搜索与播放地址走 eapi，扫码登录走 weapi），

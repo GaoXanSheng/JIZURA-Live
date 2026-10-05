@@ -4,6 +4,8 @@ using System.Windows;
 using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
+using JizuraLive.App;
+using JizuraLive.Spout;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
@@ -37,7 +39,7 @@ internal sealed class SettingsController : WebApiController
     [Route(HttpVerbs.Get, "/api/app/settings")]
     public async Task Get()
     {
-        var settings = ((App?)Application.Current)?.Settings;
+        var settings = ((App.App?)Application.Current)?.Settings;
         if (settings == null)
         {
             Response.StatusCode = 409;
@@ -72,7 +74,7 @@ internal sealed class SettingsController : WebApiController
             return;
         }
 
-        var settings = ((App?)Application.Current)?.Settings;
+        var settings = ((App.App?)Application.Current)?.Settings;
         if (settings == null)
         {
             Response.StatusCode = 409;
@@ -188,7 +190,7 @@ internal sealed class SettingsController : WebApiController
     {
         Application.Current?.Dispatcher.Invoke(() =>
         {
-            var settings = ((App?)Application.Current)?.Settings;
+            var settings = ((App.App?)Application.Current)?.Settings;
             if (settings == null)
                 return;
 

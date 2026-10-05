@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 // 不放 exe 旁边：Program Files 普通权限写不进，publish/升级覆盖还会清掉，
 // 设置和登录态每发一版丢一次

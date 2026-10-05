@@ -38,15 +38,7 @@ function exportFileName(spec: ExportSpec) {
 }
 
 export const canPickFile = () => typeof (window as any).showSaveFilePicker === 'function' && typeof VideoEncoder !== 'undefined';
-
-// 桌面版（CefSharp 宿主）消息通道：MCP 导出用它设置免确认落盘目录
-const postHost = (m: any) => {
-  try {
-    const c = (window as any).CefSharp;
-    if (c && typeof c.PostMessage === 'function') c.PostMessage(m);
-  } catch { // 浏览器环境无宿主，忽略
-  }
-};
+// （MCP 指定导出目录的落盘改道见 runSpec 里的 J.saveFile 包装：POST /api/export/save）
 
 // 编解码检查在部分浏览器较慢：等首帧预览画完再问
 export async function codecNote() {
@@ -152,9 +144,11 @@ async function runSpec(spec: ExportSpec, opts: { dir?: string; wav?: boolean } =
     }
   }
   // 「导出时询问保存位置」：showSaveFilePicker 需要用户手势，必须在点击现场把句柄选好，
-  // 导完直接写入该句柄；取消选择即放弃本次导出
+  // 导完直接写入该句柄；取消选择即放弃本次导出。
+  // MCP 传了 dir 时走宿主免确认落盘，绝不弹 picker；picker 因无手势（MCP/脚本触发）等
+  // 原因失败时回落浏览器下载通道，不能静默放弃——否则任务照样「完成」却没有文件
   let handle: any = null;
-  if (spec.kind !== 'mp4file' && S.project.askSaveLocation && canPickFile()) {
+  if (spec.kind !== 'mp4file' && !opts.dir && S.project.askSaveLocation && canPickFile()) {
     const accept = spec.kind === 'mp4' ? {description: 'MP4 视频', accept: {'video/mp4': ['.mp4']}}
         : spec.kind === 'webm' ? {description: 'WebM 视频', accept: {'video/webm': ['.webm']}}
             : {description: 'ZIP 压缩包', accept: {'application/zip': ['.zip']}};
@@ -162,8 +156,7 @@ async function runSpec(spec: ExportSpec, opts: { dir?: string; wav?: boolean } =
       handle = await (window as any).showSaveFilePicker({suggestedName: exportFileName(spec), types: [accept]});
     } catch (e: any) {
       if (e && e.name === 'AbortError') return;
-      toast('无法打开保存位置：' + (e && e.message ? e.message : e));
-      return;
+      toast('无法打开保存位置（' + (e && e.name || e) + '），改用下载保存');
     }
   }
   const persist = async (blob: Blob, name: string) => {
@@ -173,15 +166,22 @@ async function runSpec(spec: ExportSpec, opts: { dir?: string; wav?: boolean } =
     await w.close();
     return 'saved';
   };
-  // MCP 指定导出目录：桌面版宿主把本次所有下载直接落盘到该目录，不弹另存为；
-  // 浏览器环境没有宿主，回退默认下载目录。导出结束（含出错）恢复弹另存为
-  if (opts.dir) postHost({type: 'set_autosave_dir', dir: opts.dir});
   const savedNote = () => opts.dir ? `・已保存到 ${opts.dir}` : '';
   // 纯字幕层校验：content 是 off 的话导出只会得到空文件（buildSpec 已挡 UI 路径，
   // 这里兜住 MCP 旧 kind）
   if (spec.customDrawOnly && (!J.subtitleCfg || J.subtitleCfg().content === 'off')) {
     throw new Error('字幕渲染未开启：请先在「字幕」面板选择要导出的字幕内容（翻译/音译）');
   }
+  // MCP 指定导出目录：本次导出里所有保存动作（成片/WAV/字幕层）改道宿主落盘端点。
+  // 放在早退校验之后安装，finally 里还原——异常路径不能把 J.saveFile 留在改道状态。
+  // 纯浏览器版没有内置服务（404），回落浏览器下载到默认目录
+  const prevSaveFile = J.saveFile;
+  if (opts.dir) J.saveFile = async (name: string, blob: Blob) => {
+    const r = await fetch('/api/export/save?dir=' + encodeURIComponent(opts.dir!) + '&name=' + encodeURIComponent(name),
+        {method: 'POST', body: blob});
+    if (r.status === 404) return prevSaveFile(name, blob);
+    if (!r.ok) throw new Error(`导出落盘失败：HTTP ${r.status}`);
+  };
   // 字幕预览叠加层在导出期间一律关闭：烤入走显式 overlay（主线程/Worker 同一载荷），
   // 关掉全局叠加才不会在主线程路径画两层
   const prevNoSub = (window as any).__jl_no_sub;
@@ -337,7 +337,7 @@ async function runSpec(spec: ExportSpec, opts: { dir?: string; wav?: boolean } =
   } finally {
     (window as any).__jl_no_sub = prevNoSub;
     S.exportOnMain = false;
-    if (opts.dir) postHost({type: 'set_autosave_dir', dir: null});
+    J.saveFile = prevSaveFile;
     S.exporting = null;
     S.need = true;
     bus.emit('export-end');

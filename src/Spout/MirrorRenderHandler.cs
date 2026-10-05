@@ -3,6 +3,7 @@ using CefSharp;
 using CefSharp.Enums;
 using CefSharp.OffScreen;
 using CefSharp.Structs;
+using JizuraLive.Logging;
 using SharpDX;
 using SharpDX.Direct3D;
 using SharpDX.Direct3D11;
@@ -13,7 +14,7 @@ using Device1 = SharpDX.Direct3D11.Device1;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
 using Range = CefSharp.Structs.Range;
 
-namespace JizuraLive;
+namespace JizuraLive.Spout;
 
 // 帧间隔直方图统计：1ms 桶（0..63ms，>=64ms 落尾桶），周期性汇报 avg/p95/max。
 // 回调按帧发生，观测零成本；汇报窗口自带门控，避免逐帧日志写满滚动日志

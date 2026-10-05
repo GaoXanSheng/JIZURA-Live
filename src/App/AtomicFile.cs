@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 // 原子写，防进程被杀/断电留下截断的 JSON，丢的可能是扫码登录态
 public static class AtomicFile

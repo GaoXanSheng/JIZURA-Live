@@ -1,4 +1,4 @@
-<Window x:Class="JizuraLive.MainWindow"
+<Window x:Class="JizuraLive.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:cef="clr-namespace:CefSharp.Wpf.HwndHost;assembly=CefSharp.Wpf"

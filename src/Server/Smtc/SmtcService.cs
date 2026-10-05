@@ -1,8 +1,9 @@
 using System.Globalization;
 using Windows.Media.Control;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Smtc;
 
 // SMTC（系统媒体传输控制）会话监控。外部播放器（酷狗/网易云/QQ音乐/Spotify…）注册到
 // Windows 后，这里能读到歌名/歌手/播放状态/进度快照。音频完全由播放器自己出声，

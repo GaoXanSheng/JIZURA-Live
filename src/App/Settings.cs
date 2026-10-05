@@ -1,7 +1,8 @@
 using System.IO;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 public sealed class Settings
 {

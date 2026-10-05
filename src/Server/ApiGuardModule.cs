@@ -1,5 +1,6 @@
 using System.Text;
 using EmbedIO;
+using JizuraLive.Logging;
 
 namespace JizuraLive.Server;
 

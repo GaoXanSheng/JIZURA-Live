@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Windows;
+using JizuraLive.Cef;
+using JizuraLive.Logging;
 using JizuraLive.Server;
+using JizuraLive.Spout;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 public partial class App : Application
 {

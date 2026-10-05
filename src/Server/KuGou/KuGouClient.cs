@@ -1,10 +1,12 @@
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
+using JizuraLive.Logging;
+using JizuraLive.Server.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.KuGou;
 
 public sealed partial class KuGouClient
 {

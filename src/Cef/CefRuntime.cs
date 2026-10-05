@@ -1,8 +1,10 @@
 using System.IO;
 using CefSharp;
 using CefSharp.Wpf;
+using JizuraLive.App;
+using JizuraLive.Logging;
 
-namespace JizuraLive;
+namespace JizuraLive.Cef;
 
 public static class CefRuntime
 {
@@ -16,7 +18,7 @@ public static class CefRuntime
     // 与主进程端口撞车
     public static bool Initialize(Settings? settings = null, string cacheDirName = "cef-cache", int? cdpPortOverride = null, bool cdpOff = false)
     {
-        if (_initialized || Cef.IsInitialized == true)
+        if (_initialized || CefSharp.Cef.IsInitialized == true)
         {
             _initialized = true;
             return true;
@@ -33,7 +35,7 @@ public static class CefRuntime
             WindowlessRenderingEnabled = true,
             MultiThreadedMessageLoop = true,
             ResourcesDirPath = AppContext.BaseDirectory,
-            BackgroundColor = Cef.ColorSetARGB(0, 0, 0, 0)
+            BackgroundColor = CefSharp.Cef.ColorSetARGB(0, 0, 0, 0)
         };
         cefSettings.CefCommandLineArgs["autoplay-policy"] = "no-user-gesture-required";
         cefSettings.CefCommandLineArgs.Remove("disable-gpu-compositing");
@@ -95,20 +97,20 @@ public static class CefRuntime
         var success = false;
         try
         {
-            success = Cef.Initialize(cefSettings, false);
+            success = CefSharp.Cef.Initialize(cefSettings, false);
         }
         catch (Exception ex)
         {
             Log.Error("Cef.Initialize 抛出异常", ex);
         }
 
-        Log.Info($"Cef.Initialize 返回: {success}, Cef.IsInitialized: {Cef.IsInitialized}");
-        _initialized = Cef.IsInitialized == true;
+        Log.Info($"Cef.Initialize 返回: {success}, Cef.IsInitialized: {CefSharp.Cef.IsInitialized}");
+        _initialized = CefSharp.Cef.IsInitialized == true;
         return _initialized;
     }
 
     public static void Shutdown()
     {
-        if (Cef.IsInitialized == true) Cef.Shutdown();
+        if (CefSharp.Cef.IsInitialized == true) CefSharp.Cef.Shutdown();
     }
 }

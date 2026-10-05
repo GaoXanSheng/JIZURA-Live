@@ -1,9 +1,10 @@
 using System.IO;
 using System.Text;
 using EmbedIO;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Smtc;
 
 // /api/smtc/events：SSE 推送 SMTC 状态快照，跟随模式用它替代 300ms 轮询。
 // 变化即时推（服务端 Changed 信号，信号量天然合并风暴），没变化每秒发一条心跳——

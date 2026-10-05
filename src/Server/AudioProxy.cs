@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using EmbedIO;
+using JizuraLive.Logging;
 
 namespace JizuraLive.Server;
 

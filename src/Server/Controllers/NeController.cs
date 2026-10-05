@@ -1,8 +1,9 @@
 using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
+using JizuraLive.Server.Models;
 
-namespace JizuraLive.Server;
+namespace JizuraLive.Server.Controllers;
 
 // 网易云在线搜歌/取词/扫码登录，前端 cloud/ 里的「网易云」来源走这里
 public sealed class NeController : WebApiController

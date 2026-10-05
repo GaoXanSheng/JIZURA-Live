@@ -1,6 +1,9 @@
 using System.Text;
 using EmbedIO;
 using EmbedIO.WebApi;
+using JizuraLive.Logging;
+using JizuraLive.Server.Controllers;
+using JizuraLive.Server.Smtc;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
@@ -82,6 +85,7 @@ public sealed class EmbeddedServer : IDisposable
         api.WithController<SmtcController>();
         api.WithController<AnalyzeController>();
         api.WithController<SettingsController>();
+        api.WithController<ExportSaveController>();
         return api;
     }
 

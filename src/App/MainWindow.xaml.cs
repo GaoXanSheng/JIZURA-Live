@@ -3,9 +3,12 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using CefSharp;
+using JizuraLive.Cef;
+using JizuraLive.Logging;
 using JizuraLive.Server;
+using JizuraLive.Spout;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 public partial class MainWindow : Window
 {

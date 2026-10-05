@@ -3,10 +3,12 @@ using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Threading;
+using JizuraLive.App;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace JizuraLive;
+namespace JizuraLive.Spout;
 
 // 镜像宿主进程主体：持有两条 Spout 管线（独立 GPU 进程），经命名管道接受主程序驱动。
 // 浏览器必须在本进程 Cef.Initialize 的线程（UI 线程）创建，管线操作一律经 Dispatcher；
@@ -317,7 +319,7 @@ public sealed class MirrorHostApp
             WirePipeline(_lyricsPipeline);
             _lyricsPipeline.Start(url + "render?layer=lyric",
                 settings.SpoutName + "-LYRICS",
-                Math.Min(settings.LyricsFps, settings.RenderFps),
+                Math.Min((int)settings.LyricsFps, (int)settings.RenderFps),
                 settings.Width,
                 settings.Height,
                 true,

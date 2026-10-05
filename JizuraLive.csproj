@@ -30,6 +30,7 @@
         <PackageReference Include="CefSharp.Common" Version="152.0.100"/>
         <PackageReference Include="CefSharp.Wpf" Version="152.0.100"/>
         <PackageReference Include="CefSharp.OffScreen" Version="152.0.100"/>
+        <PackageReference Include="SharpDX" Version="4.2.0" />
     </ItemGroup>
     <ItemGroup>
         <Reference Include="SharpDX">
@@ -92,6 +93,8 @@
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />
+      <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
+      <ApplicationDefinition Include="src\App\App.xaml" />
     </ItemGroup>
 
     <!-- ================= 前端构建与嵌入 =================

@@ -1,7 +1,7 @@
 using CefSharp;
 using CefSharp.Handler;
 
-namespace JizuraLive;
+namespace JizuraLive.Cef;
 
 // 主窗口右键菜单，CEF 原生渲染。新版 CEF 里 RunContextMenu 返回 true 已挡不住原生菜单
 // （返回值被忽略，原生 UI 自己接管），唯一正路是 OnBeforeContextMenu 里 Clear 后塞自定义条目，

@@ -1,9 +1,10 @@
 using System.IO;
 using System.Windows;
 using CefSharp;
+using JizuraLive.Logging;
 using Microsoft.Win32;
 
-namespace JizuraLive;
+namespace JizuraLive.App;
 
 // 页面「保存」按钮走 <a download> 触发浏览器下载，CefSharp 不设 DownloadHandler
 // 时下载被静默取消，按钮点了毫无反应。这里弹保存对话框落盘
@@ -12,8 +13,8 @@ public sealed class AppDownloadHandler : IDownloadHandler
 {
     public static readonly AppDownloadHandler Instance = new();
 
-    // 免确认落盘目录：页面经 set_autosave_dir 设置，MCP 导出时也可指定。
-    // 非 null 时直接写入不弹另存为，导出结束页面置回 null。
+    // 免确认落盘目录：页面经 set_autosave_dir 消息设置（遗留通道，已无发送方——
+    // MCP 导出改走 /api/export/save 直接落盘）。非 null 时直接写入不弹另存为。
     // CEF 线程读、UI 线程写，volatile 引用赋值本身原子
     public static volatile string? AutoSaveDir;
 

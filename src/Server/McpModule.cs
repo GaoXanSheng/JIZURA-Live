@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using EmbedIO;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -62,6 +63,14 @@ internal sealed class McpModule : WebModuleBase
         {
             Log.Warn("[Mcp] 请求不是合法 JSON：" + ex.Message);
             return await ErrorAsync(context, null, -32700, "请求不是合法 JSON：" + ex.Message);
+        }
+
+        // 协议只收单个 JSON-RPC 2.0 对象；数组（批量）或标量按 Invalid Request 回给客户端，
+        // 不拦截的话后面 Value<string>("method") 会对 JArray 抛异常变成裸 500
+        if (request.Type != JTokenType.Object)
+        {
+            Log.Warn("[Mcp] 请求不是 JSON-RPC 对象（批量请求不支持）");
+            return await ErrorAsync(context, null, -32600, "请求必须是单个 JSON-RPC 2.0 对象（不支持批量）");
         }
 
         var method = request.Value<string>("method") ?? "?";

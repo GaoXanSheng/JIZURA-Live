@@ -91,10 +91,16 @@ function toolGetState(a: any) {
             cuts: S.plan.cuts.filter((x: any) => x.line === i).length,
             locked: !!((S.project.overrides[i] || {}).lock),
         })),
-        cut: c ? {
-            cut: c.index + 1, line: c.line + 1, text: c.text, start: +c.start.toFixed(3), end: +c.end.toFixed(3),
-            layout: c.layout, enter: c.enter, hold: c.hold, exit: c.exit, cam: c.cam, trans: c.trans || null,
-        } : null,
+        cut: c ? (() => {
+            // cut=全局序号（与界面切分信息面板一致）；cutInLine=行内序号，传给 edit_cut / randomize cut 用的就是它
+            const same = S.plan.cuts.filter((x: any) => x.line === c.line && J.LAYOUTS[x.layout] && !J.LAYOUTS[x.layout].special);
+            const inLine = same.findIndex((x: any) => x.index === c.index);
+            return {
+                cut: c.index + 1, cutInLine: inLine >= 0 ? inLine + 1 : 0, line: c.line + 1, text: c.text,
+                start: +c.start.toFixed(3), end: +c.end.toFixed(3),
+                layout: c.layout, enter: c.enter, hold: c.hold, exit: c.exit, cam: c.cam, trans: c.trans || null,
+            };
+        })() : null,
     };
 }
 
@@ -215,6 +221,8 @@ function toolEditLine(a: any) {
         setOv(i, {cuts: a.cuts || undefined, single: undefined});
     }
     if (a.lock !== undefined) {
+        if (a.text !== undefined || a.layout !== undefined || a.cuts !== undefined)
+            replan();   // 锁快照必须来自已应用本次文本/布局/切分的新 plan，否则存下旧内容
         if (a.lock) setOv(i, {
             lock: true,
             lockedSeed: S.plan.lines[i].seed,
@@ -229,17 +237,20 @@ function toolEditLine(a: any) {
 
 function toolEditCut(a: any) {
     const i = lineIdx(a.line);
+    check(J.registry(a.group), '未知组：' + a.group);
     const cuts = S.plan.cuts.filter((c: any) => c.line === i && J.LAYOUTS[c.layout] && !J.LAYOUTS[c.layout].special);
     check(a.cut >= 1 && a.cut <= cuts.length, '该行不存在此切分');
-    const cell = cuts[a.cut - 1];
+    // cutTech/cutQuiet 槽位按「行内第 N 个切分」（0 基）编址，与界面 CutCell.k、planner cutTechOf 同一套序号；
+    // plan 切分对象上没有 k 字段，必须自己换算，否则 setCutTech 收到 undefined 静默 no-op
+    const k = a.cut - 1;
     check(a.key !== undefined || a.quiet !== undefined, '提供 key 或 quiet');
     if (a.key !== undefined) {
-        check(a.key === '' || (J.registry(a.group) && J.registry(a.group)[a.key] && !J.registry(a.group)[a.key].special), '未知手法：' + a.group + '/' + a.key);
-        setCutTech(i, cell.k, a.group, a.key);
+        check(a.key === '' || (J.registry(a.group)[a.key] && !J.registry(a.group)[a.key].special), '未知手法：' + a.group + '/' + a.key);
+        setCutTech(i, k, a.group, a.key);
     }
-    if (a.quiet !== undefined) markCutQuiet(i, cell.k, [a.group], !!a.quiet);
+    if (a.quiet !== undefined) markCutQuiet(i, k, [a.group], !!a.quiet);
     replan();
-    return {cut: cell.k + 1, line: a.line, group: a.group, key: a.key !== undefined ? a.key : 'unchanged'};
+    return {cut: a.cut, line: a.line, group: a.group, key: a.key !== undefined ? a.key : 'unchanged'};
 }
 
 function toolSetTechniques(a: any) {
@@ -257,7 +268,10 @@ function toolSetLocks(a: any) {
     const locks = locksOf();
     const table: any = a.kind === 'tech' ? locks.tech : locks.params;
     for (const k of a.keys) {
-        check(k === 'none' || table[k] !== undefined || a.kind === 'params', '未知锁定项：' + k);
+        // tech 锁的对象是手法组名（layout/enter/...）；params 锁的是 fx 参数名（koma/flash/fx 的键）。
+        // 旧实现要求键已存在于锁表里，锁表初始为空 → tech 永远锁不上
+        if (a.kind === 'tech') check(GROUPS.includes(k), '未知锁定项：' + k);
+        else check(k === 'koma' || k === 'flash' || (S.project.fx && S.project.fx[k] != null), '未知锁定项：' + k);
         table[k] = !!a.locked;
     }
     // 即时 replan（不用 replanSoon 防抖）：返回值携带的 revision 必须是真实当前值，
@@ -307,7 +321,7 @@ function toolPreview(a: any) {
 function toolTap(a: any) {
     if (a.action === 'start') {
         const i = a.line ? lineIdx(a.line) : 0;
-        startTap(S.plan.lines[i] ? S.plan.lines[i].start : 0);
+        startTap(i);   // startTap 收的是行索引（0 基），不是行开始的秒数
     } else if (a.action === 'record') tapNow();
     else if (a.action === 'back') tapBack();
     else stopTap();
@@ -418,14 +432,14 @@ const TOOLS: McpTool[] = [
                 fps: int(12, 120),
                 quality: choice(['standard', 'high', 'max']),
                 exportRange: {
-                    type: 'object',
+                    type: ['object', 'null'],
                     properties: {from: int(1, 100000), to: int(1, 100000)},
                     required: ['from', 'to']
                 },
             }),
         }, ['settings']),
         toolUpdateSettings),
-    T('set_timing', '更新 BPM/偏移/行时缩放，设置或清除手动行时间（秒）。行引用需要 revision', obj({
+    T('set_timing', '更新 BPM/偏移/行时缩放，设置或清除手动行时间（秒）。需带最新 revision', obj({
         settings: obj({
             bpm: num(0, 300),
             offset: num(0, 86400),
@@ -441,7 +455,7 @@ const TOOLS: McpTool[] = [
         },
         clear: {type: 'boolean'},
         revision: int(0, Number.MAX_SAFE_INTEGER)
-    }), toolSetTiming),
+    }, ['revision']), toolSetTiming),
     T('edit_line', '编辑一行：text 替换歌词正文（保留 LRC 时间戳前缀）；layout/cuts/lock 单独传。空 layout、cuts=0 恢复自动', obj({
         revision: int(0, Number.MAX_SAFE_INTEGER),
         line: int(1, 100000),
@@ -450,7 +464,7 @@ const TOOLS: McpTool[] = [
         cuts: int(0, 6),
         lock: {type: 'boolean'}
     }, ['revision', 'line']), toolEditLine),
-    T('edit_cut', '设置某行内第 N 个切分的手法（组=layout/enter/hold/exit/decor/treat/bg/cam/trans）。key="" 恢复自动；quiet 控制附加效果抑制', obj({
+    T('edit_cut', '设置某行内第 N 个切分的手法（N 为行内序号 1 起始，即 get_state 详情里的 cutInLine；组=layout/enter/hold/exit/decor/treat/bg/cam/trans）。key="" 恢复自动；quiet 控制附加效果抑制', obj({
         revision: int(0, Number.MAX_SAFE_INTEGER),
         line: int(1, 100000),
         cut: int(1, 1000),
@@ -468,13 +482,13 @@ const TOOLS: McpTool[] = [
         keys: {type: 'array', items: str(40)},
         locked: {type: 'boolean'}
     }, ['kind', 'keys', 'locked']), toolSetLocks),
-    T('randomize', '随机重抽：all=一键随机（含风格/氛围/配色）；line=重抽一行；cut=重抽一个切分（strategy: omakase/shuffle）。line/cut 需要 revision 与 1 起始引用，显式重抽会解除该行锁定（与界面一致）', obj({
+    T('randomize', '随机重抽：all=一键随机（含风格/氛围/配色）；line=重抽一行；cut=重抽一个切分（strategy: omakase/shuffle）。需带最新 revision 与 1 起始引用（cut 用 get_state 里的 cutInLine），显式重抽会解除该行锁定（与界面一致）', obj({
         target: choice(['all', 'line', 'cut']),
         revision: int(0, Number.MAX_SAFE_INTEGER),
         line: int(1, 100000),
         cut: int(1, 1000),
         strategy: choice(['omakase', 'shuffle'])
-    }, ['target']), toolRandomize),
+    }, ['target', 'revision']), toolRandomize),
     T('history', '撤销/重做：kind=edit（歌词与时间）与 look（外观）是两条独立历史', obj({
         kind: choice(['edit', 'look']),
         direction: choice(['back', 'forward'])
@@ -504,7 +518,9 @@ const TOOLS: McpTool[] = [
 // MCP Streamable HTTP（stateless）协议语义
 function execTool(t: McpTool, a: any) {
     check(J.ui && S.project && S.plan, '编辑器尚未初始化');
-    check(!S.exporting, '导出进行中，请稍后再试');
+    // 导出中只挡写操作：get_state / list_options / get_export_status 等只读工具保持可用，
+    // 否则 start_export 返回的任务没法轮询（工作流就是「轮询到 completed/failed」）
+    if (!t.readOnly) check(!S.exporting, '导出进行中，请稍后再试');
     // revision 契约：提示词与 inputSchema 都声明写操作要带最新 revision，
     // 这里负责真的校验，否则代理的乱序/并发写会静默互相覆盖。
     // schema 里 revision 必填的工具缺参即拒；带 revision 但与当前值不符即拒
