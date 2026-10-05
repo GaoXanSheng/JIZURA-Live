@@ -27,6 +27,8 @@ const form = reactive({
   spoutTransparent: false,
   spoutLyricsEnabled: false,
   splitMirrorHost: true,
+  mirrorExternalBeginFrame: false,
+  mirrorDsync: false,
   cdpEnabled: false,
   cdpPort: 9222,
 });
@@ -102,6 +104,8 @@ async function applyAndRestart() {
         spoutTransparent: form.spoutTransparent,
         spoutLyricsEnabled: form.spoutLyricsEnabled,
         splitMirrorHost: form.splitMirrorHost,
+        mirrorExternalBeginFrame: form.mirrorExternalBeginFrame,
+        mirrorDsync: form.mirrorDsync,
         cdpEnabled: form.cdpEnabled, cdpPort: form.cdpPort,
       }),
     });
@@ -294,6 +298,18 @@ onUnmounted(() => offs.forEach(f => f()));
           </label>
           <p class="hint !text-[11px] !mt-0">主编辑器预览的渲染上限（按短边计，比例始终跟随画幅）。只影响预览的清晰度与性能：不影响导出分辨率（「导出」页单独设置），也不影响
             Spout 渲染窗口。</p>
+          <label class="checkline pt-1.5">
+            <input v-model="form.mirrorExternalBeginFrame" type="checkbox" @change="markDirty"> 镜像 External
+            BeginFrame（宿主帧泵驱动）</label>
+          <p class="hint !text-[11px] !mt-0">
+            帧节奏由宿主按输出帧率主动驱动，绕开 Chromium 合成器自调度：消除 BeginFrame 断供与帧间隔抖动，暂停时不再空转出帧。随「重启渲染引擎」生效；环境变量
+            JIZURA_MIRROR_EBF 可临时覆盖。</p>
+          <label class="checkline">
+            <input v-model="form.mirrorDsync" type="checkbox" @change="markDirty"> desynchronized
+            画布（低延迟交换链）</label>
+          <p class="hint !text-[11px] !mt-0">
+            镜像用低延迟交换链直出，省约一帧合成延迟。建议与 External BeginFrame 一起开启——合成器调度下单独开启会被消费端反压，出现数百毫秒停顿。随「重启渲染引擎」生效；环境变量
+            JIZURA_MIRROR_DSYNC 可临时覆盖。</p>
         </div>
       </details>
     </template>

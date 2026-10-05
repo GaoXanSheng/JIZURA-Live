@@ -25,6 +25,8 @@ internal sealed class SettingsController : WebApiController
             spoutTransparent = s.SpoutTransparent,
             spoutLyricsEnabled = s.SpoutLyricsEnabled,
             splitMirrorHost = s.SplitMirrorHost,
+            mirrorExternalBeginFrame = s.MirrorExternalBeginFrame,
+            mirrorDsync = s.MirrorDsync,
             cdpEnabled = s.CdpEnabled,
             cdpPort = s.CdpPort
         };
@@ -112,6 +114,10 @@ internal sealed class SettingsController : WebApiController
                 changed.Add($"独立 Spout 字幕通道{(d.SpoutLyricsEnabled ? " 开启" : " 关闭")}");
             if (splitToggled)
                 changed.Add($"镜像独立进程渲染{(d.SplitMirrorHost ? " 开启" : " 关闭")}");
+            if (settings.MirrorExternalBeginFrame != d.MirrorExternalBeginFrame)
+                changed.Add($"镜像 External BeginFrame{(d.MirrorExternalBeginFrame ? " 开启" : " 关闭")}");
+            if (settings.MirrorDsync != d.MirrorDsync)
+                changed.Add($"desynchronized 画布{(d.MirrorDsync ? " 开启" : " 关闭")}");
 
             settings.Width = width;
             settings.Height = height;
@@ -122,6 +128,8 @@ internal sealed class SettingsController : WebApiController
             settings.SpoutTransparent = d.SpoutTransparent;
             settings.SpoutLyricsEnabled = d.SpoutLyricsEnabled;
             settings.SplitMirrorHost = d.SplitMirrorHost;
+            settings.MirrorExternalBeginFrame = d.MirrorExternalBeginFrame;
+            settings.MirrorDsync = d.MirrorDsync;
 
             var port = Math.Clamp(d.CdpPort, 1, 65535);
             if (settings.CdpEnabled != d.CdpEnabled || settings.CdpPort != port)
@@ -199,6 +207,8 @@ internal sealed class SettingsController : WebApiController
         public bool SpoutTransparent { get; set; }
         public bool SpoutLyricsEnabled { get; set; }
         public bool SplitMirrorHost { get; set; } = true;
+        public bool MirrorExternalBeginFrame { get; set; }
+        public bool MirrorDsync { get; set; }
         public bool CdpEnabled { get; set; }
         public int CdpPort { get; set; }
     }
