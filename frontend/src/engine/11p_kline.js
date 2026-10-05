@@ -4,7 +4,6 @@
     const CANDLE_DURATION = 0.3; // 一根蜡烛多少秒
     let cachedPlanId = null;
     let candleData = null; // { candles, ma5, ma10, maxVol, lo, hi }
-    let lyricList = null;  // 滚动字幕行（剔除标题卡与制作名单，按 start 排序）
 
     // 视口（固定）：范围在 prepareCandles 里按全曲范围一次算好，全程锁定——
     // 不跟踪、不平滑、无逐帧状态，机制上杜绝上下晃动
@@ -162,7 +161,6 @@
 
         if (cachedPlanId !== plan) {
             candleData = prepareCandles(plan);
-            lyricList = (plan.cuts || []).filter(c => c.text);   // 标题/制作名单也按普通行进队列
             cachedPlanId = plan;
         }
         if (!candleData || !candleData.candles.length) {
@@ -353,55 +351,6 @@
             ctx.fillText(fmtTime(t), Math.min(chartX + chartW - 40, Math.max(chartX + 40, cursorX)), volY + volH + gap);
         }
 
-        // 歌词：固定间距槽位排列，当前行居中，上/下一格一行
-        if (plan.cuts && plan.cuts.length > 0) {
-            const centerY = chartY + chartH * 0.5;
-            const spacing = Math.round(H * 0.075);    // 固定行距：与歌词的实际时间间隔无关
-            const fontPx = Math.round(H * 0.042);
-            const lyricX = chartX + chartW / 2;
-            const maxW = chartW * 0.92;
-
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'rgba(0,0,0,0.78)';
-            ctx.shadowBlur = Math.round(H * 0.012);
-
-            // 滚动字幕：固定间距槽位。聚焦行(纯函数) = 已开始的最后一行；
-            // 换行时整体在 0.44s 内平滑上移一格（smoothstep），行间垂直距离恒等于 spacing
-            let idx = -1;
-            for (let i = 0; i < lyricList.length; i++) if (t >= lyricList[i].start) idx = i;
-            let curF = idx;
-            const next = idx + 1 < lyricList.length ? lyricList[idx + 1] : (idx < 0 ? lyricList[0] : null);
-            if (next && t > next.start - 0.22) {
-                const k = Math.max(0, Math.min(1, (t - (next.start - 0.22)) / 0.44));
-                curF = idx + k * k * (3 - 2 * k);
-            }
-
-            for (let i = 0; i < lyricList.length; i++) {
-                const d = i - curF;
-                const ad = Math.abs(d);
-                if (ad > 3.2) continue;                       // 一屏最多上下各三行
-                const alpha = ad <= 0.5 ? 1 : Math.max(0, 0.45 - (ad - 1) * 0.15);
-                if (alpha <= 0.015) continue;
-                const y = centerY + d * spacing;
-                if (y < chartY || y > chartY + chartH) continue;
-                const c = lyricList[i];
-                ctx.globalAlpha = alpha;
-                ctx.fillStyle = ad <= 0.5 ? '#ffffff' : '#dfe6f0';
-                let fp = fontPx;
-                ctx.font = window.J.fontCSS ? window.J.fontCSS('mono', fp) : `bold ${fp}px Consolas, monospace`;
-                const w = ctx.measureText(c.text).width;
-                if (w > maxW) {                               // 超宽行缩字号，不折行
-                    fp = Math.max(Math.round(fontPx * 0.5), Math.floor(fontPx * maxW / w));
-                    ctx.font = window.J.fontCSS ? window.J.fontCSS('mono', fp) : `bold ${fp}px Consolas, monospace`;
-                }
-                ctx.fillText(c.text, lyricX, y);
-            }
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-            ctx.shadowColor = 'rgba(0,0,0,0)';
-        }
-
         ctx.restore();
     };
 
@@ -425,7 +374,7 @@
             texture: {grain: 0.15, paper: 0, scan: 0.3}, ghost: 0,
             bias: {},
             decor: {}, hud: false,
-            kline: true,  // 09_render.js 画满K线背景，歌词走正常随机特效管线
+            kline: true,  // 09_render.js 走独立渲染分支：只画K线图表，不画歌词（歌词归前景层/字幕通道）
         };
         if (window.J.STYLE_ORDER && !window.J.STYLE_ORDER.includes('kline')) {
             window.J.STYLE_ORDER.push('kline');
