@@ -111,6 +111,7 @@ function toolListOptions(a: any) {
     check(table, '未知分类：' + cat);
     let items = Object.entries(table).filter(([, v]: any) => !v.special).map(([id, v]: any) => ({
         id, label: v.name || v.label || id, description: (v.desc || '').slice(0, 200),
+        isNew: v.extra === true ? true : undefined,
         enabled: cat === 'style' || cat === 'font' ? undefined : S.project.enabled[cat] ? S.project.enabled[cat][id] !== false : undefined,
         eligibleForRandom: cat === 'style' || cat === 'font' ? undefined : J.randomOk(S.project, cat, id),
     }));

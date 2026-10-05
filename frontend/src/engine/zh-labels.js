@@ -287,7 +287,8 @@
       magnetJiggle: '磁力',
       typeRattle: '打字震动',
       focusRack: '移焦',
-      pluckString: '拨弦'
+      pluckString: '拨弦',
+      pitchDrift: '随音高游移'
     },
     exit: {
       cut: '直切',
@@ -492,7 +493,8 @@
       likeCounter: '按赞数',
       mediaControls: '播放按钮',
       volumeBars: '音量',
-      musicNotes: '音符'
+      musicNotes: '音符',
+      ecg: '心电图'
     },
     treat: {
       none: '无',
@@ -610,7 +612,8 @@
       eqBars: '背景等化器',
       borderFrame: '粗框',
       letterbox: '电影黑边',
-      noiseField: '噪点扰动'
+      noiseField: '噪点扰动',
+      ridgeAudio: '音频山脊线'
     },
     cam: {
       push: '缓慢推近', orbitDrift: '环绕', barrelRoll: '桶滚', pendulumSway: '钟摆', focusIn: '对焦',
@@ -686,7 +689,8 @@
       zoomPunch: '缩放重击',
       lightSweep: '光束扫过',
       crtOff: '映像管关机',
-      splitSlide: '上下滑移'
+      splitSlide: '上下滑移',
+      ascii: 'ASCII化'
     },
     trans: {
       wipe: '边缘擦除',
@@ -708,7 +712,8 @@
       sliceShift: '长条错位',
       cubeTurn: '立方体',
       flashCross: '闪光转场',
-      pixelate: '马赛克转场'
+      pixelate: '马赛克转场',
+      channelSwitch: '换台'
     }
   };
   for (const group of J.GROUP_KEYS) {
