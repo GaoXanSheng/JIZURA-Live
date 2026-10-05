@@ -65,12 +65,29 @@ function cleanTitle(t: string): string {
         .trim();
 }
 
-// 播放器没给歌手时的兜底：浏览器标签页常把「歌手 - 歌名」塞进标题
-function splitTitleArtist(title: string, artist: string): [string, string] {
-    if (artist || !title) return [title, artist];
+// 播放器没给歌手时的兜底：标题里的「A - B」不知道哪边是歌手——
+// 浏览器标签页惯例「歌手 - 歌名」，播放器/SMTC 惯例「歌名 - 歌手」，
+// 两种顺序都交给匹配去试，别赌错一边（赌错=拿歌手当歌名搜，歌词必然对不上）
+function titleArtistCandidates(title: string, artist: string): [string, string][] {
+    if (artist || !title) return [[title, artist]];
     const m = title.match(/^(.+?)\s*[-–—]\s*(.+)$/);
-    if (m) return [m[2].trim(), m[1].trim()]; // 惯例：歌手在前
-    return [title, artist];
+    if (m) {
+        const a = m[1].trim(), b = m[2].trim();
+        return a && b ? [[b, a], [a, b]] : [[title, artist]];
+    }
+    return [[title, artist]];
+}
+
+// 多歌手拆分：SMTC/搜索结果常见「A/B」「A、B」「A&B」「A feat. B」，
+// 拆成部件匹配，别拿整串互 include
+function artistParts(s: string): string[] {
+    return String(s || '').split(/[\/、,，&]|feat\.?|featuring/i).map(norm).filter(Boolean);
+}
+
+function artistMatches(queryArtist: string, resultSinger: string): boolean {
+    const qs = artistParts(queryArtist), ss = artistParts(resultSinger);
+    return qs.length > 0 && ss.length > 0 &&
+        qs.some(a => ss.some(s => s === a || s.includes(a) || a.includes(s)));
 }
 
 interface CacheEntry {
@@ -79,9 +96,11 @@ interface CacheEntry {
     ts: number;
 }
 
+// 缓存键带 v2：选歌逻辑收紧（歌手硬把关）后，旧缓存里的错误匹配必须作废重搜，
+// 不然修复对已经串过词的歌不生效
 function cacheLoad(): Record<string, CacheEntry> {
     try {
-        return JSON.parse(localStorage.getItem('jizura.followCache') || '{}') || {};
+        return JSON.parse(localStorage.getItem('jizura.followCache.v2') || '{}') || {};
     } catch {
         return {};
     }
@@ -100,13 +119,15 @@ function cachePut(key: string, e: CacheEntry) {
             keys.sort((a, b) => (all[a].ts || 0) - (all[b].ts || 0));
             for (const k of keys.slice(0, keys.length - 300)) delete all[k];
         }
-        localStorage.setItem('jizura.followCache', JSON.stringify(all));
+        localStorage.setItem('jizura.followCache.v2', JSON.stringify(all));
     } catch { // 超配额就算了
     }
 }
 
 // 从搜索结果里挑最像的：标题/歌手相似度为主，曲目时长接近 SMTC EndTime 是强信号；
-// Live/伴奏/翻唱等扣分。分数太低宁可返回 null 让用户手动搜，错词比没词糟糕
+// Live/伴奏/翻唱等扣分。分数太低宁可返回 null 让用户手动搜，错词比没词糟糕。
+// 歌手是硬把关：同名歌不同歌手（翻唱/DJ版/remix）是「歌词对不上」的头号来源——
+// 播放器给了歌手而候选歌手完全沾不上边就重罚，光靠标题部分匹配+时长凑分混不过去
 function pickSong(list: Song[], title: string, artist: string, durSec: number): Song | null {
     const tn = norm(title), an = norm(artist);
     let best: Song | null = null, bestScore = -1e9;
@@ -115,10 +136,9 @@ function pickSong(list: Song[], title: string, artist: string, durSec: number): 
         let sc = idx * -0.5;
         if (n === tn) sc += 60;
         else if (n && (n.includes(tn) || tn.includes(n))) sc += 30;
-        if (an && sg) {
-            if (sg === an) sc += 30;
-            else if (sg.includes(an) || an.includes(sg)) sc += 15;
-        }
+        const artistHit = an ? artistMatches(artist, it.singer || '') : false;
+        if (artistHit) sc += 30;
+        else if (an && sg) sc -= 45;   // 沾不上边：同名不同歌手，大概率不是这首歌的词
         for (const bad of BAD_WORDS) if (n.includes(bad)) sc -= 25;
         if (durSec > 0 && (it.duration || 0) > 0) {
             const d = Math.abs((it.duration || 0) - durSec);
@@ -156,15 +176,20 @@ async function findSong(title: string, artist: string, durSec: number): Promise<
 
 async function matchAndAdopt(cur: { title: string; artist: string; durationMs: number }) {
     const seq = ++matchSeq;
-    const [rawTitle, rawArtist] = splitTitleArtist(cur.title, cur.artist);
-    const title = cleanTitle(rawTitle);
-    const artist = cleanTitle(rawArtist);
+    let title = '', artist = '';
     follow.status = 'matching';
     follow.detail = '';
     follow.matchedAs = '';
     follow.fmt = '';
     try {
-        const found = await findSong(title, artist, cur.durationMs / 1000);
+        // 「A - B」不知道哪边是歌手时两种顺序各试一轮（见 titleArtistCandidates）
+        let found: CacheEntry | null = null;
+        for (const [t, a] of titleArtistCandidates(cur.title, cur.artist)) {
+            title = cleanTitle(t);
+            artist = cleanTitle(a);
+            found = await findSong(title, artist, cur.durationMs / 1000);
+            if (found || seq !== matchSeq) break;
+        }
         if (seq !== matchSeq) return; // 期间又切歌了
         if (!found) {
             follow.status = 'no-match';
@@ -186,13 +211,19 @@ async function matchAndAdopt(cur: { title: string; artist: string; durationMs: n
         } else {
             follow.fmt = await adoptKgLyric(ly, false, false);
         }
-        follow.matchedAs = (source === 'kugou' ? '酷狗' : '网易云') + '·' + song.name;
+        // 匹配结果带歌手：同名歌多版本（原版/翻唱/DJ版），只看歌名分不清词是谁的
+        follow.matchedAs = (source === 'kugou' ? '酷狗' : '网易云') + '·' + song.name +
+            (song.singer ? ' - ' + song.singer : '');
         follow.status = 'ok';
-        // 时长核对：渲染时长与播放器差太多多半是 VIP 试听截断或不同版本
+        // 核对警告：歌手对不上＝多半串了翻唱/DJ版；时长差太多＝多半试听截断或不同版本
+        const warns: string[] = [];
+        if (artist && song.singer && !artistMatches(artist, song.singer))
+            warns.push(`匹配到「${song.singer}」的版本，与播放器歌手「${artist}」不一致，歌词可能对不上，建议在「搜索」页手动匹配`);
         const planDur = S.plan?.duration || 0;
         const srtcDur = cur.durationMs / 1000;
         if (planDur > 0 && srtcDur > 0 && Math.abs(planDur - srtcDur) > 3)
-            follow.detail = `时长不一致（歌词 ${fmtDur(planDur)} / 播放器 ${fmtDur(srtcDur)}），可能是试听截断或不同版本`;
+            warns.push(`时长不一致（歌词 ${fmtDur(planDur)} / 播放器 ${fmtDur(srtcDur)}），可能是试听截断或不同版本`);
+        follow.detail = warns.join('；');
     } catch (e: any) {
         if (seq === matchSeq) {
             follow.status = 'error';

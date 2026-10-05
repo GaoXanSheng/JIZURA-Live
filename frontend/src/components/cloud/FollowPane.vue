@@ -41,7 +41,7 @@ const fmtName = computed(() =>
       </div>
       <div class="flex items-center gap-2 text-xs min-w-0">
         <span :class="status.cls" class="flex-none">{{ status.text }}</span>
-        <span v-if="follow.matchedAs" class="text-mut truncate">{{ follow.matchedAs }}</span>
+        <span v-if="follow.matchedAs" class="text-mut truncate" :title="follow.matchedAs">{{ follow.matchedAs }}</span>
         <span v-if="fmtName" class="flex-none px-1.5 py-px rounded bg-amber/10 text-amber text-[10px]">{{ fmtName }}</span>
         <button v-if="follow.status === 'no-match' || follow.status === 'error'"
                 class="flex-none border-0 bg-transparent text-cyan text-[11px] cursor-pointer underline p-0"
