@@ -97,6 +97,8 @@
         return splitL(t, Math.ceil(n / Math.ceil(n / per)));
     };
     const _pool = new Map();
+    // slotMachine 滚筒压暗渐变：窗口矩形与颜色每 cut 静止，渐变对象按几何+色缓存
+    const reelGrads = new Map();
     const poolOf = (cut) => {
         const key = J.lang + '|' + cut.lineText + '|' + cut.text;
         let p = _pool.get(key);
@@ -978,17 +980,8 @@
                 ctx.save();
                 ctx.clip();
                 const off = ((env.ltb * Pm.speed * M * 0.12 * dir) % per + per) % per;
-                env.draw({
-                    text: unit.repeat(reps),
-                    font: Pm.fb,
-                    size: fsz,
-                    track: 0.08,
-                    align: 'left',
-                    x: -len * 0.6 - per + off,
-                    y: 0,
-                    color: onCol(sc, cols[b]),
-                    ghost: false
-                });
+                // 背景带整行一次画：逐字 draw 是本版式的主要开销
+                J.fastRow(env, unit.repeat(reps), Pm.fb, fsz, -len * 0.6 - per + off, 0, fsz * 0.08, onCol(sc, cols[b]));
                 ctx.restore();
                 ctx.restore();
             });
@@ -1622,11 +1615,17 @@
                 }));
                 ctx.restore();
                 if (env.pass === 'main') {   // 滚筒上下压暗
-                    const g = ctx.createLinearGradient(0, wy, 0, wy + h);
-                    g.addColorStop(0, J.rgba(winC, 0.95));
-                    g.addColorStop(0.3, J.rgba(winC, 0));
-                    g.addColorStop(0.7, J.rgba(winC, 0));
-                    g.addColorStop(1, J.rgba(winC, 0.95));
+                    const gk = (wx | 0) + ':' + (wy | 0) + ':' + (w | 0) + ':' + (h | 0) + ':' + winC;
+                    let g = reelGrads.get(gk);
+                    if (!g) {
+                        g = ctx.createLinearGradient(0, wy, 0, wy + h);
+                        g.addColorStop(0, J.rgba(winC, 0.95));
+                        g.addColorStop(0.3, J.rgba(winC, 0));
+                        g.addColorStop(0.7, J.rgba(winC, 0));
+                        g.addColorStop(1, J.rgba(winC, 0.95));
+                        if (reelGrads.size > 32) reelGrads.clear();
+                        reelGrads.set(gk, g);
+                    }
                     ctx.save();
                     ctx.globalAlpha = out;
                     ctx.fillStyle = g;

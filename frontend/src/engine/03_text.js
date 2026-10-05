@@ -397,6 +397,27 @@
         return {x0: it.x + x0, y0: it.y + y0, x1: it.x + x1, y1: it.y + y1, boxes, cx: it.x, cy: it.y};
     };
 
+    // 密排小字一次画一行，省掉逐字 draw；只该在 main pass 用，sp 为每字额外间距 px。
+    // 整行一根 fillText：不逐字走 drawItem，也就不吃 weightGrow/morph 抓取（满版平铺的
+    // 背景行正该如此）。letterSpacing 不受支持的环境退回逐字 env.draw
+    J.fastRow = (env, text, font, size, x, y, sp, color, alpha, align = 'left') => {
+        if (env.pass !== 'main' || alpha <= 0.01 || !text || J.hideDecoText(env, text)) return;
+        const ctx = env.ctx;
+        if (!('letterSpacing' in ctx)) {
+            env.draw({text, font, size, x, y, align, track: sp / size, color, alpha, ghost: false});
+            return;
+        }
+        ctx.save();
+        ctx.font = J.fontCSS(font, size);
+        ctx.letterSpacing = sp.toFixed(2) + 'px';
+        ctx.textAlign = align;
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.fillText(text, x, y);
+        ctx.restore();
+    };
+
     // 太さ：当前 cut 的生长度 0..1（永不到 0，非 0 同时表示"开"）；eased，前半段走完
     J.weightNow = (env) => {
         const span = Math.max(0.5, Math.min(1.4, env.cut.dur * 0.5));
@@ -553,9 +574,29 @@
     };
 
     // 量 item 排版后的尺寸（设计像素，已乘 sx/sy）
+    // 测量 memo：版式每帧每 pass 重复 measure/fitSize（fitSize 的探测也走这里），结果
+    // 纯数值 + lay 只读，可跨 item/跨帧共享。哨兵挂在 metrics 表上：字体装载后
+    // metrics.clear() 哨兵消失，整表作废（同 11p_layoutsA 的 SENT 模式）
+    const MMEMO = new Map(), MSENT = '\u0001measure';
+    const mKey = it => String(it.text ?? '') + '\u0002' + it.font + '\u0002' + it.size + '\u0002' +
+        (it.track || 0) + '\u0002' + (it.lead || 1.3) + '\u0002' + (it.sx || 1) + '\u0002' + (it.sy || 1) +
+        '\u0002' + (it.align || '') + '\u0002' + (it.vertical ? 1 : 0) + '\u0002' + (J.TYPESET ? 1 : 0);
+
     J.measure = (it) => {
-        const l = J.layoutText(it);
-        return {w: l.W * (it.sx || 1), h: l.H * (it.sy || 1), lay: l};
+        const mm = J.metrics && J.metrics.m;
+        if (!mm || !mm.has(MSENT)) {
+            MMEMO.clear();
+            if (mm) mm.set(MSENT, 1);
+        }
+        const k = mKey(it);
+        let m = MMEMO.get(k);
+        if (!m) {
+            const l = J.layoutText(it);
+            m = {w: l.W * (it.sx || 1), h: l.H * (it.sy || 1), lay: l};
+            if (MMEMO.size > 600) MMEMO.delete(MMEMO.keys().next().value);
+            MMEMO.set(k, m);
+        }
+        return m;
     };
 
     // 求正好装进盒子的字号

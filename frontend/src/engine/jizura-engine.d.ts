@@ -72,6 +72,7 @@ export interface JizuraEngine {
     typesetLine: (line: any, env: any) => any;
     layoutText: (item: any, env: any) => any;
     drawItem: (ctx: CanvasRenderingContext2D, item: any, t: number, env: any) => void;
+    fastRow: (env: any, text: string, font: string, size: number, x: number, y: number, sp: number, color: string, alpha: number, align?: string) => void;
     decoTextKind: (t: string) => 'no' | 'time' | null;
     hideDecoText: (env: any, text: string) => boolean;
     weightNow: (w: number, t: number) => number;

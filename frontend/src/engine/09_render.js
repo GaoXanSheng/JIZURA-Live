@@ -122,6 +122,49 @@
       return c;
     }
 
+    // 每帧重建的 pattern/gradient 对象按 ctx 复用：本体无状态，坐标在使用时的用户空间解释，
+    // 同一 ctx 同一参数下跨帧共享安全（ctx 换画布时按引用重建）
+    pat(ctx, img) {
+      let c = this._patC;
+      if (!c || c.ctx !== ctx) c = this._patC = {ctx, m: new Map()};
+      let p = c.m.get(img);
+      if (!p) {
+        p = ctx.createPattern(img, 'repeat');
+        c.m.set(img, p);
+      }
+      return p;
+    }
+
+    bgGrad(ctx, W, H, lift) {
+      let c = this._bgG;
+      if (!c || c.ctx !== ctx) c = this._bgG = {ctx, m: new Map()};
+      const k = W + 'x' + H + ':' + lift;
+      let g = c.m.get(k);
+      if (!g) {
+        g = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+        g.addColorStop(0, lift);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        if (c.m.size > 12) c.m.delete(c.m.keys().next().value);
+        c.m.set(k, g);
+      }
+      return g;
+    }
+
+    vigGrad(ctx, cw, ch, a) {
+      let c = this._vgG;
+      if (!c || c.ctx !== ctx) c = this._vgG = {ctx, m: new Map()};
+      const k = cw + 'x' + ch + ':' + Math.round(a * 500);
+      let g = c.m.get(k);
+      if (!g) {
+        g = ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.35, cw / 2, ch / 2, Math.hypot(cw, ch) * 0.62);
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, `rgba(0,0,0,${a})`);
+        if (c.m.size > 8) c.m.delete(c.m.keys().next().value);
+        c.m.set(k, g);
+      }
+      return g;
+    }
+
     // 主入口：把 t 时刻的一帧画进 ctx，画布像素 = 设计尺寸 * scale
     frame(ctx, plan, t, opt = {}) {
       const W = plan.W, H = plan.H, scale = opt.scale || 1;
@@ -133,6 +176,10 @@
         J.KLINE_RENDERER(ctx, plan, t, opt);
         return;
       }
+      // 帧归因打点：DevPerfPanel 开着（J.PERF.on）才计时，关=每帧一次属性读
+      const pf = J.PERF && J.PERF.on ? J.PERF : null;
+      const pT0 = pf ? performance.now() : 0;
+      let pT1 = pT0, pT2 = pT0, pT3 = pT0, pT4 = pT0, pT5 = pT0;
       // 动作按 koma 量化（24fps 作画基准）；随机闪烁走 <=24Hz 时钟
       const stepDur = J.stepDur(fx, fps);
       const clock = J.komaOf(fx) > 0 ? stepDur : 1 / 24;
@@ -142,6 +189,63 @@
       const allowFilter = this.filterOK && !opt.fast;
       if (J.setLang) J.setLang(plan.lang || 'ja');          // 字体随歌词语言
       if (J.setTypeset) J.setTypeset(plan.typeset);         // 文字整列
+      const u = H / 1080;
+      const key = plan.keyBg && J.KEY_BG && J.KEY_BG[plan.keyBg] ? plan.keyBg : null;   // keyBg 合成用：黑底白字，最后 keyFinish() 收尾
+      const events = plan.events;
+      // 事件衰减与节拍脉冲按真实 t 连续（不量化）：窗口内整帧缓存不命中，保持逐帧正确
+      let spike = 0, shake = 0, beatPulse = 0, evLive = false;
+      for (let i = 0; i < events.length; i++) {
+        const ev = events[i];
+        if (ev.t > t) break;
+        if (t < ev.t + Math.max(ev.dur, 1 / fps)) evLive = true;
+        const dt = (t - ev.t) * 24;
+        if (dt > 14) continue;
+        if (ev.type === 'chroma') spike += ev.amp * Math.pow(0.55, dt);
+        else if (ev.type === 'shake') shake += ev.amp * Math.pow(0.62, dt);
+      }
+      if (plan.beats && plan.beats.length) {
+        const b = prevBeat(plan.beats, t);
+        if (b != null && t - b < 0.25) beatPulse = 0.9 * Math.exp(-(t - b) * 16);
+      }
+      const step = Math.floor(tq / clock + 1e-6);
+      // energy 取样对齐 koma 时钟：画面一切动作已按 koma 作画，柱状/频谱类跟随同一时钟
+      const eIdx = plan.energy ? Math.min(plan.energy.length - 1, Math.max(0, Math.floor(tq * plan.energyRate))) : 0;
+      const energy = plan.energy ? plan.energy[eIdx] : null;
+      // 转场窗口：合成结果依赖真实 t 与两帧内容，整帧缓存绕过（A 静帧由本缓存按自身键命中）
+      const tPrev = !opt.noTrans && mainCut && mainCut.index > 0 ? plan.cuts[mainCut.index - 1] : null;
+      const transOn = !!(!opt.noTrans && mainCut && mainCut.trans && J.TRANS[mainCut.trans] && mainCut.index > 0 &&
+          tPrev && (tq - mainCut.start) < (mainCut.transDur || 0.35) && Math.abs(tPrev.end - mainCut.start) < 0.06);
+      // 整帧缓存：画面内容由 (tq, step) 量化量完全决定，同一逐步内的帧逐像素相同——
+      // koma=12 时 60fps 播放每秒只需真渲染 12 次，其余整帧贴图。冷键不落盘：
+      // 多画布/多 plan 轮转时白付拷贝不值，同一键第二次出现才开始写缓存。
+      const fc = this.fCache || (this.fCache = {plan: null, cv: null, key: '', hot: ''});
+      let fKey = null;
+      if (!opt.glyphLog && !opt.klineBg && !opt.layer && !evLive && spike === 0 && shake === 0 &&
+          beatPulse <= 0.02 && !transOn) {
+        if (plan !== fc.plan) {
+          fc.plan = plan;
+          fc.key = '';
+          fc.hot = '';
+        }
+        fKey = tq + ':' + step + ':' + cw + 'x' + ch + ':' + scale.toFixed(4) + ':' + (opt.fast ? 1 : 0) +
+            (opt.transparent ? 1 : 0) + (opt.noGhost ? 1 : 0) + (opt.noHud ? 1 : 0) + (opt.noPost ? 1 : 0) +
+            (opt.noTrans ? 1 : 0) + ':' + (key || '') + ':' + eIdx;
+      }
+      if (fKey != null && fKey === fc.key && fc.cv && fc.cv.width === cw && fc.cv.height === ch) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'copy';
+        ctx.drawImage(fc.cv, 0, 0);
+        ctx.restore();
+        if (pf) pf.push({
+          total: performance.now() - pT0, bg: 0, pass: 0, morph: 0, trans: 0, post: 0, hit: true, stage: opt.stage === true,
+          layout: mainCut ? mainCut.layout : '', cam: mainCut ? mainCut.cam : '', bgId: mainCut ? mainCut.bg : '',
+          decor: mainCut ? (mainCut.decor || []).length : 0, cut: mainCut ? mainCut.index : -1, tq, t
+        });
+        return;
+      }
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalCompositeOperation = 'source-over';
@@ -149,18 +253,13 @@
       ctx.filter = 'none';
       if (!opt.klineBg) ctx.clearRect(0, 0, cw, ch);   // K线背景已画好，不能清掉
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      const key = plan.keyBg && J.KEY_BG && J.KEY_BG[plan.keyBg] ? plan.keyBg : null;   // keyBg 合成用：黑底白字，最后 keyFinish() 收尾
       if (key && !opt.transparent) {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, W, H);
       } else if (!opt.transparent && !opt.klineBg) {
         ctx.fillStyle = sc.bg;
         ctx.fillRect(0, 0, W, H);
-        const g = ctx.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H / 2, Math.hypot(W, H) * 0.6);
-        const lift = J.lum(sc.bg) < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.10)';
-        g.addColorStop(0, lift);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
+        ctx.fillStyle = this.bgGrad(ctx, W, H, J.lum(sc.bg) < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.10)');
         ctx.fillRect(0, 0, W, H);
         const paperAmt = (sc.paper ? 1 : st.texture.paper || 0) * (fx.texture ?? 0.6);
         if (paperAmt > 0.02) {
@@ -173,25 +272,8 @@
           ctx.globalCompositeOperation = 'source-over';
         }
       }
-      const u = H / 1080;
-      const events = plan.events;
-      let spike = 0, shake = 0, beatPulse = 0;
-      for (let i = 0; i < events.length; i++) {
-        const ev = events[i];
-        if (ev.t > t) break;
-        const dt = (t - ev.t) * 24;
-        if (dt > 14) continue;
-        if (ev.type === 'chroma') spike += ev.amp * Math.pow(0.55, dt);
-        else if (ev.type === 'shake') shake += ev.amp * Math.pow(0.62, dt);
-      }
-      if (plan.beats && plan.beats.length) {
-        const b = prevBeat(plan.beats, t);
-        if (b != null && t - b < 0.25) beatPulse = 0.9 * Math.exp(-(t - b) * 16);
-      }
       const chroma = (fx.chroma ?? 0.7) * (st.ghost ?? 1) * (1 + spike + beatPulse);
-      const step = Math.floor(tq / clock + 1e-6);
       const beatInfo = plan.beats && plan.beats.length ? beatAt(plan.beats, tq) : null;
-      const energy = plan.energy ? plan.energy[Math.min(plan.energy.length - 1, Math.max(0, Math.floor(t * plan.energyRate)))] : null;
       // 透過PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
       const layer = opt.transparent ? opt.layer || null : null;
       if ((!opt.transparent || layer === 'back') && !key && !opt.klineBg && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
@@ -217,6 +299,7 @@
         ctx.globalCompositeOperation = 'source-over';
         ctx.filter = 'none';
       }
+      if (pf) pT1 = performance.now();
       const shx = J.rs(step, 71) * shake * 16 * u, shy = J.rs(step, 72) * shake * 11 * u;
       const passes = PASSES;
       passes[0].off[0] = -3.4 * chroma * u;
@@ -315,6 +398,7 @@
           X.restore();
         }
       }
+      if (pf) pT2 = performance.now();
       if (LX) {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -332,8 +416,9 @@
         if (J.komaOf(fx) === 0) this.drawMorph(ctx, L, e, allowFilter);
         else this.morphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
       }
-      // cut 间转场：用上一 cut 的收尾帧和当前帧合成
-      if (!opt.noTrans && mainCut && mainCut.trans && J.TRANS[mainCut.trans] && mainCut.index > 0) {
+      if (pf) pT3 = performance.now();
+      // cut 间转场：用上一 cut 的收尾帧和当前帧合成（窗口判定已在开头算好：transOn）
+      if (transOn) {
         const lt = tq - mainCut.start, dur = mainCut.transDur || 0.35;
         const prev = plan.cuts[mainCut.index - 1];
         if (lt < dur && prev && Math.abs(prev.end - mainCut.start) < 0.06) {
@@ -381,6 +466,7 @@
           ctx.restore();
         }
       }
+      if (pf) pT4 = performance.now();
       if (plan.hud && !opt.noHud && layer !== 'back') {
         const env = this.makeEnv(ctx, plan, mainCut, sc, {
           pass: 'main',
@@ -397,7 +483,31 @@
       }
       ctx.restore();
       if (!opt.noPost) this.post(ctx, plan, t, tq, step, sc, scale, opt, allowFilter);
+      if (pf) pT5 = performance.now();   // 「后期」段含 HUD 与 post
       if (key && !opt.noPost) this.keyFinish(ctx, key, opt);
+      if (pf) pf.push({
+        total: performance.now() - pT0, bg: pT1 - pT0, pass: pT2 - pT1, morph: pT3 - pT2,
+        trans: pT4 - pT3, post: pT5 - pT4, hit: false, stage: opt.stage === true,
+        layout: mainCut ? mainCut.layout : '', cam: mainCut ? mainCut.cam : '', bgId: mainCut ? mainCut.bg : '',
+        decor: mainCut ? (mainCut.decor || []).length : 0, cut: mainCut ? mainCut.index : -1, tq, t
+      });
+      // 整帧缓存落盘：冷键只记 hot，同键再现才真正拷贝（首帧 warm-up 后开始命中）
+      if (fKey != null) {
+        if (fKey === fc.hot) {
+          const cv = this.ensure(fc.cv || (fc.cv = mk(2, 2)), cw, ch);
+          const cx2 = cv.getContext('2d');
+          cx2.setTransform(1, 0, 0, 1, 0, 0);
+          cx2.globalAlpha = 1;
+          cx2.filter = 'none';
+          cx2.globalCompositeOperation = 'copy';
+          cx2.drawImage(ctx.canvas, 0, 0);
+          cx2.globalCompositeOperation = 'source-over';
+          fc.key = fKey;
+        } else {
+          fc.hot = fKey;
+          fc.key = '';
+        }
+      }
     }
 
     // 合成用收尾：整帧先做成黑底白字（黑=空）。key=green 时再 screen 上 #00FF00，
@@ -819,7 +929,10 @@
     post(ctx, plan, t, tq, step, sc, scale, opt, allowFilter) {
       const cw = ctx.canvas.width, ch = ctx.canvas.height;
       const fx = plan.fx, st = plan.style;
-      const active = plan.events.filter(ev => t >= ev.t && t < ev.t + Math.max(ev.dur, 1 / plan.fps));
+      const active = this.evBuf || (this.evBuf = []);   // 复用数组：每帧 filter 分配是纯 GC 饲料
+      active.length = 0;
+      const evWin = 1 / plan.fps;
+      for (const ev of plan.events) if (t >= ev.t && t < ev.t + Math.max(ev.dur, evWin)) active.push(ev);
       const needScratch = active.some(ev => ['slice', 'block', 'zoom', 'mosaic'].includes(ev.type) || (J.FXE[ev.type] && J.FXE[ev.type].scratch)) || (!opt.fast && (st.glow || 0) > 0);
       const S = needScratch ? this.ensure(this.scratch, cw, ch) : null;
       ctx.save();
@@ -952,7 +1065,7 @@
       if (!opt.transparent && !plan.keyBg) {
         const scan = (st.texture.scan || 0) * (fx.texture ?? 0.6);
         if (scan > 0.03) {
-          const pat = ctx.createPattern(this.scan, 'repeat');
+          const pat = this.pat(ctx, this.scan);
           const k = Math.max(1, Math.round(ch / 540));
           ctx.save();
           ctx.scale(k, k);
@@ -965,7 +1078,7 @@
         const gr = (st.texture.grain || 0) * (fx.texture ?? 0.6);
         if (gr > 0.02) {
           const img = this.grain[((step % 4) + 4) % 4];
-          const pat = ctx.createPattern(img, 'repeat');
+          const pat = this.pat(ctx, img);
           const k = Math.max(1, ch / 1080);
           const ox = J.r(step, 1) * 256, oy = J.r(step, 2) * 256;
           ctx.save();
@@ -980,10 +1093,7 @@
           ctx.fillRect(0, 0, cw / k + 256, ch / k + 256);
           ctx.restore();
         }
-        const vg = ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.35, cw / 2, ch / 2, Math.hypot(cw, ch) * 0.62);
-        vg.addColorStop(0, 'rgba(0,0,0,0)');
-        vg.addColorStop(1, `rgba(0,0,0,${0.28 * (fx.texture ?? 0.6)})`);
-        ctx.fillStyle = vg;
+        ctx.fillStyle = this.vigGrad(ctx, cw, ch, 0.28 * (fx.texture ?? 0.6));
         ctx.fillRect(0, 0, cw, ch);
       }
       ctx.restore();

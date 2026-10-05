@@ -3,8 +3,10 @@
 import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
 import {devUi, toggleDevUi} from '../../jizura/devui';
 import {type FrameSnapshot, framesSnapshot} from '../../jizura/devui/frames';
+import {type EngineFrameRow, enginePerf} from '../../jizura/devui/engineperf';
 
 const data = ref<FrameSnapshot | null>(null);
+const epRows = ref<EngineFrameRow[]>([]);
 
 const POS_LS = 'jizura.devui.pos';
 const rootEl = ref<HTMLElement | null>(null);
@@ -71,6 +73,7 @@ let timer = 0;
 
 function tick() {
   data.value = framesSnapshot();
+  epRows.value = enginePerf.snapshot();
 }
 
 onMounted(() => {
@@ -113,6 +116,37 @@ watch(data, () => requestAnimationFrame(drawSpark));
 
 const n1 = (v: number) => (Number.isFinite(v) ? v.toFixed(1) : '—');
 const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 40 ? 'text-amber' : 'text-danger');
+
+// 引擎帧归因：只统计真渲染帧（缓存命中帧单独给命中率）
+const epStats = computed(() => {
+  const rows = epRows.value;
+  if (!rows.length) return null;
+  const real = rows.filter(r => !r.hit);
+  const pct = (arr: number[], p: number) => {
+    if (!arr.length) return NaN;
+    const s = arr.slice().sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)];
+  };
+  const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : NaN;
+  const totals = real.map(r => r.total);
+  const byLayout = new Map<string, number[]>();
+  real.forEach(r => {
+    const a = byLayout.get(r.layout) || (byLayout.set(r.layout, []), byLayout.get(r.layout)!);
+    a.push(r.total);
+  });
+  const top = [...byLayout.entries()]
+      .map(([layout, ts]) => ({layout, n: ts.length, avg: avg(ts), max: Math.max(...ts)}))
+      .sort((a, b) => b.avg - a.avg).slice(0, 3);
+  const last = rows[rows.length - 1];
+  return {
+    n: rows.length,
+    hitRate: rows.length ? (rows.length - real.length) / rows.length : 0,
+    avg: avg(totals), p95: pct(totals, 0.95), worst: totals.length ? Math.max(...totals) : NaN,
+    bg: avg(real.map(r => r.bg)), pass: avg(real.map(r => r.pass)), morph: avg(real.map(r => r.morph)),
+    trans: avg(real.map(r => r.trans)), post: avg(real.map(r => r.post)),
+    top, last,
+  };
+});
 </script>
 
 <template>
@@ -158,6 +192,24 @@ const fpsCls = (f?: number) => (!f ? 'text-mut' : f >= 55 ? 'text-cyan' : f >= 4
             </div>
             <div v-else class="text-faint">Vue 组件耗时需 dev 构建才有数据</div>
           </template>
+        </div>
+
+        <div v-if="epStats" class="px-2.5 py-2 border-t border-line2">
+          <div class="text-mut mb-1">引擎帧归因</div>
+          <div>整帧缓存命中 <b class="text-cyan">{{ (epStats.hitRate * 100).toFixed(0) }}%</b>
+            · 真渲染 {{ epStats.n - Math.round(epStats.n * epStats.hitRate) }}/{{ epStats.n }} 帧</div>
+          <div>frame avg <b>{{ n1(epStats.avg) }}</b> / p95 {{ n1(epStats.p95) }} / max {{ n1(epStats.worst) }}ms</div>
+          <div class="text-mut">分段均值：bg {{ n1(epStats.bg) }} · pass {{ n1(epStats.pass) }} · morph
+            {{ n1(epStats.morph) }} · trans {{ n1(epStats.trans) }} · 后期 {{ n1(epStats.post) }} ms</div>
+          <div v-if="epStats.last">cut #{{ epStats.last.cut + 1 }}：{{ epStats.last.layout }}
+            · cam {{ epStats.last.cam || '—' }} · bg {{ epStats.last.bgId || '—' }} · decor {{ epStats.last.decor }}</div>
+          <div v-if="epStats.top.length">
+            <div class="text-mut">重版式 TOP（avg·max ms）</div>
+            <div v-for="t in epStats.top" :key="t.layout">
+              {{ t.layout }} <b :class="t.avg > 12 ? 'text-danger' : t.avg > 6 ? 'text-amber' : 'text-cyan'">{{ n1(t.avg) }}</b>
+              · {{ n1(t.max) }}（{{ t.n }}帧）
+            </div>
+          </div>
         </div>
       </div>
     </div>

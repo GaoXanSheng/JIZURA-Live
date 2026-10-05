@@ -254,7 +254,12 @@
                 const e = E.outExpo(J.clamp((env.lt - 0.1) / 0.45)) * (1 - E.inCubic(env.pOut));
                 if (e <= 0) return;
                 // 引线只画右上和左下两条；第三条曾计划挂在 note 上，实际从未绘制
-                const labels = [J.romaji(env.cut.text.replace(/\s+/g, '')) || env.cut.lineText, 'No.' + String((env.cut.line | 0) + 1).padStart(2, '0') + ' / ' + J.fmtTime(env.cut.start)];
+                // romaji 转换全量扫描文本且每帧相同：按 cut 缓存（plan 不变则 cut 对象不变）
+                const cut = env.cut;
+                const labels = cut._leadLabels || (cut._leadLabels = [
+                    J.romaji(cut.text.replace(/\s+/g, '')) || cut.lineText,
+                    'No.' + String((cut.line | 0) + 1).padStart(2, '0') + ' / ' + J.fmtTime(cut.start)
+                ]);
                 const fs = J.clamp(H * 0.018, 11, 20);
                 const anchors = [[bb.x1, bb.y0], [bb.x0, bb.y1], [bb.x1, bb.y1]];
                 for (let k = 0; k < 2; k++) {

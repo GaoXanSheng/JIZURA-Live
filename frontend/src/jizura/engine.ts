@@ -5,7 +5,7 @@ import {analyzeAudioOffThread} from './audio-analyze';
 import {activeLoopRange, AP, refreshLoopHold, S} from './state';
 import {autosave} from './project';
 import {bus} from './bus';
-import {previewWidthCap} from './previewres';
+import {getAutoDegrade, previewWidthCap} from './previewres';
 
 const HUD_CHARS = '0123456789:./-_()【】・No.LYRICRECUNTITLEDXYlinebpminterlude—─／ ';
 
@@ -24,6 +24,8 @@ let viewCanvas: HTMLCanvasElement | null = null;
 const CTX_2D: CanvasRenderingContext2DSettings = {desynchronized: new URLSearchParams(location.search).get('dsync') === '1'};
 // desynchronized 开启时的离屏整帧缓冲，见 draw() 内注释
 let viewBuf: HTMLCanvasElement | null = null;
+// S.slow 进入时刻：降质 episode 最短保持计时用
+let slowAt = 0;
 
 export function attachView(el: HTMLElement, canvas: HTMLCanvasElement) {
     viewEl = el;
@@ -180,7 +182,10 @@ export function draw() {
     S.renderer.frame(target, S.plan, S.t, {
         scale: c.width / S.plan.W,
         fast: S.playing && S.slow,
-        transparent: !!window.__jl_spout_transparent
+        // 自动降质（设置-高级）：播放掉帧时连色差重影层一起跳过，省 2/3 的 drawCut
+        noGhost: S.playing && S.slow && getAutoDegrade(),
+        transparent: !!window.__jl_spout_transparent,
+        stage: true   // 帧归因只记主舞台大画布（缩略图小画布不记）
     });
     if (S.plan.centerFree && !window.__jl_spout_mirror) drawCenterGuide(target, c.width / S.plan.W);
     if (CTX_2D.desynchronized) {
@@ -189,7 +194,13 @@ export function draw() {
         ctx.drawImage(viewBuf!, 0, 0);
     }
     const dt = performance.now() - t0;
-    S.slow = S.playing ? (dt > 30 ? true : dt < 14 ? false : S.slow) : false;
+    // slow episode 最短保持 1.2s 再恢复：阈值附近反复横跳时，fast 翻转会切换
+    // morph 缓存桶（'f'/'n' 两边都冷）并让重影层闪现闪失
+    if (!S.playing) S.slow = false;
+    else if (dt > 30) {
+        if (!S.slow) slowAt = t0;
+        S.slow = true;
+    } else if (dt < 14 && S.slow && performance.now() - slowAt > 1200) S.slow = false;
     updateCutInfo();
     bus.emit('frame');
 }

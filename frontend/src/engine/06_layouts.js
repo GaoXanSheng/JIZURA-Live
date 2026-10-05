@@ -520,18 +520,10 @@
           if (P.flicker && J.r(env.cut.seed, env.step, r, 92) < 0.16) continue;
           const dir = r % 2 ? 1 : -1;
           const off = (((r % 2) * period * 0.5 + lb * 26 * dir) % period + period) % period;
-          env.draw({
-            text: unitText.repeat(reps),
-            font: P.tileFont,
-            size: ts,
-            track: 0.02,
-            align: 'left',
-            x: -period + off - period * 0.5,
-            y: (r + 0.5) * rowH,
-            color: sc.sub,
-            alpha: 0.42 * J.clamp((lb - ap) / 0.1),
-            ghost: false
-          });
+          // 背景平铺行整行一次画：逐字 draw 时每帧上千字形，是本版式卡顿的来源
+          J.fastRow(env, unitText.repeat(reps), P.tileFont, ts,
+            -period + off - period * 0.5, (r + 0.5) * rowH, ts * 0.02, sc.sub,
+            0.42 * J.clamp((lb - ap) / 0.1));
         }
         const mt = W < H ? J.splitLines(text, 5) : text;
         const size = Math.min(J.fitSize(mt, P.font, W * 0.8, H * 0.34, {track: 0.04, lead: 1.15}), H * 0.3);
@@ -909,16 +901,8 @@
         if (P.bgText) {
           for (let r = 0; r < 3; r++) {
             const bs = H * 0.3;
-            env.draw({
-              text: (text.replace(/\s+/g, '') + '').repeat(6),
-              font: P.font,
-              size: bs,
-              x: W / 2 + ((lb * 20 * (r % 2 ? 1 : -1)) % (bs * 2)),
-              y: H * (0.18 + r * 0.32),
-              color: sc.dim,
-              alpha: 1,
-              ghost: false
-            });
+            J.fastRow(env, (text.replace(/\s+/g, '') + '').repeat(6), P.font, bs,
+              W / 2 + ((lb * 20 * (r % 2 ? 1 : -1)) % (bs * 2)), H * (0.18 + r * 0.32), 0, sc.dim, 1, 'center');
           }
         }
         const right = P.side === 'right';
@@ -1069,17 +1053,8 @@
           env.rect(-W * 1.2, y2 - h2 / 2, W * 2.4 * e, h2, sc.fg, 0.9, false);
           const unit = env.cut.lineText + '　／　';
           const period = J.measure({text: unit, font: env.st.fonts.body[0], size: h2 * 0.55, track: 0.1}).w;
-          env.draw({
-            text: unit.repeat(Math.ceil(W * 3 / period)),
-            font: env.st.fonts.body[0],
-            size: h2 * 0.55,
-            track: 0.1,
-            x: -((lb * 120) % period),
-            y: y2,
-            color: sc.bg,
-            ghost: false,
-            alpha: e
-          });
+          J.fastRow(env, unit.repeat(Math.ceil(W * 3 / period)), env.st.fonts.body[0], h2 * 0.55,
+            -((lb * 120) % period), y2, h2 * 0.055, sc.bg, e, 'center');
         }
         ctx.restore();
         return J.mainDraw(env, {

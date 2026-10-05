@@ -10,7 +10,13 @@ import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
 import {setAspect, setKeyBg} from '../../jizura/export';
 import {toast} from '../../jizura/look';
-import {getPreviewRes, type PreviewResTier, setPreviewRes} from '../../jizura/previewres';
+import {
+  getAutoDegrade,
+  getPreviewRes,
+  type PreviewResTier,
+  setAutoDegrade,
+  setPreviewRes
+} from '../../jizura/previewres';
 import SubtitlePanel from './SubtitlePanel.vue';
 import {replan, sizeViewport} from '../../jizura/engine';
 
@@ -69,6 +75,9 @@ function markDirty() {
 
 // 预览渲染尺寸：即时生效的应用偏好，不进草稿组
 const previewRes = ref<PreviewResTier>(getPreviewRes());
+
+// 播放掉帧自动降质：同为即时生效的应用偏好
+const autoDegrade = ref(getAutoDegrade());
 
 function onPreviewRes(e: Event) {
   const raw = (e.target as HTMLSelectElement).value;
@@ -306,6 +315,10 @@ onUnmounted(() => offs.forEach(f => f()));
           </label>
           <p class="hint !text-[11px] !mt-0">主编辑器预览的渲染上限（按短边计，比例始终跟随画幅）。只影响预览的清晰度与性能：不影响导出分辨率（「导出」页单独设置），也不影响
             Spout 渲染窗口。</p>
+          <label class="checkline pt-1.5">
+            <input v-model="autoDegrade" type="checkbox" @change="setAutoDegrade(autoDegrade)"> 播放掉帧时自动降质（跳过色差重影层与辉光）</label>
+          <p class="hint !text-[11px] !mt-0">
+            播放中单帧渲染超时会自动进入降质：在关闭滤镜/辉光之外再跳过色差重影层（约省 2/3 画面绘制），恢复流畅后自动还原。只影响播放中的预览——暂停与导出始终是完整画质；关闭后卡顿也保持完整效果。</p>
           <label class="checkline pt-1.5">
             <input v-model="form.mirrorExternalBeginFrame" type="checkbox" @change="markDirty"> 镜像 External
             BeginFrame（宿主帧泵驱动）</label>

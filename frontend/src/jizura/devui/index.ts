@@ -7,6 +7,7 @@
 import type {App} from 'vue';
 import {reactive, watch} from 'vue';
 import {startFrames, stopFrames} from './frames';
+import {setEnginePerfOn} from './engineperf';
 
 const LS = 'jizura.devui';
 
@@ -35,6 +36,7 @@ let appRef: App | null = null;
 function applyCollectors() {
     if (devUi.open) startFrames();
     else stopFrames();
+    setEnginePerfOn(devUi.open && devUi.expanded);   // 帧归因只在展开时采集（折叠条只要 fps）
 }
 
 export function toggleDevUi(v?: boolean) {
@@ -54,5 +56,8 @@ export function installDevUi(app: App) {
         }
     });
     if (devUi.open) applyCollectors();
-    watch(() => devUi.expanded, () => lsSet(LS + '.expanded', devUi.expanded ? '1' : ''));
+    watch(() => devUi.expanded, () => {
+        lsSet(LS + '.expanded', devUi.expanded ? '1' : '');
+        if (devUi.open) applyCollectors();   // 展开/收起切换帧归因采集
+    });
 }

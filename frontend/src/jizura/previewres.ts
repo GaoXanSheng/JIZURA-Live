@@ -34,3 +34,30 @@ export function tierWidthCap(tier: PreviewResTier, W: number, H: number): number
 export function previewWidthCap(W: number, H: number): number {
     return tierWidthCap(getPreviewRes(), W, H);
 }
+
+// 播放掉帧时的自动降质：S.slow 置位（单帧渲染超时）且播放中时，在关滤镜/辉光之外
+// 再跳过色差重影层（ghost pass）。即时生效的应用偏好，默认开。
+// 只影响主编辑器播放中的预览：暂停即恢复，导出与 Spout 渲染页不读这里。
+const DG_KEY = 'jizura.autodegrade';
+
+// 播放中降质生效期间每帧都会读，走内存缓存，localStorage 只在设置变更时碰
+let dgCache: boolean | null = null;
+
+export function getAutoDegrade(): boolean {
+    if (dgCache == null) {
+        try {
+            dgCache = localStorage.getItem(DG_KEY) !== '0';
+        } catch { // 读不到按默认开
+            dgCache = true;
+        }
+    }
+    return dgCache;
+}
+
+export function setAutoDegrade(v: boolean) {
+    dgCache = v;
+    try {
+        localStorage.setItem(DG_KEY, v ? '1' : '0');
+    } catch { // 私隐模式等写不进，保持本次会话内存值即可
+    }
+}
