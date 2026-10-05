@@ -176,6 +176,12 @@
         J.KLINE_RENDERER(ctx, plan, t, opt);
         return;
       }
+      // ASCII 字符画风格：整帧先按正常管线渲进离屏，再整帧转成 ASCII 字符网格。
+      // asciiInner 防递归（转场/字形采样的嵌套 frame 调用直接走普通管线）
+      if (st.ascii && J.asciiFrame && !opt.asciiInner && opt.layer !== 'front') {
+        J.asciiFrame(ctx, plan, t, opt, (c, o) => this.frame(c, plan, t, o));
+        return;
+      }
       // 帧归因打点：DevPerfPanel 开着（J.PERF.on）才计时，关=每帧一次属性读
       const pf = J.PERF && J.PERF.on ? J.PERF : null;
       const pT0 = pf ? performance.now() : 0;
