@@ -20,11 +20,18 @@ public sealed class SpoutPipeline : IDisposable
 
     private bool _externalBeginFrame;
 
-    // ExternalBeginFrame 泵线程与在途标记：上一拍还没被 CEF UI 线程消费就跳过本拍，
+    // EBF 泵线程与在途标记：上一拍还没被 CEF UI 线程消费就跳过本拍，
     // CEF 落后时不堆积 BeginFrame（猝发帧比背压队列难看）
     private Thread? _beginFramePump;
     private volatile bool _pumpRunning;
     private int _beginFrameInFlight;
+
+    // 泵节拍：播放态 = 目标帧率；暂停态降到 10Hz——暂停时页面无 damage，
+    // BeginFrame 不出帧，10Hz 只是让编辑/seek 后 ≤100ms 内反映到镜像，
+    // 同时掐断合成器空转（实测暂停态页面 rAF 心跳会持续驱出 ~23fps 空帧烧 GPU）
+    private const int PausedPumpMs = 100;
+    private int _targetFps = 60;
+    private volatile int _pumpIntervalMs = 17;
 
     private long _lastBfErrorTick = -61_000;
     private int _bfErrorsSinceLastLog;
@@ -107,7 +114,7 @@ public sealed class SpoutPipeline : IDisposable
             // （RenderPage.vue 的 ?mirror=1 模式），C# 不再注入任何脚本，
             // 只负责推 __jlApplySync 锚点、收 plan-size 消息
             var mirrorUrl = AppendMirrorParams(url, safeFps, transparent, suppressSubtitle, safeW, safeH,
-                dsync);
+                dsync, _externalBeginFrame);
 
             // RenderHandler 必须在 CreateBrowser() 之前准备好
             _renderHandler = new MirrorRenderHandler(this);
@@ -331,7 +338,8 @@ public sealed class SpoutPipeline : IDisposable
         bool suppressSubtitle,
         int outW,
         int outH,
-        bool dsync)
+        bool dsync,
+        bool ebf)
     {
         var sep = url.Contains('?') ? "&" : "?";
 
@@ -342,13 +350,18 @@ public sealed class SpoutPipeline : IDisposable
             $"&nosub={(suppressSubtitle ? 1 : 0)}" +
             $"&outw={outW.ToString(CultureInfo.InvariantCulture)}" +
             $"&outh={outH.ToString(CultureInfo.InvariantCulture)}" +
-            $"&dsync={(dsync ? 1 : 0)}";
+            $"&dsync={(dsync ? 1 : 0)}" +
+            $"&ebf={(ebf ? 1 : 0)}";
     }
 
     public void ApplyPlaybackSync(
         bool playing,
         double time)
     {
+        // EBF 泵节拍跟随播放态：播放 = 目标帧率，暂停 = 10Hz（见 PausedPumpMs 注释）
+        if (_externalBeginFrame)
+            _pumpIntervalMs = playing ? 1000 / Math.Max(1, _targetFps) : PausedPumpMs;
+
         var browser = _browser;
 
         if (browser == null)
@@ -449,25 +462,26 @@ public sealed class SpoutPipeline : IDisposable
     {
         StopBeginFramePump();
 
+        _targetFps = Math.Max(1, fps);
+        _pumpIntervalMs = 1000 / _targetFps;
         _pumpRunning = true;
         _beginFramePump = new Thread(PumpLoop)
         {
             IsBackground = true,
             Name = "MirrorBeginFramePump"
         };
-        _beginFramePump.Start(TimeSpan.FromMilliseconds(1000.0 / Math.Max(1, fps)));
+        _beginFramePump.Start();
     }
 
-    private void PumpLoop(object? state)
+    private void PumpLoop()
     {
-        var interval = (TimeSpan)state!;
-        var nextTickTicks = (long)(interval.TotalSeconds * Stopwatch.Frequency);
-
         while (_pumpRunning)
         {
             SendBeginFrame();
 
-            // 高精度等待下一拍：粗睡留 2ms 余量，末段自旋补齐
+            // 高精度等待下一拍（节拍每次循环重读：播放/暂停切换立即生效），
+            // 粗睡留 2ms 余量，末段自旋补齐
+            var nextTickTicks = (long)(_pumpIntervalMs / 1000.0 * Stopwatch.Frequency);
             var next = Stopwatch.GetTimestamp() + nextTickTicks;
             while (_pumpRunning)
             {

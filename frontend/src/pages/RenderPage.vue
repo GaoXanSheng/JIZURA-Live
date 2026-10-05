@@ -200,6 +200,10 @@ function startMirror(cv: HTMLCanvasElement) {
 
   const fps = Math.max(1, Number(spoutParams.get('fps')) || 60);
   const PUMP_MS = Math.max(4, Math.floor(1000 / fps));
+  // 宿主 EBF 模式（ebf=1）：BeginFrame 由宿主泵按 1000/fps 精确节拍发出，
+  // rAF 节拍即目标帧率，任何门限余量都只会随机吃帧（PUMP_MS=33 vs 周期 33.3ms
+  // 贴边抖动，实测 30fps 只出 26fps）；见下方 vsyncPaced
+  const ebfPaced = spoutParams.get('ebf') === '1';
 
   // rAF 受 VSync 约束顶到 60Hz，CEF 侧 WindowlessFrameRate=240 也白搭
   // 所以超 60fps 时用 setTimeout 递归（最小粒度 ~4ms）凑够 240fps
@@ -288,8 +292,9 @@ function startMirror(cv: HTMLCanvasElement) {
       : () => requestAnimationFrame(pump);
   // rAF 模式且 fps 接近刷新率（≥50）时关掉 PUMP_MS 门限，节拍交给 vsync：
   // 门限 ≈ BeginFrame 周期，间隔稍有抖动（16.5ms < 16.7ms）就随机丢一帧，
-  // 主窗口 75Hz / 镜像 60Hz 混跑时表现为规律性跳帧。低于 50fps 仍按门限隔帧抽
-  const vsyncPaced = !useHighFreqPump && fps >= 50;
+  // 主窗口 75Hz / 镜像 60Hz 混跑时表现为规律性跳帧。低于 50fps 仍按门限隔帧抽；
+  // EBF（ebfPaced）下 BF 节拍来自宿主高精度泵，任何 fps 档都等同 vsync 节拍
+  const vsyncPaced = (!useHighFreqPump && fps >= 50) || ebfPaced;
 
   const pump = () => {
     if (pumpStopped) return; // 清理后终止递归链，别叠出双泵

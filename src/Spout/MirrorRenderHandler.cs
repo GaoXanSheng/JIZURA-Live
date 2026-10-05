@@ -54,6 +54,23 @@ internal sealed class FrameIntervalStats
         }
     }
 
+    // 回调处理耗时（OpenSharedResource + Spout 发送）：与帧间隔同窗口累计，
+    // 帧间隔行汇报时一并带走并清零
+    private ulong _costCount;
+    private double _costSumMs;
+    private double _costMaxMs;
+
+    public void AddCost(double ms)
+    {
+        lock (_gate)
+        {
+            _costCount++;
+            _costSumMs += ms;
+            if (ms > _costMaxMs)
+                _costMaxMs = ms;
+        }
+    }
+
     // 自上一次汇报累计满 windowMs 且有样本才返回统计文本并清零窗口，否则 null
     public string? ReportIfDue(int windowMs = 5000)
     {
@@ -86,9 +103,15 @@ internal sealed class FrameIntervalStats
                 $"帧间隔（{elapsed / 1000.0:F1}s, n={_count}）：" +
                 $"avg={avg:F1}ms, p95={p95}ms, max={_maxMs:F1}ms";
 
+            if (_costCount > 0)
+                text += $", 回调耗时 avg={_costSumMs / _costCount:F2}ms, max={_costMaxMs:F1}ms (n={_costCount})";
+
             _count = 0;
             _sumMs = 0;
             _maxMs = 0;
+            _costCount = 0;
+            _costSumMs = 0;
+            _costMaxMs = 0;
             Array.Clear(_buckets);
             _windowStartTs = now;
 
@@ -301,9 +324,11 @@ public sealed class MirrorRenderHandler : IRenderHandler
 
         try
         {
+            var sw = Stopwatch.StartNew();
             using var cefTexture = _dxDevice1.OpenSharedResource1<Texture2D>(info.SharedTextureHandle);
             if (cefTexture == null) return;
             _spoutSender.SendTexture(cefTexture.NativePointer);
+            _gpuStats.AddCost(sw.Elapsed.TotalMilliseconds);
         }
         catch (Exception ex)
         {
@@ -388,16 +413,19 @@ public sealed class MirrorRenderHandler : IRenderHandler
             _dxDevice.NativePointer);
     }
 
-    // 两条路径各自 5s 一个统计窗口，谁有帧谁报；GPU/CPU 都没帧时静默
+    // 两条路径各自 5s 一个统计窗口，谁有帧谁报；GPU/CPU 都没帧时静默。
+    // 行首带通道名：主/歌词两条管线都往同一份镜像日志写，不带名字分不清谁在掉帧
     private void ReportFrameStats()
     {
+        var tag = _owner.SenderName ?? "未知通道";
+
         var gpu = _gpuStats.ReportIfDue();
         if (gpu != null)
-            Log.Info($"[SpoutMirror] GPU 共享纹理路径{gpu}");
+            Log.Info($"[SpoutMirror][{tag}] GPU 共享纹理路径{gpu}");
 
         var cpu = _cpuStats.ReportIfDue();
         if (cpu != null)
-            Log.Warn($"[SpoutMirror] CPU 回退路径{cpu}");
+            Log.Warn($"[SpoutMirror][{tag}] CPU 回退路径{cpu}");
     }
 
     private void LogRenderError(string where, Exception ex)
