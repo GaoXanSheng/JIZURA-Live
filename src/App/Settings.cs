@@ -14,6 +14,11 @@ public sealed class Settings
 
     // 独立歌词通道：歌词层单独输出到 <SpoutID>-LYRICS，透明底供分层合成
     public bool SpoutLyricsEnabled { get; set; }
+
+    // 字幕通道帧率：历史上硬钳 30（与主通道共享 CEF gpu-process 单线程光栅，
+    // 满帧会拖垮主通道）；EBF 后瓶颈缓解，交还用户配置。生效值仍钳到
+    // min(LyricsFps, RenderFps)——字幕层画得比主通道快没有意义，纯烧 GPU
+    public int LyricsFps { get; set; } = 30;
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;

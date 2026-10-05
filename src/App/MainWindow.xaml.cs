@@ -209,12 +209,12 @@ public partial class MainWindow : Window
     private void StartLyrics()
     {
         _lyricsPipeline.SyncPoke = ForceSyncResend;
-        // 字幕通道限 30fps：与编辑器/主通道共享同一个 CEF gpu-process（单线程光栅），
-        // 1080p60 满帧会把主通道拖到 30fps 以下；字幕层变化慢，30 足够顺滑
+        // 字幕通道帧率可配置（默认 30），生效值钳到主通道帧率——
+        // 字幕层画得比主通道快没有意义；同宿主共享 gpu-process 时过高还会拖垮主通道
         _lyricsPipeline.Start(
             LyricsRenderUrl,
             LyricsSenderName,
-            Math.Min(_settings.RenderFps, 30),
+            Math.Min(_settings.LyricsFps, _settings.RenderFps),
             _settings.Width,
             _settings.Height,
             true,

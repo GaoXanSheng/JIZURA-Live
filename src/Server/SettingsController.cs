@@ -19,6 +19,7 @@ internal sealed class SettingsController : WebApiController
             width = s.Width,
             height = s.Height,
             fps = s.RenderFps,
+            lyricsFps = s.LyricsFps,
             spoutEnabled = s.SpoutEnabled,
             spoutName = s.SpoutName,
             spoutTransparent = s.SpoutTransparent,
@@ -95,6 +96,11 @@ internal sealed class SettingsController : WebApiController
             if (settings.RenderFps != fps)
                 changed.Add($"渲染帧率 {fps}fps");
 
+            // 字幕通道帧率随「重启渲染引擎」与主通道一起生效；生效值再钳主通道帧率（见 Settings.LyricsFps）
+            var lyricsFps = Math.Clamp(d.LyricsFps, 1, 240);
+            if (settings.LyricsFps != lyricsFps)
+                changed.Add($"字幕通道帧率 {lyricsFps}fps");
+
             var name = string.IsNullOrWhiteSpace(d.SpoutName) ? "JIZURA-live" : d.SpoutName.Trim();
             if (!string.Equals(settings.SpoutName, name, StringComparison.Ordinal))
                 changed.Add($"Spout ID → {name}");
@@ -110,6 +116,7 @@ internal sealed class SettingsController : WebApiController
             settings.Width = width;
             settings.Height = height;
             settings.RenderFps = Math.Clamp(d.Fps, 1, 240);
+            settings.LyricsFps = Math.Clamp(d.LyricsFps, 1, 240);
             settings.SpoutEnabled = d.SpoutEnabled;
             settings.SpoutName = string.IsNullOrWhiteSpace(d.SpoutName) ? "JIZURA-live" : d.SpoutName.Trim();
             settings.SpoutTransparent = d.SpoutTransparent;
@@ -186,6 +193,7 @@ internal sealed class SettingsController : WebApiController
         public int Width { get; set; }
         public int Height { get; set; }
         public int Fps { get; set; }
+        public int LyricsFps { get; set; } = 30;
         public bool SpoutEnabled { get; set; }
         public string SpoutName { get; set; } = "";
         public bool SpoutTransparent { get; set; }

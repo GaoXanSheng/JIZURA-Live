@@ -308,7 +308,7 @@ public sealed class MirrorHostApp
             settings);
     }
 
-    // 字幕通道保持 30fps 上限
+    // 字幕通道帧率可配置（默认 30），生效值钳到主通道帧率
     private void ApplySpoutLyrics(Settings settings, string url)
     {
         _lyricsPipeline.Stop();
@@ -317,7 +317,7 @@ public sealed class MirrorHostApp
             WirePipeline(_lyricsPipeline);
             _lyricsPipeline.Start(url + "render?layer=lyric",
                 settings.SpoutName + "-LYRICS",
-                Math.Min(settings.RenderFps, 30),
+                Math.Min(settings.LyricsFps, settings.RenderFps),
                 settings.Width,
                 settings.Height,
                 true,

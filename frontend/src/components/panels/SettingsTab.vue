@@ -21,6 +21,7 @@ const form = reactive({
   width: 1920,
   height: 1080,
   fps: 60,
+  lyricsFps: 30,
   spoutEnabled: true,
   spoutName: 'JIZURA-live',
   spoutTransparent: false,
@@ -48,7 +49,11 @@ const fpsValid = computed(() => {
   const f = Math.round(form.fps);
   return f >= 1 && f <= 240 && Number.isFinite(f);
 });
-const canApply = computed(() => resValid.value && fpsValid.value);
+const lyricsFpsValid = computed(() => {
+  const f = Math.round(form.lyricsFps);
+  return f >= 1 && f <= 240 && Number.isFinite(f);
+});
+const canApply = computed(() => resValid.value && fpsValid.value && lyricsFpsValid.value);
 
 function markDirty() {
   dirty.value = true;
@@ -92,6 +97,7 @@ async function applyAndRestart() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         width: Math.round(form.width), height: Math.round(form.height), fps: Math.round(form.fps),
+        lyricsFps: Math.round(form.lyricsFps),
         spoutEnabled: form.spoutEnabled, spoutName: form.spoutName,
         spoutTransparent: form.spoutTransparent,
         spoutLyricsEnabled: form.spoutLyricsEnabled,
@@ -237,6 +243,17 @@ onUnmounted(() => offs.forEach(f => f()));
           渲染透明背景（输出透明图层）</label>
         <label class="checkline"><input v-model="form.spoutLyricsEnabled" type="checkbox" @change="markDirty"> 独立
           Spout 字幕通道 <b>{{ form.spoutName || 'JIZURA-live' }}-LYRICS</b></label>
+        <label v-if="form.spoutLyricsEnabled" class="flex items-center gap-3 text-xs pl-6">
+          <span class="flex-none text-mut">字幕渲染帧率：</span>
+          <span class="flex items-center gap-1.5">
+            <input v-model.number="form.lyricsFps" aria-label="字幕渲染帧率" class="w-24" max="240" min="1" step="1"
+                   type="number" @input="markDirty">
+            <span class="text-mut">fps</span>
+            <span v-if="!lyricsFpsValid" class="text-danger text-[11px]">1~240</span>
+          </span>
+        </label>
+        <p v-if="form.spoutLyricsEnabled" class="hint !text-[11px] !mt-0 !pl-6">
+          字幕通道的输出帧率，生效值不超过渲染帧率；改后随「重启渲染引擎」生效。</p>
         <label class="checkline"><input v-model="form.splitMirrorHost" type="checkbox" @change="markDirty">
           镜像独立进程渲染（GPU 隔离）</label>
         <p class="hint !text-[11px] !mt-0 !pl-6">渲染独立宿主进程，与编辑器互不抢占 GPU：镜像光栅打满时编辑器预览不再被拖去等待。 切换会重建镜像输出（短暂黑 1~2 秒）</p>
@@ -257,7 +274,7 @@ onUnmounted(() => offs.forEach(f => f()));
         {{ applying ? '正在重启…' : (dirty ? '保存并重启渲染引擎' : '重启渲染引擎') }}
       </button>
       <p class="note">
-        分辨率・帧率・Spout・透明背景・镜像独立进程的改动需点上方按钮保存后生效（镜像独立进程即时切换，无需重启应用）；调试端口需重启应用。画布比例即时生效。</p>
+        分辨率・帧率・字幕帧率・Spout・透明背景・镜像独立进程的改动需点上方按钮保存后生效（镜像独立进程即时切换，无需重启应用）；调试端口需重启应用。画布比例即时生效。</p>
 
       <details class="border border-line rounded-md bg-raised mt-4">
         <summary
