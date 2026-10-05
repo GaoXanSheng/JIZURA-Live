@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 // 切分信息 chips + 手法替换面板；简单/手机模式下 chips 只是静态展示
-import {onMounted, onUnmounted, ref} from 'vue';
+import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
 import {J} from '../../engine';
 import {S} from '../../jizura/state';
 import {bus} from '../../jizura/bus';
@@ -22,6 +22,20 @@ const cut = ref<any>(null);
 const items = ref<{ g: string; cls: string; label: string; value: string; forced: boolean; enabled: boolean }[]>([]);
 const pick = ref<{ g: string; line: number; k: number; title: string } | null>(null);
 const pickCards = ref<any[]>([]);
+const pickSearch = ref('');
+// 搜索过滤：按手法名包含匹配。搜到一半换组/关面板都要清掉，
+// 不然下个面板打开就是残缺列表，看起来像手法丢了
+const pickShown = computed(() => {
+  const q = pickSearch.value.trim().toLowerCase();
+  if (!q) return pickCards.value;
+  return pickCards.value.filter(c => !c.isNone && String(c.name || '').toLowerCase().includes(q));
+});
+watch(pickShown, () => {
+  // 过滤重建了 canvas，重新登记进缩略图绘制管线（registerThumbs 幂等）
+  requestAnimationFrame(() => {
+    if (pickGrid.value) registerThumbs(pickGrid.value);
+  });
+});
 const pickGrid = ref<HTMLElement | null>(null);
 const pickRoot = ref<HTMLElement | null>(null);
 const offs: (() => void)[] = [];
@@ -64,12 +78,14 @@ function onChip(it: { g: string; enabled: boolean }) {
     return;
   }
   pick.value = {g: it.g, line: c.line, k, title: ''};
+  pickSearch.value = '';
   fillPick();
 }
 
 function closePick() {
   pick.value = null;
   pickCards.value = [];
+  pickSearch.value = '';
 }
 
 let lastGroup = '';
@@ -161,6 +177,8 @@ onUnmounted(() => offs.forEach(f => f()));
     <div class="flex items-center gap-2 px-2 pt-2 pb-1 flex-none">
       <strong class="text-xs">{{ pick.title }}</strong>
       <span class="text-mut flex-1 text-[11px]">只替换这个切分</span>
+      <input v-model="pickSearch" aria-label="搜索手法" class="w-28" placeholder="搜索手法…" spellcheck="false"
+             type="text">
       <button class="btn btn-ghost btn-sm" type="button" @click="onPickAuto">自动</button>
       <button aria-label="关闭" class="btn btn-ghost btn-sm" type="button" @click="closePick">✕</button>
     </div>
@@ -168,7 +186,7 @@ onUnmounted(() => offs.forEach(f => f()));
          容器高度一定 auto 行会被压扁，就没法溢出滚动了 -->
     <div ref="pickGrid"
          class="grid gap-2 px-2 pb-2 overflow-auto min-h-0 flex-1 [grid-template-columns:repeat(auto-fill,minmax(112px,1fr))] [grid-auto-rows:min-content]">
-      <button v-for="card in pickCards" :key="card.key"
+      <button v-for="card in pickShown" :key="card.key"
               :class="{ '!border-amber shadow-[0_0_0_1px_var(--color-amber)]': card.on }"
               class="btn !p-0 flex-col !h-auto border-line rounded-md overflow-hidden bg-panel text-left"
               type="button" @click="onPickCard(card)">
