@@ -190,15 +190,20 @@ public partial class App : Application
             _settings = settings;
             Settings = settings;
 
-            // 独立 CEF cache 目录（CEF 锁目录，不能与主实例共享）+ CDP 端口错开（env 优先）
-            if (!CefRuntime.Initialize(settings, "cef-cache-mirror", MirrorHostBridge.HostCdpPort))
+            // 独立 CEF cache 目录（CEF 锁目录，不能与主实例共享）；
+            // 调试端口从设置走（MirrorCdpEnabled+MirrorCdpPort），桥接器注入的 env JIZURA_CDP_PORT 仍最优先
+            var mirrorCdpOn = settings.MirrorCdpEnabled;
+            var mirrorCdp = Math.Clamp(settings.MirrorCdpPort, 0, 65535);
+            var cdpUsable = mirrorCdpOn && mirrorCdp > 0;
+            if (!CefRuntime.Initialize(settings, "cef-cache-mirror", cdpUsable ? mirrorCdp : null,
+                    cdpOff: !cdpUsable))
             {
                 Log.Fatal("镜像宿主 CEF 初始化失败。");
                 Shutdown(-3);
                 return;
             }
 
-            Log.Info("镜像宿主 CEF 就绪（独立 GPU 进程）");
+            Log.Info($"镜像宿主 CEF 就绪（独立 GPU 进程，cdp={(cdpUsable ? mirrorCdp.ToString() : "关闭")}）");
 
             // 无窗进程在任务管理器里只有 exe 名，给个藏在屏幕外的标题窗口当身份牌；
             // 设为 MainWindow：它若被关了宿主就退出，语义正好

@@ -16,7 +16,6 @@ public sealed class MirrorHostBridge : IDisposable
     public const string PipeName = "jizura-mirror-host";
     public const string HostMutexName = "JizuraLive_MirrorHost";
     public const string ShutdownEventName = "JizuraLive_MirrorHost_Shutdown";
-    public const int HostCdpPort = 9223;
 
     public static MirrorHostBridge? Instance { get; private set; }
 
@@ -145,7 +144,11 @@ public sealed class MirrorHostBridge : IDisposable
                 $"--mirror-host --url=\"{_url}\" --pipe={PipeName} " +
                 $"--parent-pid={Environment.ProcessId} --token={_token}"
         };
-        psi.EnvironmentVariables["JIZURA_CDP_PORT"] = HostCdpPort.ToString();
+        // 宿主调试端口从设置走（开关关掉不传 env，宿主侧 cdpOff 兜底），默认 9223 与主进程错开
+        var hostCdpOn = _settings.MirrorCdpEnabled;
+        var hostCdp = Math.Clamp(_settings.MirrorCdpPort, 0, 65535);
+        if (hostCdpOn && hostCdp > 0)
+            psi.EnvironmentVariables["JIZURA_CDP_PORT"] = hostCdp.ToString();
 
         var p = Process.Start(psi);
         if (p == null)
@@ -158,7 +161,7 @@ public sealed class MirrorHostBridge : IDisposable
         p.EnableRaisingEvents = true;
         p.Exited += OnHostExited;
         _process = p;
-        Log.Info($"镜像宿主已拉起：pid={p.Id}, cdp={HostCdpPort}");
+        Log.Info($"镜像宿主已拉起：pid={p.Id}, cdp={(hostCdpOn && hostCdp > 0 ? hostCdp.ToString() : "关闭")}");
     }
 
     private void OnHostExited(object? sender, EventArgs e)

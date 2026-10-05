@@ -29,6 +29,8 @@ const form = reactive({
   splitMirrorHost: true,
   mirrorExternalBeginFrame: false,
   mirrorDsync: false,
+  mirrorCdpEnabled: true,
+  mirrorCdpPort: 9223,
   cdpEnabled: false,
   cdpPort: 9222,
 });
@@ -55,7 +57,11 @@ const lyricsFpsValid = computed(() => {
   const f = Math.round(form.lyricsFps);
   return f >= 1 && f <= 240 && Number.isFinite(f);
 });
-const canApply = computed(() => resValid.value && fpsValid.value && lyricsFpsValid.value);
+const mirrorCdpValid = computed(() => {
+  const p = Math.round(form.mirrorCdpPort);
+  return p >= 0 && p <= 65535 && Number.isFinite(p);
+});
+const canApply = computed(() => resValid.value && fpsValid.value && lyricsFpsValid.value && mirrorCdpValid.value);
 
 function markDirty() {
   dirty.value = true;
@@ -106,6 +112,8 @@ async function applyAndRestart() {
         splitMirrorHost: form.splitMirrorHost,
         mirrorExternalBeginFrame: form.mirrorExternalBeginFrame,
         mirrorDsync: form.mirrorDsync,
+        mirrorCdpEnabled: form.mirrorCdpEnabled,
+        mirrorCdpPort: Math.round(form.mirrorCdpPort),
         cdpEnabled: form.cdpEnabled, cdpPort: form.cdpPort,
       }),
     });
@@ -308,6 +316,15 @@ onUnmounted(() => offs.forEach(f => f()));
             画布（低延迟交换链）</label>
           <p class="hint !text-[11px] !mt-0">
             镜像用低延迟交换链直出，省约一帧合成延迟。建议与 External BeginFrame 一起开启——合成器调度下单独开启会被消费端反压，出现数百毫秒停顿。随「重启渲染引擎」生效。</p>
+          <label class="checkline pt-1.5">
+            <input v-model="form.mirrorCdpEnabled" type="checkbox" @change="markDirty"> 镜像宿主调试端口（CDP）
+            <input v-model.number="form.mirrorCdpPort" class="w-24" max="65535" min="0" step="1" type="number"
+                   @change="markDirty">
+            <span v-if="!mirrorCdpValid" class="text-danger text-[11px]">0~65535</span>
+          </label>
+          <p class="hint !text-[11px] !mt-0">
+            「镜像独立进程渲染」开启时，渲染页面跑在独立宿主进程里，主进程的调试端口够不着它——这里就是那个进程的 CDP
+            端口（默认 9223，别与主进程调试端口相同，后启动的一方连不上）。DevTools 连 http://127.0.0.1:端口。改后需重启应用，或关开一次「镜像独立进程渲染」重建宿主进程。</p>
         </div>
       </details>
     </template>

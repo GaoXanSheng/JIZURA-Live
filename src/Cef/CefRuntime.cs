@@ -11,8 +11,10 @@ public static class CefRuntime
     public static string LogFile { get; private set; } = "";
 
     // cacheDirName: CEF 锁定 cache 目录，同机多 CEF 实例（如镜像独立宿主进程）必须各用一份；
-    // cdpPortOverride: 宿主进程的 CDP 端口与主进程错开，环境变量 JIZURA_CDP_PORT 仍最优先
-    public static bool Initialize(Settings? settings = null, string cacheDirName = "cef-cache", int? cdpPortOverride = null)
+    // cdpPortOverride: 宿主进程的 CDP 端口与主进程错开，环境变量 JIZURA_CDP_PORT 仍最优先；
+    // cdpOff: 显式关闭 CDP——设置里端口填 0 时用，免得顺路落进 settings.CdpEnabled 分支
+    // 与主进程端口撞车
+    public static bool Initialize(Settings? settings = null, string cacheDirName = "cef-cache", int? cdpPortOverride = null, bool cdpOff = false)
     {
         if (_initialized || Cef.IsInitialized == true)
         {
@@ -54,7 +56,11 @@ public static class CefRuntime
 
         int? cdpPort = null;
         var envPort = Environment.GetEnvironmentVariable("JIZURA_CDP_PORT") ?? "";
-        if (int.TryParse(envPort, out var envParsed) && envParsed > 0)
+        if (cdpOff)
+        {
+            Log.Info("CDP 远程调试端口已按设置关闭");
+        }
+        else if (int.TryParse(envPort, out var envParsed) && envParsed > 0)
         {
             cdpPort = envParsed;
             Log.Info($"CDP 端口来自环境变量：JIZURA_CDP_PORT={envParsed}");

@@ -27,6 +27,8 @@ internal sealed class SettingsController : WebApiController
             splitMirrorHost = s.SplitMirrorHost,
             mirrorExternalBeginFrame = s.MirrorExternalBeginFrame,
             mirrorDsync = s.MirrorDsync,
+            mirrorCdpEnabled = s.MirrorCdpEnabled,
+            mirrorCdpPort = s.MirrorCdpPort,
             cdpEnabled = s.CdpEnabled,
             cdpPort = s.CdpPort
         };
@@ -119,6 +121,17 @@ internal sealed class SettingsController : WebApiController
             if (settings.MirrorDsync != d.MirrorDsync)
                 changed.Add($"desynchronized 画布{(d.MirrorDsync ? " 开启" : " 关闭")}");
 
+            // 宿主进程的 CDP 端口在 Cef.Initialize/进程拉起时定型：改了只能重启应用（或重建宿主进程）
+            var mirrorCdpEnabled = d.MirrorCdpEnabled;
+            var mirrorCdp = Math.Clamp(d.MirrorCdpPort, 0, 65535);
+            if (settings.MirrorCdpEnabled != mirrorCdpEnabled ||
+                (mirrorCdpEnabled && settings.MirrorCdpPort != mirrorCdp))
+                changed.Add(mirrorCdpEnabled
+                    ? $"镜像宿主调试端口 {mirrorCdp}（重启应用后生效）"
+                    : "镜像宿主调试端口 关闭（重启应用后生效）");
+            if (mirrorCdpEnabled && mirrorCdp > 0 && d.CdpEnabled && mirrorCdp == Math.Clamp(d.CdpPort, 1, 65535))
+                changed.Add("⚠ 镜像宿主调试端口与主进程调试端口相同，后启动的一方连不上");
+
             settings.Width = width;
             settings.Height = height;
             settings.RenderFps = Math.Clamp(d.Fps, 1, 240);
@@ -130,6 +143,8 @@ internal sealed class SettingsController : WebApiController
             settings.SplitMirrorHost = d.SplitMirrorHost;
             settings.MirrorExternalBeginFrame = d.MirrorExternalBeginFrame;
             settings.MirrorDsync = d.MirrorDsync;
+            settings.MirrorCdpEnabled = d.MirrorCdpEnabled;
+            settings.MirrorCdpPort = Math.Clamp(d.MirrorCdpPort, 0, 65535);
 
             var port = Math.Clamp(d.CdpPort, 1, 65535);
             if (settings.CdpEnabled != d.CdpEnabled || settings.CdpPort != port)
@@ -209,6 +224,8 @@ internal sealed class SettingsController : WebApiController
         public bool SplitMirrorHost { get; set; } = true;
         public bool MirrorExternalBeginFrame { get; set; }
         public bool MirrorDsync { get; set; }
+        public bool MirrorCdpEnabled { get; set; } = true;
+        public int MirrorCdpPort { get; set; } = 9223;
         public bool CdpEnabled { get; set; }
         public int CdpPort { get; set; }
     }

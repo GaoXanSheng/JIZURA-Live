@@ -42,6 +42,12 @@ public sealed class Settings
     public bool CdpEnabled { get; set; }
     public int CdpPort { get; set; } = 9222;
 
+    // 镜像独立宿主进程的 CDP 调试端口：页面跑在另一个进程里，主进程的调试端口够不着它。
+    // 默认开在 9223 与主进程错开；端口在宿主进程拉起时定型，改动需重启应用
+    // （或关开一次「镜像独立进程渲染」重建宿主进程）。别与主进程调试端口相同——后启动的一方绑不上
+    public bool MirrorCdpEnabled { get; set; } = true;
+    public int MirrorCdpPort { get; set; } = 9223;
+
     public static string ConfigDir => AppDirs.ConfigDir;
     public static string FilePath => Path.Combine(ConfigDir, "settings.json");
 
