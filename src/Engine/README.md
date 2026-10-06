@@ -8,19 +8,19 @@
 
 | 目标文件 | 源文件 | 内容 | 状态 |
 |---|---|---|---|
-| `JUtil.cs` | 01_util.js | 工具函数（clamp/lerp/rng/色彩…） | ☐ |
-| `JLang.cs` | 02b_lang.js | 日/中英分语种文案 | ☐ |
-| `JFonts.cs` | 02_fonts.js | SKTypeface 字体目录 + ensureFonts + 用户字体 | ☐ |
+| `J.cs`+`Rng.cs` | 01_util.js | 工具函数/mulberry32（位级对拍通过） | ✅ |
+| `JLang.cs` | 02b_lang.js | 日/中/韩/英分语种（行为对拍零差异） | ✅ |
+| `JFonts.cs` | 02_fonts.js | 字体目录23条逐字对拍；ensureFonts/用户字体（IndexedDB 部分 M3） | ✅部分 |
 | `JText.cs` | 03_text.js | typesetLine/layoutText + GlyphCache（矢量路径版） | ☐ |
 | `JStyles.cs` | 04_styles.js | 风格/主题/配色 | ☐ |
 | `JAnim.cs` | 05_anim.js | easing/动画原语 | ☐ |
-| `Registry.cs` | 05b_registry.js | 10 组手法注册表（layout/enter/hold/exit/decor/treat/bg/cam/fx/trans） | ☐ |
-| `JLayouts.cs` | 06_layouts.js | 内置 layout | ☐ |
+| `Registry.cs` | 05b_registry.js | 10 组注册表 + 核心条目种子 + Env | ✅ |
+| `JLayouts.cs` | 06_layouts.js | 19 个内置 layout（draw item 流水线待 05_anim/03_text） | ✅大部分 |
 | `JDecor.cs` | 07_decor.js | 内置 decor | ☐ |
-| `Planner.cs` | 08_planner.js | Plan(project, audio)：cuts/events/energy/pitch/beats/peaks | ☐ |
+| `Planner.cs` | 08_planner.js | Plan 全量（segments 用字符类回退，TODO ICU） | ✅ |
 | `Omakase.cs` | 08b_omakase.js | 一键随机 | ☐ |
 | `Renderer.cs` | 09_render.js | Frame(SKCanvas, plan, t, opts) 主管线 | ☐ |
-| `JAudio.cs` | 10_audio.js | JS 孪生分析算法、WAV 编码 | ☐ |
+| `JAudio.cs` | 10_audio.js | BeatGrid 已移植；分析算法直接用 C# AudioAnalyzer，WAV 在 src/Export | 部分 |
 | `AudioFx.cs` | 10b_audiofx.js | 效果器架 v2 → NAudio DSP 图（实时/离线同路径） | ☐ |
 | `Export.cs` | 11_export.js | 导出编排（编码走 src/Export） | ☐ |
 | `Packs/*.cs` | 11p_*.js | 全部表现包（layoutsA–D/enter/enterB/exit/exitB/decor/decorB/fxB/horror1–3/kinetic1–3/typo1–3/looks/styles/treattrans/bgcamB/kline/ascii/audiofx） | ☐ |

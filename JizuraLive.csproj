@@ -65,6 +65,10 @@
       <Resource Include="assets\app.ico" />
       <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
       <ApplicationDefinition Include="src\App\App.xaml" />
+      <!-- 测试工程单独一层目录，主程序不编译它 -->
+      <Compile Remove="tests\**" />
+      <None Remove="tests\**" />
+      <Content Remove="tests\**" />
     </ItemGroup>
 
     <!-- ================= pure-csharp 重构说明 =================

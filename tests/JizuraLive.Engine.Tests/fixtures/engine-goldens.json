@@ -1,0 +1,180 @@
+{
+ "rng42": [
+  0.6011037519201636,
+  0.44829055899754167,
+  0.8524657934904099,
+  0.6697340414393693,
+  0.17481389874592423,
+  0.5265925421845168
+ ],
+ "h123": 4129387174,
+ "hSeed": 150852521,
+ "hFive": 3461906728,
+ "sid": 2494178290,
+ "noise1": [
+  -0.3845000130981208,
+  0.2969124106913806
+ ],
+ "beatLen": 121,
+ "beatFirst3": [
+  0,
+  0.5,
+  1
+ ],
+ "beatLast": 60,
+ "beatOffsetFirst3": [
+  0.25,
+  0.75,
+  1.25
+ ],
+ "beatZeroBpm": 0,
+ "parsed": {
+  "lines": [
+   {
+    "text": "こんにちは世界",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 1,
+    "lrc": 2
+   },
+   {
+    "text": "ふたつめのライン",
+    "note": null,
+    "impact": true,
+    "emph": [
+     "ライン"
+    ],
+    "manual": null,
+    "gapBefore": false,
+    "src": 2,
+    "lrc": 6.5
+   },
+   {
+    "text": "三行目二段目",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": [
+     "三行目",
+     "二段目"
+    ],
+    "gapBefore": false,
+    "src": 3,
+    "lrc": 10
+   },
+   {
+    "text": "",
+    "interlude": true,
+    "secs": 3,
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 4,
+    "lrc": 13
+   },
+   {
+    "text": "ラスト",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 5,
+    "lrc": 16
+   }
+  ],
+  "meta": {}
+ },
+ "tmStarts": [
+  2,
+  6.5,
+  10,
+  13,
+  16
+ ],
+ "tmEnds": [
+  6.5,
+  10,
+  13,
+  16,
+  17.5
+ ],
+ "tmDuration": 120,
+ "parsed2": {
+  "lines": [
+   {
+    "text": "一行目",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 0,
+    "lrc": 1
+   },
+   {
+    "text": "二行目ここから",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 1,
+    "lrc": null
+   },
+   {
+    "text": "三行目",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 2,
+    "lrc": 9
+   },
+   {
+    "text": "",
+    "interlude": true,
+    "secs": 2,
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 3,
+    "lrc": null
+   },
+   {
+    "text": "四行目",
+    "note": null,
+    "impact": false,
+    "emph": [],
+    "manual": null,
+    "gapBefore": false,
+    "src": 4,
+    "lrc": null
+   }
+  ],
+  "meta": {}
+ },
+ "tm2Starts": [
+  1,
+  2.40625,
+  12.5,
+  13.90625,
+  15.90625
+ ],
+ "tm2Ends": [
+  2.40625,
+  12.5,
+  13.90625,
+  15.90625,
+  17.3125
+ ],
+ "tm2Duration": 18.2125
+}
