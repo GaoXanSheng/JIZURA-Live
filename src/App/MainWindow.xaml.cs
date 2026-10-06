@@ -1,68 +1,43 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
-using CefSharp;
-using JizuraLive.Cef;
+using System.Windows.Threading;
 using JizuraLive.Logging;
-using JizuraLive.Server;
-using JizuraLive.Spout;
+using SkiaSharp;
+using SkiaSharp.Views.Desktop;
+using SkiaSharp.Views.WPF;
 
 namespace JizuraLive.App;
 
 public partial class MainWindow : Window
 {
-    private readonly bool _clean;
-
-    private readonly SpoutPipeline _lyricsPipeline = new();
     private readonly Settings _settings;
-    private readonly string _url;
 
-    private bool _lastSyncPlaying;
-    private bool _lastSyncPlayingValid;
+    // M0 占位验证画布的动画钟：证明 SkiaSharp 在 net10 + WPF 上端到端可用。
+    // 编辑器舞台（Renderer.Frame 驱动）将在 M2 取代它
+    private readonly DispatcherTimer _animTimer;
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly Queue<double> _frameMs = new();
+    private long _frameCount;
+    private double _lastPaintMs;
 
-    public MainWindow(Settings settings, string url)
+    public MainWindow(Settings settings)
     {
         InitializeComponent();
 
         _settings = settings;
-        _url = url;
-        _clean = settings.Clean;
-
-        // 保存按钮走 a[download] 下载，不设 DownloadHandler 会被 CEF 静默取消，按钮表现为无效
-        Browser.Address = url;
-        Browser.DownloadHandler = AppDownloadHandler.Instance;
-        Browser.MenuHandler = AppContextMenuHandler.Instance;
-        Browser.FrameLoadEnd += OnBrowserFrameLoadEnd;
-        Browser.JavascriptMessageReceived += OnJavascriptMessageReceived;
-        Browser.LoadError += (_, e) =>
-            Log.Error($"Browser LoadError: {e.ErrorCode}, {e.ErrorText}, URL: {e.FailedUrl}");
-
-        // /mcp 端点经此桥把 JSON-RPC 派发进页面执行
-        McpBridge.EvaluateAsync = EvaluateMcpAsync;
-
-        // 镜像宿主拆分模式：宿主回调接回本窗口（等价同进程模式里管线直接持有的引用）
-        if (MirrorHostBridge.Instance is { Enabled: true } bridge)
-            WireMirrorHostBridge(bridge);
-
-        Loaded += (_, _) =>
-        {
-            if (_clean)
-                ApplyClean();
-
-            if (_settings.SpoutEnabled)
-                StartSpout();
-        };
 
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
 
-        Closed += (_, _) =>
+        _animTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
-            McpBridge.EvaluateAsync = null;
-            SpoutPipeline.Instance.Stop();
-            _lyricsPipeline.Stop();
+            Interval = TimeSpan.FromMilliseconds(1000 / 60.0)
         };
+        _animTimer.Tick += (_, _) => Stage.InvalidateVisual();
+        _animTimer.Start();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -94,402 +69,94 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    // 拆分模式：Spout 管线在独立宿主进程里，本窗口只发命令不建管线
-    // 拆分模式：管线在宿主进程里，本进程 SpoutPipeline.IsRunning 恒为 false，
-    // RestartRender 等外部调用方据此判断该走 IPC 而不是看本进程管线状态
-    public bool Split => MirrorHostBridge.Instance is { Enabled: true };
+    // ---------------- M0 SkiaSharp 验证画布 ----------------
 
-    private void WireMirrorHostBridge(MirrorHostBridge bridge)
+    private void Stage_PaintSurface(object? sender, SKPaintSurfaceEventArgs e)
     {
-        bridge.PokeSync = ForceSyncResend;
-        // 镜像页(重)加载后由页面 __jlHostResend 补发全量 state；宿主 ready 常早于编辑器就绪，带重试
-        bridge.NeedEditorState = () => _ = PokeEditorStateWithRetryAsync();
-    }
+        var paintStart = Stopwatch.GetTimestamp();
+        var canvas = e.Surface.Canvas;
+        var w = e.Info.Width;
+        var h = e.Info.Height;
+        var t = (float)_clock.Elapsed.TotalSeconds;
 
-    // 拆分开关切换：按目标模式重建管线，无需重启应用（镜像输出会黑 1~2 秒）
-    public void ApplySplitMode(bool enabled)
-    {
-        if (enabled)
+        canvas.Clear(new SKColor(15, 15, 18));
+
+        // 动态渐变背景：验证着色与混合路径
+        using var bg = new SKPaint
         {
-            if (Split)
-                return;
+            Shader = SKShader.CreateLinearGradient(
+                new SKPoint(0, 0), new SKPoint(w, h),
+                new[] { new SKColor(38, 34, 66), new SKColor(18, 24, 40), new SKColor(46, 26, 40) },
+                new[] { 0f, 0.55f, 1f },
+                SKShaderTileMode.Clamp)
+        };
+        canvas.DrawRect(0, 0, w, h, bg);
 
-            Log.Info("切换到镜像宿主拆分模式");
-            SpoutPipeline.Instance.Stop();
-            _lyricsPipeline.Stop();
-
-            var bridge = new MirrorHostBridge(_settings, _url);
-            WireMirrorHostBridge(bridge);
-            bridge.Start();
-            if (_settings.SpoutEnabled)
-                bridge.SendCmd("start");
-        }
-        else
+        // 轨道圆点：验证连续动画与时钟
+        const int orbs = 7;
+        for (var i = 0; i < orbs; i++)
         {
-            if (!Split)
-                return;
+            var phase = t * (0.35f + i * 0.11f) + i * ((float)Math.PI * 2 / orbs);
+            var x = w / 2f + MathF.Cos(phase) * w * 0.32f;
+            var y = h / 2f + MathF.Sin(phase * 1.3f) * h * 0.3f;
+            var r = 14 + 10 * MathF.Sin(t * 1.7f + i);
 
-            Log.Info("切回同进程镜像模式");
-            MirrorHostBridge.Instance!.Dispose(); // 优雅关闭宿主，Instance 置 null，Split 变 false
-            if (_settings.SpoutEnabled)
-                StartSpout();
-        }
-    }
-    private string RenderUrl => _url + "render";
-
-    // 独立歌词通道的渲染页，透明底只画歌词
-    private string LyricsRenderUrl => RenderUrl + "?layer=lyric";
-
-    // 独立歌词通道的 Spout 发送端名
-    private string LyricsSenderName => _settings.SpoutName + "-LYRICS";
-
-    public void StartSpout()
-    {
-        if (Split)
-        {
-            MirrorHostBridge.Instance!.SendCmd("start");
-            return;
-        }
-
-        var pipeline = SpoutPipeline.Instance;
-
-        if (pipeline.IsRunning)
-        {
-            if (!string.Equals(pipeline.SenderName, _settings.SpoutName, StringComparison.Ordinal))
-                RestartSpout();
-            return;
-        }
-
-        pipeline.SyncPoke = ForceSyncResend;
-        ApplySyncRate();
-        pipeline.Start(
-            RenderUrl,
-            _settings.SpoutName,
-            _settings.RenderFps,
-            _settings.Width,
-            _settings.Height,
-            _settings.SpoutTransparent,
-            _settings.SpoutLyricsEnabled,
-            _settings);
-
-        ApplySpoutLyrics();
-    }
-
-    public void StopSpout()
-    {
-        if (Split)
-        {
-            MirrorHostBridge.Instance!.SendCmd("stop");
-            return;
-        }
-
-        SpoutPipeline.Instance.Stop();
-        _lyricsPipeline.Stop();
-    }
-
-    // 独立歌词通道：按设置开关启停，时间锚点与主通道同源（sync_play 同时喂两路）
-    public void ApplySpoutLyrics()
-    {
-        if (Split)
-        {
-            MirrorHostBridge.Instance!.SendCmd("apply-lyrics");
-            return;
-        }
-
-        if (_settings.SpoutLyricsEnabled)
-        {
-            if (_lyricsPipeline.IsRunning)
-                RestartLyrics();
-            else
-                StartLyrics();
-        }
-        else
-        {
-            _lyricsPipeline.Stop();
-        }
-    }
-
-    private void StartLyrics()
-    {
-        _lyricsPipeline.SyncPoke = ForceSyncResend;
-        // 字幕通道帧率可配置（默认 30），生效值钳到主通道帧率——
-        // 字幕层画得比主通道快没有意义；同宿主共享 gpu-process 时过高还会拖垮主通道
-        _lyricsPipeline.Start(
-            LyricsRenderUrl,
-            LyricsSenderName,
-            Math.Min(_settings.LyricsFps, _settings.RenderFps),
-            _settings.Width,
-            _settings.Height,
-            true,
-            false,
-            _settings);
-    }
-
-    private void RestartLyrics()
-    {
-        _lyricsPipeline.Stop();
-        StartLyrics();
-    }
-
-    public void RestartSpout()
-    {
-        if (Split)
-        {
-            MirrorHostBridge.Instance!.SendCmd("restart");
-            return;
-        }
-
-        var pipeline = SpoutPipeline.Instance;
-        pipeline.Stop();
-        pipeline.SyncPoke = ForceSyncResend;
-        ApplySyncRate();
-        pipeline.Start(
-            RenderUrl,
-            _settings.SpoutName,
-            _settings.RenderFps,
-            _settings.Width,
-            _settings.Height,
-            _settings.SpoutTransparent,
-            _settings.SpoutLyricsEnabled,
-            _settings);
-
-        if (_settings.SpoutLyricsEnabled)
-            RestartLyrics();
-        else
-            _lyricsPipeline.Stop();
-    }
-
-    // 采样钟热更新：设置里改输出帧率后调，主页面采样间隔立即跟随（__jlSyncMs 由注入脚本读取）
-    public void ApplySyncRate()
-    {
-        if (!Browser.IsBrowserInitialized)
-            return;
-
-        var ms = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
-        try
-        {
-            Browser.ExecuteScriptAsync($"window.__jlSyncMs = {ms};");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("ApplySyncRate 失败：" + ex.Message);
-        }
-    }
-
-    private void OnBrowserFrameLoadEnd(object? sender, FrameLoadEndEventArgs e)
-    {
-        if (!e.Frame.IsMain)
-            return;
-
-        if (_clean)
-            Browser.ExecuteScriptAsync(
-                "window.JizuraLive && JizuraLive.setClean(true);");
-        var syncMs = Math.Clamp(1000 / Math.Max(1, _settings.RenderFps), 8, 200);
-
-        var syncScript = """
-                         (function() {
-                             try {
-                                 if (window.__jl_sync_sender_hooked)
-                                     return;
-
-                                 window.__jl_sync_sender_hooked = true;
-                                 window.__jlSyncMs = __SYNC_MS__;
-
-                                 window.__jlForceSync = function() {
-                                     window.__jlSyncDirty = true;
-                                 };
-
-                                 let lastPlaying = false;
-                                 let lastT = 0;
-
-                                 (function loop() {
-                                     setTimeout(loop, window.__jlSyncMs || 33);
-                                     try {
-                                         if (!window.J || !J.ui)
-                                             return;
-
-                                         const S = J.ui;
-                                         const p = !!S.playing;
-                                         const t = typeof S.t === 'number' ? S.t : 0;
-                                         const dirty = window.__jlSyncDirty === true;
-
-                                         if (dirty) {
-                                             window.__jlSyncDirty = false;
-                                         }
-
-                                         // 阈值=半个采样间隔：推进超过半帧即上报，
-                                         // 帧内平滑由镜像端墙钟外推负责
-                                         const eps = (window.__jlSyncMs || 33) / 2000;
-
-                                         if (dirty || p !== lastPlaying || Math.abs(t - lastT) > eps) {
-                                             lastPlaying = p;
-                                             lastT = t;
-
-                                             if (window.CefSharp && CefSharp.PostMessage) {
-                                                 CefSharp.PostMessage({
-                                                     type: 'sync_play',
-                                                     playing: p,
-                                                     t: t
-                                                 });
-                                             }
-                                         }
-                                     }
-                                     catch(err) {
-                                         console.error('[MainWindow] sync error:', err);
-                                     }
-                                 })();
-                             }
-                             catch(err) {
-                                 console.error('[MainWindow] sync sender hook error:', err);
-                             }
-                         })();
-                         """.Replace("__SYNC_MS__", syncMs.ToString());
-
-        Browser.ExecuteScriptAsync(syncScript);
-
-        // 编辑页(重)加载后全局丢失，等页面就绪戳一次 __jlHostResend 补发最新 state
-        if (Split)
-        {
-            _ = Task.Delay(1500).ContinueWith(_ =>
-                Dispatcher.InvokeAsync(() =>
-                {
-                    try
-                    {
-                        Browser.ExecuteScriptAsync("window.__jlHostResend && window.__jlHostResend();");
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warn("编辑页 state 补发戳失败：" + ex.Message);
-                    }
-                }));
-        }
-    }
-
-    private void OnJavascriptMessageReceived(object? sender, JavascriptMessageReceivedEventArgs e)
-    {
-        try
-        {
-            if (e.Message is not IDictionary<string, object> dict ||
-                !dict.TryGetValue("type", out var typeObj) ||
-                typeObj == null)
-                return;
-
-        // sync_play 是高频时间流（约 30 条/秒），分流处理不逐条记日志
-        if (string.Equals(typeObj.ToString(), "sync_play", StringComparison.OrdinalIgnoreCase))
-        {
-            HandleSyncPlay(dict);
-            return;
-        }
-
-        // 镜像宿主中继：编辑页 bindEditorBroadcast 镜像给宿主的 BC 消息（state/project/sub）。
-        // 标记键不能下划线开头——CefSharp 的 V8→CLR 转换会丢 __ 开头的键
-        if (dict.ContainsKey("jlHostRelay"))
-        {
-            Log.Info($"[中继] 收到编辑页消息：{typeObj}");
-            MirrorHostBridge.Instance?.SendMsg(dict);
-            return;
-        }
-
-            // MCP 导出指定的免确认落盘目录，dir=null 表示导出结束、恢复另存为
-            if (string.Equals(typeObj.ToString(), "set_autosave_dir", StringComparison.OrdinalIgnoreCase))
+            using var orb = new SKPaint
             {
-                var dir = dict.TryGetValue("dir", out var dirObj) ? dirObj?.ToString() : null;
-                AppDownloadHandler.AutoSaveDir = string.IsNullOrWhiteSpace(dir) ? null : dir;
-                Log.Info("免确认导出目录：" + (AppDownloadHandler.AutoSaveDir ?? "（已清除，恢复另存为）"));
-            }
+                IsAntialias = true,
+                Color = SKColor.FromHsl((t * 24 + i * 34) % 360, 70, 62, 220)
+            };
+            canvas.DrawCircle(x, y, r, orb);
         }
-        catch (Exception ex)
+
+        // 文字渲染：验证字体管线（中文 + 日文假名 + 等宽数字）；SkiaSharp 3.x 走 SKFont
+        using var typeface = SKTypeface.FromFamilyName("Microsoft YaHei UI", SKFontStyle.Normal);
+        using var font = new SKFont(typeface);
+
+        float TextLine(string s, float size, SKColor color, float y)
         {
-            Log.Warn("[MainWindow] JS 消息处理失败：" + ex.Message);
+            font.Size = size;
+            using var p = new SKPaint { IsAntialias = true, Color = color };
+            canvas.DrawText(s, 28, y, SKTextAlign.Left, font, p);
+            return y + size * 1.5f;
         }
+
+        var y0 = 44f;
+        y0 = TextLine("JIZURA Live — 纯 C# 重构（pure-csharp 分支）", 22, new SKColor(230, 230, 236), y0);
+        y0 = TextLine("SkiaSharp 渲染検証 / レンダリング検証 — Skia on net10.0-windows", 15, new SKColor(160, 200, 255), y0);
+
+        var fps = _frameMs.Count > 0 ? 1000.0 / (_frameMs.Average()) : 0;
+        var info =
+            $"frame {_frameCount,7}  |  paint {_lastPaintMs,5:0.00} ms  |  {fps,5:0} fps  |  canvas {w}×{h}  |  t {t,7:0.00}s";
+        TextLine(info, 14, new SKColor(140, 230, 160), y0 + 6);
+        TextLine($"Spout={_settings.SpoutEnabled} {_settings.Width}×{_settings.Height}@{_settings.RenderFps} → M2 回归    引擎骨架：src/Engine（见 README 移植对照表）", 13,
+            new SKColor(200, 200, 210, 160), y0 + 6);
+
+        // 描边矩形边框：验证路径/描边
+        using var border = new SKPaint
+        {
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2,
+            Color = new SKColor(90, 90, 110)
+        };
+        canvas.DrawRect(6, 6, w - 12, h - 12, border);
+
+        // paint 本身耗时（不含 WPF 呈现）
+        _lastPaintMs = (Stopwatch.GetTimestamp() - paintStart) * 1000.0 / Stopwatch.Frequency;
+        _frameCount++;
+        _frameMs.Enqueue(_lastPaintMs + 0.001);
+        while (_frameMs.Count > 60)
+            _frameMs.Dequeue();
     }
 
-    private void HandleSyncPlay(IDictionary<string, object> dict)
+    protected override void OnClosed(EventArgs e)
     {
-        try
-        {
-            var playing = dict.TryGetValue("playing", out var playingObj) && Convert.ToBoolean(playingObj);
-            var time = dict.TryGetValue("t", out var timeObj) ? Convert.ToDouble(timeObj) : 0;
-
-            // 只在播放态切换时记日志，否则 UI 线程上的日志 I/O 会造成可感知的卡顿
-            if (playing != _lastSyncPlaying || !_lastSyncPlayingValid)
-            {
-                _lastSyncPlaying = playing;
-                _lastSyncPlayingValid = true;
-                Log.Info($"[MainWindow] sync_play 状态切换：playing={playing}, t={time:F3}");
-            }
-
-            // 锚点经管道喂宿主里的两路管线
-            if (Split)
-            {
-                MirrorHostBridge.Instance!.SendPlay(playing, time);
-                return;
-            }
-
-            SpoutPipeline.Instance.ApplyPlaybackSync(playing, time);
-            _lyricsPipeline.ApplyPlaybackSync(playing, time);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("[MainWindow] sync_play 解析失败：" + ex.Message);
-        }
+        _animTimer.Stop();
+        base.OnClosed(e);
     }
 
-    public void ForceSyncResend()
-    {
-        try
-        {
-            Browser.ExecuteScriptAsync(
-                "window.__jlForceSync && window.__jlForceSync();");
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("ForceSyncResend 失败：" + ex.Message);
-        }
-    }
-
-    // 宿主 ready/镜像页加载常早于编辑器浏览器初始化完成，state 补发戳带重试直到页面可执行脚本
-    private async Task PokeEditorStateWithRetryAsync()
-    {
-        for (var i = 0; i < 30; i++)
-        {
-            try
-            {
-                if (Browser.IsBrowserInitialized && Browser.CanExecuteJavascriptInMainFrame)
-                {
-                    Browser.ExecuteScriptAsync("window.__jlHostResend && window.__jlHostResend();");
-                    return;
-                }
-            }
-            catch
-            {
-                // 浏览器尚在初始化，等下一轮
-            }
-
-            await Task.Delay(500);
-        }
-
-        Log.Warn("编辑页 15s 未就绪，宿主 state 补发放弃（等下一次镜像页加载再触发）");
-    }
-
-    // 页面里执行脚本并取回 JSON.stringify 的结果（null = 通知）。
-    // McpModule 在 HTTP 线程调，先切 UI 线程再交给 CEF
-    private Task<string?> EvaluateMcpAsync(string script)
-    {
-        return Dispatcher.InvokeAsync(() => EvaluateMcpOnUiAsync(script)).Task.Unwrap();
-    }
-
-    private async Task<string?> EvaluateMcpOnUiAsync(string script)
-    {
-        if (!Browser.IsBrowserInitialized || !Browser.CanExecuteJavascriptInMainFrame)
-            throw new InvalidOperationException("页面尚未加载完成");
-
-        var response = await Browser.EvaluateScriptAsync(script, TimeSpan.FromSeconds(60));
-        if (!response.Success)
-            throw new InvalidOperationException(response.Message);
-
-        return response.Result as string;
-    }
+    // ---------------- 窗口 chrome ----------------
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -576,14 +243,5 @@ public partial class MainWindow : Window
     private void BtnClose_Click(object sender, RoutedEventArgs e)
     {
         Close();
-    }
-
-    private void ApplyClean()
-    {
-        if (!Browser.IsBrowserInitialized)
-            return;
-
-        Browser.ExecuteScriptAsync(
-            $"window.JizuraLive && JizuraLive.setClean({_clean.ToString().ToLowerInvariant()});");
     }
 }

@@ -1,7 +1,7 @@
 <Window x:Class="JizuraLive.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:cef="clr-namespace:CefSharp.Wpf.HwndHost;assembly=CefSharp.Wpf"
+        xmlns:skia="clr-namespace:SkiaSharp.Views.WPF;assembly=SkiaSharp.Views.WPF"
         Title="字面 Live"
         Icon="pack://application:,,,/assets/app.ico"
         WindowStyle="None"
@@ -23,6 +23,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Height="36" Background="#FF151519"
@@ -51,10 +52,14 @@
                 </Button>
             </StackPanel>
         </Grid>
-        <!-- CEF 是 Win32 句柄控件，贴满边缘会盖住缩放热区（鼠标进不了 WindowChrome 命中测试），
-             内缩 5px 让边缘归 WPF 才能拖拽缩放 -->
-        <Grid Grid.Row="1" Margin="5" Background="#FF0F0F12">
-            <cef:ChromiumWebBrowser x:Name="Browser" />
+        <!-- 纯 C# 重构（pure-csharp 分支）：CEF 已移除。编辑器 UI 将按里程碑回归（M2/M3），
+             这里先放 SkiaSharp 渲染验证画布，验证 net10 + SkiaSharp 端到端可用 -->
+        <Border Grid.Row="1" Background="#FF1D1D24" Padding="14,8">
+            <TextBlock Text="纯 C# 重构中 · M0 脚手架 —— CEF 已移除；渲染引擎 / 编辑器 / 导出将逐里程碑回归"
+                       FontSize="12" Opacity="0.7" />
+        </Border>
+        <Grid Grid.Row="2" Margin="5,5,5,5" Background="#FF0F0F12">
+            <skia:SKElement x:Name="Stage" PaintSurface="Stage_PaintSurface" />
         </Grid>
     </Grid>
 </Window>

@@ -11,9 +11,9 @@
         <UseWPF>true</UseWPF>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <PlatformTarget>x64</PlatformTarget>
-        <Version>2.1.0</Version>
+        <Version>3.0.0</Version>
         <Product>JIZURA Live</Product>
-        <Description>JIZURA-live</Description>
+        <Description>JIZURA-live（pure C#，无 CEF）</Description>
         <ApplicationIcon>assets\app.ico</ApplicationIcon>
         <!-- 自包含发布只带简中卫星资源：默认会把运行时全部语言目录（cs/de/es/...）打进去 -->
         <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
@@ -27,9 +27,8 @@
         <PackageReference Include="NAudio" Version="3.1.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4"/>
         <PackageReference Include="QRCoder" Version="1.8.0" />
-        <PackageReference Include="CefSharp.Common" Version="152.0.100"/>
-        <PackageReference Include="CefSharp.Wpf" Version="152.0.100"/>
-        <PackageReference Include="CefSharp.OffScreen" Version="152.0.100"/>
+        <PackageReference Include="SkiaSharp" Version="3.119.0" />
+        <PackageReference Include="SkiaSharp.Views.WPF" Version="3.119.0" />
         <PackageReference Include="SharpDX" Version="4.2.0" />
     </ItemGroup>
     <ItemGroup>
@@ -42,47 +41,18 @@
         <Reference Include="SharpDX.DXGI">
             <HintPath>$(NuGetPackageRoot)sharpdx.dxgi\4.2.0\lib\net45\SharpDX.DXGI.dll</HintPath>
         </Reference>
-    </ItemGroup>
-
-    <ItemGroup>
-        <Reference Include="CefSharp">
-            <HintPath>$(NuGetPackageRoot)cefsharp.common\152.0.100\lib\net462\CefSharp.dll</HintPath>
-        </Reference>
-        <Reference Include="CefSharp.Core">
-            <HintPath>$(NuGetPackageRoot)cefsharp.common\152.0.100\lib\net462\CefSharp.Core.dll</HintPath>
-        </Reference>
-        <Reference Include="CefSharp.Wpf">
-            <HintPath>$(NuGetPackageRoot)cefsharp.wpf\152.0.100\lib\net462\CefSharp.Wpf.dll</HintPath>
-        </Reference>
         <Reference Include="SpoutDXWrapper">
             <HintPath>native\SpoutDXWrapper.dll</HintPath>
         </Reference>
         <None Remove="native\SpoutDX.dll"/>
         <Content Include="native\SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
-        <Content Update="frontend\favicon.ico">
-          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-        <Content Update="frontend\LICENSE-JIZURA">
-          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-        <None Remove="tools\cdp-clean-ab.mjs" />
-        <None Remove="tools\cdp-ab-test.mjs" />
     </ItemGroup>
 
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish" Condition="Exists('native\SpoutDX.dll')">
         <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"/>
         <!-- publish 时 OutDir 指向构建目录，发布目录需要单独补一份，
-             否则 SpoutDXWrapper.dll 找不到原生依赖，镜像管线启动失败 -->
+             否则 SpoutDXWrapper.dll 找不到原生依赖，Spout 输出启动失败 -->
         <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll')"/>
-    </Target>
-
-    <!-- CefSharp 子进程 exe 的图标替换为 app.ico（任务管理器/资源管理器可见）。
-         CefSharp 升级覆盖 exe 后，每次构建会自动重新打补丁；
-         exe 被占用（程序正在运行）时只警告不阻断构建 -->
-    <Target Name="PatchCefSubprocessIcon" AfterTargets="Build;Publish" Condition="Exists('$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1')">
-        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(OutDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;" ContinueOnError="WarnAndContinue" Condition="Exists('$(OutDir)CefSharp.BrowserSubprocess.exe')"/>
-        <!-- publish 目录单独补一份（同 CopySpoutDx 的处理方式） -->
-        <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)tools\patch-subprocess-icon.ps1&quot; -TargetExe &quot;$(PublishDir)CefSharp.BrowserSubprocess.exe&quot; -IconPath &quot;$(MSBuildThisFileDirectory)assets\app.ico&quot;" ContinueOnError="WarnAndContinue" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)CefSharp.BrowserSubprocess.exe')"/>
     </Target>
 
     <!-- 发布产物不携带引用程序的 pdb/xml -->
@@ -97,44 +67,11 @@
       <ApplicationDefinition Include="src\App\App.xaml" />
     </ItemGroup>
 
-    <!-- ================= 前端构建与嵌入 =================
-         frontend/（Vite + Vue3）构建到 obj/frontend-dist（git 忽略），
-         再以 EmbeddedResource（jizura-www/ 前缀）嵌入本程序集，
-         运行时 StaticSiteModule 从程序集内存 serve——磁盘上没有可被随手改动的散装产物。
-         日常前端开发用 frontend 下 npm run dev（API 代理到本机服务）。
-         跳过前端构建：dotnet build /p:SkipFrontendBuild=true -->
-    <PropertyGroup>
-        <FrontendDir>$(MSBuildProjectDirectory)\frontend\</FrontendDir>
-        <FrontendDist>$(MSBuildProjectDirectory)\obj\frontend-dist</FrontendDist>
-        <FrontendStamp>$(MSBuildProjectDirectory)\obj\frontend-build.stamp</FrontendStamp>
-    </PropertyGroup>
-    <ItemGroup>
-        <FrontendSourceInputs Include="$(FrontendDir)package.json"/>
-        <FrontendSourceInputs Include="$(FrontendDir)package-lock.json"/>
-        <FrontendSourceInputs Include="$(FrontendDir)vite.config.ts"/>
-        <FrontendSourceInputs Include="$(FrontendDir)tsconfig.json"/>
-        <FrontendSourceInputs Include="$(FrontendDir)index.html"/>
-        <FrontendSourceInputs Include="$(FrontendDir)src\**\*"/>
-    </ItemGroup>
-    <ItemGroup>
-        <Folder Include="Output\"/>
-    </ItemGroup>
-    <Target Name="FrontendInvalidateStamp" BeforeTargets="BuildFrontend">
-        <!-- 产物目录被清空但戳记还在时强制重建 -->
-        <Delete Files="$(FrontendStamp)" Condition="!Exists('$(FrontendDist)\index.html')"/>
-    </Target>
-    <Target Name="BuildFrontend" BeforeTargets="BeforeBuild" Inputs="@(FrontendSourceInputs)" Outputs="$(FrontendStamp)" Condition="'$(SkipFrontendBuild)' != 'true'">
-        <Message Importance="high" Text="前端构建：vite build → $(FrontendDist)"/>
-        <Exec Command="npm install --no-audit --no-fund" WorkingDirectory="$(FrontendDir)" Condition="!Exists('$(FrontendDir)node_modules')"/>
-        <!-- 双短横分隔符必须有：npm 会把不认识的 outDir 当自己的配置吞掉，vite 拿不到参数 -->
-        <Exec Command="npm run build -- --outDir &quot;$(FrontendDist)&quot;" WorkingDirectory="$(FrontendDir)"/>
-        <WriteLinesToFile File="$(FrontendStamp)" Lines="$([System.DateTime]::UtcNow.Ticks)" Overwrite="true"/>
-    </Target>
-    <!-- 增量跳过 npm 时也要重新收集嵌入项（AfterTargets 无论上游是否跳过都会执行） -->
-    <Target Name="EmbedFrontend" AfterTargets="BuildFrontend" BeforeTargets="PrepareForBuild">
-        <ItemGroup>
-            <_FrontendFiles Include="$(FrontendDist)\**\*"/>
-            <EmbeddedResource Include="@(_FrontendFiles)" LogicalName="jizura-www/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)"/>
-        </ItemGroup>
-    </Target>
+    <!-- ================= pure-csharp 重构说明 =================
+         旧版经 CEF 渲染前端（frontend/ Vue3 SPA）并离屏出帧；本分支起改为纯 C#：
+           - 渲染引擎：src/Engine（SkiaSharp，逐文件对位移植 frontend/src/engine）
+           - 导出：src/Export（FFmpeg 编码 + SkiaSharp PNG/ZIP）
+           - 编辑器 UI：WPF 原生（M2/M3 回归）
+         frontend/ 暂冻结保留作移植参照，M7 删除。下方保留前端构建所需的引用注释占位：
+         （无——前端构建目标已整体移除） -->
 </Project>

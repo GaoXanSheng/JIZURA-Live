@@ -5,7 +5,7 @@ using EmbedIO;
 using EmbedIO.Routing;
 using EmbedIO.WebApi;
 using JizuraLive.App;
-using JizuraLive.Spout;
+using JizuraLive.Logging;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Server;
@@ -83,13 +83,12 @@ internal sealed class SettingsController : WebApiController
 
         var changed = new List<string>();
 
-        // 这里只保存不立即应用管线：渲染窗口分辨率/帧率/Spout ID/透明背景
-        // 统一在「重启渲染引擎」时按 settings 当前值重建镜像，避免每次改动实时打断输出。
-        // 分辨率钳到 D3D11 合理纹理范围，POST 100000×100000 会一路传到 CEF 试图建巨型纹理
+        // 这里只保存设置：渲染管线将在 M2（纯 C# Spout 直出）回归后重建应用逻辑。
+        // 分辨率钳到 D3D11 合理纹理范围，POST 100000×100000 会一路传到渲染端试图建巨型纹理
         var width = Math.Clamp(d.Width, 64, 8192);
         var height = Math.Clamp(d.Height, 64, 8192);
 
-        // 开关差值必须在赋值前取：赋值后再比较永远为 false
+        // 开关差值只用于「变更了什么」的回执文案：赋值前取，赋值后再比较永远为 false
         var lyricsToggled = settings.SpoutLyricsEnabled != d.SpoutLyricsEnabled;
         var splitToggled = settings.SplitMirrorHost != d.SplitMirrorHost;
 
@@ -157,21 +156,8 @@ internal sealed class SettingsController : WebApiController
             }
         });
 
-        // 文件 IO 移出 UI 线程：Invoke 内只剩内存赋值与管线开关，HTTP 线程等 UI 的时间不含写盘。
-        // 保持「先保存后重启」的顺序
+        // 文件 IO 移出 UI 线程：Invoke 内只剩内存赋值，HTTP 线程等 UI 的时间不含写盘
         settings.Save();
-
-        // 字幕通道开关变了：主通道要重注入 __jl_no_sub（字幕分离标志），歌词通道随 RestartSpout 启停，
-        // 整体重启一次到位。CEF 浏览器创建必须在 Cef.Initialize 的线程（主线程）上
-        if (splitToggled)
-        {
-            // 拆分开关整体重建管线，已覆盖歌词开关的效果
-            Application.Current?.Dispatcher.Invoke(
-                () => (Application.Current.MainWindow as MainWindow)?.ApplySplitMode(d.SplitMirrorHost));
-        }
-        else if (lyricsToggled)
-            Application.Current?.Dispatcher.Invoke(
-                () => (Application.Current.MainWindow as MainWindow)?.RestartSpout());
 
         await HttpContext.SendStringAsync(
             JsonConvert.SerializeObject(new
@@ -183,33 +169,12 @@ internal sealed class SettingsController : WebApiController
             "application/json; charset=utf-8", Encoding.UTF8);
     }
 
-    // 「重启渲染引擎」：按此刻 settings 的值重建镜像，
-    // 分辨率/帧率/ID/透明背景全部经 SpoutPipeline.Start 的参数一次性生效
+    // 「重启渲染引擎」：渲染管线 M2 回归后按此刻 settings 的值重建；
+    // 纯 C# 重构期间保留端点（契约不变），先回 ok 空操作
     [Route(HttpVerbs.Post, "/api/app/render/restart")]
     public async Task RestartRender()
     {
-        Application.Current?.Dispatcher.Invoke(() =>
-        {
-            var settings = ((App.App?)Application.Current)?.Settings;
-            if (settings == null)
-                return;
-
-            var main = Application.Current.MainWindow as MainWindow;
-            if (settings.SpoutEnabled)
-            {
-                // 拆分模式下管线在宿主进程，本进程 SpoutPipeline.IsRunning 恒为 false：
-                // 不能拿它决定 restart/start，否则「重启」会退化成宿主侧的 start
-                // （宿主对运行中的管线只重建 ID 变了的），宽高/帧率/透明/字幕通道全部不生效
-                if (main is { Split: true } || SpoutPipeline.Instance.IsRunning)
-                    main?.RestartSpout();
-                else
-                    main?.StartSpout();
-            }
-            else
-            {
-                main?.StopSpout();
-            }
-        });
+        Log.Info("[Settings] render/restart：渲染引擎纯 C# 重构中，M2 回归后生效");
         await HttpContext.SendStringAsync("{\"ok\":true}", "application/json; charset=utf-8", Encoding.UTF8);
     }
 

@@ -79,7 +79,7 @@ internal sealed class McpModule : WebModuleBase
             : method));
 
         if (McpBridge.EvaluateAsync == null)
-            return await ErrorAsync(context, request["id"], -32603, "应用窗口尚未创建，请稍后重试");
+            return await ErrorAsync(context, request["id"], -32603, "编辑器桥尚未就绪，请稍后重试");
 
         // 请求体经 Newtonsoft 序列化成字符串字面量再 JSON.parse，
         // 不把原始文本当 JS 字面量嵌入，避免任何注入歧义
@@ -93,8 +93,8 @@ internal sealed class McpModule : WebModuleBase
         }
         catch (Exception ex)
         {
-            Log.Error("[Mcp] 页面求值失败：" + method, ex);
-            return await ErrorAsync(context, request["id"], -32603, "页面执行失败：" + ex.Message);
+            Log.Error("[Mcp] 桥执行失败：" + method, ex);
+            return await ErrorAsync(context, request["id"], -32603, "执行失败：" + ex.Message);
         }
 
         // null / "null" 都是通知（mcpRpc 对 notifications/* 返回 null，无响应体）。
