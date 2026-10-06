@@ -21,5 +21,6 @@
 
     <ItemGroup>
         <Content Include="fixtures\engine-goldens.json" CopyToOutputDirectory="PreserveNewest"/>
+        <Content Include="fixtures\parity\**\*" CopyToOutputDirectory="PreserveNewest"/>
     </ItemGroup>
 </Project>

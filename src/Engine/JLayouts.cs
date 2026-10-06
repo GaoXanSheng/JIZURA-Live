@@ -1100,7 +1100,7 @@ public static class JLayouts
                     var h = fs * 1.36;
                     env.Ctx.Save();
                     env.Ctx.Translate((float)x, (float)y);
-                    env.Ctx.RotateDegrees((float)(rot * J.DEG));
+                    env.Ctx.RotateDegrees((float)rot); // JS: rotate(rot * DEG) 收弧度；RotateDegrees 直接收度
                     env.Ctx.Scale((float)q, (float)q);
                     env.Rect(-w / 2, -h / 2, w, h, sc.Str("ink"), 1);
                     env.DrawItem(new JObject { ["text"] = u, ["font"] = font, ["size"] = fs, ["track"] = 0.04, ["x"] = 0, ["y"] = 0, ["color"] = sc.Str("bg"), ["ghost"] = false });
@@ -1444,7 +1444,7 @@ public static class JLayouts
                 var e = J.E.OutExpo(J.Clamp(env.Lt / (cut.InDur * 0.8))) * (1 - J.E.InExpo(env.POut));
                 env.Ctx.Save();
                 env.Ctx.Translate(W / 2f, H / 2f);
-                env.Ctx.RotateDegrees((float)(-ang * J.DEG));
+                env.Ctx.RotateDegrees((float)-ang); // JS: rotate(-P.ang * DEG)；RotateDegrees 直接收度
                 env.Rect(-W * 1.2, -bh / 2 * e, W * 2.4, bh * e, bandCol, 1);
                 if (B(P, "second"))
                 {

@@ -69,6 +69,10 @@
       <Compile Remove="tests\**" />
       <None Remove="tests\**" />
       <Content Remove="tests\**" />
+      <!-- tools/ 下是对拍工具（ParityCli 等）与脚本，同样不进主程序 -->
+      <Compile Remove="tools\**" />
+      <None Remove="tools\**" />
+      <Content Remove="tools\**" />
     </ItemGroup>
 
     <!-- ================= pure-csharp 重构说明 =================
