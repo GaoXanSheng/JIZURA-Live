@@ -20,11 +20,46 @@
                       UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
 
+    <Window.Resources>
+        <Style x:Key="ToolBtn" TargetType="Button">
+            <Setter Property="Background" Value="#FF26262E" />
+            <Setter Property="Foreground" Value="{StaticResource FgMain}" />
+            <Setter Property="BorderBrush" Value="#FF3C3C46" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#FF34343E" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#FF1D1D24" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid Grid.Row="0" Height="36" Background="#FF151519"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
@@ -52,14 +87,40 @@
                 </Button>
             </StackPanel>
         </Grid>
-        <!-- 纯 C# 重构（pure-csharp 分支）：CEF 已移除。编辑器 UI 将按里程碑回归（M2/M3），
-             这里先放 SkiaSharp 渲染验证画布，验证 net10 + SkiaSharp 端到端可用 -->
-        <Border Grid.Row="1" Background="#FF1D1D24" Padding="14,8">
-            <TextBlock Text="纯 C# 重构中 · M0 脚手架 —— CEF 已移除；渲染引擎 / 编辑器 / 导出将逐里程碑回归"
-                       FontSize="12" Opacity="0.7" />
+        <!-- 顶栏工具条：歌词编辑 / 重新规划 / Spout 输出开关；右侧状态文本（引擎/输出概况） -->
+        <Border Grid.Row="1" Background="#FF1D1D24" Padding="10,6">
+            <DockPanel LastChildFill="False">
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="BtnLyrics" Content="歌词" Style="{StaticResource ToolBtn}"
+                            Click="BtnLyrics_Click" ToolTip="编辑歌词（保存后重新规划）" />
+                    <Button x:Name="BtnReplan" Content="重新规划" Style="{StaticResource ToolBtn}"
+                            Click="BtnReplan_Click" ToolTip="按当前工程重新生成 plan" />
+                    <CheckBox x:Name="ChkSpout" Content="Spout 输出" VerticalAlignment="Center" Margin="4,0,0,0"
+                              Checked="ChkSpout_Changed" Unchecked="ChkSpout_Changed" ToolTip="Spout 发送开关（即时启停）" />
+                </StackPanel>
+                <TextBlock x:Name="TblStatus" DockPanel.Dock="Right" VerticalAlignment="Center"
+                           FontSize="11" Opacity="0.55" Text="" />
+            </DockPanel>
         </Border>
-        <Grid Grid.Row="2" Margin="5,5,5,5" Background="#FF0F0F12">
+        <!-- 引擎预览舞台：SKElement 画 PreviewEngine.Plan 的当前帧（Renderer.Frame，Stage 模式） -->
+        <Grid Grid.Row="2" Margin="5,5,5,0" Background="#FF0F0F12">
             <skia:SKElement x:Name="Stage" PaintSurface="Stage_PaintSurface" />
         </Grid>
+        <!-- 底部 Transport：播放/暂停、时间滑条（scrub）、当前时间/总时长、循环开关 -->
+        <Border Grid.Row="3" Background="#FF151519" Padding="10,6">
+            <DockPanel>
+                <Button x:Name="BtnPlay" Content="&#xE768;" Style="{StaticResource ToolBtn}" Width="36"
+                        FontFamily="Segoe MDL2 Assets" FontSize="13" Margin="0,0,10,0"
+                        Click="BtnPlay_Click" ToolTip="播放/暂停（空格）" />
+                <TextBlock x:Name="TblTime" DockPanel.Dock="Right" VerticalAlignment="Center"
+                           FontSize="12" Opacity="0.8" Margin="10,0,0,0"
+                           FontFamily="Consolas" Text="00:00.00 / 00:00.00" />
+                <CheckBox x:Name="ChkLoop" Content="循环" DockPanel.Dock="Right" VerticalAlignment="Center"
+                          IsChecked="True" Margin="0,0,10,0" Checked="ChkLoop_Changed" Unchecked="ChkLoop_Changed" />
+                <Slider x:Name="SldTime" VerticalAlignment="Center" Minimum="0" Maximum="1"
+                        ValueChanged="SldTime_ValueChanged"
+                        PreviewMouseLeftButtonDown="SldTime_Down" PreviewMouseLeftButtonUp="SldTime_Up" />
+            </DockPanel>
+        </Border>
     </Grid>
 </Window>

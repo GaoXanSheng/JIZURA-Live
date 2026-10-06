@@ -44,3 +44,15 @@
    （导出 AE JSON、.jizuralive 兼容都压在它上面）。
 6. **双渲染分支**：`st.kline → KLINE_RENDERER`、`st.ascii → asciiFrame` 独立于主管线，
    移植时保持独立类，不并入 Renderer 主流程。
+
+## 宿主接入须知（M2 实测教训）
+
+1. **交给 `Renderer.Frame` 的 SKSurface/SKCanvas 必须按尺寸保留、绝不 Dispose**：
+   引擎整帧缓存会持有该画面的 `SKImage` 快照跨帧复用，面被释放后缓存悬垂，
+   下一帧访问即 AV。宿主侧按尺寸缓存离屏面（旧面孤儿化，不主动销毁）；
+  往外 blit 用 `PeekPixels()` + `SKImage.FromPixels` 借用像素，不要用 `Snapshot()`
+   （会触发 SkiaSharp COW 记账）。WPF 的 SKElement 每次 OnRender 都新建临时面，
+   不能直接把 `e.Surface` 交给 Frame——先画到自持离屏面再 blit。
+2. **字体**：引擎字体目录是自托管 woff2 family 名，本机没有时 `SKTypeface.Default`
+   渲染 CJK 可能原生崩溃。字体管线（M2）接通前，宿主应把目录条目映射到系统 CJK 字体
+   （参考 `tests/JizuraLive.Engine.Tests/RenderSmoke.cs` 的 SmokeFonts 做法）。

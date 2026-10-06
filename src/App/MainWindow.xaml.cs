@@ -1,10 +1,12 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using JizuraLive.Engine;
 using JizuraLive.Logging;
+using JizuraLive.Spout;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
 using SkiaSharp.Views.WPF;
@@ -14,14 +16,14 @@ namespace JizuraLive.App;
 public partial class MainWindow : Window
 {
     private readonly Settings _settings;
+    private readonly PreviewEngine _preview = new();
+    private readonly SpoutOut _spout = new();
 
-    // M0 占位验证画布的动画钟：证明 SkiaSharp 在 net10 + WPF 上端到端可用。
-    // 编辑器舞台（Renderer.Frame 驱动）将在 M2 取代它
-    private readonly DispatcherTimer _animTimer;
-    private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly Queue<double> _frameMs = new();
-    private long _frameCount;
-    private double _lastPaintMs;
+    // 预览帧率跟 RenderFps（钳到 60：预览是给人看的，引擎作画按 koma 量化，再快只是烧 CPU）
+    private readonly DispatcherTimer _renderTimer;
+    private readonly DispatcherTimer _transportTimer;
+    private bool _syncSlider; // 程序性刷滑条时置真，ValueChanged 不回灌 Seek
+    private bool _scrubbing;
 
     public MainWindow(Settings settings)
     {
@@ -32,13 +34,282 @@ public partial class MainWindow : Window
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
 
-        _animTimer = new DispatcherTimer(DispatcherPriority.Render)
+        ChkSpout.IsChecked = settings.SpoutEnabled;
+
+        var fps = Math.Clamp(settings.RenderFps, 1, 60);
+        _renderTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
-            Interval = TimeSpan.FromMilliseconds(1000 / 60.0)
+            Interval = TimeSpan.FromMilliseconds(1000 / (double)fps),
         };
-        _animTimer.Tick += (_, _) => Stage.InvalidateVisual();
-        _animTimer.Start();
+        _renderTimer.Tick += (_, _) =>
+        {
+            _preview.Tick();
+            Stage.InvalidateVisual();
+        };
+        _renderTimer.Start();
+
+        // Transport 状态同步（滑条/时间文本）10Hz 够了，别跟渲染抢
+        _transportTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(100),
+        };
+        _transportTimer.Tick += (_, _) => SyncTransport();
+        _transportTimer.Start();
+
+        SyncTransport();
+        UpdateStatusText();
+        _preview.Play(); // 预览默认自动播放（暂停态泵只出脏帧，起播才能看到真帧率）
+
+        Loaded += (_, _) =>
+        {
+            // Spout 启动放 Loaded：管线建 D3D 设备要几百毫秒，别挡窗口先画出来
+            if (_settings.SpoutEnabled)
+                StartSpout();
+        };
     }
+
+    // ---------------- 引擎预览舞台 ----------------
+
+    private void Stage_PaintSurface(object? sender, SKPaintSurfaceEventArgs e)
+    {
+        var canvas = e.Surface.Canvas;
+        var w = e.Info.Width;
+        var h = e.Info.Height;
+        var plan = _preview.Plan;
+        if (plan == null) return;
+
+        // contain 适配居中（预览画布比例 ≠ 工程画幅时出暗边）；预览不超采（fit 钳 1.0）
+        var fit = Math.Min(w / (double)plan.W, h / (double)plan.H);
+        var scale = Math.Min(fit, 1.0);
+        var rw = Math.Max(1, (int)Math.Round(plan.W * scale));
+        var rh = Math.Max(1, (int)Math.Round(plan.H * scale));
+        var t = _preview.CurrentTime;
+
+        canvas.Clear(new SKColor(15, 15, 18));
+
+        // SkiaSharp 3.119 坑（headless 复现：obj/repro，AV 于 Frame 的 _fcCv.Width）：
+        // 引擎整帧缓存会把 SnapshotOf(ctx) 存起来跨帧用——交给 Frame 的面必须保留（绝不 Dispose），
+        // 否则面一释放缓存里的快照就悬垂，下一次缓存命中即 AV。同理 blit 不用 Snapshot()
+        //（dispose 快照会弄脏面的 cached-image 记账），改 PeekPixels + FromPixels 借用像素。
+        // 旧尺寸面孤儿化进 graveyard，退出时随渲染器一起释放
+        if (_stageSurface == null || _stageW != rw || _stageH != rh)
+        {
+            if (_stageSurface != null) _stageGraveyard.Add(_stageSurface);
+            _stageSurface = SKSurface.Create(new SKImageInfo(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul));
+            _stageW = rw;
+            _stageH = rh;
+        }
+
+        lock (EngineRenderGate.Lock)
+            _preview.Renderer.Frame(_stageSurface.Canvas, plan, t, new RenderOpts { Scale = scale, Stage = true });
+
+        var px = _stageSurface.PeekPixels();
+        if (px != null)
+        {
+            using var borrow = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
+            canvas.DrawImage(borrow, (w - rw) / 2f, (h - rh) / 2f);
+        }
+    }
+
+    // 引擎渲染面（保留，尺寸变化才换新）+ 换下的旧面（退出时统一释放）
+    private SKSurface? _stageSurface;
+    private int _stageW = -1, _stageH = -1;
+    private readonly List<SKSurface> _stageGraveyard = new();
+
+    // ---------------- Transport ----------------
+
+    private void BtnPlay_Click(object sender, RoutedEventArgs e) => _preview.TogglePlay();
+
+    private void SldTime_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncSlider || _preview == null) return;
+        _preview.Seek(e.NewValue);
+        UpdateTimeText();
+    }
+
+    private void SldTime_Down(object sender, MouseButtonEventArgs e) => _scrubbing = true;
+
+    private void SldTime_Up(object sender, MouseButtonEventArgs e) => _scrubbing = false;
+
+    private void ChkLoop_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_preview == null) return;
+        _preview.Loop = ChkLoop.IsChecked == true;
+    }
+
+    /// <summary>10Hz 刷 Transport：滑条跟随播放（scrub 中不回灌），时间文本、播放键图标。</summary>
+    private void SyncTransport()
+    {
+        var dur = _preview.Duration;
+        _syncSlider = true;
+        SldTime.Maximum = Math.Max(0.001, dur);
+        if (!_scrubbing)
+            SldTime.Value = Math.Min(_preview.CurrentTime, SldTime.Maximum);
+        _syncSlider = false;
+        UpdateTimeText();
+        BtnPlay.Content = _preview.IsPlaying ? "\uE769" : "\uE768"; // ⏸ / ▶（Segoe MDL2）
+    }
+
+    private void UpdateTimeText()
+    {
+        TblTime.Text = $"{J.FmtTime(_preview.CurrentTime)} / {J.FmtTime(_preview.Duration)}";
+    }
+
+    private void UpdateStatusText()
+    {
+        var plan = _preview.Plan;
+        TblStatus.Text =
+            $"{plan.W}×{plan.H} · {plan.Cuts.Count} 切分 · seed {plan.Seed}"
+            + (_spout.IsRunning ? $" · Spout→{_spout.SenderName}" : "");
+    }
+
+    // ---------------- 顶栏：歌词编辑 / 重新规划 / Spout 开关 ----------------
+
+    private void BtnLyrics_Click(object sender, RoutedEventArgs e)
+    {
+        var box = new TextBox
+        {
+            Text = _preview.Project.Lyrics,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontSize = 13,
+            Padding = new Thickness(8),
+        };
+        var apply = new Button { Content = "应用", Padding = new Thickness(16, 3, 16, 3) };
+        var cancel = new Button { Content = "取消", Padding = new Thickness(16, 3, 16, 3) };
+        var panel = new DockPanel { Margin = new Thickness(10) };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        buttons.Children.Add(apply);
+        buttons.Children.Add(cancel);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        panel.Children.Add(buttons);
+        panel.Children.Add(box);
+
+        var win = new Window
+        {
+            Title = "歌词",
+            Owner = this,
+            Width = 560,
+            Height = 420,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FF17171B")),
+            Content = panel,
+        };
+
+        apply.Click += (_, _) =>
+        {
+            if (box.Text != _preview.Project.Lyrics)
+            {
+                _preview.Project.Lyrics = box.Text;
+                _preview.Replan();
+                _preview.Seek(0);
+                UpdateStatusText();
+                Log.Info("[MainWindow] 歌词已更新并重新规划");
+            }
+
+            win.Close();
+        };
+        cancel.Click += (_, _) => win.Close();
+        win.Show();
+        box.Focus();
+    }
+
+    private void BtnReplan_Click(object sender, RoutedEventArgs e)
+    {
+        _preview.Replan();
+        UpdateStatusText();
+    }
+
+    private void ChkSpout_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null || _spout == null) return; // XAML 初始化期的空触发
+        var on = ChkSpout.IsChecked == true;
+        if (on == _settings.SpoutEnabled && (on == _spout.IsRunning || !IsLoaded)) return;
+        _settings.SpoutEnabled = on;
+        _settings.Save();
+        if (on) StartSpout();
+        else StopSpout();
+        UpdateStatusText();
+    }
+
+    // ---------------- Spout 直出（SpoutOut 管线） ----------------
+
+    private SpoutOutOptions SpoutOpts() => new()
+    {
+        SenderName = _settings.SpoutName,
+        MainTransparent = _settings.SpoutTransparent,
+        Width = _settings.Width,
+        Height = _settings.Height,
+        Fps = _settings.RenderFps,
+        LyricsEnabled = _settings.SpoutLyricsEnabled,
+        // 字幕层画得比主通道快没有意义（旧管线同钳法）
+        LyricsFps = Math.Min(_settings.LyricsFps, _settings.RenderFps),
+    };
+
+    public void StartSpout()
+    {
+        if (_spout.IsRunning)
+        {
+            // 名称变了只有重建发送端才生效
+            if (!string.Equals(_spout.SenderName, _settings.SpoutName, StringComparison.Ordinal))
+                RestartSpout();
+            return;
+        }
+
+        _spout.Start(_preview, SpoutOpts());
+        UpdateStatusText();
+    }
+
+    public void StopSpout()
+    {
+        _spout.Stop();
+        UpdateStatusText();
+    }
+
+    /// <summary>按当前 settings 重建管线（分辨率/帧率/名称/透明底改动由此生效）。</summary>
+    public void RestartSpout()
+    {
+        if (!_spout.IsRunning)
+        {
+            if (_settings.SpoutEnabled) StartSpout();
+            return;
+        }
+
+        Log.Info($"[MainWindow] 重启 Spout 管线：{_settings.SpoutName} {_settings.Width}×{_settings.Height}@{_settings.RenderFps}"
+                 + ($", 字幕通道{(_settings.SpoutLyricsEnabled ? "开" : "关")}"));
+        _spout.Restart(_preview, SpoutOpts());
+        UpdateStatusText();
+    }
+
+    /// <summary>设置页「重启渲染引擎」（/api/app/render/restart）的落点。</summary>
+    public void RestartRender()
+    {
+        if (_settings.SpoutEnabled) RestartSpout();
+        else StopSpout();
+    }
+
+    // ---------------- 键盘 ----------------
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        base.OnPreviewKeyDown(e);
+        // 空格 = 播放/暂停；歌词编辑框里打空格要照常输入
+        if (e.Key == Key.Space && Keyboard.FocusedElement is not System.Windows.Controls.Primitives.TextBoxBase)
+        {
+            _preview.TogglePlay();
+            e.Handled = true;
+        }
+    }
+
+    // ---------------- 窗口 chrome ----------------
 
     protected override void OnSourceInitialized(EventArgs e)
     {
@@ -68,95 +339,6 @@ public partial class MainWindow : Window
         handled = true;
         return IntPtr.Zero;
     }
-
-    // ---------------- M0 SkiaSharp 验证画布 ----------------
-
-    private void Stage_PaintSurface(object? sender, SKPaintSurfaceEventArgs e)
-    {
-        var paintStart = Stopwatch.GetTimestamp();
-        var canvas = e.Surface.Canvas;
-        var w = e.Info.Width;
-        var h = e.Info.Height;
-        var t = (float)_clock.Elapsed.TotalSeconds;
-
-        canvas.Clear(new SKColor(15, 15, 18));
-
-        // 动态渐变背景：验证着色与混合路径
-        using var bg = new SKPaint
-        {
-            Shader = SKShader.CreateLinearGradient(
-                new SKPoint(0, 0), new SKPoint(w, h),
-                new[] { new SKColor(38, 34, 66), new SKColor(18, 24, 40), new SKColor(46, 26, 40) },
-                new[] { 0f, 0.55f, 1f },
-                SKShaderTileMode.Clamp)
-        };
-        canvas.DrawRect(0, 0, w, h, bg);
-
-        // 轨道圆点：验证连续动画与时钟
-        const int orbs = 7;
-        for (var i = 0; i < orbs; i++)
-        {
-            var phase = t * (0.35f + i * 0.11f) + i * ((float)Math.PI * 2 / orbs);
-            var x = w / 2f + MathF.Cos(phase) * w * 0.32f;
-            var y = h / 2f + MathF.Sin(phase * 1.3f) * h * 0.3f;
-            var r = 14 + 10 * MathF.Sin(t * 1.7f + i);
-
-            using var orb = new SKPaint
-            {
-                IsAntialias = true,
-                Color = SKColor.FromHsl((t * 24 + i * 34) % 360, 70, 62, 220)
-            };
-            canvas.DrawCircle(x, y, r, orb);
-        }
-
-        // 文字渲染：验证字体管线（中文 + 日文假名 + 等宽数字）；SkiaSharp 3.x 走 SKFont
-        using var typeface = SKTypeface.FromFamilyName("Microsoft YaHei UI", SKFontStyle.Normal);
-        using var font = new SKFont(typeface);
-
-        float TextLine(string s, float size, SKColor color, float y)
-        {
-            font.Size = size;
-            using var p = new SKPaint { IsAntialias = true, Color = color };
-            canvas.DrawText(s, 28, y, SKTextAlign.Left, font, p);
-            return y + size * 1.5f;
-        }
-
-        var y0 = 44f;
-        y0 = TextLine("JIZURA Live — 纯 C# 重构（pure-csharp 分支）", 22, new SKColor(230, 230, 236), y0);
-        y0 = TextLine("SkiaSharp 渲染検証 / レンダリング検証 — Skia on net10.0-windows", 15, new SKColor(160, 200, 255), y0);
-
-        var fps = _frameMs.Count > 0 ? 1000.0 / (_frameMs.Average()) : 0;
-        var info =
-            $"frame {_frameCount,7}  |  paint {_lastPaintMs,5:0.00} ms  |  {fps,5:0} fps  |  canvas {w}×{h}  |  t {t,7:0.00}s";
-        TextLine(info, 14, new SKColor(140, 230, 160), y0 + 6);
-        TextLine($"Spout={_settings.SpoutEnabled} {_settings.Width}×{_settings.Height}@{_settings.RenderFps} → M2 回归    引擎骨架：src/Engine（见 README 移植对照表）", 13,
-            new SKColor(200, 200, 210, 160), y0 + 6);
-
-        // 描边矩形边框：验证路径/描边
-        using var border = new SKPaint
-        {
-            IsAntialias = true,
-            Style = SKPaintStyle.Stroke,
-            StrokeWidth = 2,
-            Color = new SKColor(90, 90, 110)
-        };
-        canvas.DrawRect(6, 6, w - 12, h - 12, border);
-
-        // paint 本身耗时（不含 WPF 呈现）
-        _lastPaintMs = (Stopwatch.GetTimestamp() - paintStart) * 1000.0 / Stopwatch.Frequency;
-        _frameCount++;
-        _frameMs.Enqueue(_lastPaintMs + 0.001);
-        while (_frameMs.Count > 60)
-            _frameMs.Dequeue();
-    }
-
-    protected override void OnClosed(EventArgs e)
-    {
-        _animTimer.Stop();
-        base.OnClosed(e);
-    }
-
-    // ---------------- 窗口 chrome ----------------
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -243,5 +425,18 @@ public partial class MainWindow : Window
     private void BtnClose_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _renderTimer.Stop();
+        _transportTimer.Stop();
+        // 停泵释放：发送端、D3D 纹理/设备；渲染器先于 Skia 面释放（缓存快照引用着面）
+        _spout.Dispose();
+        _preview.Dispose();
+        foreach (var s in _stageGraveyard) s.Dispose();
+        _stageSurface?.Dispose();
+        _stageSurface = null;
+        base.OnClosed(e);
     }
 }

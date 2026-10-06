@@ -83,7 +83,8 @@ internal sealed class SettingsController : WebApiController
 
         var changed = new List<string>();
 
-        // 这里只保存设置：渲染管线将在 M2（纯 C# Spout 直出）回归后重建应用逻辑。
+        // 这里只保存设置：管线重建由设置页的「重启渲染引擎」（/api/app/render/restart →
+        // MainWindow.RestartRender → SpoutOut.Restart）触发，Spout 输出按新值生效。
         // 分辨率钳到 D3D11 合理纹理范围，POST 100000×100000 会一路传到渲染端试图建巨型纹理
         var width = Math.Clamp(d.Width, 64, 8192);
         var height = Math.Clamp(d.Height, 64, 8192);
@@ -169,12 +170,26 @@ internal sealed class SettingsController : WebApiController
             "application/json; charset=utf-8", Encoding.UTF8);
     }
 
-    // 「重启渲染引擎」：渲染管线 M2 回归后按此刻 settings 的值重建；
-    // 纯 C# 重构期间保留端点（契约不变），先回 ok 空操作
+    // 「重启渲染引擎」：按此刻 settings 的值重建 Spout 直出管线
+    // （分辨率/帧率/通道名/透明底/字幕通道开关都由此生效）。
+    // Application.MainWindow 是 UI 线程限属，取引用与重建都要进 Dispatcher
     [Route(HttpVerbs.Post, "/api/app/render/restart")]
     public async Task RestartRender()
     {
-        Log.Info("[Settings] render/restart：渲染引擎纯 C# 重构中，M2 回归后生效");
+        var dispatcher = Application.Current?.Dispatcher;
+        var main = dispatcher == null
+            ? null
+            : await dispatcher.InvokeAsync(() => Application.Current?.MainWindow as MainWindow);
+        if (main == null)
+        {
+            Log.Warn("[Settings] render/restart：主窗口未创建，忽略");
+        }
+        else
+        {
+            await dispatcher.InvokeAsync(main.RestartRender);
+            Log.Info("[Settings] render/restart：Spout 管线已按当前设置重建");
+        }
+
         await HttpContext.SendStringAsync("{\"ok\":true}", "application/json; charset=utf-8", Encoding.UTF8);
     }
 
