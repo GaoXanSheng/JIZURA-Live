@@ -182,10 +182,12 @@ public sealed class SmtcService : IDisposable
 
             foreach (var s in current) UpdateTimeline(s.SourceAppUserModelId);
 
-            // 已有会话缺元数据的补一次（事件丢失/播放器恢复后兜底）
+            // 元数据兜底：新会话立即刷，已有会话每轮也刷一遍。个别播放器（酷狗 20.x 等）
+            // 不发 MediaPropertiesChanged，只靠事件的话歌名会一直停在旧歌，
+            // 前端的切歌检测和服务端的估算重锚全都依赖这里的刷新
             lock (_lock)
                 foreach (var st in _sessions.Values)
-                    if (!st.MetaFetched && !needMeta.Contains(st))
+                    if (!needMeta.Contains(st))
                         needMeta.Add(st);
 
             foreach (var st in needMeta) _ = RefreshMetaAsync(st);
@@ -281,18 +283,21 @@ public sealed class SmtcService : IDisposable
             return;
         }
 
-        var metaKey = st.Title + "|" + st.Artist;
-        var metaChanged = st.LastMetaKey.Length > 0 && metaKey != st.LastMetaKey;
-        st.LastMetaKey = metaKey;
-        var now = DateTimeOffset.UtcNow;
-        if (st.Status == "Playing")
-        {
-            var resumed = st.LastStatus is "Paused" or "Stopped" or "Closed";
-            if (metaChanged || !st.HasEst)
+            var metaKey = st.Title + "|" + st.Artist;
+            var metaChanged = st.LastMetaKey.Length > 0 && metaKey != st.LastMetaKey;
+            st.LastMetaKey = metaKey;
+            var now = DateTimeOffset.UtcNow;
+            if (st.Status == "Playing")
             {
-                st.EstAnchor = now; // 切歌（或首次见到在播）= 从头
-                st.HasEst = true;
-            }
+                var resumed = st.LastStatus is "Paused" or "Stopped" or "Closed";
+                if (metaChanged || !st.HasEst)
+                {
+                    st.EstAnchor = now; // 切歌（或首次见到在播）= 从头
+                    st.HasEst = true;
+                    // 旧歌的冻结进度必须作废：切歌常发生在两首歌的暂停间隙（元数据先于
+                    // 状态回到 Playing 到达），不清掉的话恢复播放分支会从旧歌位置续跑
+                    st.EstPos = 0;
+                }
             else if (resumed && st.EstPos > 0)
             {
                 // 暂停后恢复：从冻结的估算点继续，不从头
