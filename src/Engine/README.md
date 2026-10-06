@@ -21,7 +21,7 @@
 | `Omakase.cs` | 08b_omakase.js | 一键随机 | ☐ |
 | `Renderer.cs` | 09_render.js | Frame(SKCanvas, plan, t, opts) 主管线 | ☐ |
 | `JAudio.cs` | 10_audio.js | BeatGrid 已移植；分析算法直接用 C# AudioAnalyzer，WAV 在 src/Export | 部分 |
-| `AudioFx.cs` | 10b_audiofx.js | 效果器架 v2 → NAudio DSP 图（实时/离线同路径） | ☐ |
+| `AudioFx.cs` | 10b_audiofx.js | 效果器架 v2 → NAudio ISampleProvider DSP 图（实时/离线同路径；biquad/延迟/LFO/分块 FFT 卷积自实现；sanitize 16 例 node 对拍零差异；HRTF→等功率声像近似） | ✅ |
 | `Export.cs` | 11_export.js | 导出编排（编码走 src/Export） | ☐ |
 | `Packs/*.cs` | 11p_*.js | 全部表现包（layoutsA–D/enter/enterB/exit/exitB/decor/decorB/fxB/horror1–3/kinetic1–3/typo1–3/looks/styles/treattrans/bgcamB/kline/ascii/audiofx） | ☐ |
 | `Sets.cs` | 11q_sets.js | 预设集 | ☐ |

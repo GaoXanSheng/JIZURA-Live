@@ -15,11 +15,15 @@ public static class EngineBoot
         _installed = true;
 
         // 导入序（index.ts）：01_util / 02b_lang / 02_fonts / 03_text / 04_styles / 05_anim /
-        // 05b_registry / 06_layouts / …——目前只移植到 06_layouts，按序追加
+        // 05b_registry / 06_layouts / 07_decor / …——02_fonts 之后依次是 03_text、05_anim、
+        // 05b_registry、06_layouts、07_decor，按这个顺序排（注册表 order 列表互不交错，序即对齐）。
         _ = JLang.Lang; // 02b_lang：静态数据初始化
         JFonts.Install(); // 02_fonts：字体目录
-        Reg.SeedCore(); // 05b_registry：核心条目（TREAT.none/BG.none/CAMERA.push/FXE 内置 8 项）
+        JText.Install(); // 03_text：GlyphCache/Metrics 登记进 JLang（SetLang 时统一清缓存）
         JStyles.RegisterAll(); // 04_styles
+        JAnim.Install(); // 05_anim：enter/hold/exit
+        Reg.SeedCore(); // 05b_registry：核心条目（TREAT.none/BG.none/CAMERA.push/FXE 内置 8 项）
         JLayouts.Install(); // 06_layouts
+        JDecor.Install(); // 07_decor：15 decor + drawHUD
     }
 }

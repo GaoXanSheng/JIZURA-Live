@@ -3,17 +3,15 @@
 // layout 契约（JS 源 L269）：fits(n) 筛台词，plan(rng, ctx, st) 抽参数存进 cut.params 并随 AE 导出，
 // Draw(env) 绘制并返回主体 bbox（JS 的 render(env) 返回值；C# Draw 是 Action<Env>，结果写回 env.Body）。
 // plan 返回的参数对象逐字段 new JObject{["key"]=…} 对齐，键名是数据契约（planner/锁定行/AE 导出共用），一字不改。
-// draw item 也用 JObject（与前端 duck-typed 对象一一对应）；主绘制走 MainDraw 桩（见下）。
-//
-// 本文件的 J.mainDraw / J.drawFx（JS L6–182）依赖 03_text（layoutText/drawItem/measure）、05_anim
-// （J.ENTER/J.EXIT/J.HOLD/J.combineChar/J.combinePiece）、05b（J.TREAT），且 item 上带函数值字段
-// （charFns/pieceFns/pre/post），JSONObject 装不下函数——留待 03_text+05_anim+09_render 移植时定型，
-// 这里只给桩。其余（SplitLines/splitWords/glyphCount/fontsOf/unionBB/centerBB/ORDER 表/全部 layout）逐行移植。
+// draw item 也用 JObject（与前端 duck-typed 对象一一对应）；主绘制 MainDraw/DrawFx（JS L6–182）已随
+// 03_text+05_anim+09_render 回接定型（函数值字段经 Env 的动画管线桥字段传递，见 MainDraw 注释）。
 
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
+using SkiaSharp;
 
 namespace JizuraLive.Engine;
 
@@ -50,34 +48,268 @@ public static class JLayouts
     // ---------------- 未移植引擎部件的桩（对位符号见 TODO） ----------------
 
     /// <summary>
-    /// J.mainDraw（JS 本文件 L6–43）：单个 item 的进场/持续/退场流水线，末尾交给 drawFx。
-    /// 依赖 J.ENTER/J.EXIT/J.HOLD（05_anim）、J.TREAT（05b）、J.combineChar/J.combinePiece（05_anim）、
-    /// J.layoutText/J.drawItem/J.measure（03_text），且 it 上带函数值字段（charFns/pieceFns/pre/post）。
-    /// 这些部件未移植前无法运行，其 C# 形态由 03_text+05_anim+09_render 移植时一并定型。
+    /// J.mainDraw（06_layouts.js L6-43）：单个 item 的进场/持续/退场流水线，末尾交给 drawFx。
+    /// item 上装不进 JObject 的函数值字段（charFns/pieceFns/charFn/pieceFn）走 Env 桥字段
+    /// （It/Ap/CharFns/PieceFns/CharFn/PieceFn，mainDraw 每 item 清空重建）；
+    /// enter.pieces / enter.cursor / *.bar 之类挂在 def 上的 flag MoveDef 没有对应属性，按 key 特判
+    /// （JAnim 移植时的既定约定）。
     /// </summary>
-    public static BBox? MainDraw(Env env, JObject it) =>
-        throw new NotImplementedException("TODO 03_text+05_anim+09_render: J.mainDraw（06_layouts.js L6-43 对位符号）");
+    public static BBox? MainDraw(Env env, JObject it)
+    {
+        var cut = env.Cut!;
+        var mi = (int)Num(it, "mi"); // JS (it.mi | 0)：向零截断（mi 可为 0.25 这类小数）
+        // it.seed 缺省：h(cut.seed, mi|0 + 1, 7)（存 double 对齐 JS number）
+        var seedTok = it["seed"];
+        if (seedTok == null || seedTok.Type == JTokenType.Null)
+            it["seed"] = (double)J.H(unchecked((int)cut.Seed), mi + 1, 7);
+        env.CharFns.Clear();
+        env.PieceFns.Clear();
+        env.CharFn = null;
+        env.PieceFn = null;
+        env.It = it;
+        var stagger = cut.Stagger;
+        it["delay"] = (double)mi * stagger;
+        var lt0 = env.Lt;
+        var ltI = lt0 - (double)it["delay"]!;
+        var pIn = J.Clamp(ltI / Math.Max(0.01, cut.InDur));
+        var outStart = cut.Dur - cut.OutDur;
+        var pOut = cut.OutDur > 0 ? J.Clamp((lt0 - outStart) / cut.OutDur) : 0;
+        Reg.Enter.TryGetValue(S(it, "enter") ?? cut.Enter, out var en);
+        en ??= Reg.Enter["cut"];
+        Reg.Exit.TryGetValue(S(it, "exit") ?? cut.Exit, out var ex);
+        ex ??= Reg.Exit["cut"];
+        Reg.Hold.TryGetValue(S(it, "hold") ?? cut.Hold, out var ho);
+        ho ??= Reg.Hold["still"];
+        // it.plain：layout 自己画底板就置真，跳过文字特效
+        if (!string.IsNullOrEmpty(cut.Treat) && !Truthy(it["plain"]) && Reg.Treat.TryGetValue(cut.Treat, out var tr) && tr != null)
+        {
+            try
+            {
+                tr.Draw?.Invoke(env); // JS apply(env, it, cut.treatP)：C# 的 Draw(env) 从 env.It / env.Cut.TreatP 取
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"treat {cut.Treat}: {e.Message}");
+            }
+        }
+        // enter.pieces：05_anim 里只有 assemble（explode/fall/drift 的 pieces+shatter 是 exit 且 Draw 内自置 shatter）
+        var enPieces = en.Key == "assemble";
+        if (ltI < 0 && en.Key == "cut") return null;
+        if (en.Key != "cut" && (pIn < 1 || enPieces))
+        {
+            env.Ap = pIn;
+            env.Lt = ltI;
+            try
+            {
+                en.Draw?.Invoke(env);
+            }
+            finally
+            {
+                env.Lt = lt0;
+            }
+        }
+        if (ltI < 0 && !enPieces) return null;
+        var amt = J.Clamp((ltI - cut.InDur * 0.85) / 0.25) * (1 - pOut);
+        if (amt > 0 && !Truthy(it["noHold"]))
+        {
+            env.Ap = amt;
+            ho.Draw?.Invoke(env);
+        }
+        if (pOut > 0 && ex.Key != "cut")
+        {
+            env.Ap = pOut;
+            ex.Draw?.Invoke(env);
+        }
+        env.CharFn = JAnim.CombineChar(env.CharFns);
+        env.PieceFn = JAnim.CombinePiece(env.PieceFns);
+        return DrawFx(env, it);
+    }
 
-    /// <summary>J.drawFx（JS 本文件 L46–182）：裁剪、streak/echo 副本、wipeBar、打字光标都叠在这一层。依赖同上。</summary>
-    public static BBox? DrawFx(Env env, JObject it) =>
-        throw new NotImplementedException("TODO 03_text+05_anim+09_render: J.drawFx（06_layouts.js L46-182 对位符号）");
+    /// <summary>
+    /// J.drawFx（06_layouts.js L46-182）：裁剪、streak/echo 副本、wipeBar、打字光标都叠在这一层。
+    /// it.pre/it.post/it.clipFn 是函数值字段（JObject 装不下、C# 布局未注入）—— TODO(11p) 迁移时定型。
+    /// </summary>
+    public static BBox? DrawFx(Env env, JObject it)
+    {
+        var ctx = env.Ctx;
+        BBox? bb = null;
+        // 副本共用的 TextDrawOpts：env 的内部标记原样透传
+        JText.TextDrawOpts Opts() => new()
+        {
+            HideText = env.HideText,
+            GlyphLog = env.GlyphLog,
+            AllowFilter = env.AllowFilter,
+        };
 
-    /// <summary>J.measure（03_text.js L585）→ {w, h, lay}，带 memo 缓存。</summary>
-    public static TextMetrics Measure(JObject it) =>
-        throw new NotImplementedException("TODO 03_text: J.measure（排版测量，对位符号）");
+        void Draw()
+        {
+            var opts = Opts();
+            var streak = it["streak"] as JObject;
+            if (streak != null && D(streak, "a") > 0.01)
+            {
+                var lay0 = GetLayShared(it); // 拖尾副本共享排版，免每帧每副本重排
+                var n = I(streak, "n");
+                for (var k = n; k >= 1; k--)
+                {
+                    var c = CloneShared(it, lay0);
+                    c["x"] = Num(it, "x") + D(streak, "dx") * k;
+                    c["y"] = Num(it, "y") + D(streak, "dy") * k;
+                    c["alpha"] = NumNull(it, "alpha", 1) * D(streak, "a") * (1 - k / (double)(n + 1));
+                    c["shadow"] = null;
+                    c["extrude"] = null;
+                    JText.DrawItem(env, c, new JText.TextDrawOpts
+                    {
+                        HideText = opts.HideText,
+                        GlyphLog = opts.GlyphLog,
+                        AllowFilter = opts.AllowFilter,
+                        NoPieces = true, // JS 副本 pieceFn:null
+                    });
+                }
+            }
+            var echo = it["echo"] as JObject;
+            if (echo != null && I(echo, "n") > 0) // echo：主文字背后几层错位副本，描边或染色
+            {
+                var lay0 = GetLayShared(it);
+                var n = I(echo, "n");
+                for (var k = n; k >= 1; k--)
+                {
+                    var c = CloneShared(it, lay0);
+                    c["x"] = Num(it, "x") + D(echo, "dx") * k;
+                    c["y"] = Num(it, "y") + D(echo, "dy") * k;
+                    c["size"] = Num(it, "size") * Math.Pow(D(echo, "scale", 1), k);
+                    c["rot"] = Num(it, "rot") + D(echo, "rot") * k;
+                    c["alpha"] = NumNull(it, "alpha", 1) * D(echo, "a", 0.5) * Math.Pow(D(echo, "decay", 0.7), k - 1);
+                    c["shadow"] = null;
+                    c["extrude"] = null;
+                    c["pattern"] = null;
+                    c["gradient"] = null;
+                    c["color"] = OrStr(S(echo, "color"), S(it, "color"));
+                    if (Truthy(echo["outline"]))
+                    {
+                        c["fill"] = false;
+                        c["stroke"] = Math.Max(1, Num(it, "size") * 0.012);
+                        c["strokeColor"] = OrStr(S(echo, "color"), S(it, "color"));
+                    }
+                    JText.DrawItem(env, c, new JText.TextDrawOpts
+                    {
+                        HideText = opts.HideText,
+                        GlyphLog = opts.GlyphLog,
+                        AllowFilter = opts.AllowFilter,
+                        NoPieces = true,
+                    });
+                }
+            }
+            var r = JText.DrawItem(env, it, opts);
+            if (r != null) bb = r;
+        }
+
+        if (it["clip"] is JArray clip)
+        {
+            ctx.Save();
+            ctx.ClipRect(new SKRect((float)(double)clip[0]!, -env.H, (float)((double)clip[1]! - (double)clip[0]!), env.H * 3f));
+        }
+        if (it["clipY"] is JArray clipY)
+        {
+            ctx.Save();
+            ctx.ClipRect(new SKRect(-env.W * 1f, (float)(double)clipY[0]!, env.W * 3f, (float)((double)clipY[1]! - (double)clipY[0]!)));
+        }
+        if (it["vbands"] is JArray vbands)
+        {
+            foreach (var band in vbands)
+            {
+                var b = (JArray)band!;
+                ctx.Save();
+                ctx.ClipRect(new SKRect((float)(double)b[0]!, -env.H * 2f, (float)((double)b[1]! - (double)b[0]!), env.H * 5f));
+                ctx.Translate(0, (float)(double)b[2]!);
+                Draw();
+                ctx.Restore();
+            }
+        }
+        else if (it["bands"] is JArray bands)
+        {
+            foreach (var band in bands)
+            {
+                var b = (JArray)band!;
+                ctx.Save();
+                ctx.ClipRect(new SKRect(-env.W * 2f, (float)(double)b[0]!, env.W * 5f, (float)((double)b[1]! - (double)b[0]!)));
+                ctx.Translate((float)(double)b[2]!, 0);
+                Draw();
+                ctx.Restore();
+            }
+            // bands 区间之外的部分
+            var lo = (double)bands[0]![0]!;
+            var hi = (double)bands[bands.Count - 1]![1]!;
+            using var outPath = new SKPath();
+            outPath.AddRect(new SKRect(-env.W * 2f, -env.H * 3f, env.W * 5f, (float)(lo + env.H * 3)));
+            outPath.AddRect(new SKRect(-env.W * 2f, (float)hi, env.W * 5f, (float)(hi + env.H * 4)));
+            ctx.Save();
+            ctx.ClipPath(outPath);
+            Draw();
+            ctx.Restore();
+        }
+        else Draw();
+        if (it["clipY"] != null) ctx.Restore();
+        if (it["clip"] != null) ctx.Restore();
+        if (it["wipeBar"] is JObject wb)
+            env.Rect(Num(wb, "x") - Math.Max(4, Num(it, "size") * 0.035), Num(it, "y") - Num(wb, "h") / 2,
+                Math.Max(8, Num(it, "size") * 0.07), Num(wb, "h"), env.Sc!.Str("accent"), 1, false);
+        var cursorTok = it["cursorAt"];
+        if (cursorTok != null && cursorTok.Type != JTokenType.Null && (double)cursorTok >= 0)
+        {
+            var m = Measure(it);
+            var cursorAt = (int)(double)cursorTok;
+            var blink = cursorAt >= (m.Lay["N"]?.Value<int>() ?? 0) ? (int)env.Step % 2 == 0 : true;
+            if (blink)
+            {
+                double x;
+                if (bb is { Boxes.Count: > 0 })
+                {
+                    var last = bb.Boxes[^1];
+                    x = Num(it, "x") + (double)last["x"]! + (double)last["w"]! / 2 + Num(it, "size") * 0.08;
+                }
+                else x = S(it, "align") == "left" ? Num(it, "x") : Num(it, "x") - m.W / 2;
+                env.Rect(x, Num(it, "y") - Num(it, "size") * 0.45, Num(it, "size") * 0.5, Num(it, "size") * 0.9,
+                    env.Sc!.Str("accent"), 1);
+            }
+        }
+        return bb;
+    }
+
+    /// <summary>drawFx 副本：DeepClone + 排版共享（对位 JS Object.assign 克隆带走 _lay）。</summary>
+    private static JObject CloneShared(JObject src, JText.TextLayout lay)
+    {
+        var c = (JObject)src.DeepClone();
+        JText.ShareLay(c, lay);
+        return c;
+    }
+
+    /// <summary>drawFx 副本排版源（JS it._lay || (it._lay = J.layoutText(it))）。</summary>
+    private static JText.TextLayout GetLayShared(JObject it) => JText.GetLay(it);
+
+    /// <summary>J.measure（03_text.js L585）→ {w, h, lay}，JText.Measure 的 JObject-lay 对位（TextMetrics.Lay 是
+    /// TextLayout.ToJson 的 JSON 同构，只读 N/W/H 的调用方零成本穿透）。</summary>
+    public static TextMetrics Measure(JObject it)
+    {
+        var r = JText.Measure(it);
+        return new TextMetrics { W = r.W, H = r.H, Lay = r.Lay.ToJson() };
+    }
 
     /// <summary>J.fitSize（03_text.js L603）：求正好装进盒子的字号。</summary>
     public static double FitSize(string text, string font, double maxW, double maxH, JObject? opt = null) =>
-        throw new NotImplementedException("TODO 03_text: J.fitSize（对位符号）");
+        JText.FitSize(text, font, maxW, maxH, opt);
 
     /// <summary>J.fastRow（03_text.js L403）：密排小字一次画一行；只该在 main pass 用，sp 为每字额外间距 px。</summary>
     public static void FastRow(Env env, string text, string font, double size, double x, double y, double sp,
         string color, double alpha, string align = "left") =>
-        throw new NotImplementedException("TODO 03_text: J.fastRow（密排整行快绘，对位符号）");
+        JText.FastRow(env, text, font, size, x, y, sp, color, alpha, align);
 
     /// <summary>J.metrics.adv（03_text.js）：单字 advance。</summary>
-    public static double MetricsAdv(string font, string ch) =>
-        throw new NotImplementedException("TODO 03_text: J.metrics.adv（对位符号）");
+    public static double MetricsAdv(string font, string ch) => JText.Metrics.Adv(font, ch);
+
+    /// <summary>drawFx 的松散数值读取（JS 的 it.k 直接读，JAnim 内部帮手同型复用）。</summary>
+    private static double Num(JObject o, string k) => JAnim.Num(o, k);
+
+    private static double NumNull(JObject o, string k, double d) => JAnim.NumNull(o, k, d);
 
     /// <summary>J.FONTS[k] 存在性（02_fonts.js 的字体目录 → JFonts.Table）。fontsOf 过滤无效字体 key 用。</summary>
     private static bool FontExists(string k) => JFonts.Has(k);
