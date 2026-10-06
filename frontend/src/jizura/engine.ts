@@ -5,7 +5,7 @@ import {analyzeAudioOffThread} from './audio-analyze';
 import {activeLoopRange, AP, refreshLoopHold, S} from './state';
 import {autosave} from './project';
 import {bus} from './bus';
-import {getAutoDegrade, previewWidthCap} from './previewres';
+import {getAutoDegrade, getNoPreview, previewWidthCap} from './previewres';
 
 const HUD_CHARS = '0123456789:./-_()【】・No.LYRICRECUNTITLEDXYlinebpminterlude—─／ ';
 
@@ -163,6 +163,14 @@ function drawCenterGuide(ctx: CanvasRenderingContext2D, k: number) {
 
 export function draw() {
     if (!viewCanvas || !S.plan) return;
+    // 主预览关闭（设置-高级）：播放中整帧跳过画布绘制，画面停在最后一帧。
+    // 但切分跟随与 frame 事件不能断——时间轴、播放器与 /render 镜像页的时间源都挂在上面
+    if (S.playing && getNoPreview()) {
+        S.slow = false;
+        updateCutInfo();
+        bus.emit('frame');
+        return;
+    }
     const c = viewCanvas;
     const t0 = performance.now();
     // desynchronized 的 2D 去闪烁：显示控制器可能扫到「clearRect 后未画完」的中间态。

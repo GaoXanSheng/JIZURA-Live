@@ -48,6 +48,7 @@ let candidateAt = 0;
 let matchedKey = '';   // 已发起匹配的歌（含进行中），防止重复匹配
 let matchSeq = 0;
 let savedLoop: typeof S.loop = false;
+let lastSrtcStatus = ''; // 播放器上一条快照的播放状态（估算模式判重播用）
 
 // ===== 匹配 =====
 
@@ -321,6 +322,7 @@ export function followStart() {
     follow.detail = '';
     matchedKey = '';
     candidateKey = '';
+    lastSrtcStatus = '';
     savedLoop = S.loop;
     S.loop = false;   // 循环会和外部播放器的真实进度打架
     S.follow = true;  // engine 忽略本地音频时钟，尾段不暂停不循环
@@ -395,7 +397,15 @@ function applyState(st: any) {
     if (follow.status === 'matching') return;
     follow.estimated = !!cur.estimated;
     // 估算进度在歌播完到切歌之间会继续走，钳到 plan 结束附近防时间轴越跑越远
-    const liveSec = Math.min((cur.positionLiveMs || 0) / 1000 + follow.offset, (S.plan?.duration || 0) + 1);
+    let liveSec = Math.min((cur.positionLiveMs || 0) / 1000 + follow.offset, (S.plan?.duration || 0) + 1);
+    // 估算模式兜底：单曲循环重播同一首时 SMTC 元数据不变，服务端无从感知；
+    // 用「暂停→播放且时间轴已停在结尾」判定为重播/换曲，归零从头
+    if (follow.estimated && cur.status === 'Playing'
+        && lastSrtcStatus && lastSrtcStatus !== 'Playing'
+        && S.t >= (S.plan?.duration || 0) - 0.5) {
+        liveSec = 0;
+    }
+    lastSrtcStatus = cur.status || '';
     driveClock(cur.status === 'Playing', liveSec);
 }
 

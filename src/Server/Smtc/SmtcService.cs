@@ -283,22 +283,29 @@ public sealed class SmtcService : IDisposable
             return;
         }
 
-            var metaKey = st.Title + "|" + st.Artist;
-            var metaChanged = st.LastMetaKey.Length > 0 && metaKey != st.LastMetaKey;
-            st.LastMetaKey = metaKey;
-            var now = DateTimeOffset.UtcNow;
-            if (st.Status == "Playing")
+        var metaKey = st.Title + "|" + st.Artist;
+        var metaChanged = st.LastMetaKey.Length > 0 && metaKey != st.LastMetaKey;
+        st.LastMetaKey = metaKey;
+        var now = DateTimeOffset.UtcNow;
+        if (metaChanged)
+        {
+            // 切歌 = 从头。切歌常发生在两首歌的暂停间隙（新歌元数据先于状态回到
+            // Playing 到达），所以不论当前播放状态都必须立即重锚，并作废旧歌冻结的
+            // 进度——否则下面的「暂停后恢复」分支会把旧歌的位置续到新歌头上，
+            // 表现为切歌后计时器停在旧歌结尾永远不归零
+            st.EstAnchor = now;
+            st.HasEst = true;
+            st.EstPos = 0;
+        }
+
+        if (st.Status == "Playing")
+        {
+            if (!st.HasEst)
             {
-                var resumed = st.LastStatus is "Paused" or "Stopped" or "Closed";
-                if (metaChanged || !st.HasEst)
-                {
-                    st.EstAnchor = now; // 切歌（或首次见到在播）= 从头
-                    st.HasEst = true;
-                    // 旧歌的冻结进度必须作废：切歌常发生在两首歌的暂停间隙（元数据先于
-                    // 状态回到 Playing 到达），不清掉的话恢复播放分支会从旧歌位置续跑
-                    st.EstPos = 0;
-                }
-            else if (resumed && st.EstPos > 0)
+                st.EstAnchor = now; // 首次见到在播 = 从头
+                st.HasEst = true;
+            }
+            else if (st.LastStatus is "Paused" or "Stopped" or "Closed" && st.EstPos > 0)
             {
                 // 暂停后恢复：从冻结的估算点继续，不从头
                 st.EstAnchor = now - TimeSpan.FromSeconds(st.EstPos);

@@ -1,6 +1,13 @@
 // 上限语义：短边=档位像素，另一边按画幅比例放大，比例恒跟随画幅不变形
-import {beforeEach, describe, expect, it} from 'vitest';
-import {getPreviewRes, previewWidthCap, setPreviewRes, tierWidthCap} from '../../src/jizura/previewres';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {
+    getNoPreview,
+    getPreviewRes,
+    previewWidthCap,
+    setNoPreview,
+    setPreviewRes,
+    tierWidthCap
+} from '../../src/jizura/previewres';
 
 describe('tierWidthCap 档位换算', () => {
     it('auto → 字幕设计宽（历史行为）', () => {
@@ -44,5 +51,35 @@ describe('previewres 偏好读写', () => {
         expect(getPreviewRes()).toBe('auto');
         localStorage.setItem('jizura.previewres', '{oops');
         expect(getPreviewRes()).toBe('auto');
+    });
+});
+
+describe('noPreview 偏好读写', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('开关往返（内存缓存即时生效）', () => {
+        setNoPreview(true);
+        expect(getNoPreview()).toBe(true);
+        setNoPreview(false);
+        expect(getNoPreview()).toBe(false);
+    });
+
+    // getNoPreview 有内存缓存，存储回退路径要用全新模块副本验证
+    it('存储坏值回退关', async () => {
+        localStorage.setItem('jizura.nopreview', '{oops');
+        vi.resetModules();
+        const fresh = await import('../../src/jizura/previewres');
+        expect(fresh.getNoPreview()).toBe(false);
+        localStorage.setItem('jizura.nopreview', '0');
+        vi.resetModules();
+        const fresh2 = await import('../../src/jizura/previewres');
+        expect(fresh2.getNoPreview()).toBe(false);
+    });
+
+    it('存储值 1 → 开（新会话恢复上次选择）', async () => {
+        localStorage.setItem('jizura.nopreview', '1');
+        vi.resetModules();
+        const fresh = await import('../../src/jizura/previewres');
+        expect(fresh.getNoPreview()).toBe(true);
     });
 });

@@ -61,3 +61,30 @@ export function setAutoDegrade(v: boolean) {
     } catch { // 私隐模式等写不进，保持本次会话内存值即可
     }
 }
+
+// 播放中不渲染主预览画面（设置-高级）：现场只看 OBS 里的 Spout 镜像时，
+// 把编辑器预览的逐帧渲染开销整个省下来。即时生效的应用偏好，默认关。
+// 暂停/seek/改动工程仍画单帧静帧；只影响编辑器预览，导出与 /render 镜像页不读这里。
+const NP_KEY = 'jizura.nopreview';
+
+// draw 每帧都会读，走内存缓存，localStorage 只在设置变更时碰
+let npCache: boolean | null = null;
+
+export function getNoPreview(): boolean {
+    if (npCache == null) {
+        try {
+            npCache = localStorage.getItem(NP_KEY) === '1';
+        } catch { // 读不到按默认关
+            npCache = false;
+        }
+    }
+    return npCache;
+}
+
+export function setNoPreview(v: boolean) {
+    npCache = v;
+    try {
+        localStorage.setItem(NP_KEY, v ? '1' : '0');
+    } catch { // 写不进保持内存值
+    }
+}

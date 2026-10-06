@@ -12,9 +12,11 @@ import {setAspect, setKeyBg} from '../../jizura/export';
 import {toast} from '../../jizura/look';
 import {
   getAutoDegrade,
+  getNoPreview,
   getPreviewRes,
   type PreviewResTier,
   setAutoDegrade,
+  setNoPreview,
   setPreviewRes
 } from '../../jizura/previewres';
 import SubtitlePanel from './SubtitlePanel.vue';
@@ -78,6 +80,9 @@ const previewRes = ref<PreviewResTier>(getPreviewRes());
 
 // 播放掉帧自动降质：同为即时生效的应用偏好
 const autoDegrade = ref(getAutoDegrade());
+
+// 播放中不渲染主预览画面：同为即时生效的应用偏好
+const noPreview = ref(getNoPreview());
 
 function onPreviewRes(e: Event) {
   const raw = (e.target as HTMLSelectElement).value;
@@ -319,6 +324,10 @@ onUnmounted(() => offs.forEach(f => f()));
             <input v-model="autoDegrade" type="checkbox" @change="setAutoDegrade(autoDegrade)"> 播放掉帧时自动降质（跳过色差重影层与辉光）</label>
           <p class="hint !text-[11px] !mt-0">
             播放中单帧渲染超时会自动进入降质：在关闭滤镜/辉光之外再跳过色差重影层（约省 2/3 画面绘制），恢复流畅后自动还原。只影响播放中的预览——暂停与导出始终是完整画质；关闭后卡顿也保持完整效果。</p>
+          <label class="checkline pt-1.5">
+            <input v-model="noPreview" type="checkbox" @change="setNoPreview(noPreview)"> 播放时不渲染主预览画面</label>
+          <p class="hint !text-[11px] !mt-0">
+            播放期间编辑器预览画布停止重绘、停在最后一帧，省下预览的整帧渲染开销——现场只看 OBS 里的 Spout 镜像画面时开这个。时间轴、播放控制与镜像输出照常；暂停、拖进度或改动工程时仍会补一帧静帧。只影响本编辑器预览，导出与渲染页不受影响。</p>
           <label class="checkline pt-1.5">
             <input v-model="form.mirrorExternalBeginFrame" type="checkbox" @change="markDirty"> 镜像 External
             BeginFrame（宿主帧泵驱动）</label>
