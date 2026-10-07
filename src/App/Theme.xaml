@@ -17,7 +17,7 @@
 
     <!-- 基础控件（对齐旧版 btn / input 的观感：13px、细边、圆角 4） -->
     <Style x:Key="BaseFont" TargetType="Control">
-        <Setter Property="FontFamily" Value="Segoe UI, Yu Gothic UI, Meiryo, Microsoft YaHei" />
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI, Microsoft YaHei, Segoe UI" />
         <Setter Property="FontSize" Value="12" />
     </Style>
     <Style TargetType="Button" BasedOn="{StaticResource BaseFont}">

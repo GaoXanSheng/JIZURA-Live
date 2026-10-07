@@ -12,7 +12,7 @@
         Background="{StaticResource Ink}"
         Foreground="{StaticResource Fg}"
         UseLayoutRounding="True"
-        FontFamily="Segoe UI, Yu Gothic UI, Meiryo, Microsoft YaHei" FontSize="12">
+        FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI" FontSize="12">
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0"
                       ResizeBorderThickness="5"
