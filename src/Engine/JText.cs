@@ -140,6 +140,9 @@ public static class JText
         public double X, Y, W, H;
         public bool R90;
         public double Vx, Vy, Fs;
+
+        /// <summary>CellJson 的惰性缓存：字段全是排版期常量，charFn/pieceFn 只读不写（跨帧复用省每字 JObject 分配）。</summary>
+        public JObject? Json;
     }
 
     /// <summary>J.layoutText 的返回：数组 + W/H/N 属性合一。</summary>
@@ -641,7 +644,7 @@ public static class JText
         // 太さ（統一感）：歌词在可变字体（Noto Sans / Serif JP）上从细长长到粗
         var wg = env.Cut is { WeightGrow: true } && !Truthy(it["noWeight"]) ? WeightNow(env) : 0;
         var fontCss = wg > 0 ? VarFontCss(fontKey, size, wg) : JFonts.FontCss(fontKey, size);
-        using var font = FaceFont(fontKey, size, wg);
+        var font = FaceFont(fontKey, size, wg); // 缓存实例，禁 Dispose
         font.GetFontMetrics(out var fm);
         var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // Canvas textBaseline='middle' 的基线偏移
         // 渐变/图案坐标在每字形自己的局部空间（Canvas fillStyle 与 Skia shader 都按绘制时的
@@ -705,10 +708,14 @@ public static class JText
         var pieceFn = o.NoPieces ? null : o.PieceFn ?? env.PieceFn;
         var pieceFnEx = o.PieceFnEx;
         using var paint = new SKPaint { IsAntialias = true };
+        // 逐字 filter 复用：blur/影参在 item 内通常逐字不变 → 每 item 一档缓存（原实现逐字新建会把
+        // SKImageFilter 灌满 finalizer 队列）。键为 glyphBlur（影参 dX/dY/blur/col 对 item 恒定）。
+        double memoBlur = double.NaN;
+        SKImageFilter? memoBase = null, memoWrapped = null;
         foreach (var g in lay.Cells)
         {
             if (g.Ch is " " or "　") continue;
-            var gJ = charFn != null || pieceFn != null ? CellJson(g) : null;
+            var gJ = charFn != null || pieceFn != null ? (g.Json ??= CellJson(g)) : null;
             var c = charFn?.Invoke(g.I, gJ, lay.N);
             if (c != null && c.Hide) continue;
             var a = baseAlpha * (c?.A ?? 1);
@@ -775,11 +782,22 @@ public static class JText
             }
             // ctx.filter 对位：逐字 blur 优先（JS 里 ctx.filter 赋值会整体替换）
             var glyphBlur = c is { Blur: > 0.4 } && o.AllowFilter ? c.Blur.Value * escale : itemBlur;
-            SKImageFilter? baseF = glyphBlur > 0 ? BlurFilter(glyphBlur) : null;
-            SKImageFilter? withShadow = shadow != null
-                ? DropShadowFilter(shDx, shDy, shBlur, shColor, baseF)
-                : baseF;
-            if (withShadow != baseF) baseF?.Dispose();
+            SKImageFilter? withShadow;
+            if (glyphBlur == memoBlur)
+            {
+                withShadow = memoWrapped;
+            }
+            else
+            {
+                var nb = glyphBlur > 0 ? BlurFilter(glyphBlur) : null;
+                var nw = shadow != null ? DropShadowFilter(shDx, shDy, shBlur, shColor, nb) : nb;
+                if (!ReferenceEquals(memoWrapped, memoBase)) memoWrapped?.Dispose(); // 上一档包装即弃（native 由链内引用保活，同原逐字语义）
+                memoBase?.Dispose();
+                memoBlur = glyphBlur;
+                memoBase = nb;
+                memoWrapped = nw;
+                withShadow = nw;
+            }
             paint.ImageFilter = withShadow;
             paint.BlendMode = blendMode;
             if (ext != null && !outlineOnly)
@@ -835,9 +853,11 @@ public static class JText
                 paint.ImageFilter = withShadow;
             }
             paint.ImageFilter = null;
-            if (withShadow != null) withShadow.Dispose();
             ctx.Restore();
         }
+        paint.ImageFilter = null;
+        if (!ReferenceEquals(memoWrapped, memoBase)) memoWrapped?.Dispose();
+        memoBase?.Dispose();
         ctx.Restore();
         gradShader?.Dispose();
         // 设计空间 bbox（旋转只算平移）
@@ -895,7 +915,7 @@ public static class JText
     {
         if (env.Pass != "main" || alpha <= 0.01 || string.IsNullOrEmpty(text) || HideDecoText(env, text)) return;
         var ctx = env.Ctx;
-        using var f = FaceFont(font, size);
+        var f = FaceFont(font, size); // 缓存实例，禁 Dispose
         f.GetFontMetrics(out var fm);
         var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
         var cps = CodePoints(text);
@@ -1195,7 +1215,7 @@ public static class JText
         {
             var k = fontKey + '\u0000' + ch;
             if (M[k] is double v) return v;
-            using var font = FaceFont(fontKey, 100);
+            var font = FaceFont(fontKey, 100); // 缓存实例，禁 Dispose
             var r = (double)font.MeasureText(ch) / 100;
             if (!(r > 0)) r = ch == " " ? 0.3 : 1;
             M[k] = r;
@@ -1338,7 +1358,7 @@ public static class JText
         var half = S / 2;
         var outG = new GlyphInfo { Ch = ch, Res = res };
         if (ch.Length == 0) return outG;
-        using var font = FaceFont(fontKey, res);
+        var font = FaceFont(fontKey, res); // 缓存实例，禁 Dispose
         font.GetFontMetrics(out var fm);
         var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
         // 整字形光栅：等价 JS 的 fillText(ch, half, half)（center/middle 对齐）
@@ -1672,8 +1692,31 @@ public static class JText
     }
 
     /// <summary>ctx.font 对位：fontKey（或太さ wg）+ size → SKFont。LinearMetrics 保证排版数值与字号线性。
-    /// internal：Renderer.drawMorph 从 GlyphLogEntry.FontKey/Px 重建字体。</summary>
+    /// internal：Renderer.drawMorph 从 GlyphLogEntry.FontKey/Px 重建字体。
+    /// 性能：返回实例缓存复用（每帧每 item 新建会把 SKFont 灌满 finalizer 队列），调用方不得 Dispose。
+    /// 只缓存 wg==0（weightGrow 的字重连续变化，键基数无界）；用户字体重登记时经 OnFontsChanged 清表。
+    /// Hashtable 与 Metrics/Glyphs 同款：读免锁（预览泵/导出可能双线程并发渲染）。</summary>
+    private static readonly System.Collections.Hashtable FontJobs = new();
+
+    /// <summary>字体目录变化（AddUserFont/EnsureFonts）后清 SKFont 缓存；typeface 表（FaceJobs）同语义不动。</summary>
+    internal static void OnFontsChanged() => FontJobs.Clear();
+
     internal static SKFont FaceFont(string fontKey, double size, double wg = 0)
+    {
+        if (wg == 0)
+        {
+            // 键用 R 格式避免不同来源的 size 字符串化差异；容量护栏防 fitSize 探测类长尾撑爆
+            var key = string.Create(CultureInfo.InvariantCulture, $"{fontKey}\u0001{size.ToString("R", CultureInfo.InvariantCulture)}");
+            if (FontJobs[key] is SKFont hit) return hit;
+            var nf = BuildFont(fontKey, size, 0);
+            if (FontJobs.Count > 4096) FontJobs.Clear();
+            FontJobs[key] = nf;
+            return nf;
+        }
+        return BuildFont(fontKey, size, wg);
+    }
+
+    private static SKFont BuildFont(string fontKey, double size, double wg)
     {
         SKTypeface tf;
         if (wg > 0)

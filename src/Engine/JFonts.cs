@@ -257,6 +257,7 @@ public static class JFonts
             User = true
         };
         JLang.Glyphs?.Clear();
+        JText.OnFontsChanged(); // SKFont 缓存按 fontKey 键控，字体重登记后须失效
     }
 
     /// <summary>J.SAFE_FONT_KEY：页面只接受纯 key（project 文件是不可信输入）。</summary>
@@ -433,6 +434,7 @@ public static class JFonts
         // JS 末尾还 await document.fonts.ready —— C# 加载是同步完成的，没有对应物
         JLang.Glyphs?.Clear();
         JLang.Metrics?.Clear();
+        JText.OnFontsChanged();
         await Task.CompletedTask;
     }
 

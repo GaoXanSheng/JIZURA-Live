@@ -17,6 +17,7 @@
 //   11p_* 表现包一律不在本次范围。
 
 using System.Globalization;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using JizuraLive.Logging;
@@ -149,6 +150,9 @@ public sealed class Renderer : IDisposable
         /// <summary>纸纹/颗粒用确定性伪随机（JS 是 Math.random，纯噪声无位级对齐价值，定 seed 保可复现）。</summary>
         private readonly Random _rng = new(0x20260922);
 
+        /// <summary>性能剖析钩子（性能专项接线；null 时零开销）：(阶段名, 距上次报告 ms)。线程不安全。</summary>
+        public static Action<string, double>? StageHook;
+
         public Renderer()
         {
             for (var k = 0; k < 4; k++)
@@ -182,6 +186,16 @@ public sealed class Renderer : IDisposable
             var dm = ctx.DeviceClipBounds;
             var cw = Math.Max(1, dm.Width);
             var ch = Math.Max(1, dm.Height);
+            // 性能剖析（性能专项临时接线，null 时零开销）：StageHook != null 才计时。
+            // (阶段名, 距上次报告的毫秒)；粒度：setup/bgpaper/bgdef/cutpass/camblur/morph/trans/hud/post/fcsave
+            var _h0 = StageHook != null ? Stopwatch.GetTimestamp() : 0L;
+            void Stage(string name)
+            {
+                if (StageHook == null) return;
+                var now = Stopwatch.GetTimestamp();
+                StageHook(name, (now - _h0) * 1000.0 / Stopwatch.Frequency);
+                _h0 = now;
+            }
             var fx = plan.Fx;
             var st = plan.Style;
             var fps = Math.Max(1, plan.Fps);
@@ -276,6 +290,7 @@ public sealed class Renderer : IDisposable
                 ctx.Restore();
                 return;
             }
+            Stage("setup");
             ctx.Save();
             ctx.SetMatrix(SKMatrix.Identity);
             ctx.Clear(); // !opt.klineBg 才清（K线背景已画好不能清掉；kline 路径上面已抛）
@@ -287,15 +302,20 @@ public sealed class Renderer : IDisposable
             }
             else if (!opt.Transparent && !opt.KlineBg)
             {
-                RectFill(ctx, 0, 0, W, H, Env.SkColor(bgCol));
-                using (var g = BgGrad(W, H, J.Lum(bgCol) < 0.5 ? Env.SkColor("#FFFFFF", 0.045) : Env.SkColor("#FFFFFF", 0.10)))
-                    RectFill(ctx, 0, 0, W, H, SKColors.White, shader: g);
+                // 底色 + 中央提亮渐变：两者合成结果只依赖 (bgCol, 渐变α, 尺寸, scale)，逐帧不变 →
+                // 预渲染成一张不透明缓存图 1:1 贴回。不透明像素的 premul 存储是无损的（缓存里的合成
+                // 取整与画布上「先填底色再叠渐变」逐位相同），不像半透明中转会引入 ±1 抖动。
+                DrawGradImage(ctx, BgBakedImage(bgCol, cw, ch, W, H, scale,
+                    J.Lum(bgCol) < 0.5 ? 0.045 : 0.10));
                 var paperAmt = (Truthy(sc.Get("paper")) ? 1 : StTextureNum(st, "paper")) * fx.Texture;
                 if (paperAmt > 0.02)
                 {
                     var dark = J.Lum(bgCol) < 0.4;
                     // JS 用 ctx.filter='invert(1)' 现场反相；C# 预生成反相纸纹（暗底 screen 亮噪 ≈ 同效果）
-                    using var paperImg = SKImage.FromBitmap(Paper(W, H, dark));
+                    // 性能：SKImage 缓存复用（每帧 FromBitmap 会白白产出一个 finalizable 对象）
+                    var paperImg = PaperImage(W, H, dark);
+                    // 每帧一次的低频绘制保留一次性 paint（性能专项实测：低频位共用共享 paint 会引入
+                    // 难以溯源的状态残留；真正的高频热点是 Env 助手里的逐 decor/逐字形绘制）
                     using var pp = new SKPaint
                     {
                         BlendMode = dark ? SKBlendMode.Screen : SKBlendMode.Multiply,
@@ -304,6 +324,7 @@ public sealed class Renderer : IDisposable
                     ctx.DrawImage(paperImg, new SKRect(0, 0, (float)W, (float)H), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), pp);
                 }
             }
+            Stage("bgpaper");
             var stGhost = StNum(st, "ghost", 1);
             var chroma = fx.Chroma * stGhost * (1 + spike + beatPulse);
             var beatInfo = plan.Beats is { Length: > 0 } ? BeatAt(plan.Beats, tq) : null;
@@ -328,6 +349,7 @@ public sealed class Renderer : IDisposable
                 }
                 ctx.Restore();
             }
+            Stage("bgdef");
             var shx = J.Rs(step, 71) * shake * 16 * u;
             var shy = J.Rs(step, 72) * shake * 11 * u;
             _passes[0].OffX = -3.4 * chroma * u;
@@ -428,6 +450,7 @@ public sealed class Renderer : IDisposable
                     X.Restore();
                 }
             }
+            Stage("cutpass");
             if (LX != null)
             {
                 ctx.Save();
@@ -437,6 +460,7 @@ public sealed class Renderer : IDisposable
                     ctx.DrawImage(snap, 0, 0, bp);
                 ctx.Restore();
             }
+            Stage("camblur");
             if (morphOn && layer != "back" && MC != null && mPrev != null)
             {
                 var L = MorphLogs(plan, mPrev, MC, cw, ch, scale, opt);
@@ -447,6 +471,7 @@ public sealed class Renderer : IDisposable
                 if (koma == 0) DrawMorph(ctx, L, e, allowFilter);
                 else MorphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
             }
+            Stage("morph");
             // cut 间转场：用上一 cut 的收尾帧和当前帧合成（窗口判定已在开头算好：transOn）
             if (transOn && mainCut != null && mPrev2(plan, mainCut) is { } prev)
             {
@@ -509,6 +534,7 @@ public sealed class Renderer : IDisposable
                     ctx.Restore();
                 }
             }
+            Stage("trans");
             if (plan.Hud && !opt.NoHud && layer != "back")
             {
                 var env = MakeEnv(ctx, plan, mainCut, sc,
@@ -517,9 +543,11 @@ public sealed class Renderer : IDisposable
                     pass: "main", passColor: null, layer: layer, zone: null, hideText: false, glyphLog: null);
                 JDecor.DrawHud(env, plan);
             }
+            Stage("hud");
             ctx.Restore();
             if (!opt.NoPost) Post(ctx, plan, t, tq, step, sc, scale, opt, allowFilter);
             if (key != null && !opt.NoPost) KeyFinish(ctx, key, opt);
+            Stage("post");
             // 整帧缓存落盘：冷键只记 hot，同键再现才真正拷贝（首帧 warm-up 后开始命中）
             if (fKey != null)
             {
@@ -535,6 +563,7 @@ public sealed class Renderer : IDisposable
                     _fcKey = "";
                 }
             }
+            Stage("fcsave");
         }
 
         private static Cut? mPrev2(Plan plan, Cut mainCut) =>
@@ -707,7 +736,7 @@ public sealed class Renderer : IDisposable
             void Put(JText.GlyphLogEntry g, string col, double alpha, double blur)
             {
                 if (alpha <= 0.01) return;
-                using var font = JText.FaceFont(g.FontKey ?? "", g.Px);
+                var font = JText.FaceFont(g.FontKey ?? "", g.Px); // 缓存实例，禁 Dispose
                 font.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // textBaseline='middle'
                 using var p = new SKPaint { IsAntialias = true };
@@ -905,6 +934,15 @@ public sealed class Renderer : IDisposable
         {
             var cw = Math.Max(1, ctx.DeviceClipBounds.Width);
             var ch = Math.Max(1, ctx.DeviceClipBounds.Height);
+            // 性能剖析（与 Frame.Stage 同款；fx: 前缀的子阶段）
+            var _h0 = StageHook != null ? Stopwatch.GetTimestamp() : 0L;
+            void Stage(string name)
+            {
+                if (StageHook == null) return;
+                var now = Stopwatch.GetTimestamp();
+                StageHook(name, (now - _h0) * 1000.0 / Stopwatch.Frequency);
+                _h0 = now;
+            }
             var fx = plan.Fx;
             var st = plan.Style;
             var active = new List<PlanEvent>();
@@ -1080,6 +1118,7 @@ public sealed class Renderer : IDisposable
                 // JS 每个特效后复位 ctx 状态；C# 的 paint 都是作用域内即弃，无残留
                 guard?.End(ctx);
             }
+            Stage("fx:events");
             if (!opt.Fast && allowFilter && glow > 0.05 && !opt.Transparent)
             {
                 var sw2 = Math.Max(1, (int)Math.Round(cw / 4.0));
@@ -1088,40 +1127,41 @@ public sealed class Renderer : IDisposable
                 var sx = Sm.Canvas;
                 sx.SetMatrix(SKMatrix.Identity);
                 sx.Clear();
+                // 辉光模糊只依赖小画布宽（同尺寸恒同 σ）：filter 实例缓存复用
                 using (var snap = SnapshotOf(ctx))
-                using (var bp = new SKPaint { ImageFilter = JText.BlurFilter(Math.Max(2, Math.Round(sw2 / 160.0))) })
+                using (var bp = new SKPaint { ImageFilter = GlowFilter(sw2) })
                     sx.DrawImage(snap, new SKRect(0, 0, sw2, sh2),
                         new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), bp);
+                Stage("fx:glowdown");
                 using (var simg = Sm.Snapshot())
-                using (var sp = new SKPaint
-                       {
-                           BlendMode = SKBlendMode.Screen,
-                           Color = SKColors.White.WithAlpha((byte)Math.Round(glow * 0.55 * 255)),
-                       })
+                using (var sp = new SKPaint { BlendMode = SKBlendMode.Screen,
+                       Color = SKColors.White.WithAlpha((byte)Math.Round(glow * 0.55 * 255)) })
                     ctx.DrawImage(simg, new SKRect(0, 0, cw, ch),
                         new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), sp);
             }
+            Stage("fx:glow");
             if (!opt.Transparent && plan.KeyBg is not ("green" or "black"))
             {
                 var scan = StTextureNum(st, "scan") * fx.Texture;
                 if (scan > 0.03)
                 {
                     var k = Math.Max(1, (int)Math.Round(ch / 540.0));
-                    using var shader = SKShader.CreateBitmap(_scan, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat);
                     ctx.Save();
                     ctx.Scale(k, k);
                     RectFill(ctx, 0, 0, cw / (double)k, ch / (double)k,
-                        SKColors.White.WithAlpha((byte)Math.Round(scan * 0.28 * 255)), SKBlendMode.Multiply, shader: shader);
+                        SKColors.White.WithAlpha((byte)Math.Round(scan * 0.28 * 255)), SKBlendMode.Multiply, shader: ScanShader());
                     ctx.Restore();
                 }
+                Stage("fx:scan");
                 var gr = StTextureNum(st, "grain") * fx.Texture;
                 if (gr > 0.02)
                 {
-                    var img = _grain[((step % 4) + 4) % 4]!;
+                    var gi = ((step % 4) + 4) % 4;
+                    var img = _grain[gi]!;
                     var k = Math.Max(1, ch / 1080.0);
                     var ox = J.R(step, 1) * 256;
                     var oy = J.R(step, 2) * 256;
-                    using var shader = SKShader.CreateBitmap(img, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat);
+                    var shader = GrainShader(gi);
                     ctx.Save();
                     ctx.Scale((float)k, (float)k);
                     ctx.Translate((float)-ox, (float)-oy);
@@ -1131,10 +1171,39 @@ public sealed class Renderer : IDisposable
                         SKColors.White.WithAlpha((byte)Math.Round(gr * 0.035 * 255)), SKBlendMode.SrcOver, shader: shader);
                     ctx.Restore();
                 }
+                Stage("fx:grain");
+                // 注：暗角渐变叠加在不定内容上（不可连底烘焙），premul 中转又有 ±1 抖动 → 维持 shader 直绘。
                 using (var vg = VigGrad(cw, ch, 0.28 * fx.Texture))
                     RectFill(ctx, 0, 0, cw, ch, SKColors.White, shader: vg);
+                Stage("fx:vig");
             }
             ctx.Restore();
+        }
+
+        // ---- 后期纹理的只读资源缓存（颗粒/扫描线 shader、辉光 blur；Dispose 统一收） ----
+        // 注：常量全幅渐变（bgGrad/vigGrad）预渲染缓存试验后回退——premul 中转引入 ±1 级
+        // 全帧像素抖动（97% 像素非位级一致），违反「逐像素不变」铁律，见 Frame/Post 内注释。
+
+        private readonly SKShader?[] _grainShader = new SKShader?[4];
+        private SKShader? _scanShader;
+        private readonly Dictionary<(int, int, int), SKImageFilter> _glowFilters = new();
+
+        private SKShader GrainShader(int gi) =>
+            _grainShader[gi] ??= SKShader.CreateBitmap(_grain[gi]!, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat);
+
+        private SKShader ScanShader() =>
+            _scanShader ??= SKShader.CreateBitmap(_scan, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat);
+
+        private SKImageFilter GlowFilter(int smallW)
+        {
+            var sigma = Math.Max(2, Math.Round(smallW / 160.0));
+            var key = (smallW, (int)sigma, 0);
+            if (!_glowFilters.TryGetValue(key, out var f))
+            {
+                f = JText.BlurFilter(sigma)!;
+                _glowFilters[key] = f;
+            }
+            return f;
         }
 
         private void CopyScratch(SKCanvas ctx, SKSurface s)
@@ -1166,6 +1235,70 @@ public sealed class Renderer : IDisposable
 
         /// <summary>paper(W, H)：半分辨率纸纹（低频底噪 + 逐像素噪声 + 900 条纤维 + 1400 颗粒），带缓存。
         /// inverted=true：暗底用（JS 的 ctx.filter='invert(1)' 预先内建）。</summary>
+        private readonly Dictionary<string, SKImage> _paperImgCache = new();
+
+        /// <summary>纸纹的 SKImage 视图（FromBitmap 共享位图像素）：缓存复用，调用方禁 Dispose。</summary>
+        private SKImage PaperImage(int W, int H, bool inverted)
+        {
+            var bmp = Paper(W, H, inverted);
+            var key = (inverted ? "i" : "n") + W + "x" + H;
+            if (!_paperImgCache.TryGetValue(key, out var img))
+            {
+                img = SKImage.FromBitmap(bmp);
+                _paperImgCache[key] = img;
+            }
+            return img;
+        }
+
+        // ---- 底色+中央提亮渐变的预渲染缓存（性能专项）----
+        // bg 填充与 BgGrad 渐变的合成结果只依赖 (bgCol, 渐变α, 设计尺寸, scale)；scheme 轮换/明暗底
+        // 切换会换键，字典按全键缓存、超量整清。缓存面按与画布相同的矩阵/着色器做同两步合成
+        // （透明底 ← SrcOver 不透明底色 ← SrcOver 渐变），结果不透明 → premul 存储无损、贴回即原像素。
+        // （注：单把「半透明渐变」单独烘焙成图会在 premul 中转里引入 ±1 抖动，不可行；必须连底色一起烘焙。）
+
+        private readonly Dictionary<(int CW, int CH, int W, int H, double Scale, int Bg, int LiftA8), SKImage> _bgBaked = new();
+
+        private SKImage BgBakedImage(string bgCol, int cw, int ch, int W, int H, double scale, double liftA)
+        {
+            var (r, g, b) = J.Hex(bgCol);
+            var liftA8 = (int)Math.Round(liftA * 255);
+            var key = (cw, ch, W, H, scale, r << 16 | g << 8 | b, liftA8);
+            if (_bgBaked.TryGetValue(key, out var hit)) return hit;
+            using var surf = SKSurface.Create(new SKImageInfo(cw, ch));
+            var c = surf.Canvas;
+            c.SetMatrix(SKMatrix.Identity);
+            c.Clear(SKColors.Transparent);
+            c.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
+            using (var bp = new SKPaint { Color = new SKColor((byte)r, (byte)g, (byte)b) })
+                c.DrawRect(new SKRect(0, 0, W, H), bp);
+            using (var gp = new SKPaint { Color = SKColors.White, Shader = BgGrad(W, H, new SKColor(255, 255, 255, (byte)liftA8)) })
+                c.DrawRect(new SKRect(0, 0, W, H), gp);
+            var img = surf.Snapshot();
+            if (_bgBaked.Count > 8)
+            {
+                foreach (var old in _bgBaked.Values) old.Dispose();
+                _bgBaked.Clear();
+            }
+            _bgBaked[key] = img;
+            return img;
+        }
+
+        /// <summary>预渲染整幅图的 1:1 贴回（identity 矩阵 + 最近邻采样，逐像素等于原直绘结果）。</summary>
+        private void DrawGradImage(SKCanvas ctx, SKImage img)
+        {
+            ctx.Save();
+            ctx.SetMatrix(SKMatrix.Identity);
+            var p = Env.SharedPaint();
+            p.IsAntialias = false;
+            p.IsStroke = false;
+            p.Shader = null;
+            p.ImageFilter = null;
+            p.Color = SKColors.White;
+            p.BlendMode = SKBlendMode.SrcOver;
+            ctx.DrawImage(img, 0, 0, default(SKSamplingOptions), p);
+            ctx.Restore();
+        }
+
         private SKBitmap Paper(int W, int H, bool inverted)
         {
             var key = (inverted ? "i" : "n") + W + "x" + H;
@@ -1332,8 +1465,15 @@ public sealed class Renderer : IDisposable
         private static void RectFill(SKCanvas ctx, double x, double y, double w, double h, SKColor color,
             SKBlendMode blend = SKBlendMode.SrcOver, SKShader? shader = null)
         {
-            using var p = new SKPaint { Color = color, BlendMode = blend, Shader = shader };
+            var p = Env.SharedPaint();
+            p.IsAntialias = false;
+            p.IsStroke = false;
+            p.ImageFilter = null;
+            p.Color = color;
+            p.BlendMode = blend;
+            p.Shader = shader;
             ctx.DrawRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), p);
+            p.Shader = null;
         }
 
         private static string FirstKey<TV>(Dictionary<string, TV> map)
@@ -1422,6 +1562,14 @@ public sealed class Renderer : IDisposable
             _guardP?.Dispose();
             _guardM?.Dispose();
             foreach (var g in _grain) g?.Dispose();
+            foreach (var s in _grainShader) s?.Dispose();
+            _scanShader?.Dispose();
+            foreach (var f in _glowFilters.Values) f.Dispose();
+            _glowFilters.Clear();
+            foreach (var img in _bgBaked.Values) img.Dispose();
+            _bgBaked.Clear();
+            foreach (var img in _paperImgCache.Values) img.Dispose();
+            _paperImgCache.Clear();
             _scan.Dispose();
             foreach (var p in _paperCache.Values) p.Dispose();
             _paperCache.Clear();

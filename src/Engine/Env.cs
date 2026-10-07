@@ -9,6 +9,33 @@ namespace JizuraLive.Engine;
 /// </summary>
 public sealed class Env
 {
+    // ---------------- 每线程共享 Skia 对象（性能：SKPaint/SKPath 每帧几百次的 new 会灌满 finalizer 队列） ----------------
+    // 线程本地：预览泵/导出可同进程多线程渲染，共享实例不得跨线程互踩。
+    // 使用规矩：取出的 paint/path 只在当次 Draw 调用内有效（Draw 同步消费），用完即改属性复用；
+    // 绝不 Dispose 缓存实例；带 Shader 的绘制用完必须置回 null（免 shader 被 paint 拖住不释放）。
+    [ThreadStatic] private static SKPaint? _paint;
+    [ThreadStatic] private static SKPath? _path;
+
+    /// <summary>线程本地共享 SKPaint（属性全量赋值后使用；Shader 用完置 null）。</summary>
+    internal static SKPaint SharedPaint()
+    {
+        var p = _paint ??= new SKPaint();
+        // 归一化描边态：Arc/RRect/Circle 的描边分支不设 Join/Cap/Miter，依赖 new 实例默认值；
+        // 共享实例会把上一用户（morph Put 的 Round join 等）带进来 → 像素漂移。归一化后与 new 等价。
+        p.StrokeJoin = SKStrokeJoin.Miter;
+        p.StrokeCap = SKStrokeCap.Butt;
+        p.StrokeMiter = 4;
+        p.StrokeWidth = 0;
+        return p;
+    }
+
+    /// <summary>线程本地共享 SKPath（每次取出已 Reset）。</summary>
+    internal static SKPath SharedPath()
+    {
+        var p = _path ??= new SKPath();
+        p.Reset();
+        return p;
+    }
     public SKCanvas Ctx { get; set; } = null!;
 
     /// <summary>画面区域宽高（设计像素；中央を空ける时是条带宽高，对齐 JS 的 zone ? zone.w : plan.W）。</summary>
@@ -197,19 +224,19 @@ public sealed class Env
     {
         var col = ColOf(c, ghostable);
         if (col == null || a <= 0 || pts.Length < 2) return;
-        using var path = new SKPath();
+        var path = SharedPath();
         path.MoveTo((float)pts[0][0], (float)pts[0][1]);
         for (var i = 1; i < pts.Length; i++) path.LineTo((float)pts[i][0], (float)pts[i][1]);
-        using var p = new SKPaint
-        {
-            IsAntialias = true,
-            IsStroke = true,
-            StrokeWidth = (float)lw,
-            StrokeJoin = SKStrokeJoin.Miter,
-            StrokeCap = SKStrokeCap.Butt,
-            Color = SkColor(col, a),
-            BlendMode = Blend,
-        };
+        var p = SharedPaint();
+        p.IsAntialias = true;
+        p.IsStroke = true;
+        p.StrokeWidth = (float)lw;
+        p.StrokeJoin = SKStrokeJoin.Miter;
+        p.StrokeCap = SKStrokeCap.Butt;
+        p.Shader = null;
+        p.ImageFilter = null;
+        p.Color = SkColor(col, a);
+        p.BlendMode = Blend;
         Ctx.DrawPath(path, p);
     }
 
@@ -253,11 +280,26 @@ public sealed class Env
         var s = stroke != null ? ColOf(stroke, ghostable) : null;
         if (f == null && s == null) return;
         if (f != null)
-            using (var p = new SKPaint { IsAntialias = true, Color = SkColor(f, a), BlendMode = Blend })
-                Ctx.DrawCircle((float)cx, (float)cy, (float)r, p);
+        {
+            var p = SharedPaint();
+            p.IsAntialias = true;
+            p.IsStroke = false;
+            p.Shader = null;
+            p.Color = SkColor(f, a);
+            p.BlendMode = Blend;
+            Ctx.DrawCircle((float)cx, (float)cy, (float)r, p);
+        }
         if (s != null)
-            using (var p = new SKPaint { IsAntialias = true, IsStroke = true, StrokeWidth = (float)lw, Color = SkColor(s, a), BlendMode = Blend })
-                Ctx.DrawCircle((float)cx, (float)cy, (float)r, p);
+        {
+            var p = SharedPaint();
+            p.IsAntialias = true;
+            p.IsStroke = true;
+            p.StrokeWidth = (float)lw;
+            p.Shader = null;
+            p.Color = SkColor(s, a);
+            p.BlendMode = Blend;
+            Ctx.DrawCircle((float)cx, (float)cy, (float)r, p);
+        }
     }
 
     /// <summary>env.arc：圆弧描边，角度为度（正 x 轴起、顺时针，与 Canvas2D 同向）。</summary>
@@ -265,9 +307,15 @@ public sealed class Env
     {
         var col = ColOf(c, ghostable);
         if (col == null || a <= 0 || r <= 0) return;
-        using var path = new SKPath();
+        var path = SharedPath();
         path.AddArc(new SKRect((float)(cx - r), (float)(cy - r), (float)(cx + r), (float)(cy + r)), (float)a0, (float)(a1 - a0));
-        using var p = new SKPaint { IsAntialias = true, IsStroke = true, StrokeWidth = (float)lw, Color = SkColor(col, a), BlendMode = Blend };
+        var p = SharedPaint();
+        p.IsAntialias = true;
+        p.IsStroke = true;
+        p.StrokeWidth = (float)lw;
+        p.Shader = null;
+        p.Color = SkColor(col, a);
+        p.BlendMode = Blend;
         Ctx.DrawPath(path, p);
     }
 
@@ -289,17 +337,34 @@ public sealed class Env
         using var rr = new SKRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r);
         if (f is string fs)
         {
-            using var p = new SKPaint { IsAntialias = true, Color = SkColor(fs, a), BlendMode = Blend };
+            var p = SharedPaint();
+            p.IsAntialias = true;
+            p.IsStroke = false;
+            p.Shader = null;
+            p.Color = SkColor(fs, a);
+            p.BlendMode = Blend;
             Ctx.DrawRoundRect(rr, p);
         }
         else if (f is SKShader shader)
         {
-            using var p = new SKPaint { IsAntialias = true, Color = SkColor("#FFFFFF", a), Shader = shader, BlendMode = Blend };
+            var p = SharedPaint();
+            p.IsAntialias = true;
+            p.IsStroke = false;
+            p.Color = SkColor("#FFFFFF", a);
+            p.Shader = shader;
+            p.BlendMode = Blend;
             Ctx.DrawRoundRect(rr, p);
+            p.Shader = null;
         }
         if (s != null)
         {
-            using var p = new SKPaint { IsAntialias = true, IsStroke = true, StrokeWidth = (float)lw, Color = SkColor(s, a), BlendMode = Blend };
+            var p = SharedPaint();
+            p.IsAntialias = true;
+            p.IsStroke = true;
+            p.StrokeWidth = (float)lw;
+            p.Shader = null;
+            p.Color = SkColor(s, a);
+            p.BlendMode = Blend;
             Ctx.DrawRoundRect(rr, p);
         }
     }
@@ -309,14 +374,19 @@ public sealed class Env
     {
         var col = ColOf(c, ghostable);
         if (col == null || a <= 0) return;
-        using var path = new SKPath();
+        var path = SharedPath();
         for (var i = 0; i < pts.Length; i++)
         {
             if (i == 0) path.MoveTo((float)pts[i][0], (float)pts[i][1]);
             else path.LineTo((float)pts[i][0], (float)pts[i][1]);
         }
         path.Close();
-        using var p = new SKPaint { IsAntialias = true, Color = SkColor(col, a), BlendMode = Blend };
+        var p = SharedPaint();
+        p.IsAntialias = true;
+        p.IsStroke = false;
+        p.Shader = null;
+        p.Color = SkColor(col, a);
+        p.BlendMode = Blend;
         Ctx.DrawPath(path, p);
     }
 
@@ -327,17 +397,22 @@ public sealed class Env
         if (col == null || a <= 0) return;
         var n = pts.Length;
         double[] Mid(int i) => new[] { (pts[i % n][0] + pts[(i + 1) % n][0]) / 2, (pts[i % n][1] + pts[(i + 1) % n][1]) / 2 };
-        using var path = new SKPath();
+        var path = SharedPath();
         var m0 = Mid(0);
         path.MoveTo((float)m0[0], (float)m0[1]);
         for (var i = 1; i <= n; i++)
         {
-            var p = pts[i % n];
+            var pt = pts[i % n];
             var m = Mid(i);
-            path.QuadTo((float)p[0], (float)p[1], (float)m[0], (float)m[1]);
+            path.QuadTo((float)pt[0], (float)pt[1], (float)m[0], (float)m[1]);
         }
         path.Close();
-        using var paint = new SKPaint { IsAntialias = true, Color = SkColor(col, a), BlendMode = Blend };
+        var paint = SharedPaint();
+        paint.IsAntialias = true;
+        paint.IsStroke = false;
+        paint.Shader = null;
+        paint.Color = SkColor(col, a);
+        paint.BlendMode = Blend;
         Ctx.DrawPath(path, paint);
     }
 }

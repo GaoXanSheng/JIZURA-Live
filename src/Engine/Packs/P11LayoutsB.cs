@@ -398,7 +398,7 @@ public static class P11LayoutsB
         using (var canvas = new SKCanvas(bmp))
         {
             canvas.Clear(SKColors.Transparent);
-            using var f = JText.FaceFont(font, fpx);
+            var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose
             f.GetFontMetrics(out var fm);
             var yMid = (-fm.Ascent - fm.Descent) / 2; // Canvas textBaseline='middle' 对位
             using var p = new SKPaint { IsAntialias = true, Color = SKColors.White };

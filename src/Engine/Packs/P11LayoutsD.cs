@@ -6293,7 +6293,7 @@ public static class P11LayoutsD
             using (var x = new SKCanvas(bmp))
             {
                 x.Clear(SKColors.Transparent);
-                using var f = JText.FaceFont(font, fpx);
+                var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose
                 f.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
                 using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White };
@@ -6585,7 +6585,7 @@ public static class P11LayoutsD
             var ph = (env.Ltb * D(Pm, "speed") % 1 + 1) % 1;
             var grow = J.E.OutCubic(J.Clamp(lt / 0.9));
             var fontKey = S(Pm, "fb")!;
-            using var skf = JText.FaceFont(fontKey, bs);
+            var skf = JText.FaceFont(fontKey, bs); // 缓存实例，禁 Dispose
             skf.GetFontMetrics(out var fm);
             var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
             var yy = (float)by + yMid;
@@ -6674,7 +6674,7 @@ public static class P11LayoutsD
             using (var x = new SKCanvas(bmp))
             {
                 x.Clear(SKColors.Transparent);
-                using var f = JText.FaceFont(font, S);
+                var f = JText.FaceFont(font, S); // 缓存实例，禁 Dispose
                 f.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
                 using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White };
