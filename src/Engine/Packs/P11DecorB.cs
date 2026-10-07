@@ -4476,7 +4476,7 @@ public static class P11DecorB
             }
             var done = prog >= 0.999;
             var le = InE(env2, 0.3, 0.15);
-            var dots3 = new string('.', (int)Math.Floor(env2.Ltb * 3) % 4);
+            var dots3 = new string('.', Math.Max(0, (int)Math.Floor(env2.Ltb * 3)) % 4); // 钳负值（JS Ltb 恒正不触发；C# 直调测试会碰负值）
             Label(env2, done ? "Complete" : "Loading" + dots3, tx, sp.Y + fs * 0.6,
                 JO("size", fs, "font", BodyF(env2), "color", Col(env2, "fg"), "alpha", a * le, "track", 0.04));
             Label(env2, $"{(int)Math.Floor(prog * 100)}%", tx + tw, sp.Y + fs * 0.6,

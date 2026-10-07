@@ -555,7 +555,7 @@ public static class P11TreatTrans
             {
                 var mi = (int)D(it, "mi");
                 var s0 = unchecked((int)J.H(unchecked((int)env.Cut.Seed), mi + 3, 41));
-                env.CharFns.Add(gi =>
+                env.CharFns.Add((gi, _g2, _n2) =>
                 {
                     var r = J.R(s0, gi, unchecked((int)env.Step));
                     return r < 0.03 ? new CharXf { A = 0.22 } : r < 0.05 ? new CharXf { A = 0.6 } : null;
@@ -905,7 +905,7 @@ public static class P11TreatTrans
             var chars = lay.Cells.Select(g => g.Ch).Where(c => c.Trim().Length > 0).ToList();
             bool IsK(char c) => J.IsKanji(c) || J.IsKata(c) || J.IsLatin(c);
             var v = S(p, "v") ?? "alt";
-            if (v == "kanji" && !(chars.Any(IsK) && chars.Any(c => !IsK(c)))) v = "alt";
+            if (v == "kanji" && !(chars.Any(c => IsK(c[0])) && chars.Any(c => !IsK(c[0])))) v = "alt";
             if ((v is "ramp" or "wave") && chars.Count < 3) v = "alt";
             var sp = new double[n];
             for (var i = 0; i < n; i++) sp[i] = 1;
@@ -1751,7 +1751,7 @@ public static class P11TreatTrans
                 if (all.Count == 0) return;
                 var pick = Choose(all.Select(q => new JText.GlyphCell { Ch = q.Ch, I = q.I }).AsEnumerable()).I;
                 var miV = it["mi"] != null ? D0(it["mi"]) : -1;
-                if (it["mi"] == null || miV != Math.Round(miV) || (int)miV != pick || gs[0].Ch[0] != all.First(q => q.I == pick).Ch) return;
+                if (it["mi"] == null || miV != Math.Round(miV) || (int)miV != pick || gs[0].Ch != all.First(q => q.I == pick).Ch) return;
                 tIdx = gs[0].I;
             }
             else tIdx = Choose(gs).I;

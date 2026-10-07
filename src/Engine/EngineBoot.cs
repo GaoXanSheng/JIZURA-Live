@@ -45,6 +45,9 @@ public static class EngineBoot
         P11Enter.Install();     // 11p_enter：40 条 enter（第一批）
         P11Exit.Install();      // 11p_exit：36 exit + 20 hold
         P11ExitB.Install();     // 11p_exitB：39 exit + 12 hold
+        P11Decor.Install();     // 11p_decor：decor 第一批
+        P11DecorB.Install();    // 11p_decorB：decor 第二批
+        P11TreatTrans.Install(); // 11p_treattrans：文字加工 + 切到切转场
         Packs.P11AudioFx.Install();   // 11p_audiofx：山脊线/随音高游移/心电图/换台（ASCII化 fx 待插件路径）
         P11LayoutsA.Install();
         P11LayoutsB.Install();
