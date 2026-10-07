@@ -123,12 +123,49 @@ public sealed class EditorState : IDisposable
     private void AfterChange(bool replan)
     {
         Revision++;
-        if (replan) Engine.Replan();
+        if (replan) ReplanAsync(); // 后台重规划：大工程一次 ~700ms，绝不在 UI 线程同步跑（冻结元凶）
         // 异步通知：Measure 布局趟里触发的 Mutate（容器生成→SelectionChanged→Mutate）若同步
         // Invoke 面板处理器，面板会在 Measure 期间改视觉树 → VisualCollection 索引越界
         //（"index must be less than Count"）。排队到布局趟结束后再刷面板
         NotifyAsync(StateChanged);
         ProjectIO.Autosave(Project);
+    }
+
+    // ---------------- 后台重规划（编辑动作立即返回） ----------------
+
+    private int _replanSeq;
+
+    /// <summary>
+    /// 工程取 JSON 快照交后台线程规划（避免与 UI 线程后续编辑竞争共享状态），
+    /// 完成后回 UI 线程换 plan。last-wins：更新的请求会使过期结果在计算前后两处被丢弃，
+    /// 拖拽类高频调用不会在渲染闸上堆积过期重算。
+    /// </summary>
+    public void ReplanAsync()
+    {
+        var seq = Interlocked.Increment(ref _replanSeq);
+        var snap = Snapshot();
+        var audio = Audio; // 投入后不可变，直接传引用
+        Task.Run(() =>
+        {
+            if (Volatile.Read(ref _replanSeq) != seq) return; // 已被更新请求取代，别开算
+            Plan plan;
+            try
+            {
+                var proj = JsonConvert.DeserializeObject<Project>(snap) ?? Project;
+                lock (EngineRenderGate.Lock) // 与渲染/Spout 共享引擎静态缓存，规划必须串行
+                    plan = Planner.Plan(proj, audio);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("后台重规划失败（保留旧 plan）：" + ex.Message, ex);
+                return;
+            }
+            if (Volatile.Read(ref _replanSeq) != seq) return; // 算完发现过期：丢弃
+            Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (Volatile.Read(ref _replanSeq) == seq) Engine.SetPlan(plan);
+            });
+        });
     }
 
     /// <summary>面板通知一律异步排队：与 Measure/布局趟解耦（无 Dispatcher 的环境同步直调）。</summary>
@@ -183,7 +220,7 @@ public sealed class EditorState : IDisposable
     {
         SetAudioInternal(audio, path, fileName);
         Revision++;
-        Engine.Replan(); // plan.energy/pitch/beats 来自音频
+        ReplanAsync(); // plan.energy/pitch/beats 来自音频（后台重规划）
         StateChanged?.Invoke();
         AudioChanged?.Invoke();
     }

@@ -166,6 +166,9 @@ public partial class MainWindow : Window
                 var fit = _stageWpx > 1 && _stageHpx > 1
                     ? Math.Min(Math.Min(_stageWpx / plan.W, _stageHpx / plan.H), 1.0)
                     : 1.0;
+                // 预览长边封顶 1100px：预览是给人看的，1080p 全尺寸光栅的成本/分配
+                // 是 GC 压力与卡顿的大头（Spout 输出通道不受此限制）
+                fit = Math.Min(fit, 1100.0 / Math.Max(plan.W, plan.H));
                 var rw = Math.Max(1, (int)Math.Round(plan.W * fit));
                 var rh = Math.Max(1, (int)Math.Round(plan.H * fit));
                 // 持久渲染面 P：尺寸不符才换（旧面进 graveyard 绝不 Dispose——整帧缓存持有快照）

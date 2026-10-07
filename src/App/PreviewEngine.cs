@@ -464,12 +464,13 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// </summary>
     public void Replan()
     {
+        Plan plan;
         try
         {
             lock (EngineRenderGate.Lock)
             {
                 EngineBoot.Install();
-                _plan = Planner.Plan(Project, _audio);
+                plan = Planner.Plan(Project, _audio);
             }
         }
         catch (Exception ex)
@@ -477,7 +478,16 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             Log.Error("[Preview] Replan 失败，保留旧 plan：" + ex.Message, ex);
             return;
         }
+        SetPlan(plan);
+    }
 
+    /// <summary>
+    /// 换 plan（后台重规划完成后由 UI 线程调用；调用方负责 last-wins 丢弃过期结果）。
+    /// 计划计算本身在大工程的成本 ~700ms，绝不能在 UI 线程做——见 EditorState.ReplanAsync。
+    /// </summary>
+    public void SetPlan(Plan plan)
+    {
+        _plan = plan;
         if (_base > Duration || double.IsNaN(_base))
         {
             _base = 0;

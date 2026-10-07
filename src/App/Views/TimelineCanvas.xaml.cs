@@ -381,7 +381,7 @@ public sealed class TimelineSurface : FrameworkElement
         t = Math.Round(Math.Clamp(t, lo, Math.Max(lo, hi)), 3);
         // Vue 模式：拖动手势内直改工程（历史已在 BeginLineMutate 压栈），replan + seek 实时预览
         state.Project.Timing.LineTimes[i.ToString()] = t;
-        preview.Replan();
+        App.MainInstance!.State.ReplanAsync(); // 拖动改行界：后台重规划（last-wins 合并高频请求）
         preview.Seek(t + 0.001);
         _cacheKey = null;
     }
