@@ -17,6 +17,12 @@ public partial class App : Application
     /// <summary>本机设置（AppController 等服务端组件读取）。</summary>
     public Settings? Settings { get; private set; }
 
+    /// <summary>面板访问主窗口服务（State/Preview/Spout）的入口。</summary>
+    public static MainWindow? MainInstance { get; set; }
+
+    /// <summary>面板取全局设置的便捷入口（启动完成后非空）。</summary>
+    public static Settings? SettingsOf() => (Current as App)?.Settings;
+
     private static bool AnotherRealInstanceRunning()
     {
         int self = Environment.ProcessId;

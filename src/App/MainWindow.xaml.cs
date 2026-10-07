@@ -19,22 +19,25 @@ public partial class MainWindow : Window
     private readonly PreviewEngine _preview = new();
     private readonly SpoutOut _spout = new();
 
+    /// <summary>编辑器单一事实源（面板经 App.Main.State 访问）。</summary>
+    public EditorState State { get; }
+    public PreviewEngine Preview => _preview;
+    public SpoutOut Spout => _spout;
+
     // 预览帧率跟 RenderFps（钳到 60：预览是给人看的，引擎作画按 koma 量化，再快只是烧 CPU）
     private readonly DispatcherTimer _renderTimer;
-    private readonly DispatcherTimer _transportTimer;
-    private bool _syncSlider; // 程序性刷滑条时置真，ValueChanged 不回灌 Seek
-    private bool _scrubbing;
 
     public MainWindow(Settings settings)
     {
         InitializeComponent();
 
         _settings = settings;
+        App.MainInstance = this;
+        State = new EditorState(_preview);
+        State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
 
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
-
-        ChkSpout.IsChecked = settings.SpoutEnabled;
 
         var fps = Math.Clamp(settings.RenderFps, 1, 60);
         _renderTimer = new DispatcherTimer(DispatcherPriority.Render)
@@ -48,15 +51,6 @@ public partial class MainWindow : Window
         };
         _renderTimer.Start();
 
-        // Transport 状态同步（滑条/时间文本）10Hz 够了，别跟渲染抢
-        _transportTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(100),
-        };
-        _transportTimer.Tick += (_, _) => SyncTransport();
-        _transportTimer.Start();
-
-        SyncTransport();
         UpdateStatusText();
         _preview.Play(); // 预览默认自动播放（暂停态泵只出脏帧，起播才能看到真帧率）
 
@@ -116,129 +110,13 @@ public partial class MainWindow : Window
     private int _stageW = -1, _stageH = -1;
     private readonly List<SKSurface> _stageGraveyard = new();
 
-    // ---------------- Transport ----------------
-
-    private void BtnPlay_Click(object sender, RoutedEventArgs e) => _preview.TogglePlay();
-
-    private void SldTime_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_syncSlider || _preview == null) return;
-        _preview.Seek(e.NewValue);
-        UpdateTimeText();
-    }
-
-    private void SldTime_Down(object sender, MouseButtonEventArgs e) => _scrubbing = true;
-
-    private void SldTime_Up(object sender, MouseButtonEventArgs e) => _scrubbing = false;
-
-    private void ChkLoop_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_preview == null) return;
-        _preview.Loop = ChkLoop.IsChecked == true;
-    }
-
-    /// <summary>10Hz 刷 Transport：滑条跟随播放（scrub 中不回灌），时间文本、播放键图标。</summary>
-    private void SyncTransport()
-    {
-        var dur = _preview.Duration;
-        _syncSlider = true;
-        SldTime.Maximum = Math.Max(0.001, dur);
-        if (!_scrubbing)
-            SldTime.Value = Math.Min(_preview.CurrentTime, SldTime.Maximum);
-        _syncSlider = false;
-        UpdateTimeText();
-        BtnPlay.Content = _preview.IsPlaying ? "\uE769" : "\uE768"; // ⏸ / ▶（Segoe MDL2）
-    }
-
-    private void UpdateTimeText()
-    {
-        TblTime.Text = $"{J.FmtTime(_preview.CurrentTime)} / {J.FmtTime(_preview.Duration)}";
-    }
-
     private void UpdateStatusText()
     {
-        var plan = _preview.Plan;
-        TblStatus.Text =
-            $"{plan.W}×{plan.H} · {plan.Cuts.Count} 切分 · seed {plan.Seed}"
-            + (_spout.IsRunning ? $" · Spout→{_spout.SenderName}" : "");
+        StatusChanged?.Invoke();
     }
 
-    // ---------------- 顶栏：歌词编辑 / 重新规划 / Spout 开关 ----------------
-
-    private void BtnLyrics_Click(object sender, RoutedEventArgs e)
-    {
-        var box = new TextBox
-        {
-            Text = _preview.Project.Lyrics,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalContentAlignment = VerticalAlignment.Top,
-            FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-            FontSize = 13,
-            Padding = new Thickness(8),
-        };
-        var apply = new Button { Content = "应用", Padding = new Thickness(16, 3, 16, 3) };
-        var cancel = new Button { Content = "取消", Padding = new Thickness(16, 3, 16, 3) };
-        var panel = new DockPanel { Margin = new Thickness(10) };
-        var buttons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 8, 0, 0),
-        };
-        buttons.Children.Add(apply);
-        buttons.Children.Add(cancel);
-        DockPanel.SetDock(buttons, Dock.Bottom);
-        panel.Children.Add(buttons);
-        panel.Children.Add(box);
-
-        var win = new Window
-        {
-            Title = "歌词",
-            Owner = this,
-            Width = 560,
-            Height = 420,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = new System.Windows.Media.SolidColorBrush(
-                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FF17171B")),
-            Content = panel,
-        };
-
-        apply.Click += (_, _) =>
-        {
-            if (box.Text != _preview.Project.Lyrics)
-            {
-                _preview.Project.Lyrics = box.Text;
-                _preview.Replan();
-                _preview.Seek(0);
-                UpdateStatusText();
-                Log.Info("[MainWindow] 歌词已更新并重新规划");
-            }
-
-            win.Close();
-        };
-        cancel.Click += (_, _) => win.Close();
-        win.Show();
-        box.Focus();
-    }
-
-    private void BtnReplan_Click(object sender, RoutedEventArgs e)
-    {
-        _preview.Replan();
-        UpdateStatusText();
-    }
-
-    private void ChkSpout_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_settings == null || _spout == null) return; // XAML 初始化期的空触发
-        var on = ChkSpout.IsChecked == true;
-        if (on == _settings.SpoutEnabled && (on == _spout.IsRunning || !IsLoaded)) return;
-        _settings.SpoutEnabled = on;
-        _settings.Save();
-        if (on) StartSpout();
-        else StopSpout();
-        UpdateStatusText();
-    }
+    /// <summary>状态行变化（TopBar 订阅刷新）。</summary>
+    public event Action? StatusChanged;
 
     // ---------------- Spout 直出（SpoutOut 管线） ----------------
 
@@ -287,6 +165,16 @@ public partial class MainWindow : Window
                  + ($", 字幕通道{(_settings.SpoutLyricsEnabled ? "开" : "关")}"));
         _spout.Restart(_preview, SpoutOpts());
         UpdateStatusText();
+    }
+
+    /// <summary>顶栏 Spout 开关（即时启停并持久化）。</summary>
+    public void SetSpoutEnabled(bool on)
+    {
+        if (on == _settings.SpoutEnabled && (on == _spout.IsRunning || !IsLoaded)) return;
+        _settings.SpoutEnabled = on;
+        _settings.Save();
+        if (on) StartSpout();
+        else StopSpout();
     }
 
     /// <summary>设置页「重启渲染引擎」（/api/app/render/restart）的落点。</summary>
@@ -430,7 +318,6 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _renderTimer.Stop();
-        _transportTimer.Stop();
         // 停泵释放：发送端、D3D 纹理/设备；渲染器先于 Skia 面释放（缓存快照引用着面）
         _spout.Dispose();
         _preview.Dispose();

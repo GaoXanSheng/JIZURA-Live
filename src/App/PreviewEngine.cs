@@ -30,7 +30,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 {
     private volatile Plan _plan = null!;
 
-    public Project Project { get; }
+    public Project Project { get; private set; }
     public Renderer Renderer { get; } = new();
 
     /// <summary>当前 plan（Replan 后换新对象；Spout 泵每帧取一次引用，换 plan 时旧对象仍有效）。</summary>
@@ -55,6 +55,13 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         EngineBoot.Install(); // 先装配：JFonts 目录由 Install 填充，字体兜底要在有目录之后跑
         InstallFontFallback();
         Project = Project.NewDefault();
+        Replan();
+    }
+
+    /// <summary>M3：EditorState 装载工程（打开/撤销重做）时整体换实例并重规划。</summary>
+    public void SetProject(Project project)
+    {
+        Project = project ?? Project.NewDefault();
         Replan();
     }
 

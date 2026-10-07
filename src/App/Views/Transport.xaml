@@ -1,0 +1,17 @@
+<UserControl x:Class="JizuraLive.App.Views.Transport"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Background="{StaticResource Raised}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4" Padding="8,5">
+        <DockPanel LastChildFill="True">
+            <Button x:Name="BtnPlay" Content="&#xE768;" Width="34" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                    DockPanel.Dock="Left" Click="BtnPlay_Click" ToolTip="播放/暂停（空格）" />
+            <TextBlock x:Name="TblTime" DockPanel.Dock="Right" VerticalAlignment="Center" Margin="10,0,0,0"
+                       FontFamily="Consolas" FontSize="12" Foreground="{StaticResource Fg}" Text="00:00.00 / 00:00.00" />
+            <CheckBox x:Name="ChkLoop" Content="循环" DockPanel.Dock="Right" VerticalAlignment="Center"
+                      IsChecked="True" Margin="0,0,10,0" Checked="ChkLoop_Changed" Unchecked="ChkLoop_Changed" />
+            <Slider x:Name="SldTime" VerticalAlignment="Center" Minimum="0" Maximum="1"
+                    ValueChanged="SldTime_ValueChanged"
+                    PreviewMouseLeftButtonDown="SldTime_Down" PreviewMouseLeftButtonUp="SldTime_Up" />
+        </DockPanel>
+    </Border>
+</UserControl>
