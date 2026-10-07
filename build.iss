@@ -1,6 +1,6 @@
 #define AppName "JizuraLive"
 #define AppId "{{C5A3E1D2-9B47-4F86-A2C1-7E0B3D94F6A8}"
-#define AppVersion "2.1.0"
+#define AppVersion "3.0.0"
 #define AppExeName "JizuraLive.exe"
 
 [Setup]
@@ -34,7 +34,7 @@ Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
-; 运行时数据（config/logs/CEF 缓存）已统一放 %LOCALAPPDATA%\JizuraLive，
+; 运行时数据（config/logs/云缓存）已统一放 %LOCALAPPDATA%\JizuraLive，
 ; publish 产物里不会再混入，无需 Excludes
 Source: "bin\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 

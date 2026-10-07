@@ -76,10 +76,9 @@
     </ItemGroup>
 
     <!-- ================= pure-csharp 重构说明 =================
-         旧版经 CEF 渲染前端（frontend/ Vue3 SPA）并离屏出帧；本分支起改为纯 C#：
-           - 渲染引擎：src/Engine（SkiaSharp，逐文件对位移植 frontend/src/engine）
+         3.0 纯 C# 版：无 CEF/无前端/无 EmbedIO。
+           - 渲染引擎：src/Engine（SkiaSharp，逐文件对位移植自原 frontend/src/engine，已全量完成）
            - 导出：src/Export（FFmpeg 编码 + SkiaSharp PNG/ZIP）
            - 编辑器 UI：WPF 原生（M2/M3 回归）
-         frontend/ 暂冻结保留作移植参照，M7 删除。下方保留前端构建所需的引用注释占位：
-         （无——前端构建目标已整体移除） -->
+         原 frontend/ 移植参照已删除（git 历史可溯；tools/parity 黄金值重生成需旧提交检出）。 -->
 </Project>
