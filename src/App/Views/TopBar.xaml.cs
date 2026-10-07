@@ -21,8 +21,10 @@ public partial class TopBar : UserControl
             ChkSpout.IsChecked = App.SettingsOf()?.SpoutEnabled == true;
             main.StatusChanged += RefreshStatus;
             main.State.StateChanged += () => Dispatcher.Invoke(PullProject);
+            main.Follow.Changed += () => Dispatcher.Invoke(RefreshFollowBtn);
             PullProject();
             RefreshStatus();
+            RefreshFollowBtn();
         };
     }
 
@@ -125,6 +127,29 @@ public partial class TopBar : UserControl
             "自托管字体与引擎代码的许可证详见安装目录 LICENSE 文件。\n" +
             "导出歌曲请确认你拥有相应权利。",
             "使用说明", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    // ---------------- 云音乐 / 跟随（M6） ----------------
+
+    private void BtnCloud_Click(object sender, RoutedEventArgs e)
+    {
+        CloudPanel.Open(Window.GetWindow(this)!);
+    }
+
+    private void BtnFollow_Click(object sender, RoutedEventArgs e)
+    {
+        App.MainInstance!.Follow.Toggle();
+        RefreshFollowBtn();
+    }
+
+    private void RefreshFollowBtn()
+    {
+        var on = App.MainInstance!.Follow.On;
+        BtnFollow.Content = on ? "跟随中" : "跟随";
+        BtnFollow.Foreground = on ? FindResource("Amber") as System.Windows.Media.Brush
+            : FindResource("Fg") as System.Windows.Media.Brush;
+        BtnFollow.ToolTip = on ? "跟随外部播放器中：点击停止（当前歌词保留在工程里）"
+            : "跟随外部播放器（SMTC）：播放器出声，这里同步进度与歌词；切歌自动匹配";
     }
 
     private void ChkSpout_Changed(object sender, RoutedEventArgs e)

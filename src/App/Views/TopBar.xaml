@@ -14,10 +14,14 @@
                         ToolTip="清空歌词、歌曲、设置和历史，回到初始状态" Click="BtnReset_Click" />
                 <Button x:Name="BtnTerms" Content="使用说明" Style="{StaticResource BtnGhost}" Margin="2,0,0,0"
                         ToolTip="输出物的权利与许可证" Click="BtnTerms_Click" />
+                <Button x:Name="BtnCloud" Content="云音乐" Margin="6,0,0,0"
+                        ToolTip="在线搜索点歌（酷狗/网易云）：下载音频与歌词并装载；扫码登录" Click="BtnCloud_Click" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
                 <TextBlock x:Name="TblStatus" VerticalAlignment="Center" Margin="0,0,12,0"
                            FontSize="11" Foreground="{StaticResource Mut}" Text="" />
+                <Button x:Name="BtnFollow" Content="跟随" Margin="0,0,10,0" Click="BtnFollow_Click"
+                        ToolTip="跟随外部播放器（SMTC）：播放器出声，这里同步进度与歌词；切歌自动匹配" />
                 <CheckBox x:Name="ChkSpout" Content="Spout 输出" VerticalAlignment="Center"
                           Checked="ChkSpout_Changed" Unchecked="ChkSpout_Changed"
                           ToolTip="Spout 发送开关（即时启停）" />

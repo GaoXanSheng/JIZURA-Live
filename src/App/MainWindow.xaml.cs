@@ -23,6 +23,9 @@ public partial class MainWindow : Window
     /// <summary>编辑器单一事实源（面板经 App.Main.State 访问）。</summary>
     public EditorState State { get; }
 
+    /// <summary>SMTC 跟随外部播放器（M6；云音乐面板与 TopBar 的「跟随」开关都驱动它）。</summary>
+    public Cloud.FollowController Follow { get; }
+
     /// <summary>导出进行中：预览渲染泵让路（编码线程优先吃引擎闸）。</summary>
     public volatile bool ExportBusy;
     public PreviewEngine Preview => _preview;
@@ -64,6 +67,7 @@ public partial class MainWindow : Window
         App.MainInstance = this;
         State = new EditorState(_preview);
         State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
+        Follow = new Cloud.FollowController(Dispatcher, State);
 
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
@@ -423,6 +427,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        Follow.Stop(); // 跟随循环与引擎时钟归位（FollowEnd 冻结时间轴）
         // 先停后台渲染泵再释放：渲染线程还持着面/锁
         _renderRunning = false;
         try { _renderThread?.Join(800); } catch { /* 线程已退出 */ }

@@ -109,6 +109,43 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>scrub 拖动中（时间轴/进度条按下到松开）：画面跟手、不推进、不出声。</summary>
     public bool Scrubbing => _scrubbing;
 
+    // ---------------- 跟随模式（M6，对位 frontend 的 S.follow：外部播放器出声，这里只同步进度） ----------------
+    //
+    // 跟随开启期间本地音频链一律忽略（RawTime 走墙钟路径，同旧版「不碰 AP」）：
+    // FollowController 每 300ms 拿 SMTC 快照调 FollowAnchor 重锚定 _base/_startTs，
+    // 两次锚定之间本地按墙钟平滑推进，漂移有界；FollowEnd 冻结并退出。
+
+    private volatile bool _follow;
+
+    /// <summary>跟随模式中（外部播放器决定进度/暂停，本地循环与到尾暂停被跳过）。</summary>
+    public bool FollowMode => _follow;
+
+    /// <summary>
+    /// 跟随重锚定：SMTC 快照的「此刻进度」 t（秒）与播放态 run 直接落到墙钟上；
+    /// 不碰音频链。t 变化或播放态翻转才 +Version（暂停且进度冻结时不制造无谓重绘）。
+    /// </summary>
+    public void FollowAnchor(double t, bool run)
+    {
+        _follow = true;
+        t = Math.Max(0, t);
+        var changed = Math.Abs(t - CurrentTime) > 1e-4 || IsPlaying != run;
+        _base = t;
+        _startTs = Stopwatch.GetTimestamp();
+        if (IsPlaying != run) _isPlaying = run; // 只翻时钟位，绝不动 WaveOut（音频由播放器自己出）
+        if (changed) _version++;
+    }
+
+    /// <summary>跟随结束：时间轴冻结在当前位置并暂停（不恢复本地音频，交用户手动播放）。</summary>
+    public void FollowEnd()
+    {
+        if (!_follow) return;
+        _base = CurrentTime;
+        _startTs = Stopwatch.GetTimestamp();
+        _isPlaying = false;
+        _follow = false;
+        _version++;
+    }
+
     /// <summary>
     /// 音频投入/卸载（对位 EditorState.SetAudio 的引擎侧回执；由中栏常驻控件在 State.AudioChanged
     /// 时调用）。装载成功即重建播放链并重规划（EditorState 里那次 Replan 发生在 AudioChanged 之前，
@@ -222,7 +259,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             try { if (_waveOut != null && _waveOut.PlaybackState != PlaybackState.Stopped) _waveOut.Stop(); } catch { /* 设备失效 */ }
         }
         BuildChain(_audioPath!, t);
-        if (resume && _audioActive) SafePlay();
+        if (resume && _audioActive && !_follow) SafePlay(); // 跟随中不出本地声
     }
 
     /// <summary>启动输出；设备打不开时降级为墙钟（只报一次，之后不再尝试）。</summary>
@@ -281,12 +318,21 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         }
     }
 
-    /// <summary>当前时钟原值（未做循环/钳位）：scrub 中钉在 _base；有音频走波形钟；否则墙钟外推。</summary>
+    /// <summary>当前时钟原值（未做循环/钳位）：scrub 中钉在 _base；跟随模式走墙钟（忽略本地音频链）；
+    /// 有音频走波形钟；否则墙钟外推。</summary>
     private double RawTime
     {
         get
         {
             if (_scrubbing) return _base;
+            if (_follow)
+            {
+                var tf = _base;
+                if (IsPlaying)
+                    tf += (Stopwatch.GetTimestamp() - _startTs) * (1.0 / Stopwatch.Frequency);
+                return tf;
+            }
+
             if (IsPlaying && _audioActive) return AudioClock();
             var t = _base;
             if (IsPlaying)
@@ -368,6 +414,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     public void Tick()
     {
         RebuildFxIfConfigChanged();
+        if (_follow) return; // 跟随模式：外部播放器决定到尾/回卷，本地循环与到尾暂停不参与
         if (!IsPlaying) return;
         var dur = Duration;
         if (dur <= 0) return;
@@ -397,6 +444,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public void Play()
     {
+        if (_follow) return; // 跟随模式：播放态由外部播放器驱动（Transport 不抢）
         if (IsPlaying) return;
         RebuildFxIfConfigChanged();
         // 结尾再按播放 → 从头（不循环时 CurrentTime 钳在 dur，体验上是「重播」）
@@ -412,6 +460,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public void Pause()
     {
+        if (_follow) return; // 跟随模式：暂停态由外部播放器驱动
         if (!IsPlaying) return;
         _base = CurrentTime;
         _startTs = Stopwatch.GetTimestamp();
@@ -431,6 +480,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public void Seek(double t)
     {
+        if (_follow) return; // 跟随模式：进度由外部播放器驱动（时间轴拖动不生效，避免打架）
         _base = ClampPlayPos(t);
         _startTs = Stopwatch.GetTimestamp();
         _version++;
