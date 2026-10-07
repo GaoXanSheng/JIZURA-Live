@@ -187,10 +187,18 @@ public sealed class Renderer : IDisposable
             var fps = Math.Max(1, plan.Fps);
             // K线风格走完全独立的渲染路径（11p）：图表+中心滚动歌词画满整帧直接返回
             if (Truthy(JLayouts.StTok(st, "kline")))
-                throw new NotSupportedException("TODO(11p): st.kline → J.KLINE_RENDERER（K线图表渲染路径未移植）");
-            // ASCII 字符画风格（11p）：整帧先按正常管线渲进离屏，再整帧转字符网格
-            if (Truthy(JLayouts.StTok(st, "ascii")))
-                throw new NotSupportedException("TODO(11p): st.ascii → J.asciiFrame（ASCII 字符画渲染路径未移植）");
+            {
+                Packs.P11Kline.Frame(ctx, plan, t, opt, (int)cw, (int)ch);
+                return;
+            }
+            // ASCII 字符画风格（11p）：整帧先按正常管线渲进离屏，再整帧转字符网格；
+            // AsciiInner 防 asciiFrame 递归内层再次进入本分支
+            if (Truthy(JLayouts.StTok(st, "ascii")) && !opt.AsciiInner)
+            {
+                Packs.P11Ascii.Frame(ctx, plan, t, opt,
+                    (inner, innerOpt) => Frame(inner, plan, t, innerOpt));
+                return;
+            }
             // 动作按 koma 量化（24fps 作画基准）；随机闪烁走 <=24Hz 时钟
             var stepDur = Planner.StepDur(fx, fps);
             var koma = Planner.KomaOf(fx);
