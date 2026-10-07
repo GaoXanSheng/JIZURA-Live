@@ -163,8 +163,10 @@ public partial class MainWindow : Window
                 _lastRV = ver;
                 _lastRPlan = plan;
                 // 预览渲染尺寸：contain 适配舞台（尺寸缓存由 UI SizeChanged 维护），钳 1.0 不超采
+                // 注意：_stageWpx/H 是 int，除法必须转 double——整数除法会让 756/1920=0，
+                // fit=0 → 渲染面退化成 1×1 像素（预览「什么都不渲染」的元凶）
                 var fit = _stageWpx > 1 && _stageHpx > 1
-                    ? Math.Min(Math.Min(_stageWpx / plan.W, _stageHpx / plan.H), 1.0)
+                    ? Math.Min(Math.Min(_stageWpx / (double)plan.W, _stageHpx / (double)plan.H), 1.0)
                     : 1.0;
                 // 预览长边封顶 1100px：预览是给人看的，1080p 全尺寸光栅的成本/分配
                 // 是 GC 压力与卡顿的大头（Spout 输出通道不受此限制）
