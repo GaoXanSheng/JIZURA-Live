@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Windows;
+using JizuraLive.App.Mcp;
+using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Server;
 
@@ -9,7 +11,7 @@ public partial class App : Application
 {
     private const string MutexName = "JizuraLive_SingleInstance";
     private Mutex? _mutex;
-    private EmbeddedServer? _server;
+    private McpHttpServer? _server;
     private Settings? _settings;
 
     private bool _startupComplete;
@@ -44,6 +46,9 @@ public partial class App : Application
         Log.Init();
         HookGlobalExceptions();
         HttpClientFactorySetup.Initialize();
+        // 引擎装配（02_/04_/05_/06_/07_）由 PreviewEngine 构造时完成；Omakase 在其后接线
+        // Reg.RandomOk（追加分/和風/套装的随机放行）与氛围标签——Planner 的随机提取依赖它
+        Omakase.Install();
 
         try
         {
@@ -55,30 +60,28 @@ public partial class App : Application
                 return;
             }
 
-            _server = EmbeddedServer.Start();
-            if (_server == null)
-            {
-                Log.Error("本地服务启动失败：端口 8642~8651 都被占用。");
-                Shutdown(-2);
-                return;
-            }
-
-            Log.Info($"内嵌服务就绪：http://127.0.0.1:{_server.Port}/（/api 保留；静态站随 CEF 移除）");
+            if (e.Args.Contains("--mirror-host", StringComparer.OrdinalIgnoreCase))
+                Log.Warn("--mirror-host 已随 CEF 移除，忽略该参数，按主实例启动。");
 
             var settings = Settings.Load();
             _settings = settings;
             Settings = settings;
 
-            // 纯 C# 重构期间 MCP 暂不可用（M6 里程碑接回编辑器状态）：
-            // 给 MCP 客户端一个明确错误，而不是悬空委托返回"窗口未创建"
-            McpBridge.EvaluateAsync = _ =>
-                throw new InvalidOperationException("纯 C# 重构进行中：MCP 编辑器桥将在 M6 接回");
-
-            if (e.Args.Contains("--mirror-host", StringComparer.OrdinalIgnoreCase))
-                Log.Warn("--mirror-host 已随 CEF 移除，忽略该参数，按主实例启动。");
-
             var main = new MainWindow(settings);
             MainWindow = main;
+
+            // MCP：17 工具直调 EditorState（无页面桥）；窗口先建好（State/Plan 就绪）再起端点
+            McpTools.Current = new McpTools(main.State, main.Preview);
+            _server = McpHttpServer.Start(McpTools.Current);
+            if (_server == null)
+            {
+                Log.Error("MCP 服务启动失败：端口 8642~8651 都被占用。");
+                Shutdown(-2);
+                return;
+            }
+
+            Log.Info($"MCP 就绪：http://127.0.0.1:{_server.Port}/mcp（/api 已随 EmbedIO 移除）");
+
             main.Show();
             _startupComplete = true;
         }

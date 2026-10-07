@@ -5,6 +5,7 @@ using Xunit;
 namespace JizuraLive.Engine.Tests;
 
 // ExportSpec（frontend/src/jizura/export-spec.ts 的移植）勾选模型对拍
+[Collection("EngineRegistry")]
 public class ExportSpecTests
 {
     [Fact]

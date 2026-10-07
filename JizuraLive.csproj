@@ -21,7 +21,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="EmbedIO" Version="3.5.2"/>
+        <!-- M6：EmbedIO 已整体移除（/api 端点拍板删除，/mcp 改用 BCL HttpListener，见 src/App/Mcp/） -->
         <PackageReference Include="log4net" Version="3.5.0" />
         <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12"/>
         <PackageReference Include="NAudio" Version="3.1.0" />

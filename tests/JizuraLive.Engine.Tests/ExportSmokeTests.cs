@@ -11,6 +11,7 @@ namespace JizuraLive.Engine.Tests;
 /// 导出冒烟：小分辨率（640×360@12fps）真跑整条管线（渲染→编码→ffprobe 校验/zip 校验）。
 /// 依赖系统 ffmpeg/ffprobe（开发机 WinGet 版；无则测试失败并在消息里说明）。
 /// </summary>
+[Collection("EngineRegistry")]
 public class ExportSmokeTests
 {
     private static (Project Project, Plan Plan) MakeSmall()

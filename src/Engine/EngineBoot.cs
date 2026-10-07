@@ -27,4 +27,27 @@ public static class EngineBoot
         JDecor.Install(); // 07_decor：15 decor + drawHUD
         ZhLabels.Apply(); // zh-labels：简中标签覆盖（index.ts 里最后导入，须在所有注册之后）
     }
+
+    private static bool _packsInstalled;
+
+    /// <summary>
+    /// 全量装配 = 核心 + 已移植表现包（对位 index.ts 的 11p_* 导入序）+ omakase 随机 + 标签重放。
+    /// 应用运行时走这里；包移植波次推进时在下方按 JS 导入序补 Install()。
+    /// 与 Install() 分离：对拍夹具（core-only 黄金值）依赖核心表面。
+    /// </summary>
+    public static void InstallPacks()
+    {
+        if (_packsInstalled) return;
+        Install();
+        _packsInstalled = true;
+
+        // —— 已移植表现包（顺序 = index.ts 导入序；未移植的波次在此追加）——
+        P11LayoutsA.Install();
+        P11LayoutsB.Install();
+        P11LayoutsC.Install();
+        P11LayoutsD.Install();
+
+        Omakase.Install();      // 08b_omakase + 11q_sets：随机/锁定门禁（Reg.RandomOk 接线）
+        ZhLabels.Apply();       // 包条目的简中标签（Apply 幂等，重放一次）
+    }
 }

@@ -12,8 +12,14 @@ namespace JizuraLive.Engine.Tests;
 /// 5 个模糊工程 × 全 plan JSON 精确对拍——任何一处差异都意味着移植走样。
 /// 重生成黄金值：node tools/parity/gen-cases.cjs && node tools/parity/run-js.cjs fuzzNN --famsys --noframes
 /// </summary>
-public class ParityGoldenTests
+[Collection("EngineRegistry")]
+public class ParityGoldenTests : IDisposable
 {
+    // 黄金值由 core-only JS harness 生成：每例先净化注册表到核心表面，跑完还原
+    private readonly CoreOnlyRegistry _coreOnly = new();
+
+    public void Dispose() => _coreOnly.Dispose();
+
     public static IEnumerable<object[]> Cases() => new[] { "fuzz00", "fuzz03", "fuzz07", "fuzz11", "fuzz16" }
         .Select(c => new object[] { c });
 

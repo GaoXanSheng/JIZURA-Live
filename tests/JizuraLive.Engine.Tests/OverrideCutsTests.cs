@@ -10,6 +10,7 @@ namespace JizuraLive.Engine.Tests;
 /// 真正的栈溢出根因是 UI 层 Mutate→StateChanged→重建行→绑定再触发 的同步回环，
 /// 已在 LineList（幂等闸）与 EditorState.Mutate（重入闸）修复。此处锁定引擎侧行为不回归。
 /// </summary>
+[Collection("EngineRegistry")]
 public class OverrideCutsTests
 {
     [Fact]

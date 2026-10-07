@@ -12,6 +12,7 @@ using Xunit.Abstractions;
 
 namespace JizuraLive.Engine.Tests;
 
+[Collection("EngineRegistry")]
 public class RenderSmoke
 {
     private readonly ITestOutputHelper _out;

@@ -11,6 +11,7 @@ namespace JizuraLive.Engine.Tests;
 /// rng/h/sid/beatGrid 是位级语义，必须精确相等；parseLyrics/computeTiming 是浮点链路，同样按精确值断言
 /// （有偏差即为移植走样，不允许用容差掩盖）。
 /// </summary>
+[Collection("EngineRegistry")]
 public class ParityTests
 {
     private static JObject Goldens()

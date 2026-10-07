@@ -41,6 +41,54 @@ public sealed class EditorState : IDisposable
     public bool CanUndo => _undoEdit.Count > 0;
     public bool CanRedo => _redoEdit.Count > 0;
 
+    // ---------------- MCP 直调的最小补充（M6） ----------------
+    // 外观历史（_undoLook/_redoLook）此前只有内部压栈，没有消费方；MCP 的 history(kind=look)
+    // 与 get_state.history 需要读数与回退入口，故补三个成员。除此之外 EditorState 未改。
+
+    /// <summary>外观历史能否回退（对位 look.ts histInfo().canBack）。</summary>
+    public bool CanUndoLook => _undoLook.Count > 0;
+
+    /// <summary>外观历史能否前进（对位 histInfo().canFwd）。</summary>
+    public bool CanRedoLook => _redoLook.Count > 0;
+
+    /// <summary>外观历史读数（i = 已回退步数，len = i + 可前进步数 + 当前态）。</summary>
+    public (int I, int Len, bool CanBack, bool CanFwd) LookHistoryInfo() =>
+        (_undoLook.Count, _undoLook.Count + _redoLook.Count + 1, CanUndoLook, CanRedoLook);
+
+    /// <summary>外观历史回退一步（MCP history kind=look）。</summary>
+    public bool UndoLook()
+    {
+        if (_undoLook.Count == 0) return false;
+        var (label, json) = _undoLook.Pop();
+        _redoLook.Push((label, Snapshot()));
+        JsonConvert.PopulateObject(json, Project);
+        AfterChange(true);
+        NotifyAsync(HistoryChanged);
+        return true;
+    }
+
+    /// <summary>外观历史前进一步（MCP history kind=look）。</summary>
+    public bool RedoLook()
+    {
+        if (_redoLook.Count == 0) return false;
+        var (label, json) = _redoLook.Pop();
+        _undoLook.Push((label, Snapshot()));
+        JsonConvert.PopulateObject(json, Project);
+        AfterChange(true);
+        NotifyAsync(HistoryChanged);
+        return true;
+    }
+
+    /// <summary>
+    /// 同步重规划（MCP 写工具返回前必须有与 Revision 对应的新 plan：get_state 的行/切分读数、
+    /// edit_line 的锁定快照都直接读 plan）。挂起的后台规划结果由 seq 丢弃（last-wins）。
+    /// </summary>
+    public void ReplanNow()
+    {
+        Interlocked.Increment(ref _replanSeq);
+        Engine.Replan();
+    }
+
     public EditorState(PreviewEngine engine)
     {
         Engine = engine;

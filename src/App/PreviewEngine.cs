@@ -300,7 +300,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public PreviewEngine()
     {
-        EngineBoot.Install(); // 先装配：JFonts 目录由 Install 填充，字体兜底要在有目录之后跑
+        EngineBoot.InstallPacks(); // 先装配：JFonts 目录由 Install 填充，字体兜底要在有目录之后跑
         InstallFontFallback();
         Project = Project.NewDefault();
         Replan();
@@ -469,7 +469,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         {
             lock (EngineRenderGate.Lock)
             {
-                EngineBoot.Install();
+                EngineBoot.InstallPacks();
                 plan = Planner.Plan(Project, _audio);
             }
         }

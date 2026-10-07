@@ -7,6 +7,7 @@ namespace JizuraLive.Engine.Tests;
 /// planner 结构测试：移植自 frontend/tests/engine/planner.spec.ts。
 /// 黄金值跨语言对拍在 ParityTests；这里对齐 vitest 的行为断言。
 /// </summary>
+[Collection("EngineRegistry")]
 public class PlannerTests
 {
     private static Project MakeProject(Action<Project>? over = null)
