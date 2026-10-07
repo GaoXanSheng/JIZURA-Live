@@ -1,3 +1,5 @@
+using System.Windows;
+using System.Windows.Threading;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
@@ -56,7 +58,30 @@ public sealed class EditorState : IDisposable
     /// 修改工程的一站式事务：压栈 → edit → revision++ → 重规划 → 通知 → 防抖存盘。
     /// look=true 走观感历史栈（风格/字体/配色类，时间轴语义与内容修改分开）。
     /// </summary>
+    // 同线程重入闸：StateChanged 处理器里再调 Mutate = UI 回环（栈溢出的根源形态——
+    // 溢出在最深的引擎叶子爆出来，表象像 Planner 分段递归，实为处理器回环）。
+    // 处理器侧应有幂等闸（见 LineList），这里是最后一道兜底：拒绝嵌套并记日志，不崩
+    private static bool _mutating;
+
     public void Mutate(Action<Project> edit, string label, bool replan = true, bool look = false)
+    {
+        if (_mutating)
+        {
+            Log.Error($"Mutate 重入被拒绝：{label}（StateChanged 处理器内再次 Mutate 属 UI 回环）");
+            return;
+        }
+        _mutating = true;
+        try
+        {
+            MutateCore(edit, label, replan, look);
+        }
+        finally
+        {
+            _mutating = false;
+        }
+    }
+
+    private void MutateCore(Action<Project> edit, string label, bool replan, bool look)
     {
         var (undoStack, redoStack) = look ? (_undoLook, _redoLook) : (_undoEdit, _redoEdit);
         undoStack.Push((label, Snapshot()));
@@ -70,7 +95,7 @@ public sealed class EditorState : IDisposable
             Log.Error("Mutate 失败（已回滚通知）：" + label, ex);
         }
         AfterChange(replan);
-        HistoryChanged?.Invoke();
+        NotifyAsync(HistoryChanged);
     }
 
     public bool Undo()
@@ -80,7 +105,7 @@ public sealed class EditorState : IDisposable
         _redoEdit.Push((label, Snapshot()));
         JsonConvert.PopulateObject(json, Project);
         AfterChange(true);
-        HistoryChanged?.Invoke();
+        NotifyAsync(HistoryChanged);
         return true;
     }
 
@@ -91,7 +116,7 @@ public sealed class EditorState : IDisposable
         _undoEdit.Push((label, Snapshot()));
         JsonConvert.PopulateObject(json, Project);
         AfterChange(true);
-        HistoryChanged?.Invoke();
+        NotifyAsync(HistoryChanged);
         return true;
     }
 
@@ -99,8 +124,24 @@ public sealed class EditorState : IDisposable
     {
         Revision++;
         if (replan) Engine.Replan();
-        StateChanged?.Invoke();
+        // 异步通知：Measure 布局趟里触发的 Mutate（容器生成→SelectionChanged→Mutate）若同步
+        // Invoke 面板处理器，面板会在 Measure 期间改视觉树 → VisualCollection 索引越界
+        //（"index must be less than Count"）。排队到布局趟结束后再刷面板
+        NotifyAsync(StateChanged);
         ProjectIO.Autosave(Project);
+    }
+
+    /// <summary>面板通知一律异步排队：与 Measure/布局趟解耦（无 Dispatcher 的环境同步直调）。</summary>
+    private static void NotifyAsync(Action? handlers)
+    {
+        if (handlers == null) return;
+        var d = Application.Current?.Dispatcher;
+        if (d == null || d.HasShutdownStarted)
+        {
+            handlers();
+            return;
+        }
+        d.BeginInvoke(handlers, DispatcherPriority.Background);
     }
 
     // ---------------- 工程整体替换（打开 / 初始化 / 撤销到装载点） ----------------
@@ -113,7 +154,7 @@ public sealed class EditorState : IDisposable
         Engine.SetProject(project);
         Revision++;
         StateChanged?.Invoke();
-        HistoryChanged?.Invoke();
+        NotifyAsync(HistoryChanged);
         ProjectIO.Autosave(project);
     }
 
@@ -132,7 +173,7 @@ public sealed class EditorState : IDisposable
         Revision++;
         StateChanged?.Invoke();
         AudioChanged?.Invoke();
-        HistoryChanged?.Invoke();
+        NotifyAsync(HistoryChanged);
         ProjectIO.Autosave(p);
     }
 

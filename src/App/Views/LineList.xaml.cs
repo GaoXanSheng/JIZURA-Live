@@ -349,6 +349,14 @@ public partial class LineList : UserControl
         if ((sender as FrameworkElement)?.DataContext is not LineRowVm row) return;
         var n = ((ComboBox)sender).SelectedIndex;
         if (n < 0) return;
+        // 幂等闸：WPF 容器生成在下一个布局趟，届时 _syncing 已复位——绑定初始化会重复触发
+        // SelectionChanged。值没变就绝不 Mutate，否则 Mutate→StateChanged→重建行→布局趟再触发
+        // = 无限回环（栈溢出在最深的引擎叶子 CodePoints 爆出，表象像 Planner 分段递归，实为 UI 回环）
+        {
+            var curOv = State.Project.Overrides.TryGetValue(row.I.ToString(), out var o1) ? o1 : null;
+            var curCuts = curOv != null && curOv["cuts"] != null ? (int?)curOv.Value<int>("cuts") : null;
+            if ((n > 0 ? n : (int?)null) == curCuts) return;
+        }
         State.Mutate(p =>
         {
             var ov = TapSession.TakeOverride(p, row.I);
@@ -368,6 +376,12 @@ public partial class LineList : UserControl
         var idx = ((ComboBox)sender).SelectedIndex;
         if (idx < 0) return;
         var key = idx > 0 ? LayoutKeys[idx] : "";
+        // 幂等闸（同 NcutCombo：容器生成晚于 _syncing，绑定初始化重复触发必须靠值比较挡住）
+        {
+            var lOv = State.Project.Overrides.TryGetValue(row.I.ToString(), out var o2) ? o2 : null;
+            var curLayout = lOv != null && lOv["layout"] != null ? (string?)lOv.Value<string>("layout") : null;
+            if ((key.Length > 0 ? key : null) == curLayout) return;
+        }
         State.Mutate(p =>
         {
             var ov = TapSession.TakeOverride(p, row.I);
