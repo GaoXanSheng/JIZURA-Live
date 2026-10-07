@@ -46,7 +46,7 @@ public static class EngineBoot
         P11Decor.Install();     // 11p_decor：decor 第一批
         P11DecorB.Install();    // 11p_decorB：decor 第二批
         P11Enter.Install();     // 11p_enter：40 条 enter（第一批）
-        // TODO: P11EnterB.Install(); // 11p_enterB（2113 行，最后一个待移植包）
+        P11EnterB.Install();    // 11p_enterB：47 条 enter（第二批）
         P11Exit.Install();      // 11p_exit：36 exit + 20 hold
         P11ExitB.Install();     // 11p_exitB：39 exit + 12 hold
         P11FxB.Install();       // 11p_fxB：34 条非内置 fx
