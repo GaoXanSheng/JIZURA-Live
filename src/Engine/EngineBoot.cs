@@ -25,5 +25,6 @@ public static class EngineBoot
         Reg.SeedCore(); // 05b_registry：核心条目（TREAT.none/BG.none/CAMERA.push/FXE 内置 8 项）
         JLayouts.Install(); // 06_layouts
         JDecor.Install(); // 07_decor：15 decor + drawHUD
+        ZhLabels.Apply(); // zh-labels：简中标签覆盖（index.ts 里最后导入，须在所有注册之后）
     }
 }
