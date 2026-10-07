@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -24,8 +25,33 @@ public partial class MainWindow : Window
     public PreviewEngine Preview => _preview;
     public SpoutOut Spout => _spout;
 
-    // 预览帧率跟 RenderFps（钳到 60：预览是给人看的，引擎作画按 koma 量化，再快只是烧 CPU）
-    private readonly DispatcherTimer _renderTimer;
+    // 引擎渲染挪到专用后台线程（乒乓双面）：M2b/c 烟雾实测「koma=12 真渲染 ~24 次/s 每次 ~40ms」
+    // ——Render 优先级 DispatcherTimer 把它整个压在 UI 线程 ≈96% 饱和，点击事件永远排不上队
+    //（表象：全部按钮不可用 + 全局卡顿）。后台线程渲染，UI 线程只做 1-2ms blit
+    private Thread? _renderThread;
+    private volatile bool _renderRunning;
+    // 持久渲染面 P：引擎跨帧依赖同一块面（整帧缓存 + 增量绘制），每帧必须画同一块——
+    // 交替画两块面会把跨帧状态劈成两半（实测：画面持续闪烁）。P 绝不 Dispose（缓存规矩），
+    // 换尺寸的旧面进 graveyard。显示侧用「P → 显示双缓冲 memcpy」隔离：UI 只读显示缓冲，
+    // 锁只护 1-3ms 的 memcpy/翻转 vs UI blit，不护 40ms 的引擎渲染
+    private SKBitmap? _renderBmp;
+    private SKSurface? _renderSurface;
+    private int _renderW = -1, _renderH = -1;
+    private readonly SKBitmap?[] _displayBuf = new SKBitmap[2];
+    private int _displayW = -1, _displayH = -1;
+    private volatile int _displayFront;
+    private readonly object _displayLock = new();
+    private readonly List<SKSurface> _stageGraveyard = new();
+    // 舞台尺寸缓存（UI SizeChanged 写，渲染线程读——每帧 Dispatcher.Invoke 会白烧调度器）
+    private volatile int _stageWpx, _stageHpx;
+    // 脏检查：暂停且 t/plan 没变就跳过重绘（暂停态省 ~96% CPU）
+    private double _lastRT = -1;
+    private long _lastRV = -1;
+    private Plan? _lastRPlan;
+    // UI 线程健康探针：Dispatcher tick 调度抖动 >33ms 即按钮可感知卡顿，5s 汇总进日志
+    private readonly DispatcherTimer _uiProbe;
+    private long _probeDue, _probeWindowEnd;
+    private double _probeJitterMax;
 
     public MainWindow(Settings settings)
     {
@@ -39,17 +65,41 @@ public partial class MainWindow : Window
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
 
-        var fps = Math.Clamp(settings.RenderFps, 1, 60);
-        _renderTimer = new DispatcherTimer(DispatcherPriority.Render)
+        var fps = Math.Clamp(settings.RenderFps, 12, 60);
+        _renderRunning = true;
+        _renderThread = new Thread(() => RenderPump(1000.0 / fps))
         {
-            Interval = TimeSpan.FromMilliseconds(1000 / (double)fps),
+            IsBackground = true,
+            Name = "JizuraPreviewRender",
+            Priority = ThreadPriority.BelowNormal
         };
-        _renderTimer.Tick += (_, _) =>
+        _renderThread.Start();
+
+        // 舞台尺寸缓存：渲染线程每帧读，避免 Dispatcher.Invoke 白烧调度器
+        Stage.SizeChanged += (_, e2) =>
         {
-            _preview.Tick();
-            Stage.InvalidateVisual();
+            _stageWpx = (int)e2.NewSize.Width;
+            _stageHpx = (int)e2.NewSize.Height;
         };
-        _renderTimer.Start();
+
+        // UI 线程健康探针：Background 优先级 tick 的调度抖动直接量化"卡顿"，5s 汇总进日志
+        _probeDue = _probeWindowEnd = Stopwatch.GetTimestamp();
+        _uiProbe = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
+        _uiProbe.Tick += (_, _) =>
+        {
+            var now = Stopwatch.GetTimestamp();
+            var late = (now - _probeDue) * 1000.0 / Stopwatch.Frequency;
+            if (late > _probeJitterMax) _probeJitterMax = late;
+            _probeDue = now + Stopwatch.Frequency / 10;
+            if (now >= _probeWindowEnd)
+            {
+                if (_probeJitterMax > 33)
+                    Log.Warn($"[UI探针] 5s 最大调度抖动 {_probeJitterMax:F0}ms（>33ms 即按钮可感知卡顿）");
+                _probeJitterMax = 0;
+                _probeWindowEnd = now + 5 * Stopwatch.Frequency;
+            }
+        };
+        _uiProbe.Start();
 
         UpdateStatusText();
         _preview.Play(); // 预览默认自动播放（暂停态泵只出脏帧，起播才能看到真帧率）
@@ -64,51 +114,99 @@ public partial class MainWindow : Window
 
     // ---------------- 引擎预览舞台 ----------------
 
+    // UI 线程只做 blit：读显示双缓冲的正面，1-2ms，不碰引擎锁
     private void Stage_PaintSurface(object? sender, SKPaintSurfaceEventArgs e)
     {
         var canvas = e.Surface.Canvas;
         var w = e.Info.Width;
         var h = e.Info.Height;
-        var plan = _preview.Plan;
-        if (plan == null) return;
-
-        // contain 适配居中（预览画布比例 ≠ 工程画幅时出暗边）；预览不超采（fit 钳 1.0）
-        var fit = Math.Min(w / (double)plan.W, h / (double)plan.H);
-        var scale = Math.Min(fit, 1.0);
-        var rw = Math.Max(1, (int)Math.Round(plan.W * scale));
-        var rh = Math.Max(1, (int)Math.Round(plan.H * scale));
-        var t = _preview.CurrentTime;
-
         canvas.Clear(new SKColor(15, 15, 18));
-
-        // SkiaSharp 3.119 坑（headless 复现：obj/repro，AV 于 Frame 的 _fcCv.Width）：
-        // 引擎整帧缓存会把 SnapshotOf(ctx) 存起来跨帧用——交给 Frame 的面必须保留（绝不 Dispose），
-        // 否则面一释放缓存里的快照就悬垂，下一次缓存命中即 AV。同理 blit 不用 Snapshot()
-        //（dispose 快照会弄脏面的 cached-image 记账），改 PeekPixels + FromPixels 借用像素。
-        // 旧尺寸面孤儿化进 graveyard，退出时随渲染器一起释放
-        if (_stageSurface == null || _stageW != rw || _stageH != rh)
+        lock (_displayLock)
         {
-            if (_stageSurface != null) _stageGraveyard.Add(_stageSurface);
-            _stageSurface = SKSurface.Create(new SKImageInfo(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul));
-            _stageW = rw;
-            _stageH = rh;
-        }
-
-        lock (EngineRenderGate.Lock)
-            _preview.Renderer.Frame(_stageSurface.Canvas, plan, t, new RenderOpts { Scale = scale, Stage = true });
-
-        var px = _stageSurface.PeekPixels();
-        if (px != null)
-        {
+            var buf = _displayBuf[_displayFront];
+            if (buf == null) return;
+            var px = buf.PeekPixels();
+            if (px == null) return;
             using var borrow = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
-            canvas.DrawImage(borrow, (w - rw) / 2f, (h - rh) / 2f);
+            var fit = Math.Min(w / (double)px.Info.Width, h / (double)px.Info.Height);
+            canvas.DrawImage(borrow, (float)((w - px.Info.Width * fit) / 2), (float)((h - px.Info.Height * fit) / 2));
         }
     }
 
-    // 引擎渲染面（保留，尺寸变化才换新）+ 换下的旧面（退出时统一释放）
-    private SKSurface? _stageSurface;
-    private int _stageW = -1, _stageH = -1;
-    private readonly List<SKSurface> _stageGraveyard = new();
+    // ---------------- 后台渲染泵（乒乓双面） ----------------
+    // SkiaSharp 3.119+ 规矩不变：交给 Frame 的面绝不 Dispose（整帧缓存持有跨帧快照），
+    // 换尺寸的旧面进 graveyard；blit 用 PeekPixels+FromPixels 借像素，不用 Snapshot()
+
+    private void RenderPump(double frameMs)
+    {
+        var next = Stopwatch.GetTimestamp();
+        while (_renderRunning)
+        {
+            var wakeIn = (next - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
+            if (wakeIn > 1) Thread.Sleep((int)Math.Min(wakeIn, 50));
+            next += (long)(frameMs / 1000.0 * Stopwatch.Frequency);
+            if (next < Stopwatch.GetTimestamp()) next = Stopwatch.GetTimestamp(); // 掉帧不追帧
+            try
+            {
+                var plan = _preview.Plan;
+                if (plan == null || !_renderRunning) continue;
+                _preview.Tick();
+                var t = _preview.CurrentTime;
+                // 脏检查：暂停且 t/plan 没变就跳过（暂停态省 ~96% CPU）
+                var ver = _preview.Version;
+                if (!_preview.IsPlaying && t == _lastRT && ver == _lastRV && ReferenceEquals(plan, _lastRPlan))
+                    continue;
+                _lastRT = t;
+                _lastRV = ver;
+                _lastRPlan = plan;
+                // 预览渲染尺寸：contain 适配舞台（尺寸缓存由 UI SizeChanged 维护），钳 1.0 不超采
+                var fit = _stageWpx > 1 && _stageHpx > 1
+                    ? Math.Min(Math.Min(_stageWpx / plan.W, _stageHpx / plan.H), 1.0)
+                    : 1.0;
+                var rw = Math.Max(1, (int)Math.Round(plan.W * fit));
+                var rh = Math.Max(1, (int)Math.Round(plan.H * fit));
+                // 持久渲染面 P：尺寸不符才换（旧面进 graveyard 绝不 Dispose——整帧缓存持有快照）
+                if (_renderSurface == null || _renderW != rw || _renderH != rh)
+                {
+                    if (_renderSurface != null) _stageGraveyard.Add(_renderSurface);
+                    _renderBmp = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+                    _renderSurface = SKSurface.Create(_renderBmp.Info, _renderBmp.GetPixels(), _renderBmp.RowBytes);
+                    _renderW = rw;
+                    _renderH = rh;
+                }
+                var surf = _renderSurface;
+                lock (EngineRenderGate.Lock)
+                    _preview.Renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = fit, Stage = true });
+                // P → 显示双缓冲 memcpy（~1-3ms），翻面后 UI 读新正面（与 memcpy 目标不同面）
+                lock (_displayLock)
+                {
+                    if (_displayBuf[0] == null || _displayW != rw || _displayH != rh)
+                    {
+                        _displayBuf[0]?.Dispose(); // 显示缓冲不喂引擎，可安全换新
+                        _displayBuf[1]?.Dispose();
+                        _displayBuf[0] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+                        _displayBuf[1] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+                        _displayW = rw;
+                        _displayH = rh;
+                        _displayFront = 0;
+                    }
+                    var back = 1 - _displayFront;
+                    var dst = _displayBuf[back]!;
+                    unsafe
+                    {
+                        Buffer.MemoryCopy((void*)_renderBmp!.GetPixels(), (void*)dst.GetPixels(),
+                            (long)dst.RowBytes * rh, (long)_renderBmp.RowBytes * rh);
+                    }
+                    _displayFront = back;
+                }
+                Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("预览渲染泵异常：" + ex.Message);
+            }
+        }
+    }
 
     private void UpdateStatusText()
     {
@@ -317,13 +415,18 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        _renderTimer.Stop();
+        // 先停后台渲染泵再释放：渲染线程还持着面/锁
+        _renderRunning = false;
+        try { _renderThread?.Join(800); } catch { /* 线程已退出 */ }
+        _uiProbe.Stop();
         // 停泵释放：发送端、D3D 纹理/设备；渲染器先于 Skia 面释放（缓存快照引用着面）
         _spout.Dispose();
         _preview.Dispose();
         foreach (var s in _stageGraveyard) s.Dispose();
-        _stageSurface?.Dispose();
-        _stageSurface = null;
+        _renderSurface?.Dispose();
+        _renderBmp?.Dispose();
+        _displayBuf[0]?.Dispose();
+        _displayBuf[1]?.Dispose();
         base.OnClosed(e);
     }
 }

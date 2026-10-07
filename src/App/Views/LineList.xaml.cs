@@ -459,6 +459,18 @@ public partial class LineList : UserControl
         var idx = ((ComboBox)sender).SelectedIndex;
         if (idx < 0) return;
         var key = idx > 0 ? LayoutKeys[idx] : "";
+        // 幂等闸（同 NcutCombo/RowLayoutCombo：容器生成在 Measure 趟里触发绑定初始化，会重复触发
+        // SelectionChanged）。值没变就绝不 Mutate——否则 Mutate→Replan→StateChanged→重建行→布局趟
+        // 再触发 = 无限循环。dotnet-stack 实证：UI 线程整趟卡在 Replan 等锁（25s 调度饥饿、按钮全失灵）
+        {
+            var k0 = cell.K.ToString();
+            var cOv = State.Project.Overrides.TryGetValue(cell.Row.I.ToString(), out var o3) ? o3 : null;
+            var cTech = cOv?["cutTech"] as JObject;
+            var cLay = cOv?["cutLayouts"] as JObject;
+            var stored = (cTech?[k0] as JObject)?["layout"]?.Value<string>()
+                         ?? cLay?[k0]?.Value<string>() ?? "";
+            if (key == stored) return;
+        }
         State.Mutate(p =>
         {
             var ov = TapSession.TakeOverride(p, cell.Row.I);
