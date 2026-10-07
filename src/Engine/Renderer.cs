@@ -913,7 +913,10 @@ public sealed class Renderer : IDisposable
                 if (t >= ev.T && t < ev.T + Math.Max(ev.Dur, evWin))
                     active.Add(ev);
             var glow = StNum(st, "glow", 0.6) * 0.5 * fx.Texture;
+            // 11p：非内置 FX（fxB/looks 插件）也要 scratch 帧（JS 的 needScratch 含 D.scratch——
+            // C# 对全部插件恒拷贝，是否读 S 由各 Draw 决定，行为一致）
             var needScratch = active.Any(ev => ev.Type is "slice" or "block" or "zoom" or "mosaic")
+                              || active.Any(ev => Reg.Fxe.TryGetValue(ev.Type, out var pd) && !pd.Builtin && pd.Draw != null)
                               || (!opt.Fast && glow > 0);
             SKSurface? S = null;
             if (needScratch) S = Ensure(ref _scratch, cw, ch);
@@ -928,8 +931,41 @@ public sealed class Renderer : IDisposable
                 var k = double.IsFinite(k0) ? J.Clamp(k0, 0, 1) : 0;
                 var st2 = clock24;
                 guard?.Begin(ctx);
-                // TODO(11p)：非内置 FX 的插件 D.draw(ctx, ev, k, info) 路径——FxDef.Draw 的 (Env, PlanEvent)
-                // 签名装不下 (k, info)，等 11p_fxB 移植时定型；core 全部走内置分支
+                // —— 11p 非内置 FX 插件路径（fxB/looks）——
+                // JS 的 D.draw(ctx, ev, k, I)：FxDef.Draw 签名是 (Env, PlanEvent)（Registry 冻结装不下
+                // (k, I)），k/cw/ch/S/tmp/tmp2/transparent 经 P11FxB.FxPlug 桥传递；I.sc/st/step/
+                // allowFilter 由 env.Sc/env.St/env.Step（= clock24，JS 同源）/env.AllowFilter 承载。
+                // 透過 + alphaGuard：插件内部绘制无法镜像进 M（JS 靠 monkey-patch ctx），End() 退化为
+                // P ∪ 空间 alpha 裁剪——插件新增的不透明区域会被裁掉（保守降级，TODO(11p)）。
+                var fxDef = Reg.Fxe.GetValueOrDefault(ev.Type);
+                if (fxDef is { Builtin: false, Draw: not null })
+                {
+                    if (S != null) CopyScratch(ctx, S);
+                    P11FxB.FxBegin(cw, ch, k, S,
+                        (w, h) => Ensure(ref _tiny, w, h),
+                        (w, h) => Ensure(ref _small, w, h),
+                        opt.Transparent);
+                    var fxEnv = MakeEnv(ctx, plan, Planner.CutAt(plan, tq), sc,
+                        t: t, lt: 0, ltb: 0, stepI: st2, scale: scale,
+                        allowFilter: allowFilter, energy: 0, beat: 0,
+                        pass: "main", passColor: null, layer: null, zone: null, hideText: false, glyphLog: null);
+                    try
+                    {
+                        fxDef.Draw(fxEnv, ev);
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Warn($"fx {ev.Type}: {e.Message}");
+                    }
+                    finally
+                    {
+                        P11FxB.FxEnd();
+                    }
+                    // JS 在插件 D.draw 后复位 ctx 状态；C# 的 paint 都作用域即弃，画布矩阵由
+                    // fxEnv/包装的 Save/Restore 恢复
+                    guard?.End(ctx);
+                    continue;
+                }
                 switch (ev.Type)
                 {
                     case "slice":

@@ -41,18 +41,32 @@ public static class EngineBoot
         Install();
         _packsInstalled = true;
 
-        // —— 已移植表现包（顺序 = index.ts 导入序；未移植的波次在此追加）——
-        P11Enter.Install();     // 11p_enter：40 条 enter（第一批）
-        P11Exit.Install();      // 11p_exit：36 exit + 20 hold
-        P11ExitB.Install();     // 11p_exitB：39 exit + 12 hold
+        // —— 已移植表现包（顺序 = index.ts 导入序）——
+        Packs.P11BgcamB.Install();    // 11p_bgcamB：37 bg + 12 cam
         P11Decor.Install();     // 11p_decor：decor 第一批
         P11DecorB.Install();    // 11p_decorB：decor 第二批
-        P11TreatTrans.Install(); // 11p_treattrans：文字加工 + 切到切转场
-        Packs.P11AudioFx.Install();   // 11p_audiofx：山脊线/随音高游移/心电图/换台（ASCII化 fx 待插件路径）
+        P11Enter.Install();     // 11p_enter：40 条 enter（第一批）
+        // TODO: P11EnterB.Install(); // 11p_enterB（2113 行，最后一个待移植包）
+        P11Exit.Install();      // 11p_exit：36 exit + 20 hold
+        P11ExitB.Install();     // 11p_exitB：39 exit + 12 hold
+        P11FxB.Install();       // 11p_fxB：34 条非内置 fx
+        P11Horror1.Install();   // 11p_horror1：12 layout
+        P11Horror2.Install();   // 11p_horror2：7 enter + 7 exit + 4 hold + 4 treat
+        P11Horror3.Install();   // 11p_horror3：7 decor + 4 bg + 2 cam + 3 fx + 2 trans + 3 style
+        P11Kinetic1.Install();  // 11p_kinetic1：14 layout
+        P11Kinetic2.Install();  // 11p_kinetic2：10 enter + 8 exit + 6 hold
+        P11Kinetic3.Install();  // 11p_kinetic3：6 cam + 3 trans + 2 treat + 2 decor
         P11LayoutsA.Install();
         P11LayoutsB.Install();
         P11LayoutsC.Install();
         P11LayoutsD.Install();
+        P11Looks.Install();     // 11p_looks：24 treat + 24 bg + 15 cam + 24 fx
+        Packs.P11Styles.Install();    // 11p_styles：12 风格
+        P11TreatTrans.Install(); // 11p_treattrans：文字加工 + 切到切转场
+        P11Typo1.Install();     // 11p_typo1：18 layout
+        P11Typo2.Install();     // 11p_typo2：8 enter/exit + 4 hold
+        P11Typo3.Install();     // 11p_typo3：6 decor + 4 treat + 2 trans
+        Packs.P11AudioFx.Install();   // 11p_audiofx：山脊线/随音高游移/心电图/换台（ASCII化 fx 待插件路径）
 
         Omakase.Install();      // 08b_omakase + 11q_sets：随机/锁定门禁（Reg.RandomOk 接线）
         ZhLabels.Apply();       // 包条目的简中标签（Apply 幂等，重放一次）
