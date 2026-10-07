@@ -22,6 +22,9 @@ public partial class MainWindow : Window
 
     /// <summary>编辑器单一事实源（面板经 App.Main.State 访问）。</summary>
     public EditorState State { get; }
+
+    /// <summary>导出进行中：预览渲染泵让路（编码线程优先吃引擎闸）。</summary>
+    public volatile bool ExportBusy;
     public PreviewEngine Preview => _preview;
     public SpoutOut Spout => _spout;
 
@@ -149,7 +152,7 @@ public partial class MainWindow : Window
             try
             {
                 var plan = _preview.Plan;
-                if (plan == null || !_renderRunning) continue;
+                if (plan == null || !_renderRunning || ExportBusy) continue;
                 _preview.Tick();
                 var t = _preview.CurrentTime;
                 // 脏检查：暂停且 t/plan 没变就跳过（暂停态省 ~96% CPU）

@@ -2,6 +2,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using JizuraLive.Engine;
+using JizuraLive.Export;
+using Microsoft.Win32;
 
 namespace JizuraLive.App.Views;
 
@@ -126,8 +128,59 @@ public partial class OutTab : UserControl
     };
 
     private void BtnExport_Click(object sender, RoutedEventArgs e)
-        => MessageBox.Show(Window.GetWindow(this)!, "导出功能在 M4 接入本机渲染管线。", "字面 Live",
-            MessageBoxButton.OK, MessageBoxImage.Information);
+    {
+        var owner = Window.GetWindow(this)!;
+        var state = S;
+        if (state.Plan == null) return;
+
+        var cfg = ExportSpec.CfgOf(state.Project);
+        var invalid = ExportSpec.UiInvalidMessage(cfg);
+        if (invalid.Length > 0)
+        {
+            MessageBox.Show(owner, invalid, "导出", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // 字幕系统（M6）未接入前 SubOn 恒 false：勾了字幕会被 BuildSpec 以清晰文案拦下
+        var res = ExportSpec.BuildSpec(cfg, new SpecCtx(SubOn: false, AudioLoaded: state.AudioPath != null));
+        if (!res.Ok)
+        {
+            MessageBox.Show(owner, res.Error, "导出", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var spec = res.Spec!;
+
+        var (filter, ext) = spec.Kind switch
+        {
+            "webm" => ("WebM 视频 (*.webm)|*.webm", ".webm"),
+            "png" => ("PNG 序列 (*.zip)|*.zip", ".zip"),
+            "wav" => ("WAV 音频 (*.wav)|*.wav", ".wav"),
+            _ => ("MP4 视频 (*.mp4)|*.mp4", ".mp4"),
+        };
+        var name = string.IsNullOrWhiteSpace(state.Project.Title) ? "jizura" : state.Project.Title;
+        var dlg = new SaveFileDialog { Filter = filter, FileName = name + ext, Title = "导出到" };
+        if (dlg.ShowDialog(owner) != true) return;
+
+        var req = new ExportRequest
+        {
+            Project = state.Project,
+            Plan = state.Plan,
+            Spec = spec,
+            OutputPath = dlg.FileName,
+            AudioPath = state.AudioPath,
+            WavToo = res.WavToo,
+        };
+
+        var win = new ExportProgressWindow(req) { Owner = owner };
+        var ok = win.ShowDialog() == true;
+        if (ok)
+            MessageBox.Show(owner, "导出完成：\n" + dlg.FileName, "字面 Live",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        else if (win.Error != null)
+            MessageBox.Show(owner, "导出失败：\n" + win.Error.Message, "字面 Live",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        // 取消（无错误）静默返回
+    }
 
     // ---------------- 回刷 ----------------
 
