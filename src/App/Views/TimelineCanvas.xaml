@@ -1,5 +1,27 @@
 <UserControl x:Class="JizuraLive.App.Views.TimelineCanvas"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="TimelineCanvas（M3 移植中）" Opacity="0.3" Margin="8" FontSize="11" />
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:JizuraLive.App.Views">
+    <!-- 对位 TimelineCanvas.vue：上条视图滑动（16px）/ 中条播放头（20px）/ 下条时间轴本体（60px），
+         三带合进一个 TimelineSurface 自绘。头部按钮：撤销 / 缩小 / 放大 / 全部 -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,3">
+            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="11"
+                       Foreground="{StaticResource Mut}" TextTrimming="CharacterEllipsis"
+                       Text="上条左右滑视图，中条拖动播放头；行界刻度可拖动，Shift 不吸附节拍；底部黄条为缩放范围" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button Content="撤销" Style="{StaticResource BtnGhost}" Click="OnUndo"
+                        ToolTip="撤销歌词・时间修改（Ctrl+Z）" />
+                <Button Content="−" Style="{StaticResource BtnGhost}" MinWidth="28" Click="OnZoomOut" ToolTip="缩小" />
+                <Button Content="＋" Style="{StaticResource BtnGhost}" MinWidth="28" Click="OnZoomIn"
+                        ToolTip="放大（时间轴上滚轮亦可）" />
+                <Button Content="全部" Style="{StaticResource BtnGhost}" Click="OnZoomAll" ToolTip="显示整首" />
+            </StackPanel>
+        </DockPanel>
+        <local:TimelineSurface x:Name="Surface" Grid.Row="1" Height="96" ClipToBounds="True" />
+    </Grid>
 </UserControl>

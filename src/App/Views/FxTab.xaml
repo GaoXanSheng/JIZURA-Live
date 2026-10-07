@@ -1,5 +1,148 @@
 <UserControl x:Class="JizuraLive.App.Views.FxTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="FxTab（M3 移植中）" Opacity="0.3" Margin="8" FontSize="11" />
+    <UserControl.Resources>
+        <!-- 参数滑块（暗色轨道 + Amber 进度/拇指，对位旧版 range 观感） -->
+        <Style x:Key="FxSlider" TargetType="Slider">
+            <Setter Property="Minimum" Value="0" />
+            <Setter Property="Maximum" Value="1" />
+            <Setter Property="SmallChange" Value="0.01" />
+            <Setter Property="LargeChange" Value="0.1" />
+            <Setter Property="IsMoveToPointEnabled" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="4" CornerRadius="2,0,0,2" Background="{StaticResource Amber}" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border Height="4" CornerRadius="0,2,2,0" Background="{StaticResource Raised2}" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb x:Name="thumb" Width="12" Height="12" Focusable="False">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Ellipse Fill="{StaticResource Amber}" Stroke="{StaticResource Ink}" StrokeThickness="1" />
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- 锁定小按钮（琥珀=锁定中） -->
+        <Style x:Key="LockBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{StaticResource Faint}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Content" Value="&#xE72E;" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Tag" Value="on">
+                    <Setter Property="Foreground" Value="{StaticResource Amber}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <!-- 统一感 / 文字排列 -->
+        <CheckBox x:Name="CkUnify" Content="统一感" Margin="0,2,0,6" Checked="Unify_Changed" Unchecked="Unify_Changed" />
+        <CheckBox x:Name="CkTypeset" Content="文字排列" Margin="0,0,0,8" Checked="Typeset_Changed" Unchecked="Typeset_Changed" />
+
+        <!-- fx 参数滑块（代码生成 7 行，对位 FX 表） -->
+        <Grid x:Name="SliderRows" />
+
+        <!-- 闪光 + 抽帧 -->
+        <Grid Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <CheckBox x:Name="CkFlash" Content="闪光" VerticalAlignment="Center"
+                      Checked="Flash_Changed" Unchecked="Flash_Changed" />
+            <TextBlock Grid.Column="1" Text="抽帧" Foreground="{StaticResource Mut}" FontSize="12"
+                       VerticalAlignment="Center" Margin="12,0,4,0" />
+            <ComboBox x:Name="CbKoma" Grid.Column="2" Width="130" HorizontalAlignment="Left"
+                      SelectionChanged="CbKoma_SelectionChanged"
+                      ToolTip="动效每秒画多少张（与导出 fps 无关）" />
+            <Button x:Name="BtnKomaLock" Grid.Column="3" Style="{StaticResource LockBtn}"
+                    Click="BtnKomaLock_Click" ToolTip="锁定：一键随机/重抽不改动此项" />
+        </Grid>
+
+        <!-- HUD / 种子 -->
+        <Grid Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="HUD" Style="{StaticResource PanelLabel}" Margin="0,0,0,2" />
+                <ComboBox x:Name="CbHud" SelectionChanged="CbHud_SelectionChanged" />
+            </StackPanel>
+            <StackPanel Grid.Column="1">
+                <TextBlock Text="种子" Style="{StaticResource PanelLabel}" Margin="0,0,0,2" />
+                <TextBox x:Name="TbSeed" LostFocus="TbSeed_Commit" KeyDown="TbSeed_KeyDown" />
+            </StackPanel>
+            <Button x:Name="BtnNewSeed" Grid.Column="2" Content="新种子" VerticalAlignment="Bottom"
+                    Margin="6,0,0,0" Click="BtnNewSeed_Click" />
+        </Grid>
+
+        <!-- 隐藏装饰编号/时刻 -->
+        <CheckBox x:Name="CkHideNo" Content="不显示装饰编号（No.01 等；歌词里的数字保留）"
+                  Margin="0,10,0,4" Checked="HideDeco_Changed" Unchecked="HideDeco_Changed" />
+        <CheckBox x:Name="CkHideTime" Content="不显示装饰时刻（00:12.34 等；歌词里的时刻保留）"
+                  Margin="0,0,0,4" Checked="HideDeco_Changed" Unchecked="HideDeco_Changed" />
+        <TextBlock Text="相同的种子会生成相同的编排。逐行「重新随机」和「锁定」请在左侧行列表中操作。"
+                   Foreground="{StaticResource Faint}" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0" />
+
+        <!-- 音频特效（对位 Dialogs.vue 的音频特效弹窗：预设 + 效果单元开关） -->
+        <TextBlock Text="音频特效" Style="{StaticResource PanelLabel}" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="预设" Foreground="{StaticResource Mut}" FontSize="12"
+                       VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="CbAfxPreset" Grid.Column="1" SelectionChanged="CbAfxPreset_SelectionChanged"
+                      ToolTip="一键写整条效果链" />
+        </Grid>
+        <StackPanel x:Name="AfxUnitRows" Margin="0,6,0,0" />
+        <TextBlock Text="效果按顺序串联；预览与导出 MP4/WAV 同时生效。变速与 EQ 曲线调节在 M4 随音频链接入。"
+                   Foreground="{StaticResource Faint}" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0" />
+    </StackPanel>
 </UserControl>

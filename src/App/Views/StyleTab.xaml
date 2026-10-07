@@ -1,5 +1,113 @@
 <UserControl x:Class="JizuraLive.App.Views.StyleTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="StyleTab（M3 移植中）" Opacity="0.3" Margin="8" FontSize="11" />
+    <UserControl.Resources>
+        <!-- 风格卡片（对位 StyleTab.vue 的 canvas 缩略图卡：选中 Amber 描边） -->
+        <Style x:Key="StyleCard" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" ClipToBounds="True">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Line2}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <!-- 风格网格：Reg.Styles 12 个（代码生成卡片，缩略图配色来自 schemes） -->
+        <UniformGrid x:Name="StyleGrid" Columns="3" />
+
+        <!-- 语言（歌词语言：auto + 5 语种，JLang.LangLabel 的文案） -->
+        <TextBlock Text="语言" Style="{StaticResource PanelLabel}" />
+        <ComboBox x:Name="CbLang" SelectionChanged="CbLang_SelectionChanged" />
+
+        <!-- 字体三角色（display/serif/body；选项 = JFonts.Table，按当前语言给 faceOf 标注） -->
+        <TextBlock Text="字体角色" Style="{StaticResource PanelLabel}" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="70" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0" Text="标题" Foreground="{StaticResource Mut}" FontSize="12"
+                       VerticalAlignment="Center" />
+            <ComboBox x:Name="CbFontDisplay" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
+                      SelectionChanged="FontRole_SelectionChanged" />
+            <TextBlock Grid.Row="1" Text="衬线体" Foreground="{StaticResource Mut}" FontSize="12"
+                       VerticalAlignment="Center" />
+            <ComboBox x:Name="CbFontSerif" Grid.Row="1" Grid.Column="1" Margin="0,0,0,6"
+                      SelectionChanged="FontRole_SelectionChanged" />
+            <TextBlock Grid.Row="2" Text="正文" Foreground="{StaticResource Mut}" FontSize="12"
+                       VerticalAlignment="Center" />
+            <ComboBox x:Name="CbFontBody" Grid.Row="2" Grid.Column="1"
+                      SelectionChanged="FontRole_SelectionChanged" />
+        </Grid>
+
+        <!-- 本机字体 / 字体文件 -->
+        <Grid Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="TbLocalFont" VerticalContentAlignment="Center" />
+            <Button x:Name="BtnAddLocalFont" Grid.Column="1" Content="添加" Margin="6,0,0,0"
+                    Click="BtnAddLocalFont_Click" />
+        </Grid>
+        <TextBlock x:Name="TblLocalFontHint" Text="本机字体名（例：游明朝）" FontSize="10"
+                   Foreground="{StaticResource Faint}" Margin="1,2,0,0" IsHitTestVisible="False" />
+        <Button x:Name="BtnFontFile" Content="字体文件（.ttf/.otf）" HorizontalAlignment="Left"
+                Margin="0,8,0,0" Click="BtnFontFile_Click" />
+
+        <!-- 强调色・错位色 -->
+        <TextBlock Text="强调色・错位色" Style="{StaticResource PanelLabel}" />
+        <CheckBox x:Name="CkAccentOn" Margin="0,0,0,6" Checked="AccentToggle_Changed" Unchecked="AccentToggle_Changed">
+            <AccessText TextWrapping="Wrap" Text="用自定义颜色覆盖（应用到全部场景，亮度会随背景自动调整）" />
+        </CheckBox>
+        <Grid x:Name="AccentColorRows" />
+        <Grid Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="BtnRandomPalette" Content="随机配色" Click="BtnRandomPalette_Click" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                        VerticalAlignment="Center">
+                <Border x:Name="SwAccent" Width="20" Height="20" CornerRadius="3" Margin="0,0,4,0"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" />
+                <Border x:Name="SwGhostA" Width="20" Height="20" CornerRadius="3" Margin="0,0,4,0"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" />
+                <Border x:Name="SwGhostB" Width="20" Height="20" CornerRadius="3"
+                        BorderBrush="#33FFFFFF" BorderThickness="1" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 背景・文字色 -->
+        <TextBlock Text="背景・文字色" Style="{StaticResource PanelLabel}" />
+        <CheckBox x:Name="CkColorOn" Content="把主背景与文字换成自定义颜色" Margin="0,0,0,6"
+                  Checked="ColorToggle_Changed" Unchecked="ColorToggle_Changed" />
+        <Grid x:Name="BaseColorRows" />
+    </StackPanel>
 </UserControl>

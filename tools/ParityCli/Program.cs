@@ -331,7 +331,7 @@ static void WriteDiffMap(byte[] jsPng, SKBitmap csBmp, string path)
             bmp.SetPixel(x, y, new SKColor((byte)d, (byte)(d / 4), (byte)(d / 4)));
         }
     using var img = SKImage.FromBitmap(bmp);
-    using var up = bmp.Resize(new SKImageInfo(W * 6, H * 6, SKColorType.Bgra8888, SKAlphaType.Premul), SKFilterQuality.None);
+    using var up = bmp.Resize(new SKImageInfo(W * 6, H * 6, SKColorType.Bgra8888, SKAlphaType.Premul), default(SKSamplingOptions));
     using var upImg = SKImage.FromBitmap(up);
     using var data = upImg.Encode(SKEncodedImageFormat.Png, 90);
     using var fs = File.Create(path);
@@ -357,8 +357,8 @@ public static double[] DownGray(SKBitmap bmp, int w, int h)
 {
     // 两级 Medium 缩放：实证基线（单步 High 有振铃，指标更差）。
     // 残差 ~10/255 是两个 Skia 文本栈的 AA 特性差（结构正确性由 plan/layout 探针保证）
-    using var mid = bmp.Resize(new SKImageInfo(Math.Max(1, bmp.Width / 5), Math.Max(1, bmp.Height / 5), SKColorType.Bgra8888, SKAlphaType.Premul), SKFilterQuality.Medium);
-    using var tmp = mid!.Resize(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul), SKFilterQuality.Medium);
+    using var mid = bmp.Resize(new SKImageInfo(Math.Max(1, bmp.Width / 5), Math.Max(1, bmp.Height / 5), SKColorType.Bgra8888, SKAlphaType.Premul), new SKSamplingOptions(SKCubicResampler.Mitchell));
+    using var tmp = mid!.Resize(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul), new SKSamplingOptions(SKCubicResampler.Mitchell));
     var dst = new double[w * h];
     for (var y = 0; y < h; y++)
         for (var x = 0; x < w; x++)

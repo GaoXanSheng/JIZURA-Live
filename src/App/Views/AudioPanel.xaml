@@ -1,5 +1,69 @@
 <UserControl x:Class="JizuraLive.App.Views.AudioPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="AudioPanel（M3 移植中）" Opacity="0.3" Margin="8" FontSize="11" />
+    <!-- 对位 .sec -->
+    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,14">
+        <StackPanel>
+            <TextBlock Text="歌曲与节拍" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Mut}"
+                       Margin="0,0,0,8" />
+            <!-- 音频名 / 分析信息（对位 audioName + audioname 事件） -->
+            <TextBlock x:Name="TblAudioName" Text="未载入歌曲（载入后自动检测节拍并对齐切分）"
+                       FontSize="11" Foreground="{StaticResource Mut}" TextWrapping="Wrap" />
+            <WrapPanel Margin="0,8,0,0">
+                <!-- 载入歌曲（对位 .btn-file：虚线边框的文件按钮） -->
+                <Button x:Name="BtnLoad" Content="载入歌曲" Click="BtnLoad_Click" ToolTip="mp3 / wav / m4a 等">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{StaticResource Raised}"
+                                    BorderBrush="{StaticResource Line2}" BorderThickness="1"
+                                    CornerRadius="6" Padding="12,5">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Amber}" />
+                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Raised2}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <Button x:Name="BtnTap" Content="打点同步" Click="BtnTap_Click" Margin="8,0,0,0"
+                        ToolTip="边播放边在每行开头打点" />
+            </WrapPanel>
+            <!-- BPM / 开始(秒) / 行时长（对位 grid-cols-3 field） -->
+            <UniformGrid Columns="3" Margin="0,8,0,0">
+                <StackPanel Margin="0,0,6,0">
+                    <TextBlock Text="BPM" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,2" />
+                    <Grid>
+                        <TextBox x:Name="TbBpm" LostFocus="TbBpm_LostFocus" KeyDown="NumBox_KeyDown" />
+                        <TextBlock x:Name="PhBpm" Text="无" IsHitTestVisible="False" FontSize="12"
+                                   Foreground="{StaticResource Faint}" Margin="7,0,0,0" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+                <StackPanel Margin="0,0,6,0">
+                    <TextBlock Text="开始(秒)" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,2" />
+                    <TextBox x:Name="TbOffset" LostFocus="TbOffset_LostFocus" KeyDown="NumBox_KeyDown" />
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="行时长" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,2" />
+                    <TextBox x:Name="TbLineScale" LostFocus="TbLineScale_LostFocus" KeyDown="NumBox_KeyDown" />
+                </StackPanel>
+            </UniformGrid>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <CheckBox x:Name="ChkSnap" Content="对齐节拍" VerticalAlignment="Center"
+                          Checked="ChkSnap_Changed" Unchecked="ChkSnap_Changed" ToolTip="时刻对齐到检测出的节拍" />
+                <Button x:Name="BtnResetTimes" Content="清除手动时间" Style="{StaticResource BtnGhost}" FontSize="11"
+                        Padding="5,2" Margin="12,0,0,0" Click="BtnResetTimes_Click" />
+            </StackPanel>
+            <!-- 分析进度（解码+分析在后台任务；单次调用无回调，进度条用不确定态 + 已用时计时） -->
+            <ProgressBar x:Name="Prog" IsIndeterminate="True" Height="3" Margin="0,10,0,0" Visibility="Collapsed"
+                         Background="{StaticResource Raised}" BorderThickness="0" Foreground="{StaticResource Amber}" />
+            <TextBlock x:Name="TblProg" Visibility="Collapsed" FontSize="11" Foreground="{StaticResource Mut}"
+                       Margin="0,4,0,0" />
+        </StackPanel>
+    </Border>
 </UserControl>

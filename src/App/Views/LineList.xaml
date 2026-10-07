@@ -1,5 +1,233 @@
 <UserControl x:Class="JizuraLive.App.Views.LineList"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="LineList（M3 移植中）" Opacity="0.3" Margin="8" FontSize="11" />
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:JizuraLive.App.Views">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="B2V" />
+        <!-- 暗色下拉（与 TapPanel 同款；Theme.xaml 尚无 ComboBox 模板，M3 不动公共文件故就地复制） -->
+        <Style x:Key="DarkComboItem" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="bd" Background="Transparent" Padding="8,2">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource Raised2}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource Amber}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DarkCombo" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="Background" Value="{StaticResource Raised}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboItem}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Focusable="False" ClickMode="Press"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                                CornerRadius="4">
+                                            <Path Data="M 0 0 L 3.5 3.5 L 7 0" Stroke="{StaticResource Mut}" StrokeThickness="1.4"
+                                                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Faint}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter IsHitTestVisible="False" Margin="6,1,18,1" VerticalAlignment="Center"
+                                              Content="{TemplateBinding SelectionBoxItem}" />
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"
+                                   StaysOpen="False" Focusable="False" PopupAnimation="Fade">
+                                <Border Background="{StaticResource Raised2}" BorderBrush="{StaticResource Line2}"
+                                        BorderThickness="1" CornerRadius="4" MinWidth="{TemplateBinding ActualWidth}"
+                                        Margin="0,2,8,8">
+                                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- 小号下拉（行内切分数/布局） -->
+        <Style x:Key="MiniCombo" TargetType="ComboBox" BasedOn="{StaticResource DarkCombo}">
+            <Setter Property="Height" Value="22" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
+
+        <!-- 行模板（对位 LineRow.vue：行号 | 开始秒 | 文本，切分格纵排，动作行折行） -->
+        <DataTemplate x:Key="RowTemplate">
+            <Border x:Name="RowBd" Background="Transparent" BorderBrush="Transparent" BorderThickness="1"
+                    CornerRadius="6" Padding="6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="22" />
+                        <ColumnDefinition Width="66" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <!-- 播放中行的左侧琥珀条（对位 Vue 的 inset shadow） -->
+                    <Border x:Name="ActiveBar" Grid.RowSpan="3" Grid.ColumnSpan="3" Width="2"
+                            HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="-6,0,0,0"
+                            Background="{StaticResource Amber}" CornerRadius="1" Visibility="Collapsed" />
+                    <TextBlock Grid.Column="0" Text="{Binding No}" FontFamily="Consolas" FontSize="11"
+                               Foreground="{StaticResource Faint}" TextAlignment="Right" VerticalAlignment="Center" />
+                    <TextBox x:Name="StartBox" Grid.Column="1" Text="{Binding StartText, Mode=OneWay}"
+                             LostFocus="StartBox_LostFocus" KeyDown="TimeBox_KeyDown"
+                             ToolTip="{Binding StartTip}" Margin="0,0,5,0" FontSize="11" FontFamily="Consolas" />
+                    <!-- 编辑态：行内文本框（Enter 确认 / Esc 取消，记法可用） -->
+                    <TextBox x:Name="EditBox" Grid.Column="2" VerticalAlignment="Center" FontSize="12"
+                             Visibility="{Binding Editing, Converter={StaticResource B2V}}"
+                             Text="{Binding EditValue, UpdateSourceTrigger=PropertyChanged}"
+                             LostFocus="EditBox_LostFocus" KeyDown="EditBox_KeyDown" Loaded="EditBox_Loaded"
+                             ToolTip="记法（/ 分隔・*强调*・行尾 !・| 注释・[间奏 8]）同样可用。Enter 确认、Esc 取消" />
+                    <!-- 行文本：点击定位到行首（编辑态由触发器收起） -->
+                    <TextBlock x:Name="Lbl" Grid.Column="2" Text="{Binding Label}" ToolTip="{Binding Full}"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Cursor="Hand"
+                               MouseLeftButtonDown="Label_Click" />
+                    <!-- 切分格：每段一行（时间框第 2 段起，排在该段手法下拉左侧），纵向排布不折行 -->
+                    <ItemsControl Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4,0,0"
+                                  ItemsSource="{Binding Cuts}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Vertical" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                    <TextBox x:Name="CutTimeBox" Width="52" Height="22" FontSize="10" FontFamily="Consolas" Padding="2,0"
+                                             Text="{Binding StartText, Mode=OneWay}"
+                                             LostFocus="CutTimeBox_LostFocus" KeyDown="TimeBox_KeyDown"
+                                             ToolTip="{Binding BoundaryTip}"
+                                             Visibility="{Binding HasTime, Converter={StaticResource B2V}}" />
+                                    <ComboBox Style="{StaticResource MiniCombo}" MinWidth="98" Margin="2,0,0,0"
+                                              ItemsSource="{x:Static views:LineList.LayoutNames}"
+                                              SelectedIndex="{Binding LayoutIndex}"
+                                              SelectionChanged="CutCombo_SelectionChanged"
+                                              ToolTip="{Binding Title}" />
+                                </StackPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding CtManual}" Value="True">
+                                        <Setter TargetName="CutTimeBox" Property="BorderBrush" Value="{StaticResource Cyan}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <!-- 动作行（溢出折行，对位 flex-wrap） -->
+                    <WrapPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,4,0,0">
+                        <Button Content="&#xE70F;" FontFamily="Segoe MDL2 Assets" FontSize="11" Width="26" Height="22"
+                                Style="{StaticResource BtnGhost}" Click="EditBtn_Click" ToolTip="修改这一行的歌词" />
+                        <ComboBox Style="{StaticResource MiniCombo}" MinWidth="86" Margin="4,0,0,0"
+                                  ItemsSource="{x:Static views:LineList.NcutNames}"
+                                  SelectedIndex="{Binding NcutIndex}" SelectionChanged="NcutCombo_SelectionChanged"
+                                  ToolTip="这一行的切分数"
+                                  Visibility="{Binding HasCutsControls, Converter={StaticResource B2V}}" />
+                        <ComboBox Style="{StaticResource MiniCombo}" MinWidth="86" Margin="4,0,0,0"
+                                  ItemsSource="{x:Static views:LineList.LayoutNames}"
+                                  SelectedIndex="{Binding LayoutIndex}" SelectionChanged="RowLayoutCombo_SelectionChanged"
+                                  ToolTip="这一行的布局指定（自动 = 按词数随机抽取）" />
+                        <Button Content="&#x25CE;" FontSize="12" Width="26" Height="22" Margin="4,0,0,0"
+                                Style="{StaticResource BtnGhost}" Click="TapFromBtn_Click"
+                                ToolTip="从这一行开始重新打点同步" />
+                        <Button x:Name="LockBtn" Content="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                                Width="26" Height="22" Margin="4,0,0,0" Style="{StaticResource BtnGhost}"
+                                Click="LockBtn_Click" ToolTip="锁定这一行的构成" />
+                    </WrapPanel>
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Active}" Value="True">
+                    <Setter TargetName="RowBd" Property="Background" Value="{StaticResource Raised}" />
+                    <Setter TargetName="RowBd" Property="BorderBrush" Value="{StaticResource Line2}" />
+                    <Setter TargetName="ActiveBar" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Manual}" Value="True">
+                    <Setter TargetName="StartBox" Property="BorderBrush" Value="{StaticResource Cyan}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Interlude}" Value="True">
+                    <Setter TargetName="Lbl" Property="FontStyle" Value="Italic" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Editing}" Value="True">
+                    <Setter TargetName="Lbl" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Locked}" Value="True">
+                    <Setter TargetName="LockBtn" Property="Foreground" Value="{StaticResource Amber}" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <!-- 对位 .sec；列表占满余高，虚拟化交给 ListBox（对位 Vue 的窗口化渲染） -->
+    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,14">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="行与切分" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Mut}"
+                           VerticalAlignment="Center" />
+                <TextBlock x:Name="TblInfo" Grid.Column="1" FontFamily="Consolas" FontSize="11"
+                           Foreground="{StaticResource Mut}" VerticalAlignment="Center" />
+            </Grid>
+            <ListBox x:Name="Lst" Grid.Row="1" ItemTemplate="{StaticResource RowTemplate}"
+                     Background="Transparent" BorderThickness="0" Padding="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     VirtualizingStackPanel.IsVirtualizing="True"
+                     VirtualizingStackPanel.VirtualizationMode="Recycling">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="Margin" Value="0,0,0,6" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="Focusable" Value="False" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter />
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
+        </Grid>
+    </Border>
 </UserControl>

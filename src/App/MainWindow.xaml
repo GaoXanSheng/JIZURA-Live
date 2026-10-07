@@ -71,7 +71,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <views:TapPanel />
-                        <views:LyricsPanel />
+                        <!--<views:LyricsPanel />-->
                         <views:AudioPanel />
                         <views:LineList />
                     </StackPanel>

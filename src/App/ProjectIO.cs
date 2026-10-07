@@ -1,10 +1,13 @@
 using System.IO;
-using System.Windows;
+using System.IO.Compression;
+using System.Text;
 using JizuraLive.Engine;
-using JizuraLive.Server;
 using JizuraLive.Logging;
+using JizuraLive.Server;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
+using Timer = System.Timers.Timer;
 
 namespace JizuraLive.App;
 
@@ -20,7 +23,24 @@ public static class ProjectIO
 
     private static string AutosavePath => Path.Combine(AppDirs.ConfigDir, "autosave.json");
 
-    private static System.Timers.Timer? _autosaveTimer;
+    private static Timer? _autosaveTimer;
+
+    /// <summary>
+    /// 工程 JSON 统一 camelCase 输出（对齐 pkg.ts 的 JSON.stringify(S.project) 契约；
+    /// MergeProject / 前端 mergeProject 都按 camelCase 键读取，Newtonsoft 的 JObject
+    /// 键查找是大小写敏感的，写错口径 = 打开/恢复时字段全部静默丢失）。
+    /// 只影响属性名；JObject 成员（overrides/cutTime 等数据键）与字典键（行号"0"等）原样保留。
+    /// </summary>
+    private static readonly JsonSerializer ProjectSerializer =
+        new() { ContractResolver = new CamelCasePropertyNamesContractResolver() };
+
+    /// <summary>工程 → 紧凑 camelCase JSON（= JSON.stringify）。</summary>
+    public static string SerializeProject(Project p)
+    {
+        var sw = new StringWriter();
+        ProjectSerializer.Serialize(sw, p);
+        return sw.ToString();
+    }
 
     // ---------------- mergeProject（project.ts 逐条对位） ----------------
 
@@ -241,7 +261,7 @@ public static class ProjectIO
     /// <summary>防抖 700ms（对位 project.ts autosave）。</summary>
     public static void Autosave(Project p)
     {
-        _autosaveTimer ??= new System.Timers.Timer(700) { AutoReset = false };
+        _autosaveTimer ??= new Timer(700) { AutoReset = false };
         _autosaveTimer.Stop();
         _autosaveTimer.Elapsed += (_, _) => FlushAutosave(p);
         _autosaveTimer.Start();
@@ -253,7 +273,7 @@ public static class ProjectIO
         try
         {
             Directory.CreateDirectory(AppDirs.ConfigDir);
-            AtomicFile.Write(AutosavePath, JsonConvert.SerializeObject(p));
+            AtomicFile.Write(AutosavePath, SerializeProject(p));
         }
         catch (Exception ex)
         {
@@ -272,11 +292,11 @@ public static class ProjectIO
             var entries = JizuraPackage.Read(bytes);
             var pj = entries.FirstOrDefault(e => e.Name == "project.json")
                      ?? throw new InvalidDataException("工程包缺 project.json");
-            var raw = JObject.Parse(System.Text.Encoding.UTF8.GetString(pj.Data));
+            var raw = JObject.Parse(Encoding.UTF8.GetString(pj.Data));
             // TODO(M3)：包内音频/字体条目落盘恢复（AudioChanged 事件接入）
             return MergeProject(raw);
         }
-        return MergeProject(JObject.Parse(System.Text.Encoding.UTF8.GetString(bytes)));
+        return MergeProject(JObject.Parse(Encoding.UTF8.GetString(bytes)));
     }
 
     /// <summary>
@@ -287,15 +307,106 @@ public static class ProjectIO
     {
         if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
         {
-            AtomicFile.Write(path, JsonConvert.SerializeObject(p, Formatting.Indented));
+            // 样式配置导入用 JSON（camelCase，与 .jizuralive 内的 project.json 同口径）
+            var sw = new StringWriter();
+            ProjectSerializer.Serialize(sw, p);
+            AtomicFile.Write(path, sw.ToString());
             return;
         }
         SavePackage(p, path, audioFile, audioName);
     }
 
-    /// <summary>TODO(M3-A)：pkg.ts 移植——抛出前先落一份 .json 兜底，避免用户丢工程。</summary>
+    /// <summary>
+    /// .jizuralive 写入（pkg.ts 的 buildPackage/buildProjectPackage 移植）：
+    ///   "JZLV" | u16 version=1 | u16 entryCount | u32 reserved(0)   —— 头 16 字节
+    ///   每条目: u8 nameLen | name(UTF-8) | u8 codec(0=raw,1=brotli) | u64 rawSize | u64 packSize | u64 offset
+    ///   之后各条目负载连续排列，全部小端；offset 是文件内绝对偏移（首条目 = 头长）。
+    /// 条目：project.json（brotli；末尾附 app/appVersion 字段，对齐 pkg.ts 的 Object.assign）+ audio.bin（裸存，
+    /// 音频本体已是压缩格式不白费 CPU）。用户字体（fonts/&lt;key&gt;）随 M2 字体管线落盘后接入。
+    /// 写完先自校验：用读取端 JizuraPackage.Read 读回，断言 project.json/音频逐字节一致才落盘。
+    /// </summary>
     public static void SavePackage(Project p, string path, byte[]? audioFile, string? audioName)
     {
-        throw new NotImplementedException("TODO(M3-A)：.jizuralive 写入（pkg.ts 移植）");
+        // project.json：全字段 + {app:'jizura-live', appVersion}（pkg.ts buildProjectPackage 同款，camelCase）
+        var proj = p == null
+            ? new JObject()
+            : JObject.FromObject(p, ProjectSerializer);
+        proj["app"] = "jizura-live";
+        proj["appVersion"] = typeof(ProjectIO).Assembly.GetName().Version?.ToString(3) ?? "";
+        var projBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(proj)); // 紧凑输出 = JSON.stringify
+
+        var entries = new List<(string Name, byte[] Data, bool Raw)> { ("project.json", projBytes, false) };
+        if (audioFile is { Length: > 0 }) entries.Add(("audio.bin", audioFile, true)); // audioName 仅作元数据，条目名固定（pkg.ts AUDIO_ENTRY_PREFIX + 'bin'）
+
+        using var ms = new MemoryStream();
+        using (var w = new BinaryWriter(ms, Encoding.UTF8, true))
+        {
+            w.Write((byte)'J'); w.Write((byte)'Z'); w.Write((byte)'L'); w.Write((byte)'V');
+            w.Write((ushort)JizuraPackage.LatestVersion);
+            w.Write((ushort)entries.Count);
+            w.Write(0u); // reserved（u32）
+            w.Write(0u); // 头部补齐到 16 字节（pkg.ts 的 head = Uint8Array(16)，12..16 四个字节恒 0；
+                         // 读取端 p=16 起解析条目，这里少 4 字节就会整体错位）
+
+            // 条目头 = nameLen(1) + name + codec(1) + rawSize(8) + packSize(8) + offset(8) = nameLen + 26
+            var headerLen = 16 + entries.Sum(e => 2 + Encoding.UTF8.GetByteCount(e.Name) + 24);
+            var payloads = new List<byte[]>(entries.Count);
+            long off = headerLen;
+            foreach (var (name, data, raw) in entries)
+            {
+                byte[] packed;
+                byte codec;
+                if (raw)
+                {
+                    codec = 0;
+                    packed = data;
+                }
+                else
+                {
+                    var src = new MemoryStream();
+                    using (var br = new BrotliStream(src, CompressionLevel.Optimal, true))
+                        br.Write(data, 0, data.Length);
+                    packed = src.ToArray(); // BrotliStream Dispose 已把收尾字节刷进 src
+                    codec = 1;
+                }
+
+                payloads.Add(packed);
+                var nameBytes = Encoding.UTF8.GetBytes(name);
+                w.Write((byte)nameBytes.Length);
+                w.Write(nameBytes);
+                w.Write(codec);
+                w.Write((ulong)data.LongLength);
+                w.Write((ulong)packed.LongLength);
+                w.Write((ulong)off);
+                off += packed.LongLength;
+            }
+
+            foreach (var pl in payloads) w.Write(pl);
+        }
+
+        var bytes = ms.ToArray();
+
+        // 自校验：读取端逐字节断言（project.json 原文一致 + JSON 可解析 + 音频一致），不合格不落盘
+        var back = JizuraPackage.Read(bytes);
+        var backPj = back.FirstOrDefault(e => e.Name == "project.json")
+                     ?? throw new InvalidDataException("自校验失败：写出的工程包缺 project.json");
+        if (!backPj.Data.AsSpan().SequenceEqual(projBytes))
+            throw new InvalidDataException("自校验失败：project.json 读回与原文不一致");
+        JObject.Parse(Encoding.UTF8.GetString(backPj.Data));
+        if (audioFile is { Length: > 0 })
+        {
+            var backAudio = back.FirstOrDefault(e => e.Name == "audio.bin");
+            if (backAudio == null || !backAudio.Data.AsSpan().SequenceEqual(audioFile))
+                throw new InvalidDataException("自校验失败：audio.bin 读回与原文不一致");
+        }
+
+        // 原子落盘（AtomicFile 只有文本重载，字节版就地内联：tmp → replace/move）
+        var dir = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        var tmp = path + ".tmp";
+        File.WriteAllBytes(tmp, bytes);
+        if (File.Exists(path)) File.Replace(tmp, path, null);
+        else File.Move(tmp, path);
+        Log.Info($"[ProjectIO] 工程包已保存：{path}（{entries.Count} 条目，{bytes.Length} 字节，自校验通过）");
     }
 }

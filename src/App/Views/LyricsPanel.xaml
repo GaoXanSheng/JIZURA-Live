@@ -1,5 +1,131 @@
 <UserControl x:Class="JizuraLive.App.Views.LyricsPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <TextBlock Text="LyricsPanel（M3 移植中）" Opacity="0.3" Margin="8" FontSize="11" />
+    <UserControl.Resources>
+        <!-- 暗色下拉（与 TapPanel 同款；Theme.xaml 尚无 ComboBox 模板，M3 不动公共文件故就地复制） -->
+        <Style x:Key="DarkComboItem" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="bd" Background="Transparent" Padding="8,3">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource Raised2}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground" Value="{StaticResource Amber}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DarkCombo" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="bd" Background="{StaticResource Raised}"
+                                                BorderBrush="{StaticResource Line2}" BorderThickness="1" CornerRadius="4">
+                                            <Path Data="M 0 0 L 3.5 3.5 L 7 0" Stroke="{StaticResource Mut}" StrokeThickness="1.4"
+                                                  HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Faint}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter IsHitTestVisible="False" Margin="7,2,20,2" VerticalAlignment="Center"
+                                              Content="{TemplateBinding SelectionBoxItem}" />
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom" AllowsTransparency="True"
+                                   StaysOpen="False" Focusable="False" PopupAnimation="Fade">
+                                <Border Background="{StaticResource Raised2}" BorderBrush="{StaticResource Line2}"
+                                        BorderThickness="1" CornerRadius="4" MinWidth="{TemplateBinding ActualWidth}"
+                                        Margin="0,2,8,8">
+                                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboItem}" />
+        </Style>
+    </UserControl.Resources>
+
+    <!-- 对位 .sec：flex-col gap-2.5 px-4 py-3.5 border-b border-line -->
+    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,14">
+        <StackPanel>
+            <!-- sec-h：标题 + 动作 -->
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="歌 词" Grid.Column="0" FontSize="11" FontWeight="SemiBold"
+                           Foreground="{StaticResource Mut}" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="读取 LRC" Style="{StaticResource BtnGhost}" FontSize="11" Padding="5,2"
+                            Click="BtnLoadLrc_Click"
+                            ToolTip="读取 .lrc：整份替换歌词并带上每行的开始时刻（可用 Ctrl+Z 撤销）" />
+                    <Button Content="清空" Style="{StaticResource BtnGhost}" FontSize="11" Padding="5,2" Margin="6,0,0,0"
+                            Click="BtnClear_Click"
+                            ToolTip="清空歌词与逐行时间、逐行指定（可用 Ctrl+Z 撤销）" />
+                    <Button x:Name="BtnSyntax" Content="记法" Style="{StaticResource BtnGhost}" FontSize="11" Padding="5,2"
+                            Margin="6,0,0,0" Click="BtnSyntax_Click" />
+                </StackPanel>
+            </Grid>
+            <!-- 歌词正文（1 行 = 1 短语）；输入经 260ms 防抖 Mutate（对位 onInput 的 replanSoon(260)） -->
+            <TextBox x:Name="TbLyrics" AcceptsReturn="True" TextChanged="TbLyrics_TextChanged"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                     TextWrapping="NoWrap" FontSize="13" Height="152" BorderThickness="1"
+                     ToolTip="歌词（1行 = 1短语）" />
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <TextBlock Text="歌词语言" FontSize="11" Foreground="{StaticResource Mut}"
+                           VerticalAlignment="Center" Margin="0,0,6,0" />
+                <ComboBox x:Name="CmbLang" Style="{StaticResource DarkCombo}" Width="104" Height="26"
+                          SelectionChanged="CmbLang_SelectionChanged" />
+                <TextBlock x:Name="TblLangNote" FontSize="11" Foreground="{StaticResource Mut}"
+                           VerticalAlignment="Center" Margin="6,0,0,0" />
+            </StackPanel>
+            <!-- 记法说明（Vue syntaxOpen 折叠块） -->
+            <Border x:Name="SyntaxBox" Visibility="Collapsed" Background="{StaticResource Raised}"
+                    BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="6"
+                    Padding="12,10" Margin="0,8,0,0">
+                <StackPanel>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="・1 行就是 1 个短语，空行表示稍作停顿" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2">
+                        <Run Text="・" /><Run Text="夜色渐染/还记得" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 用 " /><Run Text="/" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" 指定切分点" /></TextBlock>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2">
+                        <Run Text="・" /><Run Text="*强调*" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 强调（更大・冲击力更强的演出）" /></TextBlock>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2">
+                        <Run Text="・行尾 " /><Run Text="!" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 加入闪烁与震动" /></TextBlock>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2">
+                        <Run Text="・" /><Run Text="歌词|注释文字" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 注释排版里的小字" /></TextBlock>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2">
+                        <Run Text="・" /><Run Text="[01:23.45]歌词" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 直接使用 LRC 时间戳" /></TextBlock>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,2">
+                        <Run Text="・" /><Run Text="[间奏 8]" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 8 秒间奏（只出背景与装饰）。省略秒数默认 4 秒" /></TextBlock>
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap">
+                        <Run Text="・" /><Run Text="#" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" 开头的行 … 注释（忽略）" /></TextBlock>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Border>
 </UserControl>
