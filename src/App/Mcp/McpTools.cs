@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using JizuraLive.App.I18n;
@@ -186,7 +186,7 @@ public sealed class McpTools
             ["playing"] = _preview.IsPlaying,
             ["t"] = Round3(t),
             ["duration"] = plan != null ? Round3(plan.Duration) : 0d,
-            ["loop"] = _preview.Loop ? "all" : "off",
+            ["loop"] = Ranges.ModeKey(_preview.Loop),
             ["loading"] = new JObject
             {
                 ["audio"] = _state.AudioFileName != null && _state.Audio == null,
@@ -218,8 +218,9 @@ public sealed class McpTools
             ["timing"] = pj["timing"]?.DeepClone() ?? new JObject(),
             ["overrides"] = pj["overrides"]?.DeepClone() ?? new JObject(),
             ["enabled"] = pj["enabled"]?.DeepClone() ?? new JObject(),
-            // C# Project 模型没有 exportRange 字段（导出范围尚未接入 Project/导出层）
-            ["exportRange"] = JValue.CreateNull()
+            // 导出范围（选段）按 0 基切分索引回吐（对位 agent-api.ts 的 get_state 形态；
+            // update_settings 的入参是 1 基行号，单位不同，见 DOC/MCP.md）
+            ["exportRange"] = p.ExportRange?.DeepClone() ?? JValue.CreateNull()
         };
 
         var lines = new JArray();
@@ -398,9 +399,21 @@ public sealed class McpTools
                 }
         if (s["aspect"] != null)
             Check(Aspects.Contains(s.Value<string>("aspect") ?? ""), L.T("Mcp.Err.BadAspect"));
-        // C# 差异：画质档位与导出范围尚未接入（Project 模型无 quality/exportRange，导出层不吃范围裁剪）
+        // C# 差异：画质档位未接入（导出画质由 FFmpeg 按分辨率/帧率定）
         Check(s["quality"] == null, L.T("Mcp.Err.QualityNotSupported"));
-        Check(s["exportRange"] == null, L.T("Mcp.Err.ExportRangeNotSupported"));
+        // 导出范围（选段）：入参与 Vue 一致按 1 基行号（agent-api.ts 的 lineIdx →
+        // setExportRange 行→切分跨度）；null = 清空（整片）。get_state 回吐的是 0 基切分索引。
+        var erFrom = 0;
+        var erTo = 0;
+        if (s["exportRange"] != null && s["exportRange"].Type != JTokenType.Null)
+        {
+            var er = s["exportRange"] as JObject;
+            Check(er != null && Ranges.TryInt(er["from"], out erFrom) && Ranges.TryInt(er["to"], out erTo)
+                  && erFrom >= 1 && erTo >= 1, L.T("Mcp.Err.ExportRangeNotSupported"));
+            var lineCount = _state.Plan?.Lines.Count ?? 0;
+            Check(erFrom <= lineCount, L.F("Mcp.Err.UnknownLine", erFrom));
+            Check(erTo <= lineCount, L.F("Mcp.Err.UnknownLine", erTo));
+        }
 
         var applied = s.Properties().Select(x => x.Name).ToArray();
         _state.Mutate(proj =>
@@ -470,6 +483,23 @@ public sealed class McpTools
             if (s["aspect"] != null) proj.Aspect = s.Value<string>("aspect")!;
             if (s["res"] != null) proj.Res = s.Value<int>("res");
             if (s["fps"] != null) proj.Fps = s.Value<int>("fps");
+            if (s["exportRange"] != null)
+            {
+                var plan = _state.Plan;
+                if (s["exportRange"].Type == JTokenType.Null || plan == null)
+                {
+                    proj.ExportRange = null;
+                }
+                else
+                {
+                    // 两个 1 基行号 → 分别按行按钮语义套用（先 min 后 max 并集），与 Vue 的
+                    // setExportRange(Math.min, false) + setExportRange(Math.max, true) 逐行一致
+                    var lo = Math.Min(erFrom, erTo) - 1;
+                    var hi = Math.Max(erFrom, erTo) - 1;
+                    Ranges.ApplyLineRange(proj, plan, lo, false);
+                    Ranges.ApplyLineRange(proj, plan, hi, true);
+                }
+            }
         }, L.T("Mcp.Mutate.Settings"), look: true);
         _state.ReplanNow();
         ProjectIO.FlushAutosave(_state.Project);
@@ -614,8 +644,8 @@ public sealed class McpTools
 
         _state.Mutate(p =>
         {
-            if (key != null) SetCutTech(p, i, k, group, key);
-            if (quiet != null) MarkCutQuiet(p, i, k, new[] { group }, quiet.Value);
+            if (key != null) CutTechEdit.SetCutTech(p, i, k, group, key);
+            if (quiet != null) CutTechEdit.MarkCutQuiet(p, i, k, new[] { group }, quiet.Value);
         }, L.T("Mcp.Mutate.CutTech"), replan: false, look: true);
         _state.ReplanNow();
         return new JObject
@@ -741,9 +771,11 @@ public sealed class McpTools
         if (a["time"] != null) _preview.Seek(a.Value<double>("time"));
         if (a["loop"] != null)
         {
+            // all/line/cut/off 对位 Vue；range（循环导出范围/选段）是 C# 扩展档
             var loop = a.Value<string>("loop") ?? "";
-            Check(loop is "all" or "off", L.T("Mcp.Err.LoopModesLimited"));
-            _preview.Loop = loop == "all";
+            var mode = Ranges.ParseMode(loop);
+            Check(mode != null, L.F("Mcp.Err.LoopModesLimited", loop));
+            _preview.SetLoop(mode!.Value);
         }
         // 预览音量/消音（只动预览出声，导出不变；不写设置——MCP 是会话级控制）
         if (a["volume"] != null || a["muted"] != null)
@@ -752,7 +784,7 @@ public sealed class McpTools
         {
             ["playing"] = _preview.IsPlaying,
             ["t"] = Round2(_preview.CurrentTime),
-            ["loop"] = _preview.Loop ? "all" : "off",
+            ["loop"] = Ranges.ModeKey(_preview.Loop),
             ["volume"] = Math.Round(_preview.Volume, 3),
             ["muted"] = _preview.Muted
         };
@@ -881,7 +913,7 @@ public sealed class McpTools
         if (a["dir"] != null)
             Check(!string.IsNullOrWhiteSpace(dir), L.T("Mcp.Err.BadDir"));
         var outDir = dir != null && dir.Trim().Length > 0 ? dir.Trim() : DefaultExportDir();
-        var outPath = Path.Combine(outDir, ExportFileName(kind, p));
+        var outPath = Path.Combine(outDir, ExportFileName(kind, p, _state.Plan?.Cuts.Count ?? 0));
 
         lock (_exportLock)
         {
@@ -943,8 +975,8 @@ public sealed class McpTools
     private static string DefaultExportDir() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "JIZURA");
 
-    /// <summary>各 kind 的最终文件名（对位 export.ts 的 exportFileName + baseName）。</summary>
-    private static string ExportFileName(string kind, Project p)
+    /// <summary>各 kind 的最终文件名（对位 export.ts 的 exportFileName + baseName + rangeSuffix）。</summary>
+    private static string ExportFileName(string kind, Project p, int cutCount)
     {
         var spec = ExportSpec.SpecFromLegacyKind(kind, p)!;
         var suffix =
@@ -961,7 +993,9 @@ public sealed class McpTools
         if (safe.Length > 60) safe = safe[..60];
         if (safe.Length == 0) safe = "jizura";
         var keyBg = p.KeyBg is "green" or "black" ? p.KeyBg : null;
-        return safe + (keyBg == null ? "" : keyBg == "green" ? "_greenback" : "_blackback") + suffix;
+        // 选段后缀 _C01 / _C01-03（对位 look.ts rangeSuffix）插在扩展名后缀之前
+        return safe + (keyBg == null ? "" : keyBg == "green" ? "_greenback" : "_blackback")
+               + Ranges.RangeSuffix(p.ExportRange, cutCount) + suffix;
     }
 
     // ============================================================ look.ts 的覆盖层/锁语义
@@ -985,9 +1019,9 @@ public sealed class McpTools
                 var allowNone = g is "decor" or "trans";
                 var avoid = kind == "omakase" ? CutGroupVal(cut, g) : null;
                 var key = PickEnabledTech(p, g, n, allowNone, avoid);
-                if (key.Length > 0) SetCutTech(p, cut.Line, k, g, key);
+                if (key.Length > 0) CutTechEdit.SetCutTech(p, cut.Line, k, g, key);
             }
-            MarkCutQuiet(p, cut.Line, k, groups, true);
+            CutTechEdit.MarkCutQuiet(p, cut.Line, k, groups, true);
         }, kind == "omakase" ? L.T("Mcp.Mutate.CutOmakase") : L.T("Mcp.Mutate.CutReroll"), replan: false, look: true);
         _state.ReplanNow();
         _preview.Seek(t0);
@@ -1044,14 +1078,9 @@ public sealed class McpTools
 
     // ---- overrides（setOv / setCutTech / markCutQuiet 的逐行对位） ----
 
-    private static JObject TakeOverride(Project p, int line) =>
-        p.Overrides.TryGetValue(line.ToString(), out var o) && o != null ? new JObject(o) : new JObject();
+    private static JObject TakeOverride(Project p, int line) => CutTechEdit.TakeOverride(p, line);
 
-    private static void PutOverride(Project p, int line, JObject ov)
-    {
-        if (ov.Count > 0) p.Overrides[line.ToString()] = ov;
-        else p.Overrides.Remove(line.ToString());
-    }
+    private static void PutOverride(Project p, int line, JObject ov) => CutTechEdit.PutOverride(p, line, ov);
 
     private static JObject? OverrideAt(Project p, int line) =>
         p.Overrides.TryGetValue(line.ToString(), out var o) ? o : null;
@@ -1065,57 +1094,6 @@ public sealed class McpTools
                    || value.Type == JTokenType.String && (string)value! == "";
         if (drop) cur.Remove(key);
         else cur[key] = value!.DeepClone();
-        PutOverride(p, line, cur);
-    }
-
-    private static void SetCutTech(Project p, int line, int k, string group, string key)
-    {
-        var cur = TakeOverride(p, line);
-        var cutTech = cur["cutTech"] as JObject ?? new JObject();
-        var slot = cutTech[k.ToString()] as JObject ?? new JObject();
-        cutTech.Remove(k.ToString());
-        if (key.Length == 0) slot.Remove(group);
-        else slot[group] = key;
-        if (slot.Count > 0) cutTech[k.ToString()] = slot;
-        else cutTech.Remove(k.ToString());
-        if (cutTech.Count > 0) cur["cutTech"] = cutTech;
-        else cur.Remove("cutTech");
-
-        var cutQuiet = cur["cutQuiet"] as JObject ?? new JObject();
-        var q = cutQuiet[k.ToString()] as JObject ?? new JObject();
-        cutQuiet.Remove(k.ToString());
-        q.Remove(group);
-        if (q.Count > 0) cutQuiet[k.ToString()] = q;
-        else cutQuiet.Remove(k.ToString());
-        if (cutQuiet.Count > 0) cur["cutQuiet"] = cutQuiet;
-        else cur.Remove("cutQuiet");
-
-        if (group == "layout")
-        {
-            var cutLayouts = cur["cutLayouts"] as JObject ?? new JObject();
-            if (key.Length == 0) cutLayouts.Remove(k.ToString());
-            else cutLayouts[k.ToString()] = key;
-            if (cutLayouts.Count > 0) cur["cutLayouts"] = cutLayouts;
-            else cur.Remove("cutLayouts");
-        }
-        PutOverride(p, line, cur);
-    }
-
-    private static void MarkCutQuiet(Project p, int line, int k, string[] groups, bool on)
-    {
-        var cur = TakeOverride(p, line);
-        var cutQuiet = cur["cutQuiet"] as JObject ?? new JObject();
-        var q = cutQuiet[k.ToString()] as JObject ?? new JObject();
-        cutQuiet.Remove(k.ToString());
-        foreach (var g in groups)
-        {
-            if (on) q[g] = true;
-            else q.Remove(g);
-        }
-        if (q.Count > 0) cutQuiet[k.ToString()] = q;
-        else cutQuiet.Remove(k.ToString());
-        if (cutQuiet.Count > 0) cur["cutQuiet"] = cutQuiet;
-        else cur.Remove("cutQuiet");
         PutOverride(p, line, cur);
     }
 
@@ -1154,7 +1132,7 @@ public sealed class McpTools
       {"name":"set_locks","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["tech","params"]},"keys":{"type":"array","items":{"type":"string","maxLength":40}},"locked":{"type":"boolean"}},"required":["kind","keys","locked"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"randomize","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"target":{"type":"string","enum":["all","line","cut"]},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"cut":{"type":"integer","minimum":1,"maximum":1000},"strategy":{"type":"string","enum":["omakase","shuffle"]}},"required":["target","revision"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"history","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["edit","look"]},"direction":{"type":"string","enum":["back","forward"]}},"required":["kind","direction"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"preview","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["play","pause"]},"time":{"type":"number","minimum":0,"maximum":86400},"loop":{"type":"string","enum":["all","line","cut","off"]},"volume":{"type":"number","minimum":0,"maximum":1},"muted":{"type":"boolean"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"preview","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["play","pause"]},"time":{"type":"number","minimum":0,"maximum":86400},"loop":{"type":"string","enum":["all","line","cut","range","off"]},"volume":{"type":"number","minimum":0,"maximum":1},"muted":{"type":"boolean"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"tap_sync","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["start","record","back","stop"]},"line":{"type":"integer","minimum":1,"maximum":100000},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"project","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["get","save"]}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"start_export","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["mp4","png","pnga","pngl","pngf","webm","webmfront","subwebm"]},"dir":{"type":"string","maxLength":500}},"required":["kind"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},

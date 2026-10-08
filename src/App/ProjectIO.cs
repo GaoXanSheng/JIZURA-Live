@@ -110,6 +110,17 @@ public static class ProjectIO
         if (d.ExportCfg != null && d.ExportCfg["audio"] == null && p["includeAudio"]?.Type == JTokenType.Boolean)
             d.ExportCfg["audio"] = (bool)p["includeAudio"];
 
+        // 导出范围（选段）：{from,to} 0 基切分索引（对位 project.ts 的 exportRange）；
+        // 形状不合法（非数值 / from < 0）直接丢 → null = 整片。越界 clamp 在 Ranges.ExportRangeCuts 里做。
+        if (p["exportRange"] is JObject er && Ranges.TryInt(er["from"], out var erFrom) && erFrom >= 0)
+            d.ExportRange = new JObject
+            {
+                ["from"] = erFrom,
+                ["to"] = Ranges.TryInt(er["to"], out var erTo) ? erTo : erFrom,
+            };
+        else
+            d.ExportRange = null;
+
         // 锁：只允许 plain key 且只能开
         d.Locks = new LocksSettings();
         if (p["locks"] is JObject locks)

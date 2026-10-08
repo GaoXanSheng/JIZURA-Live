@@ -18,8 +18,8 @@ namespace JizuraLive.App.Views;
 // 逐行显示行号 / 开始时刻（手动青框）/ 行文本（点击定位）/ 每段切分边界与布局 / 动作行。
 // 窗口化渲染改由 ListBox 虚拟化承担；播放行跟随用 150ms 轮询当前行（对位 scrolltoline）。
 // 视觉树（行内三列 + 切分格 + 动作行图标）在 LineList.xaml 的 RowTemplate 里；
-// 注：导出范围按钮只有视觉（RangeBtn）—— exportRange 字段尚未进入 C# Project 模型（Vue 专属），
-// 因此点击无行为、行也没有 inRange 的琥珀描边，接入 Project/导出层后补。
+// 导出范围按钮（RangeBtn）＝ 把该行首→末切分设为选段（Shift 并集、再点取消），
+// 命中行按钮与行框转琥珀（对位 LineRow.vue 的 inRange / onRng）。
 public partial class LineList : UserControl, INotifyPropertyChanged
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -167,6 +167,8 @@ public partial class LineList : UserControl, INotifyPropertyChanged
             _cutsByLinePlan = plan;
         }
         var rows = new List<LineRowVm>(plan.Lines.Count);
+        // 导出范围（选段）：0 基切分索引；行命中 = 行的切分跨度与范围相交（对位 LineList.vue 的 inRange 判定）
+        var range = Ranges.ExportRangeCuts(p.ExportRange, plan.Cuts.Count);
         for (var i = 0; i < plan.Lines.Count; i++)
         {
             var ln = plan.Lines[i];
@@ -229,6 +231,8 @@ public partial class LineList : UserControl, INotifyPropertyChanged
             }
 
             rows.Add(row);
+            if (range != null && Ranges.LineCutSpan(plan, i) is { } sp)
+                row.InRange = sp.From <= range.Value.To && sp.To >= range.Value.From;
             _rowMap[i] = row;
         }
 
@@ -587,6 +591,22 @@ public partial class LineList : UserControl, INotifyPropertyChanged
         if ((sender as FrameworkElement)?.DataContext is LineRowVm row)
             TapSession.Start(row.I);
     }
+
+    /// <summary>
+    /// 导出范围（选段）按钮（对位 LineRow.vue 的 onRng → look.ts setExportRange）：
+    /// 把这一行首→末切分设为范围；Shift+点击与现有范围取并集；点在同一段上取消。
+    /// 不动画面、不重规划（Vue 是 flushSave + replan-sync），只刷行列表与琥珀态
+    /// （C# 无 toast，反馈落在行框/按钮的琥珀与导出面板的范围信息行）。
+    /// </summary>
+    private void RangeBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not LineRowVm row) return;
+        var plan = State.Plan;
+        if (plan == null || row.I >= plan.Lines.Count) return;
+        var extend = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        State.Mutate(p => Ranges.ApplyLineRange(p, plan, row.I, extend),
+            L.T("LineList.Mutate.Range"), replan: false);
+    }
 }
 
 // ---------------- 行 / 切分格 VM（对位 LineRow.vue 的 Row/CutCell） ----------------
@@ -609,6 +629,9 @@ public sealed class LineRowVm : INotifyPropertyChanged
     public string LayoutKey { get; set; } = "";
     public int NcutIndex { get; set; }
     public bool Locked { get; set; }
+
+    /// <summary>这一行的切分跨度与导出范围（选段）相交（对位 LineRow.vue 的 inRange）。</summary>
+    public bool InRange { get; set; }
     public bool HasCutsControls { get; set; } = true;
     public List<CutVm> Cuts { get; set; } = new();
     public string EditValue { get; set; } = "";

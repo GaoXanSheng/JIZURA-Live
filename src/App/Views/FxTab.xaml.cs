@@ -2,15 +2,17 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
-using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.App.Views;
 
-// 特效面板（对位 FxTab.vue + Dialogs.vue 音频特效弹窗的落panel版）：
-// fx 参数滑块（双向绑定手写：拖动中只刷显示，DragCompleted / 键盘改动才 Mutate 防循环）+
-// 闪光/抽帧/HUD/种子/隐藏装饰编号时刻开关 + 音频特效（预设下拉 + 效果单元开关，AudioFx 公开表）。
+// 特效面板（对位 FxTab.vue）：fx 参数滑块（双向绑定手写：拖动中只刷显示，DragCompleted / 键盘改动才 Mutate 防循环）+
+// 闪光/抽帧/HUD/种子/隐藏装饰编号时刻开关。
+// 音频效果（预设/效果链/变速/EQ）已搬进独立弹窗 AudioFxDialog——由播放条声音组的「音频效果」按钮打开，
+// 本面板只留画面特效（对位 Vue：特效弹窗不落在特效页里）。
 public partial class FxTab : UserControl
 {
     private bool _built;
@@ -39,10 +41,19 @@ public partial class FxTab : UserControl
 
     private readonly List<FxRow> _rows = new();
     private readonly Dictionary<string, bool> _thumbDrag = new();
+    private readonly DispatcherTimer _fxDebounce; // 拖动中的参数合并提交（对位 Vue 的 replanSoon(120)）
+    private string _pendingFxKey = "";
+    private double _pendingFxVal;
 
     public FxTab()
     {
         InitializeComponent();
+        _fxDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+        _fxDebounce.Tick += (_, _) =>
+        {
+            _fxDebounce.Stop();
+            FlushPendingFx();
+        };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -54,7 +65,6 @@ public partial class FxTab : UserControl
             _built = true;
             BuildSliderRows();
             BuildComboItems();
-            BuildAfxRows();
         }
         S.StateChanged += OnState;
         L.LanguageChanged += OnLanguageChanged;
@@ -69,8 +79,8 @@ public partial class FxTab : UserControl
 
     private void OnLanguageChanged() => Dispatcher.Invoke(ApplyTexts);
 
-    /// <summary>语言切换后重刷 code-behind 动态文案：抽帧/HUD 下拉项与预设下拉占位（清空后由 BuildComboItems
-    /// 与 PullAudioFx 重建；音频单元行来自引擎注册表，不在词库范围）。选择复位全程 _syncing 防误触发。</summary>
+    /// <summary>语言切换后重刷 code-behind 动态文案：抽帧/HUD 下拉项（清空后由 BuildComboItems 重建）。
+    /// 选择复位全程 _syncing 防误触发。</summary>
     private void ApplyTexts()
     {
         if (App.MainInstance == null) return;
@@ -79,28 +89,116 @@ public partial class FxTab : UserControl
         {
             CbKoma.Items.Clear();
             CbHud.Items.Clear();
-            CbAfxPreset.Items.Clear();
             BuildComboItems();
+            // 滑块行文案在 code-behind 里落文本，换语言整段重建（值由 Pull 回填）
+            SliderRows.Children.Clear();
+            _rows.Clear();
+            BuildSliderRows();
         }
         finally
         {
             _syncing = false;
         }
-        Pull(); // 重选 + 重建「— 选择预设 —」占位
+        Pull();
     }
-
-    /// <summary>滚到音频特效区（Transport 的「特效」按钮落点）。</summary>
-    public void ScrollToAudio() => AfxHeader.BringIntoView();
 
     private void OnState() => Dispatcher.Invoke(Pull);
 
     // ---------------- 构建 ----------------
 
+    /// <summary>
+    /// fx 参数滑块行（7 行，对位 FxTab.vue 的 sliders）：标签 96 | 滑块 | 数值 34 | 锁定键，行距 8。
+    /// 提交节奏：拖动中 120ms 防抖（预览边拖边变，对位 replanSoon(120)）、松手立即落定；
+    /// 键盘/点轨道等非拖动改动立即落。锁定键写 Locks.Params（一键随机不动的项）。
+    /// </summary>
     private void BuildSliderRows()
     {
-        // fx 参数滑块（7 行）。XAML 里的容器 Grid x:Name="SliderRows" 目前被摘掉（见 FxTab.xaml 的 TODO），
-        // 这里跟着停用：Pull 里 _rows 为空自然跳过。把那个 Grid 放回 XAML 后，恢复本方法原实现即可。
-        // TODO(fx 滑块区回迁)：原实现见 git 历史（96px 标签 | 滑块 | 36px 数值 | 锁定键，行距 8）。
+        foreach (var (key, lkey) in FxKeys)
+        {
+            var label = L.T(lkey);
+            var lab = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+
+            var slider = new Slider
+            {
+                Style = (Style)FindResource("FxSlider"),
+                Margin = new Thickness(0, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            var value = new TextBlock
+            {
+                FontSize = 11,
+                FontFamily = (FontFamily)FindResource("MonoFont"),
+                Foreground = (Brush)FindResource("Mut"),
+                TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Width = 30,
+            };
+
+            var lockBtn = new Button
+            {
+                Style = (Style)FindResource("LockBtn"),
+                ToolTip = LockOn,
+            };
+
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(lab, 0);
+            Grid.SetColumn(slider, 1);
+            Grid.SetColumn(value, 2);
+            Grid.SetColumn(lockBtn, 3);
+            grid.Children.Add(lab);
+            grid.Children.Add(slider);
+            grid.Children.Add(value);
+            grid.Children.Add(lockBtn);
+            SliderRows.Children.Add(grid);
+
+            _rows.Add(new FxRow(key, label, slider, value, lockBtn));
+
+            var k = key;
+            slider.ValueChanged += (_, ev) =>
+            {
+                value.Text = Round100(ev.NewValue);
+                if (_syncing) return;
+                _pendingFxKey = k;
+                _pendingFxVal = ev.NewValue;
+                if (_thumbDrag.TryGetValue(k, out var dragging) && dragging)
+                {
+                    _fxDebounce.Stop(); // 拖动中：合并成一次写（120ms），预览边拖边变
+                    _fxDebounce.Start();
+                    return;
+                }
+                FlushPendingFx(); // 键盘/滚轮/单击轨道：立即落
+            };
+            slider.Loaded += (_, _) =>
+            {
+                if (slider.Template?.FindName("thumb", slider) is not Thumb thumb) return;
+                thumb.DragStarted += (_, _) => _thumbDrag[k] = true;
+                thumb.DragCompleted += (_, _) =>
+                {
+                    _thumbDrag[k] = false;
+                    _pendingFxKey = k;
+                    _pendingFxVal = slider.Value;
+                    FlushPendingFx(); // 松手立即落定（把拖动中的最后一次值写下去）
+                };
+            };
+
+            lockBtn.Click += (_, _) => ToggleLock(k);
+        }
+    }
+
+    /// <summary>把挂起的参数改动写进工程（ValueChanged 与 DragCompleted 共用）。</summary>
+    private void FlushPendingFx()
+    {
+        _fxDebounce.Stop();
+        if (_syncing || App.MainInstance == null) return;
+        if (_pendingFxKey.Length == 0) return;
+        var key = _pendingFxKey;
+        _pendingFxKey = "";
+        CommitFx(key, _pendingFxVal);
     }
 
     private void BuildComboItems()
@@ -109,24 +207,6 @@ public partial class FxTab : UserControl
             CbKoma.Items.Add(new ComboBoxItem { Content = L.T(lkey), Tag = v });
         foreach (var (v, lkey) in new[] { ("auto", "Fx.Hud.Auto"), ("on", "Fx.Hud.On"), ("off", "Fx.Hud.Off") })
             CbHud.Items.Add(new ComboBoxItem { Content = L.T(lkey), Tag = v });
-    }
-
-    private void BuildAfxRows()
-    {
-        foreach (var def in AudioFx.Units.Values)
-        {
-            var id = def.Id;
-            var cb = new CheckBox
-            {
-                Content = def.Label,
-                Tag = id,
-                Margin = new Thickness(0, 0, 0, 6), // .flex flex-col gap-1.5
-                ToolTip = def.Note,
-            };
-            cb.Checked += (_, _) => { if (!_syncing) ToggleUnit(id, true); };
-            cb.Unchecked += (_, _) => { if (!_syncing) ToggleUnit(id, false); };
-            AfxUnitRows.Children.Add(cb);
-        }
     }
 
     // ---------------- 提交（Mutate） ----------------
@@ -227,30 +307,6 @@ public partial class FxTab : UserControl
     private void BtnNewSeed_Click(object sender, RoutedEventArgs e)
         => S.Mutate(p => p.Seed = (uint)(Random.Shared.NextDouble() * 1e9), L.T("Fx.NewSeed")); // (Math.random()*1e9)|0
 
-    // ---------------- 音频特效 ----------------
-
-    /// <summary>效果单元开关：勾上=入链（缺省参数），取消=移除（对位弹窗的 addUnit/rmUnit）。</summary>
-    private void ToggleUnit(string id, bool on)
-    {
-        var cur = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
-        var units = ((JArray)cur["units"]!).Where(u => u is not JObject o || o["id"]?.ToString() != id).ToList();
-        if (on)
-            units.Add(new JObject { ["id"] = id, ["on"] = true, ["params"] = AudioFx.Units[id].Defaults.DeepClone() });
-        cur["units"] = new JArray(units);
-        var label = AudioFx.Units[id].Label;
-        S.Mutate(p => p.AudioFx = cur, L.F(on ? "Fx.Mutate.UnitOn" : "Fx.Mutate.UnitOff", label), replan: false);
-    }
-
-    private void CbAfxPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncing || CbAfxPreset.SelectedItem is not ComboBoxItem { Tag: string id } || id.Length == 0) return;
-        var preset = AudioFx.Presets.FirstOrDefault(x => x.Id == id);
-        if (preset == null) return;
-        S.Mutate(p => p.AudioFx = AudioFx.SanitizeAudioFx((JObject)preset.Cfg.DeepClone()),
-            L.F("Fx.Mutate.Preset", preset.Label), replan: false);
-        // StateChanged → Pull 会把下拉复位到占位（预设是动作不是状态）
-    }
-
     // ---------------- 回刷 ----------------
 
     private void Pull()
@@ -285,38 +341,11 @@ public partial class FxTab : UserControl
             var komaLocked = p.Locks.Params.TryGetValue("koma", out var klv) && klv;
             BtnKomaLock.Tag = komaLocked ? "on" : "off";
             BtnKomaLock.ToolTip = komaLocked ? LockOff : LockOn;
-
-            PullAudioFx();
         }
         finally
         {
             _syncing = false;
         }
-    }
-
-    private void PullAudioFx()
-    {
-        if (CbAfxPreset.Items.Count == 0)
-        {
-            CbAfxPreset.Items.Add(new ComboBoxItem { Content = L.T("Fx.PresetPlaceholder"), Tag = "" });
-            foreach (var pr in AudioFx.Presets)
-                CbAfxPreset.Items.Add(new ComboBoxItem
-                {
-                    Content = pr.Label,
-                    Tag = pr.Id,
-                    ToolTip = L.F("Fx.ApplyPreset.Tip", pr.Label),
-                });
-        }
-        CbAfxPreset.SelectedIndex = 0; // 预设下拉只作动作入口，不记状态（Vue 为按钮组）
-
-        var fx = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
-        var onIds = new HashSet<string>();
-        if (fx["units"] is JArray arr)
-            foreach (var u in arr.OfType<JObject>())
-                if (u["on"]?.Type != JTokenType.Boolean || (bool)u["on"]!)
-                    onIds.Add(u["id"]?.ToString() ?? "");
-        foreach (var cb in AfxUnitRows.Children.OfType<CheckBox>())
-            SetChecked(cb, onIds.Contains((string)cb.Tag!));
     }
 
     // ---------------- 小工具 ----------------

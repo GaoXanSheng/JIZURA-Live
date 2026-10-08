@@ -1,44 +1,72 @@
 using System.IO;
+using JizuraLive.Engine;
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
+using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Export;
 
 /// <summary>
-/// 音频预处理（导出用）：文件 → NAudio 解码 → 声道归一为立体声 → 重采样 48k →
-/// AudioFx 效果链（与预览同一条 Build，逐样本一致）→ 时长钳到视频时长（不足补零）。
+/// 音频预处理（导出用）：文件 → NAudio 解码 → 从选段起点定位 → 声道归一为立体声 → 重采样 48k →
+/// AudioFx 效果链（与预览同一条 Build，逐样本一致）→ 变速（SpeedSampleProvider）→
+/// 时长钳到输出时长（不足补零）。
+/// 对位 JS 的 resample()：真实渲染窗口 = [startT, startT + durationSec×speed]，
+/// 输出 = durationSec（选段 + 变速后的实际视频长度；变速语义与预览的 playbackRate 一致）。
 /// </summary>
 public static class AudioPrep
 {
     public const int SampleRate = 48000;
 
-    /// <summary>返回 48k 立体声 f32 provider；音频缺失/解码失败返回 null（导出走无音轨）。</summary>
-    public static ISampleProvider? Prepare(string audioPath, Newtonsoft.Json.Linq.JObject? audioFx,
-        double durationSec)
+    /// <summary>
+    /// 返回 48k 立体声 f32 provider；音频缺失/解码失败返回 null（导出走无音轨）。
+    /// startT = 选段起点（秒）；speed = project.audioFx.speed（1 = 原速）。
+    /// </summary>
+    public static ISampleProvider? Prepare(string audioPath, JObject? audioFx,
+        double durationSec, double startT = 0, double speed = 1)
     {
         if (!File.Exists(audioPath)) return null;
 
         var reader = new MediaFoundationReader(audioPath);
         ISampleProvider src = reader.ToSampleProvider();
 
+        // 先定位再重采样（对位预览 BuildChain 的规矩：解码器重定位以文件时间为准）
+        if (startT > 0)
+        {
+            try
+            {
+                reader.Position = (long)(Math.Clamp(startT, 0, reader.TotalTime.TotalSeconds)
+                                         * reader.WaveFormat.AverageBytesPerSecond);
+            }
+            catch
+            {
+                // 定位失败：从头导出（比整段静音更有用）
+            }
+        }
+
         // 声道归一：mono → 双声道复制；>2 声道取前两轨（对位预览链路）
         if (src.WaveFormat.Channels == 1)
-            src = new NAudio.Wave.SampleProviders.MonoToStereoSampleProvider(src);
+            src = new MonoToStereoSampleProvider(src);
         else if (src.WaveFormat.Channels > 2)
             src = new FirstTwoChannelsProvider(src);
 
         if (src.WaveFormat.SampleRate != SampleRate)
-            src = new NAudio.Wave.SampleProviders.WdlResamplingSampleProvider(src, SampleRate);
+            src = new WdlResamplingSampleProvider(src, SampleRate);
 
-        // 音频特效链（units 全关时 Build 返回 null → 直通）
-        var graph = JizuraLive.Engine.AudioFx.Build(audioFx,
-            new JizuraLive.Engine.FxBuildOpts { SampleRate = SampleRate, AnchorT = 0 });
+        // 音频特效链（units 全关时 Build 返回 null → 直通）；anchor 用选段起点，
+        // 与预览在同一歌曲时刻的 LFO/相位对齐
+        var graph = AudioFx.Build(audioFx,
+            new FxBuildOpts { SampleRate = SampleRate, AnchorT = startT });
         if (graph != null)
         {
             graph.Input.Source = src;
             src = graph.Output;
         }
 
-        // 时长钳制：写满视频时长（超出截断、不足补静音）
+        // 变速（对位 resample() 里 src.playbackRate = speed）：时长 ÷speed、音调同升
+        if (Math.Abs(speed - 1) > 1e-6)
+            src = new SpeedSampleProvider(src, speed);
+
+        // 时长钳制：写满输出时长（超出截断、不足补静音）
         return new DurationPadProvider(src, durationSec);
     }
 
@@ -47,7 +75,7 @@ public static class AudioPrep
     {
         private readonly ISampleProvider _src;
         private readonly int _srcCh;
-        private float[] _buf = System.Array.Empty<float>();
+        private float[] _buf = Array.Empty<float>();
 
         public FirstTwoChannelsProvider(ISampleProvider src)
         {

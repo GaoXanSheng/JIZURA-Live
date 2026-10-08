@@ -66,7 +66,7 @@ public sealed class FollowController : IDisposable
     /// <summary>跟随状态变化（UI 线程触发；面板据此刷新）。</summary>
     public event Action? Changed;
 
-    private bool _savedLoop = true;
+    private LoopMode _savedLoop = LoopMode.All;
     private string _candidateKey = "";
     private DateTime _candidateAt;
     private string _matchedKey = "";
@@ -181,7 +181,7 @@ public sealed class FollowController : IDisposable
         {
             Engine.Pause(); // 跟随期间外部播放器出声：本地音频先停（不销毁链，退出跟随可手动续播）
             _savedLoop = Engine.Loop;
-            Engine.Loop = false; // 循环会和外部播放器的真实进度打架
+            Engine.SetLoop(LoopMode.Off); // 循环会和外部播放器的真实进度打架
         });
         _cts = new CancellationTokenSource();
         _ = Task.Run(() => LoopAsync(_cts.Token));
@@ -200,7 +200,7 @@ public sealed class FollowController : IDisposable
         _dispatcher.Invoke(() =>
         {
             Engine.FollowEnd(); // 时间轴冻结在当前位置
-            Engine.Loop = _savedLoop;
+            Engine.SetLoop(_savedLoop);
         });
         Status = StOff;
         Detail = "";

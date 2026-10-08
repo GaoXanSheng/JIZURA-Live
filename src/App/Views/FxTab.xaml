@@ -1,55 +1,8 @@
 <UserControl x:Class="JizuraLive.App.Views.FxTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:ctl="clr-namespace:JizuraLive.App.Controls">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <UserControl.Resources>
-        <!-- 参数滑块（暗色轨道 + Amber 进度/拇指，对位旧版 range 观感） -->
-        <Style x:Key="FxSlider" TargetType="Slider">
-            <Setter Property="Minimum" Value="0" />
-            <Setter Property="Maximum" Value="1" />
-            <Setter Property="SmallChange" Value="0.01" />
-            <Setter Property="LargeChange" Value="0.1" />
-            <Setter Property="IsMoveToPointEnabled" Value="True" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Height" Value="18" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Slider">
-                        <Grid Background="Transparent">
-                            <Track x:Name="PART_Track">
-                                <Track.DecreaseRepeatButton>
-                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
-                                        <RepeatButton.Template>
-                                            <ControlTemplate TargetType="RepeatButton">
-                                                <Border Height="4" CornerRadius="2,0,0,2" Background="{StaticResource Amber}" />
-                                            </ControlTemplate>
-                                        </RepeatButton.Template>
-                                    </RepeatButton>
-                                </Track.DecreaseRepeatButton>
-                                <Track.IncreaseRepeatButton>
-                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False">
-                                        <RepeatButton.Template>
-                                            <ControlTemplate TargetType="RepeatButton">
-                                                <Border Height="4" CornerRadius="0,2,2,0" Background="{StaticResource Raised2}" />
-                                            </ControlTemplate>
-                                        </RepeatButton.Template>
-                                    </RepeatButton>
-                                </Track.IncreaseRepeatButton>
-                                <Track.Thumb>
-                                    <Thumb x:Name="thumb" Width="12" Height="12" Focusable="False">
-                                        <Thumb.Template>
-                                            <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="{StaticResource Amber}" Stroke="{StaticResource Ink}" StrokeThickness="1" />
-                                            </ControlTemplate>
-                                        </Thumb.Template>
-                                    </Thumb>
-                                </Track.Thumb>
-                            </Track>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+        <!-- 参数滑块样式 FxSlider 已上收到 Theme.xaml（音频效果弹窗也用同一份） -->
 
         <!-- 锁定图标（btn-icon svg 的 16 视图框锁形，stroke 1.4 随按钮前景；x:Shared=False 每个按钮一份） -->
         <Viewbox x:Key="FxLock" x:Shared="False" Width="15" Height="15">
@@ -96,8 +49,9 @@
             </StackPanel>
         </Border>
 
-        <!-- TODO -->
-        <!-- <Grid x:Name="SliderRows" Margin="0,6,0,0" /> -->
+        <!-- fx 参数滑块（7 行）：标签 96 | 滑块 | 数值 34 | 锁定键，行距 8（对位 FxTab.vue 的
+             `grid-cols-[96px_minmax(0,1fr)_36px_30px] gap-2 items-center mb-2`） -->
+        <Grid x:Name="SliderRows" Margin="0,6,0,0" />
 
         <!-- 闪光 + 抽帧（.row mt-1.5） -->
         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -149,27 +103,6 @@
                 Margin="0,12,0,0">
             <TextBlock Style="{StaticResource NoteTx}"
                        Text="{DynamicResource Loc.Fx.SeedNote}" />
-        </Border>
-
-        <!-- 音频特效（对位 Dialogs.vue 的音频特效弹窗：预设 + 效果单元开关） -->
-        <ctl:JzLabel x:Name="AfxHeader" Text="{DynamicResource Loc.Fx.AudioFx}" Tracking="0.14" TextElement.FontSize="11"
-                     TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
-                     Margin="0,16,0,8" />
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="{DynamicResource Loc.Fx.Preset}" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center"
-                       Margin="0,0,8,0" />
-            <ComboBox x:Name="CbAfxPreset" Grid.Column="1" SelectionChanged="CbAfxPreset_SelectionChanged"
-                      ToolTip="{DynamicResource Loc.Fx.Preset.Tip}" />
-        </Grid>
-        <StackPanel x:Name="AfxUnitRows" Margin="0,8,0,0" />
-        <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0" Padding="10,0,0,0"
-                Margin="0,8,0,0">
-            <TextBlock Style="{StaticResource NoteTx}"
-                       Text="{DynamicResource Loc.Fx.AfxNote}" />
         </Border>
     </StackPanel>
 </UserControl>

@@ -1,20 +1,13 @@
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using System.Windows.Threading;
 using JizuraLive.App.Controls;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
-using JizuraLive.Logging;
-using Newtonsoft.Json;
-using SkiaSharp;
 
 namespace JizuraLive.App.Views;
 
@@ -24,11 +17,10 @@ namespace JizuraLive.App.Views;
 /// 视觉树按 Vue 类名逐点对位：组段 = details.border.border-line.rounded-md.bg-raised，
 /// 卡片 = 自适应网格 repeat(auto-fill,minmax(112px,1fr)) gap 8 的 label（缩略图 + 名称行徽标）。
 ///
-/// 渲染策略（M3）：静态单帧（每组取代表性相位；Vue 版是预算制 rAF 动态循环，见「取舍」），
-/// 后台单线程队列逐张出图：Task.Run 循环 + EngineRenderGate 串行（JText/JLang 静态缓存
-/// 非线程安全，同 MainWindow.Stage_PaintSurface 的规矩），帧间 Thread.Sleep(6) 让路主预览。
-/// 离屏 SKSurface 按尺寸保留复用、绝不 Dispose——Renderer 整帧缓存持有面的快照（宿主须知）。
-/// plan 与成品位图按「渲染签名」（风格/画幅/seed/配色/字体）缓存；签名变化走 800ms 防抖全量重渲。
+/// 缩略图渲染（对位 jizura/preview.ts）：全部交给 TechThumbPreview 共享服务——
+/// 可见卡（展开组 + 在视口内）按 90ms 节拍循环出图，相位按组取循环窗口（enter/exit/trans/fx/其余），
+/// 与切分替换面板共用一台专用 Renderer 与一份 plan 缓存。本类只负责
+/// 「建卡 → 交可见集 → 卡面回贴」这三件事，预算与让路规矩见 TechThumbPreview。
 /// </summary>
 public partial class TechTab : UserControl
 {
@@ -114,7 +106,8 @@ public partial class TechTab : UserControl
     {
         public string G = "";
         public string K = "";
-        public Border Face = null!;       // 缩略图面（bg = ImageBrush，圆角承担旧 overflow-hidden）
+        public Image Face = null!;        // 缩略图面（Source = 服务写入的 WriteableBitmap）
+        public ThumbCard? Thumb;          // 服务侧渲染卡（可见集里交给 TechThumbPreview）
         public CheckBox Chk = null!;
         public Border Box = null!;
     }
@@ -133,45 +126,11 @@ public partial class TechTab : UserControl
     private Brush? _brushMut;
     private Brush? _brushRaised;
 
-    // ---------------- 缩略图渲染管线 ----------------
-
-    private sealed class Job
-    {
-        public string Sig = "";      // 入队时的渲染签名（变了就丢）
-        public string G = "";
-        public string K = "";
-        public Border Img = null!;   // 回贴目标（卡片可能已被折叠卸载，回贴成孤儿无害）
-        public Project Snap = null!; // UI 线程工程的只读快照（入队时成对取走，无跨线程竞态）
-    }
-
-    // 专用渲染器：与主预览（PreviewEngine.Renderer）的整帧缓存互相隔离（Vue previewR 对位）
-    private readonly Renderer _thumbRenderer = new();
-
-    // 离屏面按尺寸保留复用。宿主须知：交给 Frame 的面绝不 Dispose——
-    // 整帧缓存里的 Snapshot 会跨帧引用它，提前释放下次缓存命中即 AV（同 MainWindow 墓园写法）。
-    private readonly Dictionary<(int W, int H), SKSurface> _surfaces = new();
-
-    // plan / 成品位图缓存，键 = "sig|g|k"（Vue previewPlans / canvas 内容对位），并发双端访问
-    private readonly ConcurrentDictionary<string, Plan> _plans = new();
-    private readonly ConcurrentDictionary<string, BitmapSource> _bmp = new();
-
-    private readonly ConcurrentQueue<Job> _queue = new();
-    private readonly AutoResetEvent _kick = new(false);
-    private CancellationTokenSource? _workerCts;
-
-    private volatile string _sig = "";   // 渲染签名：风格|画幅|seed|抠像|语言|整列|统一感|配色|字体
-    private Project _snap = new();       // 与 _sig 成对发布的只读快照（仅 UI 线程写，worker 经 Job 读引用）
-    private readonly DispatcherTimer _redebounce; // seed/风格等签名变化 → 800ms 防抖全量重渲
+    // ---------------- 缩略图（渲染交给 TechThumbPreview 共享服务） ----------------
 
     public TechTab()
     {
         InitializeComponent();
-        _redebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
-        _redebounce.Tick += (_, _) =>
-        {
-            _redebounce.Stop();
-            ReRenderAll();
-        };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
     }
@@ -190,13 +149,19 @@ public partial class TechTab : UserControl
             CacheBrushes();
             BuildSets();
             BuildGroups();
-            StartWorker();
+            GroupsScroll.ScrollChanged += GroupsScroll_ScrollChanged;
+            GroupsScroll.SizeChanged += GroupsScroll_SizeChanged;
+            IsVisibleChanged += TechTab_IsVisibleChanged;
         }
         L.LanguageChanged += OnLanguageChanged;
         ApplyTexts();   // 开关态/计数/锁；语言可能在面板不在屏时切换过，一并重刷（内含 RefreshAll/ApplyFilter）
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => L.LanguageChanged -= OnLanguageChanged;
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        L.LanguageChanged -= OnLanguageChanged;
+        TechThumbPreview.Shared.SetLive(this, Array.Empty<ThumbCard>()); // 离树后别再排帧
+    }
 
     private void OnLanguageChanged() => Dispatcher.Invoke(ApplyTexts);
 
@@ -231,12 +196,8 @@ public partial class TechTab : UserControl
     private void OnStateChanged()
     {
         RefreshAll();
-        // seed/风格/画幅/配色/字体变了 → 防抖后全量重渲（开关变化不动签名，不触发）
-        if (CurrentSig() != _sig)
-        {
-            _redebounce.Stop();
-            _redebounce.Start();
-        }
+        // 缩略图：SetLive 内部比对渲染签名（风格/画幅/seed/配色/字体），变了就清缓存重渲
+        RefreshLive();
     }
 
     /// <summary>视觉树常用画刷取一次（套装开关/组段/卡片态都在刷这些键，别逐卡走资源查找）。</summary>
@@ -500,13 +461,18 @@ public partial class TechTab : UserControl
             var k = keys[i];
             var def = DefOf(ui.G, k)!;
 
-            // 缩略图（旧 canvas w-full aspect-video bg-ink block）：位图经 ImageBrush 铺满 + 顶角圆角（overflow-hidden 对位）。
-            // 底 ink 兜住未出图期，面（Face）在后台队列回贴 ImageBrush。
-            var face = new Border { CornerRadius = new CornerRadius(5, 5, 0, 0) };
+            // 缩略图（旧 canvas w-full aspect-video bg-ink block）：Image 承载共享服务写入的 WriteableBitmap，
+            // UniformToFill 铺满 + 顶角圆角（overflow-hidden 对位）。底 ink 兜住未出图期。
+            var face = new Image
+            {
+                Stretch = Stretch.UniformToFill,
+                SnapsToDevicePixels = true,
+            };
+            RenderOptions.SetBitmapScalingMode(face, BitmapScalingMode.LowQuality); // 90px 缩略图，快比细重要
             var thumb = new Border
             {
                 Background = _brushInk, CornerRadius = new CornerRadius(5, 5, 0, 0), Height = thumbH,
-                Child = face, SnapsToDevicePixels = true,
+                Child = face, SnapsToDevicePixels = true, ClipToBounds = true,
             };
 
             // 名称行（旧 flex items-center gap-1 text-[11px] px-1.5 pb-1.5）：勾选 + 裁切名 + 徽标
@@ -542,10 +508,8 @@ public partial class TechTab : UserControl
                 Child = new StackPanel { Children = { thumb, nameRow } },
             };
 
-            // 缓存命中直接回贴（折叠重开/筛选重建不重渲）；未命中的进后台队列
-            if (_bmp.TryGetValue($"{_sig}|{ui.G}|{k}", out var cached)) face.Background = new ImageBrush(cached);
-
             var card = new CardUi { G = ui.G, K = k, Face = face, Chk = chk, Box = box };
+            card.Thumb = new ThumbCard { G = ui.G, K = k, Host = face };
             map[k] = card;
 
             chk.Checked += (_, _) => OnCardCheck(ui.G, k, true);
@@ -707,200 +671,49 @@ public partial class TechTab : UserControl
         {
             _syncing = false;
         }
-        EnqueueMissing();
+        RefreshLive();
     }
 
-    // ---------------- 缩略图渲染管线 ----------------
-
-    /// <summary>渲染签名：随风格/画幅/seed/抠像/语言/整列/统一感/配色/字体变（Vue cacheKey 超集 + seed）。</summary>
-    private static string CurrentSig()
-    {
-        var p = App.MainInstance!.State.Project;
-        return string.Join("|",
-            p.Style, p.Aspect, p.Seed, p.KeyBg, p.Lang, p.Typeset, p.Unify,
-            p.Colors.ToString(Formatting.None),
-            JsonConvert.SerializeObject(p.Fonts),
-            JsonConvert.SerializeObject(p.UserFonts));
-    }
+    // ---------------- 可见集（交给共享预览服务） ----------------
 
     /// <summary>
-    /// 签名变化则换只读快照并清 plan/位图缓存。快照在 UI 线程 JSON 克隆（Snapshot 同款手段），
-    /// worker 只经 Job 拿引用，不与 UI 线程的 Mutate 撞共享工程。
+    /// 把「展开且落在视口内（±40px，对位 rootMargin）」的卡片交给 TechThumbPreview。
+    /// 面板不可见（右栏停在别的页）或窗口失活时交空集——动画只画看得见的卡。
+    /// 触发点：展开/筛选、滚动、尺寸变化、切页、状态变化（签名比对在服务内做）。
     /// </summary>
-    private void EnsureSnapshot()
+    private void RefreshLive()
     {
-        var sig = CurrentSig();
-        if (sig == _sig) return;
-        _sig = sig;
-        _snap = JsonConvert.DeserializeObject<Project>(
-                    JsonConvert.SerializeObject(App.MainInstance!.State.Project)) ?? new Project();
-        _plans.Clear();
-        _bmp.Clear();
-    }
-
-    /// <summary>把已展开组里缺位图的卡排进后台队列（去重靠 _bmp 命中检查；重复入队只是幂等重渲）。</summary>
-    private void EnqueueMissing()
-    {
-        if (_workerCts == null) return;
-        EnsureSnapshot();
-        var sig = _sig;
-        var snap = _snap;
-        var queued = 0;
-        foreach (var ui in _groupList)
+        if (!IsLoaded) return;
+        var live = new List<ThumbCard>();
+        if (IsVisible && Window.GetWindow(this)?.IsVisible == true)
         {
-            if (!ui.Open || ui.Box.Visibility != Visibility.Visible) continue;
-            if (!_cards.TryGetValue(ui.G, out var map)) continue;
-            foreach (var (k, card) in map)
+            const double margin = 40; // rootMargin: '40px 0px'
+            var viewport = new Rect(0, 0, GroupsScroll.ViewportWidth, GroupsScroll.ViewportHeight);
+            viewport.Inflate(0, margin);
+            foreach (var ui in _groupList)
             {
-                if (_bmp.ContainsKey($"{sig}|{ui.G}|{k}")) continue;
-                _queue.Enqueue(new Job { Sig = sig, G = ui.G, K = k, Img = card.Face, Snap = snap });
-                queued++;
+                if (!ui.Open || ui.Body.Visibility != Visibility.Visible) continue;
+                if (!_cards.TryGetValue(ui.G, out var map)) continue;
+                foreach (var card in map.Values)
+                {
+                    var thumb = card.Thumb;
+                    if (thumb == null || card.Box.Visibility != Visibility.Visible) continue;
+                    if (card.Box.ActualHeight <= 0) continue;
+                    var pos = card.Box.TransformToAncestor(GroupsScroll).Transform(new Point(0, 0));
+                    if (!viewport.Contains(pos) && !viewport.Contains(new Point(pos.X, pos.Y + card.Box.ActualHeight)))
+                        continue;
+                    live.Add(thumb);
+                }
             }
         }
-        if (queued > 0) _kick.Set();
+        TechThumbPreview.Shared.SetLive(this, live);
     }
 
-    /// <summary>签名变化后的全量重渲（防抖 800ms 到点）；旧队列任务按签名自动作废。</summary>
-    private void ReRenderAll()
-    {
-        EnsureSnapshot();
-        EnqueueMissing();
-    }
+    private void GroupsScroll_ScrollChanged(object sender, ScrollChangedEventArgs e) => RefreshLive();
 
-    private void StartWorker()
-    {
-        _workerCts = new CancellationTokenSource();
-        var ct = _workerCts.Token;
-        _ = Task.Run(() =>
-        {
-            while (!ct.IsCancellationRequested)
-            {
-                if (!_queue.TryDequeue(out var job))
-                {
-                    try { _kick.WaitOne(500); }
-                    catch (ObjectDisposedException) { return; }
-                    continue;
-                }
-                try
-                {
-                    if (job.Sig != _sig) continue; // 旧签名的队列任务作废
-                    var t0 = Stopwatch.GetTimestamp();
-                    var bmp = RenderOne(job); // 全程持 EngineRenderGate
-                    if (bmp == null) continue;
-                    _bmp[$"{job.Sig}|{job.G}|{job.K}"] = bmp;
-                    var img = job.Img;
-                    Dispatcher.BeginInvoke(() => img.Background = new ImageBrush(bmp));
-                    // 预算制让路（性能专项）：缩略图每张都持引擎闸整帧，一键随机后可见组全量重渲就是
-                    // 一场秒级风暴——输出泵（本身占闸 ~55%）与预览被它饿死。播放中把本线程的占闸
-                    // 时间压到 ~1/10 壁钟（睡眠按实测成本自适，成本里含等闸时间，天然自限），暂停时全速补图。
-                    var costMs = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
-                    var playing = App.MainInstance?.Preview.IsPlaying == true;
-                    Thread.Sleep(playing ? (int)Math.Clamp(costMs * 9, 20, 400) : 6);
-                    continue;
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"[TechTab] 缩略图渲染失败：{job.G}.{job.K}", ex);
-                }
-                Thread.Sleep(6);
-            }
-        }, ct);
-    }
+    private void GroupsScroll_SizeChanged(object sender, SizeChangedEventArgs e) => RefreshLive();
 
-    /// <summary>
-    /// 单张出图：PreviewPlan（缓存）→ 共享离屏面 Frame（静态代表帧）→ PeekPixels 拷成冻结位图。
-    /// 全程持 EngineRenderGate（引擎静态缓存规矩，同 MainWindow）。失败出暗底占位（Vue 的 catch 底色）。
-    /// </summary>
-    private BitmapSource? RenderOne(Job job)
-    {
-        lock (EngineRenderGate.Lock)
-        {
-            var key = $"{job.Sig}|{job.G}|{job.K}";
-            if (!_plans.TryGetValue(key, out var plan))
-            {
-                try
-                {
-                    plan = Planner.PreviewPlan(job.Snap, job.G, job.K);
-                }
-                catch (Exception ex)
-                {
-                    Log.Error($"[TechTab] PreviewPlan 失败：{job.G}.{job.K}", ex);
-                    return DarkFrame(160, 90);
-                }
-                _plans[key] = plan;
-                if (_plans.Count > 900) _plans.Clear(); // M5 八百卡保险丝：容量兜底清空，重建只是时间
-            }
-
-            // 画面尺寸跟 plan 走（Vue scale = cv.width / plan.W；竖帧同款裁切观感）
-            const int th = 90;
-            var tw = Math.Max(80, (int)Math.Round(th * (double)plan.W / plan.H));
-            var surf = GetSurface(tw, th);
-            try
-            {
-                _thumbRenderer.Frame(surf.Canvas, plan, PreviewTime(job.G, plan), new RenderOpts
-                {
-                    Scale = (double)tw / plan.W,
-                    Fast = true,
-                    NoHud = true,
-                    NoGhost = job.G != "fx", // Vue preview 的 opts 原样
-                });
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"[TechTab] Frame 失败（暗底占位）：{job.G}.{job.K} · {ex.Message}");
-                surf.Canvas.Clear(new SKColor(19, 19, 22)); // #131316
-            }
-
-            var px = surf.PeekPixels();
-            if (px == null) return null;
-            var bmp = BitmapSource.Create(px.Width, px.Height, 96, 96, PixelFormats.Bgra32, null,
-                px.GetPixels(), px.Height * px.RowBytes, px.RowBytes);
-            bmp.Freeze(); // 后台线程产物 → 冻结后跨线程贴 UI
-            if (_bmp.Count > 700) _bmp.Clear(); // M5 保险丝：70 卡 ≈ 4MB，40MB 封顶后重来
-            return bmp;
-        }
-    }
-
-    private BitmapSource DarkFrame(int w, int h)
-    {
-        var surf = GetSurface(w, h);
-        surf.Canvas.Clear(new SKColor(19, 19, 22));
-        var px = surf.PeekPixels()!;
-        var bmp = BitmapSource.Create(px.Width, px.Height, 96, 96, PixelFormats.Bgra32, null,
-            px.GetPixels(), px.Height * px.RowBytes, px.RowBytes);
-        bmp.Freeze();
-        return bmp;
-    }
-
-    private SKSurface GetSurface(int w, int h)
-    {
-        if (_surfaces.TryGetValue((w, h), out var s)) return s;
-        // 离屏面按尺寸建、保留复用；进过 Frame 的面不逐张 Dispose（宿主须知，同 MainWindow 墓园）
-        s = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul))
-            ?? throw new OutOfMemoryException("SKSurface.Create");
-        _surfaces[(w, h)] = s;
-        return s;
-    }
-
-    /// <summary>静态代表帧（Vue previewTime 的单相取法）：enter 取进场中段、exit 取出场中段、
-    /// trans 取转场混合中点、fx 取事件峰值后一刻，其余取切分中段（hold 相位）。</summary>
-    private static double PreviewTime(string g, Plan plan)
-    {
-        if (plan.Cuts.Count == 0) return 0;
-        var c = plan.Cuts[^1];
-        switch (g)
-        {
-            case "enter": return c.Start + Math.Max(0.3, c.InDur) * 0.5;
-            case "exit":
-            {
-                var od = Math.Max(0.3, c.OutDur > 0 ? c.OutDur : 0.5);
-                return c.End - od * 0.5;
-            }
-            case "trans": return c.Start + Math.Max(0.05, c.TransDur > 0 ? c.TransDur : 0.35) * 0.5;
-            case "fx": return 0.1; // PreviewPlan 把事件打在 t=0.04（衰减窗口内）
-            default: return c.Start + Math.Max(1.6, c.Dur * 0.96) * 0.5;
-        }
-    }
+    private void TechTab_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) => RefreshLive();
 
     // ---------------- 注册表/工程小工具 ----------------
 

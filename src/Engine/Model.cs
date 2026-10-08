@@ -104,6 +104,10 @@ public sealed class Project
     /// <summary>导出勾选（export-spec 勾选模型）。M4 接入 typed 模型前保持 JObject。</summary>
     public JObject? ExportCfg { get; set; }
 
+    /// <summary>导出范围（选段）：{from,to} = 0 基切分索引（本 fork 的存储单位，上游按行），
+    /// null = 整片。预览的「选段循环」档与导出裁剪都读它（对位 project.exportRange）。</summary>
+    public JObject? ExportRange { get; set; }
+
     [JsonIgnore]
     public static readonly string SampleLyrics =
         "夜明けの色を/覚えてる\nほどけた声が遠くで鳴った\nねえ、まだ間に合うかな\n*透明*なままじゃ終われない!";

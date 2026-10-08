@@ -6,6 +6,7 @@ using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using SkiaSharp;
+
 // EngineRenderGate（渲染串行闸，与预览/Spout 共享）
 
 namespace JizuraLive.Export;
@@ -66,6 +67,22 @@ public static class ExportJob
         return (ow, oh, (float)(ow / (double)Math.Max(1, plan.W)));
     }
 
+    /// <summary>
+    /// 导出区间（对位 11_export.js 的 J.exportSpan + fxSpeed）：选段（可能 null）→ 起止秒。
+    /// 输出时长 = 歌曲跨度 ÷speed（变速缩短成片）；帧 i 的歌曲时刻 = T0 + i/fps×speed；
+    /// 音频取 [T0, T0+歌曲跨度] 后按 speed 变速 → 输出时长。
+    /// </summary>
+    private static (double T0, double SongDur, double OutDur, double Speed) SpanOf(ExportRequest req)
+    {
+        var plan = req.Plan;
+        var span = Ranges.ExportSpanSeconds(plan, req.Project.ExportRange);
+        var t0 = span?.T0 ?? 0;
+        var t1 = span != null ? Math.Min(plan.Duration, span.Value.T1) : plan.Duration;
+        var speed = AudioFx.FxSpeed(req.Project);
+        var songDur = Math.Max(1.0 / Math.Max(1, plan.Fps), Math.Max(0, t1 - t0));
+        return (t0, songDur, songDur / speed, speed);
+    }
+
     private static SKImageInfo StageInfo(int w, int h, bool transparent) => new(
         w, h,
         transparent ? SKColorType.Rgba8888 : SKColorType.Bgra8888,
@@ -77,7 +94,8 @@ public static class ExportJob
     {
         var plan = req.Plan;
         var fps = Math.Max(1, plan.Fps);
-        var frames = Math.Max(1, (int)Math.Round(plan.Duration * fps));
+        var (t0, _, outDur, speed) = SpanOf(req);
+        var frames = Math.Max(1, (int)Math.Round(outDur * fps)); // 对位 total = round(span.dur/spd×fps)
         var transparent = req.Spec.Transparent;
 
         var (ow, oh, scale) = OutputDims(req.Project, plan);
@@ -86,16 +104,16 @@ public static class ExportJob
         var renderer = new Renderer();
         var opts = new RenderOpts { Scale = scale, Transparent = transparent, Layer = req.Spec.Layer, NoHud = req.Spec.NoHud };
 
-        // 音轨：解码 → 特效链 → 临时 WAV（与视频同长；ffmpeg 作第二输入混流）
+        // 音轨：解码 → 从选段起点取 → 特效链 + 变速 → 临时 WAV（与输出同长；ffmpeg 作第二输入混流）
         string? tmpWav = null;
         if (req.Spec.EmbedAudio && req.AudioPath != null)
         {
             progress?.Report((0, L.T("Export.Stage.PrepareAudio")));
-            var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, plan.Duration);
+            var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed);
             if (ap != null)
             {
                 tmpWav = Path.Combine(Path.GetTempPath(), $"jizura-mix-{Guid.NewGuid():N}.wav");
-                WavWriter.Write(ap, tmpWav, plan.Duration);
+                WavWriter.Write(ap, tmpWav, outDur);
             }
         }
 
@@ -111,7 +129,7 @@ public static class ExportJob
             for (var i = 0; i < frames; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                var t = i / (double)fps;
+                var t = t0 + i / (double)fps * speed; // 对位 span.t0 + spd×i/fps（变速时歌曲时间走得快）
                 if (subLayer != null)
                 {
                     // 先清底层：引擎透明模式不铺满全帧，防上一帧字幕透出（引擎缓存 miss 路径自带全帧覆盖）
@@ -192,7 +210,8 @@ public static class ExportJob
     {
         var plan = req.Plan;
         var fps = Math.Max(1, plan.Fps);
-        var frames = Math.Max(1, (int)Math.Round(plan.Duration * fps));
+        var (t0, _, outDur, speed) = SpanOf(req);
+        var frames = Math.Max(1, (int)Math.Round(outDur * fps)); // 与视频同口径（选段 + 变速）
         var layered = req.Spec.Layers;
 
         using var zip = new PngSequenceWriter(req.OutputPath, layered);
@@ -223,7 +242,7 @@ public static class ExportJob
             for (var i = 0; i < frames; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                var t = i / (double)fps;
+                var t = t0 + i / (double)fps * speed; // 与视频同口径（选段起点 + 变速）
                 if (layered)
                 {
                     lock (EngineRenderGate.Lock)
@@ -271,9 +290,10 @@ public static class ExportJob
             throw new InvalidOperationException(L.T("Export.Err.NoAudio"));
 
         progress?.Report((0, L.T("Export.Stage.DecodeAudio")));
-        var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, req.Plan.Duration)
+        var (t0, _, outDur, speed) = SpanOf(req);
+        var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed)
                  ?? throw new InvalidOperationException(L.T("Export.Err.AudioDecodeFailed"));
-        WavWriter.Write(ap, req.OutputPath, req.Plan.Duration);
+        WavWriter.Write(ap, req.OutputPath, outDur);
         progress?.Report((1.0, L.T("Export.Stage.Done")));
     }
 
@@ -281,11 +301,14 @@ public static class ExportJob
     public static void ExportSideWav(ExportRequest req)
     {
         if (req.AudioPath == null || !File.Exists(req.AudioPath)) return;
-        var wavPath = Path.ChangeExtension(req.OutputPath, null) + "_audio.wav";
-        var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, req.Plan.Duration);
+        // 选段后缀插在 _audio 之前（对位 export.ts 的 baseName() + rangeSuffix() + '_audio.wav'）
+        var suffix = Ranges.RangeSuffix(req.Project.ExportRange, req.Plan.Cuts.Count);
+        var wavPath = Path.ChangeExtension(req.OutputPath, null) + suffix + "_audio.wav";
+        var (t0, _, outDur, speed) = SpanOf(req);
+        var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed);
         if (ap != null)
         {
-            WavWriter.Write(ap, wavPath, req.Plan.Duration);
+            WavWriter.Write(ap, wavPath, outDur);
             Log.Info("[Export] 另存 WAV：" + wavPath);
         }
     }

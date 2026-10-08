@@ -211,6 +211,10 @@ internal static class TapSession
         Ck = 1;
         Counting = false;
         CountDisplay = null;
+        // 打点中抑制循环回卷：引擎在范围末端停住并 fire TapEnded（对位 S.tap + bus 'tapend'）
+        Preview.TapActive = true;
+        Preview.TapEnded -= OnTapEnded;
+        Preview.TapEnded += OnTapEnded;
         // 比该行稍早，但不早于上一行（对位 look.ts startTap 的 t0）
         var prev = from > 0 ? plan.Lines[from - 1] : null;
         var cur = plan.Lines[from];
@@ -363,9 +367,18 @@ internal static class TapSession
         Counting = false;
         CountDisplay = null;
         _epoch++;
+        var pv = App.MainInstance?.Preview;
+        if (pv != null)
+        {
+            pv.TapActive = false; // 恢复循环回卷
+            pv.TapEnded -= OnTapEnded;
+        }
         // 速率 ≠ 1 时回正常速度的 seek 对位（look.ts stopTap）随 M4 变速播放接入
         Notify();
     }
+
+    /// <summary>播放到当前循环范围末端（引擎已暂停）：结束打点会话（对位 bus 'tapend' → stopTap）。</summary>
+    private static void OnTapEnded() => Stop();
 
     private static uint _epoch; // 会话代号：取消进行中的倒数
 

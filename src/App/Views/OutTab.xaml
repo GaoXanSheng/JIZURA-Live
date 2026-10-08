@@ -216,6 +216,29 @@
                     </CheckBox>
                 </StackPanel>
 
+                <!-- 导出范围（选段）：按切分选（对位 OutTab.vue 的 rangeFrom/rangeTo 两个下拉 + 信息行）——
+                     from 选「全部」= 清空；to 选「—」= 折叠成单切分；与行列表的 ◁▷ 按钮写同一份 project.exportRange -->
+                <Grid x:Name="RangeRow" Margin="0,10,0,0" ToolTip="{DynamicResource Loc.Out.Range.Tip}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{DynamicResource Loc.Out.Range}" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox x:Name="CbRangeFrom" Grid.Column="1" Width="104" SelectionChanged="Range_Changed"
+                              ToolTip="{DynamicResource Loc.Out.Range.Tip}" />
+                    <TextBlock Grid.Column="2" Text="〜" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" Margin="6,0,6,0" />
+                    <ComboBox x:Name="CbRangeTo" Grid.Column="3" Width="104" SelectionChanged="Range_Changed"
+                              ToolTip="{DynamicResource Loc.Out.Range.Tip}" />
+                    <TextBlock x:Name="TblRangeInfo" Grid.Column="4" Style="{StaticResource MonoMut}" FontSize="11"
+                               TextTrimming="CharacterEllipsis" HorizontalAlignment="Right"
+                               VerticalAlignment="Center" Margin="6,0,0,0" />
+                </Grid>
+
                 <!-- 校验 / 提示（.note：左竖线 + 12px mut；invalid 用琥珀） -->
                 <Border x:Name="NoteInvalid" Style="{StaticResource NoteWrap}" Visibility="Collapsed">
                     <TextBlock x:Name="TblInvalid" Style="{StaticResource NoteTx}"

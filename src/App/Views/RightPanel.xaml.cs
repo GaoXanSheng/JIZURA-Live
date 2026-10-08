@@ -21,8 +21,7 @@ public partial class RightPanel : UserControl
         : "style");
 
     /// <summary>切页（key：style/fx/tech/settings/out）。</summary>
-    public void ShowTab(string key)
-    {
+    public void ShowTab(string key)    {
         var on = key switch
         {
             "fx" => TabFx,
@@ -38,12 +37,5 @@ public partial class RightPanel : UserControl
         HostTech.Visibility = ReferenceEquals(on, TabTech) ? Visibility.Visible : Visibility.Collapsed;
         HostSettings.Visibility = ReferenceEquals(on, TabSettings) ? Visibility.Visible : Visibility.Collapsed;
         HostOut.Visibility = ReferenceEquals(on, TabOut) ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>打开「特效」页并滚到音频特效区（Transport 的「特效」按钮落点）。</summary>
-    public void OpenAudioFx()
-    {
-        ShowTab("fx");
-        Fx.ScrollToAudio();
     }
 }

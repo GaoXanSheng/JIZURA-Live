@@ -15,5 +15,14 @@
   "CutInfo.Omakase": "一键随机",
   "CutInfo.Omakase.Tip": "这个切分的手法全部随机",
   "CutInfo.Mutate.Reroll": "切分重抽",
-  "CutInfo.Mutate.Omakase": "切分一键随机"
+  "CutInfo.Mutate.Omakase": "切分一键随机",
+  "CutInfo.Pick.Tip": "点开候选：只替换这个切分的这一组手法",
+  "CutInfo.Pick.Sub": "只替换这个切分",
+  "CutInfo.Pick.Search": "搜索手法…",
+  "CutInfo.Pick.SearchTip": "按手法名筛选候选",
+  "CutInfo.Pick.Auto": "自动",
+  "CutInfo.Pick.Empty": "没有匹配的手法",
+  "CutInfo.Pick.Close": "关闭",
+  "CutInfo.Mutate.Pick": "切分手法：{0}",
+  "CutInfo.Mutate.Auto": "切分手法：{0} 恢复自动"
 }

@@ -96,8 +96,8 @@ public sealed class TimelineSurface : FrameworkElement
     private double _pendingX;
     private bool _pendingShift;
 
-    /// <summary>循环显示模式：all / line / cut（对位 S.loop；引擎 M3 只有整首 Loop，这里管 overlay 显示）。</summary>
-    public string LoopMode { get; set; } = "all";
+    /// <summary>循环档位与范围不再本地存：直接读引擎（Preview.Loop / ActiveLoopRange），
+    /// 换档/改选段时进静态层缓存键，下一次重绘自动跟上（对位 Vue 的 tlCacheKey 含 S.loop）。</summary>
 
     private int _planVersion;                    // plan/音频变化时 +1，参与静态层缓存键
     private string? _cacheKey;                   // 静态层缓存键（对位 tlCacheKey）
@@ -415,47 +415,6 @@ public sealed class TimelineSurface : FrameworkElement
         _cacheKey = null;
     }
 
-    // ---------------- 循环区间（对位 state.ts 的 cutAround / loopRange 同名语义） ----------------
-
-    private Cut? CutAround(double t)
-    {
-        var plan = State?.Plan;
-        if (plan == null) return null;
-        var c = Planner.CutAt(plan, t);
-        if (c != null) return c;
-        Cut? ans = null;
-        foreach (var cut in plan.Cuts)
-        {
-            if (cut.Start <= t) ans = cut;
-            else break;
-        }
-        return ans;
-    }
-
-    private (double Start, double End) LoopRange(double t)
-    {
-        var plan = State?.Plan;
-        var endAll = plan?.Duration ?? 0;
-        if (LoopMode == "cut")
-        {
-            var c = CutAround(t);
-            return c != null ? (c.Start, c.End) : (0, endAll);
-        }
-        if (LoopMode == "line")
-        {
-            var c = CutAround(t);
-            if (c == null) return (0, endAll);
-            if (c.Line < 0) return (c.Start, c.End);
-            var same = new List<Cut>();
-            foreach (var x in plan!.Cuts)
-                if (x.Line == c.Line && x.Layout != "interlude" && x.Layout != "title")
-                    same.Add(x);
-            if (same.Count == 0) return (c.Start, c.End);
-            return (same[0].Start, same[^1].End);
-        }
-        return (0, endAll);
-    }
-
     // ---------------- 绘制 ----------------
 
     private static SolidColorBrush _bPanel = null!, _bAmber = null!, _bMut = null!, _bFaint = null!, _bFg = null!, _bLine = null!;
@@ -540,8 +499,16 @@ public sealed class TimelineSurface : FrameworkElement
         var amber = _bAmber.Color;
         _ppd = VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
+        // 循环档位 + 生效范围、导出范围（选段）都进静态层缓存键：
+        // 换档 / 改选段 / 播放头换行导致范围变化时，下一次重绘自动重建静态层
+        // （对位 Vue tlCacheKey 含 S.loop + activeLoopRange + exportRange）
+        var loopMode = preview.Loop;
+        var (loopS, loopE) = preview.ActiveLoopRange();
+        var exportSpan = Ranges.ExportSpanSeconds(plan, state.Project.ExportRange);
+
         // 静态层缓存键（对位 tlCacheKey）：视图/悬停/plan/音频变了才重建文字缓存，播放头走零分配路径
-        var key = $"{w:F0}|{h:F0}|{_off:F3}|{vd:F3}|{_zoom:F4}|{_dragLine}|{_hoverLine}|{LoopMode}|{_planVersion}|{(state.Audio?.Duration ?? 0):F2}|{plan?.Cuts.Count ?? 0}|{plan?.Lines.Count ?? 0}";
+        var key = $"{w:F0}|{h:F0}|{_off:F3}|{vd:F3}|{_zoom:F4}|{_dragLine}|{_hoverLine}|{loopMode}|{loopS:F3}|{loopE:F3}"
+                  + $"|{exportSpan?.T0:F3}|{exportSpan?.T1:F3}|{_planVersion}|{(state.Audio?.Duration ?? 0):F2}|{plan?.Cuts.Count ?? 0}|{plan?.Lines.Count ?? 0}";
         if (key != _cacheKey)
         {
             _cacheKey = key;
@@ -666,13 +633,20 @@ public sealed class TimelineSurface : FrameworkElement
                 }
             }
 
-            // ---- 循环区间（cut/line 模式下画琥珀罩；all 模式由整首循环表达，不画）----
-            if (LoopMode is "line" or "cut")
+            // ---- 导出范围（选段）底色：琥珀 10%（对位 TimelineCanvas.vue 的 rgba(245,165,12,.10)）----
+            if (exportSpan is { } span)
             {
-                var r = LoopRange(t);
-                var rx0 = BX(r.Start);
+                var ex0 = BX(span.T0);
+                dc.DrawRectangle(Alpha(amber, 26), null,
+                    new Rect(ex0, by, Math.Max(2, BX(span.T1) - ex0), bh));
+            }
+
+            // ---- 循环区间（分段/选段档画琥珀罩 16%；整首与不循环由本身语义表达，不画）----
+            if (loopMode is LoopMode.Line or LoopMode.Cut or LoopMode.Range)
+            {
+                var rx0 = BX(loopS);
                 dc.DrawRectangle(Alpha(amber, 41), null,
-                    new Rect(rx0, by, Math.Max(2, BX(r.End) - rx0), bh));
+                    new Rect(rx0, by, Math.Max(2, BX(loopE) - rx0), bh));
             }
         }
 

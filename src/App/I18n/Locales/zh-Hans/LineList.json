@@ -24,5 +24,6 @@
   "LineList.Mutate.Lock": "锁定行",
   "LineList.Mutate.Unlock": "解锁行",
   "LineList.Mutate.Boundary": "切分边界",
-  "LineList.Mutate.CutLayout": "切分布局"
+  "LineList.Mutate.CutLayout": "切分布局",
+  "LineList.Mutate.Range": "导出范围"
 }

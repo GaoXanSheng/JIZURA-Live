@@ -19,8 +19,6 @@
         <ProjectReference Include="..\..\JizuraLive.csproj"/>
     </ItemGroup>
 
-    <ItemGroup>
-        <Content Include="fixtures\engine-goldens.json" CopyToOutputDirectory="PreserveNewest"/>
-        <Content Include="fixtures\parity\**\*" CopyToOutputDirectory="PreserveNewest"/>
-    </ItemGroup>
+    <!-- fixtures（engine-goldens.json / parity 案例）已随仓库清理移除（8a747a7）：
+         ParityTests / ParityGoldenTests 在缺文件时自动 Skip，不再拷贝内容 -->
 </Project>

@@ -1,9 +1,11 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Export;
 using Microsoft.Win32;
+using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.App.Views;
 
@@ -24,6 +26,7 @@ public partial class OutTab : UserControl
 {
     private bool _built;
     private bool _syncing;
+    private string _rangeSig = ""; // 导范围下拉的候选项签名（切分数/文本变了才重建，避免下拉展开时被刷掉）
 
     /// <summary>导出进度窗（中止按钮的落点；模态期间面板不可点，属兜底）。</summary>
     private ExportProgressWindow? _active;
@@ -218,6 +221,8 @@ public partial class OutTab : UserControl
             _ => (L.T("Out.SaveDlg.Filter.Mp4"), ".mp4"),
         };
         var name = string.IsNullOrWhiteSpace(state.Project.Title) ? "jizura" : state.Project.Title;
+        // 选段后缀 _C01 / _C01-03（对位 export.ts 的 baseName() + rangeSuffix() + 扩展名）
+        name += Ranges.RangeSuffix(state.Project.ExportRange, state.Plan.Cuts.Count);
         var dlg = new SaveFileDialog { Filter = filter, FileName = name + ext, Title = L.T("Out.SaveDlg.Title") };
         if (dlg.ShowDialog(owner) != true) return;
 
@@ -271,6 +276,105 @@ public partial class OutTab : UserControl
 
     /// <summary>中止：关掉导出进度窗（Closed 里 CTS.Cancel + ExportBusy 归位）。</summary>
     private void BtnAbort_Click(object sender, RoutedEventArgs e) => _active?.Close();
+
+    // ---------------- 导出范围（选段；对位 OutTab.vue 的 rangeFrom/rangeTo + onFrom/onTo） ----------------
+
+    /// <summary>
+    /// 两个下拉的候选项（对位 cutOpts）：from 首项「全部」、to 首项「—」（都是 -1），
+    /// 之后每个切分一项「01 文本…」（空文本落 〔布局名〕）。切分数/文本/时长变了才重建。
+    /// </summary>
+    private void BuildRangeItems(Plan plan)
+    {
+        var sig = L.CurrentLang + "|" + plan.Cuts.Count + "|" + plan.Duration.ToString("F2", CultureInfo.InvariantCulture) + "|"
+                  + string.Join("\u0001", plan.Cuts.Select(c => (c.Text ?? "") + "\u0002" + c.Layout));
+        if (sig == _rangeSig) return;
+        _rangeSig = sig;
+        CbRangeFrom.Items.Clear();
+        CbRangeTo.Items.Clear();
+        CbRangeFrom.Items.Add(new ComboBoxItem { Content = L.T("Out.Range.All"), Tag = "-1" });
+        CbRangeTo.Items.Add(new ComboBoxItem { Content = "—", Tag = "-1" });
+        for (var i = 0; i < plan.Cuts.Count; i++)
+        {
+            var c = plan.Cuts[i];
+            var label = (c.Text ?? "").Trim();
+            if (label.Length > 12) label = label[..12]; // 对位 JS 的 slice(0,12)
+            if (label.Length == 0)
+                label = "〔" + (Reg.Layouts.TryGetValue(c.Layout, out var ld) && ld != null ? ld.Name : c.Layout) + "〕";
+            var text = (i + 1).ToString("00", CultureInfo.InvariantCulture) + " " + label;
+            CbRangeFrom.Items.Add(new ComboBoxItem { Content = text, Tag = i.ToString() });
+            CbRangeTo.Items.Add(new ComboBoxItem { Content = text, Tag = i.ToString() });
+        }
+    }
+
+    /// <summary>导出范围下拉变更（对位 onFrom/onTo）：from 选「全部」= 清空范围；
+    /// to 选「—」= 折叠成单切分（from 不变）；其余取 min/max 合并成区间。存 0 基切分索引。</summary>
+    private void Range_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing) return;
+        var plan = S.Plan;
+        if (plan == null) return;
+        int Tag(ComboBox cb) => (cb.SelectedItem as ComboBoxItem)?.Tag is { } t && int.TryParse(t.ToString(), out var v) ? v : -1;
+        var from = Tag(CbRangeFrom);
+        var to = Tag(CbRangeTo);
+        var cur = Ranges.ExportRangeCuts(S.Project.ExportRange, plan.Cuts.Count);
+        int? nFrom = null, nTo = null;
+        if (ReferenceEquals(sender, CbRangeFrom))
+        {
+            if (from < 0)
+            {
+                nFrom = null; // 全部
+            }
+            else
+            {
+                nFrom = from;
+                nTo = cur != null ? Math.Max(from, cur.Value.To) : from;
+            }
+        }
+        else
+        {
+            if (cur == null)
+            {
+                Pull(); // 没有范围时 to 是禁用的（理论到不了），兜底回刷
+                return;
+            }
+            if (to < 0)
+            {
+                nFrom = cur.Value.From;
+                nTo = cur.Value.From;
+            }
+            else
+            {
+                nFrom = Math.Min(cur.Value.From, to);
+                nTo = Math.Max(cur.Value.From, to);
+            }
+        }
+        S.Mutate(p => p.ExportRange = nFrom == null
+                ? null
+                : new JObject { ["from"] = nFrom.Value, ["to"] = nTo!.Value },
+            L.T("Out.Mutate.Range"), replan: false);
+    }
+
+    /// <summary>导出面板的导出范围行（选项 + 选中态 + 信息行）。</summary>
+    private void PullRange(Project p)
+    {
+        var plan = S.Plan;
+        RangeRow.Visibility = plan is { Cuts.Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        if (plan == null || plan.Cuts.Count == 0)
+        {
+            TblRangeInfo.Text = "";
+            return;
+        }
+        BuildRangeItems(plan);
+        var r = Ranges.ExportRangeCuts(p.ExportRange, plan.Cuts.Count);
+        SelectTag(CbRangeFrom, r != null ? r.Value.From.ToString() : "-1");
+        SelectTag(CbRangeTo, r != null ? r.Value.To.ToString() : "-1");
+        CbRangeTo.IsEnabled = r != null;
+        var span = Ranges.ExportSpanSeconds(plan, p.ExportRange);
+        TblRangeInfo.Text = span != null
+            ? L.F("Out.Range.InfoFmt", J.FmtTime(span.Value.T0), J.FmtTime(span.Value.T1),
+                (span.Value.T1 - span.Value.T0).ToString("F1", CultureInfo.InvariantCulture))
+            : L.F("Out.Range.AllFmt", plan.Duration.ToString("F1", CultureInfo.InvariantCulture));
+    }
 
     // ---------------- 回刷 ----------------
 
@@ -326,6 +430,8 @@ public partial class OutTab : UserControl
             NoteSubs.Visibility = invalid.Length == 0 && audioNote.Length == 0 && c.Subs
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+
+            PullRange(p);
         }
         finally
         {

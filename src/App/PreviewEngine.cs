@@ -35,7 +35,7 @@ public static class EngineRenderGate
 ///   → 声道归一（mono→stereo 上混 / 多声道取前 2）
 ///   → WdlResampling 统一到 48k（FxInlet 要求图与音源同采样率）
 ///   → AudioFx.Build(project.AudioFx) 特效图（units 全关返回 null = 直通）
-///   → WdlResampling 变速（48000/speed，对位 BufferSource.playbackRate；speed==1 跳过）
+///   → SpeedSampleProvider 变速（对位 BufferSource.playbackRate；speed==1 跳过）
 ///   → VolumeSampleProvider（预览音量/消音，对位 AP 的 vol²/muted，见 SetVolume；导出侧不经这里）
 ///   → CountingSampleProvider（读帧计数 = 波形位置钟）
 ///   → WaveOutEvent
@@ -53,7 +53,19 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>当前 plan（Replan 后换新对象；Spout 泵每帧取一次引用，换 plan 时旧对象仍有效）。</summary>
     public Plan Plan => _plan;
 
-    public bool Loop { get; set; } = true;
+    /// <summary>循环档位（对位 state.ts 的 S.loop：all/line/cut/false；Range = 循环导出范围，C# 扩展档）。
+    /// 默认整首。档位只在会话内有效，不落盘（同 Vue）。</summary>
+    public LoopMode Loop { get; private set; } = LoopMode.All;
+
+    /// <summary>Line/Cut/Range 的冻结范围（对位 S.loopHold）：play/seek/replan/换档时刷新，不逐帧重取——
+    /// 逐帧重取的话播放中范围会随播放头漂移（一整行会被越切越碎）。</summary>
+    private (double Start, double End)? _loopHold;
+
+    /// <summary>打点会话进行中（TapSession 置位）：到界不回卷而是停住，交打点会话收尾（对位 S.tap）。</summary>
+    public bool TapActive { get; set; }
+
+    /// <summary>打点到界（对位 bus 'tapend' → look.ts stopTap）：Tick 触发，订阅方结束会话。</summary>
+    public event Action? TapEnded;
 
     private volatile bool _isPlaying;
     public bool IsPlaying => _isPlaying;
@@ -244,9 +256,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             if (graph != null) graph.Input.Source = node;
             node = graph?.Output ?? node;
 
-            // 变速（J.fxSpeed）：重采样到 OutRate/speed，设备仍按 OutRate 消费 → 时长 ÷speed（对位 playbackRate）
+            // 变速（J.fxSpeed）：playbackRate 等价实现——时长 ÷speed、音调同升（对位 BufferSource.playbackRate）
             var speed = AudioFx.FxSpeedOf(_fxToken);
-            if (Math.Abs(speed - 1) > 1e-6) node = new WdlResamplingSampleProvider(node, (int)Math.Round(OutRate / speed));
+            if (Math.Abs(speed - 1) > 1e-6) node = new SpeedSampleProvider(node, speed);
 
             // 主音量（对位 AP.gain）：muted 直接 0，否则 vol²
             var gain = new VolumeSampleProvider(node) { Volume = _muted ? 0f : (float)(_vol * _vol) };
@@ -435,8 +447,37 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public double Duration => _plan?.Duration ?? 0;
 
+    // ---------------- 循环档位与范围（对位 state.ts 的 LOOP_CYCLE / loopRange / refreshLoopHold / activeLoopRange） ----------------
+
+    /// <summary>换档（对位 Transport.cycleLoop）：立即按当前位置取新范围——不然播放中切档会沿用上一档
+    /// 留下的范围（如从切分循环切到行循环，整行范围一直在，切不开）。</summary>
+    public void SetLoop(LoopMode mode)
+    {
+        if (Loop == mode) return;
+        Loop = mode;
+        RefreshLoopHold();
+        _version++;
+    }
+
+    /// <summary>重取冻结范围（对位 refreshLoopHold）：play / seek / replan / 换档时调用。</summary>
+    public void RefreshLoopHold()
+    {
+        _loopHold = Loop is LoopMode.Line or LoopMode.Cut or LoopMode.Range
+            ? Ranges.LoopRange(_plan, Loop, Project?.ExportRange, CurrentTime)
+            : null;
+    }
+
+    /// <summary>当前生效的循环范围（对位 activeLoopRange）：Line/Cut/Range 用冻结范围，其余按当前时刻现算。</summary>
+    public (double Start, double End) ActiveLoopRange()
+    {
+        if (Loop is LoopMode.Line or LoopMode.Cut or LoopMode.Range && _loopHold is { } hold)
+            return hold;
+        return Ranges.LoopRange(_plan, Loop, Project?.ExportRange, CurrentTime);
+    }
+
     /// <summary>当前播放时间。有音频走波形位置钟；scrub 拖动中钉在 seek 目标；
-    /// Loop 循环回卷；不 Loop 到尾钳在结尾。</summary>
+    /// 整首循环取模回卷；分段循环钳在范围末端（回卷由 Tick 负责，两拍之间不跳）；
+    /// 不循环钳在结尾。</summary>
     public double CurrentTime
     {
         get
@@ -444,8 +485,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             var t = RawTime;
             var dur = Duration;
             if (dur <= 0) return Math.Max(0, t);
-            if (Loop) return PositiveMod(t, dur);
-            return Math.Clamp(t, 0, dur);
+            if (Loop == LoopMode.Off) return Math.Clamp(t, 0, dur);
+            if (Loop == LoopMode.All) return PositiveMod(t, dur);
+            var (_, end) = ActiveLoopRange();
+            return Math.Clamp(t, 0, Math.Clamp(end, 0, dur));
         }
     }
 
@@ -456,8 +499,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     }
 
     /// <summary>
-    /// 播放节拍维护（UI 定时器驱动，~10–60Hz 随意）：循环回卷 / 到尾自动暂停 / 特效配置重建。
+    /// 播放节拍维护（UI 定时器驱动，~10–60Hz 随意）：到界回卷 / 到尾自动暂停 / 特效配置重建。
     /// 回卷通过重置基准实现，t 不会无限增大（保住 double 精度）；有音频时回卷/到尾同步驱动波形链。
+    /// 对位 engine.ts 的 tick：打点中不回卷（停住 + tapend），跟随模式整段跳过。
     /// </summary>
     public void Tick()
     {
@@ -467,27 +511,30 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         var dur = Duration;
         if (dur <= 0) return;
         var raw = RawTime;
-        if (Loop)
+        // 到界点：不循环 = 整首末尾；其余档位 = 当前冻结/现算范围末端
+        var (rangeStart, rangeEnd) = Loop == LoopMode.Off ? (0.0, dur) : ActiveLoopRange();
+        if (rangeEnd <= rangeStart) rangeEnd = dur; // 空范围兜底（等价整首）
+        if (raw < rangeEnd - 1e-3) return;
+
+        if (Loop != LoopMode.Off && !TapActive)
         {
-            if (raw >= dur)
-            {
-                _base = 0;
-                _startTs = Stopwatch.GetTimestamp();
-                AudioJump(0, resume: true); // 波形钟回卷到 0 续播
-                _version++;
-            }
-        }
-        else if (raw >= dur)
-        {
-            _base = dur;
+            _base = rangeStart;
             _startTs = Stopwatch.GetTimestamp();
-            _isPlaying = false;
-            lock (_chainLock)
-            {
-                try { if (_waveOut != null && _waveOut.PlaybackState == PlaybackState.Playing) _waveOut.Pause(); } catch { /* 设备失效 */ }
-            }
+            AudioJump(rangeStart, resume: true); // 波形钟回卷到范围起点续播
             _version++;
+            return;
         }
+
+        // 到界暂停（不循环 / 打点中）：停在范围末端不越过，打点会话由 tapend 收尾
+        _base = Math.Min(Math.Max(raw, 0), dur);
+        _startTs = Stopwatch.GetTimestamp();
+        _isPlaying = false;
+        lock (_chainLock)
+        {
+            try { if (_waveOut != null && _waveOut.PlaybackState == PlaybackState.Playing) _waveOut.Pause(); } catch { /* 设备失效 */ }
+        }
+        _version++;
+        if (TapActive) TapEnded?.Invoke();
     }
 
     public void Play()
@@ -495,8 +542,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         if (_follow) return; // 跟随模式：播放态由外部播放器驱动（Transport 不抢）
         if (IsPlaying) return;
         RebuildFxIfConfigChanged();
+        RefreshLoopHold(); // 对位 play()：起播时按当前位置重取范围
         // 结尾再按播放 → 从头（不循环时 CurrentTime 钳在 dur，体验上是「重播」）
-        if (!Loop && Duration > 0 && _base >= Duration - 1e-3)
+        if (Loop == LoopMode.Off && Duration > 0 && _base >= Duration - 1e-3)
         {
             _base = 0;
             AudioJump(0, resume: false); // 先定位，SafePlay 统一启动
@@ -532,6 +580,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _base = ClampPlayPos(t);
         _startTs = Stopwatch.GetTimestamp();
         _version++;
+        RefreshLoopHold(); // 对位 seek()：定位后按新位置重取范围
         // scrub 拖动中音频已被 BeginScrub 压住：只挪位置不出声（对位「scrub 中 seek 不重启音频」）
         if (_audioActive) AudioJump(_base, resume: IsPlaying && !_scrubbing);
     }
@@ -639,6 +688,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             if (_audioActive) AudioJump(0, resume: IsPlaying);
         }
         _version++;
+        RefreshLoopHold(); // 对位 replan()：换 plan 后按新切分重取冻结范围
         WarmFonts(plan); // 字体管线热身 + 缺字体按需拉（拉到后 FontFetch 回调重规划）
     }
 

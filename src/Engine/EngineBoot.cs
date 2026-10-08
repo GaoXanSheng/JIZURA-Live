@@ -27,7 +27,7 @@ public static class EngineBoot
         Reg.SeedCore(); // 05b_registry：核心条目（TREAT.none/BG.none/CAMERA.push/FXE 内置 8 项）
         JLayouts.Install(); // 06_layouts
         JDecor.Install(); // 07_decor：15 decor + drawHUD
-        LabelPacks.Apply(LabelPacks.DefaultLang); // zh-labels：简中标签覆盖（index.ts 里最后导入，须在所有注册之后）
+        ZhLabels.Apply(); // zh-labels：简中标签覆盖（index.ts 里最后导入，须在所有注册之后）
     }
 
     private static bool _packsInstalled;
@@ -71,6 +71,6 @@ public static class EngineBoot
         P11AudioFx.Install();   // 11p_audiofx：山脊线/随音高游移/心电图/换台（ASCII化 fx 待插件路径）
 
         Omakase.Install();      // 08b_omakase + 11q_sets：随机/锁定门禁（Reg.RandomOk 接线）
-        LabelPacks.Apply(LabelPacks.DefaultLang); // 包条目的简中标签（Apply 幂等，重放一次）
+        ZhLabels.Apply();       // 包条目的简中标签（Apply 幂等，重放一次；含 Moods/Themes 显示名覆盖）
     }
 }

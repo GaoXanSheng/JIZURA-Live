@@ -404,9 +404,6 @@ public partial class MainWindow : Window
         else StopSpout();
     }
 
-    /// <summary>打开右栏「特效」页的音频特效区（Transport 的「特效」按钮 → RightPanel.OpenAudioFx）。</summary>
-    public void OpenAudioFx() => Right.OpenAudioFx();
-
     // ---------------- 键盘 ----------------
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)

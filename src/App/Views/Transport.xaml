@@ -81,8 +81,9 @@
             </Ellipse>
         </Grid>
 
-        <!-- 循环：WPF 只有布尔开关（对位 loopMode 的 all/off 两态；线性/切分循环未移植），
-             关循环整体透明度 0.55，文案 `循环` -->
+        <!-- 循环：五态轮转按钮（对位 Transport.vue 的 LOOP_LABEL/cycleLoop）——
+             循环 / 切分循环（当前整行）/ 行循环（当前单个切分）/ 选段循环（导出范围）/ 不循环。
+             文案与琥珀/0.55 视觉在 code-behind 的 SyncLoopBtn 里刷（随档位与语言变） -->
         <Button x:Name="BtnLoop" Content="{DynamicResource Loc.Transport.Loop}" Style="{StaticResource BtnGhostSm}"
                 Click="BtnLoop_Click" ToolTip="{DynamicResource Loc.Transport.Loop.Tip}" />
 

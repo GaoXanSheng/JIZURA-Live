@@ -30,7 +30,7 @@ public partial class Transport : UserControl
     private bool _wired;
     private bool _syncTheme;
     private double _frac;
-    private Brush _fg = null!, _cyan = null!;
+    private Brush _fg = null!, _cyan = null!, _amber = null!;
     private readonly DispatcherTimer _timer;
 
     public Transport()
@@ -38,6 +38,7 @@ public partial class Transport : UserControl
         InitializeComponent();
         _fg = (Brush)FindResource("Fg");
         _cyan = (Brush)FindResource("Cyan");
+        _amber = (Brush)FindResource("Amber");
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
         _timer.Tick += (_, _) => Sync();
         _timer.Start();
@@ -77,11 +78,39 @@ public partial class Transport : UserControl
 
     private void BtnPlay_Click(object sender, RoutedEventArgs e) => Preview.TogglePlay();
 
+    /// <summary>
+    /// 循环档位轮转（对位 Transport.vue cycleLoop）：循环 → 切分循环 → 行循环 → 选段循环 → 不循环。
+    /// 内部值照抄 Vue 的反挂语义（line = 整行的完整切分、cut = 单个切分）；range 是 C# 扩展档
+    /// （循环导出范围/选段，未设范围时等价整首）。换档时引擎侧会按当前位置立即重取范围。
+    /// </summary>
     private void BtnLoop_Click(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded) return;
-        Preview.Loop = !Preview.Loop;
+        var pv = Preview;
+        var i = Array.IndexOf(Ranges.Cycle, pv.Loop);
+        pv.SetLoop(Ranges.Cycle[(i < 0 ? 0 : i + 1) % Ranges.Cycle.Length]);
         Sync();
+    }
+
+    /// <summary>档位 → 文案键（对位 Transport.vue 的 LOOP_LABEL）。</summary>
+    private static (string LabelKey, string TipKey) LoopTexts(LoopMode m) => m switch
+    {
+        LoopMode.Line => ("Transport.Loop.Line", "Transport.Loop.Line.Tip"),
+        LoopMode.Cut => ("Transport.Loop.Cut", "Transport.Loop.Cut.Tip"),
+        LoopMode.Range => ("Transport.Loop.Range", "Transport.Loop.Range.Tip"),
+        LoopMode.Off => ("Transport.Loop", "Transport.LoopOff.Tip"),
+        _ => ("Transport.Loop", "Transport.Loop.Tip"),
+    };
+
+    /// <summary>循环按钮视觉（对位 Vue）：不循环整体 0.55；分段/选段档琥珀字；整首档常态。</summary>
+    private void SyncLoopBtn()
+    {
+        var m = Preview.Loop;
+        var (labelKey, tipKey) = LoopTexts(m);
+        BtnLoop.Content = L.T(labelKey);
+        BtnLoop.ToolTip = L.T(tipKey);
+        BtnLoop.Opacity = m == LoopMode.Off ? 0.55 : 1;
+        BtnLoop.Foreground = m is LoopMode.Line or LoopMode.Cut or LoopMode.Range ? _amber : _fg;
     }
 
     // ---------------- 进度条（自绘，对位 barDown/barMove/barUp/barSeek） ----------------
@@ -312,10 +341,7 @@ public partial class Transport : UserControl
         }
         TblDur.Text = J.FmtTime(dur);
         BtnPlay.Content = preview.IsPlaying ? "❚❚" : "▶";
-        // 循环：WPF 只有 全曲/关 两态（对位 loopMode 的 all/off）；关循环整体透明度 0.55
-        var loop = preview.Loop;
-        BtnLoop.Opacity = loop ? 1 : 0.55;
-        BtnLoop.ToolTip = loop ? L.T("Transport.Loop.Tip") : L.T("Transport.LoopOff.Tip");
+        SyncLoopBtn(); // 循环：档位文案/琥珀态/不循环 0.55（对位 Vue 的循环按钮）
         var st = main.State;
         BtnHistBack.IsEnabled = st.CanUndoLook;
         BtnHistFwd.IsEnabled = st.CanRedoLook;
@@ -325,18 +351,23 @@ public partial class Transport : UserControl
         if (!_volDragging) SetVolBar();
     }
 
-    /// <summary>语言切换：重刷双态循环 ToolTip 与主题下拉项（DynamicResource 管不到 code-behind 赋值）。</summary>
+    /// <summary>语言切换：重刷循环档位文案与主题下拉项（DynamicResource 管不到 code-behind 赋值）。</summary>
     private void ApplyTexts()
     {
         if (App.MainInstance == null) return;
-        BtnLoop.ToolTip = Preview.Loop ? L.T("Transport.Loop.Tip") : L.T("Transport.LoopOff.Tip");
+        SyncLoopBtn();
         BuildThemeItems();
         SyncTheme();
     }
 
-    /// <summary>打开右栏「特效」页的音效区（对位旧版 Transport 的音效按钮 → 音频特效弹窗）。</summary>
-    private void BtnFx_Click(object sender, RoutedEventArgs e) =>
-        (Window.GetWindow(this) as MainWindow)?.OpenAudioFx();
+    /// <summary>打开「音频效果」弹窗（对位 Dialogs.vue 的音频特效弹窗：预设/效果链/变速/EQ）。
+    /// 音频效果不再落在右栏「特效」面板里——那栏只留画面特效。</summary>
+    private void BtnFx_Click(object sender, RoutedEventArgs e)
+    {
+        var owner = Window.GetWindow(this);
+        if (owner == null) return;
+        new AudioFxDialog { Owner = owner }.ShowDialog();
+    }
 
     /// <summary>fxActive：音频特效链上有开启的单元（speed 变速不算特效）。</summary>
     private static bool FxActive(EditorState st) =>
