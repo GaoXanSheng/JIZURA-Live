@@ -48,4 +48,16 @@ internal static class Egl
     [DllImport(Dll)] public static extern int eglQueryDeviceAttribEXT(IntPtr device, int attr, out IntPtr value);
     [DllImport(Dll)] public static extern IntPtr eglGetCurrentContext();
     [DllImport(Dll)] public static extern int eglGetError();
+    [DllImport(Dll)] public static extern int eglGetConfigAttrib(IntPtr dpy, IntPtr cfg, int attr, out int value);
+    public const int EGL_D3D11_TEXTURE_ANGLE = 0x3484;
+    [DllImport(Dll)] public static extern IntPtr eglCreateImageKHR(IntPtr dpy, IntPtr ctx, int target, IntPtr buffer, int[]? attribs);
+    [DllImport("libGLESv2.dll")] public static extern void glGenTextures(int n, int[] textures);
+    [DllImport("libGLESv2.dll")] public static extern void glBindTexture(int target, int texture);
+    [DllImport("libGLESv2.dll")] public static extern void glGenFramebuffers(int n, int[] framebuffers);
+    [DllImport("libGLESv2.dll")] public static extern void glBindFramebuffer(int target, int framebuffer);
+    [DllImport("libGLESv2.dll")] public static extern void glFramebufferTexture2D(int target, int attachment, int textarget, int texture, int level);
+    [DllImport("libGLESv2.dll")] public static extern void glEGLImageTargetTexture2DOES(int target, IntPtr image);
+    public const int GL_TEXTURE_2D = 0x0DE1;
+    public const int GL_FRAMEBUFFER = 0x8D40;
+    public const int GL_COLOR_ATTACHMENT0 = 0x8CE0;
 }

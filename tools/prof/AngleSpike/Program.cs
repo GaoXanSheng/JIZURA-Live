@@ -129,15 +129,11 @@ internal static class Program
             new[] { Egl.EGL_CONTEXT_CLIENT_VERSION, 3, Egl.EGL_NONE });
         if (ctx == IntPtr.Zero) { Log("[2] eglCreateContext 失败"); return; }
 
-        // ---------- 3. ANGLE 内部 D3D11 设备 ----------
-        if (Egl.eglQueryDisplayAttribEXT(dpy, Egl.EGL_DEVICE_EXT, out var eglDev) == 0 || eglDev == IntPtr.Zero)
-        { Log("[3] eglQueryDisplayAttribEXT(EGL_DEVICE_EXT) 失败"); return; }
-        if (Egl.eglQueryDeviceAttribEXT(eglDev, Egl.EGL_D3D11_DEVICE_ANGLE, out var d3dDev) == 0 || d3dDev == IntPtr.Zero)
-        { Log("[3] eglQueryDeviceAttribEXT(EGL_D3D11_DEVICE_ANGLE) 失败"); return; }
-        Log($"[3] ANGLE 的 ID3D11Device* = 0x{d3dDev:x}");
-
-        // ---------- 4. 在该设备上建共享纹理 ----------
-        using var dev11 = new SharpDX.Direct3D11.Device(d3dDev);
+        // ---------- 3. 自建 D3D11 设备（A'' 变体：该 ANGLE 构建无 device_d3d，
+        //            但带 EGL_ANGLE_d3d_share_handle_client_buffer —— 共享句柄直接建表面，
+        //            完全不需要取 ANGLE 的设备） ----------
+        using var dev11 = new SharpDX.Direct3D11.Device(SharpDX.Direct3D.DriverType.Hardware,
+            DeviceCreationFlags.BgraSupport);
         var d3dTex = new Texture2D(dev11, new Texture2DDescription
         {
             Width = plan.W, Height = plan.H, MipLevels = 1, ArraySize = 1,
@@ -152,16 +148,61 @@ internal static class Program
         Log($"[4] 共享纹理 {plan.W}x{plan.H} BGRA, shareHandle=0x{shareHandle:x}");
 
         // ---------- 5. EGL 表面（包该纹理）→ 上下文 → Skia ----------
-        var surf = Egl.eglCreatePbufferSurface(dpy, cfg, new[]
+        // 5a：共享句柄 pbuffer —— 逐 config 探测支持 EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE 的配置
+        var surf = IntPtr.Zero;
+        for (var ci = 0; ci < nCfg; ci++)
         {
-            Egl.EGL_WIDTH, plan.W,
-            Egl.EGL_HEIGHT, plan.H,
-            Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, shareHandle.ToInt32(),
-            Egl.EGL_NONE,
-        });
-        if (surf == IntPtr.Zero) { Log($"[5] eglCreatePbufferSurface(shareHandle) 失败 eglErr=0x{Egl.eglGetError():x}"); return; }
-        if (Egl.eglMakeCurrent(dpy, surf, surf, ctx) == 0) { Log("[5] eglMakeCurrent 失败"); return; }
-        Log("[5] EGL 表面绑定共享纹理，上下文 current");
+            Egl.eglGetConfigAttrib(dpy, cfgs[ci], Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, out var okFlag);
+            if (okFlag != Egl.EGL_TRUE) continue;
+            surf = Egl.eglCreatePbufferSurface(dpy, cfgs[ci], new[]
+            {
+                Egl.EGL_WIDTH, plan.W,
+                Egl.EGL_HEIGHT, plan.H,
+                Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, shareHandle.ToInt32(),
+                Egl.EGL_NONE,
+            });
+            if (surf != IntPtr.Zero) { Log($"[5] 共享句柄表面成功（config #{ci}，flag={okFlag}）"); break; }
+        }
+        var fboForSkia = 0; // 0 = 默认 FBO（共享句柄表面路径）
+        if (surf == IntPtr.Zero)
+        {
+            Log($"[5] 共享句柄表面不可用（eglErr=0x{Egl.eglGetError():x}）；回退 A'：EGLImage → 自建 FBO");
+            // A'：纹理直接用（同一 D3D 设备上创建，ANGLE 可访问）→ eglCreateImageKHR → GL 纹理 → FBO
+            if (Egl.eglMakeCurrent(dpy, IntPtr.Zero, IntPtr.Zero, ctx) == 0 && Egl.eglGetCurrentContext() == IntPtr.Zero)
+            { Log("[5] surfaceless makeCurrent 失败"); return; }
+            // 四形态探测：buffer ∈ {纹理指针, 共享句柄} × attribs ∈ {无, SHARED_HANDLE=TRUE}
+            const int EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE = 0x3487;
+            var shapes = new (string Name, IntPtr Buffer, int[]? Attrs)[]
+            {
+                ("纹理指针/无属性", d3dTex.NativePointer, null),
+                ("共享句柄/无属性", shareHandle, null),
+                ("纹理指针/SHARED=1", d3dTex.NativePointer, new[] { EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE, Egl.EGL_TRUE, Egl.EGL_NONE }),
+                ("共享句柄/SHARED=1", shareHandle, new[] { EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE, Egl.EGL_TRUE, Egl.EGL_NONE }),
+            };
+            var img = IntPtr.Zero;
+            foreach (var sh in shapes)
+            {
+                img = Egl.eglCreateImageKHR(dpy, IntPtr.Zero, Egl.EGL_D3D11_TEXTURE_ANGLE, sh.Buffer, sh.Attrs);
+                Log($"[5] eglCreateImageKHR[{sh.Name}] => 0x{img:x} eglErr=0x{Egl.eglGetError():x}");
+                if (img != IntPtr.Zero) break;
+            }
+            if (img == IntPtr.Zero) { Log("[5] 四形态全失败"); return; }
+            var texIds = new int[1];
+            Egl.glGenTextures(1, texIds);
+            Egl.glBindTexture(Egl.GL_TEXTURE_2D, texIds[0]);
+            Egl.glEGLImageTargetTexture2DOES(Egl.GL_TEXTURE_2D, img);
+            var fboIds = new int[1];
+            Egl.glGenFramebuffers(1, fboIds);
+            Egl.glBindFramebuffer(Egl.GL_FRAMEBUFFER, fboIds[0]);
+            Egl.glFramebufferTexture2D(Egl.GL_FRAMEBUFFER, Egl.GL_COLOR_ATTACHMENT0, Egl.GL_TEXTURE_2D, texIds[0], 0);
+            fboForSkia = fboIds[0];
+            Log($"[5] A' 就绪：EGLImage→GL 纹理 {texIds[0]}→FBO {fboForSkia}");
+        }
+        else
+        {
+            if (Egl.eglMakeCurrent(dpy, surf, surf, ctx) == 0) { Log("[5] eglMakeCurrent 失败"); return; }
+            Log("[5] EGL 表面绑定共享纹理，上下文 current");
+        }
 
         var glIface = GRGlInterface.CreateAngle();
         if (glIface == null || !glIface.Validate()) { Log("[5] GRGlInterface.CreateAngle 失败/未通过 Validate"); return; }
@@ -170,7 +211,7 @@ internal static class Program
         Log("[5] GRContext(ANGLE) 就绪");
 
         // 4.x：以 GRBackendRenderTarget 描述 FBO0（= ANGLE 表面 = 我们的共享纹理）
-        var fbInfo = new GRGlFramebufferInfo(0, 0x8058); // FBO 0, GL_RGBA8（ANGLE 将其映射到 DXGI B8G8R8A8）
+        var fbInfo = new GRGlFramebufferInfo((uint)fboForSkia, 0x8058); // FBO（0=共享句柄表面默认 FBO；非 0=A' 自建）
         var rendTarget = new GRBackendRenderTarget(plan.W, plan.H, 0, 0, fbInfo);
         var gpuSurf = SKSurface.Create(gr, rendTarget, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888);
         if (gpuSurf == null) { Log("[5] GPU 表面创建失败（FBO0 未挂钩？）"); return; }
@@ -236,7 +277,7 @@ internal static class Program
             var senderT = wrap.GetTypes().First(x => x.Name == "SpoutSender");
             dynamic sender = Activator.CreateInstance(senderT)!;
             sender.SetSenderName("JIZURA-GPU-POC");
-            var opened = sender.OpenDirectX(d3dDev);
+            var opened = sender.OpenDirectX(dev11.NativePointer);
             Log($"[7] Sender.OpenDirectX(ANGLE 设备) = {opened}");
             var swS = Stopwatch.StartNew();
             for (var i = 0; i < 60; i++)
