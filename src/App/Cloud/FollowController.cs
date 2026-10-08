@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Server;
@@ -278,7 +279,7 @@ public sealed class FollowController : IDisposable
         if (!st.Ok)
         {
             Status = StError;
-            Detail = st.Error ?? "SMTC 不可用";
+            Detail = st.Error ?? L.T("CloudFollow.SmtcUnavailable");
             Notify();
             return;
         }
@@ -289,7 +290,7 @@ public sealed class FollowController : IDisposable
             // 没有会话/会话没有元数据：暂停渲染时间轴，歌词画面停在原地
             if (Engine.IsPlaying) Engine.FollowAnchor(Engine.CurrentTime, false);
             Status = cur != null ? StNoMeta : StNoSession;
-            Detail = cur != null ? "" : "未检测到正在播放的播放器（酷狗/网易云等需在前台或后台运行）";
+            Detail = cur != null ? "" : L.T("CloudFollow.NoPlayer");
             Notify();
             return;
         }
@@ -484,7 +485,7 @@ public sealed class FollowController : IDisposable
             if (found == null)
             {
                 Status = StNoMatch;
-                Detail = "没找到足够像的歌，可在「搜索」页手动搜（注意跟随模式下不要载入音频）";
+                Detail = L.T("CloudFollow.NoMatchDetail");
                 Notify();
                 return;
             }
@@ -497,7 +498,7 @@ public sealed class FollowController : IDisposable
             if (!ly.Ok || string.IsNullOrEmpty(ly.Content))
             {
                 Status = StNoMatch;
-                Detail = "找到了歌但歌词接口没返回内容";
+                Detail = L.T("CloudFollow.LyricEmpty");
                 Notify();
                 return;
             }
@@ -515,18 +516,19 @@ public sealed class FollowController : IDisposable
             }
             Fmt = source == "netease" ? "ne" : ly.Fmt == "krc" ? "krc" : "lrc";
             // 匹配结果带歌手：同名歌多版本（原版/翻唱/DJ版），只看歌名分不清词是谁的
-            MatchedAs = (source == "kugou" ? "酷狗" : "网易云") + "·" + song.Name +
+            MatchedAs = (source == "kugou" ? L.T("Cloud.SourceKugou") : L.T("Cloud.SourceNetease")) + "·" +
+                        song.Name +
                         (song.Singer.Length > 0 ? " - " + song.Singer : "");
-            _state.Mutate(p => p.Lyrics = lrc, "跟随歌词匹配", replan: true);
+            _state.Mutate(p => p.Lyrics = lrc, L.T("CloudFollow.MutateLyrics"), replan: true);
             Status = StOk;
             // 核对警告：歌手对不上＝多半串了翻唱/DJ版；时长差太多＝多半试听截断或不同版本
             var warns = new List<string>();
             if (artist.Length > 0 && song.Singer.Length > 0 && !ArtistMatches(artist, song.Singer))
-                warns.Add($"匹配到「{song.Singer}」的版本，与播放器歌手「{artist}」不一致，歌词可能对不上，建议手动搜索匹配");
+                warns.Add(L.F("CloudFollow.ArtistMismatch", song.Singer, artist));
             var planDur = _state.Plan?.Duration ?? 0;
             var srtcDur = cur.DurationMs / 1000.0;
             if (planDur > 0 && srtcDur > 0 && Math.Abs(planDur - srtcDur) > 3)
-                warns.Add($"时长不一致（歌词 {J.FmtTime(planDur)} / 播放器 {J.FmtTime(srtcDur)}），可能是试听截断或不同版本");
+                warns.Add(L.F("CloudFollow.DurationMismatch", J.FmtTime(planDur), J.FmtTime(srtcDur)));
             Detail = string.Join("；", warns);
             Log.Info($"[Follow] 歌词已匹配：{MatchedAs}（{Fmt}）{Detail}");
         }
@@ -535,7 +537,7 @@ public sealed class FollowController : IDisposable
             if (seq == Volatile.Read(ref _matchSeq))
             {
                 Status = StError;
-                Detail = "匹配失败：" + ex.Message;
+                Detail = L.F("CloudFollow.MatchFailed", ex.Message);
             }
         }
 

@@ -7,6 +7,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using JizuraLive.App.Cloud;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Spout;
@@ -487,7 +488,7 @@ public partial class MainWindow : Window
         IcMax.Data = Geometry.Parse(max
             ? "M 0 2.6 H 7.4 V 10 H 0 Z M 2.6 2.6 V 0 H 10 V 7.4"
             : "M 0 0 H 10 V 10 H 0 Z");
-        BtnMax.ToolTip = max ? "窗口化" : "最大化";
+        BtnMax.ToolTip = max ? L.T("Main.Restore.Tip") : L.T("Main.Max.Tip");
     }
 
     private const int WM_GETMINMAXINFO = 0x0024;

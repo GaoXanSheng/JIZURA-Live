@@ -7,14 +7,14 @@
             BorderThickness="0,0,0,1" Padding="16,8">
         <DockPanel LastChildFill="True">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="14,0,0,0">
-                <Button x:Name="BtnOpen" Content="打开" Style="{StaticResource BtnFile}"
-                        ToolTip="打开工程（.jizuralive 全量恢复；老 .json 仅作样式配置导入）" Click="BtnOpen_Click" />
-                <Button x:Name="BtnSave" Content="保存" Margin="8,0,0,0"
-                        ToolTip="保存为字面 Live 专用工程包（.jizuralive：含歌曲与歌词）" Click="BtnSave_Click" />
-                <Button x:Name="BtnReset" Content="初始化" Style="{StaticResource BtnGhost}" Margin="8,0,0,0"
-                        ToolTip="清空歌词、歌曲、设置和历史，回到初始状态" Click="BtnReset_Click" />
-                <Button x:Name="BtnTerms" Content="使用说明" Style="{StaticResource BtnGhost}" Margin="8,0,0,0"
-                        ToolTip="输出物的权利与许可证" Click="BtnTerms_Click" />
+                <Button x:Name="BtnOpen" Content="{DynamicResource Loc.TopBar.Open}" Style="{StaticResource BtnFile}"
+                        ToolTip="{DynamicResource Loc.TopBar.Open.Tip}" Click="BtnOpen_Click" />
+                <Button x:Name="BtnSave" Content="{DynamicResource Loc.TopBar.Save}" Margin="8,0,0,0"
+                        ToolTip="{DynamicResource Loc.TopBar.Save.Tip}" Click="BtnSave_Click" />
+                <Button x:Name="BtnReset" Content="{DynamicResource Loc.TopBar.Reset}" Style="{StaticResource BtnGhost}" Margin="8,0,0,0"
+                        ToolTip="{DynamicResource Loc.TopBar.Reset.Tip}" Click="BtnReset_Click" />
+                <Button x:Name="BtnTerms" Content="{DynamicResource Loc.TopBar.Terms}" Style="{StaticResource BtnGhost}" Margin="8,0,0,0"
+                        ToolTip="{DynamicResource Loc.TopBar.Terms.Tip}" Click="BtnTerms_Click" />
             </StackPanel>
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -22,9 +22,9 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBox x:Name="TbTitle" Grid.Column="0" Margin="0,0,4,0"
-                         ToolTip="曲名（标题卡・HUD 显示）" TextChanged="TbTitle_TextChanged" />
+                         ToolTip="{DynamicResource Loc.TopBar.Title.Tip}" TextChanged="TbTitle_TextChanged" />
                 <TextBox x:Name="TbArtist" Grid.Column="1" Margin="4,0,0,0"
-                         ToolTip="歌手" TextChanged="TbArtist_TextChanged" />
+                         ToolTip="{DynamicResource Loc.TopBar.Artist.Tip}" TextChanged="TbArtist_TextChanged" />
             </Grid>
         </DockPanel>
     </Border>

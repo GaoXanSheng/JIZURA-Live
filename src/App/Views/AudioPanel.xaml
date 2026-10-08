@@ -6,21 +6,21 @@
     <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}"
             BorderThickness="0,0,0,1" Padding="16,14">
         <StackPanel>
-            <ctl:JzLabel Text="歌曲与节拍" Tracking="0.18" TextElement.FontSize="11"
+            <ctl:JzLabel Text="{DynamicResource Loc.Audio.Header}" Tracking="0.18" TextElement.FontSize="11"
                          TextElement.FontWeight="SemiBold"
                          TextElement.Foreground="{StaticResource Mut}" Margin="0,0,0,10" />
             <!-- 音频名 / 分析信息（音频名过长时换行，对位 break-all text-xs text-mut） -->
-            <TextBlock x:Name="TblAudioName" Text="未载入歌曲（载入后自动检测节拍并对齐切分）"
+            <TextBlock x:Name="TblAudioName" Text="{DynamicResource Loc.Audio.NoSong}"
                        FontSize="12" Foreground="{StaticResource Mut}" TextWrapping="Wrap"
                        LineHeight="18" Margin="0,0,0,10" />
             <!-- 载入歌曲 / 打点同步 / 云端音乐 -->
             <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                <Button x:Name="BtnLoad" Content="载入歌曲" Style="{StaticResource BtnFile}"
-                        ToolTip="mp3 / wav / m4a 等，也支持 .krc 歌词文件" Click="BtnLoad_Click" />
-                <Button x:Name="BtnTap" Content="打点同步" Margin="8,0,0,0"
-                        ToolTip="边播放边在每行开头打点" Click="BtnTap_Click" />
-                <Button x:Name="BtnCloud" Content="云端音乐" Style="{StaticResource BtnAccent}" Margin="8,0,0,0"
-                        ToolTip="在线搜索 / 扫码登录（酷狗・网易云）" Click="BtnCloud_Click" />
+                <Button x:Name="BtnLoad" Content="{DynamicResource Loc.Audio.Load}" Style="{StaticResource BtnFile}"
+                        ToolTip="{DynamicResource Loc.Audio.Load.Tip}" Click="BtnLoad_Click" />
+                <Button x:Name="BtnTap" Content="{DynamicResource Loc.Audio.Tap}" Margin="8,0,0,0"
+                        ToolTip="{DynamicResource Loc.Audio.Tap.Tip}" Click="BtnTap_Click" />
+                <Button x:Name="BtnCloud" Content="{DynamicResource Loc.Audio.Cloud}" Style="{StaticResource BtnAccent}" Margin="8,0,0,0"
+                        ToolTip="{DynamicResource Loc.Audio.Cloud.Tip}" Click="BtnCloud_Click" />
             </StackPanel>
             <!-- BPM / 开始(秒) / 行时长（grid-cols-3 gap-2） -->
             <Grid>
@@ -34,26 +34,26 @@
                     <Grid>
                         <TextBox x:Name="TbBpm" Style="{StaticResource TbNum}" LostFocus="TbBpm_LostFocus"
                                  KeyDown="NumBox_KeyDown" />
-                        <TextBlock x:Name="PhBpm" Text="无" IsHitTestVisible="False" FontSize="13"
+                        <TextBlock x:Name="PhBpm" Text="{DynamicResource Loc.Audio.Placeholder}" IsHitTestVisible="False" FontSize="13"
                                    FontFamily="{StaticResource MonoFont}"
                                    Foreground="{StaticResource Faint}" Margin="10,0,0,0" VerticalAlignment="Center" />
                     </Grid>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Margin="4,0,4,0">
-                    <TextBlock Text="开始(秒)" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
+                    <TextBlock Text="{DynamicResource Loc.Audio.Offset}" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
                     <TextBox x:Name="TbOffset" Style="{StaticResource TbNum}" LostFocus="TbOffset_LostFocus"
                              KeyDown="NumBox_KeyDown" />
                 </StackPanel>
                 <StackPanel Grid.Column="2" Margin="4,0,0,0">
-                    <TextBlock Text="行时长" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
+                    <TextBlock Text="{DynamicResource Loc.Audio.LineScale}" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
                     <TextBox x:Name="TbLineScale" Style="{StaticResource TbNum}" LostFocus="TbLineScale_LostFocus"
                              KeyDown="NumBox_KeyDown" />
                 </StackPanel>
             </Grid>
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <CheckBox x:Name="ChkSnap" Content="对齐节拍" VerticalAlignment="Center"
-                          Checked="ChkSnap_Changed" Unchecked="ChkSnap_Changed" ToolTip="时刻对齐到检测出的节拍" />
-                <Button x:Name="BtnResetTimes" Content="清除手动时间" Style="{StaticResource BtnGhostSm}"
+                <CheckBox x:Name="ChkSnap" Content="{DynamicResource Loc.Audio.Snap}" VerticalAlignment="Center"
+                          Checked="ChkSnap_Changed" Unchecked="ChkSnap_Changed" ToolTip="{DynamicResource Loc.Audio.Snap.Tip}" />
+                <Button x:Name="BtnResetTimes" Content="{DynamicResource Loc.Audio.ResetTimes}" Style="{StaticResource BtnGhostSm}"
                         Margin="14,0,0,0" Click="BtnResetTimes_Click" />
             </StackPanel>
             <!-- 分析进度（解码+分析在后台任务；不确定态 + 已用时计时） -->

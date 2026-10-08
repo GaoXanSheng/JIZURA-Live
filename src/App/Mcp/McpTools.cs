@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
+using JizuraLive.App.I18n;
 using JizuraLive.App.Views;
 using JizuraLive.Engine;
 using JizuraLive.Export;
@@ -49,7 +50,7 @@ public sealed class McpTools
         try
         {
             Check(body["jsonrpc"]?.Type == JTokenType.String && (string?)body["jsonrpc"] == "2.0"
-                  && body["method"]?.Type == JTokenType.String, "bad JSON-RPC");
+                  && body["method"]?.Type == JTokenType.String, L.T("Mcp.Err.BadJsonRpc"));
             var method = (string)body["method"]!;
             if (method.StartsWith("notifications/", StringComparison.Ordinal)) return null; // 通知：无响应
             var result = RpcMethod(method, body["params"] as JObject);
@@ -96,13 +97,13 @@ public sealed class McpTools
         if (method == "tools/list") return new JObject { ["tools"] = ToolList() };
         if (method == "tools/call")
         {
-            Check(p?["name"]?.Type == JTokenType.String, "tools/call 缺少 name");
+            Check(p?["name"]?.Type == JTokenType.String, L.T("Mcp.Err.MissingName"));
             var name = (string)p!["name"]!;
             var def = ToolList().OfType<JObject>().FirstOrDefault(t => (string?)t["name"] == name);
             if (def == null)
                 return new JObject
                 {
-                    ["content"] = new JArray { new JObject { ["type"] = "text", ["text"] = "未知工具：" + name } },
+                    ["content"] = new JArray { new JObject { ["type"] = "text", ["text"] = L.F("Mcp.Err.UnknownTool", name) } },
                     ["isError"] = true
                 };
             var args = p["arguments"] as JObject ?? new JObject();
@@ -116,7 +117,7 @@ public sealed class McpTools
                 ["isError"] = false
             };
         }
-        throw new ToolError("method_not_found", "未知方法：" + method);
+        throw new ToolError("method_not_found", L.F("Mcp.Err.UnknownMethod", method));
     }
 
     /// <summary>tools/call 的公共闸：初始化检查、导出期只挡写、revision 契约、写回附加 revision。</summary>
@@ -126,18 +127,18 @@ public sealed class McpTools
                        && (bool)def["annotations"]!["readOnlyHint"]!;
         var run = OnUi(() =>
         {
-            Check(_state.Plan != null, "编辑器尚未初始化");
-            if (!readOnly) Check(!Exporting, "导出进行中，请稍后再试");
+            Check(_state.Plan != null, L.T("Mcp.Err.EditorNotReady"));
+            if (!readOnly) Check(!Exporting, L.T("Mcp.Err.ExportBusy"));
             if (!readOnly)
             {
                 // schema 里 revision 必填的工具缺参即拒；带 revision 但与当前值不符即拒
                 var required = def["inputSchema"]?["required"] as JArray;
                 if (required != null && required.Any(x => (string?)x == "revision")
                     && args["revision"]?.Type != JTokenType.Integer)
-                    Fail("stale_revision", $"缺少 revision：先 get_state 读取最新值（当前 {_state.Revision}）");
+                    Fail("stale_revision", L.F("Mcp.Err.MissingRevision", _state.Revision));
                 if (args["revision"] != null && (int)args["revision"]! != _state.Revision)
                     Fail("stale_revision",
-                        $"revision 过期（提交 {args["revision"]}，当前 {_state.Revision}）：重新 get_state 后再写");
+                        L.F("Mcp.Err.StaleRevision", args["revision"], _state.Revision));
             }
             var name = (string?)def["name"] ?? "";
             var outObj = RunTool(name, args) ?? new JObject { ["ok"] = true };
@@ -167,7 +168,7 @@ public sealed class McpTools
         "start_export" => ToolStartExport(a),
         "get_export_status" => ToolGetExportStatus(),
         "reset_project" => ToolReset(),
-        _ => throw new ToolError("method_not_found", "未知工具：" + name)
+        _ => throw new ToolError("method_not_found", L.F("Mcp.Err.UnknownTool", name))
     };
 
     // ============================================================ 工具实现
@@ -277,7 +278,7 @@ public sealed class McpTools
     {
         var cat = a.Value<string>("category");
         if (cat == "settings")
-            return new JObject { ["note"] = "设置字段见 update_settings 的说明；style/font/各手法组用 list_options 查询 ID" };
+            return new JObject { ["note"] = L.T("Mcp.Tool.list_options.SettingsNote") };
 
         var items = new JArray();
         if (cat == "style")
@@ -309,7 +310,7 @@ public sealed class McpTools
         }
         else
         {
-            Check(cat != null && Reg.GroupKeys.Contains(cat), "未知分类：" + cat);
+            Check(cat != null && Reg.GroupKeys.Contains(cat), L.F("Mcp.Err.UnknownCategory", cat));
             var p = _state.Project;
             foreach (var id in Reg.OrderOf(cat!))
             {
@@ -360,16 +361,16 @@ public sealed class McpTools
                     p.Lyrics = "";
                     p.Timing.LineTimes.Clear();
                     p.Overrides.Clear();
-                }, "清空歌词");
+                }, L.T("Mcp.Mutate.ClearLyrics"));
                 _state.ReplanNow();
                 ProjectIO.FlushAutosave(_state.Project);
                 _preview.Seek(0);
             }
             return new JObject { ["cleared"] = true };
         }
-        Check(a["text"]?.Type == JTokenType.String, "提供 text 或 clear=true");
+        Check(a["text"]?.Type == JTokenType.String, L.T("Mcp.Err.ProvideTextOrClear"));
         var text = (string)a["text"]!;
-        _state.Mutate(p => p.Lyrics = text, "歌词");
+        _state.Mutate(p => p.Lyrics = text, L.T("Mcp.Mutate.Lyrics"));
         _state.ReplanNow();
         ProjectIO.FlushAutosave(_state.Project);
         return new JObject
@@ -382,24 +383,24 @@ public sealed class McpTools
     private JObject ToolUpdateSettings(JObject a)
     {
         var s = a["settings"] as JObject;
-        Check(s != null, "缺少 settings");
+        Check(s != null, L.T("Mcp.Err.MissingSettings"));
         var p = _state.Project;
 
         // 先校验后落地：校验失败不留半套改动（JS 是边改边 check，失败会留下半套——这里更严）
         if (s!["style"] != null)
-            Check(Reg.Styles.ContainsKey(s.Value<string>("style") ?? ""), "未知风格：" + s["style"]);
+            Check(Reg.Styles.ContainsKey(s.Value<string>("style") ?? ""), L.F("Mcp.Err.UnknownStyle", s["style"]));
         if (s["fonts"] is JObject fo)
             foreach (var role in new[] { "display", "serif", "body" })
                 if (fo[role]?.Type == JTokenType.String)
                 {
                     var f = (string)fo[role]!;
-                    Check(f.Length == 0 || JFonts.Has(f), "未知字体：" + f);
+                    Check(f.Length == 0 || JFonts.Has(f), L.F("Mcp.Err.UnknownFont", f));
                 }
         if (s["aspect"] != null)
-            Check(Aspects.Contains(s.Value<string>("aspect") ?? ""), "bad aspect");
+            Check(Aspects.Contains(s.Value<string>("aspect") ?? ""), L.T("Mcp.Err.BadAspect"));
         // C# 差异：画质档位与导出范围尚未接入（Project 模型无 quality/exportRange，导出层不吃范围裁剪）
-        Check(s["quality"] == null, "C# 版未接入画质档位（quality）：导出画质由 FFmpeg 按分辨率/帧率自动定");
-        Check(s["exportRange"] == null, "C# 版未接入导出范围（exportRange）：Project 模型无该字段，导出始终为整片");
+        Check(s["quality"] == null, L.T("Mcp.Err.QualityNotSupported"));
+        Check(s["exportRange"] == null, L.T("Mcp.Err.ExportRangeNotSupported"));
 
         var applied = s.Properties().Select(x => x.Name).ToArray();
         _state.Mutate(proj =>
@@ -469,7 +470,7 @@ public sealed class McpTools
             if (s["aspect"] != null) proj.Aspect = s.Value<string>("aspect")!;
             if (s["res"] != null) proj.Res = s.Value<int>("res");
             if (s["fps"] != null) proj.Fps = s.Value<int>("fps");
-        }, "设置", look: true);
+        }, L.T("Mcp.Mutate.Settings"), look: true);
         _state.ReplanNow();
         ProjectIO.FlushAutosave(_state.Project);
         return new JObject { ["applied"] = new JArray(applied) };
@@ -478,7 +479,7 @@ public sealed class McpTools
     private JObject ToolSetTiming(JObject a)
     {
         var plan = _state.Plan;
-        Check(plan != null, "编辑器尚未初始化");
+        Check(plan != null, L.T("Mcp.Err.EditorNotReady"));
         var st = a["settings"] as JObject;
         // times 先校验（原子：任一行不存在就整单拒绝，JS 是边改边抛）
         var times = (a["times"] as JArray)?.OfType<JObject>().ToArray() ?? Array.Empty<JObject>();
@@ -501,7 +502,7 @@ public sealed class McpTools
             }
             if (a["clear"]?.Type == JTokenType.Boolean && (bool)a["clear"]!)
                 p.Timing.LineTimes.Clear();
-        }, "行时间");
+        }, L.T("Mcp.Mutate.LineTimes"));
         _state.ReplanNow();
         return new JObject
         {
@@ -516,16 +517,16 @@ public sealed class McpTools
         var i = LineIdx(lineNo);
         var plan = _state.Plan!;
         var hasText = a["text"] != null;
-        Check(!hasText || a["text"]!.Type == JTokenType.String, "text 需为字符串");
+        Check(!hasText || a["text"]!.Type == JTokenType.String, L.T("Mcp.Err.TextMustBeString"));
         if (a["layout"] != null)
         {
             var lay = a.Value<string>("layout") ?? "";
-            Check(lay.Length == 0 || Reg.Layouts.ContainsKey(lay), "未知布局：" + lay);
+            Check(lay.Length == 0 || Reg.Layouts.ContainsKey(lay), L.F("Mcp.Err.UnknownLayout", lay));
         }
         if (a["cuts"] != null)
         {
             var cuts = a.Value<int>("cuts");
-            Check(cuts is >= 0 and <= 6, "cuts 0-6");
+            Check(cuts is >= 0 and <= 6, L.T("Mcp.Err.CutsRange"));
         }
 
         var text = a.Value<string>("text");
@@ -550,7 +551,7 @@ public sealed class McpTools
                 SetOv(p, i, "cuts", cutsV.Value == 0 ? null : cutsV.Value);
                 SetOv(p, i, "single", null);
             }
-        }, "编辑行");
+        }, L.T("Mcp.Mutate.EditLine"));
         if (hasText || layout != null || cutsV != null)
             _state.ReplanNow(); // 锁快照必须来自已应用本次文本/布局/切分的新 plan，否则存下旧内容
 
@@ -567,7 +568,7 @@ public sealed class McpTools
                     SetOv(p, i, "lock", true);
                     SetOv(p, i, "lockedSeed", seed);
                     if (snap != null) SetOv(p, i, "lockedCuts", snap);
-                }, "锁定行", replan: false, look: true);
+                }, L.T("Mcp.Mutate.LockLine"), replan: false, look: true);
             }
             else
             {
@@ -576,7 +577,7 @@ public sealed class McpTools
                     SetOv(p, i, "lock", null);
                     SetOv(p, i, "lockedSeed", null);
                     SetOv(p, i, "lockedCuts", null);
-                }, "解锁行", replan: false, look: true);
+                }, L.T("Mcp.Mutate.UnlockLine"), replan: false, look: true);
             }
         }
         _state.ReplanNow();
@@ -593,21 +594,21 @@ public sealed class McpTools
         var lineNo = a.Value<int?>("line") ?? 0;
         var i = LineIdx(lineNo);
         var group = a.Value<string>("group") ?? "";
-        Check(Reg.GroupKeys.Contains(group), "未知组：" + group);
+        Check(Reg.GroupKeys.Contains(group), L.F("Mcp.Err.UnknownGroup", group));
         var plan = _state.Plan!;
         var cuts = plan.Cuts
             .Where(c => c.Line == i && Reg.Layouts.TryGetValue(c.Layout, out var ld) && ld != null && !ld.Special)
             .ToList();
         var cutNo = a.Value<int?>("cut") ?? 0;
-        Check(cutNo >= 1 && cutNo <= cuts.Count, "该行不存在此切分");
+        Check(cutNo >= 1 && cutNo <= cuts.Count, L.T("Mcp.Err.NoSuchCut"));
         // cutTech/cutQuiet 槽位按「行内第 N 个切分」（0 基）编址，与界面 CutCell.k、planner cutTechOf 同一套序号
         var k = cutNo - 1;
-        Check(a["key"] != null || a["quiet"] != null, "提供 key 或 quiet");
+        Check(a["key"] != null || a["quiet"] != null, L.T("Mcp.Err.ProvideKeyOrQuiet"));
         string? key = null;
         if (a["key"] != null)
         {
             key = a.Value<string>("key") ?? "";
-            Check(key.Length == 0 || RegDef(group, key) is { Special: false }, "未知手法：" + group + "/" + key);
+            Check(key.Length == 0 || RegDef(group, key) is { Special: false }, L.F("Mcp.Err.UnknownTech", group, key));
         }
         var quiet = a["quiet"]?.Type == JTokenType.Boolean ? (bool?)a["quiet"]! : null;
 
@@ -615,7 +616,7 @@ public sealed class McpTools
         {
             if (key != null) SetCutTech(p, i, k, group, key);
             if (quiet != null) MarkCutQuiet(p, i, k, new[] { group }, quiet.Value);
-        }, "切分手法", replan: false, look: true);
+        }, L.T("Mcp.Mutate.CutTech"), replan: false, look: true);
         _state.ReplanNow();
         return new JObject
         {
@@ -629,11 +630,11 @@ public sealed class McpTools
     private JObject ToolSetTechniques(JObject a)
     {
         var group = a.Value<string>("group") ?? "";
-        Check(Reg.GroupKeys.Contains(group), "未知组：" + group);
+        Check(Reg.GroupKeys.Contains(group), L.F("Mcp.Err.UnknownGroup", group));
         var enabled = a["enabled"]?.Type == JTokenType.Boolean && (bool)a["enabled"]!;
         var keys = (a["keys"] as JArray)?.Select(x => (string?)x ?? "").ToArray()
                    ?? Reg.OrderOf(group).Where(k => RegDef(group, k) is { Special: false }).ToArray();
-        foreach (var k in keys) Check(RegDef(group, k) != null, "未知手法：" + group + "/" + k);
+        foreach (var k in keys) Check(RegDef(group, k) != null, L.F("Mcp.Err.UnknownTech", group, k));
 
         _state.Mutate(p =>
         {
@@ -644,7 +645,7 @@ public sealed class McpTools
             }
             foreach (var k in keys) en[k] = enabled;
             p.Mood = null; // 手动改开关后氛围标签不再成立
-        }, "手法开关");
+        }, L.T("Mcp.Mutate.TechToggle"));
         _state.ReplanNow();
         return new JObject { ["group"] = group, ["enabled"] = enabled, ["keys"] = keys.Length };
     }
@@ -652,21 +653,21 @@ public sealed class McpTools
     private JObject ToolSetLocks(JObject a)
     {
         var kind = a.Value<string>("kind") ?? "";
-        Check(kind is "tech" or "params", "未知锁定类别：" + kind);
+        Check(kind is "tech" or "params", L.F("Mcp.Err.UnknownLockKind", kind));
         var keys = (a["keys"] as JArray)?.Select(x => (string?)x ?? "").ToArray();
-        Check(keys != null, "缺少 keys");
+        Check(keys != null, L.T("Mcp.Err.MissingKeys"));
         var locked = a["locked"]?.Type == JTokenType.Boolean && (bool)a["locked"]!;
         foreach (var k in keys!)
         {
             // tech 锁的对象是手法组名（layout/enter/...）；params 锁的是 fx 参数名（koma/flash/fx 的键）
-            if (kind == "tech") Check(Reg.GroupKeys.Contains(k), "未知锁定项：" + k);
-            else Check(Omakase.IsFxKey(k), "未知锁定项：" + k);
+            if (kind == "tech") Check(Reg.GroupKeys.Contains(k), L.F("Mcp.Err.UnknownLockItem", k));
+            else Check(Omakase.IsFxKey(k), L.F("Mcp.Err.UnknownLockItem", k));
         }
         _state.Mutate(p =>
         {
             var table = kind == "tech" ? p.Locks.Tech : p.Locks.Params;
             foreach (var k in keys) table[k] = locked;
-        }, "随机锁");
+        }, L.T("Mcp.Mutate.RandomLock"));
         // 即时 replan（不用后台防抖）：返回值携带的 revision 必须是真实当前值
         _state.ReplanNow();
         return new JObject { ["kind"] = kind, ["locked"] = new JArray(keys) };
@@ -681,36 +682,36 @@ public sealed class McpTools
             var themeId = _state.Project.ThemeId;
             if (themeId != null && !Omakase.Themes.ContainsKey(themeId)) themeId = null;
             _preview.Pause(); // 与界面「一键随机」一致：暂停 + 回到片头（重规划期间不继续推进）
-            _state.Mutate(p => Omakase.OmakaseApply(p, null, themeId), "一键随机", replan: false, look: true);
+            _state.Mutate(p => Omakase.OmakaseApply(p, null, themeId), L.T("Mcp.Mutate.OmakaseAll"), replan: false, look: true);
             _state.ReplanNow();
             _preview.Seek(0);
             return new JObject { ["target"] = "all" };
         }
         if (target == "line")
         {
-            Check(a["line"] != null, "提供 line");
+            Check(a["line"] != null, L.T("Mcp.Err.ProvideLine"));
             var lineNo = a.Value<int?>("line") ?? 0;
             var i = LineIdx(lineNo);
-            Check(!plan.Lines[i].Interlude, "间奏行无法重抽");
+            Check(!plan.Lines[i].Interlude, L.T("Mcp.Err.InterludeNoReroll"));
             _preview.Seek(plan.Lines[i].Start + 0.001);
             RerollCurrentCut("omakase");
             return new JObject { ["target"] = "line", ["line"] = lineNo };
         }
         if (target == "cut")
         {
-            Check(a["line"] != null && a["cut"] != null, "提供 line 与 cut");
+            Check(a["line"] != null && a["cut"] != null, L.T("Mcp.Err.ProvideLineAndCut"));
             var i = LineIdx(a.Value<int?>("line") ?? 0);
             var cuts = plan.Cuts
                 .Where(c => c.Line == i && Reg.Layouts.TryGetValue(c.Layout, out var ld) && ld != null && !ld.Special)
                 .ToList();
             var cutNo = a.Value<int?>("cut") ?? 0;
-            Check(cutNo >= 1 && cutNo <= cuts.Count, "该行不存在此切分");
+            Check(cutNo >= 1 && cutNo <= cuts.Count, L.T("Mcp.Err.NoSuchCut"));
             var c = cuts[cutNo - 1];
             _preview.Seek(c.Start + Math.Min(c.Dur * 0.5, c.InDur + 0.05));
             RerollCurrentCut(a.Value<string>("strategy") == "shuffle" ? "shuffle" : "omakase");
             return new JObject { ["target"] = "cut", ["line"] = a["line"]!.DeepClone(), ["cut"] = cutNo };
         }
-        throw new ToolError("invalid_input", "unsupported target（本版本支持 all/line/cut）");
+        throw new ToolError("invalid_input", L.T("Mcp.Err.UnsupportedTarget"));
     }
 
     private JObject ToolHistory(JObject a)
@@ -741,7 +742,7 @@ public sealed class McpTools
         if (a["loop"] != null)
         {
             var loop = a.Value<string>("loop") ?? "";
-            Check(loop is "all" or "off", "C# 版循环只支持 all/off（line/cut 分段循环未接入）");
+            Check(loop is "all" or "off", L.T("Mcp.Err.LoopModesLimited"));
             _preview.Loop = loop == "all";
         }
         // 预览音量/消音（只动预览出声，导出不变；不写设置——MCP 是会话级控制）
@@ -759,7 +760,7 @@ public sealed class McpTools
 
     private JObject ToolTap(JObject a)
     {
-        Check(App.MainInstance != null, "编辑器窗口未就绪（tap_sync 需要运行中的应用）");
+        Check(App.MainInstance != null, L.T("Mcp.Err.WindowNotReady"));
         var action = a.Value<string>("action") ?? "";
         if (action == "start")
         {
@@ -784,10 +785,10 @@ public sealed class McpTools
             ProjectIO.FlushAutosave(_state.Project);
             return new JObject
             {
-                ["saved"] = "autosave（%LOCALAPPDATA%\\JizuraLive\\config\\autosave.json）；完整 .jizuralive 包用界面的「保存」按钮"
+                ["saved"] = L.T("Mcp.Tool.project.SavedNote")
             };
         }
-        throw new ToolError("invalid_input", "本版本 project 仅支持 get/save（import 请用界面的「打开」）");
+        throw new ToolError("invalid_input", L.T("Mcp.Err.ProjectActionsLimited"));
     }
 
     private JObject ToolGetExportStatus() =>
@@ -799,7 +800,7 @@ public sealed class McpTools
         var app = Application.Current;
         app?.Dispatcher.BeginInvoke(new Action(() =>
         {
-            var ok = MessageBox.Show("清空歌词、歌曲、设置和历史，回到初始状态？", "初始化",
+            var ok = MessageBox.Show(L.T("Mcp.Tool.reset_project.Confirm"), L.T("Mcp.Tool.reset_project.ConfirmTitle"),
                 MessageBoxButton.OKCancel, MessageBoxImage.Warning);
             if (ok == MessageBoxResult.OK)
             {
@@ -810,7 +811,7 @@ public sealed class McpTools
         return new JObject
         {
             ["status"] = "needs_user_action",
-            ["nextAction"] = "在应用里确认「初始化」对话框（工具不会绕过确认）"
+            ["nextAction"] = L.T("Mcp.Tool.reset_project.NextAction")
         };
     }
 
@@ -867,24 +868,24 @@ public sealed class McpTools
     {
         var kind = a.Value<string>("kind") ?? "";
         Check(LegacyKinds.Contains(kind),
-            "kind 限 mp4/png/pnga/pngl/pngf/webm/webmfront/subwebm（mp4file 直存请用界面按钮）");
+            L.T("Mcp.Err.KindLimited"));
         var p = _state.Project;
         var plan = _state.Plan;
-        Check(plan != null, "编辑器尚未初始化");
+        Check(plan != null, L.T("Mcp.Err.EditorNotReady"));
         var spec = ExportSpec.SpecFromLegacyKind(kind, p)!;
-        Check(!spec.CustomDrawOnly, "subwebm（纯字幕层）需字幕系统：C# 版暂不支持");
+        Check(!spec.CustomDrawOnly, L.T("Mcp.Err.SubwebmNotSupported"));
         // C# 无字幕系统：旧 kind 里 mp4/mp4file 的「烤字幕」在此一律关闭（否则导出层直接拒绝）
         spec = spec with { BakeSubs = false };
 
         var dir = a.Value<string>("dir");
         if (a["dir"] != null)
-            Check(!string.IsNullOrWhiteSpace(dir), "dir 需为非空字符串（导出目录，桌面版免确认落盘）");
+            Check(!string.IsNullOrWhiteSpace(dir), L.T("Mcp.Err.BadDir"));
         var outDir = dir != null && dir.Trim().Length > 0 ? dir.Trim() : DefaultExportDir();
         var outPath = Path.Combine(outDir, ExportFileName(kind, p));
 
         lock (_exportLock)
         {
-            if (_exportJob is { Status: "running" }) throw new ToolError("invalid_input", "已有导出在进行");
+            if (_exportJob is { Status: "running" }) throw new ToolError("invalid_input", L.T("Mcp.Err.ExportAlreadyRunning"));
             _exportJob = new ExportJobState
             {
                 Id = "job-" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
@@ -970,9 +971,9 @@ public sealed class McpTools
         var plan = _state.Plan!;
         var t0 = _preview.CurrentTime;
         var cut = Planner.CutAt(plan, t0);
-        Check(cut != null, "这个位置的切分无法重抽");
+        Check(cut != null, L.T("Mcp.Err.CutNotRerollable"));
         var k = LyricCutK(plan, cut!);
-        Check(k >= 0, "这个位置的切分无法重抽");
+        Check(k >= 0, L.T("Mcp.Err.CutNotRerollable"));
         var n = CodePointCount(Regex.Replace(cut!.Text ?? "", @"\s+", ""));
         var groups = kind == "omakase"
             ? ChipGroups
@@ -987,7 +988,7 @@ public sealed class McpTools
                 if (key.Length > 0) SetCutTech(p, cut.Line, k, g, key);
             }
             MarkCutQuiet(p, cut.Line, k, groups, true);
-        }, kind == "omakase" ? "切分一键随机" : "切分重抽", replan: false, look: true);
+        }, kind == "omakase" ? L.T("Mcp.Mutate.CutOmakase") : L.T("Mcp.Mutate.CutReroll"), replan: false, look: true);
         _state.ReplanNow();
         _preview.Seek(t0);
     }
@@ -1125,33 +1126,40 @@ public sealed class McpTools
 
     private static JArray ToolList()
     {
-        if (_toolList != null) return _toolList;
-        var json = ToolsJson
-            .Replace("{{STYLE_ORDER}}", JsonConvert.SerializeObject(JStyles.StyleOrder))
-            .Replace("{{GROUPS}}", JsonConvert.SerializeObject(Reg.GroupKeys));
-        _toolList = (JArray)JObject.Parse(json)["tools"]!;
-        return _toolList;
+        var list = _toolList;
+        if (list == null)
+        {
+            var json = ToolsJson
+                .Replace("{{STYLE_ORDER}}", JsonConvert.SerializeObject(JStyles.StyleOrder))
+                .Replace("{{GROUPS}}", JsonConvert.SerializeObject(Reg.GroupKeys));
+            list = (JArray)JObject.Parse(json)["tools"]!;
+            _toolList = list;
+        }
+        // description 在使用点经 L.T 解析：静态缓存只存结构不缓存文案，换语言后下次 tools/list 生效
+        foreach (var t in list)
+            t["description"] = L.T("Mcp.Tool." + (string)t["name"]! + ".Desc");
+        return list;
     }
 
     private const string ToolsJson = """
     {"tools":[
-      {"name":"get_state","description":"读取编辑器完整状态：工程、行（1 起始）、切分、当前切分、加载与导出状态。detail=false 为轻量状态","inputSchema":{"type":"object","properties":{"detail":{"type":"boolean"}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
-      {"name":"list_options","description":"查询 ID 与本地化名称。category：style/font 或手法组（layout/enter/hold/exit/decor/treat/bg/cam/fx/trans）。支持分页与关键词","inputSchema":{"type":"object","properties":{"category":{"type":"string","enum":["style","font","layout","enter","hold","exit","decor","treat","bg","cam","fx","trans"]},"query":{"type":"string","maxLength":100},"page":{"type":"integer","minimum":1,"maximum":10000},"pageSize":{"type":"integer","minimum":1,"maximum":100}},"required":["category"],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
-      {"name":"set_lyrics","description":"整体替换歌词（支持 LRC 与记法：/ 切分、*强调*、! 闪烁、| 注释、[间奏 N]）；或 clear=true 清空歌词与逐行时间","inputSchema":{"type":"object","properties":{"text":{"type":"string","maxLength":200000},"clear":{"type":"boolean"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"update_settings","description":"按字段更新设置（只传需要改的）：曲名/歌手/语言/风格/seed/fx 参数/字体角色/套装开关/画幅/分辨率/fps/键控背景/留白。发现可选值用 list_options。C# 版未接入 quality 与 exportRange：传这两个字段会返回 invalid_input","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"settings":{"type":"object","properties":{"title":{"type":"string","maxLength":1000},"artist":{"type":"string","maxLength":1000},"lang":{"type":"string","enum":["auto","ja","en","zh-Hant","zh-Hans","ko"]},"style":{"type":"string","enum":{{STYLE_ORDER}}},"seed":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"fx":{"type":"object","properties":{"motion":{"type":"number","minimum":0,"maximum":1},"glitch":{"type":"number","minimum":0,"maximum":1},"chroma":{"type":"number","minimum":0,"maximum":1},"decor":{"type":"number","minimum":0,"maximum":1},"density":{"type":"number","minimum":0,"maximum":1},"texture":{"type":"number","minimum":0,"maximum":1},"bgSwitch":{"type":"number","minimum":0,"maximum":1},"flash":{"type":"boolean"},"hud":{"type":"string","enum":["auto","on","off"]}}},"fonts":{"type":"object","properties":{"display":{"type":"string","maxLength":80},"serif":{"type":"string","maxLength":80},"body":{"type":"string","maxLength":80}}},"extra":{"type":"boolean"},"wa":{"type":"boolean"},"horror":{"type":"boolean"},"typo":{"type":"boolean"},"kinetic":{"type":"boolean"},"unify":{"type":"boolean"},"typeset":{"type":"boolean"},"centerFree":{"type":"boolean"},"includeAudio":{"type":"boolean"},"centerDir":{"type":"string","enum":["tb","lr"]},"keyBg":{"type":"string","enum":["off","green","black"]},"aspect":{"type":"string","enum":["16:9","9:16","4:3","3:4","1:1","4:5","21:9"]},"res":{"type":"integer","minimum":360,"maximum":2160},"fps":{"type":"integer","minimum":12,"maximum":120},"quality":{"type":"string","enum":["standard","high","max"]},"exportRange":{"type":["object","null"],"properties":{"from":{"type":"integer","minimum":1,"maximum":100000},"to":{"type":"integer","minimum":1,"maximum":100000}},"required":["from","to"]}}}},"required":["settings"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"set_timing","description":"更新 BPM/偏移/行时缩放，设置或清除手动行时间（秒）。需带最新 revision","inputSchema":{"type":"object","properties":{"settings":{"type":"object","properties":{"bpm":{"type":"number","minimum":0,"maximum":300},"offset":{"type":"number","minimum":0,"maximum":86400},"lineScale":{"type":"number","minimum":0.3,"maximum":4},"snap":{"type":"boolean"}}},"times":{"type":"array","items":{"type":"object","properties":{"line":{"type":"integer","minimum":1,"maximum":100000},"time":{"type":["number","null"],"minimum":0,"maximum":86400}},"required":["line","time"],"additionalProperties":false}},"clear":{"type":"boolean"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["revision"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"edit_line","description":"编辑一行：text 替换歌词正文（保留 LRC 时间戳前缀）；layout/cuts/lock 单独传。空 layout、cuts=0 恢复自动","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"text":{"type":"string","maxLength":10000},"layout":{"type":"string","maxLength":80},"cuts":{"type":"integer","minimum":0,"maximum":6},"lock":{"type":"boolean"}},"required":["revision","line"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"edit_cut","description":"设置某行内第 N 个切分的手法（N 为行内序号 1 起始，即 get_state 详情里的 cutInLine；组=layout/enter/hold/exit/decor/treat/bg/cam/trans）。key=\"\" 恢复自动；quiet 控制附加效果抑制","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"cut":{"type":"integer","minimum":1,"maximum":1000},"group":{"type":"string","enum":["layout","enter","hold","exit","decor","treat","bg","cam","trans"]},"key":{"type":"string","maxLength":80},"quiet":{"type":"boolean"}},"required":["revision","line","cut","group"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"set_techniques","description":"整组启用/禁用手法。省略 keys 表示整组（与界面批量按钮一致）","inputSchema":{"type":"object","properties":{"group":{"type":"string","enum":{{GROUPS}}},"keys":{"type":"array","items":{"type":"string","maxLength":80}},"enabled":{"type":"boolean"}},"required":["group","enabled"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"set_locks","description":"设置随机锁定：tech=手法组 / params=效果参数","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["tech","params"]},"keys":{"type":"array","items":{"type":"string","maxLength":40}},"locked":{"type":"boolean"}},"required":["kind","keys","locked"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"randomize","description":"随机重抽：all=一键随机（含风格/氛围/配色）；line=重抽一行；cut=重抽一个切分（strategy: omakase/shuffle）。需带最新 revision 与 1 起始引用（cut 用 get_state 里的 cutInLine），显式重抽会解除该行锁定（与界面一致）","inputSchema":{"type":"object","properties":{"target":{"type":"string","enum":["all","line","cut"]},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"cut":{"type":"integer","minimum":1,"maximum":1000},"strategy":{"type":"string","enum":["omakase","shuffle"]}},"required":["target","revision"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"history","description":"撤销/重做：kind=edit（歌词与时间）与 look（外观）是两条独立历史","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["edit","look"]},"direction":{"type":"string","enum":["back","forward"]}},"required":["kind","direction"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"preview","description":"播放/暂停/定位（秒）/循环模式/预览音量与消音。C# 版循环只支持 all/off","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["play","pause"]},"time":{"type":"number","minimum":0,"maximum":86400},"loop":{"type":"string","enum":["all","line","cut","off"]},"volume":{"type":"number","minimum":0,"maximum":1},"muted":{"type":"boolean"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"tap_sync","description":"打点同步：start 从某行开始 / record 记录当前播放头 / back 回退一次 / stop 结束（与界面同一打点会话）","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["start","record","back","stop"]},"line":{"type":"integer","minimum":1,"maximum":100000},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"project","description":"读取当前工程 JSON 或写入自动保存（完整 .jizuralive 包与音频/字体请用界面「保存/打开」）","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["get","save"]}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"start_export","description":"启动导出：mp4 / png 序列 zip / pnga 透明 / pngl 分层 / pngf 仅前景层 / webm 透明视频（VP9 alpha）/ webmfront 仅歌词前景层透明视频。可选 dir 指定导出目录（免确认直接落盘，缺省落视频目录下的 JIZURA）。subwebm（纯字幕层）需字幕系统，C# 版暂不支持。立即返回任务，用 get_export_status 轮询","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["mp4","png","pnga","pngl","pngf","webm","webmfront","subwebm"]},"dir":{"type":"string","maxLength":500}},"required":["kind"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"get_export_status","description":"读取最近一次导出任务状态（running/completed/failed）","inputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
-      {"name":"reset_project","description":"打开不可逆的「初始化」确认框（工具不会绕过确认，需用户在界面确认）","inputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":false}}
+      {"name":"get_state","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"detail":{"type":"boolean"}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
+      {"name":"list_options","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"category":{"type":"string","enum":["style","font","layout","enter","hold","exit","decor","treat","bg","cam","fx","trans"]},"query":{"type":"string","maxLength":100},"page":{"type":"integer","minimum":1,"maximum":10000},"pageSize":{"type":"integer","minimum":1,"maximum":100}},"required":["category"],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
+      {"name":"set_lyrics","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"text":{"type":"string","maxLength":200000},"clear":{"type":"boolean"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"update_settings","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"settings":{"type":"object","properties":{"title":{"type":"string","maxLength":1000},"artist":{"type":"string","maxLength":1000},"lang":{"type":"string","enum":["auto","ja","en","zh-Hant","zh-Hans","ko"]},"style":{"type":"string","enum":{{STYLE_ORDER}}},"seed":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"fx":{"type":"object","properties":{"motion":{"type":"number","minimum":0,"maximum":1},"glitch":{"type":"number","minimum":0,"maximum":1},"chroma":{"type":"number","minimum":0,"maximum":1},"decor":{"type":"number","minimum":0,"maximum":1},"density":{"type":"number","minimum":0,"maximum":1},"texture":{"type":"number","minimum":0,"maximum":1},"bgSwitch":{"type":"number","minimum":0,"maximum":1},"flash":{"type":"boolean"},"hud":{"type":"string","enum":["auto","on","off"]}}},"fonts":{"type":"object","properties":{"display":{"type":"string","maxLength":80},"serif":{"type":"string","maxLength":80},"body":{"type":"string","maxLength":80}}},"extra":{"type":"boolean"},"wa":{"type":"boolean"},"horror":{"type":"boolean"},"typo":{"type":"boolean"},"kinetic":{"type":"boolean"},"unify":{"type":"boolean"},"typeset":{"type":"boolean"},"centerFree":{"type":"boolean"},"includeAudio":{"type":"boolean"},"centerDir":{"type":"string","enum":["tb","lr"]},"keyBg":{"type":"string","enum":["off","green","black"]},"aspect":{"type":"string","enum":["16:9","9:16","4:3","3:4","1:1","4:5","21:9"]},"res":{"type":"integer","minimum":360,"maximum":2160},"fps":{"type":"integer","minimum":12,"maximum":120},"quality":{"type":"string","enum":["standard","high","max"]},"exportRange":{"type":["object","null"],"properties":{"from":{"type":"integer","minimum":1,"maximum":100000},"to":{"type":"integer","minimum":1,"maximum":100000}},"required":["from","to"]}}}},"required":["settings"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"set_timing","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"settings":{"type":"object","properties":{"bpm":{"type":"number","minimum":0,"maximum":300},"offset":{"type":"number","minimum":0,"maximum":86400},"lineScale":{"type":"number","minimum":0.3,"maximum":4},"snap":{"type":"boolean"}}},"times":{"type":"array","items":{"type":"object","properties":{"line":{"type":"integer","minimum":1,"maximum":100000},"time":{"type":["number","null"],"minimum":0,"maximum":86400}},"required":["line","time"],"additionalProperties":false}},"clear":{"type":"boolean"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["revision"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"edit_line","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"text":{"type":"string","maxLength":10000},"layout":{"type":"string","maxLength":80},"cuts":{"type":"integer","minimum":0,"maximum":6},"lock":{"type":"boolean"}},"required":["revision","line"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"edit_cut","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"cut":{"type":"integer","minimum":1,"maximum":1000},"group":{"type":"string","enum":["layout","enter","hold","exit","decor","treat","bg","cam","trans"]},"key":{"type":"string","maxLength":80},"quiet":{"type":"boolean"}},"required":["revision","line","cut","group"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"set_techniques","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"group":{"type":"string","enum":{{GROUPS}}},"keys":{"type":"array","items":{"type":"string","maxLength":80}},"enabled":{"type":"boolean"}},"required":["group","enabled"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"set_locks","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["tech","params"]},"keys":{"type":"array","items":{"type":"string","maxLength":40}},"locked":{"type":"boolean"}},"required":["kind","keys","locked"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"randomize","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"target":{"type":"string","enum":["all","line","cut"]},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"cut":{"type":"integer","minimum":1,"maximum":1000},"strategy":{"type":"string","enum":["omakase","shuffle"]}},"required":["target","revision"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"history","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["edit","look"]},"direction":{"type":"string","enum":["back","forward"]}},"required":["kind","direction"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"preview","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["play","pause"]},"time":{"type":"number","minimum":0,"maximum":86400},"loop":{"type":"string","enum":["all","line","cut","off"]},"volume":{"type":"number","minimum":0,"maximum":1},"muted":{"type":"boolean"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"tap_sync","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["start","record","back","stop"]},"line":{"type":"integer","minimum":1,"maximum":100000},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"project","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["get","save"]}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"start_export","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["mp4","png","pnga","pngl","pngf","webm","webmfront","subwebm"]},"dir":{"type":"string","maxLength":500}},"required":["kind"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"get_export_status","description":"{{DESC}}","inputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
+      {"name":"reset_project","description":"{{DESC}}","inputSchema":{"type":"object","properties":{},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":false}}
     ]}
     """;
 
@@ -1173,7 +1181,7 @@ public sealed class McpTools
     private int LineIdx(int n)
     {
         var plan = _state.Plan;
-        Check(plan != null && n >= 1 && n <= plan.Lines.Count, "行不存在：" + n);
+        Check(plan != null && n >= 1 && n <= plan.Lines.Count, L.F("Mcp.Err.UnknownLine", n));
         return n - 1;
     }
 

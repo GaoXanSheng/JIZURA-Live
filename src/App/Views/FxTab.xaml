@@ -84,13 +84,13 @@
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                     <ToggleButton x:Name="CkUnify" Style="{StaticResource Switch}"
                                   Checked="Unify_Changed" Unchecked="Unify_Changed" />
-                    <TextBlock Text="统一感" FontSize="12" LineHeight="18" VerticalAlignment="Center"
+                    <TextBlock Text="{DynamicResource Loc.Fx.Unify}" FontSize="12" LineHeight="18" VerticalAlignment="Center"
                                Margin="8,0,0,0" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <ToggleButton x:Name="CkTypeset" Style="{StaticResource Switch}"
                                   Checked="Typeset_Changed" Unchecked="Typeset_Changed" />
-                    <TextBlock Text="文字排列" FontSize="12" LineHeight="18" VerticalAlignment="Center"
+                    <TextBlock Text="{DynamicResource Loc.Fx.Typeset}" FontSize="12" LineHeight="18" VerticalAlignment="Center"
                                Margin="8,0,0,0" />
                 </StackPanel>
             </StackPanel>
@@ -101,16 +101,16 @@
 
         <!-- 闪光 + 抽帧（.row mt-1.5） -->
         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-            <CheckBox x:Name="CkFlash" Content="闪光" VerticalAlignment="Center" Margin="0,0,8,0"
+            <CheckBox x:Name="CkFlash" Content="{DynamicResource Loc.Fx.Flash}" VerticalAlignment="Center" Margin="0,0,8,0"
                       Checked="Flash_Changed" Unchecked="Flash_Changed" />
-            <TextBlock Text="抽帧" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center"
+            <TextBlock Text="{DynamicResource Loc.Fx.Koma}" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center"
                        Margin="6,0,8,0" />
             <ComboBox x:Name="CbKoma" Style="{StaticResource SelSm}" HorizontalAlignment="Left"
                       VerticalAlignment="Center" Margin="0,0,8,0"
                       SelectionChanged="CbKoma_SelectionChanged"
-                      ToolTip="动效每秒画多少张（与导出 fps 无关）" />
+                      ToolTip="{DynamicResource Loc.Fx.Koma.Tip}" />
             <Button x:Name="BtnKomaLock" Style="{StaticResource LockBtn}" Content="{StaticResource FxLock}"
-                    Click="BtnKomaLock_Click" ToolTip="锁定：一键随机/重抽不改动此项" />
+                    Click="BtnKomaLock_Click" ToolTip="{DynamicResource Loc.Fx.LockOn}" />
         </StackPanel>
 
         <!-- HUD / 种子 / 新种子（.grid grid-cols-3 gap-2 mt-3） -->
@@ -121,26 +121,26 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
             <StackPanel Margin="0,0,8,0">
-                <TextBlock Text="HUD" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <TextBlock Text="{DynamicResource Loc.Fx.Hud}" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
                 <ComboBox x:Name="CbHud" SelectionChanged="CbHud_SelectionChanged" />
             </StackPanel>
             <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                <TextBlock Text="种子" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <TextBlock Text="{DynamicResource Loc.Fx.Seed}" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
                 <TextBox x:Name="TbSeed" Style="{StaticResource TbNum}" LostFocus="TbSeed_Commit"
                          KeyDown="TbSeed_KeyDown" />
             </StackPanel>
             <StackPanel Grid.Column="2">
                 <TextBlock Text="&#160;" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
-                <Button x:Name="BtnNewSeed" Content="新种子" Style="{StaticResource BtnGhost}"
+                <Button x:Name="BtnNewSeed" Content="{DynamicResource Loc.Fx.NewSeed}" Style="{StaticResource BtnGhost}"
                         HorizontalAlignment="Left" Click="BtnNewSeed_Click" />
             </StackPanel>
         </Grid>
 
         <!-- 隐藏装饰编号/时刻（.flex flex-col gap-1.5 mt-3） -->
         <StackPanel Margin="0,12,0,0">
-            <CheckBox x:Name="CkHideNo" Content="不显示装饰编号（No.01 等；歌词里的数字保留）"
+            <CheckBox x:Name="CkHideNo" Content="{DynamicResource Loc.Fx.HideNo}"
                       Margin="0,0,0,6" Checked="HideDeco_Changed" Unchecked="HideDeco_Changed" />
-            <CheckBox x:Name="CkHideTime" Content="不显示装饰时刻（00:12.34 等；歌词里的时刻保留）"
+            <CheckBox x:Name="CkHideTime" Content="{DynamicResource Loc.Fx.HideTime}"
                       Checked="HideDeco_Changed" Unchecked="HideDeco_Changed" />
         </StackPanel>
 
@@ -148,11 +148,11 @@
         <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0" Padding="10,0,0,0"
                 Margin="0,12,0,0">
             <TextBlock Style="{StaticResource NoteTx}"
-                       Text="相同的种子会生成相同的编排。逐行“重新随机”和“锁定”请在左侧行列表中操作。" />
+                       Text="{DynamicResource Loc.Fx.SeedNote}" />
         </Border>
 
         <!-- 音频特效（对位 Dialogs.vue 的音频特效弹窗：预设 + 效果单元开关） -->
-        <ctl:JzLabel x:Name="AfxHeader" Text="音频特效" Tracking="0.14" TextElement.FontSize="11"
+        <ctl:JzLabel x:Name="AfxHeader" Text="{DynamicResource Loc.Fx.AudioFx}" Tracking="0.14" TextElement.FontSize="11"
                      TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                      Margin="0,16,0,8" />
         <Grid>
@@ -160,16 +160,16 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <TextBlock Text="预设" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center"
+            <TextBlock Text="{DynamicResource Loc.Fx.Preset}" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center"
                        Margin="0,0,8,0" />
             <ComboBox x:Name="CbAfxPreset" Grid.Column="1" SelectionChanged="CbAfxPreset_SelectionChanged"
-                      ToolTip="一键写整条效果链" />
+                      ToolTip="{DynamicResource Loc.Fx.Preset.Tip}" />
         </Grid>
         <StackPanel x:Name="AfxUnitRows" Margin="0,8,0,0" />
         <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0" Padding="10,0,0,0"
                 Margin="0,8,0,0">
             <TextBlock Style="{StaticResource NoteTx}"
-                       Text="效果按顺序串联；预览与导出 MP4/WAV 同时生效。变速与 EQ 曲线调节在 M4 随音频链接入。" />
+                       Text="{DynamicResource Loc.Fx.AfxNote}" />
         </Border>
     </StackPanel>
 </UserControl>

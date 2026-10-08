@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using JizuraLive.App.I18n;
 using JizuraLive.Logging;
 
 namespace JizuraLive.Export;
@@ -35,7 +36,7 @@ public sealed class FFmpegEncoder : IDisposable
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
 
-        _proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg 启动失败");
+        _proc = Process.Start(psi) ?? throw new InvalidOperationException(L.T("Export.Err.FFmpegStart"));
         _stdin = _proc.StandardInput.BaseStream;
         _proc.StandardOutput.ReadToEndAsync(); // 不吃会堵管道
         _proc.ErrorDataReceived += (_, e) =>
@@ -75,11 +76,11 @@ public sealed class FFmpegEncoder : IDisposable
         if (!_proc.WaitForExit(120_000))
         {
             try { _proc.Kill(true); } catch { /* 已退出 */ }
-            throw new InvalidOperationException("ffmpeg 120s 未退出，已强杀。stderr 尾部：" + StderrTail());
+            throw new InvalidOperationException(L.F("Export.Err.FFmpegTimeoutFmt", StderrTail()));
         }
 
         if (_proc.ExitCode != 0)
-            throw new InvalidOperationException($"ffmpeg 退出码 {_proc.ExitCode}。stderr 尾部：{StderrTail()}");
+            throw new InvalidOperationException(L.F("Export.Err.FFmpegExitFmt", _proc.ExitCode, StderrTail()));
     }
 
     private string StderrTail()

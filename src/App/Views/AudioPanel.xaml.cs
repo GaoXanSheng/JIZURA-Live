@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Server;
@@ -31,6 +32,8 @@ public partial class AudioPanel : UserControl
         _elapsedTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
         Loaded += (_, _) =>
         {
+            L.LanguageChanged -= ApplyTexts;
+            L.LanguageChanged += ApplyTexts;
             if (_subscribed) return;
             _subscribed = true;
             var main = App.MainInstance!;
@@ -41,6 +44,7 @@ public partial class AudioPanel : UserControl
             RefreshAudio();
             RefreshTapBtn();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
     }
 
     private EditorState State => App.MainInstance!.State;
@@ -57,7 +61,7 @@ public partial class AudioPanel : UserControl
         if (!TbLineScale.IsKeyboardFocused) TbLineScale.Text = F(t.LineScale);
         ChkSnap.IsChecked = t.Snap;
         // BPM 占位：有音频时显示检测结果（对位 bpmPlaceholder）
-        PhBpm.Text = State.Audio != null ? $"自动 {State.Audio.Bpm:0.0}" : "无";
+        PhBpm.Text = State.Audio != null ? L.F("Audio.AutoBpm", State.Audio.Bpm) : L.T("Audio.Placeholder");
         _syncing = false;
     }
 
@@ -66,14 +70,14 @@ public partial class AudioPanel : UserControl
         var name = State.AudioFileName;
         var note = _loadNote;
         if (string.IsNullOrEmpty(note) && State.IsAudioRestored)
-            note = " · 上次的歌曲";
+            note = L.T("Audio.RestoredNote");
 
         TblAudioName.Text = name == null
-            ? "未载入歌曲（载入后自动检测节拍并对齐切分）"
+            ? L.T("Audio.NoSong")
             : State.Audio != null
-                ? $"{name}（{J.FmtTime(State.Audio.Duration)} · 约{State.Audio.Bpm:0.0}BPM）{note}"
+                ? L.F("Audio.SongInfo", name, J.FmtTime(State.Audio.Duration), State.Audio.Bpm, note)
                 : State.IsRestoringAudio
-                    ? $"{name}（恢复中…）"
+                    ? L.F("Audio.Restoring", name)
                     : name;
         SyncFields();
     }
@@ -83,7 +87,15 @@ public partial class AudioPanel : UserControl
         CloudPanel.Open(Window.GetWindow(this)!);
 
     private void RefreshTapBtn() =>
-        BtnTap.Content = TapSession.Active ? "结束打点" : "打点同步";
+        BtnTap.Content = TapSession.Active ? L.T("Audio.TapStop") : L.T("Audio.Tap");
+
+    /// <summary>语言切换：重刷全部动态文本（XAML 静态文本由 DynamicResource 自刷）。</summary>
+    private void ApplyTexts()
+    {
+        SyncFields();
+        RefreshAudio();
+        RefreshTapBtn();
+    }
 
     private static string F(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 
@@ -96,8 +108,8 @@ public partial class AudioPanel : UserControl
     {
         var dlg = new OpenFileDialog
         {
-            Title = "载入歌曲",
-            Filter = "音频文件 (*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.flac)|*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.flac|全部|*.*",
+            Title = L.T("Audio.LoadDlg.Title"),
+            Filter = L.T("Audio.LoadDlg.Filter"),
         };
         if (dlg.ShowDialog(Window.GetWindow(this)!) != true) return;
         _ = LoadAudioAsync(dlg.FileName);
@@ -137,7 +149,7 @@ public partial class AudioPanel : UserControl
                 };
             });
             sw.Stop();
-            _loadNote = $" · 分析 {sw.ElapsedMilliseconds:#,0}ms";
+            _loadNote = L.F("Audio.AnalyzeNote", sw.ElapsedMilliseconds);
             State.SetAudio(audio, path, Path.GetFileName(path));
             Log.Info($"[AudioPanel] 歌曲已载入：{path}（{J.FmtTime(audio.Duration)}，{audio.Bpm:0.0} BPM，分析 {_loadNote}）");
         }
@@ -145,7 +157,7 @@ public partial class AudioPanel : UserControl
         {
             sw.Stop();
             Log.Error("[AudioPanel] 歌曲载入失败：" + path, ex);
-            MessageBox.Show(Window.GetWindow(this)!, "歌曲载入失败：" + ex.Message, "字面 Live",
+            MessageBox.Show(Window.GetWindow(this)!, L.F("Audio.LoadFailed", ex.Message), L.T("Audio.LoadFailed.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
@@ -163,7 +175,9 @@ public partial class AudioPanel : UserControl
 
     private void OnElapsedTick(object? sender, EventArgs e)
     {
-        TblProg.Text = _activeSw == null ? "解码与节拍分析中…" : $"解码与节拍分析中… 已用时 {_activeSw.Elapsed.TotalSeconds:0.0}s";
+        TblProg.Text = _activeSw == null
+            ? L.T("Audio.Analyzing")
+            : L.F("Audio.Analyzing.Elapsed", _activeSw.Elapsed.TotalSeconds);
         // 槽内来回扫的填充（对位不确定态进度条：解码时长不可知，只表示在跑）
         var w = ProgTrack.ActualWidth;
         if (w > 4 && _activeSw != null)
@@ -196,7 +210,7 @@ public partial class AudioPanel : UserControl
         if (Math.Abs(State.Project.Timing.Bpm - v) < 1e-9) { SyncFields(); return; }
         // BPM/offset/行时长：Vue 里不进任何历史（onBpm 只有 replan）；这里走观感栈，
         // 避免把数值微调混进歌词/打点的 Ctrl+Z 内容史
-        State.Mutate(p => p.Timing.Bpm = v, "BPM", replan: true, look: true);
+        State.Mutate(p => p.Timing.Bpm = v, L.T("Audio.Mutate.Bpm"), replan: true, look: true);
     }
 
     private void TbOffset_LostFocus(object sender, RoutedEventArgs e)
@@ -204,7 +218,7 @@ public partial class AudioPanel : UserControl
         if (_syncing) return;
         var v = Math.Max(0, P(TbOffset.Text));
         if (Math.Abs(State.Project.Timing.Offset - v) < 1e-9) { SyncFields(); return; }
-        State.Mutate(p => p.Timing.Offset = v, "开始(秒)", replan: true, look: true);
+        State.Mutate(p => p.Timing.Offset = v, L.T("Audio.Offset"), replan: true, look: true);
     }
 
     private void TbLineScale_LostFocus(object sender, RoutedEventArgs e)
@@ -212,7 +226,7 @@ public partial class AudioPanel : UserControl
         if (_syncing) return;
         var v = Math.Clamp(P(TbLineScale.Text) == 0 ? 1 : P(TbLineScale.Text), 0.3, 4);
         if (Math.Abs(State.Project.Timing.LineScale - v) < 1e-9) { SyncFields(); return; }
-        State.Mutate(p => p.Timing.LineScale = v, "行时长", replan: true, look: true);
+        State.Mutate(p => p.Timing.LineScale = v, L.T("Audio.LineScale"), replan: true, look: true);
     }
 
     private void ChkSnap_Changed(object sender, RoutedEventArgs e)
@@ -220,14 +234,14 @@ public partial class AudioPanel : UserControl
         if (_syncing || !IsLoaded) return;
         var v = ChkSnap.IsChecked == true;
         if (State.Project.Timing.Snap == v) return;
-        State.Mutate(p => p.Timing.Snap = v, "对齐节拍", replan: true, look: true);
+        State.Mutate(p => p.Timing.Snap = v, L.T("Audio.Snap"), replan: true, look: true);
     }
 
     private void BtnResetTimes_Click(object sender, RoutedEventArgs e)
     {
         if (State.Project.Timing.LineTimes.Count == 0) return;
         // 手动行时刻属于内容编辑（Vue 的 edSnap 含 lineTimes）：edit 栈，可 Ctrl+Z
-        State.Mutate(p => p.Timing.LineTimes.Clear(), "清除手动时间", replan: true);
+        State.Mutate(p => p.Timing.LineTimes.Clear(), L.T("Audio.ResetTimes"), replan: true);
     }
 
     private void BtnTap_Click(object sender, RoutedEventArgs e)

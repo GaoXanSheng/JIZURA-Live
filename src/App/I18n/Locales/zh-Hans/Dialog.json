@@ -1,0 +1,12 @@
+{
+  "Dialog.Close": "关闭",
+  "Dialog.Cancel": "取消",
+  "Dialog.ResetIntro": "将以下内容全部清空，回到最初状态。此操作无法撤销。",
+  "Dialog.ResetItem1": "歌词・曲名・歌手",
+  "Dialog.ResetItem2": "载入的歌曲",
+  "Dialog.ResetItem3": "时间・逐行指定・导出范围",
+  "Dialog.ResetItem4": "风格・演出・配色・字体等设置",
+  "Dialog.ResetItem5": "方案历史（◀ ▶）与撤销历史",
+  "Dialog.ResetKeep": "预览音量会保留。已保存的项目文件不受影响。",
+  "Dialog.ResetTitle": "初始化"
+}

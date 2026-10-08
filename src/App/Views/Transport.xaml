@@ -57,7 +57,7 @@
          （对位 `flex-[1_1_160px]`：basis 取 MinWidth） -->
     <local:FlexWrapRow x:Name="Row">
         <Button x:Name="BtnPlay" Content="▶" Style="{StaticResource PlayBtn}"
-                Click="BtnPlay_Click" ToolTip="播放/暂停（空格）" />
+                Click="BtnPlay_Click" ToolTip="{DynamicResource Loc.Transport.Play.Tip}" />
 
         <TextBlock x:Name="TblNow" Text="0:00.0" Style="{StaticResource MonoTx}" FontWeight="Medium"
                    Typography.NumeralAlignment="Tabular" />
@@ -67,7 +67,7 @@
 
         <!-- 进度条：h26 命中区，自绘（原生 Slider 的 value 写入会带整页重绘，旧版也是自绘） -->
         <Grid x:Name="ProgBar" Height="26" MinWidth="160" Background="Transparent" Cursor="Hand"
-              local:FlexWrapRow.Grow="1" ToolTip="播放位置"
+              local:FlexWrapRow.Grow="1" ToolTip="{DynamicResource Loc.Transport.Progress.Tip}"
               MouseLeftButtonDown="ProgBar_Down" MouseMove="ProgBar_Move"
               MouseLeftButtonUp="ProgBar_Up" LostMouseCapture="ProgBar_LostCapture"
               SizeChanged="ProgBar_SizeChanged">
@@ -83,18 +83,18 @@
 
         <!-- 循环：WPF 只有布尔开关（对位 loopMode 的 all/off 两态；线性/切分循环未移植），
              关循环整体透明度 0.55，文案 `循环` -->
-        <Button x:Name="BtnLoop" Content="循环" Style="{StaticResource BtnGhostSm}"
-                Click="BtnLoop_Click" ToolTip="循环整首" />
+        <Button x:Name="BtnLoop" Content="{DynamicResource Loc.Transport.Loop}" Style="{StaticResource BtnGhostSm}"
+                Click="BtnLoop_Click" ToolTip="{DynamicResource Loc.Transport.Loop.Tip}" />
 
         <!-- 声音组（对位 `<span class="inline-flex items-center gap-1">`，gap-1 = 4px）：
              预览音量/消音走引擎 SetVolume（对位 AP.setVol：增益 muted ? 0 : vol²），只动预览出声，
              导出始终原电平。拖动音量条即解除消音，松手落盘（旧版 localStorage 记忆音量） -->
         <StackPanel Orientation="Horizontal">
-            <Button x:Name="BtnMute" Content="声音" Style="{StaticResource BtnGhostSm}" Margin="0,0,4,0"
+            <Button x:Name="BtnMute" Content="{DynamicResource Loc.Transport.Mute}" Style="{StaticResource BtnGhostSm}" Margin="0,0,4,0"
                     Click="BtnMute_Click"
-                    ToolTip="点击消音／解除（仅预览，导出音量不变）" />
+                    ToolTip="{DynamicResource Loc.Transport.Mute.Tip}" />
             <Grid x:Name="VolBar" Width="80" Height="26" Background="Transparent" Margin="0,0,4,0"
-                  ToolTip="预览音量（拖动调整；←/→ 微调，Home/End 最小/最大）"
+                  ToolTip="{DynamicResource Loc.Transport.Volume.Tip}"
                   Focusable="True" Cursor="Hand"
                   MouseLeftButtonDown="VolBar_Down" MouseMove="VolBar_Move"
                   MouseLeftButtonUp="VolBar_Up" LostMouseCapture="VolBar_LostCapture"
@@ -108,25 +108,25 @@
                     </Ellipse.RenderTransform>
                 </Ellipse>
             </Grid>
-            <Button x:Name="BtnFx" Content="特效" Style="{StaticResource BtnGhostSm}" Click="BtnFx_Click"
-                    ToolTip="音频特效：环绕音 / 3D / 5.1 / EQ（预览与导出同时生效）——打开右栏「特效」页的音效区" />
+            <Button x:Name="BtnFx" Content="{DynamicResource Loc.Transport.Fx}" Style="{StaticResource BtnGhostSm}" Click="BtnFx_Click"
+                    ToolTip="{DynamicResource Loc.Transport.Fx.Tip}" />
         </StackPanel>
 
         <!-- 历史 ◀/▶：外观（look）历史，对位 histInfo/histGo -->
         <StackPanel Orientation="Horizontal">
             <Button x:Name="BtnHistBack" Content="◀" Style="{StaticResource HistBtn}" Margin="0,0,4,0"
-                    Click="BtnHistBack_Click" ToolTip="回到上一案" />
+                    Click="BtnHistBack_Click" ToolTip="{DynamicResource Loc.Transport.HistBack.Tip}" />
             <Button x:Name="BtnHistFwd" Content="▶" Style="{StaticResource HistBtn}"
-                    Click="BtnHistFwd_Click" ToolTip="前往下一案" />
+                    Click="BtnHistFwd_Click" ToolTip="{DynamicResource Loc.Transport.HistFwd.Tip}" />
         </StackPanel>
 
-        <Button x:Name="BtnShuffle" Content="重抽构成" Style="{StaticResource BtnAccent}"
-                Click="BtnShuffle_Click" ToolTip="设置不变，仅构成重新抽选（锁定的行保留）" />
+        <Button x:Name="BtnShuffle" Content="{DynamicResource Loc.Transport.Shuffle}" Style="{StaticResource BtnAccent}"
+                Click="BtnShuffle_Click" ToolTip="{DynamicResource Loc.Transport.Shuffle.Tip}" />
 
         <ComboBox x:Name="SelTheme" Style="{StaticResource ThemeSel}" SelectionChanged="SelTheme_Changed"
-                  ToolTip="限定一键随机的方向：只在主题的氛围・风格・部品里抽，并自动开启需要的部品" />
+                  ToolTip="{DynamicResource Loc.Transport.Theme.Tip}" />
 
-        <Button x:Name="BtnOmakase" Content="一键随机" Style="{StaticResource BtnPrimary}"
-                Click="BtnOmakase_Click" ToolTip="风格・氛围・演出・配色整体随机（快捷键 R）" />
+        <Button x:Name="BtnOmakase" Content="{DynamicResource Loc.Transport.Omakase}" Style="{StaticResource BtnPrimary}"
+                Click="BtnOmakase_Click" ToolTip="{DynamicResource Loc.Transport.Omakase.Tip}" />
     </local:FlexWrapRow>
 </UserControl>

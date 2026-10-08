@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
 
@@ -17,22 +18,22 @@ public partial class FxTab : UserControl
 
     private EditorState S => App.MainInstance!.State;
 
-    /// <summary>fx 参数滑块表（对位 FX 常量：key → 日文标签照搬）。</summary>
-    private static readonly (string Key, string Label)[] FxKeys =
+    /// <summary>fx 参数滑块表（对位 FX 常量：key → 词库键，L.T 在构建/换语言时解析）。</summary>
+    private static readonly (string Key, string LKey)[] FxKeys =
     {
-        ("motion", "动态强度"), ("glitch", "故障效果"), ("chroma", "色彩错位"), ("decor", "装饰量"),
-        ("density", "镜头密度"), ("texture", "质感"), ("bgSwitch", "背景切换"),
+        ("motion", "Fx.Param.Motion"), ("glitch", "Fx.Param.Glitch"), ("chroma", "Fx.Param.Chroma"), ("decor", "Fx.Param.Decor"),
+        ("density", "Fx.Param.Density"), ("texture", "Fx.Param.Texture"), ("bgSwitch", "Fx.Param.BgSwitch"),
     };
 
     /// <summary>抽帧档位（koma：0/8/12/24）。</summary>
-    private static readonly (int V, string Label)[] KomaOptions =
+    private static readonly (int V, string LKey)[] KomaOptions =
     {
-        (0, "全帧（同输出 fps）"), (8, "一拍三（8 张/秒）"), (12, "一拍二（12 张/秒）"), (24, "一拍一（24 张/秒）"),
+        (0, "Fx.Koma.Full"), (8, "Fx.Koma.Threes"), (12, "Fx.Koma.Twos"), (24, "Fx.Koma.Ones"),
     };
 
     // 锁定按钮的悬浮说明（对位 Vue 的 LOCK_ON / LOCK_OFF）
-    private const string LockOn = "锁定：一键随机/重抽不改动此项";
-    private const string LockOff = "锁定中，点击解除";
+    private static string LockOn => L.T("Fx.LockOn");
+    private static string LockOff => L.T("Fx.LockOff");
 
     private sealed record FxRow(string Key, string Label, Slider Slider, TextBlock Value, Button Lock);
 
@@ -56,10 +57,37 @@ public partial class FxTab : UserControl
             BuildAfxRows();
         }
         S.StateChanged += OnState;
+        L.LanguageChanged += OnLanguageChanged;
         Pull();
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => S.StateChanged -= OnState;
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        S.StateChanged -= OnState;
+        L.LanguageChanged -= OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged() => Dispatcher.Invoke(ApplyTexts);
+
+    /// <summary>语言切换后重刷 code-behind 动态文案：抽帧/HUD 下拉项与预设下拉占位（清空后由 BuildComboItems
+    /// 与 PullAudioFx 重建；音频单元行来自引擎注册表，不在词库范围）。选择复位全程 _syncing 防误触发。</summary>
+    private void ApplyTexts()
+    {
+        if (App.MainInstance == null) return;
+        _syncing = true;
+        try
+        {
+            CbKoma.Items.Clear();
+            CbHud.Items.Clear();
+            CbAfxPreset.Items.Clear();
+            BuildComboItems();
+        }
+        finally
+        {
+            _syncing = false;
+        }
+        Pull(); // 重选 + 重建「— 选择预设 —」占位
+    }
 
     /// <summary>滚到音频特效区（Transport 的「特效」按钮落点）。</summary>
     public void ScrollToAudio() => AfxHeader.BringIntoView();
@@ -77,10 +105,10 @@ public partial class FxTab : UserControl
 
     private void BuildComboItems()
     {
-        foreach (var (v, label) in KomaOptions)
-            CbKoma.Items.Add(new ComboBoxItem { Content = label, Tag = v });
-        foreach (var (v, label) in new[] { ("auto", "随风格"), ("on", "始终显示"), ("off", "不显示") })
-            CbHud.Items.Add(new ComboBoxItem { Content = label, Tag = v });
+        foreach (var (v, lkey) in KomaOptions)
+            CbKoma.Items.Add(new ComboBoxItem { Content = L.T(lkey), Tag = v });
+        foreach (var (v, lkey) in new[] { ("auto", "Fx.Hud.Auto"), ("on", "Fx.Hud.On"), ("off", "Fx.Hud.Off") })
+            CbHud.Items.Add(new ComboBoxItem { Content = L.T(lkey), Tag = v });
     }
 
     private void BuildAfxRows()
@@ -110,7 +138,7 @@ public partial class FxTab : UserControl
         {
             SetFx(p.Fx, key, v);
             p.Mood = null; // onSlider：动了参数就丢掉一键随机的主题
-        }, "特效：" + FxKeys.First(f => f.Key == key).Label);
+        }, L.F("Fx.Mutate.Param", L.T(FxKeys.First(f => f.Key == key).LKey)));
     }
 
     private void ToggleLock(string key)
@@ -120,7 +148,7 @@ public partial class FxTab : UserControl
         {
             if (on) p.Locks.Params[key] = true;
             else p.Locks.Params.Remove(key);
-        }, "锁定参数：" + key, replan: false);
+        }, L.F("Fx.Mutate.LockParam", key), replan: false);
     }
 
     private void BtnKomaLock_Click(object sender, RoutedEventArgs e) => ToggleLock("koma");
@@ -128,19 +156,19 @@ public partial class FxTab : UserControl
     private void Unify_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncing) return;
-        S.Mutate(p => p.Unify = CkUnify.IsChecked == true, "统一感", look: true);
+        S.Mutate(p => p.Unify = CkUnify.IsChecked == true, L.T("Fx.Unify"), look: true);
     }
 
     private void Typeset_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncing) return;
-        S.Mutate(p => p.Typeset = CkTypeset.IsChecked == true, "文字排列", look: true);
+        S.Mutate(p => p.Typeset = CkTypeset.IsChecked == true, L.T("Fx.Typeset"), look: true);
     }
 
     private void Flash_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncing) return;
-        S.Mutate(p => p.Fx.Flash = CkFlash.IsChecked == true, "闪光");
+        S.Mutate(p => p.Fx.Flash = CkFlash.IsChecked == true, L.T("Fx.Flash"));
     }
 
     private void CbKoma_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -152,7 +180,7 @@ public partial class FxTab : UserControl
             p.Fx.Koma = k;
             p.Fx.OnTwos = k > 0; // onKoma 语义：有抽帧即二拍作画
             p.Mood = null;
-        }, "抽帧：" + k);
+        }, L.F("Fx.Mutate.Koma", k));
     }
 
     private void CbHud_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -160,7 +188,7 @@ public partial class FxTab : UserControl
         if (_syncing || CbHud.SelectedItem is not ComboBoxItem it) return;
         var v = (string)it.Tag!;
         if (v == (S.Project.Fx.Hud ?? "auto")) return;
-        S.Mutate(p => p.Fx.Hud = v, "HUD");
+        S.Mutate(p => p.Fx.Hud = v, L.T("Fx.Hud"));
     }
 
     private void HideDeco_Changed(object sender, RoutedEventArgs e)
@@ -170,7 +198,7 @@ public partial class FxTab : UserControl
         {
             p.Fx.HideNo = CkHideNo.IsChecked == true;
             p.Fx.HideTime = CkHideTime.IsChecked == true;
-        }, "装饰编号/时刻显示");
+        }, L.T("Fx.Mutate.HideDeco"));
     }
 
     private void TbSeed_KeyDown(object sender, KeyEventArgs e)
@@ -193,11 +221,11 @@ public partial class FxTab : UserControl
             return;
         }
         if (seed == S.Project.Seed) return;
-        S.Mutate(p => p.Seed = seed, "种子");
+        S.Mutate(p => p.Seed = seed, L.T("Fx.Seed"));
     }
 
     private void BtnNewSeed_Click(object sender, RoutedEventArgs e)
-        => S.Mutate(p => p.Seed = (uint)(Random.Shared.NextDouble() * 1e9), "新种子"); // (Math.random()*1e9)|0
+        => S.Mutate(p => p.Seed = (uint)(Random.Shared.NextDouble() * 1e9), L.T("Fx.NewSeed")); // (Math.random()*1e9)|0
 
     // ---------------- 音频特效 ----------------
 
@@ -210,7 +238,7 @@ public partial class FxTab : UserControl
             units.Add(new JObject { ["id"] = id, ["on"] = true, ["params"] = AudioFx.Units[id].Defaults.DeepClone() });
         cur["units"] = new JArray(units);
         var label = AudioFx.Units[id].Label;
-        S.Mutate(p => p.AudioFx = cur, "音频特效：" + label + (on ? " 开" : " 关"), replan: false);
+        S.Mutate(p => p.AudioFx = cur, L.F(on ? "Fx.Mutate.UnitOn" : "Fx.Mutate.UnitOff", label), replan: false);
     }
 
     private void CbAfxPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -219,7 +247,7 @@ public partial class FxTab : UserControl
         var preset = AudioFx.Presets.FirstOrDefault(x => x.Id == id);
         if (preset == null) return;
         S.Mutate(p => p.AudioFx = AudioFx.SanitizeAudioFx((JObject)preset.Cfg.DeepClone()),
-            "音频特效预设：" + preset.Label, replan: false);
+            L.F("Fx.Mutate.Preset", preset.Label), replan: false);
         // StateChanged → Pull 会把下拉复位到占位（预设是动作不是状态）
     }
 
@@ -270,13 +298,13 @@ public partial class FxTab : UserControl
     {
         if (CbAfxPreset.Items.Count == 0)
         {
-            CbAfxPreset.Items.Add(new ComboBoxItem { Content = "— 选择预设 —", Tag = "" });
+            CbAfxPreset.Items.Add(new ComboBoxItem { Content = L.T("Fx.PresetPlaceholder"), Tag = "" });
             foreach (var pr in AudioFx.Presets)
                 CbAfxPreset.Items.Add(new ComboBoxItem
                 {
                     Content = pr.Label,
                     Tag = pr.Id,
-                    ToolTip = "套用预设：" + pr.Label,
+                    ToolTip = L.F("Fx.ApplyPreset.Tip", pr.Label),
                 });
         }
         CbAfxPreset.SelectedIndex = 0; // 预设下拉只作动作入口，不记状态（Vue 为按钮组）

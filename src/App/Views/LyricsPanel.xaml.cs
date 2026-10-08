@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Microsoft.Win32;
@@ -21,15 +22,14 @@ public partial class LyricsPanel : UserControl
     public LyricsPanel()
     {
         InitializeComponent();
-        CmbLang.Items.Add("自动判定");
-        foreach (var kv in JLang.LangLabel)
-            if (kv.Key != "auto")
-                CmbLang.Items.Add($"{kv.Value}");
+        RebuildLangItems();
         CmbLang.SelectedIndex = 0;
         _debounce = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(260) };
         _debounce.Tick += (_, _) => ApplyLyrics();
         Loaded += (_, _) =>
         {
+            L.LanguageChanged -= ApplyTexts;
+            L.LanguageChanged += ApplyTexts;
             if (_subscribed) return;
             _subscribed = true;
             App.MainInstance!.State.StateChanged += () => Dispatcher.Invoke(Pull);
@@ -40,6 +40,26 @@ public partial class LyricsPanel : UserControl
             _syncing = false;
             Pull();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
+    }
+
+    /// <summary>换语言：重建语言下拉项（日本語等语言名不翻译，仅「自动判定」走词库）并重读选中态。</summary>
+    private void ApplyTexts()
+    {
+        RebuildLangItems();
+        Pull();
+    }
+
+    /// <summary>语言选择器下拉项：首项「自动判定」走词库，其余为引擎语言名（原样）。</summary>
+    private void RebuildLangItems()
+    {
+        _syncing = true;
+        CmbLang.Items.Clear();
+        CmbLang.Items.Add(L.T("Lyrics.AutoDetect"));
+        foreach (var kv in JLang.LangLabel)
+            if (kv.Key != "auto")
+                CmbLang.Items.Add($"{kv.Value}");
+        _syncing = false;
     }
 
     /// <summary>音译/翻译：装载云端歌词时是否写入注音（对位旧 lyricStore 的 roma/trans 选项）。</summary>
@@ -94,7 +114,7 @@ public partial class LyricsPanel : UserControl
         _pendingLyrics = null;
         if (v == null || v == State.Project.Lyrics) return;
         // 歌词是内容修改：edit 历史 + 重规划（replan:true）
-        State.Mutate(p => p.Lyrics = v, "歌词", replan: true);
+        State.Mutate(p => p.Lyrics = v, L.T("Lyrics.Mutate.Lyrics"), replan: true);
     }
 
     private void CmbLang_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -104,7 +124,7 @@ public partial class LyricsPanel : UserControl
         var lang = idx <= 0 ? "auto" : JLang.LangLabel.FirstOrDefault(kv => kv.Value == (string)CmbLang.Items[idx]).Key;
         if (lang == null || lang == State.Project.Lang) return;
         // 语言影响字体气质，对位 Vue onLang 的 remember/commit：走观感栈，不混进歌词编辑史
-        State.Mutate(p => p.Lang = lang, "歌词语言", replan: true, look: true);
+        State.Mutate(p => p.Lang = lang, L.T("Lyrics.Lang"), replan: true, look: true);
     }
 
     // ---------------- 动作 ----------------
@@ -115,7 +135,7 @@ public partial class LyricsPanel : UserControl
     // 读取 LRC（对位 look.ts loadLrc）：整份替换歌词，清掉一切绑定行号的东西，可撤销
     private void BtnLoadLrc_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog { Title = "读取 LRC", Filter = "LRC 歌词 (*.lrc)|*.lrc|文本 (*.txt)|*.txt|全部|*.*" };
+        var dlg = new OpenFileDialog { Title = L.T("Lyrics.LoadLrc"), Filter = L.T("Lyrics.LrcDlg.Filter") };
         if (dlg.ShowDialog(Window.GetWindow(this)!) != true) return;
         string text;
         try
@@ -142,7 +162,7 @@ public partial class LyricsPanel : UserControl
             p.Lyrics = normalized;
             p.Timing.LineTimes.Clear();
             p.Overrides.Clear();
-        }, "读取 LRC", replan: true);
+        }, L.T("Lyrics.LoadLrc"), replan: true);
         main.Preview.Seek(0);
     }
 
@@ -163,7 +183,7 @@ public partial class LyricsPanel : UserControl
             x.Lyrics = "";
             x.Timing.LineTimes.Clear();
             x.Overrides.Clear();
-        }, "清空歌词", replan: true);
+        }, L.T("Lyrics.Clear"), replan: true);
         main.Preview.Seek(0);
     }
 }

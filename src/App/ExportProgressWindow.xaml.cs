@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Export;
 using JizuraLive.Logging;
 
@@ -17,7 +18,7 @@ public partial class ExportProgressWindow : Window
     private volatile bool _done;
     private Exception? _error;
     private double _pct;
-    private string _stage = "准备…";
+    private string _stage = L.T("ExportProgress.Preparing");
 
     public ExportProgressWindow(ExportRequest req)
     {
@@ -62,7 +63,7 @@ public partial class ExportProgressWindow : Window
             }
             catch (OperationCanceledException)
             {
-                _stage = "已取消";
+                _stage = L.T("ExportProgress.Canceled");
             }
             catch (Exception ex)
             {
@@ -80,7 +81,7 @@ public partial class ExportProgressWindow : Window
     private void BtnCancel_Click(object sender, RoutedEventArgs e)
     {
         _cts.Cancel();
-        TblStage.Text = "取消中…";
+        TblStage.Text = L.T("ExportProgress.Canceling");
     }
 
     public Exception? Error => _error;

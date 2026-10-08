@@ -64,17 +64,17 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Grid>
-                <TextBox x:Name="TbFilter" ToolTip="按名称筛选手法"
-                         AutomationProperties.Name="按名称筛选手法"
+                <TextBox x:Name="TbFilter" ToolTip="{DynamicResource Loc.Tech.Filter}"
+                         AutomationProperties.Name="{DynamicResource Loc.Tech.Filter}"
                          TextChanged="TbFilter_TextChanged" />
-                <TextBlock x:Name="FilterHint" Text="按名称筛选手法" Style="{StaticResource FilterHintTx}" />
+                <TextBlock x:Name="FilterHint" Text="{DynamicResource Loc.Tech.Filter}" Style="{StaticResource FilterHintTx}" />
             </Grid>
             <TextBlock x:Name="TblTotal" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center"
                        Style="{StaticResource MonoMut}" FontSize="12" />
         </Grid>
 
         <!-- 提示行（Vue p.hint.mb-2） -->
-        <TextBlock Grid.Row="2" Text="画面中可见的预览会自动循环播放。"
+        <TextBlock Grid.Row="2" Text="{DynamicResource Loc.Tech.Hint}"
                    Style="{StaticResource Hint}" Margin="0,0,0,8" />
 
         <!-- 组段宿主：折叠的组不建卡片（对位 Vue 的 v-if 卸载省内存策略） -->

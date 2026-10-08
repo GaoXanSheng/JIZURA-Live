@@ -78,9 +78,9 @@
                 <!-- 提示（打点 3 步内显示，compact 后收起） -->
                 <TextBlock x:Name="HintBox" Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap"
                            Margin="0,0,0,6"
-                           Text="跟着歌曲，在每行开始的瞬间按 Space 或按钮；多切分的行再按 Tab 对齐下一个切分。按错了用 Backspace 回退。要从某一行重来，就在行列表里点 ◎。" />
+                           Text="{DynamicResource Loc.Tap.Hint}" />
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                    <TextBlock Text="下一行: " FontSize="15" Foreground="{StaticResource Fg}" />
+                    <TextBlock Text="{DynamicResource Loc.Tap.NextLine}" FontSize="15" Foreground="{StaticResource Fg}" />
                     <TextBlock x:Name="TblLine" Text="—" FontSize="15" FontWeight="Bold" Foreground="{StaticResource Fg}"
                                TextTrimming="CharacterEllipsis" />
                 </StackPanel>
@@ -109,22 +109,22 @@
                     </Button.Template>
                 </Button>
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <TextBlock Text="打点速度" FontSize="11" Foreground="{StaticResource Mut}"
+                    <TextBlock Text="{DynamicResource Loc.Tap.Rate}" FontSize="11" Foreground="{StaticResource Mut}"
                                VerticalAlignment="Center" Margin="0,0,6,0" />
                     <ComboBox x:Name="CmbRate" Style="{StaticResource DarkCombo}" Width="70" Height="26"
                               SelectedIndex="0" SelectionChanged="CmbRate_SelectionChanged"
-                              ToolTip="打点同步的播放速度（纯 C# 预览播放钟暂不支持变速，M4 音频管线接入后生效；存入的时刻不受影响）"
+                              ToolTip="{DynamicResource Loc.Tap.Rate.Tip}"
                               IsEnabled="False">
                         <ComboBoxItem Content="1×" />
                         <ComboBoxItem Content="0.75×" />
                         <ComboBoxItem Content="0.5×" />
                     </ComboBox>
-                    <CheckBox x:Name="ChkCount" Content="倒数 3・2・1" Margin="12,0,0,0" VerticalAlignment="Center"
-                              ToolTip="开始前倒数 3 秒" Checked="ChkCount_Changed" Unchecked="ChkCount_Changed" />
+                    <CheckBox x:Name="ChkCount" Content="{DynamicResource Loc.Tap.Count}" Margin="12,0,0,0" VerticalAlignment="Center"
+                              ToolTip="{DynamicResource Loc.Tap.Count.Tip}" Checked="ChkCount_Changed" Unchecked="ChkCount_Changed" />
                 </StackPanel>
-                <Button x:Name="BtnBack" Content="回退一步" Style="{StaticResource BtnGhost}"
+                <Button x:Name="BtnBack" Content="{DynamicResource Loc.Tap.Back}" Style="{StaticResource BtnGhost}"
                         HorizontalAlignment="Stretch" Margin="0,6,0,0" Click="BtnBack_Click" />
-                <Button x:Name="BtnStop" Content="结束" Style="{StaticResource BtnGhost}"
+                <Button x:Name="BtnStop" Content="{DynamicResource Loc.Tap.Stop}" Style="{StaticResource BtnGhost}"
                         HorizontalAlignment="Stretch" Margin="0,2,0,0" Click="BtnStop_Click" />
             </StackPanel>
         </Grid>

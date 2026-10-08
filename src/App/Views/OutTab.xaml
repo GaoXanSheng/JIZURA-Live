@@ -80,11 +80,11 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,4,8">
-                <TextBlock Text="画面比例" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <TextBlock Text="{DynamicResource Loc.Out.Aspect}" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
                 <ComboBox x:Name="CbAspect" SelectionChanged="CbAspect_SelectionChanged" />
             </StackPanel>
             <StackPanel Grid.Row="0" Grid.Column="1" Margin="4,0,0,8">
-                <TextBlock Text="分辨率" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <TextBlock Text="{DynamicResource Loc.Out.Res}" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
                 <ComboBox x:Name="CbRes" SelectionChanged="CbRes_SelectionChanged" />
             </StackPanel>
             <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,4,0">
@@ -96,15 +96,15 @@
         <!-- checkblock my-2.5：留出画面中央（放角色用）＋ 11px 说明行 -->
         <CheckBox x:Name="CkCenterFree" Margin="0,10,0,10" Checked="Center_Changed" Unchecked="Center_Changed">
             <StackPanel>
-                <TextBlock Text="留出画面中央（放角色用）" FontSize="12" />
-                <TextBlock Text="留白宽度在「设置」页自定义；预览会用虚线标出留空范围" FontSize="11"
+                <TextBlock Text="{DynamicResource Loc.Out.CenterFree}" FontSize="12" />
+                <TextBlock Text="{DynamicResource Loc.Out.CenterFree.Hint}" FontSize="11"
                            Foreground="{StaticResource Mut}" TextWrapping="Wrap" MaxWidth="276" />
             </StackPanel>
         </CheckBox>
 
         <!-- v-if="centerFree"：竖屏时 上下/左右分列 -->
         <StackPanel x:Name="CenterDirRow" Orientation="Horizontal" Margin="0,0,0,10">
-            <TextBlock Text="竖屏时" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center" />
+            <TextBlock Text="{DynamicResource Loc.Out.CenterDirLead}" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center" />
             <ComboBox x:Name="CbCenterDir" Width="130" Margin="6,0,0,0" SelectionChanged="Center_Changed" />
         </StackPanel>
 
@@ -114,14 +114,14 @@
             <StackPanel>
                 <!-- 格式按钮组（btn-sm：选中 btn-primary） -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="格式" FontSize="11" Foreground="{StaticResource Mut}"
+                    <TextBlock Text="{DynamicResource Loc.Out.Format}" FontSize="11" Foreground="{StaticResource Mut}"
                                VerticalAlignment="Center" Margin="0,0,6,0" />
                     <Button x:Name="BtnFmtMp4" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="mp4"
-                            Content="MP4 视频" />
+                            Content="{DynamicResource Loc.Out.Fmt.Mp4}" />
                     <Button x:Name="BtnFmtWebm" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="webm"
-                            Content="WebM 视频" />
+                            Content="{DynamicResource Loc.Out.Fmt.Webm}" />
                     <Button x:Name="BtnFmtPng" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="png"
-                            Content="PNG 序列" />
+                            Content="{DynamicResource Loc.Out.Fmt.Png}" />
                 </StackPanel>
 
                 <!-- grid-cols-2 gap-x-4 gap-y-1.5：渲染画面 / 字幕 / 背景 / 音频 -->
@@ -137,29 +137,30 @@
                     <CheckBox x:Name="CkVisuals" Grid.Row="0" Grid.Column="0" Margin="0,0,16,6"
                               Checked="Cfg_Changed" Unchecked="Cfg_Changed">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="渲染画面" FontSize="12" />
-                            <TextBlock Text="（歌词动画）" FontSize="11" Foreground="{StaticResource Mut}"
+                            <TextBlock Text="{DynamicResource Loc.Out.Visuals}" FontSize="12" />
+                            <TextBlock Text="{DynamicResource Loc.Out.Visuals.Sub}" FontSize="11" Foreground="{StaticResource Mut}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
                     </CheckBox>
                     <CheckBox x:Name="CkSubs" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
-                              ToolTip="按「字幕」面板的样式，把翻译/音译字幕烤进导出画面；需先在「字幕」面板开启字幕渲染"
+                              ToolTip="{DynamicResource Loc.Out.Subs.Tip}"
                               Checked="Cfg_Changed" Unchecked="Cfg_Changed">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="字幕" FontSize="12" />
-                            <TextBlock Text="（云字幕）" FontSize="11" Foreground="{StaticResource Mut}"
+                            <TextBlock Text="{DynamicResource Loc.Out.Subs}" FontSize="12" />
+                            <TextBlock Text="{DynamicResource Loc.Out.Subs.Sub}" FontSize="11" Foreground="{StaticResource Mut}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
                     </CheckBox>
-                    <CheckBox x:Name="CkBg" Grid.Row="1" Grid.Column="0" Margin="0,0,16,0" Content="背景"
-                              ToolTip="不勾 = 透明底导出（仅 WebM / PNG 序列；MP4 需勾上并用绿幕/黑幕抠像）"
+                    <CheckBox x:Name="CkBg" Grid.Row="1" Grid.Column="0" Margin="0,0,16,0"
+                              Content="{DynamicResource Loc.Out.Bg}"
+                              ToolTip="{DynamicResource Loc.Out.Bg.Tip}"
                               Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
                     <CheckBox x:Name="CkAudio" Grid.Row="1" Grid.Column="1"
-                              ToolTip="MP4：歌曲内嵌进视频；WebM / PNG：无法内嵌，导出时询问另存 WAV"
+                              ToolTip="{DynamicResource Loc.Out.Audio.Tip}"
                               Checked="Cfg_Changed" Unchecked="Cfg_Changed">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="音频" FontSize="12" />
-                            <TextBlock Text="（歌曲）" FontSize="11" Foreground="{StaticResource Mut}"
+                            <TextBlock Text="{DynamicResource Loc.Out.Audio}" FontSize="12" />
+                            <TextBlock Text="{DynamicResource Loc.Out.Audio.Sub}" FontSize="11" Foreground="{StaticResource Mut}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
                     </CheckBox>
@@ -172,11 +173,11 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="背景形态" FontSize="11" Foreground="{StaticResource Mut}"
+                    <TextBlock Text="{DynamicResource Loc.Out.BgStyle}" FontSize="11" Foreground="{StaticResource Mut}"
                                VerticalAlignment="Center" />
                     <ComboBox x:Name="CbBgStyle" Grid.Column="1" Width="88" Margin="6,0,0,0"
                               SelectionChanged="BgStyle_Changed" />
-                    <TextBlock x:Name="TblBgNote" Grid.Column="2" Text="单色底上只画白色文字与演出，剪辑软件色度键/滤色合成"
+                    <TextBlock x:Name="TblBgNote" Grid.Column="2" Text="{DynamicResource Loc.Out.BgStyle.Note}"
                                FontSize="11" Foreground="{StaticResource Mut}" TextWrapping="Wrap"
                                VerticalAlignment="Center" Margin="6,0,0,0" />
                 </Grid>
@@ -185,10 +186,10 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock Text="透明底（无背景）" FontSize="11" Foreground="{StaticResource Cyan}"
+                    <TextBlock Text="{DynamicResource Loc.Out.Transparent}" FontSize="11" Foreground="{StaticResource Cyan}"
                                VerticalAlignment="Center" />
                     <TextBlock x:Name="TblMp4TransWarn" Grid.Column="1"
-                               Text="MP4 不支持透明，请勾上背景或改用 WebM / PNG"
+                               Text="{DynamicResource Loc.Out.Mp4TransWarn}"
                                FontSize="11" Foreground="{StaticResource Amber}" TextWrapping="Wrap"
                                VerticalAlignment="Center" Margin="6,0,0,0" />
                 </Grid>
@@ -196,20 +197,20 @@
                 <!-- PNG 分层 / MP4 直存（grid gap-1 mt-2） -->
                 <StackPanel Margin="0,8,0,0">
                     <CheckBox x:Name="CkLayered" Margin="0,0,0,4"
-                              ToolTip="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
+                              ToolTip="{DynamicResource Loc.Out.Layered.Tip}"
                               Checked="Cfg_Changed" Unchecked="Cfg_Changed">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="分层输出" FontSize="12" />
-                            <TextBlock Text="（back / front 双目录）" FontSize="11" Foreground="{StaticResource Mut}"
+                            <TextBlock Text="{DynamicResource Loc.Out.Layered}" FontSize="12" />
+                            <TextBlock Text="{DynamicResource Loc.Out.Layered.Sub}" FontSize="11" Foreground="{StaticResource Mut}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
                     </CheckBox>
                     <CheckBox x:Name="CkToFile"
-                              ToolTip="先选保存位置，边导出边直接写文件。长曲・1080p 以上内存不足时使用"
+                              ToolTip="{DynamicResource Loc.Out.ToFile.Tip}"
                               Checked="Cfg_Changed" Unchecked="Cfg_Changed">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="大视频直接写入文件" FontSize="12" />
-                            <TextBlock Text="（不占内存）" FontSize="11" Foreground="{StaticResource Mut}"
+                            <TextBlock Text="{DynamicResource Loc.Out.ToFile}" FontSize="12" />
+                            <TextBlock Text="{DynamicResource Loc.Out.ToFile.Sub}" FontSize="11" Foreground="{StaticResource Mut}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
                     </CheckBox>
@@ -225,12 +226,12 @@
                 </Border>
                 <Border x:Name="NoteSubs" Style="{StaticResource NoteWrap}" Visibility="Collapsed">
                     <TextBlock x:Name="TblSubsNote" Style="{StaticResource NoteTx}"
-                               Text="字幕按「字幕」面板当前样式与内容烤入；只勾字幕时导出的是透明底纯字幕层（可与画面分层素材叠放）。" />
+                               Text="{DynamicResource Loc.Out.SubsNote}" />
                 </Border>
 
                 <!-- btn btn-primary w-full !py-3 mt-2.5 text-[15px] -->
-                <Button x:Name="BtnExport" Style="{StaticResource BtnPrimary}" Content="导　出" Height="46"
-                        Padding="0,12" FontSize="15" Margin="0,10,0,0" ToolTip="按上方勾选导出"
+                <Button x:Name="BtnExport" Style="{StaticResource BtnPrimary}" Content="{DynamicResource Loc.Out.Export}" Height="46"
+                        Padding="0,12" FontSize="15" Margin="0,10,0,0" ToolTip="{DynamicResource Loc.Out.Export.Tip}"
                         Click="BtnExport_Click" />
             </StackPanel>
         </Border>
@@ -260,7 +261,8 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="TblProg" Style="{StaticResource MonoMut}" FontSize="11" Text="—"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                <Button x:Name="BtnAbort" Grid.Column="1" Style="{StaticResource BtnGhostSm}" Content="中止"
+                <Button x:Name="BtnAbort" Grid.Column="1" Style="{StaticResource BtnGhostSm}"
+                        Content="{DynamicResource Loc.Out.Abort}"
                         Margin="8,0,0,0" Click="BtnAbort_Click" Visibility="Collapsed" />
             </Grid>
         </StackPanel>
@@ -268,7 +270,7 @@
         <!-- codec 说明（.note） -->
         <Border Style="{StaticResource NoteWrap}">
             <TextBlock x:Name="TblCodecNote" Style="{StaticResource NoteTx}"
-                       Text="导出在本机渲染管线内完成（M4 接入）。" />
+                       Text="{DynamicResource Loc.Out.CodecNote}" />
         </Border>
 
         <!-- 状态小字（12px mut / mono）：{W}×{H} · {切分数} 切分 · seed {seed} · Spout→… -->

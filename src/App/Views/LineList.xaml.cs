@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
@@ -19,25 +20,32 @@ namespace JizuraLive.App.Views;
 // 视觉树（行内三列 + 切分格 + 动作行图标）在 LineList.xaml 的 RowTemplate 里；
 // 注：导出范围按钮只有视觉（RangeBtn）—— exportRange 字段尚未进入 C# Project 模型（Vue 专属），
 // 因此点击无行为、行也没有 inRange 的琥珀描边，接入 Project/导出层后补。
-public partial class LineList : UserControl
+public partial class LineList : UserControl, INotifyPropertyChanged
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-    /// <summary>手法下拉选项（自动 + 注册顺序全部版式；对位 techPoolOpts）。</summary>
-    public static readonly List<string> LayoutNames = BuildLayoutNames();
+    /// <summary>手法下拉选项（自动 + 注册顺序全部版式；对位 techPoolOpts）。
+    /// 「自动」走词库，换语言时整体换新实例（绑定经 NcutItems/LayoutItems 广播）。</summary>
+    public static List<string> LayoutNames { get; private set; } = BuildLayoutNames();
 
     /// <summary>手法下拉选项对应的 layout key（LayoutNames[i] ↔ LayoutKeys[i]）。</summary>
     public static readonly List<string> LayoutKeys = BuildLayoutKeys();
 
     /// <summary>切分数下拉选项（自动 + 1..6）。</summary>
-    public static readonly List<string> NcutNames =
-        new() { "切分 自动", "切分 1", "切分 2", "切分 3", "切分 4", "切分 5", "切分 6" };
+    public static List<string> NcutNames { get; private set; } = BuildNcutNames();
 
     private static List<string> BuildLayoutNames()
     {
-        var list = new List<string> { "自动" };
+        var list = new List<string> { L.T("LineList.Layout.Auto") };
         foreach (var k in Reg.LayoutOrder)
             list.Add(Reg.Layouts.TryGetValue(k, out var d) && d != null ? d.Name : k);
+        return list;
+    }
+
+    private static List<string> BuildNcutNames()
+    {
+        var list = new List<string> { L.T("LineList.Ncut.Auto") };
+        for (var n = 1; n <= 6; n++) list.Add(L.F("LineList.Ncut.N", n));
         return list;
     }
 
@@ -47,6 +55,12 @@ public partial class LineList : UserControl
         list.AddRange(Reg.LayoutOrder);
         return list;
     }
+
+    /// <summary>XAML 绑定入口（换语言时换新列表实例并广播 PropertyChanged，行内 ComboBox 才会重读）。</summary>
+    public List<string> NcutItems => NcutNames;
+    public List<string> LayoutItems => LayoutNames;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 
     private bool _syncing;
     private bool _subscribed;
@@ -80,6 +94,8 @@ public partial class LineList : UserControl
         };
         Loaded += (_, _) =>
         {
+            L.LanguageChanged -= ApplyTexts;
+            L.LanguageChanged += ApplyTexts;
             if (_subscribed) return;
             _subscribed = true;
             App.MainInstance!.State.StateChanged += () => Dispatcher.BeginInvoke(() =>
@@ -90,6 +106,19 @@ public partial class LineList : UserControl
             Rebuild();
             _followTimer.Start();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
+    }
+
+    /// <summary>换语言：重建静态下拉项（新实例 + PropertyChanged 广播）并整表重建行文案。</summary>
+    private void ApplyTexts()
+    {
+        _syncing = true; // 列表替换期间 SelectedIndex 会瞬时归 -1，别让 TwoWay 绑定误写行状态
+        LayoutNames = BuildLayoutNames();
+        NcutNames = BuildNcutNames();
+        _syncing = false;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(NcutItems)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LayoutItems)));
+        Rebuild();
     }
 
     private EditorState State => App.MainInstance!.State;
@@ -118,7 +147,7 @@ public partial class LineList : UserControl
             _syncing = true;
             Lst.ItemsSource = null;
             _syncing = false;
-            TblInfo.Text = "0 行 / 0 切分";
+            TblInfo.Text = L.F("LineList.Info", 0, 0);
             _activeLine = -1;
             return;
         }
@@ -144,7 +173,7 @@ public partial class LineList : UserControl
             var ov = p.Overrides.TryGetValue(i.ToString(), out var o) && o is JObject oo ? oo : null;
             var manual = p.Timing.LineTimes.ContainsKey(i.ToString());
             var label = ln.Interlude
-                ? (ln.Secs is > 0 ? $"〔间奏 {TrimNum(ln.Secs.Value)}秒〕" : "〔间奏〕")
+                ? (ln.Secs is > 0 ? L.F("LineList.Interlude.Secs", TrimNum(ln.Secs.Value)) : L.T("LineList.Interlude"))
                 : ln.Text;
             var row = new LineRowVm
             {
@@ -152,7 +181,7 @@ public partial class LineList : UserControl
                 No = (i + 1).ToString("00", Inv),
                 StartText = ln.Start.ToString("0.00", Inv),
                 Manual = manual,
-                StartTip = $"行开始（秒）・{(manual ? "手动" : "自动")}",
+                StartTip = manual ? L.T("LineList.Start.Tip.Manual") : L.T("LineList.Start.Tip.Auto"),
                 LineStart = ln.Start,
                 Label = label,
                 Full = label,
@@ -188,8 +217,9 @@ public partial class LineList : UserControl
                     Start = c.Start,
                     Half = Math.Min(c.Dur * 0.5, c.InDur + 0.05),
                     Title = $"{c.Text}｜{enterName} → {exitName}",
-                    BoundaryTip = $"切分 {k} 的结束 ＝ 切分 {k + 1} 的开始（秒・{(ct != null ? "手动" : "自动")}）。" +
-                                  $"切分首尾相接，两段共用这条边界。{(ct != null ? "清空则恢复自动" : "输入数值则固定")}",
+                    BoundaryTip = ct != null
+                        ? L.F("LineList.Boundary.Tip.Manual", k, k + 1)
+                        : L.F("LineList.Boundary.Tip.Auto", k, k + 1),
                     LayoutIndex = Math.Max(0, LayoutKeys.IndexOf(forced ?? c.Layout)),
                     AutoLayout = c.Layout,
                     Forced = forced != null,
@@ -220,7 +250,7 @@ public partial class LineList : UserControl
         _syncing = true;
         Lst.ItemsSource = rows;
         _syncing = false;
-        TblInfo.Text = $"{plan.Lines.Count} 行 / {plan.Cuts.Count} 切分";
+        TblInfo.Text = L.F("LineList.Info", plan.Lines.Count, plan.Cuts.Count);
         FollowCurrentLine(scroll: false);
     }
 
@@ -307,13 +337,13 @@ public partial class LineList : UserControl
         if (!double.TryParse(tb.Text, NumberStyles.Float, Inv, out var v) || v < 0 || !double.IsFinite(v))
         {
             if (has)
-                State.Mutate(p => p.Timing.LineTimes.Remove(row.I.ToString()), "行时刻", replan: true);
+                State.Mutate(p => p.Timing.LineTimes.Remove(row.I.ToString()), L.T("LineList.Mutate.LineTime"), replan: true);
             return;
         }
 
         v = Math.Max(0, v);
         if (has && Math.Abs(cur - v) < 1e-6) return;
-        State.Mutate(p => p.Timing.LineTimes[row.I.ToString()] = v, "行时刻", replan: true);
+        State.Mutate(p => p.Timing.LineTimes[row.I.ToString()] = v, L.T("LineList.Mutate.LineTime"), replan: true);
     }
 
     // ---------------- 行内改歌词（对位 LineRow.vue startEdit/finishEdit） ----------------
@@ -382,7 +412,7 @@ public partial class LineList : UserControl
                 lines[src] = pre + v;
                 p.Lyrics = string.Join("\n", lines);
             }
-        }, "改歌词", replan: true);
+        }, L.T("LineList.Mutate.EditLyrics"), replan: true);
     }
 
     // ---------------- 行级指定（对位 LineRow.vue onNcut/onLayout/onLock） ----------------
@@ -409,7 +439,7 @@ public partial class LineList : UserControl
             else ov.Remove("cuts");
             ov.Remove("single");
             TapSession.PutOverride(p, row.I, ov);
-        }, "切分数", replan: true, look: true);
+        }, L.T("LineList.Mutate.Ncut"), replan: true, look: true);
         if (State.Plan != null && row.I < State.Plan.Lines.Count)
             App.MainInstance!.Preview.Seek(State.Plan.Lines[row.I].Start + 0.001);
     }
@@ -433,7 +463,7 @@ public partial class LineList : UserControl
             if (key.Length > 0) ov["layout"] = key;
             else ov.Remove("layout");
             TapSession.PutOverride(p, row.I, ov);
-        }, "行布局", replan: true, look: true);
+        }, L.T("LineList.Mutate.RowLayout"), replan: true, look: true);
     }
 
     // 锁定这一行的构成：存 lockedSeed + 行快照（对位 onLock → J.lineSnapshot）
@@ -461,7 +491,7 @@ public partial class LineList : UserControl
                 ov.Remove("lockedCuts");
             }
             TapSession.PutOverride(p, row.I, ov);
-        }, toLock ? "锁定行" : "解锁行", replan: true, look: true);
+        }, toLock ? L.T("LineList.Mutate.Lock") : L.T("LineList.Mutate.Unlock"), replan: true, look: true);
     }
 
     // ---------------- 切分格（对位 LineRow.vue onCutTime/onCutLayout） ----------------
@@ -492,7 +522,7 @@ public partial class LineList : UserControl
             if (ct.Count > 0) ov["cutTime"] = ct;
             else ov.Remove("cutTime");
             TapSession.PutOverride(p, cell.Row.I, ov);
-        }, "切分边界", replan: true);
+        }, L.T("LineList.Mutate.Boundary"), replan: true);
         App.MainInstance!.Preview.Seek(Math.Max(0, hasV ? v : cell.Start) + 0.001);
     }
 
@@ -547,7 +577,7 @@ public partial class LineList : UserControl
                 }
             }
             TapSession.PutOverride(p, cell.Row.I, ov);
-        }, "切分布局", replan: true, look: true);
+        }, L.T("LineList.Mutate.CutLayout"), replan: true, look: true);
         App.MainInstance!.Preview.Seek(cell.Start + cell.Half);
     }
 

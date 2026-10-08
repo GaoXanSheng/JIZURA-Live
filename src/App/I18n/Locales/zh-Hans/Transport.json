@@ -1,0 +1,23 @@
+{
+  "Transport.Play.Tip": "播放/暂停（空格）",
+  "Transport.Progress.Tip": "播放位置",
+  "Transport.Loop": "循环",
+  "Transport.Loop.Tip": "循环整首",
+  "Transport.LoopOff.Tip": "不循环",
+  "Transport.Mute": "声音",
+  "Transport.Mute.Tip": "点击消音／解除（仅预览，导出音量不变）",
+  "Transport.Volume.Tip": "预览音量（拖动调整；←/→ 微调，Home/End 最小/最大）",
+  "Transport.Fx": "特效",
+  "Transport.Fx.Tip": "音频特效：环绕音 / 3D / 5.1 / EQ（预览与导出同时生效）——打开右栏「特效」页的音效区",
+  "Transport.HistBack.Tip": "回到上一案",
+  "Transport.HistFwd.Tip": "前往下一案",
+  "Transport.Shuffle": "重抽构成",
+  "Transport.Shuffle.Tip": "设置不变，仅构成重新抽选（锁定的行保留）",
+  "Transport.Theme.Tip": "限定一键随机的方向：只在主题的氛围・风格・部品里抽，并自动开启需要的部品",
+  "Transport.ThemeNone": "无主题",
+  "Transport.Omakase": "一键随机",
+  "Transport.Omakase.Tip": "风格・氛围・演出・配色整体随机（快捷键 R）",
+  "Transport.Mutate.Shuffle": "重抽构成",
+  "Transport.Mutate.Theme": "一键随机主题",
+  "Transport.Mutate.Omakase": "一键随机"
+}

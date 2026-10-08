@@ -9,6 +9,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using JizuraLive.App.Cloud;
+using JizuraLive.App.I18n;
 using JizuraLive.Logging;
 using JizuraLive.Server;
 using JizuraLive.Server.Models;
@@ -55,7 +56,7 @@ public partial class CloudPanel : Window
     {
         public PlaylistInfo Info { get; }
         public string Name => Info.Name;
-        public string CountLine => $"{Info.Count} 首";
+        public string CountLine => L.F("Cloud.CountLine", Info.Count);
 
         public PlaylistRow(PlaylistInfo info) => Info = info;
     }
@@ -81,8 +82,7 @@ public partial class CloudPanel : Window
     public CloudPanel()
     {
         InitializeComponent();
-        CmbQuality.ItemsSource = new[] { "128k", "320k", "无损" };
-        CmbQuality.SelectedIndex = 0;
+        ApplyTexts();
         Loaded += (_, _) =>
         {
             FitToOwner();
@@ -94,7 +94,9 @@ public partial class CloudPanel : Window
             _syncingFollow = false;
             Follow.Changed += RefreshFollow;
             RefreshFollow();
+            L.LanguageChanged += ApplyTexts; // 换语言：重建音质下拉、复位搜索按钮并重刷登录/跟随状态行
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
         Closed += (_, _) =>
         {
             _closed = true;
@@ -102,6 +104,21 @@ public partial class CloudPanel : Window
             if (App.MainInstance != null) Follow.Changed -= RefreshFollow;
             if (ReferenceEquals(_open, this)) _open = null;
         };
+    }
+
+    /// <summary>语言切换（含构造期首建）：重刷常驻静态赋值；动态状态行在下次状态更新时自然用新语言。</summary>
+    private void ApplyTexts()
+    {
+        // 音质下拉重建（「无损」走词库，128k/320k 无中文原样）；_syncing 防误触发 SelectionChanged
+        _syncingFollow = true;
+        var idx = CmbQuality.SelectedIndex;
+        CmbQuality.ItemsSource = new[] { "128k", "320k", L.T("Cloud.QualityLossless") };
+        CmbQuality.SelectedIndex = idx < 0 ? 0 : idx;
+        _syncingFollow = false;
+        if (!_searching && !_loading) BtnSearch.Content = L.T("Cloud.Search");
+        if (!IsLoaded) return; // 构造期：登录卡片与跟随状态由 Loaded 里的首刷负责
+        RefreshLogin();
+        RefreshFollow();
     }
 
     /// <summary>打开面板（单例：已开则激活）。</summary>
@@ -230,8 +247,8 @@ public partial class CloudPanel : Window
     {
         var st = source == "netease" ? ServerContext.Netease.LoginState() : ServerContext.KuGou.LoginState();
         status.Text = st.Logged
-            ? "已登录" + (string.IsNullOrEmpty(st.Nickname) ? "" : "：" + st.Nickname)
-            : "未登录 — VIP 歌曲与完整音质需要扫码登录";
+            ? (string.IsNullOrEmpty(st.Nickname) ? L.T("Cloud.LoggedIn") : L.F("Cloud.LoggedInAs", st.Nickname))
+            : L.T("Cloud.NotLoggedIn");
         login.Visibility = st.Logged ? Visibility.Collapsed : Visibility.Visible;
         logout.Visibility = st.Logged ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -276,8 +293,8 @@ public partial class CloudPanel : Window
         if (_searching) return;
         _searching = true;
         BtnSearch.IsEnabled = false;
-        BtnSearch.Content = "搜索中…";
-        TblSearchInfo.Text = "搜索中…";
+        BtnSearch.Content = L.T("Cloud.Searching");
+        TblSearchInfo.Text = L.T("Cloud.Searching");
         try
         {
             var r = _source == "netease"
@@ -285,9 +302,9 @@ public partial class CloudPanel : Window
                 : await ServerContext.KuGou.SearchAsync(kw, 1);
             if (_closed) return;
             if (!r.Ok)
-                throw new SongLoader.CloudException(r.Error ?? "搜索失败");
+                throw new SongLoader.CloudException(r.Error ?? L.T("Cloud.SearchFailed"));
             Lst.ItemsSource = r.List.Select(s => new CloudRow(s)).ToList();
-            TblSearchInfo.Text = $"共 {r.Total} 首" + (r.List.Count == 0 ? "（没有结果）" : "");
+            TblSearchInfo.Text = L.F("Cloud.SearchCount", r.Total) + (r.List.Count == 0 ? L.T("Cloud.NoResults") : "");
             if (r.List.Count == 0) Lst.ItemsSource = null;
         }
         catch (Exception ex)
@@ -296,7 +313,8 @@ public partial class CloudPanel : Window
             Lst.ItemsSource = null;
             TblSearchInfo.Text = "";
             var msg = ex.Message;
-            MessageBox.Show(this, "搜索失败：" + msg, "云音乐", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, L.F("Cloud.SearchFailedMsg", msg), L.T("Cloud.MsgTitle"),
+                MessageBoxButton.OK, MessageBoxImage.Warning);
             Log.Info("[Cloud] 搜索失败：" + msg);
         }
         finally
@@ -305,7 +323,7 @@ public partial class CloudPanel : Window
             if (!_closed)
             {
                 BtnSearch.IsEnabled = true;
-                BtnSearch.Content = "搜索";
+                BtnSearch.Content = L.T("Cloud.Search");
             }
         }
     }
@@ -337,7 +355,7 @@ public partial class CloudPanel : Window
     {
         if (_loadingPlaylists) return;
         _loadingPlaylists = true;
-        SetPlaylistMsg("正在加载我的歌单…", "Mut");
+        SetPlaylistMsg(L.T("Cloud.PlaylistLoading"), "Mut");
         try
         {
             var r = _source == "netease"
@@ -347,25 +365,25 @@ public partial class CloudPanel : Window
             if (!r.Ok)
             {
                 LstPlaylists.ItemsSource = null; // 拉取失败不留上一轮的旧列表（对位 store 的 playlists = []）
-                var msg = r.Error ?? "读取失败";
+                var msg = r.Error ?? L.T("Cloud.ReadFailed");
                 SetPlaylistMsg(msg.StartsWith("请先扫码登录", StringComparison.Ordinal)
-                    ? msg + "（在「账号」页扫码即可）"
-                    : "加载失败：" + msg, "Danger");
+                    ? msg + L.T("Cloud.ScanHintSuffix")
+                    : L.F("Cloud.LoadFailedMsg", msg), "Danger");
                 TblPlaylistTip.Text = "";
                 return;
             }
 
             LstPlaylists.ItemsSource = r.List.Select(p => new PlaylistRow(p)).ToList();
             TblPlaylistTip.Text = r.List.Count > 0
-                ? "点歌单载入全部歌曲；也可粘贴歌单链接 / ID 载入"
-                : "这个账号还没有歌单；可粘贴歌单链接 / ID 载入";
+                ? L.T("Cloud.PlaylistTipHas")
+                : L.T("Cloud.PlaylistTipEmpty");
             SetPlaylistMsg(TblPlaylistTip.Text, "Mut");
         }
         catch (Exception ex)
         {
             if (_closed) return;
             LstPlaylists.ItemsSource = null;
-            SetPlaylistMsg("加载失败：" + ex.Message, "Danger");
+            SetPlaylistMsg(L.F("Cloud.LoadFailedMsg", ex.Message), "Danger");
             TblPlaylistTip.Text = "";
             Log.Info("[Cloud] 我的歌单加载失败：" + ex.Message);
         }
@@ -387,19 +405,19 @@ public partial class CloudPanel : Window
     {
         if (_loadingSongs) return;
         _loadingSongs = true;
-        TblPlaylistTip.Text = "歌单读取中…";
+        TblPlaylistTip.Text = L.T("Cloud.PlaylistReading");
         try
         {
             var r = _source == "netease"
                 ? await ServerContext.Netease.PlaylistSongsAsync(id)
                 : await ServerContext.KuGou.PlaylistSongsAsync(id);
             if (_closed) return;
-            if (!r.Ok) throw new SongLoader.CloudException(r.Error ?? "读取失败");
+            if (!r.Ok) throw new SongLoader.CloudException(r.Error ?? L.T("Cloud.ReadFailed"));
             ShowPane("search"); // 载入完切到搜索页看结果（对位 cloud.pane = 'search'）
             Lst.ItemsSource = r.List.Select(s => new CloudRow(s)).ToList();
             TbQuery.Text = label ?? "";
-            var name = label is { Length: > 0 } ? label : "歌单";
-            TblSearchInfo.Text = $"{name}：{r.List.Count} 首，点歌名即可载入";
+            var name = label is { Length: > 0 } ? label : L.T("Cloud.PlaylistWord");
+            TblSearchInfo.Text = L.F("Cloud.PlaylistLoadedLine", name, r.List.Count);
             if (r.List.Count == 0) Lst.ItemsSource = null;
             TblPlaylistTip.Text = ""; // 歌单页已切走；下次进页会重拉并重写提示
             Log.Info($"[Cloud] 歌单已载入：{name}（{r.List.Count} 首，{_source}）");
@@ -407,9 +425,9 @@ public partial class CloudPanel : Window
         catch (Exception ex)
         {
             if (_closed) return;
-            TblPlaylistTip.Text = "歌单载入失败：" + ex.Message;
+            TblPlaylistTip.Text = L.F("Cloud.PlaylistLoadFailedMsg", ex.Message);
             Log.Info("[Cloud] 歌单载入失败：" + ex.Message);
-            MessageBox.Show(this, "歌单载入失败：" + ex.Message, "云音乐",
+            MessageBox.Show(this, L.F("Cloud.PlaylistLoadFailedMsg", ex.Message), L.T("Cloud.MsgTitle"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
@@ -440,8 +458,8 @@ public partial class CloudPanel : Window
         if (id.Length == 0)
         {
             TblPlaylistTip.Text = _source == "netease"
-                ? "没认出歌单 ID：粘贴 music.163.com/playlist?id=… 或纯数字 ID"
-                : "没认出歌单 ID：粘贴酷狗歌单链接（含 id=）或 global_collection_id";
+                ? L.T("Cloud.PlaylistIdHintNe")
+                : L.T("Cloud.PlaylistIdHintKg");
             return;
         }
 
@@ -461,21 +479,21 @@ public partial class CloudPanel : Window
         Lst.IsHitTestVisible = false;
         BtnSearch.IsEnabled = false;
         var song = row.Song;
-        row.Status = "获取链接…";
+        row.Status = L.T("Cloud.StatusGetUrl");
         try
         {
             var res = await SongLoader.LoadAsync(State, _source, song, Quality, s => row.Status = s);
-            row.Status = "已装载";
+            row.Status = L.T("Cloud.StatusLoaded");
             Log.Info($"[Cloud] 云音乐装载完成：{song.Name}（{res.FileName}{res.LyricNote}）"
                      + (res.Trial ? "【仅试听片段：这首需要 VIP，可扫码登录后再试】" : ""));
             Close(); // 装载成功即关窗（对位旧版「点歌名载入」的闭环）
         }
         catch (Exception ex)
         {
-            row.Status = "失败";
+            row.Status = L.T("Cloud.StatusFailed");
             Log.Error("[Cloud] 装载失败：" + ex.Message, ex);
             if (!_closed)
-                MessageBox.Show(this, $"装载失败：{song.Name}\n{ex.Message}", "云音乐",
+                MessageBox.Show(this, L.F("Cloud.LoadFailedBox", song.Name, ex.Message), L.T("Cloud.MsgTitle"),
                     MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally
@@ -513,24 +531,24 @@ public partial class CloudPanel : Window
         StopQrPolling();
         QrPanel.Visibility = Visibility.Visible;
         QrImg.Source = null;
-        TblQrTitle.Text = _source == "netease" ? "网易云扫码登录" : "酷狗扫码登录";
+        TblQrTitle.Text = _source == "netease" ? L.T("Cloud.QrTitleNe") : L.T("Cloud.QrTitleKg");
         QrScanned.Visibility = Visibility.Collapsed;
-        TblQrTip.Text = "正在获取二维码…";
+        TblQrTip.Text = L.T("Cloud.QrFetching");
         try
         {
             var q = _source == "netease"
                 ? await ServerContext.Netease.QrAsync()
                 : await ServerContext.KuGou.QrAsync();
             if (!q.Ok || string.IsNullOrEmpty(q.Key))
-                throw new SongLoader.CloudException(q.Error ?? "二维码生成失败");
+                throw new SongLoader.CloudException(q.Error ?? L.T("Cloud.QrGenFailed"));
             _qrKey = q.Key;
             QrImg.Source = await DecodeQrImageAsync(q.Img);
-            TblQrTip.Text = "等待扫码…";
+            TblQrTip.Text = L.T("Cloud.QrWaiting");
             StartQrPolling();
         }
         catch (Exception ex)
         {
-            TblQrTip.Text = "失败：" + ex.Message;
+            TblQrTip.Text = L.F("Cloud.FailedMsg", ex.Message);
         }
     }
 
@@ -580,7 +598,7 @@ public partial class CloudPanel : Window
                 if (_closed) return;
                 if (!r.Ok)
                 {
-                    TblQrTip.Text = r.Error ?? "查询失败";
+                    TblQrTip.Text = r.Error ?? L.T("Cloud.QueryFailed");
                     return;
                 }
 
@@ -589,15 +607,15 @@ public partial class CloudPanel : Window
                 switch (st)
                 {
                     case "1" or "801":
-                        TblQrTip.Text = "等待扫码…";
+                        TblQrTip.Text = L.T("Cloud.QrWaiting");
                         QrScanned.Visibility = Visibility.Collapsed;
                         break;
                     case "2" or "802":
-                        TblQrTip.Text = "已扫码，请在手机上确认";
+                        TblQrTip.Text = L.T("Cloud.QrScannedConfirm");
                         QrScanned.Visibility = Visibility.Visible;
                         break;
                     case "0" or "800":
-                        TblQrTip.Text = "二维码已过期，请点「刷新二维码」";
+                        TblQrTip.Text = L.T("Cloud.QrExpired");
                         QrScanned.Visibility = Visibility.Collapsed;
                         StopQrPolling();
                         break;
@@ -609,7 +627,7 @@ public partial class CloudPanel : Window
                         Log.Info($"[Cloud] 扫码登录成功（{_source}）");
                         break;
                     default:
-                        TblQrTip.Text = "状态未知，请刷新二维码";
+                        TblQrTip.Text = L.T("Cloud.QrUnknown");
                         QrScanned.Visibility = Visibility.Collapsed;
                         break;
                 }
@@ -669,11 +687,12 @@ public partial class CloudPanel : Window
 
     private void RefreshFollowSessions(FollowController f, bool has)
     {
-        var items = new List<SessionItem> { new("", "自动选择") };
+        var items = new List<SessionItem> { new("", L.T("Cloud.AutoSelect")) };
         if (has)
             foreach (var s in f.Sessions)
                 items.Add(new SessionItem(s.AppId,
-                    s.AppName + "（" + (s.Title.Length > 0 ? s.Title : "无歌曲信息") + "）"));
+                    L.F("Cloud.SessionItem", s.AppName,
+                        s.Title.Length > 0 ? s.Title : L.T("Cloud.NoSongInfo"))));
 
         SessionsRow.Visibility = has && f.Sessions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -702,7 +721,7 @@ public partial class CloudPanel : Window
         _syncingFollow = true;
         ChkFollow.IsChecked = f.On;
         _syncingFollow = false;
-        TblOffset.Text = $"{(f.Offset > 0 ? "+" : "")}{f.Offset:0.0}s（正数=歌词提前）";
+        TblOffset.Text = L.F("Cloud.OffsetText", $"{(f.Offset > 0 ? "+" : "")}{f.Offset:0.0}s");
 
         var has = f.On && f.Status != FollowController.StOff;
         FollowDetail.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
@@ -726,22 +745,22 @@ public partial class CloudPanel : Window
         // 文案/配色对位旧版 FollowPane 的 STATUS 映射
         var (text, color) = f.Status switch
         {
-            FollowController.StNoSession => ("未检测到播放器", "Amber"),
-            FollowController.StNoMeta => ("播放器未提供歌曲信息", "Amber"),
-            FollowController.StMatching => ("正在匹配歌词…", "Mut"),
-            FollowController.StOk => ("已同步", "Cyan"),
-            FollowController.StNoMatch => ("没匹配到歌词", "Amber"),
-            FollowController.StError => ("出错", "Danger"),
-            _ => ("未开启", "Mut"),
+            FollowController.StNoSession => (L.T("Cloud.StNoSession"), "Amber"),
+            FollowController.StNoMeta => (L.T("Cloud.StNoMeta"), "Amber"),
+            FollowController.StMatching => (L.T("Cloud.StMatching"), "Mut"),
+            FollowController.StOk => (L.T("Cloud.StOk"), "Cyan"),
+            FollowController.StNoMatch => (L.T("Cloud.StNoMatch"), "Amber"),
+            FollowController.StError => (L.T("Cloud.StError"), "Danger"),
+            _ => (L.T("Cloud.StOff"), "Mut"),
         };
         TblFollowStatus.Text = text + (f.Fmt.Length > 0
-            ? " · " + (f.Fmt == "krc" ? "KRC 逐字" : f.Fmt == "ne" ? "网易 LRC" : "LRC")
+            ? " · " + (f.Fmt == "krc" ? L.T("Cloud.FmtKrc") : f.Fmt == "ne" ? L.T("Cloud.FmtNe") : "LRC")
             : "");
         TblFollowStatus.Foreground = (SolidColorBrush)FindResource(color);
         var now = (f.AppName.Length > 0 ? f.AppName + " ｜ " : "") + f.Title +
                   (f.Artist.Length > 0 ? " - " + f.Artist : "");
-        TblFollowNow.Text = (now + (f.MatchedAs.Length > 0 ? "　→ 已匹配 " + f.MatchedAs : "")).Trim('　');
+        TblFollowNow.Text = (now + (f.MatchedAs.Length > 0 ? L.F("Cloud.MatchedAs", f.MatchedAs) : "")).Trim('　');
         TblFollowDetail.Text = f.Detail +
-                               (f.Estimated ? "（此播放器不上报进度：按「切歌/恢复播放=从头」估算）" : "");
+                               (f.Estimated ? L.T("Cloud.EstimatedNote") : "");
     }
 }

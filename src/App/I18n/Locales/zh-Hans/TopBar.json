@@ -1,0 +1,21 @@
+{
+  "TopBar.Open": "打开",
+  "TopBar.Open.Tip": "打开工程（.jizuralive 全量恢复；老 .json 仅作样式配置导入）",
+  "TopBar.Save": "保存",
+  "TopBar.Save.Tip": "保存为字面 Live 专用工程包（.jizuralive：含歌曲与歌词）",
+  "TopBar.Reset": "初始化",
+  "TopBar.Reset.Tip": "清空歌词、歌曲、设置和历史，回到初始状态",
+  "TopBar.Terms": "使用说明",
+  "TopBar.Terms.Tip": "输出物的权利与许可证",
+  "TopBar.Title.Tip": "曲名（标题卡・HUD 显示）",
+  "TopBar.Artist.Tip": "歌手",
+  "TopBar.OpenDlg.Title": "打开工程",
+  "TopBar.SaveDlg.Filter": "字面 Live 工程 (*.jizuralive)|*.jizuralive",
+  "TopBar.Mutate.TitleArtist": "曲名/歌手",
+  "TopBar.Mutate.OpenProject": "打开工程",
+  "TopBar.OpenFailed": "打开失败",
+  "TopBar.SaveFallback.Title": "保存",
+  "TopBar.SaveFallback.Body": "工程包写入尚未就绪，已保存为 JSON：\n{0}",
+  "TopBar.SaveFailed": "保存失败",
+  "TopBar.Terms.Body": "字面 Live（JIZURA-live）\n\n输出物（视频/图片/Spout 画面）的著作权归工程的创作者所有。\n自托管字体与引擎代码的许可证详见安装目录 LICENSE 文件。\n导出歌曲请确认你拥有相应权利。"
+}

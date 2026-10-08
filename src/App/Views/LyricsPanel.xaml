@@ -13,21 +13,21 @@
                 <!--              TextElement.Foreground="{StaticResource Mut}" HorizontalAlignment="Left" -->
                 <!--              VerticalAlignment="Center" /> -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button Content="读取 LRC" Style="{StaticResource BtnGhostSm}" Click="BtnLoadLrc_Click"
-                            ToolTip="读取 .lrc：整份替换歌词并带上每行的开始时刻（可用 Ctrl+Z 撤销）" />
-                    <Button Content="清空歌词" Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0" Click="BtnClear_Click"
-                            ToolTip="清空歌词与逐行时间、指定、导出范围（可用 Ctrl+Z 撤销）" />
-                    <Button x:Name="BtnSyntax" Content="记法" Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0"
-                            Click="BtnSyntax_Click" ToolTip="歌词记法说明（/ 分隔・*强调*・行尾 !・| 注释・[间奏 8]）" />
+                    <Button Content="{DynamicResource Loc.Lyrics.LoadLrc}" Style="{StaticResource BtnGhostSm}" Click="BtnLoadLrc_Click"
+                            ToolTip="{DynamicResource Loc.Lyrics.LoadLrc.Tip}" />
+                    <Button Content="{DynamicResource Loc.Lyrics.Clear}" Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0" Click="BtnClear_Click"
+                            ToolTip="{DynamicResource Loc.Lyrics.Clear.Tip}" />
+                    <Button x:Name="BtnSyntax" Content="{DynamicResource Loc.Lyrics.Syntax}" Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0"
+                            Click="BtnSyntax_Click" ToolTip="{DynamicResource Loc.Lyrics.Syntax.Tip}" />
                 </StackPanel>
             </Grid>
             <!-- 歌词正文（1 行 = 1 短语）；输入经 260ms 防抖 Mutate（对位 onInput 的 replanSoon(260)） -->
             <TextBox x:Name="TbLyrics" Style="{StaticResource Ta}" Height="214"
                      TextWrapping="Wrap" TextChanged="TbLyrics_TextChanged"
-                     ToolTip="歌词（1行 = 1短语）" />
+                     ToolTip="{DynamicResource Loc.Lyrics.Box.Tip}" />
             <!-- 歌词语言 + 自动判定结果 -->
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <TextBlock Text="歌词语言" FontSize="11" Foreground="{StaticResource Mut}"
+                <TextBlock Text="{DynamicResource Loc.Lyrics.Lang}" FontSize="11" Foreground="{StaticResource Mut}"
                            VerticalAlignment="Center" Margin="0,0,6,0" />
                 <ComboBox x:Name="CmbLang" Style="{StaticResource SelSm}" MinWidth="104"
                           SelectionChanged="CmbLang_SelectionChanged" />
@@ -36,12 +36,12 @@
             </StackPanel>
             <!-- 音译 / 翻译（云端歌词装载时是否写入注音） -->
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                <CheckBox x:Name="CkRoma" Content="音译" FontSize="12" Checked="LyricOpt_Changed"
+                <CheckBox x:Name="CkRoma" Content="{DynamicResource Loc.Lyrics.Roma}" FontSize="12" Checked="LyricOpt_Changed"
                           Unchecked="LyricOpt_Changed"
-                          ToolTip="装载云端歌词时把音译（罗马音/拼音）作为小字注音写入（下次装载生效）" />
-                <CheckBox x:Name="CkTrans" Content="翻译" FontSize="12" Margin="14,0,0,0" Checked="LyricOpt_Changed"
+                          ToolTip="{DynamicResource Loc.Lyrics.Roma.Tip}" />
+                <CheckBox x:Name="CkTrans" Content="{DynamicResource Loc.Lyrics.Trans}" FontSize="12" Margin="14,0,0,0" Checked="LyricOpt_Changed"
                           Unchecked="LyricOpt_Changed"
-                          ToolTip="装载云端歌词时把翻译作为小字注音写入；与音译同时勾选时两者并列（下次装载生效）" />
+                          ToolTip="{DynamicResource Loc.Lyrics.Trans.Tip}" />
             </StackPanel>
             <!-- 记法说明（对位 syntaxOpen 折叠块：bg-raised 圆角 6 + 12px mut 文案） -->
             <Border x:Name="SyntaxBox" Visibility="Collapsed" Background="{StaticResource Raised}"
@@ -49,21 +49,21 @@
                     Padding="12,10" Margin="0,10,0,0">
                 <StackPanel>
                     <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
-                               Text="・1 行就是 1 个短语，空行表示稍作停顿" />
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2">
-                        <Run Text="・" /><Run Text="夜色渐染/还记得" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 用 " /><Run Text="/" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" 指定切分点" /></TextBlock>
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2">
-                        <Run Text="・" /><Run Text="*强调*" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 强调（更大・冲击力更强的演出）" /></TextBlock>
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2">
-                        <Run Text="・行尾 " /><Run Text="!" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 加入闪烁与震动" /></TextBlock>
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2">
-                        <Run Text="・" /><Run Text="歌词|注释文字" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 注释排版里的小字" /></TextBlock>
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2">
-                        <Run Text="・" /><Run Text="[01:23.45]歌词" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 直接使用 LRC 时间戳" /></TextBlock>
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2">
-                        <Run Text="・" /><Run Text="[间奏 8]" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" … 8 秒间奏（只出背景与装饰）。省略秒数默认 4 秒" /></TextBlock>
-                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap">
-                        <Run Text="・" /><Run Text="#" FontFamily="Consolas" Foreground="{StaticResource Amber}" /><Run Text=" 开头的行 … 注释（忽略）" /></TextBlock>
+                               Text="{DynamicResource Loc.Lyrics.Help.Plain}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="{DynamicResource Loc.Lyrics.Help.Slash}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="{DynamicResource Loc.Lyrics.Help.Em}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="{DynamicResource Loc.Lyrics.Help.Bang}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="{DynamicResource Loc.Lyrics.Help.Pipe}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="{DynamicResource Loc.Lyrics.Help.LrcTime}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,2"
+                               Text="{DynamicResource Loc.Lyrics.Help.Interlude}" />
+                    <TextBlock Foreground="{StaticResource Mut}" FontSize="12" TextWrapping="Wrap"
+                               Text="{DynamicResource Loc.Lyrics.Help.Comment}" />
                 </StackPanel>
             </Border>
         </StackPanel>

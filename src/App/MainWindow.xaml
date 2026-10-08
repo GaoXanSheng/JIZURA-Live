@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:skia="clr-namespace:SkiaSharp.Views.WPF;assembly=SkiaSharp.Views.WPF"
         xmlns:views="clr-namespace:JizuraLive.App.Views"
-        Title="字面 Live"
+        Title="{DynamicResource Loc.Main.Title}"
         Icon="pack://application:,,,/assets/app.ico"
         WindowStyle="None"
         ResizeMode="CanResize"
@@ -32,19 +32,19 @@
         <!-- 自绘标题栏（bg #151519；标题 14 左距，窗口按钮右贴） -->
         <Grid Grid.Row="0" Height="36" Background="#FF151519"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-            <TextBlock Text="字面 Live"
+            <TextBlock Text="{DynamicResource Loc.Main.Title}"
                        VerticalAlignment="Center" Margin="14,0,0,0"
                        FontSize="12" Opacity="0.65" Foreground="{StaticResource FgMain}" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="BtnMin" Style="{StaticResource ChromeBtn}" Click="BtnMin_Click" ToolTip="最小化">
+                <Button x:Name="BtnMin" Style="{StaticResource ChromeBtn}" Click="BtnMin_Click" ToolTip="{DynamicResource Loc.Main.Min.Tip}">
                     <Path Data="M 0 0 H 10" Stroke="{StaticResource FgMain}" StrokeThickness="1"
                           VerticalAlignment="Center" HorizontalAlignment="Center" />
                 </Button>
-                <Button x:Name="BtnMax" Style="{StaticResource ChromeBtn}" Click="BtnMax_Click" ToolTip="最大化">
+                <Button x:Name="BtnMax" Style="{StaticResource ChromeBtn}" Click="BtnMax_Click" ToolTip="{DynamicResource Loc.Main.Max.Tip}">
                     <Path x:Name="IcMax" Data="M 0 0 H 10 V 10 H 0 Z" Stroke="{StaticResource FgMain}"
                           StrokeThickness="1" VerticalAlignment="Center" HorizontalAlignment="Center" />
                 </Button>
-                <Button x:Name="BtnClose" Click="BtnClose_Click" ToolTip="退出">
+                <Button x:Name="BtnClose" Click="BtnClose_Click" ToolTip="{DynamicResource Loc.Main.Close.Tip}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource ChromeBtn}">
                             <Style.Triggers>

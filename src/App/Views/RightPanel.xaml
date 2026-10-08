@@ -12,12 +12,12 @@
         <Border Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}"
                 BorderThickness="0,0,0,1">
             <UniformGrid Columns="5">
-                <Button x:Name="TabStyle" Content="风格" Style="{StaticResource TabHeader}" Tag="on"
+                <Button x:Name="TabStyle" Content="{DynamicResource Loc.RightPanel.TabStyle}" Style="{StaticResource TabHeader}" Tag="on"
                         Click="Tab_Click" />
-                <Button x:Name="TabFx" Content="特效" Style="{StaticResource TabHeader}" Click="Tab_Click" />
-                <Button x:Name="TabTech" Content="手法" Style="{StaticResource TabHeader}" Click="Tab_Click" />
-                <Button x:Name="TabSettings" Content="设置" Style="{StaticResource TabHeader}" Click="Tab_Click" />
-                <Button x:Name="TabOut" Content="导出" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabFx" Content="{DynamicResource Loc.RightPanel.TabFx}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabTech" Content="{DynamicResource Loc.RightPanel.TabTech}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabSettings" Content="{DynamicResource Loc.RightPanel.TabSettings}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabOut" Content="{DynamicResource Loc.RightPanel.TabOut}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
             </UniformGrid>
         </Border>
 

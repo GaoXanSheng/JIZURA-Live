@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Server;
@@ -296,7 +297,7 @@ public static class ProjectIO
         {
             var entries = JizuraPackage.Read(bytes);
             var pj = entries.FirstOrDefault(e => e.Name == "project.json")
-                     ?? throw new InvalidDataException("工程包缺 project.json");
+                     ?? throw new InvalidDataException(L.T("ProjectIO.Err.MissingProjectJson"));
             var raw = JObject.Parse(Encoding.UTF8.GetString(pj.Data));
             var project = MergeProject(raw);
 
@@ -418,15 +419,15 @@ public static class ProjectIO
         // 自校验：读取端逐字节断言（project.json 原文一致 + JSON 可解析 + 音频一致），不合格不落盘
         var back = JizuraPackage.Read(bytes);
         var backPj = back.FirstOrDefault(e => e.Name == "project.json")
-                     ?? throw new InvalidDataException("自校验失败：写出的工程包缺 project.json");
+                     ?? throw new InvalidDataException(L.T("ProjectIO.Err.Verify.MissingProjectJson"));
         if (!backPj.Data.AsSpan().SequenceEqual(projBytes))
-            throw new InvalidDataException("自校验失败：project.json 读回与原文不一致");
+            throw new InvalidDataException(L.T("ProjectIO.Err.Verify.ProjectJsonMismatch"));
         JObject.Parse(Encoding.UTF8.GetString(backPj.Data));
         if (audioFile is { Length: > 0 })
         {
             var backAudio = back.FirstOrDefault(e => e.Name == "audio.bin");
             if (backAudio == null || !backAudio.Data.AsSpan().SequenceEqual(audioFile))
-                throw new InvalidDataException("自校验失败：audio.bin 读回与原文不一致");
+                throw new InvalidDataException(L.T("ProjectIO.Err.Verify.AudioMismatch"));
         }
 
         // 原子落盘（AtomicFile 只有文本重载，字节版就地内联：tmp → replace/move）

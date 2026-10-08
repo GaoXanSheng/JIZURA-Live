@@ -73,6 +73,8 @@
       <Content Include="assets\fonts\*.ttf" Link="fonts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
       <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
       <ApplicationDefinition Include="src\App\App.xaml" />
+      <!-- i18n 词库：按语言目录嵌入（src/App/I18n/Locales/{lang}/{panel}.json），L 启动时全量装载 -->
+      <EmbeddedResource Include="src\App\I18n\Locales\**\*.json" />
       <!-- 测试工程单独一层目录，主程序不编译它 -->
       <Compile Remove="tests\**" />
       <None Remove="tests\**" />

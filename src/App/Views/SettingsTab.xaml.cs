@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 
 namespace JizuraLive.App.Views;
@@ -22,15 +23,19 @@ public partial class SettingsTab : UserControl
     private static readonly (int V, string Label)[] ResOptions =
         { (720, "720p"), (1080, "1080p"), (1440, "1440p"), (2160, "4K") };
     private static readonly int[] FpsOptions = { 12, 15, 18, 24, 25, 30, 48, 50, 60, 90, 120 };
-    private static readonly (string V, string Label)[] KeyBgOptions =
-        { ("off", "常规（风格背景）"), ("green", "绿幕（用于合成）"), ("black", "黑幕（用于合成）") };
-    private static readonly (string V, string Label)[] ZoneOptions =
+    // 带文案的下拉：数组存资源键，构建时经 L.T 解析（换语言时 RebuildLocalizedItems 重建）
+    private static readonly (string V, string Key)[] KeyBgOptions =
+        { ("off", "Settings.KeyBg.Off"), ("green", "Settings.KeyBg.Green"), ("black", "Settings.KeyBg.Black") };
+    private static readonly (string V, string Key)[] ZoneOptions =
     {
-        ("center", "画面中央（文字分列两侧/上下）"), ("left", "左侧留白（文字排右侧）"),
-        ("right", "右侧留白（文字排左侧）"), ("top", "顶部留白（文字排下方）"), ("bottom", "底部留白（文字排上方）"),
+        ("center", "Settings.Zone.Center"), ("left", "Settings.Zone.Left"),
+        ("right", "Settings.Zone.Right"), ("top", "Settings.Zone.Top"), ("bottom", "Settings.Zone.Bottom"),
     };
-    private static readonly (string V, string Label)[] DirOptions =
-        { ("tb", "上下留白"), ("lr", "左右留白") };
+    private static readonly (string V, string Key)[] DirOptions =
+        { ("tb", "Settings.Dir.Tb"), ("lr", "Settings.Dir.Lr") };
+
+    // UI 语言清单：词库目录（zh-Hans）→ 界面自称。新增语言时补一项即可
+    private static readonly (string Code, string Name)[] UiLangs = { ("zh-Hans", "简体中文") };
 
     private const int ResMin = 64, ResMax = 4096;
 
@@ -47,27 +52,85 @@ public partial class SettingsTab : UserControl
         {
             _built = true;
             BuildComboItems();
+            BuildUiLangCombo();
             CbCenterZone.SelectionChanged += (_, _) => CenterDirRow.Visibility =
                 SelectedTag(CbCenterZone) == "center" ? Visibility.Visible : Visibility.Collapsed;
         }
         S.StateChanged += OnState;
+        L.LanguageChanged += OnLanguageChanged;
         Pull();
         PullSettingsDraft();
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => S.StateChanged -= OnState;
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        S.StateChanged -= OnState;
+        L.LanguageChanged -= OnLanguageChanged;
+    }
 
     private void OnState() => Dispatcher.Invoke(Pull);
 
+    /// <summary>语言切换：重建带文案的下拉（留白位置/竖屏分列/背景）＋ 刷按钮双态文案与错误占位。</summary>
+    private void OnLanguageChanged()
+    {
+        RebuildLocalizedItems();
+        ValidateDraft();
+        if (JFonts.FontDirs().FirstOrDefault(Directory.Exists) == null)
+            TblFontDir.Text = L.T("Settings.Fonts.NoDir");
+    }
+
     private void BuildComboItems()
     {
-        if (CbCenterZone.Items.Count > 0) return;
-        foreach (var (v, label) in ZoneOptions) CbCenterZone.Items.Add(new ComboBoxItem { Content = label, Tag = v });
-        foreach (var (v, label) in DirOptions) CbCenterDir.Items.Add(new ComboBoxItem { Content = label, Tag = v });
+        if (CbAspect.Items.Count > 0) return;
         foreach (var a in Aspects) CbAspect.Items.Add(new ComboBoxItem { Content = a, Tag = a });
         foreach (var (v, label) in ResOptions) CbRes.Items.Add(new ComboBoxItem { Content = label, Tag = v.ToString() });
         foreach (var f in FpsOptions) CbFps.Items.Add(new ComboBoxItem { Content = f.ToString(), Tag = f.ToString() });
-        foreach (var (v, label) in KeyBgOptions) CbKeyBg.Items.Add(new ComboBoxItem { Content = label, Tag = v });
+        RebuildLocalizedItems();
+    }
+
+    /// <summary>清空并按当前语言重建 Zone/Dir/KeyBg 三组下拉，保留选中值（_syncing 防误触发提交）。</summary>
+    private void RebuildLocalizedItems()
+    {
+        _syncing = true;
+        try
+        {
+            var zone = SelectedTag(CbCenterZone);
+            var dir = SelectedTag(CbCenterDir);
+            var keyBg = SelectedTag(CbKeyBg);
+            CbCenterZone.Items.Clear();
+            CbCenterDir.Items.Clear();
+            CbKeyBg.Items.Clear();
+            foreach (var (v, key) in ZoneOptions) CbCenterZone.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
+            foreach (var (v, key) in DirOptions) CbCenterDir.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
+            foreach (var (v, key) in KeyBgOptions) CbKeyBg.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
+            if (zone != null) SelectTag(CbCenterZone, zone);
+            if (dir != null) SelectTag(CbCenterDir, dir);
+            if (keyBg != null) SelectTag(CbKeyBg, keyBg);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private void BuildUiLangCombo()
+    {
+        if (CbUiLang.Items.Count > 0) return;
+        foreach (var (code, name) in UiLangs) CbUiLang.Items.Add(new ComboBoxItem { Content = name, Tag = code });
+        SelectTag(CbUiLang, App.SettingsOf()?.UiLang ?? L.DefaultLang);
+    }
+
+    /// <summary>UI 语言：即时保存 + 热切换（L.SetLanguage 灌资源字典并广播 LanguageChanged，
+    /// 各面板自刷动态文本；XAML 静态文本由 DynamicResource 自动刷新）。</summary>
+    private void UiLang_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing) return;
+        var code = SelectedTag(CbUiLang);
+        var st = App.SettingsOf();
+        if (code == null || st == null || code == st.UiLang) return;
+        st.UiLang = code;
+        st.Save();
+        L.SetLanguage(code);
     }
 
     // ---------------- 提交（project 字段，即时生效） ----------------
@@ -106,7 +169,7 @@ public partial class SettingsTab : UserControl
             p.CenterGap = gap;
             p.CenterZone = zone;
             p.CenterDir = dir;
-        }, "留出画面中央");
+        }, L.T("Settings.Mutate.Center"));
         if (TbCenterGap.Text != gap.ToString()) TbCenterGap.Text = gap.ToString();
     }
 
@@ -115,7 +178,7 @@ public partial class SettingsTab : UserControl
         if (_syncing) return;
         var v = SelectedTag(CbAspect);
         if (v == null || v == S.Project.Aspect) return;
-        S.Mutate(p => p.Aspect = v, "画幅：" + v); // setAspect：与导出页同源
+        S.Mutate(p => p.Aspect = v, L.F("Settings.Mutate.AspectFmt", v)); // setAspect：与导出页同源
     }
 
     private void CbRes_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -123,7 +186,7 @@ public partial class SettingsTab : UserControl
         if (_syncing) return;
         var v = SelectedTag(CbRes);
         if (v == null || v == S.Project.Res.ToString()) return;
-        S.Mutate(p => p.Res = int.Parse(v), "分辨率", replan: false); // setRes 只 autosave
+        S.Mutate(p => p.Res = int.Parse(v), L.T("Settings.Res"), replan: false); // setRes 只 autosave
     }
 
     private void CbFps_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -144,7 +207,10 @@ public partial class SettingsTab : UserControl
         {
             p.KeyBg = v;
             ExportSpec.SetCfg(p, ExportSpec.CfgOf(p) with { BgStyle = v });
-        }, "背景：" + (v == "green" ? "绿幕" : v == "black" ? "黑幕" : "常规"));
+        }, L.F("Settings.Mutate.KeyBgFmt",
+            v == "green" ? L.T("Settings.KeyBgShort.Green")
+            : v == "black" ? L.T("Settings.KeyBgShort.Black")
+            : L.T("Settings.KeyBgShort.Off")));
     }
 
     // ---------------- 渲染窗口 / Spout 草稿组（点重启才生效） ----------------
@@ -163,7 +229,7 @@ public partial class SettingsTab : UserControl
         if (st == null || main == null) return;
         if (!ValidateDraft())
         {
-            MessageBox.Show(Window.GetWindow(this)!, "渲染窗口分辨率需 64~4096，帧率需 1~240", "字面 Live",
+            MessageBox.Show(Window.GetWindow(this)!, L.T("Settings.Msg.WinRange"), L.T("Main.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
@@ -196,8 +262,8 @@ public partial class SettingsTab : UserControl
         TbFpsErr.Visibility = fOk ? Visibility.Collapsed : Visibility.Visible;
         TbLyricsFpsErr.Visibility = lOk ? Visibility.Collapsed : Visibility.Visible;
         var ok = wOk && hOk && fOk && lOk;
-        BtnRestart.Content = !_dirty ? "重启渲染引擎" : "保存并重启渲染引擎";
-        BtnRestart.ToolTip = _dirty ? "保存并重启渲染引擎使设置生效" : "以当前设置重启渲染引擎";
+        BtnRestart.Content = !_dirty ? L.T("Settings.Btn.Restart") : L.T("Settings.Btn.RestartSave");
+        BtnRestart.ToolTip = _dirty ? L.T("Settings.Btn.RestartSave.Tip") : L.T("Settings.Btn.Restart.Tip");
         BtnRestart.IsEnabled = ok; // 对位 Vue 的 :disabled="applying || !canApply"
         // 字幕通道名与帧率行随「独立 Spout 字幕通道」勾选显隐（Vue 的 v-if）
         SyncLyricsChan();
@@ -228,7 +294,7 @@ public partial class SettingsTab : UserControl
             CkSpoutLyrics.IsChecked = st.SpoutLyricsEnabled;
             TbLyricsFps.Text = st.LyricsFps.ToString();
             CkFetchFonts.IsChecked = st.FetchFonts;
-            TblFontDir.Text = JFonts.FontDirs().FirstOrDefault(Directory.Exists) ?? "（无字体目录）";
+            TblFontDir.Text = JFonts.FontDirs().FirstOrDefault(Directory.Exists) ?? L.T("Settings.Fonts.NoDir");
             _dirty = false;
         }
         finally

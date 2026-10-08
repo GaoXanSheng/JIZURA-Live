@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 
 namespace JizuraLive.App.Views;
@@ -51,10 +52,16 @@ public partial class TimelineCanvas : UserControl
                 st.StateChanged += Surface.NotifyPlanChanged; // plan 更新重算布局
                 st.AudioChanged += Surface.NotifyPlanChanged; // 波形投入/卸载
             }
+            L.LanguageChanged -= OnLanguageChanged;
+            L.LanguageChanged += OnLanguageChanged;
             Surface.NotifyPlanChanged();
             _clock.Start();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= OnLanguageChanged;
     }
+
+    /// <summary>换语言：丢弃绘制的「间奏」标注缓存并整幅重绘（L.LanguageChanged 在 UI 线程广播）。</summary>
+    private void OnLanguageChanged() => Surface.InvalidateTexts();
 
     private void OnUndo(object sender, RoutedEventArgs e) => App.MainInstance?.State.Undo();
     private void OnZoomIn(object sender, RoutedEventArgs e) => Surface.ZoomBy(1.6);
@@ -96,6 +103,7 @@ public sealed class TimelineSurface : FrameworkElement
     private string? _cacheKey;                   // 静态层缓存键（对位 tlCacheKey）
     private double _lastT = double.NaN;          // 上次时钟读数：没动且静态层没变就跳过重绘
     private double _ppd = 1;                     // PixelsPerDip
+    private string? _interludeTag;               // 行界标注「间奏」（词库缓存：绘制路径逐帧取词太贵，换语言时置空）
     private readonly Dictionary<int, FormattedText> _cutLabels = new();
     private readonly Dictionary<long, FormattedText> _lineLabels = new(); // key = index*2 + (高亮?1:0)
 
@@ -118,6 +126,13 @@ public sealed class TimelineSurface : FrameworkElement
         _planVersion++;
         _cacheKey = null;
         InvalidateVisual();
+    }
+
+    /// <summary>换语言：「间奏」标注重新取词 + 整幅重建（L.LanguageChanged 调，UI 线程）。</summary>
+    public void InvalidateTexts()
+    {
+        _interludeTag = null;
+        NotifyPlanChanged();
     }
 
     /// <summary>10Hz 时钟：放大且播放中，播放头出可视区就跟着平移；其余情况只重绘播放头。</summary>
@@ -359,7 +374,7 @@ public sealed class TimelineSurface : FrameworkElement
             var lt = p.Timing.LineTimes;
             foreach (var ln in plan.Lines)
                 lt.TryAdd(ln.Index.ToString(), Math.Round(ln.Start, 3));
-        }, "行界拖动");
+        }, L.T("Timeline.Mutate.LineDrag"));
         _ = i; // 锚定行由 DragTo 逐跳写入
         _dragTimer.Start();
     }
@@ -486,6 +501,9 @@ public sealed class TimelineSurface : FrameworkElement
                 FontWeights.Normal, FontStretches.Normal),
             size, brush, ppd);
 
+    /// <summary>「间奏」标注（词库取词，字段缓存；InvalidateTexts 换语言时置空）。</summary>
+    private string InterludeTag => _interludeTag ??= L.T("Timeline.Interlude");
+
     /// <summary>layout → 色相（对位 layoutHue：(J.LAYOUT_ORDER 序号 * 37 + 30) % 360，未知 layout 落 353）。</summary>
     private static double LayoutHue(string layout)
     {
@@ -587,7 +605,7 @@ public sealed class TimelineSurface : FrameworkElement
                 var lkey = (long)ln.Index * 2 + (on ? 1 : 0);
                 if (!_lineLabels.TryGetValue(lkey, out var lft))
                 {
-                    lft = Ft((ln.Index + 1).ToString("00") + (ln.Interlude ? " 间奏" : ""), 10, on ? _bAmber : _bMut, _ppd);
+                    lft = Ft((ln.Index + 1).ToString("00") + (ln.Interlude ? " " + InterludeTag : ""), 10, on ? _bAmber : _bMut, _ppd);
                     _lineLabels[lkey] = lft;
                 }
                 dc.DrawText(lft, new Point(lx + 4, by + 14 - lft.Baseline));

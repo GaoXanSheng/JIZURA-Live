@@ -2,22 +2,24 @@
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App;
 
 /// <summary>
 /// 暗色模态弹窗（对位旧 UI Dialogs.vue：rgba(6,6,8,.6) 全窗遮罩 + bg-panel 圆角 14 卡片）。
 /// 用代码搭视觉树：内容是程序化拼的（标题 + 正文 + 可选要点列表），XAML 反而更啰嗦。
+/// 静态工具类（非控件）：按钮默认文案在方法内经 L.T 解析，不订阅 LanguageChanged。
 /// </summary>
 public static class MessageDialog
 {
     /// <summary>说明型弹窗（一个「关闭」）。</summary>
-    public static void Info(Window owner, string title, string body, string closeText = "关闭") =>
-        Show(owner, title, BuildBody(body), null, closeText, primaryClose: true);
+    public static void Info(Window owner, string title, string body, string? closeText = null) =>
+        Show(owner, title, BuildBody(body), null, closeText ?? L.T("Dialog.Close"), primaryClose: true);
 
     /// <summary>警示型弹窗（一个「关闭」）。</summary>
     public static void Warn(Window owner, string title, string body) =>
-        Show(owner, title, BuildBody(body), null, "关闭", primaryClose: true);
+        Show(owner, title, BuildBody(body), null, L.T("Dialog.Close"), primaryClose: true);
 
     /// <summary>确认型弹窗（取消 + 确认）。</summary>
     public static void Confirm(Window owner, string title, string body, string okText, Action onOk,
@@ -28,12 +30,12 @@ public static class MessageDialog
     public static void ConfirmReset(Window owner, Action onOk)
     {
         var body = new StackPanel();
-        body.Children.Add(Text("将以下内容全部清空，回到最初状态。此操作无法撤销。", 13, null, wrap: true));
+        body.Children.Add(Text(L.T("Dialog.ResetIntro"), 13, null, wrap: true));
         var list = new StackPanel { Margin = new Thickness(0, 8, 0, 8) };
         foreach (var item in new[]
                  {
-                     "歌词・曲名・歌手", "载入的歌曲", "时间・逐行指定・导出范围",
-                     "风格・演出・配色・字体等设置", "方案历史（◀ ▶）与撤销历史",
+                     L.T("Dialog.ResetItem1"), L.T("Dialog.ResetItem2"), L.T("Dialog.ResetItem3"),
+                     L.T("Dialog.ResetItem4"), L.T("Dialog.ResetItem5"),
                  })
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1) };
@@ -42,9 +44,9 @@ public static class MessageDialog
             list.Children.Add(row);
         }
         body.Children.Add(list);
-        body.Children.Add(Text("预览音量会保留。已保存的项目文件不受影响。", 12,
+        body.Children.Add(Text(L.T("Dialog.ResetKeep"), 12,
             (Brush)Application.Current.FindResource("Mut"), wrap: true));
-        Show(owner, "初始化", body, null, "初始化", onOk: onOk, dangerOk: true);
+        Show(owner, L.T("Dialog.ResetTitle"), body, null, L.T("Dialog.ResetTitle"), onOk: onOk, dangerOk: true);
     }
 
     private static UIElement BuildBody(string text) => Text(text, 13, null, wrap: true);
@@ -60,7 +62,11 @@ public static class MessageDialog
     };
 
     private static void Show(Window owner, string title, UIElement body, UIElement? extra, string okText,
-        Action? onOk = null, bool primaryClose = false, bool dangerOk = false, string cancelText = "取消")
+        Action? onOk = null, bool primaryClose = false, bool dangerOk = false, string? cancelText = null) =>
+        ShowCore(owner, title, body, extra, okText, onOk, primaryClose, dangerOk, cancelText ?? L.T("Dialog.Cancel"));
+
+    private static void ShowCore(Window owner, string title, UIElement body, UIElement? extra, string okText,
+        Action? onOk, bool primaryClose, bool dangerOk, string cancelText)
     {
         var res = Application.Current;
         Brush panel = (Brush)res.FindResource("Panel");

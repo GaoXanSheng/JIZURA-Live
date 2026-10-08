@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using JizuraLive.App.Controls;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Microsoft.Win32;
@@ -23,23 +24,24 @@ public partial class StyleTab : UserControl
 
     private EditorState S => App.MainInstance!.State;
 
-    // 色板两组（对位 BASE_KEYS / ACCENT_KEYS）
-    private static readonly (string K, string Label)[] AccentKeys =
-        { ("accent", "强调色"), ("ghostA", "错位色A"), ("ghostB", "错位色B") };
+    // 色板两组（对位 BASE_KEYS / ACCENT_KEYS）。Label 一列是词库键（L.T 在构建/换语言时解析）
+    private static readonly (string K, string LKey)[] AccentKeys =
+        { ("accent", "Style.Color.Accent"), ("ghostA", "Style.Color.GhostA"), ("ghostB", "Style.Color.GhostB") };
 
-    private static readonly (string K, string Label)[] BaseKeys =
-        { ("bg", "背景"), ("fg", "文字"), ("sub", "辅助") };
+    private static readonly (string K, string LKey)[] BaseKeys =
+        { ("bg", "Style.Color.Bg"), ("fg", "Style.Color.Fg"), ("sub", "Style.Color.Sub") };
 
     // 套装徽章（对位 ui-helpers 的 SET_UI：徽标字 / 悬浮说明 / 描边与字色 = .badge-set.set-*）
-    private static readonly Dictionary<string, (string Text, string Title, string Border, string Fg)> SetBadge = new()
+    private static readonly Dictionary<string, (string TextKey, string TitleKey, string Border, string Fg)> SetBadge = new()
     {
-        ["horror"] = ("恐", "恐怖", "#C0544A", "#E0786E"),
-        ["typo"] = ("文", "文字排版", "#9AA3AD", "#C5CCD3"),
-        ["kinetic"] = ("动", "动态文字", "#7FBF6A", "#9FD98A"),
+        ["horror"] = ("Style.Badge.Horror", "Style.Badge.Horror.Tip", "#C0544A", "#E0786E"),
+        ["typo"] = ("Style.Badge.Typo", "Style.Badge.Typo.Tip", "#9AA3AD", "#C5CCD3"),
+        ["kinetic"] = ("Style.Badge.Kinetic", "Style.Badge.Kinetic.Tip", "#7FBF6A", "#9FD98A"),
     };
 
     private readonly Dictionary<string, TextBox> _hexBoxes = new();
     private readonly Dictionary<string, string> _hexFlag = new();
+    private readonly Dictionary<string, TextBlock> _colorLabels = new(); // 色块标签，LanguageChanged 重刷
 
     public StyleTab()
     {
@@ -58,12 +60,45 @@ public partial class StyleTab : UserControl
             BuildCards();
         }
         S.StateChanged += OnState;
+        L.LanguageChanged += OnLanguageChanged;
         Pull();
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => S.StateChanged -= OnState;
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        S.StateChanged -= OnState;
+        L.LanguageChanged -= OnLanguageChanged;
+    }
 
     private void OnState() => Dispatcher.Invoke(Pull);
+
+    private void OnLanguageChanged() => Dispatcher.Invoke(ApplyTexts);
+
+    /// <summary>语言切换后重刷 code-behind 文案：色块标签、风格卡片（徽标字/悬停注记随 Pull 重刷）、
+    /// 字体下拉的「风格默认」项（清空让 SyncFontCombo 重建）。</summary>
+    private void ApplyTexts()
+    {
+        if (!_built || App.MainInstance == null) return;
+        _syncing = true;
+        try
+        {
+            foreach (var keys in new[] { AccentKeys, BaseKeys })
+                foreach (var (k, lkey) in keys)
+                    if (_colorLabels.TryGetValue(k, out var lab))
+                        lab.Text = L.T(lkey);
+            StyleGrid.Children.Clear();
+            StyleGrid.RowDefinitions.Clear();
+            BuildCards();
+            CbFontDisplay.Items.Clear();
+            CbFontSerif.Items.Clear();
+            CbFontBody.Items.Clear();
+        }
+        finally
+        {
+            _syncing = false;
+        }
+        Pull();
+    }
 
     // ---------------- 风格卡片 ----------------
 
@@ -120,11 +155,11 @@ public partial class StyleTab : UserControl
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(4, 4, 0, 0),
             };
-            if (Flag(st.Extra, "extra")) badges.Children.Add(Badge("新增", "最初公开版之后追加", "#16F4D4", "#16F4D4"));
-            if (Flag(st.Extra, "wa")) badges.Children.Add(Badge("和", "和风特效", "#F5A50C", "#F5A50C"));
+            if (Flag(st.Extra, "extra")) badges.Children.Add(Badge(L.T("Style.Badge.Extra"), L.T("Style.Badge.Extra.Tip"), "#16F4D4", "#16F4D4"));
+            if (Flag(st.Extra, "wa")) badges.Children.Add(Badge(L.T("Style.Badge.Wa"), L.T("Style.Badge.Wa.Tip"), "#F5A50C", "#F5A50C"));
             if (st.Extra != null && st.Extra.TryGetValue("set", out var setTok) && setTok.Type == JTokenType.String
                 && SetBadge.TryGetValue((string)setTok, out var sb))
-                badges.Children.Add(Badge(sb.Text, sb.Title, sb.Border, sb.Fg));
+                badges.Children.Add(Badge(L.T(sb.TextKey), L.T(sb.TitleKey), sb.Border, sb.Fg));
 
             var thumbBox = new Grid();
             var thumb = new Border
@@ -204,11 +239,11 @@ public partial class StyleTab : UserControl
     {
         if (Reg.RandomAllows(p, "style", st.Key)) return "";
         if (Flag(st.Extra, "extra") && p.Extra != true)
-            return "（新增特效未开启，一键随机不会选中）";
+            return L.T("Style.OffNote.Extra");
         if (st.Extra != null && st.Extra.TryGetValue("set", out var setTok) && setTok.Type == JTokenType.String
             && !SetOn(p, (string)setTok))
-            return "（该套装未开启，一键随机不会选中）";
-        return "（和风特效未开启，一键随机不会选中）";
+            return L.T("Style.OffNote.Set");
+        return L.T("Style.OffNote.Wa");
     }
 
     /// <summary>J.setOn：套装开关（horror/typo/kinetic，typed 字段直读）。</summary>
@@ -231,7 +266,7 @@ public partial class StyleTab : UserControl
         {
             p.Style = key;
             p.Colors["enabled"] = false; // pickStyle：换风格把背景文字色覆盖关掉
-        }, "风格：" + Reg.Styles[key].Name, look: true);
+        }, L.F("Style.Mutate.Style", Reg.Styles[key].Name), look: true);
     }
 
     // ---------------- 语言 / 字体 ----------------
@@ -250,7 +285,7 @@ public partial class StyleTab : UserControl
         if (_syncing || CbLang.SelectedItem is not ComboBoxItem it) return;
         var v = (string)it.Tag!;
         if (v == S.Project.Lang) return;
-        S.Mutate(p => p.Lang = v, "歌词语言", look: true);
+        S.Mutate(p => p.Lang = v, L.T("Style.LangLabel"), look: true);
     }
 
     private void SyncFontCombos()
@@ -268,7 +303,7 @@ public partial class StyleTab : UserControl
         var missing = JFonts.MissingUserFonts(SelectedFontKeys(p));
         if (missing.Count > 0)
         {
-            TblFontNote.Text = "缺字体本体（用回退字体渲染）：" + string.Join("、", missing);
+            TblFontNote.Text = L.F("Style.FontNote.Missing", string.Join("、", missing));
             TblFontNote.Visibility = Visibility.Visible;
             return;
         }
@@ -293,7 +328,7 @@ public partial class StyleTab : UserControl
         if (cb.Items.Count != JFonts.Table.Count + 1)
         {
             cb.Items.Clear();
-            cb.Items.Add(new ComboBoxItem { Content = "风格默认", Tag = "" });
+            cb.Items.Add(new ComboBoxItem { Content = L.T("Style.FontDefault"), Tag = "" });
             foreach (var kv in JFonts.Table)
             {
                 // 当前语言下的实际用脸（对位 faceOf 的 → 别名标注）
@@ -311,12 +346,12 @@ public partial class StyleTab : UserControl
         var role = name switch { "CbFontDisplay" => "display", "CbFontSerif" => "serif", _ => "body" };
         var v = (string)it.Tag!;
         if (v == (S.Project.Fonts.GetValueOrDefault(role) ?? "")) return;
-        var roleLabel = role == "display" ? "标题" : role == "serif" ? "衬线体" : "正文";
+        var roleLabel = L.T(role == "display" ? "Style.RoleDisplay" : role == "serif" ? "Style.RoleSerif" : "Style.RoleBody");
         S.Mutate(p =>
         {
             if (v.Length == 0) p.Fonts.Remove(role);
             else p.Fonts[role] = v;
-        }, "字体・" + roleLabel, look: true);
+        }, L.F("Style.Mutate.FontRole", roleLabel), look: true);
     }
 
     private void BtnAddLocalFont_Click(object sender, RoutedEventArgs e)
@@ -325,20 +360,21 @@ public partial class StyleTab : UserControl
         if (name.Length == 0) return;
         var key = "local_" + Regex.Replace(name, "\\s+", "_");
         var weight = Regex.IsMatch(name, "bold|太|black|heavy|w[6-9]|[6-9]00", RegexOptions.IgnoreCase) ? 700 : 400;
-        JFonts.AddUserFont(key, name + "（本机）", name, weight);
+        var label = L.F("Style.LocalFontSuffix", name);
+        JFonts.AddUserFont(key, label, name, weight);
         S.Mutate(p =>
         {
             p.UserFonts = p.UserFonts.Where(u => u.Key != key)
-                .Concat(new[] { new UserFont { Key = key, Label = name + "（本机）", Family = name, Weight = weight } })
+                .Concat(new[] { new UserFont { Key = key, Label = label, Family = name, Weight = weight } })
                 .ToList();
             p.Fonts["display"] = key;
-        }, "本机字体：" + name, look: true);
+        }, L.F("Style.Mutate.LocalFont", name), look: true);
         TbLocalFont.Text = "";
     }
 
     private void BtnFontFile_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog { Filter = "字体文件|*.ttf;*.otf;*.woff;*.woff2", Title = "选择字体文件" };
+        var dlg = new OpenFileDialog { Filter = L.T("Style.FontDlg.Filter"), Title = L.T("Style.FontDlg.Title") };
         if (dlg.ShowDialog(Window.GetWindow(this)!) != true) return;
         try
         {
@@ -349,11 +385,11 @@ public partial class StyleTab : UserControl
                     .Concat(new[] { new UserFont { Key = uf.Key, Label = uf.Label, Family = uf.Family, Weight = uf.Weight } })
                     .ToList();
                 p.Fonts["display"] = uf.Key;
-            }, "字体文件：" + uf.Label, look: true);
+            }, L.F("Style.Mutate.FontFile", uf.Label), look: true);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(Window.GetWindow(this)!, "无法读取该字体文件", "字面 Live",
+            MessageBox.Show(Window.GetWindow(this)!, L.T("Style.FontLoadFailed"), "字面 Live",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             Log.Debug("字体文件加载失败：" + ex);
         }
@@ -362,25 +398,27 @@ public partial class StyleTab : UserControl
     // ---------------- 配色 ----------------
 
     /// <summary>三色块一行（对位 .grid.grid-cols-3.gap-2 + .field：11px mut 标签 + 色块）。</summary>
-    private void BuildColorRow(Grid parent, (string K, string Label)[] keys, string flag)
+    private void BuildColorRow(Grid parent, (string K, string LKey)[] keys, string flag)
     {
         for (var i = 0; i < keys.Length; i++)
             parent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         for (var i = 0; i < keys.Length; i++)
         {
-            var (k, label) = keys[i];
+            var (k, lkey) = keys[i];
 
             var cell = new StackPanel { Margin = new Thickness(0, 0, i < keys.Length - 1 ? 8 : 0, 0) };
-            cell.Children.Add(new TextBlock
+            var lab = new TextBlock
             {
-                Text = label,
+                Text = L.T(lkey),
                 FontSize = 11,
                 LineHeight = 16.5,
                 LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
                 Foreground = (Brush)FindResource("Mut"),
                 Margin = new Thickness(0, 0, 0, 4),
-            });
+            };
+            cell.Children.Add(lab);
+            _colorLabels[k] = lab;
 
             var tb = new TextBox { Style = (Style)Resources["ColorBox"] };
             var k1 = k;
@@ -417,13 +455,13 @@ public partial class StyleTab : UserControl
         {
             p.Colors[k] = hex;
             if (!Truthy(p.Colors[flag])) p.Colors[flag] = true; // onColor：改色即开覆盖
-        }, "配色：" + k, look: true);
+        }, L.F("Style.Mutate.Color", k), look: true);
     }
 
-    private void AccentToggle_Changed(object sender, RoutedEventArgs e) => ColorToggle("accentOn", AccentKeys, "强调色覆盖");
-    private void ColorToggle_Changed(object sender, RoutedEventArgs e) => ColorToggle("enabled", BaseKeys, "背景文字色覆盖");
+    private void AccentToggle_Changed(object sender, RoutedEventArgs e) => ColorToggle("accentOn", AccentKeys, L.T("Style.Mutate.AccentOverride"));
+    private void ColorToggle_Changed(object sender, RoutedEventArgs e) => ColorToggle("enabled", BaseKeys, L.T("Style.Mutate.BaseColorOverride"));
 
-    private void ColorToggle(string flag, (string K, string Label)[] keys, string label)
+    private void ColorToggle(string flag, (string K, string LKey)[] keys, string label)
     {
         if (_syncing) return;
         var on = (flag == "accentOn" ? CkAccentOn : CkColorOn).IsChecked == true;
@@ -459,7 +497,7 @@ public partial class StyleTab : UserControl
             pc["ghostA"] = ga;
             pc["ghostB"] = gb;
             pc["accentOn"] = true;
-        }, "随机配色", look: true);
+        }, L.T("Style.RandomPalette"), look: true);
     }
 
     // ---------------- 回刷 ----------------

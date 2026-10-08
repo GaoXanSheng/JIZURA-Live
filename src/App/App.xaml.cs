@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using JizuraLive.App.I18n;
 using JizuraLive.App.Mcp;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -64,6 +65,8 @@ public partial class App : Application
             var settings = Settings.Load();
             _settings = settings;
             Settings = settings;
+            // 词库装载 + 应用级资源字典灌入：MainWindow 及各面板 XAML 的 DynamicResource 依赖它，必须先于窗口构造
+            L.Initialize(settings.UiLang);
 
             JFonts.UserFontDir = AppDirs.FontsDir;       // 用户字体库与 AppDirs 口径一致（引擎默认同路径，这里显式对齐）
             FontFetch.Enabled = settings.FetchFonts;     // 字体按需拉取总开关（关掉 = 纯本地：目录 + 系统栈）

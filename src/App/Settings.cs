@@ -36,6 +36,10 @@ public sealed class Settings
     // Google Fonts 仓库镜像拉进用户字体库；关掉 = 纯本地（exe 旁 fonts\ + 系统字体栈）
     public bool FetchFonts { get; set; } = true;
 
+    // UI 语言（i18n 词库目录名，src/App/I18n/Locales/{UiLang}/）：首期仅 zh-Hans，
+    // 后续加语言 = 加词库目录 + 设置页下拉清单里补一项
+    public string UiLang { get; set; } = "zh-Hans";
+
     private static string ConfigDir => AppDirs.ConfigDir;
     private static string FilePath => Path.Combine(ConfigDir, "settings.json");
 

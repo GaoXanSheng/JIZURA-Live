@@ -4,17 +4,8 @@
              xmlns:local="clr-namespace:JizuraLive.App.Views">
     <!-- 对位 TimelineCanvas.vue：提示行 + 三带（上条视图滑动 16px / 中条播放头 20px / 下条本体 60px，
          三带合进一个 TimelineSurface 自绘；本体带一圈 1px border-line，对位 body canvas 的 border）。
-         提示行：左侧 11px mut 说明（Shift 用 .kbd 键帽），右侧「撤销 − ＋ 全部」一组 btn-ghost btn-sm。
+         提示行：左侧 11px mut 说明（整句单键，Shift 直排句中），右侧「撤销 − ＋ 全部」一组 btn-ghost btn-sm。
          Vue 原 DOM 顺序（两块根节点）：div.flex.justify-between.my-2.mb-1 → 提示 + 按钮；div.flex.flex-col → 三块 canvas。 -->
-    <UserControl.Resources>
-        <!-- .kbd：font-mono 11px / border border-line2 / border-b-2 / px-1 / rounded-md（4px） -->
-        <Style x:Key="Kbd" TargetType="Border">
-            <Setter Property="BorderBrush" Value="{StaticResource Line2}" />
-            <Setter Property="BorderThickness" Value="1,1,1,2" />
-            <Setter Property="CornerRadius" Value="4" />
-            <Setter Property="Padding" Value="4,0" />
-        </Style>
-    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -24,24 +15,20 @@
         <DockPanel Grid.Row="0" Margin="0,8,0,4" LastChildFill="True">
             <!-- ml-auto flex gap-1（4px）：一组 btn-ghost btn-sm；两个缩放键 min-w-7（28px） -->
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
-                <Button Content="撤销" Style="{StaticResource BtnGhostSm}" Click="OnUndo"
-                        ToolTip="撤销歌词・时间修改（Ctrl+Z）" />
+                <Button Content="{DynamicResource Loc.Timeline.Undo}" Style="{StaticResource BtnGhostSm}" Click="OnUndo"
+                        ToolTip="{DynamicResource Loc.Timeline.Undo.Tip}" />
                 <Button Content="−" Style="{StaticResource BtnGhostSm}" MinWidth="28" Margin="4,0,0,0"
-                        Click="OnZoomOut" ToolTip="缩小" AutomationProperties.Name="缩小时间轴" />
+                        Click="OnZoomOut" ToolTip="{DynamicResource Loc.Timeline.ZoomOut.Tip}"
+                        AutomationProperties.Name="{DynamicResource Loc.Timeline.ZoomOut.Name}" />
                 <Button Content="＋" Style="{StaticResource BtnGhostSm}" MinWidth="28" Margin="4,0,0,0"
-                        Click="OnZoomIn" ToolTip="放大（时间轴上滚轮亦可）" AutomationProperties.Name="放大时间轴" />
-                <Button Content="全部" Style="{StaticResource BtnGhostSm}" Margin="4,0,0,0"
-                        Click="OnZoomAll" ToolTip="显示整首" />
+                        Click="OnZoomIn" ToolTip="{DynamicResource Loc.Timeline.ZoomIn.Tip}"
+                        AutomationProperties.Name="{DynamicResource Loc.Timeline.ZoomIn.Name}" />
+                <Button Content="{DynamicResource Loc.Timeline.All}" Style="{StaticResource BtnGhostSm}" Margin="4,0,0,0"
+                        Click="OnZoomAll" ToolTip="{DynamicResource Loc.Timeline.All.Tip}" />
             </StackPanel>
-            <!-- text-[11px] text-mut；Shift 内嵌 kbd 键帽（Vue 里是 span.kbd）。
-                 MaxHeight：行盒按内容长高（键帽比 11px 行盒高），对位浏览器的 inline 排版 -->
-            <TextBlock VerticalAlignment="Center" FontSize="11" LineHeight="16.5" LineStackingStrategy="MaxHeight"
-                       Foreground="{StaticResource Mut}" TextTrimming="CharacterEllipsis"><Run
-                    Text="上条左右滑视图，中条拖动播放头；行界刻度可拖动，" /><InlineUIContainer
-                    BaselineAlignment="Center"><Border Style="{StaticResource Kbd}"><TextBlock
-                        FontFamily="{StaticResource MonoFont}" FontSize="11" LineHeight="16.5"
-                        Foreground="{StaticResource Fg}" Text="Shift" /></Border></InlineUIContainer><Run
-                    Text=" 不吸附节拍；底部黄条为缩放范围" /></TextBlock>
+            <!-- text-[11px] text-mut；整句单键（Shift 字样保留在句中） -->
+            <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource Mut}"
+                       TextTrimming="CharacterEllipsis" Text="{DynamicResource Loc.Timeline.Hint}" />
         </DockPanel>
         <!-- 三带：16 + 20 + 60（本体 60 含 1px 边框，对位 canvas 的 box-sizing: border-box） -->
         <local:TimelineSurface x:Name="Surface" Grid.Row="1" Height="96" ClipToBounds="True" />

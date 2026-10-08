@@ -1,9 +1,12 @@
+using System.Globalization;
 using System.IO;
-using JizuraLive.App; // EngineRenderGate（渲染串行闸，与预览/Spout 共享）
+using JizuraLive.App;
 using JizuraLive.App.Cloud;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using SkiaSharp;
+// EngineRenderGate（渲染串行闸，与预览/Spout 共享）
 
 namespace JizuraLive.Export;
 
@@ -22,7 +25,7 @@ public sealed class ExportRequest
     public bool WavToo { get; init; }
 
     /// <summary>云字幕（KRC 逐字）：Spec.BakeSubs 时逐帧烤入。</summary>
-    public List<JizuraLive.App.Cloud.KrcLine>? SubtitleLines { get; init; }
+    public List<KrcLine>? SubtitleLines { get; init; }
     public SubtitleConfig? SubtitleCfg { get; init; }
 }
 
@@ -36,7 +39,7 @@ public static class ExportJob
     public static void Run(ExportRequest req, IProgress<(double Pct, string Stage)>? progress, CancellationToken ct)
     {
         if (req.Spec.CustomDrawOnly)
-            throw new NotSupportedException("纯字幕层（无渲染画面）导出待接线：请勾选「渲染画面」+「字幕」用烤入");
+            throw new NotSupportedException(L.T("Export.Err.SubsOnly"));
 
         switch (req.Spec.Kind)
         {
@@ -52,7 +55,7 @@ public static class ExportJob
                 ExportVideo(req, progress, ct);
                 break;
             default:
-                throw new NotSupportedException("未知导出类型：" + req.Spec.Kind);
+                throw new NotSupportedException(L.F("Export.Err.UnknownKindFmt", req.Spec.Kind));
         }
     }
 
@@ -87,7 +90,7 @@ public static class ExportJob
         string? tmpWav = null;
         if (req.Spec.EmbedAudio && req.AudioPath != null)
         {
-            progress?.Report((0, "准备音频"));
+            progress?.Report((0, L.T("Export.Stage.PrepareAudio")));
             var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, plan.Duration);
             if (ap != null)
             {
@@ -128,7 +131,7 @@ public static class ExportJob
                     // 每帧多塞 (plan.H/oh) 倍数据（管道被拆成多帧），且越界读位图缓冲区
                     enc.WriteFrame(new ReadOnlySpan<byte>((void*)pixels, stride * oh));
                 }
-                if ((i & 3) == 0) progress?.Report((enc.Progress * 0.98, $"编码 {i + 1}/{frames}"));
+                if ((i & 3) == 0) progress?.Report((enc.Progress * 0.98, L.F("Export.Stage.EncodeFmt", i + 1, frames)));
             }
             enc.Finish();
         }
@@ -142,7 +145,7 @@ public static class ExportJob
                 try { File.Delete(tmpWav); } catch { /* 清理失败不阻塞 */ }
         }
 
-        progress?.Report((1.0, "完成"));
+        progress?.Report((1.0, L.T("Export.Stage.Done")));
     }
 
     private static List<string> BuildVideoArgs(ExportRequest req, int fps, bool transparent, string? wav)
@@ -153,7 +156,7 @@ public static class ExportJob
         {
             "-y", "-hide_banner", "-loglevel", "error",
             "-f", "rawvideo", "-pix_fmt", transparent ? "rgba" : "bgra",
-            "-s", $"{dimsW}x{dimsH}", "-r", fps.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "-s", $"{dimsW}x{dimsH}", "-r", fps.ToString(CultureInfo.InvariantCulture),
             "-i", "pipe:0",
         };
         if (withAudio)
@@ -243,7 +246,7 @@ public static class ExportJob
                     }
                     zip.AddFrame(null, i + 1, backBmp);
                 }
-                if ((i & 3) == 0) progress?.Report((i / (double)frames * 0.98, $"写帧 {i + 1}/{frames}"));
+                if ((i & 3) == 0) progress?.Report((i / (double)frames * 0.98, L.F("Export.Stage.WriteFrameFmt", i + 1, frames)));
             }
         }
         finally
@@ -257,7 +260,7 @@ public static class ExportJob
             if (frontBmp != null) frontBmp.Dispose();
         }
 
-        progress?.Report((1.0, "完成"));
+        progress?.Report((1.0, L.T("Export.Stage.Done")));
     }
 
     // ---------------- 音频（WAV） ----------------
@@ -265,13 +268,13 @@ public static class ExportJob
     private static void ExportWav(ExportRequest req, IProgress<(double Pct, string Stage)>? progress)
     {
         if (req.AudioPath == null || !File.Exists(req.AudioPath))
-            throw new InvalidOperationException("没有已投入的歌曲，无法导出 WAV");
+            throw new InvalidOperationException(L.T("Export.Err.NoAudio"));
 
-        progress?.Report((0, "解码音频"));
+        progress?.Report((0, L.T("Export.Stage.DecodeAudio")));
         var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, req.Plan.Duration)
-                 ?? throw new InvalidOperationException("音频解码失败");
+                 ?? throw new InvalidOperationException(L.T("Export.Err.AudioDecodeFailed"));
         WavWriter.Write(ap, req.OutputPath, req.Plan.Duration);
-        progress?.Report((1.0, "完成"));
+        progress?.Report((1.0, L.T("Export.Stage.Done")));
     }
 
     /// <summary>WavToo：非 MP4 导出勾了歌曲时，另存同名 _audio.wav（与内嵌音轨同一份采样）。</summary>

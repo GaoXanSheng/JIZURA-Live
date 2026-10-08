@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Server;
@@ -77,24 +78,24 @@ public static class SongLoader
         string quality, Action<string>? progress = null, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
-        progress?.Invoke("获取播放链接…");
+        progress?.Invoke(L.T("CloudSong.GetUrl"));
         var u = source == "netease"
             ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
             : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
                 int.TryParse(quality, out var q) ? q : 128);
         if (!u.Ok || string.IsNullOrEmpty(u.Url))
         {
-            var name = source == "netease" ? "网易云" : "酷狗";
+            var name = source == "netease" ? L.T("Cloud.SourceNetease") : L.T("Cloud.SourceKugou");
             throw new CloudException(u.Error
                                      ?? (u.NeedVip == true
-                                         ? $"这首需要{name} VIP，扫码登录后再试"
-                                         : "拿不到播放链接"));
+                                         ? L.F("CloudSong.NeedVip", name)
+                                         : L.T("CloudSong.NoUrl")));
         }
 
         var ext = (u.Ext ?? "mp3").ToLowerInvariant();
         var fileName = AudioFileName(song.Singer, song.Name, ext);
 
-        progress?.Invoke("下载音频…");
+        progress?.Invoke(L.T("CloudSong.Download"));
         var path = await DownloadAudioAsync(u.Url, fileName, ct);
 
         // 歌词：失败不拦音频（老版本同策略——有歌没词照样能做）
@@ -102,7 +103,7 @@ public static class SongLoader
         var lyricNote = "，没找到歌词";
         try
         {
-            progress?.Invoke("获取歌词…");
+            progress?.Invoke(L.T("CloudSong.GetLyric"));
             ct.ThrowIfCancellationRequested();
             var ly = source == "netease"
                 ? await ServerContext.Netease.GetLyricAsync(song.Id)
@@ -134,14 +135,14 @@ public static class SongLoader
 
         // 写工程（音频装载成功与否都要落：老版本音频失败时已写入的歌词也得排进 plan）
         if (lrc.Length > 0)
-            state.Mutate(p => p.Lyrics = lrc, "云音乐歌词", replan: false);
+            state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: false);
         state.Mutate(p =>
         {
             p.Title = song.Name;
             p.Artist = song.Singer;
-        }, "云音乐曲名/歌手", replan: false, look: true);
+        }, L.T("CloudSong.MutateTitleArtist"), replan: false, look: true);
 
-        progress?.Invoke("解码与节拍分析…");
+        progress?.Invoke(L.T("CloudSong.Analyze"));
         AudioData audio;
         try
         {
@@ -165,7 +166,7 @@ public static class SongLoader
         catch (Exception ex)
         {
             state.ReplanAsync(); // 歌词已写入但音频装载失败：这里补一次重排
-            throw new CloudException("音频装载失败：" + ex.Message);
+            throw new CloudException(L.F("CloudSong.LoadAudioFailed", ex.Message));
         }
 
         state.SetAudio(audio, path, fileName); // 内部 ReplanAsync，歌词与音频一次排进 plan
@@ -212,7 +213,7 @@ public static class SongLoader
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https") || !AllowedHost(uri.Host))
-            throw new CloudException("不允许的音频地址");
+            throw new CloudException(L.T("CloudSong.BadUrl"));
 
         Directory.CreateDirectory(CacheDir);
         var path = Path.Combine(CacheDir, fileName);
@@ -234,9 +235,9 @@ public static class SongLoader
             // HttpClient 默认跟随重定向，跳转可能落到白名单之外，以最终请求 URI 复检
             var finalHost = upstream.RequestMessage?.RequestUri?.Host ?? uri.Host;
             if (!upstream.IsSuccessStatusCode)
-                throw new CloudException($"音频源返回 {(int)upstream.StatusCode}");
+                throw new CloudException(L.F("CloudSong.HttpStatus", (int)upstream.StatusCode));
             if (!AllowedHost(finalHost))
-                throw new CloudException("音频源重定向到不允许的域名");
+                throw new CloudException(L.T("CloudSong.RedirectBad"));
 
             await using (var src = await upstream.Content.ReadAsStreamAsync(watchdogCts.Token))
             {
@@ -253,13 +254,13 @@ public static class SongLoader
                 }
             }
 
-            if (new FileInfo(tmp).Length == 0) throw new CloudException("音频下载内容为空");
+            if (new FileInfo(tmp).Length == 0) throw new CloudException(L.T("CloudSong.EmptyContent"));
             File.Move(tmp, path, true); // 覆盖同名旧缓存
             return path;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new CloudException("音频下载超时（连接停滞）");
+            throw new CloudException(L.T("CloudSong.DownloadTimeout"));
         }
         finally
         {

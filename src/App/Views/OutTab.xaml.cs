@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Export;
 using Microsoft.Win32;
@@ -51,9 +52,10 @@ public partial class OutTab : UserControl
             foreach (var f in FpsOptions) CbFps.Items.Add(new ComboBoxItem { Content = f.ToString(), Tag = f.ToString() });
             foreach (var (v, label) in ExportSpec.BgStyles)
                 CbBgStyle.Items.Add(new ComboBoxItem { Content = label, Tag = v });
-            foreach (var (v, label) in DirOptions()) CbCenterDir.Items.Add(new ComboBoxItem { Content = label, Tag = v });
+            foreach (var (v, key) in DirOptions()) CbCenterDir.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
         }
         S.StateChanged += OnState;
+        L.LanguageChanged += OnLanguageChanged;
         App.MainInstance!.StatusChanged += RefreshStatus;
         Pull();
         RefreshStatus();
@@ -62,10 +64,30 @@ public partial class OutTab : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         S.StateChanged -= OnState;
+        L.LanguageChanged -= OnLanguageChanged;
         if (App.MainInstance != null) App.MainInstance.StatusChanged -= RefreshStatus;
     }
 
     private void OnState() => Dispatcher.Invoke(Pull);
+
+    /// <summary>语言切换：重建竖屏分列下拉（唯一带本地文案的下拉）＋ 刷状态小字与条件提示。</summary>
+    private void OnLanguageChanged()
+    {
+        _syncing = true;
+        try
+        {
+            var dir = SelectedTag(CbCenterDir);
+            CbCenterDir.Items.Clear();
+            foreach (var (v, key) in DirOptions()) CbCenterDir.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
+            if (dir != null) SelectTag(CbCenterDir, dir);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+        RefreshStatus();
+        Pull();
+    }
 
     /// <summary>状态小字（移植自 TopBar 的 RefreshStatus）：{W}×{H} · N 切分 · seed S · Spout→…/未开。</summary>
     private void RefreshStatus()
@@ -78,15 +100,15 @@ public partial class OutTab : UserControl
             return;
         }
         var plan = main.Preview.Plan;
-        var head = plan != null ? $"{plan.W}×{plan.H} · {plan.Cuts.Count} 切分 · seed {plan.Seed}" : "";
+        var head = plan != null ? L.F("Out.Status.PlanFmt", plan.W, plan.H, plan.Cuts.Count, plan.Seed) : "";
         var spout = main.Spout.IsRunning && !string.IsNullOrEmpty(main.Spout.SenderName)
-            ? $"Spout→{main.Spout.SenderName}"
-            : "Spout 未开";
+            ? L.F("Out.Status.SpoutToFmt", main.Spout.SenderName)
+            : L.T("Out.Status.SpoutOff");
         TblStatus.Text = head.Length > 0 ? head + " · " + spout : spout;
     }
 
-    private static (string V, string Label)[] DirOptions() =>
-        new[] { ("tb", "上下分列"), ("lr", "左右分列") };
+    private static (string V, string Key)[] DirOptions() =>
+        new[] { ("tb", "Out.Dir.Tb"), ("lr", "Out.Dir.Lr") };
 
     // ---------------- 画幅 / 输出参数（与设置页同源字段） ----------------
 
@@ -95,7 +117,7 @@ public partial class OutTab : UserControl
         if (_syncing) return;
         var v = SelectedTag(CbAspect);
         if (v == null || v == S.Project.Aspect) return;
-        S.Mutate(p => p.Aspect = v, "画幅：" + v);
+        S.Mutate(p => p.Aspect = v, L.F("Out.Mutate.AspectFmt", v));
     }
 
     private void CbRes_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -103,7 +125,7 @@ public partial class OutTab : UserControl
         if (_syncing) return;
         var v = SelectedTag(CbRes);
         if (v == null || v == S.Project.Res.ToString()) return;
-        S.Mutate(p => p.Res = int.Parse(v), "分辨率", replan: false);
+        S.Mutate(p => p.Res = int.Parse(v), L.T("Out.Res"), replan: false);
     }
 
     private void CbFps_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -123,7 +145,7 @@ public partial class OutTab : UserControl
         {
             p.CenterFree = free;
             p.CenterDir = dir;
-        }, "留出画面中央");
+        }, L.T("Out.Mutate.Center"));
     }
 
     // ---------------- 导出勾选（ExportSpec 勾选模型） ----------------
@@ -150,7 +172,7 @@ public partial class OutTab : UserControl
         var c = Cfg();
         var next = ReadChecks(c with { Format = format ?? c.Format, BgStyle = bgStyle ?? c.BgStyle });
         if (next == c) return;
-        S.Mutate(p => ExportSpec.SetCfg(p, next), "导出设置", replan: false);
+        S.Mutate(p => ExportSpec.SetCfg(p, next), L.T("Out.Mutate.Cfg"), replan: false);
     }
 
     /// <summary>从控件读整套勾选（Vue 的 setCheck 逐项写，这里合并为一次事务）。</summary>
@@ -174,7 +196,7 @@ public partial class OutTab : UserControl
         var invalid = ExportSpec.UiInvalidMessage(cfg);
         if (invalid.Length > 0)
         {
-            MessageBox.Show(owner, invalid, "导出", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(owner, invalid, L.T("Out.Msg.Title"), MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -183,20 +205,20 @@ public partial class OutTab : UserControl
             SubOn: state.Subtitles is { Count: > 0 }, AudioLoaded: state.AudioPath != null));
         if (!res.Ok)
         {
-            MessageBox.Show(owner, res.Error, "导出", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(owner, res.Error, L.T("Out.Msg.Title"), MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         var spec = res.Spec!;
 
         var (filter, ext) = spec.Kind switch
         {
-            "webm" => ("WebM 视频 (*.webm)|*.webm", ".webm"),
-            "png" => ("PNG 序列 (*.zip)|*.zip", ".zip"),
-            "wav" => ("WAV 音频 (*.wav)|*.wav", ".wav"),
-            _ => ("MP4 视频 (*.mp4)|*.mp4", ".mp4"),
+            "webm" => (L.T("Out.SaveDlg.Filter.Webm"), ".webm"),
+            "png" => (L.T("Out.SaveDlg.Filter.Png"), ".zip"),
+            "wav" => (L.T("Out.SaveDlg.Filter.Wav"), ".wav"),
+            _ => (L.T("Out.SaveDlg.Filter.Mp4"), ".mp4"),
         };
         var name = string.IsNullOrWhiteSpace(state.Project.Title) ? "jizura" : state.Project.Title;
-        var dlg = new SaveFileDialog { Filter = filter, FileName = name + ext, Title = "导出到" };
+        var dlg = new SaveFileDialog { Filter = filter, FileName = name + ext, Title = L.T("Out.SaveDlg.Title") };
         if (dlg.ShowDialog(owner) != true) return;
 
         var req = new ExportRequest
@@ -212,7 +234,7 @@ public partial class OutTab : UserControl
         };
 
         // 进度块：准备中… → 模态窗（ExportProgressWindow 内部自绘进度）→ 收尾文案
-        SetBusy(true, "准备中…", 0);
+        SetBusy(true, L.T("Out.Progress.Preparing"), 0);
         var ok = false;
         Exception? error = null;
         try
@@ -225,13 +247,13 @@ public partial class OutTab : UserControl
         finally
         {
             _active = null;
-            SetBusy(false, ok ? "完成" : "已取消", ok ? 1 : 0);
+            SetBusy(false, ok ? L.T("Out.Progress.Done") : L.T("Out.Progress.Canceled"), ok ? 1 : 0);
         }
         if (ok)
-            MessageBox.Show(owner, "导出完成：\n" + dlg.FileName, "字面 Live",
+            MessageBox.Show(owner, L.F("Out.ExportDoneFmt", dlg.FileName), L.T("Main.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Information);
         else if (error != null)
-            MessageBox.Show(owner, "导出失败：\n" + error.Message, "字面 Live",
+            MessageBox.Show(owner, L.F("Out.ExportFailedFmt", error.Message), L.T("Main.Title"),
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         // 取消（无错误）静默返回
     }
@@ -295,10 +317,10 @@ public partial class OutTab : UserControl
             TblInvalid.Text = invalid;
             NoteInvalid.Visibility = invalid.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             BtnExport.IsEnabled = invalid.Length == 0;
-            var fmtName = c.Format == "mp4" ? "MP4 视频" : c.Format == "webm" ? "WebM 视频" : "PNG 序列";
+            var fmtName = c.Format == "mp4" ? L.T("Out.Fmt.Mp4") : c.Format == "webm" ? L.T("Out.Fmt.Webm") : L.T("Out.Fmt.Png");
             var audioNote = mp4 || !c.Audio
                 ? ""
-                : $"「{fmtName}」无法内嵌音轨：导出时会询问是否另存一个 WAV 音频文件";
+                : L.F("Out.AudioNote.NoEmbedFmt", fmtName);
             TblAudioNote.Text = audioNote;
             NoteAudio.Visibility = audioNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             NoteSubs.Visibility = invalid.Length == 0 && audioNote.Length == 0 && c.Subs

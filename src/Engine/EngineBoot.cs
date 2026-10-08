@@ -1,3 +1,5 @@
+using JizuraLive.Engine.Packs;
+
 namespace JizuraLive.Engine;
 
 /// <summary>
@@ -25,7 +27,7 @@ public static class EngineBoot
         Reg.SeedCore(); // 05b_registry：核心条目（TREAT.none/BG.none/CAMERA.push/FXE 内置 8 项）
         JLayouts.Install(); // 06_layouts
         JDecor.Install(); // 07_decor：15 decor + drawHUD
-        ZhLabels.Apply(); // zh-labels：简中标签覆盖（index.ts 里最后导入，须在所有注册之后）
+        LabelPacks.Apply(LabelPacks.DefaultLang); // zh-labels：简中标签覆盖（index.ts 里最后导入，须在所有注册之后）
     }
 
     private static bool _packsInstalled;
@@ -42,7 +44,7 @@ public static class EngineBoot
         _packsInstalled = true;
 
         // —— 已移植表现包（顺序 = index.ts 导入序）——
-        Packs.P11BgcamB.Install();    // 11p_bgcamB：37 bg + 12 cam
+        P11BgcamB.Install();    // 11p_bgcamB：37 bg + 12 cam
         P11Decor.Install();     // 11p_decor：decor 第一批
         P11DecorB.Install();    // 11p_decorB：decor 第二批
         P11Enter.Install();     // 11p_enter：40 条 enter（第一批）
@@ -61,14 +63,14 @@ public static class EngineBoot
         P11LayoutsC.Install();
         P11LayoutsD.Install();
         P11Looks.Install();     // 11p_looks：24 treat + 24 bg + 15 cam + 24 fx
-        Packs.P11Styles.Install();    // 11p_styles：12 风格
+        P11Styles.Install();    // 11p_styles：12 风格
         P11TreatTrans.Install(); // 11p_treattrans：文字加工 + 切到切转场
         P11Typo1.Install();     // 11p_typo1：18 layout
         P11Typo2.Install();     // 11p_typo2：8 enter/exit + 4 hold
         P11Typo3.Install();     // 11p_typo3：6 decor + 4 treat + 2 trans
-        Packs.P11AudioFx.Install();   // 11p_audiofx：山脊线/随音高游移/心电图/换台（ASCII化 fx 待插件路径）
+        P11AudioFx.Install();   // 11p_audiofx：山脊线/随音高游移/心电图/换台（ASCII化 fx 待插件路径）
 
         Omakase.Install();      // 08b_omakase + 11q_sets：随机/锁定门禁（Reg.RandomOk 接线）
-        ZhLabels.Apply();       // 包条目的简中标签（Apply 幂等，重放一次）
+        LabelPacks.Apply(LabelPacks.DefaultLang); // 包条目的简中标签（Apply 幂等，重放一次）
     }
 }

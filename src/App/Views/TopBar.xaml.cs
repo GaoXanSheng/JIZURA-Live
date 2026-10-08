@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Logging;
 using Microsoft.Win32;
 
@@ -60,22 +61,22 @@ public partial class TopBar : UserControl
         {
             p.Title = TbTitle.Text;
             p.Artist = TbArtist.Text;
-        }, "曲名/歌手", replan: true, look: true);
+        }, L.T("TopBar.Mutate.TitleArtist"), replan: true, look: true);
     }
 
     private void BtnOpen_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new OpenFileDialog { Filter = ProjectIO.FileFilter, Title = "打开工程" };
+        var dlg = new OpenFileDialog { Filter = ProjectIO.FileFilter, Title = L.T("TopBar.OpenDlg.Title") };
         if (dlg.ShowDialog(Window.GetWindow(this)!) != true) return;
         try
         {
             var project = ProjectIO.Open(dlg.FileName);
-            App.MainInstance!.State.ReplaceProject(project, "打开工程");
+            App.MainInstance!.State.ReplaceProject(project, L.T("TopBar.Mutate.OpenProject"));
             Log.Info("[TopBar] 工程已打开：" + dlg.FileName);
         }
         catch (Exception ex)
         {
-            MessageDialog.Warn(Window.GetWindow(this)!, "打开失败", ex.Message);
+            MessageDialog.Warn(Window.GetWindow(this)!, L.T("TopBar.OpenFailed"), ex.Message);
         }
     }
 
@@ -84,7 +85,7 @@ public partial class TopBar : UserControl
         var main = App.MainInstance!;
         var dlg = new SaveFileDialog
         {
-            Filter = "字面 Live 工程 (*.jizuralive)|*.jizuralive",
+            Filter = L.T("TopBar.SaveDlg.Filter"),
             FileName = (string.IsNullOrWhiteSpace(main.State.Project.Title) ? "untitled" : main.State.Project.Title) + ".jizuralive"
         };
         if (dlg.ShowDialog(Window.GetWindow(this)!) != true) return;
@@ -106,11 +107,11 @@ public partial class TopBar : UserControl
             // .jizuralive 写入未落地时兜底存 .json，不丢工程
             var fallback = Path.ChangeExtension(dlg.FileName, ".json");
             ProjectIO.Save(main.State.Project, fallback, null, null);
-            MessageDialog.Info(Window.GetWindow(this)!, "保存", "工程包写入尚未就绪，已保存为 JSON：\n" + fallback);
+            MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.SaveFallback.Title"), L.F("TopBar.SaveFallback.Body", fallback));
         }
         catch (Exception ex)
         {
-            MessageDialog.Warn(Window.GetWindow(this)!, "保存失败", ex.Message);
+            MessageDialog.Warn(Window.GetWindow(this)!, L.T("TopBar.SaveFailed"), ex.Message);
         }
     }
 
@@ -122,10 +123,6 @@ public partial class TopBar : UserControl
 
     private void BtnTerms_Click(object sender, RoutedEventArgs e)
     {
-        MessageDialog.Info(Window.GetWindow(this)!, "使用说明",
-            "字面 Live（JIZURA-live）\n\n"
-            + "输出物（视频/图片/Spout 画面）的著作权归工程的创作者所有。\n"
-            + "自托管字体与引擎代码的许可证详见安装目录 LICENSE 文件。\n"
-            + "导出歌曲请确认你拥有相应权利。");
+        MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.Terms"), L.T("TopBar.Terms.Body"));
     }
 }

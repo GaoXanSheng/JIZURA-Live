@@ -6,8 +6,9 @@
 //   1. 注册表条目（IRegEntry）与 StyleDef 都没有 desc 字段；不改接口，desc 统一收进
 //      Descriptions 字典（键 "group.key"，风格为 "style.key"）供 UI 查询，改名仍只作用于 Name。
 //   2. 源里对不上注册表的条目（11p_* 等尚未移植的表现包，M5 补包）静默跳过。
-//   3. 源第三段的 J.MOODS / J.THEMES / J.SAMPLE_LYRICS 在 C# 侧还没有对位注册表
-//      （08b_omakase 未移植），表原样保留在 Moods/Themes/SampleLyrics，尚未接上。
+//   3. 源第三段的 J.MOODS / J.THEMES 已接上（Apply 里覆盖 Omakase.Moods/Themes 的显示名）；
+//      J.SAMPLE_LYRICS 有意不接：示例歌词是渲染内容（默认工程歌词），改动会影响规划器输出
+//      与黄金值对拍，待做按语言的默认内容机制时再接（表保留在 SampleLyrics 常量）。
 //   4. 源第四段 TR（导出错误文案替换）是 JS 导出层的字符串替换；C# 导出（src/Export）的
 //      进度/错误文案本就是简体中文，无对应物，故未移植。
 
@@ -1010,6 +1011,15 @@ public static class ZhLabels
             st.Name = label.Name;
             if (!string.IsNullOrEmpty(label.Desc)) Descriptions["style." + key] = label.Desc;
         }
+
+        // 氛围/主题显示名（08b_omakase 基表是日文/混合，覆盖为简中；只改 Name，不动随机语义）。
+        // Omakase 静态构造器在首次触达时填充 Moods/Themes，早于本方法任何调用路径。
+        foreach (var (key, name) in Moods)
+            if (Omakase.Moods.TryGetValue(key, out var mood))
+                mood.Name = name;
+        foreach (var (key, name) in Themes)
+            if (Omakase.Themes.TryGetValue(key, out var theme))
+                theme.Name = name;
     }
 
     /// <summary>group → Reg 条目（只读访问，不新增注册表接口）。</summary>

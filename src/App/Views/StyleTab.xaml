@@ -118,14 +118,14 @@
 
         <!-- 歌词语言（对位 LyricsPanel.vue 的「歌词语言」行：11px mut 标签 + h-7 下拉） -->
         <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-            <TextBlock Text="歌词语言" FontSize="11" Foreground="{StaticResource Mut}"
+            <TextBlock Text="{DynamicResource Loc.Style.LangLabel}" FontSize="11" Foreground="{StaticResource Mut}"
                        VerticalAlignment="Center" Margin="0,0,6,0" />
             <ComboBox x:Name="CbLang" Style="{StaticResource SelSm}" MinWidth="104"
                       SelectionChanged="CbLang_SelectionChanged" />
         </StackPanel>
 
         <!-- 字体角色（.sec-sub） -->
-        <ctl:JzLabel  Text="字体角色" Tracking="0.14" TextElement.FontSize="11" 
+        <ctl:JzLabel  Text="{DynamicResource Loc.Style.FontRoles}" Tracking="0.14" TextElement.FontSize="11"
                       TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                       Margin="0,16,0,8" />
         <Grid>
@@ -138,15 +138,15 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="0" Text="标题" Foreground="{StaticResource Mut}" FontSize="12"
+            <TextBlock Grid.Row="0" Text="{DynamicResource Loc.Style.RoleDisplay}" Foreground="{StaticResource Mut}" FontSize="12"
                        VerticalAlignment="Center" />
             <ComboBox x:Name="CbFontDisplay" Grid.Row="0" Grid.Column="1" Margin="8,0,0,6"
                       SelectionChanged="FontRole_SelectionChanged" />
-            <TextBlock Grid.Row="1" Text="衬线体" Foreground="{StaticResource Mut}" FontSize="12"
+            <TextBlock Grid.Row="1" Text="{DynamicResource Loc.Style.RoleSerif}" Foreground="{StaticResource Mut}" FontSize="12"
                        VerticalAlignment="Center" />
             <ComboBox x:Name="CbFontSerif" Grid.Row="1" Grid.Column="1" Margin="8,0,0,6"
                       SelectionChanged="FontRole_SelectionChanged" />
-            <TextBlock Grid.Row="2" Text="正文" Foreground="{StaticResource Mut}" FontSize="12"
+            <TextBlock Grid.Row="2" Text="{DynamicResource Loc.Style.RoleBody}" Foreground="{StaticResource Mut}" FontSize="12"
                        VerticalAlignment="Center" />
             <ComboBox x:Name="CbFontBody" Grid.Row="2" Grid.Column="1" Margin="8,0,0,6"
                       SelectionChanged="FontRole_SelectionChanged" />
@@ -160,7 +160,7 @@
             </Grid.ColumnDefinitions>
             <Grid>
                 <TextBox x:Name="TbLocalFont" />
-                <TextBlock x:Name="TblLocalFontHint" Text="本机字体名" IsHitTestVisible="False"
+                <TextBlock x:Name="TblLocalFontHint" Text="{DynamicResource Loc.Style.LocalFontHint}" IsHitTestVisible="False"
                            Foreground="{StaticResource Faint}" VerticalAlignment="Center" Margin="10,0,0,0">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
@@ -174,29 +174,29 @@
                     </TextBlock.Style>
                 </TextBlock>
             </Grid>
-            <Button x:Name="BtnAddLocalFont" Grid.Column="1" Content="添加" Margin="8,0,0,0"
+            <Button x:Name="BtnAddLocalFont" Grid.Column="1" Content="{DynamicResource Loc.Style.Add}" Margin="8,0,0,0"
                     Click="BtnAddLocalFont_Click" />
         </Grid>
-        <Button x:Name="BtnFontFile" Content="字体文件（.ttf/.otf）" Style="{StaticResource BtnFile}"
+        <Button x:Name="BtnFontFile" Content="{DynamicResource Loc.Style.FontFileBtn}" Style="{StaticResource BtnFile}"
                 HorizontalAlignment="Left" Margin="0,8,0,0" Click="BtnFontFile_Click" />
         <!-- 字体状态行：缺本体（换机器/缓存被清）与「目录里没有、正在联网补」都在这里说一声 -->
         <TextBlock x:Name="TblFontNote" Margin="0,6,0,0" FontSize="11" LineHeight="16.5"
                    Foreground="{StaticResource Mut}" TextWrapping="Wrap" Visibility="Collapsed" />
-        <ctl:JzLabel Text="强调色・错位色" Tracking="0.14" TextElement.FontSize="11"
+        <ctl:JzLabel Text="{DynamicResource Loc.Style.AccentSection}" Tracking="0.14" TextElement.FontSize="11"
                      TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                      Margin="0,16,0,8" />
         <CheckBox x:Name="CkAccentOn" Style="{StaticResource CheckBlock}" Margin="0,0,0,8"
                   Checked="AccentToggle_Changed" Unchecked="AccentToggle_Changed">
             <StackPanel>
-                <TextBlock Text="用自定义颜色覆盖" FontSize="12" LineHeight="18" />
-                <TextBlock Text="应用到全部场景，亮度会随背景自动调整" FontSize="11" LineHeight="16.5"
+                <TextBlock Text="{DynamicResource Loc.Style.AccentOverride}" FontSize="12" LineHeight="18" />
+                <TextBlock Text="{DynamicResource Loc.Style.AccentOverrideSub}" FontSize="11" LineHeight="16.5"
                            Foreground="{StaticResource Mut}" />
             </StackPanel>
         </CheckBox>
         <!-- 三色块（accent / ghostA / ghostB），代码生成 3 列 -->
         <Grid x:Name="AccentColorRows" />
         <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-            <Button x:Name="BtnRandomPalette" Content="随机配色" Style="{StaticResource BtnAccent}"
+            <Button x:Name="BtnRandomPalette" Content="{DynamicResource Loc.Style.RandomPalette}" Style="{StaticResource BtnAccent}"
                     Click="BtnRandomPalette_Click" />
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
                 <Border x:Name="SwAccent" Width="20" Height="20" CornerRadius="4" Margin="0,0,2,0"
@@ -209,12 +209,12 @@
         </StackPanel>
 
         <!-- 背景・文字色（.sec-sub + checkblock + 三色块） -->
-        <ctl:JzLabel Text="背景・文字色" Tracking="0.14" TextElement.FontSize="11"
+        <ctl:JzLabel Text="{DynamicResource Loc.Style.BaseColorSection}" Tracking="0.14" TextElement.FontSize="11"
                      TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                      Margin="0,16,0,8" />
         <CheckBox x:Name="CkColorOn" Style="{StaticResource CheckBlock}" Margin="0,0,0,8"
                   Checked="ColorToggle_Changed" Unchecked="ColorToggle_Changed">
-            <TextBlock Text="把主背景与文字换成自定义颜色" FontSize="12" LineHeight="18" />
+            <TextBlock Text="{DynamicResource Loc.Style.BaseColorOverride}" FontSize="12" LineHeight="18" />
         </CheckBox>
         <Grid x:Name="BaseColorRows" />
     </StackPanel>

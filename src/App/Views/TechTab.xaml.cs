@@ -10,6 +10,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using JizuraLive.App.Controls;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
@@ -39,20 +40,20 @@ public partial class TechTab : UserControl
 
     // ---------------- 常量（对位 Vue GROUPS / SETS / TECH_LOCK_ON） ----------------
 
-    private static readonly (string G, string Label)[] Groups =
+    private static readonly (string G, string LKey)[] Groups =
     {
-        ("layout", "布局"), ("enter", "入场"), ("hold", "保持"), ("exit", "退场"), ("decor", "装饰"),
-        ("treat", "文字处理"), ("bg", "背景"), ("cam", "运镜"), ("fx", "画面效果"), ("trans", "镜头转场"),
+        ("layout", "Tech.Group.Layout"), ("enter", "Tech.Group.Enter"), ("hold", "Tech.Group.Hold"), ("exit", "Tech.Group.Exit"), ("decor", "Tech.Group.Decor"),
+        ("treat", "Tech.Group.Treat"), ("bg", "Tech.Group.Bg"), ("cam", "Tech.Group.Cam"), ("fx", "Tech.Group.Fx"), ("trans", "Tech.Group.Trans"),
     };
 
-    private const string TechLockOn = "锁定：一键生成不改变这一组的开/关";
-    private const string TechLockOff = "锁定中，点击解除";
+    private static string TechLockOn => L.T("Tech.LockOn");
+    private static string TechLockOff => L.T("Tech.LockOff");
 
     private sealed class SetDef
     {
         public string Cls = "";
-        public string Label = "";
-        public string Sub = "";
+        public string LabelKey = "";
+        public string SubKey = "";
         public Func<Project, bool> Get = static _ => false;
         public Action<Project, bool> Set = static (_, _) => { };
     }
@@ -61,32 +62,32 @@ public partial class TechTab : UserControl
     {
         new()
         {
-            Cls = "extra", Label = "使用新增特效",
-            Sub = "带“新增”标记的手法、风格和字体。关闭时，一键生成和随机编排只使用首个公开版的特效",
+            Cls = "extra", LabelKey = "Tech.Set.Extra",
+            SubKey = "Tech.Set.Extra.Sub",
             Get = static p => p.Extra, Set = static (p, v) => p.Extra = v,
         },
         new()
         {
-            Cls = "wa", Label = "使用和风特效",
-            Sub = "带“和”标记的手法和风格。关闭后，一键生成和随机编排不会选用（在新增内容的判断之后应用；逐行手动指定时仍可使用）",
+            Cls = "wa", LabelKey = "Tech.Set.Wa",
+            SubKey = "Tech.Set.Wa.Sub",
             Get = static p => p.Wa, Set = static (p, v) => p.Wa = v,
         },
         new()
         {
-            Cls = "typo", Label = "使用文字排版部件",
-            Sub = "标有“文”的手法。关闭后，一键生成与随机重排不会选用",
+            Cls = "typo", LabelKey = "Tech.Set.Typo",
+            SubKey = "Tech.Set.Typo.Sub",
             Get = static p => p.Typo, Set = static (p, v) => p.Typo = v,
         },
         new()
         {
-            Cls = "kinetic", Label = "使用动态文字部件",
-            Sub = "标有“动”的手法。关闭后，一键生成与随机重排不会选用",
+            Cls = "kinetic", LabelKey = "Tech.Set.Kinetic",
+            SubKey = "Tech.Set.Kinetic.Sub",
             Get = static p => p.Kinetic, Set = static (p, v) => p.Kinetic = v,
         },
         new()
         {
-            Cls = "horror", Label = "也使用恐怖特效",
-            Sub = "标有“恐”的手法与风格。一键生成只在“恐怖”氛围时使用",
+            Cls = "horror", LabelKey = "Tech.Set.Horror",
+            SubKey = "Tech.Set.Horror.Sub",
             Get = static p => p.Horror, Set = static (p, v) => p.Horror = v,
         },
     };
@@ -96,13 +97,15 @@ public partial class TechTab : UserControl
     private sealed class GroupUi
     {
         public string G = "";
-        public string Label = "";
+        public string LabelKey = "";      // 组名词库键（L.T 在构建/换语言时解析）
         public Border Box = null!;        // 整段外框（折叠头 + 内容）
         public Button Header = null!;
         public TextBlock Arrow = null!;
+        public TextBlock Lab = null!;     // 组名文本（LanguageChanged 重刷）
         public TextBlock Count = null!;
         public Button LockBtn = null!;
         public StackPanel Body = null!;
+        public StackPanel Tools = null!;  // 全开/全关/反转行（LanguageChanged 整行重建）
         public Grid Cards = null!;        // 自适应卡片网格（列数随可用宽度算，1fr 由星列拉伸）
         public bool Open;                 // 折叠状态存这里，筛选清空后还原（Vue openSet 对位）
     }
@@ -170,6 +173,7 @@ public partial class TechTab : UserControl
             ReRenderAll();
         };
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
     // ---------------- 生命周期 ----------------
@@ -188,8 +192,40 @@ public partial class TechTab : UserControl
             BuildGroups();
             StartWorker();
         }
-        RefreshAll();   // 开关态/计数/锁（缩略图不重渲）
-        ApplyFilter();  // 折叠态还原 + 已展开组补排缺图
+        L.LanguageChanged += OnLanguageChanged;
+        ApplyTexts();   // 开关态/计数/锁；语言可能在面板不在屏时切换过，一并重刷（内含 RefreshAll/ApplyFilter）
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => L.LanguageChanged -= OnLanguageChanged;
+
+    private void OnLanguageChanged() => Dispatcher.Invoke(ApplyTexts);
+
+    /// <summary>
+    /// 语言切换后重刷 code-behind 动态 UI：套装开关整块重建（Label/Sub/悬浮）、组名与工具行重刷，
+    /// 再经 RefreshAll（锁钮悬浮/计数/卡片悬浮，词库键即时解析）与 ApplyFilter（展开组重建卡片 → 徽标字）兜底。
+    /// 重建期间 _syncing 防回填触发 Mutate（同 StateChanged 回填样板）。
+    /// </summary>
+    private void ApplyTexts()
+    {
+        if (!_wired) return;
+        _syncing = true;
+        try
+        {
+            SetsHost.Children.Clear();
+            _setChecks.Clear();
+            BuildSets();
+            foreach (var ui in _groupList)
+            {
+                ui.Lab.Text = L.T(ui.LabelKey);
+                BuildTools(ui);
+            }
+        }
+        finally
+        {
+            _syncing = false;
+        }
+        RefreshAll();   // 锁钮悬浮、计数、卡片态与悬浮
+        ApplyFilter();  // 展开组重建卡片（徽标字随语言）
     }
 
     private void OnStateChanged()
@@ -238,11 +274,11 @@ public partial class TechTab : UserControl
             var text = new StackPanel { Margin = new Thickness(8, 0, 0, 0) }; // gap-2
             text.Children.Add(new TextBlock
             {
-                Text = t.Label, FontSize = 12, LineHeight = 18, Foreground = fg, TextWrapping = TextWrapping.Wrap,
+                Text = L.T(t.LabelKey), FontSize = 12, LineHeight = 18, Foreground = fg, TextWrapping = TextWrapping.Wrap,
             });
             text.Children.Add(new TextBlock
             {
-                Text = t.Sub, FontSize = 11, LineHeight = 16.5, Foreground = mut, TextWrapping = TextWrapping.Wrap,
+                Text = L.T(t.SubKey), FontSize = 11, LineHeight = 16.5, Foreground = mut, TextWrapping = TextWrapping.Wrap,
             });
 
             var row = new StackPanel
@@ -253,7 +289,7 @@ public partial class TechTab : UserControl
             };
             row.Children.Add(sw);
             row.Children.Add(text);
-            ToolTipService.SetToolTip(row, t.Sub);
+            ToolTipService.SetToolTip(row, L.T(t.SubKey));
             SetsHost.Children.Add(row);
         }
     }
@@ -264,16 +300,17 @@ public partial class TechTab : UserControl
         var p = App.MainInstance!.State.Project;
         if (t.Get(p) == on) return;
         // Vue onSet：remember/commit（观感历史）+ rebuild + replan
-        App.MainInstance!.State.Mutate(pp => t.Set(pp, on), $"套装{(on ? "开" : "关")}：{t.Label}", replan: true, look: true);
+        App.MainInstance!.State.Mutate(pp => t.Set(pp, on),
+            L.F(on ? "Tech.Mutate.SetOn" : "Tech.Mutate.SetOff", L.T(t.LabelKey)), replan: true, look: true);
     }
 
     // ---------------- 组段构建（Vue details/summary 对位） ----------------
 
     private void BuildGroups()
     {
-        foreach (var (g, label) in Groups)
+        foreach (var (g, lkey) in Groups)
         {
-            var ui = new GroupUi { G = g, Label = label };
+            var ui = new GroupUi { G = g, LabelKey = lkey };
 
             // summary：before:'▸'(mut) + flex-1 组名(semibold) + mono 11px 计数 + 锁按钮
             ui.Arrow = new TextBlock
@@ -303,9 +340,10 @@ public partial class TechTab : UserControl
             hdrGrid.Children.Add(ui.Arrow);
             var lab = new TextBlock
             {
-                Text = label, FontSize = 12, LineHeight = 18, FontWeight = FontWeights.SemiBold,
+                Text = L.T(lkey), FontSize = 12, LineHeight = 18, FontWeight = FontWeights.SemiBold,
                 Foreground = _brushFg, VerticalAlignment = VerticalAlignment.Center,
             };
+            ui.Lab = lab;
             Grid.SetColumn(lab, 1);
             hdrGrid.Children.Add(lab);
             Grid.SetColumn(ui.Count, 2);
@@ -321,24 +359,17 @@ public partial class TechTab : UserControl
             };
 
             // 段内工具行：全部开启 / 全部关闭 / 反转（Vue .flex.gap-1.5.px-2.5.pb-2）
-            var tools = new StackPanel
+            ui.Tools = new StackPanel
             {
                 Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 10, 8),
             };
-            var toolDefs = new[] { ("全部开启", "on"), ("全部关闭", "off"), ("反转", "flip") };
-            for (var i = 0; i < toolDefs.Length; i++)
-            {
-                var d = toolDefs[i];
-                var b = ToolBtn(d.Item1, () => OnAll(g, d.Item2));
-                if (i < toolDefs.Length - 1) b.Margin = new Thickness(0, 0, 6, 0); // gap-1.5
-                tools.Children.Add(b);
-            }
+            BuildTools(ui);
 
             // 卡片网格：列数/margin 由 BuildCards 按可用宽度摆（mb-2.5 的底间距给 2，行距走卡片自身）
             ui.Cards = new Grid { Margin = new Thickness(CardPad, 0, CardPad, 2) };
 
             ui.Body = new StackPanel { Visibility = Visibility.Collapsed };
-            ui.Body.Children.Add(tools);
+            ui.Body.Children.Add(ui.Tools);
             ui.Body.Children.Add(ui.Cards);
 
             // 组段：border border-line rounded-md bg-raised mb-2
@@ -354,6 +385,21 @@ public partial class TechTab : UserControl
 
             GroupsHost.Children.Add(ui.Box);
             _groupList.Add(ui);
+        }
+    }
+
+    /// <summary>工具行内容：全部开启 / 全部关闭 / 反转（文案经 L.T，LanguageChanged 时整行重建）。</summary>
+    private void BuildTools(GroupUi ui)
+    {
+        var g = ui.G;
+        ui.Tools.Children.Clear();
+        var toolDefs = new[] { ("Tech.Tool.AllOn", "on"), ("Tech.Tool.AllOff", "off"), ("Tech.Tool.Flip", "flip") };
+        for (var i = 0; i < toolDefs.Length; i++)
+        {
+            var d = toolDefs[i];
+            var b = ToolBtn(L.T(d.Item1), () => OnAll(g, d.Item2));
+            if (i < toolDefs.Length - 1) b.Margin = new Thickness(0, 0, 6, 0); // gap-1.5
+            ui.Tools.Children.Add(b);
         }
     }
 
@@ -406,13 +452,13 @@ public partial class TechTab : UserControl
             host.Children.Add(b);
         }
 
-        if (Omakase.IsExtra(g, k)) Add("新增", "最初公开版之后追加", "BadgeEx");
-        if (Omakase.IsWa(g, k)) Add("和", "和风特效", null);
+        if (Omakase.IsExtra(g, k)) Add(L.T("Tech.Badge.Extra"), L.T("Tech.Badge.Extra.Tip"), "BadgeEx");
+        if (Omakase.IsWa(g, k)) Add(L.T("Tech.Badge.Wa"), L.T("Tech.Badge.Wa.Tip"), null);
         switch (Omakase.SetOf(g, k))
         {
-            case "horror": Add("恐", "恐怖", "BadgeHorror"); break;
-            case "typo": Add("文", "文字排版", "BadgeTypo"); break;
-            case "kinetic": Add("动", "动态文字", "BadgeKinetic"); break;
+            case "horror": Add(L.T("Tech.Badge.Horror"), L.T("Tech.Badge.Horror.Tip"), "BadgeHorror"); break;
+            case "typo": Add(L.T("Tech.Badge.Typo"), L.T("Tech.Badge.Typo.Tip"), "BadgeTypo"); break;
+            case "kinetic": Add(L.T("Tech.Badge.Kinetic"), L.T("Tech.Badge.Kinetic.Tip"), "BadgeKinetic"); break;
         }
     }
 
@@ -527,13 +573,14 @@ public partial class TechTab : UserControl
             if (!p.Enabled.TryGetValue(g, out var m)) p.Enabled[g] = m = new Dictionary<string, bool>();
             m[k] = on;
             p.Mood = null;
-        }, $"手法{(on ? "开" : "关")}：{g}.{k}", replan: true);
+        }, L.F(on ? "Tech.Mutate.CardOn" : "Tech.Mutate.CardOff", g, k), replan: true);
     }
 
     /// <summary>组级全开/全关/反转（Vue onAll）：一次事务 + 保底键。</summary>
     private void OnAll(string g, string a)
     {
-        var label = _groupList.FirstOrDefault(x => x.G == g)?.Label ?? g;
+        var g0 = _groupList.FirstOrDefault(x => x.G == g);
+        var label = g0 != null ? L.T(g0.LabelKey) : g;
         App.MainInstance!.State.Mutate(p =>
         {
             if (!p.Enabled.TryGetValue(g, out var m)) p.Enabled[g] = m = new Dictionary<string, bool>();
@@ -551,18 +598,19 @@ public partial class TechTab : UserControl
             if (g == "bg") m["none"] = true;
             if (g == "cam") m["push"] = true;
             p.Mood = null;
-        }, $"手法{(a == "on" ? "全开" : a == "off" ? "全关" : "反转")}：{label}", replan: true);
+        }, L.F(a == "on" ? "Tech.Mutate.AllOn" : a == "off" ? "Tech.Mutate.AllOff" : "Tech.Mutate.Flip", label), replan: true);
     }
 
     /// <summary>组锁（Vue toggleTechLock）：写 Locks.Tech[g]，一键生成/随机不改变该组的开/关；无需 replan。</summary>
     private void OnLock(string g)
     {
-        var label = _groupList.FirstOrDefault(x => x.G == g)?.Label ?? g;
+        var g0 = _groupList.FirstOrDefault(x => x.G == g);
+        var label = g0 != null ? L.T(g0.LabelKey) : g;
         App.MainInstance!.State.Mutate(p =>
         {
             if (p.Locks.Tech.ContainsKey(g)) p.Locks.Tech.Remove(g);
             else p.Locks.Tech[g] = true;
-        }, $"锁定手法组：{label}", replan: false, look: true);
+        }, L.F("Tech.Mutate.LockGroup", label), replan: false, look: true);
     }
 
     // ---------------- 状态回填（StateChanged / Loaded） ----------------
@@ -619,9 +667,9 @@ public partial class TechTab : UserControl
             : "";
         var set = def?.Set;
         var note = !off ? ""
-            : Omakase.IsExtra(card.G, card.K) && !p.Extra ? "（新增特效未开启，自动不会选中）"
-                : set != null && !Omakase.SetOn(p, set) ? "（该套装未开启，自动不会选中）"
-                    : "（和风特效未开启，自动不会选中）";
+            : Omakase.IsExtra(card.G, card.K) && !p.Extra ? L.T("Tech.OffNote.Extra")
+                : set != null && !Omakase.SetOn(p, set) ? L.T("Tech.OffNote.Set")
+                    : L.T("Tech.OffNote.Wa");
         ToolTipService.SetToolTip(card.Box, card.K + tags + note);
     }
 

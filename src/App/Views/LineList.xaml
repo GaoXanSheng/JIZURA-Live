@@ -152,7 +152,7 @@
                              Visibility="{Binding Editing, Converter={StaticResource B2V}}"
                              Text="{Binding EditValue, UpdateSourceTrigger=PropertyChanged}"
                              LostFocus="EditBox_LostFocus" KeyDown="EditBox_KeyDown" Loaded="EditBox_Loaded"
-                             ToolTip="记法（/ 分隔・*强调*・行尾 !・| 注释・[间奏 8]）同样可用。Enter 确认、Esc 取消" />
+                             ToolTip="{DynamicResource Loc.LineList.EditBox.Tip}" />
 
                     <!-- 第 3 列：行文本 13px 超出裁切，点击定位到行首（编辑态由触发器收起） -->
                     <TextBlock x:Name="Lbl" Grid.Row="0" Grid.Column="2" Text="{Binding Label}" ToolTip="{Binding Full}"
@@ -184,7 +184,7 @@
                                                 BorderBrush="{Binding Border}" SnapsToDevicePixels="True">
                                             <ComboBox x:Name="TechCombo" Style="{StaticResource SelTech}" Height="Auto"
                                                       BorderThickness="0" Background="Transparent"
-                                                      ItemsSource="{x:Static views:LineList.LayoutNames}"
+                                                      ItemsSource="{Binding LayoutItems, RelativeSource={RelativeSource AncestorType=views:LineList}}"
                                                       SelectedIndex="{Binding LayoutIndex}"
                                                       SelectionChanged="CutCombo_SelectionChanged"
                                                       ToolTip="{Binding Title}" />
@@ -208,27 +208,27 @@
                              本机按可折行处理，宁可折行也不裁掉按钮） -->
                         <WrapPanel Orientation="Horizontal" HorizontalAlignment="Right">
                             <Button x:Name="EditBtn" Style="{StaticResource BtnIcon}" Content="{StaticResource IcEdit}"
-                                    Margin="2,0,0,2" Click="EditBtn_Click" ToolTip="修改这一行的歌词" />
+                                    Margin="2,0,0,2" Click="EditBtn_Click" ToolTip="{DynamicResource Loc.LineList.Edit.Tip}" />
                             <!-- 切分数：切分 自动 / 切分 N（间奏行不显示） -->
                             <ComboBox x:Name="NcutCombo" Style="{StaticResource SelMini}" Margin="2,0,0,2"
-                                      ItemsSource="{x:Static views:LineList.NcutNames}"
+                                      ItemsSource="{Binding NcutItems, RelativeSource={RelativeSource AncestorType=views:LineList}}"
                                       SelectedIndex="{Binding NcutIndex}"
-                                      SelectionChanged="NcutCombo_SelectionChanged" ToolTip="这一行的切分数"
+                                      SelectionChanged="NcutCombo_SelectionChanged" ToolTip="{DynamicResource Loc.LineList.Ncut.Tip}"
                                       Visibility="{Binding HasCutsControls, Converter={StaticResource B2V}}" />
                             <!-- 布局指定（自动 = 按词数随机抽取） -->
                             <ComboBox x:Name="RowLayoutCombo" Style="{StaticResource SelMini}" Margin="2,0,0,2"
-                                      ItemsSource="{x:Static views:LineList.LayoutNames}"
+                                      ItemsSource="{Binding LayoutItems, RelativeSource={RelativeSource AncestorType=views:LineList}}"
                                       SelectedIndex="{Binding LayoutIndex}"
                                       SelectionChanged="RowLayoutCombo_SelectionChanged"
-                                      ToolTip="这一行的布局指定（自动 = 按词数随机抽取）"
+                                      ToolTip="{DynamicResource Loc.LineList.RowLayout.Tip}"
                                       Visibility="{Binding HasCutsControls, Converter={StaticResource B2V}}" />
                             <Button x:Name="TapBtn" Style="{StaticResource BtnIcon}" Content="{StaticResource IcTap}"
-                                    Margin="2,0,0,2" Click="TapFromBtn_Click" ToolTip="从这一行开始重新打点同步" />
+                                    Margin="2,0,0,2" Click="TapFromBtn_Click" ToolTip="{DynamicResource Loc.LineList.Tap.Tip}" />
                             <!-- 导出范围：视觉对齐 —— exportRange 尚未进入 C# Project 模型，暂无行为 -->
                             <Button x:Name="RangeBtn" Style="{StaticResource BtnIcon}" Content="{StaticResource IcRange}"
-                                    Margin="2,0,0,2" ToolTip="这一行的切分设为导出范围（Shift+点击扩大范围）" />
+                                    Margin="2,0,0,2" ToolTip="{DynamicResource Loc.LineList.Range.Tip}" />
                             <Button x:Name="LockBtn" Style="{StaticResource BtnIcon}" Content="{StaticResource IcLock}"
-                                    Margin="2,0,0,2" Click="LockBtn_Click" ToolTip="锁定这一行的构成"
+                                    Margin="2,0,0,2" Click="LockBtn_Click" ToolTip="{DynamicResource Loc.LineList.Lock.Tip}"
                                     Visibility="{Binding HasCutsControls, Converter={StaticResource B2V}}" />
                         </WrapPanel>
                     </StackPanel>
@@ -269,7 +269,7 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <ctl:JzLabel Text="行与切分" Tracking="0.18" TextElement.FontSize="11"
+                <ctl:JzLabel Text="{DynamicResource Loc.LineList.Title}" Tracking="0.18" TextElement.FontSize="11"
                              TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                              VerticalAlignment="Center" />
                 <TextBlock x:Name="TblInfo" Grid.Column="1" Style="{StaticResource MonoMut}" FontSize="11"

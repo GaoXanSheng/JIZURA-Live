@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
 
@@ -56,8 +57,11 @@ public partial class Transport : UserControl
             SetVolBar();
             SyncTheme();
             Sync();
+            L.LanguageChanged -= ApplyTexts;
+            L.LanguageChanged += ApplyTexts;
             App.MainInstance!.Preview.Play();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
     }
 
     private PreviewEngine Preview => App.MainInstance!.Preview;
@@ -240,14 +244,14 @@ public partial class Transport : UserControl
     {
         var st = App.MainInstance?.State;
         if (st == null) return;
-        st.Mutate(p => p.Seed = (uint)Random.Shared.Next(1_000_000_000), "重抽构成", replan: true, look: true);
+        st.Mutate(p => p.Seed = (uint)Random.Shared.Next(1_000_000_000), L.T("Transport.Mutate.Shuffle"), replan: true, look: true);
     }
 
     private void BuildThemeItems()
     {
         _syncTheme = true;
         SelTheme.Items.Clear();
-        SelTheme.Items.Add(new ComboBoxItem { Content = "无主题", Tag = "" });
+        SelTheme.Items.Add(new ComboBoxItem { Content = L.T("Transport.ThemeNone"), Tag = "" });
         foreach (var k in Omakase.ThemeOrder)
             if (Omakase.Themes.TryGetValue(k, out var t))
                 SelTheme.Items.Add(new ComboBoxItem { Content = t.Name, Tag = k });
@@ -275,7 +279,7 @@ public partial class Transport : UserControl
         var key = (SelTheme.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
         if (key == (st.Project.ThemeId ?? "")) return;
         // setTheme：只写 themeId + 存盘（只有一键随机读它，不动画面）
-        st.Mutate(p => p.ThemeId = key.Length == 0 ? null : key, "一键随机主题", replan: false, look: true);
+        st.Mutate(p => p.ThemeId = key.Length == 0 ? null : key, L.T("Transport.Mutate.Theme"), replan: false, look: true);
     }
 
     /// <summary>omakase：风格/氛围/演出/配色整体随机（锁定项由 OmakaseApply 还原），暂停并回到片头。</summary>
@@ -288,7 +292,7 @@ public partial class Transport : UserControl
         if (themeId != null && !Omakase.Themes.ContainsKey(themeId)) themeId = null;
         // 先停：重规划（大工程数百毫秒到数秒）期间不继续出声/推进，改完停在片头等用户看第一眼
         main.Preview.Pause();
-        st.Mutate(p => Omakase.OmakaseApply(p, null, themeId), "一键随机", replan: false, look: true);
+        st.Mutate(p => Omakase.OmakaseApply(p, null, themeId), L.T("Transport.Mutate.Omakase"), replan: false, look: true);
         st.ReplanNow();
         main.Preview.Seek(0); // 归零（对位 restartPreview 的 seek(0)，外加用户要求的暂停）
     }
@@ -311,7 +315,7 @@ public partial class Transport : UserControl
         // 循环：WPF 只有 全曲/关 两态（对位 loopMode 的 all/off）；关循环整体透明度 0.55
         var loop = preview.Loop;
         BtnLoop.Opacity = loop ? 1 : 0.55;
-        BtnLoop.ToolTip = loop ? "循环整首" : "不循环";
+        BtnLoop.ToolTip = loop ? L.T("Transport.Loop.Tip") : L.T("Transport.LoopOff.Tip");
         var st = main.State;
         BtnHistBack.IsEnabled = st.CanUndoLook;
         BtnHistFwd.IsEnabled = st.CanRedoLook;
@@ -319,6 +323,15 @@ public partial class Transport : UserControl
         // 声音组：消音态按钮点亮（对位 muted → 青字），音量条跟引擎档位（拖动中不抢指针）
         BtnMute.Foreground = preview.Muted ? _cyan : _fg;
         if (!_volDragging) SetVolBar();
+    }
+
+    /// <summary>语言切换：重刷双态循环 ToolTip 与主题下拉项（DynamicResource 管不到 code-behind 赋值）。</summary>
+    private void ApplyTexts()
+    {
+        if (App.MainInstance == null) return;
+        BtnLoop.ToolTip = Preview.Loop ? L.T("Transport.Loop.Tip") : L.T("Transport.LoopOff.Tip");
+        BuildThemeItems();
+        SyncTheme();
     }
 
     /// <summary>打开右栏「特效」页的音效区（对位旧版 Transport 的音效按钮 → 音频特效弹窗）。</summary>

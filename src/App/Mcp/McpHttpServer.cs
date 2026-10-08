@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net;
 using System.Text;
+using JizuraLive.App.I18n;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -111,8 +112,7 @@ public sealed class McpHttpServer : IDisposable
             // 端点只认精确路径（旧 McpModule 的 base 前缀匹配会放过 /mcpx 之类）
             if (!string.Equals(ctx.Request.Url?.AbsolutePath, EndpointPath, StringComparison.OrdinalIgnoreCase))
             {
-                await WriteJsonAsync(ctx, 404,
-                    "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"未知路径（MCP 端点只有 /mcp）\"}}");
+                await WriteJsonAsync(ctx, 404, ErrorJson(null, -32603, L.T("Mcp.Err.UnknownPath")));
                 return;
             }
 
@@ -120,16 +120,14 @@ public sealed class McpHttpServer : IDisposable
             if (crossSite != null)
             {
                 Log.Warn($"[Mcp] 已拦截跨站请求（{crossSite}）：{ctx.Request.Url}");
-                await WriteJsonAsync(ctx, 403,
-                    "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"已拦截来自其他网站的请求\"}}");
+                await WriteJsonAsync(ctx, 403, ErrorJson(null, -32603, L.T("Mcp.Err.CrossSiteBlocked")));
                 return;
             }
 
             if (!string.Equals(ctx.Request.HttpMethod, "POST", StringComparison.OrdinalIgnoreCase))
             {
                 ctx.Response.Headers["Allow"] = "POST";
-                await WriteJsonAsync(ctx, 405,
-                    "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"仅支持 POST\"}}");
+                await WriteJsonAsync(ctx, 405, ErrorJson(null, -32603, L.T("Mcp.Err.PostOnly")));
                 return;
             }
 
@@ -145,7 +143,7 @@ public sealed class McpHttpServer : IDisposable
             catch (JsonException ex)
             {
                 Log.Warn("[Mcp] 请求不是合法 JSON：" + ex.Message);
-                await WriteJsonAsync(ctx, 200, ErrorJson(null, -32700, "请求不是合法 JSON：" + ex.Message));
+                await WriteJsonAsync(ctx, 200, ErrorJson(null, -32700, L.F("Mcp.Err.BadJson", ex.Message)));
                 return;
             }
 
@@ -154,7 +152,7 @@ public sealed class McpHttpServer : IDisposable
             {
                 Log.Warn("[Mcp] 请求不是 JSON-RPC 对象（批量请求不支持）");
                 await WriteJsonAsync(ctx, 200,
-                    ErrorJson(null, -32600, "请求必须是单个 JSON-RPC 2.0 对象（不支持批量）"));
+                    ErrorJson(null, -32600, L.T("Mcp.Err.NotSingleRpcObject")));
                 return;
             }
 
@@ -180,7 +178,7 @@ public sealed class McpHttpServer : IDisposable
             Log.Error("[Mcp] 请求处理失败", ex);
             try
             {
-                await WriteJsonAsync(ctx, 200, ErrorJson(null, -32603, "执行失败：" + ex.Message));
+                await WriteJsonAsync(ctx, 200, ErrorJson(null, -32603, L.F("Mcp.Err.ExecutionFailed", ex.Message)));
             }
             catch
             {

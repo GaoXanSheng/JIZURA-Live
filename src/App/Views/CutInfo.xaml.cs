@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using JizuraLive.App.Controls;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
 
@@ -17,12 +18,14 @@ namespace JizuraLive.App.Views;
 // 与 Vue 的取舍：点 chip 弹「手法替换面板」属后续里程碑，chips 这一版只作静态展示（点击无操作）。
 public partial class CutInfo : UserControl
 {
-    /// <summary>手法组表（对位 look.ts CHIP_GROUPS：组 → 组名字（chip 前缀）→ 描边色键）。</summary>
-    private static readonly (string G, string Label, string? Chip)[] Groups =
+    /// <summary>手法组表（对位 look.ts CHIP_GROUPS：组 → 组名的词库键（chip 前缀）→ 描边色键）。</summary>
+    private static readonly (string G, string Key, string? Chip)[] Groups =
     {
-        ("layout", "布局", "ChipL"), ("enter", "入场", "ChipE"), ("hold", "保持", "ChipH"),
-        ("exit", "退场", "ChipX"), ("decor", "装饰", null), ("treat", "文字处理", "ChipT"),
-        ("bg", "背景", "ChipB"), ("cam", "运镜", "ChipC"), ("trans", "转场", "ChipC"),
+        ("layout", "CutInfo.Group.Layout", "ChipL"), ("enter", "CutInfo.Group.Enter", "ChipE"),
+        ("hold", "CutInfo.Group.Hold", "ChipH"), ("exit", "CutInfo.Group.Exit", "ChipX"),
+        ("decor", "CutInfo.Group.Decor", null), ("treat", "CutInfo.Group.Treat", "ChipT"),
+        ("bg", "CutInfo.Group.Bg", "ChipB"), ("cam", "CutInfo.Group.Cam", "ChipC"),
+        ("trans", "CutInfo.Group.Trans", "ChipC"),
     };
 
     /// <summary>重抽（shuffle）动的组（对位 look.ts rerollCurrentCut）。</summary>
@@ -41,9 +44,19 @@ public partial class CutInfo : UserControl
             _amber = (Brush)FindResource("Amber");
             var st = App.MainInstance?.State;
             if (st != null) st.StateChanged += () => _lastIdx = -2; // plan 更新后强制重算
+            L.LanguageChanged -= ApplyTexts;
+            L.LanguageChanged += ApplyTexts;
             Sync();
             timer.Start();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
+    }
+
+    /// <summary>换语言：chips 整行重建（-2 强制 Sync 重算）。</summary>
+    private void ApplyTexts()
+    {
+        _lastIdx = -2;
+        Sync();
     }
 
     private void Sync()
@@ -65,7 +78,7 @@ public partial class CutInfo : UserControl
         {
             Row.Children.Add(new TextBlock
             {
-                Text = "此位置没有切分",
+                Text = L.T("CutInfo.NoCut"),
                 Style = (Style)FindResource("Hint"),
                 VerticalAlignment = VerticalAlignment.Center,
             });
@@ -77,16 +90,16 @@ public partial class CutInfo : UserControl
 
         // 第一个 chip：mono 的两位数序号（对位 Vue 的 label='#' 被 v-if 抑制，只留值）
         Row.Children.Add(MakeChip("", (cut.Index + 1).ToString("00"), null, forced: false, enabled: true, mono: true));
-        foreach (var (g, label, chip) in Groups)
+        foreach (var (g, key, chip) in Groups)
         {
             var v = GroupVal(cut, g);
             var forced = k >= 0 && IsForced(state.Project, cut.Line, k, g);
-            Row.Children.Add(MakeChip(label, GroupName(g, v), chip, forced, enabled: k >= 0, mono: false));
+            Row.Children.Add(MakeChip(L.T(key), GroupName(g, v), chip, forced, enabled: k >= 0, mono: false));
         }
 
         var on = k >= 0; // 非歌词切分（片头/间奏）不可重抽（对位 !items.some(it => it.enabled)）
-        Row.Children.Add(MakeBtn("重抽", "只重抽这个切分的构成", "BtnGhostSm", on, () => RerollCut("shuffle")));
-        Row.Children.Add(MakeBtn("一键随机", "这个切分的手法全部随机", "BtnAccentSm", on, () => RerollCut("omakase")));
+        Row.Children.Add(MakeBtn(L.T("CutInfo.Reroll"), L.T("CutInfo.Reroll.Tip"), "BtnGhostSm", on, () => RerollCut("shuffle")));
+        Row.Children.Add(MakeBtn(L.T("CutInfo.Omakase"), L.T("CutInfo.Omakase.Tip"), "BtnAccentSm", on, () => RerollCut("omakase")));
     }
 
     /// <summary>一颗 chip（ctl:JzChip：mut 色组名前缀 + 手法值；is-forced 琥珀描边）。</summary>
@@ -145,7 +158,7 @@ public partial class CutInfo : UserControl
                 if (key.Length > 0) SetCutTech(p, cut.Line, k, g, key);
             }
             MarkCutQuiet(p, cut.Line, k, groups, true);
-        }, kind == "omakase" ? "切分一键随机" : "切分重抽", replan: false, look: true);
+        }, kind == "omakase" ? L.T("CutInfo.Mutate.Omakase") : L.T("CutInfo.Mutate.Reroll"), replan: false, look: true);
         state.ReplanNow();
         preview.Seek(t0); // 画面留在原处（对位 seek(t0)）
         _lastIdx = -2;
@@ -275,7 +288,7 @@ public partial class CutInfo : UserControl
     /// <summary>groupName：registry 里的手法显示名，查不到原样回 key，空值 = 无。</summary>
     private static string GroupName(string g, string k)
     {
-        if (string.IsNullOrEmpty(k)) return "无";
+        if (string.IsNullOrEmpty(k)) return L.T("CutInfo.None");
         return TechName(g, k) ?? k;
     }
 

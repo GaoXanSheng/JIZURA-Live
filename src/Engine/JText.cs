@@ -1723,7 +1723,7 @@ public static class JText
         FontJobs.Clear();
     }
 
-    internal static SKFont FaceFont(string fontKey, double size, double wg = 0)
+    public static SKFont FaceFont(string fontKey, double size, double wg = 0)
     {
         if (wg <= 0)
         {

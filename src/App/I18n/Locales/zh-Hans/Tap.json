@@ -1,0 +1,16 @@
+{
+  "Tap.Hint": "跟着歌曲，在每行开始的瞬间按 Space 或按钮；多切分的行再按 Tab 对齐下一个切分。按错了用 Backspace 回退。要从某一行重来，就在行列表里点 ◎。",
+  "Tap.NextLine": "下一行: ",
+  "Tap.Rate": "打点速度",
+  "Tap.Rate.Tip": "打点同步的播放速度（纯 C# 预览播放钟暂不支持变速，M4 音频管线接入后生效；存入的时刻不受影响）",
+  "Tap.Count": "倒数 3・2・1",
+  "Tap.Count.Tip": "开始前倒数 3 秒",
+  "Tap.Back": "回退一步",
+  "Tap.Stop": "结束",
+  "Tap.Ready": "准备开始…",
+  "Tap.Countdown": "倒数 {0}…",
+  "Tap.Interlude": "〔间奏〕",
+  "Tap.Mutate.Tap": "打点",
+  "Tap.Mutate.Cut": "打点切分",
+  "Tap.Mutate.Back": "打点回退"
+}

@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Threading;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
 
@@ -35,6 +36,8 @@ public partial class TapPanel : UserControl
         };
         Loaded += (_, _) =>
         {
+            L.LanguageChanged -= ApplyTexts;
+            L.LanguageChanged += ApplyTexts;
             if (_subscribed) return;
             _subscribed = true;
             TapSession.Changed += Refresh;
@@ -50,9 +53,13 @@ public partial class TapPanel : UserControl
             Refresh();
             _timer.Start();
         };
+        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
     }
 
     private void OnStateChanged() => Dispatcher.Invoke(Refresh);
+
+    /// <summary>语言切换：动态文本全部集中在 Refresh 里，重跑即可（XAML 静态文本由 DynamicResource 自刷）。</summary>
+    private void ApplyTexts() => Refresh();
 
     // ---------------- 打点键位（boot.ts bindKeys 对位） ----------------
 
@@ -107,16 +114,16 @@ public partial class TapPanel : UserControl
 
         var plan = main.State.Plan;
         var lineText = "—";
-        if (TapSession.CountDisplay is int n) lineText = $"倒数 {n}…";
+        if (TapSession.CountDisplay is int n) lineText = L.F("Tap.Countdown", n);
         else if (plan != null && TapSession.I >= 0 && TapSession.I < plan.Lines.Count)
         {
             var ln = plan.Lines[TapSession.I];
-            lineText = $"{TapSession.I + 1}. {(ln.Interlude ? "〔间奏〕" : ln.Text)}";
+            lineText = $"{TapSession.I + 1}. {(ln.Interlude ? L.T("Tap.Interlude") : ln.Text)}";
         }
 
         TblLine.Text = lineText;
         BtnTap.IsEnabled = !TapSession.Counting;
-        BtnTap.Content = TapSession.Counting ? "准备开始…" : "TAP";
+        BtnTap.Content = TapSession.Counting ? L.T("Tap.Ready") : "TAP";
         BtnBack.IsEnabled = TapSession.Done.Count > 0;
         HintBox.Visibility = TapSession.Done.Count > 2 ? Visibility.Collapsed : Visibility.Visible;
         if (!_rateTouched) CmbRate.SelectedIndex = TapSession.Rate switch { 0.75 => 1, 0.5 => 2, _ => 0 };
@@ -261,7 +268,7 @@ internal static class TapSession
             // 后面的行若在之前一轮被打过且早于本时间，清掉防止倒挂（对位 look.ts tapNow）
             foreach (var k in lt.Keys.Where(k => int.TryParse(k, out var ki) && ki > i && lt[k] <= t + 0.2).ToList())
                 lt.Remove(k);
-        }, "打点");
+        }, L.T("Tap.Mutate.Tap"));
         if (entry != null) Done.Add(entry);
         I++;
         Cl = i;
@@ -304,7 +311,7 @@ internal static class TapSession
             ct[key] = Math.Max(0, Math.Round((t - ln.Start) * 1000) / 1000.0);
             cur["cutTime"] = ct;
             p.Overrides[li.ToString()] = cur;
-        }, "打点切分");
+        }, L.T("Tap.Mutate.Cut"));
         if (entry != null) Done.Add(entry);
         Ck = k + 1;
         Notify();
@@ -342,7 +349,7 @@ internal static class TapSession
                 Cl = prev?.I;
                 Ck = prev != null ? 1 + Done.Count(x => x.Cut && x.Li == prev.I) : 1;
             }
-        }, "打点回退");
+        }, L.T("Tap.Mutate.Back"));
         Preview.Seek(Math.Max(0, Preview.CurrentTime - 3));
         if (!Preview.IsPlaying) Preview.Play();
         Notify();

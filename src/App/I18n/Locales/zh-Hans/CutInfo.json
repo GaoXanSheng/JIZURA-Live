@@ -1,0 +1,19 @@
+{
+  "CutInfo.NoCut": "此位置没有切分",
+  "CutInfo.Group.Layout": "布局",
+  "CutInfo.Group.Enter": "入场",
+  "CutInfo.Group.Hold": "保持",
+  "CutInfo.Group.Exit": "退场",
+  "CutInfo.Group.Decor": "装饰",
+  "CutInfo.Group.Treat": "文字处理",
+  "CutInfo.Group.Bg": "背景",
+  "CutInfo.Group.Cam": "运镜",
+  "CutInfo.Group.Trans": "转场",
+  "CutInfo.None": "无",
+  "CutInfo.Reroll": "重抽",
+  "CutInfo.Reroll.Tip": "只重抽这个切分的构成",
+  "CutInfo.Omakase": "一键随机",
+  "CutInfo.Omakase.Tip": "这个切分的手法全部随机",
+  "CutInfo.Mutate.Reroll": "切分重抽",
+  "CutInfo.Mutate.Omakase": "切分一键随机"
+}

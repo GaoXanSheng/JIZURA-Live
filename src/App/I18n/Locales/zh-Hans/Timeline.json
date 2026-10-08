@@ -1,0 +1,13 @@
+{
+  "Timeline.Undo": "撤销",
+  "Timeline.Undo.Tip": "撤销歌词・时间修改（Ctrl+Z）",
+  "Timeline.ZoomOut.Tip": "缩小",
+  "Timeline.ZoomOut.Name": "缩小时间轴",
+  "Timeline.ZoomIn.Tip": "放大（时间轴上滚轮亦可）",
+  "Timeline.ZoomIn.Name": "放大时间轴",
+  "Timeline.All": "全部",
+  "Timeline.All.Tip": "显示整首",
+  "Timeline.Hint": "上条左右滑视图，中条拖动播放头；行界刻度可拖动，Shift 不吸附节拍；底部黄条为缩放范围",
+  "Timeline.Interlude": "间奏",
+  "Timeline.Mutate.LineDrag": "行界拖动"
+}

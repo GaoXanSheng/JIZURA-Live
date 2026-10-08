@@ -1,0 +1,20 @@
+{
+  "ExportProgress.Title": "导出中",
+  "ExportProgress.Preparing": "准备…",
+  "ExportProgress.Cancel": "取消",
+  "ExportProgress.Canceled": "已取消",
+  "ExportProgress.Canceling": "取消中…",
+
+  "Export.Stage.PrepareAudio": "准备音频",
+  "Export.Stage.DecodeAudio": "解码音频",
+  "Export.Stage.EncodeFmt": "编码 {0}/{1}",
+  "Export.Stage.WriteFrameFmt": "写帧 {0}/{1}",
+  "Export.Stage.Done": "完成",
+  "Export.Err.SubsOnly": "纯字幕层（无渲染画面）导出待接线：请勾选「渲染画面」+「字幕」用烤入",
+  "Export.Err.UnknownKindFmt": "未知导出类型：{0}",
+  "Export.Err.NoAudio": "没有已投入的歌曲，无法导出 WAV",
+  "Export.Err.AudioDecodeFailed": "音频解码失败",
+  "Export.Err.FFmpegStart": "ffmpeg 启动失败",
+  "Export.Err.FFmpegTimeoutFmt": "ffmpeg 120s 未退出，已强杀。stderr 尾部：{0}",
+  "Export.Err.FFmpegExitFmt": "ffmpeg 退出码 {0}。stderr 尾部：{1}"
+}
