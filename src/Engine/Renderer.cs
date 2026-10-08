@@ -16,10 +16,11 @@
 //   st.kline → J.KLINE_RENDERER（11p 图表渲染路径）；st.ascii → J.asciiFrame（11p 字符画）。
 //   11p_* 表现包一律不在本次范围。
 
-using System.Globalization;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using JizuraLive.Engine.Packs;
 using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -107,6 +108,13 @@ public sealed class TransCtx
 /// <summary>渲染器：J.Renderer 对位。线程不安全（每画布/每导出管线各建一个）。</summary>
 public sealed class Renderer : IDisposable
 {
+    /// <summary>
+    /// 中间面工厂（GPU 光栅接线用）：非空时 scratch/small/tiny/camLayer/transA·B·C/morph/guard 等
+    /// 中间面改由它创建（GPU 面，省掉每帧「CPU 面 → GPU 上传」）。null = CPU 面（默认：
+    /// 导出/测试/校验路径保持位级一致）。主画布不在此列——由调用方给（Spout 给 GPU 面，预览/导出给 CPU 面）。
+    /// </summary>
+    public Func<int, int, SKSurface>? SurfaceFactory;
+
         // 内容 pass 描述符，实例级复用；Frame() 里只刷色差偏移
         private sealed class PassDesc
         {
@@ -202,14 +210,14 @@ public sealed class Renderer : IDisposable
             // K线风格走完全独立的渲染路径（11p）：图表+中心滚动歌词画满整帧直接返回
             if (Truthy(JLayouts.StTok(st, "kline")))
             {
-                Packs.P11Kline.Frame(ctx, plan, t, opt, (int)cw, (int)ch);
+                P11Kline.Frame(ctx, plan, t, opt, (int)cw, (int)ch);
                 return;
             }
             // ASCII 字符画风格（11p）：整帧先按正常管线渲进离屏，再整帧转字符网格；
             // AsciiInner 防 asciiFrame 递归内层再次进入本分支
             if (Truthy(JLayouts.StTok(st, "ascii")) && !opt.AsciiInner)
             {
-                Packs.P11Ascii.Frame(ctx, plan, t, opt,
+                P11Ascii.Frame(ctx, plan, t, opt,
                     (inner, innerOpt) => Frame(inner, plan, t, innerOpt));
                 return;
             }
@@ -1448,14 +1456,14 @@ public sealed class Renderer : IDisposable
                 new[] { SKColors.Transparent, new SKColor(0, 0, 0).WithAlpha((byte)Math.Round(a * 255)) },
                 null, SKShaderTileMode.Clamp);
 
-        private static SKSurface Ensure(ref SKSurface? s, int w, int h)
+        private SKSurface Ensure(ref SKSurface? s, int w, int h)
         {
             w = Math.Max(1, w);
             h = Math.Max(1, h);
             if (s == null || s.Canvas.DeviceClipBounds.Width != w || s.Canvas.DeviceClipBounds.Height != h)
             {
                 s?.Dispose();
-                s = SKSurface.Create(new SKImageInfo(w, h));
+                s = SurfaceFactory != null ? SurfaceFactory(w, h) : SKSurface.Create(new SKImageInfo(w, h));
             }
             return s;
         }

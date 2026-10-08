@@ -46,6 +46,10 @@
         </Reference>
         <None Remove="native\SpoutDX.dll"/>
         <Content Include="native\SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
+        <!-- GPU 光栅用的 ANGLE（tools/fetch-angle.ps1 拉取，二进制不入库）：落到 exe 旁的 angle\ 子目录，
+             GpuRasterHost 优先从这里加载；目录不存在 = GPU 路不可用，自动回退 CPU 光栅 -->
+        <None Include="native\angle\*" CopyToOutputDirectory="PreserveNewest"
+              Link="angle\%(Filename)%(Extension)" Condition="Exists('native\angle')"/>
     </ItemGroup>
 
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish" Condition="Exists('native\SpoutDX.dll')">

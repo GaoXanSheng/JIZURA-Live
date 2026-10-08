@@ -1,8 +1,11 @@
-// Spout 直出管线（pure-csharp 分支）：SkiaSharp CPU 光栅 → SpoutDX。
+// Spout 直出管线（pure-csharp 分支）：Skia 光栅 → D3D11 纹理 → SpoutDX。
 //
-// 路径（主通道）：SkiaSharp CPU 光栅（BGRA 8888 SKSurface）→ Renderer.Frame 画 plan 当前帧
-//       → PeekPixels 拿到像素 → 逐行拷进 SharpDX D3D11 Texture2D（Dynamic，B8G8R8A8_UNorm）
-//       → SpoutDX SpoutSender.SendTexture（内部 GPU 拷进 Spout 共享纹理）。
+// 两条光栅路线（同一套泵/通道/发送语义，接收端无感）：
+//   GPU（默认，GpuRasterHost 可用时）：ANGLE(GL on D3D11) → Skia GRContext 直接画进
+//        该表面背后的 D3D11 共享纹理 → SpoutDX.SendTexture(同一块纹理) —— 全程 GPU，
+//        没有一个像素经过 CPU 内存。1080p 实测 ~7ms/帧（CPU 光栅 ~46-64ms/帧）。
+//   CPU（回退：缺 ANGLE 二进制 / 初始化失败 / JIZURA_GPU=0）：SkiaSharp CPU 光栅（BGRA 8888）
+//        → PeekPixels → 逐行拷进 D3D11 Dynamic 纹理 → SendTexture。
 //
 // 双通道：
 //   主通道   <SpoutName>        settings.Width×Height @ RenderFps，SpoutTransparent 时透出底
@@ -13,6 +16,9 @@
 // 泵语义（对位旧版 EBF 泵）：固定帧率泵线程；播放态 = 目标帧率；暂停态降到 10Hz 且只在
 // 「画面会变」（seek/重规划/换字幕 → 版本号变）时重绘——暂停帧是静态的，10Hz 只是让编辑/seek
 // 后 ≤100ms 反映到接收端，不空转烧 CPU/GPU。
+//
+// 线程纪律：GPU 路线下泵线程是 EGL 上下文的唯一持有者（PumpLoop 进 Enter / 出 Exit），
+// 引擎静态缓存经 PreviewEngine.EngineRenderGate 与 WPF 预览串行。
 
 using System.Diagnostics;
 using JizuraLive.App;
@@ -90,6 +96,11 @@ public sealed class SpoutOut : IDisposable
     private const int MinIntervalMs = 4; // 泵拍下限（≤250fps），防 0 间隔自旋
 
     private Device? _device;
+
+    /// <summary>_device 是 CPU 回退路径自建的（GPU 模式下它是宿主单例的设备，不归本实例释放）。</summary>
+    private bool _ownsDevice;
+
+    private GpuRasterHost? _gpu;
     private Channel? _main;
     private Channel? _lyrics;
     private Thread? _pump;
@@ -113,9 +124,25 @@ public sealed class SpoutOut : IDisposable
         if (_running) return true;
         _source = source ?? throw new ArgumentNullException(nameof(source));
 
+        // 两条光栅路线：GPU（ANGLE 渲染进共享纹理，Spout 同设备直发，全程无 CPU 拷贝）优先；
+        // 宿主不可用（缺 ANGLE 二进制/初始化失败/JIZURA_GPU=0）则回退 CPU 面 → Map/Unmap 上传。
+        // 两条路都产出 D3D11 纹理交给同一个 SpoutSender，接收端无感。
+        _gpu = GpuRasterHost.TryGet(out var gpuErr);
+        if (_gpu == null)
+            Log.Info("[SpoutOut] GPU 光栅不可用，本次走 CPU 光栅：" + gpuErr);
+
         try
         {
-            _device ??= new Device(DriverType.Hardware, DeviceCreationFlags.BgraSupport);
+            if (_gpu != null)
+            {
+                _device = _gpu.D3DDevice;
+                _ownsDevice = false;
+            }
+            else if (_device == null)
+            {
+                _device = new Device(DriverType.Hardware, DeviceCreationFlags.BgraSupport);
+                _ownsDevice = true;
+            }
         }
         catch (Exception ex)
         {
@@ -126,10 +153,10 @@ public sealed class SpoutOut : IDisposable
         try
         {
             _main = new Channel(opt.SenderName, opt.Width, opt.Height, opt.Fps, opt.MainTransparent,
-                subtitle: false, _device);
+                subtitle: false, _device, _gpu != null);
             _lyrics = opt.LyricsEnabled
                 ? new Channel(opt.SenderName + "-LYRICS", opt.Width, opt.Height,
-                    Math.Max(1, opt.LyricsFps), transparent: true, subtitle: true, _device)
+                    Math.Max(1, opt.LyricsFps), transparent: true, subtitle: true, _device, _gpu != null)
                 : null;
         }
         catch (Exception ex)
@@ -148,7 +175,7 @@ public sealed class SpoutOut : IDisposable
         _pump.Start();
 
         Log.Info(
-            $"[SpoutOut] 管线已启动：主通道={opt.SenderName} {opt.Width}x{opt.Height}@{opt.Fps}"
+            $"[SpoutOut] 管线已启动（{(_gpu != null ? "GPU 光栅" : "CPU 光栅")}）：主通道={opt.SenderName} {opt.Width}x{opt.Height}@{opt.Fps}"
             + (opt.MainTransparent ? "（透明底）" : "")
             + (_lyrics != null
                 ? $"；字幕通道={opt.SenderName}-LYRICS@{opt.LyricsFps}（透明底，KRC 字幕层）"
@@ -181,8 +208,13 @@ public sealed class SpoutOut : IDisposable
     public void Dispose()
     {
         Stop();
-        _device?.Dispose();
-        _device = null;
+        // 宿主设备是进程单例（预览/导出将来复用），不能在这里释放；只有 CPU 回退路径自建的设备归本实例
+        if (_ownsDevice)
+        {
+            _device?.Dispose();
+            _device = null;
+            _ownsDevice = false;
+        }
     }
 
     // ---------------- 泵 ----------------
@@ -191,6 +223,40 @@ public sealed class SpoutOut : IDisposable
     {
         // 主通道定节拍；字幕通道按自己的 fps 用计时戳滤帧（两条通道共享一个泵线程）
         var main = _main!;
+
+        // GPU 路径：EGL 上下文必须在渲染线程上 current。泵线程进入时绑定、退出时解绑
+        // （宿主是进程单例，本体留给下一次启动复用）。绑定失败就地把两条通道降回 CPU 面。
+        var gpu = _gpu;
+        var gpuEntered = false;
+        if (gpu != null)
+        {
+            try
+            {
+                gpu.Enter();
+                gpuEntered = true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[SpoutOut] GPU 上下文绑定失败，本管线转 CPU 光栅：" + ex.Message, ex);
+                foreach (var ch in new[] { _main, _lyrics })
+                    if (ch != null) ch.Gpu = false;
+                gpu = null;
+            }
+        }
+
+        try
+        {
+            PumpLoopCore(main);
+        }
+        finally
+        {
+            if (gpuEntered) gpu!.Exit();
+        }
+    }
+
+    /// <summary>泵主体：固定节拍 + 双通道渲染。抽成独立方法只为让 GPU 上下文的 Enter/Exit 成对。</summary>
+    private void PumpLoopCore(Channel main)
+    {
         var lastMain = Stopwatch.GetTimestamp();
         var lastLyrics = Stopwatch.GetTimestamp();
         var lastStat = Stopwatch.GetTimestamp();
@@ -256,12 +322,24 @@ public sealed class SpoutOut : IDisposable
                 LogRenderError(ex);
             }
 
-            // 高精度等待下一拍：粗睡留 2ms 余量，末段自旋补齐（对齐旧 EBF 泵）
-            var next = Stopwatch.GetTimestamp()
-                       + (long)(PausedPumpMs / 1000.0 * Stopwatch.Frequency);
+            // 高精度等待下一拍：粗睡留 2ms 余量，末段自旋补齐（对齐旧 EBF 泵）。
+            // 播放态目标时刻锚在「上一拍」上：渲染耗时已经吃掉一部分间隔，不能从当前时刻再加一整个
+            // 间隔（那会让实际周期 = 渲染耗时 + 间隔，1080p GPU 光栅下掉到 ~47fps）。
+            // 已落后（渲染超时/长暂停后恢复）则不再等，立刻进入下一拍，避免追赶风暴。
+            long next;
             if (src is { IsPlaying: true })
-                next = Stopwatch.GetTimestamp()
+            {
+                next = lastMain
                        + (long)(Math.Max(MinIntervalMs, main.IntervalMs) / 1000.0 * Stopwatch.Frequency);
+                var tickNow = Stopwatch.GetTimestamp();
+                if (next < tickNow) next = tickNow;
+            }
+            else
+            {
+                next = Stopwatch.GetTimestamp()
+                       + (long)(PausedPumpMs / 1000.0 * Stopwatch.Frequency);
+            }
+
             while (_running)
             {
                 var remainMs = (next - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
@@ -293,21 +371,119 @@ public sealed class SpoutOut : IDisposable
         Log.Error("[SpoutOut] 帧渲染失败" + (suppressed > 0 ? $"（节流：此前 {suppressed} 条同类错误未逐条记录）" : ""), ex);
     }
 
-    // ---------------- 单通道渲染：Skia CPU 光栅 → D3D11 → SpoutDX ----------------
+    // ---------------- 单通道渲染：GPU 光栅直发 / CPU 光栅上传（两条路都出 D3D11 纹理） ----------------
 
+    /// <summary>
+    /// 渲染一帧并按通道的光栅路线发出去。GPU 路连续失败（设备移除/上下文失效等持续性故障）
+    /// 时本通道降回 CPU 面，泵不中断。
+    /// </summary>
     private void RenderChannel(Channel ch, ISpoutSource src)
     {
-        var px = ch.Subtitle ? PaintSubtitle(ch, src) : PaintEngine(ch, src);
-        Upload(ch, px);
+        try
+        {
+            RenderChannelCore(ch, src);
+            ch.GpuErrors = 0;
+        }
+        catch
+        {
+            if (ch.Gpu && ++ch.GpuErrors >= 3)
+            {
+                ch.Gpu = false;
+                Log.Error($"[SpoutOut] {ch.Name}：GPU 渲染连续失败，本通道降回 CPU 光栅"
+                          + "（GPU 上下文/设备可能已失效）");
+            }
+
+            throw;
+        }
+    }
+
+    private void RenderChannelCore(Channel ch, ISpoutSource src)
+    {
+        var t = ch.Subtitle ? PaintSubtitle(ch, src) : PaintEngine(ch, src);
+        if (t.Gpu != null)
+        {
+            // 共享纹理已由 Skia 画好：刷命令 + 等 GPU 落盘（落盘后 Spout 的设备才读得到），
+            // 然后同设备直发——这一帧没有一个像素经过 CPU。
+            _gpu!.FlushAndSync();
+            ch.Sender!.SendTexture(t.Gpu.TexturePointer);
+        }
+        else
+        {
+            Upload(ch, t.Surface.PeekPixels() ?? throw new InvalidOperationException("出图面 PeekPixels 返回空"));
+        }
+
         ch.LastVersion = src.Version;
         ch.Frames++;
     }
 
-    /// <summary>字幕通道：透明底全幅只画字幕层（SubtitleLayer 与导出烤字幕同一个渲染器）。</summary>
-    private SKPixmap PaintSubtitle(Channel ch, ISpoutSource src)
+    /// <summary>
+    /// 一块已激活的绘制目标。Gpu 非空 = 画的就是要发给 Spout 的那块共享纹理（零拷贝）；
+    /// 为空 = CPU 面（回退路径，画完 PeekPixels 上传）。
+    /// </summary>
+    private readonly struct Target
     {
+        public readonly SKSurface Surface;
+        public readonly SKCanvas Canvas;
+        public readonly GpuSurface? Gpu;
+
+        public Target(SKSurface surface, GpuSurface? gpu)
+        {
+            Surface = surface;
+            Canvas = surface.Canvas;
+            Gpu = gpu;
+        }
+    }
+
+    /// <summary>取输出面：GPU 模式从宿主面池按尺寸取并激活（该面的纹理就是发送对象）；CPU 模式按尺寸复用。</summary>
+    private Target AcquireOut(Channel ch)
+    {
+        if (ch.Gpu)
+        {
+            var g = _gpu!.Rent(ch.W, ch.H);
+            _gpu.Activate(g);
+            return new Target(g.Skia, g);
+        }
+
         EnsureSurface(ref ch.Out, ch.W, ch.H);
-        var oc = ch.Out!.Canvas;
+        return new Target(ch.Out!, null);
+    }
+
+    /// <summary>
+    /// 引擎场景面（contain 后的画幅）。GPU 模式用 Skia 托管的 GPU 面：它自带非零 FBO，
+    /// 不会和 pbuffer 的 FBO0（出口纹理）撞车——pbuffer 面同一时刻只能有一个是「当前绘制面」。
+    /// CPU 模式沿用旧纪律：按尺寸保留、绝不 Dispose（引擎整帧缓存持有其快照）。
+    /// </summary>
+    private SKSurface AcquireScene(Channel ch, int w, int h)
+    {
+        if (ch.Gpu)
+        {
+            if (ch.SceneGpu == null || ch.SceneGpuW != w || ch.SceneGpuH != h)
+            {
+                ch.SceneGpu?.Dispose();
+                ch.SceneGpu = _gpu!.CreateGpuSurface(w, h);
+                ch.SceneGpuW = w;
+                ch.SceneGpuH = h;
+            }
+
+            return ch.SceneGpu;
+        }
+
+        if (ch.Scene == null || ch.SceneW != w || ch.SceneH != h)
+        {
+            if (ch.Scene != null) ch.Graveyard.Add(ch.Scene);
+            ch.Scene = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
+            ch.SceneW = w;
+            ch.SceneH = h;
+        }
+
+        return ch.Scene;
+    }
+
+    /// <summary>字幕通道：透明底全幅只画字幕层（SubtitleLayer 与导出烤字幕同一个渲染器）。</summary>
+    private Target PaintSubtitle(Channel ch, ISpoutSource src)
+    {
+        var tgt = AcquireOut(ch);
+        var oc = tgt.Canvas;
         oc.SetMatrix(SKMatrix.Identity);
         oc.Clear(SKColors.Transparent);
 
@@ -329,52 +505,65 @@ public sealed class SpoutOut : IDisposable
 
         // 排版按输出分辨率全幅派生（字号 = H 百分比、底部 5.5% 起排），与导出烤字幕所见一致
         ch.SubLayer?.Render(oc, src.CurrentTime, ch.W, ch.H);
-        return ch.Out.PeekPixels() ?? throw new InvalidOperationException("字幕面 PeekPixels 返回空");
+        return tgt;
     }
 
-    private SKPixmap PaintEngine(Channel ch, ISpoutSource src)
+    private Target PaintEngine(Channel ch, ISpoutSource src)
     {
         var plan = src.Plan;
         var t = src.CurrentTime;
 
         // contain 缩放：settings 分辨率与 plan 画幅比不一致时出边（主流 16:9 配 16:9 无痕）。
-        // 边带底色：主通道黑（或透明底时透出），暂无配置项
         var scale = Math.Min(ch.W / (double)plan.W, ch.H / (double)plan.H);
         var rw = Math.Max(1, (int)Math.Round(plan.W * scale));
         var rh = Math.Max(1, (int)Math.Round(plan.H * scale));
-        var exactFit = rw == ch.W && rh == ch.H;
 
-        // SkiaSharp 3.119 坑（headless 复现：obj/repro，AV 于 Frame 的 _fcCv.Width）：
-        // 引擎整帧缓存把 SnapshotOf(ctx) 存起来跨帧用——交给 Frame 的面必须保留（绝不 Dispose），
-        // blit 也不用 Snapshot()，改 PeekPixels + FromPixels 借用像素。场景面按尺寸保留，
-        // plan 画幅变化时换新面、旧面孤儿化（退出时随渲染器一起释放）
-        if (ch.Scene == null || ch.SceneW != rw || ch.SceneH != rh)
+        // 画幅比一致（绝大多数情形）：引擎直接画进出图面。GPU 模式下这就是要发的共享纹理，
+        // 全程零拷贝——没有场景面、没有 blit、没有 CPU 上传。
+        if (rw == ch.W && rh == ch.H)
         {
-            if (ch.Scene != null) ch.Graveyard.Add(ch.Scene);
-            ch.Scene = SKSurface.Create(new SKImageInfo(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul));
-            ch.SceneW = rw;
-            ch.SceneH = rh;
+            var only = AcquireOut(ch);
+            lock (EngineRenderGate.Lock)
+                ch.Renderer!.Frame(only.Canvas, plan, t, new RenderOpts
+                {
+                    Scale = scale,
+                    Transparent = ch.Transparent,
+                    Stage = true,
+                });
+            return only;
         }
 
+        // 出边：先画场景面（plan 画幅），再居中 blit 到出图面（边带黑/透明）
+        var scene = AcquireScene(ch, rw, rh);
         lock (EngineRenderGate.Lock)
-            ch.Renderer!.Frame(ch.Scene.Canvas, plan, t, new RenderOpts
+            ch.Renderer!.Frame(scene.Canvas, plan, t, new RenderOpts
             {
                 Scale = scale,
                 Transparent = ch.Transparent,
                 Stage = true,
             });
 
-        if (exactFit)
-            return ch.Scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
-
-        EnsureSurface(ref ch.Out, ch.W, ch.H);
-        var oc = ch.Out!.Canvas;
+        var tgt = AcquireOut(ch);
+        var oc = tgt.Canvas;
         oc.SetMatrix(SKMatrix.Identity);
         oc.Clear(ch.Transparent ? SKColors.Transparent : SKColors.Black);
-        var spx = ch.Scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
-        using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
-        oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
-        return ch.Out.PeekPixels() ?? throw new InvalidOperationException("出图面 PeekPixels 返回空");
+        if (ch.Gpu)
+        {
+            // GPU 面快照（GPU 侧拷贝）直接画到出图面，不落内存
+            using var shot = scene.Snapshot();
+            oc.DrawImage(shot, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
+        }
+        else
+        {
+            // SkiaSharp 3.119 坑（headless 复现：obj/repro，AV 于 Frame 的 _fcCv.Width）：
+            // 引擎整帧缓存把 SnapshotOf(ctx) 存起来跨帧用——交给 Frame 的面必须保留（绝不 Dispose），
+            // blit 也不用 Snapshot()，改 PeekPixels + FromPixels 借用像素。
+            var spx = scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
+            using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
+            oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
+        }
+
+        return tgt;
     }
 
     /// <summary>像素 → D3D11 纹理 → Spout 发送（两条通道共用）。</summary>
@@ -461,12 +650,21 @@ public sealed class SpoutOut : IDisposable
         public readonly bool Subtitle;
         public readonly Device Device;
 
+        /// <summary>光栅路线：true = GPU 面（宿主共享纹理直发）；运行期出错可降回 CPU 面。</summary>
+        public bool Gpu;
+
+        /// <summary>GPU 路连续失败计数：满 3 次本通道降回 CPU 面。</summary>
+        public int GpuErrors;
+
         public readonly SpoutSender Sender;
         public readonly Renderer? Renderer; // 字幕通道不需要引擎渲染器
-        public SKSurface? Scene;  // plan 画幅渲染面（保留，尺寸/画幅变化才换新；仅引擎通道）
+        public SKSurface? Scene;  // CPU 回退：plan 画幅渲染面（保留，尺寸/画幅变化才换新；仅引擎通道）
+        public SKSurface? SceneGpu; // GPU：Skia 托管的场景面（非零 FBO），同上按尺寸换新
         public int SceneW = -1;
         public int SceneH = -1;
-        public SKSurface? Out;   // 输出分辨率面（PeekPixels 源；从不交给 Frame，也从不被 Snapshot）
+        public int SceneGpuW = -1;
+        public int SceneGpuH = -1;
+        public SKSurface? Out;   // CPU 输出面（PeekPixels 源；从不交给 Frame，也从不被 Snapshot）
         public readonly List<SKSurface> Graveyard = new(); // 换下的旧场景面（Dispose 时随渲染器一起释放）
         public SubtitleLayer? SubLayer; // 字幕层缓存（按字幕数据版本重建）
         public long SubLayerVersion = -1;
@@ -476,7 +674,7 @@ public sealed class SpoutOut : IDisposable
         public long LastVersion = -1; // 泵的暂停态脏判断
         public long Frames;
 
-        public Channel(string name, int w, int h, int fps, bool transparent, bool subtitle, Device device)
+        public Channel(string name, int w, int h, int fps, bool transparent, bool subtitle, Device device, bool gpu)
         {
             Name = name;
             W = Math.Max(64, w);
@@ -485,7 +683,18 @@ public sealed class SpoutOut : IDisposable
             Transparent = transparent;
             Subtitle = subtitle;
             Device = device;
-            if (!subtitle) Renderer = new Renderer();
+            Gpu = gpu;
+            if (!subtitle)
+            {
+                Renderer = new Renderer();
+                // 引擎中间面也走 GPU（Skia 托管面）：省掉每帧「CPU 面 → GPU 上传」；
+                // 关掉可对比（JIZURA_GPU_SCRATCH=0）
+                if (gpu && Environment.GetEnvironmentVariable("JIZURA_GPU_SCRATCH") is not ("0" or "off"))
+                {
+                    var host = GpuRasterHost.TryGet(out _);
+                    if (host != null) Renderer.SurfaceFactory = host.CreateGpuSurface;
+                }
+            }
 
             Sender = new SpoutSender();
             Sender.SetSenderName(name);
@@ -515,6 +724,7 @@ public sealed class SpoutOut : IDisposable
 
             // 渲染器先释放（其整帧缓存快照引用着场景面），再释放 Skia 面
             Renderer?.Dispose();
+            SceneGpu?.Dispose();
             Scene?.Dispose();
             foreach (var s in Graveyard) s.Dispose();
             Out?.Dispose();
