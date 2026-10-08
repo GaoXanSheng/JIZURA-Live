@@ -215,6 +215,10 @@ public partial class MainWindow : Window
                         // 判定窗 1200ms：镜像帧正常 ≤30ms 到；gen2 GC（堆 200MB+/LOH 60MB）的
                         // stop-the-world 停顿实测 0.8-4.3s 会让泵整体静默，窗口太短会把它误判成设备失效。
                         var starveMs = (Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency;
+                        // 重规划在途：新 plan 1–2 秒就到，此时**不做** CPU 兜底——兜底首帧是冷缓存
+                        // （实测 0.7–1.8 秒/帧且持引擎闸），会把重规划与 Spout 泵一起拖住形成回环。
+                        // 保持旧镜像帧，等新 plan 落地后泵自然续帧。
+                        if (starveMs >= 1200 && _preview.ReplanPending) continue;
                         if (_preview.IsPlaying && starveMs >= 1200)
                         {
                             // 兜底限速：CPU 渲染（15-25ms、~350KB/帧）与 Spout 泵抢同一把 EngineRenderGate，

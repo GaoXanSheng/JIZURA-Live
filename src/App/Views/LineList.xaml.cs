@@ -52,6 +52,9 @@ public partial class LineList : UserControl
     private bool _subscribed;
     private int _activeLine = -1;
     private readonly Dictionary<int, LineRowVm> _rowMap = new();
+    // plan 实例 → 行分组切分表（Rebuild 用；plan 换引用才重算）
+    private Plan? _cutsByLinePlan;
+    private Dictionary<int, List<Cut>>? _cutsByLine;
 
     // 行内编辑态（对位 LineRow.vue 的 editing；歌词重规划换行数据时草稿随 _editDraft 保留）
     private int _editingI = -1;
@@ -121,6 +124,19 @@ public partial class LineList : UserControl
         }
 
         var p = State.Project;
+        // 每行重建都要认自己那几段切分；原来逐行扫全量 plan.Cuts（109 行 × 125 段 = 13.6K 次
+        // 字典查找 + 字符串格式化）实测 Rebuild 96-136ms。按 plan 实例缓存一次行分组（性能专项）。
+        if (!ReferenceEquals(_cutsByLinePlan, plan))
+        {
+            var map = new Dictionary<int, List<Cut>>();
+            foreach (var c in plan.Cuts)
+            {
+                if (!map.TryGetValue(c.Line, out var lst)) map[c.Line] = lst = new List<Cut>();
+                lst.Add(c);
+            }
+            _cutsByLine = map;
+            _cutsByLinePlan = plan;
+        }
         var rows = new List<LineRowVm>(plan.Lines.Count);
         for (var i = 0; i < plan.Lines.Count; i++)
         {
@@ -153,9 +169,9 @@ public partial class LineList : UserControl
             var k = 0;
             var cutLayouts = ov?["cutLayouts"] as JObject;
             var cutTime = ov?["cutTime"] as JObject;
-            foreach (var c in plan.Cuts)
+            if (_cutsByLine!.TryGetValue(i, out var lineCuts))
+            foreach (var c in lineCuts)
             {
-                if (c.Line != i) continue;
                 if (!Reg.Layouts.TryGetValue(c.Layout, out var ld) || ld == null || ld.Special) continue;
                 var forced = cutLayouts?[k.ToString()]?.Value<string>();
                 var ctTok = cutTime?[k.ToString()];

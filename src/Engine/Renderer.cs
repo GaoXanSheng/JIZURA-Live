@@ -858,8 +858,16 @@ public sealed class Renderer : IDisposable
             }
 
             _warnThrottle[key] = (now, 0, now);
-            Log.Warn($"{kind} {name}: {e.Message}");
+            // 首现带堆栈（每站点一次）：错站点定位不用猜——例如 decor 内部 IndexOutOfRange 只看
+            // Message 根本不知道是哪一行（性能专项/可诊断性）
+            Log.Warn($"{kind} {name}: {e.GetType().Name}: {e.Message}\n{StackHead(e)}");
         }
+
+        /// <summary>异常堆栈里头几行引擎帧（定位钩子/站点异常用；同 JLayouts.FirstStack 口径）。</summary>
+        private static string StackHead(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
+            .Split('\n')
+            .Where(l => l.Contains("JizuraLive"))
+            .Select(l => l.Trim().Replace(Environment.NewLine, "")));
 
         private void DrawCut(Env env)
         {

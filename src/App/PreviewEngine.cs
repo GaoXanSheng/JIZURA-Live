@@ -542,6 +542,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             {
                 EngineBoot.InstallPacks();
                 plan = Planner.Plan(Project, _audio);
+                WarmFirstFrame(plan); // 同步重规划（MCP 写工具路径）同样预热首帧，见 WarmFirstFrame
             }
         }
         catch (Exception ex)
@@ -550,6 +551,49 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             return;
         }
         SetPlan(plan);
+    }
+
+    /// <summary>
+    /// 重规划在途标志（EditorState 置位、换 plan 时清除）：预览泵据此**抑制 CPU 兜底渲染**。
+    /// 原委（实测）：新 plan 的首帧是冷缓存（排版/字体/shader 一次成型），预览兜底渲染一帧要
+    /// 0.7–1.8 秒，且整段持有 EngineRenderGate——重规划期间逐帧兜底会把规划和 Spout 泵一起拖住，
+    /// 镜像断供更久 → 更多兜底，形成秒级冻结回环。新 plan 最多 1–2 秒就到，保持旧镜像帧即可。
+    /// </summary>
+    public volatile bool ReplanPending;
+
+    // 预热面（长边 480）：持久保留——引擎整帧缓存会持有它的快照，换面绝不能 Dispose
+    // （旧面进墓园；同 MainWindow._stageGraveyard，Dispose 会让缓存的快照悬空 → native AV）
+    private SKBitmap? _warmBmp;
+    private SKSurface? _warmSurf;
+    private readonly List<SKSurface> _warmGraveyard = new();
+    private readonly List<SKBitmap> _warmBmpGraveyard = new();
+    private int _warmW = -1, _warmH = -1;
+
+    /// <summary>
+    /// 新 plan 首帧预热（性能专项）：换 plan 后的第一帧是**冷缓存**——全部条目的排版重建、
+    /// 新字体装载、Skia shader 首次成型，实测预览侧首帧 0.7–1.8 秒。这些成本只依赖设计尺寸
+    /// （env.W/H = plan.W/H）与内容，**与渲染 scale 无关**，所以用低分辨率（长边 480）烘一帧就能
+    /// 覆盖绝大部分；像素栅格化那块留给真正的消费方（它本来就只占几毫秒）。
+    /// 调用方须持 EngineRenderGate（与渲染/规划串行，本方法内部也会取一次，Monitor 可重入）。
+    /// </summary>
+    public void WarmFirstFrame(Plan plan)
+    {
+        const double warmLong = 480.0;
+        var scale = Math.Min(1.0, warmLong / Math.Max(1, Math.Max(plan.W, plan.H)));
+        var w = Math.Max(2, (int)Math.Round(plan.W * scale));
+        var h = Math.Max(2, (int)Math.Round(plan.H * scale));
+        if (_warmSurf == null || _warmW != w || _warmH != h)
+        {
+            if (_warmSurf != null) _warmGraveyard.Add(_warmSurf); // 不 Dispose：见字段注释
+            if (_warmBmp != null) _warmBmpGraveyard.Add(_warmBmp);
+            _warmBmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
+            _warmSurf = SKSurface.Create(_warmBmp.Info, _warmBmp.GetPixels(), _warmBmp.RowBytes);
+            _warmW = w;
+            _warmH = h;
+        }
+        _warmSurf.Canvas.Clear(SKColors.Black);
+        lock (EngineRenderGate.Lock)
+            Renderer.Frame(_warmSurf.Canvas, plan, 0, new RenderOpts { Scale = scale, Stage = true });
     }
 
     /// <summary>

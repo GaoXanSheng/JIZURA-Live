@@ -211,20 +211,27 @@ public sealed class EditorState : IDisposable
         var snap = Snapshot();
         var snapMs = (Stopwatch.GetTimestamp() - tSnap) * 1000.0 / Stopwatch.Frequency;
         var audio = Audio; // 投入后不可变，直接传引用
+        Engine.ReplanPending = true; // 预览泵据此在重规划期间抑制 CPU 兜底（见 PreviewEngine.ReplanPending）
         Task.Run(() =>
         {
-            if (Volatile.Read(ref _replanSeq) != seq) return; // 已被更新请求取代，别开算
+            if (Volatile.Read(ref _replanSeq) != seq) return; // 已被更新请求取代，别开算（标志由新请求管）
             Plan plan;
             var tPlan = Stopwatch.GetTimestamp();
             try
             {
                 var proj = JsonConvert.DeserializeObject<Project>(snap) ?? Project;
                 lock (EngineRenderGate.Lock) // 与渲染/Spout 共享引擎静态缓存，规划必须串行
+                {
                     plan = Planner.Plan(proj, audio);
+                    // 预热新 plan 首帧（低分辨率一帧，见 PreviewEngine.WarmFirstFrame）：把冷缓存的
+                    // 0.7–1.8s 一次性开销从「换 plan 后的第一帧」挪到这里（后台、plan 还没生效）。
+                    Engine.WarmFirstFrame(plan);
+                }
             }
             catch (Exception ex)
             {
                 Log.Error("后台重规划失败（保留旧 plan）：" + ex.Message, ex);
+                if (Volatile.Read(ref _replanSeq) == seq) Engine.ReplanPending = false;
                 return;
             }
             var planMs = (Stopwatch.GetTimestamp() - tPlan) * 1000.0 / Stopwatch.Frequency;
@@ -233,13 +240,21 @@ public sealed class EditorState : IDisposable
             Application.Current?.Dispatcher.BeginInvoke(() =>
             {
                 if (Volatile.Read(ref _replanSeq) != seq) return;
-                // 分段计时（性能专项）：秒级冻结时一眼看出是「计算慢」还是「UI 线程被占住（派发等待）」
+                // 分段计时（性能专项）：秒级冻结时一眼看出是「计算慢」还是「UI 线程被占住（派发等待）」。
+                // 注意「计算」里含等 EngineRenderGate 的时间——闸被预览兜底/泵的渲染占着时会显著变大。
                 var waitMs = (Stopwatch.GetTimestamp() - tDispatch) * 1000.0 / Stopwatch.Frequency;
                 var tApply = Stopwatch.GetTimestamp();
-                Engine.SetPlan(plan);
+                try
+                {
+                    Engine.SetPlan(plan);
+                }
+                finally
+                {
+                    Engine.ReplanPending = false;
+                }
                 var applyMs = (Stopwatch.GetTimestamp() - tApply) * 1000.0 / Stopwatch.Frequency;
                 if (snapMs + planMs + waitMs + applyMs > 250)
-                    Log.Info($"[perf] 重规划 seq={seq}：快照 {snapMs:F0}ms / 计算 {planMs:F0}ms / 派发等待 {waitMs:F0}ms（UI 线程占用）/ 换plan {applyMs:F0}ms");
+                    Log.Info($"[perf] 重规划 seq={seq}：快照 {snapMs:F0}ms / 计算 {planMs:F0}ms（含等引擎闸）/ 派发等待 {waitMs:F0}ms / 换plan {applyMs:F0}ms");
             });
         });
     }
