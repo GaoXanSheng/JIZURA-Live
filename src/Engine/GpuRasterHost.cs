@@ -339,6 +339,9 @@ public sealed class GpuSurface : IDisposable
     /// <summary>纹理指针（交给 SpoutDX SendTexture）。</summary>
     public IntPtr TexturePointer { get; }
 
+    /// <summary>共享纹理本体（已在宿主设备上打开）。预览镜像读回用它做 CopyResource 源。</summary>
+    public Texture2D Texture => _texture;
+
     /// <summary>DXGI 格式（Spout 发送端格式须与之一致）。</summary>
     public int DxgiFormat { get; }
 

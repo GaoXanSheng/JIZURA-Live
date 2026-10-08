@@ -158,8 +158,9 @@ public sealed class Renderer : IDisposable
         /// <summary>纸纹/颗粒用确定性伪随机（JS 是 Math.random，纯噪声无位级对齐价值，定 seed 保可复现）。</summary>
         private readonly Random _rng = new(0x20260922);
 
-        /// <summary>性能剖析钩子（性能专项接线；null 时零开销）：(阶段名, 距上次报告 ms)。线程不安全。</summary>
-        public static Action<string, double>? StageHook;
+        /// <summary>性能剖析钩子（性能专项接线；null 时零开销）：(阶段名, 距上次报告 ms, 距上次报告的本线程分配字节)。
+        /// 分配量用 GC.GetAllocatedBytesForCurrentThread——渲染都在本线程发生，即阶段归因。线程不安全。</summary>
+        public static Action<string, double, long>? StageHook;
 
         public Renderer()
         {
@@ -197,12 +198,15 @@ public sealed class Renderer : IDisposable
             // 性能剖析（性能专项临时接线，null 时零开销）：StageHook != null 才计时。
             // (阶段名, 距上次报告的毫秒)；粒度：setup/bgpaper/bgdef/cutpass/camblur/morph/trans/hud/post/fcsave
             var _h0 = StageHook != null ? Stopwatch.GetTimestamp() : 0L;
+            var _a0 = StageHook != null ? GC.GetAllocatedBytesForCurrentThread() : 0L;
             void Stage(string name)
             {
                 if (StageHook == null) return;
                 var now = Stopwatch.GetTimestamp();
-                StageHook(name, (now - _h0) * 1000.0 / Stopwatch.Frequency);
+                var alloc = GC.GetAllocatedBytesForCurrentThread();
+                StageHook(name, (now - _h0) * 1000.0 / Stopwatch.Frequency, alloc - _a0);
                 _h0 = now;
+                _a0 = alloc;
             }
             var fx = plan.Fx;
             var st = plan.Style;
@@ -353,7 +357,7 @@ public sealed class Renderer : IDisposable
                 }
                 catch (Exception e)
                 {
-                    Log.Warn($"bg {mainCut.Bg}: {e.Message}");
+                    WarnThrottled("bg", mainCut.Bg, e);
                 }
                 ctx.Restore();
             }
@@ -822,6 +826,35 @@ public sealed class Renderer : IDisposable
 
         // ---------------- drawCut ----------------
 
+        /// <summary>
+        /// 包异常日志的按 (类, 名) 去重 + 5s 节流：坏包是**逐帧**抛（每帧数次），原样每帧写一条
+        /// 日志 = 渲染线程被日志 I/O 拖住（实测 knZoomDive 每秒 60+ 条）。首条立即记，窗口内
+        /// 只计 suppressed 数，窗口后带计数汇总一条。
+        /// </summary>
+        private readonly Dictionary<string, (long First, int Count, long LastLog)> _warnThrottle = new();
+
+        private void WarnThrottled(string kind, string name, Exception e)
+        {
+            var key = kind + " " + name;
+            var now = Environment.TickCount64;
+            if (_warnThrottle.TryGetValue(key, out var st))
+            {
+                if (now - st.LastLog < 5000)
+                {
+                    _warnThrottle[key] = (st.First, st.Count + 1, st.LastLog);
+                    return;
+                }
+
+                var more = st.Count > 0 ? $"（此前 5s 内另有 {st.Count} 次同类）" : "";
+                _warnThrottle[key] = (now, 0, now);
+                Log.Warn($"{kind} {name}: {e.Message}{more}");
+                return;
+            }
+
+            _warnThrottle[key] = (now, 0, now);
+            Log.Warn($"{kind} {name}: {e.Message}");
+        }
+
         private void DrawCut(Env env)
         {
             var cut = env.Cut!;
@@ -837,7 +870,7 @@ public sealed class Renderer : IDisposable
                         }
                         catch (Exception e)
                         {
-                            Log.Warn($"decor {d.Id}: {e.Message}");
+                            WarnThrottled("decor", d.Id, e);
                         }
             if (env.Layer == "back")
             {
@@ -851,7 +884,7 @@ public sealed class Renderer : IDisposable
             }
             catch (Exception e)
             {
-                Log.Warn($"layout {cut.Layout}: {e.Message}");
+                WarnThrottled("layout", cut.Layout, e);
             }
             var bb = env.Body;
             foreach (var d in decor)
@@ -864,7 +897,7 @@ public sealed class Renderer : IDisposable
                     }
                     catch (Exception e)
                     {
-                        Log.Warn($"decor {d.Id}: {e.Message}");
+                        WarnThrottled("decor", d.Id, e);
                     }
                 }
             env.Body = bb;
@@ -944,12 +977,15 @@ public sealed class Renderer : IDisposable
             var ch = Math.Max(1, ctx.DeviceClipBounds.Height);
             // 性能剖析（与 Frame.Stage 同款；fx: 前缀的子阶段）
             var _h0 = StageHook != null ? Stopwatch.GetTimestamp() : 0L;
+            var _a0 = StageHook != null ? GC.GetAllocatedBytesForCurrentThread() : 0L;
             void Stage(string name)
             {
                 if (StageHook == null) return;
                 var now = Stopwatch.GetTimestamp();
-                StageHook(name, (now - _h0) * 1000.0 / Stopwatch.Frequency);
+                var alloc = GC.GetAllocatedBytesForCurrentThread();
+                StageHook(name, (now - _h0) * 1000.0 / Stopwatch.Frequency, alloc - _a0);
                 _h0 = now;
+                _a0 = alloc;
             }
             var fx = plan.Fx;
             var st = plan.Style;
@@ -1001,7 +1037,7 @@ public sealed class Renderer : IDisposable
                     }
                     catch (Exception e)
                     {
-                        Log.Warn($"fx {ev.Type}: {e.Message}");
+                        WarnThrottled("fx", ev.Type, e);
                     }
                     finally
                     {
@@ -1173,6 +1209,8 @@ public sealed class Renderer : IDisposable
                     ctx.Save();
                     ctx.Scale((float)k, (float)k);
                     ctx.Translate((float)-ox, (float)-oy);
+                    // 注：曾试把覆盖矩形钳到「正好画布」以求省面积——实测无收益（Skia 绘制先按设备
+                    // 边界裁剪，多铺的 256px 边距本就不花着色成本），故保留原式（像素与行为都不动）。
                     RectFill(ctx, 0, 0, cw / k + 256, ch / k + 256,
                         SKColors.White.WithAlpha((byte)Math.Round(gr * 0.2 * 255)), SKBlendMode.Overlay, shader: shader);
                     RectFill(ctx, 0, 0, cw / k + 256, ch / k + 256,

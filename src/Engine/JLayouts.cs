@@ -19,7 +19,63 @@ namespace JizuraLive.Engine;
 public sealed class BBox
 {
     public double X0, Y0, X1, Y1, Cx, Cy;
-    public List<JObject> Boxes = new();
+
+    /// <summary>
+    /// 逐字盒（设计空间，中心 + 宽高）。性能专项：原实现逐字 new JObject（每字形 ~500B，
+    /// 实测 cutpass 阶段 270-410KB/帧、44MB/s 分配率的头号来源）——改为紧凑结构数组，
+    /// <see cref="Boxes"/> 首次读取时才物化成与旧口径完全一致的 JObject 列表（消费方零改动）。
+    /// </summary>
+    public readonly struct GlyphBox
+    {
+        public readonly double X, Y, W, H;
+
+        public GlyphBox(double x, double y, double w, double h)
+        {
+            X = x;
+            Y = y;
+            W = w;
+            H = h;
+        }
+    }
+
+    private List<GlyphBox>? _gb;
+    private List<JObject>? _jo;
+
+    /// <summary>逐字热路径追加（零 JObject 分配）。</summary>
+    public void AddGlyph(double x, double y, double w, double h) =>
+        (_gb ??= new List<GlyphBox>(8)).Add(new GlyphBox(x, y, w, h));
+
+    /// <summary>逐字盒数量（不必物化即可判断空非空）。</summary>
+    public int BoxCount => _gb?.Count ?? _jo?.Count ?? 0;
+
+    /// <summary>只读紧凑视图（消费方只读 x/y/w/h 时用，不物化 JObject）。</summary>
+    public IReadOnlyList<GlyphBox> Glyphs => _gb ?? (IReadOnlyList<GlyphBox>)Array.Empty<GlyphBox>();
+
+    /// <summary>紧凑逐字盒的搬运（layered 路径把内层 bbox 原样搬出，不触发 JObject 物化）。</summary>
+    public void TakeGlyphsFrom(BBox src)
+    {
+        if (src._gb is { Count: > 0 }) _gb = new List<GlyphBox>(src._gb);
+        else if (src._jo is { Count: > 0 }) _jo = src._jo; // 旧口径：直接共享同一列表引用
+    }
+
+    /// <summary>JObject 视图（旧字段口径；首读物化，之后缓存）。</summary>
+    public List<JObject> Boxes
+    {
+        get
+        {
+            if (_jo != null) return _jo;
+            _jo = new List<JObject>(_gb?.Count ?? 0);
+            if (_gb != null)
+                foreach (var b in _gb)
+                    _jo.Add(new JObject { ["x"] = b.X, ["y"] = b.Y, ["w"] = b.W, ["h"] = b.H });
+            return _jo;
+        }
+        set
+        {
+            _gb = null;
+            _jo = value;
+        }
+    }
 }
 
 /// <summary>J.measure 的返回 {w, h, lay}；lay 是 layoutText 的排版结果（03_text 移植后定型）。</summary>
@@ -1569,14 +1625,14 @@ public static class JLayouts
                         // ctx.shadowColor/shadowBlur → SKImageFilter.CreateDropShadow（Canvas2D blur 半径 ≈ 2σ）
                         env.Ctx.Save();
                         var blur = (float)(38 * env.Scale / 2);
-                        using var p = new SkiaSharp.SKPaint
+                        using var p = new SKPaint
                         {
                             IsAntialias = true,
                             IsStroke = true,
                             StrokeWidth = 3,
                             Color = Env.SkColor(sc.Str("fg")!, 0.9),
                         };
-                        p.ImageFilter = SkiaSharp.SKImageFilter.CreateDropShadow(0, 0, blur, blur, p.Color);
+                        p.ImageFilter = SKImageFilter.CreateDropShadow(0, 0, blur, blur, p.Color);
                         env.Ctx.DrawCircle((float)ex, (float)ey, (float)(R * 1.01 * outK), p);
                         env.Ctx.Restore();
                         env.Circle(ex, ey, R * outK, J.Mix(sc.Str("bg")!, "#000000", 0.35), null, 0, 1, false);
@@ -1703,15 +1759,15 @@ public static class JLayouts
                 if (env.Pass == "main")
                 {
                     // ctx.createLinearGradient(W/2 - ww/2, 0, W/2 + ww/2, 0) + addColorStop(0/1)
-                    using var shader = SkiaSharp.SKShader.CreateLinearGradient(
-                        new SkiaSharp.SKPoint((float)(W / 2 - ww / 2), 0), new SkiaSharp.SKPoint((float)(W / 2 + ww / 2), 0),
-                        new[] { Env.SkColor(fillC[0]), Env.SkColor(fillC[1]) }, new float[] { 0, 1 }, SkiaSharp.SKShaderTileMode.Clamp);
+                    using var shader = SKShader.CreateLinearGradient(
+                        new SKPoint((float)(W / 2 - ww / 2), 0), new SKPoint((float)(W / 2 + ww / 2), 0),
+                        new[] { Env.SkColor(fillC[0]), Env.SkColor(fillC[1]) }, new float[] { 0, 1 }, SKShaderTileMode.Clamp);
                     env.RRect(W / 2 - ww / 2, H / 2 - h / 2, ww, h, h / 2, shader, 1, true);
                 }
                 else env.RRect(W / 2 - ww / 2, H / 2 - h / 2, ww, h, h / 2, sc.Str("accent"), 1, true);
                 var tc = J.Lum(fillC[0]) > 0.55 ? "#111111" : "#FFFFFF";
                 env.Ctx.Save();
-                env.Ctx.ClipRect(new SkiaSharp.SKRect((float)(W / 2 - ww / 2), 0, (float)(W / 2 + ww / 2), H));
+                env.Ctx.ClipRect(new SKRect((float)(W / 2 - ww / 2), 0, (float)(W / 2 + ww / 2), H));
                 var bb = MainDraw(env, new JObject
                 {
                     ["text"] = text,

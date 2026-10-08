@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -735,17 +736,25 @@ public partial class TechTab : UserControl
                 try
                 {
                     if (job.Sig != _sig) continue; // 旧签名的队列任务作废
-                    var bmp = RenderOne(job);
+                    var t0 = Stopwatch.GetTimestamp();
+                    var bmp = RenderOne(job); // 全程持 EngineRenderGate
                     if (bmp == null) continue;
                     _bmp[$"{job.Sig}|{job.G}|{job.K}"] = bmp;
                     var img = job.Img;
                     Dispatcher.BeginInvoke(() => img.Background = new ImageBrush(bmp));
+                    // 预算制让路（性能专项）：缩略图每张都持引擎闸整帧，一键随机后可见组全量重渲就是
+                    // 一场秒级风暴——输出泵（本身占闸 ~55%）与预览被它饿死。播放中把本线程的占闸
+                    // 时间压到 ~1/10 壁钟（睡眠按实测成本自适，成本里含等闸时间，天然自限），暂停时全速补图。
+                    var costMs = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+                    var playing = App.MainInstance?.Preview.IsPlaying == true;
+                    Thread.Sleep(playing ? (int)Math.Clamp(costMs * 9, 20, 400) : 6);
+                    continue;
                 }
                 catch (Exception ex)
                 {
                     Log.Error($"[TechTab] 缩略图渲染失败：{job.G}.{job.K}", ex);
                 }
-                Thread.Sleep(6); // 预算制让路：单帧 10~40ms + 间歇 6ms，主预览（同一把 EngineRenderGate）不被饿死
+                Thread.Sleep(6);
             }
         }, ct);
     }

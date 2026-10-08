@@ -23,6 +23,7 @@
 //
 // 条目字段对位：ae（AE 导出模板名）LayoutDef 无对应属性，未注册（各条目行内注明）。
 
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -230,7 +231,7 @@ public static class P11Kinetic1
 
     // ---- 词时钟：每个词的入场时刻；靠近节拍就吸附到节拍上（JS L106-148） ----
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Cut, Dictionary<string, double[]>> ClockCache = new();
+    private static readonly ConditionalWeakTable<Cut, Dictionary<string, double[]>> ClockCache = new();
 
     private static double[] Onsets(Env env, int n, double frac = 0.5, double gap = 0.38, double t0 = 0)
     {
@@ -312,8 +313,8 @@ public static class P11Kinetic1
     {
         public double Size, W, H;
         public int L;
-        public FlowUnitPos[] Pos = System.Array.Empty<FlowUnitPos>();
-        public double[] Ws = System.Array.Empty<double>();
+        public FlowUnitPos[] Pos = Array.Empty<FlowUnitPos>();
+        public double[] Ws = Array.Empty<double>();
     }
 
     private static FlowLayout FlowUnits(string[] units, string font, double maxW, double maxH,
@@ -982,18 +983,33 @@ public static class P11Kinetic1
                     var fs = Math.Min(J.Clamp(u * 0.034, 14, 40),
                         JLayouts.FitSize(txt, body, W * 0.8, H * 0.1, new JObject { ["track"] = 0.18 }));
                     var capY = Math.Min(H * 0.92, bb.Y1 + fs * 1.6);
-                    env.DrawItem(new JObject
+                    // 底部字幕是全新 item（JS 字面量没有 charFn）——env 的函数值桥里还挂着上一个
+                    // MainDraw 的 hold 配方（knWordRide），不压掉就会按旧词的 Map 逐字取位 → 越界
+                    //（实测：每帧 System.IndexOutOfRangeException + 画面缺字幕）。按本包的 DrawCopy 惯例压桥。
+                    var savedCharFn = env.CharFn;
+                    var savedPieceFn = env.PieceFn;
+                    env.CharFn = null;
+                    env.PieceFn = null;
+                    try
                     {
-                        ["text"] = txt,
-                        ["font"] = body,
-                        ["size"] = fs,
-                        ["track"] = 0.18,
-                        ["x"] = cx,
-                        ["y"] = capY,
-                        ["color"] = sc.Str("sub"),
-                        ["alpha"] = aCap,
-                        ["ghost"] = false,
-                    });
+                        env.DrawItem(new JObject
+                        {
+                            ["text"] = txt,
+                            ["font"] = body,
+                            ["size"] = fs,
+                            ["track"] = 0.18,
+                            ["x"] = cx,
+                            ["y"] = capY,
+                            ["color"] = sc.Str("sub"),
+                            ["alpha"] = aCap,
+                            ["ghost"] = false,
+                        });
+                    }
+                    finally
+                    {
+                        env.CharFn = savedCharFn;
+                        env.PieceFn = savedPieceFn;
+                    }
                     var lw = Math.Max(1, u * 0.002);
                     var w = JLayouts.Measure(new JObject { ["text"] = txt, ["font"] = body, ["size"] = fs, ["track"] = 0.18 }).W * aCap;
                     env.Line(new[]
@@ -1651,8 +1667,8 @@ public static class P11Kinetic1
 
     private sealed class LoopPathData
     {
-        public double[][] Pts = System.Array.Empty<double[]>();
-        public double[] L = System.Array.Empty<double>();
+        public double[][] Pts = Array.Empty<double[]>();
+        public double[] L = Array.Empty<double>();
         public double Tot;
         public double ST;
     }

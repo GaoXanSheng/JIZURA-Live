@@ -107,10 +107,20 @@ public sealed class SpoutOut : IDisposable
     private volatile bool _running;
     private ISpoutSource? _source;
 
+    /// <summary>预览镜像（MainWindow 建、Spout 泵写；null = 不需要）。见 <see cref="JizuraLive.App.PreviewMirror"/>。</summary>
+    public PreviewMirror? Preview { get; set; }
+
+    // 镜像读回用的 staging 纹理（按尺寸/格式缓存复用；CopyResource 要求格式与共享纹理一致）
+    private Texture2D? _mirrorStaging;
+    private int _mirrorStgW = -1, _mirrorStgH = -1, _mirrorStgFmt = -1;
+
     public bool IsRunning => _running;
     public string? SenderName => _main?.Name;
     public string? LyricsSenderName => _lyrics?.Name;
     public bool LyricsRunning => _lyrics != null;
+
+    /// <summary>主通道正走 GPU 光栅（预览镜像可用；CPU 回退时预览必须走自己的 CPU 路径）。</summary>
+    public bool MirrorActive => _running && _gpu != null && _main is { Gpu: true };
 
     /// <summary>按当前设置重建（分辨率/帧率/名称/透明改动经 /api/app/render/restart 走这里生效）。</summary>
     public bool Restart(ISpoutSource source, SpoutOutOptions opt)
@@ -209,6 +219,10 @@ public sealed class SpoutOut : IDisposable
     {
         Stop();
         // 宿主设备是进程单例（预览/导出将来复用），不能在这里释放；只有 CPU 回退路径自建的设备归本实例
+        _mirrorStaging?.Dispose();
+        _mirrorStaging = null;
+        _mirrorStgW = _mirrorStgH = -1;
+        _mirrorStgFmt = -1;
         if (_ownsDevice)
         {
             _device?.Dispose();
@@ -266,16 +280,25 @@ public sealed class SpoutOut : IDisposable
             var src = _source;
             var now = Stopwatch.GetTimestamp();
 
-            // 每 5s 报一次帧数（掉出帧率时日志一眼可见；对齐旧 FrameIntervalStats 的窗口习惯）
+            // 每 5s 报一次帧数 + 耗时归因（掉出帧率时一眼定位：渲染 / 等 GPU 落盘 / 镜像读回 / 等引擎闸）
             if (ElapsedMs(lastStat, now) >= 5_000)
             {
                 var lyrStat = _lyrics;
                 Log.Info(
                     $"[SpoutOut] 近 5s：{main.Name} {main.Frames} 帧"
-                    + (lyrStat != null ? $"；{lyrStat.Name} {lyrStat.Frames} 帧" : ""));
+                    + (lyrStat != null ? $"；{lyrStat.Name} {lyrStat.Frames} 帧" : "")
+                    + $"，耗时 渲染{main.SumRender / Math.Max(1, main.Frames):F1}"
+                    + $"+同步{main.SumFlush / Math.Max(1, main.Frames):F1}"
+                    + $"+镜像{main.SumMirror / Math.Max(1, main.Frames):F1}"
+                    + $"+等闸{main.SumGate / Math.Max(1, main.Frames):F1}ms");
                 lastStat = now;
                 main.Frames = 0;
-                if (lyrStat != null) lyrStat.Frames = 0;
+                main.SumRender = main.SumFlush = main.SumMirror = main.SumGate = 0;
+                if (lyrStat != null)
+                {
+                    lyrStat.Frames = 0;
+                    lyrStat.SumRender = lyrStat.SumFlush = lyrStat.SumMirror = lyrStat.SumGate = 0;
+                }
             }
 
             try
@@ -399,13 +422,23 @@ public sealed class SpoutOut : IDisposable
 
     private void RenderChannelCore(Channel ch, ISpoutSource src)
     {
+        var t0 = Stopwatch.GetTimestamp();
         var t = ch.Subtitle ? PaintSubtitle(ch, src) : PaintEngine(ch, src);
+        var tRender = Stopwatch.GetTimestamp();
         if (t.Gpu != null)
         {
             // 共享纹理已由 Skia 画好：刷命令 + 等 GPU 落盘（落盘后 Spout 的设备才读得到），
             // 然后同设备直发——这一帧没有一个像素经过 CPU。
             _gpu!.FlushAndSync();
+            var tSync = Stopwatch.GetTimestamp();
             ch.Sender!.SendTexture(t.Gpu.TexturePointer);
+            // 预览镜像：主通道 GPU 帧读回一块给预览用（消费方是 WPF 预览泵；无请求零开销）
+            if (!ch.Subtitle && ReferenceEquals(ch, _main))
+                MirrorFrame(t);
+            var tMirror = Stopwatch.GetTimestamp();
+            ch.SumRender += Ms(t0, tRender);
+            ch.SumFlush += Ms(tRender, tSync);
+            ch.SumMirror += Ms(tSync, tMirror);
         }
         else
         {
@@ -416,21 +449,105 @@ public sealed class SpoutOut : IDisposable
         ch.Frames++;
     }
 
+    private static double Ms(long a, long b) => (b - a) * 1000.0 / Stopwatch.Frequency;
+
+    /// <summary>
+    /// 出图面 → 预览镜像：计划区经 D3D11 staging 读回 CPU 位图（1080p 实测 ~1.7ms；走 ANGLE 的
+    /// glReadPixels 同尺寸要 ~13.6ms）。必须在 FlushAndSync 之后调用（GPU 落盘后才读得到）；
+    /// staging 格式取共享纹理的 DXGI 格式——不一致时 CopyResource 会静默不拷。
+    /// </summary>
+    private void MirrorFrame(Target t)
+    {
+        var m = Preview;
+        if (m == null || !m.Wanted) return;
+        var back = m.BeginWrite(t.PlanW, t.PlanH);
+        if (back == null) return;
+        try
+        {
+            var src = t.Gpu!.Texture;
+            EnsureMirrorStaging(t.PlanW, t.PlanH, t.Gpu.DxgiFormat);
+            var ctx = _device!.ImmediateContext;
+            if (t.PlanX == 0 && t.PlanY == 0 && t.PlanW == t.Gpu.Width && t.PlanH == t.Gpu.Height)
+            {
+                ctx.CopyResource(src, _mirrorStaging!);
+            }
+            else
+            {
+                ctx.CopySubresourceRegion(src, 0,
+                    new ResourceRegion(t.PlanX, t.PlanY, 0, t.PlanX + t.PlanW, t.PlanY + t.PlanH, 1),
+                    _mirrorStaging!, 0);
+            }
+
+            var mapped = ctx.MapSubresource(_mirrorStaging!, 0, MapMode.Read, MapFlags.None);
+            try
+            {
+                var dst = back.GetPixels();
+                unsafe
+                {
+                    for (var row = 0; row < t.PlanH; row++)
+                        Buffer.MemoryCopy(
+                            (void*)(mapped.DataPointer + (long)row * mapped.RowPitch),
+                            (void*)(dst + (long)row * back.RowBytes),
+                            back.RowBytes, (long)t.PlanW * 4);
+                }
+            }
+            finally
+            {
+                ctx.UnmapSubresource(_mirrorStaging!, 0);
+            }
+
+            m.EndWrite();
+        }
+        catch (Exception ex)
+        {
+            // 镜像失败不该拖垮输出：记一次（节流）后继续，预览侧无新帧会自动回退 CPU 渲染
+            LogRenderError(ex);
+        }
+    }
+
+    private void EnsureMirrorStaging(int w, int h, int dxgiFormat)
+    {
+        if (_mirrorStaging != null && _mirrorStgW == w && _mirrorStgH == h && _mirrorStgFmt == dxgiFormat) return;
+        _mirrorStaging?.Dispose();
+        _mirrorStaging = new Texture2D(_device!, new Texture2DDescription
+        {
+            Width = w,
+            Height = h,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = (Format)dxgiFormat,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Staging,
+            BindFlags = BindFlags.None,
+            CpuAccessFlags = CpuAccessFlags.Read,
+            OptionFlags = ResourceOptionFlags.None,
+        });
+        _mirrorStgW = w;
+        _mirrorStgH = h;
+        _mirrorStgFmt = dxgiFormat;
+    }
+
     /// <summary>
     /// 一块已激活的绘制目标。Gpu 非空 = 画的就是要发给 Spout 的那块共享纹理（零拷贝）；
     /// 为空 = CPU 面（回退路径，画完 PeekPixels 上传）。
+    /// PlanX/Y/W/H = 计划区在出图面里的位置与尺寸（letterbox 时小于出图面；预览镜像按它读回）。
     /// </summary>
     private readonly struct Target
     {
         public readonly SKSurface Surface;
         public readonly SKCanvas Canvas;
         public readonly GpuSurface? Gpu;
+        public readonly int PlanX, PlanY, PlanW, PlanH;
 
-        public Target(SKSurface surface, GpuSurface? gpu)
+        public Target(SKSurface surface, GpuSurface? gpu, int planX, int planY, int planW, int planH)
         {
             Surface = surface;
             Canvas = surface.Canvas;
             Gpu = gpu;
+            PlanX = planX;
+            PlanY = planY;
+            PlanW = planW;
+            PlanH = planH;
         }
     }
 
@@ -441,11 +558,11 @@ public sealed class SpoutOut : IDisposable
         {
             var g = _gpu!.Rent(ch.W, ch.H);
             _gpu.Activate(g);
-            return new Target(g.Skia, g);
+            return new Target(g.Skia, g, 0, 0, ch.W, ch.H);
         }
 
         EnsureSurface(ref ch.Out, ch.W, ch.H);
-        return new Target(ch.Out!, null);
+        return new Target(ch.Out!, null, 0, 0, ch.W, ch.H);
     }
 
     /// <summary>
@@ -523,25 +640,33 @@ public sealed class SpoutOut : IDisposable
         if (rw == ch.W && rh == ch.H)
         {
             var only = AcquireOut(ch);
+            var g0 = Stopwatch.GetTimestamp();
             lock (EngineRenderGate.Lock)
+            {
+                ch.SumGate += Ms(g0, Stopwatch.GetTimestamp()); // 只记等闸（进锁耗时），不含帧内
                 ch.Renderer!.Frame(only.Canvas, plan, t, new RenderOpts
                 {
                     Scale = scale,
                     Transparent = ch.Transparent,
                     Stage = true,
                 });
+            }
             return only;
         }
 
         // 出边：先画场景面（plan 画幅），再居中 blit 到出图面（边带黑/透明）
         var scene = AcquireScene(ch, rw, rh);
+        var g1 = Stopwatch.GetTimestamp();
         lock (EngineRenderGate.Lock)
+        {
+            ch.SumGate += Ms(g1, Stopwatch.GetTimestamp());
             ch.Renderer!.Frame(scene.Canvas, plan, t, new RenderOpts
             {
                 Scale = scale,
                 Transparent = ch.Transparent,
                 Stage = true,
             });
+        }
 
         var tgt = AcquireOut(ch);
         var oc = tgt.Canvas;
@@ -563,7 +688,7 @@ public sealed class SpoutOut : IDisposable
             oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
         }
 
-        return tgt;
+        return new Target(tgt.Surface, tgt.Gpu, (ch.W - rw) / 2, (ch.H - rh) / 2, rw, rh);
     }
 
     /// <summary>像素 → D3D11 纹理 → Spout 发送（两条通道共用）。</summary>
@@ -673,6 +798,9 @@ public sealed class SpoutOut : IDisposable
         public int TexH;
         public long LastVersion = -1; // 泵的暂停态脏判断
         public long Frames;
+
+        // 5s 窗口耗时归因（渲染 / 等 GPU 落盘 / 镜像读回 / 等引擎闸）
+        public double SumRender, SumFlush, SumMirror, SumGate;
 
         public Channel(string name, int w, int h, int fps, bool transparent, bool subtitle, Device device, bool gpu)
         {

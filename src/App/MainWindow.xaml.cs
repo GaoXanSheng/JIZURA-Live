@@ -21,6 +21,10 @@ public partial class MainWindow : Window
     private readonly PreviewEngine _preview = new();
     private readonly SpoutOut _spout = new();
 
+    /// <summary>预览镜像：Spout 泵渲好的 GPU 帧经 D3D11 staging 读回供预览直接贴显示
+    /// （预览不再 CPU 重渲同一内容——两者共用引擎闸会让双方都掉出帧预算，见 PreviewMirror 注释）。</summary>
+    private readonly PreviewMirror _mirror = new();
+
     /// <summary>编辑器单一事实源（面板经 App.Main.State 访问）。</summary>
     public EditorState State { get; }
 
@@ -45,10 +49,16 @@ public partial class MainWindow : Window
     private SKSurface? _renderSurface;
     private int _renderW = -1, _renderH = -1;
     private readonly SKBitmap?[] _displayBuf = new SKBitmap[2];
+    private readonly SKSurface?[] _displaySurf = new SKSurface?[2]; // 镜像模式的缩放目标（与显示缓冲同底）
     private int _displayW = -1, _displayH = -1;
     private volatile int _displayFront;
     private readonly object _displayLock = new();
     private readonly List<SKSurface> _stageGraveyard = new();
+    // 镜像模式：已贴出的镜像帧序号与时间戳（判断「有没有新帧」；超时无新帧回退 CPU 渲染）
+    private long _mirrorSeq;
+    private long _mirrorAt;
+    private long _mirrorWarnAt;
+    private readonly SKPaint _mirrorPaint = new() { IsAntialias = false };
     // 舞台尺寸缓存（UI SizeChanged 写，渲染线程读——每帧 Dispatcher.Invoke 会白烧调度器）
     private volatile int _stageWpx, _stageHpx;
     // 脏检查：暂停且 t/plan 没变就跳过重绘（暂停态省 ~96% CPU）
@@ -74,6 +84,7 @@ public partial class MainWindow : Window
         StateChanged += (_, _) => UpdateMaxButton();
 
         var fps = Math.Clamp(settings.RenderFps, 12, 60);
+        timeBeginPeriod(1); // 泵节奏要 1ms 粒度（默认 15.6ms 会让「等下一拍」超睡 → 掉到 ~1/2 帧率）
         _renderRunning = true;
         _renderThread = new Thread(() => RenderPump(1000.0 / fps))
         {
@@ -178,6 +189,46 @@ public partial class MainWindow : Window
                 fit = Math.Min(fit, 1100.0 / Math.Max(plan.W, plan.H));
                 var rw = Math.Max(1, (int)Math.Round(plan.W * fit));
                 var rh = Math.Max(1, (int)Math.Round(plan.H * fit));
+                // 预览镜像：Spout 主通道走 GPU 时，画面直接消费它交付的帧——预览不再 CPU 重渲。
+                // （两者共用 EngineRenderGate 会串行超出帧预算：预览 ~15-25ms + Spout ~4.7ms > 16.7ms，
+                // 输出与预览同时掉到 22-45fps、UI 被挤到秒级抖动并灌 GC；镜像路径不消费引擎闸。）
+                var mirrorLive = _spout.IsRunning && _spout.MirrorActive;
+                _mirror.Request(mirrorLive ? rw : 0, mirrorLive ? rh : 0);
+                if (mirrorLive)
+                {
+                    var seq = _mirror.Seq;
+                    if (seq != _mirrorSeq)
+                    {
+                        _mirrorSeq = seq;
+                        _mirrorAt = Stopwatch.GetTimestamp();
+                        BlitMirrorToDisplay(rw, rh);
+                        Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
+                        continue;
+                    }
+
+                    // 首帧还没到（Spout 刚启动/重建）：CPU 路径继续画，不算停滞
+                    if (_mirrorSeq != 0)
+                    {
+                        // 暂停态静止画面本就该停更；播放中长时间无新帧 = Spout 泵停滞（设备失效等）
+                        // → 落到下面的 CPU 渲染兜底（并按 5s 节流留痕，绝不逐帧刷日志）。
+                        // 阈值取 800ms：镜像帧正常 ≤30ms 到，这个量级只可能是真停滞；阈值太小会
+                        // 在随机化/重规划这类瞬时争用里误判，CPU 渲染反而把闸占住形成抖动回环。
+                        if (_preview.IsPlaying
+                            && (Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency >= 800)
+                        {
+                            if ((Stopwatch.GetTimestamp() - _mirrorWarnAt) * 1000.0 / Stopwatch.Frequency > 5000)
+                            {
+                                _mirrorWarnAt = Stopwatch.GetTimestamp();
+                                Log.Warn($"[预览镜像] {(Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency:F0}ms 无新帧，"
+                                         + "本帧回退 CPU 渲染兜底（Spout 泵停滞或设备失效？）");
+                            }
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+                }
                 // 持久渲染面 P：尺寸不符才换（旧面进 graveyard 绝不 Dispose——整帧缓存持有快照）
                 if (_renderSurface == null || _renderW != rw || _renderH != rh)
                 {
@@ -193,16 +244,7 @@ public partial class MainWindow : Window
                 // P → 显示双缓冲 memcpy（~1-3ms），翻面后 UI 读新正面（与 memcpy 目标不同面）
                 lock (_displayLock)
                 {
-                    if (_displayBuf[0] == null || _displayW != rw || _displayH != rh)
-                    {
-                        _displayBuf[0]?.Dispose(); // 显示缓冲不喂引擎，可安全换新
-                        _displayBuf[1]?.Dispose();
-                        _displayBuf[0] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
-                        _displayBuf[1] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
-                        _displayW = rw;
-                        _displayH = rh;
-                        _displayFront = 0;
-                    }
+                    EnsureDisplayLocked(rw, rh);
                     var back = 1 - _displayFront;
                     var dst = _displayBuf[back]!;
                     unsafe
@@ -224,6 +266,51 @@ public partial class MainWindow : Window
     private void UpdateStatusText()
     {
         StatusChanged?.Invoke();
+    }
+
+    // ---------------- 镜像/显示缓冲帮手 ----------------
+
+    /// <summary>显示双缓冲与缩放面按尺寸就绪（调用方须已持 _displayLock；尺寸不符才重建）。</summary>
+    private void EnsureDisplayLocked(int rw, int rh)
+    {
+        if (_displayBuf[0] != null && _displayW == rw && _displayH == rh) return;
+        _displayBuf[0]?.Dispose(); // 显示缓冲不喂引擎，可安全换新
+        _displayBuf[1]?.Dispose();
+        foreach (var s in _displaySurf) s?.Dispose();
+        _displayBuf[0] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+        _displayBuf[1] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+        _displaySurf[0] = null;
+        _displaySurf[1] = null;
+        _displayW = rw;
+        _displayH = rh;
+        _displayFront = 0;
+    }
+
+    /// <summary>把镜像帧（Spout 主通道的计划区）缩放贴进显示背缓冲并翻面。
+    /// 缩放走后缓冲自己的面（持久复用），成本 ~4ms 且不占引擎闸——这正是镜像要省掉的那次「CPU 重渲」。</summary>
+    private void BlitMirrorToDisplay(int rw, int rh)
+    {
+        lock (_displayLock)
+        {
+            EnsureDisplayLocked(rw, rh);
+            var back = 1 - _displayFront;
+            var buf = _displayBuf[back]!;
+            var sx = _displaySurf[back] ??= SKSurface.Create(buf.Info, buf.GetPixels(), buf.RowBytes)
+                ?? throw new InvalidOperationException("镜像缩放面创建失败");
+            _mirror.WithLatest(src =>
+            {
+                var px = src.PeekPixels();
+                if (px == null) return;
+                using var img = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
+                var c = sx.Canvas;
+                c.SetMatrix(SKMatrix.Identity);
+                c.Clear(new SKColor(15, 15, 18)); // 透明底工程（SpoutTransparent）在预览里以深灰承托
+                c.DrawImage(img, new SKRect(0, 0, src.Width, src.Height), new SKRect(0, 0, rw, rh),
+                    new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), _mirrorPaint);
+                c.Flush();
+            });
+            _displayFront = back;
+        }
     }
 
     /// <summary>状态行变化（TopBar 订阅刷新）。</summary>
@@ -253,6 +340,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _spout.Preview = _mirror; // 预览镜像：Spout 泵写、预览泵读（见 PreviewMirror）
         _spout.Start(_preview, SpoutOpts());
         UpdateStatusText();
     }
@@ -274,6 +362,7 @@ public partial class MainWindow : Window
 
         Log.Info($"[MainWindow] 重启 Spout 管线：{_settings.SpoutName} {_settings.Width}×{_settings.Height}@{_settings.RenderFps}"
                  + ($", 字幕通道{(_settings.SpoutLyricsEnabled ? "开" : "关")}"));
+        _spout.Preview = _mirror;
         _spout.Restart(_preview, SpoutOpts());
         UpdateStatusText();
     }
@@ -423,6 +512,11 @@ public partial class MainWindow : Window
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
+    // 定时器精度：Windows 默认调度粒度 15.6ms，泵的「Thread.Sleep(1) 等下一拍」会超睡一整拍
+    // （实测：Spout 泵 60fps 目标掉到 32-43fps，随睡眠落点抽奖）。渲染泵活着期间把粒度提到 1ms。
+    [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint ms);
+    [DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint ms);
+
     private void BtnClose_Click(object sender, RoutedEventArgs e)
     {
         Close();
@@ -436,6 +530,7 @@ public partial class MainWindow : Window
         try { _renderThread?.Join(800); } catch { /* 线程已退出 */ }
         _uiProbe.Stop();
         // 停泵释放：发送端、D3D 纹理/设备；渲染器先于 Skia 面释放（缓存快照引用着面）
+        _spout.Preview = null;
         _spout.Dispose();
         _preview.Dispose();
         foreach (var s in _stageGraveyard) s.Dispose();
@@ -443,6 +538,8 @@ public partial class MainWindow : Window
         _renderBmp?.Dispose();
         _displayBuf[0]?.Dispose();
         _displayBuf[1]?.Dispose();
+        foreach (var s in _displaySurf) s?.Dispose();
+        timeEndPeriod(1);
         base.OnClosed(e);
     }
 }

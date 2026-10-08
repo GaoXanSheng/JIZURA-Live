@@ -520,8 +520,8 @@ public static class JText
             Y1 = bbInner.Y1 + Num(it, "y"),
             Cx = Num(it, "x"),
             Cy = Num(it, "y"),
-            Boxes = bbInner.Boxes
         };
+        bb.TakeGlyphsFrom(bbInner); // 紧凑搬运，不物化 JObject（消费方读 Boxes 时才物化）
         return true;
     }
 
@@ -704,7 +704,9 @@ public static class JText
             strokeDashArr = sd.Select(t => (float)((double?)t ?? 0)).ToArray();
         }
         var stroke = Num(it, "stroke");
-        var boxes = new List<JObject>();
+        // 逐字盒走紧凑结构（AddGlyph）：每帧每字一个 JObject 曾是最大单点分配（cutpass ~400KB/帧）
+        var bbOut = new BBox { Cx = Num(it, "x"), Cy = Num(it, "y") };
+        double bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
         var escale = env.Scale != 0 ? env.Scale : 1;
         var pxScale = size * Math.Max(sx, sy) * escale;
         var itemBlur = Num(it, "blur") > 0.4 && o.AllowFilter ? Num(it, "blur") * escale : 0.0;
@@ -733,13 +735,13 @@ public static class JText
             var csy = sy * cs * TrueOr1(c?.Sy);
             var gcol = !ghostPass && !string.IsNullOrEmpty(c?.Color) ? c!.Color! : col;
             // bbox 与 layered 路径同口径：计入 per-glyph 缩放 c.sx/c.sy，否则压扁/拉伸入场时 decor 锚定偏小
-            boxes.Add(new JObject
-            {
-                ["x"] = gx,
-                ["y"] = gy,
-                ["w"] = g.W * sx * cs / (g.Fs != 0 ? g.Fs : 1) * AbsOr1(c?.Sx),
-                ["h"] = g.H * sy * cs / (g.Fs != 0 ? g.Fs : 1) * AbsOr1(c?.Sy)
-            });
+            var bw = g.W * sx * cs / (g.Fs != 0 ? g.Fs : 1) * AbsOr1(c?.Sx);
+            var bh = g.H * sy * cs / (g.Fs != 0 ? g.Fs : 1) * AbsOr1(c?.Sy);
+            bbOut.AddGlyph(gx, gy, bw, bh);
+            bx0 = Math.Min(bx0, gx - bw / 2);
+            bx1 = Math.Max(bx1, gx + bw / 2);
+            by0 = Math.Min(by0, gy - bh / 2);
+            by1 = Math.Max(by1, gy + bh / 2);
             // モーフ：记录每个字形的落点（设备空间）/ morph 绘制期间本处先不出字形
             if (o.GlyphLog != null && !ghostPass)
             {
@@ -865,25 +867,12 @@ public static class JText
         ctx.Restore();
         gradShader?.Dispose();
         // 设计空间 bbox（旋转只算平移）
-        if (boxes.Count == 0) return null;
-        double bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
-        foreach (var b in boxes)
-        {
-            bx0 = Math.Min(bx0, (double)b["x"]! - (double)b["w"]! / 2);
-            bx1 = Math.Max(bx1, (double)b["x"]! + (double)b["w"]! / 2);
-            by0 = Math.Min(by0, (double)b["y"]! - (double)b["h"]! / 2);
-            by1 = Math.Max(by1, (double)b["y"]! + (double)b["h"]! / 2);
-        }
-        return new BBox
-        {
-            X0 = Num(it, "x") + bx0,
-            Y0 = Num(it, "y") + by0,
-            X1 = Num(it, "x") + bx1,
-            Y1 = Num(it, "y") + by1,
-            Boxes = boxes,
-            Cx = Num(it, "x"),
-            Cy = Num(it, "y")
-        };
+        if (bbOut.BoxCount == 0) return null;
+        bbOut.X0 = Num(it, "x") + bx0;
+        bbOut.Y0 = Num(it, "y") + by0;
+        bbOut.X1 = Num(it, "x") + bx1;
+        bbOut.Y1 = Num(it, "y") + by1;
+        return bbOut;
     }
 
     private static readonly Dictionary<string, SKBlendMode> BlendMap = new()
@@ -1317,7 +1306,7 @@ public static class JText
             var res = Bucket(px);
             var key = fontKey + "|" + ch + "|" + res;
             if (Map[key] is GlyphInfo g) return g;
-            g = JText.Decompose(fontKey, ch, res);
+            g = Decompose(fontKey, ch, res);
             Map[key] = g;
             if (Map.Count > 1800) Evict();
             return g;
@@ -1595,7 +1584,7 @@ public static class JText
     /// <summary>J.fragments 的碎片：poly 局部 em 坐标、绕 (cx, cy)。</summary>
     public sealed class PolyFragment
     {
-        public double[][] Poly = System.Array.Empty<double[]>();
+        public double[][] Poly = Array.Empty<double[]>();
         public double Cx, Cy;
     }
 
@@ -1700,7 +1689,7 @@ public static class JText
     /// 性能：返回实例缓存复用（每帧每 item 新建会把 SKFont 灌满 finalizer 队列），调用方不得 Dispose。
     /// 只缓存 wg==0（weightGrow 的字重连续变化，键基数无界）；用户字体重登记时经 OnFontsChanged 清表。
     /// Hashtable 与 Metrics/Glyphs 同款：读免锁（预览泵/导出可能双线程并发渲染）。</summary>
-    private static readonly System.Collections.Hashtable FontJobs = new();
+    private static readonly Hashtable FontJobs = new();
 
     /// <summary>字体目录变化（AddUserFont/EnsureFonts）后清 SKFont 缓存；typeface 表（FaceJobs）同语义不动。</summary>
     internal static void OnFontsChanged() => FontJobs.Clear();
