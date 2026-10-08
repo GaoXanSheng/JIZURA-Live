@@ -150,3 +150,53 @@ public class ExportSmokeTests
         finally { Cleanup(outp); }
     }
 }
+
+/// <summary>字幕烤入冒烟：KRC 逐字 → 导出帧底部出现字幕亮像素。</summary>
+public class SubtitleBakeTests
+{
+    [Fact]
+    public void 烤字幕导出_帧内出现字幕像素()
+    {
+        EngineBoot.InstallPacks();
+        var p = Project.NewDefault();
+        p.Lyrics = "夜明けの色を覚えてる";
+        p.Res = 360;
+        p.Fps = 12;
+        p.Timing.Snap = false;
+        var plan = Planner.Plan(p, null);
+
+        var lines = new List<JizuraLive.App.Cloud.KrcLine>
+        {
+            new(0, 5000, "字幕测试ABC",
+                new[] { new JizuraLive.App.Cloud.KrcWord(0, 2000, "字幕测试"), new JizuraLive.App.Cloud.KrcWord(2000, 3000, "ABC") }),
+        };
+        var outp = Path.Combine(Path.GetTempPath(), $"jizura-sub-{Guid.NewGuid():N}.zip");
+        try
+        {
+            ExportJob.Run(new ExportRequest
+            {
+                Project = p, Plan = plan, OutputPath = outp,
+                Spec = new ExportSpecDef("png", Transparent: false, Layer: null, NoHud: false,
+                    Layers: false, CustomDrawOnly: false, BakeSubs: true, EmbedAudio: false, KeyBg: "off"),
+                SubtitleLines = lines,
+                SubtitleCfg = new JizuraLive.Engine.SubtitleConfig { Content = SubContent.Both },
+            }, null, CancellationToken.None);
+
+            using var zip = System.IO.Compression.ZipFile.OpenRead(outp);
+            var first = zip.Entries.OrderBy(e => e.FullName).First();
+            using var es = first.Open();
+            using var img = SkiaSharp.SKImage.FromEncodedData(es);
+            using var bmp = SkiaSharp.SKBitmap.FromImage(img);
+            // 底部 25% 区域统计近白像素（字幕主色 #ffffff + 描边黑；暗底工程对比明显）
+            var bright = 0;
+            for (var y = (int)(bmp.Height * 0.72); y < bmp.Height; y++)
+                for (var x = 0; x < bmp.Width; x++)
+                {
+                    var c = bmp.GetPixel(x, y);
+                    if (c.Red > 200 && c.Green > 200 && c.Blue > 200) bright++;
+                }
+            Assert.True(bright > 50, $"底部近白像素 {bright}，字幕未烤入");
+        }
+        finally { File.Delete(outp); }
+    }
+}

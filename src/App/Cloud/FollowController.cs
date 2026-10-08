@@ -503,6 +503,16 @@ public sealed class FollowController : IDisposable
             }
 
             var (lrc, _) = SongLoader.ConvertLyric(source, ly);
+            // KRC 逐字 → 字幕层数据（有则填，无则清）
+            if (source == "kugou")
+            {
+                try { _state.SetSubtitles(Krc.Parse(ly.Content)); }
+                catch { _state.SetSubtitles(null); }
+            }
+            else
+            {
+                _state.SetSubtitles(null);
+            }
             Fmt = source == "netease" ? "ne" : ly.Fmt == "krc" ? "krc" : "lrc";
             // 匹配结果带歌手：同名歌多版本（原版/翻唱/DJ版），只看歌名分不清词是谁的
             MatchedAs = (source == "kugou" ? "酷狗" : "网易云") + "·" + song.Name +

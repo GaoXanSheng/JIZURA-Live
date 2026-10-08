@@ -111,6 +111,16 @@ public static class SongLoader
             if (ly.Ok && !string.IsNullOrEmpty(ly.Content))
             {
                 (lrc, lyricNote) = ConvertLyric(source, ly);
+                // KRC 逐字 → 字幕层数据（导出烤字幕消费）；网易 LRC 无逐字 → 清空避免残留
+                if (source == "kugou")
+                {
+                    try { state.SetSubtitles(Krc.Parse(ly.Content)); }
+                    catch (Exception ex) { Log.Debug("[Cloud] KRC 逐字解析失败（字幕层跳过）：" + ex.Message); }
+                }
+                else
+                {
+                    state.SetSubtitles(null);
+                }
             }
         }
         catch (CloudException)

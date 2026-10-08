@@ -29,6 +29,19 @@ public sealed class EditorState : IDisposable
     /// <summary>音频投入/卸载。</summary>
     public event Action? AudioChanged;
 
+    /// <summary>云字幕（KRC 逐字）：云音乐装载 / 跟随匹配时写入；导出烤字幕消费。</summary>
+    public List<Cloud.KrcLine>? Subtitles { get; private set; }
+
+    /// <summary>字幕层配置（字号/颜色/双语/位置等，UI 可调）。
+    /// 模块默认 Content=Off（对位 TS）；编辑器侧默认双语——有字幕数据即出画面。</summary>
+    public SubtitleConfig SubtitleCfg { get; } = new() { Content = SubContent.Both };
+
+    public void SetSubtitles(List<Cloud.KrcLine>? lines)
+    {
+        Subtitles = lines is { Count: > 0 } ? lines : null;
+        NotifyAsync(StateChanged);
+    }
+
     /// <summary>撤销重做栈变化（按钮可用态）。</summary>
     public event Action? HistoryChanged;
 

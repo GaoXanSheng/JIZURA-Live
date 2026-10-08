@@ -141,8 +141,9 @@ public partial class OutTab : UserControl
             return;
         }
 
-        // 字幕系统（M6）未接入前 SubOn 恒 false：勾了字幕会被 BuildSpec 以清晰文案拦下
-        var res = ExportSpec.BuildSpec(cfg, new SpecCtx(SubOn: false, AudioLoaded: state.AudioPath != null));
+        // 字幕系统：云音乐装载/跟随匹配写入 KRC 逐字后可用（烤字幕走 ExportJob 的文字层）
+        var res = ExportSpec.BuildSpec(cfg, new SpecCtx(
+            SubOn: state.Subtitles is { Count: > 0 }, AudioLoaded: state.AudioPath != null));
         if (!res.Ok)
         {
             MessageBox.Show(owner, res.Error, "导出", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -169,6 +170,8 @@ public partial class OutTab : UserControl
             OutputPath = dlg.FileName,
             AudioPath = state.AudioPath,
             WavToo = res.WavToo,
+            SubtitleLines = state.Subtitles,
+            SubtitleCfg = state.SubtitleCfg,
         };
 
         var win = new ExportProgressWindow(req) { Owner = owner };

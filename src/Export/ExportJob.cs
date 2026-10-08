@@ -1,5 +1,6 @@
 using System.IO;
 using JizuraLive.App; // EngineRenderGate（渲染串行闸，与预览/Spout 共享）
+using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using SkiaSharp;
@@ -19,6 +20,10 @@ public sealed class ExportRequest
 
     /// <summary>另存同名 _audio.wav（非 MP4 格式勾了歌曲时为 true）。</summary>
     public bool WavToo { get; init; }
+
+    /// <summary>云字幕（KRC 逐字）：Spec.BakeSubs 时逐帧烤入。</summary>
+    public List<JizuraLive.App.Cloud.KrcLine>? SubtitleLines { get; init; }
+    public SubtitleConfig? SubtitleCfg { get; init; }
 }
 
 /// <summary>
@@ -30,8 +35,8 @@ public static class ExportJob
 {
     public static void Run(ExportRequest req, IProgress<(double Pct, string Stage)>? progress, CancellationToken ct)
     {
-        if (req.Spec.BakeSubs || req.Spec.CustomDrawOnly)
-            throw new NotSupportedException("字幕烤入/纯字幕层导出在 M6 接入字幕系统后可用");
+        if (req.Spec.CustomDrawOnly)
+            throw new NotSupportedException("纯字幕层（无渲染画面）导出待接线：请勾选「渲染画面」+「字幕」用烤入");
 
         switch (req.Spec.Kind)
         {
@@ -91,6 +96,10 @@ public static class ExportJob
             }
         }
 
+        // 字幕烤入：逐帧在引擎内容之上叠画（KRC 逐字）
+        var subLayer = req.Spec.BakeSubs && req.SubtitleLines is { Count: > 0 }
+            ? new SubtitleLayer(req.SubtitleLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both })
+            : null;
         try
         {
             using var enc = new FFmpegEncoder(BuildVideoArgs(req, fps, transparent, tmpWav), frames);
@@ -100,8 +109,19 @@ public static class ExportJob
             {
                 ct.ThrowIfCancellationRequested();
                 var t = i / (double)fps;
+                if (subLayer != null)
+                {
+                    // 先清底层：引擎透明模式不铺满全帧，防上一帧字幕透出（引擎缓存 miss 路径自带全帧覆盖）
+                    surface.Canvas.SetMatrix(SKMatrix.Identity);
+                    surface.Canvas.Clear(transparent ? new SKColor(0, 0, 0, 0) : SKColors.Black);
+                }
                 lock (EngineRenderGate.Lock)
                     renderer.Frame(surface.Canvas, plan, t, opts);
+                if (subLayer != null)
+                {
+                    surface.Canvas.SetMatrix(SKMatrix.Identity); // 字幕按设备像素绘制
+                    subLayer.Render(surface.Canvas, t, (int)ow, (int)oh);
+                }
                 unsafe
                 {
                     // 帧字节数必须按【输出尺寸】算（oh）：用设计高度 plan.H 会在缩小导出时
@@ -173,6 +193,10 @@ public static class ExportJob
         var layered = req.Spec.Layers;
 
         using var zip = new PngSequenceWriter(req.OutputPath, layered);
+        // 字幕烤入（仅平铺模式；分层模式的 back/front 语义由后期软件合成，不烤）
+        var subLayer = !layered && req.Spec.BakeSubs && req.SubtitleLines is { Count: > 0 }
+            ? new SubtitleLayer(req.SubtitleLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both })
+            : null;
 
         // 两股流各自常驻一面（back/front 渲染互不污染；单流内保持引擎跨帧语义）
         var (ow, oh, scale) = OutputDims(req.Project, plan);
@@ -212,6 +236,11 @@ public static class ExportJob
                     lock (EngineRenderGate.Lock)
                         backRend.Frame(backSurf.Canvas, plan, t,
                             new RenderOpts { Scale = scale, Transparent = req.Spec.Transparent, NoHud = req.Spec.NoHud });
+                    if (subLayer != null)
+                    {
+                        backSurf.Canvas.SetMatrix(SKMatrix.Identity);
+                        subLayer.Render(backSurf.Canvas, t, ow, oh);
+                    }
                     zip.AddFrame(null, i + 1, backBmp);
                 }
                 if ((i & 3) == 0) progress?.Report((i / (double)frames * 0.98, $"写帧 {i + 1}/{frames}"));
