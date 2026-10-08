@@ -42,6 +42,29 @@ VkSpike 已把设备创建打通，但其后还有 VkImage 导入 Skia（`GRBack
 
 **排除 C（GPU 渲染→回读→CPU 上传 D3D11）**：每帧 GPU→CPU→GPU 往返，直接抵消 GPU 收益，不满足目标。
 
+## 二·实测更正（POC 首轮，2026-10-08）
+
+POC 工具 `tools/prof/AngleSpike` 已跑通前两步：
+- **CPU 基线 47–50 ms/帧**（1920×1080，本工程 6 cuts）
+- **ANGLE 在进程内初始化成功**：借用 Adobe CEPHtmlEngine 的 libEGL/libGLESv2（ANGLE 2.1.17747，vendor=Google Inc. (NVIDIA)）
+- **该构建为 CEF 风格**：无 `EGL_ANGLE_platform_angle` / `EGL_ANGLE_device_d3d`
+  （故 eglQueryDeviceAttribEXT 取 ANGLE 设备的路不通），**但零拷贝扩展完整**：
+  `EGL_ANGLE_image_d3d11_texture`（libEGL 实测存在）+ `glEGLImageTargetTexture2DOES`（libGLESv2 实测存在），
+  另有 `EGL_ANGLE_d3d_texture_client_buffer` / `EGL_ANGLE_surface_d3d_texture_2d_share_handle` / `EGL_KHR_surfaceless_context`
+
+**架构修正为 A'（自建纹理 → EGLImage → FBO，无需取 ANGLE 设备）**：
+```
+1. SharpDX 自建 D3D11 设备 + B8G8R8A8 共享纹理（GetSharedHandle）
+2. eglCreateImageKHR(dpy, NO_CONTEXT, EGL_D3D11_TEXTURE_ANGLE(0x3484),
+     buffer = 纹理指针或共享句柄；跨设备用 EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE(0x3487) 属性)
+3. glGenTextures + glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, img) → glGenFramebuffers + 挂纹理
+4. Skia: GRBackendRenderTarget(W,H,0,0, GRGlFramebufferInfo(fbo, 0x8058)) →
+     SKSurface.Create(gr, rt, TopLeft, Rgba8888)   ← API 已由 TypeDump 实测确认
+5. Renderer.Frame 全部 GPU 侧 → SpoutDX.SendTexture(第 1 步的纹理) 零拷贝
+```
+剩余工作量收缩到：eglCreateImageKHR/GL 函数 3 个 P/Invoke + 常量核对（ANGLE eglext_angle.h），
+估 0.5–1 天完成像素门 + Spout 回环验收。
+
 ## 三、POC（先于全面开发，1–2 天）
 
 1. 借 Adobe ANGLE DLL 拷入 dev-only 目录（**不提交仓库**；分发方案见风险表）
