@@ -439,36 +439,6 @@ public static class P11ExitB
         return path;
     }
 
-    /// <summary>点在多边形内（射线法）。</summary>
-    private static bool InPoly(double[][] poly, double x, double y)
-    {
-        var inside = false;
-        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
-        {
-            var xi = poly[i][0];
-            var yi = poly[i][1];
-            var xj = poly[j][0];
-            var yj = poly[j][1];
-            if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
-        }
-        return inside;
-    }
-
-    /// <summary>非矩形 clipFn 的字形粒度可见性近似：keepDesign(设计空间字形中心) → 是否保留。</summary>
-    private static void ClipGlyphsDesign(Env env, JObject it, Func<double, double, bool> keepDesign)
-    {
-        var sx = N1(it, "sx");
-        var sy = N1(it, "sy");
-        Glyphs(env, (_, g, _) =>
-        {
-            if (g == null) return null;
-            var lx = (D(g, "x") + D(g, "vx")) * sx;
-            var ly = (D(g, "y") + D(g, "vy")) * sy;
-            var p = ToD(it, lx, ly);
-            return keepDesign(p[0], p[1]) ? null : new CharXf { Hide = true };
-        });
-    }
-
     /// <summary>有没有字形吃到逐字 blur（字形 filter 上再叠 shadow 开销极大）。</summary>
     private static bool GlyphBlurOn(Env env, JObject it)
     {
@@ -516,10 +486,11 @@ public static class P11ExitB
         ClipY = r.ClipY,
     };
 
-    // env.beat 对象（len/since/index）C# Env 未携带；统一走 JS 无 beat 的 ltb 回退式（见文件头注 5）
-    private static double BeatLen(Env env, double fb) => fb;
-    private static double BeatSince(Env env, double fb) => ((env.Ltb % fb) + fb) % fb;
-    private static int BeatIdx(Env env, double fb) => (int)Math.Floor(env.Ltb / fb);
+    // env.beat {since,len,index} 由渲染器每帧挂 Env（BeatHas/BeatSince/BeatLen/BeatIndex，09_render beatAt）；
+    // BeatHas=false（plan 无节拍）回 JS 的 ltb 回退式（JS beatLen/beatSince/beatIdx 对位）
+    private static double BeatLen(Env env, double fb) => env.BeatHas && env.BeatLen > 0 ? env.BeatLen : fb;
+    private static double BeatSince(Env env, double fb) => env.BeatHas ? env.BeatSince : ((env.Ltb % fb) + fb) % fb;
+    private static int BeatIdx(Env env, double fb) => env.BeatHas ? env.BeatIndex : (int)Math.Floor(env.Ltb / fb);
 
     private static bool DarkBg(Env env) => J.Lum(ScK(env, "bg") ?? "#ffffff") < 0.5;
 
@@ -655,8 +626,8 @@ public static class P11ExitB
             var back = MixC(MixC(c0, bg, 0.5), ScK(env, "accent") ?? "#ffffff", 0.18);
             if (f < 1)
             {
-                // TODO(11p 管线钩子)：clipFn 半平面 → 字形设计空间中心近似
-                ClipGlyphsDesign(env, it, (x, y) => x * dx + y * dy >= s);
+                // JS clipFn = halfPlane(ctx, dx, dy, s, 1)（保留侧半平面）→ Env.ClipFn 桥
+                env.ClipFn = (_, _) => HalfPlanePath(dx, dy, s);
             }
             else it["alpha"] = 0.0;
             // JS chainPost（撕起的背面 flap）——就地执行
@@ -866,13 +837,9 @@ public static class P11ExitB
             it["y"] = ha.Y;
             it["rot"] = ha.Rot;
             it["alpha"] = NN(it, "alpha", 1) * FadeEnd(p, 0.82);
-            // TODO(11p 管线钩子)：clipFn 是 polyA（item 空间多边形）——按字形局部中心判定
+            // JS clipFn = polyL(ctx, it3, polyA)（item 空间多边形、按 drawFx 时点的 item 位姿换算）→ Env.ClipFn 桥
             var pa = polyA;
-            Glyphs(env, (_, g, _) =>
-            {
-                if (g == null) return null;
-                return InPoly(pa, GCx(g, it), GCy(g, it)) ? null : new CharXf { Hide = true };
-            });
+            env.ClipFn = (_, it3) => PolyPath(pa, N0(it3, "x"), N0(it3, "y"), N0(it3, "rot"));
             // JS chainPost：drawFx 画 polyB 半（B 位姿）——就地执行
             var pb = polyB;
             using var bPath = PolyPath(pb, hb.X, hb.Y, hb.Rot);
@@ -980,14 +947,8 @@ public static class P11ExitB
                 path.Close();
                 return path;
             }
-            // TODO(11p 管线钩子)：clipFn 是火线远侧区域——按字形中心 u ≥ 火线位置近似
-            var dLoc = d;
-            ClipGlyphsDesign(env, it, (x, y) =>
-            {
-                var gu = x * dLoc[0] + y * dLoc[1];
-                var gw = x * tn[0] + y * tn[1];
-                return gu >= EdgeU(gw);
-            });
+            // JS clipFn = path(ctx, 0, null)（火线远侧直到 far 的区域）→ Env.ClipFn 桥
+            env.ClipFn = (_, _) => BurnPath(0, null);
             var heat = MixC(c0, acc, 0.85);
             var soot = DarkBg(env) ? MixC(bg, acc, 0.25) : MixC(bg, "#000000", 0.45);
             var lw = Math.Max(1.5, uu * 0.03);
@@ -1130,16 +1091,22 @@ public static class P11ExitB
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：clipFn 是隔行条 + 未扫区——按字形中心 y 近似
+            // JS clipFn：隔行扫描条 + 未扫区（x 从 bb.x0-sz*3 起、宽 bb.w+sz*6）→ Env.ClipFn 桥
             var rectsLoc = rects;
             var bbY1 = bb.Y1;
-            ClipGlyphsDesign(env, it, (x, y) =>
+            var bbX0 = bb.X0;
+            var bbW = bb.W;
+            env.ClipFn = (_, _) =>
             {
+                var path = new SKPath();
+                var rx = bbX0 - sz * 3;
+                var rw = bbW + sz * 6;
                 foreach (var r in rectsLoc)
-                    if (y >= r[0] && y <= r[0] + r[1])
-                        return true;
-                return y >= yU && y <= bbY1;
-            });
+                    path.AddRect(new SKRect((float)rx, (float)r[0], (float)(rx + rw), (float)(r[0] + r[1])));
+                if (yU < bbY1)
+                    path.AddRect(new SKRect((float)rx, (float)yU, (float)(rx + rw), (float)(bbY1 + 1)));
+                return path;
+            };
             const int gN = 7;
             var gh = (yU - bb.Y0) / gN;
             var bands = new JArray();
@@ -1222,19 +1189,26 @@ public static class P11ExitB
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：clipFn 是斜条纹并集——按字形中心在 (a,l) 基上的投影近似
+            // JS clipFn：斜条纹四边形并集（pt(a,l) = Ad*a + Ld*l）→ Env.ClipFn 桥
             var remLoc = rem;
-            var adLoc = ad;
-            var ldLoc = ld;
-            ClipGlyphsDesign(env, it, (x, y) =>
+            env.ClipFn = (_, _) =>
             {
-                var aa = x * adLoc[0] + y * adLoc[1];
-                var ll = x * ldLoc[0] + y * ldLoc[1];
+                double[] Pt(double a2, double l2) => new[] { ad[0] * a2 + ld[0] * l2, ad[1] * a2 + ld[1] * l2 };
+                var path = new SKPath();
                 foreach (var r in remLoc)
-                    if (aa >= r[0] && aa <= r[1] && ll >= Math.Min(r[2], r[3]) && ll <= Math.Max(r[2], r[3]))
-                        return true;
-                return false;
-            });
+                {
+                    var a2 = Pt(r[0], r[2]);
+                    var b2 = Pt(r[1], r[2]);
+                    var c2 = Pt(r[1], r[3]);
+                    var e2 = Pt(r[0], r[3]);
+                    path.MoveTo((float)a2[0], (float)a2[1]);
+                    path.LineTo((float)b2[0], (float)b2[1]);
+                    path.LineTo((float)c2[0], (float)c2[1]);
+                    path.LineTo((float)e2[0], (float)e2[1]);
+                    path.Close();
+                }
+                return path;
+            };
             var th = Math.Max(2, sz * 0.045);
             var al = NN(it, "alpha", 1);
             var tb = DBox(it, sz * 0.02);
@@ -1301,18 +1275,15 @@ public static class P11ExitB
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：clipFn 是网点并集——按字形中心到网点距离近似
+            // JS clipFn：网点并集（moveTo + arc 逐圆）→ Env.ClipFn 桥
             var dotsLoc = dots;
-            ClipGlyphsDesign(env, it, (x, y) =>
+            env.ClipFn = (_, _) =>
             {
+                var path = new SKPath();
                 for (var j = 0; j < dotsLoc.Count; j += 3)
-                {
-                    var dx = x - dotsLoc[j];
-                    var dy = y - dotsLoc[j + 1];
-                    if (dx * dx + dy * dy <= dotsLoc[j + 2] * dotsLoc[j + 2]) return true;
-                }
-                return false;
-            });
+                    path.AddCircle((float)dotsLoc[j], (float)dotsLoc[j + 1], (float)dotsLoc[j + 2]);
+                return path;
+            };
             it["color"] = MixC(ColOf(it), ScK(env, "accent") ?? "#ffffff", 0.4 * J.Smooth(0.05, 0.5, p));
         },
     });
@@ -1366,15 +1337,9 @@ public static class P11ExitB
             if (cut > 0) gone.Add(LaneR(lane, 0, cut));
             if (keep.Count == 0 && p > 0.9) it["alpha"] = 0.0;
             var a0 = NN(it, "alpha", 1);
-            // TODO(11p 管线钩子)：clipFn 是保留矩形并集——按字形中心近似
+            // JS clipFn = pad(keep, ctx)（保留矩形并集，w/h 各 +0.4）→ Env.ClipFn 桥
             var keepLoc = keep;
-            ClipGlyphsDesign(env, it, (x, y) =>
-            {
-                foreach (var r in keepLoc)
-                    if (x >= r[0] && x <= r[0] + r[2] + 0.4 && y >= r[1] && y <= r[1] + r[3] + 0.4)
-                        return true;
-                return false;
-            });
+            env.ClipFn = (_, _) => RectsPath(keepLoc, 0.4);
             var smear = a0 * 0.26 * (1 - J.Smooth(0.35, 0.95, p));
             var eA = 1 - J.Smooth(0.9, 1, p);
             var acc = ScK(env, "accent") ?? "#ffffff";
@@ -2615,18 +2580,31 @@ public static class P11ExitB
                 pts.Add(new[] { c.Cx, c.Cy - c.Hh });
                 return pts.ToArray();
             }
-            // TODO(11p 管线钩子)：clipFn 是每字形扇形并集——有 cell 且中心不在保留扇形内 → 隐藏；
-            // 无 cell（已扫完）→ 隐藏
-            var cellByI = new Dictionary<int, CCell>();
-            foreach (var c in cells) cellByI[c.I] = c;
-            Glyphs(env, (i, g, _) =>
+            // JS clipFn：每字形扇形并集（polyL 按 drawFx 时点 item 位姿换算；e<=0.001 用整块矩形）→ Env.ClipFn 桥
+            env.ClipFn = (_, it3) =>
             {
-                if (g == null || !cellByI.TryGetValue(i, out var c)) return new CharXf { Hide = true };
-                if (c.E <= 0.001) return null;
-                var lx = GCx(g, it);
-                var ly = GCy(g, it);
-                return InPoly(Region(c), lx, ly) ? null : new CharXf { Hide = true };
-            });
+                var path = new SKPath();
+                foreach (var c in cells)
+                {
+                    var pts = c.E <= 0.001
+                        ? new[] { new[] { c.Cx - c.Hw, c.Cy - c.Hh }, new[] { c.Cx + c.Hw, c.Cy - c.Hh }, new[] { c.Cx + c.Hw, c.Cy + c.Hh }, new[] { c.Cx - c.Hw, c.Cy + c.Hh } }
+                        : Region(c);
+                    var r = N0(it3, "rot") * J.DEG;
+                    var cr = Math.Cos(r);
+                    var sr = Math.Sin(r);
+                    var bx = N0(it3, "x");
+                    var by = N0(it3, "y");
+                    for (var i = 0; i < pts.Length; i++)
+                    {
+                        var px = bx + cr * pts[i][0] - sr * pts[i][1];
+                        var py = by + sr * pts[i][0] + cr * pts[i][1];
+                        if (i == 0) path.MoveTo((float)px, (float)py);
+                        else path.LineTo((float)px, (float)py);
+                    }
+                    path.Close();
+                }
+                return path;
+            };
             var fa = NN(it, "alpha", 1);
             // JS chainPost（表针 + 辉光）——就地执行
             if (env.Pass != "main") return;
@@ -3279,20 +3257,10 @@ public static class P11ExitB
                 surf[k] = new[] { x, yY + a * Math.Sin(x / uu * 4.2 + t * 5) + a * 0.5 * Math.Sin(x / uu * 9.5 - t * 7.3) };
             }
             if (yY < bb.Y0 - a * 2) it["alpha"] = 0.0;
-            // TODO(11p 管线钩子)：clipFn 是水面以上区域——按字形中心 y ≤ 水面插值近似
+            // JS clipFn = above（水面以上区域，远端 -H*2 封口）→ Env.ClipFn 桥
             var surfLoc = surf;
-            ClipGlyphsDesign(env, it, (x, y) =>
-            {
-                if (x <= surfLoc[0][0]) return y <= surfLoc[0][1];
-                if (x >= surfLoc[^1][0]) return y <= surfLoc[^1][1];
-                for (var j = 1; j < surfLoc.Length; j++)
-                    if (x <= surfLoc[j][0])
-                    {
-                        var f = (x - surfLoc[j - 1][0]) / Math.Max(1e-9, surfLoc[j][0] - surfLoc[j - 1][0]);
-                        return y <= J.Lerp(surfLoc[j - 1][1], surfLoc[j][1], f);
-                    }
-                return true;
-            });
+            var envH = env.H;
+            env.ClipFn = (_, _) => SurfPath(surfLoc, false, envH);
             var a0 = NN(it, "alpha", 1);
             var uw = (1 - J.Smooth(0.3, 0.95, p)) * 0.5;
             var fa = 1 - J.Smooth(0.82, 0.98, p);
@@ -3401,13 +3369,9 @@ public static class P11ExitB
             it["x"] = x0 + lOff[0];
             it["y"] = y0 + lOff[1];
             it["alpha"] = a0 * (1 - J.Smooth(0.5, 0.95, p));
-            // TODO(11p 管线钩子)：clipFn 是下半（item 空间多边形）——按字形局部中心判定
+            // JS clipFn = polyL(ctx, it3, lower)（下半，item 空间多边形、按 drawFx 时点 item 位姿）→ Env.ClipFn 桥
             var lowerLoc = lower;
-            Glyphs(env, (_, g, _) =>
-            {
-                if (g == null) return null;
-                return InPoly(lowerLoc, GCx(g, it), GCy(g, it)) ? null : new CharXf { Hide = true };
-            });
+            env.ClipFn = (_, it3) => PolyPath(lowerLoc, N0(it3, "x"), N0(it3, "y"), N0(it3, "rot"));
             var ua = a0 * (1 - J.Smooth(0.62, 0.98, p));
             // JS chainPost——就地执行
             var rot = N0(it, "rot");
@@ -3525,6 +3489,10 @@ public static class P11ExitB
         Step = e.Step,
         Energy = e.Energy,
         Beat = e.Beat,
+        BeatHas = e.BeatHas,
+        BeatSince = e.BeatSince,
+        BeatLen = e.BeatLen,
+        BeatIndex = e.BeatIndex,
         Zone = e.Zone,
         Pass = e.Pass,
         PassColor = e.PassColor,

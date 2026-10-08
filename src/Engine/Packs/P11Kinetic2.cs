@@ -3,7 +3,7 @@
 //
 // 契约与 JAnim.cs / P11Enter.cs 相同：MoveDef.Draw(env) 里 it = env.It、p = env.Ap、
 // env.Cut 携带 {dur,inDur,outDur}；逐字动画推 env.CharFns（管线 mainDraw 统一 CombineChar）。
-// JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为 Omakase.MarkSet(group, key, "kinetic")。
+// JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为 IRegEntry.Set 真字段（Reg0 统一赋值）。
 //
 // 本包私有 helper（JS L10-147 顶层 const/function 逐条对位）见「本包 helper」区：
 // strip/hasLatin/isBlank/bellK/rotV/kick/bounceE/stg/glyphs/mot/beatSince/beatIdx/WIN/WOUT +
@@ -32,8 +32,8 @@ public static class P11Kinetic2
     /// <summary>JS reg(g, key, def) = J.register(g, key, {…def, set:'kinetic'}, P)。</summary>
     private static void Reg0(string g, string key, MoveDef def)
     {
+        def.Set = "kinetic"; // JS reg 助手：Object.assign(def, {set: 'kinetic'})——真字段，Omakase 门禁直读
         Reg.Register(g, key, def, P);
-        Omakase.MarkSet(g, key, "kinetic"); // JS def 上的 set:'kinetic'
     }
 
     // ================= 本包 helper（JS L10-147 逐条对位） =================

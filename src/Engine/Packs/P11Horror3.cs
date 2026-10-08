@@ -4,8 +4,8 @@
 // 注册组：decor ×7 / bg ×4 / cam ×2 / fx ×3 / trans ×2 / style ×3（Reg.Styles，"不覆盖"语义）。
 // RNG：plan 侧 Rng 顺序流逐行对位；Draw/Get 侧全走 J.R/J.Rs/J.Rr/J.H 确定性哈希。
 //
-// extra/set 标记：JS 的 `set: 'horror'`（条目 + 风格）与 `ae: '…'` 在 IRegEntry 无对应字段，
-// 不落表（见汇报）；风格上的 set 落进 StyleDef.Extra["set"]（Extra 是松散字典，语义不变）。
+// extra/set 标记：JS 条目上的 `set: 'horror'` 已落 IRegEntry.Set 真字段（RegD/B/C/F/X 统一赋值）；
+// 风格上的 set 落在 StyleDef.Extra["set"]（Omakase 门禁读该键）；`ae: '…'` 行内注释。
 //
 // 桩/TODO：
 // 1. fx ×3（hrSubliminal/hrSignalLoss/hrPassingShadow）的 draw(ctx, ev, k, I) 是整帧合成路径
@@ -32,11 +32,12 @@ public static class P11Horror3
     private const string P = "horror3";
     private static int _installed;
 
-    private static void RegD(string key, DecorDef def) => Reg.Register("decor", key, def, P);
-    private static void RegB(string key, BgDef def) => Reg.Register("bg", key, def, P);
-    private static void RegC(string key, CamDef def) => Reg.Register("cam", key, def, P);
-    private static void RegF(string key, FxDef def) => Reg.Register("fx", key, def, P);
-    private static void RegX(string key, TransDef def) => Reg.Register("trans", key, def, P);
+    // JS reg 助手：Object.assign({set: 'horror'}, def) —— 各组注册前统一落 IRegEntry.Set
+    private static void RegD(string key, DecorDef def) { def.Set = "horror"; Reg.Register("decor", key, def, P); }
+    private static void RegB(string key, BgDef def) { def.Set = "horror"; Reg.Register("bg", key, def, P); }
+    private static void RegC(string key, CamDef def) { def.Set = "horror"; Reg.Register("cam", key, def, P); }
+    private static void RegF(string key, FxDef def) { def.Set = "horror"; Reg.Register("fx", key, def, P); }
+    private static void RegX(string key, TransDef def) { def.Set = "horror"; Reg.Register("trans", key, def, P); }
 
     // ================= 本包 helper（JS L10-77 逐条对位） =================
 

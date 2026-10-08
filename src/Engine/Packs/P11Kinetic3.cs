@@ -10,16 +10,15 @@
 // - decor：DecorDef.Draw(env, DecorSpec)，bb 从 env.Body 读（空时 GetBB 回退画面中央 + 按 cut
 //   缓存最近有效框，与 P11Decor 同口径）。
 //
-// JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为 Omakase.MarkSet(group, key, "kinetic")。
+// JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为 IRegEntry.Set 真字段（Reg0 统一赋值）。
 //
 // 本包私有 helper（JS L9-57/163-167/276-314 逐条对位）：strip/isBlank/bellK/KM/addPre(就地执行)、
 // wordTimes（镜内词时钟，ConditionalWeakTable 按 cut 缓存）/curIdx/minD/tAcc/Wrap/alive/treatGeo +
 // GetBB（P11Decor 同型）。BeatInfo/BeatOf 与 P11Kinetic1/2 同口径。
 //
 // 已知近似（管线缺口，与 P11TreatTrans 同约定，不改共享文件）：
-// 1. knWordPlate 的 addPre（词底板画在文字前）：DrawFx 未接 pre 钩子——钩子体在本 Draw 内就地
-//    执行。treat 阶段 charFns 尚未注入（enter/exit 在其后跑），底板按静态排版位置取；JS 里该
-//    钩子读 it.charFn 跟随逐字动画——管线接上 pre 后回迁。
+// 1. knWordPlate 的 addPre：已迁 env.PreFn 管线钩子（DrawFx 在文字前消费；钩子体读合并后的
+//    env.CharFn，与 JS 的 x.charFn 同源——原「静态排版位置」近似解除）。
 // 2. knCardFlip 返回的 sx/sy：CamState 无该字段（Renderer.cs L420 的既知 TODO，按 s 统一处理），
 //    翻面量折叠进 S（幅度动画保留、轴向压缩近似为等比）。
 //
@@ -43,12 +42,12 @@ public static class P11Kinetic3
     {
         switch (def)
         {
-            case CamDef d: Reg.Register(g, key, d, P); break;
-            case TransDef d: Reg.Register(g, key, d, P); break;
-            case TreatDef d: Reg.Register(g, key, d, P); break;
-            case DecorDef d: Reg.Register(g, key, d, P); break;
+            case CamDef d: d.Set = "kinetic"; Reg.Register(g, key, d, P); break;
+            case TransDef d: d.Set = "kinetic"; Reg.Register(g, key, d, P); break;
+            case TreatDef d: d.Set = "kinetic"; Reg.Register(g, key, d, P); break;
+            case DecorDef d: d.Set = "kinetic"; Reg.Register(g, key, d, P); break;
         }
-        Omakase.MarkSet(g, key, "kinetic"); // JS def 上的 set:'kinetic'
+        // JS reg 助手的 set:'kinetic' 现为 IRegEntry.Set 真字段，Omakase 门禁直读（MarkSet 旁路解除）
     }
 
     // ================= 本包 helper（JS 逐条对位） =================
@@ -845,57 +844,59 @@ public static class P11Kinetic3
             if (bv < 2.6) tc = J.Lum(plate) > 0.5 ? "#111111" : "#FFFFFF";
             var first = JLayouts.Truthy(pc["first"]);
             bool On(int j) => (j % 2 == 0) == first;
-            // JS addPre（底板画在文字之前）：DrawFx 未接 pre 钩子——就地执行（见文件头「已知近似」）。
-            // JS 钩子里的 x.charFn 是 draw 时合并后的字形动画；C# treat 阶段 enter/exit 还没跑，
-            // 这里取当前已有的合并结果（treat 时通常为空 = 静态排版位置）。
+            // JS addPre → env.PreFn：DrawFx 在裁剪/文字前消费；钩子体内的 charFn 取管线合并后的
+            // env.CharFn（与 JS 的 x.charFn 同源）——底板跟随逐字动画，原「静态排版位置」近似解除。
             var pad = JLayouts.D(pc, "pad", 0.1);
             var tilt = JLayouts.D(pc, "tilt");
-            var lay = JText.LayoutText(it);
-            var sx = JAnim.NumOr1(it, "sx");
-            var sy = JAnim.NumOr1(it, "sy");
-            var boxes = new SortedDictionary<int, (double X0, double Y0, double X1, double Y1, double A)>();
-            var charFn = JAnim.CombineChar(env.CharFns);
-            foreach (var g in lay.Cells)
+            env.PreFn = (e, x) =>
             {
-                var j = g0.Map[g.I];
-                if (j < 0 || !On(j)) continue;
-                var cf = charFn?.Invoke(g.I, JText.CellJson(g), lay.N);
-                if (cf != null && cf.Hide) continue;
-                var s = cf != null && cf.S != null ? cf.S.Value : 1;
-                var a = cf != null && cf.A != null ? cf.A.Value : 1;
-                var gx = (g.X + g.Vx) * sx + (cf != null ? cf.Dx : 0);
-                var gy = (g.Y + g.Vy) * sy + (cf != null ? cf.Dy : 0);
-                var hw = g.W * sx * s / 2;
-                var hh = g.H * sy * s / 2;
-                var key = j * 100 + g.Li;
-                var (bx0, by0, bx1, by1, ba) = boxes.TryGetValue(key, out var bbx)
-                    ? bbx : (1e9, 1e9, -1e9, -1e9, 1.0);
-                boxes[key] = (Math.Min(bx0, gx - hw), Math.Min(by0, gy - hh),
-                    Math.Max(bx1, gx + hw), Math.Max(by1, gy + hh), Math.Min(ba, a));
-            }
-            if (boxes.Count == 0) return;
-            var ctx = env.Ctx;
-            var pd = JAnim.Num(it, "size") * pad;
-            var alpha = JAnim.NumNull(it, "alpha", 1);
-            ctx.Save();
-            ctx.Translate((float)JAnim.Num(it, "x"), (float)JAnim.Num(it, "y"));
-            var rot = JAnim.Num(it, "rot");
-            if (rot != 0) ctx.RotateDegrees((float)rot);
-            var skew = JAnim.Num(it, "skew");
-            if (skew != 0) ctx.Skew((float)Math.Tan(skew * J.DEG), 0);
-            var q = 0;
-            foreach (var b in boxes.Values)
-            {
-                var t = tilt != 0 ? (q++ % 2 != 0 ? tilt : -tilt) : 0;
+                var lay = JText.LayoutText(x);
+                var sx = JAnim.NumOr1(x, "sx");
+                var sy = JAnim.NumOr1(x, "sy");
+                var boxes = new SortedDictionary<int, (double X0, double Y0, double X1, double Y1, double A)>();
+                var charFn = e.CharFn;
+                foreach (var g in lay.Cells)
+                {
+                    var j = g0.Map[g.I];
+                    if (j < 0 || !On(j)) continue;
+                    var cf = charFn?.Invoke(g.I, JText.CellJson(g), lay.N);
+                    if (cf != null && cf.Hide) continue;
+                    var s = cf != null && cf.S != null ? cf.S.Value : 1;
+                    var a = cf != null && cf.A != null ? cf.A.Value : 1;
+                    var gx = (g.X + g.Vx) * sx + (cf != null ? cf.Dx : 0);
+                    var gy = (g.Y + g.Vy) * sy + (cf != null ? cf.Dy : 0);
+                    var hw = g.W * sx * s / 2;
+                    var hh = g.H * sy * s / 2;
+                    var key = j * 100 + g.Li;
+                    var (bx0, by0, bx1, by1, ba) = boxes.TryGetValue(key, out var bbx)
+                        ? bbx : (1e9, 1e9, -1e9, -1e9, 1.0);
+                    boxes[key] = (Math.Min(bx0, gx - hw), Math.Min(by0, gy - hh),
+                        Math.Max(bx1, gx + hw), Math.Max(by1, gy + hh), Math.Min(ba, a));
+                }
+                if (boxes.Count == 0) return;
+                var ctx = e.Ctx;
+                var pd = JAnim.Num(x, "size") * pad;
+                var alpha = JAnim.NumNull(x, "alpha", 1);
                 ctx.Save();
-                ctx.Translate((float)((b.X0 + b.X1) / 2), (float)((b.Y0 + b.Y1) / 2));
-                if (t != 0) ctx.RotateDegrees((float)t);
-                var w = b.X1 - b.X0 + pd * 2;
-                var h = b.Y1 - b.Y0 + pd * 1.4;
-                env.Rect(-w / 2, -h / 2, w, h, plate, alpha * b.A, true);
+                ctx.Translate((float)JAnim.Num(x, "x"), (float)JAnim.Num(x, "y"));
+                var rot = JAnim.Num(x, "rot");
+                if (rot != 0) ctx.RotateDegrees((float)rot);
+                var skew = JAnim.Num(x, "skew");
+                if (skew != 0) ctx.Skew((float)Math.Tan(skew * J.DEG), 0);
+                var q = 0;
+                foreach (var b in boxes.Values)
+                {
+                    var t = tilt != 0 ? (q++ % 2 != 0 ? tilt : -tilt) : 0;
+                    ctx.Save();
+                    ctx.Translate((float)((b.X0 + b.X1) / 2), (float)((b.Y0 + b.Y1) / 2));
+                    if (t != 0) ctx.RotateDegrees((float)t);
+                    var w = b.X1 - b.X0 + pd * 2;
+                    var h = b.Y1 - b.Y0 + pd * 1.4;
+                    e.Rect(-w / 2, -h / 2, w, h, plate, alpha * b.A, true);
+                    ctx.Restore();
+                }
                 ctx.Restore();
-            }
-            ctx.Restore();
+            };
             env.CharFns.Add((i, _, _) =>
             {
                 var j = g0.Map[i];

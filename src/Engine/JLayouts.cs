@@ -66,6 +66,9 @@ public static class JLayouts
         env.PieceFns.Clear();
         env.CharFn = null;
         env.PieceFn = null;
+        env.PreFn = null; // it.pre/it.post/it.clipFn 每 item 重建（JS 配方对象的函数值字段）
+        env.PostFn = null;
+        env.ClipFn = null;
         env.It = it;
         var stagger = cut.Stagger;
         it["delay"] = (double)mi * stagger;
@@ -127,7 +130,8 @@ public static class JLayouts
 
     /// <summary>
     /// J.drawFx（06_layouts.js L46-182）：裁剪、streak/echo 副本、wipeBar、打字光标都叠在这一层。
-    /// it.pre/it.post/it.clipFn 是函数值字段（JObject 装不下、C# 布局未注入）—— TODO(11p) 迁移时定型。
+    /// it.pre/it.post/it.clipFn 经 env 桥（Env.PreFn/PostFn/ClipFn，JObject 装不下函数）：
+    /// pre 在所有裁剪之前（不被裁剪、主文字下方）、clipFn 包住文字绘制、post 在主文字之后（上方）。
     /// </summary>
     public static BBox? DrawFx(Env env, JObject it)
     {
@@ -203,6 +207,18 @@ public static class JLayouts
             if (r != null) bb = r;
         }
 
+        // JS it.pre：裁剪应用之前画（钩子内容不被 clip/clipY/clipFn 裁）；JS try/catch console.warn 对位
+        if (env.PreFn != null)
+        {
+            try
+            {
+                env.PreFn(env, it);
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"item pre: {e.GetType().Name}: {e.Message}\n{FirstStack(e)}");
+            }
+        }
         if (it["clip"] is JArray clip)
         {
             ctx.Save();
@@ -212,6 +228,13 @@ public static class JLayouts
         {
             ctx.Save();
             ctx.ClipRect(new SKRect(-env.W * 1f, (float)(double)clipY[0]!, env.W * 3f, (float)((double)clipY[1]! - (double)clipY[0]!)));
+        }
+        // JS it.clipFn：ctx.beginPath() 后由钩子在 ctx 上构造路径再 ctx.clip()——C# 返回 SKPath 由这里裁
+        if (env.ClipFn != null)
+        {
+            using var clipPath = env.ClipFn(env, it);
+            ctx.Save();
+            ctx.ClipPath(clipPath);
         }
         if (it["vbands"] is JArray vbands)
         {
@@ -248,8 +271,21 @@ public static class JLayouts
             ctx.Restore();
         }
         else Draw();
+        if (env.ClipFn != null) ctx.Restore();
         if (it["clipY"] != null) ctx.Restore();
         if (it["clip"] != null) ctx.Restore();
+        // JS it.post(env, it, bb)：主文字之后画（bb 是主文字 bbox，可能 null）
+        if (env.PostFn != null)
+        {
+            try
+            {
+                env.PostFn(env, it, bb);
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"item post: {e.GetType().Name}: {e.Message}\n{FirstStack(e)}");
+            }
+        }
         if (it["wipeBar"] is JObject wb)
             env.Rect(Num(wb, "x") - Math.Max(4, Num(it, "size") * 0.035), Num(it, "y") - Num(wb, "h") / 2,
                 Math.Max(8, Num(it, "size") * 0.07), Num(wb, "h"), env.Sc!.Str("accent"), 1, false);
@@ -305,6 +341,12 @@ public static class JLayouts
 
     /// <summary>J.metrics.adv（03_text.js）：单字 advance。</summary>
     public static double MetricsAdv(string font, string ch) => JText.Metrics.Adv(font, ch);
+
+    /// <summary>drawFx 告警的前几行堆栈（JS console.warn(e) 带错误体的对位；定位钩子异常用）。</summary>
+    private static string? FirstStack(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
+        .Split('\n')
+        .Where(l => l.Contains("JizuraLive"))
+        .Select(l => l.Trim().Replace(Environment.NewLine, "")));
 
     /// <summary>drawFx 的松散数值读取（JS 的 it.k 直接读，JAnim 内部帮手同型复用）。</summary>
     private static double Num(JObject o, string k) => JAnim.Num(o, k);

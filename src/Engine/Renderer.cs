@@ -336,7 +336,7 @@ public sealed class Renderer : IDisposable
             {
                 var env = MakeEnv(ctx, plan, mainCut, sc,
                     t: tq, lt: tq - mainCut.Start, ltb: tq - mainCut.Start, stepI: step, scale: scale,
-                    allowFilter: allowFilter, energy: energy, beat: BeatNorm(beatInfo),
+                    allowFilter: allowFilter, energy: energy, beatInfo: beatInfo,
                     pass: "main", passColor: null, layer: layer, zone: null, hideText: false, glyphLog: null);
                 ctx.Save();
                 try
@@ -372,7 +372,7 @@ public sealed class Renderer : IDisposable
                 {
                     var e0 = MakeEnv(ctx, plan, mainCut, sc,
                         t: tq, lt: tq - mainCut.Start, ltb: tq - mainCut.Start, stepI: step, scale: scale,
-                        allowFilter: allowFilter, energy: energy, beat: BeatNorm(beatInfo),
+                        allowFilter: allowFilter, energy: energy, beatInfo: beatInfo,
                         pass: "main", passColor: null, layer: layer, zone: null, hideText: false, glyphLog: null);
                     var c0 = camDef0.Get?.Invoke(e0);
                     if (c0 != null && c0.Blur > 0.4) layerBlur = c0.Blur;
@@ -409,7 +409,7 @@ public sealed class Renderer : IDisposable
                     var Z = plan.CenterFree ? cut.Zone : null;
                     var env = MakeEnv(X, plan, cut, csc,
                         t: tp, lt: lt, ltb: lt + P.Lag, stepI: (int)Math.Floor(tp / clock + 1e-6), scale: scale,
-                        allowFilter: allowFilter, energy: energy, beat: BeatNorm(beatInfo),
+                        allowFilter: allowFilter, energy: energy, beatInfo: beatInfo,
                         pass: P.Pass,
                         passColor: P.Pass == "A" ? csc.Str("ghostA") : P.Pass == "B" ? csc.Str("ghostB") : null,
                         layer: layer, zone: Z, hideText: morphOn,
@@ -539,7 +539,7 @@ public sealed class Renderer : IDisposable
             {
                 var env = MakeEnv(ctx, plan, mainCut, sc,
                     t: tq, lt: 0, ltb: 0, stepI: step, scale: scale,
-                    allowFilter: allowFilter, energy: energy, beat: BeatNorm(beatInfo),
+                    allowFilter: allowFilter, energy: energy, beatInfo: beatInfo,
                     pass: "main", passColor: null, layer: layer, zone: null, hideText: false, glyphLog: null);
                 JDecor.DrawHud(env, plan);
             }
@@ -985,7 +985,7 @@ public sealed class Renderer : IDisposable
                         opt.Transparent);
                     var fxEnv = MakeEnv(ctx, plan, Planner.CutAt(plan, tq), sc,
                         t: t, lt: 0, ltb: 0, stepI: st2, scale: scale,
-                        allowFilter: allowFilter, energy: 0, beat: 0,
+                        allowFilter: allowFilter, energy: 0, beatInfo: null,
                         pass: "main", passColor: null, layer: null, zone: null, hideText: false, glyphLog: null);
                     try
                     {
@@ -1220,10 +1220,17 @@ public sealed class Renderer : IDisposable
 
         private static Env MakeEnv(SKCanvas ctx, Plan plan, Cut? cut, Scheme? sc,
             double t, double lt, double ltb, int stepI, double scale, bool allowFilter,
-            double energy, double beat, string pass, string? passColor,
+            double energy, BeatInfo? beatInfo, string pass, string? passColor,
             string? layer, Zone? zone, bool hideText, List<JText.GlyphLogEntry>? glyphLog)
         {
-            var env = Env.Make(ctx, plan, cut, sc, lt, stepI, energy, beat, zone, pass, passColor, scale, t, ltb);
+            var env = Env.Make(ctx, plan, cut, sc, lt, stepI, energy, BeatNorm(beatInfo), zone, pass, passColor, scale, t, ltb);
+            if (beatInfo is { } bi)
+            {
+                env.BeatHas = true;
+                env.BeatSince = bi.Since;
+                env.BeatLen = bi.Len;
+                env.BeatIndex = bi.Index;
+            }
             env.Layer = layer;
             env.HideText = hideText;
             env.AllowFilter = allowFilter;
@@ -1545,7 +1552,7 @@ public sealed class Renderer : IDisposable
             return ans;
         }
 
-        /// <summary>beatInfo → Env.Beat（归一相位 since/len；11p 之外无消费者，Env 只装得下 double）。</summary>
+        /// <summary>beatInfo → Env.Beat（归一相位 since/len）；完整 {since,len,index} 由 MakeEnv 挂 Env.BeatHas 等字段。</summary>
         private static double BeatNorm(BeatInfo? b) => b == null ? 0 : b.Value.Since / b.Value.Len;
 
         public void Dispose()

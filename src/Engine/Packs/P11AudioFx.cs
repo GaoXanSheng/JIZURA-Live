@@ -4,10 +4,9 @@ using SkiaSharp;
 namespace JizuraLive.Engine.Packs;
 
 /// <summary>
-/// 追加音频表现包（移植自 frontend/src/engine/11p_audiofx.js）：山脊线（能量历史）、
-/// 随音高游移（hold）、心电图（decor）、换台（trans）。全部 extra 新增标记。
-/// 注：源里的 fx「ASCII化」依赖渲染器把非内置 FXE 的插件 Draw 路径接上（当前 TODO），
-/// 本轮暂缓注册——路径接通后在此补一条 Reg.Register("fx","ascii",...)。
+/// 追加音频表现包（移植自 frontend/src/engine/11p_audiofx.js）：山脊线（能量历史，bg）、
+/// 随音高游移（hold）、心电图（decor）、换台（trans）、ASCII 化（fx，走渲染器 FxPlug 插件桥）。
+/// 全部 extra 新增标记（IRegEntry.Extra = true；audioFx 不在 Omakase 的 BasePacks，双保险）。
 /// </summary>
 public static class P11AudioFx
 {
@@ -90,6 +89,7 @@ public static class P11AudioFx
                     var grow = J.E.OutCubic(Clamp01(e * 1.5 - r / (double)n * 0.5));
                     if (grow <= 0.003) continue;
                     var lc = front ? env.Sc?.Str("accent") ?? "#fff" : LayC(env.Sc!, 0.5 + 0.25 * r / (double)n);
+                    var beatPulse = env.BeatHas ? Math.Exp(-env.BeatSince * 5.5) : 0; // JS 的 beat ? exp(-beat.since*5.5) : 0
                     var pts = new List<SKPoint>();
                     for (var j = 0; j <= m; j++)
                     {
@@ -114,7 +114,7 @@ public static class P11AudioFx
                     using (var stroke = new SKPaint
                     {
                         Color = SKColor.Parse(lc),
-                        StrokeWidth = Math.Max(1, (float)(U(env) * ((front ? 0.0038 : 0.0028)))),
+                        StrokeWidth = Math.Max(1, (float)(U(env) * (front ? 0.0038 + beatPulse * 0.003 : 0.0028))),
                         IsAntialias = true,
                         StrokeJoin = SKStrokeJoin.Round,
                     })
@@ -379,12 +379,141 @@ public static class P11AudioFx
         }),
     };
 
-    /// <summary>注册全部条目（ASCII化 fx 待渲染器插件路径后补）。</summary>
+    // ---------------- fx：ASCII 化 ----------------
+    // 全屏后期：把已渲好的整帧转成 ASCII 字符网格，事件两端自淡入淡出（JS L179-237）。
+    // 复用渲染器 scratch 预拷帧（FxPlug.S），tmp 面降采样读像素、mono 字体逐格画字符。
+    private const string AsciiRamp = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
+    private const double AsciiBoost = 1.4;
+    private const double AsciiLumSkip = 8;
+
+    private static readonly FxDef AsciiFx = new()
+    {
+        Key = "ascii",
+        Name = "ASCII化",
+        Tags = new[] { "glitch", "graphic" },
+        W = 0.7,
+        Extra = true, // JS extra:true（追加分开关门禁）
+        Dur = 3.2,
+        Amp = 1,
+        // scratch: true / ae 无 FxDef 字段：渲染器插件段恒拷 scratch（S），ae 无消费者
+        Draw = (env, ev) =>
+        {
+            env.Ctx.Save();
+            try
+            {
+                DrawAscii(env, ev, J.Clamp(FxPlug.K));
+            }
+            finally
+            {
+                env.Ctx.Restore();
+            }
+        },
+    };
+
+    private static void DrawAscii(Env env, PlanEvent ev, double k)
+    {
+        var S = FxPlug.S;
+        var cw = FxPlug.Cw;
+        var ch = FxPlug.Ch;
+        if (S == null) return;
+        var ctx = env.Ctx;
+        var e = Math.Min(Math.Min(1, k / 0.12), (1 - k) / 0.12);
+        if (e <= 0.01) return;
+        var bg = env.Sc?.Str("bg") ?? "#000000";
+        var mono = JLayouts.Font0(env.St, "mono") ?? "mono";
+        var fontPx = Math.Max(8, (int)Math.Round(ch * 0.021));
+        var cellH = (int)Math.Round(fontPx * 1.08);
+        var font = JText.FaceFont(mono, fontPx); // 缓存实例，禁 Dispose
+        using var meas = new SKPaint();
+        var cellW = Math.Max(4f, font.MeasureText("M", meas));
+        var cols = Math.Max(8, (int)Math.Floor(cw / cellW));
+        var rows = Math.Max(6, (int)Math.Floor(ch / (double)cellH));
+        // 整帧降采样到 cols×rows（JS 的 I.tmp 面 + imageSmoothingEnabled high）
+        SKSurface? small = null;
+        try
+        {
+            small = FxPlug.Tmp?.Invoke(cols, rows);
+        }
+        catch
+        {
+            small = null;
+        }
+        if (small == null) return;
+        var scv = small.Canvas;
+        scv.RestoreToCount(0);
+        scv.Clear(SKColors.Transparent);
+        scv.SetMatrix(SKMatrix.Identity);
+        using (var simg = S.Snapshot())
+        using (var dp = new SKPaint { IsAntialias = false })
+            scv.DrawImage(simg, new SKRect(0, 0, cw, ch), new SKRect(0, 0, cols, rows),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), dp);
+        var px = small.PeekPixels();
+        if (px == null) return;
+        // 整幅清底（JS alphaGuard 的 clearRect→fillRect 对位：不透明模式填 sc.bg；透過模式真清，
+        // 插件清底不镜像进 M——渲染器既有保守降级，End 后新增区域被裁掉）
+        ctx.SetMatrix(SKMatrix.Identity);
+        if (FxPlug.Transparent)
+        {
+            ctx.Clear();
+        }
+        else
+        {
+            var cp = Env.SharedPaint();
+            cp.IsAntialias = false;
+            cp.IsStroke = false;
+            cp.Shader = null;
+            cp.ImageFilter = null;
+            cp.Color = Env.SkColor(bg, 1);
+            cp.BlendMode = SKBlendMode.SrcOver;
+            ctx.DrawRect(new SKRect(0, 0, cw, ch), cp);
+        }
+        // 逐格：亮度→字符档位，颜色→像素色提亮（按面色彩类型解字节序，JS getImageData 的 RGBA 对位）
+        var span = px.GetPixelSpan();
+        var bpp = px.Info.BytesPerPixel;
+        var rgbaOrder = px.Info.ColorType == SKColorType.Rgba8888;
+        font.GetFontMetrics(out var fm);
+        var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // canvas textBaseline='middle'
+        var ramp = AsciiRamp;
+        var n = ramp.Length;
+        var tp = Env.SharedPaint();
+        tp.IsAntialias = true;
+        tp.IsStroke = false;
+        tp.Shader = null;
+        tp.ImageFilter = null;
+        tp.BlendMode = SKBlendMode.SrcOver;
+        for (var r = 0; r < rows; r++)
+        {
+            var y = (r + 0.5f) * cellH;
+            for (var c = 0; c < cols; c++)
+            {
+                var i = (r * cols + c) * bpp;
+                byte red = span[i + 2], green = span[i + 1], blue = span[i];
+                if (rgbaOrder) { red = span[i]; green = span[i + 1]; blue = span[i + 2]; }
+                var lum = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+                var idx = (int)Math.Round(lum / 255 * (n - 1));
+                if (idx <= 0 || lum < AsciiLumSkip) continue;
+                tp.Color = new SKColor(
+                    (byte)Math.Min(255, (int)Math.Round(red * AsciiBoost)),
+                    (byte)Math.Min(255, (int)Math.Round(green * AsciiBoost)),
+                    (byte)Math.Min(255, (int)Math.Round(blue * AsciiBoost)));
+                ctx.DrawText(ramp[idx].ToString(), (c + 0.5f) * cellW, y + yMid, SKTextAlign.Center, font, tp);
+            }
+        }
+        if (e < 0.995) // 边缘与原画面交叉淡化（JS globalAlpha = 1-e; drawImage(S, 0, 0)）
+        {
+            using var simg2 = S.Snapshot();
+            using var bp = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round((1 - e) * 255)) };
+            ctx.DrawImage(simg2, 0, 0, bp);
+        }
+    }
+
+    /// <summary>注册全部条目（JS 源出现序：bg/hold/decor/trans/fx）。</summary>
     public static void Install()
     {
         Reg.Register("bg", "ridgeAudio", RidgeAudio, Pk);
         Reg.Register("hold", "pitchDrift", PitchDrift, Pk);
         Reg.Register("decor", "ecg", Ecg, Pk);
         Reg.Register("trans", "channelSwitch", ChannelSwitch, Pk);
+        Reg.Register("fx", "ascii", AsciiFx, Pk); // 渲染器 FxPlug 插件路径已接通（P11FxB 先例）
     }
 }

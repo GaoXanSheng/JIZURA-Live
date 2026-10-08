@@ -11,9 +11,7 @@
 // `cursor: true` 旗标同理（DrawFx 按 item.cursorAt 画光标，flag 本身无需存储）。
 //
 // 管线缺口与降级（本文件内解决，不改共享文件）：
-// 1. addPost：JS 由 drawFx 在画文字后调 it.post；JLayouts.DrawFx 未接钩子字段（TODO(11p)）——
-//    钩子体在本 Draw 内就地执行（P11Enter/P11Exit/P11TreatTrans 既定降级：内容/几何一致，
-//    层级提前到主文字下方；管线接上 post 后回迁）。
+// 1. addPost：已接管线钩子（Env.PostFn → JLayouts.DrawFx，画在主文字上方；AddPost 链式）。
 // 2. tyTrackStep 的 it._m/it._lay=null（清排版缓存）：字段照写（JSON 往返契约），C# 侧
 //    JText.Measure 的 memo 按 track 键自动失效；GetLay 的对象级缓存没有外部失效入口——
 //    已知近似（track 步进 ±0.05em，字形逐帧重排在 JS 里也常被 _m 缓存吸收）。TODO(JText)。
@@ -32,7 +30,11 @@ public static class P11Typo2
     private const string P = "typo2";
     private static int _installed;
 
-    private static void Reg0(string group, string key, MoveDef def) => Reg.Register(group, key, def, P);
+    private static void Reg0(string group, string key, MoveDef def)
+    {
+        def.Set = "typo"; // JS reg 助手：Object.assign({set: SET('typo')}, def)
+        Reg.Register(group, key, def, P);
+    }
 
     // ================= 本包 helper（JS L11-117 逐条对位） =================
 
@@ -62,10 +64,15 @@ public static class P11Typo2
     }
 
     /// <summary>
-    /// addPost 的对位（管线未挂 post）：钩子体就地执行——JS 里画在文字之后，
-    /// 此处提前到 Draw 内（内容/几何一致，层级在文字下方；管线接上 post 后回迁）。
+    /// addPost 的对位：钩子挂 env.PostFn（JLayouts.DrawFx 在主文字之后消费，层级与 JS 一致；链式）。
     /// </summary>
-    private static void AddPost(Env env, JObject it, Action<Env, JObject> fn) => fn(env, it);
+    private static void AddPost(Env env, JObject it, Action<Env, JObject> fn)
+    {
+        var prev = env.PostFn;
+        env.PostFn = prev != null
+            ? (e, x, bb) => { prev(e, x, bb); fn(e, x); }
+            : (Action<Env, JObject, BBox?>)((e, x, _) => fn(e, x));
+    }
 
     /// <summary>orders(env, it)：每个 glyph 的阅读顺序 0..1（空格跳过）；单字 item 用它在 cut 内的 mi。JS L33-50。</summary>
     private static double[] Orders(Env env, JObject it)

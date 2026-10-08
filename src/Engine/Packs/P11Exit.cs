@@ -10,16 +10,16 @@
 // 管线缺口与降级（本文件内解决，不改共享文件）：
 // 1. JS 的 merged/addC 自带合并（保 clip/skew/blur/outline，尾部有 a<=0.003/|s|<0.004 的 HIDE 折叠）：
 //    C# JAnim.CombineChar 全字段合并；DrawItem 侧 a<=0.002 即跳过，语义等价，不需要。
-// 2. it.post/it.pre（chainPost/chainPre）：JLayouts.DrawFx 尚未接（TODO(11p)，JS 里 post 画在
-//    文字后、pre 画在文字前）。C# 侧在 Draw 调用点内就地执行——pre 与 JS 同层（文字下方，正确）；
-//    post 的内容提前到 Draw 内画（内容/几何一致，层级在主文字下方；管线接上 post 后回迁）。
-//    文字副本类 post（foldOut/outlineOut/splitApart/shatterLite/echoOut）经 DrawCopy 就地画副本。
-// 3. it.clipFn（任意路径裁剪，irisClose/diagWipeOut/blindsClose/checkerOut 用）：管线未接，
-//    主文字按字形设计空间中心做可见性近似（遮罩边缘按字形粒度离散，行内注明；P11Enter 同先例）。
+// 2. it.post/it.pre（chainPost/chainPre）：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，
+//    pre=文字下方、post=文字上方）；本包 chainPost 维持「就地执行」约定（内容/几何一致，层级在
+//    主文字下方；文字副本类 post 经 DrawCopy 就地画副本），层级敏感的迁出来不及逐条回归，
+//    见 P11TreatTrans/P11Looks 的 env.PreFn/PostFn 先例。
+// 3. it.clipFn（任意路径裁剪，irisClose/diagWipeOut/blindsClose/checkerOut 用）：已接管线钩子
+//    （Env.ClipFn → DrawFx ClipPath，返回 SKPath；JS 的 ctx.beginPath 构造对位）。
 // 4. `ae`（AE 导出模板名）与 dissolve 的 pieces:true / backspace 的 cursor:true：MoveDef 无对应
 //    属性，未注册——对位见各条目行内注释。
-// 5. env.beat 对象（len/since/index）C# Env 未携带（Env.Beat 只有归一相位 double），beatLen/
-//    beatSince/beatIdx 走 JS 无 beat 的 ltb 回退式（TODO(渲染器)：Env 挂 beat 对象后回迁）。
+// 5. env.beat 对象（len/since/index）由渲染器每帧挂 Env（BeatHas/BeatSince/BeatLen/BeatIndex，
+//    09_render beatAt 对位）；BeatHas=false 回 JS 的 ltb 回退式。
 //
 // 跨文件符号对位：J.measure→JText.Measure、J.layoutText→JText.LayoutText、J.itemBox→JAnim.ItemBox、
 // J.glyphCount→JLayouts.GlyphCount、J.itemBands→JAnim.ItemBands、J.noise1→J.Noise1、
@@ -370,46 +370,17 @@ public static class P11Exit
         h.Rot += deg;
     }
 
-    // env.beat 对象（len/since/index）C# Env 未携带；统一走 JS 无 beat 的 ltb 回退式（见文件头注 5）
-    private static double BeatLen(Env env, double fb) => fb;
-    private static double BeatSince(Env env, double fb) => ((env.Ltb % fb) + fb) % fb;
-    private static int BeatIdx(Env env, double fb) => (int)Math.Floor(env.Ltb / fb);
+    // env.beat {since,len,index} 由渲染器每帧挂 Env（BeatHas/BeatSince/BeatLen/BeatIndex，09_render beatAt）；
+    // BeatHas=false（plan 无节拍）回 JS 的 ltb 回退式（JS beatLen/beatSince/beatIdx 对位）
+    private static double BeatLen(Env env, double fb) => env.BeatHas && env.BeatLen > 0 ? env.BeatLen : fb;
+    private static double BeatSince(Env env, double fb) => env.BeatHas ? env.BeatSince : ((env.Ltb % fb) + fb) % fb;
+    private static int BeatIdx(Env env, double fb) => env.BeatHas ? env.BeatIndex : (int)Math.Floor(env.Ltb / fb);
 
     /// <summary>JS J.rgba(h, a) → "rgba(r,g,b,a)"（shadow.color 吃这个格式）。</summary>
     private static string Rgba(string hex, double a)
     {
         var (r, g, b) = J.Hex(hex);
         return "rgba(" + r + "," + g + "," + b + "," + a + ")";
-    }
-
-    /// <summary>非矩形 clipFn 的字形粒度可见性近似：keepDesign(设计空间字形中心) → 是否保留。</summary>
-    private static void ClipGlyphsDesign(Env env, JObject it, Func<double, double, bool> keepDesign)
-    {
-        var sx = N1(it, "sx");
-        var sy = N1(it, "sy");
-        Glyphs(env, (_, g, _) =>
-        {
-            if (g == null) return null;
-            var lx = (D(g, "x") + D(g, "vx")) * sx;
-            var ly = (D(g, "y") + D(g, "vy")) * sy;
-            var p = ToD(it, lx, ly);
-            return keepDesign(p[0], p[1]) ? null : new CharXf { Hide = true };
-        });
-    }
-
-    /// <summary>点在多边形内（射线法；多边形按序给出的顶点）。</summary>
-    private static bool InPoly(double[][] poly, double x, double y)
-    {
-        var inside = false;
-        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
-        {
-            var xi = poly[i][0];
-            var yi = poly[i][1];
-            var xj = poly[j][0];
-            var yj = poly[j][1];
-            if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
-        }
-        return inside;
     }
 
     // 松散读取（对齐 JS 语义）：(x||0)/(x||1)/(x??d)
@@ -1124,13 +1095,13 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：JS clipFn 是圆形路径裁剪——按字形设计空间中心做可见性近似
-            ClipGlyphsDesign(env, it, (x, y) =>
+            // JS clipFn：moveTo + arc 的整圆路径 → Env.ClipFn 桥（DrawFx ClipPath）
+            env.ClipFn = (_, _) =>
             {
-                var dx = x - c[0];
-                var dy = y - c[1];
-                return dx * dx + dy * dy <= r * r;
-            });
+                var path = new SKPath();
+                path.AddCircle((float)c[0], (float)c[1], (float)r);
+                return path;
+            };
             var lw = Math.Max(1.5, N0(it, "size") * 0.035);
             var acc = ScK(env, "accent") ?? "#ffffff";
             var a = Math.Min(1, p * 6) * (1 - J.Smooth(0.9, 1, p));
@@ -1178,14 +1149,28 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：JS clipFn 是半平面四边形——按字形设计空间中心沿投影轴近似
-            ClipGlyphsDesign(env, it, (x, y) => x * d[0] + y * d[1] >= s);
+            // JS clipFn：保留侧的半平面四边形（pt(u,w) 四角，L=(W+H)*3 的超长边）→ Env.ClipFn 桥
+            var l = (w + h) * 3;
+            double[] Pt(double u, double w2) => new[] { d[0] * u + t[0] * w2, d[1] * u + t[1] * w2 };
+            env.ClipFn = (_, _) =>
+            {
+                var a = Pt(s, w0 - l);
+                var b2 = Pt(s, w1 + l);
+                var c2 = Pt(s + l, w1 + l);
+                var e = Pt(s + l, w0 - l);
+                var path = new SKPath();
+                path.MoveTo((float)a[0], (float)a[1]);
+                path.LineTo((float)b2[0], (float)b2[1]);
+                path.LineTo((float)c2[0], (float)c2[1]);
+                path.LineTo((float)e[0], (float)e[1]);
+                path.Close();
+                return path;
+            };
             if (Math.Abs(Num(it, "mi")) < 1e-6)
             {
                 // 色条只画一次，由第一个 item 画（JS chainPost——就地执行）
                 var acc = ScK(env, "accent") ?? "#ffffff";
                 var pad = Math.Max(w, h) * 0.1;
-                var l = (w + h) * 3;
                 env.Poly(new[]
                 {
                     new[] { d[0] * (s - th) + t[0] * (w0 - pad), d[1] * (s - th) + t[1] * (w0 - pad) },
@@ -1226,28 +1211,29 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：JS clipFn 是百叶条纹并集——按「字形中心所在条纹剩多少」近似
+            // JS clipFn：百叶条纹并集（逐条 ctx.rect）→ Env.ClipFn 桥
             var bbY0 = bb.Y0;
             var bbX0 = bb.X0;
-            ClipGlyphsDesign(env, it, (x, y) =>
+            env.ClipFn = (_, _) =>
             {
+                var path = new SKPath();
                 for (var j = 0; j < cnt; j++)
                 {
-                    var h = hs[j];
-                    if (h <= 0.05) continue;
+                    var h2 = hs[j];
+                    if (h2 <= 0.05) continue;
                     if (vert)
                     {
-                        var laneX0 = bbX0 + j * pitch + (pitch - h) / 2;
-                        if (x >= laneX0 && x <= laneX0 + h) return true;
+                        var laneX0 = bbX0 + j * pitch + (pitch - h2) / 2;
+                        path.AddRect(new SKRect((float)laneX0, (float)bbY0, (float)(laneX0 + h2), (float)bb.Y1));
                     }
                     else
                     {
-                        var laneY0 = bbY0 + j * pitch + (pitch - h) / 2;
-                        if (y >= laneY0 && y <= laneY0 + h) return true;
+                        var laneY0 = bbY0 + j * pitch + (pitch - h2) / 2;
+                        path.AddRect(new SKRect((float)bb.X0, (float)laneY0, (float)bb.X1, (float)(laneY0 + h2)));
                     }
                 }
-                return false;
-            });
+                return path;
+            };
         },
     });
 
@@ -1288,14 +1274,15 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // TODO(11p 管线钩子)：JS clipFn 是格子并集——按「字形中心所在格子剩多少」近似
-            ClipGlyphsDesign(env, it, (x, y) =>
+            // JS clipFn：格子并集（逐格 ctx.rect）→ Env.ClipFn 桥
+            env.ClipFn = (_, _) =>
             {
+                var path = new SKPath();
                 foreach (var r in rs)
-                    if (Math.Abs(x - r[0]) <= r[2] / 2 && Math.Abs(y - r[1]) <= r[2] / 2)
-                        return true;
-                return false;
-            });
+                    path.AddRect(new SKRect((float)(r[0] - r[2] / 2), (float)(r[1] - r[2] / 2),
+                        (float)(r[0] + r[2] / 2), (float)(r[1] + r[2] / 2)));
+                return path;
+            };
         },
     });
 
@@ -2309,7 +2296,9 @@ public static class P11Exit
             var it = env.It!;
             var k = env.Ap * MotionK(env);
             if (k < 0.01) return;
-            var u = ((env.Ltb % 1.05) + 1.05) % 1.05; // env.beat 分支：C# Env 未挂 beat 对象，走回退式
+            var u = env.BeatHas
+                ? (env.BeatIndex % 2) * env.BeatLen + env.BeatSince
+                : ((env.Ltb % 1.05) + 1.05) % 1.05; // JS heartbeat 的 env.beat 分支 + ltb 回退式
             var v = Math.Exp(-u * 9) + (u > 0.2 ? 0.75 * Math.Exp(-(u - 0.2) * 9) : 0);
             var f = 1 + 0.055 * v * k;
             ScaleAbout(it, f, f);
@@ -2354,11 +2343,13 @@ public static class P11Exit
             if (k < 0.01) return;
             var sy0 = N1(it, "sy");
             var t = env.Ltb;
-            // env.beat 分支：C# Env 未挂 beat 对象，恒走 sin 回退式
+            var bs = env.BeatHas ? env.BeatSince : (double?)null; // JS jelly：有 beat 用衰减振荡，无 beat 用连续 sin
             Glyphs(env, (i, g, _) =>
             {
                 if (g == null) return null;
-                var w = Math.Sin(t * J.TAU * 1.1 - i * 0.55);
+                var w = bs != null
+                    ? Math.Exp(-(bs.Value - i * 0.03) * 4.5) * Math.Sin(Math.Max(0, bs.Value - i * 0.03) * 21)
+                    : Math.Sin(t * J.TAU * 1.1 - i * 0.55);
                 var a = 0.1 * w * k;
                 var syk = 1 - a;
                 return new CharXf { Sx = 1 + a, Sy = syk, Dy = (1 - syk) * D(g, "h") * sy0 * 0.5 }; // 以底部为锚的挤压拉伸

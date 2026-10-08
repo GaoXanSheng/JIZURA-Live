@@ -304,6 +304,23 @@ public static class P11Looks
         }
     }
 
+    /// <summary>JS addPre 的对位：钩子挂 env.PreFn（DrawFx 在裁剪/主文字前消费，时点层级与 JS 一致）；
+    /// WithFx 语境（clip/bands/local）在钩子体内重建（body 里已包 WithFx 的用法传 fn 直通）。</summary>
+    private static void AddPre(Env env, Action<Env, JObject> fn)
+    {
+        var prev = env.PreFn;
+        env.PreFn = prev != null ? (e, x) => { prev(e, x); fn(e, x); } : (Action<Env, JObject>)fn;
+    }
+
+    /// <summary>JS addPost 的对位：钩子挂 env.PostFn（DrawFx 在主文字后消费，层级与 JS 一致）。</summary>
+    private static void AddPost(Env env, Action<Env, JObject> fn)
+    {
+        var prev = env.PostFn;
+        env.PostFn = prev != null
+            ? (e, x, bb) => { prev(e, x, bb); fn(e, x); }
+            : (Action<Env, JObject, BBox?>)((e, x, _) => fn(e, x));
+    }
+
     private static double D0(JToken? t) => t != null && (t.Type == JTokenType.Float || t.Type == JTokenType.Integer) ? (double)t : 0;
 
     private sealed class Span
@@ -669,7 +686,7 @@ public static class P11Looks
             it["strokeColor"] = gap;
             it["strokeUnder"] = true;
             it["stroke"] = Math.Max(2, D(it, "size") * D(p, "a"));
-            // 外圈：addPre 就地执行——item 底下垫一份只描边的粗副本
+            // 外圈：addPre → env.PreFn（item 底下垫一份只描边的粗副本）
             var c = Bare(it, new JObject
             {
                 ["fill"] = false,
@@ -677,7 +694,7 @@ public static class P11Looks
                 ["stroke"] = Math.Max(4, D(it, "size") * (D(p, "a") + D(p, "b"))),
                 ["strokeColor"] = ring,
             });
-            WithFx(env, it, () => DrawCopy(env, c), false);
+            AddPre(env, (e2, x2) => WithFx(e2, x2, () => DrawCopy(e2, c), false));
         },
     });
 
@@ -915,11 +932,11 @@ public static class P11Looks
                 it["shadow"] = Shadow(Rgba(gc, 0.95), D(it, "size") * D(p, "b") * 0.6, 0, 0);
             else
                 it["shadow"] = null;
-            // addPre 就地执行：大字在主通道垫离屏软光晕
+            // addPre → env.PreFn：大字在主通道垫离屏软光晕
             if (env.Pass == "main" && env.AllowFilter && !small)
             {
                 var bParam = D(p, "b") * (0.9 + 0.1 * Math.Sin(env.Ltb * 3.2));
-                WithFx(env, it, () => Halo(env, it, gc, bParam, dk), false);
+                AddPre(env, (e2, x2) => WithFx(e2, x2, () => Halo(e2, x2, gc, bParam, dk), false));
             }
         },
     });
@@ -959,8 +976,8 @@ public static class P11Looks
                     return f >= o && f <= q ? new CharXf { Color = tc } : null;
                 });
             }
-            // addPre 就地执行：荧光笔画在文字下方
-            WithFx(env, it, () =>
+            // addPre → env.PreFn：荧光笔画在文字下方
+            AddPre(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
                 var sx = NumNull(it, "sx", 1);
@@ -997,7 +1014,7 @@ public static class P11Looks
                         else env.Rect(c0, p0, th, p1 - p0, box, half ? a * 0.92 : a, true);
                     }
                 }
-            });
+            }));
         },
     });
 
@@ -1014,8 +1031,8 @@ public static class P11Looks
             if (it == null || !Alive(it, 0.9) || GlyphN(S(it, "text")) < 2) return;
             var v = S(p, "v") ?? "bar";
             var lc = MarkCol(env.Sc!, ColOfIt(env, it));
-            // addPost 就地执行（层级在主文字下，内容/几何一致，见头注）
-            WithFx(env, it, () =>
+            // addPost → env.PostFn（层级在主文字上，与 JS 一致）
+            AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
                 var a = NumNull(it, "alpha", 1);
@@ -1055,7 +1072,7 @@ public static class P11Looks
                     }
                     else env.Line(new[] { Pt(p0, 0), Pt(p1, 0) }, lc, th, a, false);
                 }
-            });
+            }));
         },
     });
 
@@ -1079,8 +1096,8 @@ public static class P11Looks
             var v = S(p, "v") ?? "one";
             var lc = AccentFor(sc, ColOfIt(env, it), 1.8);
             var vert = Truthy(it["vertical"]);
-            // addPost 就地执行（见头注）
-            WithFx(env, it, () =>
+            // addPost → env.PostFn（见头注）
+            AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
                 var a = NumNull(it, "alpha", 1);
@@ -1119,7 +1136,7 @@ public static class P11Looks
                     else env.Line(new[] { Pt(p0, 0), Pt(p1, 0) }, lc, th, a, true);
                     ctx.Restore();
                 }
-            });
+            }));
         },
     });
 
@@ -1151,8 +1168,8 @@ public static class P11Looks
             bool Alt(int gi) => v == "alt" && (gi + off) % 2 == 1;
             if (!frame)
                 env.CharFns.Add((gi, g, n) => QOf(env, gi) > 0.55 ? new CharXf { Color = Alt(gi) ? tcB : tcA } : null);
-            // addPre 就地执行：逐字底盒
-            WithFx(env, it, () =>
+            // addPre → env.PreFn：逐字底盒
+            AddPre(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
                 var sx = NumNull(it, "sx", 1);
@@ -1175,7 +1192,7 @@ public static class P11Looks
                     else env.Rect(-w / 2, -h / 2, w, h, c, a * g.A, true);
                     ctx.Restore();
                 }
-            });
+            }));
         },
     });
 
@@ -1441,8 +1458,8 @@ public static class P11Looks
             var vert = Truthy(it["vertical"]);
             var sx = NumNull(it, "sx", 1);
             var sy = NumNull(it, "sy", 1);
-            // addPost 就地执行（见头注）
-            WithFx(env, it, () =>
+            // addPost → env.PostFn（见头注）
+            AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
                 if (env.Pass != "main") return;
                 var s = D(it, "size");
@@ -1469,7 +1486,7 @@ public static class P11Looks
                     }
                     else env.Circle(x, y, r, dc, null, 0, a * g.A, false);
                 }
-            });
+            }));
         },
     });
 

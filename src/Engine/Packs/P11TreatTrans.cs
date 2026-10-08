@@ -6,12 +6,11 @@
 // track/size/rot/lead…）直接写 env.It；charFns.push → env.CharFns.Add（管线 CombineChar 合并）。
 //
 // 管线缺口与降级（本文件内解决，与 P11Exit 同约定，不改共享文件）：
-// 1. addPre/addPost/sized：JS 的钩子由 drawFx 在画文字前/后调；C# DrawFx 未接钩子字段——
-//    钩子体在本 Draw 内就地执行（pre 与 JS 同层=文字下方；post 的内容提前画，层级在主文字下，
-//    内容/几何一致；管线接上 post 后回迁）。sized 因此只按 apply 时的 size 算一次（出入场改
-//    size 时不刷新——已知近似）。
+// 1. addPre/addPost/sized：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，pre 画在文字下、
+//    post 画在文字上）。本包经 PreFx/PostFx 挂钩（addPre/addPost 链式语义保留，WithFx 语境在
+//    钩子体内重建）。sized 因此只按 apply 时的 size 算一次（出入场改 size 时不刷新——已知近似）。
 // 2. withFx 的 ctx 级 blur（it.blur>0.4）：副本经 DrawItem 自带 it.blur 通道，不再重复施加
-//    （blur<0.4 的主文字本就不过 ctx.filter，等价）；it.clipFn 是函数字段不进 JObject，跳过。
+//    （blur<0.4 的主文字本就不过 ctx.filter，等价）。
 // 3. lineSpans/glyphList 的 it.charFn：apply 时管线尚未 CombineChar，读 env.CharFn（此时为
 //    null）→ 字形按静态布局位置取（JS 里该 fn 也只影响藏字判定，影响面 = 播到逐字入场时）。
 // 4. QUOTED/SPOT 这两个 WeakMap<env> → ConditionalWeakTable<Env, box>（每帧 env 新建，语义同）。
@@ -192,6 +191,25 @@ public static class P11TreatTrans
         if (enterKey == "assemble" && env.Lt - NumNull(it, "delay", 0) < c.InDur * 1.3 + 0.05) return true;
         if (exitKey is "explode" or "fall" or "drift" && c.OutDur > 0 && env.Lt > c.Dur - c.OutDur - 0.3) return true;
         return false;
+    }
+
+    /// <summary>addPre + withFx 组合：钩子挂 env.PreFn（DrawFx 在裁剪/主文字前消费，层级与 JS 一致），
+    /// WithFx 语境（clip/bands/local）在钩子体内重建。</summary>
+    private static void PreFx(Env env, JObject it, Action fn, bool local = true)
+    {
+        var prev = env.PreFn;
+        env.PreFn = prev != null
+            ? (e, x) => { prev(e, x); WithFx(e, x, fn, local); }
+            : (Action<Env, JObject>)((e, x) => WithFx(e, x, fn, local));
+    }
+
+    /// <summary>addPost + withFx 组合：钩子挂 env.PostFn（DrawFx 在主文字后消费，层级与 JS 一致）。</summary>
+    private static void PostFx(Env env, JObject it, Action fn, bool local = true)
+    {
+        var prev = env.PostFn;
+        env.PostFn = prev != null
+            ? (e, x, bb) => { prev(e, x, bb); WithFx(e, x, fn, local); }
+            : (Action<Env, JObject, BBox?>)((e, x, _) => WithFx(e, x, fn, local));
     }
 
     /// <summary>让 fn 处在和画文字相同的 clip/bands 下；local=true 再变换到 item 坐标（JS withFx）。</summary>
@@ -549,7 +567,7 @@ public static class P11TreatTrans
                     ["alpha"] = NumNull(it, "alpha", 1) * (dk ? 0.22 : 0.16),
                     ["shadow"] = Shadow(Rgba(gc, 0.9), s * 0.16, 0, 0),
                 });
-                WithFx(env, it, () => DrawCopy(env, c), false);
+                PreFx(env, it, () => DrawCopy(env, c), false);
             }
             if (Truthy(p["fl"]))
             {
@@ -680,7 +698,7 @@ public static class P11TreatTrans
                 ["blend"] = dk ? "screen" : "multiply",
                 ["alpha"] = NumNull(it, "alpha", 1) * 0.95,
             });
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 DrawCopy(env, Cp(ca, -1));
                 DrawCopy(env, Cp(cb, 1));
@@ -720,7 +738,7 @@ public static class P11TreatTrans
             if (env.Pass != "main" || Tracing(it)) return;
             var s = D(it, "size");
             var d = s * D(p, "d");
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 for (var k = n; k >= 1; k--)
                 {
@@ -776,7 +794,7 @@ public static class P11TreatTrans
                 var rest = env.CharFns.Where(f => f != fns[0]).ToList();
                 var combined = JAnim.CombineChar(rest.Concat(new[] { fk }).ToList());
                 var c = Bare(it);
-                WithFx(env, it, () => DrawCopy(env, c, combined), false);
+                PreFx(env, it, () => DrawCopy(env, c, combined), false);
             }
         },
     });
@@ -856,7 +874,7 @@ public static class P11TreatTrans
             var rem = q * tot;
             var c = Bare(it, new JObject { ["x"] = 0.0, ["y"] = 0.0, ["rot"] = 0.0, ["skew"] = 0.0, ["color"] = hot, ["blur"] = 0.0, ["strokeUnder"] = it["strokeUnder"] });
             var vertical = Truthy(it["vertical"]);
-            WithFx(env, it, () =>
+            PostFx(env, it, () =>
             {
                 var ctx = env.Ctx;
                 ctx.Save();
@@ -1077,7 +1095,7 @@ public static class P11TreatTrans
                     : new CharXf { S = k };
             });
             // addPre（就地执行）
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 var s = D(it, "size");
                 var a = NumNull(it, "alpha", 1);
@@ -1142,7 +1160,7 @@ public static class P11TreatTrans
             if (along + room > cap && along < cap * 1.05)
                 it["size"] = D(it, "size") * Math.Max(0.72, cap / (along + room));
             // addPost（就地执行）
-            WithFx(env, it, () =>
+            PostFx(env, it, () =>
             {
                 var spans = LineSpans(env, it);
                 if (spans.Count == 0) return;
@@ -1246,7 +1264,7 @@ public static class P11TreatTrans
                 ["gradient"] = Grad((0.0, Tr), (0.42, Rgba(col, 0.12)), (1.0, Rgba(col, 1.0))),
                 ["alpha"] = NumNull(it, "alpha", 1) * D(p, "a"),
             });
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 var ctx = env.Ctx;
                 ctx.Save();
@@ -1281,7 +1299,7 @@ public static class P11TreatTrans
             // addPost（就地执行）
             if (env.Pass != "main" || Tracing(it) || InPieces(env, it)) return;
             var s = D(it, "size");
-            WithFx(env, it, () =>
+            PostFx(env, it, () =>
             {
                 DrawCopy(env, Bare(it, new JObject { ["fill"] = false, ["stroke"] = s * (D(p, "a") + D(p, "b")) * 2, ["strokeColor"] = line }), null);
                 DrawCopy(env, Bare(it, new JObject { ["fill"] = false, ["stroke"] = s * D(p, "a") * 2, ["strokeColor"] = col }), null);
@@ -1319,7 +1337,7 @@ public static class P11TreatTrans
             // addPre（就地执行）
             if (env.Pass != "main" || InPieces(env, it)) return;
             var s = D(it, "size");
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 DrawCopy(env, Bare(it, new JObject
                 {
@@ -1449,7 +1467,7 @@ public static class P11TreatTrans
             });
             if (GlyphN(S(it, "text")) < 2 || OnPlate(sc, col)) return; // 单字 item、底板上的文字只吸附不画格
             var tint = J.Mix(ScK(sc, "bg"), lc, IsDark(ScK(sc, "bg")) ? 0.1 : 0.08);
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 var q = J.E.OutCubic(InP(env, it, 0, 0.45)) * (1 - J.E.InCubic(env.POut));
                 if (q <= 0.01) return;
@@ -1537,7 +1555,7 @@ public static class P11TreatTrans
             if (env.Pass != "main" || Tracing(it)) return;
             var d = D(it, "size") * D(p, "d");
             var dir = ((JArray?)p["dir"])?.Select(D0).ToArray() ?? new[] { 1.0, 1.0 };
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
                 DrawCopy(env, Bare(it, new JObject
                 {
                     ["fill"] = true,
@@ -1573,7 +1591,7 @@ public static class P11TreatTrans
             if (env.Pass != "main" || Tracing(it) || InPieces(env, it)) return;
             var d = D(it, "size") * D(p, "d");
             var dir = ((JArray?)p["dir"])?.Select(D0).ToArray() ?? new[] { 1.0, 1.0 };
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
                 DrawCopy(env, Bare(it, new JObject
                 {
                     ["x"] = D(it, "x") + dir[0] * d,
@@ -1652,10 +1670,10 @@ public static class P11TreatTrans
             var rest = env.CharFns.Where(f => f != topFn).ToList();
             var combined = JAnim.CombineChar(rest.Concat(new[] { botFn }).ToList());
             var c = Bare(it);
-            WithFx(env, it, () => DrawCopy(env, c, combined), false);
+            PreFx(env, it, () => DrawCopy(env, c, combined), false);
             if (Truthy(p["line"]) && env.Pass == "main" && q > 0.02)
             {
-                WithFx(env, it, () =>
+                PreFx(env, it, () =>
                 {
                     var lw = Math.Max(1.2, s * 0.012);
                     var ex = s * 0.35 * q;
@@ -1768,7 +1786,7 @@ public static class P11TreatTrans
             var v = S(p, "v");
             env.CharFns.Add((gi, g, n) => gi != tIdx ? null
                 : QOf(env) > 0.5 && tc != col ? new CharXf { S = k, Color = tc } : new CharXf { S = k });
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 var gl = GlyphList(env, it).FirstOrDefault(x => x.G.I == tIdx);
                 if (gl == null) return;
@@ -1836,7 +1854,7 @@ public static class P11TreatTrans
                 var q = r[gi];
                 return new CharXf { Rot = q.Rot, S = q.S, Dy = q.Dy * D(g, "h"), Color = QOf(env, gi) > 0.5 ? q.Tc : null };
             });
-            WithFx(env, it, () =>
+            PreFx(env, it, () =>
             {
                 var ctx = env.Ctx;
                 var a = NumNull(it, "alpha", 1);

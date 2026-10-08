@@ -11,7 +11,7 @@
 // J.layoutText→JText.LayoutText、J.pool→JLang.Pool、J.drawItem→env.DrawItem（本文件 DrawIt 包装）、
 // J.romaji/lum/contrast/mix/fitContrast/h/r/rs/rr/noise1/clamp/lerp/smooth→J.*。
 //
-// extra/set 标记：JS 条目上的 `set: 'horror'`（11q_sets 预设集分组标记）与 `ae: 'xxx'`
+// extra/set 标记：JS 条目上的 `set: 'horror'` 已落 IRegEntry.Set 真字段（Reg0 统一赋值）；`ae: 'xxx'`
 // （AE 导出映射，Export.js 未移植）在 IRegEntry/LayoutDef 无对应字段，C# 不落表——
 // 等 Sets/AE 导出移植时再补。见移植汇报。
 //
@@ -33,7 +33,11 @@ public static class P11Horror1
     private const string P = "horror1";
     private static int _installed;
 
-    private static void Reg0(string key, LayoutDef def) => Reg.Register("layout", key, def, P);
+    private static void Reg0(string key, LayoutDef def)
+    {
+        def.Set = "horror"; // JS reg 助手：Object.assign({set: 'horror'}, def)
+        Reg.Register("layout", key, def, P);
+    }
 
     // ================= 本包 helper（JS L9-107 逐条对位） =================
 

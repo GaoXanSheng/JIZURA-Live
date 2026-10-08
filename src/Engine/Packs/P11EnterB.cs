@@ -8,9 +8,8 @@
 // C# 传 int，env.step 这类小数同样截断）——同 seed 同动画轨迹。
 //
 // 管线缺口与降级（本文件内解决，不改共享文件；约定沿用 P11Enter）：
-// 1. it.pre/addPre、it.post/addPost：JLayouts.DrawFx 尚未接（TODO(11p)）。pre 在 Draw 调用点就地
-//    执行（JS 画在文字前，此处同序，正确）；post 就地提前到 Draw 内画（内容/几何一致，层级在
-//    文字下方；管线接上 post 后回迁）。
+// 1. it.pre/addPre、it.post/addPost：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，pre 画在
+//    文字前、post 画在文字后）。本包经 DrawPre/DrawPreLocal/DrawPost/DrawPostLocal 挂钩（链式）。
 // 2. it.clipFn（clipLocal 任意路径裁剪）：管线未接，主文字裁不掉。
 //    - 轴对齐单矩形（quarters/invertBox/tokoroten）→ 每字形 clipX/clipY 精确对位（ClipRectLocal）；
 //    - 其余非矩形（对角半面/毛边/扫描线/棋盘/笔刷/墨渍/扇形/液面/斜带）→ 按字形中心（或四角）
@@ -165,51 +164,68 @@ public static class P11EnterB
         }
     }
 
-    // ---- 钩子就地执行（it.pre/it.post/clipLocal 管线未挂，见文件头 1/2） ----
+    // ---- 钩子挂管线（Env.PreFn/PostFn → JLayouts.DrawFx 消费；addPre/addPost 的链式语义保留） ----
 
-    /// <summary>JS addPre 的对位：在 Draw 调用点就地执行——JS 里 pre 画在文字之前，此处同序。</summary>
-    private static void DrawPre(Env env, JObject it, Action<Env, JObject> fn) => fn(env, it);
-
-    /// <summary>
-    /// JS addPost 的对位：内容就地执行——JS 里画在文字之后，此处提前到 Draw 内
-    /// （内容/几何一致，层级在文字下方；管线接上 post 后回迁）。
-    /// </summary>
-    private static void DrawPost(Env env, JObject it, Action<Env, JObject> fn) => fn(env, it);
-
-    /// <summary>JS postLocal：alpha 门 + save + toLocal + fn + restore。post 内容层级在文字下方（见上）。</summary>
-    private static void DrawPostLocal(Env env, JObject it, Action<Env, EBox, JObject, double> fn)
+    /// <summary>JS addPre 的对位：钩子挂 env.PreFn（DrawFx 在裁剪/主文字之前消费，层级与 JS 一致）。</summary>
+    private static void DrawPre(Env env, JObject it, Action<Env, JObject> fn)
     {
-        var a = J.Clamp(JAnim.NumNull(it, "alpha", 1));
-        if (a <= 0.01) return;
-        var b = Box(it);
-        env.Ctx.Save();
-        ToLocal(env.Ctx, it);
-        try
-        {
-            fn(env, b, it, a);
-        }
-        finally
-        {
-            env.Ctx.Restore();
-        }
+        var prev = env.PreFn;
+        env.PreFn = prev != null ? (e, x) => { prev(e, x); fn(e, x); } : (Action<Env, JObject>)fn;
     }
 
-    /// <summary>JS preLocal：alpha 门 + save + toLocal + fn + restore（画在文字之前，此处同序，层级正确）。</summary>
+    /// <summary>JS addPost 的对位：钩子挂 env.PostFn（DrawFx 在主文字之后消费，层级与 JS 一致）。</summary>
+    private static void DrawPost(Env env, JObject it, Action<Env, JObject> fn)
+    {
+        var prev = env.PostFn;
+        env.PostFn = prev != null
+            ? (e, x, bb) => { prev(e, x, bb); fn(e, x); }
+            : (Action<Env, JObject, BBox?>)((e, x, _) => fn(e, x));
+    }
+
+    /// <summary>JS postLocal：alpha 门 + save + toLocal + fn + restore，包进 env.PostFn（层级与 JS 一致）。</summary>
+    private static void DrawPostLocal(Env env, JObject it, Action<Env, EBox, JObject, double> fn)
+    {
+        void Hook(Env e, JObject x, BBox? _)
+        {
+            var a = J.Clamp(JAnim.NumNull(x, "alpha", 1));
+            if (a <= 0.01) return;
+            var b = Box(x);
+            e.Ctx.Save();
+            ToLocal(e.Ctx, x);
+            try
+            {
+                fn(e, b, x, a);
+            }
+            finally
+            {
+                e.Ctx.Restore();
+            }
+        }
+        var prev = env.PostFn;
+        env.PostFn = prev != null ? (e, x, bb) => { prev(e, x, bb); Hook(e, x, bb); } : (Action<Env, JObject, BBox?>)Hook;
+    }
+
+    /// <summary>JS preLocal：alpha 门 + save + toLocal + fn + restore，包进 env.PreFn（画在文字之前，层级与 JS 一致）。</summary>
     private static void DrawPreLocal(Env env, JObject it, Action<Env, EBox, JObject, double> fn)
     {
-        var a = J.Clamp(JAnim.NumNull(it, "alpha", 1));
-        if (a <= 0.01) return;
-        var b = Box(it);
-        env.Ctx.Save();
-        ToLocal(env.Ctx, it);
-        try
+        void Hook(Env e, JObject x)
         {
-            fn(env, b, it, a);
+            var a = J.Clamp(JAnim.NumNull(x, "alpha", 1));
+            if (a <= 0.01) return;
+            var b = Box(x);
+            e.Ctx.Save();
+            ToLocal(e.Ctx, x);
+            try
+            {
+                fn(e, b, x, a);
+            }
+            finally
+            {
+                e.Ctx.Restore();
+            }
         }
-        finally
-        {
-            env.Ctx.Restore();
-        }
+        var prev = env.PreFn;
+        env.PreFn = prev != null ? (e, x) => { prev(e, x); Hook(e, x); } : (Action<Env, JObject>)Hook;
     }
 
     /// <summary>JS toLocal：translate(it.x,it.y) → rotate(it.rot) → skewX(it.skew)。</summary>

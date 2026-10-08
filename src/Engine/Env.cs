@@ -69,6 +69,21 @@ public sealed class Env
     /// <summary>距最近节拍的归一相位。</summary>
     public double Beat { get; set; }
 
+    // ---- JS env.beat {since, len, index} 对位（09_render beatAt(plan.beats, tq)；渲染器每帧二分） ----
+    // BeatHas=false ⇔ JS env.beat === null（plan 无节拍或 t 之前没有拍）——包侧按 ltb 回退式。
+
+    /// <summary>env.beat 非 null（plan.Beats 有值且当帧 t 之前存在拍）。</summary>
+    public bool BeatHas { get; set; }
+
+    /// <summary>env.beat.since：距上一拍秒数。</summary>
+    public double BeatSince { get; set; }
+
+    /// <summary>env.beat.len：拍长秒数（beatAt 已保证 ≥0.2）。</summary>
+    public double BeatLen { get; set; }
+
+    /// <summary>env.beat.index：拍索引。</summary>
+    public int BeatIndex { get; set; }
+
     /// <summary>中央を空ける的条带（cut.Zone 的运行时镜像）。</summary>
     public Zone? Zone { get; set; }
 
@@ -121,6 +136,24 @@ public sealed class Env
 
     /// <summary>combinePiece 产物（JS 的 it.pieceFn）：drawItem 逐片应用。</summary>
     public JAnim.PieceFn? PieceFn { get; set; }
+
+    // ---- it.pre/it.post/it.clipFn 桥（06_layouts drawFx 的函数值字段；JObject 装不下函数）----
+    // MoveDef/TreatDef/DecorDef 的 Draw(env) 在 DrawFx 之前执行，把钩子挂到 env；DrawFx 按同一
+    // 顺序消费：pre（裁剪前、主文字下方）→ clip/clipY/clipFn → 文字 → post（文字上方）。
+    // mainDraw 每 item 清空（对齐 JS 每 item 重建配方对象）。
+
+    /// <summary>it.pre 对位：drawFx 开头调（JS pre(env, it)）——不被任何裁剪影响、画在主文字下方。</summary>
+    public Action<Env, JObject>? PreFn { get; set; }
+
+    /// <summary>it.post 对位：drawFx 主文字后调（JS post(env, it, bb)，bb 是主文字 bbox，可能 null）。</summary>
+    public Action<Env, JObject, BBox?>? PostFn { get; set; }
+
+    /// <summary>
+    /// it.clipFn 对位：返回裁剪路径（JS 的 it.clipFn(ctx, env, it) 在 ctx 上 beginPath 后 ctx.clip()；
+    /// C# 无持久 ctx 路径状态 → 返回 SKPath 由 DrawFx ClipPath）。路径在设计像素空间（DrawFx 调用点
+    /// 的画布坐标系）。DrawFx 不持有引用：每次调用新建的路径由 DrawFx Dispose。
+    /// </summary>
+    public Func<Env, JObject, SKPath>? ClipFn { get; set; }
 
     // ---- 渲染器管理的内部标记（JS env.layer/hideText/allowFilter/glyphLog；09_render 移植时由渲染器写入） ----
 

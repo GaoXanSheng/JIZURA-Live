@@ -1,0 +1,486 @@
+// 移植自 frontend/src/cloud/subtitle.ts + subtitle-draw.ts（git 历史 20c717e^，M7 已删 TS 参照）。
+//
+// 独立字幕渲染层，纯渲染模块：不依赖 Env/Plan/渲染器/宿主状态，输入只有
+// KRC 时间轴（Krc.Parse 产物的 KrcLine）+ 每行注音（JIZURA LRC 的 "roma　trans" 串），
+// Render(t) 直画到任意 SKCanvas——预览叠加（subtitle.ts 的 overlay 语义）与导出烤入
+// （SubPayload/makeSubtitleOverlay 语义）以后都接这一个类（接线是下一个任务）。
+//
+// 与 TS 的有意差异（其余排版常数逐条对位 subtitle-draw.ts）：
+//   1. TS 字幕层只画注音（主歌词由 JIZURA 引擎本体画）；C# 独立字幕通道要自带主行，
+//      所以画「主行 + 注音行」整块，注音按 roma/trans 拆行（TS 是 '　' join 后一起 wrap）。
+//   2. KRC 逐字时间轴驱动已唱/未唱双色（TS 无逐字高亮）——SubtitleConfig.Karaoke/UnsungColor。
+//   3. 行间空隙默认不画（TS lineAt 语义）；HoldLastLine=true 时保持上一句到下一句开始。
+//   4. localStorage/BroadcastChannel/worker 载荷等宿主逻辑不移植——配置就是纯 POCO。
+
+using System.Globalization;
+using JizuraLive.App.Cloud;
+using SkiaSharp;
+
+namespace JizuraLive.Engine;
+
+/// <summary>字幕内容模式：对位 SubConfig.content（Off = 整层不画）。</summary>
+public enum SubContent
+{
+    Off,
+    Trans,
+    Roma,
+    Both
+}
+
+/// <summary>字幕位置：对位 SubConfig.pos。</summary>
+public enum SubPos
+{
+    Bottom,
+    Top
+}
+
+/// <summary>
+/// 字幕配置：字段与默认值逐条对位 subtitle.ts 的 SubConfig/SUB_DEFAULT
+/// （Content 默认 Off 是 TS 原样——字幕面板初始就是关闭的）。末尾三个字段是 C# 扩展。
+/// </summary>
+public sealed class SubtitleConfig
+{
+    /// <summary>画什么注音：off / 只翻译 / 只音译 / 双行。</summary>
+    public SubContent Content { get; set; } = SubContent.Off;
+
+    /// <summary>底部 / 顶部。</summary>
+    public SubPos Pos { get; set; } = SubPos.Bottom;
+
+    /// <summary>字号（画面高的百分比；fontPx = max(8, H*size/100)）。</summary>
+    public double Size { get; set; } = 4.5;
+
+    /// <summary>描边宽（1080p 像素，按 H/1080 缩放；0 = 不描边）。</summary>
+    public double Stroke { get; set; } = 4;
+
+    /// <summary>已唱/主填充色（#rgb/#rrggbb）。</summary>
+    public string Color { get; set; } = "#ffffff";
+
+    /// <summary>描边色。</summary>
+    public string StrokeColor { get; set; } = "#000000";
+
+    /// <summary>字体族：'' 默认 / 'sans' / 'serif'（family 链对位 subFont()）。</summary>
+    public string Font { get; set; } = "";
+
+    /// <summary>半透明黑底板条（rgba(0,0,0,0.45)，对位 cfg.bar）。</summary>
+    public bool Bar { get; set; }
+
+    /// <summary>水平偏移（画面宽的百分比，±50 封顶）。</summary>
+    public double OffX { get; set; }
+
+    /// <summary>垂直偏移（画面高的百分比，±50 封顶）。</summary>
+    public double OffY { get; set; }
+
+    // ---- C# 扩展（TS 字幕层没有逐字高亮与行间保持） ----
+
+    /// <summary>KRC 逐字卡拉 OK：已唱用 Color、未唱用 UnsungColor；false 退化为 TS 同款整行单色。</summary>
+    public bool Karaoke { get; set; } = true;
+
+    /// <summary>未唱字符的填充色。</summary>
+    public string UnsungColor { get; set; } = "#8a8a8a";
+
+    /// <summary>行间空隙/间奏时保持上一句（整句已唱态）直到下一句开始；false = 空隙不画（TS 语义）。</summary>
+    public bool HoldLastLine { get; set; }
+}
+
+/// <summary>
+/// 字幕层：KRC 时间轴 + 配置 → 逐帧 SkiaSharp 直画。不可变输入、无全局渲染状态
+/// （仅 SKFont/SKTypeface 解析结果按 (kind,px) 缓存，与 JText.FaceFont 同款约定），
+/// 输出是输入的纯函数，可完全离线测试。
+/// </summary>
+public sealed class SubtitleLayer
+{
+    private readonly IReadOnlyList<KrcLine> _lines;
+    private readonly List<int> _order; // 按 StartMs 升序的行索引（OrderBy 稳定，输入乱序也能二分）
+    private readonly SubtitleConfig _cfg;
+    private readonly IReadOnlyList<string>? _notes;
+
+    /// <summary>
+    /// lines：KRC 时间轴（Krc.Parse 的产物，时间单位毫秒）。
+    /// notes：每行注音（JIZURA LRC 的 "roma　trans" 串，Krc.KrcToLrc 生成；缺省 = 无注音行）。
+    /// cfg：缺省 = SUB_DEFAULT（Content=Off，什么都不画——要出画面得显式开）。
+    /// </summary>
+    public SubtitleLayer(IReadOnlyList<KrcLine> lines, SubtitleConfig? cfg = null, IReadOnlyList<string>? notes = null)
+    {
+        _lines = lines ?? throw new ArgumentNullException(nameof(lines));
+        _cfg = cfg ?? new SubtitleConfig();
+        _notes = notes;
+        _order = Enumerable.Range(0, _lines.Count).OrderBy(i => _lines[i].StartMs).ToList();
+    }
+
+    /// <summary>Render 的一帧统计（纯数值，测试与上层接线用；不关心可直接忽略返回值）。</summary>
+    public sealed record FrameStats(
+        int? LineIndex, // 当前行索引（无 → null；空隙/间奏下 HoldLastLine 给的是被保持的行）
+        int Words, // 当前行 KrcWord 数
+        int SungWords, // 已开始唱的词数
+        int SungChars, // 已唱码点数（已开始的词整词算已唱）
+        int UnsungChars, // 未唱码点数
+        int MainRows, // 主行折行数
+        int SubRows, // 翻译/音译行数
+        bool Drawn) // 本帧有笔画落盘
+    {
+        public static FrameStats None { get; } = new(null, 0, 0, 0, 0, 0, 0, false);
+    }
+
+    /// <summary>
+    /// 画一帧字幕。t 是曲内秒（KRC 是毫秒，内部 ×1000）；w/h 是画布尺寸（设计像素，
+    /// 与 TS 的 plan.W/H 同位——排版常数全部由 h/w 派生，见各注释）。
+    /// </summary>
+    public FrameStats Render(SKCanvas ctx, double t, int w, int h)
+    {
+        if (ctx == null) throw new ArgumentNullException(nameof(ctx));
+        if (_cfg.Content == SubContent.Off || w <= 0 || h <= 0) return FrameStats.None;
+        var tMs = t * 1000.0;
+        var at = LineAt(tMs);
+        if (at == null) return FrameStats.None;
+        var (idx, active) = at.Value;
+        var line = _lines[idx];
+
+        // 注音行：notes[idx] 按 roma/trans 分类后按 Content 模式取（TS fromNoteOf/subTextFor 同款）
+        var (roma, trans) = NoteParts(idx);
+        var subTexts = new List<string>();
+        if (_cfg.Content == SubContent.Trans)
+        {
+            if (trans.Length > 0) subTexts.Add(trans);
+        }
+        else if (_cfg.Content == SubContent.Roma)
+        {
+            if (roma.Length > 0) subTexts.Add(roma);
+        }
+        else if (_cfg.Content == SubContent.Both)
+        {
+            if (roma.Length > 0) subTexts.Add(roma);
+            if (trans.Length > 0) subTexts.Add(trans);
+        }
+
+        // 主行码点 + 码点→词映射（主文本 = 词文本按序 concat，与 Krc.Parse 的 Text 同源）
+        var cps = new List<string>(64);
+        var wordOf = new List<int>(64);
+        for (var wi = 0; wi < line.Words.Count; wi++)
+            foreach (var cp in CodePoints(line.Words[wi].Text))
+            {
+                cps.Add(cp);
+                wordOf.Add(wi);
+            }
+
+        // 逐字已唱/未唱：词一开始唱就算整词已唱（词内不做渐变填充）；被保持的上一句整句已唱
+        var sung = new bool[line.Words.Count];
+        var sungWords = 0;
+        for (var wi = 0; wi < sung.Length; wi++)
+        {
+            sung[wi] = (!active || !_cfg.Karaoke) || tMs >= line.Words[wi].StartMs;
+            if (sung[wi]) sungWords++;
+        }
+
+        var sungChars = 0;
+        for (var i = 0; i < cps.Count; i++)
+            if (sung[wordOf[i]])
+                sungChars++;
+
+        // ---------------- 排版（subtitle-draw.ts 的常数逐条对位） ----------------
+        var fontPx = Math.Max(8, h * _cfg.Size / 100);
+        var strokePx = h / 1080.0 * _cfg.Stroke;
+        var maxW = w * 0.86;
+        var lh = fontPx * 1.32;
+        var font = SubFont(fontPx, _cfg.Font);
+
+        var cpW = new double[cps.Count];
+        for (var i = 0; i < cps.Count; i++) cpW[i] = font.MeasureText(cps[i]);
+        var mainRows = Wrap(cps, cpW, maxW);
+
+        var subRows = new List<(string Text, double Width)>();
+        foreach (var st in subTexts)
+        {
+            var scps = CodePoints(st);
+            if (scps.Count == 0) continue;
+            var sw = new double[scps.Count];
+            for (var i = 0; i < scps.Count; i++) sw[i] = font.MeasureText(scps[i]);
+            foreach (var (s, e) in Wrap(scps, sw, maxW))
+            {
+                var width = 0.0;
+                for (var i = s; i < e; i++) width += sw[i];
+                subRows.Add((string.Concat(scps.Skip(s).Take(e - s)), width));
+            }
+        }
+
+        var mainRowW = new double[mainRows.Count];
+        for (var r = 0; r < mainRows.Count; r++)
+        {
+            var width = 0.0;
+            for (var i = mainRows[r].Start; i < mainRows[r].End; i++) width += cpW[i];
+            mainRowW[r] = width;
+        }
+
+        var stats = new FrameStats(idx, line.Words.Count, sungWords, sungChars, cps.Count - sungChars,
+            mainRows.Count, subRows.Count, mainRows.Count + subRows.Count > 0);
+        if (!stats.Drawn) return stats;
+
+        // offX/offY 是画面宽/高的百分比偏移（±50 封顶；TS parseFloat(..)||0 的 NaN 兜底 = 0）
+        var centerX = w * (0.5 + ClampPct(_cfg.OffX) / 100);
+        var blockH = (mainRows.Count + subRows.Count) * lh;
+        var baseY = (_cfg.Pos == SubPos.Top ? h * 0.055 + fontPx : h - h * 0.055 - blockH + fontPx)
+                    + h * ClampPct(_cfg.OffY) / 100;
+
+        ctx.Save();
+        var fillCol = SubColor(_cfg.Color);
+        var unsungCol = SubColor(_cfg.UnsungColor);
+        using var fillP = new SKPaint { IsAntialias = true, Color = fillCol };
+        using var strokeP = new SKPaint
+        {
+            IsAntialias = true,
+            IsStroke = true,
+            StrokeWidth = (float)strokePx,
+            StrokeJoin = SKStrokeJoin.Round, // TS lineJoin='round'
+            Color = SubColor(_cfg.StrokeColor)
+        };
+
+        // 底板条：先于文字画（TS 同序），宽度取最宽行
+        if (_cfg.Bar)
+        {
+            var wmax = mainRowW.DefaultIfEmpty(0).Max();
+            foreach (var sr in subRows) wmax = Math.Max(wmax, sr.Width);
+            if (wmax > 0)
+            {
+                var padX = fontPx * 0.5;
+                var padY = fontPx * 0.3;
+                using var bp = new SKPaint { IsAntialias = true, Color = new SKColor(0, 0, 0, (byte)Math.Round(0.45 * 255)) };
+                ctx.DrawRect(new SKRect(
+                    (float)(centerX - wmax / 2 - padX),
+                    (float)(baseY - fontPx * 0.82 - padY),
+                    (float)(centerX + wmax / 2 + padX),
+                    (float)(baseY - fontPx * 0.82 - padY + blockH + padY * 2)), bp);
+            }
+        }
+
+        // 主行：整行描边一遍再逐字按已唱/未唱填色（基线 = baseY + r*lh，TS textAlign=center 的
+        // 整行描边 → 这里逐码点描边，同色不透明下视觉等价）
+        var y = baseY;
+        for (var r = 0; r < mainRows.Count; r++)
+        {
+            var (s, e) = mainRows[r];
+            var x = centerX - mainRowW[r] / 2;
+            if (strokePx > 0)
+            {
+                var cx = x;
+                for (var i = s; i < e; i++)
+                {
+                    ctx.DrawText(cps[i], (float)cx, (float)y, SKTextAlign.Left, font, strokeP);
+                    cx += cpW[i];
+                }
+            }
+
+            var fx = x;
+            for (var i = s; i < e; i++)
+            {
+                fillP.Color = sung[wordOf[i]] ? fillCol : unsungCol;
+                ctx.DrawText(cps[i], (float)fx, (float)y, SKTextAlign.Left, font, fillP);
+                fx += cpW[i];
+            }
+
+            y += lh;
+        }
+
+        // 注音行：单色整行（描边 + 填充，居中，TS strokeText/fillText 同序）
+        foreach (var (text, _) in subRows)
+        {
+            if (strokePx > 0) ctx.DrawText(text, (float)centerX, (float)y, SKTextAlign.Center, font, strokeP);
+            fillP.Color = fillCol;
+            ctx.DrawText(text, (float)centerX, (float)y, SKTextAlign.Center, font, fillP);
+            y += lh;
+        }
+
+        ctx.Restore();
+        return stats;
+    }
+
+    // ---------------- 当前行查找（二分） ----------------
+
+    /// <summary>
+    /// 最后一个 StartMs &lt;= tMs 的行；活动 = t 在 [start, start+dur)。
+    /// 空隙/间奏：默认不画（TS lineAt 的 ok 判据）；HoldLastLine 时保持最近一句非空行。
+    /// </summary>
+    private (int Idx, bool Active)? LineAt(double tMs)
+    {
+        int lo = 0, hi = _order.Count - 1, k = -1;
+        while (lo <= hi)
+        {
+            var mid = (lo + hi) / 2;
+            if (_lines[_order[mid]].StartMs <= tMs)
+            {
+                k = mid;
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+
+        if (k < 0) return null; // 首行之前
+        var idx = _order[k];
+        var active = tMs < _lines[idx].StartMs + Math.Max(0, _lines[idx].DurMs);
+        if (!_cfg.HoldLastLine)
+            return active ? (idx, true) : ((int, bool)?)null;
+        if (active && _lines[idx].Text.Length > 0) return (idx, true);
+        // 间奏空行不吃上一句：往回找最近一句非空行（整句已唱态）
+        while (k >= 0 && _lines[_order[k]].Text.Length == 0) k--;
+        return k >= 0 ? (Idx: _order[k], Active: false) : ((int, bool)?)null;
+    }
+
+    // ---------------- 注音解析（TS fromNoteOf 对位） ----------------
+
+    /// <summary>notes[idx]（JIZURA LRC 注音串 "roma　trans"）→ (roma, trans)。
+    /// 按 '　' 拆段逐段用 Krc.ClassifyLangRows 按脚本分类（TS 同款）；段内空格 join 保留。</summary>
+    private (string Roma, string Trans) NoteParts(int idx)
+    {
+        var note = _notes != null && idx < _notes.Count ? _notes[idx] : "";
+        if (string.IsNullOrWhiteSpace(note)) return ("", "");
+        var roma = new List<string>();
+        var trans = new List<string>();
+        foreach (var p in note.Split('　').Select(s => s.Trim()).Where(s => s.Length > 0))
+            (Krc.ClassifyLangRows(new[] { p }) == "roma" ? roma : trans).Add(p);
+        return (string.Join(" ", roma), string.Join(" ", trans));
+    }
+
+    // ---------------- 折行（TS wrapSubtitle 对位） ----------------
+
+    /// <summary>按全角空格分段，整段不超宽整段成行，超宽段再逐码点贪心折行。
+    /// 返回 [Start,End) 码点区间（全角空格分隔符不入行）。</summary>
+    private static List<(int Start, int End)> Wrap(IReadOnlyList<string> cps, double[] w, double maxW)
+    {
+        var rows = new List<(int, int)>();
+        var i = 0;
+        while (i < cps.Count)
+        {
+            if (cps[i] == "　")
+            {
+                i++;
+                continue;
+            }
+
+            var j = i;
+            while (j < cps.Count && cps[j] != "　") j++;
+            if (maxW <= 0)
+            {
+                rows.Add((i, j)); // 没有可用宽度：一段一行兜底
+                i = j;
+                continue;
+            }
+
+            double segW = 0;
+            for (var k = i; k < j; k++) segW += w[k];
+            if (segW <= maxW)
+            {
+                rows.Add((i, j));
+            }
+            else
+            {
+                var s = i;
+                double cur = 0;
+                for (var k = i; k < j; k++)
+                {
+                    if (cur > 0 && cur + w[k] > maxW)
+                    {
+                        rows.Add((s, k));
+                        s = k;
+                        cur = w[k];
+                    }
+                    else
+                    {
+                        cur += w[k];
+                    }
+                }
+
+                if (cur > 0) rows.Add((s, j));
+            }
+
+            i = j;
+        }
+
+        return rows;
+    }
+
+    // ---------------- 字体（TS subFont 对位） ----------------
+
+    // (kind,px) → SKFont 缓存；typeface 解析结果随之复用。Hashtable 读多写少，与 JText.FontJobs 同款。
+    private static readonly System.Collections.Hashtable FontJobs = new();
+
+    /// <summary>subFont(px, kind)：700 字重、三条 family 链逐字对位；本机缺 family 时沿链下探，
+    /// 都没有落 Skia 默认体（对齐 JText.ResolveTypefaceChain 的判定）。</summary>
+    private static SKFont SubFont(double px, string kind)
+    {
+        var key = string.Create(CultureInfo.InvariantCulture,
+            $"{kind}\u0001{px.ToString("R", CultureInfo.InvariantCulture)}");
+        if (FontJobs[key] is SKFont hit) return hit;
+        var families = kind == "serif"
+            ? new[] { "Noto Serif JP", "SimSun" }
+            : kind == "sans"
+                ? new[] { "Microsoft YaHei", "Noto Sans JP" }
+                : new[] { "Noto Sans JP", "Microsoft YaHei" };
+        SKTypeface? tf = null;
+        foreach (var fam in families)
+        {
+            try
+            {
+                var t = SKTypeface.FromFamilyName(fam, SKFontStyleWeight.Bold, SKFontStyleWidth.Normal,
+                    SKFontStyleSlant.Upright);
+                // FromFamilyName 缺字体时返回默认体；family 对不上视为没找到，试下一级
+                if (t != null && string.Equals(t.FamilyName, fam, StringComparison.OrdinalIgnoreCase))
+                {
+                    tf = t;
+                    break;
+                }
+
+                t?.Dispose();
+            }
+            catch
+            {
+                // 没有就试下一级（对齐 TS 字体栈的级联）
+            }
+        }
+
+        var f = new SKFont(tf ?? SKTypeface.Default, (float)px)
+        {
+            Edging = SKFontEdging.Antialias,
+            Subpixel = true
+        };
+        if (FontJobs.Count > 256) FontJobs.Clear(); // 容量护栏（同 JText.FaceFont 模式）
+        FontJobs[key] = f;
+        return f;
+    }
+
+    // ---------------- 小助手 ----------------
+
+    private static double ClampPct(double v)
+    {
+        if (double.IsNaN(v) || double.IsInfinity(v)) v = 0; // TS parseFloat(..)||0 的 NaN 兜底
+        return Math.Max(-50, Math.Min(50, v));
+    }
+
+    private static SKColor SubColor(string hex)
+    {
+        var (r, g, b) = J.Hex(hex);
+        return new SKColor((byte)r, (byte)g, (byte)b);
+    }
+
+    /// <summary>[...String(s)]：按码点切（含增补平面）。</summary>
+    private static List<string> CodePoints(string s)
+    {
+        var l = new List<string>(s.Length);
+        var i = 0;
+        while (i < s.Length)
+        {
+            if (i + 1 < s.Length && char.IsHighSurrogate(s[i]) && char.IsLowSurrogate(s[i + 1]))
+            {
+                l.Add(s.Substring(i, 2));
+                i += 2;
+            }
+            else
+            {
+                l.Add(s[i].ToString());
+                i++;
+            }
+        }
+
+        return l;
+    }
+}

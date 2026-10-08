@@ -345,13 +345,15 @@ public static class Omakase
         var set = new Dictionary<string, string>();
         var extra = new HashSet<string>();
         var wa = new HashSet<string>();
-        // 先标套装归属；带 set 的条目不算追加分，它们有自己的开关
+        // 先标套装归属；带 set 的条目不算追加分，它们有自己的开关。
+        // 优先读条目上的真实字段 IRegEntry.Set（JS def 的 set:'typo'/'kinetic'/'horror'）；
+        // MarkSet 注记保留为旁路兼容（老接线/测试用）。
         foreach (var g in Reg.GroupKeys)
             foreach (var k in Reg.OrderOf(g))
             {
                 var d = RegDef(g, k);
                 if (d == null) continue;
-                var s = MarkedSet.GetValueOrDefault(Key2(g, k));
+                var s = d.Set ?? MarkedSet.GetValueOrDefault(Key2(g, k));
                 if (s == null && d.Pack != null && SetDefault.ContainsKey(d.Pack)) s = d.Pack;
                 if (s != null) set[Key2(g, k)] = s;
             }
@@ -361,10 +363,18 @@ public static class Omakase
                 var d = RegDef(g, k);
                 if (d == null) continue;
                 var hasSet = set.ContainsKey(Key2(g, k));
-                if (MarkedExtra.Contains(Key2(g, k)) || (!hasSet && d.Pack != null && !BasePacks.Contains(d.Pack)))
+                if (d.Extra || MarkedExtra.Contains(Key2(g, k)) || (!hasSet && d.Pack != null && !BasePacks.Contains(d.Pack)))
                     extra.Add(Key2(g, k));
             }
         foreach (var (style, s) in MarkedSetForStyle) set[Key2("style", style)] = s;
+        // 风格上的 set（JS 11p_horror3 等给风格标 set:'horror'）落 StyleDef.Extra["set"]——真实数据源
+        foreach (var k in JStyles.StyleOrder)
+        {
+            if (set.ContainsKey(Key2("style", k))) continue;
+            var sd = Reg.Styles.GetValueOrDefault(k);
+            if (sd?.Extra != null && sd.Extra.TryGetValue("set", out var sv) && sv is JValue jv && jv.Type == JTokenType.String)
+                set[Key2("style", k)] = (string)jv.Value!;
+        }
         foreach (var k in JStyles.StyleOrder)
             if (!BaseStyles.Contains(k) && !set.ContainsKey(Key2("style", k))) extra.Add(Key2("style", k));
         foreach (var k in ExtraFonts)

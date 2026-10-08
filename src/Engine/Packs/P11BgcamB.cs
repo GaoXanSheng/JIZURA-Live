@@ -20,7 +20,8 @@ namespace JizuraLive.Engine.Packs;
 // 跨文件符号对位：J.rgba→本地 Rgba、J.smooth→J.Smooth、J.mix/lum/contrast/noise1/r/rs/rr/h→J.*、
 // J.E.*→J.E.*；clamp/lerp→J.Clamp/J.Lerp、Math.hypot→本地 Hyp。
 // env 对位缺口：env.beat 对象（since/len）C# Env 未携带 → BeatSince 走无 beat 的 ltb 取模回退
-// （P11Exit 先例，TODO(渲染器)：Env 挂 beat 对象后回迁）；cam 返回的 sx/sy（vertigo/jelly）在
+// （env.beat 已由渲染器挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatSince 按真节拍走）；
+// cam 返回的 sx/sy（vertigo/jelly）在
 // CamState 无对应字段 → 暂不入状态（TODO(Registry)：CamState 增补 Sx/Sy 后回迁）。
 public static class P11BgcamB
 {
@@ -501,7 +502,12 @@ public static class P11BgcamB
                 var t = env.Lt;
                 var f = Num(p, "f", 21);
                 var w = Math.Exp(-t * 5) * Math.Cos(t * f);
-                // TODO(渲染器)：env.beat 对象未携带——JS 的 beat 分支暂走无 beat 路径
+                // JS：beat 且 t>0.6 时叠一记 exp(-s*7)*cos(s*f)（sx/sy 仍不入 CamState，见文件头 TODO）
+                if (env.BeatHas && env.BeatLen > 0.2 && t > 0.6)
+                {
+                    var bs = BeatSince(env, 0.6);
+                    w += 0.45 * Math.Exp(-bs * 7) * Math.Cos(bs * f);
+                }
                 var A = Num(p, "a", 0.055) * K;
                 return new CamState { Y = env.H * 0.008 * K * w, S = 1.01 }; // sx/sy 暂不入 CamState（见文件头 TODO）
             }
@@ -2803,8 +2809,10 @@ public static class P11BgcamB
         var dk = IsDark(Bg(sc));
         var e = FadeIn(env, 0.8);
         var cols = Hues(sc);
-        // TODO(渲染器)：env.beat 对象未携带——按无 beat 分支（固定周期脉动）
-        var pulse = 0.75 + 0.25 * Math.Sin(t * J.TAU * Num(P, "rate", 0.45));
+        // JS：beat 时 0.62+0.38*exp(-since*4)，无节拍回固定周期脉动
+        var pulse = env.BeatHas
+            ? 0.62 + 0.38 * Math.Exp(-env.BeatSince * 4)
+            : 0.75 + 0.25 * Math.Sin(t * J.TAU * Num(P, "rate", 0.45));
         var k = Num(P, "k", 0.35) * e * pulse * (dk ? 1 : 0.8);
         var cA = J.Mix(Bg(sc), cols[0], 0.7);
         var cB = J.Mix(Bg(sc), cols.Count > 1 ? cols[1] : cols[0], 0.7);
@@ -3042,9 +3050,19 @@ public static class P11BgcamB
     private static double CuOf(Env env) => J.Clamp(env.Lt / Math.Max(0.3, env.Cut?.Dur ?? 0));
     private static int SeedOf(Env env) => (int)(env.Cut?.Seed ?? 0);
 
-    /// <summary>带时间滞后的通路距上个节拍的时间；没有节拍就按固定周期取模。
-    /// TODO(渲染器)：env.beat 对象未携带——恒走 ltb 取模回退（P11Exit 先例）。</summary>
-    private static double BeatSince(Env env, double per) => Wrap(env.Ltb, per);
+    private static double LagOf(Env env) => Math.Max(0, env.Ltb - env.Lt);
+
+    /// <summary>带时间滞后的通路距上个节拍的时间；无节拍回 JS 的固定周期取模（wrap(env.lt, per)）。</summary>
+    private static double BeatSince(Env env, double per)
+    {
+        if (env.BeatHas && env.BeatLen > 0.15)
+        {
+            var s = env.BeatSince - LagOf(env);
+            if (s < 0) s += env.BeatLen;
+            return s;
+        }
+        return Wrap(env.Lt, per);
+    }
 
     private static JObject CamP(Env env) => env.Cut?.CamP ?? new JObject();
 

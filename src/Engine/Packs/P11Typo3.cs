@@ -13,8 +13,7 @@
 // （AE 导出模板名）在 Def 类上没有对应属性，未注册——TODO(Sets/11_export)。
 //
 // 管线缺口与降级（本文件内解决，与 P11TreatTrans 同约定，不改共享文件）：
-// 1. addPost：JS 由 drawFx 在画文字后调；DrawFx 未接钩子字段（TODO(11p)）——钩子体在本 Draw 内
-//    就地执行（内容/几何一致，层级提前到主文字下方；管线接上 post 后回迁）。
+// 1. addPost：已接管线钩子（Env.PostFn → JLayouts.DrawFx，画在主文字上方；AddPost 链式）。
 // 2. lineSpans / tyIndexSup 的 it.charFn：apply 时管线尚未 CombineChar，读 env.CharFn（此时为
 //    null）→ 字形按静态布局位置取（JS 里该 fn 也只影响藏字判定）。
 // 3. tyColophon 的 cornerSpot 传 {…Pd, low: Pd.low !== false}：planner 的 DecorParams 恒填
@@ -38,9 +37,10 @@ public static class P11Typo3
     private const string P = "typo3";
     private static int _installed;
 
-    private static void RegD(string key, DecorDef def) => Reg.Register("decor", key, def, P);
-    private static void RegT(string key, TreatDef def) => Reg.Register("treat", key, def, P);
-    private static void RegX(string key, TransDef def) => Reg.Register("trans", key, def, P);
+    // JS reg 助手：Object.assign({set: SET('typo')}, def)
+    private static void RegD(string key, DecorDef def) { def.Set = "typo"; Reg.Register("decor", key, def, P); }
+    private static void RegT(string key, TreatDef def) { def.Set = "typo"; Reg.Register("treat", key, def, P); }
+    private static void RegX(string key, TransDef def) { def.Set = "typo"; Reg.Register("trans", key, def, P); }
 
     // ================= 本包 helper（JS L10-88 + L316-366 + L492-515 逐条对位） =================
 
@@ -223,10 +223,15 @@ public static class P11Typo3
         && !string.IsNullOrEmpty(JLayouts.S(it, "text")) && JAnim.Num(it, "size") > 1;
 
     /// <summary>
-    /// addPost 的对位（管线未挂 post）：钩子体就地执行——JS 里画在文字之后，
-    /// 此处提前到 Draw 内（内容/几何一致，层级在文字下方；管线接上 post 后回迁）。JS L317-323。
+    /// addPost 的对位：钩子挂 env.PostFn（JLayouts.DrawFx 在主文字之后消费，层级与 JS 一致；链式）。
     /// </summary>
-    private static void AddPost(Env env, JObject it, Action<Env, JObject> fn) => fn(env, it);
+    private static void AddPost(Env env, JObject it, Action<Env, JObject> fn)
+    {
+        var prev = env.PostFn;
+        env.PostFn = prev != null
+            ? (e, x, bb) => { prev(e, x, bb); fn(e, x); }
+            : (Action<Env, JObject, BBox?>)((e, x, _) => fn(e, x));
+    }
 
     /// <summary>nonSp(it)：非空白字数。JS L324。</summary>
     private static int NonSp(JObject it) =>

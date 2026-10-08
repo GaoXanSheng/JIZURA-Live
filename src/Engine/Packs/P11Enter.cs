@@ -7,13 +7,11 @@
 // 确定性哈希（无顺序流），哈希入参逐字保持——同 seed 同动画轨迹。
 //
 // 管线缺口与降级（本文件内解决，不改共享文件）：
-// 1. it.pre/it.post（addPre/addPost/postLocal）：JLayouts.DrawFx 尚未接（TODO(11p)，JS 里 pre
-//    画在文字前、post 画在文字后）。C# 侧在本包 Draw 调用点内就地执行钩子——pre 与 JS 同序
-//    （画在文字之前，正确）；post 的内容提前到 Draw 内画（层级在文字下方，内容/几何一致，
-//    走 DrawPostLocal 注明）。
-// 2. it.clipFn（clipLocal 任意路径裁剪）：管线未接，主文字裁不掉。矩形裁剪折算成每字形
-//    clipX/clipY（glyph 盒比例、中心 0，与 JText.drawItem 的 ClipRect 同口径）精确对位；
-//    非矩形的遮罩（圆/棋盘/百叶/扫描线）按字形粒度做可见性近似（ClipHideGlyphs，行内注明）。
+// 1. it.pre/it.post（addPre/addPost/postLocal）：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，
+//    pre 画在文字前、post 画在文字后）。本包经 DrawPre/DrawPostLocal 挂钩（链式、addPre 同语义）。
+// 2. it.clipFn（clipLocal 任意路径裁剪）：矩形裁剪折算成每字形 clipX/clipY（glyph 盒比例、
+//    中心 0，与 JText.drawItem 的 ClipRect 同口径）精确对位；非矩形的遮罩（圆/棋盘/百叶/扫描线）
+//    按字形粒度做可见性近似（ClipHideGlyphs，行内注明）。
 // 3. JS 的 mergeChar/_enterFix 再合并（J.combineChar 丢 clipX/skew/blur 扩展字段的补丁）：
 //    C# JAnim.CombineChar 全字段合并，不需要。
 // 4. `ae`（AE 导出的模板名，11_export 消费）与 pieces: true（本包无 pieces 条目）MoveDef
@@ -246,29 +244,40 @@ public static class P11Enter
         });
 
     /// <summary>
-    /// it.pre 的对位（管线未挂 pre）：在 Draw 调用点就地执行——JS 里 pre 画在文字之前，此处同序。
+    /// it.pre/addPre 的对位：把钩子挂 env.PreFn（addPre 链式语义，先挂的先跑），
+    /// JLayouts.DrawFx 在所有裁剪之前、主文字之前消费——层级与 JS 一致。
     /// </summary>
-    private static void DrawPre(Env env, JObject it, Action<Env, JObject> fn) => fn(env, it);
+    private static void DrawPre(Env env, JObject it, Action<Env, JObject> fn)
+    {
+        var prev = env.PreFn;
+        env.PreFn = prev != null ? (e, x) => { prev(e, x); fn(e, x); } : (Action<Env, JObject>)fn;
+    }
 
     /// <summary>
-    /// it.post/postLocal 的对位（管线未挂 post）：内容就地执行——JS 里画在文字之后，
-    /// 此处提前到 Draw 内（内容/几何一致，层级在文字下方；管线接上 post 后回迁）。
+    /// it.post/postLocal 的对位：把钩子挂 env.PostFn（DrawFx 在主文字之后消费，层级与 JS 一致）；
+    /// 钩子体内做 postLocal 的 save/toLocal/restore 包装与 alpha 门限（alpha 在 drawFx 时点读，
+    /// 与 JS post 阶段同序）。
     /// </summary>
     private static void DrawPostLocal(Env env, JObject it, Action<Env, EBox, JObject, double> fn)
     {
-        var a = J.Clamp(JAnim.NumNull(it, "alpha", 1));
-        if (a <= 0.01) return;
-        var b = Box(it);
-        env.Ctx.Save();
-        ToLocal(env.Ctx, it);
-        try
+        void Hook(Env e, JObject x, BBox? _)
         {
-            fn(env, b, it, a);
+            var a = J.Clamp(JAnim.NumNull(x, "alpha", 1));
+            if (a <= 0.01) return;
+            var b = Box(x);
+            e.Ctx.Save();
+            ToLocal(e.Ctx, x);
+            try
+            {
+                fn(e, b, x, a);
+            }
+            finally
+            {
+                e.Ctx.Restore();
+            }
         }
-        finally
-        {
-            env.Ctx.Restore();
-        }
+        var prev = env.PostFn;
+        env.PostFn = prev != null ? (e, x, bb) => { prev(e, x, bb); Hook(e, x, bb); } : (Action<Env, JObject, BBox?>)Hook;
     }
 
     /// <summary>JS toLocal：translate(it.x,it.y) → rotate(it.rot) → skewX(it.skew)。</summary>

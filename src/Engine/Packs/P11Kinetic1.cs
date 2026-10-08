@@ -4,7 +4,7 @@
 // Draw(env) 绘制并写回 env.Body（JS render(env) 的返回值，null → env.Body = null）。
 // RNG 消费顺序逐行对位（rng.pick/chance/range/int 的调用次序就是画面轨迹；JS 里靠 ?:
 // 短路的抽取在 C# 里同样短路）。JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为
-// Omakase.MarkSet(group, key, "kinetic")（IRegEntry 无 set 字段，Omakase 的注记注入口）。
+// IRegEntry.Set 真字段（Reg0 统一赋值，Omakase 门禁直读）。
 //
 // 本包私有 helper（JS L9-199 顶层 const/function 逐条对位）见「本包 helper」区：
 // U/isPort/strip/hasLatin/flat/gcount/fontsOf/bodyF/monoF/tout/meas/em/box/UB/miAt/rotV/
@@ -37,8 +37,8 @@ public static class P11Kinetic1
     /// <summary>JS reg(key, def) = J.register('layout', key, {…def, set:'kinetic'}, P)。</summary>
     private static void Reg0(string key, LayoutDef def)
     {
+        def.Set = "kinetic"; // JS reg 助手：Object.assign(def, {set: 'kinetic'})——真字段，Omakase 门禁直读
         Reg.Register("layout", key, def, P);
-        Omakase.MarkSet("layout", key, "kinetic"); // JS def 上的 set:'kinetic'
     }
 
     // ================= 本包 helper（JS L9-199 逐条对位） =================

@@ -33,7 +33,11 @@ public static class P11Typo1
     private const string P = "typo1";
     private static int _installed;
 
-    private static void Reg0(string key, LayoutDef def) => Reg.Register("layout", key, def, P);
+    private static void Reg0(string key, LayoutDef def)
+    {
+        def.Set = "typo"; // JS reg 助手：Object.assign({set: SET('typo')}, def)
+        Reg.Register("layout", key, def, P);
+    }
 
     // ================= 本包 helper（JS L9-119 + L745 groupLines 逐条对位） =================
 

@@ -7,20 +7,20 @@
 //
 // RNG：Draw 侧全走 J.R/J.Rs/J.Rr/J.H 确定性哈希；plan 侧 Rng 顺序流。注册序 = JS 源出现序。
 //
-// extra/set 标记：JS 的 `set: 'horror'` 与 `ae: '…'` 在 IRegEntry 无对应字段，不落表（见汇报）。
+// extra/set 标记：JS 的 `set: 'horror'` 已落 IRegEntry.Set 真字段（Reg0/RegT 统一赋值）；`ae: '…'` 行内注释。
 //
 // 已知偏差（与 P11TreatTrans 同约定）：
-// 1. JS 的 addPre/addPost 是挂在 item 上的函数钩子（drawFx 前后调用）；C# 管线未注入
-//    it.pre/it.post（JLayouts.DrawFx 有 TODO(11p)），本文件把钩子**就地执行**——treat/move 的
-//    Draw 先于文字绘制，因此 post 内容（hrVhold 的同步条、hrSwallow 的黑渍、hrDrain 的墨滴、
-//    hrInkBleed 的淌墨、hrEroded 的麻点、hrRedact 的黑条）画在文字**下面**而不是上面。
-// 2. it.clipFn（hrClawReveal/hrSwallow）同样是函数值字段，C# drawItem 不消费——留 TODO(11p)，
-//    条目注册不缺、不裁剪（文字完整显示）。
+// 1. JS 的 addPre/addPost：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，pre 画在文字前、
+//    post 画在文字上）。hrVhold 同步条/hrSwallow 黑渍/hrDrain 墨滴/hrInkBleed 淌墨/hrEroded 麻点/
+//    hrRedact 黑条 → env.PostFn；hrDoubleExp 的重影副本 → env.PreFn。
+// 2. it.clipFn：管线钩子已接（Env.ClipFn → DrawFx ClipPath）。hrClawReveal 的斜向爪痕、
+//    hrSwallow 的整屏 rect + 反序 blob（nonzero 挖洞）按 JS 逐行回迁。
 // 3. glyphList 的逐字位移按 treat apply 时刻的 env.CharFn（此时 enter/exit 尚未 apply）近似。
 
 using System.Globalization;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
+using SkiaSharp;
 
 namespace JizuraLive.Engine;
 
@@ -29,8 +29,16 @@ public static class P11Horror2
     private const string P = "horror2";
     private static int _installed;
 
-    private static void Reg0(string g, string key, MoveDef def) => Reg.Register(g, key, def, P);
-    private static void RegT(string key, TreatDef def) => Reg.Register("treat", key, def, P);
+    private static void Reg0(string g, string key, MoveDef def)
+    {
+        def.Set = "horror"; // JS reg 助手：Object.assign({set: 'horror'}, def)
+        Reg.Register(g, key, def, P);
+    }
+    private static void RegT(string key, TreatDef def)
+    {
+        def.Set = "horror";
+        Reg.Register("treat", key, def, P);
+    }
 
     // ================= 本包 helper（JS L10-129 逐条对位） =================
 
@@ -416,15 +424,16 @@ public static class P11Horror2
             it["alpha"] = NumNull(it, "alpha", 1) * Math.Min(1, 0.4 + p * 2);
             var bar = J.Mix(ScK(env.Sc!, "bg"), "#000000", 0.6);
             var single = LayN(it) == 1 && CutN(env) > 1;
-            // addPost 就地执行（见头注偏差 1：条画在文字下面）
-            if (env.Pass == "main" && m >= 1 && !single)
+            // JS addPost → env.PostFn：同步条画在文字上方（层级与 JS 一致）
+            env.PostFn = (e2, _, _) =>
             {
+                if (e2.Pass != "main" || m < 1 || single) return;
                 var yb = y0 + m;
                 var fa = 1 - J.Smooth(0.75, 1, p);
-                env.Rect(bx.X0 - pad * 2, yb - Hh * 0.05, bx.X1 - bx.X0 + pad * 4, Hh * 0.07, bar, 0.85 * fa, false);
-                env.Rect(bx.X0 - pad * 2, yb + Hh * 0.03, bx.X1 - bx.X0 + pad * 4, Math.Max(1, Hh * 0.008),
-                    ScK(env.Sc!, "fg"), 0.35 * fa, false);
-            }
+                e2.Rect(bx.X0 - pad * 2, yb - Hh * 0.05, bx.X1 - bx.X0 + pad * 4, Hh * 0.07, bar, 0.85 * fa, false);
+                e2.Rect(bx.X0 - pad * 2, yb + Hh * 0.03, bx.X1 - bx.X0 + pad * 4, Math.Max(1, Hh * 0.008),
+                    ScK(e2.Sc!, "fg"), 0.35 * fa, false);
+            };
         },
     });
 
@@ -520,9 +529,39 @@ public static class P11Horror2
             var slope = Math.Min(0.55 * Hh, sp * 1.4);
             var dir = (J.H(seed, 3) & 1) != 0 ? 1 : -1;
             if (p > 0.97) return;
-            // TODO(11p)：it.clipFn 是函数值字段，C# drawItem 未消费（JLayouts.DrawFx 的 TODO）。
-            // JS 在这里挂一条斜向爪痕裁剪路径（4 道裂口逐个撑开，seed/k/slope 上的 J.rs 噪声）；
-            // 裁剪不生效期间文字完整显示，回接 clipFn 时按 JS L273-291 逐行补。
+            // JS clipFn：4 道斜向爪痕条带并集（逐条撑开，seed/k/slope 上的 J.rs 噪声）→ Env.ClipFn 桥
+            env.ClipFn = (_, _) =>
+            {
+                var path = new SKPath();
+                for (var k = -2; k < n + 2; k++)
+                {
+                    var q = J.Clamp((p - J.Clamp(k, 0, n - 1) * 0.08) / 0.7)
+                            * (k < 0 || k >= n ? J.Smooth(0.5, 0.9, p) : 1);
+                    if (q <= 0) continue;
+                    var e = J.E.InOutCubic(q);
+                    var cx = x0 + (k + 0.5) * sp;
+                    var w = sp * 0.08 + sp * 1.1 * e * e;
+                    // 斜向条带，从一端扫到另一端
+                    var reach = J.E.OutCubic(J.Clamp(q * 3));
+                    var ya = dir > 0 ? y0 : y1;
+                    var yb = J.Lerp(ya, dir > 0 ? y1 : y0, reach);
+                    double Off(double y) => (y - y0) / Hh * slope - slope / 2;
+                    double J1(int a, int b) => J.Rs(seed, k, a, b) * sp * 0.06;
+                    double[][] Pts =
+                    {
+                        new[] { cx - w / 2 + Off(ya) + J1(1, 1), ya },
+                        new[] { cx + w / 2 + Off(ya) + J1(1, 2), ya },
+                        new[] { cx + w / 2 + Off((ya + yb) / 2) + J1(2, 1), (ya + yb) / 2 },
+                        new[] { cx + w / 2 * 0.3 + Off(yb), yb },
+                        new[] { cx - w / 2 * 0.3 + Off(yb), yb },
+                        new[] { cx - w / 2 + Off((ya + yb) / 2) + J1(2, 2), (ya + yb) / 2 },
+                    };
+                    path.MoveTo((float)Pts[0][0], (float)Pts[0][1]);
+                    for (var i = 1; i < Pts.Length; i++) path.LineTo((float)Pts[i][0], (float)Pts[i][1]);
+                    path.Close();
+                }
+                return path;
+            };
         },
     });
 
@@ -720,13 +759,27 @@ public static class P11Horror2
                 pts.Add(new[] { cx + Math.Cos(a) * r, cy + Math.Sin(a) * r });
             }
 
-            // TODO(11p)：it.clipFn（整屏 rect + 反向 blob 的 evenodd 裁剪）未被 C# drawItem 消费，
-            // 文字不会被"吃掉"，只有下面的黑渍可见。
+            // JS clipFn：整屏 rect + 反序 blob 子路径（nonzero 环绕把 blob 挖成洞）→ Env.ClipFn 桥
+            var ptsArr = pts.ToArray();
+            env.ClipFn = (e2, _) =>
+            {
+                var path = new SKPath();
+                path.AddRect(new SKRect((float)(-e2.W * 2), (float)(-e2.H * 2), (float)(e2.W * 3), (float)(e2.H * 3)));
+                if (R > 0.5)
+                {
+                    path.MoveTo((float)ptsArr[0][0], (float)ptsArr[0][1]);
+                    for (var k = m - 1; k >= 0; k--) path.LineTo((float)ptsArr[k][0], (float)ptsArr[k][1]);
+                    path.Close();
+                }
+                return path;
+            };
             var dk = NightC(env.Sc!);
             var fade = 1 - J.Smooth(0.62, 0.95, p);
-            // addPost 就地执行（见头注偏差 1：黑渍画在文字下面）
-            if (env.Pass == "main" && R > 0.5)
-                env.Blob(pts.ToArray(), dk, 0.85 * fade, false);
+            // JS addPost → env.PostFn：黑渍画在文字上方（层级与 JS 一致）
+            env.PostFn = (e2, _, _) =>
+            {
+                if (e2.Pass == "main" && R > 0.5) e2.Blob(ptsArr, dk, 0.85 * fade, false);
+            };
             if (p > 0.97) it["alpha"] = 0.0;
         },
     });
@@ -800,31 +853,34 @@ public static class P11Horror2
                 return new CharXf { ClipY = new[] { -0.7 + q * 1.4, 0.7 } };
             });
             var c = ColOf(it);
-            // addPost 就地执行（见头注偏差 1：墨滴画在文字下面）
+            // JS addPost → env.PostFn：墨滴画在文字上方（层级与 JS 一致）
             if (env.Pass != "main") return;
-            InItem(env, it, () =>
+            env.PostFn = (e2, _, _) =>
             {
-                var lay = JText.LayoutText(it);
-                var sx = JAnim.NumOr1(it, "sx");
-                var sy = JAnim.NumOr1(it, "sy");
-                foreach (var g in lay.Cells)
+                InItem(e2, it, () =>
                 {
-                    if (g.Ch is " " or "　") continue;
-                    var q = Lev(g.I, lay.N);
-                    if (q <= 0.02) continue;
-                    var k = unchecked((int)J.H(cs, idx(g.I, lay.N), 91));
-                    var nd = 1 + (int)(k % 2);
-                    for (var d = 0; d < nd; d++)
+                    var lay = JText.LayoutText(it);
+                    var sx = JAnim.NumOr1(it, "sx");
+                    var sy = JAnim.NumOr1(it, "sy");
+                    foreach (var g in lay.Cells)
                     {
-                        var x = (g.X + J.Rs(k, d, 1) * g.W * 0.3) * sx;
-                        var yb = (g.Y + g.H * 0.4) * sy;
-                        var L = sz * (0.3 + 1.4 * J.R(k, d, 2)) * J.E.OutCubic(q);
-                        var a = NumNull(it, "alpha", 1) * (1 - J.Smooth(0.75, 1, q));
-                        env.Line(new[] { new[] { x, yb - sz * 0.05 }, new[] { x, yb + L } }, c, Math.Max(1, sz * 0.035), a, false);
-                        env.Circle(x, yb + L, sz * 0.03, c, null, 0, a, false);
+                        if (g.Ch is " " or "　") continue;
+                        var q = Lev(g.I, lay.N);
+                        if (q <= 0.02) continue;
+                        var k = unchecked((int)J.H(cs, idx(g.I, lay.N), 91));
+                        var nd = 1 + (int)(k % 2);
+                        for (var d = 0; d < nd; d++)
+                        {
+                            var x = (g.X + J.Rs(k, d, 1) * g.W * 0.3) * sx;
+                            var yb = (g.Y + g.H * 0.4) * sy;
+                            var l2 = sz * (0.3 + 1.4 * J.R(k, d, 2)) * J.E.OutCubic(q);
+                            var a = NumNull(it, "alpha", 1) * (1 - J.Smooth(0.75, 1, q));
+                            e2.Line(new[] { new[] { x, yb - sz * 0.05 }, new[] { x, yb + l2 } }, c, Math.Max(1, sz * 0.035), a, false);
+                            e2.Circle(x, yb + l2, sz * 0.03, c, null, 0, a, false);
+                        }
                     }
-                }
-            });
+                });
+            };
         },
     });
 
@@ -986,29 +1042,32 @@ public static class P11Horror2
                 };
             var cs = Cseed(env);
             var rate = NumNull(pm, "drips", 0.35);
-            // addPost 就地执行（见头注偏差 1）
+            // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main") return;
-            var cut = env.Cut!;
-            var d0 = cut.InDur * 1.1;
-            var grow = J.Clamp((env.Lt - d0) / Math.Max(0.8, cut.Dur * 0.7));
-            if (grow <= 0) return;
-            var a = NumNull(it, "alpha", 1) * (1 - env.POut);
-            if (a < 0.05) return;
-            var dc = JLayouts.B(pm, "red") ? ScK(sc, "accent") : c;
-            InItem(env, it, () =>
+            env.PostFn = (e2, _, _) =>
             {
-                foreach (var q in GlyphList(env, it))
+                var cut = e2.Cut!;
+                var d0 = cut.InDur * 1.1;
+                var grow = J.Clamp((e2.Lt - d0) / Math.Max(0.8, cut.Dur * 0.7));
+                if (grow <= 0) return;
+                var a = NumNull(it, "alpha", 1) * (1 - e2.POut);
+                if (a < 0.05) return;
+                var dc = JLayouts.B(pm, "red") ? ScK(sc, "accent") : c;
+                InItem(e2, it, () =>
                 {
-                    var k = unchecked((int)J.H(cs, q.G.I, (int)Math.Round(JAnim.Num(it, "x")), 141));
-                    if (J.R(k, 1) > rate || J.IsPunct(q.G.Ch[0])) continue;
-                    var x = q.X + J.Rs(k, 2) * q.W * 0.25;
-                    var y = q.Y + q.H * 0.36;
-                    var L = sz * (0.2 + 0.9 * J.R(k, 3)) * J.E.OutCubic(grow);
-                    var lw = Math.Max(1, sz * (0.018 + 0.02 * J.R(k, 4)));
-                    env.Line(new[] { new[] { x, y }, new[] { x + J.Rs(k, 5) * sz * 0.02, y + L } }, dc, lw, a * q.A * 0.9, false);
-                    env.Circle(x + J.Rs(k, 5) * sz * 0.02, y + L, lw * 0.9, dc, null, 0, a * q.A * 0.9, false);
-                }
-            });
+                    foreach (var q in GlyphList(e2, it))
+                    {
+                        var k = unchecked((int)J.H(cs, q.G.I, (int)Math.Round(JAnim.Num(it, "x")), 141));
+                        if (J.R(k, 1) > rate || J.IsPunct(q.G.Ch[0])) continue;
+                        var x = q.X + J.Rs(k, 2) * q.W * 0.25;
+                        var y = q.Y + q.H * 0.36;
+                        var l2 = sz * (0.2 + 0.9 * J.R(k, 3)) * J.E.OutCubic(grow);
+                        var lw = Math.Max(1, sz * (0.018 + 0.02 * J.R(k, 4)));
+                        e2.Line(new[] { new[] { x, y }, new[] { x + J.Rs(k, 5) * sz * 0.02, y + l2 } }, dc, lw, a * q.A * 0.9, false);
+                        e2.Circle(x + J.Rs(k, 5) * sz * 0.02, y + l2, lw * 0.9, dc, null, 0, a * q.A * 0.9, false);
+                    }
+                });
+            };
         },
     });
 
@@ -1029,34 +1088,37 @@ public static class P11Horror2
             var bg = ScK(env.Sc!, "bg");
             var sz = JAnim.Num(it, "size");
             var dens = NumNull(pm, "dens", 1);
-            // addPost 就地执行（见头注偏差 1）
+            // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main" || NumNull(it, "alpha", 1) < 0.3) return;
-            InItem(env, it, () =>
+            env.PostFn = (e2, _, _) =>
             {
-                var budget = 420;
-                foreach (var q in GlyphList(env, it))
+                InItem(e2, it, () =>
                 {
-                    if (q.A < 0.3) continue;
-                    var k = unchecked((int)J.H(cs, q.G.I, 151));
-                    var n = (int)Math.Round((16 + J.R(k, 1) * 14) * dens);
-                    for (var j = 0; j < n && budget-- > 0; j++)
+                    var budget = 420;
+                    foreach (var q in GlyphList(e2, it))
                     {
-                        var r = sz * (0.01 + 0.045 * Math.Pow(J.R(k, j, 2), 2));
-                        env.Circle(q.X + J.Rs(k, j, 3) * q.W * 0.45, q.Y + J.Rs(k, j, 4) * q.H * 0.45, r, bg, null, 0, 1, false);
-                    }
-
-                    if (JLayouts.B(pm, "scr") && J.R(k, 5) < 0.45)
-                    {
-                        var a = J.R(k, 6) * Math.PI;
-                        var L = q.W * 0.6;
-                        env.Line(new[]
+                        if (q.A < 0.3) continue;
+                        var k = unchecked((int)J.H(cs, q.G.I, 151));
+                        var n = (int)Math.Round((16 + J.R(k, 1) * 14) * dens);
+                        for (var j = 0; j < n && budget-- > 0; j++)
                         {
-                            new[] { q.X - Math.Cos(a) * L / 2, q.Y - Math.Sin(a) * L / 2 },
-                            new[] { q.X + Math.Cos(a) * L / 2, q.Y + Math.Sin(a) * L / 2 },
-                        }, bg, Math.Max(1.5, sz * 0.022), 1, false);
+                            var r = sz * (0.01 + 0.045 * Math.Pow(J.R(k, j, 2), 2));
+                            e2.Circle(q.X + J.Rs(k, j, 3) * q.W * 0.45, q.Y + J.Rs(k, j, 4) * q.H * 0.45, r, bg, null, 0, 1, false);
+                        }
+
+                        if (JLayouts.B(pm, "scr") && J.R(k, 5) < 0.45)
+                        {
+                            var a = J.R(k, 6) * Math.PI;
+                            var l2 = q.W * 0.6;
+                            e2.Line(new[]
+                            {
+                                new[] { q.X - Math.Cos(a) * l2 / 2, q.Y - Math.Sin(a) * l2 / 2 },
+                                new[] { q.X + Math.Cos(a) * l2 / 2, q.Y + Math.Sin(a) * l2 / 2 },
+                            }, bg, Math.Max(1.5, sz * 0.022), 1, false);
+                        }
                     }
-                }
-            });
+                });
+            };
         },
     });
 
@@ -1091,47 +1153,50 @@ public static class P11Horror2
 
             var c = ColOf(it);
             var sc = env.Sc!;
-            // addPost 就地执行（见头注偏差 1）
+            // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main") return;
-            var cut = env.Cut!;
-            var t0 = cut.InDur + (cut.Dur - cut.InDur - cut.OutDur) * JLayouts.D(pm, "at");
-            var k = J.E.InOutCubic(J.Clamp((env.Lt - t0) / 0.35));
-            var gl = GlyphList(env, it);
-            if (gl.Count == 0) return;
-            var s0 = 0;
-            var s1 = gl.Count - 1;
-            if (gl.Count > 2)
+            env.PostFn = (e2, _, _) =>
             {
-                var mm = Math.Max(1, (int)Math.Round(gl.Count * JLayouts.D(pm, "frac")));
-                s0 = Math.Min(gl.Count - mm, (int)Math.Floor(JLayouts.D(pm, "from") * (gl.Count - mm + 1)));
-                s1 = s0 + mm - 1;
-            }
+                var cut = e2.Cut!;
+                var t0 = cut.InDur + (cut.Dur - cut.InDur - cut.OutDur) * JLayouts.D(pm, "at");
+                var k = J.E.InOutCubic(J.Clamp((e2.Lt - t0) / 0.35));
+                var gl = GlyphList(e2, it);
+                if (gl.Count == 0) return;
+                var s0 = 0;
+                var s1 = gl.Count - 1;
+                if (gl.Count > 2)
+                {
+                    var mm = Math.Max(1, (int)Math.Round(gl.Count * JLayouts.D(pm, "frac")));
+                    s0 = Math.Min(gl.Count - mm, (int)Math.Floor(JLayouts.D(pm, "from") * (gl.Count - mm + 1)));
+                    s1 = s0 + mm - 1;
+                }
 
-            double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
-            for (var j = s0; j <= s1; j++)
-            {
-                var q = gl[j];
-                x0 = Math.Min(x0, q.X - q.W / 2);
-                x1 = Math.Max(x1, q.X + q.W / 2);
-                y0 = Math.Min(y0, q.Y - q.H / 2);
-                y1 = Math.Max(y1, q.Y + q.H / 2);
-            }
+                double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+                for (var j = s0; j <= s1; j++)
+                {
+                    var q = gl[j];
+                    x0 = Math.Min(x0, q.X - q.W / 2);
+                    x1 = Math.Max(x1, q.X + q.W / 2);
+                    y0 = Math.Min(y0, q.Y - q.H / 2);
+                    y1 = Math.Max(y1, q.Y + q.H / 2);
+                }
 
-            var pd = JAnim.Num(it, "size") * 0.06;
-            var a2 = NumNull(it, "alpha", 1);
-            InItem(env, it, () =>
-            {
-                var w = x1 - x0 + pd * 2;
-                if (k < 1)
-                    env.Rect(x0 - pd + w * k, y0 - pd * 0.5, w * (1 - k), y1 - y0 + pd, c, a2, false);
-                if (k > 0)
-                    env.Line(new[]
-                    {
-                        new[] { x0 - pd, y0 - pd * 0.5 }, new[] { x1 + pd, y0 - pd * 0.5 },
-                        new[] { x1 + pd, y1 + pd * 0.5 }, new[] { x0 - pd, y1 + pd * 0.5 },
-                        new[] { x0 - pd, y0 - pd * 0.5 },
-                    }, ScK(sc, "sub"), Math.Max(1, JAnim.Num(it, "size") * 0.01), a2 * 0.5 * k, false);
-            });
+                var pd = JAnim.Num(it, "size") * 0.06;
+                var a2 = NumNull(it, "alpha", 1);
+                InItem(e2, it, () =>
+                {
+                    var w = x1 - x0 + pd * 2;
+                    if (k < 1)
+                        e2.Rect(x0 - pd + w * k, y0 - pd * 0.5, w * (1 - k), y1 - y0 + pd, c, a2, false);
+                    if (k > 0)
+                        e2.Line(new[]
+                        {
+                            new[] { x0 - pd, y0 - pd * 0.5 }, new[] { x1 + pd, y0 - pd * 0.5 },
+                            new[] { x1 + pd, y1 + pd * 0.5 }, new[] { x0 - pd, y1 + pd * 0.5 },
+                            new[] { x0 - pd, y0 - pd * 0.5 },
+                        }, ScK(sc, "sub"), Math.Max(1, JAnim.Num(it, "size") * 0.01), a2 * 0.5 * k, false);
+                });
+            };
         },
     });
 
@@ -1159,21 +1224,25 @@ public static class P11Horror2
                 }
 
             col ??= ScK(sc, "sub");
-            // addPre 就地执行（与 P11TreatTrans 同约定）
-            if (env.Pass != "main" || NumNull(it, "alpha", 1) < 0.05) return;
-            var t = env.Ltb;
-            var sz = JAnim.Num(it, "size");
-            var amp = NumNull(pm, "amp", 0.12);
-            var c2 = Bare(it, new JObject
+            // JS addPre → env.PreFn（层级/时点与 JS 一致）
+            if (env.Pass != "main") return;
+            env.PreFn = (e2, _) =>
             {
-                ["x"] = JAnim.Num(it, "x") + J.Noise1(t * 0.6, cs + 3) * sz * amp,
-                ["y"] = JAnim.Num(it, "y") + J.Noise1(t * 0.5, cs + 4) * sz * amp * 0.7,
-                ["size"] = sz * NumNull(pm, "k", 1.05),
-                ["color"] = col,
-                ["alpha"] = NumNull(it, "alpha", 1) * 0.4,
-                ["ghost"] = false,
-            });
-            DrawCopy(env, c2);
+                if (NumNull(it, "alpha", 1) < 0.05) return;
+                var t = e2.Ltb;
+                var sz = JAnim.Num(it, "size");
+                var amp = NumNull(pm, "amp", 0.12);
+                var c2 = Bare(it, new JObject
+                {
+                    ["x"] = JAnim.Num(it, "x") + J.Noise1(t * 0.6, cs + 3) * sz * amp,
+                    ["y"] = JAnim.Num(it, "y") + J.Noise1(t * 0.5, cs + 4) * sz * amp * 0.7,
+                    ["size"] = sz * NumNull(pm, "k", 1.05),
+                    ["color"] = col,
+                    ["alpha"] = NumNull(it, "alpha", 1) * 0.4,
+                    ["ghost"] = false,
+                });
+                DrawCopy(e2, c2);
+            };
         },
     });
 }

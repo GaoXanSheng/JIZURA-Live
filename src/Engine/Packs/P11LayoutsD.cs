@@ -1362,15 +1362,15 @@ public static class P11LayoutsD
         return a;
     }
 
-    // -- 未移植引擎部件的桩（TODO 见各注释） --
+    // -- 引擎桥 --
 
     /// <summary>
-    /// JS 的 env.beat = {since, len, index}（09_render 的 beatAt）。C# Env 只装了归一相位
-    /// Beat = since/len（见 Renderer.BeatNorm 注释），since/len/index 拿不回来：
-    /// TODO(11p): 09_render 回接时给 Env 补 beatInfo 桥字段；在那之前 blocks 走无节拍周期分支、
-    /// bulbs 的 beatFlash 恒 0。
+    /// JS 的 env.beat = {since, len, index}（09_render 的 beatAt）。已接 Env 桥字段
+    /// （BeatHas/BeatSince/BeatLen/BeatIndex，渲染器每帧二分挂载）——blocks 的拍跳分支、
+    /// bulbs 的 beatFlash 都按真节拍走；无节拍（BeatHas=false）回各自的周期回退式。
     /// </summary>
-    private static (double Since, double Len, int Index)? BeatOf(Env env) => null;
+    private static (double Since, double Len, int Index)? BeatOf(Env env) =>
+        env.BeatHas ? (env.BeatSince, env.BeatLen, env.BeatIndex) : null;
 
     // ===== DRAWS =====
 

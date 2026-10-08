@@ -23,6 +23,15 @@ public interface IRegEntry
     string Name { get; set; }
     string[] Tags { get; set; }
     double? W { get; set; }
+
+    /// <summary>
+    /// 11q_sets 预设集分组标记（JS def 上的 set:'typo'/'kinetic'/'horror'）：
+    /// 随机抽取按工程对应套装开关门禁（Omakase.RandomOk → SetOf）。
+    /// </summary>
+    string? Set { get; set; }
+
+    /// <summary>追加分（JS def 上的 extra:true）：只有工程开了追加分开关才参与随机抽取。</summary>
+    bool Extra { get; set; }
 }
 
 // ---------------- 配色（04_styles 的 scheme；字段松散，键访问保持 JSON 语义） ----------------
@@ -86,6 +95,12 @@ public sealed class LayoutDef : IRegEntry
     public bool Special { get; set; }
     public string? Pack { get; set; }
 
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
+
     /// <summary>词数上限判定。</summary>
     public Func<int, bool>? Fits { get; set; }
 
@@ -123,6 +138,12 @@ public sealed class MoveDef : IRegEntry
     public bool Special { get; set; }
     public string? Pack { get; set; }
 
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
+
     /// <summary>时长短于该值时权重 ×0.15。</summary>
     public double? MinDur { get; set; }
 
@@ -148,6 +169,12 @@ public sealed class DecorDef : IRegEntry
     public bool Special { get; set; }
     public string? Pack { get; set; }
 
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
+
     /// <summary>"back"：busy 版式下被排除（除非 Subtle）。</summary>
     public string? Layer { get; set; }
     public bool Subtle { get; set; }
@@ -165,6 +192,12 @@ public sealed class TreatDef : IRegEntry
     public bool Special { get; set; }
     public string? Pack { get; set; }
 
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
+
     /// <summary>只允许在 treat === "safe" 的版式上使用。</summary>
     public bool Safe { get; set; }
 
@@ -181,6 +214,12 @@ public sealed class BgDef : IRegEntry
     public double? W { get; set; }
     public bool Special { get; set; }
     public string? Pack { get; set; }
+
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
     public bool Subtle { get; set; }
 
     public Func<Rng, StyleDef, JObject>? Plan { get; set; }
@@ -207,6 +246,12 @@ public sealed class CamDef : IRegEntry
     public bool Special { get; set; }
     public string? Pack { get; set; }
 
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
+
     /// <summary>强动作：权重 = 0.25 + 0.9*motion (+ 强调 0.6)。</summary>
     public bool Strong { get; set; }
 
@@ -223,6 +268,12 @@ public sealed class FxDef : IRegEntry
     public double? W { get; set; }
     public bool Special { get; set; }
     public string? Pack { get; set; }
+
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
     public bool Builtin { get; set; }
     public double Amp { get; set; } = 1;
     public double Dur { get; set; } = 3;
@@ -249,6 +300,12 @@ public sealed class TransDef : IRegEntry
     public double? W { get; set; }
     public bool Special { get; set; }
     public string? Pack { get; set; }
+
+    /// <summary>11q_sets 套装标记（IRegEntry.Set，见接口注）。</summary>
+    public string? Set { get; set; }
+
+    /// <summary>追加分标记（IRegEntry.Extra，见接口注）。</summary>
+    public bool Extra { get; set; }
 
     /// <summary>默认时长（秒），被 clamp 到 [0.12, min(0.6, dur*0.45)]。</summary>
     public double? Dur { get; set; }
