@@ -65,6 +65,24 @@ POC 工具 `tools/prof/AngleSpike` 已跑通前两步：
 剩余工作量收缩到：eglCreateImageKHR/GL 函数 3 个 P/Invoke + 常量核对（ANGLE eglext_angle.h），
 估 0.5–1 天完成像素门 + Spout 回环验收。
 
+## 二·实测更正 · 补充（POC 三轮，2026-10-08 深夜）
+
+外纹理导入的两条路在本机 Adobe ANGLE(2.1.17747) 上均被**严格校验**拒绝：
+- 共享句柄/纹理指针 pbuffer（`EGL_ANGLE_d3d_share_handle_client_buffer`）：8 个 config 无一
+  携带能力 flag，任意 config 下 `eglCreatePbufferSurface` 均 `EGL_BAD_ATTRIBUTE(0x3004)`
+- `eglCreateImageKHR(EGL_D3D11_TEXTURE_ANGLE)`（按 Chromium gl_image_d3d.cc 权威形态：
+  `0x345D` 内部格式=DXGI 87 + `0x3493/0x3492` 属性）：`EGL_BAD_PARAMETER(0x300c)`
+  —— 归因：**纹理不在 ANGLE 设备上**，而该构建无 `EGL_ANGLE_device_d3d`，拿不到它的设备
+
+**已排除的坑（记录）**：`attribs=null` 会原生 AV；共享句柄 64 位须 `unchecked` 截断成 EGLint。
+
+**下一轮三条路（按优先序）**：
+1. **换一个带 `EGL_ANGLE_device_d3d` 的 ANGLE 构建**（ANGLE 官方 CI 产物/自建均默认含此
+   扩展；Adobe CEF 构建裁剪了它）→ 取到 ANGLE 设备后，纹理创建在其设备上，两条路都通
+2. **config 空间穷举**：当前 chooseConfig（ES3+alpha+depth24）可能排除了能力配置；
+   用枚举全 config + `eglGetConfigAttrib(0x3200)` 全扫（本轮只扫了筛选后的 8 个）
+3. **Vulkan 路线 B**（`VK_KHR_external_memory_win32`）：不依赖 ANGLE，VkSpike 已奠基
+
 ## 三、POC（先于全面开发，1–2 天）
 
 1. 借 Adobe ANGLE DLL 拷入 dev-only 目录（**不提交仓库**；分发方案见风险表）

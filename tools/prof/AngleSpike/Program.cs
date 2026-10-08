@@ -150,18 +150,37 @@ internal static class Program
         // ---------- 5. EGL 表面（包该纹理）→ 上下文 → Skia ----------
         // 5a：共享句柄 pbuffer —— 逐 config 探测支持 EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE 的配置
         var surf = IntPtr.Zero;
-        for (var ci = 0; ci < nCfg; ci++)
+        // 变体1：带 flag 的 config × 共享句柄
+        for (var ci = 0; ci < nCfg && surf == IntPtr.Zero; ci++)
         {
             Egl.eglGetConfigAttrib(dpy, cfgs[ci], Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, out var okFlag);
             if (okFlag != Egl.EGL_TRUE) continue;
             surf = Egl.eglCreatePbufferSurface(dpy, cfgs[ci], new[]
             {
-                Egl.EGL_WIDTH, plan.W,
-                Egl.EGL_HEIGHT, plan.H,
-                Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, shareHandle.ToInt32(),
-                Egl.EGL_NONE,
+                Egl.EGL_WIDTH, plan.W, Egl.EGL_HEIGHT, plan.H,
+                Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, unchecked((int)shareHandle.ToInt64()), Egl.EGL_NONE,
             });
-            if (surf != IntPtr.Zero) { Log($"[5] 共享句柄表面成功（config #{ci}，flag={okFlag}）"); break; }
+            if (surf != IntPtr.Zero) Log($"[5] 共享句柄表面成功（config #{ci}）");
+        }
+        // 变体2：任意 config × 共享句柄（d3d_share_handle_client_buffer 不要求 config flag）
+        if (surf == IntPtr.Zero)
+        {
+            surf = Egl.eglCreatePbufferSurface(dpy, cfg, new[]
+            {
+                Egl.EGL_WIDTH, plan.W, Egl.EGL_HEIGHT, plan.H,
+                Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, unchecked((int)shareHandle.ToInt64()), Egl.EGL_NONE,
+            });
+            Log($"[5] 变体2(任意config×句柄) => 0x{surf:x} eglErr=0x{Egl.eglGetError():x}");
+        }
+        // 变体3：任意 config × 纹理指针（EGL_ANGLE_d3d_texture_client_buffer 语义）
+        if (surf == IntPtr.Zero)
+        {
+            surf = Egl.eglCreatePbufferSurface(dpy, cfg, new[]
+            {
+                Egl.EGL_WIDTH, plan.W, Egl.EGL_HEIGHT, plan.H,
+                Egl.EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE, unchecked((int)d3dTex.NativePointer.ToInt64()), Egl.EGL_NONE,
+            });
+            Log($"[5] 变体3(任意config×纹理指针) => 0x{surf:x} eglErr=0x{Egl.eglGetError():x}");
         }
         var fboForSkia = 0; // 0 = 默认 FBO（共享句柄表面路径）
         if (surf == IntPtr.Zero)
@@ -170,23 +189,22 @@ internal static class Program
             // A'：纹理直接用（同一 D3D 设备上创建，ANGLE 可访问）→ eglCreateImageKHR → GL 纹理 → FBO
             if (Egl.eglMakeCurrent(dpy, IntPtr.Zero, IntPtr.Zero, ctx) == 0 && Egl.eglGetCurrentContext() == IntPtr.Zero)
             { Log("[5] surfaceless makeCurrent 失败"); return; }
-            // 四形态探测：buffer ∈ {纹理指针, 共享句柄} × attribs ∈ {无, SHARED_HANDLE=TRUE}
-            const int EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE = 0x3487;
-            var shapes = new (string Name, IntPtr Buffer, int[]? Attrs)[]
-            {
-                ("纹理指针/无属性", d3dTex.NativePointer, null),
-                ("共享句柄/无属性", shareHandle, null),
-                ("纹理指针/SHARED=1", d3dTex.NativePointer, new[] { EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE, Egl.EGL_TRUE, Egl.EGL_NONE }),
-                ("共享句柄/SHARED=1", shareHandle, new[] { EGL_D3D11_TEXTURE_SHARED_HANDLE_ANGLE, Egl.EGL_TRUE, Egl.EGL_NONE }),
-            };
-            var img = IntPtr.Zero;
-            foreach (var sh in shapes)
-            {
-                img = Egl.eglCreateImageKHR(dpy, IntPtr.Zero, Egl.EGL_D3D11_TEXTURE_ANGLE, sh.Buffer, sh.Attrs);
-                Log($"[5] eglCreateImageKHR[{sh.Name}] => 0x{img:x} eglErr=0x{Egl.eglGetError():x}");
-                if (img != IntPtr.Zero) break;
-            }
-            if (img == IntPtr.Zero) { Log("[5] 四形态全失败"); return; }
+            // 按 Chromium gl_image_d3d.cc 的权威用法：必须带 EGL_TEXTURE_INTERNAL_FORMAT_ANGLE(=DXGI 格式)
+            // + ARRAY_SLICE(0x3493) + PLANE(0x3492)；attribs=null 会原生崩溃（实测 AV）
+            const int EGL_TEXTURE_INTERNAL_FORMAT_ANGLE = 0x345D;
+            const int EGL_D3D11_TEXTURE_ARRAY_SLICE_ANGLE = 0x3493;
+            const int EGL_D3D11_TEXTURE_PLANE_ANGLE = 0x3492;
+            const int DXGI_FORMAT_B8G8R8A8_UNORM = 87;
+            var img = Egl.eglCreateImageKHR(dpy, IntPtr.Zero, Egl.EGL_D3D11_TEXTURE_ANGLE, d3dTex.NativePointer,
+                new[]
+                {
+                    EGL_TEXTURE_INTERNAL_FORMAT_ANGLE, DXGI_FORMAT_B8G8R8A8_UNORM,
+                    EGL_D3D11_TEXTURE_ARRAY_SLICE_ANGLE, 0,
+                    EGL_D3D11_TEXTURE_PLANE_ANGLE, 0,
+                    Egl.EGL_NONE,
+                });
+            Log($"[5] eglCreateImageKHR(权威形态) => 0x{img:x} eglErr=0x{Egl.eglGetError():x}");
+            if (img == IntPtr.Zero) { Log("[5] EGLImage 失败"); return; }
             var texIds = new int[1];
             Egl.glGenTextures(1, texIds);
             Egl.glBindTexture(Egl.GL_TEXTURE_2D, texIds[0]);
