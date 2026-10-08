@@ -73,9 +73,10 @@ C# 版与旧页面版的已知差异（都写在对应工具的 description 里�
 
 | 工具/字段 | 差异 |
 |---|---|
-| `update_settings.quality` / `update_settings.exportRange` | 未接入（Project 模型无这两个字段、导出层不吃范围裁剪）：传入返回 `-32602` invalid_input |
-| `preview.loop` | 只支持 `all` / `off`（分段循环 line/cut 未接入）；`volume` / `muted` 生效（预览出声增益，不写设置、导出不变） |
-| `preview` 返回值 `loop` | `all` / `off` |
+| `update_settings.quality` | 未接入（Project 模型无该字段，导出画质由 FFmpeg 按分辨率/帧率自动定）：传入返回 `-32602` invalid_input |
+| `update_settings.exportRange` | 已接入。入参 `from/to` 是 1 基行号（对位 Vue，换算成切分范围后存进 `project.exportRange`）；`get_state` 回吐的是 0 基切分索引 |
+| `preview.loop` | 支持 `all` / `line` / `cut` / `range` / `off`（`line` 循环当前整行，界面「切分循环」；`cut` 循环当前单个切分，界面「行循环」；`range` 循环导出范围，C# 扩展档；`off` 不循环）；`volume` / `muted` 生效（预览出声增益，不写设置、导出不变） |
+| `preview` 返回值 `loop` | `all` / `line` / `cut` / `range` / `off` |
 | `start_export.kind=subwebm` | 纯字幕层需字幕系统：C# 版返回 invalid_input |
 | `start_export` mp4 | 不烤字幕（C# 无字幕系统，`BakeSubs` 强制关闭） |
 | `start_export.dir` 缺省 | 落 `%USERPROFILE%\Videos\JIZURA`（桌面版没有浏览器下载目录） |

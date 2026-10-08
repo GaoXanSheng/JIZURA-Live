@@ -46,9 +46,10 @@ public sealed class SpeedSampleProvider : ISampleProvider
         {
             var need = (int)Math.Floor(_pos) + 2; // 插值要 i0 与 i0+1 两帧
             EnsureBuffered(need);
-            if (_have == 0) break;                // 上游枯竭
-            var i0 = Math.Min((int)Math.Floor(_pos), _have - 1);
-            var i1 = Math.Min(i0 + 1, _have - 1); // 末帧处夹住（等价于重复最后一帧）
+            var i0 = (int)Math.Floor(_pos);
+            if (_have == 0 || (_eof && i0 >= _have)) break; // 上游枯竭且所有已读帧均已消费完毕
+
+            var i1 = Math.Min(i0 + 1, _have - 1); // 最后一帧重复 clamp
             var t = (float)Math.Clamp(_pos - i0, 0, 1);
             var o = produced * ch;
             var a = i0 * ch;

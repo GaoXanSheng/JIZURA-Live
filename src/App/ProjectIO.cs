@@ -25,6 +25,8 @@ public static class ProjectIO
     private static string AutosavePath => Path.Combine(AppDirs.ConfigDir, "autosave.json");
 
     private static Timer? _autosaveTimer;
+    private static Project? _pendingAutosaveProject;
+    private static readonly object _autosaveLock = new();
 
     /// <summary>
     /// 工程 JSON 统一 camelCase 输出（对齐 pkg.ts 的 JSON.stringify(S.project) 契约；
@@ -278,15 +280,35 @@ public static class ProjectIO
     /// <summary>防抖 700ms（对位 project.ts autosave）。</summary>
     public static void Autosave(Project p)
     {
-        _autosaveTimer ??= new Timer(700) { AutoReset = false };
-        _autosaveTimer.Stop();
-        _autosaveTimer.Elapsed += (_, _) => FlushAutosave(p);
-        _autosaveTimer.Start();
+        lock (_autosaveLock)
+        {
+            _pendingAutosaveProject = p;
+            if (_autosaveTimer == null)
+            {
+                _autosaveTimer = new Timer(700) { AutoReset = false };
+                _autosaveTimer.Elapsed += (_, _) =>
+                {
+                    Project? proj;
+                    lock (_autosaveLock)
+                    {
+                        proj = _pendingAutosaveProject;
+                        _pendingAutosaveProject = null;
+                    }
+                    if (proj != null) FlushAutosave(proj);
+                };
+            }
+            _autosaveTimer.Stop();
+            _autosaveTimer.Start();
+        }
     }
 
     public static void FlushAutosave(Project p)
     {
-        _autosaveTimer?.Stop();
+        lock (_autosaveLock)
+        {
+            _autosaveTimer?.Stop();
+            _pendingAutosaveProject = null;
+        }
         try
         {
             Directory.CreateDirectory(AppDirs.ConfigDir);

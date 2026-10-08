@@ -62,7 +62,7 @@ get_state → list_options → set_lyrics → update_settings / set_timing
 | `set_locks` | 随机锁定：kind=tech/params + keys + locked |
 | `randomize` | all=一键随机；line / cut=重抽（strategy: omakase/shuffle），会解除该行锁定 |
 | `history` | 撤销/重做：kind=edit（歌词时间）/look（外观）两条独立历史，direction=back/forward |
-| `preview` | action=play/pause，time 定位（秒），loop，volume，muted |
+| `preview` | action=play/pause，time 定位（秒），loop（all/line/cut/range/off），volume，muted |
 | `tap_sync` | 打点：start（从某行）/record/back/stop。需用户配合节奏，代理一般只发起 |
 | `project` | action=get 读工程 JSON / save 写 localStorage 自动保存 |
 | `start_export` | kind=mp4/png/pnga/pngl，立即返回任务 |
