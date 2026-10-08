@@ -128,10 +128,10 @@ public static class P11Kinetic2
     private sealed class Geo
     {
         public JText.TextLayout L1 = null!;
-        public int[] Map = System.Array.Empty<int>();
-        public double[] InW = System.Array.Empty<double>();
+        public int[] Map = Array.Empty<int>();
+        public double[] InW = Array.Empty<double>();
         public int NW;
-        public WBox[] Wb = System.Array.Empty<WBox>();
+        public WBox[] Wb = Array.Empty<WBox>();
         public double Bx0, Bx1, By0, By1, Bcx, Bcy;
         public bool Vert;
         public List<KeyValuePair<int, List<int>>>? Lw; // lineWords 缓存（JS G._lw）
@@ -142,7 +142,7 @@ public static class P11Kinetic2
     private static (List<string> Ws, int Off) WordsFor(Env env, string text)
     {
         var lat = HasLatin(text);
-        var ws = (env.Cut?.Words ?? System.Array.Empty<string>())
+        var ws = (env.Cut?.Words ?? Array.Empty<string>())
             .Select(Strip).Where(s => s.Length > 0).ToList();
         var flatS = Strip(text);
         var off = ws.Count > 0 ? string.Join("", ws).IndexOf(flatS, StringComparison.Ordinal) : -1;
@@ -170,7 +170,7 @@ public static class P11Kinetic2
             Sx1(it),
             Sy1(it),
             JText.Typeset ? 1 : 0,
-            string.Join("\u0001", env.Cut?.Words ?? System.Array.Empty<string>()));
+            string.Join("\u0001", env.Cut?.Words ?? Array.Empty<string>()));
         if (GeoCache.TryGetValue(key, out var hit)) return hit;
 
         var probe = (JObject)it.DeepClone(); // JS Object.assign({}, it, {size:1, _lay:null, _m:null})
@@ -961,8 +961,8 @@ public static class P11Kinetic2
             var mi = (int)JAnim.Num(it, "mi");
             Glyphs(env, (i, gl, _) =>
             {
-                var j0 = g0.Map[i];
-                if (j0 < 0) return null;
+                var j0 = (uint)i < (uint)g0.Map.Length ? g0.Map[i] : -1;
+                if (j0 < 0 || (uint)j0 >= (uint)g0.Wb.Length) return null;
                 var j = rev ? n - 1 - j0 : j0;
                 // 单字 item（一字一 item 的版式）按自己的时刻闪没
                 var w0 = n > 1 ? j / (double)n : J.R(seed, mi, 74) * 0.6;

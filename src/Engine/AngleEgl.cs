@@ -59,6 +59,9 @@ internal static class AngleEgl
     [DllImport(EglDll)] public static extern IntPtr eglCreatePbufferSurface(IntPtr dpy, IntPtr cfg, int[] attribs);
     [DllImport(EglDll)] public static extern int eglQuerySurfacePointerANGLE(IntPtr dpy, IntPtr surface, int attribute, out IntPtr value);
     [DllImport(EglDll)] public static extern int eglMakeCurrent(IntPtr dpy, IntPtr draw, IntPtr read, IntPtr ctx);
+    [DllImport(EglDll)] public static extern int eglDestroySurface(IntPtr dpy, IntPtr surface);
+    [DllImport(EglDll)] public static extern int eglDestroyContext(IntPtr dpy, IntPtr ctx);
+    [DllImport(EglDll)] public static extern int eglTerminate(IntPtr dpy);
     [DllImport(EglDll)] public static extern int eglGetError();
 
     [DllImport(GlesDll)] public static extern void glViewport(int x, int y, int w, int h);

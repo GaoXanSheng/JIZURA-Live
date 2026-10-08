@@ -274,7 +274,7 @@ public static class P11FxB
     }
 
     /// <summary>蒙版染上 col：暗配色用 multiply 叠加，亮配色用 screen（JS tintMask）。</summary>
-    private static SKSurface TintMask(SKSurface t, SKSurface m, string col, bool dk)
+    private static SKSurface TintMask(SKSurface t, SKImage mImg, string col, bool dk)
     {
         var x = t.Canvas;
         var w = (float)t.Canvas.DeviceClipBounds.Width;
@@ -282,8 +282,7 @@ public static class P11FxB
         x.SetMatrix(SKMatrix.Identity);
         x.Clear();
         using (var p = new SKPaint())
-            x.DrawImage(m.Snapshot(), 0, 0, p); // 注：不能给这个快照加 using——Skia 复用未变更表面的快照镜像，
-                                                // SkiaSharp 按句柄去重包装，局部释放会连带释放别处的同一对象（见 Renderer 转场注释）
+            x.DrawImage(mImg, 0, 0, p);
         FillMode(x, 0, 0, w, h, col, 1, dk ? SKBlendMode.Multiply : SKBlendMode.Screen);
         return t;
     }
@@ -330,8 +329,9 @@ public static class P11FxB
         var w = Math.Max(2, (int)Math.Round(cw / 3.0));
         var h = Math.Max(2, (int)Math.Round(ch / 3.0));
         var m = GreyMask(Buf(0, w, h), S, sc, w, h, dk);
-        var r = TintMask(Buf(1, w, h), m, "#FF3020", dk);
-        var c = TintMask(Buf(2, w, h), m, "#18E0FF", dk);
+        using var mImg = m.Snapshot();
+        var r = TintMask(Buf(1, w, h), mImg, "#FF3020", dk);
+        var c = TintMask(Buf(2, w, h), mImg, "#18E0FF", dk);
         using (var ri = r.Snapshot())
         using (var ci = c.Snapshot())
         {

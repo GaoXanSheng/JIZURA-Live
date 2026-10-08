@@ -92,6 +92,12 @@ public sealed class Project
 
     public List<UserFont> UserFonts { get; set; } = new();
 
+    /// <summary>音频文件名（如 song.mp3），对位前端 project.audioName。</summary>
+    public string? AudioName { get; set; }
+
+    /// <summary>音频本地绝对路径或缓存标识。</summary>
+    public string? AudioPath { get; set; }
+
     /// <summary>音频特效配置（预览+导出共用）：{ units: [...], preset? }，J.sanitizeAudioFx 清洗。</summary>
     public JObject? AudioFx { get; set; }
 
@@ -184,7 +190,7 @@ public sealed class Plan
     public List<PlanLine> Lines { get; set; } = new();
     public List<Cut> Cuts { get; set; } = new();
     public List<PlanEvent> Events { get; set; } = new();
-    public double[] Beats { get; set; } = System.Array.Empty<double>();
+    public double[] Beats { get; set; } = Array.Empty<double>();
 
     public bool Hud { get; set; }
 
@@ -228,7 +234,7 @@ public sealed class PlanLine
 
     public string? Note { get; set; }
     public bool Impact { get; set; }
-    public string[] Emph { get; set; } = System.Array.Empty<string>();
+    public string[] Emph { get; set; } = Array.Empty<string>();
     public string[]? Chunks { get; set; }
     public uint Seed { get; set; }
 }
@@ -262,7 +268,7 @@ public sealed class Cut
     public uint Seed { get; set; }
     public bool Emph { get; set; }
     public bool Recap { get; set; }
-    public string[] Words { get; set; } = System.Array.Empty<string>();
+    public string[] Words { get; set; } = Array.Empty<string>();
 
     public string Treat { get; set; } = "none";
     public JObject TreatP { get; set; } = new();
@@ -335,7 +341,7 @@ public sealed class AudioData
 {
     public double Duration { get; set; }
     public double Bpm { get; set; }
-    public double[] Beats { get; set; } = System.Array.Empty<double>();
+    public double[] Beats { get; set; } = Array.Empty<double>();
     public float[]? Energy { get; set; }
     public double EnergyRate { get; set; }
     public float[]? Peaks { get; set; }

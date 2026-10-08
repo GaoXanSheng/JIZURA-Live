@@ -192,7 +192,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// 时调用）。装载成功即重建播放链并重规划（EditorState 里那次 Replan 发生在 AudioChanged 之前，
     /// 当时还拿不到音频——这里补一次带音频的，双重规划成本可忽略）。失败降级为墙钟。
     /// </summary>
-    public void SetAudioSource(AudioData? audio, string? path)
+    public void SetAudioSource(AudioData? audio, string? path, bool keepCurrentTime = false)
     {
         TeardownAudio();
         _audio = audio;
@@ -209,11 +209,13 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             Replan();
             return;
         }
-        // 新歌一律从 0 起：计划与行时刻都按新音频重排，从旧位置续听会跳过前奏和前面的行
-        // （对位旧前端 songLoader 的 loadAudioFile + seek(0)）
-        _base = 0;
+        // 恢复上次音频时从当前时刻续播，避免跳回开头；新歌载入一律从 0 起（对位旧前端 songLoader 的 loadAudioFile + seek(0)）
+        var startT = keepCurrentTime && CurrentTime > 0.05
+            ? Math.Clamp(CurrentTime, 0, Math.Max(0, audio.Duration))
+            : 0;
+        _base = startT;
         _startTs = Stopwatch.GetTimestamp();
-        BuildChain(path, 0);
+        BuildChain(path, startT);
         // 装载时播放器已在播放（应用启动即自动播放，见 MainWindow 构造）→ 新链必须跟着起跑。
         // 漏掉这一步的表象就是「音频不可用」：链建好了却从未 Play，WaveOut 不读帧 →
         // 波形位置钟钉死在起点（画面与时间码不动）且没有声音，得点一次暂停/播放才活过来。
@@ -586,12 +588,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// </summary>
     public volatile bool ReplanPending;
 
-    // 预热面（长边 480）：持久保留——引擎整帧缓存会持有它的快照，换面绝不能 Dispose
-    // （旧面进墓园；同 MainWindow._stageGraveyard，Dispose 会让缓存的快照悬空 → native AV）
+    // 预热面（长边 480）：持久复用；换尺寸时先清整帧缓存再释放旧面
     private SKBitmap? _warmBmp;
     private SKSurface? _warmSurf;
-    private readonly List<SKSurface> _warmGraveyard = new();
-    private readonly List<SKBitmap> _warmBmpGraveyard = new();
     private int _warmW = -1, _warmH = -1;
 
     /// <summary>
@@ -609,8 +608,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         var h = Math.Max(2, (int)Math.Round(plan.H * scale));
         if (_warmSurf == null || _warmW != w || _warmH != h)
         {
-            if (_warmSurf != null) _warmGraveyard.Add(_warmSurf); // 不 Dispose：见字段注释
-            if (_warmBmp != null) _warmBmpGraveyard.Add(_warmBmp);
+            lock (EngineRenderGate.Lock)
+                Renderer.ClearFrameCache();
+            _warmSurf?.Dispose();
+            _warmBmp?.Dispose();
             _warmBmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
             _warmSurf = SKSurface.Create(_warmBmp.Info, _warmBmp.GetPixels(), _warmBmp.RowBytes);
             _warmW = w;
@@ -618,7 +619,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         }
         _warmSurf.Canvas.Clear(SKColors.Black);
         lock (EngineRenderGate.Lock)
-            Renderer.Frame(_warmSurf.Canvas, plan, 0, new RenderOpts { Scale = scale, Stage = true });
+        {
+            Renderer.Frame(_warmSurf.Canvas, plan, 0, new RenderOpts { Scale = scale, Stage = true, NoPost = true, NoTrans = true });
+            Renderer.ClearFrameCache(); // 预热只为成型字体/排版，不保留 480 低清整帧快照
+        }
     }
 
     /// <summary>
@@ -651,6 +655,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     public void Dispose()
     {
         TeardownAudio();
+        _warmSurf?.Dispose();
+        _warmSurf = null;
+        _warmBmp?.Dispose();
+        _warmBmp = null;
         Renderer.Dispose();
     }
 }

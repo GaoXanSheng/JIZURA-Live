@@ -556,7 +556,7 @@ public sealed class SpoutOut : IDisposable
     {
         if (ch.Gpu)
         {
-            var g = _gpu!.Rent(ch.W, ch.H);
+            var g = _gpu!.Rent(ch.Name, ch.W, ch.H);
             _gpu.Activate(g);
             return new Target(g.Skia, g, 0, 0, ch.W, ch.H);
         }
@@ -566,28 +566,16 @@ public sealed class SpoutOut : IDisposable
     }
 
     /// <summary>
-    /// 引擎场景面（contain 后的画幅）。GPU 模式用 Skia 托管的 GPU 面：它自带非零 FBO，
-    /// 不会和 pbuffer 的 FBO0（出口纹理）撞车——pbuffer 面同一时刻只能有一个是「当前绘制面」。
-    /// CPU 模式沿用旧纪律：按尺寸保留、绝不 Dispose（引擎整帧缓存持有其快照）。
+    /// 引擎场景面（contain 后的画幅）。使用 CPU 托管面并按尺寸复用（绝不逐帧 Dispose，整帧缓存持有其快照）。
+    /// Blit 阶段使用 PeekPixels + FromPixels 借像素上传到 GPU 出图面，杜绝 Snapshot() 导致的
+    /// _fcCv 悬空引用（0xC0000005）与 GPU 纹理进 GC 终结器（0xC000001D）。
     /// </summary>
     private SKSurface AcquireScene(Channel ch, int w, int h)
     {
-        if (ch.Gpu)
-        {
-            if (ch.SceneGpu == null || ch.SceneGpuW != w || ch.SceneGpuH != h)
-            {
-                ch.SceneGpu?.Dispose();
-                ch.SceneGpu = _gpu!.CreateGpuSurface(w, h);
-                ch.SceneGpuW = w;
-                ch.SceneGpuH = h;
-            }
-
-            return ch.SceneGpu;
-        }
-
         if (ch.Scene == null || ch.SceneW != w || ch.SceneH != h)
         {
-            if (ch.Scene != null) ch.Graveyard.Add(ch.Scene);
+            ch.Renderer?.ClearFrameCache();
+            ch.Scene?.Dispose();
             ch.Scene = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
             ch.SceneW = w;
             ch.SceneH = h;
@@ -672,21 +660,11 @@ public sealed class SpoutOut : IDisposable
         var oc = tgt.Canvas;
         oc.SetMatrix(SKMatrix.Identity);
         oc.Clear(ch.Transparent ? SKColors.Transparent : SKColors.Black);
-        if (ch.Gpu)
-        {
-            // GPU 面快照（GPU 侧拷贝）直接画到出图面，不落内存
-            using var shot = scene.Snapshot();
-            oc.DrawImage(shot, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
-        }
-        else
-        {
-            // SkiaSharp 3.119 坑（headless 复现：obj/repro，AV 于 Frame 的 _fcCv.Width）：
-            // 引擎整帧缓存把 SnapshotOf(ctx) 存起来跨帧用——交给 Frame 的面必须保留（绝不 Dispose），
-            // blit 也不用 Snapshot()，改 PeekPixels + FromPixels 借用像素。
-            var spx = scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
-            using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
-            oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
-        }
+        // 引擎整帧缓存把 SnapshotOf(ctx) 存起来跨帧用——交给 Frame 的面必须保留（绝不 Dispose），
+        // blit 改 PeekPixels + FromPixels 借用像素，禁止使用 scene.Snapshot()（避免破坏整帧缓存 _fcCv）。
+        var spx = scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
+        using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
+        oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
 
         return new Target(tgt.Surface, tgt.Gpu, (ch.W - rw) / 2, (ch.H - rh) / 2, rw, rh);
     }
@@ -783,14 +761,10 @@ public sealed class SpoutOut : IDisposable
 
         public readonly SpoutSender Sender;
         public readonly Renderer? Renderer; // 字幕通道不需要引擎渲染器
-        public SKSurface? Scene;  // CPU 回退：plan 画幅渲染面（保留，尺寸/画幅变化才换新；仅引擎通道）
-        public SKSurface? SceneGpu; // GPU：Skia 托管的场景面（非零 FBO），同上按尺寸换新
+        public SKSurface? Scene;  // plan 画幅渲染面（保留，尺寸/画幅变化才换新；仅引擎通道）
         public int SceneW = -1;
         public int SceneH = -1;
-        public int SceneGpuW = -1;
-        public int SceneGpuH = -1;
         public SKSurface? Out;   // CPU 输出面（PeekPixels 源；从不交给 Frame，也从不被 Snapshot）
-        public readonly List<SKSurface> Graveyard = new(); // 换下的旧场景面（Dispose 时随渲染器一起释放）
         public SubtitleLayer? SubLayer; // 字幕层缓存（按字幕数据版本重建）
         public long SubLayerVersion = -1;
         public Texture2D? Texture;
@@ -815,9 +789,9 @@ public sealed class SpoutOut : IDisposable
             if (!subtitle)
             {
                 Renderer = new Renderer();
-                // 引擎中间面也走 GPU（Skia 托管面）：省掉每帧「CPU 面 → GPU 上传」；
-                // 关掉可对比（JIZURA_GPU_SCRATCH=0）
-                if (gpu && Environment.GetEnvironmentVariable("JIZURA_GPU_SCRATCH") is not ("0" or "off"))
+                // 引擎内部中间面（scratch/trans/morph 等）默认走 CPU 面（稳健防 GC 终结器与 GPU 上下文冲突）。
+                // 若显式指定 JIZURA_GPU_SCRATCH=1 则实验性启用 GPU 中间面。
+                if (gpu && Environment.GetEnvironmentVariable("JIZURA_GPU_SCRATCH") is "1" or "on" or "true")
                 {
                     var host = GpuRasterHost.TryGet(out _);
                     if (host != null) Renderer.SurfaceFactory = host.CreateGpuSurface;
@@ -852,9 +826,7 @@ public sealed class SpoutOut : IDisposable
 
             // 渲染器先释放（其整帧缓存快照引用着场景面），再释放 Skia 面
             Renderer?.Dispose();
-            SceneGpu?.Dispose();
             Scene?.Dispose();
-            foreach (var s in Graveyard) s.Dispose();
             Out?.Dispose();
             Texture?.Dispose();
         }

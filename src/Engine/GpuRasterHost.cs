@@ -94,7 +94,7 @@ public sealed class GpuRasterHost : IDisposable
     private readonly Device _device;
     private readonly GRContext _gr;
     private readonly string _provider;
-    private readonly Dictionary<(int W, int H), GpuSurface> _surfaces = new();
+    private readonly Dictionary<(string Key, int W, int H), GpuSurface> _surfaces = new();
 
     private int _ownerThread;
     private GpuSurface? _active;
@@ -193,32 +193,38 @@ public sealed class GpuRasterHost : IDisposable
         _active = s;
     }
 
-    /// <summary>按尺寸取面（同尺寸复用；调用方须先 Enter + Activate）。</summary>
-    public GpuSurface Rent(int w, int h)
+    /// <summary>按通道标识与尺寸取面（同标识同尺寸复用；调用方须先 Enter + Activate）。</summary>
+    public GpuSurface Rent(string key, int w, int h)
     {
         w = Math.Max(1, w);
         h = Math.Max(1, h);
-        if (_surfaces.TryGetValue((w, h), out var s)) return s;
+        if (_surfaces.TryGetValue((key, w, h), out var s)) return s;
         var surf = AngleEgl.eglCreatePbufferSurface(_dpy, _cfg,
             [AngleEgl.EGL_WIDTH, w, AngleEgl.EGL_HEIGHT, h, AngleEgl.EGL_NONE]);
         if (surf == IntPtr.Zero)
             throw new InvalidOperationException($"{w}x{h} eglCreatePbufferSurface 失败 err=0x{AngleEgl.eglGetError():x}");
         s = new GpuSurface(this, w, h, surf);
-        _surfaces[(w, h)] = s;
+        _surfaces[(key, w, h)] = s;
         return s;
     }
+
+    /// <summary>按尺寸取面（向后兼容默认键；调用方须先 Enter + Activate）。</summary>
+    public GpuSurface Rent(int w, int h) => Rent("default", w, h);
 
     /// <summary>提交本帧：Skia 刷命令 + 等 GPU 落盘（落盘后共享纹理才可被 Spout 的设备读）。</summary>
     public void FlushAndSync()
     {
+        if (_gr.IsAbandoned)
+            throw new InvalidOperationException("GRContext 已失效 (IsAbandoned = true)");
         _gr.Flush();
         AngleEgl.glFinish();
     }
 
     /// <summary>
-    /// Skia 托管的 GPU 面（自带非零 FBO）：给引擎的中间面/场景面用。
-    /// 不能用 pbuffer 面——所有 pbuffer 的绘制入口都是 FBO0，同一时刻只有一个能当「当前绘制面」，
-    /// 引擎在渲染中途建中间面会把出口纹理的 FBO0 顶掉。
+    /// Skia 托管的 GPU 面（自带非零 FBO）：给受控的 GPU 面使用。
+    /// 注意：在 SkiaSharp 中，若中间 GPU 面或其快照被 GC 回收，终结器线程在无 EGL 上下文下
+    /// 调用 sk_surface_unref / sk_image_unref 会与 Flush 产生并发冲突引发 0xC000001D 崩溃。
+    /// 渲染引擎内部中间面（scratch/trans/morph 等）统一使用 CPU 面以确保 GC 安全。
     /// </summary>
     public SKSurface CreateGpuSurface(int w, int h) =>
         SKSurface.Create(_gr, budgeted: true, new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Premul))
@@ -315,6 +321,8 @@ public sealed class GpuRasterHost : IDisposable
         _gr.Dispose();
         _device.Dispose();
         AngleEgl.eglMakeCurrent(_dpy, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        if (_ctx != IntPtr.Zero) AngleEgl.eglDestroyContext(_dpy, _ctx);
+        if (_dpy != IntPtr.Zero) AngleEgl.eglTerminate(_dpy);
     }
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
@@ -345,10 +353,13 @@ public sealed class GpuSurface : IDisposable
     /// <summary>DXGI 格式（Spout 发送端格式须与之一致）。</summary>
     public int DxgiFormat { get; }
 
+    private readonly GpuRasterHost _host;
     private readonly Texture2D _texture;
+    private readonly GRBackendRenderTarget _rt;
 
     internal GpuSurface(GpuRasterHost host, int w, int h, IntPtr surfaceHandle)
     {
+        _host = host;
         Width = w;
         Height = h;
         SurfaceHandle = surfaceHandle;
@@ -364,9 +375,9 @@ public sealed class GpuSurface : IDisposable
         DxgiFormat = (int)desc.Format;
         TexturePointer = _texture.NativePointer;
 
-        var rt = new GRBackendRenderTarget(w, h, 0, 0,
+        _rt = new GRBackendRenderTarget(w, h, 0, 0,
             new GRGlFramebufferInfo(0, unchecked((uint)AngleEgl.GL_RGBA8)));
-        Skia = SKSurface.Create(host.Gr, rt, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888)
+        Skia = SKSurface.Create(host.Gr, _rt, GRSurfaceOrigin.TopLeft, SKColorType.Rgba8888)
                ?? throw new InvalidOperationException($"{w}x{h} SKSurface.Create(GPU) 失败");
     }
 
@@ -380,6 +391,9 @@ public sealed class GpuSurface : IDisposable
     public void Dispose()
     {
         Skia.Dispose();
+        _rt.Dispose();
         _texture.Dispose();
+        if (SurfaceHandle != IntPtr.Zero)
+            AngleEgl.eglDestroySurface(_host.Dpy, SurfaceHandle);
     }
 }

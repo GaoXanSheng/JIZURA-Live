@@ -66,7 +66,7 @@ public partial class Transport : UserControl
     private void WireAudioSource()
     {
         var st = App.MainInstance!.State;
-        Preview.SetAudioSource(st.Audio, st.AudioPath);
+        Preview.SetAudioSource(st.Audio, st.AudioPath, st.IsAudioRestored);
     }
 
     // ---------------- 播放 / 循环 ----------------
@@ -278,7 +278,7 @@ public partial class Transport : UserControl
         st.Mutate(p => p.ThemeId = key.Length == 0 ? null : key, "一键随机主题", replan: false, look: true);
     }
 
-    /// <summary>omakase：风格/氛围/演出/配色整体随机（锁定项由 OmakaseApply 还原），回到片头。</summary>
+    /// <summary>omakase：风格/氛围/演出/配色整体随机（锁定项由 OmakaseApply 还原），暂停并回到片头。</summary>
     private void BtnOmakase_Click(object sender, RoutedEventArgs e)
     {
         var main = App.MainInstance;
@@ -286,9 +286,11 @@ public partial class Transport : UserControl
         var st = main.State;
         var themeId = st.Project.ThemeId;
         if (themeId != null && !Omakase.Themes.ContainsKey(themeId)) themeId = null;
+        // 先停：重规划（大工程数百毫秒到数秒）期间不继续出声/推进，改完停在片头等用户看第一眼
+        main.Preview.Pause();
         st.Mutate(p => Omakase.OmakaseApply(p, null, themeId), "一键随机", replan: false, look: true);
         st.ReplanNow();
-        main.Preview.Seek(0); // 对位 restartPreview
+        main.Preview.Seek(0); // 归零（对位 restartPreview 的 seek(0)，外加用户要求的暂停）
     }
 
     // ---------------- 低频状态同步（10Hz 定时器） ----------------

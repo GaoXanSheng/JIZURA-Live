@@ -64,11 +64,17 @@ public partial class AudioPanel : UserControl
     private void RefreshAudio()
     {
         var name = State.AudioFileName;
+        var note = _loadNote;
+        if (string.IsNullOrEmpty(note) && State.IsAudioRestored)
+            note = " · 上次的歌曲";
+
         TblAudioName.Text = name == null
             ? "未载入歌曲（载入后自动检测节拍并对齐切分）"
             : State.Audio != null
-                ? $"{name}（{J.FmtTime(State.Audio.Duration)} · 约{State.Audio.Bpm:0.0}BPM）{_loadNote}"
-                : name;
+                ? $"{name}（{J.FmtTime(State.Audio.Duration)} · 约{State.Audio.Bpm:0.0}BPM）{note}"
+                : State.IsRestoringAudio
+                    ? $"{name}（恢复中…）"
+                    : name;
         SyncFields();
     }
 

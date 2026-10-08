@@ -32,8 +32,8 @@
 //      按「逐行对齐 JS」原则原样保留
 
 using System.Globalization;
-using Newtonsoft.Json.Linq;
 using NAudio.Wave;
+using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Engine;
 
@@ -980,8 +980,7 @@ public sealed class FxInlet : ISampleProvider
     {
         var src = Source ?? throw new InvalidOperationException("AudioFx 图未接线：先设置 FxGraph.Input.Source");
         if (src.WaveFormat.SampleRate != _fmt.SampleRate)
-            throw new InvalidOperationException(
-                $"AudioFx 音源采样率 {src.WaveFormat.SampleRate} 与图采样率 {_fmt.SampleRate} 不一致（调用方需先重采样）");
+            throw new InvalidOperationException($"AudioFx 音源采样率 {src.WaveFormat.SampleRate} 与图采样率 {_fmt.SampleRate} 不一致（调用方需先重采样）");
         if (src.WaveFormat.Channels == 2) return src.Read(buffer);
         if (src.WaveFormat.Channels == 1)
         {

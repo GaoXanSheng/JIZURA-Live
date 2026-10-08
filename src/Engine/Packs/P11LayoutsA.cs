@@ -3678,11 +3678,12 @@ public static class P11LayoutsA
                     }
                     if (!accent && fx == "tone" && i == (acc + 1) % k)
                     {
+                        using var patShader = JText.TextPattern(ctx, "dots", Col(sc, "sub"), null, u * 0.12,
+                            env.Scale != 0 ? env.Scale : 1);
                         using var paint = new SKPaint
                         {
                             IsAntialias = true,
-                            Shader = JText.TextPattern(ctx, "dots", Col(sc, "sub"), null, u * 0.12,
-                                env.Scale != 0 ? env.Scale : 1),
+                            Shader = patShader,
                             Color = new SKColor(255, 255, 255, (byte)Math.Round(J.Clamp(0.3 * outA) * 255)),
                             BlendMode = env.Blend,
                         };

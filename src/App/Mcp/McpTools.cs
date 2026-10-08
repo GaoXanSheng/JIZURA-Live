@@ -680,6 +680,7 @@ public sealed class McpTools
         {
             var themeId = _state.Project.ThemeId;
             if (themeId != null && !Omakase.Themes.ContainsKey(themeId)) themeId = null;
+            _preview.Pause(); // 与界面「一键随机」一致：暂停 + 回到片头（重规划期间不继续推进）
             _state.Mutate(p => Omakase.OmakaseApply(p, null, themeId), "一键随机", replan: false, look: true);
             _state.ReplanNow();
             _preview.Seek(0);

@@ -455,7 +455,10 @@ public partial class CloudPanel : Window
         if (_loading) return;
         if (sender is not Button { Tag: CloudRow row }) return;
         _loading = true;
-        Lst.IsEnabled = false;
+        // 挡重复点击用 IsHitTestVisible 而不是 IsEnabled：禁用态会让整张列表进入 WPF 的 disabled 视觉，
+        // 逐像素透明的窗口在装载期间补帧不及时，就是用户看到的「面板底色错乱」。悬停高亮本来就靠命中测试，
+        // 挡掉命中测试一样能防连点，但不碰行的配色。
+        Lst.IsHitTestVisible = false;
         BtnSearch.IsEnabled = false;
         var song = row.Song;
         row.Status = "获取链接…";
@@ -480,7 +483,7 @@ public partial class CloudPanel : Window
             _loading = false;
             if (!_closed)
             {
-                Lst.IsEnabled = true;
+                Lst.IsHitTestVisible = true;
                 BtnSearch.IsEnabled = true;
             }
         }

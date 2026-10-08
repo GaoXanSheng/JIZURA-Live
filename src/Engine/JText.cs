@@ -1712,23 +1712,38 @@ public static class JText
     /// <summary>字体目录变化（AddUserFont/EnsureFonts）后清 SKFont 缓存；typeface 表（FaceJobs）同语义不动。</summary>
     internal static void OnFontsChanged()
     {
-        FontJobs.Clear();
+        ClearFontJobs();
         InvalidateLayoutCache(); // 排版内容缓存随字体度量失效（性能专项缓存）
+    }
+
+    private static void ClearFontJobs()
+    {
+        foreach (DictionaryEntry kv in FontJobs)
+            if (kv.Value is IDisposable d) d.Dispose();
+        FontJobs.Clear();
     }
 
     internal static SKFont FaceFont(string fontKey, double size, double wg = 0)
     {
-        if (wg == 0)
+        if (wg <= 0)
         {
             // 键用 R 格式避免不同来源的 size 字符串化差异；容量护栏防 fitSize 探测类长尾撑爆
             var key = string.Create(CultureInfo.InvariantCulture, $"{fontKey}\u0001{size.ToString("R", CultureInfo.InvariantCulture)}");
             if (FontJobs[key] is SKFont hit) return hit;
             var nf = BuildFont(fontKey, size, 0);
-            if (FontJobs.Count > 4096) FontJobs.Clear();
+            if (FontJobs.Count > 4096) ClearFontJobs();
             FontJobs[key] = nf;
             return nf;
         }
-        return BuildFont(fontKey, size, wg);
+
+        // wg > 0: 量化到 20 档（0.05 步长），使动态连续变化的 wg 能够命中缓存，杜绝逐帧 new SKFont 灌死 finalizer 队列
+        var qWg = Math.Round(wg * 20.0) / 20.0;
+        var qKey = string.Create(CultureInfo.InvariantCulture, $"{fontKey}\u0001{size.ToString("R", CultureInfo.InvariantCulture)}\u0001{qWg.ToString("F2", CultureInfo.InvariantCulture)}");
+        if (FontJobs[qKey] is SKFont qHit) return qHit;
+        var qNf = BuildFont(fontKey, size, qWg);
+        if (FontJobs.Count > 4096) ClearFontJobs();
+        FontJobs[qKey] = qNf;
+        return qNf;
     }
 
     /// <summary>
@@ -1757,7 +1772,7 @@ public static class JText
             Subpixel = true,
             LinearMetrics = true
         };
-        if (FontJobs.Count > 4096) FontJobs.Clear();
+        if (FontJobs.Count > 4096) ClearFontJobs();
         FontJobs[key] = nf;
         return nf;
     }

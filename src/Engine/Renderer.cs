@@ -280,10 +280,12 @@ public sealed class Renderer : IDisposable
             // 多画布/多 plan 轮转时白付拷贝不值，同一键第二次出现才开始写缓存。
             string? fKey = null;
             if (opt.GlyphLog == null && !opt.KlineBg && opt.Layer == null && !evLive && spike == 0 && shake == 0
-                && beatPulse <= 0.02 && !transOn)
+                && beatPulse <= 0.02 && !transOn && !opt.NoTrans && !opt.NoPost)
             {
                 if (!ReferenceEquals(plan, _fcPlan))
                 {
+                    _fcCv?.Dispose();
+                    _fcCv = null;
                     _fcPlan = plan;
                     _fcKey = "";
                     _fcHot = "";
@@ -517,11 +519,9 @@ public sealed class Renderer : IDisposable
                     {
                         if (tdef.Draw is TransDrawFn draw)
                         {
-                            // 注：A/B 快照此处**不能** using 释放——Skia 对未变更表面复用同一张快照镜像，
-                            // SkiaSharp 又按原生句柄去重托管包装，Dispose 可能连带释放整帧缓存 _fcCv 引用的
-                            // 同一对象（实测 sk_image_get_width AV）。要治「转场帧快照进终结器」需另设
-                            // 按 surface 的快照缓存，不能用局部 using。
-                            draw(ctx, A.Snapshot(), B.Snapshot(), J.Clamp(lt / dur), new TransCtx
+                            using var snapA = A.Snapshot();
+                            using var snapB = B.Snapshot();
+                            draw(ctx, snapA, snapB, J.Clamp(lt / dur), new TransCtx
                             {
                                 Cw = cw,
                                 Ch = ch,
@@ -688,6 +688,10 @@ public sealed class Renderer : IDisposable
         {
             if (!ReferenceEquals(_msPlan, plan))
             {
+                if (_msMap != null)
+                {
+                    foreach (var img in _msMap.Values) img.Dispose();
+                }
                 _msPlan = plan;
                 _msMap = new Dictionary<string, SKImage>();
             }
@@ -1341,7 +1345,8 @@ public sealed class Renderer : IDisposable
             c.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
             using (var bp = new SKPaint { Color = new SKColor((byte)r, (byte)g, (byte)b) })
                 c.DrawRect(new SKRect(0, 0, W, H), bp);
-            using (var gp = new SKPaint { Color = SKColors.White, Shader = BgGrad(W, H, new SKColor(255, 255, 255, (byte)liftA8)) })
+            using (var gpShader = BgGrad(W, H, new SKColor(255, 255, 255, (byte)liftA8)))
+            using (var gp = new SKPaint { Color = SKColors.White, Shader = gpShader })
                 c.DrawRect(new SKRect(0, 0, W, H), gp);
             var img = surf.Snapshot();
             if (_bgBaked.Count > 8)
@@ -1617,6 +1622,19 @@ public sealed class Renderer : IDisposable
 
         /// <summary>beatInfo → Env.Beat（归一相位 since/len）；完整 {since,len,index} 由 MakeEnv 挂 Env.BeatHas 等字段。</summary>
         private static double BeatNorm(BeatInfo? b) => b == null ? 0 : b.Value.Since / b.Value.Len;
+
+        /// <summary>
+        /// 清空整帧缓存（换目标画幅、换离屏面或重建管线时调用）。
+        /// 及时释放快照引用，使换下的旧表面与位图能够立即安全 Dispose。
+        /// </summary>
+        public void ClearFrameCache()
+        {
+            _fcCv?.Dispose();
+            _fcCv = null;
+            _fcKey = "";
+            _fcHot = "";
+            _fcPlan = null;
+        }
 
         public void Dispose()
         {

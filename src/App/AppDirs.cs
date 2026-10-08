@@ -12,6 +12,10 @@ public static class AppDirs
 
     public static string ConfigDir => Path.Combine(Root, "config");
     public static string LogsDir => Path.Combine(Root, "logs");
+    public static string CacheDir => Path.Combine(Root, "cache");
+
+    /// <summary>音频缓存库：包含自动保存工程的音频副本以及解包的音频文件。</summary>
+    public static string AudioCacheDir => Path.Combine(CacheDir, "audio");
 
     /// <summary>用户字体库：网络拉取的字体缓存 + 上传的字体本体（引擎 JFonts.UserFontDir 指这里）。
     /// 不放 exe 旁的原因同设置：安装目录普通权限写不进，升级覆盖还会清掉。</summary>

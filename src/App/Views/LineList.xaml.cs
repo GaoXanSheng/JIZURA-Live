@@ -191,6 +191,7 @@ public partial class LineList : UserControl
                     BoundaryTip = $"切分 {k} 的结束 ＝ 切分 {k + 1} 的开始（秒・{(ct != null ? "手动" : "自动")}）。" +
                                   $"切分首尾相接，两段共用这条边界。{(ct != null ? "清空则恢复自动" : "输入数值则固定")}",
                     LayoutIndex = Math.Max(0, LayoutKeys.IndexOf(forced ?? c.Layout)),
+                    AutoLayout = c.Layout,
                     Forced = forced != null,
                     Border = HueBorder(Reg.LayoutOrder.IndexOf(c.Layout)),
                 });
@@ -503,17 +504,23 @@ public partial class LineList : UserControl
         var idx = ((ComboBox)sender).SelectedIndex;
         if (idx < 0) return;
         var key = idx > 0 ? LayoutKeys[idx] : "";
-        // 幂等闸（同 NcutCombo/RowLayoutCombo：容器生成在 Measure 趟里触发绑定初始化，会重复触发
-        // SelectionChanged）。值没变就绝不 Mutate——否则 Mutate→Replan→StateChanged→重建行→布局趟
-        // 再触发 = 无限循环。dotnet-stack 实证：UI 线程整趟卡在 Replan 等锁（25s 调度饥饿、按钮全失灵）
+        // 幂等闸：容器生成在 Measure 趟里触发绑定初始化，LayoutIndex 一写就重复触发 SelectionChanged，
+        // 值没变就绝不 Mutate（否则 Mutate→Replan→StateChanged→重建行→布局趟再触发 = 无限循环；
+        // dotnet-stack 实证过 UI 整趟卡在 Replan 等锁）。比较基准必须是「生效布局」——override 优先，
+        // 没有 override 就是 plan 的自动布局，也就是下拉显示的那个值。
+        // 只跟 override 比是踩过的坑：自动布局的切分绑定时 SelectedIndex = 自动布局（≠ 空 override），
+        // 每次行容器生成/滚进视口都判定"变了" → 写一条「显式指定 = 当前自动布局」的假 override 并
+        // Seek 到该切分。装载/重规划后整表重建会一次性触发几百次：表现是「时间莫名其妙跳到某个切分」
+        // 「行列表滚到末尾」，工程还会被塞满假 override（换风格/一键随机对这些切分从此失效）。
         {
             var k0 = cell.K.ToString();
             var cOv = State.Project.Overrides.TryGetValue(cell.Row.I.ToString(), out var o3) ? o3 : null;
             var cTech = cOv?["cutTech"] as JObject;
             var cLay = cOv?["cutLayouts"] as JObject;
-            var stored = (cTech?[k0] as JObject)?["layout"]?.Value<string>()
-                         ?? cLay?[k0]?.Value<string>() ?? "";
-            if (key == stored) return;
+            var forced = (cTech?[k0] as JObject)?["layout"]?.Value<string>()
+                         ?? cLay?[k0]?.Value<string>();
+            var effective = forced is { Length: > 0 } ? forced : cell.AutoLayout;
+            if ((key.Length > 0 ? key : null) == (effective is { Length: > 0 } ? effective : null)) return;
         }
         State.Mutate(p =>
         {
@@ -623,6 +630,11 @@ public sealed class CutVm
     public string Title { get; set; } = "";
     public string BoundaryTip { get; set; } = "";
     public int LayoutIndex { get; set; }
+
+    /// <summary>plan 给这一段的自动布局（画面上显示的就是「override 优先，否则自动」）。
+    /// CutCombo 的幂等闸要拿它当"生效值"的一部分，见 CutCombo_SelectionChanged。</summary>
+    public string AutoLayout { get; set; } = "";
+
     public bool Forced { get; set; }
     public Brush Border { get; set; } = Brushes.Transparent;
 }

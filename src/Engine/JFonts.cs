@@ -489,6 +489,9 @@ public static class JFonts
             }
             if (fp.ToString() == _dirFingerprint) return; // 没变：留用现有索引
 
+            foreach (var list in DirFaces.Values)
+                foreach (var f in list)
+                    f.Dispose();
             DirFaces.Clear();
             var n = 0;
             foreach (var f in files)

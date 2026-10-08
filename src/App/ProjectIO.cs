@@ -91,6 +91,10 @@ public static class ProjectIO
             foreach (var kv in ov)
                 if (kv.Value is JObject o) d.Overrides[kv.Key] = o;
 
+        // 音频文件名与路径
+        d.AudioName = p.Value<string>("audioName") ?? p.Value<string>("audio_name");
+        d.AudioPath = p.Value<string>("audioPath") ?? p.Value<string>("audio_path");
+
         // 音频特效（预览+导出共用）：不信任外部输入，统一清洗
         d.AudioFx = AudioFx.SanitizeAudioFx(p["audioFx"] as JObject ?? new JObject());
 
@@ -294,8 +298,32 @@ public static class ProjectIO
             var pj = entries.FirstOrDefault(e => e.Name == "project.json")
                      ?? throw new InvalidDataException("工程包缺 project.json");
             var raw = JObject.Parse(Encoding.UTF8.GetString(pj.Data));
-            // TODO(M3)：包内音频/字体条目落盘恢复（AudioChanged 事件接入）
-            return MergeProject(raw);
+            var project = MergeProject(raw);
+
+            // 包内音频裸存提取落盘
+            var audioEntry = entries.FirstOrDefault(e => e.Name == "audio.bin");
+            if (audioEntry != null && audioEntry.Data.Length > 0)
+            {
+                try
+                {
+                    Directory.CreateDirectory(AppDirs.AudioCacheDir);
+                    var rawName = !string.IsNullOrEmpty(project.AudioName) ? project.AudioName : "audio.mp3";
+                    var ext = Path.GetExtension(rawName);
+                    if (string.IsNullOrEmpty(ext)) ext = ".mp3";
+                    var safeBase = Path.GetFileNameWithoutExtension(rawName);
+                    var cachedPath = Path.Combine(AppDirs.AudioCacheDir, $"{safeBase}_{Guid.NewGuid():N}{ext}");
+                    File.WriteAllBytes(cachedPath, audioEntry.Data);
+                    project.AudioPath = cachedPath;
+                    if (string.IsNullOrEmpty(project.AudioName)) project.AudioName = rawName;
+                    Log.Info($"[ProjectIO] 工程包音频已解包落盘：{cachedPath}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[ProjectIO] 工程包音频提取失败：" + ex.Message);
+                }
+            }
+
+            return project;
         }
         return MergeProject(JObject.Parse(Encoding.UTF8.GetString(bytes)));
     }

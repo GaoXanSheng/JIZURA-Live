@@ -92,10 +92,11 @@ public partial class TopBar : UserControl
         {
             byte[]? audio = null;
             string? audioName = null;
-            if (main.State.AudioPath != null && File.Exists(main.State.AudioPath))
+            var resolvedAudioPath = EditorState.ResolveAudioPath(main.State.AudioPath, main.State.AudioFileName);
+            if (resolvedAudioPath != null && File.Exists(resolvedAudioPath))
             {
-                audio = File.ReadAllBytes(main.State.AudioPath);
-                audioName = main.State.AudioFileName ?? Path.GetFileName(main.State.AudioPath);
+                audio = File.ReadAllBytes(resolvedAudioPath);
+                audioName = main.State.AudioFileName ?? Path.GetFileName(resolvedAudioPath);
             }
             ProjectIO.Save(main.State.Project, dlg.FileName, audio, audioName);
             Log.Info("[TopBar] 工程已保存：" + dlg.FileName);

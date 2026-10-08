@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
+using JizuraLive.Server;
 using Newtonsoft.Json;
 
 namespace JizuraLive.App;
@@ -21,6 +23,14 @@ public sealed class EditorState : IDisposable
     public AudioData? Audio { get; private set; }
     public string? AudioPath { get; private set; }
     public string? AudioFileName { get; private set; }
+
+    /// <summary>当前音频是否为重启或打开工程时恢复的上次音频。</summary>
+    public bool IsAudioRestored { get; private set; }
+
+    /// <summary>后台是否正在恢复上次的音频。</summary>
+    public bool IsRestoringAudio { get; private set; }
+
+    private int _restoreAudioSeq;
 
     /// <summary>工程版本号：MCP/外部协同的乐观锁基础。</summary>
     public int Revision { get; private set; }
@@ -48,11 +58,24 @@ public sealed class EditorState : IDisposable
     /// <summary>撤销重做栈变化（按钮可用态）。</summary>
     public event Action? HistoryChanged;
 
-    // 双历史：edit（工程内容）与 look（样式观感）分栈，对位前端双历史
+    // 双历史：edit（工程内容）与 look（样式观感）分栈，对位前端双历史；设 50 步容量上限防止内存无限增长
+    private const int MaxHistory = 50;
     private readonly Stack<(string Label, string Json)> _undoEdit = new();
     private readonly Stack<(string Label, string Json)> _redoEdit = new();
     private readonly Stack<(string Label, string Json)> _undoLook = new();
     private readonly Stack<(string Label, string Json)> _redoLook = new();
+
+    private static void PushHistory(Stack<(string Label, string Json)> stack, string label, string json)
+    {
+        if (stack.Count >= MaxHistory)
+        {
+            var arr = stack.ToArray(); // arr[0] is top, arr[^1] is bottom
+            stack.Clear();
+            for (var i = Math.Min(arr.Length, MaxHistory - 1) - 1; i >= 0; i--)
+                stack.Push(arr[i]);
+        }
+        stack.Push((label, json));
+    }
 
     public bool CanUndo => _undoEdit.Count > 0;
     public bool CanRedo => _redoEdit.Count > 0;
@@ -110,8 +133,11 @@ public sealed class EditorState : IDisposable
         Engine = engine;
         Project = ProjectIO.LoadAutosave() ?? Project.NewDefault();
         RestoreFonts(Project);
+        AudioFileName = Project.AudioName;
+        AudioPath = Project.AudioPath;
         Engine.SetProject(Project);
         Engine.Replan();
+        RestoreAudioAsync(seekToZero: false);
     }
 
     /// <summary>
@@ -169,7 +195,7 @@ public sealed class EditorState : IDisposable
     private void MutateCore(Action<Project> edit, string label, bool replan, bool look)
     {
         var (undoStack, redoStack) = look ? (_undoLook, _redoLook) : (_undoEdit, _redoEdit);
-        undoStack.Push((label, Snapshot()));
+        PushHistory(undoStack, label, Snapshot());
         redoStack.Clear();
         try
         {
@@ -297,20 +323,29 @@ public sealed class EditorState : IDisposable
 
     public void ReplaceProject(Project project, string label)
     {
-        _undoEdit.Push((label, Snapshot()));
+        Interlocked.Increment(ref _restoreAudioSeq);
+        PushHistory(_undoEdit, label, Snapshot());
         _redoEdit.Clear();
         RestoreFonts(project); // 打开工程：把它的用户字体从字体库读回（换机器/换工程都能恢复）
         Project = project;
         Engine.SetProject(project);
         Revision++;
+        AudioFileName = project.AudioName;
+        AudioPath = project.AudioPath;
+        SetAudioInternal(null, project.AudioPath, project.AudioName);
         StateChanged?.Invoke();
+        AudioChanged?.Invoke();
         NotifyAsync(HistoryChanged);
         ProjectIO.Autosave(project);
+        RestoreAudioAsync(seekToZero: true);
     }
 
     /// <summary>初始化（对位 resetAllProject）：清空歌词/音频/历史，回默认工程。</summary>
     public void ResetAll()
     {
+        Interlocked.Increment(ref _restoreAudioSeq);
+        IsRestoringAudio = false;
+        IsAudioRestored = false;
         _undoEdit.Clear();
         _redoEdit.Clear();
         _undoLook.Clear();
@@ -325,17 +360,33 @@ public sealed class EditorState : IDisposable
         AudioChanged?.Invoke();
         NotifyAsync(HistoryChanged);
         ProjectIO.Autosave(p);
+        try
+        {
+            if (Directory.Exists(AppDirs.AudioCacheDir))
+            {
+                foreach (var f in Directory.GetFiles(AppDirs.AudioCacheDir, "autosave_song.*"))
+                    File.Delete(f);
+            }
+        }
+        catch { }
     }
 
     // ---------------- 音频 ----------------
 
-    public void SetAudio(AudioData audio, string path, string? fileName)
+    public void SetAudio(AudioData audio, string path, string? fileName, bool restored = false)
     {
+        Interlocked.Increment(ref _restoreAudioSeq);
+        IsRestoringAudio = false;
+        IsAudioRestored = restored;
         SetAudioInternal(audio, path, fileName);
+        Project.AudioPath = path;
+        Project.AudioName = fileName;
+        Task.Run(() => TryCacheAutosaveAudio(path, fileName));
         Revision++;
         ReplanAsync(); // plan.energy/pitch/beats 来自音频（后台重规划）
         StateChanged?.Invoke();
         AudioChanged?.Invoke();
+        ProjectIO.Autosave(Project);
     }
 
     private void SetAudioInternal(AudioData? audio, string? path, string? fileName)
@@ -343,6 +394,135 @@ public sealed class EditorState : IDisposable
         Audio = audio;
         AudioPath = path;
         AudioFileName = fileName;
+    }
+
+    /// <summary>
+    /// 异步恢复上次或工程绑定的音频（对位前端 boot.ts 的 loadSong 恢复）。
+    /// 解码与分析在后台线程跑，完成后回 UI 线程 SetAudio，无缝接上真音频。
+    /// </summary>
+    public void RestoreAudioAsync(bool seekToZero = false)
+    {
+        var targetName = Project.AudioName;
+        var targetPath = Project.AudioPath;
+        if (string.IsNullOrEmpty(targetName) && string.IsNullOrEmpty(targetPath)) return;
+
+        var resolvedPath = ResolveAudioPath(targetPath, targetName);
+        if (string.IsNullOrEmpty(resolvedPath) || !File.Exists(resolvedPath))
+        {
+            if (!string.IsNullOrEmpty(targetName))
+                Log.Warn($"[音频恢复] 未找到上次的音频文件：{targetName}（记录路径：{targetPath}）");
+            return;
+        }
+
+        var seq = Interlocked.Increment(ref _restoreAudioSeq);
+        IsRestoringAudio = true;
+        AudioFileName = targetName ?? Path.GetFileName(resolvedPath);
+        AudioPath = resolvedPath;
+        StateChanged?.Invoke();
+
+        Task.Run(() =>
+        {
+            try
+            {
+                var mono = AudioAnalyzer.DecodeMonoAnalyzeRate(resolvedPath, out var duration);
+                var res = AudioAnalyzer.Analyze(mono, AudioAnalyzer.AnalyzeRate, duration);
+                var audio = new AudioData
+                {
+                    Duration = duration,
+                    Bpm = res.Bpm,
+                    Beats = res.Beats,
+                    Energy = res.Energy,
+                    EnergyRate = res.EnergyRate,
+                    Peaks = res.Peaks,
+                    Pitch = res.Pitch,
+                    PitchRate = res.PitchRate,
+                };
+
+                if (Volatile.Read(ref _restoreAudioSeq) != seq) return;
+
+                void Apply()
+                {
+                    if (Volatile.Read(ref _restoreAudioSeq) != seq) return;
+                    IsRestoringAudio = false;
+                    SetAudio(audio, resolvedPath, targetName ?? Path.GetFileName(resolvedPath), restored: !seekToZero);
+                    Log.Info($"[音频恢复] 已成功恢复音频：{AudioFileName}（{J.FmtTime(audio.Duration)}，{audio.Bpm:0.0} BPM）");
+                }
+
+                var d = Application.Current?.Dispatcher;
+                if (d != null && !d.HasShutdownStarted)
+                {
+                    d.BeginInvoke(Apply);
+                }
+                else
+                {
+                    Apply();
+                }
+            }
+            catch (Exception ex)
+            {
+                if (Volatile.Read(ref _restoreAudioSeq) == seq)
+                {
+                    IsRestoringAudio = false;
+                    Log.Warn($"[音频恢复] 音频解码分析失败：{resolvedPath}，{ex.Message}");
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 把当前工程的音频文件备份一份到本地缓存（对位前端 J.saveSong(f)），
+    /// 即使原路径被移动或删除，重启后仍可无缝恢复。
+    /// </summary>
+    private static void TryCacheAutosaveAudio(string path, string? fileName)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            Directory.CreateDirectory(AppDirs.AudioCacheDir);
+            var ext = Path.GetExtension(path);
+            if (string.IsNullOrEmpty(ext)) ext = ".mp3";
+            var autosavePath = Path.Combine(AppDirs.AudioCacheDir, "autosave_song" + ext);
+            if (!string.Equals(Path.GetFullPath(path), Path.GetFullPath(autosavePath), StringComparison.OrdinalIgnoreCase))
+            {
+                File.Copy(path, autosavePath, overwrite: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("[音频缓存] 自动保存音频备份失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 解析音频文件的物理路径：原路径优先；若不存在则按缓存副本与云音乐目录查找。
+    /// </summary>
+    public static string? ResolveAudioPath(string? path, string? fileName)
+    {
+        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+            return path;
+
+        // 尝试云端音乐缓存目录 (%LOCALAPPDATA%\JizuraLive\cloud\fileName)
+        if (!string.IsNullOrEmpty(fileName))
+        {
+            var cloudPath = Path.Combine(AppDirs.Root, "cloud", fileName);
+            if (File.Exists(cloudPath)) return cloudPath;
+        }
+
+        // 尝试 AudioCacheDir 中的备份
+        if (Directory.Exists(AppDirs.AudioCacheDir))
+        {
+            var autosaveFiles = Directory.GetFiles(AppDirs.AudioCacheDir, "autosave_song.*");
+            if (autosaveFiles.Length > 0 && File.Exists(autosaveFiles[0]))
+                return autosaveFiles[0];
+
+            if (!string.IsNullOrEmpty(fileName))
+            {
+                var candidate = Path.Combine(AppDirs.AudioCacheDir, fileName);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+
+        return null;
     }
 
     public void Dispose()

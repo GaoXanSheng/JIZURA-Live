@@ -53,7 +53,6 @@ public partial class MainWindow : Window
     private int _displayW = -1, _displayH = -1;
     private volatile int _displayFront;
     private readonly object _displayLock = new();
-    private readonly List<SKSurface> _stageGraveyard = new();
     // 镜像模式：已贴出的镜像帧序号与时间戳（判断「有没有新帧」；超时无新帧回退 CPU 渲染）
     private long _mirrorSeq;
     private long _mirrorAt;
@@ -240,10 +239,13 @@ public partial class MainWindow : Window
                         }
                     }
                 }
-                // 持久渲染面 P：尺寸不符才换（旧面进 graveyard 绝不 Dispose——整帧缓存持有快照）
+                // 持久渲染面 P：尺寸不符才换（换前清空整帧缓存，安全释放旧面与位图）
                 if (_renderSurface == null || _renderW != rw || _renderH != rh)
                 {
-                    if (_renderSurface != null) _stageGraveyard.Add(_renderSurface);
+                    lock (EngineRenderGate.Lock)
+                        _preview.Renderer.ClearFrameCache();
+                    _renderSurface?.Dispose();
+                    _renderBmp?.Dispose();
                     _renderBmp = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
                     _renderSurface = SKSurface.Create(_renderBmp.Info, _renderBmp.GetPixels(), _renderBmp.RowBytes);
                     _renderW = rw;
@@ -553,7 +555,6 @@ public partial class MainWindow : Window
         _spout.Preview = null;
         _spout.Dispose();
         _preview.Dispose();
-        foreach (var s in _stageGraveyard) s.Dispose();
         _renderSurface?.Dispose();
         _renderBmp?.Dispose();
         _displayBuf[0]?.Dispose();

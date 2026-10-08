@@ -292,7 +292,10 @@ internal static class AudioAnalyzer
     }
 
     // 任意 MediaFoundation 支持的音频文件（mp3/flac/m4a/wav…）→ 单声道 11025Hz float[]，
-    // 前端不再自己 decode+重采样+拷 40MB PCM，整文件直接丢过来
+    // 前端不再自己 decode+重采样+拷 40MB PCM，整文件直接丢过来。
+    // 实测（Reol 4:10 / 5.2MB mp3，tools/prof/AudioCheck decode）：改成「按容器时长一次预分配 + 收尾」
+    // 并不省——MediaFoundationResampler 按请求长度另开中转缓冲，整段请求反而多分配：36.9MB → 40.8MB，
+    // 耗时 476ms → 461ms（持平），GC0/GC2 次数相同。分块版峰值活对象略高但总账不吃亏，别再"优化"这里。
     public static float[] DecodeMonoAnalyzeRate(string filePath, out double duration)
     {
         using var mf = new MediaFoundationReader(filePath);

@@ -70,11 +70,13 @@ public partial class App : Application
 
             var main = new MainWindow(settings);
             MainWindow = main;
-            // 缺字体拉到后：清缓存（FontFetch 已与渲染串行）+ 重规划，画面自动换到真字体
+            // 缺字体拉到后：清缓存（FontFetch 已与渲染串行）+ 重规划，画面自动换到真字体。
+            // 重规划走异步（和编辑路径一致）：ReplanNow 会在 UI 线程上跑整趟 Planner（大工程数百毫秒
+            // 到数秒），逐像素透明的云音乐面板在冻结期间补不上帧、整块洗成浅色——「装载时面板底色错乱」。
             FontFetch.OnFetched = family => Dispatcher.BeginInvoke(() =>
             {
                 Log.Info($"[字体] {family} 已装入，重规划应用");
-                main.State.ReplanNow();
+                main.State.ReplanAsync();
             });
 
             // MCP：17 工具直调 EditorState（无页面桥）；窗口先建好（State/Plan 就绪）再起端点
