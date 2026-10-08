@@ -146,7 +146,6 @@ public class PackLayoutsATests : IDisposable
     public void Every_Layout_Renders_One_Frame_NonEmpty()
     {
         EngineBoot.Install();
-        SmokeFonts();
         InstallPack();
 
         var project = Project.NewDefault();
@@ -204,26 +203,4 @@ public class PackLayoutsATests : IDisposable
         Assert.True(empty.Count == 0, string.Join("\n", empty));
     }
 
-    /// <summary>
-    /// 冒烟字体兜底：仓库自托管字体是 woff2 分片（字体管线未接时 FaceJobs 落到 SKTypeface.Default，
-    /// CJK 变 .notdef 方块）。把字体目录条目改指系统 CJK 字体，仅本测试进程内生效（同 RenderSmoke）。
-    /// </summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
 }

@@ -145,7 +145,8 @@ public static class ProjectIO
                     Family = JFonts.SafeFamily(family),
                     Weight = Math.Clamp(uf.Value<int?>("weight") ?? 400, 100, 900)
                 });
-                // TODO(M3)：用户字体本体（IndexedDB 替代物）随 .jizuralive 一起恢复
+                // 字体本体不进工程包（体积大）：装载后由 EditorState.RestoreFonts 从用户字体库
+                // %LOCALAPPDATA%\JizuraLiveonts 读回（上传时已落盘），缺的走系统字体栈并在日志点名
             }
 
         // v0.10 行序迁移（只搬一次）

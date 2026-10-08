@@ -15,16 +15,17 @@ namespace JizuraLive.App.Views;
 // 并负责把 State 的音频投进引擎（State.AudioChanged → Preview.SetAudioSource）——
 // 本控件常驻中栏，是引擎音频源最稳的接线点；时长经引擎重规划自然变为音频时长。
 //
+// 声音组（对位 volDown/volMove/volUp/volKey/toggleMute）：音量条自绘拖动 → 引擎预览增益，
+// 松手写回 Settings（旧版 localStorage 的 jizura.previewVolume 记忆）；消音只影响预览出声。
+//
 // 未接（WPF 侧没有对应状态，仅保留视觉）：
-//   · 预览音量/静音——引擎 PreviewVolume 固定 0.64，没有 setter，所以「声音」按钮禁用、音量条只显示固定档位；
-//   · 音频特效面板——FxTab 在右栏，没有跨面板打开 API，所以「特效」按钮禁用，只显示音效链的开启状态（青字）；
 //   · 循环线性/切分两态——引擎只有 Loop 布尔（McpTools 的 preview 工具同样只认 all/off）。
 public partial class Transport : UserControl
 {
-    private const double ThumbSize = 12;       // 拖柄直径（对位 w-3）
-    private const double PreviewVolFrac = 0.8; // 预览音量固定 0.8（对位 AP.vol；引擎按 vol²=0.64 落增益）
+    private const double ThumbSize = 12; // 拖柄直径（对位 w-3）
 
     private bool _scrubbing;
+    private bool _volDragging;
     private bool _wired;
     private bool _syncTheme;
     private double _frac;
@@ -132,12 +133,90 @@ public partial class Transport : UserControl
         ProgThumbShift.X = Math.Max(0, (w - ThumbSize) * _frac);
     }
 
-    /// <summary>音量条同款自绘：固定档位（引擎侧没有音量 API，条只作读数）。</summary>
+    // ---------------- 声音组（音量 / 消音；对位 volDown/volMove/volUp/volKey/toggleMute） ----------------
+
+    /// <summary>消音开关（对位 toggleMute）：只动引擎预览增益，设置落盘记忆。</summary>
+    private void BtnMute_Click(object sender, RoutedEventArgs e)
+    {
+        var on = !Preview.Muted;
+        Preview.SetVolume(null, on);
+        SaveVolume();
+        Sync();
+    }
+
+    private void VolBar_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (!IsLoaded) return;
+        _volDragging = true;
+        if (Preview.Muted) Preview.SetVolume(null, false); // 拖动即解除消音（对位 volDown）
+        VolBar.CaptureMouse();
+        VolBar.Focus();
+        VolApply(e.GetPosition(VolBar).X);
+        e.Handled = true;
+    }
+
+    private void VolBar_Move(object sender, MouseEventArgs e)
+    {
+        if (_volDragging) VolApply(e.GetPosition(VolBar).X);
+    }
+
+    private void VolBar_Up(object sender, MouseButtonEventArgs e) => EndVolDrag();
+
+    /// <summary>捕获丢失（窗口失活一类）也要收尾，否则拖动态钉住音量条不跟引擎。</summary>
+    private void VolBar_LostCapture(object sender, MouseEventArgs e) => EndVolDrag();
+
+    private void EndVolDrag()
+    {
+        if (!_volDragging) return;
+        _volDragging = false;
+        VolBar.ReleaseMouseCapture();
+        SaveVolume(); // 旧版：拖动中以指针频率只改引擎音量，松手才落盘
+    }
+
+    /// <summary>键盘微调（对位 volKey）：←/↓ 减、→/↑ 加（5% 档），Home/End 两端；同时解除消音。</summary>
+    private void VolBar_KeyDown(object sender, KeyEventArgs e)
+    {
+        var cur = Math.Round(Preview.Volume * 20) / 20;
+        double? v = e.Key switch
+        {
+            Key.Right or Key.Up => Math.Min(1, cur + 0.05),
+            Key.Left or Key.Down => Math.Max(0, cur - 0.05),
+            Key.Home => 0,
+            Key.End => 1,
+            _ => null,
+        };
+        if (v == null) return;
+        Preview.SetVolume(v, false);
+        SaveVolume();
+        SetVolBar();
+        e.Handled = true;
+    }
+
+    private void VolApply(double x)
+    {
+        var w = VolBar.ActualWidth;
+        if (w <= 0) return;
+        Preview.SetVolume(Math.Clamp(x / w, 0, 1));
+        SetVolBar();
+    }
+
+    /// <summary>预览音量/消音写回设置（对位 saveVolume：localStorage → Settings）。</summary>
+    private void SaveVolume()
+    {
+        var s = App.SettingsOf();
+        if (s == null) return;
+        s.PreviewVolume = Preview.Volume;
+        s.PreviewMuted = Preview.Muted;
+        s.Save();
+    }
+
+    /// <summary>音量条同款自绘：填充宽按比例 + 拖柄平移（消音时条显示 0，免得按钮变青而条说谎）。</summary>
     private void SetVolBar()
     {
         var w = VolBar.Width;
-        VolFill.Width = Math.Max(0, w * PreviewVolFrac);
-        VolThumbShift.X = Math.Max(0, (w - ThumbSize) * PreviewVolFrac);
+        var frac = Math.Clamp(Preview.Muted ? 0 : Preview.Volume, 0, 1);
+        VolFill.Width = Math.Max(0, w * frac);
+        VolThumbShift.X = Math.Max(0, (w - ThumbSize) * frac);
     }
 
     // ---------------- 历史（外观栈，对位 histGo/histInfo） ----------------
@@ -235,7 +314,14 @@ public partial class Transport : UserControl
         BtnHistBack.IsEnabled = st.CanUndoLook;
         BtnHistFwd.IsEnabled = st.CanRedoLook;
         BtnFx.Foreground = FxActive(st) ? _cyan : _fg; // 音效链有开启单元 → 青字（对位 fxOn）
+        // 声音组：消音态按钮点亮（对位 muted → 青字），音量条跟引擎档位（拖动中不抢指针）
+        BtnMute.Foreground = preview.Muted ? _cyan : _fg;
+        if (!_volDragging) SetVolBar();
     }
+
+    /// <summary>打开右栏「特效」页的音效区（对位旧版 Transport 的音效按钮 → 音频特效弹窗）。</summary>
+    private void BtnFx_Click(object sender, RoutedEventArgs e) =>
+        (Window.GetWindow(this) as MainWindow)?.OpenAudioFx();
 
     /// <summary>fxActive：音频特效链上有开启的单元（speed 变速不算特效）。</summary>
     private static bool FxActive(EditorState st) =>

@@ -23,7 +23,6 @@ public class RenderSmoke
     public void Plan_Then_Frame_Renders_NonEmpty_Png()
     {
         EngineBoot.Install();
-        SmokeFonts();
 
         var project = Project.NewDefault();
         project.Lyrics = "夜明けの色を/覚えてる\nほどけた声が遠くで鳴った";
@@ -97,27 +96,4 @@ public class RenderSmoke
         return schemes[i];
     }
 
-    /// <summary>
-    /// 冒烟字体兜底：仓库自托管字体是 woff2 分片（M2 字体管线未接，FaceJobs 解析不到会落到
-    /// SKTypeface.Default，CJK 变 .notdef 方块）。把字体目录全部条目改指系统 CJK 字体，
-    /// 让冒烟图能看到真字形。仅本测试进程内生效。
-    /// </summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
 }

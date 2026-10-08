@@ -65,8 +65,17 @@ public partial class App : Application
             _settings = settings;
             Settings = settings;
 
+            JFonts.UserFontDir = AppDirs.FontsDir;       // 用户字体库与 AppDirs 口径一致（引擎默认同路径，这里显式对齐）
+            FontFetch.Enabled = settings.FetchFonts;     // 字体按需拉取总开关（关掉 = 纯本地：目录 + 系统栈）
+
             var main = new MainWindow(settings);
             MainWindow = main;
+            // 缺字体拉到后：清缓存（FontFetch 已与渲染串行）+ 重规划，画面自动换到真字体
+            FontFetch.OnFetched = family => Dispatcher.BeginInvoke(() =>
+            {
+                Log.Info($"[字体] {family} 已装入，重规划应用");
+                main.State.ReplanNow();
+            });
 
             // MCP：17 工具直调 EditorState（无页面桥）；窗口先建好（State/Plan 就绪）再起端点
             McpTools.Current = new McpTools(main.State, main.Preview);

@@ -743,12 +743,16 @@ public sealed class McpTools
             Check(loop is "all" or "off", "C# 版循环只支持 all/off（line/cut 分段循环未接入）");
             _preview.Loop = loop == "all";
         }
-        // volume/muted：C# 预览音量固定在预览引擎里（对位 AP.vol*vol），MCP 暂不调——schema 保留但忽略
+        // 预览音量/消音（只动预览出声，导出不变；不写设置——MCP 是会话级控制）
+        if (a["volume"] != null || a["muted"] != null)
+            _preview.SetVolume(a["volume"]?.Value<double>(), a["muted"]?.Value<bool>());
         return new JObject
         {
             ["playing"] = _preview.IsPlaying,
             ["t"] = Round2(_preview.CurrentTime),
-            ["loop"] = _preview.Loop ? "all" : "off"
+            ["loop"] = _preview.Loop ? "all" : "off",
+            ["volume"] = Math.Round(_preview.Volume, 3),
+            ["muted"] = _preview.Muted
         };
     }
 
@@ -1141,7 +1145,7 @@ public sealed class McpTools
       {"name":"set_locks","description":"设置随机锁定：tech=手法组 / params=效果参数","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["tech","params"]},"keys":{"type":"array","items":{"type":"string","maxLength":40}},"locked":{"type":"boolean"}},"required":["kind","keys","locked"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"randomize","description":"随机重抽：all=一键随机（含风格/氛围/配色）；line=重抽一行；cut=重抽一个切分（strategy: omakase/shuffle）。需带最新 revision 与 1 起始引用（cut 用 get_state 里的 cutInLine），显式重抽会解除该行锁定（与界面一致）","inputSchema":{"type":"object","properties":{"target":{"type":"string","enum":["all","line","cut"]},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"line":{"type":"integer","minimum":1,"maximum":100000},"cut":{"type":"integer","minimum":1,"maximum":1000},"strategy":{"type":"string","enum":["omakase","shuffle"]}},"required":["target","revision"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"history","description":"撤销/重做：kind=edit（歌词与时间）与 look（外观）是两条独立历史","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["edit","look"]},"direction":{"type":"string","enum":["back","forward"]}},"required":["kind","direction"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
-      {"name":"preview","description":"播放/暂停/定位（秒）/循环模式。C# 版循环只支持 all/off，volume/muted 未接入（参数被忽略）","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["play","pause"]},"time":{"type":"number","minimum":0,"maximum":86400},"loop":{"type":"string","enum":["all","line","cut","off"]},"volume":{"type":"number","minimum":0,"maximum":1},"muted":{"type":"boolean"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
+      {"name":"preview","description":"播放/暂停/定位（秒）/循环模式/预览音量与消音。C# 版循环只支持 all/off","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["play","pause"]},"time":{"type":"number","minimum":0,"maximum":86400},"loop":{"type":"string","enum":["all","line","cut","off"]},"volume":{"type":"number","minimum":0,"maximum":1},"muted":{"type":"boolean"}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"tap_sync","description":"打点同步：start 从某行开始 / record 记录当前播放头 / back 回退一次 / stop 结束（与界面同一打点会话）","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["start","record","back","stop"]},"line":{"type":"integer","minimum":1,"maximum":100000},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"project","description":"读取当前工程 JSON 或写入自动保存（完整 .jizuralive 包与音频/字体请用界面「保存/打开」）","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["get","save"]}},"required":["action"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"start_export","description":"启动导出：mp4 / png 序列 zip / pnga 透明 / pngl 分层 / pngf 仅前景层 / webm 透明视频（VP9 alpha）/ webmfront 仅歌词前景层透明视频。可选 dir 指定导出目录（免确认直接落盘，缺省落视频目录下的 JIZURA）。subwebm（纯字幕层）需字幕系统，C# 版暂不支持。立即返回任务，用 get_export_status 轮询","inputSchema":{"type":"object","properties":{"kind":{"type":"string","enum":["mp4","png","pnga","pngl","pngf","webm","webmfront","subwebm"]},"dir":{"type":"string","maxLength":500}},"required":["kind"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},

@@ -18,29 +18,9 @@ public class PipelineHookTests
 
     public PipelineHookTests(ITestOutputHelper output) => _out = output;
 
-    private static void SysFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
-
     private static (Plan Plan, Renderer R) MakeRenderer(Project? p = null)
     {
         EngineBoot.InstallPacks();
-        SysFonts();
         p ??= Project.NewDefault();
         p.Lyrics = "夜明けの色を/覚えてる\nほどけた声が遠くで鳴った";
         var plan = Planner.Plan(p, null);

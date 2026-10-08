@@ -96,8 +96,8 @@
             </StackPanel>
         </Border>
 
-        <!-- fx 参数滑块（代码生成 7 行，对位 FX 表：96px | 滑块 | 36px | 30px，行距 8） -->
-        <Grid x:Name="SliderRows" />
+        <!-- TODO -->
+        <!-- <Grid x:Name="SliderRows" Margin="0,6,0,0" /> -->
 
         <!-- 闪光 + 抽帧（.row mt-1.5） -->
         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
@@ -152,7 +152,7 @@
         </Border>
 
         <!-- 音频特效（对位 Dialogs.vue 的音频特效弹窗：预设 + 效果单元开关） -->
-        <ctl:JzLabel Text="音频特效" Tracking="0.14" TextElement.FontSize="11"
+        <ctl:JzLabel x:Name="AfxHeader" Text="音频特效" Tracking="0.14" TextElement.FontSize="11"
                      TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                      Margin="0,16,0,8" />
         <Grid>

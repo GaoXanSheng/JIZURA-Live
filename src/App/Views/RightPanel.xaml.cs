@@ -13,15 +13,37 @@ public partial class RightPanel : UserControl
         InitializeComponent();
     }
 
-    private void Tab_Click(object sender, RoutedEventArgs e)
+    private void Tab_Click(object sender, RoutedEventArgs e) => ShowTab(
+        ReferenceEquals(sender, TabFx) ? "fx"
+        : ReferenceEquals(sender, TabTech) ? "tech"
+        : ReferenceEquals(sender, TabSettings) ? "settings"
+        : ReferenceEquals(sender, TabOut) ? "out"
+        : "style");
+
+    /// <summary>切页（key：style/fx/tech/settings/out）。</summary>
+    public void ShowTab(string key)
     {
-        var tab = (Button)sender;
+        var on = key switch
+        {
+            "fx" => TabFx,
+            "tech" => TabTech,
+            "settings" => TabSettings,
+            "out" => TabOut,
+            _ => TabStyle,
+        };
         foreach (var b in new[] { TabStyle, TabFx, TabTech, TabSettings, TabOut })
-            b.Tag = ReferenceEquals(b, tab) ? "on" : null;
-        HostStyle.Visibility = ReferenceEquals(tab, TabStyle) ? Visibility.Visible : Visibility.Collapsed;
-        HostFx.Visibility = ReferenceEquals(tab, TabFx) ? Visibility.Visible : Visibility.Collapsed;
-        HostTech.Visibility = ReferenceEquals(tab, TabTech) ? Visibility.Visible : Visibility.Collapsed;
-        HostSettings.Visibility = ReferenceEquals(tab, TabSettings) ? Visibility.Visible : Visibility.Collapsed;
-        HostOut.Visibility = ReferenceEquals(tab, TabOut) ? Visibility.Visible : Visibility.Collapsed;
+            b.Tag = ReferenceEquals(b, on) ? "on" : null;
+        HostStyle.Visibility = ReferenceEquals(on, TabStyle) ? Visibility.Visible : Visibility.Collapsed;
+        HostFx.Visibility = ReferenceEquals(on, TabFx) ? Visibility.Visible : Visibility.Collapsed;
+        HostTech.Visibility = ReferenceEquals(on, TabTech) ? Visibility.Visible : Visibility.Collapsed;
+        HostSettings.Visibility = ReferenceEquals(on, TabSettings) ? Visibility.Visible : Visibility.Collapsed;
+        HostOut.Visibility = ReferenceEquals(on, TabOut) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>打开「特效」页并滚到音频特效区（Transport 的「特效」按钮落点）。</summary>
+    public void OpenAudioFx()
+    {
+        ShowTab("fx");
+        Fx.ScrollToAudio();
     }
 }

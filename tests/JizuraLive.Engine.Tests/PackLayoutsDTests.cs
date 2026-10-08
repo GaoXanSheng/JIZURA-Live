@@ -60,7 +60,6 @@ public class PackLayoutsDTests
     {
         EngineBoot.Install();
         P11LayoutsD.Install();
-        SmokeFonts();
 
         var plan = PreviewPlan(key);
         // 面按尺寸保留、不 Dispose（README 的宿主契约）
@@ -141,23 +140,4 @@ public class PackLayoutsDTests
         return plan;
     }
 
-    /// <summary>冒烟字体兜底（同 RenderSmoke）：字体目录条目改指系统 CJK 字体，仅本测试进程内生效。</summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
 }

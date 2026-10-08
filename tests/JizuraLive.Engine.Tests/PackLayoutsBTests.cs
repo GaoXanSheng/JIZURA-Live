@@ -81,7 +81,6 @@ public class PackLayoutsBTests
     {
         EngineBoot.Install();
         P11LayoutsB.Install();
-        SmokeFonts();
 
         var project = Project.NewDefault();
         project.Lyrics = "夜明けの色を/覚えてる\nほどけた声が遠くで鳴った";
@@ -164,26 +163,4 @@ public class PackLayoutsBTests
         Assert.True(fails.Count == 0, "layoutsB 冒烟失败：\n" + string.Join("\n", fails));
     }
 
-    /// <summary>
-    /// 冒烟字体兜底（同 RenderSmoke）：仓库自托管 woff2 分片未接，字体目录全部条目改指系统 CJK
-    /// 字体，避免 .notdef 方块与 Default typeface 渲染 CJK 的原生崩溃。仅本测试进程内生效。
-    /// </summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var tf = SKTypeface.FromFamilyName(f);
-                    return tf != null && string.Equals(tf.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
 }

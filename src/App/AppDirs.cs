@@ -12,4 +12,8 @@ public static class AppDirs
 
     public static string ConfigDir => Path.Combine(Root, "config");
     public static string LogsDir => Path.Combine(Root, "logs");
+
+    /// <summary>用户字体库：网络拉取的字体缓存 + 上传的字体本体（引擎 JFonts.UserFontDir 指这里）。
+    /// 不放 exe 旁的原因同设置：安装目录普通权限写不进，升级覆盖还会清掉。</summary>
+    public static string FontsDir => Path.Combine(Root, "fonts");
 }

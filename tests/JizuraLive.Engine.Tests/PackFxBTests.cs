@@ -254,29 +254,9 @@ public class PackFxBTests
 
     // ---------------- 全帧渲染冒烟（fxB 插件路径经 Renderer.Post 接通） ----------------
 
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
-
     [Fact]
     public void Renderer_帧内_非内置fx插件路径_不抛且有内容()
     {
-        SmokeFonts();
         var proj = Project.NewDefault();
         proj.Lyrics = "夜明けの色を覚えてる";
         var plan = Planner.Plan(proj, null);

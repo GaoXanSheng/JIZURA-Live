@@ -80,6 +80,8 @@ public partial class MainWindow : Window
         State = new EditorState(_preview);
         State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
         Follow = new FollowController(Dispatcher, State);
+        // 预览音量/消音：上次退出时的档位（对位旧前端 jizura.previewVolume 的记忆恢复）
+        _preview.SetVolume(settings.PreviewVolume, settings.PreviewMuted);
 
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
@@ -398,6 +400,9 @@ public partial class MainWindow : Window
         if (_settings.SpoutEnabled) RestartSpout();
         else StopSpout();
     }
+
+    /// <summary>打开右栏「特效」页的音频特效区（Transport 的「特效」按钮 → RightPanel.OpenAudioFx）。</summary>
+    public void OpenAudioFx() => Right.OpenAudioFx();
 
     // ---------------- 键盘 ----------------
 

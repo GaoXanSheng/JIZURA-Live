@@ -26,7 +26,7 @@
                 <views:StyleTab Margin="16,12" />
             </ScrollViewer>
             <ScrollViewer x:Name="HostFx" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
-                <views:FxTab Margin="16,12" />
+                <views:FxTab x:Name="Fx" Margin="16,12" />
             </ScrollViewer>
             <Grid x:Name="HostTech" Visibility="Collapsed">
                 <views:TechTab />

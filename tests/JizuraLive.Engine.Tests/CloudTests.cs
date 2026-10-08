@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using JizuraLive.App.Cloud;
+using JizuraLive.App.Views;
 using JizuraLive.Server.Models;
 using Xunit;
 using Xunit.Abstractions;
@@ -202,6 +203,25 @@ public class CloudTests
         Assert.Equal("A B - X.flac", SongLoader.AudioFileName("A/B", "X", "flac"));
         Assert.Equal("谁 - 歌.m4a", SongLoader.AudioFileName("谁", "歌", "M4A"));
         Assert.Equal("谁 - 歌.mp3", SongLoader.AudioFileName("谁", "歌", "")); // 空 ext 兜底 mp3
+    }
+
+    // ---------------- 歌单 ID 解析（PlaylistPane 的粘贴框） ----------------
+
+    [Fact]
+    public void 歌单ID解析_链接与纯ID()
+    {
+        // 酷狗：global_collection_id 优先
+        Assert.Equal("collection_3_654116618_1_0", CloudPanel.ParsePlaylistId(
+            "https://www.kugou.com/yy/special/single?global_collection_id=collection_3_654116618_1_0"));
+        Assert.Equal("collection_3_1_2_3", CloudPanel.ParsePlaylistId("  collection_3_1_2_3  ")); // 纯 ID 可含下划线/连字符
+        // 网易云：id= 与 /playlist/ 路径式
+        Assert.Equal("24381616", CloudPanel.ParsePlaylistId("https://music.163.com/playlist?id=24381616"));
+        Assert.Equal("24381616", CloudPanel.ParsePlaylistId("https://music.163.com/playlist/24381616"));
+        Assert.Equal("24381616", CloudPanel.ParsePlaylistId("24381616"));
+        // 认不出的输入返回空（不当作 ID 去打网络）
+        Assert.Equal("", CloudPanel.ParsePlaylistId(""));
+        Assert.Equal("", CloudPanel.ParsePlaylistId("abc"));
+        Assert.Equal("", CloudPanel.ParsePlaylistId("https://music.163.com/"));
     }
 
     // ---------------- 跟随：标题清洗 / 歌手拆分 / 挑歌 ----------------

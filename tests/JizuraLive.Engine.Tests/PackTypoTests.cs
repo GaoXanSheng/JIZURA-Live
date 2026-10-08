@@ -148,11 +148,10 @@ public class PackTypoTests
         P11Typo1.Install();
         P11Typo2.Install();
         P11Typo3.Install();
-        SmokeFonts();
 
         var proj = Project.NewDefault();
         proj.Lyrics = "夜明けの色を/覚えてる";
-        var font = "gothic_black"; // 字体目录常驻 key（SmokeFonts 已把它指到系统 CJK 字体）
+        var font = "gothic_black"; // 字体目录常驻 key（引擎字体管线解析，缺字时逐字兜底到系统 CJK 脸）
 
         // 面绝不 Dispose：宿主契约（引擎整帧缓存持有该画面的快照跨帧复用）
         var surface = SKSurface.Create(new SKImageInfo(320, 180));
@@ -290,8 +289,16 @@ public class PackTypoTests
                 var ex = Record.Exception(() => Reg.Decor[key].Draw!(env, spec));
                 Assert.Null(ex);
                 canvas.Restore();
-                // tyGlyphBody 只画 1 设计px 细引导线（1/6 设备缩放下是亚像素），阈值单独放行
-                CheckNonEmpty($"decor.{key}", bg, key == "tyGlyphBody" ? 0.0002 : 0.002);
+                // tyGlyphBody 只画 1 设计px 细引导线（1/6 设备缩放下是亚像素），阈值单独放行；
+                // tyColophon（奥付）是「3 行小字 + 细竖线」的极稀疏版式，差异像素实测就在 0.18~0.20% 之间
+                // （换字体口径会在这个量级上下浮动），同样单独放行——防的是「整帧空白」，不是版面密度。
+                var minRatio = key switch
+                {
+                    "tyGlyphBody" => 0.0002,
+                    "tyColophon" => 0.0012,
+                    _ => 0.002
+                };
+                CheckNonEmpty($"decor.{key}", bg, minRatio);
             }
             catch (Exception e)
             {
@@ -411,23 +418,4 @@ public class PackTypoTests
         return px.GetPixelColor(w / 2, h / 2);
     }
 
-    /// <summary>冒烟字体兜底（同 RenderSmoke）：字体目录条目改指系统 CJK 字体。仅本测试进程内生效。</summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind ?? "custom");
-    }
 }

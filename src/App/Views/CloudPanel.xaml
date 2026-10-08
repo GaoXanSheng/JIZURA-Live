@@ -369,7 +369,7 @@
                             </Grid>
                         </Grid>
 
-                        <!-- ===== 我的歌单（PlaylistPane.vue；本 WPF 版没有歌单逻辑，这里只还原版式） ===== -->
+                        <!-- ===== 我的歌单（PlaylistPane.vue：我的歌单列表 + 粘贴链接/ID 载入） ===== -->
                         <Grid x:Name="PanePlaylists" Visibility="Collapsed">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -382,7 +382,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Grid Grid.Column="0">
-                                    <TextBox x:Name="TbPlaylist" />
+                                    <TextBox x:Name="TbPlaylist" KeyDown="TbPlaylist_KeyDown" />
                                     <TextBlock Text="粘贴歌单 ID / 链接，回车载入" Foreground="{StaticResource Faint}"
                                                Margin="10,0,0,0" VerticalAlignment="Center"
                                                IsHitTestVisible="False">
@@ -400,10 +400,49 @@
                                         </TextBlock.Style>
                                     </TextBlock>
                                 </Grid>
-                                <Button x:Name="BtnPlaylistLoad" Grid.Column="1" Content="载入" Margin="8,0,0,0" />
+                                <Button x:Name="BtnPlaylistLoad" Grid.Column="1" Content="载入" Margin="8,0,0,0"
+                                        Click="BtnPlaylistLoad_Click" />
                             </Grid>
+
+                            <Grid Grid.Row="1">
+                                <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                        CornerRadius="6" ClipToBounds="True">
+                                    <ListBox x:Name="LstPlaylists" Background="Transparent" BorderThickness="0"
+                                             Padding="0" ItemContainerStyle="{StaticResource SongItem}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             VirtualizingPanel.VirtualizationMode="Recycling">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Style="{StaticResource RowBtn}" Tag="{Binding}"
+                                                        Click="BtnPlaylist_Click">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                                   ToolTip="{Binding Name}"
+                                                                   TextTrimming="CharacterEllipsis"
+                                                                   VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding CountLine}"
+                                                                   FontSize="11" Foreground="{StaticResource Mut}"
+                                                                   Margin="8,0,0,0" VerticalAlignment="Center" />
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </Border>
+                                <!-- 空态 / 加载中 / 错误共用一行（文案与配色由代码按状态写） -->
+                                <TextBlock x:Name="TblPlaylistStatus" Text="正在加载我的歌单…"
+                                           TextAlignment="Center" TextWrapping="Wrap"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                                           Margin="24,0" Foreground="{StaticResource Mut}" />
+                            </Grid>
+
                             <TextBlock x:Name="TblPlaylistTip" Grid.Row="2" FontSize="11"
-                                       Foreground="{StaticResource Mut}" TextWrapping="Wrap" Text="" />
+                                       Foreground="{StaticResource Mut}" TextWrapping="Wrap" Text=""
+                                       Margin="0,8,0,0" />
                         </Grid>
 
                         <!-- ===== 跟随播放器（FollowPane.vue） ===== -->

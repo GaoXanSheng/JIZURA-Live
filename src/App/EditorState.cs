@@ -109,8 +109,29 @@ public sealed class EditorState : IDisposable
     {
         Engine = engine;
         Project = ProjectIO.LoadAutosave() ?? Project.NewDefault();
+        RestoreFonts(Project);
         Engine.SetProject(Project);
         Engine.Replan();
+    }
+
+    /// <summary>
+    /// 工程装载时恢复用户字体：上传字体的本体从用户字体库（%LOCALAPPDATA%\JizuraLive\fonts）读回登记，
+    /// 本机字体名重新挂上目录；拿不到的在日志里点名（渲染侧回退到系统字体栈，不崩也不空）。
+    /// 对位旧前端的 restoreUserFonts：刷新页面后工程里的上传字体还在。
+    /// </summary>
+    private static void RestoreFonts(Project project)
+    {
+        try
+        {
+            var missing = JFonts.RestoreUserFonts(
+                project.UserFonts.Select(u => new JFonts.UserFontRef(u.Key, u.Label, u.Family, u.Weight)));
+            if (missing.Count > 0)
+                Log.Warn("[字体] 工程用到的用户字体缺本体（改用回退字体）：" + string.Join("、", missing));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[字体] 用户字体恢复失败：" + ex.Message);
+        }
     }
 
     // ---------------- 修改事务 ----------------
@@ -278,6 +299,7 @@ public sealed class EditorState : IDisposable
     {
         _undoEdit.Push((label, Snapshot()));
         _redoEdit.Clear();
+        RestoreFonts(project); // 打开工程：把它的用户字体从字体库读回（换机器/换工程都能恢复）
         Project = project;
         Engine.SetProject(project);
         Revision++;

@@ -54,6 +54,7 @@ public sealed class AutosaveGuard : IDisposable
 /// 起真端点（随机空闲端口）→ 走 HTTP → 断言 JSON-RPC 结构；工具调 get_state 验证直读 EditorState。
 /// 不依赖运行中的应用窗口：EditorState/PreviewEngine 在本进程内构造（无 Application/Dispatcher 时同步执行）。
 /// </summary>
+[Collection("EngineRegistry")] // Install 全量包 + PreviewEngine 构造（NewDefault 枚举注册表）→ 与对拍夹具同 collection 串行
 public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
 {
     private readonly McpHttpServer _server;
@@ -177,6 +178,26 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
         Assert.Equal(2, lines!.Count);
         Assert.Equal(1, (int?)lines[0]!["line"]);
         Assert.Empty(state["project"]!["overrides"]!.ToObject<Dictionary<string, JObject>>()!);
+    }
+
+    [Fact]
+    public async Task tools_call_preview_音量与消音落到引擎()
+    {
+        var (code, body) = await PostAsync(
+            "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"preview\",\"arguments\":{\"action\":\"play\",\"volume\":0.35,\"muted\":true}}}");
+        Assert.Equal(HttpStatusCode.OK, code);
+        var outText = (string?)JObject.Parse(body)["result"]?["content"]?[0]?["text"];
+        var r = JObject.Parse(outText!);
+        Assert.Equal(0.35, (double?)r["volume"]);
+        Assert.True((bool?)r["muted"]);
+        Assert.Equal(0.35, _preview.Volume, 3);
+        Assert.True(_preview.Muted);
+
+        // 只传 muted（volume 缺省不动）
+        await PostAsync(
+            "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"preview\",\"arguments\":{\"action\":\"pause\",\"muted\":false}}}");
+        Assert.Equal(0.35, _preview.Volume, 3);
+        Assert.False(_preview.Muted);
     }
 
     [Fact]

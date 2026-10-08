@@ -950,16 +950,18 @@ public static class JText
     {
         if (env.Pass != "main" || alpha <= 0.01 || string.IsNullOrEmpty(text) || HideDecoText(env, text)) return;
         var ctx = env.Ctx;
-        var f = FaceFont(font, size); // 缓存实例，禁 Dispose
-        f.GetFontMetrics(out var fm);
-        var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
         var cps = CodePoints(text);
-        double total = f.MeasureText(text) + sp * cps.Count; // CSS letter-spacing：末尾也算
+        // 逐字取脸（缺字回退）：整行宽度按逐字量宽累加，与绘制用同一张脸，混合字形也不会错位
+        double total = sp * cps.Count;
+        foreach (var cp in cps) total += FaceFontFor(font, cp, size).MeasureText(cp);
         var cx = align == "left" ? x : align == "right" ? x - total : x - total / 2;
         ctx.Save();
         using var p = new SKPaint { IsAntialias = true, Color = CssColor(color, alpha) };
         foreach (var cp in cps)
         {
+            var f = FaceFontFor(font, cp, size); // 缓存实例，禁 Dispose
+            f.GetFontMetrics(out var fm);
+            var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
             ctx.DrawText(cp, (float)cx, (float)y + yMid, SKTextAlign.Left, f, p);
             cx += f.MeasureText(cp) + sp;
         }
@@ -1245,12 +1247,13 @@ public static class JText
         /// <summary>metrics.m：fontKey\0ch → em advance；MSENT 哨兵也住这里。</summary>
         public readonly Hashtable M = new();
 
-        /// <summary>J.metrics.adv：步进，em 计。JS 用 100px measureText/100；空字形兜底 空格 0.3 / 其他 1。</summary>
+        /// <summary>J.metrics.adv：步进，em 计。JS 用 100px measureText/100；空字形兜底 空格 0.3 / 其他 1。
+        /// 逐字取脸（FaceFontFor）：主脸缺这个字时用能画它的脸量，宽度才与画出来的一致。</summary>
         public double Adv(string fontKey, string ch)
         {
             var k = fontKey + '\u0000' + ch;
             if (M[k] is double v) return v;
-            var font = FaceFont(fontKey, 100); // 缓存实例，禁 Dispose
+            var font = FaceFontFor(fontKey, ch, 100); // 缓存实例，禁 Dispose
             var r = (double)font.MeasureText(ch) / 100;
             if (!(r > 0)) r = ch == " " ? 0.3 : 1;
             M[k] = r;
@@ -1393,7 +1396,7 @@ public static class JText
         var half = S / 2;
         var outG = new GlyphInfo { Ch = ch, Res = res };
         if (ch.Length == 0) return outG;
-        var font = FaceFont(fontKey, res); // 缓存实例，禁 Dispose
+        var font = FaceFontFor(fontKey, ch, res); // 逐字取脸：缺字时用能画它的脸（缓存实例，禁 Dispose）
         font.GetFontMetrics(out var fm);
         var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
         // 整字形光栅：等价 JS 的 fillText(ch, half, half)（center/middle 对齐）
@@ -1694,37 +1697,10 @@ public static class JText
 
     private static SKTypeface ResolveTypeface(string familyQuoted, int weight) => ResolveTypefaceChain(new[] { familyQuoted }, weight);
 
-    // 与 JFonts.EnsureTypeface 同语义（该表私有不可复用）："(weight) … (family)" → SKTypeface。
-    // 本机缺 family 时沿 FontFace.Fb 的 CSS fallback 链逐个试（浏览器字体栈的级联对位），
-    // 都没有再落 Skia 默认体。上传字体（JFonts.UserFaces）优先逻辑 TODO(M2) 字体管线定型时合并。
-    private static readonly Dictionary<string, SKTypeface> FaceJobs = new();
-
-    private static SKTypeface ResolveTypefaceChain(IEnumerable<string> families, int weight)
-    {
-        var list = families.Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
-        var k = weight + "|" + string.Join(";", list);
-        if (FaceJobs.TryGetValue(k, out var cached)) return cached;
-        SKTypeface? r = null;
-        foreach (var familyQuoted in list)
-        {
-            var fam = familyQuoted.Trim().Trim('"');
-            if (fam.Length == 0 || fam is "sans-serif" or "serif" or "monospace" or "cursive" or "fantasy") continue; // 泛型族 → 默认体兜底
-            try
-            {
-                var t = SKTypeface.FromFamilyName(fam, (SKFontStyleWeight)weight, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
-                // FromFamilyName 缺字体时返回默认体；family 对不上视为没找到，试下一级（JFonts 同判定）
-                if (t != null && string.Equals(t.FamilyName, fam, StringComparison.OrdinalIgnoreCase)) { r = t; break; }
-                t?.Dispose();
-            }
-            catch
-            {
-                // 没有就试下一级（对齐 JS document.fonts.load(...).catch(() => null)）
-            }
-        }
-        r ??= SKTypeface.Default;
-        FaceJobs[k] = r;
-        return r;
-    }
+    // 解析集中在 JFonts（用户字体 → 字体目录 → 系统族 → 语言×气质系统栈 → 逐字兜底）：
+    // 这里只保留薄封装，字脸缓存与失效规则都在 JFonts 侧统一管理（此前两处各有一份判定）。
+    private static SKTypeface ResolveTypefaceChain(IEnumerable<string> families, int weight) =>
+        JFonts.ResolveChain(families, weight);
 
     /// <summary>ctx.font 对位：fontKey（或太さ wg）+ size → SKFont。LinearMetrics 保证排版数值与字号线性。
     /// internal：Renderer.drawMorph 从 GlyphLogEntry.FontKey/Px 重建字体。
@@ -1755,22 +1731,53 @@ public static class JText
         return BuildFont(fontKey, size, wg);
     }
 
+    /// <summary>
+    /// 逐字取字脸：主脸能画这个字就用主脸，否则问 JFonts 要一张能画的（气质栈/系统逐字匹配）。
+    /// 中文歌词里混的拉丁字母、日文歌词里的简体字、mono 键下的汉字都靠它，避免 .notdef 方块。
+    /// 返回实例缓存复用（键含码点与字号），调用方不得 Dispose。
+    /// </summary>
+    public static SKFont FaceFontFor(string fontKey, string ch, double size, double wg = 0)
+    {
+        var baseFont = FaceFont(fontKey, size, wg);
+        var cp = CodePointOf(ch);
+        if (baseFont.Typeface.ContainsGlyph(cp)) return baseFont;
+        var f = JLang.FaceOf(fontKey);
+        var weight = wg > 0
+            ? (int)Math.Round(f.Kind == "mincho" ? 200 + wg * 700 : 100 + wg * 800)
+            : f.Weight;
+        var tf = JFonts.CoverFace(baseFont.Typeface, cp, weight, f.Kind);
+        if (ReferenceEquals(tf, baseFont.Typeface)) return baseFont;
+
+        var key = string.Create(CultureInfo.InvariantCulture,
+            $"\u0002{tf.FamilyName}\u0001{(int)tf.FontStyle.Weight}\u0001{size.ToString("R", CultureInfo.InvariantCulture)}");
+        if (FontJobs[key] is SKFont hit) return hit;
+        var nf = new SKFont(tf, (float)size)
+        {
+            Edging = SKFontEdging.Antialias,
+            Subpixel = true,
+            LinearMetrics = true
+        };
+        if (FontJobs.Count > 4096) FontJobs.Clear();
+        FontJobs[key] = nf;
+        return nf;
+    }
+
     private static SKFont BuildFont(string fontKey, double size, double wg)
     {
         SKTypeface tf;
+        var f0 = JLang.FaceOf(fontKey);
         if (wg > 0)
         {
-            var f = JLang.FaceOf(fontKey);
-            var serif = f.Kind == "mincho";
+            var serif = f0.Kind == "mincho";
             var w = (int)Math.Round(serif ? 200 + wg * 700 : 100 + wg * 800);
-            // varFontCSS 的 CSS 链：Noto Sans/Serif JP + f.fb
+            // varFontCSS 的 CSS 链：Noto Sans/Serif JP + f.fb + 气质系统栈
             tf = ResolveTypefaceChain(
-                new[] { serif ? "\"Noto Serif JP\"" : "\"Noto Sans JP\"" }.Concat(FbFamilies(f.Fb)), w);
+                new[] { serif ? "\"Noto Serif JP\"" : "\"Noto Sans JP\"" }
+                    .Concat(FbFamilies(f0.Fb)).Concat(JFonts.StackFor(f0.Kind)), w);
         }
         else
         {
-            var f = JLang.FaceOf(fontKey);
-            tf = ResolveTypefaceChain(new[] { f.Family }.Concat(FbFamilies(f.Fb)), f.Weight);
+            tf = ResolveTypefaceChain(JFonts.FaceChain(f0), f0.Weight);
         }
         return new SKFont(tf, (float)size)
         {

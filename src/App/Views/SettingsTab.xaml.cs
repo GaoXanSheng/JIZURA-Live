@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -226,6 +227,8 @@ public partial class SettingsTab : UserControl
             CkSpoutTransparent.IsChecked = st.SpoutTransparent;
             CkSpoutLyrics.IsChecked = st.SpoutLyricsEnabled;
             TbLyricsFps.Text = st.LyricsFps.ToString();
+            CkFetchFonts.IsChecked = st.FetchFonts;
+            TblFontDir.Text = JFonts.FontDirs().FirstOrDefault(Directory.Exists) ?? "（无字体目录）";
             _dirty = false;
         }
         finally
@@ -233,6 +236,20 @@ public partial class SettingsTab : UserControl
             _syncing = false;
         }
         ValidateDraft();
+    }
+
+    /// <summary>缺字体自动联网补：即时生效（不需要重启渲染引擎）。开的时候顺带把当前 plan 用到的
+    /// 字体请求一遍，拉到后 FontFetch 回调重规划换脸。</summary>
+    private void FetchFonts_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncing) return;
+        var st = App.SettingsOf();
+        if (st == null) return;
+        st.FetchFonts = CkFetchFonts.IsChecked == true;
+        FontFetch.Enabled = st.FetchFonts;
+        st.Save();
+        if (FontFetch.Enabled)
+            _ = JFonts.EnsureFonts(S.Project.Lyrics, JFonts.FontsOfPlan(App.MainInstance?.Preview.Plan));
     }
 
     // ---------------- 回刷 ----------------

@@ -2,7 +2,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using System.Windows.Media;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
 
@@ -62,89 +61,18 @@ public partial class FxTab : UserControl
 
     private void OnUnloaded(object sender, RoutedEventArgs e) => S.StateChanged -= OnState;
 
+    /// <summary>滚到音频特效区（Transport 的「特效」按钮落点）。</summary>
+    public void ScrollToAudio() => AfxHeader.BringIntoView();
+
     private void OnState() => Dispatcher.Invoke(Pull);
 
     // ---------------- 构建 ----------------
 
     private void BuildSliderRows()
     {
-        foreach (var (key, label) in FxKeys)
-        {
-            // 参数名（.text-xs）
-            var lab = new TextBlock
-            {
-                Text = label,
-                FontSize = 12,
-                LineHeight = 18,
-                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
-            };
-
-            var slider = new Slider { Style = (Style)Resources["FxSlider"], Margin = new Thickness(0, 0, 8, 0) };
-
-            // 数值（font-mono text-[11px] text-mut text-right；36px 列，右侧留 8 给锁定键）
-            var value = new TextBlock
-            {
-                FontSize = 11,
-                FontFamily = (FontFamily)FindResource("MonoFont"),
-                LineHeight = 16.5,
-                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
-                Foreground = (Brush)FindResource("Mut"),
-                TextAlignment = TextAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
-            };
-
-            // 锁定键（.btn.btn-icon.btn-ghost，锁形 Path 随前景色）
-            var lockBtn = new Button
-            {
-                Style = (Style)Resources["LockBtn"],
-                Content = FindResource("FxLock"),
-                ToolTip = LockOn,
-            };
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(lab, 0);
-            Grid.SetColumn(slider, 1);
-            Grid.SetColumn(value, 2);
-            Grid.SetColumn(lockBtn, 3);
-            grid.Children.Add(lab);
-            grid.Children.Add(slider);
-            grid.Children.Add(value);
-            grid.Children.Add(lockBtn);
-            grid.Margin = new Thickness(0, 0, 0, 8);
-
-            SliderRows.Children.Add(grid);
-
-            var row = new FxRow(key, label, slider, value, lockBtn);
-            _rows.Add(row);
-
-            slider.ValueChanged += (_, ev) =>
-            {
-                value.Text = Round100(ev.NewValue);
-                if (_syncing) return;
-                if (!_thumbDrag.TryGetValue(key, out var dragging) || !dragging)
-                    CommitFx(key, ev.NewValue); // 键盘/滚轮/单击轨道：立即落
-            };
-            // 拖动中只刷显示，DragCompleted 落一次（Vue replanSoon 的防抖等价物）
-            slider.Loaded += (_, _) =>
-            {
-                if (slider.Template?.FindName("thumb", slider) is not Thumb thumb) return;
-                thumb.DragStarted += (_, _) => _thumbDrag[key] = true;
-                thumb.DragCompleted += (_, _) =>
-                {
-                    _thumbDrag[key] = false;
-                    CommitFx(key, slider.Value);
-                };
-            };
-
-            lockBtn.Click += (_, _) => ToggleLock(key);
-        }
+        // fx 参数滑块（7 行）。XAML 里的容器 Grid x:Name="SliderRows" 目前被摘掉（见 FxTab.xaml 的 TODO），
+        // 这里跟着停用：Pull 里 _rows 为空自然跳过。把那个 Grid 放回 XAML 后，恢复本方法原实现即可。
+        // TODO(fx 滑块区回迁)：原实现见 git 历史（96px 标签 | 滑块 | 36px 数值 | 锁定键，行距 8）。
     }
 
     private void BuildComboItems()

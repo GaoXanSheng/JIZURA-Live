@@ -27,6 +27,15 @@ public sealed class Settings
     public bool WantRoma { get; set; } = true;
     public bool WantTrans { get; set; } = true;
 
+    // 预览音量/消音（对位旧前端 localStorage 的 jizura.previewVolume：v/m，重启恢复；
+    // 只影响预览出声，导出始终原电平）
+    public double PreviewVolume { get; set; } = 0.8;
+    public bool PreviewMuted { get; set; }
+
+    // 字体按需拉取（老前端 fetch-fonts 的联网对应物）：目录/系统都没有的字体家族后台从
+    // Google Fonts 仓库镜像拉进用户字体库；关掉 = 纯本地（exe 旁 fonts\ + 系统字体栈）
+    public bool FetchFonts { get; set; } = true;
+
     private static string ConfigDir => AppDirs.ConfigDir;
     private static string FilePath => Path.Combine(ConfigDir, "settings.json");
 

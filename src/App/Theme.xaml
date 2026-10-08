@@ -40,10 +40,12 @@
     <SolidColorBrush x:Key="Ink85" Color="#D90C0C0E" />
 
     <!-- ============================================================
-         字体：font-ui / font-mono（IBM Plex 自托管，CJK 回退到 Yu Gothic UI / 雅黑）
+         字体：font-ui / font-mono。界面字体用系统字体（微软雅黑；英文/符号回退 Segoe UI），
+         不走自托管 webfont——WPF 的 pack 资源字体 URI 实测解析不到，且雅黑在中文 Windows 上必然存在。
+         exe 旁 fonts\ 只服务引擎（PV 渲染的字体目录），与界面字体无关。
          ============================================================ -->
-    <FontFamily x:Key="UiFont">pack://application:,,,/assets/fonts/#IBM Plex Sans JP, Yu Gothic UI, Microsoft YaHei UI</FontFamily>
-    <FontFamily x:Key="MonoFont">pack://application:,,,/assets/fonts/#IBM Plex Sans JP, Consolas, Microsoft YaHei UI</FontFamily>
+    <FontFamily x:Key="UiFont">Microsoft YaHei UI, Microsoft YaHei, Segoe UI</FontFamily>
+    <FontFamily x:Key="MonoFont">Consolas, Microsoft YaHei UI, Microsoft YaHei</FontFamily>
 
     <!-- 元素默认：body 13px / line-height 1.5 -->
     <sys:Double x:Key="BaseFontSize">13</sys:Double>

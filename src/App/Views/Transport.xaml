@@ -87,13 +87,18 @@
                 Click="BtnLoop_Click" ToolTip="循环整首" />
 
         <!-- 声音组（对位 `<span class="inline-flex items-center gap-1">`，gap-1 = 4px）：
-             引擎侧预览音量固定（0.64），无消音/音量 API → 按钮禁用、音量条只显示固定档位 -->
+             预览音量/消音走引擎 SetVolume（对位 AP.setVol：增益 muted ? 0 : vol²），只动预览出声，
+             导出始终原电平。拖动音量条即解除消音，松手落盘（旧版 localStorage 记忆音量） -->
         <StackPanel Orientation="Horizontal">
             <Button x:Name="BtnMute" Content="声音" Style="{StaticResource BtnGhostSm}" Margin="0,0,4,0"
-                    IsEnabled="False"
-                    ToolTip="点击消音／解除（仅预览，导出音量不变）——当前版本无音量控制" />
+                    Click="BtnMute_Click"
+                    ToolTip="点击消音／解除（仅预览，导出音量不变）" />
             <Grid x:Name="VolBar" Width="80" Height="26" Background="Transparent" Margin="0,0,4,0"
-                  ToolTip="预览音量（当前版本固定 0.8）">
+                  ToolTip="预览音量（拖动调整；←/→ 微调，Home/End 最小/最大）"
+                  Focusable="True" Cursor="Hand"
+                  MouseLeftButtonDown="VolBar_Down" MouseMove="VolBar_Move"
+                  MouseLeftButtonUp="VolBar_Up" LostMouseCapture="VolBar_LostCapture"
+                  KeyDown="VolBar_KeyDown">
                 <Border Style="{StaticResource BarTrack}">
                     <Border x:Name="VolFill" Style="{StaticResource BarFill}" />
                 </Border>
@@ -103,8 +108,8 @@
                     </Ellipse.RenderTransform>
                 </Ellipse>
             </Grid>
-            <Button x:Name="BtnFx" Content="特效" Style="{StaticResource BtnGhostSm}" IsEnabled="False"
-                    ToolTip="音频特效：环绕音 / 3D / 5.1 / EQ（预览与导出同时生效）——开关在右栏「特效」页" />
+            <Button x:Name="BtnFx" Content="特效" Style="{StaticResource BtnGhostSm}" Click="BtnFx_Click"
+                    ToolTip="音频特效：环绕音 / 3D / 5.1 / EQ（预览与导出同时生效）——打开右栏「特效」页的音效区" />
         </StackPanel>
 
         <!-- 历史 ◀/▶：外观（look）历史，对位 histInfo/histGo -->

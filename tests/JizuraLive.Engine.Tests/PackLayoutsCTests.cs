@@ -150,7 +150,6 @@ public class PackLayoutsCTests
     {
         EngineBoot.Install();
         P11LayoutsC.Install();
-        SmokeFonts();
         var project = Project.NewDefault();
         project.Lyrics = Text;
         project.Title = "テスト曲";
@@ -209,26 +208,4 @@ public class PackLayoutsCTests
         return plan;
     }
 
-    /// <summary>
-    /// 冒烟字体兜底：仓库自托管字体是 woff2 分片（字体管线未接时 CJK 会变 .notdef 方块），
-    /// 把字体目录全部条目改指系统 CJK 字体，仅本测试进程内生效（同 RenderSmoke.SmokeFonts）。
-    /// </summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
 }

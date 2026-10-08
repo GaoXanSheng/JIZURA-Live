@@ -74,7 +74,7 @@ C# 版与旧页面版的已知差异（都写在对应工具的 description 里�
 | 工具/字段 | 差异 |
 |---|---|
 | `update_settings.quality` / `update_settings.exportRange` | 未接入（Project 模型无这两个字段、导出层不吃范围裁剪）：传入返回 `-32602` invalid_input |
-| `preview.loop` | 只支持 `all` / `off`（分段循环 line/cut 未接入）；`volume` / `muted` 参数接受但忽略（预览音量固定） |
+| `preview.loop` | 只支持 `all` / `off`（分段循环 line/cut 未接入）；`volume` / `muted` 生效（预览出声增益，不写设置、导出不变） |
 | `preview` 返回值 `loop` | `all` / `off` |
 | `start_export.kind=subwebm` | 纯字幕层需字幕系统：C# 版返回 invalid_input |
 | `start_export` mp4 | 不烤字幕（C# 无字幕系统，`BakeSubs` 强制关闭） |

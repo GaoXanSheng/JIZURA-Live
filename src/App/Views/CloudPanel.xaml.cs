@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -49,10 +50,22 @@ public partial class CloudPanel : Window
     /// <summary>跟随页「跟随的播放器」下拉项（AccountPane/FollowPane 的 session 选择）。</summary>
     private sealed record SessionItem(string AppId, string Label);
 
+    /// <summary>歌单行 VM（PlaylistPane 的列表项）。</summary>
+    public sealed class PlaylistRow
+    {
+        public PlaylistInfo Info { get; }
+        public string Name => Info.Name;
+        public string CountLine => $"{Info.Count} 首";
+
+        public PlaylistRow(PlaylistInfo info) => Info = info;
+    }
+
     private string _source = "kugou";
     private string _pane = "search";
     private bool _searching;
     private bool _loading;
+    private bool _loadingPlaylists;
+    private bool _loadingSongs;
     private bool _syncingFollow;
     private bool _closed;
     private DispatcherTimer? _qrTimer;
@@ -157,6 +170,8 @@ public partial class CloudPanel : Window
         NavPlaylists.Tag = pane == "playlists" ? "on" : null;
         NavFollow.Tag = pane == "follow" ? "on" : null;
         NavAccount.Tag = pane == "account" ? "on" : null;
+        // 进歌单页就拉一次我的歌单（对位 PlaylistPane 的 onMounted → loadPlaylists）
+        if (pane == "playlists") _ = LoadPlaylistsAsync();
     }
 
     private void Nav_Click(object sender, RoutedEventArgs e) =>
@@ -193,6 +208,15 @@ public partial class CloudPanel : Window
         StopQrPolling();
         QrPanel.Visibility = Visibility.Collapsed;
         RefreshLogin();
+        // 平台换了结果也跟着换（对位 store.setSource：清搜索结果与歌单输入，歌单页重拉）
+        Lst.ItemsSource = null;
+        TblSearchInfo.Text = "";
+        TbPlaylist.Text = "";
+        TblPlaylistTip.Text = "";
+        LstPlaylists.ItemsSource = null;
+        TblPlaylistStatus.Text = "";
+        SetPlaylistStatus();
+        if (_pane == "playlists") _ = LoadPlaylistsAsync();
     }
 
     private void RefreshLogin()
@@ -284,6 +308,144 @@ public partial class CloudPanel : Window
                 BtnSearch.Content = "搜索";
             }
         }
+    }
+
+    // ---------------- 我的歌单（对位 PlaylistPane.vue + cloud store 的 loadPlaylists/loadPlaylistSongs） ----------------
+
+    /// <summary>歌单 ID 解析（对位旧前端 api.parsePlaylistId）：global_collection_id= → id= →
+    /// 整串纯 ID（≥5 位，可含 -）。比旧版多认一种「/playlist/&lt;id&gt;」路径式分享链接（网易云常见形态）。</summary>
+    public static string ParsePlaylistId(string? s)
+    {
+        s = (s ?? "").Trim();
+        var m = Regex.Match(s, @"[?&]global_collection_id=([\w-]+)");
+        if (!m.Success) m = Regex.Match(s, @"[?&]id=([\w-]+)");
+        if (!m.Success) m = Regex.Match(s, @"/playlist/([\w-]+)");
+        if (!m.Success) m = Regex.Match(s, @"^([\w-]{5,})$");
+        return m.Success ? m.Groups[1].Value : "";
+    }
+
+    /// <summary>歌单区的空态/加载态行（有列表就收起）。</summary>
+    private void SetPlaylistStatus()
+    {
+        TblPlaylistStatus.Visibility = LstPlaylists.Items.Count > 0
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    /// <summary>拉「我的歌单」（对位 loadPlaylists）：未登录/读取失败都落在歌单区的提示行上，不弹窗。</summary>
+    private async Task LoadPlaylistsAsync()
+    {
+        if (_loadingPlaylists) return;
+        _loadingPlaylists = true;
+        SetPlaylistMsg("正在加载我的歌单…", "Mut");
+        try
+        {
+            var r = _source == "netease"
+                ? await ServerContext.Netease.MyPlaylistsAsync()
+                : await ServerContext.KuGou.MyPlaylistsAsync();
+            if (_closed) return;
+            if (!r.Ok)
+            {
+                LstPlaylists.ItemsSource = null; // 拉取失败不留上一轮的旧列表（对位 store 的 playlists = []）
+                var msg = r.Error ?? "读取失败";
+                SetPlaylistMsg(msg.StartsWith("请先扫码登录", StringComparison.Ordinal)
+                    ? msg + "（在「账号」页扫码即可）"
+                    : "加载失败：" + msg, "Danger");
+                TblPlaylistTip.Text = "";
+                return;
+            }
+
+            LstPlaylists.ItemsSource = r.List.Select(p => new PlaylistRow(p)).ToList();
+            TblPlaylistTip.Text = r.List.Count > 0
+                ? "点歌单载入全部歌曲；也可粘贴歌单链接 / ID 载入"
+                : "这个账号还没有歌单；可粘贴歌单链接 / ID 载入";
+            SetPlaylistMsg(TblPlaylistTip.Text, "Mut");
+        }
+        catch (Exception ex)
+        {
+            if (_closed) return;
+            LstPlaylists.ItemsSource = null;
+            SetPlaylistMsg("加载失败：" + ex.Message, "Danger");
+            TblPlaylistTip.Text = "";
+            Log.Info("[Cloud] 我的歌单加载失败：" + ex.Message);
+        }
+        finally
+        {
+            _loadingPlaylists = false;
+        }
+    }
+
+    private void SetPlaylistMsg(string text, string colorKey)
+    {
+        TblPlaylistStatus.Text = text;
+        TblPlaylistStatus.Foreground = (SolidColorBrush)FindResource(colorKey);
+        SetPlaylistStatus();
+    }
+
+    /// <summary>歌单 → 歌曲列表（对位 loadPlaylistSongs）：结果落在搜索页的结果列表里，点歌名即可载入。</summary>
+    private async Task LoadPlaylistSongsAsync(string id, string? label)
+    {
+        if (_loadingSongs) return;
+        _loadingSongs = true;
+        TblPlaylistTip.Text = "歌单读取中…";
+        try
+        {
+            var r = _source == "netease"
+                ? await ServerContext.Netease.PlaylistSongsAsync(id)
+                : await ServerContext.KuGou.PlaylistSongsAsync(id);
+            if (_closed) return;
+            if (!r.Ok) throw new SongLoader.CloudException(r.Error ?? "读取失败");
+            ShowPane("search"); // 载入完切到搜索页看结果（对位 cloud.pane = 'search'）
+            Lst.ItemsSource = r.List.Select(s => new CloudRow(s)).ToList();
+            TbQuery.Text = label ?? "";
+            var name = label is { Length: > 0 } ? label : "歌单";
+            TblSearchInfo.Text = $"{name}：{r.List.Count} 首，点歌名即可载入";
+            if (r.List.Count == 0) Lst.ItemsSource = null;
+            TblPlaylistTip.Text = ""; // 歌单页已切走；下次进页会重拉并重写提示
+            Log.Info($"[Cloud] 歌单已载入：{name}（{r.List.Count} 首，{_source}）");
+        }
+        catch (Exception ex)
+        {
+            if (_closed) return;
+            TblPlaylistTip.Text = "歌单载入失败：" + ex.Message;
+            Log.Info("[Cloud] 歌单载入失败：" + ex.Message);
+            MessageBox.Show(this, "歌单载入失败：" + ex.Message, "云音乐",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _loadingSongs = false;
+        }
+    }
+
+    private void BtnPlaylist_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: PlaylistRow row }) return;
+        _ = LoadPlaylistSongsAsync(row.Info.Id, row.Name);
+    }
+
+    /// <summary>粘贴框载入（对位 loadPasted）：认不出 ID 就只提示，不打网络。</summary>
+    private void BtnPlaylistLoad_Click(object sender, RoutedEventArgs e) => _ = LoadPastedAsync();
+
+    private void TbPlaylist_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        _ = LoadPastedAsync();
+        e.Handled = true;
+    }
+
+    private async Task LoadPastedAsync()
+    {
+        var id = ParsePlaylistId(TbPlaylist.Text);
+        if (id.Length == 0)
+        {
+            TblPlaylistTip.Text = _source == "netease"
+                ? "没认出歌单 ID：粘贴 music.163.com/playlist?id=… 或纯数字 ID"
+                : "没认出歌单 ID：粘贴酷狗歌单链接（含 id=）或 global_collection_id";
+            return;
+        }
+
+        await LoadPlaylistSongsAsync(id, null);
     }
 
     // ---------------- 装载 ----------------

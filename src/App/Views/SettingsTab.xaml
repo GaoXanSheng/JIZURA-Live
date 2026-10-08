@@ -180,6 +180,20 @@
             </StackPanel>
         </StackPanel>
 
+        <!-- 字体（即时生效，不需要重启渲染引擎） -->
+        <StackPanel Margin="0,14,0,0">
+            <CheckBox x:Name="CkFetchFonts" Margin="0,0,0,6"
+                      Checked="FetchFonts_Changed" Unchecked="FetchFonts_Changed">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="缺字体自动联网补 " FontSize="12" />
+                    <TextBlock x:Name="TblFontDir" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" />
+                </StackPanel>
+            </CheckBox>
+            <TextBlock Style="{StaticResource HintXs}" Margin="24,0,0,6" TextWrapping="Wrap" MaxWidth="300"
+                       HorizontalAlignment="Left"
+                       Text="风格里的字体本机没装、exe 旁 fonts\ 里也没有时，后台从 Google Fonts 仓库镜像拉完整 TTF 存进用户字体库（拉过一次就不再联网）；关掉或离线时按气质落到系统字体（黑体/明朝/圆体/像素/书法/等宽），最终保底微软雅黑。" />
+        </StackPanel>
+
         <!-- 保存并重启渲染引擎（btn btn-primary w-full mt-4） -->
         <Button x:Name="BtnRestart" Style="{StaticResource BtnPrimary}" Margin="0,16,0,0"
                 Click="BtnRestart_Click" />

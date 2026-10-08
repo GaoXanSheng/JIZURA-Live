@@ -106,7 +106,7 @@
             <!-- 右栏：风格与导出（bg-panel + border-l） -->
             <Border Grid.Column="2" Background="{StaticResource Panel}">
                 <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0">
-                    <views:RightPanel />
+                    <views:RightPanel x:Name="Right" />
                 </Border>
             </Border>
         </Grid>

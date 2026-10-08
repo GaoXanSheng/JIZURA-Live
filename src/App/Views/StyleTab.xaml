@@ -179,6 +179,9 @@
         </Grid>
         <Button x:Name="BtnFontFile" Content="字体文件（.ttf/.otf）" Style="{StaticResource BtnFile}"
                 HorizontalAlignment="Left" Margin="0,8,0,0" Click="BtnFontFile_Click" />
+        <!-- 字体状态行：缺本体（换机器/缓存被清）与「目录里没有、正在联网补」都在这里说一声 -->
+        <TextBlock x:Name="TblFontNote" Margin="0,6,0,0" FontSize="11" LineHeight="16.5"
+                   Foreground="{StaticResource Mut}" TextWrapping="Wrap" Visibility="Collapsed" />
         <ctl:JzLabel Text="强调色・错位色" Tracking="0.14" TextElement.FontSize="11"
                      TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
                      Margin="0,16,0,8" />

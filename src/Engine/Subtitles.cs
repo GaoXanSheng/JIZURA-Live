@@ -432,8 +432,8 @@ public sealed class SubtitleLayer
     // (kind,px) → SKFont 缓存；typeface 解析结果随之复用。Hashtable 读多写少，与 JText.FontJobs 同款。
     private static readonly Hashtable FontJobs = new();
 
-    /// <summary>subFont(px, kind)：700 字重、三条 family 链逐字对位；本机缺 family 时沿链下探，
-    /// 都没有落 Skia 默认体（对齐 JText.ResolveTypefaceChain 的判定）。</summary>
+    /// <summary>subFont(px, kind)：700 字重、三条 family 链逐字对位；本机缺 family 时沿链下探到
+    /// 语言×气质的系统字体栈（JFonts 统一解析，含逐字兜底），不再落 Skia 默认体。</summary>
     private static SKFont SubFont(double px, string kind)
     {
         var key = string.Create(CultureInfo.InvariantCulture,
@@ -444,29 +444,9 @@ public sealed class SubtitleLayer
             : kind == "sans"
                 ? new[] { "Microsoft YaHei", "Noto Sans JP" }
                 : new[] { "Noto Sans JP", "Microsoft YaHei" };
-        SKTypeface? tf = null;
-        foreach (var fam in families)
-        {
-            try
-            {
-                var t = SKTypeface.FromFamilyName(fam, SKFontStyleWeight.Bold, SKFontStyleWidth.Normal,
-                    SKFontStyleSlant.Upright);
-                // FromFamilyName 缺字体时返回默认体；family 对不上视为没找到，试下一级
-                if (t != null && string.Equals(t.FamilyName, fam, StringComparison.OrdinalIgnoreCase))
-                {
-                    tf = t;
-                    break;
-                }
+        var tf = JFonts.ResolveChain(families.Concat(JFonts.StackFor(kind == "serif" ? "mincho" : "gothic")), 700);
 
-                t?.Dispose();
-            }
-            catch
-            {
-                // 没有就试下一级（对齐 TS 字体栈的级联）
-            }
-        }
-
-        var f = new SKFont(tf ?? SKTypeface.Default, (float)px)
+        var f = new SKFont(tf, (float)px)
         {
             Edging = SKFontEdging.Antialias,
             Subpixel = true

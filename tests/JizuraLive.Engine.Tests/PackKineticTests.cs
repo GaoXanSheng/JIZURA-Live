@@ -190,7 +190,6 @@ public class SmokeKineticTests : IClassFixture<SmokeKineticTests.Cleanup>
     {
         EngineBoot.InstallPacks();
         P11Kinetic1.Install();
-        SmokeFonts();
         var proj = Project.NewDefault();
         proj.Lyrics = "夜明けの色を覚えてる";
         // 面绝不 Dispose：宿主契约（引擎缓存持有该画面快照）。
@@ -241,7 +240,6 @@ public class SmokeKineticTests : IClassFixture<SmokeKineticTests.Cleanup>
     {
         EngineBoot.InstallPacks();
         P11Kinetic2.Install();
-        SmokeFonts();
         var proj = Project.NewDefault();
         proj.Lyrics = "夜明けの色を覚えてる";
         var surface = SKSurface.Create(new SKImageInfo(640, 360)); // 面绝不 Dispose
@@ -294,7 +292,6 @@ public class SmokeKineticTests : IClassFixture<SmokeKineticTests.Cleanup>
     {
         EngineBoot.InstallPacks();
         P11Kinetic3.Install();
-        SmokeFonts();
         var proj = Project.NewDefault();
         proj.Lyrics = "夜明けの色を覚えてる";
         var surface = SKSurface.Create(new SKImageInfo(640, 360)); // 面绝不 Dispose
@@ -438,26 +435,4 @@ public class SmokeKineticTests : IClassFixture<SmokeKineticTests.Cleanup>
         return ratio > 0.004;
     }
 
-    /// <summary>
-    /// 冒烟字体兜底（同 RenderSmoke.SmokeFonts）：字体目录全部条目改指系统 CJK 字体。
-    /// 仅本测试进程内生效。
-    /// </summary>
-    private static void SmokeFonts()
-    {
-        var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "SimSun", "Arial" }
-            .FirstOrDefault(f =>
-            {
-                try
-                {
-                    using var tf = SKTypeface.FromFamilyName(f);
-                    return tf != null && string.Equals(tf.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    return false;
-                }
-            }) ?? "Arial";
-        foreach (var kv in JFonts.Table.ToArray())
-            JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
-    }
 }

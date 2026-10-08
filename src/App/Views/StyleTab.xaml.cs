@@ -260,6 +260,34 @@ public partial class StyleTab : UserControl
         SyncFontCombo(CbFontBody, "body");
     }
 
+    /// <summary>字体状态行：缺本体的用户字体点名（换机器/缓存被清），选到的字体目录与系统都没有时
+    /// 顺手请求联网补（FontFetch；关掉拉取或离线就维持系统字体栈兜底）。</summary>
+    private void SyncFontNote()
+    {
+        var p = S.Project;
+        var missing = JFonts.MissingUserFonts(SelectedFontKeys(p));
+        if (missing.Count > 0)
+        {
+            TblFontNote.Text = "缺字体本体（用回退字体渲染）：" + string.Join("、", missing);
+            TblFontNote.Visibility = Visibility.Visible;
+            return;
+        }
+        TblFontNote.Visibility = Visibility.Collapsed;
+        FontFetch.Request(SelectedFontFaces(p)); // 没本体也没报错的（如风格里的 webfont）→ 按需拉
+    }
+
+    /// <summary>工程当前用到的字体键：三角色 + 风格角色 + 各 cut 参数（同 fontsOfPlan 口径）。</summary>
+    private IEnumerable<string> SelectedFontKeys(Project p) =>
+        JFonts.FontsOfPlan(App.MainInstance?.Preview.Plan);
+
+    /// <summary>当前 plan/工程用到的脸（供 FontFetch 判断哪些家族目录与系统都没有）。</summary>
+    private IEnumerable<FontFace> SelectedFontFaces(Project p)
+    {
+        foreach (var k in SelectedFontKeys(p))
+            if (JFonts.Has(k))
+                yield return JLang.FaceOf(k);
+    }
+
     private void SyncFontCombo(ComboBox cb, string role)
     {
         if (cb.Items.Count != JFonts.Table.Count + 1)
@@ -461,6 +489,7 @@ public partial class StyleTab : UserControl
 
             SyncLang();
             SyncFontCombos();
+            SyncFontNote();
 
             var st0 = Reg.Styles.GetValueOrDefault(p.Style) ?? Reg.Styles.GetValueOrDefault("noir");
             var sc0 = st0?.Schemes.FirstOrDefault();

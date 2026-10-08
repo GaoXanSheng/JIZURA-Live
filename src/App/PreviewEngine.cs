@@ -36,7 +36,7 @@ public static class EngineRenderGate
 ///   → WdlResampling 统一到 48k（FxInlet 要求图与音源同采样率）
 ///   → AudioFx.Build(project.AudioFx) 特效图（units 全关返回 null = 直通）
 ///   → WdlResampling 变速（48000/speed，对位 BufferSource.playbackRate；speed==1 跳过）
-///   → VolumeSampleProvider（固定 0.8²，对位 AP 的 vol*vol；M3 无音量 UI）
+///   → VolumeSampleProvider（预览音量/消音，对位 AP 的 vol²/muted，见 SetVolume；导出侧不经这里）
 ///   → CountingSampleProvider（读帧计数 = 波形位置钟）
 ///   → WaveOutEvent
 /// 输出设备打不开（无声卡/独占占用）时 Log.Warn 并整体退回墙钟，不崩。
@@ -98,8 +98,28 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>设备输出率（特效图按它建；变速靠重采样改变流时长，见 BuildChain）。</summary>
     private const int OutRate = 48000;
 
-    /// <summary>预览音量（对位 AP.vol*vol，vol 固定 0.8；导出侧不经这里）。</summary>
-    private const float PreviewVolume = 0.64f;
+    /// <summary>预览音量/消音（对位 AP.vol 与 AP.muted；导出侧不经这里，导出始终原电平）。</summary>
+    private double _vol = 0.8;
+    private bool _muted;
+    private VolumeSampleProvider? _gain; // 主音量环节：链上最后一个 DSP，随链重建（对位 AP.gain）
+
+    /// <summary>预览音量 0..1（对位 AP.vol）。</summary>
+    public double Volume => _vol;
+
+    /// <summary>预览消音（对位 AP.muted）。</summary>
+    public bool Muted => _muted;
+
+    /// <summary>
+    /// 设预览音量/消音（对位 AP.setVol：v 为 null 表示只改消音）。增益 = muted ? 0 : vol²，
+    /// 与旧版 AP.gain 的写死口径一致；无链时只记状态，下次建链自然生效。
+    /// </summary>
+    public void SetVolume(double? v, bool? muted = null)
+    {
+        if (v != null) _vol = Math.Clamp(v.Value, 0, 1);
+        if (muted != null) _muted = muted.Value;
+        var g = _gain;
+        if (g != null) g.Volume = _muted ? 0f : (float)(_vol * _vol); // float 写原子，Read 侧不上锁
+    }
 
     /// <summary>WaveOut 缓冲参数：3 块 × 50ms。位置钟扣掉「已入队未播出」的
     /// (块数-1)×50ms 让读数贴近扬声器实际进度；无回读接口，残差 ≈ 一个块时长（±50ms）。</summary>
@@ -189,7 +209,15 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             Replan();
             return;
         }
-        BuildChain(path, ClampPlayPos(_base));
+        // 新歌一律从 0 起：计划与行时刻都按新音频重排，从旧位置续听会跳过前奏和前面的行
+        // （对位旧前端 songLoader 的 loadAudioFile + seek(0)）
+        _base = 0;
+        _startTs = Stopwatch.GetTimestamp();
+        BuildChain(path, 0);
+        // 装载时播放器已在播放（应用启动即自动播放，见 MainWindow 构造）→ 新链必须跟着起跑。
+        // 漏掉这一步的表象就是「音频不可用」：链建好了却从未 Play，WaveOut 不读帧 →
+        // 波形位置钟钉死在起点（画面与时间码不动）且没有声音，得点一次暂停/播放才活过来。
+        if (IsPlaying && !_follow && _audioActive) SafePlay();
         Replan();
     }
 
@@ -218,7 +246,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             var speed = AudioFx.FxSpeedOf(_fxToken);
             if (Math.Abs(speed - 1) > 1e-6) node = new WdlResamplingSampleProvider(node, (int)Math.Round(OutRate / speed));
 
-            var counter = new CountingSampleProvider(new VolumeSampleProvider(node) { Volume = PreviewVolume }, _clockLock);
+            // 主音量（对位 AP.gain）：muted 直接 0，否则 vol²
+            var gain = new VolumeSampleProvider(node) { Volume = _muted ? 0f : (float)(_vol * _vol) };
+            var counter = new CountingSampleProvider(gain, _clockLock);
             // NAudio 3.x：WaveOutEvent 更名 WaveOut，延迟参数改为 BufferMilliseconds×NumberOfBuffers
             var wo = new WaveOut { BufferMilliseconds = BufferMs, NumberOfBuffers = WaveBuffers };
             wo.Init(counter); // 此时已填入首块缓冲，计数器初始化完成后再归零
@@ -232,6 +262,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             {
                 _reader = reader;
                 _waveOut = wo;
+                _gain = gain;
             }
             _speed = speed;
             _audioActive = true;
@@ -253,6 +284,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             try { _reader?.Dispose(); } catch { /* 同上 */ }
             _waveOut = null;
             _reader = null;
+            _gain = null;
         }
         lock (_clockLock)
         {
@@ -367,8 +399,8 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public PreviewEngine()
     {
-        EngineBoot.InstallPacks(); // 先装配：JFonts 目录由 Install 填充，字体兜底要在有目录之后跑
-        InstallFontFallback();
+        EngineBoot.InstallPacks(); // 先装配：JFonts 目录由 Install 填充
+        JFonts.ScanFontDirs();     // 字体目录入索引（exe 旁 fonts/ 与用户字体库）
         Project = Project.NewDefault();
         Replan();
     }
@@ -381,28 +413,21 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     }
 
     /// <summary>
-    /// 字体兜底（同 tests RenderSmoke.SmokeFonts）：仓库自托管字体是 woff2 分片，M2 字体管线未接，
-    /// 目录里的 family 本机都没有 → ResolveTypefaceChain 全部落到 SKTypeface.Default——
-    /// 实测该路径在 SkiaSharp 3.119 下渲染会原生崩（AV，obj/repro 复现）。
-    /// 把字体目录全部条目改指系统 CJK 字体绕开，预览字形也可读。仅本进程内生效。
-    /// TODO(M2)：字体管线接通（LoadFontFile/UserFaces 优先）后移除这段。
+    /// 字体管线预热（EnsureFonts）：plan 用到的脸先解析好（首帧不卡在字脸解析上），
+    /// 目录/系统都没有的家族由 FontFetch 后台按需拉（老前端「网络拉取 + 本地缓存」）。
+    /// 拉到后 FontFetch 清缓存并回调 OnFetched，由 App 侧重规划重绘。
     /// </summary>
-    private static void InstallFontFallback()
+    private void WarmFonts(Plan plan)
     {
         try
         {
-            var fam = new[] { "Yu Gothic", "Meiryo", "MS Gothic", "Microsoft YaHei UI", "SimSun", "Arial" }
-                .FirstOrDefault(f =>
-                {
-                    using var t = SKTypeface.FromFamilyName(f);
-                    return t != null && string.Equals(t.FamilyName, f, StringComparison.OrdinalIgnoreCase);
-                }) ?? "Arial";
-            foreach (var kv in JFonts.Table.ToArray())
-                JFonts.AddUserFont(kv.Key, kv.Value.Label, fam, kv.Value.Weight, kv.Value.Kind);
+            // 与渲染/导出串行：解析预热可能触发字体目录重扫（网络拉取落盘后），进而清共享字形缓存
+            lock (EngineRenderGate.Lock)
+                _ = JFonts.EnsureFonts(Project?.Lyrics, JFonts.FontsOfPlan(plan));
         }
         catch (Exception ex)
         {
-            Log.Warn("[Preview] 字体兜底失败（继续用引擎默认解析）：" + ex.Message);
+            Log.Warn("[字体] 管线预热失败（继续用系统字体栈）：" + ex.Message);
         }
     }
 
@@ -610,6 +635,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             if (_audioActive) AudioJump(0, resume: IsPlaying);
         }
         _version++;
+        WarmFonts(plan); // 字体管线热身 + 缺字体按需拉（拉到后 FontFetch 回调重规划）
     }
 
     // ---------------- ISpoutSource（SpoutOut 泵线程读） ----------------
