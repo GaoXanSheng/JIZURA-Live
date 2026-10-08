@@ -12,6 +12,7 @@
 //   3. 行间空隙默认不画（TS lineAt 语义）；HoldLastLine=true 时保持上一句到下一句开始。
 //   4. localStorage/BroadcastChannel/worker 载荷等宿主逻辑不移植——配置就是纯 POCO。
 
+using System.Collections;
 using System.Globalization;
 using JizuraLive.App.Cloud;
 using SkiaSharp;
@@ -119,6 +120,33 @@ public sealed class SubtitleLayer
         bool Drawn) // 本帧有笔画落盘
     {
         public static FrameStats None { get; } = new(null, 0, 0, 0, 0, 0, 0, false);
+    }
+
+    /// <summary>
+    /// 从 plan 的 cut 注音回填字幕层的注音行（KRC 行序）：工程 LRC 的 "|注音" 经 planner 挂到
+    /// cut.LineText/Note，这里按整行文本对齐。KrcToLrc 写 LRC 时把 '/' 换成全角，匹配同样归一化。
+    /// 对不上的行留空；全都没对上返回 null（退化为只画主行）。
+    /// </summary>
+    public static IReadOnlyList<string>? NotesFromPlan(IReadOnlyList<KrcLine> lines, Plan plan)
+    {
+        Dictionary<string, string>? map = null;
+        foreach (var c in plan.Cuts)
+        {
+            if (string.IsNullOrEmpty(c.Note) || c.LineText.Length == 0) continue;
+            map ??= new Dictionary<string, string>(StringComparer.Ordinal);
+            map.TryAdd(c.LineText, c.Note!);
+        }
+        if (map == null) return null;
+
+        var notes = new List<string>(lines.Count);
+        var hit = false;
+        foreach (var l in lines)
+        {
+            var note = map.TryGetValue(l.Text.Replace("/", "／"), out var v) ? v : "";
+            if (note.Length > 0) hit = true;
+            notes.Add(note);
+        }
+        return hit ? notes : null;
     }
 
     /// <summary>
@@ -402,7 +430,7 @@ public sealed class SubtitleLayer
     // ---------------- 字体（TS subFont 对位） ----------------
 
     // (kind,px) → SKFont 缓存；typeface 解析结果随之复用。Hashtable 读多写少，与 JText.FontJobs 同款。
-    private static readonly System.Collections.Hashtable FontJobs = new();
+    private static readonly Hashtable FontJobs = new();
 
     /// <summary>subFont(px, kind)：700 字重、三条 family 链逐字对位；本机缺 family 时沿链下探，
     /// 都没有落 Skia 默认体（对齐 JText.ResolveTypefaceChain 的判定）。</summary>

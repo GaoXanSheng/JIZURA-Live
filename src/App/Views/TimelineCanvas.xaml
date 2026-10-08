@@ -2,26 +2,48 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:JizuraLive.App.Views">
-    <!-- 对位 TimelineCanvas.vue：上条视图滑动（16px）/ 中条播放头（20px）/ 下条时间轴本体（60px），
-         三带合进一个 TimelineSurface 自绘。头部按钮：撤销 / 缩小 / 放大 / 全部 -->
+    <!-- 对位 TimelineCanvas.vue：提示行 + 三带（上条视图滑动 16px / 中条播放头 20px / 下条本体 60px，
+         三带合进一个 TimelineSurface 自绘；本体带一圈 1px border-line，对位 body canvas 的 border）。
+         提示行：左侧 11px mut 说明（Shift 用 .kbd 键帽），右侧「撤销 − ＋ 全部」一组 btn-ghost btn-sm。
+         Vue 原 DOM 顺序（两块根节点）：div.flex.justify-between.my-2.mb-1 → 提示 + 按钮；div.flex.flex-col → 三块 canvas。 -->
+    <UserControl.Resources>
+        <!-- .kbd：font-mono 11px / border border-line2 / border-b-2 / px-1 / rounded-md（4px） -->
+        <Style x:Key="Kbd" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}" />
+            <Setter Property="BorderThickness" Value="1,1,1,2" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="4,0" />
+        </Style>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,3">
-            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="11"
-                       Foreground="{StaticResource Mut}" TextTrimming="CharacterEllipsis"
-                       Text="上条左右滑视图，中条拖动播放头；行界刻度可拖动，Shift 不吸附节拍；底部黄条为缩放范围" />
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button Content="撤销" Style="{StaticResource BtnGhost}" Click="OnUndo"
+        <!-- my-2 mb-1（上 8 / 下 4）+ justify-between items-center gap-2 -->
+        <DockPanel Grid.Row="0" Margin="0,8,0,4" LastChildFill="True">
+            <!-- ml-auto flex gap-1（4px）：一组 btn-ghost btn-sm；两个缩放键 min-w-7（28px） -->
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                <Button Content="撤销" Style="{StaticResource BtnGhostSm}" Click="OnUndo"
                         ToolTip="撤销歌词・时间修改（Ctrl+Z）" />
-                <Button Content="−" Style="{StaticResource BtnGhost}" MinWidth="28" Click="OnZoomOut" ToolTip="缩小" />
-                <Button Content="＋" Style="{StaticResource BtnGhost}" MinWidth="28" Click="OnZoomIn"
-                        ToolTip="放大（时间轴上滚轮亦可）" />
-                <Button Content="全部" Style="{StaticResource BtnGhost}" Click="OnZoomAll" ToolTip="显示整首" />
+                <Button Content="−" Style="{StaticResource BtnGhostSm}" MinWidth="28" Margin="4,0,0,0"
+                        Click="OnZoomOut" ToolTip="缩小" AutomationProperties.Name="缩小时间轴" />
+                <Button Content="＋" Style="{StaticResource BtnGhostSm}" MinWidth="28" Margin="4,0,0,0"
+                        Click="OnZoomIn" ToolTip="放大（时间轴上滚轮亦可）" AutomationProperties.Name="放大时间轴" />
+                <Button Content="全部" Style="{StaticResource BtnGhostSm}" Margin="4,0,0,0"
+                        Click="OnZoomAll" ToolTip="显示整首" />
             </StackPanel>
+            <!-- text-[11px] text-mut；Shift 内嵌 kbd 键帽（Vue 里是 span.kbd）。
+                 MaxHeight：行盒按内容长高（键帽比 11px 行盒高），对位浏览器的 inline 排版 -->
+            <TextBlock VerticalAlignment="Center" FontSize="11" LineHeight="16.5" LineStackingStrategy="MaxHeight"
+                       Foreground="{StaticResource Mut}" TextTrimming="CharacterEllipsis"><Run
+                    Text="上条左右滑视图，中条拖动播放头；行界刻度可拖动，" /><InlineUIContainer
+                    BaselineAlignment="Center"><Border Style="{StaticResource Kbd}"><TextBlock
+                        FontFamily="{StaticResource MonoFont}" FontSize="11" LineHeight="16.5"
+                        Foreground="{StaticResource Fg}" Text="Shift" /></Border></InlineUIContainer><Run
+                    Text=" 不吸附节拍；底部黄条为缩放范围" /></TextBlock>
         </DockPanel>
+        <!-- 三带：16 + 20 + 60（本体 60 含 1px 边框，对位 canvas 的 box-sizing: border-box） -->
         <local:TimelineSurface x:Name="Surface" Grid.Row="1" Height="96" ClipToBounds="True" />
     </Grid>
 </UserControl>

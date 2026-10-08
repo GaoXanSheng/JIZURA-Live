@@ -1,48 +1,58 @@
 <UserControl x:Class="JizuraLive.App.Views.SettingsTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:JizuraLive.App.Controls">
+    <!-- 对位 SettingsTab.vue：.sec-h 小节标题 → 留出画面范围 → 画布/渲染窗口参数 → Spout 组 → 重启按钮 + .note -->
     <UserControl.Resources>
-        <!-- 「标签 + 控件」行（对位 w-[110px] label + flex-1 控件） -->
+        <!-- 行标签（Vue 的 w-[110px] flex-none text-mut，行内 12px） -->
         <Style x:Key="RowLab" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource Mut}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <Style x:Key="Hint" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource Faint}" />
-            <Setter Property="FontSize" Value="10" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="Margin" Value="0,2,0,0" />
-        </Style>
     </UserControl.Resources>
 
     <StackPanel>
-        <!-- 自定义留出画面范围（中央を空ける） -->
-        <TextBlock Text="自定义留出画面范围" Foreground="{StaticResource Fg}" FontSize="12"
-                   FontWeight="SemiBold" Margin="0,2,0,2" />
-        <TextBlock Text="给角色留出空白，文字与演出放两侧" Style="{StaticResource Hint}" Margin="0,0,0,6" />
-        <CheckBox x:Name="CkCenterFree" Content="留出画面中央（导出页可开关，宽度用这里自定义的值）"
-                  Checked="Center_Changed" Unchecked="Center_Changed" />
-        <StackPanel x:Name="CenterOpts" Margin="0,6,0,0">
-            <Grid Margin="0,0,0,6">
+        <!-- .sec-h：标题（.sec-title 11px tracking-.18）＋右侧说明（11px mut） -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <ctl:JzLabel Text="自定义留出画面范围" Tracking="0.18" TextElement.FontSize="11"
+                         TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}" />
+            <TextBlock Grid.Column="1" Text="给角色留出空白，文字与演出放两侧" FontSize="11"
+                       Foreground="{StaticResource Mut}" VerticalAlignment="Center" Margin="8,0,0,0" />
+        </Grid>
+
+        <!-- checkline：留出画面中央 -->
+        <CheckBox x:Name="CkCenterFree" Margin="0,10,0,0" Checked="Center_Changed" Unchecked="Center_Changed">
+            <TextBlock Text="留出画面中央（导出页可开关，宽度用这里自定义的值）" FontSize="12"
+                       TextWrapping="Wrap" MaxWidth="276" />
+        </CheckBox>
+
+        <!-- v-if="centerFree"：留白位置 / 留白宽度 % / 竖屏分列（flex flex-col gap-2） -->
+        <StackPanel x:Name="CenterOpts" Margin="0,8,0,0">
+            <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="110" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="留白位置" Style="{StaticResource RowLab}" />
-                <ComboBox x:Name="CbCenterZone" Grid.Column="1" SelectionChanged="Center_Changed" />
+                <ComboBox x:Name="CbCenterZone" Grid.Column="1" Margin="12,0,0,0"
+                          SelectionChanged="Center_Changed" />
             </Grid>
-            <Grid Margin="0,0,0,6">
+            <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="110" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="留白宽度 %" Style="{StaticResource RowLab}" />
-                <TextBox x:Name="TbCenterGap" Grid.Column="1" Width="60" LostFocus="CenterGap_Commit"
-                         KeyDown="CenterGap_KeyDown" />
+                <TextBox x:Name="TbCenterGap" Grid.Column="1" Width="96" Margin="12,0,0,0"
+                         Style="{StaticResource TbNum}" LostFocus="CenterGap_Commit" KeyDown="CenterGap_KeyDown" />
                 <TextBlock Grid.Column="2" Text="%（10~70，按画面宽/高计）" Style="{StaticResource RowLab}"
-                           Margin="6,0,0,0" />
+                           TextWrapping="Wrap" Margin="12,0,0,0" />
             </Grid>
             <Grid x:Name="CenterDirRow">
                 <Grid.ColumnDefinitions>
@@ -50,100 +60,135 @@
                     <ColumnDefinition Width="160" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="竖屏分列" Style="{StaticResource RowLab}" />
-                <ComboBox x:Name="CbCenterDir" Grid.Column="1" SelectionChanged="Center_Changed" />
+                <ComboBox x:Name="CbCenterDir" Grid.Column="1" Margin="12,0,0,0"
+                          SelectionChanged="Center_Changed" />
             </Grid>
         </StackPanel>
 
-        <!-- 画幅 / 分辨率 / fps / 背景 -->
-        <Grid Margin="0,14,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="110" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <TextBlock Text="画布比例" Grid.Row="0" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbAspect" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
-                      SelectionChanged="CbAspect_SelectionChanged"
-                      ToolTip="与「导出」页的画面比例同源，改这里导出页会同步" />
-            <TextBlock Text="分辨率" Grid.Row="1" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbRes" Grid.Row="1" Grid.Column="1" Margin="0,0,0,6"
-                      SelectionChanged="CbRes_SelectionChanged" />
-            <TextBlock Text="fps" Grid.Row="2" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbFps" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6"
-                      SelectionChanged="CbFps_SelectionChanged" />
-            <TextBlock Text="背景" Grid.Row="3" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbKeyBg" Grid.Row="3" Grid.Column="1"
-                      SelectionChanged="CbKeyBg_SelectionChanged"
-                      ToolTip="绿幕/黑幕时只在单色背景上绘制白色文字与演出，供合成抠像；与「导出」页的背景同源" />
-        </Grid>
+        <!-- 画布比例 / 分辨率 / fps / 背景 / 渲染窗口分辨率 / 渲染帧率（flex flex-col gap-2.5） -->
+        <StackPanel Margin="0,16,0,0">
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="画布比例" Style="{StaticResource RowLab}" />
+                <ComboBox x:Name="CbAspect" Grid.Column="1" Margin="12,0,0,0"
+                          SelectionChanged="CbAspect_SelectionChanged" />
+            </Grid>
+            <TextBlock Text="与「导出」页的画面比例同源，改这里导出页会同步。" Style="{StaticResource HintXs}"
+                       Margin="0,0,0,10" />
 
-        <!-- 渲染窗口（Spout 宿主）草稿组 -->
-        <Grid Margin="0,12,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="110" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <TextBlock Text="渲染窗口分辨率" Grid.Row="0" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
-                <TextBox x:Name="TbWinW" Width="70" TextChanged="Draft_Changed" />
-                <TextBlock Text="×" Style="{StaticResource RowLab}" Margin="6,0,6,0" />
-                <TextBox x:Name="TbWinH" Width="70" TextChanged="Draft_Changed" />
-                <TextBlock x:Name="TbResErr" Text="64~4096" Foreground="{StaticResource Danger}"
-                           FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
-            </StackPanel>
-            <TextBlock Text="渲染帧率" Grid.Row="1" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                <TextBox x:Name="TbWinFps" Width="70" TextChanged="Draft_Changed" />
-                <TextBlock Text="fps" Style="{StaticResource RowLab}" Margin="6,0,0,0" />
-                <TextBlock x:Name="TbFpsErr" Text="1~240" Foreground="{StaticResource Danger}"
-                           FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
-            </StackPanel>
-        </Grid>
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="分辨率" Style="{StaticResource RowLab}" />
+                <ComboBox x:Name="CbRes" Grid.Column="1" Margin="12,0,0,0"
+                          SelectionChanged="CbRes_SelectionChanged" />
+            </Grid>
 
-        <!-- Spout 组 -->
-        <StackPanel Margin="0,12,0,0">
-            <CheckBox x:Name="CkSpoutEnabled" Content="Spout 输出" Checked="Draft_Changed" Unchecked="Draft_Changed" />
-            <Grid Margin="20,4,0,0">
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="fps" Style="{StaticResource RowLab}" />
+                <ComboBox x:Name="CbFps" Grid.Column="1" Margin="12,0,0,0"
+                          SelectionChanged="CbFps_SelectionChanged" />
+            </Grid>
+
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="背景" Style="{StaticResource RowLab}" />
+                <ComboBox x:Name="CbKeyBg" Grid.Column="1" Margin="12,0,0,0"
+                          SelectionChanged="CbKeyBg_SelectionChanged" />
+            </Grid>
+            <TextBlock Text="与「导出」页的背景同源：绿幕/黑幕时只在单色背景上绘制白色文字与演出，供合成抠像。"
+                       Style="{StaticResource HintXs}" Margin="0,0,0,10" />
+
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="渲染窗口分辨率" Style="{StaticResource RowLab}" />
+                <TextBox x:Name="TbWinW" Grid.Column="1" Margin="12,0,0,0" Style="{StaticResource TbNum}"
+                         TextChanged="Draft_Changed" />
+                <TextBlock Grid.Column="2" Text="×" Style="{StaticResource RowLab}" Margin="6,0,6,0" />
+                <TextBox x:Name="TbWinH" Grid.Column="3" Style="{StaticResource TbNum}" TextChanged="Draft_Changed" />
+                <TextBlock x:Name="TbResErr" Grid.Column="4" Text="64~4096" Foreground="{StaticResource Danger}"
+                           FontSize="11" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
+            </Grid>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="渲染帧率" Style="{StaticResource RowLab}" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0">
+                    <TextBox x:Name="TbWinFps" Width="96" Style="{StaticResource TbNum}" TextChanged="Draft_Changed" />
+                    <TextBlock Text="fps" Style="{StaticResource RowLab}" Margin="6,0,0,0" />
+                    <TextBlock x:Name="TbFpsErr" Text="1~240" Foreground="{StaticResource Danger}" FontSize="11"
+                               Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
+        <!-- Spout 组（flex flex-col gap-1.5 mt-3.5） -->
+        <StackPanel Margin="0,14,0,0">
+            <CheckBox x:Name="CkSpoutEnabled" Content="Spout 输出" Margin="0,0,0,6"
+                      Checked="Draft_Changed" Unchecked="Draft_Changed" />
+            <Grid Margin="24,0,0,6">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Spout ID：" Style="{StaticResource RowLab}" Margin="0,0,4,0" />
-                <TextBox x:Name="TbSpoutName" Grid.Column="1" TextChanged="Draft_Changed" />
+                <TextBlock Text="Spout ID：" Style="{StaticResource RowLab}" />
+                <TextBox x:Name="TbSpoutName" Grid.Column="1" Margin="12,0,0,0" TextChanged="Draft_Changed" />
             </Grid>
-            <CheckBox x:Name="CkSpoutTransparent" Content="渲染透明背景（输出透明图层）" Margin="0,4,0,0"
+            <CheckBox x:Name="CkSpoutTransparent" Content="渲染透明背景（输出透明图层）" Margin="0,0,0,6"
                       Checked="Draft_Changed" Unchecked="Draft_Changed" />
-            <CheckBox x:Name="CkSpoutLyrics" Content="独立 Spout 字幕通道" Margin="0,4,0,0"
-                      Checked="Draft_Changed" Unchecked="Draft_Changed" />
-            <StackPanel x:Name="LyricsFpsRow" Margin="20,4,0,0">
+            <CheckBox x:Name="CkSpoutLyrics" Margin="0,0,0,6" Checked="Draft_Changed" Unchecked="Draft_Changed">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="字幕渲染帧率：" Style="{StaticResource RowLab}" Margin="0,0,4,0" />
-                    <TextBox x:Name="TbLyricsFps" Width="70" TextChanged="Draft_Changed" />
+                    <TextBlock Text="独立 Spout 字幕通道 " FontSize="12" />
+                    <TextBlock x:Name="TblLyricsChan" Text="JIZURA-live-LYRICS" FontSize="12"
+                               FontWeight="Bold" VerticalAlignment="Center" />
+                </StackPanel>
+            </CheckBox>
+            <TextBlock Text="透明底只出字幕层：KRC 逐字主行 + 音译/翻译行（已唱高亮），供 OBS 分层叠在画面上；没有 KRC 字幕数据时输出全透明帧。"
+                       Style="{StaticResource HintXs}" Margin="24,0,0,6" TextWrapping="Wrap" MaxWidth="300" HorizontalAlignment="Left" />
+            <StackPanel x:Name="LyricsFpsRow" Margin="24,0,0,6">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="字幕渲染帧率：" Style="{StaticResource RowLab}" />
+                    <TextBox x:Name="TbLyricsFps" Width="96" Style="{StaticResource TbNum}"
+                             TextChanged="Draft_Changed" />
                     <TextBlock Text="fps" Style="{StaticResource RowLab}" Margin="6,0,0,0" />
                     <TextBlock x:Name="TbLyricsFpsErr" Text="1~240" Foreground="{StaticResource Danger}"
-                               FontSize="10" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
+                               FontSize="11" Margin="6,0,0,0" VerticalAlignment="Center" Visibility="Collapsed" />
                 </StackPanel>
                 <TextBlock Text="字幕通道的输出帧率，生效值不超过渲染帧率；改后随「重启渲染引擎」生效。"
-                           Style="{StaticResource Hint}" Margin="0,2,0,0" />
+                           Style="{StaticResource HintXs}" Margin="0,4,0,0" />
             </StackPanel>
-            <CheckBox x:Name="CkSplitMirror" Content="镜像独立进程渲染（GPU 隔离）" Margin="0,4,0,0"
-                      Checked="Draft_Changed" Unchecked="Draft_Changed" />
-            <TextBlock Text="渲染独立宿主进程，与编辑器互不抢占 GPU。切换会重建镜像输出（短暂黑 1~2 秒）。"
-                       Style="{StaticResource Hint}" Margin="20,2,0,0" />
         </StackPanel>
 
-        <!-- 应用 + 重启 -->
-        <Button x:Name="BtnRestart" Margin="0,14,0,0" Click="BtnRestart_Click" />
-        <TextBlock Text="分辨率・帧率・字幕帧率・Spout・透明背景・镜像独立进程的改动需点上方按钮保存后生效；画布比例即时生效。"
-                   Style="{StaticResource Hint}" Margin="0,6,0,0" />
+        <!-- 保存并重启渲染引擎（btn btn-primary w-full mt-4） -->
+        <Button x:Name="BtnRestart" Style="{StaticResource BtnPrimary}" Margin="0,16,0,0"
+                Click="BtnRestart_Click" />
+
+        <!-- .note：分辨率・帧率・… 的改动需点上方按钮保存后生效 -->
+        <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0" Padding="10,0,0,0"
+                Margin="0,12,0,0">
+            <TextBlock Style="{StaticResource NoteTx}"
+                       Text="分辨率・帧率・字幕帧率・Spout・透明背景・字幕通道的改动需点上方按钮保存后生效。画布比例即时生效。" />
+        </Border>
     </StackPanel>
 </UserControl>

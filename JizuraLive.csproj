@@ -63,6 +63,8 @@
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />
+      <!-- 界面字体：老前端 font-ui 的 IBM Plex Sans JP（自托管，离线可用） -->
+      <Resource Include="assets\fonts\*.ttf" />
       <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
       <ApplicationDefinition Include="src\App\App.xaml" />
       <!-- 测试工程单独一层目录，主程序不编译它 -->

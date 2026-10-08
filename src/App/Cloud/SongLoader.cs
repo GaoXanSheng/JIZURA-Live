@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -178,15 +177,17 @@ public static class SongLoader
     }
 
     /// <summary>KRC 解密 → JIZURA LRC；LRC 直读；网易云 LRC + 翻译/音译按时间戳对齐。
-    /// 返回 (LRC 文本, 提示语)。</summary>
+    /// 返回 (LRC 文本, 提示语)。音译/翻译由设置里的 WantRoma/WantTrans 决定（歌词面板的勾选框）。</summary>
     public static (string Lrc, string Note) ConvertLyric(string source, KgLyricResponse ly)
     {
+        var wantRoma = App.SettingsOf()?.WantRoma ?? true;
+        var wantTrans = App.SettingsOf()?.WantTrans ?? true;
         if (source == "netease")
         {
             var lrc = Krc.NeParseLrc(Krc.B64Text(ly.Content!));
             List<Krc.NeRow> trans = string.IsNullOrEmpty(ly.Trans) ? [] : Krc.NeParseLrc(Krc.B64Text(ly.Trans));
             List<Krc.NeRow> roma = string.IsNullOrEmpty(ly.Roma) ? [] : Krc.NeParseLrc(Krc.B64Text(ly.Roma));
-            var text = Krc.NeBuildLrc(lrc, trans, roma);
+            var text = Krc.NeBuildLrc(lrc, trans, roma, wantRoma, wantTrans);
             var note = trans.Count > 0 || roma.Count > 0 ? "，歌词已填入（含注音）" : "，歌词已填入（无音译/翻译）";
             return (text, note);
         }
@@ -195,7 +196,7 @@ public static class SongLoader
         if (ly.Fmt == "krc")
         {
             var krcText = Krc.Decrypt(bin);
-            return (Krc.KrcToLrc(krcText), "，歌词已填入");
+            return (Krc.KrcToLrc(krcText, wantRoma, wantTrans), "，歌词已填入");
         }
 
         return (Krc.B64Text(ly.Content!), "，歌词已填入（普通 LRC，无音译/翻译）");

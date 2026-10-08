@@ -1,11 +1,14 @@
 using System.Collections.Concurrent;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using JizuraLive.App.Controls;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
@@ -15,7 +18,9 @@ namespace JizuraLive.App.Views;
 
 /// <summary>
 /// 手法选项卡（对位 frontend/src/components/panels/TechTab.vue + jizura/preview.ts）：
-/// 套装开关 + 名称筛选 + 10 组手法段（开关墙 / 全开全关反转 / 组锁）+ 预览缩略图。
+/// 套装开关（.checkblock 的 Switch）+ 名称筛选 + 10 组手法段（开关墙 / 全开全关反转 / 组锁）+ 预览缩略图。
+/// 视觉树按 Vue 类名逐点对位：组段 = details.border.border-line.rounded-md.bg-raised，
+/// 卡片 = 自适应网格 repeat(auto-fill,minmax(112px,1fr)) gap 8 的 label（缩略图 + 名称行徽标）。
 ///
 /// 渲染策略（M3）：静态单帧（每组取代表性相位；Vue 版是预算制 rAF 动态循环，见「取舍」），
 /// 后台单线程队列逐张出图：Task.Run 循环 + EngineRenderGate 串行（JText/JLang 静态缓存
@@ -25,6 +30,12 @@ namespace JizuraLive.App.Views;
 /// </summary>
 public partial class TechTab : UserControl
 {
+    // ---------------- 卡片网格几何（旧 div.grid gap-2 px-2.5 pb-2.5 [minmax(112px,1fr)]） ----------------
+
+    private const double CardGap = 8;    // gap-2
+    private const double CardMinW = 112; // repeat(auto-fill,minmax(112px,1fr))
+    private const double CardPad = 10;   // 网格左右内边距 px-2.5
+
     // ---------------- 常量（对位 Vue GROUPS / SETS / TECH_LOCK_ON） ----------------
 
     private static readonly (string G, string Label)[] Groups =
@@ -91,7 +102,7 @@ public partial class TechTab : UserControl
         public TextBlock Count = null!;
         public Button LockBtn = null!;
         public StackPanel Body = null!;
-        public WrapPanel Cards = null!;
+        public Grid Cards = null!;        // 自适应卡片网格（列数随可用宽度算，1fr 由星列拉伸）
         public bool Open;                 // 折叠状态存这里，筛选清空后还原（Vue openSet 对位）
     }
 
@@ -99,15 +110,24 @@ public partial class TechTab : UserControl
     {
         public string G = "";
         public string K = "";
-        public Image Img = null!;
+        public Border Face = null!;       // 缩略图面（bg = ImageBrush，圆角承担旧 overflow-hidden）
         public CheckBox Chk = null!;
         public Border Box = null!;
     }
 
     private readonly List<GroupUi> _groupList = new();
     private readonly Dictionary<string, Dictionary<string, CardUi>> _cards = new();
-    private readonly List<CheckBox> _setChecks = new();
+    private readonly List<ToggleButton> _setChecks = new();
     private bool _syncing; // 程序回填控件时不触发反向 Mutate
+
+    // 卡片态常用画刷（BuildGroups 时取一次，RefreshCard 逐卡刷态不再走资源查找）
+    private Brush? _brushAmber;
+    private Brush? _brushLine;
+    private Brush? _brushInk;
+    private Brush? _brushPanel;
+    private Brush? _brushFg;
+    private Brush? _brushMut;
+    private Brush? _brushRaised;
 
     // ---------------- 缩略图渲染管线 ----------------
 
@@ -116,7 +136,7 @@ public partial class TechTab : UserControl
         public string Sig = "";      // 入队时的渲染签名（变了就丢）
         public string G = "";
         public string K = "";
-        public Image Img = null!;    // 回贴目标（卡片可能已被折叠卸载，回贴成孤儿无害）
+        public Border Img = null!;   // 回贴目标（卡片可能已被折叠卸载，回贴成孤儿无害）
         public Project Snap = null!; // UI 线程工程的只读快照（入队时成对取走，无跨线程竞态）
     }
 
@@ -162,6 +182,7 @@ public partial class TechTab : UserControl
             _wired = true;
             var main = App.MainInstance!;
             main.State.StateChanged += () => Dispatcher.Invoke(OnStateChanged);
+            CacheBrushes();
             BuildSets();
             BuildGroups();
             StartWorker();
@@ -181,39 +202,55 @@ public partial class TechTab : UserControl
         }
     }
 
+    /// <summary>视觉树常用画刷取一次（套装开关/组段/卡片态都在刷这些键，别逐卡走资源查找）。</summary>
+    private void CacheBrushes()
+    {
+        _brushFg = TryFindResource("Fg") as Brush;
+        _brushMut = TryFindResource("Mut") as Brush;
+        _brushAmber = TryFindResource("Amber") as Brush;
+        _brushLine = TryFindResource("LineBrush") as Brush;
+        _brushInk = TryFindResource("Ink") as Brush;
+        _brushPanel = TryFindResource("Panel") as Brush;
+        _brushRaised = TryFindResource("Raised") as Brush;
+    }
+
     // ---------------- 顶部：套装开关（Vue SETS checkblocks） ----------------
 
+    /// <summary>Vue checkblock：.switch（30×17 胶囊）+ label/small 两行文案（gap-2、gap-1、mb-3）。</summary>
     private void BuildSets()
     {
-        var fg = TryFindResource("Fg") as Brush;
-        var mut = TryFindResource("Mut") as Brush;
-        foreach (var t in Sets)
+        var fg = _brushFg;
+        var mut = _brushMut;
+        var swStyle = (Style)FindResource("Switch");
+        for (var i = 0; i < Sets.Length; i++)
         {
-            var chk = new CheckBox
+            var t = Sets[i];
+            var sw = new ToggleButton
             {
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 2, 6, 0),
+                Style = swStyle,
+                VerticalAlignment = VerticalAlignment.Top, // .checkblock items-start
             };
-            chk.Checked += (_, _) => OnSetToggle(t, true);
-            chk.Unchecked += (_, _) => OnSetToggle(t, false);
-            _setChecks.Add(chk);
+            sw.Checked += (_, _) => OnSetToggle(t, true);
+            sw.Unchecked += (_, _) => OnSetToggle(t, false);
+            _setChecks.Add(sw);
 
-            var text = new StackPanel();
+            var text = new StackPanel { Margin = new Thickness(8, 0, 0, 0) }; // gap-2
             text.Children.Add(new TextBlock
             {
-                Text = t.Label, FontSize = 12, Foreground = fg, TextWrapping = TextWrapping.Wrap,
+                Text = t.Label, FontSize = 12, LineHeight = 18, Foreground = fg, TextWrapping = TextWrapping.Wrap,
             });
             text.Children.Add(new TextBlock
             {
-                Text = t.Sub, FontSize = 10, Foreground = mut, TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 1, 0, 0),
+                Text = t.Sub, FontSize = 11, LineHeight = 16.5, Foreground = mut, TextWrapping = TextWrapping.Wrap,
             });
 
             var row = new StackPanel
             {
-                Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 1),
+                Orientation = Orientation.Horizontal,
+                // flex-col gap-1：末行不留（容器自身的 mb-3 已在 XAML）
+                Margin = i == Sets.Length - 1 ? new Thickness(0) : new Thickness(0, 0, 0, 4),
             };
-            row.Children.Add(chk);
+            row.Children.Add(sw);
             row.Children.Add(text);
             ToolTipService.SetToolTip(row, t.Sub);
             SetsHost.Children.Add(row);
@@ -233,22 +270,27 @@ public partial class TechTab : UserControl
 
     private void BuildGroups()
     {
-        var raised = TryFindResource("Raised") as Brush;
-        var line = TryFindResource("LineBrush") as Brush;
-        var fg = TryFindResource("Fg") as Brush;
-        var mut = TryFindResource("Mut") as Brush;
-
         foreach (var (g, label) in Groups)
         {
             var ui = new GroupUi { G = g, Label = label };
 
-            ui.Arrow = new TextBlock { Text = "▸", Foreground = mut, Margin = new Thickness(0, 0, 6, 0) };
+            // summary：before:'▸'(mut) + flex-1 组名(semibold) + mono 11px 计数 + 锁按钮
+            ui.Arrow = new TextBlock
+            {
+                Text = "▸", Foreground = _brushMut, FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 14, 0), // before:mr-2 + gap-1.5
+            };
             ui.Count = new TextBlock
             {
-                Foreground = mut, FontSize = 11, FontFamily = new FontFamily("Consolas"),
+                Style = (Style)FindResource("MonoMut"), FontSize = 11,
                 Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
             };
-            ui.LockBtn = new Button { Style = (Style)FindResource("SmallGhost"), Content = LockIcon() };
+            ui.LockBtn = new Button
+            {
+                Style = (Style)FindResource("BtnIcon"), Content = LockIcon(),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
             ui.LockBtn.Click += (_, _) => OnLock(g);
             ToolTipService.SetToolTip(ui.LockBtn, TechLockOn);
 
@@ -258,7 +300,11 @@ public partial class TechTab : UserControl
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             hdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             hdrGrid.Children.Add(ui.Arrow);
-            var lab = new TextBlock { Text = label, FontWeight = FontWeights.SemiBold, Foreground = fg };
+            var lab = new TextBlock
+            {
+                Text = label, FontSize = 12, LineHeight = 18, FontWeight = FontWeights.SemiBold,
+                Foreground = _brushFg, VerticalAlignment = VerticalAlignment.Center,
+            };
             Grid.SetColumn(lab, 1);
             hdrGrid.Children.Add(lab);
             Grid.SetColumn(ui.Count, 2);
@@ -273,25 +319,32 @@ public partial class TechTab : UserControl
                 ApplyFilter();
             };
 
-            // 段内工具行：全部开启 / 全部关闭 / 反转（Vue onAll）
+            // 段内工具行：全部开启 / 全部关闭 / 反转（Vue .flex.gap-1.5.px-2.5.pb-2）
             var tools = new StackPanel
             {
-                Orientation = Orientation.Horizontal, Margin = new Thickness(9, 6, 9, 6),
+                Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 10, 8),
             };
-            tools.Children.Add(ToolBtn("全部开启", () => OnAll(g, "on")));
-            tools.Children.Add(ToolBtn("全部关闭", () => OnAll(g, "off")));
-            tools.Children.Add(ToolBtn("反转", () => OnAll(g, "flip")));
+            var toolDefs = new[] { ("全部开启", "on"), ("全部关闭", "off"), ("反转", "flip") };
+            for (var i = 0; i < toolDefs.Length; i++)
+            {
+                var d = toolDefs[i];
+                var b = ToolBtn(d.Item1, () => OnAll(g, d.Item2));
+                if (i < toolDefs.Length - 1) b.Margin = new Thickness(0, 0, 6, 0); // gap-1.5
+                tools.Children.Add(b);
+            }
 
-            ui.Cards = new WrapPanel { Margin = new Thickness(7, 0, 7, 8) };
+            // 卡片网格：列数/margin 由 BuildCards 按可用宽度摆（mb-2.5 的底间距给 2，行距走卡片自身）
+            ui.Cards = new Grid { Margin = new Thickness(CardPad, 0, CardPad, 2) };
 
             ui.Body = new StackPanel { Visibility = Visibility.Collapsed };
             ui.Body.Children.Add(tools);
             ui.Body.Children.Add(ui.Cards);
 
+            // 组段：border border-line rounded-md bg-raised mb-2
             ui.Box = new Border
             {
-                Background = raised, BorderBrush = line, BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 0, 0, 8),
+                Background = _brushRaised, BorderBrush = _brushLine, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, 0, 8),
             };
             var stack = new StackPanel();
             stack.Children.Add(ui.Header);
@@ -305,82 +358,147 @@ public partial class TechTab : UserControl
 
     private Button ToolBtn(string text, Action click)
     {
-        var b = new Button { Style = (Style)FindResource("SmallGhost"), Content = text };
+        var b = new Button { Style = (Style)FindResource("BtnGhostSm"), Content = text }; // btn btn-ghost btn-sm
         b.Click += (_, _) => click();
         return b;
     }
 
-    private Path LockIcon()
+    /// <summary>旧 svg（16 视图框：rect 锁体 + 锁梁 arc，stroke=currentColor，15px）→ Theme 几何 + Viewbox。
+    /// 形式同 LineList/FxTab 的图标资源：套 15×15 Viewbox 的 16×16 Canvas，描边随按钮前景（锁定 = 琥珀）。</summary>
+    private UIElement LockIcon()
     {
-        // Vue 的 svg（rect(3,7,10,7,rx1.5) + 锁梁 arc）Path 化；描边随按钮 Foreground（锁定=琥珀）
-        return new Path
+        var canvas = new Canvas { Width = 16, Height = 16 };
+        var stroke = new Binding("Foreground")
         {
-            StrokeThickness = 1.4,
-            Data = Geometry.Parse(
-                "M4.5,7.7 h7 a1.3,1.3 0 0 1 1.3,1.3 v4 a1.3,1.3 0 0 1 -1.3,1.3 h-7 a1.3,1.3 0 0 1 -1.3,-1.3 v-4 a1.3,1.3 0 0 1 1.3,-1.3 z M6,7.5 V5.5 a2,2 0 0 1 4,0 v2"),
-            Width = 15,
-            Height = 15,
-            Stretch = Stretch.None,
+            RelativeSource = new RelativeSource(RelativeSourceMode.FindAncestor) { AncestorType = typeof(Button) },
         };
+        foreach (var key in new[] { "IconLockBody", "IconLockPath" })
+        {
+            var p = new Path { StrokeThickness = 1.4 };
+            if (TryFindResource(key) is Geometry geo) p.Data = geo;
+            p.SetBinding(Shape.StrokeProperty, stroke);
+            canvas.Children.Add(p);
+        }
+        return new Viewbox { Width = 15, Height = 15, Child = canvas };
     }
 
     // ---------------- 卡片 ----------------
+
+    /// <summary>网格几何：列数按 auto-fill minmax(112px,1fr) 算，列宽 = 可用宽去掉列间距后平分（星列拉伸）。</summary>
+    private (int Cols, double ItemW) CardMetrics()
+    {
+        var w = GroupsHost.ActualWidth;
+        if (w <= 1) w = 346; // 未布局兜底（370 栏 − 滚动条 − 组框描边的实测可用值）
+        var avail = Math.Max(140, w - 2 - CardPad * 2); // 组框 1px 描边 + 网格左右内边距
+        var cols = Math.Max(1, (int)Math.Floor((avail + CardGap) / (CardMinW + CardGap)));
+        return (cols, (avail - CardGap * (cols - 1)) / cols);
+    }
+
+    /// <summary>名称行徽标（旧 badgesOf）：新增 ex / 和 / 恐・文・动，各自带 title。</summary>
+    private void AddBadges(StackPanel host, string g, string k)
+    {
+        void Add(string text, string title, string? styleKey)
+        {
+            var b = new JzBadge { Text = text, Margin = new Thickness(4, 0, 0, 0) }; // gap-1
+            if (styleKey != null) b.Style = (Style)FindResource(styleKey);
+            ToolTipService.SetToolTip(b, title);
+            host.Children.Add(b);
+        }
+
+        if (Omakase.IsExtra(g, k)) Add("新增", "最初公开版之后追加", "BadgeEx");
+        if (Omakase.IsWa(g, k)) Add("和", "和风特效", null);
+        switch (Omakase.SetOf(g, k))
+        {
+            case "horror": Add("恐", "恐怖", "BadgeHorror"); break;
+            case "typo": Add("文", "文字排版", "BadgeTypo"); break;
+            case "kinetic": Add("动", "动态文字", "BadgeKinetic"); break;
+        }
+    }
 
     /// <summary>展开内容重建（展开/筛选时调用）。折叠的组不建卡片：M5 后 800+ 卡会撑爆可视树，对位 Vue v-if 卸载。</summary>
     private int BuildCards(GroupUi ui, string q)
     {
         ui.Cards.Children.Clear();
+        ui.Cards.ColumnDefinitions.Clear();
+        ui.Cards.RowDefinitions.Clear();
         var map = new Dictionary<string, CardUi>();
         var p = App.MainInstance!.State.Project;
         var en = EnabledOf(p, ui.G);
-        var (tw, th) = ThumbSize();
-        var cardW = Math.Max(132, tw + 10);
-        var ink = TryFindResource("Ink") as Brush;
-        var panel = TryFindResource("Panel") as Brush;
-        var line = TryFindResource("LineBrush") as Brush;
-        var fg = TryFindResource("Fg") as Brush;
 
+        // 网格列：星列平分（1fr），列间塞定宽空列（gap-2）
+        var (cols, itemW) = CardMetrics();
+        for (var c = 0; c < cols; c++)
+        {
+            if (c > 0) ui.Cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(CardGap) });
+            ui.Cards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+        var thumbW = Math.Max(40, itemW - 2);         // 卡内宽 = 列宽 − 左右各 1px 描边
+        var thumbH = Math.Round(thumbW * 9.0 / 16.0); // 旧 canvas 的 aspect-video 外框
+
+        // 先定可见条目，再一次性备好行（行距由卡片自身的下边距承担）
+        var keys = new List<string>();
         foreach (var k in Reg.OrderOf(ui.G))
         {
             var def = DefOf(ui.G, k);
             if (def == null) continue;
             if (q.Length > 0 && !(def.Name + " " + k).ToLowerInvariant().Contains(q)) continue;
+            keys.Add(k);
+        }
+        var rows = (keys.Count + cols - 1) / cols;
+        for (var r = 0; r < rows; r++)
+            ui.Cards.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            // Image 无 Background：底色（Vue bg-ink）由 Border 宿主承担
-            var inner = new Image { Width = tw, Height = th, Stretch = Stretch.Fill };
-            var img = new Border
+        for (var i = 0; i < keys.Count; i++)
+        {
+            var k = keys[i];
+            var def = DefOf(ui.G, k)!;
+
+            // 缩略图（旧 canvas w-full aspect-video bg-ink block）：位图经 ImageBrush 铺满 + 顶角圆角（overflow-hidden 对位）。
+            // 底 ink 兜住未出图期，面（Face）在后台队列回贴 ImageBrush。
+            var face = new Border { CornerRadius = new CornerRadius(5, 5, 0, 0) };
+            var thumb = new Border
             {
-                Background = ink,
-                Child = inner,
-                HorizontalAlignment = HorizontalAlignment.Center,
+                Background = _brushInk, CornerRadius = new CornerRadius(5, 5, 0, 0), Height = thumbH,
+                Child = face, SnapsToDevicePixels = true,
             };
 
-            var chk = new CheckBox { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0) };
+            // 名称行（旧 flex items-center gap-1 text-[11px] px-1.5 pb-1.5）：勾选 + 裁切名 + 徽标
+            // 勾选框模板自带 7px 内容边距，右留 -3 把 gap-1（4px）找回来
+            var chk = new CheckBox { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, -3, 0) };
             var name = new TextBlock
             {
-                Text = def.Name, FontSize = 11, Foreground = fg,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                VerticalAlignment = VerticalAlignment.Center,
+                Text = def.Name, FontSize = 11, LineHeight = 16.5, Foreground = _brushFg,
+                TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center,
             };
-            var nameRow = new Grid { Margin = new Thickness(6, 4, 6, 5) };
+            var badges = new StackPanel
+            {
+                Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
+            };
+            AddBadges(badges, ui.G, k);
+
+            var nameRow = new Grid { Margin = new Thickness(6, 4, 6, 6) };
             nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            nameRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             nameRow.Children.Add(chk);
             Grid.SetColumn(name, 1);
             nameRow.Children.Add(name);
+            Grid.SetColumn(badges, 2);
+            nameRow.Children.Add(badges);
 
+            // 卡（旧 label flex flex-col gap-1 p-0 border border-line rounded-md overflow-hidden bg-panel）
             var box = new Border
             {
-                Width = cardW, Background = panel, BorderBrush = line, BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4), Margin = new Thickness(4),
+                Background = _brushPanel, BorderBrush = _brushLine, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, 0, CardGap),
                 Cursor = Cursors.Hand,
-                Child = new StackPanel { Children = { img, nameRow } },
+                Child = new StackPanel { Children = { thumb, nameRow } },
             };
 
             // 缓存命中直接回贴（折叠重开/筛选重建不重渲）；未命中的进后台队列
-            if (_bmp.TryGetValue($"{_sig}|{ui.G}|{k}", out var cached)) inner.Source = cached;
+            if (_bmp.TryGetValue($"{_sig}|{ui.G}|{k}", out var cached)) face.Background = new ImageBrush(cached);
 
-            var card = new CardUi { G = ui.G, K = k, Img = inner, Chk = chk, Box = box };
+            var card = new CardUi { G = ui.G, K = k, Face = face, Chk = chk, Box = box };
             map[k] = card;
 
             chk.Checked += (_, _) => OnCardCheck(ui.G, k, true);
@@ -389,6 +507,9 @@ public partial class TechTab : UserControl
             box.MouseLeftButtonUp += (_, _) => chk.IsChecked = chk.IsChecked != true;
 
             RefreshCard(card, p, en);
+
+            Grid.SetColumn(box, i % cols * 2);
+            Grid.SetRow(box, i / cols);
             ui.Cards.Children.Add(box);
         }
 
@@ -465,7 +586,8 @@ public partial class TechTab : UserControl
                 ui.Count.Text = $"{onN}/{items.Count}";
 
                 var locked = p.Locks.Tech.ContainsKey(ui.G);
-                ui.LockBtn.Foreground = (locked ? TryFindResource("Amber") : TryFindResource("Mut")) as Brush;
+                ui.LockBtn.Foreground = locked ? _brushAmber : _brushMut;     // 旧 :class="locked ? '!text-amber' : ''"
+                ui.LockBtn.BorderBrush = locked ? _brushAmber : _brushLine;   // 同 FxTab 的锁按钮：锁定态琥珀描边
                 ToolTipService.SetToolTip(ui.LockBtn, locked ? TechLockOff : TechLockOn);
 
                 if (_cards.TryGetValue(ui.G, out var map))
@@ -480,21 +602,35 @@ public partial class TechTab : UserControl
         }
     }
 
-    /// <summary>单卡开关态 + 随机不可用（randomOk 关）半透明 + 悬停说明。调用方持有 _syncing 守卫。</summary>
+    /// <summary>单卡开关态（含选中琥珀描边）+ 随机不可用（randomOk 关）半透明 + 悬停说明。调用方持有 _syncing 守卫。</summary>
     private void RefreshCard(CardUi card, Project p, Dictionary<string, bool>? en)
     {
-        card.Chk.IsChecked = IsOn(en, card.K);
+        var on = IsOn(en, card.K);
+        card.Chk.IsChecked = on;
+        card.Box.BorderBrush = on ? _brushAmber : _brushLine; // 选中/开启态边框琥珀
         var off = !Reg.RandomAllows(p, card.G, card.K);
         card.Box.Opacity = off ? 0.5 : 1;
+
+        // 悬停说明（Vue c.title）：键 +（氛围名・…）+ 随机不可用原因
         var def = DefOf(card.G, card.K);
-        var tags = def is { Tags.Length: > 0 } ? "（" + string.Join("・", def.Tags) + "）" : "";
-        var note = off ? "（自动不会选中）" : "";
+        var tags = def is { Tags.Length: > 0 }
+            ? "（" + string.Join("・", def.Tags.Select(t => Omakase.Moods.TryGetValue(t, out var m) ? m.Name : t)) + "）"
+            : "";
+        var set = def?.Set;
+        var note = !off ? ""
+            : Omakase.IsExtra(card.G, card.K) && !p.Extra ? "（新增特效未开启，自动不会选中）"
+                : set != null && !Omakase.SetOn(p, set) ? "（该套装未开启，自动不会选中）"
+                    : "（和风特效未开启，自动不会选中）";
         ToolTipService.SetToolTip(card.Box, card.K + tags + note);
     }
 
     // ---------------- 筛选 / 折叠（Vue filter + details open） ----------------
 
-    private void TbFilter_TextChanged(object sender, TextChangedEventArgs e) => ApplyFilter();
+    private void TbFilter_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        FilterHint.Visibility = TbFilter.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ApplyFilter();
+    }
 
     /// <summary>按筛选词重建各组可见卡片；筛选时自动展开全部组，清空后还原各自折叠态（Vue open: !!q || openSet）。</summary>
     private void ApplyFilter()
@@ -526,15 +662,6 @@ public partial class TechTab : UserControl
     }
 
     // ---------------- 缩略图渲染管线 ----------------
-
-    private (int W, int H) ThumbSize()
-    {
-        var p = App.MainInstance!.State.Project;
-        var (W, H) = Planner.DesignSize(string.IsNullOrEmpty(p.Aspect) ? "16:9" : p.Aspect);
-        const int th = 90; // Vue h=90；tw = max(80, round(h*W/H))
-        var tw = Math.Max(80, (int)Math.Round(th * (double)W / H));
-        return (tw, th);
-    }
 
     /// <summary>渲染签名：随风格/画幅/seed/抠像/语言/整列/统一感/配色/字体变（Vue cacheKey 超集 + seed）。</summary>
     private static string CurrentSig()
@@ -577,7 +704,7 @@ public partial class TechTab : UserControl
             foreach (var (k, card) in map)
             {
                 if (_bmp.ContainsKey($"{sig}|{ui.G}|{k}")) continue;
-                _queue.Enqueue(new Job { Sig = sig, G = ui.G, K = k, Img = card.Img, Snap = snap });
+                _queue.Enqueue(new Job { Sig = sig, G = ui.G, K = k, Img = card.Face, Snap = snap });
                 queued++;
             }
         }
@@ -612,7 +739,7 @@ public partial class TechTab : UserControl
                     if (bmp == null) continue;
                     _bmp[$"{job.Sig}|{job.G}|{job.K}"] = bmp;
                     var img = job.Img;
-                    Dispatcher.BeginInvoke(() => img.Source = bmp);
+                    Dispatcher.BeginInvoke(() => img.Background = new ImageBrush(bmp));
                 }
                 catch (Exception ex)
                 {

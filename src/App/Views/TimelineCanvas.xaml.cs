@@ -14,6 +14,15 @@ namespace JizuraLive.App.Views;
 // 这条时间轴只有几百个矩形 + 十几段 10px 小字，矢量直绘在任何 DPI 下都锐利，
 // 无需 Skia 光栅面与像素拷贝；SKElement 的价值在逐像素特效（舞台预览那种），这里用不上。
 //
+// 视觉对齐（照抄 Vue 三块 canvas 的绘制参数）：
+//   上条 16px：白 4.5% 底 + 视窗块（缩放时琥珀 45% 块，内缩 1.5px；未缩放时白 9% 通条）
+//   中条 20px：白 2% 底 + 白 7% 中线（1px）+ 播放头竖线 2px 与 10×11 三角
+//   本体 60px：1px line 边框（CSS border border-line）+ 内容盒 58px；行界刻度带 16px
+//              （刻度 1/2px、10×7 三角、10px mono 行号基线 14）、波形 #2b2b33、
+//              节拍 #3a3a44 底缘 6px、切分块 hsla(hue,70%,58%,.28)+左缘 2px hsla(80%,62%,.95)+
+//              10px mono 名称（基线 top+13，裁到块内）、缩放范围条 2px（白 18% 槽 + 琥珀块）
+//   色相：hue = (LAYOUT_ORDER 序号 * 37 + 30) % 360（未知 layout 落 353）
+//
 // 交互清单（逐项对齐 Vue 版）：
 //   上条：点按=视窗块中心瞬移；拖动=块跟手 1:1 平移；Shift/横向滚轮=平移，滚轮=缩放
 //   中条：点按/拖动=自由 seek（BeginScrub/EndScrub，音频静默跟随）
@@ -22,7 +31,8 @@ namespace JizuraLive.App.Views;
 //   播放头跟随：放大且播放中，播放头越过视窗 92% 即自动平移跟走
 //
 // 与 Vue 的取舍：导出范围底色（exportRange）M3 未接导出模型，不画；循环区间 overlay 的
-// cut/line 语义在本文件以同名私有方法实现（引擎 M3 只有整首 Loop bool，模式 UI 后续接）。
+// cut/line 语义在本文件以同名私有方法实现（引擎 M3 只有整首 Loop bool，模式 UI 后续接）；
+// 上条的 grab/grabbing 光标 WPF 无对应内置光标，沿用 Hand。
 public partial class TimelineCanvas : UserControl
 {
     private readonly DispatcherTimer _clock;
@@ -57,9 +67,11 @@ public sealed class TimelineSurface : FrameworkElement
 {
     // ---------------- 三带几何（对位 Vue 三块 canvas 的高度） ----------------
 
-    private const double PanH = 16;              // 上条：视图滑动
-    private const double PhH = 20;               // 中条：播放头
-    internal const double BodyH = 60;            // 下条：时间轴本体
+    private const double PanH = 16;              // 上条：视图滑动（canvas h-[16px]）
+    private const double PhH = 20;               // 中条：播放头（canvas h-[20px]）
+    internal const double BodyH = 60;            // 下条：时间轴本体（canvas h-[60px]，含 1px 边框）
+    private const double BodyInset = 1;          // 本体边框宽：Vue 用 CSS border border-line，
+                                                 // box-sizing: border-box → 内容盒 58px，绘制全在内容盒里
     private double BodyTop => PanH + PhH;
 
     // ---------------- 视图状态（对位 Vue 的 TL） ----------------
@@ -273,7 +285,9 @@ public sealed class TimelineSurface : FrameworkElement
                 _hoverLine = hv;
                 _cacheKey = null;
             }
-            Cursor = hv >= 0 ? Cursors.SizeWE : p.Y >= BodyTop ? Cursors.Arrow : Cursors.Hand;
+            // 悬停光标（对位 Vue 三块 canvas 的 CSS cursor）：上条 grab / 中条 ew-resize /
+            // 本体 pointer（行界上 ew-resize）。WPF 无 grab 开手光标，用 Hand 顶。
+            Cursor = hv >= 0 || (p.Y >= PanH && p.Y < BodyTop) ? Cursors.SizeWE : Cursors.Hand;
         }
         InvalidateVisual();
         e.Handled = true;
@@ -429,7 +443,8 @@ public sealed class TimelineSurface : FrameworkElement
 
     // ---------------- 绘制 ----------------
 
-    private static SolidColorBrush _bPanel = null!, _bAmber = null!, _bMut = null!, _bFaint = null!, _bFg = null!;
+    private static SolidColorBrush _bPanel = null!, _bAmber = null!, _bMut = null!, _bFaint = null!, _bFg = null!, _bLine = null!;
+    private static Pen _penEdge = null!;
 
     private static SolidColorBrush BrushOf(FrameworkElement fe, string key, Color fb)
     {
@@ -499,6 +514,9 @@ public sealed class TimelineSurface : FrameworkElement
             _bMut = BrushOf(this, "Mut", Color.FromRgb(0x8E, 0x8A, 0x94));
             _bFaint = BrushOf(this, "Faint", Color.FromRgb(0x5D, 0x5A, 0x63));
             _bFg = BrushOf(this, "Fg", Color.FromRgb(0xEC, 0xE7, 0xE1));
+            _bLine = BrushOf(this, "LineBrush", Color.FromRgb(0x2A, 0x2A, 0x31)); // 本体边框（CSS border-line）
+            _penEdge = new Pen(_bLine, 1);
+            _penEdge.Freeze();
         }
         var white = Color.FromRgb(255, 255, 255);
         var amber = _bAmber.Color;
@@ -513,44 +531,56 @@ public sealed class TimelineSurface : FrameworkElement
             _lineLabels.Clear();
         }
 
+        // ---- 几何：三带（上条 0..PanH / 中条 PanH..BodyTop / 本体 BodyTop..+BodyH）----
+        // 本体内容盒缩进 1px：对位 Vue 给 body canvas 的 CSS `border border-line`
+        // （box-sizing: border-box → clientWidth/Height 各少 2px，canvas 绘制全在内容盒里）。
         var bodyTop = BodyTop;
-        var top = bodyTop + 16;   // 行界带占本体顶部 16px
-        var bot = h - 8;
+        var bx = BodyInset;                        // 内容盒左缘
+        var by = bodyTop + BodyInset;              // 内容盒上缘
+        var bw = Math.Max(1, w - 2 * BodyInset);   // 内容宽（对位 clientWidth）
+        var bh = BodyH - 2 * BodyInset;            // 内容高 58（对位 clientHeight）
+        var top = by + 16;                         // 行界带占本体内容盒顶部 16px（drawStatic 的 top）
+        var bot = by + bh - 8;                     // 波形/切分块下缘（drawStatic 的 bot）
+        // 本体局部映射（对位 drawStatic 的 X / T；命中与 seek 仍走全宽 XOf，差 1px 内）
+        double BX(double tt) => bx + (tt - _off) / vd * bw;
+        double BTimeOf(double x) => _off + (x - bx) / bw * vd;
 
-        // 底
+        // 底（三带共底的 #131316）
         dc.DrawRectangle(_bPanel, null, new Rect(0, 0, w, h));
 
-        // ---- 上条：视图滑动 ----
-        dc.DrawRectangle(Alpha(white, 12), null, new Rect(0, 0, w, PanH)); // white 4.5%
+        // ---- 上条：视图滑动（对位 drawPanBar：白 4.5% 底 + 视窗块）----
+        dc.DrawRectangle(Alpha(white, 11), null, new Rect(0, 0, w, PanH)); // white 4.5%
         if (_zoom > 1)
-            dc.DrawRectangle(Alpha(amber, 115), null,
+            dc.DrawRectangle(Alpha(amber, 115), null,                                          // rgba(245,165,12,.45)
                 new Rect(_off / d * w, 1.5, Math.Max(6, vd / d * w), PanH - 3));
         else
             dc.DrawRectangle(Alpha(white, 23), null, new Rect(0, 1.5, w, PanH - 3)); // white 9%
 
-        // ---- 中条：播放头（背景 + 中线；三角/竖线在最后叠） ----
+        // ---- 中条：播放头底 + 中线（对位 drawPhBar 的白 2% 底与白 7% 中线；三角/竖线在最后叠）----
         dc.DrawRectangle(Alpha(white, 5), null, new Rect(0, PanH, w, PhH)); // white 2%
         dc.DrawRectangle(Alpha(white, 18), null, new Rect(0, PanH + PhH / 2 - 0.5, w, 1)); // white 7%
 
+        // ---- 本体：内容裁进内容盒（对位 canvas 自己裁内容，勾线/块不压边框）----
+        dc.PushClip(new RectangleGeometry(new Rect(bx, by, bw, bh)));
         if (plan != null)
         {
             var lineTimes = state.Project.Timing.LineTimes;
 
-            // ---- 行界：刻度线 + 三角手柄 + 行号 ----
+            // ---- 行界：刻度线 + 三角手柄 + 行号（基线落在内容盒顶 14px，对位 fillText(..., 14*dpr)）----
             foreach (var ln in plan.Lines)
             {
-                var lx = XOf(ln.Start);
-                if (lx < -20 || lx > w + 2) continue;
+                var lx = BX(ln.Start);
+                if (lx < bx - 20 || lx > bx + bw + 2) continue;
                 var on = ln.Index == _dragLine || ln.Index == _hoverLine;
                 var man = lineTimes.ContainsKey(ln.Index.ToString());
                 var brush = on ? _bAmber : man ? ManualBrush : _bFaint;
-                dc.DrawRectangle(brush, null, new Rect(Math.Round(lx) - (on ? 1 : 0), bodyTop, on ? 2 : 1, 16));
+                dc.DrawRectangle(brush, null, new Rect(Math.Round(lx) - (on ? 1 : 0), by, on ? 2 : 1, 16));
                 var tri = new StreamGeometry();
                 using (var g = tri.Open())
                 {
-                    g.BeginFigure(new Point(lx - 5, bodyTop), true, true);
-                    g.LineTo(new Point(lx + 5, bodyTop), true, false);
-                    g.LineTo(new Point(lx, bodyTop + 7), true, false);
+                    g.BeginFigure(new Point(lx - 5, by), true, true);
+                    g.LineTo(new Point(lx + 5, by), true, false);
+                    g.LineTo(new Point(lx, by + 7), true, false);
                 }
                 tri.Freeze();
                 dc.DrawGeometry(brush, null, tri);
@@ -560,7 +590,7 @@ public sealed class TimelineSurface : FrameworkElement
                     lft = Ft((ln.Index + 1).ToString("00") + (ln.Interlude ? " 间奏" : ""), 10, on ? _bAmber : _bMut, _ppd);
                     _lineLabels[lkey] = lft;
                 }
-                dc.DrawText(lft, new Point(lx + 4, bodyTop + 2));
+                dc.DrawText(lft, new Point(lx + 4, by + 14 - lft.Baseline));
             }
 
             // ---- 波形（垫底）----
@@ -570,36 +600,36 @@ public sealed class TimelineSurface : FrameworkElement
                 var sd = Math.Max(0.001, state.Audio.Duration);
                 var wf = WaveBrush;
                 var mid = top + (bot - top) / 2;
-                for (var i = 0; i < w; i += 2)
+                for (var i = 0.0; i < bw; i += 2)
                 {
-                    var st = TimeOfX(i);
+                    var st = BTimeOf(i);
                     if (st > sd) break;
                     if (st < 0) continue;
                     var v = pk[Math.Min(n - 1, (int)(st / sd * n))];
                     var hh = v * (bot - top) * 0.85;
                     if (hh < 0.5) continue;
-                    dc.DrawRectangle(wf, null, new Rect(i, mid - hh / 2, 1.5, hh));
+                    dc.DrawRectangle(wf, null, new Rect(bx + i, mid - hh / 2, 1.5, hh));
                 }
             }
 
-            // ---- 节拍刻度（底缘）----
+            // ---- 节拍刻度（本体内容盒底缘 6px）----
             var bt2 = BeatBrush;
             foreach (var b in plan.Beats)
             {
                 if (b < _off) continue;
                 if (b > _off + vd) break;
-                dc.DrawRectangle(bt2, null, new Rect(Math.Round(XOf(b)), h - 6, 1, 6));
+                dc.DrawRectangle(bt2, null, new Rect(Math.Round(BX(b)), by + bh - 6, 1, 6));
             }
 
             // ---- 切分块（layout 决定色相；interlude/title 不在 LAYOUT_ORDER，同落 353 区分色）----
             foreach (var cut in plan.Cuts)
             {
-                var x0 = XOf(cut.Start);
-                var x1 = XOf(cut.End);
-                if (x1 < 0 || x0 > w) continue;
+                var x0 = BX(cut.Start);
+                var x1 = BX(cut.End);
+                if (x1 < bx || x0 > bx + bw) continue;
                 var hue = LayoutHue(cut.Layout);
-                var bw = Math.Max(1, x1 - x0 - 1);
-                dc.DrawRectangle(Hb(hue, 70, 58, 0.28), null, new Rect(x0, top, bw, bot - top));
+                var cw = Math.Max(1, x1 - x0 - 1);
+                dc.DrawRectangle(Hb(hue, 70, 58, 0.28), null, new Rect(x0, top, cw, bot - top));
                 dc.DrawRectangle(Hb(hue, 80, 62, 0.95), null, new Rect(x0, top, Math.Max(1, 2), bot - top));
                 if (x1 - x0 > 34)
                 {
@@ -611,8 +641,9 @@ public sealed class TimelineSurface : FrameworkElement
                         cft = Ft(text, 10, Alpha(_bFg.Color, 217), _ppd);
                         _cutLabels[cut.Index] = cft;
                     }
+                    // 基线落在块顶 13px（对位 fillText(..., top + 13*dpr)），左内边距 5px
                     dc.PushClip(new RectangleGeometry(new Rect(x0, top, Math.Max(1, x1 - x0 - 3), bot - top)));
-                    dc.DrawText(cft, new Point(x0 + 5, top + 2));
+                    dc.DrawText(cft, new Point(x0 + 5, top + 13 - cft.Baseline));
                     dc.Pop();
                 }
             }
@@ -621,21 +652,25 @@ public sealed class TimelineSurface : FrameworkElement
             if (LoopMode is "line" or "cut")
             {
                 var r = LoopRange(t);
-                var rx0 = XOf(r.Start);
+                var rx0 = BX(r.Start);
                 dc.DrawRectangle(Alpha(amber, 41), null,
-                    new Rect(rx0, bodyTop, Math.Max(2, XOf(r.End) - rx0), BodyH));
+                    new Rect(rx0, by, Math.Max(2, BX(r.End) - rx0), bh));
             }
         }
 
-        // ---- 缩放范围条（底缘，对位 Vue 的底部黄条）----
+        // ---- 缩放范围条（本体内容盒底缘 2px，对位 Vue 的底部黄条；在白 18% 槽上叠琥珀块）----
         if (_zoom > 1)
         {
-            dc.DrawRectangle(Alpha(white, 46), null, new Rect(0, h - 2, w, 2)); // white 18%
-            dc.DrawRectangle(_bAmber, null, new Rect(_off / d * w, h - 2, Math.Max(4, vd / d * w), 2));
+            dc.DrawRectangle(Alpha(white, 46), null, new Rect(bx, by + bh - 2, bw, 2)); // white 18%
+            dc.DrawRectangle(_bAmber, null, new Rect(bx + _off / d * bw, by + bh - 2, Math.Max(4, vd / d * bw), 2));
         }
+        dc.Pop();
+
+        // ---- 本体 1px 边框（对位 body canvas 的 border border-line；半像素对齐求清晰）----
+        dc.DrawRectangle(null, _penEdge, new Rect(0.5, bodyTop + 0.5, Math.Max(0, w - 1), BodyH - 1));
 
         // ---- 播放头（最后叠：中条竖线 + 三角 + 本体竖线）----
-        var px = Math.Round(XOf(t));
+        var px = Math.Round(XOf(t));   // 中条按 ph canvas 全宽算（对位 drawPhBar 的 w）
         dc.DrawRectangle(_bAmber, null, new Rect(px - 1, PanH, 2, PhH));
         var ptri = new StreamGeometry();
         using (var g2 = ptri.Open())
@@ -646,7 +681,10 @@ public sealed class TimelineSurface : FrameworkElement
         }
         ptri.Freeze();
         dc.DrawGeometry(_bAmber, null, ptri);
-        dc.DrawRectangle(_bAmber, null, new Rect(px - 1, bodyTop, 2, BodyH));
+        var pxb = Math.Round(BX(t));   // 本体按 body canvas 内容宽算（对位 drawPlayheadLine；与中条最多差 2px，Vue 同）
+        dc.PushClip(new RectangleGeometry(new Rect(bx, by, bw, bh)));
+        dc.DrawRectangle(_bAmber, null, new Rect(pxb - 1, by, 2, bh));
+        dc.Pop();
     }
 
     // 懒建的一次性小色刷（Vue 特有配色，token 里没有）

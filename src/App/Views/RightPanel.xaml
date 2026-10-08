@@ -1,30 +1,42 @@
-<UserControl x:Class="JizuraLive.App.Views.RightPanel"
+﻿<UserControl x:Class="JizuraLive.App.Views.RightPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:JizuraLive.App.Views">
-    <TabControl Background="Transparent" BorderThickness="0" Padding="0">
-        <TabItem Header="风格" Style="{StaticResource TabHeader}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <views:StyleTab Margin="10,4" />
+    <!-- 对位 RightPanel.vue：五等分页签（sticky top，选中等宽下边框琥珀）+ 内容 -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}"
+                BorderThickness="0,0,0,1">
+            <UniformGrid Columns="5">
+                <Button x:Name="TabStyle" Content="风格" Style="{StaticResource TabHeader}" Tag="on"
+                        Click="Tab_Click" />
+                <Button x:Name="TabFx" Content="特效" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabTech" Content="手法" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabSettings" Content="设置" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabOut" Content="导出" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+            </UniformGrid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <ScrollViewer x:Name="HostStyle" VerticalScrollBarVisibility="Auto">
+                <views:StyleTab Margin="16,12" />
             </ScrollViewer>
-        </TabItem>
-        <TabItem Header="特效" Style="{StaticResource TabHeader}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <views:FxTab Margin="10,4" />
+            <ScrollViewer x:Name="HostFx" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <views:FxTab Margin="16,12" />
             </ScrollViewer>
-        </TabItem>
-        <TabItem Header="手法" Style="{StaticResource TabHeader}">
-            <views:TechTab />
-        </TabItem>
-        <TabItem Header="设置" Style="{StaticResource TabHeader}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <views:SettingsTab Margin="10,4" />
+            <Grid x:Name="HostTech" Visibility="Collapsed">
+                <views:TechTab />
+            </Grid>
+            <ScrollViewer x:Name="HostSettings" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <views:SettingsTab Margin="16,12" />
             </ScrollViewer>
-        </TabItem>
-        <TabItem Header="导出" Style="{StaticResource TabHeader}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <views:OutTab Margin="10,4" />
+            <ScrollViewer x:Name="HostOut" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <views:OutTab Margin="16,12" />
             </ScrollViewer>
-        </TabItem>
-    </TabControl>
+        </Grid>
+    </Grid>
 </UserControl>

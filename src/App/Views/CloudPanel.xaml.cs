@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using JizuraLive.App.Cloud;
@@ -44,7 +46,11 @@ public partial class CloudPanel : Window
         }
     }
 
+    /// <summary>跟随页「跟随的播放器」下拉项（AccountPane/FollowPane 的 session 选择）。</summary>
+    private sealed record SessionItem(string AppId, string Label);
+
     private string _source = "kugou";
+    private string _pane = "search";
     private bool _searching;
     private bool _loading;
     private bool _syncingFollow;
@@ -52,6 +58,7 @@ public partial class CloudPanel : Window
     private DispatcherTimer? _qrTimer;
     private string _qrKey = "";
     private bool _qrBusy;
+    private readonly List<string> _sessionSig = [];
 
     private static CloudPanel? _open;
 
@@ -65,6 +72,8 @@ public partial class CloudPanel : Window
         CmbQuality.SelectedIndex = 0;
         Loaded += (_, _) =>
         {
+            FitToOwner();
+            ShowPane(_pane);
             SyncSourceButtons();
             RefreshLogin();
             _syncingFollow = true;
@@ -96,23 +105,88 @@ public partial class CloudPanel : Window
         w.Show();
     }
 
+    // ---------------- 弹窗外壳（遮罩铺满 owner + 居中卡片，对位 MessageDialog / CloudMusicModal） ----------------
+
+    /// <summary>遮罩窗口铺满 owner；卡片按旧版 w-[min(860px,96vw)] h-[min(600px,88vh)] 定尺寸。</summary>
+    private void FitToOwner()
+    {
+        if (Owner == null || Owner.ActualWidth < 200 || Owner.ActualHeight < 200)
+        {
+            Width = 860;
+            Height = 600;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Card.Width = 860;
+            Card.Height = 600;
+            return;
+        }
+
+        Left = Owner.Left;
+        Top = Owner.Top;
+        Width = Owner.ActualWidth;
+        Height = Owner.ActualHeight;
+        Card.Width = Math.Min(860, Width * 0.96);
+        Card.Height = Math.Min(600, Height * 0.88);
+    }
+
+    private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();
+
+    /// <summary>点遮罩空白处关窗（对位 @click.self="cloud.open = false"）。</summary>
+    private void Mask_Click(object sender, MouseButtonEventArgs e) => Close();
+
+    /// <summary>扫码层的空白处关闭二维码（对位 @click.self="cloud.closeQr()"）。</summary>
+    private void QrMask_Click(object sender, MouseButtonEventArgs e) => CloseQr();
+
+    /// <summary>Esc 关窗；扫码层开着时不关（同旧版 onKey 的 !cloud.qr.active 判断）。</summary>
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || QrPanel.Visibility == Visibility.Visible) return;
+        Close();
+        e.Handled = true;
+    }
+
+    // ---------------- 页签（搜索 / 我的歌单 / 跟随播放器 / 账号） ----------------
+
+    private void ShowPane(string pane)
+    {
+        _pane = pane;
+        PaneSearch.Visibility = pane == "search" ? Visibility.Visible : Visibility.Collapsed;
+        PanePlaylists.Visibility = pane == "playlists" ? Visibility.Visible : Visibility.Collapsed;
+        PaneFollow.Visibility = pane == "follow" ? Visibility.Visible : Visibility.Collapsed;
+        PaneAccount.Visibility = pane == "account" ? Visibility.Visible : Visibility.Collapsed;
+        NavSearch.Tag = pane == "search" ? "on" : null;
+        NavPlaylists.Tag = pane == "playlists" ? "on" : null;
+        NavFollow.Tag = pane == "follow" ? "on" : null;
+        NavAccount.Tag = pane == "account" ? "on" : null;
+    }
+
+    private void Nav_Click(object sender, RoutedEventArgs e) =>
+        ShowPane(ReferenceEquals(sender, NavPlaylists) ? "playlists"
+            : ReferenceEquals(sender, NavFollow) ? "follow"
+            : ReferenceEquals(sender, NavAccount) ? "account"
+            : "search");
+
+    private void FollowGoSearch_Click(object sender, RoutedEventArgs e) => ShowPane("search");
+
     // ---------------- 平台 / 登录 ----------------
 
     private void SyncSourceButtons()
     {
-        var on = (System.Windows.Media.SolidColorBrush)FindResource("Raised2");
-        var fg = (System.Windows.Media.SolidColorBrush)FindResource("Fg");
-        var mut = (System.Windows.Media.SolidColorBrush)FindResource("Mut");
-        var off = System.Windows.Media.Brushes.Transparent;
+        var on = (SolidColorBrush)FindResource("Raised2");
+        var fg = (SolidColorBrush)FindResource("Fg");
+        var mut = (SolidColorBrush)FindResource("Mut");
+        var off = Brushes.Transparent;
         BtnKugou.Background = _source == "kugou" ? on : off;
         BtnKugou.Foreground = _source == "kugou" ? fg : mut;
         BtnNetease.Background = _source == "netease" ? on : off;
         BtnNetease.Foreground = _source == "netease" ? fg : mut;
     }
 
-    private void BtnSource_Click(object sender, RoutedEventArgs e)
+    private void BtnSource_Click(object sender, RoutedEventArgs e) =>
+        SetSource(ReferenceEquals(sender, BtnNetease) ? "netease" : "kugou");
+
+    /// <summary>切换搜索来源（头部 酷狗/网易云 分段按钮与账号卡片的「扫码登录」共用）。</summary>
+    private void SetSource(string next)
     {
-        var next = ReferenceEquals(sender, BtnNetease) ? "netease" : "kugou";
         if (next == _source) return;
         _source = next;
         SyncSourceButtons();
@@ -123,17 +197,28 @@ public partial class CloudPanel : Window
 
     private void RefreshLogin()
     {
-        var st = _source == "netease" ? ServerContext.Netease.LoginState() : ServerContext.KuGou.LoginState();
-        TblLogin.Text = st.Logged ? $"已登录：{st.Nickname}" : "未登录";
-        BtnLogin.Visibility = st.Logged ? Visibility.Collapsed : Visibility.Visible;
-        BtnLogout.Visibility = st.Logged ? Visibility.Visible : Visibility.Collapsed;
+        ApplyLoginCard("kugou", TblLoginKg, BtnLoginKg, BtnLogoutKg);
+        ApplyLoginCard("netease", TblLoginNe, BtnLoginNe, BtnLogoutNe);
+    }
+
+    /// <summary>账号页两张平台卡片（对位 AccountPane.vue：状态小字 + 扫码登录/退出登录）。</summary>
+    private static void ApplyLoginCard(string source, TextBlock status, Button login, Button logout)
+    {
+        var st = source == "netease" ? ServerContext.Netease.LoginState() : ServerContext.KuGou.LoginState();
+        status.Text = st.Logged
+            ? "已登录" + (string.IsNullOrEmpty(st.Nickname) ? "" : "：" + st.Nickname)
+            : "未登录 — VIP 歌曲与完整音质需要扫码登录";
+        login.Visibility = st.Logged ? Visibility.Collapsed : Visibility.Visible;
+        logout.Visibility = st.Logged ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void BtnLogout_Click(object sender, RoutedEventArgs e)
     {
+        // 卡片按钮带 Tag（kugou/netease），否则沿用当前来源
+        var src = (sender as Button)?.Tag as string ?? _source;
         try
         {
-            if (_source == "netease") ServerContext.Netease.Logout();
+            if (src == "netease") ServerContext.Netease.Logout();
             else ServerContext.KuGou.Logout();
         }
         catch (Exception ex)
@@ -241,11 +326,18 @@ public partial class CloudPanel : Window
 
     // ---------------- 扫码登录 ----------------
 
-    private void BtnLogin_Click(object sender, RoutedEventArgs e) => _ = OpenQrAsync();
+    private void BtnLogin_Click(object sender, RoutedEventArgs e)
+    {
+        // 账号卡片的按钮带 Tag（kugou/netease）：先切到该平台，二维码/轮询跟着 _source 走
+        if ((sender as Button)?.Tag is string src) SetSource(src);
+        _ = OpenQrAsync();
+    }
 
     private void BtnQrRefresh_Click(object sender, RoutedEventArgs e) => _ = OpenQrAsync();
 
-    private void BtnQrClose_Click(object sender, RoutedEventArgs e)
+    private void BtnQrClose_Click(object sender, RoutedEventArgs e) => CloseQr();
+
+    private void CloseQr()
     {
         StopQrPolling();
         QrPanel.Visibility = Visibility.Collapsed;
@@ -256,6 +348,8 @@ public partial class CloudPanel : Window
         StopQrPolling();
         QrPanel.Visibility = Visibility.Visible;
         QrImg.Source = null;
+        TblQrTitle.Text = _source == "netease" ? "网易云扫码登录" : "酷狗扫码登录";
+        QrScanned.Visibility = Visibility.Collapsed;
         TblQrTip.Text = "正在获取二维码…";
         try
         {
@@ -283,7 +377,7 @@ public partial class CloudPanel : Window
         if (img.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             img.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
             bytes = await http.GetByteArrayAsync(img);
         }
         else
@@ -331,22 +425,27 @@ public partial class CloudPanel : Window
                 {
                     case "1" or "801":
                         TblQrTip.Text = "等待扫码…";
+                        QrScanned.Visibility = Visibility.Collapsed;
                         break;
                     case "2" or "802":
                         TblQrTip.Text = "已扫码，请在手机上确认";
+                        QrScanned.Visibility = Visibility.Visible;
                         break;
                     case "0" or "800":
                         TblQrTip.Text = "二维码已过期，请点「刷新二维码」";
+                        QrScanned.Visibility = Visibility.Collapsed;
                         StopQrPolling();
                         break;
                     case "4" or "803":
                         StopQrPolling();
+                        QrScanned.Visibility = Visibility.Collapsed;
                         QrPanel.Visibility = Visibility.Collapsed;
                         RefreshLogin();
                         Log.Info($"[Cloud] 扫码登录成功（{_source}）");
                         break;
                     default:
                         TblQrTip.Text = "状态未知，请刷新二维码";
+                        QrScanned.Visibility = Visibility.Collapsed;
                         break;
                 }
             }
@@ -387,7 +486,49 @@ public partial class CloudPanel : Window
 
     private void BtnNudgeP_Click(object sender, RoutedEventArgs e) => Follow.Nudge(0.5);
 
+    // ±5s / 重置只在「估算进度」的播放器上有意义（对位 FollowPane 的 estimated 分支）
+    private void BtnNudgeM5_Click(object sender, RoutedEventArgs e) => Follow.Nudge(-5);
+
+    private void BtnNudgeP5_Click(object sender, RoutedEventArgs e) => Follow.Nudge(5);
+
+    private void BtnOffsetReset_Click(object sender, RoutedEventArgs e) => Follow.Nudge(-Follow.Offset);
+
     private void BtnRematch_Click(object sender, RoutedEventArgs e) => Follow.Rematch();
+
+    /// <summary>跟随的播放器下拉（FollowPane：自动选择 + 各会话；>1 个会话才显示）。</summary>
+    private void CmbFollowSession_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingFollow || !IsLoaded) return;
+        Follow.SelectSession(CmbFollowSession.SelectedValue as string);
+    }
+
+    private void RefreshFollowSessions(FollowController f, bool has)
+    {
+        var items = new List<SessionItem> { new("", "自动选择") };
+        if (has)
+            foreach (var s in f.Sessions)
+                items.Add(new SessionItem(s.AppId,
+                    s.AppName + "（" + (s.Title.Length > 0 ? s.Title : "无歌曲信息") + "）"));
+
+        SessionsRow.Visibility = has && f.Sessions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+
+        // 会话清单没变就不重设 ItemsSource（否则下拉展开时会被打断）
+        var sig = items.Select(i => i.AppId + "|" + i.Label).ToList();
+        if (!sig.SequenceEqual(_sessionSig))
+        {
+            _sessionSig.Clear();
+            _sessionSig.AddRange(sig);
+            CmbFollowSession.ItemsSource = items;
+        }
+
+        var want = f.AutoSelected ? "" : f.SelectedAppId;
+        if (!Equals(CmbFollowSession.SelectedValue as string, want))
+        {
+            _syncingFollow = true;
+            CmbFollowSession.SelectedValue = want;
+            _syncingFollow = false;
+        }
+    }
 
     private void RefreshFollow()
     {
@@ -396,11 +537,19 @@ public partial class CloudPanel : Window
         _syncingFollow = true;
         ChkFollow.IsChecked = f.On;
         _syncingFollow = false;
-        TblOffset.Text = f.Offset == 0 ? "" : $"偏移 {f.Offset:+0.0;-0.0}s";
+        TblOffset.Text = $"{(f.Offset > 0 ? "+" : "")}{f.Offset:0.0}s（正数=歌词提前）";
 
         var has = f.On && f.Status != FollowController.StOff;
         FollowDetail.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
         TblFollowDetail.Visibility = f.On && f.Detail.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BtnRematch.Visibility = has && f.Status is FollowController.StNoMatch or FollowController.StError
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        var est = has && f.Estimated;
+        BtnNudgeM5.Visibility = est ? Visibility.Visible : Visibility.Collapsed;
+        BtnNudgeP5.Visibility = est ? Visibility.Visible : Visibility.Collapsed;
+        BtnOffsetReset.IsEnabled = has && f.Offset != 0;
+        RefreshFollowSessions(f, has);
         if (!has)
         {
             TblFollowStatus.Text = "";
@@ -423,7 +572,7 @@ public partial class CloudPanel : Window
         TblFollowStatus.Text = text + (f.Fmt.Length > 0
             ? " · " + (f.Fmt == "krc" ? "KRC 逐字" : f.Fmt == "ne" ? "网易 LRC" : "LRC")
             : "");
-        TblFollowStatus.Foreground = (System.Windows.Media.SolidColorBrush)FindResource(color);
+        TblFollowStatus.Foreground = (SolidColorBrush)FindResource(color);
         var now = (f.AppName.Length > 0 ? f.AppName + " ｜ " : "") + f.Title +
                   (f.Artist.Length > 0 ? " - " + f.Artist : "");
         TblFollowNow.Text = (now + (f.MatchedAs.Length > 0 ? "　→ 已匹配 " + f.MatchedAs : "")).Trim('　');

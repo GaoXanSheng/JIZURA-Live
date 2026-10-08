@@ -183,7 +183,6 @@ public partial class SettingsTab : UserControl
         st.SpoutTransparent = CkSpoutTransparent.IsChecked == true;
         st.SpoutLyricsEnabled = CkSpoutLyrics.IsChecked == true;
         st.LyricsFps = int.Parse(TbLyricsFps.Text.Trim());
-        st.SplitMirrorHost = CkSplitMirror.IsChecked == true;
     }
 
     private bool ValidateDraft()
@@ -198,7 +197,18 @@ public partial class SettingsTab : UserControl
         var ok = wOk && hOk && fOk && lOk;
         BtnRestart.Content = !_dirty ? "重启渲染引擎" : "保存并重启渲染引擎";
         BtnRestart.ToolTip = _dirty ? "保存并重启渲染引擎使设置生效" : "以当前设置重启渲染引擎";
+        BtnRestart.IsEnabled = ok; // 对位 Vue 的 :disabled="applying || !canApply"
+        // 字幕通道名与帧率行随「独立 Spout 字幕通道」勾选显隐（Vue 的 v-if）
+        SyncLyricsChan();
+        LyricsFpsRow.Visibility = CkSpoutLyrics.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         return ok;
+    }
+
+    /// <summary>「{SpoutName}-LYRICS」后缀随 Spout ID 输入实时刷新（Vue 模板里的 b 元素）。</summary>
+    private void SyncLyricsChan()
+    {
+        var name = string.IsNullOrEmpty(TbSpoutName.Text) ? "JIZURA-live" : TbSpoutName.Text;
+        if (TblLyricsChan.Text != name + "-LYRICS") TblLyricsChan.Text = name + "-LYRICS";
     }
 
     private void PullSettingsDraft()
@@ -216,7 +226,6 @@ public partial class SettingsTab : UserControl
             CkSpoutTransparent.IsChecked = st.SpoutTransparent;
             CkSpoutLyrics.IsChecked = st.SpoutLyricsEnabled;
             TbLyricsFps.Text = st.LyricsFps.ToString();
-            CkSplitMirror.IsChecked = st.SplitMirrorHost;
             _dirty = false;
         }
         finally

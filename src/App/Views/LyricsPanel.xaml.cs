@@ -33,8 +33,24 @@ public partial class LyricsPanel : UserControl
             if (_subscribed) return;
             _subscribed = true;
             App.MainInstance!.State.StateChanged += () => Dispatcher.Invoke(Pull);
+            var s = App.SettingsOf();
+            _syncing = true;
+            CkRoma.IsChecked = s?.WantRoma ?? true;
+            CkTrans.IsChecked = s?.WantTrans ?? true;
+            _syncing = false;
             Pull();
         };
+    }
+
+    /// <summary>音译/翻译：装载云端歌词时是否写入注音（对位旧 lyricStore 的 roma/trans 选项）。</summary>
+    private void LyricOpt_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncing || !IsLoaded) return;
+        var s = App.SettingsOf();
+        if (s == null) return;
+        s.WantRoma = CkRoma.IsChecked == true;
+        s.WantTrans = CkTrans.IsChecked == true;
+        s.Save();
     }
 
     private EditorState State => App.MainInstance!.State;

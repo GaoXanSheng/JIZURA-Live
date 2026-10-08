@@ -10,9 +10,9 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.App.Mcp;
 
-// MCP 17 个工具的 C# 直调实现（对位 frontend/src/jizura/agent-api.ts）。
+// MCP 17 个工具的 C# 直调实现（对位旧前端的 agent-api.ts）。
 // 协议语义（initialize / tools/list / tools/call、revision 乐观锁、工具级错误码映射）逐条对位；
-// 区别只有一处本质变化：agent-api.ts 经 CEF 求值桥进页面，这里直接读写 EditorState / PreviewEngine /
+// 区别只有一处本质变化：旧版经页面求值桥，这里直接读写 EditorState / PreviewEngine /
 // Planner / ExportJob —— 无页面、无脚本求值。
 //
 // revision 契约：带 revision 的写操作要求参数与 EditorState.Revision 相等，否则 stale_revision（-32602）；

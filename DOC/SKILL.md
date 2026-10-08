@@ -5,13 +5,13 @@ description: 通过 jizura MCP 驱动本地「字面 Live」（JIZURA Live / Jiz
 
 # 字面 Live MCP 操作指南
 
-字面 Live 是本地歌词 PV 生成器（WPF + CEF 桌面应用），通过 MCP 暴露编辑接口。你的任务是用这些工具为用户制作并调整歌词 PV。
+字面 Live 是本地歌词 PV 生成器（WPF + SkiaSharp 桌面应用，3.0 纯 C# 版无浏览器内核），通过 MCP 暴露编辑接口。你的任务是用这些工具为用户制作并调整歌词 PV。
 
 ## 前置条件（不满足时先处理，不要硬调工具）
 
-1. **应用必须在运行**：确认字面 Live 窗口已打开、页面加载完成。没开就让用户启动（`bin/Debug/net10.0-windows/JizuraLive.exe` 或已安装的快捷方式）。
+1. **应用必须在运行**：确认字面 Live 窗口已打开。没开就让用户启动（`bin/Debug/net10.0-windows/JizuraLive.exe` 或已安装的快捷方式）。
 2. **MCP 服务器已连接**：工具形如 `mcp__jizura__get_state`（服务器名 `jizura`，工具名**无 `jizura_` 前缀**）。连接失败时检查应用是否运行，然后在 ZCode 设置 → MCP 里重连。
-3. 页面刚启动时求值会报「页面尚未加载完成」，等几秒重试即可。
+3. 刚启动瞬间工程/云面板还在装载，写操作可能报忙——`get_state.loading` 全为 false 再动手，或等几秒重试。
 
 ## 两条硬契约（违反即报错）
 

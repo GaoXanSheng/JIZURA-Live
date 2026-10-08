@@ -1,67 +1,72 @@
-<UserControl x:Class="JizuraLive.App.Views.AudioPanel"
+﻿<UserControl x:Class="JizuraLive.App.Views.AudioPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- 对位 .sec -->
-    <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,14">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:JizuraLive.App.Controls">
+    <!-- 对位 AudioPanel.vue：.sec（px-4 py-3.5 gap-2.5 border-b） -->
+    <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}"
+            BorderThickness="0,0,0,1" Padding="16,14">
         <StackPanel>
-            <TextBlock Text="歌曲与节拍" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Mut}"
-                       Margin="0,0,0,8" />
-            <!-- 音频名 / 分析信息（对位 audioName + audioname 事件） -->
+            <ctl:JzLabel Text="歌曲与节拍" Tracking="0.18" TextElement.FontSize="11"
+                         TextElement.FontWeight="SemiBold"
+                         TextElement.Foreground="{StaticResource Mut}" Margin="0,0,0,10" />
+            <!-- 音频名 / 分析信息（音频名过长时换行，对位 break-all text-xs text-mut） -->
             <TextBlock x:Name="TblAudioName" Text="未载入歌曲（载入后自动检测节拍并对齐切分）"
-                       FontSize="11" Foreground="{StaticResource Mut}" TextWrapping="Wrap" />
-            <WrapPanel Margin="0,8,0,0">
-                <!-- 载入歌曲（对位 .btn-file：虚线边框的文件按钮） -->
-                <Button x:Name="BtnLoad" Content="载入歌曲" Click="BtnLoad_Click" ToolTip="mp3 / wav / m4a 等">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="{StaticResource Raised}"
-                                    BorderBrush="{StaticResource Line2}" BorderThickness="1"
-                                    CornerRadius="6" Padding="12,5">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Amber}" />
-                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource Raised2}" />
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Opacity" Value="0.4" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                </Button>
-                <Button x:Name="BtnTap" Content="打点同步" Click="BtnTap_Click" Margin="8,0,0,0"
-                        ToolTip="边播放边在每行开头打点" />
-            </WrapPanel>
-            <!-- BPM / 开始(秒) / 行时长（对位 grid-cols-3 field） -->
-            <UniformGrid Columns="3" Margin="0,8,0,0">
-                <StackPanel Margin="0,0,6,0">
-                    <TextBlock Text="BPM" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,2" />
+                       FontSize="12" Foreground="{StaticResource Mut}" TextWrapping="Wrap"
+                       LineHeight="18" Margin="0,0,0,10" />
+            <!-- 载入歌曲 / 打点同步 / 云端音乐 -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <Button x:Name="BtnLoad" Content="载入歌曲" Style="{StaticResource BtnFile}"
+                        ToolTip="mp3 / wav / m4a 等，也支持 .krc 歌词文件" Click="BtnLoad_Click" />
+                <Button x:Name="BtnTap" Content="打点同步" Margin="8,0,0,0"
+                        ToolTip="边播放边在每行开头打点" Click="BtnTap_Click" />
+                <Button x:Name="BtnCloud" Content="云端音乐" Style="{StaticResource BtnAccent}" Margin="8,0,0,0"
+                        ToolTip="在线搜索 / 扫码登录（酷狗・网易云）" Click="BtnCloud_Click" />
+            </StackPanel>
+            <!-- BPM / 开始(秒) / 行时长（grid-cols-3 gap-2） -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                    <TextBlock Text="BPM" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
                     <Grid>
-                        <TextBox x:Name="TbBpm" LostFocus="TbBpm_LostFocus" KeyDown="NumBox_KeyDown" />
-                        <TextBlock x:Name="PhBpm" Text="无" IsHitTestVisible="False" FontSize="12"
-                                   Foreground="{StaticResource Faint}" Margin="7,0,0,0" VerticalAlignment="Center" />
+                        <TextBox x:Name="TbBpm" Style="{StaticResource TbNum}" LostFocus="TbBpm_LostFocus"
+                                 KeyDown="NumBox_KeyDown" />
+                        <TextBlock x:Name="PhBpm" Text="无" IsHitTestVisible="False" FontSize="13"
+                                   FontFamily="{StaticResource MonoFont}"
+                                   Foreground="{StaticResource Faint}" Margin="10,0,0,0" VerticalAlignment="Center" />
                     </Grid>
                 </StackPanel>
-                <StackPanel Margin="0,0,6,0">
-                    <TextBlock Text="开始(秒)" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,2" />
-                    <TextBox x:Name="TbOffset" LostFocus="TbOffset_LostFocus" KeyDown="NumBox_KeyDown" />
+                <StackPanel Grid.Column="1" Margin="4,0,4,0">
+                    <TextBlock Text="开始(秒)" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
+                    <TextBox x:Name="TbOffset" Style="{StaticResource TbNum}" LostFocus="TbOffset_LostFocus"
+                             KeyDown="NumBox_KeyDown" />
                 </StackPanel>
-                <StackPanel>
-                    <TextBlock Text="行时长" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,2" />
-                    <TextBox x:Name="TbLineScale" LostFocus="TbLineScale_LostFocus" KeyDown="NumBox_KeyDown" />
+                <StackPanel Grid.Column="2" Margin="4,0,0,0">
+                    <TextBlock Text="行时长" FontSize="11" Foreground="{StaticResource Mut}" Margin="0,0,0,4" />
+                    <TextBox x:Name="TbLineScale" Style="{StaticResource TbNum}" LostFocus="TbLineScale_LostFocus"
+                             KeyDown="NumBox_KeyDown" />
                 </StackPanel>
-            </UniformGrid>
-            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                 <CheckBox x:Name="ChkSnap" Content="对齐节拍" VerticalAlignment="Center"
                           Checked="ChkSnap_Changed" Unchecked="ChkSnap_Changed" ToolTip="时刻对齐到检测出的节拍" />
-                <Button x:Name="BtnResetTimes" Content="清除手动时间" Style="{StaticResource BtnGhost}" FontSize="11"
-                        Padding="5,2" Margin="12,0,0,0" Click="BtnResetTimes_Click" />
+                <Button x:Name="BtnResetTimes" Content="清除手动时间" Style="{StaticResource BtnGhostSm}"
+                        Margin="14,0,0,0" Click="BtnResetTimes_Click" />
             </StackPanel>
-            <!-- 分析进度（解码+分析在后台任务；单次调用无回调，进度条用不确定态 + 已用时计时） -->
-            <ProgressBar x:Name="Prog" IsIndeterminate="True" Height="3" Margin="0,10,0,0" Visibility="Collapsed"
-                         Background="{StaticResource Raised}" BorderThickness="0" Foreground="{StaticResource Amber}" />
+            <!-- 分析进度（解码+分析在后台任务；不确定态 + 已用时计时） -->
+            <Border x:Name="ProgTrack" Style="{StaticResource ProgTrack}" Margin="0,10,0,0" Visibility="Collapsed">
+                <Border x:Name="ProgFill" HorizontalAlignment="Left" Width="0" CornerRadius="3">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#FF16F4D4" Offset="0" />
+                            <GradientStop Color="#FFF5A50C" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+            </Border>
             <TextBlock x:Name="TblProg" Visibility="Collapsed" FontSize="11" Foreground="{StaticResource Mut}"
                        Margin="0,4,0,0" />
         </StackPanel>

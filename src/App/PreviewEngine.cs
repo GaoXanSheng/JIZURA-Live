@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Spout;
@@ -61,6 +62,26 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     /// <summary>内容版本号：Seek / Replan / 循环回卷时 +1。Spout 泵在暂停态据此判断「画面会不会变」，不变则不重绘。</summary>
     public long Version => _version;
+
+    // ---------------- 字幕层数据（独立 Spout 字幕通道与导出烤字幕同一来源） ----------------
+
+    /// <summary>云字幕时间轴（KRC 逐字；云音乐装载 / 跟随匹配写入，null = 没有字幕层——
+    /// 网易云 LRC 无逐字不产生）。</summary>
+    public List<KrcLine>? Subtitles { get; private set; }
+
+    /// <summary>字幕层配置（与导出共用同一实例：改一处两处都变）。</summary>
+    public SubtitleConfig SubtitleCfg { get; } = new() { Content = SubContent.Both };
+
+    private long _subVersion = 1;
+
+    /// <summary>字幕数据版本号：换歌/装载/清空字幕 +1，字幕通道据此重建字幕层（暂停态也要重出一帧）。</summary>
+    public long SubtitleVersion => _subVersion;
+
+    public void SetSubtitles(List<KrcLine>? lines)
+    {
+        Subtitles = lines is { Count: > 0 } ? lines : null;
+        _subVersion++;
+    }
 
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private long _startTs; // Play/Seek/回卷时的墙钟戳（Stopwatch.GetTimestamp() 原始刻度）
@@ -553,6 +574,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     double ISpoutSource.CurrentTime => CurrentTime;
     bool ISpoutSource.IsPlaying => IsPlaying;
     long ISpoutSource.Version => Version;
+    IReadOnlyList<KrcLine>? ISpoutSource.Subtitles => Subtitles;
+    SubtitleConfig ISpoutSource.SubtitleConfig => SubtitleCfg;
+    long ISpoutSource.SubtitleVersion => SubtitleVersion;
 
     public void Dispose()
     {

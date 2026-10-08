@@ -66,9 +66,15 @@ public partial class AudioPanel : UserControl
         var name = State.AudioFileName;
         TblAudioName.Text = name == null
             ? "未载入歌曲（载入后自动检测节拍并对齐切分）"
-            : name + (State.Audio != null ? $"\n{J.FmtTime(State.Audio.Duration)} · {State.Audio.Bpm:0.0} BPM{_loadNote}" : "");
+            : State.Audio != null
+                ? $"{name}（{J.FmtTime(State.Audio.Duration)} · 约{State.Audio.Bpm:0.0}BPM）{_loadNote}"
+                : name;
         SyncFields();
     }
+
+    /// <summary>云端音乐（对位 AudioPanel 的 openCloud → CloudMusicModal）。</summary>
+    private void BtnCloud_Click(object sender, RoutedEventArgs e) =>
+        CloudPanel.Open(Window.GetWindow(this)!);
 
     private void RefreshTapBtn() =>
         BtnTap.Content = TapSession.Active ? "结束打点" : "打点同步";
@@ -100,7 +106,7 @@ public partial class AudioPanel : UserControl
         if (_loading) return;
         _loading = true;
         BtnLoad.IsEnabled = false;
-        Prog.Visibility = Visibility.Visible;
+        ProgTrack.Visibility = Visibility.Visible;
         TblProg.Visibility = Visibility.Visible;
         var sw = Stopwatch.StartNew();
         _activeSw = sw;
@@ -140,7 +146,7 @@ public partial class AudioPanel : UserControl
         {
             _elapsedTimer.Stop();
             _elapsedTimer.Tick -= OnElapsedTick;
-            Prog.Visibility = Visibility.Collapsed;
+            ProgTrack.Visibility = Visibility.Collapsed;
             TblProg.Visibility = Visibility.Collapsed;
             BtnLoad.IsEnabled = true;
             _loading = false;
@@ -149,8 +155,18 @@ public partial class AudioPanel : UserControl
         }
     }
 
-    private void OnElapsedTick(object? sender, EventArgs e) =>
+    private void OnElapsedTick(object? sender, EventArgs e)
+    {
         TblProg.Text = _activeSw == null ? "解码与节拍分析中…" : $"解码与节拍分析中… 已用时 {_activeSw.Elapsed.TotalSeconds:0.0}s";
+        // 槽内来回扫的填充（对位不确定态进度条：解码时长不可知，只表示在跑）
+        var w = ProgTrack.ActualWidth;
+        if (w > 4 && _activeSw != null)
+        {
+            var frac = _activeSw.Elapsed.TotalSeconds % 1.6 / 1.6;
+            var breath = 1 - Math.Abs(frac * 2 - 1);
+            ProgFill.Width = Math.Max(24, w * (0.15 + 0.85 * breath));
+        }
+    }
 
     // ---------------- 时序字段 ----------------
 

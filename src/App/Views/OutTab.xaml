@@ -1,67 +1,75 @@
 <UserControl x:Class="JizuraLive.App.Views.OutTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:JizuraLive.App.Views">
+    <!-- 对位 OutTab.vue：grid-cols-2 字段 → 留出画面中央 → 格式/内容/背景勾选 → 导出按钮 + 进度 → 说明 -->
     <UserControl.Resources>
-        <Style x:Key="RowLab" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource Mut}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-        </Style>
-        <Style x:Key="Hint" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource Faint}" />
-            <Setter Property="FontSize" Value="10" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="Margin" Value="0,2,0,0" />
-        </Style>
-        <!-- 格式单选（Vue 的 btn / btn-primary 切换） -->
+        <!-- 格式单选（btn-sm：未选 btn-ghost / 选中 btn-primary，FmtState.On 控选中态，Tag 留给格式值） -->
         <Style x:Key="FmtBtn" TargetType="Button">
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="Height" Value="26" />
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Padding" Value="8,3" />
             <Setter Property="Margin" Value="0,0,4,0" />
-            <Setter Property="Focusable" Value="False" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              RecognizesAccessKey="False" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource Raised2}" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource BtnHoverBorder}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Margin" Value="0,1,0,0" />
+                            </Trigger>
+                            <Trigger Property="views:FmtState.On" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource Amber}" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Amber}" />
+                                <Setter Property="Foreground" Value="{StaticResource PrimaryInk}" />
+                                <Setter Property="FontWeight" Value="Bold" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsMouseOver" Value="True" />
+                                    <Condition Property="views:FmtState.On" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource PrimaryHover}" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource PrimaryHover}" />
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- .note 的左竖线（border-l-2 border-line2 pl-2.5 mt-3） -->
+        <Style x:Key="NoteWrap" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource Line2}" />
+            <Setter Property="BorderThickness" Value="2,0,0,0" />
+            <Setter Property="Padding" Value="10,0,0,0" />
+            <Setter Property="Margin" Value="0,12,0,0" />
         </Style>
     </UserControl.Resources>
 
     <StackPanel>
-        <!-- 画幅 / 分辨率 / fps（与设置页同源：project.aspect/res/fps） -->
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="76" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <TextBlock Text="画面比例" Grid.Row="0" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbAspect" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
-                      SelectionChanged="CbAspect_SelectionChanged" />
-            <TextBlock Text="分辨率" Grid.Row="1" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbRes" Grid.Row="1" Grid.Column="1" Margin="0,0,0,6"
-                      SelectionChanged="CbRes_SelectionChanged" />
-            <TextBlock Text="fps" Grid.Row="2" Style="{StaticResource RowLab}" Margin="0,0,0,6" />
-            <ComboBox x:Name="CbFps" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6"
-                      SelectionChanged="CbFps_SelectionChanged" />
-        </Grid>
-
-        <CheckBox x:Name="CkCenterFree" Content="留出画面中央（放角色用）" Margin="0,4,0,4"
-                  ToolTip="留白宽度在「设置」页自定义；预览会用虚线标出留空范围"
-                  Checked="Center_Changed" Unchecked="Center_Changed" />
-        <StackPanel x:Name="CenterDirRow" Orientation="Horizontal" Margin="0,0,0,4">
-            <TextBlock Text="竖屏时" Style="{StaticResource RowLab}" Margin="0,0,6,0" />
-            <ComboBox x:Name="CbCenterDir" Width="120" SelectionChanged="Center_Changed" />
-        </StackPanel>
-
-        <!-- 导出内容勾选：格式 × 内容 × 背景形态，一个「导出」按钮按组合落盘 -->
-        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,10,0,0" />
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <TextBlock Text="格式" Style="{StaticResource RowLab}" Margin="0,0,8,0" />
-            <Button x:Name="BtnFmtMp4" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="mp4" Content="MP4 视频" />
-            <Button x:Name="BtnFmtWebm" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="webm" Content="WebM 视频" />
-            <Button x:Name="BtnFmtPng" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="png" Content="PNG 序列" />
-        </StackPanel>
+        <!-- grid-cols-2 gap-2：画面比例 / 分辨率 / fps（.field = 11px mut 标签 + 全宽控件） -->
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -71,54 +79,200 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <CheckBox x:Name="CkVisuals" Grid.Row="0" Content="渲染画面（歌词动画）" Margin="0,0,0,5"
-                      ToolTip="歌词动画渲染层" Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
-            <CheckBox x:Name="CkSubs" Grid.Row="0" Grid.Column="1" Content="字幕（云字幕）" Margin="0,0,0,5"
-                      ToolTip="按「字幕」面板的样式，把翻译/音译字幕烤进导出画面；需先在「字幕」面板开启字幕渲染"
-                      Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
-            <CheckBox x:Name="CkBg" Grid.Row="1" Content="背景" Margin="0,0,0,5"
-                      ToolTip="不勾 = 透明底导出（仅 WebM / PNG 序列；MP4 需勾上并用绿幕/黑幕抠像）"
-                      Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
-            <CheckBox x:Name="CkAudio" Grid.Row="1" Grid.Column="1" Content="音频（歌曲）" Margin="0,0,0,5"
-                      ToolTip="MP4：歌曲内嵌进视频；WebM / PNG：无法内嵌，导出时询问另存 WAV"
-                      Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
+            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,4,8">
+                <TextBlock Text="画面比例" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <ComboBox x:Name="CbAspect" SelectionChanged="CbAspect_SelectionChanged" />
+            </StackPanel>
+            <StackPanel Grid.Row="0" Grid.Column="1" Margin="4,0,0,8">
+                <TextBlock Text="分辨率" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <ComboBox x:Name="CbRes" SelectionChanged="CbRes_SelectionChanged" />
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,4,0">
+                <TextBlock Text="fps" Style="{StaticResource FieldLab}" Margin="0,0,0,4" />
+                <ComboBox x:Name="CbFps" SelectionChanged="CbFps_SelectionChanged" />
+            </StackPanel>
         </Grid>
 
-        <!-- 背景形态 / 透明底提示 -->
-        <StackPanel x:Name="BgStyleRow" Orientation="Horizontal" Margin="0,2,0,0">
-            <TextBlock Text="背景形态" Style="{StaticResource RowLab}" Margin="0,0,8,0" />
-            <ComboBox x:Name="CbBgStyle" Width="90" SelectionChanged="BgStyle_Changed" />
-            <TextBlock x:Name="TblBgNote" Text="单色底上只画白色文字与演出，剪辑软件色度键/滤色合成"
-                       Style="{StaticResource RowLab}" FontSize="10" Margin="8,0,0,0" TextWrapping="Wrap" />
+        <!-- checkblock my-2.5：留出画面中央（放角色用）＋ 11px 说明行 -->
+        <CheckBox x:Name="CkCenterFree" Margin="0,10,0,10" Checked="Center_Changed" Unchecked="Center_Changed">
+            <StackPanel>
+                <TextBlock Text="留出画面中央（放角色用）" FontSize="12" />
+                <TextBlock Text="留白宽度在「设置」页自定义；预览会用虚线标出留空范围" FontSize="11"
+                           Foreground="{StaticResource Mut}" TextWrapping="Wrap" MaxWidth="276" />
+            </StackPanel>
+        </CheckBox>
+
+        <!-- v-if="centerFree"：竖屏时 上下/左右分列 -->
+        <StackPanel x:Name="CenterDirRow" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="竖屏时" FontSize="12" Foreground="{StaticResource Mut}" VerticalAlignment="Center" />
+            <ComboBox x:Name="CbCenterDir" Width="130" Margin="6,0,0,0" SelectionChanged="Center_Changed" />
         </StackPanel>
-        <StackPanel x:Name="TransparentRow" Orientation="Horizontal" Margin="0,2,0,0">
-            <TextBlock Text="透明底（无背景）" FontSize="11" Foreground="{StaticResource Cyan}" />
-            <TextBlock x:Name="TblMp4TransWarn" Text="MP4 不支持透明，请勾上背景或改用 WebM / PNG"
-                       FontSize="11" Foreground="{StaticResource Amber}" Margin="8,0,0,0" TextWrapping="Wrap" />
+
+        <!-- mt-3 pt-3 border-t：格式 × 内容 × 背景形态，一个「导出」按钮按组合落盘 -->
+        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <!-- 格式按钮组（btn-sm：选中 btn-primary） -->
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <TextBlock Text="格式" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <Button x:Name="BtnFmtMp4" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="mp4"
+                            Content="MP4 视频" />
+                    <Button x:Name="BtnFmtWebm" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="webm"
+                            Content="WebM 视频" />
+                    <Button x:Name="BtnFmtPng" Style="{StaticResource FmtBtn}" Click="Format_Click" Tag="png"
+                            Content="PNG 序列" />
+                </StackPanel>
+
+                <!-- grid-cols-2 gap-x-4 gap-y-1.5：渲染画面 / 字幕 / 背景 / 音频 -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <CheckBox x:Name="CkVisuals" Grid.Row="0" Grid.Column="0" Margin="0,0,16,6"
+                              Checked="Cfg_Changed" Unchecked="Cfg_Changed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="渲染画面" FontSize="12" />
+                            <TextBlock Text="（歌词动画）" FontSize="11" Foreground="{StaticResource Mut}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </CheckBox>
+                    <CheckBox x:Name="CkSubs" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
+                              ToolTip="按「字幕」面板的样式，把翻译/音译字幕烤进导出画面；需先在「字幕」面板开启字幕渲染"
+                              Checked="Cfg_Changed" Unchecked="Cfg_Changed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="字幕" FontSize="12" />
+                            <TextBlock Text="（云字幕）" FontSize="11" Foreground="{StaticResource Mut}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </CheckBox>
+                    <CheckBox x:Name="CkBg" Grid.Row="1" Grid.Column="0" Margin="0,0,16,0" Content="背景"
+                              ToolTip="不勾 = 透明底导出（仅 WebM / PNG 序列；MP4 需勾上并用绿幕/黑幕抠像）"
+                              Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
+                    <CheckBox x:Name="CkAudio" Grid.Row="1" Grid.Column="1"
+                              ToolTip="MP4：歌曲内嵌进视频；WebM / PNG：无法内嵌，导出时询问另存 WAV"
+                              Checked="Cfg_Changed" Unchecked="Cfg_Changed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="音频" FontSize="12" />
+                            <TextBlock Text="（歌曲）" FontSize="11" Foreground="{StaticResource Mut}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </CheckBox>
+                </Grid>
+
+                <!-- 背景形态（勾了背景） / 透明底（没勾背景） -->
+                <Grid x:Name="BgStyleRow" Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="背景形态" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" />
+                    <ComboBox x:Name="CbBgStyle" Grid.Column="1" Width="88" Margin="6,0,0,0"
+                              SelectionChanged="BgStyle_Changed" />
+                    <TextBlock x:Name="TblBgNote" Grid.Column="2" Text="单色底上只画白色文字与演出，剪辑软件色度键/滤色合成"
+                               FontSize="11" Foreground="{StaticResource Mut}" TextWrapping="Wrap"
+                               VerticalAlignment="Center" Margin="6,0,0,0" />
+                </Grid>
+                <Grid x:Name="TransparentRow" Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="透明底（无背景）" FontSize="11" Foreground="{StaticResource Cyan}"
+                               VerticalAlignment="Center" />
+                    <TextBlock x:Name="TblMp4TransWarn" Grid.Column="1"
+                               Text="MP4 不支持透明，请勾上背景或改用 WebM / PNG"
+                               FontSize="11" Foreground="{StaticResource Amber}" TextWrapping="Wrap"
+                               VerticalAlignment="Center" Margin="6,0,0,0" />
+                </Grid>
+
+                <!-- PNG 分层 / MP4 直存（grid gap-1 mt-2） -->
+                <StackPanel Margin="0,8,0,0">
+                    <CheckBox x:Name="CkLayered" Margin="0,0,0,4"
+                              ToolTip="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
+                              Checked="Cfg_Changed" Unchecked="Cfg_Changed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="分层输出" FontSize="12" />
+                            <TextBlock Text="（back / front 双目录）" FontSize="11" Foreground="{StaticResource Mut}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </CheckBox>
+                    <CheckBox x:Name="CkToFile"
+                              ToolTip="先选保存位置，边导出边直接写文件。长曲・1080p 以上内存不足时使用"
+                              Checked="Cfg_Changed" Unchecked="Cfg_Changed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="大视频直接写入文件" FontSize="12" />
+                            <TextBlock Text="（不占内存）" FontSize="11" Foreground="{StaticResource Mut}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </CheckBox>
+                </StackPanel>
+
+                <!-- 校验 / 提示（.note：左竖线 + 12px mut；invalid 用琥珀） -->
+                <Border x:Name="NoteInvalid" Style="{StaticResource NoteWrap}" Visibility="Collapsed">
+                    <TextBlock x:Name="TblInvalid" Style="{StaticResource NoteTx}"
+                               Foreground="{StaticResource Amber}" />
+                </Border>
+                <Border x:Name="NoteAudio" Style="{StaticResource NoteWrap}" Visibility="Collapsed">
+                    <TextBlock x:Name="TblAudioNote" Style="{StaticResource NoteTx}" />
+                </Border>
+                <Border x:Name="NoteSubs" Style="{StaticResource NoteWrap}" Visibility="Collapsed">
+                    <TextBlock x:Name="TblSubsNote" Style="{StaticResource NoteTx}"
+                               Text="字幕按「字幕」面板当前样式与内容烤入；只勾字幕时导出的是透明底纯字幕层（可与画面分层素材叠放）。" />
+                </Border>
+
+                <!-- btn btn-primary w-full !py-3 mt-2.5 text-[15px] -->
+                <Button x:Name="BtnExport" Style="{StaticResource BtnPrimary}" Content="导　出" Height="46"
+                        Padding="0,12" FontSize="15" Margin="0,10,0,0" ToolTip="按上方勾选导出"
+                        Click="BtnExport_Click" />
+            </StackPanel>
+        </Border>
+
+        <!-- 进度（.progress + 琥珀填充条，busy 或 progressText ≠ '—' 时显示） -->
+        <StackPanel x:Name="ProgWrap" Margin="0,12,0,0" Visibility="Collapsed">
+            <Border x:Name="ProgTrack" Style="{StaticResource ProgTrack}" ClipToBounds="True">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="ProgFillCol" Width="0*" />
+                        <ColumnDefinition x:Name="ProgRestCol" Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="ProgFill" Grid.Column="0" CornerRadius="3">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#FF16F4D4" Offset="0" />
+                                <GradientStop Color="#FFF5A50C" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                    </Border>
+                </Grid>
+            </Border>
+            <Grid Margin="0,6,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="TblProg" Style="{StaticResource MonoMut}" FontSize="11" Text="—"
+                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                <Button x:Name="BtnAbort" Grid.Column="1" Style="{StaticResource BtnGhostSm}" Content="中止"
+                        Margin="8,0,0,0" Click="BtnAbort_Click" Visibility="Collapsed" />
+            </Grid>
         </StackPanel>
 
-        <!-- PNG 分层 / MP4 直存 -->
-        <CheckBox x:Name="CkLayered" Content="分层输出（back / front 双目录）" Margin="0,6,0,0"
-                  ToolTip="后景（背景图形与歌词后面的装饰）和前景（歌词与其装饰）分别导出到 back / front 文件夹的透明 PNG"
-                  Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
-        <CheckBox x:Name="CkToFile" Content="大视频直接写入文件（不占内存）" Margin="0,4,0,0"
-                  ToolTip="边导出边直接写文件。长曲・1080p 以上内存不足时使用"
-                  Checked="Cfg_Changed" Unchecked="Cfg_Changed" />
+        <!-- codec 说明（.note） -->
+        <Border Style="{StaticResource NoteWrap}">
+            <TextBlock x:Name="TblCodecNote" Style="{StaticResource NoteTx}"
+                       Text="导出在本机渲染管线内完成（M4 接入）。" />
+        </Border>
 
-        <!-- 校验 / 提示 -->
-        <TextBlock x:Name="TblInvalid" Foreground="{StaticResource Amber}" FontSize="11"
-                   TextWrapping="Wrap" Margin="0,8,0,0" />
-        <TextBlock x:Name="TblAudioNote" Foreground="{StaticResource Mut}" FontSize="11"
-                   TextWrapping="Wrap" Margin="0,8,0,0" />
-        <TextBlock x:Name="TblSubsNote" Text="字幕按「字幕」面板当前样式与内容烤入；只勾字幕时导出的是透明底纯字幕层（可与画面分层素材叠放）。"
-                   Foreground="{StaticResource Mut}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
-                   Visibility="Collapsed" />
-
-        <Button x:Name="BtnExport" Content="导　出" FontSize="14" Padding="0,8" Margin="0,10,0,0"
-                Background="{StaticResource Amber}" Foreground="{StaticResource Ink}"
-                BorderThickness="0" FontWeight="SemiBold"
-                ToolTip="按上方勾选导出（M4 接入本机渲染管线）" Click="BtnExport_Click" />
-        <TextBlock x:Name="TblCodecNote" Text="导出在本机渲染管线内完成（M4 接入）。"
-                   Style="{StaticResource Hint}" Margin="0,6,0,0" />
+        <!-- 状态小字（12px mut / mono）：{W}×{H} · {切分数} 切分 · seed {seed} · Spout→… -->
+        <TextBlock x:Name="TblStatus" Style="{StaticResource MonoMut}" FontSize="12" TextWrapping="Wrap"
+                   Margin="0,12,0,0" Text="—" />
     </StackPanel>
 </UserControl>

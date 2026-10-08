@@ -60,9 +60,6 @@ public partial class App : Application
                 return;
             }
 
-            if (e.Args.Contains("--mirror-host", StringComparer.OrdinalIgnoreCase))
-                Log.Warn("--mirror-host 已随 CEF 移除，忽略该参数，按主实例启动。");
-
             var settings = Settings.Load();
             _settings = settings;
             Settings = settings;

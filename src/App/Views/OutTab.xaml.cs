@@ -1,18 +1,31 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 using JizuraLive.Engine;
 using JizuraLive.Export;
 using Microsoft.Win32;
 
 namespace JizuraLive.App.Views;
 
+/// <summary>格式按钮选中态（Tag 留给格式值本身：Format_Click 读 Tag 判格式）。</summary>
+public static class FmtState
+{
+    public static readonly DependencyProperty OnProperty =
+        DependencyProperty.RegisterAttached("On", typeof(bool), typeof(FmtState), new PropertyMetadata(false));
+
+    public static void SetOn(DependencyObject d, bool value) => d.SetValue(OnProperty, value);
+
+    public static bool GetOn(DependencyObject d) => (bool)d.GetValue(OnProperty);
+}
+
 // 导出面板（对位 OutTab.vue 的导出勾选块）：格式单选 + 内容/背景勾选组合 → project.ExportCfg
-// （ExportSpec 勾选模型清洗落盘）。导出按钮为 M4 占位；画幅/分辨率/fps 与设置页同源。
+// （ExportSpec 勾选模型清洗落盘）。导出走 SaveFileDialog → ExportJob；画幅/分辨率/fps 与设置页同源。
 public partial class OutTab : UserControl
 {
     private bool _built;
     private bool _syncing;
+
+    /// <summary>导出进度窗（中止按钮的落点；模态期间面板不可点，属兜底）。</summary>
+    private ExportProgressWindow? _active;
 
     private EditorState S => App.MainInstance!.State;
 
@@ -41,12 +54,36 @@ public partial class OutTab : UserControl
             foreach (var (v, label) in DirOptions()) CbCenterDir.Items.Add(new ComboBoxItem { Content = label, Tag = v });
         }
         S.StateChanged += OnState;
+        App.MainInstance!.StatusChanged += RefreshStatus;
         Pull();
+        RefreshStatus();
     }
 
-    private void OnUnloaded(object sender, RoutedEventArgs e) => S.StateChanged -= OnState;
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        S.StateChanged -= OnState;
+        if (App.MainInstance != null) App.MainInstance.StatusChanged -= RefreshStatus;
+    }
 
     private void OnState() => Dispatcher.Invoke(Pull);
+
+    /// <summary>状态小字（移植自 TopBar 的 RefreshStatus）：{W}×{H} · N 切分 · seed S · Spout→…/未开。</summary>
+    private void RefreshStatus()
+    {
+        var main = App.MainInstance;
+        if (main == null) return;
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(RefreshStatus);
+            return;
+        }
+        var plan = main.Preview.Plan;
+        var head = plan != null ? $"{plan.W}×{plan.H} · {plan.Cuts.Count} 切分 · seed {plan.Seed}" : "";
+        var spout = main.Spout.IsRunning && !string.IsNullOrEmpty(main.Spout.SenderName)
+            ? $"Spout→{main.Spout.SenderName}"
+            : "Spout 未开";
+        TblStatus.Text = head.Length > 0 ? head + " · " + spout : spout;
+    }
 
     private static (string V, string Label)[] DirOptions() =>
         new[] { ("tb", "上下分列"), ("lr", "左右分列") };
@@ -174,16 +211,44 @@ public partial class OutTab : UserControl
             SubtitleCfg = state.SubtitleCfg,
         };
 
-        var win = new ExportProgressWindow(req) { Owner = owner };
-        var ok = win.ShowDialog() == true;
+        // 进度块：准备中… → 模态窗（ExportProgressWindow 内部自绘进度）→ 收尾文案
+        SetBusy(true, "准备中…", 0);
+        var ok = false;
+        Exception? error = null;
+        try
+        {
+            var win = new ExportProgressWindow(req) { Owner = owner };
+            _active = win;
+            ok = win.ShowDialog() == true;
+            error = win.Error;
+        }
+        finally
+        {
+            _active = null;
+            SetBusy(false, ok ? "完成" : "已取消", ok ? 1 : 0);
+        }
         if (ok)
             MessageBox.Show(owner, "导出完成：\n" + dlg.FileName, "字面 Live",
                 MessageBoxButton.OK, MessageBoxImage.Information);
-        else if (win.Error != null)
-            MessageBox.Show(owner, "导出失败：\n" + win.Error.Message, "字面 Live",
+        else if (error != null)
+            MessageBox.Show(owner, "导出失败：\n" + error.Message, "字面 Live",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         // 取消（无错误）静默返回
     }
+
+    /// <summary>进度块显隐与填充（对位 Vue 的 v-if="busy || progressText !== '—'" + width: pct%）。</summary>
+    private void SetBusy(bool busy, string text, double pct)
+    {
+        var p = Math.Clamp(pct, 0, 1);
+        ProgFillCol.Width = new GridLength(p, GridUnitType.Star);
+        ProgRestCol.Width = new GridLength(1 - p, GridUnitType.Star);
+        TblProg.Text = text;
+        BtnAbort.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        ProgWrap.Visibility = busy || text != "—" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>中止：关掉导出进度窗（Closed 里 CTS.Cancel + ExportBusy 归位）。</summary>
+    private void BtnAbort_Click(object sender, RoutedEventArgs e) => _active?.Close();
 
     // ---------------- 回刷 ----------------
 
@@ -210,13 +275,10 @@ public partial class OutTab : UserControl
             SetChecked(CkToFile, c.ToFile);
             SelectTag(CbBgStyle, c.BgStyle);
 
-            // 格式单选态
-            BtnFmtMp4.Background = c.Format == "mp4" ? (Brush)FindResource("Amber") : (Brush)FindResource("Raised");
-            BtnFmtMp4.Foreground = c.Format == "mp4" ? (Brush)FindResource("Ink") : (Brush)FindResource("Fg");
-            BtnFmtWebm.Background = c.Format == "webm" ? (Brush)FindResource("Amber") : (Brush)FindResource("Raised");
-            BtnFmtWebm.Foreground = c.Format == "webm" ? (Brush)FindResource("Ink") : (Brush)FindResource("Fg");
-            BtnFmtPng.Background = c.Format == "png" ? (Brush)FindResource("Amber") : (Brush)FindResource("Raised");
-            BtnFmtPng.Foreground = c.Format == "png" ? (Brush)FindResource("Ink") : (Brush)FindResource("Fg");
+            // 格式单选态（btn-primary / btn-ghost 由 FmtState.On 的模板触发器接管）
+            FmtState.SetOn(BtnFmtMp4, c.Format == "mp4");
+            FmtState.SetOn(BtnFmtWebm, c.Format == "webm");
+            FmtState.SetOn(BtnFmtPng, c.Format == "png");
 
             // 条件显隐（对位 showLayered / showToFile / cfg.bg 分支）
             var mp4 = c.Format == "mp4";
@@ -228,18 +290,18 @@ public partial class OutTab : UserControl
             CkLayered.Visibility = c.Format == "png" && c.Bg && c.Visuals ? Visibility.Visible : Visibility.Collapsed;
             CkToFile.Visibility = mp4 ? Visibility.Visible : Visibility.Collapsed;
 
-            // 校验与提示
+            // 校验与提示（.note 左竖线块随文案显隐）
             var invalid = ExportSpec.UiInvalidMessage(c);
             TblInvalid.Text = invalid;
-            TblInvalid.Visibility = invalid.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            NoteInvalid.Visibility = invalid.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             BtnExport.IsEnabled = invalid.Length == 0;
             var fmtName = c.Format == "mp4" ? "MP4 视频" : c.Format == "webm" ? "WebM 视频" : "PNG 序列";
             var audioNote = mp4 || !c.Audio
                 ? ""
                 : $"「{fmtName}」无法内嵌音轨：导出时会询问是否另存一个 WAV 音频文件";
             TblAudioNote.Text = audioNote;
-            TblAudioNote.Visibility = audioNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-            TblSubsNote.Visibility = invalid.Length == 0 && audioNote.Length == 0 && c.Subs
+            NoteAudio.Visibility = audioNote.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            NoteSubs.Visibility = invalid.Length == 0 && audioNote.Length == 0 && c.Subs
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         }

@@ -1,11 +1,11 @@
 <UserControl x:Class="JizuraLive.App.Views.CutInfo"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- 对位 CutInfo.vue 的信息行：当前切分手法 chips（#序号 + 布局/入场/保持/退场/装饰/文字处理/
-         背景/运镜/转场），无切分时显示提示。手法替换面板（chips 点击出候选）属后续里程碑 -->
-    <Grid MinHeight="26">
-        <TextBlock x:Name="TblNone" Text="此位置没有切分" FontSize="11" VerticalAlignment="Center"
-                   Foreground="{StaticResource Faint}" Visibility="Collapsed" />
-        <WrapPanel x:Name="Chips" Orientation="Horizontal" VerticalAlignment="Center" Visibility="Collapsed" />
-    </Grid>
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:JizuraLive.App.Views">
+    <!-- 对位 CutInfo.vue 的信息行：`flex gap-1.5 flex-wrap items-center min-h-[26px]`
+         （gap-1.5 = 6，自动折行）。chips 与末尾两个按钮全部在 code-behind 里重建：
+         无切分 → `此位置没有切分`（.hint 12px mut）；有切分 → mono 序号 + 九个手法组 chip
+         （组名 + 手法名，描边色按组）+ 重抽 / 一键随机。
+         手法替换面板（点 chip 弹候选）属后续里程碑，chips 这一版只作静态展示。 -->
+    <local:FlexWrapRow x:Name="Row" Gap="6" MinHeight="26" />
 </UserControl>

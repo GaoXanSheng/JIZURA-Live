@@ -1,19 +1,22 @@
-// Spout 直出管线（pure-csharp 分支）：替代旧「离屏 CEF → D3D 共享纹理 → SpoutDX」链路（CEF 已删除）。
+// Spout 直出管线（pure-csharp 分支）：SkiaSharp CPU 光栅 → SpoutDX。
 //
-// 路径：SkiaSharp CPU 光栅（BGRA 8888 SKSurface）→ Renderer.Frame 画 plan 当前帧
+// 路径（主通道）：SkiaSharp CPU 光栅（BGRA 8888 SKSurface）→ Renderer.Frame 画 plan 当前帧
 //       → PeekPixels 拿到像素 → 逐行拷进 SharpDX D3D11 Texture2D（Dynamic，B8G8R8A8_UNorm）
 //       → SpoutDX SpoutSender.SendTexture（内部 GPU 拷进 Spout 共享纹理）。
 //
-// 双通道（语义对齐旧 SpoutPipeline / MirrorRenderHandler）：
+// 双通道：
 //   主通道   <SpoutName>        settings.Width×Height @ RenderFps，SpoutTransparent 时透出底
-//   字幕通道 <SpoutName>-LYRICS 同分辨率 @ min(LyricsFps, RenderFps)，恒透明底只画歌词层
+//   字幕通道 <SpoutName>-LYRICS 同分辨率 @ min(LyricsFps, RenderFps)，恒透明底只画字幕层
+//            （SubtitleLayer：KRC 逐字主行 + 音译/翻译行，与导出烤字幕同一个渲染器；
+//             无 KRC 字幕数据时输出全透明帧）
 //
-// 泵语义（对齐旧 EBF 泵）：固定帧率泵线程；播放态 = 目标帧率；暂停态降到 10Hz 且只在
-// 「画面会变」（seek/重规划 → Version 变）时重绘——暂停帧是静态的，10Hz 只是让编辑/seek
+// 泵语义（对位旧版 EBF 泵）：固定帧率泵线程；播放态 = 目标帧率；暂停态降到 10Hz 且只在
+// 「画面会变」（seek/重规划/换字幕 → 版本号变）时重绘——暂停帧是静态的，10Hz 只是让编辑/seek
 // 后 ≤100ms 反映到接收端，不空转烧 CPU/GPU。
 
 using System.Diagnostics;
 using JizuraLive.App;
+using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using SharpDX.Direct3D;
@@ -21,6 +24,7 @@ using SharpDX.Direct3D11;
 using SharpDX.DXGI;
 using SkiaSharp;
 using SpoutDXWrapper;
+using Buffer = System.Buffer;
 using Device = SharpDX.Direct3D11.Device;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
 
@@ -39,9 +43,18 @@ public interface ISpoutSource
 
     /// <summary>内容版本号：暂停态下若不变，说明画面静止，泵跳过重绘。</summary>
     long Version { get; }
+
+    /// <summary>字幕层时间轴（KRC 逐字）；null = 无字幕数据，字幕通道输出全透明帧。</summary>
+    IReadOnlyList<KrcLine>? Subtitles { get; }
+
+    /// <summary>字幕层配置（与导出烤字幕同一份）。</summary>
+    SubtitleConfig SubtitleConfig { get; }
+
+    /// <summary>字幕数据版本号：装载/清空字幕时变，字幕通道据此重建字幕层。</summary>
+    long SubtitleVersion { get; }
 }
 
-/// <summary>SpoutOut 启动参数（从 Settings 组装，语义与旧 StartSpout/StartLyrics 传参一致）。</summary>
+/// <summary>SpoutOut 启动参数（从 Settings 组装）。</summary>
 public sealed class SpoutOutOptions
 {
     /// <summary>主通道 Spout 发送端名。</summary>
@@ -112,11 +125,11 @@ public sealed class SpoutOut : IDisposable
 
         try
         {
-            _main = new Channel(opt.SenderName, opt.Width, opt.Height, opt.Fps,
-                opt.MainTransparent, layer: null, noHud: false, _device);
+            _main = new Channel(opt.SenderName, opt.Width, opt.Height, opt.Fps, opt.MainTransparent,
+                subtitle: false, _device);
             _lyrics = opt.LyricsEnabled
                 ? new Channel(opt.SenderName + "-LYRICS", opt.Width, opt.Height,
-                    Math.Max(1, opt.LyricsFps), transparent: true, layer: "front", noHud: true, _device)
+                    Math.Max(1, opt.LyricsFps), transparent: true, subtitle: true, _device)
                 : null;
         }
         catch (Exception ex)
@@ -138,7 +151,7 @@ public sealed class SpoutOut : IDisposable
             $"[SpoutOut] 管线已启动：主通道={opt.SenderName} {opt.Width}x{opt.Height}@{opt.Fps}"
             + (opt.MainTransparent ? "（透明底）" : "")
             + (_lyrics != null
-                ? $"；字幕通道={opt.SenderName}-LYRICS@{opt.LyricsFps}（透明底，仅歌词层）"
+                ? $"；字幕通道={opt.SenderName}-LYRICS@{opt.LyricsFps}（透明底，KRC 字幕层）"
                 : "；字幕通道=关"));
         return true;
     }
@@ -221,15 +234,16 @@ public sealed class SpoutOut : IDisposable
                     else
                     {
                         // 暂停：画面内容只在 seek/重规划（Version 变）时改变；
-                        // 两条通道各自记 Version，重规划后各补一帧
-                        if (src.Version != main.LastVersion)
+                        // 两条通道各自记 Version，重规划后各补一帧。字幕通道还要看字幕数据
+                        // 版本（换歌装载字幕时暂停态也得重出一帧）
+                        if (Dirty(main, src))
                         {
                             RenderChannel(main, src);
                             lastMain = Stopwatch.GetTimestamp();
                         }
 
                         var lyr = _lyrics;
-                        if (lyr != null && src.Version != lyr.LastVersion)
+                        if (lyr != null && Dirty(lyr, src))
                         {
                             RenderChannel(lyr, src);
                             lastLyrics = Stopwatch.GetTimestamp();
@@ -260,6 +274,10 @@ public sealed class SpoutOut : IDisposable
 
     private static double ElapsedMs(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
 
+    /// <summary>暂停态脏判断：引擎通道看内容版本；字幕通道还要看字幕数据版本（换歌/装载字幕）。</summary>
+    private static bool Dirty(Channel ch, ISpoutSource src) =>
+        src.Version != ch.LastVersion || (ch.Subtitle && src.SubtitleVersion != ch.SubLayerVersion);
+
     // 渲染失败按帧发生（设备移除等持续性故障），首条立即记，之后每 30 秒汇总一条（对齐旧节流）
     private long _lastRenderErrorTick = -31_000;
     private int _renderErrorsSinceLastLog;
@@ -279,12 +297,48 @@ public sealed class SpoutOut : IDisposable
 
     private void RenderChannel(Channel ch, ISpoutSource src)
     {
+        var px = ch.Subtitle ? PaintSubtitle(ch, src) : PaintEngine(ch, src);
+        Upload(ch, px);
+        ch.LastVersion = src.Version;
+        ch.Frames++;
+    }
+
+    /// <summary>字幕通道：透明底全幅只画字幕层（SubtitleLayer 与导出烤字幕同一个渲染器）。</summary>
+    private SKPixmap PaintSubtitle(Channel ch, ISpoutSource src)
+    {
+        EnsureSurface(ref ch.Out, ch.W, ch.H);
+        var oc = ch.Out!.Canvas;
+        oc.SetMatrix(SKMatrix.Identity);
+        oc.Clear(SKColors.Transparent);
+
+        // 换歌/装载/清空字幕（版本号变）时重建字幕层：注音行从当前 plan 的 cut 注音回填
+        if (src.SubtitleVersion != ch.SubLayerVersion)
+        {
+            ch.SubLayerVersion = src.SubtitleVersion;
+            var lines = src.Subtitles;
+            ch.SubLayer = lines is { Count: > 0 }
+                ? new SubtitleLayer(lines, src.SubtitleConfig, SubtitleLayer.NotesFromPlan(lines, src.Plan))
+                : null;
+            if (ch.SubLayer == null)
+                Log.Info("[SpoutOut] 字幕通道：当前没有 KRC 字幕数据，输出透明帧"
+                         + "（字幕层来自酷狗 KRC 逐字；网易云 LRC 不产生）");
+            else
+                Log.Info($"[SpoutOut] 字幕通道：字幕层就绪，{lines!.Count} 行"
+                         + (src.SubtitleConfig.Content == SubContent.Off ? "（内容=off，不出画面）" : ""));
+        }
+
+        // 排版按输出分辨率全幅派生（字号 = H 百分比、底部 5.5% 起排），与导出烤字幕所见一致
+        ch.SubLayer?.Render(oc, src.CurrentTime, ch.W, ch.H);
+        return ch.Out.PeekPixels() ?? throw new InvalidOperationException("字幕面 PeekPixels 返回空");
+    }
+
+    private SKPixmap PaintEngine(Channel ch, ISpoutSource src)
+    {
         var plan = src.Plan;
         var t = src.CurrentTime;
 
         // contain 缩放：settings 分辨率与 plan 画幅比不一致时出边（主流 16:9 配 16:9 无痕）。
-        // TODO(渲染)：底色目前主通道黑/透明、字幕通道透明；「设置分辨率 ≠ 工程画幅」的边带颜色
-        // 旧 CEF 由页面控制，这里暂不提供配置
+        // 边带底色：主通道黑（或透明底时透出），暂无配置项
         var scale = Math.Min(ch.W / (double)plan.W, ch.H / (double)plan.H);
         var rw = Math.Max(1, (int)Math.Round(plan.W * scale));
         var rh = Math.Max(1, (int)Math.Round(plan.H * scale));
@@ -303,31 +357,29 @@ public sealed class SpoutOut : IDisposable
         }
 
         lock (EngineRenderGate.Lock)
-            ch.Renderer.Frame(ch.Scene.Canvas, plan, t, new RenderOpts
+            ch.Renderer!.Frame(ch.Scene.Canvas, plan, t, new RenderOpts
             {
                 Scale = scale,
                 Transparent = ch.Transparent,
-                Layer = ch.Layer,
-                NoHud = ch.NoHud,
                 Stage = true,
             });
 
-        SKPixmap px;
         if (exactFit)
-        {
-            px = ch.Scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
-        }
-        else
-        {
-            EnsureSurface(ref ch.Out, ch.W, ch.H);
-            var oc = ch.Out!.Canvas;
-            oc.Clear(ch.Transparent ? SKColors.Transparent : SKColors.Black);
-            var spx = ch.Scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
-            using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
-            oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
-            px = ch.Out.PeekPixels() ?? throw new InvalidOperationException("出图面 PeekPixels 返回空");
-        }
+            return ch.Scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
 
+        EnsureSurface(ref ch.Out, ch.W, ch.H);
+        var oc = ch.Out!.Canvas;
+        oc.SetMatrix(SKMatrix.Identity);
+        oc.Clear(ch.Transparent ? SKColors.Transparent : SKColors.Black);
+        var spx = ch.Scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
+        using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
+        oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
+        return ch.Out.PeekPixels() ?? throw new InvalidOperationException("出图面 PeekPixels 返回空");
+    }
+
+    /// <summary>像素 → D3D11 纹理 → Spout 发送（两条通道共用）。</summary>
+    private void Upload(Channel ch, SKPixmap px)
+    {
         EnsureTexture(ch, px.Width, px.Height);
         var ctx = _device!.ImmediateContext;
         var mapped = ctx.MapSubresource(ch.Texture!, 0, MapMode.WriteDiscard, MapFlags.None);
@@ -340,7 +392,7 @@ public sealed class SpoutOut : IDisposable
             {
                 unsafe
                 {
-                    System.Buffer.MemoryCopy((void*)srcBase, (void*)mapped.DataPointer,
+                    Buffer.MemoryCopy((void*)srcBase, (void*)mapped.DataPointer,
                         (long)dstStride * px.Height, (long)srcStride * px.Height);
                 }
             }
@@ -350,7 +402,7 @@ public sealed class SpoutOut : IDisposable
                 {
                     unsafe
                     {
-                        System.Buffer.MemoryCopy((void*)(srcBase + (long)row * srcStride),
+                        Buffer.MemoryCopy((void*)(srcBase + (long)row * srcStride),
                             (void*)(mapped.DataPointer + (long)row * dstStride), dstStride, srcStride);
                     }
                 }
@@ -362,8 +414,6 @@ public sealed class SpoutOut : IDisposable
         }
 
         ch.Sender!.SendTexture(ch.Texture!.NativePointer);
-        ch.LastVersion = src.Version;
-        ch.Frames++;
     }
 
     private static void EnsureSurface(ref SKSurface? s, int w, int h)
@@ -372,7 +422,7 @@ public sealed class SpoutOut : IDisposable
         h = Math.Max(1, h);
         if (s != null && s.Canvas.DeviceClipBounds.Width == w && s.Canvas.DeviceClipBounds.Height == h) return;
         s?.Dispose();
-        // BGRA 8888 + Premul：与 D3D11 B8G8R8A8_UNorm 字节序一致；premul 与旧 CEF 出图一致（原样透传给接收端）
+        // BGRA 8888 + Premul：与 D3D11 B8G8R8A8_UNorm 字节序一致（原样透传给接收端）
         s = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
     }
 
@@ -407,34 +457,35 @@ public sealed class SpoutOut : IDisposable
         public readonly int IntervalMs;
         public readonly bool Transparent;
 
-        /// <summary>透過分层：null = 全内容；'front' = 歌词+前景装饰（字幕通道）。</summary>
-        public readonly string? Layer;
-        public readonly bool NoHud;
+        /// <summary>字幕通道：画 SubtitleLayer（透明底字幕层），不跑引擎渲染。</summary>
+        public readonly bool Subtitle;
         public readonly Device Device;
 
         public readonly SpoutSender Sender;
-        public readonly Renderer Renderer = new();
-        public SKSurface? Scene;  // plan 画幅渲染面（保留，尺寸/画幅变化才换新）
+        public readonly Renderer? Renderer; // 字幕通道不需要引擎渲染器
+        public SKSurface? Scene;  // plan 画幅渲染面（保留，尺寸/画幅变化才换新；仅引擎通道）
         public int SceneW = -1;
         public int SceneH = -1;
         public SKSurface? Out;   // 输出分辨率面（PeekPixels 源；从不交给 Frame，也从不被 Snapshot）
         public readonly List<SKSurface> Graveyard = new(); // 换下的旧场景面（Dispose 时随渲染器一起释放）
+        public SubtitleLayer? SubLayer; // 字幕层缓存（按字幕数据版本重建）
+        public long SubLayerVersion = -1;
         public Texture2D? Texture;
         public int TexW;
         public int TexH;
         public long LastVersion = -1; // 泵的暂停态脏判断
         public long Frames;
 
-        public Channel(string name, int w, int h, int fps, bool transparent, string? layer, bool noHud, Device device)
+        public Channel(string name, int w, int h, int fps, bool transparent, bool subtitle, Device device)
         {
             Name = name;
             W = Math.Max(64, w);
             H = Math.Max(64, h);
             IntervalMs = Math.Max(MinIntervalMs, 1000 / Math.Max(1, fps));
             Transparent = transparent;
-            Layer = layer;
-            NoHud = noHud;
+            Subtitle = subtitle;
             Device = device;
+            if (!subtitle) Renderer = new Renderer();
 
             Sender = new SpoutSender();
             Sender.SetSenderName(name);
@@ -463,12 +514,11 @@ public sealed class SpoutOut : IDisposable
             }
 
             // 渲染器先释放（其整帧缓存快照引用着场景面），再释放 Skia 面
-            Renderer.Dispose();
+            Renderer?.Dispose();
             Scene?.Dispose();
             foreach (var s in Graveyard) s.Dispose();
             Out?.Dispose();
             Texture?.Dispose();
-            Renderer.Dispose();
         }
     }
 }

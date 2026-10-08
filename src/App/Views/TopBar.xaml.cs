@@ -1,41 +1,55 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using System.Windows.Controls;
-using JizuraLive.Engine;
+using System.Windows.Threading;
 using JizuraLive.Logging;
 using Microsoft.Win32;
 
 namespace JizuraLive.App.Views;
 
-// 顶栏（对位 TopBar.vue）：曲名/歌手、打开/保存/初始化/使用说明、Spout 开关、状态行
+// 顶栏（对位 TopBar.vue）：曲名/歌手输入 + 打开/保存/初始化/使用说明。
+// 云音乐在「歌曲与节拍」面板，跟随在云音乐面板里，Spout 开关在「设置」页（与旧版一致）。
 public partial class TopBar : UserControl
 {
     private bool _syncing;
+    // 输入即重规划，但防抖 300ms（对位 replanSoon(300)），免得每个键都全量重规划
+    private readonly DispatcherTimer _debounce;
 
     public TopBar()
     {
         InitializeComponent();
+        _debounce = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(300) };
+        _debounce.Tick += (_, _) =>
+        {
+            _debounce.Stop();
+            PushTitleArtist();
+        };
         Loaded += (_, _) =>
         {
             var main = App.MainInstance!;
-            ChkSpout.IsChecked = App.SettingsOf()?.SpoutEnabled == true;
-            main.StatusChanged += RefreshStatus;
             main.State.StateChanged += () => Dispatcher.Invoke(PullProject);
-            main.Follow.Changed += () => Dispatcher.Invoke(RefreshFollowBtn);
             PullProject();
-            RefreshStatus();
-            RefreshFollowBtn();
         };
     }
 
     private void PullProject()
     {
         var p = App.MainInstance!.State.Project;
+        if (TbTitle.Text == p.Title && TbArtist.Text == p.Artist) return;
         _syncing = true;
         TbTitle.Text = p.Title;
         TbArtist.Text = p.Artist;
         _syncing = false;
     }
+
+    private void TbTitle_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_syncing || !IsLoaded) return;
+        _debounce.Stop();
+        _debounce.Start();
+    }
+
+    private void TbArtist_TextChanged(object sender, TextChangedEventArgs e) => TbTitle_TextChanged(sender, e);
 
     private void PushTitleArtist()
     {
@@ -47,16 +61,6 @@ public partial class TopBar : UserControl
             p.Title = TbTitle.Text;
             p.Artist = TbArtist.Text;
         }, "曲名/歌手", replan: true, look: true);
-    }
-
-    private void RefreshStatus()
-    {
-        var main = App.MainInstance!;
-        var plan = main.Preview.Plan;
-        if (plan == null) return;
-        TblStatus.Text =
-            $"{plan.W}×{plan.H} · {plan.Cuts.Count} 切分 · seed {plan.Seed}"
-            + (main.Spout.IsRunning ? $" · Spout→{main.Spout.SenderName}" : "");
     }
 
     private void BtnOpen_Click(object sender, RoutedEventArgs e)
@@ -71,8 +75,7 @@ public partial class TopBar : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show(Window.GetWindow(this)!, "打开失败：" + ex.Message, "字面 Live",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageDialog.Warn(Window.GetWindow(this)!, "打开失败", ex.Message);
         }
     }
 
@@ -99,64 +102,29 @@ public partial class TopBar : UserControl
         }
         catch (NotImplementedException)
         {
-            // .jizuralive 写入（M3-A）未落地时兜底存 .json，不丢工程
+            // .jizuralive 写入未落地时兜底存 .json，不丢工程
             var fallback = Path.ChangeExtension(dlg.FileName, ".json");
             ProjectIO.Save(main.State.Project, fallback, null, null);
-            MessageBox.Show(Window.GetWindow(this)!, "工程包写入尚未就绪，已保存为 JSON：\n" + fallback, "字面 Live",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageDialog.Info(Window.GetWindow(this)!, "保存", "工程包写入尚未就绪，已保存为 JSON：\n" + fallback);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(Window.GetWindow(this)!, "保存失败：" + ex.Message, "字面 Live",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageDialog.Warn(Window.GetWindow(this)!, "保存失败", ex.Message);
         }
     }
 
     private void BtnReset_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show(Window.GetWindow(this)!, "清空歌词、歌曲、设置和历史，回到初始状态？", "初始化",
-                MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
-        App.MainInstance!.State.ResetAll();
+        var win = Window.GetWindow(this)!;
+        MessageDialog.ConfirmReset(win, () => App.MainInstance!.State.ResetAll());
     }
 
     private void BtnTerms_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(Window.GetWindow(this)!,
-            "字面 Live（JIZURA-live）\n\n" +
-            "输出物（视频/图片/Spout 画面）的著作权归工程的创作者所有。\n" +
-            "自托管字体与引擎代码的许可证详见安装目录 LICENSE 文件。\n" +
-            "导出歌曲请确认你拥有相应权利。",
-            "使用说明", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
-
-    // ---------------- 云音乐 / 跟随（M6） ----------------
-
-    private void BtnCloud_Click(object sender, RoutedEventArgs e)
-    {
-        CloudPanel.Open(Window.GetWindow(this)!);
-    }
-
-    private void BtnFollow_Click(object sender, RoutedEventArgs e)
-    {
-        App.MainInstance!.Follow.Toggle();
-        RefreshFollowBtn();
-    }
-
-    private void RefreshFollowBtn()
-    {
-        var on = App.MainInstance!.Follow.On;
-        BtnFollow.Content = on ? "跟随中" : "跟随";
-        BtnFollow.Foreground = on ? FindResource("Amber") as System.Windows.Media.Brush
-            : FindResource("Fg") as System.Windows.Media.Brush;
-        BtnFollow.ToolTip = on ? "跟随外部播放器中：点击停止（当前歌词保留在工程里）"
-            : "跟随外部播放器（SMTC）：播放器出声，这里同步进度与歌词；切歌自动匹配";
-    }
-
-    private void ChkSpout_Changed(object sender, RoutedEventArgs e)
-    {
-        var main = App.MainInstance;
-        if (main == null || !IsLoaded) return; // XAML 初始化期
-        main.SetSpoutEnabled(ChkSpout.IsChecked == true);
-        RefreshStatus();
+        MessageDialog.Info(Window.GetWindow(this)!, "使用说明",
+            "字面 Live（JIZURA-live）\n\n"
+            + "输出物（视频/图片/Spout 画面）的著作权归工程的创作者所有。\n"
+            + "自托管字体与引擎代码的许可证详见安装目录 LICENSE 文件。\n"
+            + "导出歌曲请确认你拥有相应权利。");
     }
 }

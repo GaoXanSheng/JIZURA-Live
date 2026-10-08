@@ -12,8 +12,8 @@ using Timer = System.Timers.Timer;
 namespace JizuraLive.App;
 
 /// <summary>
-/// 工程持久化：mergeProject（不信任外部输入的合并清洗，逐条对位 frontend/src/jizura/project.ts）
-/// + autosave（%LOCALAPPDATA% 取代 CEF localStorage）+ 打开/保存。
+/// 工程持久化：mergeProject（不信任外部输入的合并清洗，逐条对位旧前端 project.ts）
+/// + autosave（%LOCALAPPDATA% 下的 autosave.json）+ 打开/保存。
 /// .jizuralive 容器写入（pkg.ts 移植）由 SavePackage 提供。
 /// </summary>
 public static class ProjectIO

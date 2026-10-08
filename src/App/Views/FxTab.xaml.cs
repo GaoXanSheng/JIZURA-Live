@@ -31,6 +31,10 @@ public partial class FxTab : UserControl
         (0, "全帧（同输出 fps）"), (8, "一拍三（8 张/秒）"), (12, "一拍二（12 张/秒）"), (24, "一拍一（24 张/秒）"),
     };
 
+    // 锁定按钮的悬浮说明（对位 Vue 的 LOCK_ON / LOCK_OFF）
+    private const string LockOn = "锁定：一键随机/重抽不改动此项";
+    private const string LockOff = "锁定中，点击解除";
+
     private sealed record FxRow(string Key, string Label, Slider Slider, TextBlock Value, Button Lock);
 
     private readonly List<FxRow> _rows = new();
@@ -66,30 +70,44 @@ public partial class FxTab : UserControl
     {
         foreach (var (key, label) in FxKeys)
         {
-            var lab = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            // 参数名（.text-xs）
+            var lab = new TextBlock
+            {
+                Text = label,
+                FontSize = 12,
+                LineHeight = 18,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
 
             var slider = new Slider { Style = (Style)Resources["FxSlider"], Margin = new Thickness(0, 0, 8, 0) };
 
+            // 数值（font-mono text-[11px] text-mut text-right；36px 列，右侧留 8 给锁定键）
             var value = new TextBlock
             {
                 FontSize = 11,
-                FontFamily = new FontFamily("Consolas"),
+                FontFamily = (FontFamily)FindResource("MonoFont"),
+                LineHeight = 16.5,
+                LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
                 Foreground = (Brush)FindResource("Mut"),
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
-                Width = 30,
+                Margin = new Thickness(0, 0, 8, 0),
             };
 
+            // 锁定键（.btn.btn-icon.btn-ghost，锁形 Path 随前景色）
             var lockBtn = new Button
             {
                 Style = (Style)Resources["LockBtn"],
-                ToolTip = "锁定：一键随机/重抽不改动此项",
+                Content = FindResource("FxLock"),
+                ToolTip = LockOn,
             };
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             Grid.SetColumn(lab, 0);
             Grid.SetColumn(slider, 1);
@@ -146,7 +164,7 @@ public partial class FxTab : UserControl
             {
                 Content = def.Label,
                 Tag = id,
-                Margin = new Thickness(0, 0, 0, 4),
+                Margin = new Thickness(0, 0, 0, 6), // .flex flex-col gap-1.5
                 ToolTip = def.Note,
             };
             cb.Checked += (_, _) => { if (!_syncing) ToggleUnit(id, true); };
@@ -300,7 +318,7 @@ public partial class FxTab : UserControl
                 row.Value.Text = Round100(v);
                 var locked = p.Locks.Params.TryGetValue(row.Key, out var lv) && lv;
                 row.Lock.Tag = locked ? "on" : "off";
-                row.Lock.ToolTip = locked ? "锁定中，点击解除" : "锁定：一键随机/重抽不改动此项";
+                row.Lock.ToolTip = locked ? LockOff : LockOn;
             }
 
             var koma = KomaOptions.Where(o => o.V == p.Fx.Koma).Select(o => o.V).FirstOrDefault(12);
@@ -310,7 +328,7 @@ public partial class FxTab : UserControl
 
             var komaLocked = p.Locks.Params.TryGetValue("koma", out var klv) && klv;
             BtnKomaLock.Tag = komaLocked ? "on" : "off";
-            BtnKomaLock.ToolTip = komaLocked ? "锁定中，点击解除" : "锁定：一键随机/重抽不改动此项";
+            BtnKomaLock.ToolTip = komaLocked ? LockOff : LockOn;
 
             PullAudioFx();
         }
@@ -375,9 +393,10 @@ public partial class FxTab : UserControl
 
     private static string Round100(double v) => Math.Round(v * 100).ToString();
 
-    private static void SetChecked(CheckBox cb, bool v)
+    // 统一感/文字排列是 ToggleButton（.switch），其余开关仍是 CheckBox
+    private static void SetChecked(ToggleButton tb, bool v)
     {
-        if (cb.IsChecked != v) cb.IsChecked = v;
+        if (tb.IsChecked != v) tb.IsChecked = v;
     }
 
     private static void SelectTag(ComboBox cb, string tag)

@@ -1,10 +1,13 @@
 <UserControl x:Class="JizuraLive.App.Views.StyleTab"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:JizuraLive.App.Controls">
     <UserControl.Resources>
-        <!-- 风格卡片（对位 StyleTab.vue 的 canvas 缩略图卡：选中 Amber 描边） -->
+        <!-- 风格卡片（对位 StyleTab.vue：
+             btn !p-0 flex-col !h-auto border border-line rounded-md overflow-hidden bg-panel text-left
+             选中 = border-amber + shadow-[0_0_0_1px_amber]；hover 边框 line2） -->
         <Style x:Key="StyleCard" TargetType="Button">
-            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Background" Value="{StaticResource Panel}" />
             <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="0" />
@@ -12,15 +15,21 @@
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Focusable" Value="False" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6" ClipToBounds="True">
-                            <ContentPresenter />
-                        </Border>
+                        <Grid>
+                            <!-- shadow-[0_0_0_1px_amber]：边框外再 1px 琥珀环（Margin=-1 画到卡片外一圈） -->
+                            <Border x:Name="ring" CornerRadius="7" BorderBrush="{StaticResource Amber}"
+                                    BorderThickness="1" Margin="-1" Visibility="Collapsed" />
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="6" ClipToBounds="True" SnapsToDevicePixels="True">
+                                <ContentPresenter />
+                            </Border>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Line2}" />
@@ -30,18 +39,95 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- 缩略图上的徽标（.badge-set !bg-black/55）：沿用共享 JzBadge 的描边，只把它改成半透明黑底 -->
+        <Style x:Key="CardBadge" TargetType="{x:Type ctl:JzBadge}" BasedOn="{StaticResource {x:Type ctl:JzBadge}}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ctl:JzBadge}">
+                        <Border Background="#8C000000" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="3" Padding="3,0">
+                            <TextBlock Text="{TemplateBinding Text}" FontSize="10" LineHeight="14"
+                                       Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- .checkblock：勾选框与首行文字顶对齐（共享 CheckBox 的盒子是垂直居中，两行内容会顶不齐） -->
+        <Style x:Key="CheckBlock" TargetType="CheckBox">
+            <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" Background="Transparent">
+                            <Border x:Name="box" Width="14" Height="14" CornerRadius="3"
+                                    Background="{StaticResource Raised}" BorderBrush="{StaticResource Line2}"
+                                    BorderThickness="1" VerticalAlignment="Top" Margin="0,2,0,0"
+                                    SnapsToDevicePixels="True">
+                                <Path x:Name="check" Data="M 2.5 7 L 5.5 10 L 11 3.5"
+                                      Stroke="{StaticResource PrimaryInk}" StrokeThickness="1.8"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
+                            </Border>
+                            <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Top" RecognizesAccessKey="False" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="box" Property="Background" Value="{StaticResource Amber}" />
+                                <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Amber}" />
+                                <Setter TargetName="check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="box" Property="BorderBrush" Value="{StaticResource Amber60}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 色块输入（对位 input[type=color] 的 .w-full h-7 rounded-md border-line：
+             WPF 没有系统取色器，用「彩色底 + 十六进制字」当色块，点进去就是改色） -->
+        <Style x:Key="ColorBox" TargetType="TextBox" BasedOn="{StaticResource TbNum}">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
     </UserControl.Resources>
 
     <StackPanel>
-        <!-- 风格网格：Reg.Styles 12 个（代码生成卡片，缩略图配色来自 schemes） -->
-        <UniformGrid x:Name="StyleGrid" Columns="3" />
+        <!-- 风格网格：Reg.Styles（卡片由代码生成；3 列 + 行列 8px 间隙 = Vue 的 grid gap-2 三列） -->
+        <Grid x:Name="StyleGrid">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+        </Grid>
 
-        <!-- 语言（歌词语言：auto + 5 语种，JLang.LangLabel 的文案） -->
-        <TextBlock Text="语言" Style="{StaticResource PanelLabel}" />
-        <ComboBox x:Name="CbLang" SelectionChanged="CbLang_SelectionChanged" />
+        <!-- 歌词语言（对位 LyricsPanel.vue 的「歌词语言」行：11px mut 标签 + h-7 下拉） -->
+        <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+            <TextBlock Text="歌词语言" FontSize="11" Foreground="{StaticResource Mut}"
+                       VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="CbLang" Style="{StaticResource SelSm}" MinWidth="104"
+                      SelectionChanged="CbLang_SelectionChanged" />
+        </StackPanel>
 
-        <!-- 字体三角色（display/serif/body；选项 = JFonts.Table，按当前语言给 faceOf 标注） -->
-        <TextBlock Text="字体角色" Style="{StaticResource PanelLabel}" />
+        <!-- 字体角色（.sec-sub） -->
+        <ctl:JzLabel  Text="字体角色" Tracking="0.14" TextElement.FontSize="11" 
+                      TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
+                      Margin="0,16,0,8" />
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="70" />
@@ -54,60 +140,79 @@
             </Grid.RowDefinitions>
             <TextBlock Grid.Row="0" Text="标题" Foreground="{StaticResource Mut}" FontSize="12"
                        VerticalAlignment="Center" />
-            <ComboBox x:Name="CbFontDisplay" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
+            <ComboBox x:Name="CbFontDisplay" Grid.Row="0" Grid.Column="1" Margin="8,0,0,6"
                       SelectionChanged="FontRole_SelectionChanged" />
             <TextBlock Grid.Row="1" Text="衬线体" Foreground="{StaticResource Mut}" FontSize="12"
                        VerticalAlignment="Center" />
-            <ComboBox x:Name="CbFontSerif" Grid.Row="1" Grid.Column="1" Margin="0,0,0,6"
+            <ComboBox x:Name="CbFontSerif" Grid.Row="1" Grid.Column="1" Margin="8,0,0,6"
                       SelectionChanged="FontRole_SelectionChanged" />
             <TextBlock Grid.Row="2" Text="正文" Foreground="{StaticResource Mut}" FontSize="12"
                        VerticalAlignment="Center" />
-            <ComboBox x:Name="CbFontBody" Grid.Row="2" Grid.Column="1"
+            <ComboBox x:Name="CbFontBody" Grid.Row="2" Grid.Column="1" Margin="8,0,0,6"
                       SelectionChanged="FontRole_SelectionChanged" />
         </Grid>
 
-        <!-- 本机字体 / 字体文件 -->
-        <Grid Margin="0,10,0,0">
+        <!-- 本机字体名（.row mt-2；提示语是输入框的占位，对位 placeholder）+ 添加 -->
+        <Grid Margin="0,8,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="TbLocalFont" VerticalContentAlignment="Center" />
-            <Button x:Name="BtnAddLocalFont" Grid.Column="1" Content="添加" Margin="6,0,0,0"
+            <Grid>
+                <TextBox x:Name="TbLocalFont" />
+                <TextBlock x:Name="TblLocalFontHint" Text="本机字体名" IsHitTestVisible="False"
+                           Foreground="{StaticResource Faint}" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=TbLocalFont}" Value="">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+            <Button x:Name="BtnAddLocalFont" Grid.Column="1" Content="添加" Margin="8,0,0,0"
                     Click="BtnAddLocalFont_Click" />
         </Grid>
-        <TextBlock x:Name="TblLocalFontHint" Text="本机字体名（例：游明朝）" FontSize="10"
-                   Foreground="{StaticResource Faint}" Margin="1,2,0,0" IsHitTestVisible="False" />
-        <Button x:Name="BtnFontFile" Content="字体文件（.ttf/.otf）" HorizontalAlignment="Left"
-                Margin="0,8,0,0" Click="BtnFontFile_Click" />
-
-        <!-- 强调色・错位色 -->
-        <TextBlock Text="强调色・错位色" Style="{StaticResource PanelLabel}" />
-        <CheckBox x:Name="CkAccentOn" Margin="0,0,0,6" Checked="AccentToggle_Changed" Unchecked="AccentToggle_Changed">
-            <AccessText TextWrapping="Wrap" Text="用自定义颜色覆盖（应用到全部场景，亮度会随背景自动调整）" />
+        <Button x:Name="BtnFontFile" Content="字体文件（.ttf/.otf）" Style="{StaticResource BtnFile}"
+                HorizontalAlignment="Left" Margin="0,8,0,0" Click="BtnFontFile_Click" />
+        <ctl:JzLabel Text="强调色・错位色" Tracking="0.14" TextElement.FontSize="11"
+                     TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
+                     Margin="0,16,0,8" />
+        <CheckBox x:Name="CkAccentOn" Style="{StaticResource CheckBlock}" Margin="0,0,0,8"
+                  Checked="AccentToggle_Changed" Unchecked="AccentToggle_Changed">
+            <StackPanel>
+                <TextBlock Text="用自定义颜色覆盖" FontSize="12" LineHeight="18" />
+                <TextBlock Text="应用到全部场景，亮度会随背景自动调整" FontSize="11" LineHeight="16.5"
+                           Foreground="{StaticResource Mut}" />
+            </StackPanel>
         </CheckBox>
+        <!-- 三色块（accent / ghostA / ghostB），代码生成 3 列 -->
         <Grid x:Name="AccentColorRows" />
-        <Grid Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <Button x:Name="BtnRandomPalette" Content="随机配色" Click="BtnRandomPalette_Click" />
-            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"
-                        VerticalAlignment="Center">
-                <Border x:Name="SwAccent" Width="20" Height="20" CornerRadius="3" Margin="0,0,4,0"
+        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+            <Button x:Name="BtnRandomPalette" Content="随机配色" Style="{StaticResource BtnAccent}"
+                    Click="BtnRandomPalette_Click" />
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                <Border x:Name="SwAccent" Width="20" Height="20" CornerRadius="4" Margin="0,0,2,0"
                         BorderBrush="#33FFFFFF" BorderThickness="1" />
-                <Border x:Name="SwGhostA" Width="20" Height="20" CornerRadius="3" Margin="0,0,4,0"
+                <Border x:Name="SwGhostA" Width="20" Height="20" CornerRadius="4" Margin="0,0,2,0"
                         BorderBrush="#33FFFFFF" BorderThickness="1" />
-                <Border x:Name="SwGhostB" Width="20" Height="20" CornerRadius="3"
+                <Border x:Name="SwGhostB" Width="20" Height="20" CornerRadius="4"
                         BorderBrush="#33FFFFFF" BorderThickness="1" />
             </StackPanel>
-        </Grid>
+        </StackPanel>
 
-        <!-- 背景・文字色 -->
-        <TextBlock Text="背景・文字色" Style="{StaticResource PanelLabel}" />
-        <CheckBox x:Name="CkColorOn" Content="把主背景与文字换成自定义颜色" Margin="0,0,0,6"
-                  Checked="ColorToggle_Changed" Unchecked="ColorToggle_Changed" />
+        <!-- 背景・文字色（.sec-sub + checkblock + 三色块） -->
+        <ctl:JzLabel Text="背景・文字色" Tracking="0.14" TextElement.FontSize="11"
+                     TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}"
+                     Margin="0,16,0,8" />
+        <CheckBox x:Name="CkColorOn" Style="{StaticResource CheckBlock}" Margin="0,0,0,8"
+                  Checked="ColorToggle_Changed" Unchecked="ColorToggle_Changed">
+            <TextBlock Text="把主背景与文字换成自定义颜色" FontSize="12" LineHeight="18" />
+        </CheckBox>
         <Grid x:Name="BaseColorRows" />
     </StackPanel>
 </UserControl>

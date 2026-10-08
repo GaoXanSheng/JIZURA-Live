@@ -14,7 +14,9 @@ namespace JizuraLive.App.Views;
 // 行与切分列表（对位 frontend/src/components/lyrics/LineList.vue + LineRow.vue）：
 // 逐行显示行号 / 开始时刻（手动青框）/ 行文本（点击定位）/ 每段切分边界与布局 / 动作行。
 // 窗口化渲染改由 ListBox 虚拟化承担；播放行跟随用 150ms 轮询当前行（对位 scrolltoline）。
-// 注：导出范围按钮暂缺 —— exportRange 字段尚未进入 C# Project 模型（Vue 专属），接入后补。
+// 视觉树（行内三列 + 切分格 + 动作行图标）在 LineList.xaml 的 RowTemplate 里；
+// 注：导出范围按钮只有视觉（RangeBtn）—— exportRange 字段尚未进入 C# Project 模型（Vue 专属），
+// 因此点击无行为、行也没有 inRange 的琥珀描边，接入 Project/导出层后补。
 public partial class LineList : UserControl
 {
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -569,7 +571,10 @@ public sealed class CutVm
     public int K;
     public double Start;
     public double Half;
-    public bool CtManual;
+
+    /// <summary>边界时刻为手动指定（边框青色）。注意必须是属性：WPF 绑定不支持字段
+    /// （旧实现是字段，DataTrigger 静默失败，青框从未生效）。</summary>
+    public bool CtManual { get; set; }
 
     public string StartText { get; set; } = "";
     public bool HasTime { get; set; }

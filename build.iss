@@ -43,7 +43,7 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [UninstallDelete]
-; 用户数据目录（设置与登录态 config、日志 logs、CEF 缓存 cef-cache）随卸载一并删除
+; 用户数据目录（设置与登录态 config、日志 logs）随卸载一并删除
 Type: filesandordirs; Name: "{localappdata}\JizuraLive"
 
 [Code]
@@ -67,7 +67,7 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
 begin
-  // 卸载开始前结束仍在运行的程序，避免 logs/cef-cache 被占用导致用户数据删不干净
+  // 卸载开始前结束仍在运行的程序，避免 logs 被占用导致用户数据删不干净
   if CurUninstallStep = usUninstall then
     Exec(ExpandConstant('{cmd}'),
       '/C taskkill /F /T /IM {#AppExeName} >nul 2>&1',

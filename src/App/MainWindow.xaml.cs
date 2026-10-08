@@ -1,16 +1,17 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
+using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Spout;
 using SkiaSharp;
 using SkiaSharp.Views.Desktop;
-using SkiaSharp.Views.WPF;
 
 namespace JizuraLive.App;
 
@@ -24,7 +25,7 @@ public partial class MainWindow : Window
     public EditorState State { get; }
 
     /// <summary>SMTC 跟随外部播放器（M6；云音乐面板与 TopBar 的「跟随」开关都驱动它）。</summary>
-    public Cloud.FollowController Follow { get; }
+    public FollowController Follow { get; }
 
     /// <summary>导出进行中：预览渲染泵让路（编码线程优先吃引擎闸）。</summary>
     public volatile bool ExportBusy;
@@ -67,7 +68,7 @@ public partial class MainWindow : Window
         App.MainInstance = this;
         State = new EditorState(_preview);
         State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
-        Follow = new Cloud.FollowController(Dispatcher, State);
+        Follow = new FollowController(Dispatcher, State);
 
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
@@ -300,7 +301,7 @@ public partial class MainWindow : Window
     {
         base.OnPreviewKeyDown(e);
         // 空格 = 播放/暂停；歌词编辑框里打空格要照常输入
-        if (e.Key == Key.Space && Keyboard.FocusedElement is not System.Windows.Controls.Primitives.TextBoxBase)
+        if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBoxBase)
         {
             _preview.TogglePlay();
             e.Handled = true;
@@ -368,11 +369,13 @@ public partial class MainWindow : Window
         WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
     }
 
-    // 最大化态显示「窗口化」图标（还原），普通态显示「最大化」
+    // 最大化态显示「窗口化」图标（还原成两个叠方块），普通态显示单方块
     private void UpdateMaxButton()
     {
         var max = WindowState == WindowState.Maximized;
-        BtnMax.Content = max ? "\uE923" : "\uE739";
+        IcMax.Data = Geometry.Parse(max
+            ? "M 0 2.6 H 7.4 V 10 H 0 Z M 2.6 2.6 V 0 H 10 V 7.4"
+            : "M 0 0 H 10 V 10 H 0 Z");
         BtnMax.ToolTip = max ? "窗口化" : "最大化";
     }
 
