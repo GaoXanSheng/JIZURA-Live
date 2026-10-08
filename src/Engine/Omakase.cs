@@ -403,6 +403,10 @@ public static class Omakase
 
     public static string? SetOf(string g, string k)
     {
+        // 实时条目优先（注册/替换后即时生效，测试探针与后续包端口都依赖）；
+        // 快照兜底（含风格 Extra["set"] 等派生数据）
+        var live = RegDef(g, k)?.Set;
+        if (live != null) return live;
         EnsureAttributes();
         return _attrSet.GetValueOrDefault(Key2(g, k));
     }

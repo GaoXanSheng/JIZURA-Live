@@ -412,10 +412,21 @@ public static class Reg
         def.Key = key;
         var prevPack = reg.TryGetValue(key, out var old) ? old.Pack : null;
         def.Pack = def.Pack ?? pack ?? "core";
+        // 套装归属：包名后缀数字即套装编号（horror1/2/3 → horror，kinetic*、typo* 同理）；
+        // 条目显式赋值优先（IRegEntry.Set 对位 11q_sets 的 set 字段）
+        def.Set ??= DeriveSet(def.Pack);
         if (prevPack != null && prevPack != def.Pack)
             Log.Warn($"JIZURA: {group}.{key} is being replaced");
         reg[key] = def;
         if (!def.Special && !order.Contains(key)) order.Add(key);
+    }
+
+    /// <summary>包名 → 套装名（"horror1"→"horror"；无后缀套装名前缀则返回 null）。</summary>
+    private static string? DeriveSet(string? pack)
+    {
+        if (string.IsNullOrEmpty(pack)) return null;
+        var name = pack.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+        return name is "horror" or "kinetic" or "typo" ? name : null;
     }
 
     public static IReadOnlyList<string> OrderOf(string g) => g switch

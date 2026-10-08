@@ -66,9 +66,7 @@ public static class JLayouts
         env.PieceFns.Clear();
         env.CharFn = null;
         env.PieceFn = null;
-        env.PreFn = null; // it.pre/it.post/it.clipFn 每 item 重建（JS 配方对象的函数值字段）
-        env.PostFn = null;
-        env.ClipFn = null;
+        // it.pre/it.post/it.clipFn 由调用方先设 env 桥；捕获与清空在 DrawFx 入口（消费处）
         env.It = it;
         var stagger = cut.Stagger;
         it["delay"] = (double)mi * stagger;
@@ -135,6 +133,15 @@ public static class JLayouts
     /// </summary>
     public static BBox? DrawFx(Env env, JObject it)
     {
+        // it.pre/it.post/it.clipFn：调用方（表现包/测试）先设 env 桥再经 MainDraw 进来。
+        // 入口捕获为局部再从 env 清空（JS 里这些是配方对象自带的函数值字段，每个 item 自带一份；
+        // 清空保证下一 item 从干净状态开始），消费点全部走局部变量
+        var preFn = env.PreFn;
+        var postFn = env.PostFn;
+        var clipFn = env.ClipFn;
+        env.PreFn = null;
+        env.PostFn = null;
+        env.ClipFn = null;
         var ctx = env.Ctx;
         BBox? bb = null;
         // 副本共用的 TextDrawOpts：env 的内部标记原样透传
@@ -208,11 +215,11 @@ public static class JLayouts
         }
 
         // JS it.pre：裁剪应用之前画（钩子内容不被 clip/clipY/clipFn 裁）；JS try/catch console.warn 对位
-        if (env.PreFn != null)
+        if (preFn != null)
         {
             try
             {
-                env.PreFn(env, it);
+                preFn(env, it);
             }
             catch (Exception e)
             {
@@ -230,9 +237,9 @@ public static class JLayouts
             ctx.ClipRect(new SKRect(-env.W * 1f, (float)(double)clipY[0]!, env.W * 3f, (float)((double)clipY[1]! - (double)clipY[0]!)));
         }
         // JS it.clipFn：ctx.beginPath() 后由钩子在 ctx 上构造路径再 ctx.clip()——C# 返回 SKPath 由这里裁
-        if (env.ClipFn != null)
+        if (clipFn != null)
         {
-            using var clipPath = env.ClipFn(env, it);
+            using var clipPath = clipFn(env, it);
             ctx.Save();
             ctx.ClipPath(clipPath);
         }
@@ -271,15 +278,15 @@ public static class JLayouts
             ctx.Restore();
         }
         else Draw();
-        if (env.ClipFn != null) ctx.Restore();
+        if (clipFn != null) ctx.Restore();
         if (it["clipY"] != null) ctx.Restore();
         if (it["clip"] != null) ctx.Restore();
         // JS it.post(env, it, bb)：主文字之后画（bb 是主文字 bbox，可能 null）
-        if (env.PostFn != null)
+        if (postFn != null)
         {
             try
             {
-                env.PostFn(env, it, bb);
+                postFn(env, it, bb);
             }
             catch (Exception e)
             {
