@@ -142,6 +142,7 @@ public static class JLayouts
         {
             try
             {
+                using var _pt = new Prof.Scope("treat", cut.Treat); // 叶子归因（性能专项）
                 tr.Draw?.Invoke(env); // JS apply(env, it, cut.treatP)：C# 的 Draw(env) 从 env.It / env.Cut.TreatP 取
             }
             catch (Exception e)
@@ -158,6 +159,7 @@ public static class JLayouts
             env.Lt = ltI;
             try
             {
+                using var _pe = new Prof.Scope("enter", en.Key); // 叶子归因（性能专项）
                 en.Draw?.Invoke(env);
             }
             finally
@@ -170,15 +172,18 @@ public static class JLayouts
         if (amt > 0 && !Truthy(it["noHold"]))
         {
             env.Ap = amt;
+            using var _ph = new Prof.Scope("hold", ho.Key); // 叶子归因（性能专项）
             ho.Draw?.Invoke(env);
         }
         if (pOut > 0 && ex.Key != "cut")
         {
             env.Ap = pOut;
+            using var _px = new Prof.Scope("exit", ex.Key); // 叶子归因（性能专项）
             ex.Draw?.Invoke(env);
         }
         env.CharFn = JAnim.CombineChar(env.CharFns);
         env.PieceFn = JAnim.CombinePiece(env.PieceFns);
+        using var _pf = new Prof.Scope("drawfx", S(it, "enter") ?? cut.Enter); // 叶子归因（性能专项）
         return DrawFx(env, it);
     }
 
@@ -214,6 +219,7 @@ public static class JLayouts
             var streak = it["streak"] as JObject;
             if (streak != null && D(streak, "a") > 0.01)
             {
+                using var _ps = new Prof.Scope("fx", "streak"); // 叶子归因（性能专项）
                 var lay0 = GetLayShared(it); // 拖尾副本共享排版，免每帧每副本重排
                 var n = I(streak, "n");
                 for (var k = n; k >= 1; k--)
@@ -236,6 +242,7 @@ public static class JLayouts
             var echo = it["echo"] as JObject;
             if (echo != null && I(echo, "n") > 0) // echo：主文字背后几层错位副本，描边或染色
             {
+                using var _pe = new Prof.Scope("fx", "echo"); // 叶子归因（性能专项）
                 var lay0 = GetLayShared(it);
                 var n = I(echo, "n");
                 for (var k = n; k >= 1; k--)
@@ -266,6 +273,7 @@ public static class JLayouts
                     });
                 }
             }
+            using var _pm = new Prof.Scope("fx", "main"); // 叶子归因（性能专项）
             var r = JText.DrawItem(env, it, opts);
             if (r != null) bb = r;
         }
@@ -1190,11 +1198,21 @@ public static class JLayouts
                 var fontC = S(P, "fontC")!;
                 var variant = S(P, "variant");
                 var center = S(P, "center");
-                var text = Regex.Replace(cut.Text, @"\s+", "");
-                var units = S(P, "unit") == "char"
-                    ? CodePoints(text).Where(c => !J.IsPunct(c[0])).ToList()
-                    : new List<string>(cut.Words is { Length: > 0 } ? cut.Words : new[] { text });
-                if (units.Count == 0) units = new List<string> { text };
+                // 帧不变量（text/units 只由 cut+params 决定）：按切分缓存（性能专项，稳态省 ~70KB/帧的
+                // Regex/LINQ/List 重建），plan 换则随 Cut 一起回收
+                var inv = CutCache.Get<LabelsInv>(cut, "labels");
+                if (inv == null)
+                {
+                    var text0 = Regex.Replace(cut.Text, @"\s+", "");
+                    var units0 = S(P, "unit") == "char"
+                        ? CodePoints(text0).Where(c => !J.IsPunct(c[0])).ToList()
+                        : new List<string>(cut.Words is { Length: > 0 } ? cut.Words : new[] { text0 });
+                    if (units0.Count == 0) units0 = new List<string> { text0 };
+                    inv = new LabelsInv(text0, units0);
+                    CutCache.Put(cut, "labels", inv);
+                }
+                var text = inv.Text;
+                var units = inv.Units;
                 var outK = 1 - J.E.InCubic(env.POut);
 
                 void DrawLabel(string u, double x, double y, double rot, double fs, double q, int i)
@@ -1267,6 +1285,15 @@ public static class JLayouts
             },
         });
     }
+
+    /// <summary>labels 的帧不变量（CutCache 载体）。</summary>
+    private sealed record LabelsInv(string Text, List<string> Units);
+
+    /// <summary>stack 等版式的 FitSize 常量 opt（只读共享实例，免逐帧 new JObject）。</summary>
+    private static readonly JObject TrackOpt3 = new() { ["track"] = 0.03 };
+
+    /// <summary>pill 的 FitSize 常量 opt。</summary>
+    private static readonly JObject PillTrackOpt = new() { ["track"] = 0.04 };
 
     private static void RegisterCondensed()
     {
@@ -1632,7 +1659,7 @@ public static class JLayouts
                             StrokeWidth = 3,
                             Color = Env.SkColor(sc.Str("fg")!, 0.9),
                         };
-                        p.ImageFilter = SKImageFilter.CreateDropShadow(0, 0, blur, blur, p.Color);
+                        p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blur, blur, p.Color); // 记忆滤镜，不 Dispose
                         env.Ctx.DrawCircle((float)ex, (float)ey, (float)(R * 1.01 * outK), p);
                         env.Ctx.Restore();
                         env.Circle(ex, ey, R * outK, J.Mix(sc.Str("bg")!, "#000000", 0.35), null, 0, 1, false);
@@ -1683,13 +1710,20 @@ public static class JLayouts
                 var H = env.H;
                 var sc = env.Sc!;
                 var P = env.P;
-                var text = env.Cut!.Text;
+                var cut = env.Cut!;
+                var text = cut.Text;
                 var font = S(P, "font")!;
                 var style = S(P, "style");
                 var dir = D(P, "dir");
                 var gap = D(P, "gap");
                 var xs = D(P, "xs");
-                var size = Math.Min(FitSize(text, font, W * 0.8, H * 0.22, new JObject { ["track"] = 0.03 }), H * 0.19);
+                // 帧不变量：字号只由 (text, font, W, H) 决定，按切分缓存（性能专项）
+                var size = CutCache.Get<double>(cut, "stack.size");
+                if (size <= 0)
+                {
+                    size = Math.Min(FitSize(text, font, W * 0.8, H * 0.22, TrackOpt3), H * 0.19);
+                    CutCache.Put(cut, "stack.size", size);
+                }
                 var step = size * gap;
                 var n = I(P, "copies");
                 var y0 = H / 2 - dir * (n - 1) * step / 2;
@@ -1746,8 +1780,20 @@ public static class JLayouts
                 var cut = env.Cut!;
                 var text = cut.Text;
                 var font = S(P, "font")!;
-                var size = Math.Min(FitSize(text, font, W * 0.62, H * 0.2, new JObject { ["track"] = 0.04 }), H * 0.17);
-                var m = Measure(new JObject { ["text"] = text, ["font"] = font, ["size"] = size, ["track"] = 0.04 });
+                // 帧不变量：字号与主盒宽只由 (text, font, W, H) 决定，按切分缓存（性能专项）
+                var size = CutCache.Get<double>(cut, "pill.size");
+                if (size <= 0)
+                {
+                    size = Math.Min(FitSize(text, font, W * 0.62, H * 0.2, PillTrackOpt), H * 0.17);
+                    CutCache.Put(cut, "pill.size", size);
+                }
+                var m = CutCache.Get<(double W, double H)>(cut, "pill.m");
+                if (m == default)
+                {
+                    var mm = Measure(new JObject { ["text"] = text, ["font"] = font, ["size"] = size, ["track"] = 0.04 });
+                    m = (mm.W, mm.H);
+                    CutCache.Put(cut, "pill.m", m);
+                }
                 var w = m.W + size * 1.3;
                 var h = size * 1.6;
                 var e = J.E.OutExpo(J.Clamp(env.Lt / (cut.InDur * 0.9))) * (1 - J.E.InExpo(env.POut));

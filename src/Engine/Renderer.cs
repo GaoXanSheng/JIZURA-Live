@@ -353,6 +353,7 @@ public sealed class Renderer : IDisposable
                 ctx.Save();
                 try
                 {
+                    using var _bg = new Prof.Scope("bg", mainCut.Bg); // 叶子归因（性能专项）
                     bgDef.Draw?.Invoke(env); // JS draw(env, cut.bgP || {})：C# 的 BgDef.Draw(env) 从 env.Cut.BgP 取
                 }
                 catch (Exception e)
@@ -516,6 +517,10 @@ public sealed class Renderer : IDisposable
                     {
                         if (tdef.Draw is TransDrawFn draw)
                         {
+                            // 注：A/B 快照此处**不能** using 释放——Skia 对未变更表面复用同一张快照镜像，
+                            // SkiaSharp 又按原生句柄去重托管包装，Dispose 可能连带释放整帧缓存 _fcCv 引用的
+                            // 同一对象（实测 sk_image_get_width AV）。要治「转场帧快照进终结器」需另设
+                            // 按 surface 的快照缓存，不能用局部 using。
                             draw(ctx, A.Snapshot(), B.Snapshot(), J.Clamp(lt / dur), new TransCtx
                             {
                                 Cw = cw,
@@ -752,7 +757,8 @@ public sealed class Renderer : IDisposable
                 font.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // textBaseline='middle'
                 using var p = new SKPaint { IsAntialias = true };
-                using var f = allowFilter && blur > 0.4 ? JText.BlurFilter(blur) : null;
+                // 滤镜走 JText 共享记忆工厂：不 Dispose（性能专项）
+                var f = allowFilter && blur > 0.4 ? JText.BlurFilter(blur) : null;
                 p.ImageFilter = f;
                 if (g.Fill)
                 {
@@ -866,6 +872,7 @@ public sealed class Renderer : IDisposable
                     if (Reg.Decor.TryGetValue(d.Id, out var D) && D.Layer == "back")
                         try
                         {
+                            using var _pb = new Prof.Scope("decorback", d.Id); // 叶子归因（性能专项）
                             D.Draw?.Invoke(env, d); // JS draw(env, null, d)：后景装饰 bb 由 env.Body 携带（可为空）
                         }
                         catch (Exception e)
@@ -880,6 +887,7 @@ public sealed class Renderer : IDisposable
             env.Body = null; // 清掉上一 cut/上一 decor 的残留（JS render 返回值语义）
             try
             {
+                using var _pl = new Prof.Scope("layout", cut.Layout); // 叶子归因（性能专项）
                 layout?.Draw?.Invoke(env); // JS render(env) 返回主体 bbox → C# 写 env.Body
             }
             catch (Exception e)
@@ -893,6 +901,7 @@ public sealed class Renderer : IDisposable
                     env.Body = bb;
                     try
                     {
+                        using var _pf = new Prof.Scope("decorfront", d.Id); // 叶子归因（性能专项）
                         D.Draw?.Invoke(env, d);
                     }
                     catch (Exception e)
@@ -1617,8 +1626,7 @@ public sealed class Renderer : IDisposable
             foreach (var g in _grain) g?.Dispose();
             foreach (var s in _grainShader) s?.Dispose();
             _scanShader?.Dispose();
-            foreach (var f in _glowFilters.Values) f.Dispose();
-            _glowFilters.Clear();
+            _glowFilters.Clear(); // 值来自 JText 共享记忆工厂，不随 Renderer 释放（性能专项）
             foreach (var img in _bgBaked.Values) img.Dispose();
             _bgBaked.Clear();
             foreach (var img in _paperImgCache.Values) img.Dispose();

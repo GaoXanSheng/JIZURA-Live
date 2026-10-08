@@ -39,8 +39,13 @@ public static class JText
     /// <summary>J.TYPESET：planner/renderer 按方案设置（假名排紧、助词缩小、首字放大、拉丁稍大）。</summary>
     public static bool Typeset;
 
-    /// <summary>J.setTypeset。</summary>
-    public static void SetTypeset(bool on) => Typeset = on;
+    /// <summary>J.setTypeset。整列开关影响 TypesetLine → 排版内容缓存键随代数失效（性能专项缓存）。</summary>
+    public static void SetTypeset(bool on)
+    {
+        if (Typeset == on) return;
+        Typeset = on;
+        InvalidateLayoutCache();
+    }
 
     // JS 源的字符类正则：HIRA /[ぁ-ゟ]/、KATA /[゠-ヿㇰ-ㇿ]/、KANJI /[㐀-鿿豈-﫿々〆]/、
     // LATIN /[A-Za-z0-9]/、/\s/（JS \s 的精确字符集）。与 J.cs 的 IsKanji 等 helper 范围
@@ -302,10 +307,65 @@ public static class JText
     // it._lay 对位：JObject 挂不上函数/对象值字段，用按对象弱引用的侧表缓存（随 item 回收）。
     private static readonly ConditionalWeakTable<JObject, StrongBox<TextLayout>> LayCache = new();
 
+    // ---- 排版内容缓存（性能专项）----
+    // 包侧逐帧 new JObject 构造 item（JS 字面量语义）→ 上面的按对象缓存逐帧全 miss，同一文本
+    // 每帧整段重排版（LayoutText 全量码点+度量），glitchGrid/slotMachine 等格子版式实测是
+    // cutpass 分配大头。这里按 LayoutText 的真实输入（text/font/size/track/lead/align/vertical）
+    // 建 tuple 键缓存：命中零分配、值共享（GlyphCell 只读 + g.Json 幂等 memo，跨 item 共享安全——
+    // streak/echo 副本的 ShareLay 早已是同一用法）。字体/语言/用户字体装载经 InvalidateLayoutCache 失效。
+    // 注：sx/sy 不进键——LayoutText 计算后并未使用它们（缩放由 DrawItem 在绘制期施加），
+    // 而很多版式的 sx 逐帧动画，进键会让这些 item 永远 miss。
+    private static readonly Dictionary<(string Text, string? Font, long Size, long Track, long Lead,
+        string? Align, bool Vert), TextLayout> LayContent = new();
+    private static readonly Queue<(string Text, string? Font, long Size, long Track, long Lead,
+        string? Align, bool Vert)> LayOrder = new(); // FIFO 驱逐序（保险丝走驱逐，不走 Clear——Clear 会让稳定键全量重排成突发）
+    private static long _layGen;        // 失效代数：InvalidateLayoutCache 时 ++
+    private static long _layCacheGen;   // 缓存当前对齐的代数
+    private const int LayCap = 2048;
+
+    /// <summary>性能诊断（探针用）：命中 / 未命中 / 驱逐 / 清空计数。</summary>
+    public static (long Hit, long Miss, long Evict, long Clear) LayStats;
+
+    private static long Bits(double v) => BitConverter.DoubleToInt64Bits(v);
+
+    /// <summary>字体/语言变化后清排版内容缓存（JLang.SetLang / JFonts 装载路径调）。</summary>
+    internal static void InvalidateLayoutCache()
+    {
+        _layGen++;
+        LayContent.Clear();
+        LayOrder.Clear();
+        LayStats.Clear++;
+    }
+
     internal static TextLayout GetLay(JObject it)
     {
         var box = LayCache.GetOrCreateValue(it);
-        return box.Value ??= LayoutText(it);
+        if (box.Value != null) return box.Value;
+        if (_layGen != _layCacheGen)
+        {
+            LayContent.Clear();
+            LayOrder.Clear();
+            LayStats.Clear++;
+            _layCacheGen = _layGen;
+        }
+        var key = (TextOf(it, "text"), Str(it, "font"),
+            Bits(Num(it, "size")), Bits(Num(it, "track")), Bits(Num(it, "lead")),
+            Str(it, "align"), Truthy(it["vertical"]));
+        if (!LayContent.TryGetValue(key, out var lay))
+        {
+            LayStats.Miss++;
+            lay = LayoutText(it);
+            if (LayContent.Count >= LayCap)
+            {
+                LayContent.Remove(LayOrder.Dequeue()); // 驱逐最旧（FIFO）：滚动文本流不无界，稳定键不被一次性清掉
+                LayStats.Evict++;
+            }
+            LayContent[key] = lay;
+            LayOrder.Enqueue(key);
+        }
+        else LayStats.Hit++;
+        box.Value = lay;
+        return lay;
     }
 
     /// <summary>JS 内层 item（Object.assign 克隆）共享同一 _lay 时用：把排版结果挂到克隆对象上。</summary>
@@ -420,6 +480,7 @@ public static class JText
     private static bool TryDrawItemLayered(Env env, JObject it, TextDrawOpts o, out BBox? bb)
     {
         bb = null;
+        using var _ly = new Prof.Scope("item", "layered"); // 叶子归因（性能专项）
         var ctx = env.Ctx;
         var lay = GetLay(it);
         var size = Num(it, "size");
@@ -496,21 +557,19 @@ public static class JText
         if (blend != null && BlendMap.TryGetValue(blend, out var bm)) comp.BlendMode = bm;
         SKImageFilter? imgFilter = null;
         var blur = Num(it, "blur");
-        if (blur > 0.4) imgFilter = BlurFilter(blur * env.Scale);
+        var hasBlur = blur > 0.4;
+        if (hasBlur) imgFilter = BlurFilter(blur * env.Scale);
         if (sh != null && env.Pass == "main")
         {
-            // ctx.shadowColor/Blur/Offset → 整层的 drop shadow（挂在 blur 结果上）
+            // ctx.shadowColor/Blur/Offset → 整层的 drop shadow（挂在 blur 结果上）；滤镜全走记忆工厂，不 Dispose
             var sCol = CssColor(Str(sh, "color") ?? "rgba(0,0,0,0.6)");
-            var f = DropShadowFilter(Num(sh, "dx") * env.Scale, Num(sh, "dy") * env.Scale,
-                Math.Max(Num(sh, "blur"), 0) * env.Scale, sCol, imgFilter);
-            imgFilter?.Dispose();
-            imgFilter = f;
+            imgFilter = DropShadowFilter(Num(sh, "dx") * env.Scale, Num(sh, "dy") * env.Scale,
+                Math.Max(Num(sh, "blur"), 0) * env.Scale, sCol, hasBlur ? blur * env.Scale : 0);
         }
         comp.ImageFilter = imgFilter;
         using var img = surface.Snapshot();
         ctx.DrawImage(img, new SKRect((float)x0, (float)y0, (float)(x0 + ow / k), (float)(y0 + oh / k)), comp);
         ctx.Restore();
-        imgFilter?.Dispose();
         if (bbInner == null) return true;
         bb = new BBox
         {
@@ -714,10 +773,8 @@ public static class JText
         var pieceFn = o.NoPieces ? null : o.PieceFn ?? env.PieceFn;
         var pieceFnEx = o.PieceFnEx;
         using var paint = new SKPaint { IsAntialias = true };
-        // 逐字 filter 复用：blur/影参在 item 内通常逐字不变 → 每 item 一档缓存（原实现逐字新建会把
-        // SKImageFilter 灌满 finalizer 队列）。键为 glyphBlur（影参 dX/dY/blur/col 对 item 恒定）。
-        double memoBlur = double.NaN;
-        SKImageFilter? memoBase = null, memoWrapped = null;
+        // 逐字滤镜走 JText 共享记忆工厂（性能专项）：同参跨 item/跨帧复用，命中零新建零终结，也不再有
+        // 「每 item 一档、档间 Dispose」的机器。滤镜是共享只读资源，此处禁 Dispose。
         foreach (var g in lay.Cells)
         {
             if (g.Ch is " " or "　") continue;
@@ -786,24 +843,11 @@ public static class JText
                     (float)(cx[0] * g.W + (cx[1] - cx[0]) * g.W),
                     (float)(cy[0] * g.H + (cy[1] - cy[0]) * g.H)));
             }
-            // ctx.filter 对位：逐字 blur 优先（JS 里 ctx.filter 赋值会整体替换）
+            // ctx.filter 对位：逐字 blur 优先（JS 里 ctx.filter 赋值会整体替换）；滤镜来自共享记忆工厂
             var glyphBlur = c is { Blur: > 0.4 } && o.AllowFilter ? c.Blur.Value * escale : itemBlur;
-            SKImageFilter? withShadow;
-            if (glyphBlur == memoBlur)
-            {
-                withShadow = memoWrapped;
-            }
-            else
-            {
-                var nb = glyphBlur > 0 ? BlurFilter(glyphBlur) : null;
-                var nw = shadow != null ? DropShadowFilter(shDx, shDy, shBlur, shColor, nb) : nb;
-                if (!ReferenceEquals(memoWrapped, memoBase)) memoWrapped?.Dispose(); // 上一档包装即弃（native 由链内引用保活，同原逐字语义）
-                memoBase?.Dispose();
-                memoBlur = glyphBlur;
-                memoBase = nb;
-                memoWrapped = nw;
-                withShadow = nw;
-            }
+            var withShadow = shadow != null
+                ? DropShadowFilter(shDx, shDy, shBlur, shColor, glyphBlur > 0 ? glyphBlur : 0)
+                : glyphBlur > 0 ? BlurFilter(glyphBlur) : null;
             paint.ImageFilter = withShadow;
             paint.BlendMode = blendMode;
             if (ext != null && !outlineOnly)
@@ -862,8 +906,6 @@ public static class JText
             ctx.Restore();
         }
         paint.ImageFilter = null;
-        if (!ReferenceEquals(memoWrapped, memoBase)) memoWrapped?.Dispose();
-        memoBase?.Dispose();
         ctx.Restore();
         gradShader?.Dispose();
         // 设计空间 bbox（旋转只算平移）
@@ -1692,7 +1734,11 @@ public static class JText
     private static readonly Hashtable FontJobs = new();
 
     /// <summary>字体目录变化（AddUserFont/EnsureFonts）后清 SKFont 缓存；typeface 表（FaceJobs）同语义不动。</summary>
-    internal static void OnFontsChanged() => FontJobs.Clear();
+    internal static void OnFontsChanged()
+    {
+        FontJobs.Clear();
+        InvalidateLayoutCache(); // 排版内容缓存随字体度量失效（性能专项缓存）
+    }
 
     internal static SKFont FaceFont(string fontKey, double size, double wg = 0)
     {
@@ -1740,18 +1786,55 @@ public static class JText
 
     // ---------------- 小助手 ----------------
 
-    /// <summary>Canvas2D blur(r)/shadowBlur ≈ 2σ：px → SKImageFilter blur sigma。internal：Renderer 复用同一换算。</summary>
+    // ---------------- 原生滤镜记忆（性能专项） ----------------
+    // 逐帧新建的 SKImageFilter 全部堆在 finalizer 队列上：dotnet-trace 采样实测终结器线程
+    // SKImageFilter.Dispose 独占全进程 CPU 12%（≈13s / 40s 采样窗口，全部渲染工作才 37s）。
+    // 参数相同的滤镜在这里复用：命中零新建、零终结。键含全部创建参数（σ 直给 / px 两族以 Kind 区分）。
+    // [ThreadStatic]：与 Env.SharedPaint/SharedPath 同款，渲染单线程与测试并行都不跨线程共享。
+    // 铁律：记忆滤镜是共享只读资源，任何调用方不得 Dispose；动画参数（σ 逐帧变化）由容量保险丝兜底。
+    [ThreadStatic] private static Dictionary<(int Kind, float A, float B, float C, float D, uint Col, float Aux), SKImageFilter>? _fxMemo;
+
+    /// <summary>Canvas2D blur(r)/shadowBlur ≈ 2σ：px → SKImageFilter blur sigma（记忆复用）。internal：Renderer 复用同一换算。</summary>
     internal static SKImageFilter? BlurFilter(double blurPx)
     {
         if (blurPx <= 0) return null;
         var s = (float)(blurPx * 0.5);
-        return SKImageFilter.CreateBlur(s, s);
+        var map = _fxMemo ??= new Dictionary<(int, float, float, float, float, uint, float), SKImageFilter>();
+        var key = (0, s, s, 0f, 0f, 0u, 0f);
+        if (map.TryGetValue(key, out var hit)) return hit;
+        if (map.Count > 400) map.Clear(); // 容量保险丝：动画参数不无界增长
+        var f = SKImageFilter.CreateBlur(s, s);
+        map[key] = f;
+        return f;
     }
 
-    private static SKImageFilter? DropShadowFilter(double dx, double dy, double blurPx, SKColor col, SKImageFilter? input)
+    /// <summary>σ 直给的 drop shadow（记忆复用）：JLayouts/P11 各包的 ctx.shadowColor/shadowBlur 对位。</summary>
+    internal static SKImageFilter ShadowSigmaFilter(double dx, double dy, double sigmaX, double sigmaY, SKColor col)
+    {
+        var sx = (float)sigmaX;
+        var sy = (float)sigmaY;
+        var map = _fxMemo ??= new Dictionary<(int, float, float, float, float, uint, float), SKImageFilter>();
+        var key = (2, (float)dx, (float)dy, sx, sy, (uint)col, 0f);
+        if (map.TryGetValue(key, out var hit)) return hit;
+        if (map.Count > 400) map.Clear();
+        var f = SKImageFilter.CreateDropShadow((float)dx, (float)dy, sx, sy, col);
+        map[key] = f;
+        return f;
+    }
+
+    /// <summary>px 口径的 drop shadow（σ=px/2，记忆复用）；baseBlurPx>0 时挂在同参数模糊结果上（链内引用保活）。</summary>
+    private static SKImageFilter? DropShadowFilter(double dx, double dy, double blurPx, SKColor col, double baseBlurPx)
     {
         var s = (float)(blurPx * 0.5);
-        return SKImageFilter.CreateDropShadow((float)dx, (float)dy, s, s, col, input);
+        var aux = (float)baseBlurPx;
+        var map = _fxMemo ??= new Dictionary<(int, float, float, float, float, uint, float), SKImageFilter>();
+        var key = (1, (float)dx, (float)dy, s, s, (uint)col, aux);
+        if (map.TryGetValue(key, out var hit)) return hit;
+        if (map.Count > 400) map.Clear();
+        var f = SKImageFilter.CreateDropShadow((float)dx, (float)dy, s, s, col,
+            baseBlurPx > 0 ? BlurFilter(baseBlurPx) : null);
+        map[key] = f;
+        return f;
     }
 
     /// <summary>#hex / rgb() / rgba() / transparent → SKColor（styles 侧都是 hex；shadow 缺省是 rgba）。</summary>

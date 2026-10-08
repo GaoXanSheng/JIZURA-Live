@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
@@ -7,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using JizuraLive.Engine;
+using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.App.Views;
@@ -58,17 +60,30 @@ public partial class LineList : UserControl
     private int _editingSrc = -1;
 
     private readonly DispatcherTimer _followTimer;
+    // 状态变化合帧：一次重规划/打点会连发多次 StateChanged，逐次同步 Rebuild 会把 UI 线程压在
+    // O(行×切分) 重建 + WPF 文本测量上（实测布局风暴里 Rebuild 累计 1.8s、字体流被反复装载）。
+    private readonly DispatcherTimer _rebuildTimer;
 
     public LineList()
     {
         InitializeComponent();
         _followTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(150) };
         _followTimer.Tick += (_, _) => FollowCurrentLine(scroll: true);
+        _rebuildTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(60) };
+        _rebuildTimer.Tick += (_, _) =>
+        {
+            _rebuildTimer.Stop();
+            Rebuild();
+        };
         Loaded += (_, _) =>
         {
             if (_subscribed) return;
             _subscribed = true;
-            App.MainInstance!.State.StateChanged += () => Dispatcher.Invoke(Rebuild);
+            App.MainInstance!.State.StateChanged += () => Dispatcher.BeginInvoke(() =>
+            {
+                _rebuildTimer.Stop();
+                _rebuildTimer.Start();
+            });
             Rebuild();
             _followTimer.Start();
         };
@@ -79,6 +94,17 @@ public partial class LineList : UserControl
     // ---------------- 构建（对位 LineList.vue rebuild） ----------------
 
     private void Rebuild()
+    {
+        // 慢动作留痕（性能专项）：ItemsSource 换新后的 WPF 测量/字体装载不在此计时内（那部分
+        // 要靠 trace 归因），这里只看托管重建本身是否超预算。
+        var t0 = Stopwatch.GetTimestamp();
+        RebuildCore();
+        var ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+        if (ms > 80)
+            Log.Info($"[perf] LineList.Rebuild {ms:F0}ms（{State.Plan?.Lines.Count ?? 0} 行）");
+    }
+
+    private void RebuildCore()
     {
         var plan = State.Plan;
         var old = Lst.ItemsSource as List<LineRowVm>;

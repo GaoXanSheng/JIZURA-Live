@@ -688,6 +688,10 @@ public static class P11LayoutsA
 
     // ---------------- lowerThird（JS L264-364） ----------------
 
+    /// <summary>lowerThird 的帧不变量（CutCache 载体，性能专项）。</summary>
+    private sealed record LowerInv(string Text, double Size, double MeasW, double MeasH,
+        string Tag, string Copy, double TagW, bool CopyFontIsBody);
+
     private static void RegisterLowerThird() => Reg0("lowerThird", new LayoutDef
     {
         Name = "下部テロップ",
@@ -711,22 +715,39 @@ public static class P11LayoutsA
             var p = env.P;
             var u = U(env);
             var port = IsPort(env);
-            var t0 = env.Cut!.Text.Trim();
-            var n = JLayouts.GlyphCount(t0);
-            var text = port ? Brk(t0, 6) : n > 13 ? Brk(t0, (int)Math.Ceiling(n / 2.0)) : t0;
-            var o = new JObject { ["track"] = 0.03, ["lead"] = 1.14 };
+            // 帧不变量（性能专项）：清洗/折行/FitSize/主盒度量、标签文本与标签度量只由 (cut, params, W, H) 决定，
+            // 逐帧重算实测 73.7KB/帧 + 1.27ms（--leaf 归因）；按切分缓存（plan 换随 Cut 回收）
+            var inv = CutCache.Get<LowerInv>(env.Cut!, "lowerThird");
+            if (inv == null)
+            {
+                var t0 = env.Cut!.Text.Trim();
+                var n = JLayouts.GlyphCount(t0);
+                var text0 = port ? Brk(t0, 6) : n > 13 ? Brk(t0, (int)Math.Ceiling(n / 2.0)) : t0;
+                var font0 = S(p, "font")!;
+                var o0 = new JObject { ["track"] = 0.03, ["lead"] = 1.14 };
+                var size0 = Math.Min(JLayouts.FitSize(text0, font0, W * 0.84, H * (port ? 0.24 : 0.3), o0),
+                    u * (port ? 0.17 : 0.14));
+                var m0 = Meas(text0, font0, size0, o0);
+                var ls0 = SmallSize(env);
+                var tag0 = Pad2(Math.Max(0, env.Cut!.Line) + 1);
+                var label0 = S(p, "label");
+                var copy0 = label0 == "romaji" ? RomajiOf(env) ?? AltCopy(env) : label0 == "no" ? "LINE " + tag0 : AltCopy(env);
+                if (copy0.StartsWith("No.")) copy0 = J.FmtTime(env.Cut!.Start);
+                var tm0 = Meas(tag0, MonoF(env), ls0, new JObject { ["track"] = 0.1 });
+                inv = new LowerInv(text0, size0, m0.W, m0.H, tag0, copy0, tm0.W, label0 == "copy");
+                CutCache.Put(env.Cut!, "lowerThird", inv);
+            }
+            var text = inv.Text;
+            var size = inv.Size;
             var font = S(p, "font")!;
-            var size = Math.Min(JLayouts.FitSize(text, font, W * 0.84, H * (port ? 0.24 : 0.3), o),
-                u * (port ? 0.17 : 0.14));
-            var m = Meas(text, font, size, o);
             var left = S(p, "side") != "right";
             var mx = W * 0.07;
             var barY = H * ((port ? 0.8 : 0.83) - D(p, "lift"));
             var th = Math.Max(3, size * 0.055);
-            var cy = barY - size * 0.24 - m.H / 2;
+            var cy = barY - size * 0.24 - inv.MeasH / 2;
             var x = left ? mx : W - mx;
             // accent bar 从屏幕边伸到文字末端，退场时缩回边缘
-            var reach = mx + m.W + size * 0.45;
+            var reach = mx + inv.MeasW + size * 0.45;
             var L = reach * Tin(env, 0, 0.55) * (1 - J.E.InCubic(env.POut));
             if (L > 1)
             {
@@ -740,17 +761,15 @@ public static class P11LayoutsA
             var la = Tin(env, 0.12, 0.4, J.E.OutCubic) * Tout(env);
             if (la > 0.01)
             {
-                var ly = cy - m.H / 2 - size * 0.22 - ls * 0.7;
+                var ly = cy - inv.MeasH / 2 - size * 0.22 - ls * 0.7;
                 var sl = (1 - la) * ls * 2 * (left ? -1 : 1);
-                var tag = Pad2(Math.Max(0, env.Cut!.Line) + 1);
-                var label = S(p, "label");
-                var copy = label == "romaji" ? RomajiOf(env) ?? AltCopy(env) : label == "no" ? "LINE " + tag : AltCopy(env);
-                if (copy.StartsWith("No.")) copy = J.FmtTime(env.Cut!.Start);
-                var tm = Meas(tag, MonoF(env), ls, new JObject { ["track"] = 0.1 });
+                var tag = inv.Tag;
+                var copy = inv.Copy;
+                var tmW = inv.TagW;
                 var cx = x + sl;
                 if (S(p, "bar") == "tab")
                 {
-                    var tw = tm.W + ls * 1.1;
+                    var tw = tmW + ls * 1.1;
                     var th2 = ls * 1.6;
                     env.Rect(left ? cx : cx - tw, ly - th2 / 2, tw, th2, Col(sc, "ink"), la, false);
                     env.DrawItem(new JObject
@@ -785,12 +804,12 @@ public static class P11LayoutsA
                         ["alpha"] = la,
                         ["ghost"] = false,
                     });
-                    cx += (tm.W + ls * 0.8) * (left ? 1 : -1);
+                    cx += (tmW + ls * 0.8) * (left ? 1 : -1);
                 }
                 env.DrawItem(new JObject
                 {
                     ["text"] = copy,
-                    ["font"] = label == "copy" ? BodyF(env) : MonoF(env),
+                    ["font"] = inv.CopyFontIsBody ? BodyF(env) : MonoF(env),
                     ["size"] = ls,
                     ["track"] = 0.12,
                     ["align"] = left ? "left" : "right",
@@ -813,7 +832,7 @@ public static class P11LayoutsA
                 ["lead"] = 1.14,
                 ["color"] = Col(sc, "fg"),
             });
-            env.Body = bb ?? Box(left ? x : x - m.W, cy - m.H / 2, left ? x + m.W : x, cy + m.H / 2);
+            env.Body = bb ?? Box(left ? x : x - inv.MeasW, cy - inv.MeasH / 2, left ? x + inv.MeasW : x, cy + inv.MeasH / 2);
         },
     });
 
@@ -3501,7 +3520,7 @@ public static class P11LayoutsA
     /// <summary>panels 的一格多边形（JS 挂在数组上的 along 属性）。</summary>
     private sealed class PanelPoly
     {
-        public double[][] Pts = System.Array.Empty<double[]>();
+        public double[][] Pts = Array.Empty<double[]>();
         public double Along;
     }
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 using JizuraLive.App.Cloud;
@@ -206,12 +207,15 @@ public sealed class EditorState : IDisposable
     public void ReplanAsync()
     {
         var seq = Interlocked.Increment(ref _replanSeq);
+        var tSnap = Stopwatch.GetTimestamp();
         var snap = Snapshot();
+        var snapMs = (Stopwatch.GetTimestamp() - tSnap) * 1000.0 / Stopwatch.Frequency;
         var audio = Audio; // 投入后不可变，直接传引用
         Task.Run(() =>
         {
             if (Volatile.Read(ref _replanSeq) != seq) return; // 已被更新请求取代，别开算
             Plan plan;
+            var tPlan = Stopwatch.GetTimestamp();
             try
             {
                 var proj = JsonConvert.DeserializeObject<Project>(snap) ?? Project;
@@ -223,10 +227,19 @@ public sealed class EditorState : IDisposable
                 Log.Error("后台重规划失败（保留旧 plan）：" + ex.Message, ex);
                 return;
             }
+            var planMs = (Stopwatch.GetTimestamp() - tPlan) * 1000.0 / Stopwatch.Frequency;
             if (Volatile.Read(ref _replanSeq) != seq) return; // 算完发现过期：丢弃
+            var tDispatch = Stopwatch.GetTimestamp();
             Application.Current?.Dispatcher.BeginInvoke(() =>
             {
-                if (Volatile.Read(ref _replanSeq) == seq) Engine.SetPlan(plan);
+                if (Volatile.Read(ref _replanSeq) != seq) return;
+                // 分段计时（性能专项）：秒级冻结时一眼看出是「计算慢」还是「UI 线程被占住（派发等待）」
+                var waitMs = (Stopwatch.GetTimestamp() - tDispatch) * 1000.0 / Stopwatch.Frequency;
+                var tApply = Stopwatch.GetTimestamp();
+                Engine.SetPlan(plan);
+                var applyMs = (Stopwatch.GetTimestamp() - tApply) * 1000.0 / Stopwatch.Frequency;
+                if (snapMs + planMs + waitMs + applyMs > 250)
+                    Log.Info($"[perf] 重规划 seq={seq}：快照 {snapMs:F0}ms / 计算 {planMs:F0}ms / 派发等待 {waitMs:F0}ms（UI 线程占用）/ 换plan {applyMs:F0}ms");
             });
         });
     }

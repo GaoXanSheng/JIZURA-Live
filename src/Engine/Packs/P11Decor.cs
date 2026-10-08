@@ -1264,7 +1264,7 @@ public static class P11Decor
                 if (fl != 1) onDim.Add(pieces[i].Value);
             }
             var filter = env.AllowFilter
-                ? SKImageFilter.CreateDropShadow(0, 0, (float)(10 * u * env.Scale / 2), (float)(10 * u * env.Scale / 2),
+                ? JText.ShadowSigmaFilter(0, 0, 10 * u * env.Scale / 2, 10 * u * env.Scale / 2,
                     Env.SkColor(col ?? "#000000", 0.8))
                 : null;
             Polys(env, on, col, 0.92 * o * (sp.Ok ? 1 : 0.4), false, filter: filter);

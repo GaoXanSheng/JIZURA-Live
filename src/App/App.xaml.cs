@@ -44,6 +44,7 @@ public partial class App : Application
         base.OnStartup(e);
 
         Log.Init();
+        ProfLog.Install(); // JIZURA_PROF=leaf 时开启叶子级分配归因（默认关，零开销）
         HookGlobalExceptions();
         HttpClientFactorySetup.Initialize();
         // 引擎装配（02_/04_/05_/06_/07_）由 PreviewEngine 构造时完成；Omakase 在其后接线

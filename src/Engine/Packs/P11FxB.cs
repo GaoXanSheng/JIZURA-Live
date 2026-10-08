@@ -23,6 +23,8 @@
 // 3. DOT/ROWS/BAYER/STATIC 纹理缓存 → 静态缓存（确定性生成，跨 renderer 共享只读安全）。
 
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Runtime.InteropServices;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
 
@@ -190,7 +192,7 @@ public static class P11FxB
     private static string Rgba(string hex, double a)
     {
         var (r, g, b) = J.Hex(hex);
-        return "rgba(" + r + "," + g + "," + b + "," + a.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) + ")";
+        return "rgba(" + r + "," + g + "," + b + "," + a.ToString("0.######", CultureInfo.InvariantCulture) + ")";
     }
 
     // ---- 离屏画布组（JS buf(i, w, h)：模块级数组、按索引复用、尺寸变化重建） ----
@@ -280,7 +282,8 @@ public static class P11FxB
         x.SetMatrix(SKMatrix.Identity);
         x.Clear();
         using (var p = new SKPaint())
-            x.DrawImage(m.Snapshot(), 0, 0, p);
+            x.DrawImage(m.Snapshot(), 0, 0, p); // 注：不能给这个快照加 using——Skia 复用未变更表面的快照镜像，
+                                                // SkiaSharp 按句柄去重包装，局部释放会连带释放别处的同一对象（见 Renderer 转场注释）
         FillMode(x, 0, 0, w, h, col, 1, dk ? SKBlendMode.Multiply : SKBlendMode.Screen);
         return t;
     }
@@ -690,7 +693,7 @@ public static class P11FxB
 
     private static SKBitmap DotTile(int c, double r)
     {
-        var key = c + "|" + r.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        var key = c + "|" + r.ToString("0.##", CultureInfo.InvariantCulture);
         if (Dots.TryGetValue(key, out var t)) return t;
         var b = new SKBitmap(c, c);
         using (var x = new SKCanvas(b))
@@ -1211,7 +1214,7 @@ public static class P11FxB
         var ptr = px.GetPixels();
         {
             var buf = new byte[px.Info.BytesSize];
-            System.Runtime.InteropServices.Marshal.Copy(ptr, buf, 0, buf.Length);
+            Marshal.Copy(ptr, buf, 0, buf.Length);
             for (var y = 0; y < n; y++)
             for (var i = 0; i < n; i++)
             {
@@ -1222,7 +1225,7 @@ public static class P11FxB
                 buf[q + 2] = v;
                 buf[q + 3] = 255;
             }
-            System.Runtime.InteropServices.Marshal.Copy(buf, 0, ptr, buf.Length);
+            Marshal.Copy(buf, 0, ptr, buf.Length);
         }
         _staticTex = b;
         return b;

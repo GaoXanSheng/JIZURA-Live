@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private long _mirrorSeq;
     private long _mirrorAt;
     private long _mirrorWarnAt;
+    private long _fallbackAt; // 兜底 CPU 渲染上次执行时刻（限速用，见镜像分支注释）
     private readonly SKPaint _mirrorPaint = new() { IsAntialias = false };
     // 舞台尺寸缓存（UI SizeChanged 写，渲染线程读——每帧 Dispatcher.Invoke 会白烧调度器）
     private volatile int _stageWpx, _stageHpx;
@@ -211,16 +212,20 @@ public partial class MainWindow : Window
                     {
                         // 暂停态静止画面本就该停更；播放中长时间无新帧 = Spout 泵停滞（设备失效等）
                         // → 落到下面的 CPU 渲染兜底（并按 5s 节流留痕，绝不逐帧刷日志）。
-                        // 阈值取 800ms：镜像帧正常 ≤30ms 到，这个量级只可能是真停滞；阈值太小会
-                        // 在随机化/重规划这类瞬时争用里误判，CPU 渲染反而把闸占住形成抖动回环。
-                        if (_preview.IsPlaying
-                            && (Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency >= 800)
+                        // 判定窗 1200ms：镜像帧正常 ≤30ms 到；gen2 GC（堆 200MB+/LOH 60MB）的
+                        // stop-the-world 停顿实测 0.8-4.3s 会让泵整体静默，窗口太短会把它误判成设备失效。
+                        var starveMs = (Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency;
+                        if (_preview.IsPlaying && starveMs >= 1200)
                         {
+                            // 兜底限速：CPU 渲染（15-25ms、~350KB/帧）与 Spout 泵抢同一把 EngineRenderGate，
+                            // 逐帧兜底会形成「越卡越渲、越渲越卡」的回环（实测泵 2.6s 不产帧 + UI 抖动 2560ms）。
+                            // 限到 ~8fps：画面继续动，但不与泵争闸/灌 GC。泵真死时 IsRunning=false，本分支不会进。
+                            if ((Stopwatch.GetTimestamp() - _fallbackAt) * 1000.0 / Stopwatch.Frequency < 120) continue;
+                            _fallbackAt = Stopwatch.GetTimestamp();
                             if ((Stopwatch.GetTimestamp() - _mirrorWarnAt) * 1000.0 / Stopwatch.Frequency > 5000)
                             {
                                 _mirrorWarnAt = Stopwatch.GetTimestamp();
-                                Log.Warn($"[预览镜像] {(Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency:F0}ms 无新帧，"
-                                         + "本帧回退 CPU 渲染兜底（Spout 泵停滞或设备失效？）");
+                                Log.Warn($"[预览镜像] {starveMs:F0}ms 无新帧，本帧回退 CPU 渲染兜底（限速 8fps；Spout 泵停滞或 GC 停顿）");
                             }
                         }
                         else
@@ -239,8 +244,10 @@ public partial class MainWindow : Window
                     _renderH = rh;
                 }
                 var surf = _renderSurface;
+                var tCpu = Stopwatch.GetTimestamp();
                 lock (EngineRenderGate.Lock)
                     _preview.Renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = fit, Stage = true });
+                var cpuMs = (Stopwatch.GetTimestamp() - tCpu) * 1000.0 / Stopwatch.Frequency;
                 // P → 显示双缓冲 memcpy（~1-3ms），翻面后 UI 读新正面（与 memcpy 目标不同面）
                 lock (_displayLock)
                 {
@@ -255,6 +262,10 @@ public partial class MainWindow : Window
                     _displayFront = back;
                 }
                 Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
+                // 慢帧分段（性能专项）：兜底 CPU 渲染是主因候选——首帧冷启动（新 plan 的排版/字体/
+                // shader 一次成型）实测可达秒级，且它持引擎闸会连带拖住 Spout 泵。
+                if (cpuMs > 200)
+                    Log.Info($"[perf] 预览兜底慢帧：CPU 渲染 {cpuMs:F0}ms（无新帧 {(Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency:F0}ms）");
             }
             catch (Exception ex)
             {

@@ -11,6 +11,7 @@
 // 没有对位符号的一律在本文件补齐，不改 Env.cs。
 
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -245,7 +246,7 @@ public static class P11LayoutsD
             {
                 var n = cut.N;
                 var port = cut.H > cut.W * 1.08;
-                var spaced = System.Text.RegularExpressions.Regex.IsMatch((cut.Text ?? "").Trim(), @"\s");
+                var spaced = Regex.IsMatch((cut.Text ?? "").Trim(), @"\s");
                 var opts = new List<string>();
                 if (n <= (port ? 5 : 8) && !spaced) { opts.Add("cradle"); opts.Add("cradle"); }
                 if (n <= 12 && !spaced) { opts.Add("fan"); opts.Add(port ? "fan" : "chunks"); }
@@ -458,6 +459,15 @@ public static class P11LayoutsD
             },
             Draw = DrawBillboard,
         }, "layoutsD");
+    }
+
+    /// <summary>crowdBubbles 的帧不变量（CutCache 载体，性能专项）。</summary>
+    private sealed class CrowdInv
+    {
+        public string Text = "";
+        public double Size, Mw, Mh;
+        public List<string> Words = new();
+        public List<(double X, double Y, double R)> Slots = new();
     }
 
     private static void RegisterCrowdBubbles()
@@ -1251,7 +1261,8 @@ public static class P11LayoutsD
     private static void RrPath(SKPath path, double x, double y, double w, double h, double r)
     {
         r = Math.Max(0, Math.Min(r, Math.Min(w / 2, h / 2)));
-        path.AddRoundRect(new SKRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r));
+        // 直接走 rect+rx/ry 重载（免建 SKRoundRect——原 new 后不释放，实测终结器线程 SKRoundRect.Dispose 占全进程 CPU 8.4%）
+        path.AddRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r, (float)r);
     }
 
     private static void Outline(Env env, double[][] pts, string col, double lw, double a = 1)
@@ -1659,7 +1670,7 @@ public static class P11LayoutsD
                 var a = Tin(env, 0.05 + rg.K * 0.08, 0.5, J.E.OutCubic) * outA;
                 if (a <= 0.01) continue;
                 var cnt = Math.Min(72, Math.Max(unit.Count, (int)Math.Floor(J.TAU * R / (ss * 1.05))));
-                var sb = new System.Text.StringBuilder();
+                var sb = new StringBuilder();
                 for (var i = 0; i < cnt; i++) sb.Append(unit[i % unit.Count]);
                 var rot0 = env.Ltb * D(Pm, "speed") * rg.Dir + rg.K * 0.7 + spin * 0.5;
                 var it = new JObject
@@ -2463,7 +2474,9 @@ public static class P11LayoutsD
         var Pm = env.P;
         var u = U(env);
         var lt = env.Lt;
-        var chs = SlotsOf(cut.Text).Where(c => c != " ").ToList();
+        // 帧不变量（性能专项）：字列表只由 cut 决定，按切分缓存
+        var chs = CutCache.Get<List<string>>(cut, "pendulum.chs") ?? SlotsOf(cut.Text).Where(c => c != " ").ToList();
+        if (CutCache.Get<List<string>>(cut, "pendulum.chs") == null) CutCache.Put(cut, "pendulum.chs", chs);
         var n = chs.Count;
         if (n == 0)
         {
@@ -4163,25 +4176,53 @@ public static class P11LayoutsD
         var lt = env.Lt;
         var port = IsPort(env);
         var font = S(Pm, "font")!;
-        var text = Brk(cut.Text, port ? 5 : 8);
-        var size = Math.Min(JLayouts.FitSize(text, font, W * (port ? 0.62 : 0.46), H * (port ? 0.22 : 0.3),
-            new JObject { ["track"] = 0.03, ["lead"] = 1.15 }), u * 0.15);
-        var m = JLayouts.Measure(new JObject { ["text"] = text, ["font"] = font, ["size"] = size, ["track"] = 0.03, ["lead"] = 1.15 });
+        // 帧不变量（性能专项）：文案碎片/槽位/主盒度量只由 (cut, W, H) 与 plan 静态量决定，
+        // 逐帧重建（ChunkText/SplitLines/OrderBy/List）曾是本版式 ~160KB/帧的分配大头
+        var inv = CutCache.Get<CrowdInv>(cut, "crowdBubbles");
+        if (inv == null)
+        {
+            var text0 = Brk(cut.Text, port ? 5 : 8);
+            var size0 = Math.Min(JLayouts.FitSize(text0, font, W * (port ? 0.62 : 0.46), H * (port ? 0.22 : 0.3),
+                new JObject { ["track"] = 0.03, ["lead"] = 1.15 }), u * 0.15);
+            var m0 = JLayouts.Measure(new JObject { ["text"] = text0, ["font"] = font, ["size"] = size0, ["track"] = 0.03, ["lead"] = 1.15 });
+            var words0 = new List<string>();
+            var src = Planner.ChunkText(Flat(string.IsNullOrEmpty(cut.LineText) ? cut.Text : cut.LineText))
+                .Concat(Planner.ChunkText(Flat(cut.Text)));
+            foreach (var w in src)
+                foreach (var q0 in JLayouts.SplitLines(w, 4).Split('\n'))
+                    if (q0.Length > 0 && !words0.Contains(q0)) words0.Add(q0);
+            var slots0 = new List<(double X, double Y, double R)>();
+            var bw0 = m0.W + size0 * 1.4;
+            var bh0 = m0.H + size0 * 1.1;
+            var cx0 = W / 2.0;
+            var cy0 = H / 2 - bh0 * 0.05;
+            var gxN0 = port ? 3 : 6;
+            var gyN0 = port ? 8 : 5;
+            for (var gy = 0; gy < gyN0; gy++)
+                for (var gx = 0; gx < gxN0; gx++)
+                {
+                    var x = W * (0.1 + 0.8 * (gx + 0.5) / gxN0) + J.Rs(s, gx, gy, 1) * W * 0.04;
+                    var y = H * (0.1 + 0.8 * (gy + 0.5) / gyN0) + J.Rs(s, gx, gy, 2) * H * 0.03;
+                    if (Math.Abs(x - cx0) < bw0 * 0.5 + W * (port ? 0.12 : 0.07) && Math.Abs(y - cy0) < bh0 * 0.5 + H * (port ? 0.04 : 0.07)) continue;
+                    slots0.Add((x, y, J.R(s, gx, gy, 3)));
+                }
+            slots0 = slots0.OrderBy(v => v.R).ToList();
+            inv = new CrowdInv { Text = text0, Size = size0, Mw = m0.W, Mh = m0.H, Words = words0, Slots = slots0 };
+            CutCache.Put(cut, "crowdBubbles", inv);
+        }
+        var text = inv.Text;
+        var size = inv.Size;
+        var mW = inv.Mw;
+        var mH = inv.Mh;
         var outA = Tout(env);
-        var bw = m.W + size * 1.4;
-        var bh = m.H + size * 1.1;
+        var bw = mW + size * 1.4;
+        var bh = mH + size * 1.1;
         var cx = W / 2.0;
         var cy = H / 2 - bh * 0.05;
         var bigC = new[] { sc.Str("accent"), LightOf(sc) }
             .FirstOrDefault(c => J.Contrast(c ?? "#000000", sc.Str("bg") ?? "#000000") >= 1.8) ?? LightOf(sc);
         var tc = OnCol(sc, bigC);
-        // 人群气泡里的碎片文案
-        var words = new List<string>();
-        var src = Planner.ChunkText(Flat(string.IsNullOrEmpty(cut.LineText) ? cut.Text : cut.LineText))
-            .Concat(Planner.ChunkText(Flat(cut.Text)));
-        foreach (var w in src)
-            foreach (var q0 in JLayouts.SplitLines(w, 4).Split('\n'))
-                if (q0.Length > 0 && !words.Contains(q0)) words.Add(q0);
+        var words = inv.Words;
         string Frag(int i)
         {
             var r = (int)(J.H(s, i, 41) % 10);
@@ -4189,20 +4230,10 @@ public static class P11LayoutsD
             return React[(int)(J.H(s, i, 43) % (uint)React.Length)];
         }
 
-        // 大气泡周围的候选槽位
-        var slots = new List<(double X, double Y, double R)>();
+        var slots = inv.Slots;
+        var cnt = Math.Min(I(Pm, "count"), slots.Count);
         var gxN = port ? 3 : 6;
         var gyN = port ? 8 : 5;
-        for (var gy = 0; gy < gyN; gy++)
-            for (var gx = 0; gx < gxN; gx++)
-            {
-                var x = W * (0.1 + 0.8 * (gx + 0.5) / gxN) + J.Rs(s, gx, gy, 1) * W * 0.04;
-                var y = H * (0.1 + 0.8 * (gy + 0.5) / gyN) + J.Rs(s, gx, gy, 2) * H * 0.03;
-                if (Math.Abs(x - cx) < bw * 0.5 + W * (port ? 0.12 : 0.07) && Math.Abs(y - cy) < bh * 0.5 + H * (port ? 0.04 : 0.07)) continue;
-                slots.Add((x, y, J.R(s, gx, gy, 3)));
-            }
-        slots = slots.OrderBy(v => v.R).ToList();
-        var cnt = Math.Min(I(Pm, "count"), slots.Count);
         var ss = Math.Max(SmallSize(env) * 1.4, Math.Min(size * 0.42, u * 0.05));
         var style = S(Pm, "style");
         var sfFont = S(Pm, "sf")!;

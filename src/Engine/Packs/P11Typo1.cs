@@ -21,7 +21,6 @@
 // 一次 clip 是 nonzero 并集，SKCanvas.ClipRect 连续调用是交集，不等价）。
 
 using System.Globalization;
-using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -773,6 +772,9 @@ public static class P11Typo1
 
     // ---------------- tyBandHide（JS L438-504） ----------------
 
+    /// <summary>tyBandHide 的帧不变量（CutCache 载体，性能专项）。</summary>
+    private sealed record TyBandInv(string Mt, int Lines, double Size, double Fs, double Per, string Rep);
+
     private static void RegisterTyBandHide() => Reg0("tyBandHide", new LayoutDef
     {
         Name = "帯隠れ", // JS ae:'diag'（未注册）
@@ -795,16 +797,30 @@ public static class P11Typo1
             var Pm = env.P;
             var cut = env.Cut!;
             var lt = env.Lt;
-            var txt = cut.Text.Trim();
-            var font = S(Pm, "font")!;
-            var mt = MainLines(txt, W, H, 10, 5);
-            var L = mt.Split('\n').Length;
             const double lead = 1.32;
-            var size = Math.Min(JLayouts.FitSize(mt, font, W * 0.8, H * 0.66,
-                new JObject { ["lead"] = lead, ["track"] = 0.02 }), H * 0.3);
+            // 帧不变量（性能专项）：清洗/折行/FitSize/主盒度量、跑马灯单元串与单元宽只由 (cut, params, W, H) 决定，
+            // 逐帧重算曾是本版式的分配主要来源（--leaf 归因）；按切分缓存（plan 换随 Cut 回收）
+            var inv = CutCache.Get<TyBandInv>(cut, "tyBandHide");
+            if (inv == null)
+            {
+                var txt0 = cut.Text.Trim();
+                var font0 = S(Pm, "font")!;
+                var mt0 = MainLines(txt0, W, H, 10, 5);
+                var size0 = Math.Min(JLayouts.FitSize(mt0, font0, W * 0.8, H * 0.66,
+                    new JObject { ["lead"] = lead, ["track"] = 0.02 }), H * 0.3);
+                var unit0 = Regex.Replace(string.IsNullOrEmpty(cut.LineText) ? txt0 : cut.LineText, @"\s+", " ").Trim() + "　／　";
+                var fs0 = size0 * (D(Pm, "k") + 0.08) * 0.44;
+                var per0 = JLayouts.Measure(new JObject { ["text"] = unit0, ["font"] = BodyF(env), ["size"] = fs0, ["track"] = 0.12 }).W;
+                var rep0 = per0 > 1 ? JLayouts.Repeat(unit0, Math.Min(40, (int)Math.Ceiling(W * 2 / per0) + 2)) : unit0;
+                inv = new TyBandInv(mt0, mt0.Split('\n').Length, size0, fs0, per0, rep0);
+                CutCache.Put(cut, "tyBandHide", inv);
+            }
+            var mt = inv.Mt;
+            var L = inv.Lines;
+            var size = inv.Size;
             var bb = JLayouts.MainDraw(env, new JObject
             {
-                ["text"] = mt, ["font"] = font, ["size"] = size,
+                ["text"] = mt, ["font"] = S(Pm, "font")!, ["size"] = size,
                 ["x"] = W / 2, ["y"] = H / 2, ["lead"] = lead, ["track"] = 0.02,
                 ["color"] = sc.Str("fg"),
             });
@@ -814,7 +830,6 @@ public static class P11Typo1
                 : bandKey == "ink" ? new[] { sc.Str("ink"), sc.Str("accent"), sc.Str("fg") }!
                 : new[] { sc.Str("fg"), sc.Str("accent") }!);
             var tc = OnCol(sc, bandC);
-            var unit = Regex.Replace(string.IsNullOrEmpty(cut.LineText) ? txt : cut.LineText, @"\s+", " ").Trim() + "　／　";
             var @out = 1 - J.E.InExpo(env.POut);
             for (var li = 0; li < L; li++)
             {
@@ -827,30 +842,26 @@ public static class P11Typo1
                 var bw = (W + 20) * e;
                 var x0 = d > 0 ? -10 : W + 10 - bw;
                 env.Rect(x0, y0, bw, h, bandC, 1, false);
-                if (env.Pass == "main")
+                if (env.Pass == "main" && inv.Per > 1)
                 {
-                    var fs = h * 0.44;
-                    var body = BodyF(env);
-                    var per = JLayouts.Measure(new JObject { ["text"] = unit, ["font"] = body, ["size"] = fs, ["track"] = 0.12 }).W;
-                    if (per > 1)
+                    var fs = inv.Fs;
+                    var per = inv.Per;
+                    env.Ctx.Save();
+                    env.Ctx.ClipRect(new SKRect((float)x0, (float)y0, (float)(x0 + bw), (float)(y0 + h)));
+                    var off = ((env.Ltb * D(Pm, "speed") * d) % per + per) % per;
+                    DrawIt(env, new JObject
                     {
-                        env.Ctx.Save();
-                        env.Ctx.ClipRect(new SKRect((float)x0, (float)y0, (float)(x0 + bw), (float)(y0 + h)));
-                        var off = ((env.Ltb * D(Pm, "speed") * d) % per + per) % per;
-                        DrawIt(env, new JObject
-                        {
-                            ["text"] = JLayouts.Repeat(unit, Math.Min(40, (int)Math.Ceiling(W * 2 / per) + 2)),
-                            ["font"] = body,
-                            ["size"] = fs,
-                            ["track"] = 0.12,
-                            ["align"] = "left",
-                            ["x"] = -per + off,
-                            ["y"] = y0 + h / 2,
-                            ["color"] = tc,
-                            ["ghost"] = false,
-                        });
-                        env.Ctx.Restore();
-                    }
+                        ["text"] = inv.Rep,
+                        ["font"] = BodyF(env),
+                        ["size"] = fs,
+                        ["track"] = 0.12,
+                        ["align"] = "left",
+                        ["x"] = -per + off,
+                        ["y"] = y0 + h / 2,
+                        ["color"] = tc,
+                        ["ghost"] = false,
+                    });
+                    env.Ctx.Restore();
                 }
             }
             env.Body = bb;

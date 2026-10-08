@@ -248,6 +248,7 @@ public static class JLang
         Lang = lang;
         Glyphs?.Clear();
         Metrics?.Clear();
+        JText.InvalidateLayoutCache(); // 排版内容缓存随语言/字体度量失效（性能专项缓存）
     }
 
     // ---------------- 随机字符池 ----------------

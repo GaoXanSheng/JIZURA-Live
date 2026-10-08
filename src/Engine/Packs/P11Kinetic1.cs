@@ -735,9 +735,19 @@ public static class P11Kinetic1
 
     // ---------------- knSwapCenter（JS L424） ----------------
 
-    private static void KnSwapCenter() => Reg0("knSwapCenter", new LayoutDef
+    /// <summary>knSwapCenter 的帧不变量（CutCache 载体）。</summary>
+    private sealed class KnSwapInv
     {
-        Name = "入れ替わり",
+        public string[] Units = null!;
+        public double[] Big = null!;
+        public FlowLayout Flow = null!;
+    }
+
+    /// <summary>FitSize/Em 的常量 opt（只读共享实例）。</summary>
+    private static readonly JObject KinTrackOpt = new() { ["track"] = 0.02 };
+
+    private static void KnSwapCenter() => Reg0("knSwapCenter", new LayoutDef
+    {        Name = "入れ替わり",
         Tags = new[] { "pop", "graphic", "glitch" },
         W = 1,
         Fits = n => n >= 2 && n <= 18,
@@ -761,15 +771,26 @@ public static class P11Kinetic1
             var lt = env.Lt;
             var u = U(env);
             var port = IsPort(env);
-            var units = UnitsOf(c, 6, 2);
-            var n = units.Length;
-            var ts = Onsets(env, n, frac: 0.4, gap: 0.36);
             var font = JLayouts.S(Pm, "font")!;
             var fontL = JLayouts.S(Pm, "fontL")!;
-            var big = units.Select(t => Math.Min(Math.Min(
-                JLayouts.FitSize(t, font, W * 0.8, H * 0.4, new JObject { ["track"] = 0.02 }), H * 0.34), W * 0.6)).ToArray();
-            var f = FlowUnits(units, fontL, W * 0.84, H * (port ? 0.46 : 0.34),
-                maxSize: H * (port ? 0.13 : 0.2), track: 0.03);
+            // 帧不变量（性能专项）：units/big/FlowUnits 只由 (cut, W, H) 与 plan 静态量决定——
+            // FlowUnits 内部是逐行数 Partitions 组合搜索 + 逐词 Em，逐帧重算曾是本版式 ~160KB/帧的分配大头
+            var inv = CutCache.Get<KnSwapInv>(c, "knSwap");
+            if (inv == null)
+            {
+                var units0 = UnitsOf(c, 6, 2);
+                var big0 = units0.Select(t => Math.Min(Math.Min(
+                    JLayouts.FitSize(t, font, W * 0.8, H * 0.4, KinTrackOpt), H * 0.34), W * 0.6)).ToArray();
+                var f0 = FlowUnits(units0, fontL, W * 0.84, H * (port ? 0.46 : 0.34),
+                    maxSize: H * (port ? 0.13 : 0.2), track: 0.03);
+                inv = new KnSwapInv { Units = units0, Big = big0, Flow = f0 };
+                CutCache.Put(c, "knSwap", inv);
+            }
+            var units = inv.Units;
+            var big = inv.Big;
+            var n = units.Length;
+            var ts = Onsets(env, n, frac: 0.4, gap: 0.36);
+            var f = inv.Flow;
             var tR = ts[n - 1] + 0.5;
             var lim = c.Dur - c.OutDur - 0.4;
             if (tR > lim) tR = Math.Max(ts[n - 1] + 0.18, lim);
@@ -874,6 +895,14 @@ public static class P11Kinetic1
         },
     });
 
+    /// <summary>knZoomDive 的帧不变量（CutCache 载体，性能专项）。</summary>
+    private sealed class KnZoomInv
+    {
+        public string[] Units = null!;
+        public double[] Sizes = null!;
+        public double[][] Focus = null!;
+    }
+
     // ---------------- knZoomDive（JS L518） ----------------
 
     private static void KnZoomDive() => Reg0("knZoomDive", new LayoutDef
@@ -897,31 +926,41 @@ public static class P11Kinetic1
             var sc = env.Sc!;
             var c = env.Cut!;
             var Pm = env.P;
-            var lt = env.Lt;
+            var font = JLayouts.S(Pm, "font")!;
+            var accOn = JLayouts.Truthy(Pm["acc"]);
             var u = U(env);
-            var units = UnitsOf(c, 5, 2);
+            // 帧不变量（性能专项）：units/逐词字号/焦点字只由 (cut, W, H) 与 plan 静态量决定；
+            // FitSize×n + LayoutText×n 逐帧重算曾是本版式 ~45KB/帧的分配大头
+            var inv = CutCache.Get<KnZoomInv>(c, "knZoomDive");
+            if (inv == null)
+            {
+                var units0 = UnitsOf(c, 5, 2);
+                var sizes0 = units0.Select(t => Math.Min(Math.Min(
+                    JLayouts.FitSize(t, font, W * 0.78, H * 0.4, KinTrackOpt), H * 0.34), W * 0.6)).ToArray();
+                // 焦点字：第一个汉字（没有就取中间字），em 单位、相对词中心
+                var foc0 = units0.Select(unit =>
+                {
+                    var lay = JText.LayoutText(new JObject
+                    { ["text"] = unit, ["font"] = font, ["size"] = 1, ["track"] = 0.02 });
+                    var gs = lay.Cells.Where(g => g.Ch.Trim().Length > 0).ToList();
+                    var g = gs.FirstOrDefault(q => J.IsKanji(q.Ch[0])) ?? (gs.Count > 0 ? gs[gs.Count / 2] : null);
+                    return g != null ? new[] { g.X, g.Y } : new[] { 0.0, 0.0 };
+                }).ToArray();
+                inv = new KnZoomInv { Units = units0, Sizes = sizes0, Focus = foc0 };
+                CutCache.Put(c, "knZoomDive", inv);
+            }
+            var units = inv.Units;
             var n = units.Length;
             var ts = Onsets(env, n, frac: 0.5, gap: 0.55);
+            var lt = env.Lt;
             var k = CurIdx(ts, lt);
             if (k < 0)
             {
                 env.Body = null;
                 return;
             }
-            var font = JLayouts.S(Pm, "font")!;
-            var accOn = JLayouts.Truthy(Pm["acc"]);
-            double Size(int i) => Math.Min(Math.Min(
-                JLayouts.FitSize(units[i], font, W * 0.78, H * 0.4, new JObject { ["track"] = 0.02 }), H * 0.34), W * 0.6);
-
-            // 焦点字：第一个汉字（没有就取中间字），em 单位、相对词中心
-            double[] Focus(int i)
-            {
-                var lay = JText.LayoutText(new JObject
-                { ["text"] = units[i], ["font"] = font, ["size"] = 1, ["track"] = 0.02 });
-                var gs = lay.Cells.Where(g => g.Ch.Trim().Length > 0).ToList();
-                var g = gs.FirstOrDefault(q => J.IsKanji(q.Ch[0])) ?? (gs.Count > 0 ? gs[gs.Count / 2] : null);
-                return g != null ? new[] { g.X, g.Y } : new[] { 0.0, 0.0 };
-            }
+            double Size(int i) => inv.Sizes[i];
+            double[] Focus(int i) => inv.Focus[i];
 
             var cx = W / 2.0;
             var cy = H / 2.0;

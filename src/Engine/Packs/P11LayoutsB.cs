@@ -296,7 +296,8 @@ public static class P11LayoutsB
     {
         if (w <= 0 || h <= 0) return;
         r = Math.Max(0, Math.Min(r, Math.Min(w / 2, h / 2)));
-        p.AddRoundRect(new SKRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r));
+        // 直接走 rect+rx/ry 重载（免建 SKRoundRect——原 new 后不释放，实测终结器线程 SKRoundRect.Dispose 占全进程 CPU 8.4%）
+        p.AddRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r, (float)r);
     }
 
     // ---------------- 等分格阵（JS L1316-1330 cellRows） ----------------
@@ -2123,7 +2124,7 @@ public static class P11LayoutsB
             Color = Env.SkColor(color, alpha),
         };
         if (blurPx > 0.5)
-            p.ImageFilter = SKImageFilter.CreateDropShadow(0, 0, (float)(blurPx / 2), (float)(blurPx / 2), Env.SkColor(color, alpha));
+            p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blurPx / 2, blurPx / 2, Env.SkColor(color, alpha)); // 记忆滤镜，不 Dispose
         env.Ctx.DrawPath(path, p);
     }
 
@@ -2141,7 +2142,7 @@ public static class P11LayoutsB
             Color = Env.SkColor(stroke, alpha),
         };
         if (blurPx > 0.5)
-            p.ImageFilter = SKImageFilter.CreateDropShadow(0, 0, (float)(blurPx / 2), (float)(blurPx / 2), Env.SkColor(stroke, alpha));
+            p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blurPx / 2, blurPx / 2, Env.SkColor(stroke, alpha)); // 记忆滤镜，不 Dispose
         env.Ctx.DrawRoundRect(rr, p);
     }
 
@@ -2616,6 +2617,18 @@ public static class P11LayoutsB
 
     // ---------------- slotMachine（JS L1518-1648） ----------------
 
+    /// <summary>slotMachine 的帧不变量（CutCache 载体，性能专项）。</summary>
+    private sealed class SlotInv
+    {
+        public List<string> Chs = new();
+        public List<Cell> Cells = new();
+        public double K;
+        public List<string> Pool = new();
+    }
+
+    /// <summary>滚轮拖影偏移（只读共享数组，免热循环逐字 new[]）。</summary>
+    private static readonly double[] GhostOffs = { -0.16, 0.16 };
+
     private static void RegisterSlotMachine() => Reg0("slotMachine", new LayoutDef
     {
         Name = "スロット",
@@ -2650,7 +2663,16 @@ public static class P11LayoutsB
             var M = Math.Min(W, H);
             var lt = env.Lt;
             var font = S(Pm, "font")!;
-            var chs = SlotsOf(cut.Text);
+            // 帧不变量（性能专项）：字格/网格/滚轮词池只由 (cut, W, H) 与 plan 静态量决定，按切分缓存
+            var inv = CutCache.Get<SlotInv>(cut, "slotMachine");
+            if (inv == null)
+            {
+                var chs0 = SlotsOf(cut.Text);
+                var grid0 = CellRows(chs0, W, H, W < H ? 5 : 10, 1.34, M * 0.24, 0.1);
+                inv = new SlotInv { Chs = chs0, Cells = grid0.Cells, K = grid0.K, Pool = PoolOf(cut) };
+                CutCache.Put(cut, "slotMachine", inv);
+            }
+            var chs = inv.Chs;
             var n = chs.Count;
             if (n == 0)
             {
@@ -2658,14 +2680,13 @@ public static class P11LayoutsB
                 return;
             }
             var port = W < H;
-            var grid = CellRows(chs, W, H, port ? 5 : 10, 1.34, M * 0.24, 0.1);
-            var cells = grid.Cells;
-            var k = grid.K;
+            var cells = inv.Cells;
+            var k = inv.K;
             var w = k;
             var h = k * 1.34;
             var step = k * 0.92;
             var gsz = k * 0.7;
-            var pool = PoolOf(cut);
+            var pool = inv.Pool;
             var NP = pool.Count;
             var outK = OutK(env);
             var inA = InE(env, 0.25);
@@ -2717,7 +2738,7 @@ public static class P11LayoutsB
                     if (fast)
                     {
                         // 廉价运动模糊：同一个（有缓存的）字沿滚轮拖影
-                        foreach (var o in new[] { -0.16, 0.16 })
+                        foreach (var o in GhostOffs)
                             DrawIt(env, new JObject
                             {
                                 ["text"] = ch,
@@ -4125,6 +4146,15 @@ public static class P11LayoutsB
 
     // ---------------- halfVertical（JS L2616-2736） ----------------
 
+    /// <summary>halfVertical 的帧不变量（CutCache 载体，性能专项）。</summary>
+    private sealed class HalfVertInv
+    {
+        public string Txt = "";
+        public List<string> Arr = new();
+        public int CutAt;
+        public HashSet<int> SegB = new();
+    }
+
     private static void RegisterHalfVertical() => Reg0("halfVertical", new LayoutDef
     {
         Name = "縦横混植",
@@ -4146,38 +4176,51 @@ public static class P11LayoutsB
             var M = Math.Min(W, H);
             var lt = env.Lt;
             var font = S(Pm, "font")!;
-            var txt = Regex.Replace(cut.Text.Trim(), @"[\s\u3000]+", " ");
-            var arr = JLayouts.CodePoints(txt);
+            // 帧不变量（性能专项）：正则清洗 + 码点 + 断点搜索（逐字打分的 O(n) 扫描）只由 cut+params 决定
+            var inv = CutCache.Get<HalfVertInv>(cut, "halfVertical");
+            if (inv == null)
+            {
+                var txt0 = Regex.Replace(cut.Text.Trim(), @"[\s\u3000]+", " ");
+                var arr0 = JLayouts.CodePoints(txt0);
+                var rowCol0 = S(Pm, "shape") == "rowCol";
+                var port0 = W < H;
+                // 沿画幅长边的那支拿更多字，断点在目标附近找最自然的边界
+                var tgt0 = arr0.Count * (port0 ? rowCol0 ? 0.38 : 0.62 : rowCol0 ? 0.6 : 0.4);
+                var segB0 = new HashSet<int>();
+                var acc = 0;
+                foreach (var g in Planner.Segments(txt0))
+                {
+                    acc += JLayouts.CpLen(g);
+                    segB0.Add(acc);
+                }
+                var cutAt0 = Math.Max(1, (int)Math.Round(tgt0, MidpointRounding.AwayFromZero)); // JS Math.round：半值向上
+                var bs = -1e9;
+                for (var k = 1; k < arr0.Count; k++)
+                {
+                    var pa = arr0[k - 1];
+                    var pb = arr0[k];
+                    var sc0 = -Math.Abs(k - tgt0) * 1.2;
+                    if (segB0.Contains(k)) sc0 += 2;
+                    if (pa == " " || pb == " ") sc0 += 3;
+                    if (J.IsSmallKana(pb[0]) || J.IsPunct(pb[0]) || pb == "ー") sc0 -= 8;
+                    if (J.IsSmallKana(pa[0])) sc0 -= 3;
+                    if (J.IsHira(pa[0]) && !J.IsHira(pb[0])) sc0 += 1.5;
+                    if (sc0 > bs)
+                    {
+                        bs = sc0;
+                        cutAt0 = k;
+                    }
+                }
+                inv = new HalfVertInv { Txt = txt0, Arr = arr0, CutAt = cutAt0, SegB = segB0 };
+                CutCache.Put(cut, "halfVertical", inv);
+            }
+            var txt = inv.Txt;
+            var arr = inv.Arr;
             var n = arr.Count;
             var rowCol = S(Pm, "shape") == "rowCol";
             var port = W < H;
-            // 沿画幅长边的那支拿更多字，断点在目标附近找最自然的边界
-            var tgt = n * (port ? rowCol ? 0.38 : 0.62 : rowCol ? 0.6 : 0.4);
-            var segB = new HashSet<int>();
-            var acc = 0;
-            foreach (var g in Planner.Segments(txt))
-            {
-                acc += JLayouts.CpLen(g);
-                segB.Add(acc);
-            }
-            var cutAt = Math.Max(1, (int)Math.Round(tgt, MidpointRounding.AwayFromZero)); // JS Math.round：半值向上
-            var bs = -1e9;
-            for (var k = 1; k < n; k++)
-            {
-                var pa = arr[k - 1];
-                var pb = arr[k];
-                var sc0 = -Math.Abs(k - tgt) * 1.2;
-                if (segB.Contains(k)) sc0 += 2;
-                if (pa == " " || pb == " ") sc0 += 3;
-                if (J.IsSmallKana(pb[0]) || J.IsPunct(pb[0]) || pb == "ー") sc0 -= 8;
-                if (J.IsSmallKana(pa[0])) sc0 -= 3;
-                if (J.IsHira(pa[0]) && !J.IsHira(pb[0])) sc0 += 1.5;
-                if (sc0 > bs)
-                {
-                    bs = sc0;
-                    cutAt = k;
-                }
-            }
+            var cutAt = inv.CutAt;
+            var segB = inv.SegB;
             var A = string.Concat(arr.Take(cutAt)).Trim();
             if (A.Length == 0) A = arr[0];
             var B = string.Concat(arr.Skip(cutAt)).Trim();
