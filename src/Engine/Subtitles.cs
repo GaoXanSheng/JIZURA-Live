@@ -8,6 +8,8 @@
 // 与 TS 的有意差异（其余排版常数逐条对位 subtitle-draw.ts）：
 //   1. TS 字幕层只画注音（主歌词由 JIZURA 引擎本体画）；C# 独立字幕通道要自带主行，
 //      所以画「主行 + 注音行」整块，注音按 roma/trans 拆行（TS 是 '　' join 后一起 wrap）。
+//      mainLine=false 可退回 TS 语义（只画注音行）——预览叠加与导出烤入用：主歌词由引擎画，
+//      字幕层只叠翻译/音译，防止主行重影。
 //   2. KRC 逐字时间轴驱动已唱/未唱双色（TS 无逐字高亮）——SubtitleConfig.Karaoke/UnsungColor。
 //   3. 行间空隙默认不画（TS lineAt 语义）；HoldLastLine=true 时保持上一句到下一句开始。
 //   4. localStorage/BroadcastChannel/worker 载荷等宿主逻辑不移植——配置就是纯 POCO。
@@ -15,11 +17,14 @@
 using System.Collections;
 using System.Globalization;
 using JizuraLive.App.Cloud;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using SkiaSharp;
 
 namespace JizuraLive.Engine;
 
 /// <summary>字幕内容模式：对位 SubConfig.content（Off = 整层不画）。</summary>
+[JsonConverter(typeof(StringEnumConverter))] // 落盘（settings.json）字符串，可读可手改
 public enum SubContent
 {
     Off,
@@ -29,6 +34,7 @@ public enum SubContent
 }
 
 /// <summary>字幕位置：对位 SubConfig.pos。</summary>
+[JsonConverter(typeof(StringEnumConverter))]
 public enum SubPos
 {
     Bottom,
@@ -81,12 +87,31 @@ public sealed class SubtitleConfig
 
     /// <summary>行间空隙/间奏时保持上一句（整句已唱态）直到下一句开始；false = 空隙不画（TS 语义）。</summary>
     public bool HoldLastLine { get; set; }
+
+    /// <summary>字段逐项拷贝（启动时从 settings.json 灌入、设置面板存盘取快照）——
+    /// 不换实例：预览/导出/Spout 字幕通道共用同一份配置对象。</summary>
+    public void CopyFrom(SubtitleConfig src)
+    {
+        Content = src.Content;
+        Pos = src.Pos;
+        Size = src.Size;
+        Stroke = src.Stroke;
+        Color = src.Color;
+        StrokeColor = src.StrokeColor;
+        Font = src.Font;
+        Bar = src.Bar;
+        OffX = src.OffX;
+        OffY = src.OffY;
+        Karaoke = src.Karaoke;
+        UnsungColor = src.UnsungColor;
+        HoldLastLine = src.HoldLastLine;
+    }
 }
 
 /// <summary>
-/// 字幕层：KRC 时间轴 + 配置 → 逐帧 SkiaSharp 直画。不可变输入、无全局渲染状态
-/// （仅 SKFont/SKTypeface 解析结果按 (kind,px) 缓存，与 JText.FaceFont 同款约定），
-/// 输出是输入的纯函数，可完全离线测试。
+/// 字幕层：KRC 时间轴 + 配置 → 逐帧 SkiaSharp 直画。输入不可变、输出是输入的纯函数，可完全离线测试。
+/// 渲染整体过一把静态锁：FontJobs 字体缓存与 SKFont 测量/绘制不能并发（Spout 字幕通道在泵线程、
+/// 导出烤入在后台线程、预览叠加入口在预览泵线程，三方可同时调 Render）。
 /// </summary>
 public sealed class SubtitleLayer
 {
@@ -94,17 +119,26 @@ public sealed class SubtitleLayer
     private readonly List<int> _order; // 按 StartMs 升序的行索引（OrderBy 稳定，输入乱序也能二分）
     private readonly SubtitleConfig _cfg;
     private readonly IReadOnlyList<string>? _notes;
+    private readonly bool _mainLine;
+
+    // 渲染串行锁：FontJobs 静态缓存与 SKFont 测量/绘制不线程安全，而本类的调用方分布在三条线程上
+    // （Spout 字幕通道的泵线程、导出烤入的后台线程、预览叠加的预览泵线程）
+    private static readonly object Gate = new();
 
     /// <summary>
     /// lines：KRC 时间轴（Krc.Parse 的产物，时间单位毫秒）。
     /// notes：每行注音（JIZURA LRC 的 "roma　trans" 串，Krc.KrcToLrc 生成；缺省 = 无注音行）。
     /// cfg：缺省 = SUB_DEFAULT（Content=Off，什么都不画——要出画面得显式开）。
+    /// mainLine：是否画主行（KRC 正文 + 逐字高亮）。独立 Spout 字幕通道 = true（整块自带主行）；
+    ///   预览叠加与导出烤入 = false（主歌词由引擎自己画，只叠注音/翻译行，防重影）。
     /// </summary>
-    public SubtitleLayer(IReadOnlyList<KrcLine> lines, SubtitleConfig? cfg = null, IReadOnlyList<string>? notes = null)
+    public SubtitleLayer(IReadOnlyList<KrcLine> lines, SubtitleConfig? cfg = null, IReadOnlyList<string>? notes = null,
+        bool mainLine = true)
     {
         _lines = lines ?? throw new ArgumentNullException(nameof(lines));
         _cfg = cfg ?? new SubtitleConfig();
         _notes = notes;
+        _mainLine = mainLine;
         _order = Enumerable.Range(0, _lines.Count).OrderBy(i => _lines[i].StartMs).ToList();
     }
 
@@ -152,11 +186,20 @@ public sealed class SubtitleLayer
     /// <summary>
     /// 画一帧字幕。t 是曲内秒（KRC 是毫秒，内部 ×1000）；w/h 是画布尺寸（设计像素，
     /// 与 TS 的 plan.W/H 同位——排版常数全部由 h/w 派生，见各注释）。
+    /// 线程安全：整体过静态锁串行，任何线程可调。
     /// </summary>
     public FrameStats Render(SKCanvas ctx, double t, int w, int h)
     {
         if (ctx == null) throw new ArgumentNullException(nameof(ctx));
         if (_cfg.Content == SubContent.Off || w <= 0 || h <= 0) return FrameStats.None;
+        lock (Gate)
+        {
+            return RenderCore(ctx, t, w, h);
+        }
+    }
+
+    private FrameStats RenderCore(SKCanvas ctx, double t, int w, int h)
+    {
         var tMs = t * 1000.0;
         var at = LineAt(tMs);
         if (at == null) return FrameStats.None;
@@ -212,8 +255,9 @@ public sealed class SubtitleLayer
         var font = SubFont(fontPx, _cfg.Font);
 
         var cpW = new double[cps.Count];
-        for (var i = 0; i < cps.Count; i++) cpW[i] = font.MeasureText(cps[i]);
-        var mainRows = Wrap(cps, cpW, maxW);
+        if (_mainLine) // 只画注音的模式（预览叠加/导出烤入）不做主行测量与折行
+            for (var i = 0; i < cps.Count; i++) cpW[i] = font.MeasureText(cps[i]);
+        var mainRows = _mainLine ? Wrap(cps, cpW, maxW) : new List<(int Start, int End)>();
 
         var subRows = new List<(string Text, double Width)>();
         foreach (var st in subTexts)

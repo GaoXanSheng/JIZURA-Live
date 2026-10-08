@@ -126,6 +126,36 @@ public class SubtitleLayerTests
     // ---------------- 用例 ----------------
 
     [Fact]
+    public void NotesFromPlan_配合_mainLineFalse_注音行可出画面()
+    {
+        EngineBoot.InstallPacks();
+        var p = Project.NewDefault();
+        p.Lyrics = "字幕测试ABC|zimu　测试翻译";
+        p.Res = 360;
+        p.Fps = 12;
+        p.Timing.Snap = false;
+        var plan = Planner.Plan(p, null);
+
+        var lines = new List<JizuraLive.App.Cloud.KrcLine>
+        {
+            new(0, 5000, "字幕测试ABC",
+                new[] { new JizuraLive.App.Cloud.KrcWord(0, 2000, "字幕测试"), new JizuraLive.App.Cloud.KrcWord(2000, 3000, "ABC") }),
+        };
+
+        var notes = SubtitleLayer.NotesFromPlan(lines, plan);
+        Assert.NotNull(notes);
+        Assert.Equal("zimu　测试翻译", notes![0]);
+
+        var layer = new SubtitleLayer(lines, new SubtitleConfig { Content = SubContent.Both }, notes, mainLine: false);
+        using var surface = SKSurface.Create(new SKImageInfo(640, 360));
+        surface.Canvas.Clear(SKColors.Black);
+        var stats = layer.Render(surface.Canvas, 0, 640, 360);
+        Assert.True(stats.Drawn);
+        Assert.Equal(0, stats.MainRows);
+        Assert.Equal(2, stats.SubRows);
+    }
+
+    [Fact]
     public void 渲染_样例行_非空与统计()
     {
         var layer = new SubtitleLayer(SampleLines(), Cfg(), Notes);
@@ -234,6 +264,28 @@ public class SubtitleLayerTests
         var cfgB = Cfg();
         var rB = Shot(new SubtitleLayer(lines, cfgB, Notes), 2.5);
         Assert.Equal(2, rB.Stats.SubRows); // 双行（roma + trans 拆行）
+    }
+
+    [Fact]
+    public void 配置_只画注音行_主行不出画面()
+    {
+        // 预览叠加与导出烤入用 mainLine:false：主歌词由引擎自己画（叠主行会重影），只画注音/翻译行
+        var notesOnly = new SubtitleLayer(SampleLines(), Cfg(), Notes, mainLine: false);
+        var r = Shot(notesOnly, 2.5);
+        Assert.True(r.Stats.Drawn);
+        Assert.Equal(0, r.Stats.MainRows); // 主行不参与排版
+        Assert.Equal(2, r.Stats.SubRows);  // Both → roma + trans 两行照画
+        Assert.True(r.Ink > 100, $"ink={r.Ink}，注音行应有笔画");
+
+        // 与整块（mainLine=true）的帧确实不同（少一整行主行）
+        var full = new SubtitleLayer(SampleLines(), Cfg(), Notes);
+        Assert.True(Diff(notesOnly, 2.5, full, 2.5) > 0, "只画注音的行块应与整块不同");
+
+        // 没有注音的工程（注音行来自 plan 的 cut 注音）：mainLine:false 时整层无可画 → 不出画面
+        var noNotes = new SubtitleLayer(SampleLines(), Cfg(), null, mainLine: false);
+        var rn = Shot(noNotes, 2.5);
+        Assert.False(rn.Stats.Drawn);
+        Assert.Equal(0, rn.Ink);
     }
 
     [Fact]

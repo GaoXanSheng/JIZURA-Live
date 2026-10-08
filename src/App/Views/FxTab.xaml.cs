@@ -121,7 +121,7 @@ public partial class FxTab : UserControl
             var slider = new Slider
             {
                 Style = (Style)FindResource("FxSlider"),
-                Margin = new Thickness(0, 0, 8, 0),
+                Margin = new Thickness(8, 0, 8, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
@@ -132,12 +132,14 @@ public partial class FxTab : UserControl
                 Foreground = (Brush)FindResource("Mut"),
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
-                Width = 30,
+                Width = 34,
             };
 
             var lockBtn = new Button
             {
                 Style = (Style)FindResource("LockBtn"),
+                Content = FindResource("FxLock"),
+                Margin = new Thickness(8, 0, 0, 0),
                 ToolTip = LockOn,
             };
 

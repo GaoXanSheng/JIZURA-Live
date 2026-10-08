@@ -117,9 +117,11 @@ public static class ExportJob
             }
         }
 
-        // 字幕烤入：逐帧在引擎内容之上叠画（KRC 逐字）
+        // 字幕烤入：逐帧在引擎内容之上叠画。只画注音/翻译行（mainLine:false）——主歌词由引擎
+        // 自己画，烤主行会与它重影；注音行从 plan 的 cut 注音回填（与预览叠加同一语义）
         var subLayer = req.Spec.BakeSubs && req.SubtitleLines is { Count: > 0 }
-            ? new SubtitleLayer(req.SubtitleLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both })
+            ? new SubtitleLayer(req.SubtitleLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
+                SubtitleLayer.NotesFromPlan(req.SubtitleLines, plan), mainLine: false)
             : null;
         try
         {
@@ -215,9 +217,11 @@ public static class ExportJob
         var layered = req.Spec.Layers;
 
         using var zip = new PngSequenceWriter(req.OutputPath, layered);
-        // 字幕烤入（仅平铺模式；分层模式的 back/front 语义由后期软件合成，不烤）
+        // 字幕烤入（仅平铺模式；分层模式的 back/front 语义由后期软件合成，不烤）。
+        // 只画注音/翻译行（mainLine:false），主歌词由引擎画——与预览叠加同语义
         var subLayer = !layered && req.Spec.BakeSubs && req.SubtitleLines is { Count: > 0 }
-            ? new SubtitleLayer(req.SubtitleLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both })
+            ? new SubtitleLayer(req.SubtitleLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
+                SubtitleLayer.NotesFromPlan(req.SubtitleLines, plan), mainLine: false)
             : null;
 
         // 两股流各自常驻一面（back/front 渲染互不污染；单流内保持引擎跨帧语义）

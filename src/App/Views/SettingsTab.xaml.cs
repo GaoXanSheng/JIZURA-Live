@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 
@@ -33,6 +34,20 @@ public partial class SettingsTab : UserControl
     };
     private static readonly (string V, string Key)[] DirOptions =
         { ("tb", "Settings.Dir.Tb"), ("lr", "Settings.Dir.Lr") };
+
+    // 字幕面板下拉（对位 SubtitlePanel.vue 的 option 顺序与文本；空串 Tag = 字体「跟随画面」）
+    private static readonly (string V, string Key)[] SubContentOptions =
+    {
+        ("off", "Settings.Subtitle.Content.Off"), ("trans", "Settings.Subtitle.Content.Trans"),
+        ("roma", "Settings.Subtitle.Content.Roma"), ("both", "Settings.Subtitle.Content.Both"),
+    };
+    private static readonly (string V, string Key)[] SubPosOptions =
+        { ("bottom", "Settings.Subtitle.Pos.Bottom"), ("top", "Settings.Subtitle.Pos.Top") };
+    private static readonly (string V, string Key)[] SubFontOptions =
+    {
+        ("", "Settings.Subtitle.Font.Follow"), ("sans", "Settings.Subtitle.Font.Sans"),
+        ("serif", "Settings.Subtitle.Font.Serif"),
+    };
 
     // UI 语言清单：词库目录（zh-Hans）→ 界面自称。新增语言时补一项即可
     private static readonly (string Code, string Name)[] UiLangs = { ("zh-Hans", "简体中文") };
@@ -70,10 +85,11 @@ public partial class SettingsTab : UserControl
 
     private void OnState() => Dispatcher.Invoke(Pull);
 
-    /// <summary>语言切换：重建带文案的下拉（留白位置/竖屏分列/背景）＋ 刷按钮双态文案与错误占位。</summary>
+    /// <summary>语言切换：重建带文案的下拉（留白位置/竖屏分列/背景/字幕）＋ 刷按钮双态文案与错误占位。</summary>
     private void OnLanguageChanged()
     {
         RebuildLocalizedItems();
+        PullSubtitle();
         ValidateDraft();
         if (JFonts.FontDirs().FirstOrDefault(Directory.Exists) == null)
             TblFontDir.Text = L.T("Settings.Fonts.NoDir");
@@ -88,7 +104,7 @@ public partial class SettingsTab : UserControl
         RebuildLocalizedItems();
     }
 
-    /// <summary>清空并按当前语言重建 Zone/Dir/KeyBg 三组下拉，保留选中值（_syncing 防误触发提交）。</summary>
+    /// <summary>清空并按当前语言重建 Zone/Dir/KeyBg/字幕三组下拉，保留选中值（_syncing 防误触发提交）。</summary>
     private void RebuildLocalizedItems()
     {
         _syncing = true;
@@ -97,20 +113,33 @@ public partial class SettingsTab : UserControl
             var zone = SelectedTag(CbCenterZone);
             var dir = SelectedTag(CbCenterDir);
             var keyBg = SelectedTag(CbKeyBg);
-            CbCenterZone.Items.Clear();
-            CbCenterDir.Items.Clear();
-            CbKeyBg.Items.Clear();
-            foreach (var (v, key) in ZoneOptions) CbCenterZone.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
-            foreach (var (v, key) in DirOptions) CbCenterDir.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
-            foreach (var (v, key) in KeyBgOptions) CbKeyBg.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
+            var subContent = SelectedTag(CbSubContent);
+            var subPos = SelectedTag(CbSubPos);
+            var subFont = SelectedTag(CbSubFont);
+            FillCombo(CbCenterZone, ZoneOptions);
+            FillCombo(CbCenterDir, DirOptions);
+            FillCombo(CbKeyBg, KeyBgOptions);
+            FillCombo(CbSubContent, SubContentOptions);
+            FillCombo(CbSubPos, SubPosOptions);
+            FillCombo(CbSubFont, SubFontOptions);
             if (zone != null) SelectTag(CbCenterZone, zone);
             if (dir != null) SelectTag(CbCenterDir, dir);
             if (keyBg != null) SelectTag(CbKeyBg, keyBg);
+            if (subContent != null) SelectTag(CbSubContent, subContent);
+            if (subPos != null) SelectTag(CbSubPos, subPos);
+            if (subFont != null) SelectTag(CbSubFont, subFont);
         }
         finally
         {
             _syncing = false;
         }
+    }
+
+    /// <summary>清空并按资源键重建一组带文案下拉（语言热切换共用）。</summary>
+    private static void FillCombo(ComboBox cb, (string V, string Key)[] options)
+    {
+        cb.Items.Clear();
+        foreach (var (v, key) in options) cb.Items.Add(new ComboBoxItem { Content = L.T(key), Tag = v });
     }
 
     private void BuildUiLangCombo()
@@ -211,6 +240,187 @@ public partial class SettingsTab : UserControl
             v == "green" ? L.T("Settings.KeyBgShort.Green")
             : v == "black" ? L.T("Settings.KeyBgShort.Black")
             : L.T("Settings.KeyBgShort.Off")));
+    }
+
+    // ---------------- 字幕面板（App Settings，即时生效，不需要重启渲染引擎） ----------------
+    // 对位 SubtitlePanel.vue：改即写共享的 SubtitleCfg + 存 settings.json + 通知引擎版本号
+    // （预览泵与 Spout 字幕通道据此在暂停态也重绘一帧）；不进撤销历史（Vue 同款）。
+
+    private void Sub_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncing) return;
+        var cfg = S.SubtitleCfg;
+        var content = SelectedTag(CbSubContent) switch
+        {
+            "off" => SubContent.Off,
+            "trans" => SubContent.Trans,
+            "roma" => SubContent.Roma,
+            _ => SubContent.Both
+        };
+        var pos = SelectedTag(CbSubPos) == "top" ? SubPos.Top : SubPos.Bottom;
+        var font = SelectedTag(CbSubFont) ?? "";
+        var bar = CkSubBar.IsChecked == true;
+        var karaoke = CkSubKaraoke.IsChecked == true;
+        var hold = CkSubHold.IsChecked == true;
+        if (cfg.Content == content && cfg.Pos == pos && cfg.Font == font && cfg.Bar == bar
+            && cfg.Karaoke == karaoke && cfg.HoldLastLine == hold) return;
+        cfg.Content = content;
+        cfg.Pos = pos;
+        cfg.Font = font;
+        cfg.Bar = bar;
+        cfg.Karaoke = karaoke;
+        cfg.HoldLastLine = hold;
+        SaveSubCfg();
+    }
+
+    private void SubNum_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        SubNum_Commit(sender, e);
+        e.Handled = true;
+    }
+
+    /// <summary>数字框提交（失焦/回车）：字号 2~15、描边 0~12、偏移 ±50，越界钳位、非法回显旧值。</summary>
+    private void SubNum_Commit(object sender, RoutedEventArgs e)
+    {
+        if (_syncing) return;
+        var tb = (TextBox)sender;
+        var cfg = S.SubtitleCfg;
+        if (ReferenceEquals(tb, TbSubSize)) CommitNum(tb, cfg.Size, 2, 15, v => cfg.Size = v);
+        else if (ReferenceEquals(tb, TbSubStroke)) CommitNum(tb, cfg.Stroke, 0, 12, v => cfg.Stroke = v);
+        else if (ReferenceEquals(tb, TbSubOffX)) CommitNum(tb, cfg.OffX, -50, 50, v => cfg.OffX = v);
+        else if (ReferenceEquals(tb, TbSubOffY)) CommitNum(tb, cfg.OffY, -50, 50, v => cfg.OffY = v);
+    }
+
+    private void CommitNum(TextBox tb, double cur, double min, double max, Action<double> set)
+    {
+        var v = double.TryParse(tb.Text.Trim(), out var parsed) ? Math.Clamp(parsed, min, max) : cur;
+        if (Math.Abs(v - cur) > 1e-9)
+        {
+            set(v);
+            SaveSubCfg();
+        }
+        var text = v.ToString("0.####");
+        if (tb.Text != text) tb.Text = text;
+    }
+
+    private void SubColor_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        SubColor_Commit(sender, e);
+        e.Handled = true;
+    }
+
+    /// <summary>色块提交：合法 hex 生效，非法回显旧值（同 StyleTab 的 CommitHex）。</summary>
+    private void SubColor_Commit(object sender, RoutedEventArgs e)
+    {
+        if (_syncing) return;
+        var tb = (TextBox)sender;
+        var cfg = S.SubtitleCfg;
+        var cur = ReferenceEquals(tb, TbSubColor) ? cfg.Color
+            : ReferenceEquals(tb, TbSubStrokeColor) ? cfg.StrokeColor
+            : cfg.UnsungColor;
+        if (!TryNormHex(tb.Text, out var hex))
+        {
+            FillSubColorBox(tb, cur); // 非法输入回显旧值
+            return;
+        }
+        if (!string.Equals(cur, hex, StringComparison.OrdinalIgnoreCase))
+        {
+            if (ReferenceEquals(tb, TbSubColor)) cfg.Color = hex;
+            else if (ReferenceEquals(tb, TbSubStrokeColor)) cfg.StrokeColor = hex;
+            else cfg.UnsungColor = hex;
+            SaveSubCfg();
+        }
+        FillSubColorBox(tb, hex);
+    }
+
+    /// <summary>色块 = 彩色底 + 十六进制字（亮底换深字保证可读），与 StyleTab 的配色编辑同一套路。</summary>
+    private static void FillSubColorBox(TextBox tb, string hex)
+    {
+        if (tb.Text != hex) tb.Text = hex;
+        tb.Background = Brush(hex, "#808080");
+        tb.Foreground = ReadableOn(hex);
+        tb.ToolTip = hex;
+    }
+
+    /// <summary>字幕样式改动落盘：快照进 settings.json（应用级配置）+ 通知引擎版本号（预览泵/Spout 字幕通道重绘）。</summary>
+    private void SaveSubCfg()
+    {
+        var st = App.SettingsOf();
+        if (st != null)
+        {
+            var snap = new SubtitleConfig();
+            snap.CopyFrom(S.SubtitleCfg);
+            st.Subtitle = snap;
+            st.Save();
+        }
+        S.Engine.NotifySubtitleCfgChanged();
+    }
+
+    /// <summary>字幕控件回显（Pull / 语言切换调用；只在 _syncing 或值无变化时执行，不会触发提交）。</summary>
+    private void PullSubtitle()
+    {
+        var cfg = S.SubtitleCfg;
+        SelectTag(CbSubContent, cfg.Content switch
+        {
+            SubContent.Off => "off",
+            SubContent.Trans => "trans",
+            SubContent.Roma => "roma",
+            _ => "both"
+        });
+        SelectTag(CbSubPos, cfg.Pos == SubPos.Top ? "top" : "bottom");
+        SelectTag(CbSubFont, cfg.Font is "sans" or "serif" ? cfg.Font : "");
+        SetChecked(CkSubBar, cfg.Bar);
+        SetChecked(CkSubKaraoke, cfg.Karaoke);
+        SetChecked(CkSubHold, cfg.HoldLastLine);
+        TbSubSize.Text = cfg.Size.ToString("0.####");
+        TbSubStroke.Text = cfg.Stroke.ToString("0.####");
+        TbSubOffX.Text = cfg.OffX.ToString("0.####");
+        TbSubOffY.Text = cfg.OffY.ToString("0.####");
+        FillSubColorBox(TbSubColor, cfg.Color);
+        FillSubColorBox(TbSubStrokeColor, cfg.StrokeColor);
+        FillSubColorBox(TbSubUnsung, cfg.UnsungColor);
+    }
+
+    /// <summary>#abc / #aabbcc → #aabbcc（小写）；其余 false（与 StyleTab.TryNormHex 同款）。</summary>
+    private static bool TryNormHex(string? s, out string hex)
+    {
+        hex = "";
+        var t = (s ?? "").Trim();
+        if (!t.StartsWith('#')) return false;
+        var body = t[1..];
+        if (body.Length == 3 && body.All(Uri.IsHexDigit))
+            body = string.Concat(body.Select(ch => new string(ch, 2)));
+        if (body.Length != 6 || !body.All(Uri.IsHexDigit)) return false;
+        hex = "#" + body.ToLowerInvariant();
+        return true;
+    }
+
+    private static SolidColorBrush Brush(string? hex, string fallback)
+    {
+        try
+        {
+            var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex ?? fallback));
+            b.Freeze();
+            return b;
+        }
+        catch
+        {
+            var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(fallback));
+            b.Freeze();
+            return b;
+        }
+    }
+
+    /// <summary>色块上的十六进制字：按亮度选前景（亮底深字 / 暗底亮字）。</summary>
+    private static SolidColorBrush ReadableOn(string hex)
+    {
+        var c = Brush(hex, "#808080").Color;
+        var lum = (0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B) / 255.0;
+        var b = new SolidColorBrush(lum > 0.55 ? Color.FromRgb(0x12, 0x0C, 0x00) : Color.FromRgb(0xEC, 0xE7, 0xE1));
+        b.Freeze();
+        return b;
     }
 
     // ---------------- 渲染窗口 / Spout 草稿组（点重启才生效） ----------------
@@ -338,6 +548,7 @@ public partial class SettingsTab : UserControl
             SelectTag(CbRes, ResOptions.Any(o => o.V == p.Res) ? p.Res.ToString() : "1080");
             SelectTag(CbFps, FpsOptions.Contains(p.Fps) ? p.Fps.ToString() : "24");
             SelectTag(CbKeyBg, p.KeyBg is "green" or "black" ? p.KeyBg : "off");
+            PullSubtitle();
         }
         finally
         {

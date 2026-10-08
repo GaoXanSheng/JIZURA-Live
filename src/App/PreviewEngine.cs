@@ -86,14 +86,19 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     private long _subVersion = 1;
 
-    /// <summary>字幕数据版本号：换歌/装载/清空字幕 +1，字幕通道据此重建字幕层（暂停态也要重出一帧）。</summary>
-    public long SubtitleVersion => _subVersion;
+    /// <summary>字幕版本号：换歌/装载/清空字幕、改字幕样式时 +1；字幕通道据它重建字幕层，
+    /// 预览泵据它在暂停态重出一帧（跨线程读，读端 Volatile）。</summary>
+    public long SubtitleVersion => Volatile.Read(ref _subVersion);
 
     public void SetSubtitles(List<KrcLine>? lines)
     {
         Subtitles = lines is { Count: > 0 } ? lines : null;
-        _subVersion++;
+        Interlocked.Increment(ref _subVersion);
     }
+
+    /// <summary>字幕样式（SubtitleCfg）改动后的通知：版本号 +1，让预览泵与 Spout 字幕通道
+    /// 在暂停态也重绘一帧（配置是就地改的共享对象，没有别的变更信号）。</summary>
+    public void NotifySubtitleCfgChanged() => Interlocked.Increment(ref _subVersion);
 
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private long _startTs; // Play/Seek/回卷时的墙钟戳（Stopwatch.GetTimestamp() 原始刻度）

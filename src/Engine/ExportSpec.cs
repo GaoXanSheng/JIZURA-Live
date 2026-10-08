@@ -54,7 +54,8 @@ public sealed record ExportSpecDef(
     };
 }
 
-/// <summary>BuildSpec 的环境事实（调用方从工程/状态取；纯模块不做副作用查询）。</summary>
+/// <summary>BuildSpec 的环境事实（调用方从工程/状态取；纯模块不做副作用查询）。
+/// SubOn = 「字幕」面板内容模式 ≠ 不显示，且已装载 KRC 逐字字幕数据。</summary>
 public sealed record SpecCtx(bool SubOn, bool AudioLoaded);
 
 /// <summary>BuildSpec 结果：ok=false 时 Error 是给 toast 的中文提示。</summary>
@@ -145,7 +146,7 @@ public static class ExportSpec
         if (!cfg.Visuals && !cfg.Subs)
             return SpecResult.Fail("至少勾选「渲染画面」或「字幕」，否则没有可导出的内容");
         if (cfg.Subs && !ctx.SubOn)
-            return SpecResult.Fail("字幕渲染未开启：请先在「字幕」面板选择要导出的字幕内容（翻译/音译）");
+            return SpecResult.Fail("字幕渲染未开启或没有云字幕数据：请先在「字幕」面板选择要导出的字幕内容（翻译/音译），并确保已装载酷狗 KRC 逐字歌词");
         if (cfg.Format == "mp4" && (!cfg.Visuals || !cfg.Bg))
             return SpecResult.Fail("MP4 不支持透明/无背景导出：请改用 WebM 视频，或把背景勾上（可用绿幕/黑幕形态）");
 

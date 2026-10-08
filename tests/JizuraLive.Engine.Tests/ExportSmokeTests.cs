@@ -159,7 +159,7 @@ public class SubtitleBakeTests
     {
         EngineBoot.InstallPacks();
         var p = Project.NewDefault();
-        p.Lyrics = "夜明けの色を覚えてる";
+        p.Lyrics = "字幕测试ABC|zimu　测试翻译";
         p.Res = 360;
         p.Fps = 12;
         p.Timing.Snap = false;
@@ -189,13 +189,22 @@ public class SubtitleBakeTests
             using var bmp = SkiaSharp.SKBitmap.FromImage(img);
             // 底部 25% 区域统计近白像素（字幕主色 #ffffff + 描边黑；暗底工程对比明显）
             var bright = 0;
+            var maxR = 0;
             for (var y = (int)(bmp.Height * 0.72); y < bmp.Height; y++)
                 for (var x = 0; x < bmp.Width; x++)
                 {
                     var c = bmp.GetPixel(x, y);
+                    if (c.Red > maxR) maxR = c.Red;
                     if (c.Red > 200 && c.Green > 200 && c.Blue > 200) bright++;
                 }
-            Assert.True(bright > 50, $"底部近白像素 {bright}，字幕未烤入");
+            var allBright = 0;
+            for (var y = 0; y < bmp.Height; y++)
+                for (var x = 0; x < bmp.Width; x++)
+                {
+                    var c = bmp.GetPixel(x, y);
+                    if (c.Red > 200 && c.Green > 200 && c.Blue > 200) allBright++;
+                }
+            Assert.True(bright > 50, $"底部近白像素 {bright} (maxR={maxR}, allBright={allBright}, entry={first.FullName}, totalEntries={zip.Entries.Count})，字幕未烤入");
         }
         finally { File.Delete(outp); }
     }

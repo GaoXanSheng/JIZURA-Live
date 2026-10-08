@@ -125,6 +125,11 @@ public class SubtitleChannelTests
         preview.SetSubtitles(new List<KrcLine>()); // 空 = 清空（网易 LRC 防残留语义）
         Assert.Null(src.Subtitles);
         Assert.True(src.SubtitleVersion > v1);
+
+        // 字幕样式改动：NotifySubtitleCfgChanged 也要递增版本号，触发暂停态与 Spout 通道重绘
+        var v2 = src.SubtitleVersion;
+        preview.NotifySubtitleCfgChanged();
+        Assert.True(src.SubtitleVersion > v2);
     }
 
     private static string RepoObjDir()

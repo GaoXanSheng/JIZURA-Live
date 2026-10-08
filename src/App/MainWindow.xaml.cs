@@ -65,7 +65,14 @@ public partial class MainWindow : Window
     // 脏检查：暂停且 t/plan 没变就跳过重绘（暂停态省 ~96% CPU）
     private double _lastRT = -1;
     private long _lastRV = -1;
+    private long _lastRSub = -1;
     private Plan? _lastRPlan;
+
+    // 字幕叠加层缓存（只在渲染泵线程访问）：字幕版本或 plan 变了就重建——注音行来自 plan 的
+    // cut 注音（SubtitleLayer.NotesFromPlan），plan 换对象（重规划）也要跟着换
+    private SubtitleLayer? _subLayer;
+    private long _subLayerVer = -1;
+    private Plan? _subLayerPlan;
     // UI 线程健康探针：Dispatcher tick 调度抖动 >33ms 即按钮可感知卡顿，5s 汇总进日志
     private readonly DispatcherTimer _uiProbe;
     private long _probeDue, _probeWindowEnd;
@@ -77,6 +84,9 @@ public partial class MainWindow : Window
 
         _settings = settings;
         App.MainInstance = this;
+        // 字幕层样式：上次退出时的档位（对位旧前端 localStorage 的 jizura.kgsub 记忆恢复；
+        // 灌的是同一份共享实例——预览叠加/导出烤入/Spout 字幕通道都读它）
+        _preview.SubtitleCfg.CopyFrom(settings.Subtitle);
         State = new EditorState(_preview);
         State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
         Follow = new FollowController(Dispatcher, State);
@@ -174,12 +184,17 @@ public partial class MainWindow : Window
                 if (plan == null || !_renderRunning || ExportBusy) continue;
                 _preview.Tick();
                 var t = _preview.CurrentTime;
-                // 脏检查：暂停且 t/plan 没变就跳过（暂停态省 ~96% CPU）
+                // 脏检查：暂停且 t/plan/字幕都没变就跳过（暂停态省 ~96% CPU）；
+                // 字幕版本覆盖「装载/清空字幕」与「设置页改字幕样式」两种情况（暂停态也要重出一帧）
                 var ver = _preview.Version;
-                if (!_preview.IsPlaying && t == _lastRT && ver == _lastRV && ReferenceEquals(plan, _lastRPlan))
+                var subVer = _preview.SubtitleVersion;
+                var subDirty = subVer != _lastRSub;
+                if (!_preview.IsPlaying && t == _lastRT && ver == _lastRV && !subDirty
+                    && ReferenceEquals(plan, _lastRPlan))
                     continue;
                 _lastRT = t;
                 _lastRV = ver;
+                _lastRSub = subVer;
                 _lastRPlan = plan;
                 // 预览渲染尺寸：contain 适配舞台（尺寸缓存由 UI SizeChanged 维护），钳 1.0 不超采
                 // 注意：_stageWpx/H 是 int，除法必须转 double——整数除法会让 756/1920=0，
@@ -203,6 +218,16 @@ public partial class MainWindow : Window
                     if (seq != _mirrorSeq)
                     {
                         _mirrorSeq = seq;
+                        _mirrorAt = Stopwatch.GetTimestamp();
+                        BlitMirrorToDisplay(rw, rh);
+                        Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
+                        continue;
+                    }
+
+                    // 只有字幕变了（装载/改样式）而镜像没有新帧：重贴上一帧 + 重画字幕。主通道不因
+                    // 字幕版本重绘（镜像只有新帧才走上面的分支），暂停态靠这里把字幕改动落到预览
+                    if (subDirty && _mirrorSeq != 0)
+                    {
                         _mirrorAt = Stopwatch.GetTimestamp();
                         BlitMirrorToDisplay(rw, rh);
                         Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
@@ -255,7 +280,11 @@ public partial class MainWindow : Window
                 var surf = _renderSurface;
                 var tCpu = Stopwatch.GetTimestamp();
                 lock (EngineRenderGate.Lock)
+                {
                     _preview.Renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = fit, Stage = true });
+                    // 字幕叠加：与导出烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
+                    PaintSubtitleOverlay(surf.Canvas, OverlayLayer(), t, rw, rh);
+                }
                 var cpuMs = (Stopwatch.GetTimestamp() - tCpu) * 1000.0 / Stopwatch.Frequency;
                 // P → 显示双缓冲 memcpy（~1-3ms），翻面后 UI 读新正面（与 memcpy 目标不同面）
                 lock (_displayLock)
@@ -329,7 +358,48 @@ public partial class MainWindow : Window
                     new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), _mirrorPaint);
                 c.Flush();
             });
+            // 字幕叠加：镜像帧来自 Spout 主通道（不含字幕，字幕走独立通道），预览侧叠注音/翻译行
+            PaintSubtitleOverlay(sx.Canvas, OverlayLayer(), _preview.CurrentTime, rw, rh);
             _displayFront = back;
+        }
+    }
+
+    /// <summary>当前字幕叠加层（null = 不叠：内容=off 或无 KRC 数据）。只在渲染泵线程调用。</summary>
+    private SubtitleLayer? OverlayLayer()
+    {
+        var lines = _preview.Subtitles;
+        if (_preview.SubtitleCfg.Content == SubContent.Off || lines is not { Count: > 0 })
+        {
+            _subLayer = null;
+            return null;
+        }
+
+        var ver = _preview.SubtitleVersion;
+        var plan = _preview.Plan;
+        if (_subLayer == null || _subLayerVer != ver || !ReferenceEquals(_subLayerPlan, plan))
+        {
+            _subLayer = new SubtitleLayer(lines, _preview.SubtitleCfg,
+                SubtitleLayer.NotesFromPlan(lines, plan), mainLine: false);
+            _subLayerVer = ver;
+            _subLayerPlan = plan;
+        }
+
+        return _subLayer;
+    }
+
+    /// <summary>把字幕层叠到已渲染的帧上。只画注音/翻译行——主歌词由引擎自己画，叠主行会重影；
+    /// 尺寸用设备像素（w/h），排版常数与导出烤入同源派生，保证预览与导出所见一致。</summary>
+    private static void PaintSubtitleOverlay(SKCanvas canvas, SubtitleLayer? layer, double t, int w, int h)
+    {
+        if (layer == null) return;
+        try
+        {
+            canvas.SetMatrix(SKMatrix.Identity);
+            layer.Render(canvas, t, w, h);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("预览字幕叠加失败：" + ex.Message); // 字幕出错不能拖垮渲染（同 Vue 的兜底）
         }
     }
 

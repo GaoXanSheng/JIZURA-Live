@@ -1,4 +1,5 @@
 using System.IO;
+using JizuraLive.Engine;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
 
@@ -26,6 +27,11 @@ public sealed class Settings
     // （对位旧前端 lyricStore 的 roma/trans 选项，默认都开）
     public bool WantRoma { get; set; } = true;
     public bool WantTrans { get; set; } = true;
+
+    // 云字幕层（KRC 逐字）样式与开关：对位旧前端 localStorage 的 jizura.kgsub（应用级配置，
+    // 不进工程文件、不进撤销历史、改即生效）。引擎模块默认 Content=Off（对位 TS），
+    // 编辑器默认双语——装载 KRC 字幕数据即出画面（与 PreviewEngine 的默认一致）。
+    public SubtitleConfig Subtitle { get; set; } = new() { Content = SubContent.Both };
 
     // 预览音量/消音（对位旧前端 localStorage 的 jizura.previewVolume：v/m，重启恢复；
     // 只影响预览出声，导出始终原电平）

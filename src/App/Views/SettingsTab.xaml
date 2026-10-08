@@ -10,9 +10,147 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <!-- 色块输入（对位 input[type=color]：彩色底 + 十六进制字，改色就是改字；StyleTab 同款） -->
+        <Style x:Key="SubColorBox" TargetType="TextBox" BasedOn="{StaticResource TbNum}">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+        </Style>
     </UserControl.Resources>
 
     <StackPanel>
+        <!-- 字幕卡片（对位 SubtitlePanel.vue：border-line rounded-md bg-raised/60 p-3.5，列表最顶） -->
+        <Border BorderBrush="{StaticResource Line2}" BorderThickness="1" CornerRadius="6"
+                Background="{StaticResource Raised}" Padding="14" Margin="0,0,0,14">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ctl:JzLabel Text="{DynamicResource Loc.Settings.Subtitle.Title}" Tracking="0.18"
+                                 TextElement.FontSize="11" TextElement.FontWeight="SemiBold"
+                                 TextElement.Foreground="{StaticResource Mut}" />
+                    <TextBlock Grid.Column="1" Text="{DynamicResource Loc.Settings.Subtitle.Sub}" FontSize="11"
+                               Foreground="{StaticResource Mut}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                </Grid>
+
+                <!-- 3 列网格（Vue 的 grid grid-cols-3 gap-2）：显示 col-span-2 + 位置 / 数值三连 /
+                     字体 col-span-2 / 半透明底条 col-span-3 -->
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,8,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Content}"
+                                   Style="{StaticResource FieldLab}" />
+                        <ComboBox x:Name="CbSubContent" Style="{StaticResource SelSm}" Margin="0,4,0,0"
+                                  SelectionChanged="Sub_Changed" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Pos}"
+                                   Style="{StaticResource FieldLab}" />
+                        <ComboBox x:Name="CbSubPos" Style="{StaticResource SelSm}" Margin="0,4,0,0"
+                                  SelectionChanged="Sub_Changed" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Size}"
+                                   Style="{StaticResource FieldLab}" />
+                        <TextBox x:Name="TbSubSize" Style="{StaticResource TbNum}" Margin="0,4,0,0"
+                                 LostFocus="SubNum_Commit" KeyDown="SubNum_KeyDown" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,0,8,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Stroke}"
+                                   Style="{StaticResource FieldLab}"
+                                   ToolTip="{DynamicResource Loc.Settings.Subtitle.Stroke.Tip}" />
+                        <TextBox x:Name="TbSubStroke" Style="{StaticResource TbNum}" Margin="0,4,0,0"
+                                 LostFocus="SubNum_Commit" KeyDown="SubNum_KeyDown" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,0,0,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Color}"
+                                   Style="{StaticResource FieldLab}" />
+                        <TextBox x:Name="TbSubColor" Style="{StaticResource SubColorBox}" Margin="0,4,0,0"
+                                 LostFocus="SubColor_Commit" KeyDown="SubColor_KeyDown" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Grid.Column="0" Margin="0,0,8,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.StrokeColor}"
+                                   Style="{StaticResource FieldLab}" />
+                        <TextBox x:Name="TbSubStrokeColor" Style="{StaticResource SubColorBox}" Margin="0,4,0,0"
+                                 LostFocus="SubColor_Commit" KeyDown="SubColor_KeyDown" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,8,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.OffX}"
+                                   Style="{StaticResource FieldLab}"
+                                   ToolTip="{DynamicResource Loc.Settings.Subtitle.OffX.Tip}" />
+                        <TextBox x:Name="TbSubOffX" Style="{StaticResource TbNum}" Margin="0,4,0,0"
+                                 LostFocus="SubNum_Commit" KeyDown="SubNum_KeyDown" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,0,0,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.OffY}"
+                                   Style="{StaticResource FieldLab}"
+                                   ToolTip="{DynamicResource Loc.Settings.Subtitle.OffY.Tip}" />
+                        <TextBox x:Name="TbSubOffY" Style="{StaticResource TbNum}" Margin="0,4,0,0"
+                                 LostFocus="SubNum_Commit" KeyDown="SubNum_KeyDown" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,0,8,8">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Font}"
+                                   Style="{StaticResource FieldLab}" />
+                        <ComboBox x:Name="CbSubFont" Style="{StaticResource SelSm}" Margin="0,4,0,0"
+                                  SelectionChanged="Sub_Changed" />
+                    </StackPanel>
+
+                    <CheckBox x:Name="CkSubBar" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3"
+                              Checked="Sub_Changed" Unchecked="Sub_Changed">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Bar}" FontSize="12" />
+                    </CheckBox>
+                </Grid>
+
+                <!-- C# 扩展（Vue 面板没有）：只影响字幕层本体（Spout 独立字幕通道 / 导出烤入） -->
+                <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Ext}" Style="{StaticResource FieldLab}"
+                           Margin="0,4,0,0" />
+                <Grid Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox x:Name="CkSubKaraoke" Grid.Column="0" Margin="0,0,8,0"
+                              Checked="Sub_Changed" Unchecked="Sub_Changed">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Karaoke}" FontSize="12"
+                                   TextWrapping="Wrap" MaxWidth="110" HorizontalAlignment="Left" />
+                    </CheckBox>
+                    <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.UnsungColor}"
+                                   Style="{StaticResource FieldLab}" />
+                        <TextBox x:Name="TbSubUnsung" Style="{StaticResource SubColorBox}" Margin="0,4,0,0"
+                                 LostFocus="SubColor_Commit" KeyDown="SubColor_KeyDown" />
+                    </StackPanel>
+                    <CheckBox x:Name="CkSubHold" Grid.Column="2"
+                              Checked="Sub_Changed" Unchecked="Sub_Changed">
+                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Hold}" FontSize="12"
+                                   TextWrapping="Wrap" MaxWidth="110" HorizontalAlignment="Left" />
+                    </CheckBox>
+                </Grid>
+            </StackPanel>
+        </Border>
+
         <!-- .sec-h：标题（.sec-title 11px tracking-.18）＋右侧说明（11px mut） -->
         <Grid>
             <Grid.ColumnDefinitions>

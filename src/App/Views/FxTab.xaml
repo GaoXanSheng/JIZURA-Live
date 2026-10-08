@@ -51,7 +51,7 @@
 
         <!-- fx 参数滑块（7 行）：标签 96 | 滑块 | 数值 34 | 锁定键，行距 8（对位 FxTab.vue 的
              `grid-cols-[96px_minmax(0,1fr)_36px_30px] gap-2 items-center mb-2`） -->
-        <Grid x:Name="SliderRows" Margin="0,6,0,0" />
+        <StackPanel x:Name="SliderRows" Margin="0,6,0,0" />
 
         <!-- 闪光 + 抽帧（.row mt-1.5） -->
         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">

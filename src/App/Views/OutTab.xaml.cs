@@ -203,9 +203,11 @@ public partial class OutTab : UserControl
             return;
         }
 
-        // 字幕系统：云音乐装载/跟随匹配写入 KRC 逐字后可用（烤字幕走 ExportJob 的文字层）
+        // 字幕烤入前提：已装载 KRC 逐字数据，且「字幕」面板的「显示」不是「不显示」
+        // （面板关掉时勾字幕要报错而不是静默导出空字幕层；对位 Vue 的 subOn 判据）
         var res = ExportSpec.BuildSpec(cfg, new SpecCtx(
-            SubOn: state.Subtitles is { Count: > 0 }, AudioLoaded: state.AudioPath != null));
+            SubOn: state.Subtitles is { Count: > 0 } && state.SubtitleCfg.Content != SubContent.Off,
+            AudioLoaded: state.AudioPath != null));
         if (!res.Ok)
         {
             MessageBox.Show(owner, res.Error, L.T("Out.Msg.Title"), MessageBoxButton.OK, MessageBoxImage.Information);

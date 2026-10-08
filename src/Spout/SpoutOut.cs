@@ -592,20 +592,27 @@ public sealed class SpoutOut : IDisposable
         oc.SetMatrix(SKMatrix.Identity);
         oc.Clear(SKColors.Transparent);
 
-        // 换歌/装载/清空字幕（版本号变）时重建字幕层：注音行从当前 plan 的 cut 注音回填
-        if (src.SubtitleVersion != ch.SubLayerVersion)
+        // 换歌/装载/清空字幕、改字幕样式（都走字幕版本号）、重规划（注音来自 plan 的 cut 注音，
+        // plan 换对象）时重建字幕层；plan 变化不记日志（编辑时每次重规划都记会刷屏）
+        var lines = src.Subtitles;
+        var versionChanged = src.SubtitleVersion != ch.SubLayerVersion;
+        var planChanged = lines is { Count: > 0 } && !ReferenceEquals(src.Plan, ch.SubLayerPlan);
+        if (versionChanged || planChanged)
         {
             ch.SubLayerVersion = src.SubtitleVersion;
-            var lines = src.Subtitles;
+            ch.SubLayerPlan = src.Plan;
             ch.SubLayer = lines is { Count: > 0 }
                 ? new SubtitleLayer(lines, src.SubtitleConfig, SubtitleLayer.NotesFromPlan(lines, src.Plan))
                 : null;
-            if (ch.SubLayer == null)
-                Log.Info("[SpoutOut] 字幕通道：当前没有 KRC 字幕数据，输出透明帧"
-                         + "（字幕层来自酷狗 KRC 逐字；网易云 LRC 不产生）");
-            else
-                Log.Info($"[SpoutOut] 字幕通道：字幕层就绪，{lines!.Count} 行"
-                         + (src.SubtitleConfig.Content == SubContent.Off ? "（内容=off，不出画面）" : ""));
+            if (versionChanged)
+            {
+                if (ch.SubLayer == null)
+                    Log.Info("[SpoutOut] 字幕通道：当前没有 KRC 字幕数据，输出透明帧"
+                             + "（字幕层来自酷狗 KRC 逐字；网易云 LRC 不产生）");
+                else
+                    Log.Info($"[SpoutOut] 字幕通道：字幕层就绪，{lines!.Count} 行"
+                             + (src.SubtitleConfig.Content == SubContent.Off ? "（内容=off，不出画面）" : ""));
+            }
         }
 
         // 排版按输出分辨率全幅派生（字号 = H 百分比、底部 5.5% 起排），与导出烤字幕所见一致
@@ -765,8 +772,9 @@ public sealed class SpoutOut : IDisposable
         public int SceneW = -1;
         public int SceneH = -1;
         public SKSurface? Out;   // CPU 输出面（PeekPixels 源；从不交给 Frame，也从不被 Snapshot）
-        public SubtitleLayer? SubLayer; // 字幕层缓存（按字幕数据版本重建）
+        public SubtitleLayer? SubLayer; // 字幕层缓存（按字幕版本 + plan 重建）
         public long SubLayerVersion = -1;
+        public Plan? SubLayerPlan; // 注音行来自 plan 的 cut 注音：重规划（plan 换对象）也要重建
         public Texture2D? Texture;
         public int TexW;
         public int TexH;
