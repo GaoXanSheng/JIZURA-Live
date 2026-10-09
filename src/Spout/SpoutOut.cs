@@ -50,7 +50,8 @@ public interface ISpoutSource
     /// <summary>内容版本号：暂停态下若不变，说明画面静止，泵跳过重绘。</summary>
     long Version { get; }
 
-    /// <summary>字幕层时间轴（KRC 逐字）；null = 无字幕数据，字幕通道输出全透明帧。</summary>
+    /// <summary>字幕层时间轴（KRC 逐字）；null = 无 KRC 数据，字幕通道退化为从 plan 行合成
+    /// （连注音内容都没有时才输出全透明帧）。</summary>
     IReadOnlyList<KrcLine>? Subtitles { get; }
 
     /// <summary>字幕层配置（与导出烤字幕同一份）。</summary>
@@ -461,10 +462,12 @@ public sealed class SpoutOut : IDisposable
         var m = Preview;
         if (m == null || !m.Wanted) return;
 
-        // GPU 零拷贝直显：若持有共享句柄，直接发布给 WPF D3DImage 显存直读，跳过整套 Staging 逆向读回
+        // GPU 零拷贝直显：若持有共享句柄，直接发布给 WPF D3DImage 显存直读，跳过整套 Staging 逆向读回。
+        // 发布的是纹理尺寸（Gpu.Width/Height），不是 plan 区域尺寸——共享资源就是全幅纹理，
+        // 预览侧按 plan 尺寸打开会被 D3D11 判 E_INVALIDARG；plan 区域单独给，供字幕排版。
         if (t.Gpu != null && t.Gpu.ShareHandle != IntPtr.Zero)
         {
-            m.PublishGpu(t.Gpu.ShareHandle, t.PlanW, t.PlanH);
+            m.PublishGpu(t.Gpu.ShareHandle, t.Gpu.Width, t.Gpu.Height, t.PlanX, t.PlanY, t.PlanW, t.PlanH);
             return;
         }
 
@@ -600,25 +603,42 @@ public sealed class SpoutOut : IDisposable
         oc.SetMatrix(SKMatrix.Identity);
         oc.Clear(SKColors.Transparent);
 
-        // 换歌/装载/清空字幕、改字幕样式（都走字幕版本号）、重规划（注音来自 plan 的 cut 注音，
-        // plan 换对象）时重建字幕层；plan 变化不记日志（编辑时每次重规划都记会刷屏）
+        // 换歌/装载/清空字幕、改字幕样式（都走字幕版本号）、重规划（注音来自 plan：KRC 走 cut 注音
+        // 回填，无 KRC 时整行合成）时重建字幕层；plan 变化不记日志（编辑时每次重规划都记会刷屏）
         var lines = src.Subtitles;
         var versionChanged = src.SubtitleVersion != ch.SubLayerVersion;
-        var planChanged = lines is { Count: > 0 } && !ReferenceEquals(src.Plan, ch.SubLayerPlan);
+        var planChanged = !ReferenceEquals(src.Plan, ch.SubLayerPlan);
         if (versionChanged || planChanged)
         {
             ch.SubLayerVersion = src.SubtitleVersion;
             ch.SubLayerPlan = src.Plan;
+
+            var fromKrc = lines is { Count: > 0 };
+            IReadOnlyList<string>? notes;
+            if (fromKrc)
+            {
+                notes = SubtitleLayer.NotesFromPlan(lines!, src.Plan);
+            }
+            else
+            {
+                // 没有 KRC 逐字（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）：
+                // 从 plan 行合成，与预览叠加、导出烤入共用同一份，避免「预览有字幕、Spout 通道空」
+                var synth = SubtitleLayer.FromPlan(src.Plan);
+                lines = synth?.Lines;
+                notes = synth?.Notes;
+            }
+
             ch.SubLayer = lines is { Count: > 0 }
-                ? new SubtitleLayer(lines, src.SubtitleConfig, SubtitleLayer.NotesFromPlan(lines, src.Plan))
+                ? new SubtitleLayer(lines, src.SubtitleConfig, notes)
                 : null;
             if (versionChanged)
             {
                 if (ch.SubLayer == null)
-                    Log.Info("[SpoutOut] 字幕通道：当前没有 KRC 字幕数据，输出透明帧"
-                             + "（字幕层来自酷狗 KRC 逐字；网易云 LRC 不产生）");
+                    Log.Info("[SpoutOut] 字幕通道：当前没有可用字幕数据，输出透明帧"
+                             + "（既无酷狗 KRC 逐字，工程歌词行也没有注音内容）");
                 else
                     Log.Info($"[SpoutOut] 字幕通道：字幕层就绪，{lines!.Count} 行"
+                             + $"（{(fromKrc ? "KRC 逐字" : "工程行合成")}）"
                              + (src.SubtitleConfig.Content == SubContent.Off ? "（内容=off，不出画面）" : ""));
             }
         }

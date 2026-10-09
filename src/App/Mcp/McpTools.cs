@@ -905,7 +905,8 @@ public sealed class McpTools
         var plan = _state.Plan;
         Check(plan != null, L.T("Mcp.Err.EditorNotReady"));
         var spec = ExportSpec.SpecFromLegacyKind(kind, p)!;
-        var hasSubs = _state.Subtitles is { Count: > 0 } && _state.SubtitleCfg.Content != SubContent.Off;
+        // 字幕可用判据与导出引擎同源：有 KRC 逐字，或能从 plan 行合成（重启恢复工程后 KRC 不在）
+        var hasSubs = SubtitleLayer.HasContent(_state.Subtitles, plan, _state.SubtitleCfg);
         if (spec.CustomDrawOnly)
         {
             Check(hasSubs, L.T("Mcp.Err.SubwebmNotSupported"));

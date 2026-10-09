@@ -341,6 +341,7 @@ public static class ExportJob
     /// <summary>
     /// 解析导出字幕源：优先使用请求自带的 KRC 逐字数据；若未附带 KRC（如网易云 LRC、手动粘贴或重启恢复工程），
     /// 则自动从 plan.Lines 提炼基础行与注音（保证只要工程歌词带 |翻译 导出也能正确烤入字幕）。
+    /// 合成走 SubtitleLayer.FromPlan——与预览叠加、Spout 字幕通道共用同一份实现。
     /// </summary>
     private static (List<KrcLine>? Lines, IReadOnlyList<string>? Notes) ResolveSubtitleSource(ExportRequest req, Plan plan)
     {
@@ -350,25 +351,7 @@ public static class ExportJob
             return (lines, SubtitleLayer.NotesFromPlan(lines, plan));
         }
 
-        if (plan?.Lines == null || plan.Lines.Count == 0) return (null, null);
-        var synthLines = new List<KrcLine>(plan.Lines.Count);
-        var synthNotes = new List<string>(plan.Lines.Count);
-        var hasAnyNote = false;
-        foreach (var l in plan.Lines)
-        {
-            if (l.Interlude)
-            {
-                synthLines.Add(new KrcLine((long)(l.Start * 1000), (long)(Math.Max(0, l.End - l.Start) * 1000), "", Array.Empty<KrcWord>()));
-                synthNotes.Add("");
-                continue;
-            }
-            var dur = Math.Max(0.1, (l.VisEnd > l.Start ? l.VisEnd : l.End) - l.Start);
-            synthLines.Add(new KrcLine((long)(l.Start * 1000), (long)(dur * 1000), l.Text, Array.Empty<KrcWord>()));
-            var note = l.Note ?? "";
-            if (note.Length > 0) hasAnyNote = true;
-            synthNotes.Add(note);
-        }
-
-        return hasAnyNote ? (synthLines, synthNotes) : (null, null);
+        var synth = SubtitleLayer.FromPlan(plan);
+        return synth == null ? (null, null) : (synth.Value.Lines, synth.Value.Notes);
     }
 }

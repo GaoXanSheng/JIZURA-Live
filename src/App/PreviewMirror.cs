@@ -101,28 +101,42 @@ public sealed class PreviewMirror
 
     private IntPtr _gpuShareHandle = IntPtr.Zero;
     private int _gpuW, _gpuH;
+    private int _gpuPlanX, _gpuPlanY, _gpuPlanW, _gpuPlanH;
 
-    /// <summary>GPU 纯显存模式：Spout 泵渲染完成，发布最新 D3D11 共享句柄（零 CPU 拷贝）。</summary>
-    public void PublishGpu(IntPtr shareHandle, int w, int h)
+    /// <summary>GPU 纯显存模式：Spout 泵渲染完成，发布最新 D3D11 共享句柄（零 CPU 拷贝）。
+    /// 纹理尺寸与 plan 区域分开给：出边（画幅比不一致）时纹理是全幅、plan 只是居中一块，
+    /// 预览侧打开共享纹理必须用纹理尺寸（用 plan 尺寸开会被 D3D11 判 E_INVALIDARG），
+    /// 而字幕叠加要按 plan 区域排版。</summary>
+    public void PublishGpu(IntPtr shareHandle, int texW, int texH,
+        int planX, int planY, int planW, int planH)
     {
         lock (_lock)
         {
             _gpuShareHandle = shareHandle;
-            _gpuW = w;
-            _gpuH = h;
+            _gpuW = texW;
+            _gpuH = texH;
+            _gpuPlanX = planX;
+            _gpuPlanY = planY;
+            _gpuPlanW = planW;
+            _gpuPlanH = planH;
             _seq++;
         }
         _frameReady.Release();
     }
 
     /// <summary>获取当前最新 GPU 共享帧信息（有可用句柄返回 true）。</summary>
-    public bool TryGetGpuFrame(out IntPtr shareHandle, out int w, out int h, out long seq)
+    public bool TryGetGpuFrame(out IntPtr shareHandle, out int texW, out int texH,
+        out int planX, out int planY, out int planW, out int planH, out long seq)
     {
         lock (_lock)
         {
             shareHandle = _gpuShareHandle;
-            w = _gpuW;
-            h = _gpuH;
+            texW = _gpuW;
+            texH = _gpuH;
+            planX = _gpuPlanX;
+            planY = _gpuPlanY;
+            planW = _gpuPlanW;
+            planH = _gpuPlanH;
             seq = _seq;
             return shareHandle != IntPtr.Zero;
         }

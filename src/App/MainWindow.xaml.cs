@@ -65,6 +65,10 @@ public partial class MainWindow : Window
     private WriteableBitmap? _stageBmp;
     private int _stageBmpW = -1, _stageBmpH = -1;
     private D3D11ImageSource? _d3dStage;
+    // GPU 直显分支的字幕叠加层：显存直显没有 SKCanvas 可画，字幕另画进这张透明底位图
+    // （与 Stage 同格同 Stretch=Uniform，缩放一致即像素对齐）
+    private WriteableBitmap? _stageOverlayBmp;
+    private int _stageOverlayW = -1, _stageOverlayH = -1;
     // 窗口不可见（最小化/隐藏）时不出帧：预览泵整个空转，镜像读回也一并停掉（见 RenderPump）
     private volatile bool _stageShown = true;
     // 镜像模式：已贴出的镜像帧序号与时间戳（判断「有没有新帧」；超时无新帧回退 CPU 渲染）
@@ -222,6 +226,9 @@ public partial class MainWindow : Window
 
             _presentedSeq = seq;
         }
+        // CPU 帧的字幕已烤进舞台位图：清掉 GPU 直显分支留下的覆盖层（模式切换/镜像兜底时），
+        // 否则会与位图里的字幕重影
+        if (StageOverlay.Source != null) StageOverlay.Source = null;
         // AddDirtyRect 已通知 WPF D3D 合成管道刷新硬件纹理，无需再调用 InvalidateVisual 触发整树重复测量
     }
 
@@ -237,19 +244,26 @@ public partial class MainWindow : Window
         return _stageBmp;
     }
 
-    /// <summary>GPU 纯显存模式：D3D11 共享句柄直接映射进 WPF D3DImage 硬件表面。</summary>
-    private void PresentGpuFrame(IntPtr shareHandle, int w, int h)
+    /// <summary>GPU 纯显存模式：D3D11 共享句柄直接映射进 WPF D3DImage 硬件表面。
+    /// 显存直显没有 SKCanvas 可画，字幕另开一层透明底覆盖层（DrawGpuOverlay）与帧同拍提交。
+    /// w/h 是共享纹理尺寸；plan* 是画幅区域（出边时是居中一块），字幕排版以 plan 为坐标系。</summary>
+    private void PresentGpuFrame(IntPtr shareHandle, int w, int h, int planX, int planY, int planW, int planH)
     {
         if (Interlocked.Exchange(ref _presentPending, 1) != 0) return;
+        // 字幕层与时刻在泵线程取好再交给 UI：到 UI 线程时 CurrentTime 可能已往前走，那样字幕
+        // 会比画面快半拍（OverlayLayer 的约定也是只在渲染泵线程调用）
+        var layer = OverlayLayer();
+        var t = _preview.CurrentTime;
         Dispatcher.BeginInvoke(() =>
         {
             Interlocked.Exchange(ref _presentPending, 0);
-            EnsureGpuStage(w, h, shareHandle);
+            if (EnsureGpuStage(w, h, shareHandle)) DrawGpuOverlay(layer, t, w, h, planX, planY, planW, planH);
+            else if (StageOverlay.Source != null) StageOverlay.Source = null; // 绑定失败：不留上一帧的残影字幕
             _d3dStage?.Invalidate();
         }, DispatcherPriority.Render);
     }
 
-    private void EnsureGpuStage(int w, int h, IntPtr shareHandle)
+    private bool EnsureGpuStage(int w, int h, IntPtr shareHandle)
     {
         if (_d3dStage == null)
         {
@@ -261,7 +275,54 @@ public partial class MainWindow : Window
             Stage.Source = _d3dStage;
         }
 
-        _d3dStage.BindSharedHandle(shareHandle, w, h);
+        return _d3dStage.BindSharedHandle(shareHandle, w, h);
+    }
+
+    /// <summary>
+    /// GPU 直显分支的字幕叠加层：主画面是显存直显（无 SKCanvas 可画），字幕画进一张与 Stage
+    /// 同尺寸、同 Stretch=Uniform 的透明底位图，两层缩放一致即像素对齐。
+    /// 字幕排版以 plan 区域为坐标系（与 CPU 叠加/导出烤入同源派生），出边时整体平移到 plan 左上角。
+    /// </summary>
+    private void DrawGpuOverlay(SubtitleLayer? layer, double t, int w, int h,
+        int planX, int planY, int planW, int planH)
+    {
+        if (layer == null)
+        {
+            if (StageOverlay.Source != null) StageOverlay.Source = null;
+            return;
+        }
+
+        if (_stageOverlayBmp == null || _stageOverlayW != w || _stageOverlayH != h)
+        {
+            _stageOverlayBmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
+            _stageOverlayW = w;
+            _stageOverlayH = h;
+            StageOverlay.Source = _stageOverlayBmp;
+        }
+
+        _stageOverlayBmp.Lock();
+        try
+        {
+            var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using var surf = SKSurface.Create(info, _stageOverlayBmp.BackBuffer, _stageOverlayBmp.BackBufferStride);
+            if (surf == null) return;
+            var c = surf.Canvas;
+            c.Clear(SKColors.Transparent);
+            c.Save();
+            c.Translate(planX, planY);
+            layer.Render(c, t, planW, planH);
+            c.Restore();
+            c.Flush();
+            _stageOverlayBmp.AddDirtyRect(new Int32Rect(0, 0, w, h));
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("GPU 字幕叠加失败：" + ex.Message); // 字幕出错不能拖垮预览（同 CPU 分支）
+        }
+        finally
+        {
+            _stageOverlayBmp.Unlock();
+        }
     }
 
     /// <summary>渲染泵：本帧已翻面，请 UI 线程来取（合并失效，绝不逐帧排满 Dispatcher）。</summary>
@@ -364,9 +425,10 @@ public partial class MainWindow : Window
                     {
                         _mirrorSeq = seq;
                         _mirrorAt = Stopwatch.GetTimestamp();
-                        if (_mirror.TryGetGpuFrame(out var handle, out var gw, out var gh, out _))
+                        if (_mirror.TryGetGpuFrame(out var handle, out var gw, out var gh,
+                                out var px, out var py, out var pw, out var ph, out _))
                         {
-                            PresentGpuFrame(handle, gw, gh);
+                            PresentGpuFrame(handle, gw, gh, px, py, pw, ph);
                             continue;
                         }
                         BlitMirrorToDisplay(rw, rh);
@@ -378,9 +440,10 @@ public partial class MainWindow : Window
                     if (subDirty && _mirrorSeq != 0)
                     {
                         _mirrorAt = Stopwatch.GetTimestamp();
-                        if (_mirror.TryGetGpuFrame(out var handle, out var gw, out var gh, out _))
+                        if (_mirror.TryGetGpuFrame(out var handle, out var gw, out var gh,
+                                out var px, out var py, out var pw, out var ph, out _))
                         {
-                            PresentGpuFrame(handle, gw, gh);
+                            PresentGpuFrame(handle, gw, gh, px, py, pw, ph);
                             continue;
                         }
                         BlitMirrorToDisplay(rw, rh);
@@ -537,38 +600,24 @@ public partial class MainWindow : Window
         if (plan == null) return null;
 
         var lines = _preview.Subtitles;
-        IReadOnlyList<string>? notes = null;
-        if (lines is not { Count: > 0 })
+        IReadOnlyList<string>? notes;
+        if (lines is { Count: > 0 })
         {
-            // 当没有 KRC 逐字数据时：从 plan.Lines 合成基础行
-            var synthLines = new List<KrcLine>(plan.Lines.Count);
-            var synthNotes = new List<string>(plan.Lines.Count);
-            var hasAnyNote = false;
-            foreach (var l in plan.Lines)
-            {
-                if (l.Interlude)
-                {
-                    synthLines.Add(new KrcLine((long)(l.Start * 1000), (long)(Math.Max(0, l.End - l.Start) * 1000), "", Array.Empty<KrcWord>()));
-                    synthNotes.Add("");
-                    continue;
-                }
-                var dur = Math.Max(0.1, (l.VisEnd > l.Start ? l.VisEnd : l.End) - l.Start);
-                synthLines.Add(new KrcLine((long)(l.Start * 1000), (long)(dur * 1000), l.Text, Array.Empty<KrcWord>()));
-                var note = l.Note ?? "";
-                if (note.Length > 0) hasAnyNote = true;
-                synthNotes.Add(note);
-            }
-            if (!hasAnyNote)
+            notes = SubtitleLayer.NotesFromPlan(lines, plan);
+        }
+        else
+        {
+            // 没有 KRC 逐字数据（网易云 LRC / 手动粘贴 / 重启恢复工程）：从 plan 行合成。
+            // 与 Spout 字幕通道、导出烤入共用 SubtitleLayer.FromPlan，三处行为一致。
+            var synth = SubtitleLayer.FromPlan(plan);
+            if (synth == null)
             {
                 _subLayer = null;
                 return null;
             }
-            lines = synthLines;
-            notes = synthNotes;
-        }
-        else
-        {
-            notes = SubtitleLayer.NotesFromPlan(lines, plan);
+
+            lines = synth.Value.Lines;
+            notes = synth.Value.Notes;
         }
 
         var ver = _preview.SubtitleVersion;

@@ -109,8 +109,15 @@
                      底色用 #0F0F12：与帧内 letterbox 的承托色一致（原来由 SKElement 自己填）。 -->
                 <Border Grid.Row="0" Background="#FF0F0F12" BorderBrush="{StaticResource LineBrush}"
                         BorderThickness="1" CornerRadius="10" ClipToBounds="True">
-                    <Image x:Name="Stage" Stretch="Uniform" SnapsToDevicePixels="True"
-                           RenderOptions.BitmapScalingMode="Linear" />
+                    <Grid>
+                        <Image x:Name="Stage" Stretch="Uniform" SnapsToDevicePixels="True"
+                               RenderOptions.BitmapScalingMode="Linear" />
+                        <!-- GPU 显存直显分支没有 SKCanvas 可画，字幕单独叠一层透明底位图：
+                             与 Stage 同格、同 Stretch=Uniform、同像素尺寸，缩放一致即像素对齐。
+                             CPU 分支的字幕已烤进舞台位图，那时这层会被置空（见 PresentStage）。 -->
+                        <Image x:Name="StageOverlay" Stretch="Uniform" SnapsToDevicePixels="True"
+                               IsHitTestVisible="False" RenderOptions.BitmapScalingMode="Linear" />
+                    </Grid>
                 </Border>
                 <views:Transport Grid.Row="1" Margin="0,10,0,0" />
                 <views:TimelineCanvas Grid.Row="2" Margin="0,10,0,0" />

@@ -34,6 +34,53 @@ public class SubtitleChannelTests
         })
     };
 
+    // ---------------- 1b. 水平居中 ----------------
+
+    /// <summary>
+    /// 水平居中回归：字幕块（主行 + 注音行）应落在画面水平中线附近。
+    /// 原有契约测试只验「顶部无内容/底部有内容」，横向偏移发现不了。
+    /// 用与编辑器默认一致的配置（Content=Trans、Font=sans、OffX=0）复现用户的通道工况。
+    /// </summary>
+    [Fact]
+    public void 字幕通道_水平居中()
+    {
+        EngineBoot.Install();
+        var cfg = new SubtitleConfig
+        {
+            Content = SubContent.Trans, Pos = SubPos.Bottom, Size = 4.5, Stroke = 4, Font = "sans"
+        };
+        var lines = new List<KrcLine>
+        {
+            new(2000, 3000, "So she tries to cover up her pain",
+                new List<KrcWord> { new(2000, 3000, "So she tries to cover up her pain") })
+        };
+        var layer = new SubtitleLayer(lines, cfg, new[] { "所以她在尝试掩饰痛苦" });
+
+        const int W = 1920, H = 1080;
+        using var surface = SKSurface.Create(new SKImageInfo(W, H, SKColorType.Bgra8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Transparent);
+        var stats = layer.Render(surface.Canvas, 2.5, W, H);
+        surface.Canvas.Flush();
+        Assert.True(stats.Drawn);
+
+        using var img = surface.Snapshot();
+        int x0 = int.MaxValue, x1 = -1, y0 = int.MaxValue, y1 = -1;
+        using (var px = img.PeekPixels())
+            for (var y = 0; y < H; y += 2)
+                for (var x = 0; x < W; x += 2)
+                    if (px.GetPixelColor(x, y).Alpha > 0)
+                    {
+                        if (x < x0) x0 = x;
+                        if (x > x1) x1 = x;
+                        if (y < y0) y0 = y;
+                        if (y > y1) y1 = y;
+                    }
+
+        var center = (x0 + x1) / 2.0;
+        _out.WriteLine($"ink bbox x=[{x0},{x1}] y=[{y0},{y1}] center={center}（期望 {W / 2}）");
+        Assert.InRange(center, W / 2 - 40, W / 2 + 40);
+    }
+
     // ---------------- 1. 通道渲染契约 ----------------
 
     [Fact]
@@ -130,6 +177,43 @@ public class SubtitleChannelTests
         var v2 = src.SubtitleVersion;
         preview.NotifySubtitleCfgChanged();
         Assert.True(src.SubtitleVersion > v2);
+    }
+
+    // ---------------- 4. 无 KRC 时从 plan 行合成（网易 LRC / 手动粘贴 / 重启恢复工程） ----------------
+
+    /// <summary>
+    /// 回归：Spout 字幕通道曾经只认 KRC 逐字数据，重启恢复工程（KRC 不落盘）后通道一直是空的，
+    /// 而预览叠加与导出烤入各自有一份 plan 合成 fallback。合成逻辑现在收进 SubtitleLayer.FromPlan，
+    /// 三条路共用。这里钉住合成结果的形状与「mainLine=true 时主行也能画」。
+    /// </summary>
+    [Fact]
+    public void FromPlan_无KRC时合成字幕行_主行可画且注音随行()
+    {
+        EngineBoot.Install();
+        var project = Project.NewDefault();
+        project.Lyrics = "[00:02.00]夜明けの色を覚えてる|yoromeki　黎明之色\n"
+                         + "[00:06.00]ほどけた声が／遠くで鳴った|hodoketa koe　解开的声音\n";
+        var plan = Planner.Plan(project, null);
+
+        var synth = SubtitleLayer.FromPlan(plan);
+        Assert.NotNull(synth);
+        Assert.Equal(2, synth!.Value.Lines.Count);
+        // 整行合成一个「词」：mainLine=true 的 Spout 通道 / 纯字幕导出要能画出主行
+        Assert.Single(synth.Value.Lines[0].Words);
+        Assert.Equal("夜明けの色を覚えてる", synth.Value.Lines[0].Words[0].Text);
+        Assert.Equal("yoromeki　黎明之色", synth.Value.Notes[0]);
+
+        // 主行 + 注音行都应落笔（mainLine=true，KRC 通道的默认语义）
+        var layer = new SubtitleLayer(synth.Value.Lines, new SubtitleConfig { Content = SubContent.Both }, synth.Value.Notes);
+        using var surface = SKSurface.Create(new SKImageInfo(1920, 1080, SKColorType.Bgra8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Transparent);
+        var stats = layer.Render(surface.Canvas, 2.5, 1920, 1080);
+        Assert.True(stats.MainRows >= 1, "无 KRC 逐字时主行也应画出来");
+        Assert.True(stats.SubRows >= 1, "注音行也应画出来");
+
+        // 工程歌词行没有注音内容 → null（调用方退化为不画）
+        project.Lyrics = "[00:02.00]夜明けの色を覚えてる\n";
+        Assert.Null(SubtitleLayer.FromPlan(Planner.Plan(project, null)));
     }
 
     private static string RepoObjDir()

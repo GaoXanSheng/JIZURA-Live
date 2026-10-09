@@ -184,6 +184,52 @@ public sealed class SubtitleLayer
     }
 
     /// <summary>
+    /// 没有 KRC 逐字数据时（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）从 plan 的行与
+    /// 注音合成字幕行：非间奏行整行合成一个「词」（无逐字时间，起唱即整行已唱），这样 mainLine=true
+    /// 的 Spout 字幕通道与纯字幕导出也能画出主行；注音取 PlanLine.Note。
+    /// 全行都没有注音内容返回 null（调用方退化为不画字幕）。
+    /// 预览叠加、导出烤入、Spout 字幕通道三条路共用这一份，避免各处行为漂移。
+    /// </summary>
+    public static (List<KrcLine> Lines, IReadOnlyList<string> Notes)? FromPlan(Plan? plan)
+    {
+        if (plan?.Lines is not { Count: > 0 }) return null;
+        var lines = new List<KrcLine>(plan.Lines.Count);
+        var notes = new List<string>(plan.Lines.Count);
+        var hasAnyNote = false;
+        foreach (var l in plan.Lines)
+        {
+            var startMs = (long)(l.Start * 1000);
+            if (l.Interlude)
+            {
+                lines.Add(new KrcLine(startMs, (long)(Math.Max(0, l.End - l.Start) * 1000), "", Array.Empty<KrcWord>()));
+                notes.Add("");
+                continue;
+            }
+
+            var dur = Math.Max(0.1, (l.VisEnd > l.Start ? l.VisEnd : l.End) - l.Start);
+            var durMs = (long)(dur * 1000);
+            IReadOnlyList<KrcWord> words = l.Text.Length > 0
+                ? new[] { new KrcWord(startMs, durMs, l.Text) }
+                : Array.Empty<KrcWord>();
+            lines.Add(new KrcLine(startMs, durMs, l.Text, words));
+
+            var note = l.Note ?? "";
+            if (note.Length > 0) hasAnyNote = true;
+            notes.Add(note);
+        }
+
+        return hasAnyNote ? (lines, notes) : null;
+    }
+
+    /// <summary>
+    /// 字幕层是否有可画内容：内容模式非 off，且「有 KRC 逐字 或 能从 plan 行合成出注音」。
+    /// 导出面板的 subOn、MCP 导出的 hasSubs、导出引擎的取源判据统一走这里——否则重启恢复工程
+    /// （KRC 不落盘）后会出现「通道/预览有字幕、导出面板却报没字幕」这类判据打架。
+    /// </summary>
+    public static bool HasContent(IReadOnlyList<KrcLine>? krc, Plan? plan, SubtitleConfig cfg)
+        => cfg.Content != SubContent.Off && (krc is { Count: > 0 } || FromPlan(plan) != null);
+
+    /// <summary>
     /// 画一帧字幕。t 是曲内秒（KRC 是毫秒，内部 ×1000）；w/h 是画布尺寸（设计像素，
     /// 与 TS 的 plan.W/H 同位——排版常数全部由 h/w 派生，见各注释）。
     /// 线程安全：整体过静态锁串行，任何线程可调。
