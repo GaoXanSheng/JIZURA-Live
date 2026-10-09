@@ -91,6 +91,8 @@ public partial class AudioFxDialog : Window
         L.LanguageChanged += OnLang;
         _ready = true;
         Refresh();
+        // 打开动效：遮罩淡入 + 卡片微缩放上浮（只做进入，关闭即时）
+        JzAnim.PlayWindowIn(Overlay, Card);
     }
 
     private void OnClosed(object? sender, EventArgs e)

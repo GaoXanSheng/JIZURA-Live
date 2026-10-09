@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -525,7 +525,7 @@ public partial class StyleTab : UserControl
                 card.BorderBrush = on ? (Brush)FindResource("Amber") : (Brush)FindResource("LineBrush");
                 card.ApplyTemplate();
                 if (card.Template?.FindName("ring", card) is Border ring)
-                    ring.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+                    JzAnim.ShowFade(ring, on, 2); // 选中外环淡入（Sync 每次状态变化都跑，靠幂等）
                 card.ToolTip = st.Extra != null && st.Extra.TryGetValue("desc", out var d)
                     ? (string)d + OffNote(st, p)
                     : OffNote(st, p);

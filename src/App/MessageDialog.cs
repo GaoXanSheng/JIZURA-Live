@@ -151,6 +151,10 @@ public static class MessageDialog
             dialog.Top = owner.Top;
             dialog.Width = owner.ActualWidth;
             dialog.Height = owner.ActualHeight;
+            // 打开动效：遮罩这一层是窗口自身的底色（非分层窗口下 alpha 不参与合成），
+            // 动它没有观感收益，所以只动卡片 —— 淡入 + 微缩放上浮
+            JzAnim.FadeIn(card, JzAnim.Dialog);
+            JzAnim.PopIn(card, 0.985, 6);
         };
         dialog.ShowDialog();
     }

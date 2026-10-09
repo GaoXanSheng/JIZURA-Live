@@ -127,6 +127,7 @@ public partial class LineList : UserControl, INotifyPropertyChanged
 
     private void Rebuild()
     {
+        JzAnim.StopScroll(); // 换行集后偏移全变，进行中的滚动缓动立即让位（否则落点是旧坐标）
         // 慢动作留痕（性能专项）：ItemsSource 换新后的 WPF 测量/字体装载不在此计时内（那部分
         // 要靠 trace 归因），这里只看托管重建本身是否超预算。
         var t0 = Stopwatch.GetTimestamp();
@@ -317,8 +318,58 @@ public partial class LineList : UserControl, INotifyPropertyChanged
         if (li >= 0 && _rowMap.TryGetValue(li, out var o2))
         {
             o2.Active = true;
-            if (scroll) Lst.ScrollIntoView(o2); // 行列表随播放滚动（对位 scrollToLine）
+            if (scroll) ScrollToRow(o2); // 行列表随播放滚动（对位 scrollToLine）
         }
+    }
+
+    private ScrollViewer? _sv; // ListBox 模板里的滚动宿主（一次查表，模板不重建）
+
+    /// <summary>
+    /// 把某一行滚进视野：小位移走 140ms 缓动，远距离 / 算不出偏移时直跳。
+    /// 远跳不动画的原因：虚拟化下未实体化的行只有估算高度（有切分的行更高），插值落点会漂；
+    /// 而且大跨度滚动本身就是「翻页」语义，直跳反而更利落。
+    /// </summary>
+    private void ScrollToRow(object row)
+    {
+        var sv = Sv();
+        if (sv == null || sv.ViewportHeight <= 0 || Lst.ItemContainerGenerator.ContainerFromItem(row) is not FrameworkElement c)
+        {
+            Lst.ScrollIntoView(row); // 未实体化（远距离跳转）：没有可信坐标，直跳
+            return;
+        }
+
+        var rowTop = sv.VerticalOffset + c.TransformToAncestor(sv).Transform(new Point(0, 0)).Y;
+        var rowBottom = rowTop + c.ActualHeight;
+        var top = sv.VerticalOffset;
+        var bottom = top + sv.ViewportHeight;
+        double target;
+        if (rowTop < top + 4) target = rowTop - 12;                    // 在视口上方（或贴上沿）
+        else if (rowBottom > bottom - 4) target = rowBottom - sv.ViewportHeight + 12; // 在视口下方
+        else return;                                                    // 已完整可见：不动（同 ScrollIntoView 语义）
+
+        target = Math.Clamp(target, 0, sv.ScrollableHeight);
+        if (Math.Abs(target - sv.VerticalOffset) > sv.ViewportHeight * 1.5 || !JzAnim.AnimateScroll(sv, target))
+            Lst.ScrollIntoView(row);
+    }
+
+    /// <summary>ListBox 模板里的 ScrollViewer（TemplatedParent 认门：行内 TextBox/ComboBox 也各带一个）。</summary>
+    private ScrollViewer? Sv()
+    {
+        if (_sv != null) return _sv;
+        _sv = FindSv(Lst);
+        return _sv;
+    }
+
+    private static ScrollViewer? FindSv(DependencyObject root)
+    {
+        if (root is ScrollViewer sv && sv.TemplatedParent is ListBox) return sv;
+        var n = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < n; i++)
+        {
+            var r = FindSv(VisualTreeHelper.GetChild(root, i));
+            if (r != null) return r;
+        }
+        return null;
     }
 
     // ---------------- 行开始时刻 ----------------

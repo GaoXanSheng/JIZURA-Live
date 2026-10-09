@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -470,16 +470,16 @@ public partial class SettingsTab : UserControl
         var hOk = int.TryParse(TbWinH.Text.Trim(), out var h) && h >= ResMin && h <= ResMax;
         var fOk = int.TryParse(TbWinFps.Text.Trim(), out var f) && f >= 1 && f <= 240;
         var lOk = int.TryParse(TbLyricsFps.Text.Trim(), out var l) && l >= 1 && l <= 240;
-        TbResErr.Visibility = wOk && hOk ? Visibility.Collapsed : Visibility.Visible;
-        TbFpsErr.Visibility = fOk ? Visibility.Collapsed : Visibility.Visible;
-        TbLyricsFpsErr.Visibility = lOk ? Visibility.Collapsed : Visibility.Visible;
+        JzAnim.ShowFade(TbResErr, !(wOk && hOk), 2);
+        JzAnim.ShowFade(TbFpsErr, !fOk, 2);
+        JzAnim.ShowFade(TbLyricsFpsErr, !lOk, 2);
         var ok = wOk && hOk && fOk && lOk;
         BtnRestart.Content = !_dirty ? L.T("Settings.Btn.Restart") : L.T("Settings.Btn.RestartSave");
         BtnRestart.ToolTip = _dirty ? L.T("Settings.Btn.RestartSave.Tip") : L.T("Settings.Btn.Restart.Tip");
         BtnRestart.IsEnabled = ok; // 对位 Vue 的 :disabled="applying || !canApply"
         // 字幕通道名与帧率行随「独立 Spout 字幕通道」勾选显隐（Vue 的 v-if）
         SyncLyricsChan();
-        LyricsFpsRow.Visibility = CkSpoutLyrics.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        JzAnim.ShowFade(LyricsFpsRow, CkSpoutLyrics.IsChecked == true);
         return ok;
     }
 
@@ -599,11 +599,11 @@ public partial class SettingsTab : UserControl
         {
             var p = S.Project;
             SetChecked(CkCenterFree, p.CenterFree);
-            CenterOpts.Visibility = p.CenterFree ? Visibility.Visible : Visibility.Collapsed;
+            JzAnim.ShowFade(CenterOpts, p.CenterFree);
             SelectTag(CbCenterZone, p.CenterZone is { Length: > 0 } z ? z : "center");
             TbCenterGap.Text = (p.CenterGap ?? 30).ToString();
             SelectTag(CbCenterDir, p.CenterDir == "lr" ? "lr" : "tb");
-            CenterDirRow.Visibility = (p.CenterZone ?? "center") == "center" ? Visibility.Visible : Visibility.Collapsed;
+            JzAnim.ShowFade(CenterDirRow, (p.CenterZone ?? "center") == "center");
 
             SelectTag(CbAspect, Aspects.Contains(p.Aspect) ? p.Aspect : "16:9");
             SelectTag(CbRes, ResOptions.Any(o => o.V == p.Res) ? p.Res.ToString() : "1080");

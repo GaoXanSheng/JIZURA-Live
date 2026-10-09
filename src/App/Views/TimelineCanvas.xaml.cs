@@ -40,9 +40,17 @@ public partial class TimelineCanvas : UserControl
     public TimelineCanvas()
     {
         InitializeComponent();
-        // 10Hz 跟随 Transport 的刷新思路：只驱动 Surface 重绘播放头，逻辑全在 Surface 里
+        // 空闲 10Hz / 播放中 ~30fps：播放头是自绘的，只有重绘才会动 —— 10Hz 看着就是一格一格跳。
+        // 静态层的文字有缓存（_cutLabels/_lineLabels），播放中的重绘只重记几百个矩形 + 播放头；
+        // 暂停时 OnClock 靠「时刻没变就跳过」自动回到零重绘。
         _clock = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
-        _clock.Tick += (_, _) => Surface.OnClock();
+        _clock.Tick += (_, _) =>
+        {
+            Surface.OnClock();
+            var want = App.MainInstance?.Preview.IsPlaying == true ? 33 : 100;
+            if (Math.Abs(_clock.Interval.TotalMilliseconds - want) > 1)
+                _clock.Interval = TimeSpan.FromMilliseconds(want);
+        };
         Loaded += (_, _) =>
         {
             var st = App.MainInstance?.State;
@@ -134,7 +142,8 @@ public sealed class TimelineSurface : FrameworkElement
         NotifyPlanChanged();
     }
 
-    /// <summary>10Hz 时钟：放大且播放中，播放头出可视区就跟着平移；其余情况只重绘播放头。</summary>
+    /// <summary>时钟（空闲 10Hz / 播放中 ~30fps，见 ctor）：放大且播放中，播放头出可视区就跟着平移；
+    /// 其余情况只重绘播放头，时刻没变则整帧跳过。</summary>
     public void OnClock()
     {
         if (App.MainInstance == null) return;

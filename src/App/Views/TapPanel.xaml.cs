@@ -109,6 +109,8 @@ public partial class TapPanel : UserControl
         if (active && !_wasActive)
             _lastT = main.Preview.CurrentTime;
         _wasActive = active;
+        // 浮层进入：淡入 + 轻微上浮（Refresh 会被频繁调用，只在真正从隐藏转显示时跑一次）
+        if (active && Root.Visibility != Visibility.Visible) JzAnim.FadeSlideIn(Root, 4);
         Root.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         if (!active) return;
 

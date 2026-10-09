@@ -72,7 +72,13 @@
               MouseLeftButtonUp="ProgBar_Up" LostMouseCapture="ProgBar_LostCapture"
               SizeChanged="ProgBar_SizeChanged">
             <Border Style="{StaticResource BarTrack}">
-                <Border x:Name="ProgFill" Style="{StaticResource BarFill}" />
+                <!-- 填充恒为整条宽、靠位移露出左段（对位 Vue 的 translateX 手法）：写 Width 每次都要
+                     跑一遍布局，位移只走合成；右端由槽的 ClipToBounds 裁掉，左端圆角由自身保住 -->
+                <Border x:Name="ProgFill" Style="{StaticResource BarFill}">
+                    <Border.RenderTransform>
+                        <TranslateTransform x:Name="ProgFillShift" />
+                    </Border.RenderTransform>
+                </Border>
             </Border>
             <Ellipse x:Name="ProgThumb" Style="{StaticResource BarThumb}">
                 <Ellipse.RenderTransform>

@@ -223,6 +223,8 @@ public partial class CutInfo : UserControl
     {
         var meta = Groups.FirstOrDefault(x => x.G == _pickG);
         TblPickTitle.Text = (meta.Key is { Length: > 0 } ? L.T(meta.Key) : _pickG) + " · #" + (cut.Index + 1).ToString("00");
+        // 面板进入：只在从隐藏转显示时淡入（fillPick 会跟着当前切分被反复调用，不能每次都重播）
+        if (Pick.Visibility != Visibility.Visible) JzAnim.FadeSlideIn(Pick, 4);
         Pick.Visibility = Visibility.Visible;
         var win = Window.GetWindow(this);
         if (win != null) PickScroll.MaxHeight = Math.Min(420, Math.Max(120, win.ActualHeight * 0.42));

@@ -662,7 +662,7 @@ public partial class TechTab : UserControl
                     ui.Cards.Children.Clear();
                     _cards.Remove(ui.G); // 收起即卸载（Vue v-if 语义）；位图缓存保留，重开秒回
                 }
-                ui.Body.Visibility = visOpen ? Visibility.Visible : Visibility.Collapsed;
+                JzAnim.ShowFade(ui.Body, visOpen); // 组展开淡入（ApplyFilter 被频繁调用，靠幂等）
                 ui.Arrow.Text = visOpen ? "▾" : "▸";
                 ui.Box.Visibility = q.Length > 0 && shown == 0 ? Visibility.Collapsed : Visibility.Visible;
             }

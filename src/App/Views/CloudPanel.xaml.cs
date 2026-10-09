@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Text.RegularExpressions;
@@ -86,6 +86,7 @@ public partial class CloudPanel : Window
         Loaded += (_, _) =>
         {
             FitToOwner();
+            JzAnim.PlayWindowIn(Mask, Card); // 打开动效：遮罩淡入 + 卡片微缩放上浮
             ShowPane(_pane);
             SyncSourceButtons();
             RefreshLogin();
@@ -179,10 +180,10 @@ public partial class CloudPanel : Window
     private void ShowPane(string pane)
     {
         _pane = pane;
-        PaneSearch.Visibility = pane == "search" ? Visibility.Visible : Visibility.Collapsed;
-        PanePlaylists.Visibility = pane == "playlists" ? Visibility.Visible : Visibility.Collapsed;
-        PaneFollow.Visibility = pane == "follow" ? Visibility.Visible : Visibility.Collapsed;
-        PaneAccount.Visibility = pane == "account" ? Visibility.Visible : Visibility.Collapsed;
+        JzAnim.ShowFade(PaneSearch, pane == "search");
+        JzAnim.ShowFade(PanePlaylists, pane == "playlists");
+        JzAnim.ShowFade(PaneFollow, pane == "follow");
+        JzAnim.ShowFade(PaneAccount, pane == "account");
         NavSearch.Tag = pane == "search" ? "on" : null;
         NavPlaylists.Tag = pane == "playlists" ? "on" : null;
         NavFollow.Tag = pane == "follow" ? "on" : null;
@@ -529,7 +530,7 @@ public partial class CloudPanel : Window
     private async Task OpenQrAsync()
     {
         StopQrPolling();
-        QrPanel.Visibility = Visibility.Visible;
+        JzAnim.ShowFade(QrPanel, true);
         QrImg.Source = null;
         TblQrTitle.Text = _source == "netease" ? L.T("Cloud.QrTitleNe") : L.T("Cloud.QrTitleKg");
         QrScanned.Visibility = Visibility.Collapsed;
@@ -612,7 +613,7 @@ public partial class CloudPanel : Window
                         break;
                     case "2" or "802":
                         TblQrTip.Text = L.T("Cloud.QrScannedConfirm");
-                        QrScanned.Visibility = Visibility.Visible;
+                        JzAnim.ShowFade(QrScanned, true); // 已扫码：浮层淡入（轮询反复刷，靠幂等）
                         break;
                     case "0" or "800":
                         TblQrTip.Text = L.T("Cloud.QrExpired");

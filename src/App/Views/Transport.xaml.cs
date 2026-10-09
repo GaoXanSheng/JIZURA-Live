@@ -30,6 +30,7 @@ public partial class Transport : UserControl
     private double _frac;
     private Brush _fg = null!, _cyan = null!, _amber = null!;
     private readonly DispatcherTimer _timer;
+    private readonly DispatcherTimer _anim; // 播放中的 33ms：只推进度条位移（文本/按钮态仍走 100ms）
 
     public Transport()
     {
@@ -40,6 +41,8 @@ public partial class Transport : UserControl
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
         _timer.Tick += (_, _) => Sync();
         _timer.Start();
+        _anim = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
+        _anim.Tick += (_, _) => AnimTick();
         Loaded += (_, _) =>
         {
             var main = App.MainInstance;
@@ -155,13 +158,25 @@ public partial class Transport : UserControl
 
     private void ProgBar_SizeChanged(object sender, SizeChangedEventArgs e) => SetBar(_frac);
 
-    /// <summary>自绘进度条：填充宽按比例 + 拖柄平移（对位 setBar 的 scaleX / translateX）。</summary>
+    /// <summary>自绘进度条：填充用位移露出左段 + 拖柄平移（对位 setBar 的 scaleX / translateX）。
+    /// 填充宽恒为整条：写 Width 会触发布局（原生 Slider 的老毛病），位移只走 GPU 合成。</summary>
     private void SetBar(double f)
     {
         _frac = Math.Clamp(f, 0, 1);
         var w = ProgBar.ActualWidth;
-        ProgFill.Width = Math.Max(0, w * _frac);
+        ProgFill.Width = w;                              // 同值写入不触发失效，按帧调也安全
+        ProgFillShift.X = -w * (1 - _frac);
         ProgThumbShift.X = Math.Max(0, (w - ThumbSize) * _frac);
+    }
+
+    /// <summary>播放中的 33ms 细刷新：只重算进度条位置与拖柄（不读状态、不动文本）。
+    /// 原先只在 10Hz 的 Sync 里推进，播放头看着是一顿一顿的。</summary>
+    private void AnimTick()
+    {
+        var pv = App.MainInstance?.Preview;
+        if (pv == null || !pv.IsPlaying || _scrubbing) return;
+        var dur = pv.Duration;
+        if (dur > 0) SetBar(Math.Clamp(pv.CurrentTime / dur, 0, 1));
     }
 
     // ---------------- 声音组（音量 / 消音；对位 volDown/volMove/volUp/volKey/toggleMute） ----------------
@@ -333,6 +348,12 @@ public partial class Transport : UserControl
         }
         TblDur.Text = J.FmtTime(dur);
         BtnPlay.Content = preview.IsPlaying ? "❚❚" : "▶";
+        // 播放中开细刷新（33ms 只推位置），暂停/拖动时立刻停：空闲时不留任何按帧回调
+        if (preview.IsPlaying && !_scrubbing)
+        {
+            if (!_anim.IsEnabled) _anim.Start();
+        }
+        else _anim.Stop();
         SyncLoopBtn(); // 循环：档位文案/琥珀态/不循环 0.55（对位 Vue 的循环按钮）
         var st = main.State;
         BtnHistBack.IsEnabled = st.CanUndoLook;

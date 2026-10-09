@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Threading;
 using JizuraLive.App.I18n;
 using JizuraLive.Export;
@@ -35,7 +35,11 @@ public partial class ExportProgressWindow : Window
             DialogResult = _error == null;
             Close();
         };
-        Loaded += (_, _) => StartExport();
+        Loaded += (_, _) =>
+        {
+            JzAnim.FadeIn(Content as FrameworkElement, JzAnim.Dialog); // 打开动效（进度条本身照旧 150ms 刷）
+            StartExport();
+        };
         Closed += (_, _) =>
         {
             _cts.Cancel();

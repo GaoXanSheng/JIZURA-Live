@@ -184,8 +184,16 @@ public partial class LyricsPanel : UserControl
 
     // ---------------- 动作 ----------------
 
-    private void BtnSyntax_Click(object sender, RoutedEventArgs e) =>
-        SyntaxBox.Visibility = SyntaxBox.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    private void BtnSyntax_Click(object sender, RoutedEventArgs e)
+    {
+        if (SyntaxBox.Visibility == Visibility.Visible)
+        {
+            SyntaxBox.Visibility = Visibility.Collapsed; // 收起即时，不拖动画
+            return;
+        }
+        SyntaxBox.Visibility = Visibility.Visible;
+        JzAnim.FadeSlideIn(SyntaxBox, 4);
+    }
 
     // 读取 LRC（对位 look.ts loadLrc）：整份替换歌词，清掉一切绑定行号的东西，可撤销
     private void BtnLoadLrc_Click(object sender, RoutedEventArgs e)

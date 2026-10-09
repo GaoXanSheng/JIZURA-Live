@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using JizuraLive.App.I18n;
@@ -273,7 +273,7 @@ public partial class OutTab : UserControl
         ProgRestCol.Width = new GridLength(1 - p, GridUnitType.Star);
         TblProg.Text = text;
         BtnAbort.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-        ProgWrap.Visibility = busy || text != "—" ? Visibility.Visible : Visibility.Collapsed;
+        JzAnim.ShowFade(ProgWrap, busy || text != "—");
     }
 
     /// <summary>中止：关掉导出进度窗（Closed 里 CTS.Cancel + ExportBusy 归位）。</summary>
@@ -360,7 +360,7 @@ public partial class OutTab : UserControl
     private void PullRange(Project p)
     {
         var plan = S.Plan;
-        RangeRow.Visibility = plan is { Cuts.Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        JzAnim.ShowFade(RangeRow, plan is { Cuts.Count: > 0 });
         if (plan == null || plan.Cuts.Count == 0)
         {
             TblRangeInfo.Text = "";
@@ -392,7 +392,7 @@ public partial class OutTab : UserControl
             SelectTag(CbFps, FpsOptions.Contains(p.Fps) ? p.Fps.ToString() : "24");
             SetChecked(CkCenterFree, p.CenterFree);
             SelectTag(CbCenterDir, p.CenterDir == "lr" ? "lr" : "tb");
-            CenterDirRow.Visibility = p.CenterFree ? Visibility.Visible : Visibility.Collapsed;
+            JzAnim.ShowFade(CenterDirRow, p.CenterFree);
 
             var c = Cfg();
             SetChecked(CkVisuals, c.Visuals);
@@ -411,12 +411,12 @@ public partial class OutTab : UserControl
             // 条件显隐（对位 showLayered / showToFile / cfg.bg 分支）
             var mp4 = c.Format == "mp4";
             CkBg.IsEnabled = !mp4;
-            BgStyleRow.Visibility = c.Bg ? Visibility.Visible : Visibility.Collapsed;
+            JzAnim.ShowFade(BgStyleRow, c.Bg);
             TblBgNote.Visibility = c.Bg && c.BgStyle != "off" ? Visibility.Visible : Visibility.Collapsed;
-            TransparentRow.Visibility = c.Bg ? Visibility.Collapsed : Visibility.Visible;
+            JzAnim.ShowFade(TransparentRow, !c.Bg);
             TblMp4TransWarn.Visibility = !c.Bg && mp4 ? Visibility.Visible : Visibility.Collapsed;
-            CkLayered.Visibility = c.Format == "png" && c.Bg && c.Visuals ? Visibility.Visible : Visibility.Collapsed;
-            CkToFile.Visibility = mp4 ? Visibility.Visible : Visibility.Collapsed;
+            JzAnim.ShowFade(CkLayered, c.Format == "png" && c.Bg && c.Visuals);
+            JzAnim.ShowFade(CkToFile, mp4);
 
             // 校验与提示（.note 左竖线块随文案显隐）
             var invalid = ExportSpec.UiInvalidMessage(c);
