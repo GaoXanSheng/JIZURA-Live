@@ -25,6 +25,10 @@ public sealed class PreviewMirror
     private SKBitmap? _front, _back;
     private long _seq;
 
+    // 新帧信号（EndWrite 发布 → 预览泵 WaitNewFrame 消费）。不设上限：预览泵落后时许可累积，
+    // Wait 立即返回（退回「自己按节拍器跑」），不会把发布方堵住。
+    private readonly SemaphoreSlim _frameReady = new(0);
+
     /// <summary>预览泵的镜像请求尺寸（宽或高 ≤1 = 关闭）。</summary>
     public void Request(int w, int h)
     {
@@ -66,13 +70,27 @@ public sealed class PreviewMirror
     /// <summary>Spout 泵：读回完成，翻面发布。</summary>
     public void EndWrite()
     {
+        var published = false;
         lock (_lock)
         {
-            if (_back == null) return;
-            (_front, _back) = (_back, _front);
-            _seq++;
+            if (_back != null)
+            {
+                (_front, _back) = (_back, _front);
+                _seq++;
+                published = true;
+            }
         }
+        // 唤醒预览泵：新帧就绪（许可数 = 已发布 - 已消费；预览泵慢了会累积，此时 Wait 立即返回）
+        if (published) _frameReady.Release();
     }
+
+    /// <summary>
+    /// 预览泵：等一拍新帧（有界等待，ms 为上限；返回是否等到）。
+    /// 预览泵有自己的节拍器、Spout 泵也有，两套节拍器错拍时同一帧会被贴两次、下一帧被跳过——
+    /// 画面看着「一顿一顿」（Spout 输出本身是满帧的，所以 OBS 里反而顺）。
+    /// 贴之前等一小拍新帧，就能与发布同拍：每次发布恰好消费一次。
+    /// </summary>
+    public bool WaitNewFrame(int ms) => _frameReady.Wait(ms);
 
     /// <summary>预览泵：借最新整帧（持锁期间使用；期间 Spout 泵的 BeginWrite 会等待，帧不会被写坏）。</summary>
     public void WithLatest(Action<SKBitmap> use)

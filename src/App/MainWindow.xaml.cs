@@ -80,6 +80,9 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _uiProbe;
     private long _probeDue, _probeWindowEnd;
     private double _probeJitterMax;
+    // 预览泵实际出帧数（5s 窗口汇总进日志）：设置页「渲染帧率」到底有没有生效，看这条对数
+    private long _pumpFrames;
+    private long _pumpFramesPrev;
 
     public MainWindow(Settings settings)
     {
@@ -131,6 +134,12 @@ public partial class MainWindow : Window
                 if (_probeJitterMax > 33)
                     Log.Warn($"[UI探针] 5s 最大调度抖动 {_probeJitterMax:F0}ms（>33ms 即按钮可感知卡顿）");
                 _probeJitterMax = 0;
+                var frames = Interlocked.Read(ref _pumpFrames);
+                var got = frames - _pumpFramesPrev;
+                _pumpFramesPrev = frames;
+                if (got > 0 && _preview.IsPlaying)
+                    Log.Info($"[预览泵] 近 5s {got} 帧（{got / 5.0:F0}fps，目标 {_targetFps}fps，"
+                             + $"{(_settings.SpoutEnabled ? "Spout 镜像" : "CPU 直渲")}）");
                 _probeWindowEnd = now + 5 * Stopwatch.Frequency;
             }
         };
@@ -202,6 +211,7 @@ public partial class MainWindow : Window
                 _lastRV = ver;
                 _lastRSub = subVer;
                 _lastRPlan = plan;
+                Interlocked.Increment(ref _pumpFrames);
                 // 预览渲染尺寸：contain 适配舞台（尺寸缓存由 UI SizeChanged 维护），钳 1.0 不超采
                 // 注意：_stageWpx/H 是 int，除法必须转 double——整数除法会让 756/1920=0，
                 // fit=0 → 渲染面退化成 1×1 像素（预览「什么都不渲染」的元凶）
@@ -220,6 +230,11 @@ public partial class MainWindow : Window
                 _mirror.Request(mirrorLive ? rw : 0, mirrorLive ? rh : 0);
                 if (mirrorLive)
                 {
+                    // 与 Spout 发布同拍：贴之前等一小拍新帧（上限半帧、4~10ms）。不等的话两套节拍器
+                    // 错拍时同一帧贴两次、下一帧被跳过——预览看着一顿一顿，而 Spout 输出本身满帧
+                    //（OBS 里反而顺）。等到就贴；等不到（暂停/泵停滞）走下面的既有分支。
+                    if (_mirror.Seq == _mirrorSeq)
+                        _mirror.WaitNewFrame((int)Math.Clamp(frameMs / 2, 4, 10));
                     var seq = _mirror.Seq;
                     if (seq != _mirrorSeq)
                     {

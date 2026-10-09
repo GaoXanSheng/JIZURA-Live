@@ -1,5 +1,5 @@
-using SkiaSharp;
 using Newtonsoft.Json.Linq;
+using SkiaSharp;
 
 namespace JizuraLive.Engine;
 
@@ -236,7 +236,28 @@ public sealed class Env
 
     /// <summary>env.draw 对位（J.drawItem，03_text.js）。逐字排版绘制；env 的
     /// HideText/GlyphLog/AllowFilter 经 TextDrawOpts 传入，charFn/pieceFn 走 env 桥字段。</summary>
-    public BBox? DrawItem(JObject it) => JText.DrawItem(this, it, new JText.TextDrawOpts
+    public BBox? DrawItem(JObject it)
+    {
+        // JS 的逐字/逐片函数挂在 item 上（it.charFns → it.charFn）：只有 mainDraw 正在画的那个 item
+        // 吃 env.CharFn。布局里 env.DrawItem(新 item)（kicker/deck/标签/装饰文字…）不该继承上一个
+        // item 的动画——字形数不同时，手法回调里的 g0.Map[i] 会直接索引到界外（实测 knBeatLean +
+        // headlineDeck / windowChrome 逐帧抛 IndexOutOfRange，整段文字都画不出来）。
+        if (ReferenceEquals(It, it)) return DrawItemCore(it);
+        var (c, p) = (CharFn, PieceFn);
+        CharFn = null;
+        PieceFn = null;
+        try
+        {
+            return DrawItemCore(it);
+        }
+        finally
+        {
+            CharFn = c;
+            PieceFn = p;
+        }
+    }
+
+    private BBox? DrawItemCore(JObject it) => JText.DrawItem(this, it, new JText.TextDrawOpts
     {
         HideText = HideText,
         GlyphLog = GlyphLog,

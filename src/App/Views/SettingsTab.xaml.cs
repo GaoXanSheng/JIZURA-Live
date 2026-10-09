@@ -225,7 +225,7 @@ public partial class SettingsTab : UserControl
         if (_syncing) return;
         var v = SelectedTag(CbFps);
         if (v == null || v == S.Project.Fps.ToString()) return;
-        S.Mutate(p => p.Fps = int.Parse(v), "fps");
+        S.Mutate(p => p.Fps = int.Parse(v), L.T("Settings.Fps"));
     }
 
     /// <summary>setKeyBg：三态清洗 + 镜像进 exportCfg.bgStyle（两处下拉同源）。</summary>
