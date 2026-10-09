@@ -6,6 +6,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using JizuraLive.App.Cloud;
 using JizuraLive.App.I18n;
@@ -13,7 +14,6 @@ using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Spout;
 using SkiaSharp;
-using SkiaSharp.Views.Desktop;
 
 namespace JizuraLive.App;
 
@@ -47,16 +47,27 @@ public partial class MainWindow : Window
     private volatile int _targetFps = 60;
     // 持久渲染面 P：引擎跨帧依赖同一块面（整帧缓存 + 增量绘制），每帧必须画同一块——
     // 交替画两块面会把跨帧状态劈成两半（实测：画面持续闪烁）。P 绝不 Dispose（缓存规矩），
-    // 换尺寸的旧面进 graveyard。显示侧用「P → 显示双缓冲 memcpy」隔离：UI 只读显示缓冲，
-    // 锁只护 1-3ms 的 memcpy/翻转 vs UI blit，不护 40ms 的引擎渲染
+    // 换尺寸的旧面进 graveyard
     private SKBitmap? _renderBmp;
     private SKSurface? _renderSurface;
     private int _renderW = -1, _renderH = -1;
+    // 显示双缓冲：泵线程写 back 再翻面（锁只护 1-3ms 的 memcpy/缩放），UI 线程按脏标记把正面
+    // 拷进舞台位图。两侧都不碰对方的缓冲，没有「UI 等泵」或「泵等 UI」的长临界区
     private readonly SKBitmap?[] _displayBuf = new SKBitmap[2];
     private readonly SKSurface?[] _displaySurf = new SKSurface?[2]; // 镜像模式的缩放目标（与显示缓冲同底）
     private int _displayW = -1, _displayH = -1;
     private volatile int _displayFront;
+    private long _displaySeq;      // 泵侧：每翻一次面 +1
+    private long _presentedSeq;    // UI 侧：已贴到舞台位图的序号
+    private int _presentPending;   // 失效合并：已排队一次 UI 拷贝就不再排（UI 忙时自然丢中间帧）
     private readonly object _displayLock = new();
+    // 舞台呈现：WriteableBitmap（WPF 在 GPU 上做适配缩放与合成）。**只能在 UI 线程写**
+    // （WriteableBitmap.Lock 会 VerifyAccess，跨线程写直接抛），所以泵只翻显示缓冲、
+    // UI 线程每帧做一次同尺寸 memcpy——不再有 SKElement 的全幅软件光栅
+    private WriteableBitmap? _stageBmp;
+    private int _stageBmpW = -1, _stageBmpH = -1;
+    // 窗口不可见（最小化/隐藏）时不出帧：预览泵整个空转，镜像读回也一并停掉（见 RenderPump）
+    private volatile bool _stageShown = true;
     // 镜像模式：已贴出的镜像帧序号与时间戳（判断「有没有新帧」；超时无新帧回退 CPU 渲染）
     private long _mirrorSeq;
     private long _mirrorAt;
@@ -99,8 +110,12 @@ public partial class MainWindow : Window
         // 预览音量/消音：上次退出时的档位（对位旧前端 jizura.previewVolume 的记忆恢复）
         _preview.SetVolume(settings.PreviewVolume, settings.PreviewMuted);
 
-        // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
-        StateChanged += (_, _) => UpdateMaxButton();
+        // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态；窗口状态变化也刷新可见性缓存
+        StateChanged += (_, _) =>
+        {
+            UpdateMaxButton();
+            _stageShown = Stage.IsVisible;
+        };
 
         _targetFps = Math.Clamp(settings.RenderFps, 12, 240);
         timeBeginPeriod(1); // 泵节奏要 1ms 粒度（默认 15.6ms 会让「等下一拍」超睡 → 掉到 ~1/2 帧率）
@@ -119,6 +134,8 @@ public partial class MainWindow : Window
             _stageWpx = (int)e2.NewSize.Width;
             _stageHpx = (int)e2.NewSize.Height;
         };
+        // 可见性缓存（同理由：渲染线程每帧读，不碰 Dispatcher）：最小化/隐藏时预览泵整个停帧
+        Stage.IsVisibleChanged += (_, _) => _stageShown = Stage.IsVisible;
 
         // UI 线程健康探针：Background 优先级 tick 的调度抖动直接量化"卡顿"，5s 汇总进日志
         _probeDue = _probeWindowEnd = Stopwatch.GetTimestamp();
@@ -160,23 +177,95 @@ public partial class MainWindow : Window
 
     // ---------------- 引擎预览舞台 ----------------
 
-    // UI 线程只做 blit：读显示双缓冲的正面，1-2ms，不碰引擎锁
-    private void Stage_PaintSurface(object? sender, SKPaintSurfaceEventArgs e)
+    /// <summary>
+    /// UI 线程：把显示缓冲的正面拷进舞台位图（同尺寸 1:1 memcpy，约 0.3-0.5ms），
+    /// 缩放/letterbox 交给 WPF 的 GPU 合成器（Image 的 Stretch=Uniform）。
+    /// 由渲染泵按「失效合并」规则排队调用——UI 忙的时候中间帧自然丢掉，只贴最新一帧，
+    /// 不会像原来的 DispatcherPriority.Render 那样每帧刷一次失效。
+    /// </summary>
+    private unsafe void PresentStage()
     {
-        var canvas = e.Surface.Canvas;
-        var w = e.Info.Width;
-        var h = e.Info.Height;
-        canvas.Clear(new SKColor(15, 15, 18));
+        Interlocked.Exchange(ref _presentPending, 0);
         lock (_displayLock)
         {
+            var seq = _displaySeq;
+            if (seq == _presentedSeq) return;
             var buf = _displayBuf[_displayFront];
             if (buf == null) return;
-            var px = buf.PeekPixels();
-            if (px == null) return;
-            using var borrow = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
-            var fit = Math.Min(w / (double)px.Info.Width, h / (double)px.Info.Height);
-            canvas.DrawImage(borrow, (float)((w - px.Info.Width * fit) / 2), (float)((h - px.Info.Height * fit) / 2));
+            var w = buf.Width;
+            var h = buf.Height;
+            var bmp = EnsureStageBitmap(w, h);
+            if (bmp == null) return;
+            var src = (byte*)buf.GetPixels();
+            if (src == null) return;
+            var srcStride = buf.RowBytes;
+            bmp.Lock();
+            try
+            {
+                var dst = (byte*)bmp.BackBuffer;
+                var dstStride = bmp.BackBufferStride;
+                if (dstStride == srcStride)
+                {
+                    Buffer.MemoryCopy(src, dst, (long)dstStride * h, (long)srcStride * h);
+                }
+                else
+                {
+                    for (var y = 0; y < h; y++)
+                        Buffer.MemoryCopy(src + (long)y * srcStride, dst + (long)y * dstStride, dstStride, srcStride);
+                }
+
+                bmp.AddDirtyRect(new Int32Rect(0, 0, w, h));
+            }
+            finally
+            {
+                bmp.Unlock();
+            }
+
+            _presentedSeq = seq;
         }
+        // AddDirtyRect 已通知 WPF D3D 合成管道刷新硬件纹理，无需再调用 InvalidateVisual 触发整树重复测量
+    }
+
+    /// <summary>取与帧同尺寸的舞台位图（只在 UI 线程调用；尺寸不符才换新）。
+    /// Pbgra32 与 Skia 的 Bgra8888+Premul 同语义同布局（预乘 BGRA，行距 = w×4），可整行直拷。</summary>
+    private WriteableBitmap? EnsureStageBitmap(int w, int h)
+    {
+        if (_stageBmp != null && _stageBmpW == w && _stageBmpH == h) return _stageBmp;
+        _stageBmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
+        _stageBmpW = w;
+        _stageBmpH = h;
+        Stage.Source = _stageBmp;
+        return _stageBmp;
+    }
+
+    /// <summary>渲染泵：本帧已翻面，请 UI 线程来取（合并失效，绝不逐帧排满 Dispatcher）。</summary>
+    private void InvalidateStage()
+    {
+        if (Interlocked.Exchange(ref _presentPending, 1) != 0) return;
+        Dispatcher.BeginInvoke(PresentStage, DispatcherPriority.Render);
+    }
+
+    /// <summary>泵线程：把 back 缓冲翻成正面并请求 UI 贴图（调用方须已持 _displayLock）。</summary>
+    private void FlipDisplayLocked()
+    {
+        _displayFront = 1 - _displayFront;
+        _displaySeq++;
+    }
+
+    /// <summary>显示双缓冲与缩放面按尺寸就绪（调用方须已持 _displayLock；尺寸不符才重建）。</summary>
+    private void EnsureDisplayLocked(int rw, int rh)
+    {
+        if (_displayBuf[0] != null && _displayW == rw && _displayH == rh) return;
+        _displayBuf[0]?.Dispose(); // 显示缓冲不喂引擎，可安全换新
+        _displayBuf[1]?.Dispose();
+        foreach (var s in _displaySurf) s?.Dispose();
+        _displayBuf[0] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+        _displayBuf[1] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
+        _displaySurf[0] = null;
+        _displaySurf[1] = null;
+        _displayW = rw;
+        _displayH = rh;
+        _displayFront = 0;
     }
 
     // ---------------- 后台渲染泵（乒乓双面） ----------------
@@ -198,6 +287,15 @@ public partial class MainWindow : Window
                 var plan = _preview.Plan;
                 if (plan == null || !_renderRunning || ExportBusy) continue;
                 _preview.Tick();
+                // 窗口不可见（最小化/隐藏）：帧没人看，整条出帧路径停掉——镜像读回（1080p
+                // MapSubresource，是个 GPU 同步点）与引擎闸都不该再被占用。Tick 已经跑过，
+                // 播放/循环照常推进。必须放在下面的脏检查记账之前：记账被消耗掉的话，
+                // 恢复窗口时那一帧会被判成「没变化」而不再重出，预览停在最小化前的旧画面上。
+                if (!_stageShown)
+                {
+                    _mirror.Request(0, 0);
+                    continue;
+                }
                 var t = _preview.CurrentTime;
                 // 脏检查：暂停且 t/plan/字幕都没变就跳过（暂停态省 ~96% CPU）；
                 // 字幕版本覆盖「装载/清空字幕」与「设置页改字幕样式」两种情况（暂停态也要重出一帧）
@@ -241,7 +339,6 @@ public partial class MainWindow : Window
                         _mirrorSeq = seq;
                         _mirrorAt = Stopwatch.GetTimestamp();
                         BlitMirrorToDisplay(rw, rh);
-                        Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
                         continue;
                     }
 
@@ -251,7 +348,6 @@ public partial class MainWindow : Window
                     {
                         _mirrorAt = Stopwatch.GetTimestamp();
                         BlitMirrorToDisplay(rw, rh);
-                        Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
                         continue;
                     }
 
@@ -260,24 +356,23 @@ public partial class MainWindow : Window
                     {
                         // 暂停态静止画面本就该停更；播放中长时间无新帧 = Spout 泵停滞（设备失效等）
                         // → 落到下面的 CPU 渲染兜底（并按 5s 节流留痕，绝不逐帧刷日志）。
-                        // 判定窗 1200ms：镜像帧正常 ≤30ms 到；gen2 GC（堆 200MB+/LOH 60MB）的
-                        // stop-the-world 停顿实测 0.8-4.3s 会让泵整体静默，窗口太短会把它误判成设备失效。
+                        // 判定窗 4000ms：镜像帧正常 ≤30ms 到，但兜底本身是「自伤」——它持引擎闸整帧，
+                        // 正好把 Spout 泵堵住，堵住又让镜像继续断供，形成秒级冻结回环（实测 1200ms 窗
+                        // 时反复触发：泵 2.6s 不产帧 + UI 抖动 2560ms）。窗拉长 + 限速 4fps 后只在
+                        // 泵真死（设备失效/线程卡死）时兜底，正常 GC 停顿（<2s）不再触发。
                         var starveMs = (Stopwatch.GetTimestamp() - _mirrorAt) * 1000.0 / Stopwatch.Frequency;
                         // 重规划在途：新 plan 1–2 秒就到，此时**不做** CPU 兜底——兜底首帧是冷缓存
                         // （实测 0.7–1.8 秒/帧且持引擎闸），会把重规划与 Spout 泵一起拖住形成回环。
                         // 保持旧镜像帧，等新 plan 落地后泵自然续帧。
-                        if (starveMs >= 1200 && _preview.ReplanPending) continue;
-                        if (_preview.IsPlaying && starveMs >= 1200)
+                        if (starveMs >= 4000 && _preview.ReplanPending) continue;
+                        if (_preview.IsPlaying && starveMs >= 4000)
                         {
-                            // 兜底限速：CPU 渲染（15-25ms、~350KB/帧）与 Spout 泵抢同一把 EngineRenderGate，
-                            // 逐帧兜底会形成「越卡越渲、越渲越卡」的回环（实测泵 2.6s 不产帧 + UI 抖动 2560ms）。
-                            // 限到 ~8fps：画面继续动，但不与泵争闸/灌 GC。泵真死时 IsRunning=false，本分支不会进。
-                            if ((Stopwatch.GetTimestamp() - _fallbackAt) * 1000.0 / Stopwatch.Frequency < 120) continue;
+                            if ((Stopwatch.GetTimestamp() - _fallbackAt) * 1000.0 / Stopwatch.Frequency < 250) continue;
                             _fallbackAt = Stopwatch.GetTimestamp();
                             if ((Stopwatch.GetTimestamp() - _mirrorWarnAt) * 1000.0 / Stopwatch.Frequency > 5000)
                             {
                                 _mirrorWarnAt = Stopwatch.GetTimestamp();
-                                Log.Warn($"[预览镜像] {starveMs:F0}ms 无新帧，本帧回退 CPU 渲染兜底（限速 8fps；Spout 泵停滞或 GC 停顿）");
+                                Log.Warn($"[预览镜像] {starveMs:F0}ms 无新帧，本帧回退 CPU 渲染兜底（限速 4fps；Spout 泵停滞或 GC 停顿）");
                             }
                         }
                         else
@@ -309,7 +404,9 @@ public partial class MainWindow : Window
                         DrawCenterGuide(surf.Canvas, plan, rw, rh);
                 }
                 var cpuMs = (Stopwatch.GetTimestamp() - tCpu) * 1000.0 / Stopwatch.Frequency;
-                // P → 显示双缓冲 memcpy（~1-3ms），翻面后 UI 读新正面（与 memcpy 目标不同面）
+                // P → 显示背缓冲（~1-3ms memcpy）→ 翻面 → 请 UI 线程贴图。UI 侧只做一次同尺寸
+                // memcpy，缩放/合成由 WPF 的 GPU 合成器做（原来 SKElement 要在 UI 线程做一次
+                // 全幅软件缩放光栅，且每帧刷一次 DispatcherPriority.Render 失效）
                 lock (_displayLock)
                 {
                     EnsureDisplayLocked(rw, rh);
@@ -320,9 +417,11 @@ public partial class MainWindow : Window
                         Buffer.MemoryCopy((void*)_renderBmp!.GetPixels(), (void*)dst.GetPixels(),
                             (long)dst.RowBytes * rh, (long)_renderBmp.RowBytes * rh);
                     }
-                    _displayFront = back;
+
+                    FlipDisplayLocked();
                 }
-                Dispatcher.BeginInvoke(() => Stage.InvalidateVisual(), DispatcherPriority.Render);
+
+                InvalidateStage();
                 // 慢帧分段（性能专项）：兜底 CPU 渲染是主因候选——首帧冷启动（新 plan 的排版/字体/
                 // shader 一次成型）实测可达秒级，且它持引擎闸会连带拖住 Spout 泵。
                 if (cpuMs > 200)
@@ -342,53 +441,47 @@ public partial class MainWindow : Window
 
     // ---------------- 镜像/显示缓冲帮手 ----------------
 
-    /// <summary>显示双缓冲与缩放面按尺寸就绪（调用方须已持 _displayLock；尺寸不符才重建）。</summary>
-    private void EnsureDisplayLocked(int rw, int rh)
-    {
-        if (_displayBuf[0] != null && _displayW == rw && _displayH == rh) return;
-        _displayBuf[0]?.Dispose(); // 显示缓冲不喂引擎，可安全换新
-        _displayBuf[1]?.Dispose();
-        foreach (var s in _displaySurf) s?.Dispose();
-        _displayBuf[0] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
-        _displayBuf[1] = new SKBitmap(rw, rh, SKColorType.Bgra8888, SKAlphaType.Premul);
-        _displaySurf[0] = null;
-        _displaySurf[1] = null;
-        _displayW = rw;
-        _displayH = rh;
-        _displayFront = 0;
-    }
-
     /// <summary>把镜像帧（Spout 主通道的计划区）缩放贴进显示背缓冲并翻面。
-    /// 缩放走后缓冲自己的面（持久复用），成本 ~4ms 且不占引擎闸——这正是镜像要省掉的那次「CPU 重渲」。</summary>
+    /// 缩放走后缓冲自己的面（持久复用），成本 ~4ms 且不占引擎闸——这正是镜像要省掉的那次「CPU 重渲」。
+    /// 细粒度临界区：仅在分配与翻面时短暂持 _displayLock，耗时的 CPU 图像缩放、字幕叠加与引导线绘制在锁外进行，
+    /// 彻底消除 UI 线程在 PresentStage 取帧时的秒级/毫秒级锁竞争。</summary>
     private void BlitMirrorToDisplay(int rw, int rh)
     {
+        SKSurface sx;
         lock (_displayLock)
         {
             EnsureDisplayLocked(rw, rh);
             var back = 1 - _displayFront;
             var buf = _displayBuf[back]!;
-            var sx = _displaySurf[back] ??= SKSurface.Create(buf.Info, buf.GetPixels(), buf.RowBytes)
+            sx = _displaySurf[back] ??= SKSurface.Create(buf.Info, buf.GetPixels(), buf.RowBytes)
                 ?? throw new InvalidOperationException("镜像缩放面创建失败");
-            _mirror.WithLatest(src =>
-            {
-                var px = src.PeekPixels();
-                if (px == null) return;
-                using var img = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
-                var c = sx.Canvas;
-                c.SetMatrix(SKMatrix.Identity);
-                c.Clear(new SKColor(15, 15, 18)); // 透明底工程（SpoutTransparent）在预览里以深灰承托
-                c.DrawImage(img, new SKRect(0, 0, src.Width, src.Height), new SKRect(0, 0, rw, rh),
-                    new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), _mirrorPaint);
-                c.Flush();
-            });
-            // 字幕叠加：镜像帧来自 Spout 主通道（不含字幕，字幕走独立通道），预览侧叠注音/翻译行
-            PaintSubtitleOverlay(sx.Canvas, OverlayLayer(), _preview.CurrentTime, rw, rh);
-            // 留出空白预览引导框（对位 Vue 的 drawCenterGuide，仅在编辑器主窗口画出虚线指引，不入 Spout 与导出）
-            var plan = _preview.Plan;
-            if (plan is { CenterFree: true })
-                DrawCenterGuide(sx.Canvas, plan, rw, rh);
-            _displayFront = back;
         }
+
+        _mirror.WithLatest(src =>
+        {
+            var px = src.PeekPixels();
+            if (px == null) return;
+            using var img = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
+            var c = sx.Canvas;
+            c.SetMatrix(SKMatrix.Identity);
+            c.Clear(new SKColor(15, 15, 18)); // 透明底工程（SpoutTransparent）在预览里以深灰承托
+            c.DrawImage(img, new SKRect(0, 0, src.Width, src.Height), new SKRect(0, 0, rw, rh),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), _mirrorPaint);
+            c.Flush();
+        });
+        // 字幕叠加：镜像帧来自 Spout 主通道（不含字幕，字幕走独立通道），预览侧叠注音/翻译行
+        PaintSubtitleOverlay(sx.Canvas, OverlayLayer(), _preview.CurrentTime, rw, rh);
+        // 留出空白预览引导框（对位 Vue 的 drawCenterGuide，仅在编辑器主窗口画出虚线指引，不入 Spout 与导出）
+        var plan = _preview.Plan;
+        if (plan is { CenterFree: true })
+            DrawCenterGuide(sx.Canvas, plan, rw, rh);
+
+        lock (_displayLock)
+        {
+            FlipDisplayLocked();
+        }
+
+        InvalidateStage();
     }
 
     /// <summary>
@@ -453,6 +546,15 @@ public partial class MainWindow : Window
         return _subLayer;
     }
 
+    private static readonly SKPathEffect s_centerGuideDash = SKPathEffect.CreateDash(new float[] { 14, 10 }, 0);
+    private static readonly SKPaint s_centerGuidePaint = new()
+    {
+        IsAntialias = true,
+        IsStroke = true,
+        Color = new SKColor(255, 255, 255, (byte)Math.Round(0.55 * 255)),
+        PathEffect = s_centerGuideDash
+    };
+
     /// <summary>
     /// 留出空白预览虚线框（对位 Vue 的 drawCenterGuide(target, scale)）：
     /// 仅在主编辑预览舞台上画出白色半透明虚线框（rgba(255,255,255,0.55)，[14, 10] 虚线），
@@ -468,16 +570,8 @@ public partial class MainWindow : Window
         var scale = rw / (double)plan.W;
         canvas.Save();
         canvas.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
-        using var dash = SKPathEffect.CreateDash(new float[] { 14, 10 }, 0);
-        using var p = new SKPaint
-        {
-            IsAntialias = true,
-            IsStroke = true,
-            StrokeWidth = 2.5f / (float)scale,
-            Color = new SKColor(255, 255, 255, (byte)Math.Round(0.55 * 255)),
-            PathEffect = dash
-        };
-        canvas.DrawRect(new SKRect((float)(rx + 4), (float)(ry + 4), (float)(rx + rwBox - 4), (float)(ry + rhBox - 4)), p);
+        s_centerGuidePaint.StrokeWidth = 2.5f / (float)scale;
+        canvas.DrawRect(new SKRect((float)(rx + 4), (float)(ry + 4), (float)(rx + rwBox - 4), (float)(ry + rhBox - 4)), s_centerGuidePaint);
         canvas.Restore();
     }
 

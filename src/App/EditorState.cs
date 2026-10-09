@@ -149,6 +149,11 @@ public sealed class EditorState : IDisposable
     /// <summary>
     /// 同步重规划（MCP 写工具返回前必须有与 Revision 对应的新 plan：get_state 的行/切分读数、
     /// edit_line 的锁定快照都直接读 plan）。挂起的后台规划结果由 seq 丢弃（last-wins）。
+    ///
+    /// 注意这条路径跑在 UI 线程上（McpTools.OnUi 把工具体分发过来）：整趟 Planner.Plan 就是一次
+    /// UI 冻结。首帧预热（WarmFirstFrame，实测 0.7–1.8s）已从 PreviewEngine.Replan 摘掉，改由
+    /// 渲染泵自己的线程承担——这是这条路径能省下的最大一块。再往下压要把「算」挪到后台、UI 侧
+    /// 等结果，那需要消息泵重入（等的时候用户一编辑就会把本次结果顶掉），风险不值当。
     /// </summary>
     public void ReplanNow()
     {

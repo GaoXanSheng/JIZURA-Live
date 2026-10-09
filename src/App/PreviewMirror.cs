@@ -24,6 +24,7 @@ public sealed class PreviewMirror
     private int _reqW, _reqH;
     private SKBitmap? _front, _back;
     private long _seq;
+    private long _consumedSeq;
 
     // 新帧信号（EndWrite 发布 → 预览泵 WaitNewFrame 消费）。不设上限：预览泵落后时许可累积，
     // Wait 立即返回（退回「自己按节拍器跑」），不会把发布方堵住。
@@ -51,12 +52,18 @@ public sealed class PreviewMirror
         get { lock (_lock) return _seq; }
     }
 
-    /// <summary>Spout 泵（GPU 现场、持上下文）：取一块尺寸匹配的可写 back 位图；不需要镜像返回 null。</summary>
+    /// <summary>
+    /// Spout 泵（GPU 现场、持上下文）：取一块尺寸匹配的可写 back 位图；不需要镜像返回 null。
+    /// **消费闸**：上一帧还没被预览取走时返回 null——读回是 GPU 同步点（1080p 的
+    /// CopyResource+MapSubresource 实测 ~3ms 且会等 GPU 落盘），预览泵跟不上的时候逐帧读回纯属
+    /// 白烧 GPU/PCIe。预览是唯一的消费方，读回速率按它对齐即可。
+    /// </summary>
     public SKBitmap? BeginWrite(int w, int h)
     {
         lock (_lock)
         {
             if (_reqW <= 1 || _reqH <= 1 || w < 1 || h < 1) return null;
+            if (_seq != _consumedSeq) return null; // 上一帧还压在预览侧，跳过本次读回
             if (_back == null || _back.Width != w || _back.Height != h)
             {
                 _back?.Dispose();
@@ -97,6 +104,7 @@ public sealed class PreviewMirror
     {
         lock (_lock)
         {
+            _consumedSeq = _seq; // 消费闸：取走这一帧后，Spout 泵才允许读回下一帧
             if (_front != null) use(_front);
         }
     }

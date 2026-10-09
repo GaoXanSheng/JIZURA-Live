@@ -38,18 +38,21 @@ public class PreviewMirrorTests
     }
 
     [Fact]
-    public void 预览泵落后时许可累积不堵发布方()
+    public void 预览未取走上一帧时跳过读回()
     {
         var m = new PreviewMirror();
         m.Request(64, 36);
-        for (var i = 0; i < 8; i++)
-        {
-            Assert.NotNull(m.BeginWrite(64, 36));
-            m.EndWrite(); // 预览泵一次都没消费
-        }
-        Assert.Equal(8, m.Seq);
-        // 累积的许可让后续等待立即返回（预览泵退回自己的节拍器，不会被发布节奏拖住）
-        Assert.True(m.WaitNewFrame(0));
+        Assert.NotNull(m.BeginWrite(64, 36));
+        m.EndWrite();
+        Assert.Equal(1, m.Seq);
+        // 消费闸：上一帧还压在预览侧 → 本次读回（GPU 同步点）跳过，不白烧 GPU/PCIe
+        Assert.Null(m.BeginWrite(64, 36));
+        Assert.Equal(1, m.Seq);
+        // 预览取走之后恢复读回
+        m.WithLatest(_ => { });
+        Assert.NotNull(m.BeginWrite(64, 36));
+        m.EndWrite();
+        Assert.Equal(2, m.Seq);
     }
 
     [Fact]

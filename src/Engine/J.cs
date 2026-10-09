@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace JizuraLive.Engine;
 
@@ -139,19 +140,32 @@ public static class J
     /// <summary>#rgb/#rrggbb/#rrggbbaa → (r,g,b)。取前 6 位（对齐 JS parseInt(h.slice(0,6),16)）。</summary>
     public static (int R, int G, int B) Hex(string? h)
     {
-        h = (h ?? "#000").Replace("#", "");
-        if (h.Length == 3)
-            h = string.Concat(h.Select(c => c.ToString() + c));
-        try
+        if (string.IsNullOrEmpty(h)) return (0, 0, 0);
+        var s = h.AsSpan().Trim();
+        if (s.Length > 0 && s[0] == '#') s = s.Slice(1);
+        if (s.Length == 3)
         {
-            var n = int.Parse(h.Length > 6 ? h[..6] : h, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-            return ((n >> 16) & 255, (n >> 8) & 255, n & 255);
+            var r = HexVal(s[0]);
+            var g = HexVal(s[1]);
+            var b = HexVal(s[2]);
+            return (r * 17, g * 17, b * 17);
         }
-        catch
+        if (s.Length >= 6)
         {
-            return (0, 0, 0);
+            if (int.TryParse(s.Slice(0, 6), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var n))
+                return ((n >> 16) & 255, (n >> 8) & 255, n & 255);
         }
+        return (0, 0, 0);
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int HexVal(char c) => c switch
+    {
+        >= '0' and <= '9' => c - '0',
+        >= 'a' and <= 'f' => c - 'a' + 10,
+        >= 'A' and <= 'F' => c - 'A' + 10,
+        _ => 0
+    };
 
     public static string Mix(string h1, string h2, double t)
     {

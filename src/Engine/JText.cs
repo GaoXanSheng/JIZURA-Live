@@ -1392,6 +1392,92 @@ public static class JText
     /// <summary>JS decompose：字形 → 笔画部件。矢量版：光栅连通域产元数据（同 JS 公式），路径按多数标签归属。</summary>
     internal static GlyphInfo Decompose(string fontKey, string ch, int res)
     {
+        var s = RentScratch(out var pooled);
+        try
+        {
+            return DecomposeCore(fontKey, ch, res, s);
+        }
+        finally
+        {
+            if (pooled) s.InUse = false;
+        }
+    }
+
+    /// <summary>
+    /// decompose 的线程本地暂存区（性能专项）。字形分解一次要开 L/L2/stack/boxes/掩膜/光栅位图等
+    /// 多块 S×S 级缓冲：res=512 时 S=743，单块 int[N] 就是 2.2MB，整趟（含逐轮廓 RasterAlpha）
+    /// 实测 60MB+ —— 全是 LOH 分配，播放时每遇到一个新字形就灌一轮 gen2（实测停顿 0.8-4.3s，
+    /// 表现就是「界面一卡一卡」+ 常驻内存涨到 GB 级）。
+    /// 渲染全程过 EngineRenderGate 串行，同线程重入只可能来自嵌套调用，用 InUse 兜住
+    /// （嵌套时退回局部新分配，正确性优先于省内存）。
+    /// </summary>
+    private sealed class DecomposeScratch
+    {
+        public int[] L = [];
+        public int[] L2 = [];
+        public int[] Stack = [];
+        public int[] Remap = [];
+        public int[] Hist = [];
+        public (int X0, int Y0, int X1, int Y1, int Area)[] Boxes = [];
+        public SKPath?[] Paths = [];
+        public byte[] MaskGlyph = [];
+        public byte[] MaskContour = [];
+        public SKBitmap? Raster;
+        public int RasterS = -1;
+        public bool InUse;
+
+        /// <summary>按需扩容（只在不够长时新开，够长就原地复用）。</summary>
+        public static void Grow<T>(ref T[] a, int n)
+        {
+            if (a.Length < n) a = new T[n];
+        }
+
+        /// <summary>字形级掩膜（整趟 decompose 都持用，与逐轮廓掩膜分开两块）。</summary>
+        public byte[] RentGlyphMask(int n)
+        {
+            Grow(ref MaskGlyph, n);
+            return MaskGlyph;
+        }
+
+        /// <summary>轮廓级掩膜（逐个 contour 复用同一块）。</summary>
+        public byte[] RentContourMask(int n)
+        {
+            Grow(ref MaskContour, n);
+            return MaskContour;
+        }
+
+        /// <summary>光栅用位图（按 S 复用；原来每次 RasterAlpha 都新建一块再整块拷出来）。</summary>
+        public SKBitmap RasterBitmap(int s)
+        {
+            if (Raster == null || RasterS != s)
+            {
+                Raster?.Dispose();
+                Raster = new SKBitmap(s, s, SKColorType.Bgra8888, SKAlphaType.Premul);
+                RasterS = s;
+            }
+
+            return Raster;
+        }
+    }
+
+    [ThreadStatic] private static DecomposeScratch? _scratch;
+
+    private static DecomposeScratch RentScratch(out bool pooled)
+    {
+        var s = _scratch ??= new DecomposeScratch();
+        if (s.InUse)
+        {
+            pooled = false;
+            return new DecomposeScratch();
+        }
+
+        s.InUse = true;
+        pooled = true;
+        return s;
+    }
+
+    private static GlyphInfo DecomposeCore(string fontKey, string ch, int res, DecomposeScratch s)
+    {
         var S = (int)Math.Ceiling(res * 1.45);
         var half = S / 2;
         var outG = new GlyphInfo { Ch = ch, Res = res };
@@ -1406,13 +1492,19 @@ public static class JText
         if (rawPath.IsEmpty) return outG;
         using var glyphPath = new SKPath(rawPath);
         glyphPath.Transform(SKMatrix.CreateTranslation((float)(half - adv / 2), (float)(half + yMid)));
-        var A = RasterAlpha(glyphPath, S, fullGlyph: true); // alpha 掩膜（JS 的 A）
+        var A = RasterAlpha(glyphPath, S, s.RentGlyphMask(S * S), s); // alpha 掩膜（JS 的 A）
         var N = S * S;
-        var L = new int[N];
+        DecomposeScratch.Grow(ref s.L, N);
+        DecomposeScratch.Grow(ref s.L2, N);
+        DecomposeScratch.Grow(ref s.Stack, N);
+        var L = s.L;
+        var L2 = s.L2;
+        var stack = s.Stack;
+        Array.Clear(L, 0, N); // 暂存区复用：L 必须从全 0 起（下面用 L[i] != 0 判「已访问」）
         const int TH = 60;
-        var stack = new int[N];
         var nl = 0;
-        var boxes = new (int X0, int Y0, int X1, int Y1, int Area)[N / 2 + 2];
+        DecomposeScratch.Grow(ref s.Boxes, N / 2 + 2);
+        var boxes = s.Boxes;
         for (var i = 0; i < N; i++)
         {
             if (A[i] < TH || L[i] != 0) continue;
@@ -1450,10 +1542,11 @@ public static class JText
             }
             boxes[nl] = (x0, y0, x1, y1, area);
         }
-        // 把抗锯齿的边缘像素贴给相邻标签（两轮膨胀）
+        // 把抗锯齿的边缘像素贴给相邻标签（两轮膨胀）。L2 是暂存区里另一块等长数组：
+        // 原来是 L.Clone()（每轮再开 2.2MB），现在改成拷进 L2 + 换引用，两块轮转
         for (var pass = 0; pass < 2; pass++)
         {
-            var L2 = (int[])L.Clone();
+            Array.Copy(L, L2, N);
             for (var p = 0; p < N; p++)
             {
                 if (L[p] != 0 || A[p] == 0) continue;
@@ -1475,11 +1568,12 @@ public static class JText
                     boxes[lab] = b;
                 }
             }
-            L = L2;
+            (L, L2) = (L2, L); // 换引用轮转：两块都在暂存区里，下一轮把新标签再拷回去
         }
         // 小斑点并入最近的大块
         var minA = res * res * 0.0012;
-        var remap = new int[nl + 1];
+        DecomposeScratch.Grow(ref s.Remap, nl + 1);
+        var remap = s.Remap;
         for (var l = 1; l <= nl; l++) remap[l] = l;
         for (var l = 1; l <= nl; l++)
         {
@@ -1516,11 +1610,15 @@ public static class JText
         // 矢量归属：每个 contour 独立光栅，按像素标签多数归组（TH 以上算票；整轮廓全为
         // 抗锯齿时放宽到任意 alpha —— 保证极细笔画不丢）
         var contours = SplitContours(glyphPath);
-        var paths = new SKPath[nl + 1];
+        DecomposeScratch.Grow(ref s.Paths, nl + 1);
+        var paths = s.Paths;
+        Array.Clear(paths, 0, nl + 1); // 暂存区复用：paths[target] 靠 == null 判「还没建」
         foreach (var cont in contours)
         {
-            var ca = RasterAlpha(cont, S, fullGlyph: false);
-            var hist = new int[nl + 1];
+            var ca = RasterAlpha(cont, S, s.RentContourMask(N), s);
+            DecomposeScratch.Grow(ref s.Hist, nl + 1);
+            var hist = s.Hist;
+            Array.Clear(hist, 0, nl + 1);
             var votes = 0;
             for (var p = 0; p < N; p++)
                 if (ca[p] >= TH && L[p] != 0)
@@ -1575,20 +1673,28 @@ public static class JText
         return outG;
     }
 
-    /// <summary>SKPath → S×S alpha 掩膜（白字黑底，取 B 通道等价的 A）。fullGlyph 仅用于调试区分，绘制同径。</summary>
-    private static byte[] RasterAlpha(SKPath path, int S, bool fullGlyph)
+    /// <summary>
+    /// SKPath → S×S alpha 掩膜（白字黑底，取 B 通道等价的 A）。位图与掩膜都走暂存区复用：
+    /// 原来是「新建 SKBitmap + bmp.Bytes（S×S×4 整块托管拷贝）+ new byte[S×S]」×（1 + 轮廓数），
+    /// 一个多笔画的 CJK 字形就能灌出几十 MB LOH。
+    /// </summary>
+    private static byte[] RasterAlpha(SKPath path, int S, byte[] dst, DecomposeScratch s)
     {
-        using var bmp = new SKBitmap(S, S, SKColorType.Bgra8888, SKAlphaType.Premul);
+        var bmp = s.RasterBitmap(S);
         using (var cv = new SKCanvas(bmp))
         {
             cv.Clear(SKColors.Transparent);
             using var p = new SKPaint { IsAntialias = true, Color = SKColors.White };
             cv.DrawPath(path, p);
         }
-        var bytes = bmp.Bytes;
-        var a = new byte[S * S];
-        for (var i = 0; i < a.Length; i++) a[i] = bytes[i * 4 + 3];
-        return a;
+        var n = S * S;
+        unsafe
+        {
+            var src = (byte*)bmp.GetPixels().ToPointer();
+            for (var i = 0; i < n; i++) dst[i] = src[i * 4 + 3];
+        }
+
+        return dst;
     }
 
     /// <summary>字形路径按 MoveTo 切轮廓（每 contour 一个 SKPath，tile 坐标）。</summary>

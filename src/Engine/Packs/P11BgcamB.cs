@@ -856,23 +856,23 @@ public static class P11BgcamB
         ctx.DrawPath(path, p);
     }
 
+    [ThreadStatic]
+    private static SKPaint? t_strokePaint;
+
     private static void Stroke(SKCanvas ctx, SKPath path, string? col, double lw, double a = 1,
         SKBlendMode blend = SKBlendMode.SrcOver, SKStrokeCap cap = SKStrokeCap.Butt,
         SKStrokeJoin join = SKStrokeJoin.Miter, SKPathEffect? dash = null)
     {
         if (col == null || a <= 0) return;
-        using var p = new SKPaint
-        {
-            IsAntialias = true,
-            IsStroke = true,
-            StrokeWidth = (float)lw,
-            Color = Rgba(col, a),
-            BlendMode = blend,
-            StrokeCap = cap,
-            StrokeJoin = join,
-            PathEffect = dash
-        };
+        var p = t_strokePaint ??= new SKPaint { IsAntialias = true, IsStroke = true };
+        p.StrokeWidth = (float)lw;
+        p.Color = Rgba(col, a);
+        p.BlendMode = blend;
+        p.StrokeCap = cap;
+        p.StrokeJoin = join;
+        p.PathEffect = dash;
         ctx.DrawPath(path, p);
+        p.PathEffect = null;
     }
 
     private static void DrawImg(SKCanvas ctx, SKImage img, double dx, double dy, double dw, double dh,

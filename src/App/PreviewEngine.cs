@@ -146,7 +146,6 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     private AudioData? _audio;        // 分析数据：Replan 传给 Planner（时长/能量/节拍），Transport 经 SetAudioSource 注入
     private string? _audioPath;
-    private byte[]? _audioFileBytes;  // 原始文件字节缓存：保存工程包（ProjectIO.Save 的 audioFile 参数）时直接取用
 
     private WaveOut? _waveOut;
     private MediaFoundationReader? _reader;
@@ -160,9 +159,6 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     /// <summary>已装载的分析音频（null = 无音频，纯墙钟播放）。</summary>
     public AudioData? Audio => _audio;
-
-    /// <summary>音频文件原始字节（保存进 .jizuralive 工程包用；未装载/读盘失败为 null）。</summary>
-    public byte[]? AudioFileBytes => _audioFileBytes;
 
     /// <summary>scrub 拖动中（时间轴/进度条按下到松开）：画面跟手、不推进、不出声。</summary>
     public bool Scrubbing => _scrubbing;
@@ -214,12 +210,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         TeardownAudio();
         _audio = audio;
         _audioPath = path;
-        _audioFileBytes = null;
-        if (path != null && File.Exists(path))
-        {
-            try { _audioFileBytes = File.ReadAllBytes(path); }
-            catch (Exception ex) { Log.Warn("[Preview] 音频文件字节缓存失败（保存时需重读）：" + ex.Message); }
-        }
+        // 注意：这里曾经缓存整份音频字节（File.ReadAllBytes）供保存工程包用，但没有任何消费方——
+        // 保存走 TopBar 自己读文件（ProjectIO.Save 的 audioFile 参数），那份缓存只是白占一份
+        // 与音频文件等大的 LOH（长歌几十 MB）。已删（性能专项：内存）。
         if (audio == null || path == null || !File.Exists(path))
         {
             if (path != null) Log.Warn("[Preview] 音频文件不存在，预览退回墙钟：" + path);
@@ -613,6 +606,12 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// 重新规划：EngineBoot.Install（幂等）后 Planner.Plan(project, audio)——音频在装载时经
     /// SetAudioSource 注入（plan 时长/能量/节拍随音频）。失败保留旧 plan（编辑器里坏歌词不应弄黑预览）。
     /// 位置越界则回零。
+    ///
+    /// **不在这里预热首帧**（性能专项）：本方法是同步的，调用方全是 UI 线程（MCP 写工具经
+    /// Dispatcher 分发、装载音频、换工程）。WarmFirstFrame 实测 0.7–1.8 秒，压在 UI 线程上就是
+    /// 一次可感知的秒级冻结；放到后台路径（EditorState.ReplanAsync）里预热才有意义——那里
+    /// plan 还没生效，泵照旧出旧帧。同步路径省掉它，冷帧成本改由渲染泵自己的线程承担
+    /// （预览泵有 ReplanPending 抑制兜底、镜像路径照常出旧帧，Spout 泵最多掉一帧）。
     /// </summary>
     public void Replan()
     {
@@ -623,7 +622,6 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             {
                 EngineBoot.InstallPacks();
                 plan = Planner.Plan(Project, _audio);
-                WarmFirstFrame(plan); // 同步重规划（MCP 写工具路径）同样预热首帧，见 WarmFirstFrame
             }
         }
         catch (Exception ex)
