@@ -225,6 +225,7 @@ public static class ExportJob
         var (t0, _, outDur, speed) = SpanOf(req);
         var frames = Math.Max(1, (int)Math.Round(outDur * fps)); // 与视频同口径（选段 + 变速）
         var (subLines, subNotes) = ResolveSubtitleSource(req, plan);
+        var isCustomDrawOnly = req.Spec.CustomDrawOnly;
         if (isCustomDrawOnly && subLines is not { Count: > 0 })
             throw new InvalidOperationException(L.T("Export.Err.SubsOnlyNoData"));
 

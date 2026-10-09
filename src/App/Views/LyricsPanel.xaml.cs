@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using JizuraLive.App.Cloud;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -10,8 +11,9 @@ using Microsoft.Win32;
 namespace JizuraLive.App.Views;
 
 // 歌词编辑面板（对位 frontend/src/components/lyrics/LyricsPanel.vue）：
-// 歌词正文（1 行 = 1 短语）/ 语言选择 + 自动判定提示 / 读取 LRC / 清空歌词 / 记法说明。
-// 音译・翻译注音与歌词版本切换随云端歌词库（lyricStore）在后续里程碑接入。
+// 歌词正文（1 行 = 1 短语）/ 语言选择 + 自动判定提示 / 歌词版本切换 / 音译・翻译注音 /
+// 读取 LRC / 清空歌词 / 记法说明。
+// 云端歌词来源与候选版本由 EditorState.LyricSrc 持有（装载/跟随匹配时写入）。
 public partial class LyricsPanel : UserControl
 {
     private bool _syncing;
@@ -33,12 +35,14 @@ public partial class LyricsPanel : UserControl
             if (_subscribed) return;
             _subscribed = true;
             App.MainInstance!.State.StateChanged += () => Dispatcher.Invoke(Pull);
+            App.MainInstance!.State.LyricSourceChanged += () => Dispatcher.Invoke(RefreshVersions);
             var s = App.SettingsOf();
             _syncing = true;
             CkRoma.IsChecked = s?.WantRoma ?? true;
             CkTrans.IsChecked = s?.WantTrans ?? true;
             _syncing = false;
             Pull();
+            RefreshVersions();
         };
         Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
     }
@@ -48,6 +52,7 @@ public partial class LyricsPanel : UserControl
     {
         RebuildLangItems();
         Pull();
+        RefreshVersions();
     }
 
     /// <summary>语言选择器下拉项：首项「自动判定」走词库，其余为引擎语言名（原样）。</summary>
@@ -62,7 +67,8 @@ public partial class LyricsPanel : UserControl
         _syncing = false;
     }
 
-    /// <summary>音译/翻译：装载云端歌词时是否写入注音（对位旧 lyricStore 的 roma/trans 选项）。</summary>
+    /// <summary>音译/翻译：装载云端歌词时是否写入注音（对位旧 lyricStore 的 roma/trans 选项）。
+    /// 云端歌词已装载时立即重生成（对位 Vue applyLyricOptions），不必重新装载整首歌。</summary>
     private void LyricOpt_Changed(object sender, RoutedEventArgs e)
     {
         if (_syncing || !IsLoaded) return;
@@ -71,6 +77,55 @@ public partial class LyricsPanel : UserControl
         s.WantRoma = CkRoma.IsChecked == true;
         s.WantTrans = CkTrans.IsChecked == true;
         s.Save();
+        if (State.LyricSrc != null) SongLoader.ReapplyLyricOptions(State);
+    }
+
+    // ---------------- 歌词版本（对位 Vue lyricStore 的 versions/switchVersion） ----------------
+
+    /// <summary>候选版本 ≥ 2 才出下拉。首项是占位「选择版本」（对位 Vue 的 disabled option：
+    /// 装载/换歌后不预选当前版本，用户主动选一次才切换）。</summary>
+    private void RefreshVersions()
+    {
+        var src = State.LyricSrc;
+        _syncing = true;
+        try
+        {
+            CmbVersion.Items.Clear();
+            if (src == null || src.Candidates.Count < 2)
+            {
+                VersionRow.Visibility = Visibility.Collapsed;
+                TblVersionNote.Text = "";
+                return;
+            }
+
+            CmbVersion.Items.Add(L.T("Lyrics.Version.Pick"));
+            foreach (var c in src.Candidates) CmbVersion.Items.Add(LyricSource.Label(c));
+            CmbVersion.SelectedIndex = 0;
+            VersionRow.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    private async void CmbVersion_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncing || !IsLoaded) return;
+        var src = State.LyricSrc;
+        var idx = CmbVersion.SelectedIndex - 1; // 0 = 占位项
+        if (src == null || idx < 0 || idx >= src.Candidates.Count || idx == src.Selected) return;
+        TblVersionNote.Text = L.T("Lyrics.Version.Switching");
+        try
+        {
+            TblVersionNote.Text = await SongLoader.SwitchVersionAsync(State, idx);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[LyricsPanel] 切换歌词版本失败：" + ex.Message);
+            TblVersionNote.Text = L.F("Lyrics.Version.Fail", ex.Message);
+            RefreshVersions(); // 失败回退到占位项
+        }
     }
 
     private EditorState State => App.MainInstance!.State;

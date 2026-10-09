@@ -503,17 +503,7 @@ public sealed class FollowController : IDisposable
                 return;
             }
 
-            var (lrc, _) = SongLoader.ConvertLyric(source, ly);
-            // KRC 逐字 → 字幕层数据（有则填，无则清）
-            if (source == "kugou")
-            {
-                try { _state.SetSubtitles(Krc.ParseKgLyric(ly.Fmt, ly.Content)); }
-                catch { _state.SetSubtitles(null); }
-            }
-            else
-            {
-                _state.SetSubtitles(null);
-            }
+            var (lrc, _) = SongLoader.AdoptLyric(_state, source, ly, song.AlbumId);
             Fmt = source == "netease" ? "ne" : ly.Fmt == "krc" ? "krc" : "lrc";
             // 匹配结果带歌手：同名歌多版本（原版/翻唱/DJ版），只看歌名分不清词是谁的
             MatchedAs = (source == "kugou" ? L.T("Cloud.SourceKugou") : L.T("Cloud.SourceNetease")) + "·" +

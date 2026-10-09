@@ -43,7 +43,8 @@ public partial class MainWindow : Window
     //（表象：全部按钮不可用 + 全局卡顿）。后台线程渲染，UI 线程只做 1-2ms blit
     private Thread? _renderThread;
     private volatile bool _renderRunning;
-    private volatile double _targetFrameMs = 1000.0 / 60.0;
+    // 目标帧率：double 不能标 volatile，存 int FPS 由泵线程每拍换算毫秒
+    private volatile int _targetFps = 60;
     // 持久渲染面 P：引擎跨帧依赖同一块面（整帧缓存 + 增量绘制），每帧必须画同一块——
     // 交替画两块面会把跨帧状态劈成两半（实测：画面持续闪烁）。P 绝不 Dispose（缓存规矩），
     // 换尺寸的旧面进 graveyard。显示侧用「P → 显示双缓冲 memcpy」隔离：UI 只读显示缓冲，
@@ -98,7 +99,7 @@ public partial class MainWindow : Window
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
 
-        _targetFrameMs = 1000.0 / Math.Clamp(settings.RenderFps, 12, 240);
+        _targetFps = Math.Clamp(settings.RenderFps, 12, 240);
         timeBeginPeriod(1); // 泵节奏要 1ms 粒度（默认 15.6ms 会让「等下一拍」超睡 → 掉到 ~1/2 帧率）
         _renderRunning = true;
         _renderThread = new Thread(RenderPump)
@@ -178,7 +179,7 @@ public partial class MainWindow : Window
         var next = Stopwatch.GetTimestamp();
         while (_renderRunning)
         {
-            var frameMs = _targetFrameMs;
+            var frameMs = 1000.0 / _targetFps;
             var wakeIn = (next - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
             if (wakeIn > 1) Thread.Sleep((int)Math.Min(wakeIn, 50));
             next += (long)(frameMs / 1000.0 * Stopwatch.Frequency);
@@ -444,26 +445,10 @@ public partial class MainWindow : Window
     /// </summary>
     private static void DrawCenterGuide(SKCanvas canvas, Plan plan, double rw, double rh)
     {
-        var z = plan.Zones;
-        if (z == null || z.Length < 2) return;
-        var pos = plan.Project?.CenterZone ?? "center";
-        double rx, ry, rwBox, rhBox;
-        if (pos == "left") { rx = 0; ry = 0; rwBox = z[0].X; rhBox = plan.H; }
-        else if (pos == "right") { rx = z[0].X + z[0].W; ry = 0; rwBox = plan.W - rx; rhBox = plan.H; }
-        else if (pos == "top") { rx = 0; ry = 0; rwBox = plan.W; rhBox = z[0].Y; }
-        else if (pos == "bottom") { rx = 0; ry = z[0].Y + z[0].H; rwBox = plan.W; rhBox = plan.H - ry; }
-        else if (plan.W >= plan.H)
-        {
-            var left = z[0].X + z[0].W;
-            var right = z[1].X;
-            rx = left; ry = 0; rwBox = Math.Max(2, right - left); rhBox = plan.H;
-        }
-        else
-        {
-            var top = z[0].Y + z[0].H;
-            var bottom = z[1].Y;
-            rx = 0; ry = top; rwBox = plan.W; rhBox = Math.Max(2, bottom - top);
-        }
+        var free = Planner.FreeZone(plan);
+        if (free == null) return;
+        var (rx, ry, rwBox, rhBox) = free.Value;
+        if (rwBox < 2 || rhBox < 2) return;
 
         var scale = rw / (double)plan.W;
         canvas.Save();
@@ -564,7 +549,7 @@ public partial class MainWindow : Window
     /// <summary>设置页「重启渲染引擎」（/api/app/render/restart）的落点。</summary>
     public void RestartRender()
     {
-        _targetFrameMs = 1000.0 / Math.Clamp(_settings.RenderFps, 12, 240);
+        _targetFps = Math.Clamp(_settings.RenderFps, 12, 240);
         if (_settings.SpoutEnabled) RestartSpout();
         else StopSpout();
     }

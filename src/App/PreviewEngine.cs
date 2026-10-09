@@ -422,11 +422,13 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         Replan();
     }
 
-    /// <summary>M3：EditorState 装载工程（打开/撤销重做）时整体换实例并重规划。</summary>
-    public void SetProject(Project project)
+    /// <summary>M3：EditorState 装载工程（打开/撤销重做）时整体换实例并重规划。
+    /// replan=false 只换实例、由调用方自己发起后台重规划——首次 Plan 加首帧预热（冷缓存 0.7~1.8s）
+    /// 压在 UI 线程上合计 ~2-3s，正是「打开应用就卡住」的来源。</summary>
+    public void SetProject(Project project, bool replan = true)
     {
         Project = project ?? Project.NewDefault();
-        Replan();
+        if (replan) Replan();
     }
 
     /// <summary>

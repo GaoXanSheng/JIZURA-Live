@@ -411,9 +411,10 @@ public partial class CutInfo : UserControl
                 if (key.Length > 0) CutTechEdit.SetCutTech(p, cut.Line, k, g, key);
             }
             CutTechEdit.MarkCutQuiet(p, cut.Line, k, groups, true);
-        }, kind == "omakase" ? L.T("CutInfo.Mutate.Omakase") : L.T("CutInfo.Mutate.Reroll"), replan: false, look: true);
-        state.ReplanNow();
+        }, kind == "omakase" ? L.T("CutInfo.Mutate.Omakase") : L.T("CutInfo.Mutate.Reroll"), replan: true, look: true);
         preview.Seek(t0); // 画面留在原处（对位 seek(t0)）
+        // 面板刷新交给 Sync 的 100ms 定时器：StateChanged 已把 _lastIdx 置 -2，新 plan 落地即重算。
+        // （旧实现这里跟一个同步 ReplanNow，把整个重规划压在 UI 线程上——重抽按钮卡顿的元凶）
         _lastIdx = -2;
         Sync();
     }

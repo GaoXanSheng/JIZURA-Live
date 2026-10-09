@@ -268,8 +268,11 @@ public class SmokeKineticTests : IClassFixture<SmokeKineticTests.Cleanup>
                 surface.Canvas.Clear(SKColors.Transparent);
                 surface.Canvas.Save();
                 surface.Canvas.Scale((float)scale);
-                // enter 镜内中段 / exit 出场早期 / hold 全程——lt 挑在对应管线活跃处
-                var lt = g == "exit" ? cut.Dur - cut.OutDur * 0.2 : Math.Max(cut.InDur, 0.8);
+                // enter 镜内中段 / exit 出场早期 / hold 全程——lt 挑在对应管线活跃处。
+                // exit 取 20% 处（cut.Dur - OutDur*0.8）：原式 *0.2 实为出场 80% 处，像 knWordKick
+                // 这类「把词逐个踢飞」的手法到那时画面本就该是空的（公式与 11p_kinetic2.js 逐行一致），
+                // 空白断言会误报。
+                var lt = g == "exit" ? cut.Dur - cut.OutDur * 0.8 : Math.Max(cut.InDur, 0.8);
                 var env = Env.Make(surface.Canvas, plan, cut, sc, lt, 1.0 / 24, 0.5, 0, null, "main", null, scale, lt, lt);
                 // 真管线：MainDraw 会按 cut.enter/hold/exit 调 MoveDef 并画出文字
                 JLayouts.MainDraw(env, Item(plan, cut, sc));

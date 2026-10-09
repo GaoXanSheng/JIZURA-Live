@@ -55,6 +55,18 @@ public sealed class EditorState : IDisposable
         NotifyAsync(StateChanged); // OutTab 的 SubOn 等面板读数随字幕状态刷新
     }
 
+    /// <summary>当前装载的云端歌词来源（原文 + 候选版本）。会话级，不落工程；歌词面板的版本下拉读它。</summary>
+    public LyricSource? LyricSrc { get; private set; }
+
+    /// <summary>歌词来源/候选版本变化（装载新歌、切换版本）。</summary>
+    public event Action? LyricSourceChanged;
+
+    public void SetLyricSource(LyricSource? src)
+    {
+        LyricSrc = src;
+        NotifyAsync(LyricSourceChanged);
+    }
+
     /// <summary>撤销重做栈变化（按钮可用态）。</summary>
     public event Action? HistoryChanged;
 
@@ -151,7 +163,10 @@ public sealed class EditorState : IDisposable
         RestoreFonts(Project);
         AudioFileName = Project.AudioName;
         AudioPath = Project.AudioPath;
-        Engine.SetProject(Project); // 内部已做 Replan() 首帧规划
+        // 首次规划走后台：Plan + 首帧预热压在 UI 线程上要 ~2-3s（实测 UI 探针 2919ms 抖动），
+        // 打开应用即卡死就出在这。空 plan 期间预览泵跳过渲染，旧 plan（默认工程那一份）继续显示。
+        Engine.SetProject(Project, replan: false);
+        ReplanAsync();
         RestoreAudioAsync(seekToZero: false);
     }
 
@@ -343,7 +358,8 @@ public sealed class EditorState : IDisposable
         _redoEdit.Clear();
         RestoreFonts(project); // 打开工程：把它的用户字体从字体库读回（换机器/换工程都能恢复）
         Project = project;
-        Engine.SetProject(project);
+        Engine.SetProject(project, replan: false);
+        ReplanAsync(); // 打开大工程同样走后台：同步 Plan + 预热会冻住界面 2-3s
         Revision++;
         AudioFileName = project.AudioName;
         AudioPath = project.AudioPath;
@@ -369,7 +385,8 @@ public sealed class EditorState : IDisposable
         p.Lyrics = "";
         Project = p;
         SetAudioInternal(null, null, null);
-        Engine.SetProject(p);
+        Engine.SetProject(p, replan: false);
+        ReplanAsync(); // 初始化回默认工程：同样别在 UI 线程上同步规划
         Revision++;
         StateChanged?.Invoke();
         AudioChanged?.Invoke();

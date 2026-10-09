@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -104,6 +105,8 @@ public partial class StyleTab : UserControl
 
     private void BuildCards()
     {
+        // 慢动作留痕：24 张卡各含三层大字号「字面」+ 色块，冷字体解析都记在这一段里
+        var t0 = Stopwatch.GetTimestamp();
         var cards = new List<Button>();
         foreach (var key in JStyles.StyleOrder)
         {
@@ -208,6 +211,9 @@ public partial class StyleTab : UserControl
             Grid.SetColumn(cards[i], i % 3);
             cards[i].Margin = new Thickness(0, 0, i % 3 == 2 ? 0 : 8, row == (cards.Count - 1) / 3 ? 0 : 8);
         }
+
+        var ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+        if (ms > 80) Log.Info($"[perf] StyleTab.BuildCards {ms:F0}ms（{cards.Count} 张）");
     }
 
     /// <summary>缩略图里的「字面」（对位 canvas fillText 46px；错位偏移用 Margin 折算）。</summary>

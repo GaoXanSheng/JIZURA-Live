@@ -252,17 +252,11 @@ public partial class Transport : UserControl
 
     // ---------------- 历史（外观栈，对位 histGo/histInfo） ----------------
 
-    private void BtnHistBack_Click(object sender, RoutedEventArgs e)
-    {
-        var st = App.MainInstance?.State;
-        if (st != null && st.UndoLook()) st.ReplanNow();
-    }
+    // UndoLook/RedoLook 内部 AfterChange(true) 已排后台重规划——不要再跟一个 ReplanNow 同步重算：
+    // 那会把「大工程数百毫秒到数秒」的重规划压在 UI 线程上，就是用户看到的点一下就卡住。
+    private void BtnHistBack_Click(object sender, RoutedEventArgs e) => App.MainInstance?.State.UndoLook();
 
-    private void BtnHistFwd_Click(object sender, RoutedEventArgs e)
-    {
-        var st = App.MainInstance?.State;
-        if (st != null && st.RedoLook()) st.ReplanNow();
-    }
+    private void BtnHistFwd_Click(object sender, RoutedEventArgs e) => App.MainInstance?.State.RedoLook();
 
     // ---------------- 重抽构成 / 主题 / 一键随机 ----------------
 
@@ -317,10 +311,10 @@ public partial class Transport : UserControl
         var st = main.State;
         var themeId = st.Project.ThemeId;
         if (themeId != null && !Omakase.Themes.ContainsKey(themeId)) themeId = null;
-        // 先停：重规划（大工程数百毫秒到数秒）期间不继续出声/推进，改完停在片头等用户看第一眼
+        // 先停：改完停在片头等用户看第一眼。重规划走后台（replan:true）——同步 ReplanNow 会把
+        // 数百毫秒到数秒的重算压在 UI 线程上，按钮点下去界面就僵住（用户报的「一键随机冻结」）。
         main.Preview.Pause();
-        st.Mutate(p => Omakase.OmakaseApply(p, null, themeId), L.T("Transport.Mutate.Omakase"), replan: false, look: true);
-        st.ReplanNow();
+        st.Mutate(p => Omakase.OmakaseApply(p, null, themeId), L.T("Transport.Mutate.Omakase"), replan: true, look: true);
         main.Preview.Seek(0); // 归零（对位 restartPreview 的 seek(0)，外加用户要求的暂停）
     }
 

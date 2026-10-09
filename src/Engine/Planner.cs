@@ -2106,6 +2106,32 @@ public static class Planner
         };
     }
 
+    /// <summary>
+    /// 留空区（centerFree）的实际范围：SideZones 两条条带的补集包围盒。
+    /// 编辑器预览用它画虚线指引框——直接由 plan.Zones 反推，与引擎真正留出的像素一致
+    /// （不再依赖工程里的 CenterDir/CenterGap/CenterZone 复算，避免两处公式漂移）。
+    /// </summary>
+    public static (double X, double Y, double W, double H)? FreeZone(Plan? plan)
+    {
+        var z = plan?.Zones;
+        if (plan == null || z == null || z.Length < 2) return null;
+        var W = plan.W;
+        var H = plan.H;
+        // 左带：第一条从 X>0 起 → 左侧留空
+        if (z[0].X > 0) return (0, 0, z[0].X, H);
+        // 右带：最后一条没顶到右边 → 右侧留空
+        if (z[1].X + z[1].W < W) return (z[1].X + z[1].W, 0, W - (z[1].X + z[1].W), H);
+        // 上带：第一条从 Y>0 起 → 顶部留空
+        if (z[0].Y > 0) return (0, 0, W, z[0].Y);
+        // 下带：最后一条没顶到下边 → 底部留空
+        if (z[1].Y + z[1].H < H) return (0, z[1].Y + z[1].H, W, H - (z[1].Y + z[1].H));
+        // 条带是左右两半（横屏默认 / 竖屏 lr）→ 中间竖带
+        if (z[0].W < W) return (z[0].X + z[0].W, 0, z[1].X - (z[0].X + z[0].W), H);
+        // 条带是上下两条（竖屏默认）→ 中间横带
+        if (z[0].H < H) return (0, z[0].Y + z[0].H, W, z[1].Y - (z[0].Y + z[0].H));
+        return null;
+    }
+
     // ---------------- makeCut / 切分拆分工具 ----------------
 
     /// <summary>makeCut：默认值与 JS 一致（hold="still", inDur=0.3, outDur=0.25, stagger=0.04, …），dur = end - start。</summary>

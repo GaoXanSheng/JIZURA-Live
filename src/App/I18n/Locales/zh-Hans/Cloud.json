@@ -90,6 +90,7 @@
   "CloudSong.NoUrl": "拿不到播放链接",
   "CloudSong.Download": "下载音频…",
   "CloudSong.GetLyric": "获取歌词…",
+  "CloudSong.NoLyric": "没有取到该版本的歌词",
   "CloudSong.Analyze": "解码与节拍分析…",
   "CloudSong.MutateLyrics": "云音乐歌词",
   "CloudSong.MutateTitleArtist": "云音乐曲名/歌手",

@@ -34,15 +34,26 @@
                 <TextBlock x:Name="TblLangNote" FontSize="11" Foreground="{StaticResource Mut}"
                            VerticalAlignment="Center" Margin="6,0,0,0" />
             </StackPanel>
-            <!-- 音译 / 翻译（云端歌词装载时是否写入注音） -->
-            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+            <!-- 音译 / 翻译（云端歌词装载时是否写入注音）+ 歌词版本（酷狗同一首歌常有多个版本；
+                 候选 ≥ 2 才显示。对位 Vue：三者同一行 flex-wrap） -->
+            <WrapPanel Orientation="Horizontal" Margin="0,10,0,0">
                 <CheckBox x:Name="CkRoma" Content="{DynamicResource Loc.Lyrics.Roma}" FontSize="12" Checked="LyricOpt_Changed"
-                          Unchecked="LyricOpt_Changed"
+                          Unchecked="LyricOpt_Changed" VerticalAlignment="Center"
                           ToolTip="{DynamicResource Loc.Lyrics.Roma.Tip}" />
                 <CheckBox x:Name="CkTrans" Content="{DynamicResource Loc.Lyrics.Trans}" FontSize="12" Margin="14,0,0,0" Checked="LyricOpt_Changed"
-                          Unchecked="LyricOpt_Changed"
+                          Unchecked="LyricOpt_Changed" VerticalAlignment="Center"
                           ToolTip="{DynamicResource Loc.Lyrics.Trans.Tip}" />
-            </StackPanel>
+                <StackPanel x:Name="VersionRow" Orientation="Horizontal" Margin="14,0,0,0" Visibility="Collapsed">
+                    <TextBlock Text="{DynamicResource Loc.Lyrics.Version}" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" Margin="0,0,6,0"
+                               ToolTip="{DynamicResource Loc.Lyrics.Version.Tip}" />
+                    <ComboBox x:Name="CmbVersion" Style="{StaticResource SelSm}" MinWidth="132" MaxWidth="180"
+                              SelectionChanged="CmbVersion_SelectionChanged"
+                              ToolTip="{DynamicResource Loc.Lyrics.Version.Tip}" />
+                    <TextBlock x:Name="TblVersionNote" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" Margin="6,0,0,0" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </WrapPanel>
             <!-- 记法说明（对位 syntaxOpen 折叠块：bg-raised 圆角 6 + 12px mut 文案） -->
             <Border x:Name="SyntaxBox" Visibility="Collapsed" Background="{StaticResource Raised}"
                     BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="6"

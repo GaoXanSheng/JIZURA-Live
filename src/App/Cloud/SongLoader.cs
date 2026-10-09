@@ -109,20 +109,7 @@ public static class SongLoader
                 ? await ServerContext.Netease.GetLyricAsync(song.Id)
                 : await ServerContext.KuGou.GetLyricAsync(song.Hash, null, null, song.AlbumId);
             if (ly.Ok && !string.IsNullOrEmpty(ly.Content))
-            {
-                (lrc, lyricNote) = ConvertLyric(source, ly);
-                // KRC 逐字 → 字幕层数据（预览叠加/导出烤字幕/Spout 字幕通道消费）；
-                // 网易云 LRC 与酷狗普通 LRC 都无逐字 → 清空避免残留
-                if (source == "kugou")
-                {
-                    try { state.SetSubtitles(Krc.ParseKgLyric(ly.Fmt, ly.Content)); }
-                    catch (Exception ex) { Log.Debug("[Cloud] KRC 逐字解析失败（字幕层跳过）：" + ex.Message); }
-                }
-                else
-                {
-                    state.SetSubtitles(null);
-                }
-            }
+                (lrc, lyricNote) = AdoptLyric(state, source, ly, song.AlbumId);
         }
         catch (CloudException)
         {
@@ -178,30 +165,103 @@ public static class SongLoader
             audio.Duration, audio.Bpm, sw.ElapsedMilliseconds);
     }
 
-    /// <summary>KRC 解密 → JIZURA LRC；LRC 直读；网易云 LRC + 翻译/音译按时间戳对齐。
-    /// 返回 (LRC 文本, 提示语)。音译/翻译由设置里的 WantRoma/WantTrans 决定（歌词面板的勾选框）。</summary>
-    public static (string Lrc, string Note) ConvertLyric(string source, KgLyricResponse ly)
+    /// <summary>
+    /// 装载/切换歌词：解析原始歌词 → 按当前音译/翻译勾选生成 JIZURA 语法的 LRC →
+    /// 写入字幕层逐字数据 → 记下来源与候选版本（歌词面板的版本下拉读它）。
+    /// 返回 (LRC 文本, 提示语)；调用方负责把 LRC 写进工程（装载是中间步，不能顺手 replan）。
+    /// </summary>
+    /// <param name="selected">当前选中的候选下标（-1 = 没走候选，直接用接口返回的那份）。</param>
+    /// <param name="candidates">切换版本时沿用上一份候选（对位 Vue adoptKgLyric 的 keepCands）。</param>
+    public static (string Lrc, string Note) AdoptLyric(EditorState state, string source, KgLyricResponse ly,
+        string albumId, int selected = -1, List<KgLyricCandidate>? candidates = null)
     {
         var wantRoma = App.SettingsOf()?.WantRoma ?? true;
         var wantTrans = App.SettingsOf()?.WantTrans ?? true;
+        LyricSource src;
+        string note;
         if (source == "netease")
         {
-            var lrc = Krc.NeParseLrc(Krc.B64Text(ly.Content!));
-            List<Krc.NeRow> trans = string.IsNullOrEmpty(ly.Trans) ? [] : Krc.NeParseLrc(Krc.B64Text(ly.Trans));
-            List<Krc.NeRow> roma = string.IsNullOrEmpty(ly.Roma) ? [] : Krc.NeParseLrc(Krc.B64Text(ly.Roma));
-            var text = Krc.NeBuildLrc(lrc, trans, roma, wantRoma, wantTrans);
-            var note = trans.Count > 0 || roma.Count > 0 ? "，歌词已填入（含注音）" : "，歌词已填入（无音译/翻译）";
-            return (text, note);
+            var lrcRows = Krc.NeParseLrc(Krc.B64Text(ly.Content!));
+            var trans = string.IsNullOrEmpty(ly.Trans) ? new List<Krc.NeRow>() : Krc.NeParseLrc(Krc.B64Text(ly.Trans));
+            var roma = string.IsNullOrEmpty(ly.Roma) ? new List<Krc.NeRow>() : Krc.NeParseLrc(Krc.B64Text(ly.Roma));
+            src = new LyricSource { Source = source, Fmt = "ne", NeRaw = (lrcRows, trans, roma) };
+            note = trans.Count > 0 || roma.Count > 0 ? "，歌词已填入（含注音）" : "，歌词已填入（无音译/翻译）";
         }
-
-        var bin = Convert.FromBase64String(ly.Content!);
-        if (ly.Fmt == "krc")
+        else
         {
-            var krcText = Krc.Decrypt(bin);
-            return (Krc.KrcToLrc(krcText, wantRoma, wantTrans), "，歌词已填入");
+            var cands = candidates ?? ly.Candidates ?? new List<KgLyricCandidate>();
+            if (ly.Fmt == "krc")
+            {
+                src = new LyricSource
+                {
+                    Source = source, Fmt = "krc", Text = Krc.Decrypt(Convert.FromBase64String(ly.Content!)),
+                    Candidates = cands, Selected = selected, AlbumId = albumId
+                };
+                note = "，歌词已填入";
+            }
+            else
+            {
+                src = new LyricSource
+                {
+                    Source = source, Fmt = "lrc", Text = Krc.B64Text(ly.Content!),
+                    Candidates = cands, Selected = selected, AlbumId = albumId
+                };
+                note = "，歌词已填入（普通 LRC，无音译/翻译）";
+            }
         }
 
-        return (Krc.B64Text(ly.Content!), "，歌词已填入（普通 LRC，无音译/翻译）");
+        // KRC 逐字 → 字幕层数据（预览叠加/导出烤字幕/Spout 字幕通道消费）；
+        // 网易云 LRC 与酷狗普通 LRC 都无逐字 → 清空避免残留
+        if (source == "kugou")
+        {
+            try { state.SetSubtitles(Krc.ParseKgLyric(ly.Fmt, ly.Content)); }
+            catch (Exception ex)
+            {
+                Log.Debug("[Cloud] KRC 逐字解析失败（字幕层跳过）：" + ex.Message);
+                state.SetSubtitles(null);
+            }
+        }
+        else
+        {
+            state.SetSubtitles(null);
+        }
+
+        state.SetLyricSource(src);
+        return (src.BuildLrc(wantRoma, wantTrans), note);
+    }
+
+    /// <summary>
+    /// 音译/翻译勾选变化后立即重生成歌词（对位 Vue applyLyricOptions）：用留存的原始歌词文本
+    /// 重新生成，不必重新装载整首歌。
+    /// </summary>
+    public static void ReapplyLyricOptions(EditorState state)
+    {
+        var src = state.LyricSrc;
+        if (src == null) return;
+        var wantRoma = App.SettingsOf()?.WantRoma ?? true;
+        var wantTrans = App.SettingsOf()?.WantTrans ?? true;
+        state.Mutate(p => p.Lyrics = src.BuildLrc(wantRoma, wantTrans), L.T("CloudSong.MutateLyrics"), replan: true);
+    }
+
+    /// <summary>
+    /// 切换歌词版本（对位 Vue switchVersion）：按候选 id 重新取词 → 重生成歌词与字幕。
+    /// 返回给用户看的成功提示；失败抛 CloudException。必须在 UI 线程调用。
+    /// </summary>
+    public static async Task<string> SwitchVersionAsync(EditorState state, int idx)
+    {
+        var src = state.LyricSrc;
+        if (src == null || idx < 0 || idx >= src.Candidates.Count) return "";
+        var c = src.Candidates[idx];
+        var ly = await ServerContext.KuGou.GetLyricAsync(null, c.Id, c.AccessKey, src.AlbumId);
+        if (!ly.Ok || string.IsNullOrEmpty(ly.Content))
+            throw new CloudException(ly.Error ?? L.T("CloudSong.NoLyric"));
+        var (lrc, _) = AdoptLyric(state, src.Source, ly, src.AlbumId, idx, src.Candidates);
+        state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: true);
+        // KRC 解出来却没有时间轴 = 这份词不是逐字格式（解密成功但内容不是歌词）
+        var bad = ly.Fmt == "krc" && !Regex.IsMatch(lrc, @"^\[\d\d:\d\d[.:]", RegexOptions.Multiline);
+        if (bad) return L.T("Lyrics.Version.BadFmt");
+        return L.F("Lyrics.Version.Switched", LyricSource.Label(c))
+               + (ly.Fmt == "lrc" ? L.T("Lyrics.Version.PlainLrc") : "");
     }
 
     // ---------------- 音频下载 ----------------
