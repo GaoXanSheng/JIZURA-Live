@@ -460,6 +460,14 @@ public sealed class SpoutOut : IDisposable
     {
         var m = Preview;
         if (m == null || !m.Wanted) return;
+
+        // GPU 零拷贝直显：若持有共享句柄，直接发布给 WPF D3DImage 显存直读，跳过整套 Staging 逆向读回
+        if (t.Gpu != null && t.Gpu.ShareHandle != IntPtr.Zero)
+        {
+            m.PublishGpu(t.Gpu.ShareHandle, t.PlanW, t.PlanH);
+            return;
+        }
+
         var back = m.BeginWrite(t.PlanW, t.PlanH);
         if (back == null) return;
         try

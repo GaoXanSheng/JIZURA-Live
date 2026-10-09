@@ -61,11 +61,10 @@ public partial class MainWindow : Window
     private long _presentedSeq;    // UI 侧：已贴到舞台位图的序号
     private int _presentPending;   // 失效合并：已排队一次 UI 拷贝就不再排（UI 忙时自然丢中间帧）
     private readonly object _displayLock = new();
-    // 舞台呈现：WriteableBitmap（WPF 在 GPU 上做适配缩放与合成）。**只能在 UI 线程写**
-    // （WriteableBitmap.Lock 会 VerifyAccess，跨线程写直接抛），所以泵只翻显示缓冲、
-    // UI 线程每帧做一次同尺寸 memcpy——不再有 SKElement 的全幅软件光栅
+    // 舞台呈现：WriteableBitmap（CPU 回退分支）或 D3D11ImageSource（纯 GPU 直显分支）
     private WriteableBitmap? _stageBmp;
     private int _stageBmpW = -1, _stageBmpH = -1;
+    private D3D11ImageSource? _d3dStage;
     // 窗口不可见（最小化/隐藏）时不出帧：预览泵整个空转，镜像读回也一并停掉（见 RenderPump）
     private volatile bool _stageShown = true;
     // 镜像模式：已贴出的镜像帧序号与时间戳（判断「有没有新帧」；超时无新帧回退 CPU 渲染）
@@ -230,12 +229,39 @@ public partial class MainWindow : Window
     /// Pbgra32 与 Skia 的 Bgra8888+Premul 同语义同布局（预乘 BGRA，行距 = w×4），可整行直拷。</summary>
     private WriteableBitmap? EnsureStageBitmap(int w, int h)
     {
-        if (_stageBmp != null && _stageBmpW == w && _stageBmpH == h) return _stageBmp;
+        if (_stageBmp != null && _stageBmpW == w && _stageBmpH == h && ReferenceEquals(Stage.Source, _stageBmp)) return _stageBmp;
         _stageBmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
         _stageBmpW = w;
         _stageBmpH = h;
         Stage.Source = _stageBmp;
         return _stageBmp;
+    }
+
+    /// <summary>GPU 纯显存模式：D3D11 共享句柄直接映射进 WPF D3DImage 硬件表面。</summary>
+    private void PresentGpuFrame(IntPtr shareHandle, int w, int h)
+    {
+        if (Interlocked.Exchange(ref _presentPending, 1) != 0) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            Interlocked.Exchange(ref _presentPending, 0);
+            EnsureGpuStage(w, h, shareHandle);
+            _d3dStage?.Invalidate();
+        }, DispatcherPriority.Render);
+    }
+
+    private void EnsureGpuStage(int w, int h, IntPtr shareHandle)
+    {
+        if (_d3dStage == null)
+        {
+            _d3dStage = new D3D11ImageSource();
+            Stage.Source = _d3dStage;
+        }
+        else if (!ReferenceEquals(Stage.Source, _d3dStage))
+        {
+            Stage.Source = _d3dStage;
+        }
+
+        _d3dStage.BindSharedHandle(shareHandle, w, h);
     }
 
     /// <summary>渲染泵：本帧已翻面，请 UI 线程来取（合并失效，绝不逐帧排满 Dispatcher）。</summary>
@@ -338,6 +364,11 @@ public partial class MainWindow : Window
                     {
                         _mirrorSeq = seq;
                         _mirrorAt = Stopwatch.GetTimestamp();
+                        if (_mirror.TryGetGpuFrame(out var handle, out var gw, out var gh, out _))
+                        {
+                            PresentGpuFrame(handle, gw, gh);
+                            continue;
+                        }
                         BlitMirrorToDisplay(rw, rh);
                         continue;
                     }
@@ -347,6 +378,11 @@ public partial class MainWindow : Window
                     if (subDirty && _mirrorSeq != 0)
                     {
                         _mirrorAt = Stopwatch.GetTimestamp();
+                        if (_mirror.TryGetGpuFrame(out var handle, out var gw, out var gh, out _))
+                        {
+                            PresentGpuFrame(handle, gw, gh);
+                            continue;
+                        }
                         BlitMirrorToDisplay(rw, rh);
                         continue;
                     }
@@ -862,6 +898,7 @@ public partial class MainWindow : Window
         _displayBuf[0]?.Dispose();
         _displayBuf[1]?.Dispose();
         foreach (var s in _displaySurf) s?.Dispose();
+        _d3dStage?.Dispose();
         timeEndPeriod(1);
         base.OnClosed(e);
     }

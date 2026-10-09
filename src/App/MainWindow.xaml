@@ -77,15 +77,20 @@
             <!-- 左栏：歌词与时间（bg-panel + border-r） -->
             <Border Grid.Column="0" Background="{StaticResource Panel}">
                 <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0">
                             <!-- 打点浮层（对位 TapPanel：active 时盖在歌词面板上） -->
                             <views:TapPanel />
                             <views:LyricsPanel />
                             <views:AudioPanel />
-                            <views:LineList />
                         </StackPanel>
-                    </ScrollViewer>
+                        <!-- 歌词行列表：占满下方剩余高度，获得确定的测量边界，真正激活 VirtualizingStackPanel 虚拟化 -->
+                        <views:LineList Grid.Row="1" />
+                    </Grid>
                 </Border>
             </Border>
 

@@ -294,6 +294,8 @@
             <ListBox x:Name="Lst" Grid.Row="1" ItemTemplate="{StaticResource RowTemplate}"
                      Background="Transparent" BorderThickness="0" Padding="0"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     VirtualizingPanel.ScrollUnit="Pixel"
                      VirtualizingStackPanel.IsVirtualizing="True"
                      VirtualizingStackPanel.VirtualizationMode="Recycling">
                 <ListBox.ItemContainerStyle>

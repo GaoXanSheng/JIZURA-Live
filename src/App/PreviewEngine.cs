@@ -431,16 +431,22 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// </summary>
     private void WarmFonts(Plan plan)
     {
-        try
+        var lyrics = Project?.Lyrics;
+        var fonts = JFonts.FontsOfPlan(plan);
+        Task.Run(() =>
         {
-            // 与渲染/导出串行：解析预热可能触发字体目录重扫（网络拉取落盘后），进而清共享字形缓存
-            lock (EngineRenderGate.Lock)
-                _ = JFonts.EnsureFonts(Project?.Lyrics, JFonts.FontsOfPlan(plan));
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("[字体] 管线预热失败（继续用系统字体栈）：" + ex.Message);
-        }
+            try
+            {
+                // 与渲染/导出串行：解析预热可能触发字体目录重扫（网络拉取落盘后），进而清共享字形缓存。
+                // 走后台线程预热，坚决不阻塞 UI 线程与消息循环。
+                lock (EngineRenderGate.Lock)
+                    _ = JFonts.EnsureFonts(lyrics, fonts);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[字体] 管线预热失败（继续用系统字体栈）：" + ex.Message);
+            }
+        });
     }
 
     public double Duration => _plan?.Duration ?? 0;

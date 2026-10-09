@@ -33,10 +33,14 @@
         <PackageReference Include="SkiaSharp" Version="4.153.1" />
         <PackageReference Include="SkiaSharp.Views.WPF" Version="4.153.1" />
         <PackageReference Include="SharpDX" Version="4.2.0" />
+        <PackageReference Include="SharpDX.Direct3D9" Version="4.2.0" />
     </ItemGroup>
     <ItemGroup>
         <Reference Include="SharpDX">
             <HintPath>$(NuGetPackageRoot)sharpdx\4.2.0\lib\net45\SharpDX.dll</HintPath>
+        </Reference>
+        <Reference Include="SharpDX.Direct3D9">
+            <HintPath>$(NuGetPackageRoot)sharpdx.direct3d9\4.2.0\lib\net45\SharpDX.Direct3D9.dll</HintPath>
         </Reference>
         <Reference Include="SharpDX.Direct3D11">
             <HintPath>$(NuGetPackageRoot)sharpdx.direct3d11\4.2.0\lib\net45\SharpDX.Direct3D11.dll</HintPath>

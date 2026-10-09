@@ -99,6 +99,35 @@ public sealed class PreviewMirror
     /// </summary>
     public bool WaitNewFrame(int ms) => _frameReady.Wait(ms);
 
+    private IntPtr _gpuShareHandle = IntPtr.Zero;
+    private int _gpuW, _gpuH;
+
+    /// <summary>GPU 纯显存模式：Spout 泵渲染完成，发布最新 D3D11 共享句柄（零 CPU 拷贝）。</summary>
+    public void PublishGpu(IntPtr shareHandle, int w, int h)
+    {
+        lock (_lock)
+        {
+            _gpuShareHandle = shareHandle;
+            _gpuW = w;
+            _gpuH = h;
+            _seq++;
+        }
+        _frameReady.Release();
+    }
+
+    /// <summary>获取当前最新 GPU 共享帧信息（有可用句柄返回 true）。</summary>
+    public bool TryGetGpuFrame(out IntPtr shareHandle, out int w, out int h, out long seq)
+    {
+        lock (_lock)
+        {
+            shareHandle = _gpuShareHandle;
+            w = _gpuW;
+            h = _gpuH;
+            seq = _seq;
+            return shareHandle != IntPtr.Zero;
+        }
+    }
+
     /// <summary>预览泵：借最新整帧（持锁期间使用；期间 Spout 泵的 BeginWrite 会等待，帧不会被写坏）。</summary>
     public void WithLatest(Action<SKBitmap> use)
     {
