@@ -2,11 +2,15 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="{DynamicResource Loc.AudioFx.Title}"
-        WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="Manual"
+        WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
         FontFamily="{StaticResource UiFont}" FontSize="12" Background="Transparent"
         PreviewKeyDown="OnPreviewKeyDown">
     <!-- 遮罩 + 卡片（对位 Dialogs.vue 的音频特效弹窗）：点遮罩空白处 / Esc / ✕ 关闭。
-         内容分三段（预设 chips / 变速 / 效果链 rack / 添加效果 / 注记），动态部分在 code-behind 搭。 -->
+         内容分三段（预设 chips / 变速 / 效果链 rack / 添加效果 / 注记），动态部分在 code-behind 搭。
+         窗口必须分层（AllowsTransparency=True，见上）：本窗按 owner 尺寸铺满，遮罩是半透明的；
+         非分层窗口的客户区被 DWM 当作不透明面，遮罩会叠在窗口自身的黑底上 —— 整块主界面被涂黑，
+         而不是透出后面的主界面变暗（CloudPanel 同一套路）。 -->
     <Grid x:Name="Overlay" Background="#99060808" MouseLeftButtonDown="Overlay_MouseDown">
         <Border x:Name="Card" Width="560" Margin="24"
                 HorizontalAlignment="Center" VerticalAlignment="Center"

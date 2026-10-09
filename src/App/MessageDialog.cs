@@ -112,6 +112,9 @@ public static class MessageDialog
         var dialog = new Window
         {
             WindowStyle = WindowStyle.None,
+            // 必须分层：本窗按 owner 尺寸铺满，底色是半透明遮罩。非分层窗口的客户区被 DWM
+            // 当作不透明面，遮罩会叠在窗口自身的黑底上 —— 主界面被整块涂黑而不是透出来变暗。
+            AllowsTransparency = true,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
             Owner = owner,
@@ -151,8 +154,7 @@ public static class MessageDialog
             dialog.Top = owner.Top;
             dialog.Width = owner.ActualWidth;
             dialog.Height = owner.ActualHeight;
-            // 打开动效：遮罩这一层是窗口自身的底色（非分层窗口下 alpha 不参与合成），
-            // 动它没有观感收益，所以只动卡片 —— 淡入 + 微缩放上浮
+            // 打开动效：只动卡片 —— 淡入 + 微缩放上浮（遮罩是窗口自身的底色、铺满 owner，不做动效）
             JzAnim.FadeIn(card, JzAnim.Dialog);
             JzAnim.PopIn(card, 0.985, 6);
         };

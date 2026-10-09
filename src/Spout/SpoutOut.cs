@@ -286,18 +286,20 @@ public sealed class SpoutOut : IDisposable
             {
                 var lyrStat = _lyrics;
                 Log.Info(
-                    $"[SpoutOut] 近 5s：{main.Name} {main.Frames} 帧"
-                    + (lyrStat != null ? $"；{lyrStat.Name} {lyrStat.Frames} 帧" : "")
+                    $"[SpoutOut] 近 5s：{main.Name} {main.Frames} 帧{KeepTxt(main)}"
+                    + (lyrStat != null ? $"；{lyrStat.Name} {lyrStat.Frames} 帧{KeepTxt(lyrStat)}" : "")
                     + $"，耗时 渲染{main.SumRender / Math.Max(1, main.Frames):F1}"
                     + $"+同步{main.SumFlush / Math.Max(1, main.Frames):F1}"
                     + $"+镜像{main.SumMirror / Math.Max(1, main.Frames):F1}"
                     + $"+等闸{main.SumGate / Math.Max(1, main.Frames):F1}ms");
                 lastStat = now;
                 main.Frames = 0;
+                main.KeepAlives = 0;
                 main.SumRender = main.SumFlush = main.SumMirror = main.SumGate = 0;
                 if (lyrStat != null)
                 {
                     lyrStat.Frames = 0;
+                    lyrStat.KeepAlives = 0;
                     lyrStat.SumRender = lyrStat.SumFlush = lyrStat.SumMirror = lyrStat.SumGate = 0;
                 }
             }
@@ -323,20 +325,34 @@ public sealed class SpoutOut : IDisposable
                     }
                     else
                     {
-                        // 暂停：画面内容只在 seek/重规划（Version 变）时改变；
+                        // 暂停：画面内容只在 seek/重规划（Version 变）时改变，不逐帧重渲；
                         // 两条通道各自记 Version，重规划后各补一帧。字幕通道还要看字幕数据
-                        // 版本（换歌装载字幕时暂停态也得重出一帧）
+                        // 版本（换歌装载字幕时暂停态也得重出一帧）。
+                        // 但 Spout 流不能断：接收端在发送端静默一段时间后会把这一路判为掉线——
+                        // 表现是主画面还留着上一帧、独立的字幕叠加层却空了。所以没脏也要把上一帧
+                        // 纹理再投一次（纯句柄发布，不重画），让接收端看到流还活着。
                         if (Dirty(main, src))
                         {
                             RenderChannel(main, src);
                             lastMain = Stopwatch.GetTimestamp();
                         }
+                        else
+                        {
+                            KeepAlive(main);
+                        }
 
                         var lyr = _lyrics;
-                        if (lyr != null && Dirty(lyr, src))
+                        if (lyr != null)
                         {
-                            RenderChannel(lyr, src);
-                            lastLyrics = Stopwatch.GetTimestamp();
+                            if (Dirty(lyr, src))
+                            {
+                                RenderChannel(lyr, src);
+                                lastLyrics = Stopwatch.GetTimestamp();
+                            }
+                            else
+                            {
+                                KeepAlive(lyr);
+                            }
                         }
                     }
                 }
@@ -379,6 +395,28 @@ public sealed class SpoutOut : IDisposable
     /// <summary>暂停态脏判断：引擎通道看内容版本；字幕通道还要看字幕数据版本（换歌/装载字幕）。</summary>
     private static bool Dirty(Channel ch, ISpoutSource src) =>
         src.Version != ch.LastVersion || (ch.Subtitle && src.SubtitleVersion != ch.SubLayerVersion);
+
+    /// <summary>暂停态保活：不重渲，把该通道上一帧的纹理再投一次。Spout 接收端（OBS/Shoost 等）在发送端
+    /// 静默一段时间后会把这一路判为掉线——独立字幕层这种叠加源会直接空掉，而主画面还留着上一帧。
+    /// 内容没变，重发只是让接收端看到流还在；代价是一次 SendTexture 句柄发布，不产生渲染开销。
+    /// </summary>
+    private void KeepAlive(Channel ch)
+    {
+        var tex = ch.LastTexture;
+        if (tex == IntPtr.Zero) return;
+        try
+        {
+            ch.Sender!.SendTexture(tex);
+            ch.KeepAlives++;
+        }
+        catch (Exception ex)
+        {
+            LogRenderError(ex);
+        }
+    }
+
+    /// <summary>统计行里的暂停态保活后缀（没保活就不加，保持原格式）。</summary>
+    private static string KeepTxt(Channel ch) => ch.KeepAlives > 0 ? $"（保活{ch.KeepAlives}）" : "";
 
     // 渲染失败按帧发生（设备移除等持续性故障），首条立即记，之后每 30 秒汇总一条（对齐旧节流）
     private long _lastRenderErrorTick = -31_000;
@@ -433,6 +471,7 @@ public sealed class SpoutOut : IDisposable
             _gpu!.FlushAndSync();
             var tSync = Stopwatch.GetTimestamp();
             ch.Sender!.SendTexture(t.Gpu.TexturePointer);
+            ch.LastTexture = t.Gpu.TexturePointer; // 暂停态保活复用（面是池化的，指针跨帧稳定）
             // 预览镜像：主通道 GPU 帧读回一块给预览用（消费方是 WPF 预览泵；无请求零开销）
             if (!ch.Subtitle && ReferenceEquals(ch, _main))
                 MirrorFrame(t);
@@ -741,6 +780,7 @@ public sealed class SpoutOut : IDisposable
         }
 
         ch.Sender!.SendTexture(ch.Texture!.NativePointer);
+        ch.LastTexture = ch.Texture!.NativePointer; // 暂停态保活复用
     }
 
     private static void EnsureSurface(ref SKSurface? s, int w, int h)
@@ -808,6 +848,10 @@ public sealed class SpoutOut : IDisposable
         public int TexH;
         public long LastVersion = -1; // 泵的暂停态脏判断
         public long Frames;
+        public long KeepAlives;       // 暂停态保活投递次数（不重渲，只重发上一帧纹理）
+
+        /// <summary>上一帧投给 Spout 的纹理指针（暂停态保活直接重发它，不重渲）。</summary>
+        public IntPtr LastTexture;
 
         // 5s 窗口耗时归因（渲染 / 等 GPU 落盘 / 镜像读回 / 等引擎闸）
         public double SumRender, SumFlush, SumMirror, SumGate;
