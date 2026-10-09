@@ -75,6 +75,12 @@
         <RemoveDir Directories="$(PublishDir)runtimes\linux-x64;$(PublishDir)runtimes\osx-x64;$(PublishDir)runtimes\win-arm64;$(PublishDir)runtimes\win-x86" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)runtimes')" />
         <RemoveDir Directories="$(OutDir)win-x64" Condition="Exists('$(OutDir)win-x64')" />
     </Target>
+    
+    <Target Name="WriteIssVersion" AfterTargets="Build;Publish">
+        <WriteLinesToFile File="bin\build.version.iss"
+                          Lines="#define AppVersion &quot;$(Version)&quot;"
+                          Overwrite="true" />
+    </Target>
 
     <!-- 发布产物不携带引用程序的 pdb/xml -->
     <PropertyGroup>
