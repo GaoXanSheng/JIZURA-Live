@@ -31,9 +31,8 @@ namespace JizuraLive.App.Views;
 //         Shift 自由；钳在相邻行 ±0.2s；一次手势一条历史）；滚轮缩放（Ctrl 加速），Shift 平移
 //   播放头跟随：放大且播放中，播放头越过视窗 92% 即自动平移跟走
 //
-// 与 Vue 的取舍：导出范围底色（exportRange）M3 未接导出模型，不画；循环区间 overlay 的
-// cut/line 语义在本文件以同名私有方法实现（引擎 M3 只有整首 Loop bool，模式 UI 后续接）；
-// 上条的 grab/grabbing 光标 WPF 无对应内置光标，沿用 Hand。
+// 与 Vue 的差异：上条的 grab/grabbing 光标 WPF 无对应内置光标，沿用 Hand。
+// 导出范围底色与循环区间 overlay 均已完整接入。
 public partial class TimelineCanvas : UserControl
 {
     private readonly DispatcherTimer _clock;

@@ -152,6 +152,7 @@ public class ExportSmokeTests
 }
 
 /// <summary>字幕烤入冒烟：KRC 逐字 → 导出帧底部出现字幕亮像素。</summary>
+[Collection("EngineRegistry")]
 public class SubtitleBakeTests
 {
     [Fact]
@@ -207,5 +208,86 @@ public class SubtitleBakeTests
             Assert.True(bright > 50, $"底部近白像素 {bright} (maxR={maxR}, allBright={allBright}, entry={first.FullName}, totalEntries={zip.Entries.Count})，字幕未烤入");
         }
         finally { File.Delete(outp); }
+    }
+
+    [Fact]
+    public void 纯字幕层导出_CustomDrawOnly_成功生成透明字幕帧()
+    {
+        EngineBoot.InstallPacks();
+        var p = Project.NewDefault();
+        p.Lyrics = "纯字幕测试";
+        p.Res = 360;
+        p.Fps = 12;
+        p.Timing.Snap = false;
+        var plan = Planner.Plan(p, null);
+
+        var lines = new List<JizuraLive.App.Cloud.KrcLine>
+        {
+            new(0, 5000, "纯字幕测试",
+                new[] { new JizuraLive.App.Cloud.KrcWord(0, 2000, "纯字幕"), new JizuraLive.App.Cloud.KrcWord(2000, 3000, "测试") }),
+        };
+        var outp = Path.Combine(Path.GetTempPath(), $"jizura-subonly-{Guid.NewGuid():N}.zip");
+        try
+        {
+            ExportJob.Run(new ExportRequest
+            {
+                Project = p, Plan = plan, OutputPath = outp,
+                Spec = new ExportSpecDef("png", Transparent: true, Layer: null, NoHud: true,
+                    Layers: false, CustomDrawOnly: true, BakeSubs: false, EmbedAudio: false, KeyBg: "off"),
+                SubtitleLines = lines,
+                SubtitleCfg = new JizuraLive.Engine.SubtitleConfig { Content = SubContent.Both },
+            }, null, CancellationToken.None);
+
+            using var zip = System.IO.Compression.ZipFile.OpenRead(outp);
+            Assert.NotEmpty(zip.Entries);
+            var first = zip.Entries.OrderBy(e => e.FullName).First();
+            using var es = first.Open();
+            using var img = SkiaSharp.SKImage.FromEncodedData(es);
+            using var bmp = SkiaSharp.SKBitmap.FromImage(img);
+
+            // 纯字幕层为透明底，顶部绝大部分像素应完全透明 (Alpha == 0)
+            var topTransparent = 0;
+            var topSampleTotal = 0;
+            for (var y = 0; y < (int)(bmp.Height * 0.3); y += 4)
+                for (var x = 0; x < bmp.Width; x += 4)
+                {
+                    topSampleTotal++;
+                    if (bmp.GetPixel(x, y).Alpha == 0) topTransparent++;
+                }
+            Assert.True(topTransparent > topSampleTotal * 0.95, "纯字幕层背景应为透明底");
+
+            // 底部字幕区域应有非透明像素
+            var subPixels = 0;
+            for (var y = (int)(bmp.Height * 0.7); y < bmp.Height; y++)
+                for (var x = 0; x < bmp.Width; x++)
+                {
+                    if (bmp.GetPixel(x, y).Alpha > 100) subPixels++;
+                }
+            Assert.True(subPixels > 50, "纯字幕层底部应成功渲染字幕笔画");
+        }
+        finally { File.Delete(outp); }
+    }
+
+    [Fact]
+    public void 纯字幕层导出_无字幕数据_抛出异常()
+    {
+        EngineBoot.InstallPacks();
+        var p = Project.NewDefault();
+        p.Res = 360;
+        p.Fps = 12;
+        var plan = Planner.Plan(p, null);
+        var outp = Path.Combine(Path.GetTempPath(), $"jizura-subonly-err-{Guid.NewGuid():N}.zip");
+
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            ExportJob.Run(new ExportRequest
+            {
+                Project = p, Plan = plan, OutputPath = outp,
+                Spec = new ExportSpecDef("png", Transparent: true, Layer: null, NoHud: true,
+                    Layers: false, CustomDrawOnly: true, BakeSubs: false, EmbedAudio: false, KeyBg: "off"),
+                SubtitleLines = null,
+                SubtitleCfg = null,
+            }, null, CancellationToken.None);
+        });
     }
 }

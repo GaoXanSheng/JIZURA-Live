@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls.Primitives;
@@ -42,6 +43,7 @@ public partial class MainWindow : Window
     //（表象：全部按钮不可用 + 全局卡顿）。后台线程渲染，UI 线程只做 1-2ms blit
     private Thread? _renderThread;
     private volatile bool _renderRunning;
+    private volatile double _targetFrameMs = 1000.0 / 60.0;
     // 持久渲染面 P：引擎跨帧依赖同一块面（整帧缓存 + 增量绘制），每帧必须画同一块——
     // 交替画两块面会把跨帧状态劈成两半（实测：画面持续闪烁）。P 绝不 Dispose（缓存规矩），
     // 换尺寸的旧面进 graveyard。显示侧用「P → 显示双缓冲 memcpy」隔离：UI 只读显示缓冲，
@@ -96,10 +98,10 @@ public partial class MainWindow : Window
         // 最大化 ↔ 窗口化按钮的图标/提示跟随窗口状态
         StateChanged += (_, _) => UpdateMaxButton();
 
-        var fps = Math.Clamp(settings.RenderFps, 12, 60);
+        _targetFrameMs = 1000.0 / Math.Clamp(settings.RenderFps, 12, 240);
         timeBeginPeriod(1); // 泵节奏要 1ms 粒度（默认 15.6ms 会让「等下一拍」超睡 → 掉到 ~1/2 帧率）
         _renderRunning = true;
-        _renderThread = new Thread(() => RenderPump(1000.0 / fps))
+        _renderThread = new Thread(RenderPump)
         {
             IsBackground = true,
             Name = "JizuraPreviewRender",
@@ -134,13 +136,15 @@ public partial class MainWindow : Window
         _uiProbe.Start();
 
         UpdateStatusText();
-        _preview.Play(); // 预览默认自动播放（暂停态泵只出脏帧，起播才能看到真帧率）
+        // 默认打开为暂停状态（暂停态泵出第一帧后空转，不抢占 CPU/GPU；用户主动点播放或按空格才开跑）
 
         Loaded += (_, _) =>
         {
             // Spout 启动放 Loaded：管线建 D3D 设备要几百毫秒，别挡窗口先画出来
             if (_settings.SpoutEnabled)
                 StartSpout();
+            // 后台自愈清理临时文件、重复音频与超期日志
+            StorageCleaner.AutoCleanupAsync(State.AudioPath);
         };
     }
 
@@ -169,11 +173,12 @@ public partial class MainWindow : Window
     // SkiaSharp 3.119+ 规矩不变：交给 Frame 的面绝不 Dispose（整帧缓存持有跨帧快照），
     // 换尺寸的旧面进 graveyard；blit 用 PeekPixels+FromPixels 借像素，不用 Snapshot()
 
-    private void RenderPump(double frameMs)
+    private void RenderPump()
     {
         var next = Stopwatch.GetTimestamp();
         while (_renderRunning)
         {
+            var frameMs = _targetFrameMs;
             var wakeIn = (next - Stopwatch.GetTimestamp()) * 1000.0 / Stopwatch.Frequency;
             if (wakeIn > 1) Thread.Sleep((int)Math.Min(wakeIn, 50));
             next += (long)(frameMs / 1000.0 * Stopwatch.Frequency);
@@ -284,6 +289,8 @@ public partial class MainWindow : Window
                     _preview.Renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = fit, Stage = true });
                     // 字幕叠加：与导出烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
                     PaintSubtitleOverlay(surf.Canvas, OverlayLayer(), t, rw, rh);
+                    if (plan is { CenterFree: true })
+                        DrawCenterGuide(surf.Canvas, plan, rw, rh);
                 }
                 var cpuMs = (Stopwatch.GetTimestamp() - tCpu) * 1000.0 / Stopwatch.Frequency;
                 // P → 显示双缓冲 memcpy（~1-3ms），翻面后 UI 读新正面（与 memcpy 目标不同面）
@@ -360,31 +367,118 @@ public partial class MainWindow : Window
             });
             // 字幕叠加：镜像帧来自 Spout 主通道（不含字幕，字幕走独立通道），预览侧叠注音/翻译行
             PaintSubtitleOverlay(sx.Canvas, OverlayLayer(), _preview.CurrentTime, rw, rh);
+            // 留出空白预览引导框（对位 Vue 的 drawCenterGuide，仅在编辑器主窗口画出虚线指引，不入 Spout 与导出）
+            var plan = _preview.Plan;
+            if (plan is { CenterFree: true })
+                DrawCenterGuide(sx.Canvas, plan, rw, rh);
             _displayFront = back;
         }
     }
 
-    /// <summary>当前字幕叠加层（null = 不叠：内容=off 或无 KRC 数据）。只在渲染泵线程调用。</summary>
+    /// <summary>
+    /// 当前字幕叠加层（null = 不叠：内容=off 或完全无注音内容）。只在渲染泵线程调用。
+    /// 兼容性保障：优先使用酷狗 KRC 逐字数据；若未载入 KRC（如网易云 LRC、手动粘贴或重启恢复工程），
+    /// 则自动从 plan.Lines 提炼基础行（对位 Vue 无论何种歌词源均从 plan.lines 获取 note 进行渲染的契约）。
+    /// </summary>
     private SubtitleLayer? OverlayLayer()
     {
-        var lines = _preview.Subtitles;
-        if (_preview.SubtitleCfg.Content == SubContent.Off || lines is not { Count: > 0 })
+        if (_preview.SubtitleCfg.Content == SubContent.Off)
         {
             _subLayer = null;
             return null;
         }
 
-        var ver = _preview.SubtitleVersion;
         var plan = _preview.Plan;
+        if (plan == null) return null;
+
+        var lines = _preview.Subtitles;
+        IReadOnlyList<string>? notes = null;
+        if (lines is not { Count: > 0 })
+        {
+            // 当没有 KRC 逐字数据时：从 plan.Lines 合成基础行
+            var synthLines = new List<KrcLine>(plan.Lines.Count);
+            var synthNotes = new List<string>(plan.Lines.Count);
+            var hasAnyNote = false;
+            foreach (var l in plan.Lines)
+            {
+                if (l.Interlude)
+                {
+                    synthLines.Add(new KrcLine((long)(l.Start * 1000), (long)(Math.Max(0, l.End - l.Start) * 1000), "", Array.Empty<KrcWord>()));
+                    synthNotes.Add("");
+                    continue;
+                }
+                var dur = Math.Max(0.1, (l.VisEnd > l.Start ? l.VisEnd : l.End) - l.Start);
+                synthLines.Add(new KrcLine((long)(l.Start * 1000), (long)(dur * 1000), l.Text, Array.Empty<KrcWord>()));
+                var note = l.Note ?? "";
+                if (note.Length > 0) hasAnyNote = true;
+                synthNotes.Add(note);
+            }
+            if (!hasAnyNote)
+            {
+                _subLayer = null;
+                return null;
+            }
+            lines = synthLines;
+            notes = synthNotes;
+        }
+        else
+        {
+            notes = SubtitleLayer.NotesFromPlan(lines, plan);
+        }
+
+        var ver = _preview.SubtitleVersion;
         if (_subLayer == null || _subLayerVer != ver || !ReferenceEquals(_subLayerPlan, plan))
         {
-            _subLayer = new SubtitleLayer(lines, _preview.SubtitleCfg,
-                SubtitleLayer.NotesFromPlan(lines, plan), mainLine: false);
+            _subLayer = new SubtitleLayer(lines, _preview.SubtitleCfg, notes, mainLine: false);
             _subLayerVer = ver;
             _subLayerPlan = plan;
         }
 
         return _subLayer;
+    }
+
+    /// <summary>
+    /// 留出空白预览虚线框（对位 Vue 的 drawCenterGuide(target, scale)）：
+    /// 仅在主编辑预览舞台上画出白色半透明虚线框（rgba(255,255,255,0.55)，[14, 10] 虚线），
+    /// 标明角色的留空范围；Spout 直出与最终导出不绘制该指引线。
+    /// </summary>
+    private static void DrawCenterGuide(SKCanvas canvas, Plan plan, double rw, double rh)
+    {
+        var z = plan.Zones;
+        if (z == null || z.Length < 2) return;
+        var pos = plan.Project?.CenterZone ?? "center";
+        double rx, ry, rwBox, rhBox;
+        if (pos == "left") { rx = 0; ry = 0; rwBox = z[0].X; rhBox = plan.H; }
+        else if (pos == "right") { rx = z[0].X + z[0].W; ry = 0; rwBox = plan.W - rx; rhBox = plan.H; }
+        else if (pos == "top") { rx = 0; ry = 0; rwBox = plan.W; rhBox = z[0].Y; }
+        else if (pos == "bottom") { rx = 0; ry = z[0].Y + z[0].H; rwBox = plan.W; rhBox = plan.H - ry; }
+        else if (plan.W >= plan.H)
+        {
+            var left = z[0].X + z[0].W;
+            var right = z[1].X;
+            rx = left; ry = 0; rwBox = Math.Max(2, right - left); rhBox = plan.H;
+        }
+        else
+        {
+            var top = z[0].Y + z[0].H;
+            var bottom = z[1].Y;
+            rx = 0; ry = top; rwBox = plan.W; rhBox = Math.Max(2, bottom - top);
+        }
+
+        var scale = rw / (double)plan.W;
+        canvas.Save();
+        canvas.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
+        using var dash = SKPathEffect.CreateDash(new float[] { 14, 10 }, 0);
+        using var p = new SKPaint
+        {
+            IsAntialias = true,
+            IsStroke = true,
+            StrokeWidth = 2.5f / (float)scale,
+            Color = new SKColor(255, 255, 255, (byte)Math.Round(0.55 * 255)),
+            PathEffect = dash
+        };
+        canvas.DrawRect(new SKRect((float)(rx + 4), (float)(ry + 4), (float)(rx + rwBox - 4), (float)(ry + rhBox - 4)), p);
+        canvas.Restore();
     }
 
     /// <summary>把字幕层叠到已渲染的帧上。只画注音/翻译行——主歌词由引擎自己画，叠主行会重影；
@@ -470,6 +564,7 @@ public partial class MainWindow : Window
     /// <summary>设置页「重启渲染引擎」（/api/app/render/restart）的落点。</summary>
     public void RestartRender()
     {
+        _targetFrameMs = 1000.0 / Math.Clamp(_settings.RenderFps, 12, 240);
         if (_settings.SpoutEnabled) RestartSpout();
         else StopSpout();
     }
@@ -494,6 +589,7 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
         ((HwndSource)PresentationSource.FromVisual(this))?.AddHook(WndProc);
         UpdateMaxButton();
+        ApplyNativeWindowIcon();
     }
 
     // WindowStyle=None 的窗口最大化默认盖住任务栏、边缘还悬出屏幕一截：
@@ -596,6 +692,16 @@ public partial class MainWindow : Window
         public uint dwFlags;
     }
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtr")]
+    private static extern IntPtr SetClassLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    private const uint WM_SETICON = 0x0080;
+    private const int GCLP_HICON = -14;
+    private const int GCLP_HICONSM = -34;
+
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 
@@ -607,6 +713,38 @@ public partial class MainWindow : Window
     [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint ms);
     [DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint ms);
 
+    private Icon? _hIcon16, _hIcon32;
+
+    /// <summary>
+    /// 为 HWND 显式绑定原生 16x16 与 32x32 图标并挂上 GCLP_HICON：
+    /// 解决无边框自定义标题栏（WindowStyle=None）在 Windows 任务栏显示空白应用窗口图标的问题。
+    /// </summary>
+    private void ApplyNativeWindowIcon()
+    {
+        try
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            var uri = new Uri("pack://application:,,,/assets/app.ico");
+            var streamInfo = Application.GetResourceStream(uri);
+            if (streamInfo == null) return;
+            using var baseIco = new Icon(streamInfo.Stream);
+            _hIcon16 = new Icon(baseIco, 16, 16);
+            _hIcon32 = new Icon(baseIco, 32, 32);
+            SendMessage(hwnd, WM_SETICON, (IntPtr)0, _hIcon16.Handle);
+            SendMessage(hwnd, WM_SETICON, (IntPtr)1, _hIcon32.Handle);
+            if (Environment.Is64BitProcess)
+            {
+                SetClassLongPtr64(hwnd, GCLP_HICONSM, _hIcon16.Handle);
+                SetClassLongPtr64(hwnd, GCLP_HICON, _hIcon32.Handle);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("[Icon] 原生窗口图标设置失败：" + ex.Message);
+        }
+    }
+
     private void BtnClose_Click(object sender, RoutedEventArgs e)
     {
         Close();
@@ -615,6 +753,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         Follow.Stop(); // 跟随循环与引擎时钟归位（FollowEnd 冻结时间轴）
+        _hIcon16?.Dispose();
+        _hIcon32?.Dispose();
         // 先停后台渲染泵再释放：渲染线程还持着面/锁
         _renderRunning = false;
         try { _renderThread?.Join(800); } catch { /* 线程已退出 */ }

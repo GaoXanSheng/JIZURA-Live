@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using JizuraLive.App.I18n;
 using JizuraLive.App.Mcp;
@@ -10,6 +11,9 @@ namespace JizuraLive.App;
 
 public partial class App : Application
 {
+    [DllImport("shell32.dll", SetLastError = true)]
+    private static extern void SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
     private const string MutexName = "JizuraLive_SingleInstance";
     private Mutex? _mutex;
     private McpHttpServer? _server;
@@ -43,6 +47,13 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        try
+        {
+            // Windows 任务栏应用分组与图标关联：指定显式 AUMID，防止无边框窗口被判定为通用无图标应用
+            SetCurrentProcessExplicitAppUserModelID("JizuraLive.App");
+        }
+        catch { }
 
         Log.Init();
         ProfLog.Install(); // JIZURA_PROF=leaf 时开启叶子级分配归因（默认关，零开销）

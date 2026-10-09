@@ -6,13 +6,17 @@ namespace JizuraLive.App;
 // 设置和登录态每发一版丢一次
 public static class AppDirs
 {
-    public static string Root { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "JizuraLive");
+    /// <summary>数据根目录。JIZURA_DATA_DIR 可重定向——测试进程必须指向临时目录：
+    /// 测试曾经直接读写用户的真实 autosave（工程被覆盖成测试标题，userFonts 被灌成百万条）。</summary>
+    public static string Root { get; } =
+        Environment.GetEnvironmentVariable("JIZURA_DATA_DIR") is { Length: > 0 } dir
+            ? dir
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLive");
 
     public static string ConfigDir => Path.Combine(Root, "config");
     public static string LogsDir => Path.Combine(Root, "logs");
     public static string CacheDir => Path.Combine(Root, "cache");
+    public static string CloudDir => Path.Combine(Root, "cloud");
 
     /// <summary>音频缓存库：包含自动保存工程的音频副本以及解包的音频文件。</summary>
     public static string AudioCacheDir => Path.Combine(CacheDir, "audio");

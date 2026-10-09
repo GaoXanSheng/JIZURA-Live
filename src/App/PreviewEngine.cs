@@ -206,10 +206,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     /// <summary>
     /// 音频投入/卸载（对位 EditorState.SetAudio 的引擎侧回执；由中栏常驻控件在 State.AudioChanged
-    /// 时调用）。装载成功即重建播放链并重规划（EditorState 里那次 Replan 发生在 AudioChanged 之前，
-    /// 当时还拿不到音频——这里补一次带音频的，双重规划成本可忽略）。失败降级为墙钟。
+    /// 时调用）。装载成功即重建播放链。replan 为 false 时跳过同步重规划（EditorState.SetAudio 内部
+    /// 已发起后台异步规划 ReplanAsync，避免在 UI 线程重复阻塞数百毫秒）。失败降级为墙钟。
     /// </summary>
-    public void SetAudioSource(AudioData? audio, string? path, bool keepCurrentTime = false)
+    public void SetAudioSource(AudioData? audio, string? path, bool keepCurrentTime = false, bool replan = true)
     {
         TeardownAudio();
         _audio = audio;
@@ -223,7 +223,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         if (audio == null || path == null || !File.Exists(path))
         {
             if (path != null) Log.Warn("[Preview] 音频文件不存在，预览退回墙钟：" + path);
-            Replan();
+            if (replan) Replan();
             return;
         }
         // 恢复上次音频时从当前时刻续播，避免跳回开头；新歌载入一律从 0 起（对位旧前端 songLoader 的 loadAudioFile + seek(0)）
@@ -233,11 +233,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _base = startT;
         _startTs = Stopwatch.GetTimestamp();
         BuildChain(path, startT);
-        // 装载时播放器已在播放（应用启动即自动播放，见 MainWindow 构造）→ 新链必须跟着起跑。
-        // 漏掉这一步的表象就是「音频不可用」：链建好了却从未 Play，WaveOut 不读帧 →
-        // 波形位置钟钉死在起点（画面与时间码不动）且没有声音，得点一次暂停/播放才活过来。
+        // 装载时若播放器已处于播放态 → 新链跟着起跑；暂停态保持暂停
         if (IsPlaying && !_follow && _audioActive) SafePlay();
-        Replan();
+        if (replan) Replan();
     }
 
     /// <summary>解码并装配整条播放链（不启动播放；定位到 startT）。任何一步失败整体退回墙钟。</summary>

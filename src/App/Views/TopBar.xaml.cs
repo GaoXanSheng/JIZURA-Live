@@ -104,7 +104,7 @@ public partial class TopBar : UserControl
         }
         catch (NotImplementedException)
         {
-            // .jizuralive 写入未落地时兜底存 .json，不丢工程
+            // 发生异常时兜底存 .json，防止丢失工程数据
             var fallback = Path.ChangeExtension(dlg.FileName, ".json");
             ProjectIO.Save(main.State.Project, fallback, null, null);
             MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.SaveFallback.Title"), L.F("TopBar.SaveFallback.Body", fallback));

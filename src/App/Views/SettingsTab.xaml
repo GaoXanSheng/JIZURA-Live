@@ -322,15 +322,45 @@
         <StackPanel Margin="0,14,0,0">
             <CheckBox x:Name="CkFetchFonts" Margin="0,0,0,6"
                       Checked="FetchFonts_Changed" Unchecked="FetchFonts_Changed">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{DynamicResource Loc.Settings.Fonts.Fetch}" FontSize="12" />
-                    <TextBlock x:Name="TblFontDir" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" />
-                </StackPanel>
+                <TextBlock Text="{DynamicResource Loc.Settings.Fonts.Fetch}" FontSize="12" />
             </CheckBox>
+            <StackPanel Orientation="Horizontal" Margin="24,0,0,4">
+                <TextBlock Text="{DynamicResource Loc.Settings.Fonts.UserDir}" Style="{StaticResource RowLab}" />
+                <Button x:Name="BtnOpenFontDir" Content="{DynamicResource Loc.Settings.Fonts.OpenDir}"
+                        Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0" Click="BtnOpenFontDir_Click" />
+            </StackPanel>
+            <TextBlock x:Name="TblFontDir" Style="{StaticResource HintXs}" Margin="24,0,0,6" TextWrapping="Wrap" MaxWidth="300"
+                       HorizontalAlignment="Left" />
             <TextBlock Style="{StaticResource HintXs}" Margin="24,0,0,6" TextWrapping="Wrap" MaxWidth="300"
                        HorizontalAlignment="Left"
                        Text="{DynamicResource Loc.Settings.Fonts.Hint}" />
         </StackPanel>
+
+        <!-- 存储空间与缓存清理（即时生效） -->
+        <Border BorderBrush="{StaticResource Line2}" BorderThickness="1" CornerRadius="6"
+                Background="{StaticResource Raised}" Padding="12" Margin="0,14,0,0">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ctl:JzLabel Text="{DynamicResource Loc.Settings.Storage.Title}" Tracking="0.14" TextElement.FontSize="11"
+                                 TextElement.FontWeight="SemiBold" TextElement.Foreground="{StaticResource Mut}" />
+                    <Button Grid.Column="1" x:Name="BtnOpenDataDir" Content="{DynamicResource Loc.Settings.Storage.OpenDir}"
+                            Style="{StaticResource BtnGhostSm}" Click="BtnOpenDataDir_Click" />
+                </Grid>
+                <TextBlock x:Name="TblStorageInfo" Style="{StaticResource HintXs}" Margin="0,8,0,8" />
+                <WrapPanel Orientation="Horizontal">
+                    <Button x:Name="BtnCleanCache" Content="{DynamicResource Loc.Settings.Storage.CleanCache}"
+                            Style="{StaticResource BtnSm}" Margin="0,0,8,4" Click="BtnCleanCache_Click" />
+                    <Button x:Name="BtnCleanCloud" Content="{DynamicResource Loc.Settings.Storage.CleanCloud}"
+                            Style="{StaticResource BtnSm}" Margin="0,0,8,4" Click="BtnCleanCloud_Click" />
+                    <Button x:Name="BtnCleanLogs" Content="{DynamicResource Loc.Settings.Storage.CleanLogs}"
+                            Style="{StaticResource BtnSm}" Margin="0,0,8,4" Click="BtnCleanLogs_Click" />
+                </WrapPanel>
+            </StackPanel>
+        </Border>
 
         <!-- 界面语言（即时生效，热切换；语言清单随词库目录扩展） -->
         <Grid Margin="0,14,0,0">

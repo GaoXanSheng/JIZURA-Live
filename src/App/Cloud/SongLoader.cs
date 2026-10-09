@@ -38,7 +38,7 @@ public static class SongLoader
     private static readonly HttpClient StreamHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
 
     /// <summary>云音乐缓存目录（音频按「歌手 - 歌名」落盘，重复装载复用）。</summary>
-    public static string CacheDir => Path.Combine(AppDirs.Root, "cloud");
+    public static string CacheDir => AppDirs.CloudDir;
 
     // ---------------- 文件名 ----------------
 
@@ -111,10 +111,11 @@ public static class SongLoader
             if (ly.Ok && !string.IsNullOrEmpty(ly.Content))
             {
                 (lrc, lyricNote) = ConvertLyric(source, ly);
-                // KRC 逐字 → 字幕层数据（导出烤字幕消费）；网易 LRC 无逐字 → 清空避免残留
+                // KRC 逐字 → 字幕层数据（预览叠加/导出烤字幕/Spout 字幕通道消费）；
+                // 网易云 LRC 与酷狗普通 LRC 都无逐字 → 清空避免残留
                 if (source == "kugou")
                 {
-                    try { state.SetSubtitles(Krc.Parse(ly.Content)); }
+                    try { state.SetSubtitles(Krc.ParseKgLyric(ly.Fmt, ly.Content)); }
                     catch (Exception ex) { Log.Debug("[Cloud] KRC 逐字解析失败（字幕层跳过）：" + ex.Message); }
                 }
                 else

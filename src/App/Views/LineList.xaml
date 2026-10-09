@@ -186,6 +186,11 @@
                                         <Border x:Name="TechBd" Height="22" MaxWidth="112" Margin="2,0,0,0"
                                                 BorderThickness="1" CornerRadius="6" Background="{StaticResource Raised}"
                                                 BorderBrush="{Binding Border}" SnapsToDevicePixels="True">
+                                            <Border.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="{DynamicResource Loc.LineList.CutQuiet}" IsCheckable="True" IsChecked="{Binding IsQuiet}" Click="CutQuiet_Click" />
+                                                </ContextMenu>
+                                            </Border.ContextMenu>
                                             <ComboBox x:Name="TechCombo" Style="{StaticResource SelTech}" Height="Auto"
                                                       BorderThickness="0" Background="Transparent"
                                                       ItemsSource="{Binding LayoutItems, RelativeSource={RelativeSource AncestorType=views:LineList}}"

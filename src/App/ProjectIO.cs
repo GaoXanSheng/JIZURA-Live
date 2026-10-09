@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
@@ -105,7 +106,7 @@ public static class ProjectIO
         var keyBg = p.Value<string>("keyBg");
         d.KeyBg = keyBg is "green" or "black" ? keyBg : "off";
 
-        // 导出勾选：TODO(M4/OutTab) normalizeCfg 移植后接入；bgStyle 镜像 keyBg
+        // 导出勾选：深拷贝并让 bgStyle 镜像 keyBg
         d.ExportCfg = p["exportCfg"] is JObject ec ? DeepClone(ec) : null;
         if (d.ExportCfg != null) d.ExportCfg["bgStyle"] = d.KeyBg;
         // 老字段迁移：includeAudio=false → exportCfg.audio=false
@@ -147,13 +148,16 @@ public static class ProjectIO
                 else if (kv.Value?.Type == JTokenType.String && IsHexColor((string)kv.Value)) d.Colors[kv.Key] = (string)kv.Value;
             }
 
-        // 用户字体：key 白名单 + 字段清洗
+        // 用户字体：key 白名单 + 字段清洗 + 按 key 去重。去重是给历史版本擦屁股：撤销/重做曾用
+        // JsonConvert.PopulateObject（集合追加语义），同一条字体被复制成百万条、autosave 撑到几百 MB，
+        // 读回来必须收敛（否则快照序列化数秒、常驻内存 GB 级）。
         d.UserFonts = new List<UserFont>();
+        var seenFontKeys = new HashSet<string>(StringComparer.Ordinal);
         if (p["userFonts"] is JArray ufs)
             foreach (var uf in ufs.OfType<JObject>())
             {
                 var key = uf.Value<string>("key") ?? "";
-                if (!JFonts.SafeFontKey.IsMatch(key)) continue;
+                if (!JFonts.SafeFontKey.IsMatch(key) || !seenFontKeys.Add(key)) continue;
                 var label = uf.Value<string>("label") ?? key;
                 var family = uf.Value<string>("family") ?? (key.Length > 5 ? key[5..] : key);
                 d.UserFonts.Add(new UserFont
@@ -345,11 +349,20 @@ public static class ProjectIO
                     var ext = Path.GetExtension(rawName);
                     if (string.IsNullOrEmpty(ext)) ext = ".mp3";
                     var safeBase = Path.GetFileNameWithoutExtension(rawName);
-                    var cachedPath = Path.Combine(AppDirs.AudioCacheDir, $"{safeBase}_{Guid.NewGuid():N}{ext}");
-                    File.WriteAllBytes(cachedPath, audioEntry.Data);
+                    // 基于音频内容哈希去重：同包同音频复用已有缓存，不再每次打开生成不同的随机 GUID 文件
+                    var hash = Convert.ToHexString(SHA256.HashData(audioEntry.Data))[..12].ToLowerInvariant();
+                    var cachedPath = Path.Combine(AppDirs.AudioCacheDir, $"{safeBase}_{hash}{ext}");
+                    if (!File.Exists(cachedPath) || new FileInfo(cachedPath).Length != audioEntry.Data.Length)
+                    {
+                        File.WriteAllBytes(cachedPath, audioEntry.Data);
+                        Log.Info($"[ProjectIO] 工程包音频已解包落盘：{cachedPath}");
+                    }
+                    else
+                    {
+                        Log.Info($"[ProjectIO] 工程包音频复用已有缓存：{cachedPath}");
+                    }
                     project.AudioPath = cachedPath;
                     if (string.IsNullOrEmpty(project.AudioName)) project.AudioName = rawName;
-                    Log.Info($"[ProjectIO] 工程包音频已解包落盘：{cachedPath}");
                 }
                 catch (Exception ex)
                 {

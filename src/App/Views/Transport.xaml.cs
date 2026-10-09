@@ -18,9 +18,7 @@ namespace JizuraLive.App.Views;
 //
 // 声音组（对位 volDown/volMove/volUp/volKey/toggleMute）：音量条自绘拖动 → 引擎预览增益，
 // 松手写回 Settings（旧版 localStorage 的 jizura.previewVolume 记忆）；消音只影响预览出声。
-//
-// 未接（WPF 侧没有对应状态，仅保留视觉）：
-//   · 循环线性/切分两态——引擎只有 Loop 布尔（McpTools 的 preview 工具同样只认 all/off）。
+// 循环按钮已完整支持五态循环（all / line / cut / range / off）。
 public partial class Transport : UserControl
 {
     private const double ThumbSize = 12; // 拖柄直径（对位 w-3）
@@ -55,24 +53,24 @@ public partial class Transport : UserControl
                 WireAudioSource();
                 BuildThemeItems();
             }
-            SetVolBar();
-            SyncTheme();
-            Sync();
-            L.LanguageChanged -= ApplyTexts;
-            L.LanguageChanged += ApplyTexts;
-            App.MainInstance!.Preview.Play();
-        };
-        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
-    }
+	            SetVolBar();
+	            SyncTheme();
+	            Sync();
+	            L.LanguageChanged -= ApplyTexts;
+	            L.LanguageChanged += ApplyTexts;
+	        };
+	        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
+	    }
 
-    private PreviewEngine Preview => App.MainInstance!.Preview;
+	    private PreviewEngine Preview => App.MainInstance!.Preview;
 
-    /// <summary>音频投入/卸载（含 ResetAll 清空）：交给引擎换链，失败自动降级墙钟。</summary>
-    private void WireAudioSource()
-    {
-        var st = App.MainInstance!.State;
-        Preview.SetAudioSource(st.Audio, st.AudioPath, st.IsAudioRestored);
-    }
+	    /// <summary>音频投入/卸载（含 ResetAll 清空）：交给引擎换链，失败自动降级墙钟。
+	    /// replan: false 跳过同步阻塞重规划（State.SetAudio 内部已发起后台异步重规划，避免 UI 线程顿卡）。</summary>
+	    private void WireAudioSource()
+	    {
+	        var st = App.MainInstance!.State;
+	        Preview.SetAudioSource(st.Audio, st.AudioPath, st.IsAudioRestored, replan: false);
+	    }
 
     // ---------------- 播放 / 循环 ----------------
 

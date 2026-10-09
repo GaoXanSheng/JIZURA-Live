@@ -659,8 +659,8 @@ public static class P11BgcamB
         }
         while (BmpCv.Count >= 40)
         {
+            // 同 Plate：只摘引用不 Dispose（淘汰顺序不是 LRU，本帧仍可能有人持有）
             var k0 = BmpCv.Keys.First();
-            BmpCv[k0].Dispose();
             BmpCv.Remove(k0);
         }
         var c = make();
@@ -727,7 +727,11 @@ public static class P11BgcamB
             var k0 = Pl.Keys.First();
             var v0 = Pl[k0];
             px -= (long)v0.Width * v0.Height;
-            v0.Dispose();
+            // 只摘引用、不 Dispose：淘汰顺序（Keys.First）不是 LRU——Remove+Add 会复用空槽，刚取过的
+            // 底板也可能被选中，而调用方的局部变量还持有它（同帧多次 Plate：底图 + 线纹，或背景切换的
+            // 新旧两层）。当场 Dispose 会让随后的 Blit 读到已释放的 SKImage → 0xC0000005
+            // （崩在 sk_image_get_width）。交 GC 回收：仍被局部变量引用的对象 GC 不会动，
+            // 引用消失后终结器再释放，语义上不可能提前释放。
             Pl.Remove(k0);
         }
         using var surf = SKSurface.Create(new SKImageInfo(w, h));

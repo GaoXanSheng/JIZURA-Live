@@ -495,9 +495,19 @@ public sealed class SubtitleLayer
             Edging = SKFontEdging.Antialias,
             Subpixel = true
         };
-        if (FontJobs.Count > 256) FontJobs.Clear(); // 容量护栏（同 JText.FaceFont 模式）
+        if (FontJobs.Count > 256) ClearFontJobs(); // 容量护栏（同 JText.FaceFont 模式）
         FontJobs[key] = f;
         return f;
+    }
+
+    /// <summary>清空并释放字体缓存：SKFont 是原生对象，光 Clear 会让句柄攒到 GC 终结器才还
+    ///（JText.ClearFontJobs 同款）。SubFont 每次 Render 只调一次、且清空发生在取新字之前，
+    /// 不会释放本帧正在用的那张。</summary>
+    private static void ClearFontJobs()
+    {
+        foreach (DictionaryEntry kv in FontJobs)
+            if (kv.Value is IDisposable d) d.Dispose();
+        FontJobs.Clear();
     }
 
     // ---------------- 小助手 ----------------

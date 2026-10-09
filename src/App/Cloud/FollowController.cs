@@ -507,7 +507,7 @@ public sealed class FollowController : IDisposable
             // KRC 逐字 → 字幕层数据（有则填，无则清）
             if (source == "kugou")
             {
-                try { _state.SetSubtitles(Krc.Parse(ly.Content)); }
+                try { _state.SetSubtitles(Krc.ParseKgLyric(ly.Fmt, ly.Content)); }
                 catch { _state.SetSubtitles(null); }
             }
             else

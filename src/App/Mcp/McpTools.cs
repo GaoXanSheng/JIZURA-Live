@@ -905,9 +905,16 @@ public sealed class McpTools
         var plan = _state.Plan;
         Check(plan != null, L.T("Mcp.Err.EditorNotReady"));
         var spec = ExportSpec.SpecFromLegacyKind(kind, p)!;
-        Check(!spec.CustomDrawOnly, L.T("Mcp.Err.SubwebmNotSupported"));
-        // C# 无字幕系统：旧 kind 里 mp4/mp4file 的「烤字幕」在此一律关闭（否则导出层直接拒绝）
-        spec = spec with { BakeSubs = false };
+        var hasSubs = _state.Subtitles is { Count: > 0 } && _state.SubtitleCfg.Content != SubContent.Off;
+        if (spec.CustomDrawOnly)
+        {
+            Check(hasSubs, L.T("Mcp.Err.SubwebmNotSupported"));
+        }
+        else if (spec.BakeSubs && !hasSubs)
+        {
+            // 无字幕数据或字幕显示被关闭时，静默不烤字幕
+            spec = spec with { BakeSubs = false };
+        }
 
         var dir = a.Value<string>("dir");
         if (a["dir"] != null)
@@ -936,7 +943,9 @@ public sealed class McpTools
             Spec = spec,
             OutputPath = outPath,
             AudioPath = audioPath,
-            WavToo = false
+            WavToo = false,
+            SubtitleLines = _state.Subtitles,
+            SubtitleCfg = _state.SubtitleCfg,
         };
         var job = _exportJob!;
         var progress = new JobProgress();

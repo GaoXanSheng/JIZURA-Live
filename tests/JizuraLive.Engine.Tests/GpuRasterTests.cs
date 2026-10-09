@@ -145,7 +145,7 @@ public class GpuRasterTests
                 GC.Collect();
                 Thread.Sleep(5);
             }
-        });
+        }) { IsBackground = true };
         gcThread.Start();
 
         try

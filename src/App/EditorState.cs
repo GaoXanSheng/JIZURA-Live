@@ -58,6 +58,22 @@ public sealed class EditorState : IDisposable
     /// <summary>撤销重做栈变化（按钮可用态）。</summary>
     public event Action? HistoryChanged;
 
+    // 历史回放（撤销/重做）用的填充器：JsonConvert.PopulateObject 的默认语义是「已有集合继续追加、
+    // 字典/对象合并」，与「把快照整个装回去」的历史语义不符——撤销一次 UserFonts 就翻一倍
+    //（实测 22 次撤销把工程撑到 6.7M 条 / 664MB autosave：快照序列化 6s、常驻内存 9GB+）。
+    // ObjectCreationHandling.Replace = 集合/字典换新实例再装，和 ReplaceProject 的语义一致。
+    private static readonly JsonSerializer PopulateSerializer = new()
+    {
+        ObjectCreationHandling = ObjectCreationHandling.Replace
+    };
+
+    /// <summary>把历史快照灌回现有 Project 实例（实例引用不变：引擎与各面板都持有它）。</summary>
+    private static void PopulateFrom(string json, Project project)
+    {
+        using var reader = new JsonTextReader(new StringReader(json));
+        PopulateSerializer.Populate(reader, project);
+    }
+
     // 双历史：edit（工程内容）与 look（样式观感）分栈，对位前端双历史；设 50 步容量上限防止内存无限增长
     private const int MaxHistory = 50;
     private readonly Stack<(string Label, string Json)> _undoEdit = new();
@@ -100,7 +116,7 @@ public sealed class EditorState : IDisposable
         if (_undoLook.Count == 0) return false;
         var (label, json) = _undoLook.Pop();
         _redoLook.Push((label, Snapshot()));
-        JsonConvert.PopulateObject(json, Project);
+        PopulateFrom(json, Project);
         AfterChange(true);
         NotifyAsync(HistoryChanged);
         return true;
@@ -112,7 +128,7 @@ public sealed class EditorState : IDisposable
         if (_redoLook.Count == 0) return false;
         var (label, json) = _redoLook.Pop();
         _undoLook.Push((label, Snapshot()));
-        JsonConvert.PopulateObject(json, Project);
+        PopulateFrom(json, Project);
         AfterChange(true);
         NotifyAsync(HistoryChanged);
         return true;
@@ -135,8 +151,7 @@ public sealed class EditorState : IDisposable
         RestoreFonts(Project);
         AudioFileName = Project.AudioName;
         AudioPath = Project.AudioPath;
-        Engine.SetProject(Project);
-        Engine.Replan();
+        Engine.SetProject(Project); // 内部已做 Replan() 首帧规划
         RestoreAudioAsync(seekToZero: false);
     }
 
@@ -214,7 +229,7 @@ public sealed class EditorState : IDisposable
         if (_undoEdit.Count == 0) return false;
         var (label, json) = _undoEdit.Pop();
         _redoEdit.Push((label, Snapshot()));
-        JsonConvert.PopulateObject(json, Project);
+        PopulateFrom(json, Project);
         AfterChange(true);
         NotifyAsync(HistoryChanged);
         return true;
@@ -225,7 +240,7 @@ public sealed class EditorState : IDisposable
         if (_redoEdit.Count == 0) return false;
         var (label, json) = _redoEdit.Pop();
         _undoEdit.Push((label, Snapshot()));
-        JsonConvert.PopulateObject(json, Project);
+        PopulateFrom(json, Project);
         AfterChange(true);
         NotifyAsync(HistoryChanged);
         return true;

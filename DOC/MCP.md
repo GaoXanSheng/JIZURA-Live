@@ -77,8 +77,8 @@ C# 版与旧页面版的已知差异（都写在对应工具的 description 里�
 | `update_settings.exportRange` | 已接入。入参 `from/to` 是 1 基行号（对位 Vue，换算成切分范围后存进 `project.exportRange`）；`get_state` 回吐的是 0 基切分索引 |
 | `preview.loop` | 支持 `all` / `line` / `cut` / `range` / `off`（`line` 循环当前整行，界面「切分循环」；`cut` 循环当前单个切分，界面「行循环」；`range` 循环导出范围，C# 扩展档；`off` 不循环）；`volume` / `muted` 生效（预览出声增益，不写设置、导出不变） |
 | `preview` 返回值 `loop` | `all` / `line` / `cut` / `range` / `off` |
-| `start_export.kind=subwebm` | 纯字幕层需字幕系统：C# 版返回 invalid_input |
-| `start_export` mp4 | 不烤字幕（C# 无字幕系统，`BakeSubs` 强制关闭） |
+| `start_export.kind=subwebm` | 已支持纯字幕层透明 WebM 视频导出（需已装载字幕数据且未关闭字幕显示） |
+| `start_export` mp4 | 已支持烤入字幕（工程存在字幕数据且未关闭字幕显示时自动烤入） |
 | `start_export.dir` 缺省 | 落 `%USERPROFILE%\Videos\JIZURA`（桌面版没有浏览器下载目录） |
 | `randomize` / `tap_sync` | `randomize all` 走 `src/Engine/Omakase.cs`（08b_omakase 的 C# 移植，含主题/锁定）；`tap_sync` 与界面共用 `TapSession` 打点会话 |
 | `list_options.description` | C# 注册条目没有 `desc` 字段（未移植）：描述统一为空串 |

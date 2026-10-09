@@ -416,10 +416,11 @@ public sealed class Renderer : IDisposable
                 var cutList = plan.CenterFree && cut0.Companion != null ? new[] { cut0, cut0.Companion! } : new[] { cut0 };
                 foreach (var cut in cutList)
                 {
+                    var lt = tp - cut.Start;
+                    if (lt < 0) continue; // 孪生切分若存在入场延迟（delay），未到开唱时刻前不提前画出
                     var csc = schemes.Count > 0
                         ? schemes[((cut.Scheme % schemes.Count) + schemes.Count) % schemes.Count]
                         : sc;
-                    var lt = tp - cut.Start;
                     var X = LX ?? ctx;
                     var Z = plan.CenterFree ? cut.Zone : null;
                     var env = MakeEnv(X, plan, cut, csc,

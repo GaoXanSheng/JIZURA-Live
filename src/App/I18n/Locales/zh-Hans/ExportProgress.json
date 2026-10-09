@@ -11,6 +11,7 @@
   "Export.Stage.WriteFrameFmt": "写帧 {0}/{1}",
   "Export.Stage.Done": "完成",
   "Export.Err.SubsOnly": "纯字幕层（无渲染画面）导出待接线：请勾选「渲染画面」+「字幕」用烤入",
+  "Export.Err.SubsOnlyNoData": "没有字幕数据，无法导出纯字幕层：请确保已装载字幕数据",
   "Export.Err.UnknownKindFmt": "未知导出类型：{0}",
   "Export.Err.NoAudio": "没有已投入的歌曲，无法导出 WAV",
   "Export.Err.AudioDecodeFailed": "音频解码失败",

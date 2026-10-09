@@ -199,12 +199,14 @@ public partial class LineList : UserControl, INotifyPropertyChanged
             // 每行的非特殊切分，序号即行内第 k 段（对位 rebuild 的 span/cuts 过滤）
             var k = 0;
             var cutLayouts = ov?["cutLayouts"] as JObject;
+            var cutQuiet = ov?["cutQuiet"] as JObject;
             var cutTime = ov?["cutTime"] as JObject;
             if (_cutsByLine!.TryGetValue(i, out var lineCuts))
             foreach (var c in lineCuts)
             {
                 if (!Reg.Layouts.TryGetValue(c.Layout, out var ld) || ld == null || ld.Special) continue;
                 var forced = cutLayouts?[k.ToString()]?.Value<string>();
+                var isQuiet = cutQuiet?[k.ToString()]?["layout"] != null;
                 var ctTok = cutTime?[k.ToString()];
                 var ct = ctTok != null && ctTok.Type is JTokenType.Float or JTokenType.Integer ? (double?)ctTok : null;
                 var enterName = Reg.Enter.TryGetValue(c.Enter, out var en) && en != null ? en.Name : c.Enter;
@@ -225,6 +227,7 @@ public partial class LineList : UserControl, INotifyPropertyChanged
                     LayoutIndex = Math.Max(0, LayoutKeys.IndexOf(forced ?? c.Layout)),
                     AutoLayout = c.Layout,
                     Forced = forced != null,
+                    IsQuiet = isQuiet,
                     Border = HueBorder(Reg.LayoutOrder.IndexOf(c.Layout)),
                 });
                 k++;
@@ -530,7 +533,7 @@ public partial class LineList : UserControl, INotifyPropertyChanged
         App.MainInstance!.Preview.Seek(Math.Max(0, hasV ? v : cell.Start) + 0.001);
     }
 
-    // 该段手法指定：写 cutLayouts + cutTech（setCutTech 的 layout 分支）；切分静默（cutQuiet）未移植
+    // 该段手法指定：使用 CutTechEdit.SetCutTech 统一维护 cutLayouts + cutTech 及 cutQuiet 状态
     private void CutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_syncing || !IsLoaded) return;
@@ -558,31 +561,19 @@ public partial class LineList : UserControl, INotifyPropertyChanged
         }
         State.Mutate(p =>
         {
-            var ov = TapSession.TakeOverride(p, cell.Row.I);
-            var k = cell.K.ToString();
-            if (key.Length > 0)
-            {
-                var cls = ov["cutLayouts"] as JObject ?? new JObject();
-                cls[k] = key;
-                ov["cutLayouts"] = cls;
-                var tech = ov["cutTech"] as JObject ?? new JObject();
-                var slot = tech[k] as JObject ?? new JObject();
-                slot["layout"] = key;
-                tech[k] = slot;
-                ov["cutTech"] = tech;
-            }
-            else
-            {
-                if (ov["cutLayouts"] is JObject cls) { cls.Remove(k); if (cls.Count == 0) ov.Remove("cutLayouts"); }
-                if (ov["cutTech"] is JObject tech)
-                {
-                    if (tech[k] is JObject slot) { slot.Remove("layout"); if (slot.Count == 0) tech.Remove(k); }
-                    if (tech.Count == 0) ov.Remove("cutTech");
-                }
-            }
-            TapSession.PutOverride(p, cell.Row.I, ov);
+            CutTechEdit.SetCutTech(p, cell.Row.I, cell.K, "layout", key);
         }, L.T("LineList.Mutate.CutLayout"), replan: true, look: true);
         App.MainInstance!.Preview.Seek(cell.Start + cell.Half);
+    }
+
+    private void CutQuiet_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem mi || mi.DataContext is not CutVm cell) return;
+        var on = mi.IsChecked;
+        State.Mutate(p =>
+        {
+            CutTechEdit.MarkCutQuiet(p, cell.Row.I, cell.K, new[] { "layout" }, on);
+        }, L.T("LineList.Mutate.CutQuiet"), replan: true, look: true);
     }
 
     // 从这一行重新打点（对位 startTap(row.i)）
@@ -689,5 +680,6 @@ public sealed class CutVm
     public string AutoLayout { get; set; } = "";
 
     public bool Forced { get; set; }
+    public bool IsQuiet { get; set; }
     public Brush Border { get; set; } = Brushes.Transparent;
 }

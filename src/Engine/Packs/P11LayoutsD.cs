@@ -3813,7 +3813,8 @@ public static class P11LayoutsD
         bmp.Dispose();
         if (LedTiles.Count > 40)
         {
-            foreach (var v in LedTiles.Values) v.Dispose();
+            // 只摘引用不 Dispose：同帧可能还持有刚取过的 tile（mask + dot 两次取用），
+            // 当场释放会让随后的 DrawImage 读到已释放 SKImage（0xC0000005）。交 GC 回收。
             LedTiles.Clear();
         }
         LedTiles[key] = img;

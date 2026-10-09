@@ -62,8 +62,29 @@ public class CloudTests
     }
 
     [Fact]
-    public void Krc逐字解析_行与字时间轴()
+    public void 酷狗歌词响应_逐字字幕_先解码再解密()
     {
+        // 真实响应形态：fmt=krc + content 是 base64（解码后才是 krc1 文件）。
+        // 旧写法把 base64 直接丢给 Krc.Parse → 一行都解析不出 → 字幕层永远为空
+        //（预览叠加/导出烤入/Spout 字幕通道全都不出画面），这里把回归钉住。
+        var b64 = Convert.ToBase64String(MakeKrcFile(SampleKrc));
+        var lines = Krc.ParseKgLyric("krc", b64);
+        Assert.NotNull(lines);
+        Assert.Equal(3, lines!.Count); // 间奏空行也是 timed 行
+        Assert.Equal("你好世界", lines[0].Text);
+        Assert.Equal(2, lines[0].Words.Count);
+        Assert.Equal("再/见", lines[2].Text);
+
+        Assert.Empty(Krc.Parse(b64)); // 旧写法的错误结果（base64 不是 KRC 文本）
+
+        // 非 krc 格式（酷狗普通 LRC / 网易云）没有逐字 → null（调用方据此清空字幕层）
+        Assert.Null(Krc.ParseKgLyric("lrc", b64));
+        Assert.Null(Krc.ParseKgLyric("krc", ""));
+        Assert.Null(Krc.ParseKgLyric(null, null));
+    }
+
+    [Fact]
+    public void Krc逐字解析_行与字时间轴()    {
         var text = Krc.Decrypt(MakeKrcFile(SampleKrc));
         var lines = Krc.Parse(text);
         Assert.Equal(3, lines.Count); // 间奏空行也是 timed 行

@@ -11,6 +11,9 @@
         <UseWPF>true</UseWPF>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <PlatformTarget>x64</PlatformTarget>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+        <PublishDir>bin\publish\</PublishDir>
         <Version>3.0.0</Version>
         <Product>JIZURA Live</Product>
         <Description>JIZURA-live（pure C#，无 CEF）</Description>
@@ -44,19 +47,29 @@
         <Reference Include="SpoutDXWrapper">
             <HintPath>native\SpoutDXWrapper.dll</HintPath>
         </Reference>
+        <!-- SpoutDX 原生依赖：拷贝到输出根目录（与 SpoutDXWrapper.dll 同级），绝不生成 native\ 冗余子目录 -->
         <None Remove="native\SpoutDX.dll"/>
-        <Content Include="native\SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
+        <None Include="native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
         <!-- GPU 光栅用的 ANGLE（tools/fetch-angle.ps1 拉取，二进制不入库）：落到 exe 旁的 angle\ 子目录，
              GpuRasterHost 优先从这里加载；目录不存在 = GPU 路不可用，自动回退 CPU 光栅 -->
         <None Include="native\angle\*" CopyToOutputDirectory="PreserveNewest"
               Link="angle\%(Filename)%(Extension)" Condition="Exists('native\angle')"/>
     </ItemGroup>
 
-    <Target Name="CopySpoutDx" AfterTargets="Build;Publish" Condition="Exists('native\SpoutDX.dll')">
-        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"/>
-        <!-- publish 时 OutDir 指向构建目录，发布目录需要单独补一份，
-             否则 SpoutDXWrapper.dll 找不到原生依赖，Spout 输出启动失败 -->
-        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll')"/>
+    <!-- 确保 publish 目录也包含根目录的 SpoutDX.dll，并清理掉任何误生的 native\ 冗余目录 -->
+    <Target Name="CopySpoutDx" AfterTargets="Build;Publish">
+        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll') And Exists('native\SpoutDX.dll')"/>
+        <Delete Files="$(OutDir)native\SpoutDX.dll" Condition="Exists('$(OutDir)native\SpoutDX.dll')" />
+        <Delete Files="$(PublishDir)native\SpoutDX.dll" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)native\SpoutDX.dll')" />
+        <RemoveDir Directories="$(OutDir)native" Condition="Exists('$(OutDir)native')" />
+        <RemoveDir Directories="$(PublishDir)native" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)native')" />
+    </Target>
+
+    <!-- 剪除无关平台的 runtimes（仅保留 win-x64） -->
+    <Target Name="PruneUnusedRuntimes" AfterTargets="Build;Publish">
+        <RemoveDir Directories="$(OutDir)runtimes\linux-x64;$(OutDir)runtimes\osx-x64;$(OutDir)runtimes\win-arm64;$(OutDir)runtimes\win-x86" Condition="Exists('$(OutDir)runtimes')" />
+        <RemoveDir Directories="$(PublishDir)runtimes\linux-x64;$(PublishDir)runtimes\osx-x64;$(PublishDir)runtimes\win-arm64;$(PublishDir)runtimes\win-x86" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)runtimes')" />
+        <RemoveDir Directories="$(OutDir)win-x64" Condition="Exists('$(OutDir)win-x64')" />
     </Target>
 
     <!-- 发布产物不携带引用程序的 pdb/xml -->

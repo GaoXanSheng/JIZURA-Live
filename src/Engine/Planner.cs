@@ -19,6 +19,7 @@
 //   J.resolveLang / J.setLang             → JLang.ResolveLang / SetLang
 //   J.setTypeset                          → 省略（只影响排版量测；Plan.Typeset 已带，M1 无排版）
 
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -89,8 +90,8 @@ public static class Planner
             Match m;
             while ((m = TimeTagRe.Match(s)).Success)
             {
-                times.Add(long.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture) * 60
-                          + double.Parse(m.Groups[2].Value.Replace(":", "."), System.Globalization.CultureInfo.InvariantCulture));
+                times.Add(long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) * 60
+                          + double.Parse(m.Groups[2].Value.Replace(":", "."), CultureInfo.InvariantCulture));
                 s = s[m.Length..];
             }
             s = s.Trim();
@@ -98,7 +99,7 @@ public static class Planner
             var im = InterludeRe.Match(s);
             if (im.Success)
             {
-                var secs = im.Groups[2].Success ? double.Parse(im.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture) : (double?)null;
+                var secs = im.Groups[2].Success ? double.Parse(im.Groups[2].Value, CultureInfo.InvariantCulture) : (double?)null;
                 var gapBeforeI = pendingGap; // JS 的 base 在置 false 前取 pendingGap
                 void PushInter(double? lrc)
                 {
@@ -2090,7 +2091,7 @@ public static class Planner
         }
         if (H > W * 1.1)
         {
-            var h = (int)Math.Round(H * (gap > 0 ? gap : 0.33), MidpointRounding.AwayFromZero);
+            var h = (int)Math.Round(H * (gap > 0 ? (1 - gap) / 2 : 0.33), MidpointRounding.AwayFromZero);
             return new[]
             {
                 new Zone { X = 0, Y = 0, W = W, H = h, Side = "top" },

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -5,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
+using JizuraLive.Logging;
 
 namespace JizuraLive.App.Views;
 
@@ -91,8 +93,8 @@ public partial class SettingsTab : UserControl
         RebuildLocalizedItems();
         PullSubtitle();
         ValidateDraft();
-        if (JFonts.FontDirs().FirstOrDefault(Directory.Exists) == null)
-            TblFontDir.Text = L.T("Settings.Fonts.NoDir");
+        RefreshStorageInfo();
+        TblFontDir.Text = AppDirs.FontsDir;
     }
 
     private void BuildComboItems()
@@ -502,19 +504,78 @@ public partial class SettingsTab : UserControl
             TbSpoutName.Text = st.SpoutName;
             CkSpoutTransparent.IsChecked = st.SpoutTransparent;
             CkSpoutLyrics.IsChecked = st.SpoutLyricsEnabled;
-            TbLyricsFps.Text = st.LyricsFps.ToString();
-            CkFetchFonts.IsChecked = st.FetchFonts;
-            TblFontDir.Text = JFonts.FontDirs().FirstOrDefault(Directory.Exists) ?? L.T("Settings.Fonts.NoDir");
-            _dirty = false;
-        }
-        finally
-        {
-            _syncing = false;
-        }
-        ValidateDraft();
-    }
+	            TbLyricsFps.Text = st.LyricsFps.ToString();
+	            CkFetchFonts.IsChecked = st.FetchFonts;
+	            Directory.CreateDirectory(AppDirs.FontsDir);
+	            TblFontDir.Text = AppDirs.FontsDir;
+	            RefreshStorageInfo();
+	            _dirty = false;
+	        }
+	        finally
+	        {
+	            _syncing = false;
+	        }
+	        ValidateDraft();
+	    }
 
-    /// <summary>缺字体自动联网补：即时生效（不需要重启渲染引擎）。开的时候顺带把当前 plan 用到的
+	    private void BtnOpenFontDir_Click(object sender, RoutedEventArgs e)
+	    {
+	        try
+	        {
+	            Directory.CreateDirectory(AppDirs.FontsDir);
+	            Process.Start(new ProcessStartInfo("explorer.exe", AppDirs.FontsDir) { UseShellExecute = true });
+	        }
+	        catch (Exception ex)
+	        {
+	            Log.Warn("打开用户字体目录失败：" + ex.Message);
+	        }
+	    }
+
+	    private void BtnOpenDataDir_Click(object sender, RoutedEventArgs e)
+	    {
+	        try
+	        {
+	            Directory.CreateDirectory(AppDirs.Root);
+	            Process.Start(new ProcessStartInfo("explorer.exe", AppDirs.Root) { UseShellExecute = true });
+	        }
+	        catch (Exception ex)
+	        {
+	            Log.Warn("打开数据根目录失败：" + ex.Message);
+	        }
+	    }
+
+	    private void BtnCleanCache_Click(object sender, RoutedEventArgs e)
+	    {
+	        StorageCleaner.ClearCache(S.AudioPath);
+	        RefreshStorageInfo();
+	    }
+
+	    private void BtnCleanCloud_Click(object sender, RoutedEventArgs e)
+	    {
+	        StorageCleaner.ClearCloud(S.AudioPath);
+	        RefreshStorageInfo();
+	    }
+
+	    private void BtnCleanLogs_Click(object sender, RoutedEventArgs e)
+	    {
+	        StorageCleaner.ClearLogs();
+	        RefreshStorageInfo();
+	    }
+
+	    private void RefreshStorageInfo()
+	    {
+	        try
+	        {
+	            var summary = StorageCleaner.GetSummary();
+	            TblStorageInfo.Text = L.F("Settings.Storage.SummaryFmt", summary.CacheMb, summary.CloudMb, summary.LogsMb);
+	        }
+	        catch
+	        {
+	            TblStorageInfo.Text = "";
+	        }
+	    }
+
+	    /// <summary>缺字体自动联网补：即时生效（不需要重启渲染引擎）。开的时候顺带把当前 plan 用到的
     /// 字体请求一遍，拉到后 FontFetch 回调重规划换脸。</summary>
     private void FetchFonts_Changed(object sender, RoutedEventArgs e)
     {

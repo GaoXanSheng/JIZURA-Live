@@ -1,4 +1,5 @@
 {
+  "Lyrics.Header": "歌词",
   "Lyrics.LoadLrc": "读取 LRC",
   "Lyrics.LoadLrc.Tip": "读取 .lrc：整份替换歌词并带上每行的开始时刻（可用 Ctrl+Z 撤销）",
   "Lyrics.Clear": "清空歌词",

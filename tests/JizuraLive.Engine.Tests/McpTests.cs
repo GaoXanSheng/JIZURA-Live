@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using JizuraLive.App;
+using JizuraLive.App.I18n;
 using JizuraLive.App.Mcp;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
@@ -73,6 +74,7 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
 
     public McpTests()
     {
+        L.Initialize(null);
         EngineBoot.Install();
         Omakase.Install();
         _preview = new PreviewEngine();
@@ -385,5 +387,38 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
         Assert.Equal("jizura-live", (string?)res["result"]?["serverInfo"]?["name"]);
         Assert.Equal("2025-06-18", (string?)res["result"]?["protocolVersion"]);
         Assert.True((bool?)res["result"]?["capabilities"]?["tools"]?["listChanged"]);
+    }
+
+    [Fact]
+    public async Task start_export_subwebm_无字幕数据报错()
+    {
+        _state.SetSubtitles(null);
+        var (_, body) = await PostAsync(
+            "{\"jsonrpc\":\"2.0\",\"id\":15,\"method\":\"tools/call\",\"params\":{\"name\":\"start_export\",\"arguments\":{\"kind\":\"subwebm\"}}}");
+        var err = JObject.Parse(body)["error"];
+        Assert.NotNull(err);
+        Assert.Equal(-32602, (int?)err!["code"]);
+        Assert.Contains("subwebm", (string?)err["message"]);
+    }
+
+    [Fact]
+    public async Task start_export_subwebm_有字幕数据接受启动()
+    {
+        _state.SetSubtitles(new List<JizuraLive.App.Cloud.KrcLine>
+        {
+            new(0, 1000, "测试", new[] { new JizuraLive.App.Cloud.KrcWord(0, 1000, "测试") })
+        });
+        var tempDir = Path.Combine(Path.GetTempPath(), $"mcp-export-{Guid.NewGuid():N}");
+        var (_, body) = await PostAsync(
+            "{\"jsonrpc\":\"2.0\",\"id\":16,\"method\":\"tools/call\",\"params\":{\"name\":\"start_export\",\"arguments\":{\"kind\":\"subwebm\",\"dir\":\""
+            + tempDir.Replace("\\", "\\\\") + "\"}}}");
+        var res = JObject.Parse(body)["result"];
+        Assert.NotNull(res);
+        var text = (string?)res!["content"]?[0]?["text"];
+        Assert.NotNull(text);
+        var job = JObject.Parse(text!)["job"];
+        Assert.NotNull(job);
+        Assert.Equal("subwebm", (string?)job!["kind"]);
+        Assert.Equal("running", (string?)job["status"]);
     }
 }

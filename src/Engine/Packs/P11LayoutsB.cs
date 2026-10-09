@@ -375,7 +375,8 @@ public static class P11LayoutsB
         var t = new DotTile { Cv = bmp, T = T };
         if (DotTiles.Count > 24)
         {
-            foreach (var v in DotTiles.Values) v.Cv.Dispose();
+            // 只摘引用不 Dispose：清空时本帧可能还持有刚取过的 tile（同帧多次取用），
+            // 当场释放会让随后 CreateBitmap/DrawImage 读到已释放对象（0xC0000005）。交 GC 回收。
             DotTiles.Clear();
         }
         DotTiles[key] = t;

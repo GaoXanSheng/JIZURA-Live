@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.App.Cloud;
 
@@ -57,6 +58,19 @@ public static class Krc
 
     private static readonly Regex ReTimed = new(@"^\[(\d+),(\d+)\](.*)$", RegexOptions.Compiled);
     private static readonly Regex ReWord = new(@"<(\d+),(\d+),\d+>", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 酷狗歌词响应 → 字幕层时间轴。fmt=krc 才有逐字：内容字段是 base64，必须先解码再解密，
+    /// 直接把 base64 丢给 <see cref="Parse"/> 会一行都匹配不上（返回空表）——字幕通道「无渲染」
+    /// 的元凶就是这个。其余格式（酷狗普通 LRC / 网易云）没有逐字，返回 null。
+    /// </summary>
+    public static List<KrcLine>? ParseKgLyric(string? fmt, string? contentBase64)
+    {
+        if (!string.Equals(fmt, "krc", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(contentBase64))
+            return null;
+        var lines = Parse(Decrypt(Convert.FromBase64String(contentBase64)));
+        return lines.Count > 0 ? lines : null;
+    }
 
     /// <summary>
     /// 解析解密后的 KRC 文本为行/字结构。空行（间奏）也是 timed 行（无字），按出现顺序保留，
@@ -130,13 +144,13 @@ public static class Krc
         {
             var b64 = line["[language:".Length..^1];
             var bin = Convert.FromBase64String(b64);
-            var j = Newtonsoft.Json.Linq.JObject.Parse(Encoding.UTF8.GetString(bin)); // language 块是 JSON 对象
+            var j = JObject.Parse(Encoding.UTF8.GetString(bin)); // language 块是 JSON 对象
             List<string>? roma = null, trans = null;
-            foreach (var item in j["content"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+            foreach (var item in j["content"] as JArray ?? new JArray())
             {
-                var rows = (item["lyricContent"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
-                    .Select(blocks => blocks.Type == Newtonsoft.Json.Linq.JTokenType.Array
-                        ? string.Concat(((Newtonsoft.Json.Linq.JArray)blocks).Select(x => x.ToString()))
+                var rows = (item["lyricContent"] as JArray ?? new JArray())
+                    .Select(blocks => blocks.Type == JTokenType.Array
+                        ? string.Concat(((JArray)blocks).Select(x => x.ToString()))
                         : blocks.ToString())
                     .Select(s => s.Trim()).ToList();
                 if (!rows.Any(r => r.Length > 0)) continue;
@@ -244,8 +258,8 @@ public static class Krc
             {
                 try
                 {
-                    var j = Newtonsoft.Json.Linq.JObject.Parse(line.Trim());
-                    var txt = string.Concat((j["c"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+                    var j = JObject.Parse(line.Trim());
+                    var txt = string.Concat((j["c"] as JArray ?? new JArray())
                         .Select(p => p["tx"]?.ToString() ?? "")).Trim();
                     if (txt.Length > 0) outRows.Add(new NeRow(null, txt));
                 }

@@ -1,17 +1,17 @@
 ﻿<UserControl x:Class="JizuraLive.App.Views.LyricsPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:JizuraLive.App.Controls">
     <!-- 对位 LyricsPanel.vue：.sec（px-4 py-3.5 gap-2.5 border-b） -->
     <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}"
             BorderThickness="0,0,0,1" Padding="16,14">
         <StackPanel>
             <!-- .sec-h：标题 + 读取 LRC / 清空歌词 / 记法 -->
             <Grid Margin="0,0,0,10">
-                 <!-- TODO -->
-                <!-- <ctl:JzLabel Text="歌词" Tracking="0.18" TextElement.FontSize="11" -->
-                <!--              TextElement.FontWeight="SemiBold" -->
-                <!--              TextElement.Foreground="{StaticResource Mut}" HorizontalAlignment="Left" -->
-                <!--              VerticalAlignment="Center" /> -->
+                <ctl:JzLabel Text="{DynamicResource Loc.Lyrics.Header}" Tracking="0.18" TextElement.FontSize="11"
+                             TextElement.FontWeight="SemiBold"
+                             TextElement.Foreground="{StaticResource Mut}" HorizontalAlignment="Left"
+                             VerticalAlignment="Center" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button Content="{DynamicResource Loc.Lyrics.LoadLrc}" Style="{StaticResource BtnGhostSm}" Click="BtnLoadLrc_Click"
                             ToolTip="{DynamicResource Loc.Lyrics.LoadLrc.Tip}" />
