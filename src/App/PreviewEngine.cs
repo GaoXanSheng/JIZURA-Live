@@ -585,8 +585,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _startTs = Stopwatch.GetTimestamp();
         _version++;
         RefreshLoopHold(); // 对位 seek()：定位后按新位置重取范围
-        // scrub 拖动中音频已被 BeginScrub 压住：只挪位置不出声（对位「scrub 中 seek 不重启音频」）
-        if (_audioActive) AudioJump(_base, resume: IsPlaying && !_scrubbing);
+        // scrub 拖动中完全不碰音频链：Seek 每次鼠标移动都调，而 AudioJump 会 Stop（等回调线程退出）
+        // + Media Foundation 重定位，逐次做会把 UI 线程和声卡一起拖住。拖动中只挪位置，
+        // 松手由 EndScrub 统一重定位一次（对位「scrub 中 seek 不重启音频」）。
+        if (_audioActive && !_scrubbing) AudioJump(_base, resume: IsPlaying);
     }
 
     /// <summary>scrub 开始（时间轴/进度条按下）：画面跟手、音频静默（对位 beginScrub）。</summary>

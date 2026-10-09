@@ -266,10 +266,12 @@ public sealed class TimelineSurface : FrameworkElement
             }
             else
             {
-                // 时间轴本体：点击/拖动 seek（对位 Vue：这里不 beginScrub，音频照常跟 seek 重启）
+                // 时间轴本体：点击/拖动 seek。拖动中同样静默（BeginScrub）——逐次 seek 都去
+                // Stop+重定位音频会把 UI 与声卡一起拖住；松手 EndScrub 统一重定位一次。
                 CaptureMouse();
                 _bodyScrub = true;
-                Preview!.Seek(TimeOfX(p.X));
+                Preview!.BeginScrub();
+                Preview.Seek(TimeOfX(p.X));
                 Cursor = Cursors.SizeWE;
             }
         }
@@ -334,7 +336,11 @@ public sealed class TimelineSurface : FrameworkElement
             _phScrub = false;
             Preview?.EndScrub();
         }
-        _bodyScrub = false;
+        if (_bodyScrub)
+        {
+            _bodyScrub = false;
+            Preview?.EndScrub(); // 本体拖动与播放头条一样：松手才重定位一次音频
+        }
         if (IsMouseCaptured) ReleaseMouseCapture();
         Cursor = Cursors.Arrow;
         InvalidateVisual();
