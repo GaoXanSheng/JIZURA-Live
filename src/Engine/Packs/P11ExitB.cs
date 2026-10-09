@@ -7,13 +7,13 @@
 // 管线缺口与降级（本文件内解决，不改共享文件）：
 // 1. JS 的 merged/addC 自带合并：C# JAnim.CombineChar 全字段合并，语义等价（DrawItem 侧
 //    a<=0.002 即跳过），不需要。
-// 2. it.post/it.pre（chainPost/chainPre）：JLayouts.DrawFx 尚未接（TODO(11p)，JS 里 post 画在
-//    文字后、pre 画在文字前）。C# 侧在 Draw 调用点内就地执行——内容/几何一致，层级在主文字
-//    下方（管线接上 post/pre 后回迁）。文字副本（drawFx/drawItem 的 copyOf）经 DrawFxCopy/
+// 2. it.post/it.pre（chainPost/chainPre）：JLayouts.DrawFx 已接（Env.PreFn/PostFn，pre 画在文字
+//    前、post 画在文字后）。本包仍在 Draw 调用点内就地执行——内容/几何一致，层级在主文字
+//    下方（可回迁到 env.PreFn/PostFn）。文字副本（drawFx/drawItem 的 copyOf）经 DrawFxCopy/
 //    DrawCopy 就地画。
 // 3. it.clipFn（任意路径裁剪，peelOff/tearOut/scorchOut/scanOut/stripesOut/halftoneOut/eraserOut/
-//    clockOut/floodOut/slashOut 用）：管线未接——主文字按字形中心做可见性近似（遮罩边缘按字形
-//    粒度离散，行内注明；P11Enter 同先例）；本 Draw 自己画的副本用真 SKPath 裁剪（精确）。
+//    clockOut/floodOut/slashOut 用）：管线已接（Env.ClipFn → DrawFx ClipPath）——主文字与自画副本
+//    均走真 SKPath 裁剪（精确）。
 //    clapShut 单字分支与 shredOut 的轴对齐矩形分别折算成 it.clip / it.clipY（DrawFx 原生消费）。
 //    注：JLayouts.DrawFx 的 clip/clipY ClipRect 参数疑似按 (x,y,w,h) 传入（SKRect 是
 //    (l,t,r,b)）——共享文件的既有问题，本文件不修，仅在汇报中记录。

@@ -5,8 +5,8 @@
 //   Draw(env) 在 JLayouts.MainDraw 的 treat 调用点执行（JS apply(env, it, cut.treatP)）：
 //   env.It 是当前 item、env.Cut.TreatP 是参数。item 就地改写直接写 env.It；
 //   charFns.push → env.CharFns.Add（管线 CombineChar 合并）。
-// - addPre/addPost/sized：C# DrawFx 未接钩子字段——钩子体在本 Draw 内就地执行（pre 与 JS 同层=
-//   文字下方；post 的内容提前画，层级在主文字下，内容/几何一致；管线接上 post 后回迁）。
+// - addPre/addPost/sized：C# DrawFx 已接钩子字段（Env.PreFn/PostFn）——钩子体仍在本 Draw 内就地
+//   执行（pre 与 JS 同层=文字下方；post 的内容提前画，层级在主文字下，内容/几何一致；可回迁）。
 //   sized 因此只按 apply 时的 size 算一次（出入场改 size 时不刷新——已知近似）。
 // - lineSpans/glyphList 的 it.charFn：apply 时管线尚未 CombineChar → 字形按静态布局位置取。
 // - bg：BgDef.Draw(env)（JS draw(env, cut.bgP || {})，P 从 env.Cut.BgP 取，save/restore 包装）。
@@ -25,6 +25,7 @@
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -547,7 +548,7 @@ public static class P11Looks
         return new BeatInfo(true, t - beats[i], Math.Max(0.2, len), i);
     }
 
-    private sealed class StepBox { public int N; public double[] V = System.Array.Empty<double>(); }
+    private sealed class StepBox { public int N; public double[] V = Array.Empty<double>(); }
 
     private static readonly ConditionalWeakTable<Cut, StepBox> StepCache = new();
 
@@ -556,7 +557,7 @@ public static class P11Looks
     {
         var c = env.Cut!;
         if (StepCache.TryGetValue(c, out var box) && box.N == n) return box.V;
-        var beats = env.Plan?.Beats ?? System.Array.Empty<double>();
+        var beats = env.Plan?.Beats ?? Array.Empty<double>();
         var v = new List<double>();
         foreach (var b in beats)
         {
@@ -3258,7 +3259,7 @@ public static class P11Looks
         var px = b.PeekPixels();
         var ptr = px.GetPixels();
         var buf = new byte[px.Info.BytesSize];
-        System.Runtime.InteropServices.Marshal.Copy(ptr, buf, 0, buf.Length);
+        Marshal.Copy(ptr, buf, 0, buf.Length);
         for (var y = 0; y < h; y++)
         {
             var run = 1 + (int)(J.H(y, 3) % 7);
@@ -3272,7 +3273,7 @@ public static class P11Looks
                 buf[p + 3] = 255;
             }
         }
-        System.Runtime.InteropServices.Marshal.Copy(buf, 0, ptr, buf.Length);
+        Marshal.Copy(buf, 0, ptr, buf.Length);
         _noiseTex = SKImage.FromBitmap(b);
         b.Dispose();
         return _noiseTex;

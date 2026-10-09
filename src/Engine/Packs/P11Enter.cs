@@ -9,9 +9,10 @@
 // 管线缺口与降级（本文件内解决，不改共享文件）：
 // 1. it.pre/it.post（addPre/addPost/postLocal）：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，
 //    pre 画在文字前、post 画在文字后）。本包经 DrawPre/DrawPostLocal 挂钩（链式、addPre 同语义）。
-// 2. it.clipFn（clipLocal 任意路径裁剪）：矩形裁剪折算成每字形 clipX/clipY（glyph 盒比例、
-//    中心 0，与 JText.drawItem 的 ClipRect 同口径）精确对位；非矩形的遮罩（圆/棋盘/百叶/扫描线）
-//    按字形粒度做可见性近似（ClipHideGlyphs，行内注明）。
+// 2. it.clipFn（clipLocal 任意路径裁剪）：任意路径裁剪管线已接（Env.ClipFn → JLayouts.DrawFx 的
+//    ClipPath，用法见 P11Exit）；本包未升级，仍按旧法近似——矩形折算成每字形 clipX/clipY（glyph
+//    盒比例、中心 0，与 JText.drawItem 的 ClipRect 同口径）精确对位，非矩形遮罩（圆/棋盘/百叶/
+//    扫描线）按字形粒度做可见性近似（ClipHideGlyphs，行内注明）。
 // 3. JS 的 mergeChar/_enterFix 再合并（J.combineChar 丢 clipX/skew/blur 扩展字段的补丁）：
 //    C# JAnim.CombineChar 全字段合并，不需要。
 // 4. `ae`（AE 导出的模板名，11_export 消费）与 pieces: true（本包无 pieces 条目）MoveDef
@@ -201,7 +202,8 @@ public static class P11Enter
         new[] { (g.X + g.Vx) * isx, (g.Y + g.Vy) * isy };
 
     /// <summary>
-    /// it.clipFn 的矩形对位：管线未接任意路径裁剪（JLayouts.DrawFx TODO(11p)），把局部空间
+    /// it.clipFn 的矩形对位：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath），但矩形这里仍走
+    /// 每字形折算（与逐字遮罩同口径自然叠加）——把局部空间
     /// 轴对齐矩形 (rx0,ry0,rx1,ry1) 折算成每字形 clipX/clipY 推一个额外 charFn——
     /// 比例 = 局部位移 / 字形盒（与 drawItem 的 ClipRect(cx[0]*g.W) 同口径，r90 字形按 +90°
     /// 旋转换轴）。combineChar 对 clipX/clipY 取交集，与条目自身的逐字遮罩自然叠加。
@@ -949,8 +951,8 @@ public static class P11Enter
             ScaleAbout(it, J.Lerp(1.14, 1, e));
             var size = N0(it, "size");
             var radius = (Math.Sqrt(Math.Pow(Box(it).W, 2) + Math.Pow(Box(it).H, 2)) / 2 + size * 0.25) * e;
-            // TODO(11p 管线钩子)：JS clipLocal 是圆形路径裁剪——矩形/半平面都表达不了，
-            // 这里按字形中心到盒心的距离做可见性近似（遮罩边缘按字形粒度离散）。
+            // clipLocal 是圆形路径裁剪：任意路径裁剪管线已接（Env.ClipFn → JLayouts.DrawFx 的 ClipPath，
+            // 用法见 P11Exit）；此处仍按字形中心到盒心的距离做可见性近似（遮罩边缘按字形粒度离散）。
             {
                 var bx = Box(it);
                 var cx = bx.Cx;
@@ -1019,8 +1021,8 @@ public static class P11Enter
                     Pt(uc, vc, a0 - k * hv, -hv), Pt(uc, vc, a1 - k * hv, -hv),
                     Pt(uc, vc, a1 + k * hv, hv), Pt(uc, vc, a0 + k * hv, hv),
                 };
-            // TODO(11p 管线钩子)：JS clipLocal 是斜平行四边形——按字形中心沿阅读方向近似
-            // （du ≤ T 时可见；斜边按字形粒度离散）。
+            // clipLocal 是斜平行四边形：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心沿阅读方向近似（du ≤ T 时可见；斜边按字形粒度离散）。
             {
                 var bx = Box(it);
                 var G = Geo(bx);
@@ -1059,8 +1061,8 @@ public static class P11Enter
             var vert = B(it, "vertical");
             var size = N0(it, "size");
             var b = Box(it);
-            // TODO(11p 管线钩子)：JS clipLocal 是百叶条纹的并集——按「字形所在的条纹开了没有」
-            // 做可见性近似（条纹宽度变化按字形粒度离散）。
+            // clipLocal 是百叶条纹的并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按「字形所在的条纹开了没有」做可见性近似（条纹宽度变化按字形粒度离散）。
             {
                 var m = size * 0.2;
                 var V0 = (vert ? b.X0 : b.Y0) - m;
@@ -1117,7 +1119,8 @@ public static class P11Enter
                         if (u > 0) fn(ox + (ix + 0.5) * cell, oy + (iy + 0.5) * cell, cell, u);
                     }
             }
-            // TODO(11p 管线钩子)：JS clipLocal 是棋盘格并集——主文字不裁剪（色块动画保留）。
+            // clipLocal 是棋盘格并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处选择不裁剪主文字（色块动画保留）。
             // JS postLocal（accent 色块收尾）——就地执行
             DrawPostLocal(env, it, (env2, bb, x, A) =>
             {

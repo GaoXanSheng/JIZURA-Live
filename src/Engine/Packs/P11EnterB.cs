@@ -10,7 +10,8 @@
 // 管线缺口与降级（本文件内解决，不改共享文件；约定沿用 P11Enter）：
 // 1. it.pre/addPre、it.post/addPost：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，pre 画在
 //    文字前、post 画在文字后）。本包经 DrawPre/DrawPreLocal/DrawPost/DrawPostLocal 挂钩（链式）。
-// 2. it.clipFn（clipLocal 任意路径裁剪）：管线未接，主文字裁不掉。
+// 2. it.clipFn（clipLocal 任意路径裁剪）：任意路径裁剪管线已接（Env.ClipFn → JLayouts.DrawFx 的
+//    ClipPath，用法见 P11Exit）；本包未升级，主文字仍按旧法近似。
 //    - 轴对齐单矩形（quarters/invertBox/tokoroten）→ 每字形 clipX/clipY 精确对位（ClipRectLocal）；
 //    - 其余非矩形（对角半面/毛边/扫描线/棋盘/笔刷/墨渍/扇形/液面/斜带）→ 按字形中心（或四角）
 //      做可见性近似（ClipHideGlyphs，行内注明）。
@@ -366,7 +367,8 @@ public static class P11EnterB
     // ---- clipLocal 的 C# 对位 ----
 
     /// <summary>
-    /// it.clipFn 的矩形对位：管线未接任意路径裁剪（JLayouts.DrawFx TODO(11p)），把局部空间
+    /// it.clipFn 的矩形对位：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath），但矩形这里仍走
+    /// 每字形折算（与逐字遮罩同口径自然叠加）——把局部空间
     /// 轴对齐矩形 (rx0,ry0,rx1,ry1) 折算成每字形 clipX/clipY 推一个额外 charFn（精确对位，
     /// 与 P11Enter 同款）。返回推入的 fn——JS 里 clipFn 不进 charFns，copyDraw(main:null) 的
     /// 副本不带裁剪；C# 侧这类副本把它当 main 传给 CopyDraw 以排除。
@@ -1409,8 +1411,8 @@ public static class P11EnterB
             }
             double[][] Quad(StickerGeo G) =>
                 new[] { new[] { G.L, G.T }, new[] { G.R, G.T }, new[] { G.R, G.B }, new[] { G.L, G.B } };
-            // TODO(11p 管线钩子)：JS clipLocal 是每字形对角半面（非矩形）——按字形中心
-            // 在折痕哪一侧做可见性近似（斜边按字形粒度离散）。
+            // clipLocal 是每字形对角半面（非矩形）：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心在折痕哪一侧做可见性近似（斜边按字形粒度离散）。
             {
                 var bx = Box(it);
                 var nN = bx.Lay.N;
@@ -1720,7 +1722,8 @@ public static class P11EnterB
             it["x"] = N0(it, "x") + dX;
             it["y"] = N0(it, "y") + dY;
             it["rot"] = N0(it, "rot") + dR;
-            // TODO(11p 管线钩子)：JS clipLocal 是毛边多边形——按字形中心在毛边哪一侧做可见性近似
+            // clipLocal 是毛边多边形：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心在毛边哪一侧做可见性近似
             JAnim.CharFn clipFn;
             {
                 var seamPts = Seam(b0);
@@ -1962,7 +1965,8 @@ public static class P11EnterB
                 }
                 path.Close();
             }
-            // TODO(11p 管线钩子)：JS clipLocal 是斜向半带——按字形中心做可见性近似
+            // clipLocal 是斜向半带：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心做可见性近似
             JAnim.CharFn clipFn;
             {
                 var bx = Box(it);
@@ -2344,7 +2348,8 @@ public static class P11EnterB
             }
             var f1 = J.Clamp(p / 0.52);
             var f2 = J.Clamp((p - 0.48) / 0.52);
-            // TODO(11p 管线钩子)：JS clipLocal 是隔行扫描线的并集——按字形中心所在扫描线做可见性近似
+            // clipLocal 是隔行扫描线的并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心所在扫描线做可见性近似
             {
                 var bx = Box(it);
                 var G = Geo(bx);
@@ -2486,8 +2491,8 @@ public static class P11EnterB
             var p = env.Ap;
             var size = N0(it, "size");
             var dir = DirOf(env, 101);
-            // TODO(11p 管线钩子)：JS clipLocal 是 Bayer 4×4 有序抖动格的并集——
-            // 按字形中心所在格子的阈值做可见性近似
+            // clipLocal 是 Bayer 4×4 有序抖动格的并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心所在格子的阈值做可见性近似
             var b = Box(it);
             var pad = size * 0.2;
             var W = b.W + pad * 2;
@@ -2750,8 +2755,8 @@ public static class P11EnterB
                     }
                 }
             }
-            // TODO(11p 管线钩子)：JS clipLocal 是每行毛边笔刷条带的并集——按字形中心
-            // 落在哪根毛条里做可见性近似
+            // clipLocal 是每行毛边笔刷条带的并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心落在哪根毛条里做可见性近似
             {
                 var bx = Box(it);
                 var isx = N1(it, "sx");
@@ -2823,8 +2828,8 @@ public static class P11EnterB
                 var py = gp[1] + J.Rs(seed, g.Value<int?>("i") ?? 0, 153) * hh * 0.4;
                 return (px, py, Hypot(hw + Math.Abs(px - gp[0]), hh + Math.Abs(py - gp[1])) + size * 0.08);
             }
-            // TODO(11p 管线钩子)：JS clipLocal 是不规则墨渍多边形——按字形中心到墨滴
-            // 中心的距离做可见性近似（波浪边缘按字形粒度离散）
+            // clipLocal 是不规则墨渍多边形：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心到墨滴中心的距离做可见性近似（波浪边缘按字形粒度离散）
             ClipHideGlyphs(env, g =>
             {
                 var q = Qf(g.Value<int?>("i") ?? 0);
@@ -3117,8 +3122,8 @@ public static class P11EnterB
                 }
                 return m;
             }
-            // TODO(11p 管线钩子)：JS clipLocal 是波浪液面下的多边形——按字形中心在
-            // 液面上/下做可见性近似（波峰按字形粒度离散）
+            // clipLocal 是波浪液面下的多边形：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按字形中心在液面上/下做可见性近似（波峰按字形粒度离散）
             JAnim.CharFn clipFn;
             {
                 var b = Box(it);
@@ -3305,8 +3310,8 @@ public static class P11EnterB
                     J.E.InOutSine(q) * J.TAU,
                     J.R(seed, g.Value<int?>("i") ?? 0, 211) < 0.5);
             }
-            // TODO(11p 管线钩子)：JS clipLocal 是绕字中心的扇形——按「最晚被扫到的四角」
-            // 做可见性近似（扇形边缘按字形粒度离散）
+            // clipLocal 是绕字中心的扇形：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
+            // 此处仍按「最晚被扫到的四角」做可见性近似（扇形边缘按字形粒度离散）
             {
                 var bx = Box(it);
                 var nN = bx.Lay.N;
