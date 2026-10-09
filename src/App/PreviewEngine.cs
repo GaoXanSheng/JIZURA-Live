@@ -463,20 +463,23 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _version++;
     }
 
-    /// <summary>重取冻结范围（对位 refreshLoopHold）：play / seek / replan / 换档时调用。</summary>
+    /// <summary>重取冻结范围（对位 refreshLoopHold）：play / seek / replan / 换档时调用。
+    /// 取范围用 RawTime（对位 JS 的 S.t）而非 CurrentTime：CurrentTime 依赖 ActiveLoopRange，
+    /// 而 _loopHold 此刻还没赋值——用 CurrentTime 会互相递归到栈溢出（点「循环」即崩）。</summary>
     public void RefreshLoopHold()
     {
         _loopHold = Loop is LoopMode.Line or LoopMode.Cut or LoopMode.Range
-            ? Ranges.LoopRange(_plan, Loop, Project?.ExportRange, CurrentTime)
+            ? Ranges.LoopRange(_plan, Loop, Project?.ExportRange, RawTime)
             : null;
     }
 
-    /// <summary>当前生效的循环范围（对位 activeLoopRange）：Line/Cut/Range 用冻结范围，其余按当前时刻现算。</summary>
+    /// <summary>当前生效的循环范围（对位 activeLoopRange）：Line/Cut/Range 用冻结范围，其余按当前时刻现算。
+    /// 现算同样走 RawTime——CurrentTime 会回调本方法，用 CurrentTime 就是递归环。</summary>
     public (double Start, double End) ActiveLoopRange()
     {
         if (Loop is LoopMode.Line or LoopMode.Cut or LoopMode.Range && _loopHold is { } hold)
             return hold;
-        return Ranges.LoopRange(_plan, Loop, Project?.ExportRange, CurrentTime);
+        return Ranges.LoopRange(_plan, Loop, Project?.ExportRange, RawTime);
     }
 
     /// <summary>当前播放时间。有音频走波形位置钟；scrub 拖动中钉在 seek 目标；

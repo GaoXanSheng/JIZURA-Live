@@ -202,6 +202,29 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
         Assert.False(_preview.Muted);
     }
 
+    /// <summary>
+    /// 回归：换到分段循环档时 SetLoop → RefreshLoopHold → loopRange 取的是 CurrentTime，
+    /// 而 CurrentTime 又回调 ActiveLoopRange——_loopHold 尚未赋值就互相递归，点一次「循环」
+    /// 直接栈溢出（0xc00000fd）。取范围改用 RawTime（对位 JS 的 S.t）后这条链必须走得通。
+    /// 用 all→line 起手，正是崩的那一步（_loopHold 为 null）。
+    /// </summary>
+    [Fact]
+    public async Task tools_call_preview_换分段循环档不递归崩溃()
+    {
+        var id = 20;
+        foreach (var mode in new[] { "line", "cut", "range", "off", "all", "line" })
+        {
+            var (code, body) = await PostAsync(
+                "{\"jsonrpc\":\"2.0\",\"id\":" + id++ +
+                ",\"method\":\"tools/call\",\"params\":{\"name\":\"preview\",\"arguments\":{\"action\":\"pause\",\"loop\":\"" +
+                mode + "\"}}}");
+            Assert.Equal(HttpStatusCode.OK, code);
+            var r = JObject.Parse((string?)JObject.Parse(body)["result"]?["content"]?[0]?["text"]!);
+            Assert.Equal(mode, (string?)r["loop"]);
+            Assert.Equal(Ranges.ParseMode(mode), _preview.Loop);
+        }
+    }
+
     [Fact]
     public async Task 写工具_revision过期返回stale_revision()
     {
