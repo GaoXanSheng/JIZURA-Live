@@ -124,7 +124,6 @@ public static class P11Looks
         RegisterFxWhipBlur();          // L2068
         RegisterFxBlackFrame();        // L2107
         RegisterFxWhiteFrame();        // L2108
-        RegisterFxGridRepeat();        // L2110
         RegisterFxWaveWarp();          // L2128
         RegisterFxPixelDrift();        // L2143
         RegisterFxZoomPunch();         // L2160
@@ -3718,42 +3717,6 @@ public static class P11Looks
         d.W = 0.5;
         RegF("whiteFrame", d);
     }
-
-    private static void RegisterFxGridRepeat() => RegF("gridRepeat", new FxDef
-    {
-        Name = "画面分割",
-        Tags = new[] { "pop", "graphic", "glitch" },
-        W = 0.7,
-        Dur = 3,
-        Amp = 1,
-        Mid = true,
-        Draw = FxWrapped((env, ev, k) =>
-        {
-            var S = FxPlug.S;
-            var cw = FxPlug.Cw;
-            var ch = FxPlug.Ch;
-            var sc = env.Sc!;
-            if (S == null) return;
-            var ctx = env.Ctx;
-            var f = J.R(unchecked((int)EvS(ev)), 1) < 0.5;
-            var n = (k < 0.6) == f ? 2 : 3;
-            var tw = cw / (double)n;
-            var th = ch / (double)n;
-            var g = Math.Max(2, (int)Math.Round(ch * 0.006));
-            FillMode(ctx, 0, 0, cw, ch, ScK(sc, "bg"));
-            using (var simg = S.Snapshot())
-            using (var p = ImgPaint(1))
-                for (var j = 0; j < n; j++)
-                for (var i = 0; i < n; i++)
-                    ctx.DrawImage(simg, new SKRect(0, 0, cw, ch),
-                        new SKRect((float)(i * tw), (float)(j * th), (float)((i + 1) * tw), (float)((j + 1) * th)), SmpL, p);
-            for (var i = 1; i < n; i++)
-            {
-                FillMode(ctx, i * tw - g / 2.0, 0, g, ch, ScK(sc, "bg"));
-                FillMode(ctx, 0, i * th - g / 2.0, cw, g, ScK(sc, "bg"));
-            }
-        }),
-    });
 
     private static void RegisterFxWaveWarp() => RegF("waveWarp", new FxDef
     {

@@ -879,7 +879,6 @@ public static class ZhLabels
             ["whipBlur"] = "急甩模糊",
             ["blackFrame"] = "黑画格",
             ["whiteFrame"] = "白画格",
-            ["gridRepeat"] = "分割画面",
             ["waveWarp"] = "波浪扭曲",
             ["pixelDrift"] = "像素偏移",
             ["zoomPunch"] = "缩放重击",

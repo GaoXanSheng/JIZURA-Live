@@ -140,10 +140,10 @@ internal sealed class TechThumbPreview
                 }
                 try
                 {
-                    if (job.Sig != _sig) continue; // 旧签名的任务作废
+                    if (job.Sig != _sig) { job.Card.Pending = false; continue; } // 旧签名的任务作废（不复位会让卡片永久卡黑）
                     var t0 = Stopwatch.GetTimestamp();
                     var bmp = Render(job);
-                    if (bmp == null) continue;
+                    if (bmp == null) { job.Card.Pending = false; continue; }
                     var card = job.Card;
                     var pixels = bmp.Value.Pixels;
                     var stride = bmp.Value.Stride;

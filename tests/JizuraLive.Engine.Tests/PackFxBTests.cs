@@ -55,7 +55,7 @@ public class PackFxBTests
     {
         "panelWipe", "irisTrans", "doors", "blindsTrans", "rgbSplit", "smear", "vhsRoll",
         "trackingNoise", "mirrorFlash", "strobe", "posterize", "hueShift", "tileShift",
-        "filmBurn", "whipBlur", "blackFrame", "whiteFrame", "gridRepeat", "waveWarp",
+        "filmBurn", "whipBlur", "blackFrame", "whiteFrame", "waveWarp",
         "pixelDrift", "zoomPunch", "lightSweep", "crtOff", "splitSlide",
     };
 

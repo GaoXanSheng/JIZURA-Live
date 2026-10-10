@@ -395,7 +395,7 @@ public static class P11Styles
                 W(("polka", 1.7), ("sunburst", 1.2), ("checker", 1), ("bigStripes", 1), ("splitDiag", 0.9),
                     ("tvBars", 0.2), ("noiseField", 0.2), ("scanBars", 0.3)),
                 W(("bounce", 1.4), ("beatPunch", 1.2), ("stepZoom", 1), ("dutch", 0.4), ("shakeHard", 0.4)),
-                W(("zoomPunch", 1.2), ("whiteFrame", 1.1), ("gridRepeat", 1.1), ("panelWipe", 1), ("pixelDrift", 0.3),
+                W(("zoomPunch", 1.2), ("whiteFrame", 1.1), ("panelWipe", 1), ("pixelDrift", 0.3),
                     ("crtOff", 0.2), ("trackingNoise", 0.2))),
             W(("confetti", 1.6), ("heartsStars", 1.6), ("dots", 1), ("twinkle", 1), ("shapes", 1), ("sparks", 0.8),
                 ("bokeh", 0.5), ("glitchRects", 0.1), ("barcode", 0.1)),
