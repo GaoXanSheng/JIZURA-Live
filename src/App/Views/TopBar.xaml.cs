@@ -1,6 +1,9 @@
-﻿using System.IO;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Threading;
 using JizuraLive.App.I18n;
 using JizuraLive.Logging;
@@ -123,6 +126,109 @@ public partial class TopBar : UserControl
 
     private void BtnTerms_Click(object sender, RoutedEventArgs e)
     {
-        MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.Terms"), L.T("TopBar.Terms.Body"));
+        MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.Terms"), BuildTermsBody());
+    }
+
+    /// <summary>
+    /// 使用说明正文（对位旧前端 Dialogs.vue 的 terms 弹窗）：权利提示 → 工具出处 → 隐私说明
+    /// → 可折叠的「使用的开源组件」清单 → 版本/免费声明。
+    /// 内容多了会撑高卡片，所以套一层限高滚动区。
+    /// </summary>
+    private static UIElement BuildTermsBody()
+    {
+        var res = Application.Current;
+        var fg = (Brush)res.FindResource("Fg");
+        var mut = (Brush)res.FindResource("Mut");
+        var amber = (Brush)res.FindResource("Amber");
+
+        var root = new StackPanel();
+
+        // 权利提示：左侧琥珀色竖条 + raised 底（对位 Vue 的 border-l-[3px] border-amber bg-raised）
+        var rightsLine = new TextBlock { FontSize = 15, TextWrapping = TextWrapping.Wrap };
+        rightsLine.Inlines.Add(new Run(L.T("TopBar.Terms.Rights.Lead")));
+        rightsLine.Inlines.Add(new Run(L.T("TopBar.Terms.Rights.Em")) { Foreground = amber, FontWeight = FontWeights.Bold });
+        var calloutStack = new StackPanel();
+        calloutStack.Children.Add(rightsLine);
+        calloutStack.Children.Add(new TextBlock
+        {
+            Text = L.T("TopBar.Terms.Rights.Note"),
+            FontSize = 12,
+            Foreground = mut,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+        });
+        root.Children.Add(new Border
+        {
+            Background = (Brush)res.FindResource("Raised"),
+            BorderBrush = amber,
+            BorderThickness = new Thickness(3, 0, 0, 0),
+            CornerRadius = new CornerRadius(0, 6, 6, 0),
+            Padding = new Thickness(14, 12, 14, 12),
+            Margin = new Thickness(0, 0, 0, 14),
+            Child = calloutStack,
+        });
+
+        root.Children.Add(new TextBlock { Text = L.T("TopBar.Terms.BasedOn"), FontSize = 13, Foreground = fg });
+        var link = new Hyperlink(new Run("https://github.com/852wa/JIZURA")) { Foreground = amber };
+        link.RequestNavigate += (_, e2) => OpenUrl(e2.Uri.AbsoluteUri);
+        root.Children.Add(new TextBlock
+        {
+            FontSize = 13,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 10),
+            Inlines = { link },
+        });
+        root.Children.Add(new TextBlock
+        {
+            Text = L.T("TopBar.Terms.Privacy"),
+            FontSize = 12,
+            Foreground = mut,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        root.Children.Add(new Expander
+        {
+            Header = new TextBlock { Text = L.T("TopBar.Terms.Components"), FontSize = 12, Foreground = mut },
+            Foreground = mut,
+            IsExpanded = true,
+            Margin = new Thickness(0, 12, 0, 0),
+            Content = new TextBlock
+            {
+                Text = L.T("TopBar.Terms.ComponentsList"),
+                FontSize = 12,
+                Foreground = mut,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 6, 0, 0),
+            },
+        });
+
+        root.Children.Add(new TextBlock
+        {
+            Text = L.T("TopBar.Terms.Version") + "　" + L.T("TopBar.Terms.Free"),
+            FontSize = 12,
+            Foreground = mut,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 14, 0, 0),
+        });
+
+        return new ScrollViewer
+        {
+            MaxHeight = 460,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = root,
+        };
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("打开链接失败：" + ex.Message);
+        }
     }
 }

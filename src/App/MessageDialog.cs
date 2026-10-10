@@ -17,6 +17,10 @@ public static class MessageDialog
     public static void Info(Window owner, string title, string body, string? closeText = null) =>
         Show(owner, title, BuildBody(body), null, closeText ?? L.T("Dialog.Close"), primaryClose: true);
 
+    /// <summary>说明型弹窗（一个「关闭」），正文是自绘视觉树（使用说明那种分节内容）。</summary>
+    public static void Info(Window owner, string title, UIElement body, string? closeText = null) =>
+        Show(owner, title, body, null, closeText ?? L.T("Dialog.Close"), primaryClose: true);
+
     /// <summary>警示型弹窗（一个「关闭」）。</summary>
     public static void Warn(Window owner, string title, string body) =>
         Show(owner, title, BuildBody(body), null, L.T("Dialog.Close"), primaryClose: true);
@@ -74,6 +78,16 @@ public static class MessageDialog
         Brush line = (Brush)res.FindResource("LineBrush");
         Brush mut = (Brush)res.FindResource("Mut");
 
+        // 阴影单独一层，卡片本身不带 Effect：Effect 会把整个子树先光栅成中间面，卡片里的文字
+        // 跟着一起糊（而且 Effect 子树内 WPF 不用 ClearType，小字更糊）。两层同格即同尺寸。
+        var shadowLayer = new Border
+        {
+            Background = panel,
+            BorderBrush = line2,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(14),
+            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 60, ShadowDepth = 6, Opacity = 0.6 },
+        };
         var card = new Border
         {
             Background = panel,
@@ -82,8 +96,6 @@ public static class MessageDialog
             CornerRadius = new CornerRadius(14),
             Padding = new Thickness(24, 24, 24, 16),
             MaxWidth = 560,
-            Margin = new Thickness(24),
-            Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 60, ShadowDepth = 6, Opacity = 0.6 },
         };
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock
@@ -121,9 +133,26 @@ public static class MessageDialog
             WindowStartupLocation = WindowStartupLocation.Manual,
             Background = new SolidColorBrush(Color.FromArgb(0x99, 6, 6, 8)),
             FontFamily = (FontFamily)res.FindResource("UiFont"),
-            Content = new Grid { Children = { card } },
+            // 卡片贴内容、居中：两层包在一个按内容定尺寸的居中格里（默认 Stretch 会让卡片撑满
+            // 整个 owner，一小段文字下面拖出几百像素空白黑框）
+            Content = new Grid
+            {
+                Margin = new Thickness(24),
+                Children =
+                {
+                    new Grid
+                    {
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Children = { shadowLayer, card },
+                    },
+                },
+            },
         };
         card.Child = stack;
+        // 分层窗口用不了 ClearType（只能灰度抗锯齿），再配 Ideal 排版模式小字会明显发虚；
+        // 弹窗里改用 Display（笔画吸附像素网格）才不糊。只改这个弹窗，不动全应用排版模式。
+        TextOptions.SetTextFormattingMode(dialog, TextFormattingMode.Display);
 
         void Close() => dialog.Close();
 
