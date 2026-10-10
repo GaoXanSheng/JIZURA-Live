@@ -10,9 +10,10 @@
 //      所以画「主行 + 注音行」整块，注音按 roma/trans 拆行（TS 是 '　' join 后一起 wrap）。
 //      mainLine=false 可退回 TS 语义（只画注音行）——预览叠加与导出烤入用：主歌词由引擎画，
 //      字幕层只叠翻译/音译，防止主行重影。
-//   2. KRC 逐字时间轴驱动已唱/未唱双色（TS 无逐字高亮）——SubtitleConfig.Karaoke/UnsungColor。
-//   3. 行间空隙默认不画（TS lineAt 语义）；HoldLastLine=true 时保持上一句到下一句开始。
-//   4. localStorage/BroadcastChannel/worker 载荷等宿主逻辑不移植——配置就是纯 POCO。
+//   2. 行间空隙默认不画（TS lineAt 语义）；HoldLastLine=true 时保持上一句到下一句开始。
+//   3. localStorage/BroadcastChannel/worker 载荷等宿主逻辑不移植——配置就是纯 POCO。
+//
+// 字幕整行单色：不做已唱/未唱逐字高亮（KRC 逐字时间轴只用来选行与取词文本，不参与配色）。
 
 using System.Collections;
 using System.Globalization;
@@ -43,7 +44,7 @@ public enum SubPos
 
 /// <summary>
 /// 字幕配置：字段与默认值逐条对位 subtitle.ts 的 SubConfig/SUB_DEFAULT
-/// （Content 默认 Off 是 TS 原样——字幕面板初始就是关闭的）。末尾三个字段是 C# 扩展。
+/// （Content 默认 Off 是 TS 原样——字幕面板初始就是关闭的）；字体默认黑体无衬线。
 /// </summary>
 public sealed class SubtitleConfig
 {
@@ -59,14 +60,14 @@ public sealed class SubtitleConfig
     /// <summary>描边宽（1080p 像素，按 H/1080 缩放；0 = 不描边）。</summary>
     public double Stroke { get; set; } = 4;
 
-    /// <summary>已唱/主填充色（#rgb/#rrggbb）。</summary>
+    /// <summary>填充色（#rgb/#rrggbb）。</summary>
     public string Color { get; set; } = "#ffffff";
 
     /// <summary>描边色。</summary>
     public string StrokeColor { get; set; } = "#000000";
 
-    /// <summary>字体族：'' 默认 / 'sans' / 'serif'（family 链对位 subFont()）。</summary>
-    public string Font { get; set; } = "";
+    /// <summary>字体族：默认 'sans'（黑体无衬线）/ 'serif'（宋体）；旧设置里的 '' 也按无衬线解析（family 链对位 subFont()）。</summary>
+    public string Font { get; set; } = "sans";
 
     /// <summary>半透明黑底板条（rgba(0,0,0,0.45)，对位 cfg.bar）。</summary>
     public bool Bar { get; set; }
@@ -77,15 +78,9 @@ public sealed class SubtitleConfig
     /// <summary>垂直偏移（画面高的百分比，±50 封顶）。</summary>
     public double OffY { get; set; }
 
-    // ---- C# 扩展（TS 字幕层没有逐字高亮与行间保持） ----
+    // ---- C# 扩展（TS 字幕层没有行间保持） ----
 
-    /// <summary>KRC 逐字卡拉 OK：已唱用 Color、未唱用 UnsungColor；false 退化为 TS 同款整行单色。</summary>
-    public bool Karaoke { get; set; } = true;
-
-    /// <summary>未唱字符的填充色。</summary>
-    public string UnsungColor { get; set; } = "#8a8a8a";
-
-    /// <summary>行间空隙/间奏时保持上一句（整句已唱态）直到下一句开始；false = 空隙不画（TS 语义）。</summary>
+    /// <summary>行间空隙/间奏时保持上一句直到下一句开始；false = 空隙不画（TS 语义）。</summary>
     public bool HoldLastLine { get; set; }
 
     /// <summary>字段逐项拷贝（启动时从 settings.json 灌入、设置面板存盘取快照）——
@@ -102,8 +97,6 @@ public sealed class SubtitleConfig
         Bar = src.Bar;
         OffX = src.OffX;
         OffY = src.OffY;
-        Karaoke = src.Karaoke;
-        UnsungColor = src.UnsungColor;
         HoldLastLine = src.HoldLastLine;
     }
 }
@@ -129,7 +122,7 @@ public sealed class SubtitleLayer
     /// lines：KRC 时间轴（Krc.Parse 的产物，时间单位毫秒）。
     /// notes：每行注音（JIZURA LRC 的 "roma　trans" 串，Krc.KrcToLrc 生成；缺省 = 无注音行）。
     /// cfg：缺省 = SUB_DEFAULT（Content=Off，什么都不画——要出画面得显式开）。
-    /// mainLine：是否画主行（KRC 正文 + 逐字高亮）。独立 Spout 字幕通道 = true（整块自带主行）；
+    /// mainLine：是否画主行（KRC 正文）。独立 Spout 字幕通道 = true（整块自带主行）；
     ///   预览叠加与导出烤入 = false（主歌词由引擎自己画，只叠注音/翻译行，防重影）。
     /// </summary>
     public SubtitleLayer(IReadOnlyList<KrcLine> lines, SubtitleConfig? cfg = null, IReadOnlyList<string>? notes = null,
@@ -146,14 +139,11 @@ public sealed class SubtitleLayer
     public sealed record FrameStats(
         int? LineIndex, // 当前行索引（无 → null；空隙/间奏下 HoldLastLine 给的是被保持的行）
         int Words, // 当前行 KrcWord 数
-        int SungWords, // 已开始唱的词数
-        int SungChars, // 已唱码点数（已开始的词整词算已唱）
-        int UnsungChars, // 未唱码点数
         int MainRows, // 主行折行数
         int SubRows, // 翻译/音译行数
         bool Drawn) // 本帧有笔画落盘
     {
-        public static FrameStats None { get; } = new(null, 0, 0, 0, 0, 0, 0, false);
+        public static FrameStats None { get; } = new(null, 0, 0, 0, false);
     }
 
     /// <summary>
@@ -185,7 +175,7 @@ public sealed class SubtitleLayer
 
     /// <summary>
     /// 没有 KRC 逐字数据时（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）从 plan 的行与
-    /// 注音合成字幕行：非间奏行整行合成一个「词」（无逐字时间，起唱即整行已唱），这样 mainLine=true
+    /// 注音合成字幕行：非间奏行整行合成一个「词」（无逐字时间），这样 mainLine=true
     /// 的 Spout 字幕通道与纯字幕导出也能画出主行；注音取 PlanLine.Note。
     /// 全行都没有注音内容返回 null（调用方退化为不画字幕）。
     /// 预览叠加、导出烤入、Spout 字幕通道三条路共用这一份，避免各处行为漂移。
@@ -249,7 +239,7 @@ public sealed class SubtitleLayer
         var tMs = t * 1000.0;
         var at = LineAt(tMs);
         if (at == null) return FrameStats.None;
-        var (idx, active) = at.Value;
+        var idx = at.Value.Idx;
         var line = _lines[idx];
 
         // 注音行：notes[idx] 按 roma/trans 分类后按 Content 模式取（TS fromNoteOf/subTextFor 同款）
@@ -269,29 +259,11 @@ public sealed class SubtitleLayer
             if (trans.Length > 0) subTexts.Add(trans);
         }
 
-        // 主行码点 + 码点→词映射（主文本 = 词文本按序 concat，与 Krc.Parse 的 Text 同源）
+        // 主行码点（主文本 = 词文本按序 concat，与 Krc.Parse 的 Text 同源）
         var cps = new List<string>(64);
-        var wordOf = new List<int>(64);
         for (var wi = 0; wi < line.Words.Count; wi++)
             foreach (var cp in CodePoints(line.Words[wi].Text))
-            {
                 cps.Add(cp);
-                wordOf.Add(wi);
-            }
-
-        // 逐字已唱/未唱：词一开始唱就算整词已唱（词内不做渐变填充）；被保持的上一句整句已唱
-        var sung = new bool[line.Words.Count];
-        var sungWords = 0;
-        for (var wi = 0; wi < sung.Length; wi++)
-        {
-            sung[wi] = (!active || !_cfg.Karaoke) || tMs >= line.Words[wi].StartMs;
-            if (sung[wi]) sungWords++;
-        }
-
-        var sungChars = 0;
-        for (var i = 0; i < cps.Count; i++)
-            if (sung[wordOf[i]])
-                sungChars++;
 
         // ---------------- 排版（subtitle-draw.ts 的常数逐条对位） ----------------
         var fontPx = Math.Max(8, h * _cfg.Size / 100);
@@ -328,7 +300,7 @@ public sealed class SubtitleLayer
             mainRowW[r] = width;
         }
 
-        var stats = new FrameStats(idx, line.Words.Count, sungWords, sungChars, cps.Count - sungChars,
+        var stats = new FrameStats(idx, line.Words.Count,
             mainRows.Count, subRows.Count, mainRows.Count + subRows.Count > 0);
         if (!stats.Drawn) return stats;
 
@@ -340,7 +312,6 @@ public sealed class SubtitleLayer
 
         ctx.Save();
         var fillCol = SubColor(_cfg.Color);
-        var unsungCol = SubColor(_cfg.UnsungColor);
         using var fillP = new SKPaint { IsAntialias = true, Color = fillCol };
         using var strokeP = new SKPaint
         {
@@ -369,7 +340,7 @@ public sealed class SubtitleLayer
             }
         }
 
-        // 主行：整行描边一遍再逐字按已唱/未唱填色（基线 = baseY + r*lh，TS textAlign=center 的
+        // 主行：整行单色（先描边一遍再填色；基线 = baseY + r*lh，TS textAlign=center 的
         // 整行描边 → 这里逐码点描边，同色不透明下视觉等价）
         var y = baseY;
         for (var r = 0; r < mainRows.Count; r++)
@@ -389,7 +360,6 @@ public sealed class SubtitleLayer
             var fx = x;
             for (var i = s; i < e; i++)
             {
-                fillP.Color = sung[wordOf[i]] ? fillCol : unsungCol;
                 ctx.DrawText(cps[i], (float)fx, (float)y, SKTextAlign.Left, font, fillP);
                 fx += cpW[i];
             }
@@ -401,7 +371,6 @@ public sealed class SubtitleLayer
         foreach (var (text, _) in subRows)
         {
             if (strokePx > 0) ctx.DrawText(text, (float)centerX, (float)y, SKTextAlign.Center, font, strokeP);
-            fillP.Color = fillCol;
             ctx.DrawText(text, (float)centerX, (float)y, SKTextAlign.Center, font, fillP);
             y += lh;
         }
@@ -439,7 +408,7 @@ public sealed class SubtitleLayer
         if (!_cfg.HoldLastLine)
             return active ? (idx, true) : ((int, bool)?)null;
         if (active && _lines[idx].Text.Length > 0) return (idx, true);
-        // 间奏空行不吃上一句：往回找最近一句非空行（整句已唱态）
+        // 间奏空行不吃上一句：往回找最近一句非空行（被保持的上一句照常整行画）
         while (k >= 0 && _lines[_order[k]].Text.Length == 0) k--;
         return k >= 0 ? (Idx: _order[k], Active: false) : ((int, bool)?)null;
     }

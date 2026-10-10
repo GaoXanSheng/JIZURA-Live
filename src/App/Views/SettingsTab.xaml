@@ -123,33 +123,14 @@
                 </Grid>
 
                 <!-- C# 扩展（Vue 面板没有）：只影响字幕层本体（Spout 独立字幕通道 / 导出烤入）。
-                     两列：左列两个勾选项纵排，右列未唱颜色。原先三列等宽，右列「行间保持上一句」
-                     在 360px 宽的面板里被裁掉末尾（用户报的布局挤压）。 -->
+                     字幕整行单色（不做逐字高亮），所以这一组只剩「行间保持上一句」。 -->
                 <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Ext}" Style="{StaticResource FieldLab}"
                            Margin="0,4,0,0" />
-                <Grid Margin="0,4,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" MinWidth="104" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                        <CheckBox x:Name="CkSubKaraoke" Checked="Sub_Changed" Unchecked="Sub_Changed">
-                            <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Karaoke}" FontSize="12"
-                                       TextWrapping="Wrap" />
-                        </CheckBox>
-                        <CheckBox x:Name="CkSubHold" Margin="0,6,0,0"
-                                  Checked="Sub_Changed" Unchecked="Sub_Changed">
-                            <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Hold}" FontSize="12"
-                                       TextWrapping="Wrap" />
-                        </CheckBox>
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Top">
-                        <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.UnsungColor}"
-                                   Style="{StaticResource FieldLab}" />
-                        <TextBox x:Name="TbSubUnsung" Style="{StaticResource SubColorBox}" Margin="0,4,0,0"
-                                 LostFocus="SubColor_Commit" KeyDown="SubColor_KeyDown" />
-                    </StackPanel>
-                </Grid>
+                <CheckBox x:Name="CkSubHold" Margin="0,4,0,0"
+                          Checked="Sub_Changed" Unchecked="Sub_Changed">
+                    <TextBlock Text="{DynamicResource Loc.Settings.Subtitle.Hold}" FontSize="12"
+                               TextWrapping="Wrap" />
+                </CheckBox>
             </StackPanel>
         </Border>
 

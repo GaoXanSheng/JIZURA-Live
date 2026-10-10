@@ -34,7 +34,8 @@ public partial class SettingsTab : UserControl
     private static readonly (string V, string Key)[] DirOptions =
         { ("tb", "Settings.Dir.Tb"), ("lr", "Settings.Dir.Lr") };
 
-    // 字幕面板下拉（对位 SubtitlePanel.vue 的 option 顺序与文本；空串 Tag = 字体「跟随画面」）
+    // 字幕面板下拉（对位 SubtitlePanel.vue 的 option 顺序与文本；字体只有黑体/宋体两项，
+    // 默认黑体无衬线——'' 的旧值也按黑体解析）
     private static readonly (string V, string Key)[] SubContentOptions =
     {
         ("off", "Settings.Subtitle.Content.Off"), ("trans", "Settings.Subtitle.Content.Trans"),
@@ -44,7 +45,7 @@ public partial class SettingsTab : UserControl
         { ("bottom", "Settings.Subtitle.Pos.Bottom"), ("top", "Settings.Subtitle.Pos.Top") };
     private static readonly (string V, string Key)[] SubFontOptions =
     {
-        ("", "Settings.Subtitle.Font.Follow"), ("sans", "Settings.Subtitle.Font.Sans"),
+        ("sans", "Settings.Subtitle.Font.Sans"),
         ("serif", "Settings.Subtitle.Font.Serif"),
     };
 
@@ -239,17 +240,15 @@ public partial class SettingsTab : UserControl
             _ => SubContent.Both
         };
         var pos = SelectedTag(CbSubPos) == "top" ? SubPos.Top : SubPos.Bottom;
-        var font = SelectedTag(CbSubFont) ?? "";
+        var font = SelectedTag(CbSubFont) ?? "sans";
         var bar = CkSubBar.IsChecked == true;
-        var karaoke = CkSubKaraoke.IsChecked == true;
         var hold = CkSubHold.IsChecked == true;
         if (cfg.Content == content && cfg.Pos == pos && cfg.Font == font && cfg.Bar == bar
-            && cfg.Karaoke == karaoke && cfg.HoldLastLine == hold) return;
+            && cfg.HoldLastLine == hold) return;
         cfg.Content = content;
         cfg.Pos = pos;
         cfg.Font = font;
         cfg.Bar = bar;
-        cfg.Karaoke = karaoke;
         cfg.HoldLastLine = hold;
         SaveSubCfg();
     }
@@ -298,9 +297,7 @@ public partial class SettingsTab : UserControl
         if (_syncing) return;
         var tb = (TextBox)sender;
         var cfg = S.SubtitleCfg;
-        var cur = ReferenceEquals(tb, TbSubColor) ? cfg.Color
-            : ReferenceEquals(tb, TbSubStrokeColor) ? cfg.StrokeColor
-            : cfg.UnsungColor;
+        var cur = ReferenceEquals(tb, TbSubColor) ? cfg.Color : cfg.StrokeColor;
         if (!TryNormHex(tb.Text, out var hex))
         {
             FillSubColorBox(tb, cur); // 非法输入回显旧值
@@ -309,8 +306,7 @@ public partial class SettingsTab : UserControl
         if (!string.Equals(cur, hex, StringComparison.OrdinalIgnoreCase))
         {
             if (ReferenceEquals(tb, TbSubColor)) cfg.Color = hex;
-            else if (ReferenceEquals(tb, TbSubStrokeColor)) cfg.StrokeColor = hex;
-            else cfg.UnsungColor = hex;
+            else cfg.StrokeColor = hex;
             SaveSubCfg();
         }
         FillSubColorBox(tb, hex);
@@ -351,9 +347,8 @@ public partial class SettingsTab : UserControl
             _ => "both"
         });
         SelectTag(CbSubPos, cfg.Pos == SubPos.Top ? "top" : "bottom");
-        SelectTag(CbSubFont, cfg.Font is "sans" or "serif" ? cfg.Font : "");
+        SelectTag(CbSubFont, cfg.Font is "sans" or "serif" ? cfg.Font : "sans");
         SetChecked(CkSubBar, cfg.Bar);
-        SetChecked(CkSubKaraoke, cfg.Karaoke);
         SetChecked(CkSubHold, cfg.HoldLastLine);
         TbSubSize.Text = cfg.Size.ToString("0.####");
         TbSubStroke.Text = cfg.Stroke.ToString("0.####");
@@ -361,7 +356,6 @@ public partial class SettingsTab : UserControl
         TbSubOffY.Text = cfg.OffY.ToString("0.####");
         FillSubColorBox(TbSubColor, cfg.Color);
         FillSubColorBox(TbSubStrokeColor, cfg.StrokeColor);
-        FillSubColorBox(TbSubUnsung, cfg.UnsungColor);
     }
 
     /// <summary>#abc / #aabbcc → #aabbcc（小写）；其余 false（与 StyleTab.TryNormHex 同款）。</summary>

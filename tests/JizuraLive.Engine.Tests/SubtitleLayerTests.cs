@@ -9,7 +9,7 @@ namespace JizuraLive.Engine.Tests;
 /// <summary>
 /// 字幕层纯渲染测试（完全离线，无 Env/Plan）：3 行样例 KRC（含逐字时间与间奏）→
 /// 640×360 渲染的非空/统计断言、行切换边界（空隙不画 vs HoldLastLine 保持上一句）、
-/// 逐字已唱/未唱进度统计与像素差异、配置项（内容模式/字号/底板/垂直偏移）生效。
+/// 整行单色（同一行内输出与时刻无关）、配置项（内容模式/字号/底板/垂直偏移）生效。
 /// 画布底统一清成中灰 #808080：白字、黑描边、半透明黑底板都与之拉开可测的差。
 /// </summary>
 public class SubtitleLayerTests
@@ -53,7 +53,7 @@ public class SubtitleLayerTests
         Color = "#ffffff",
         StrokeColor = "#000000",
         Bar = true
-        // Karaoke=true / HoldLastLine=false 是默认值
+        // 字体默认 "sans"（黑体无衬线）/ HoldLastLine=false 是默认值
     };
 
     private const int W = 640;
@@ -161,13 +161,10 @@ public class SubtitleLayerTests
         var layer = new SubtitleLayer(SampleLines(), Cfg(), Notes);
         var (ink, x0, y0, x1, y1, st) = Shot(layer, 2.5);
 
-        // t=2.5s：行0 [2000,5000) 活动；你(2500) 已开始 → 1 词 1 字已唱
+        // t=2.5s：行0 [2000,5000) 活动，整行单色（词时间不进配色）
         Assert.True(st.Drawn);
         Assert.True(st.LineIndex == 0);
         Assert.Equal(3, st.Words);
-        Assert.Equal(1, st.SungWords);
-        Assert.Equal(1, st.SungChars);
-        Assert.Equal(3, st.UnsungChars);
         Assert.Equal(1, st.MainRows); // "你好世界" 4 字 × 16.2px 远小于 maxW=W*0.86 → 不折行
         Assert.Equal(2, st.SubRows); // Both → roma 行 + trans 行
 
@@ -199,7 +196,6 @@ public class SubtitleLayerTests
         var kept1 = Shot(holdOn, 5.5); // 行间空隙 → 保持上一句
         Assert.True(kept1.Stats.LineIndex == 0);
         Assert.True(kept1.Stats.Drawn);
-        Assert.Equal(4, kept1.Stats.SungChars); // 整句已唱态
         Assert.True(kept1.Ink > 200);
 
         var kept2 = Shot(holdOn, 7.0); // 间奏也不吃掉上一句
@@ -212,31 +208,16 @@ public class SubtitleLayerTests
     }
 
     [Fact]
-    public void 逐字高亮_进度与配色()
+    public void 单色渲染_同一行内输出与时刻无关()
     {
         var layer = new SubtitleLayer(SampleLines(), Cfg(), Notes);
 
-        (int, int) At(double t)
-        {
-            var r = Shot(layer, t);
-            Assert.True(r.Stats.LineIndex == 0);
-            return (r.Stats.SungChars, r.Stats.UnsungChars);
-        }
+        // 字幕整行单色（不支持已唱/未唱逐字高亮）：t 只决定选哪一行，行内任意时刻逐位一致
+        Assert.True(Diff(layer, 2.2, layer, 2.5) == 0, "行内不同时刻应逐位一致");
+        Assert.True(Diff(layer, 2.5, layer, 4.8) == 0, "行内不同时刻应逐位一致");
 
-        Assert.Equal((0, 4), At(2.2)); // 行内第一声（2500ms）之前
-        Assert.Equal((1, 3), At(2.5)); // 你 开唱
-        Assert.Equal((2, 2), At(4.0)); // 你好 已唱（行内 50%）
-        Assert.Equal((4, 0), At(4.8)); // 全部唱完（仍在行内）
-
-        // 像素证据：全未唱（灰）与全已唱（白）画面不同
-        Assert.True(Diff(layer, 2.2, layer, 4.8) > 0);
-
-        // 关卡拉 OK：整行单色，且输出与时间无关（同一线同一布局 → 逐位一致）
-        var cfgFlat = Cfg();
-        cfgFlat.Karaoke = false;
-        var flat = new SubtitleLayer(SampleLines(), cfgFlat, Notes);
-        Assert.True(Diff(flat, 2.2, flat, 4.8) == 0, "Karaoke=false 时输出应与时间无关");
-        Assert.True(Diff(layer, 2.2, flat, 2.2) > 0, "卡拉 OK 开关应改变未唱字符的颜色");
+        // 换行（行0 → 行2）画面必须有差
+        Assert.True(Diff(layer, 2.5, layer, 10.5) > 0, "换行后画面应不同");
     }
 
     [Fact]
@@ -292,7 +273,7 @@ public class SubtitleLayerTests
     public void 配置_字号_底板_垂直偏移生效()
     {
         var baseLayer = new SubtitleLayer(SampleLines(), Cfg(), Notes);
-        var s1 = Shot(baseLayer, 4.8); // 全已唱白字 + 注音 + 底板
+        var s1 = Shot(baseLayer, 4.8); // 白字 + 注音 + 底板
 
         // 字号翻倍 → 字块显著变高（不折行，行数不变）
         var cfgBig = Cfg();
