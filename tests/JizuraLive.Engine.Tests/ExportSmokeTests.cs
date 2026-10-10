@@ -80,6 +80,29 @@ public class ExportSmokeTests
         finally { Cleanup(outp); }
     }
 
+    /// <summary>取消契约：帧间协作式取消抛 OperationCanceledException（不是静默返回）。
+    /// 导出进度窗靠这条把结果落成「已取消」——曾经这里判断成「无错误 = 成功」，
+    /// 于是点取消会弹「导出完成」。</summary>
+    [Fact]
+    public void 导出取消_抛_OperationCanceledException()
+    {
+        var (proj, plan) = MakeSmall();
+        var outp = TempPath(".mp4");
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            var req = new ExportRequest
+            {
+                Project = proj, Plan = plan, OutputPath = outp,
+                Spec = new ExportSpecDef("mp4", Transparent: false, Layer: null, NoHud: false,
+                    Layers: false, CustomDrawOnly: false, BakeSubs: false, EmbedAudio: false, KeyBg: "off"),
+            };
+            Assert.ThrowsAny<OperationCanceledException>(() => ExportJob.Run(req, null, cts.Token));
+        }
+        finally { Cleanup(outp); }
+    }
+
     [Fact]
     public void 导出WebM透明_yuva420p校验()
     {

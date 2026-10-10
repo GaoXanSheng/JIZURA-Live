@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.IO;
+using System.Windows;
 using System.Windows.Threading;
 using JizuraLive.App.I18n;
 using JizuraLive.Export;
@@ -16,6 +17,8 @@ public partial class ExportProgressWindow : Window
     private readonly CancellationTokenSource _cts = new();
     private readonly DispatcherTimer _timer;
     private volatile bool _done;
+    private volatile bool _ok;   // 真的跑完（无异常、未被取消）——取消/失败都不能报「导出完成」
+    private bool _closed;        // 窗口已关（取消 / X）：收尾的 tick 不能再设 DialogResult
     private Exception? _error;
     private double _pct;
     private string _stage = L.T("ExportProgress.Preparing");
@@ -30,9 +33,9 @@ public partial class ExportProgressWindow : Window
             Bar.Value = Math.Clamp(_pct * 100, 0, 100);
             TblPct.Text = $"{_pct * 100:F0}%";
             TblStage.Text = _stage;
-            if (!_done) return;
+            if (!_done || _closed) return;
             _timer.Stop();
-            DialogResult = _error == null;
+            DialogResult = _ok; // 取消 = false：OutTab 静默返回，只把进度文字落成「已取消」
             Close();
         };
         Loaded += (_, _) =>
@@ -42,6 +45,8 @@ public partial class ExportProgressWindow : Window
         };
         Closed += (_, _) =>
         {
+            _closed = true;
+            _timer.Stop();
             _cts.Cancel();
             if (App.MainInstance != null) App.MainInstance.ExportBusy = false;
         };
@@ -58,16 +63,20 @@ public partial class ExportProgressWindow : Window
         });
         var ct = _cts.Token;
         var req = _req;
+        // 不把 ct 交给 Task.Run：取消若发生在任务起跑前，delegate 根本不会执行，
+        // _done 就永远翻不到 true，进度窗再也关不掉。取消由 ExportJob 帧间检查协作完成。
         Task.Run(() =>
         {
             try
             {
                 ExportJob.Run(req, progress, ct);
                 if (req.WavToo) ExportJob.ExportSideWav(req);
+                _ok = true;
             }
             catch (OperationCanceledException)
             {
                 _stage = L.T("ExportProgress.Canceled");
+                CleanupPartial(req.OutputPath);
             }
             catch (Exception ex)
             {
@@ -78,7 +87,7 @@ public partial class ExportProgressWindow : Window
             {
                 _done = true;
             }
-        }, ct);
+        });
         _timer.Start();
     }
 
@@ -86,6 +95,20 @@ public partial class ExportProgressWindow : Window
     {
         _cts.Cancel();
         TblStage.Text = L.T("ExportProgress.Canceling");
+    }
+
+    /// <summary>取消后清掉半成品输出：mp4/webm 没写 moov、png zip 没写中央目录，留着也播不出来，
+    /// 而路径又正是用户选定的成品名。只在这一次导出确实被取消时调用（正常完成由 _ok 挡住，失败不删）。</summary>
+    private static void CleanupPartial(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[Export] 半成品清理失败：" + ex.Message);
+        }
     }
 
     public Exception? Error => _error;
