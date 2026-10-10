@@ -99,9 +99,9 @@ public static class P11Ascii
             for (var c = 0; c < cols; c++)
             {
                 var i = (r * cols + c) * 4;
-                var rr = data[i];
+                var rr = data[i + 2]; // BGRA8888 内存序 B,G,R,A：data[i]=B、data[i+2]=R
                 var gg = data[i + 1];
-                var bb = data[i + 2];
+                var bb = data[i];
                 var lum = 0.2126 * rr + 0.7152 * gg + 0.0722 * bb;
                 var idx = (int)Math.Round(lum / 255 * (n - 1));
                 if (idx <= 0 || lum < LumSkip) continue; // 暗部留空：背景不糊字符

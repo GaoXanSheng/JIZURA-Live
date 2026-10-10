@@ -172,7 +172,7 @@ public static class P11AudioFx
                 }
                 var now = Med(0.12);
                 var near = Med(1.6);
-                if (now != null && near != null) d = Clamp01((now.Value - near.Value) / 9) is var dd && dd != 0 ? Math.Clamp((now.Value - near.Value) / 9, -1, 1) : 0;
+                if (now != null && near != null) d = Math.Clamp((now.Value - near.Value) / 9, -1, 1);
                 else if (now != null) d = Math.Clamp((now.Value - 64) / 14, -0.6, 0.6);
             }
             else

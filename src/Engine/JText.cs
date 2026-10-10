@@ -869,9 +869,7 @@ public static class JText
             if (fill && !outlineOnly && fillA > 0.002 && dash == null)
             {
                 paint.Shader = gradShader;
-                paint.Color = gradShader != null
-                    ? CssColor(gcol, a * fillA) // shader 乘色用 alpha（Canvas: fillStyle=pattern + globalAlpha）
-                    : CssColor(gcol, a * fillA);
+                paint.Color = CssColor(gcol, a * fillA); // shader 乘色用 alpha（Canvas: fillStyle=pattern + globalAlpha）
                 ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, font, paint);
                 paint.Shader = null;
             }
@@ -1814,10 +1812,10 @@ public static class JText
     /// internal：Renderer.drawMorph 从 GlyphLogEntry.FontKey/Px 重建字体。
     /// 性能：返回实例缓存复用（每帧每 item 新建会把 SKFont 灌满 finalizer 队列），调用方不得 Dispose。
     /// 只缓存 wg==0（weightGrow 的字重连续变化，键基数无界）；用户字体重登记时经 OnFontsChanged 清表。
-    /// Hashtable 与 Metrics/Glyphs 同款：读免锁（预览泵/导出可能双线程并发渲染）。</summary>
+    /// Hashtable 与 Metrics/Glyphs 同款：读免锁（渲染全程过 EngineRenderGate 串行，无并发渲染）。</summary>
     private static readonly Hashtable FontJobs = new();
 
-    /// <summary>字体目录变化（AddUserFont/EnsureFonts）后清 SKFont 缓存；typeface 表（FaceJobs）同语义不动。</summary>
+    /// <summary>字体目录变化（AddUserFont/EnsureFonts）后清 SKFont 缓存与排版缓存；typeface 缓存由 JFonts 自管（变化点直接 InvalidateResolveCache），不经此入口。</summary>
     internal static void OnFontsChanged()
     {
         ClearFontJobs();

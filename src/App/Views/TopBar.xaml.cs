@@ -105,16 +105,20 @@ public partial class TopBar : UserControl
             ProjectIO.Save(main.State.Project, dlg.FileName, audio, audioName);
             Log.Info("[TopBar] 工程已保存：" + dlg.FileName);
         }
-        catch (NotImplementedException)
-        {
-            // 发生异常时兜底存 .json，防止丢失工程数据
-            var fallback = Path.ChangeExtension(dlg.FileName, ".json");
-            ProjectIO.Save(main.State.Project, fallback, null, null);
-            MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.SaveFallback.Title"), L.F("TopBar.SaveFallback.Body", fallback));
-        }
         catch (Exception ex)
         {
-            MessageDialog.Warn(Window.GetWindow(this)!, L.T("TopBar.SaveFailed"), ex.Message);
+            // 包保存失败：兜底存 .json（Save 按 .json 后缀走纯 JSON），防止丢失工程数据；兜底也失败则只告警
+            Log.Error("[TopBar] 工程保存失败，尝试 .json 兜底：" + dlg.FileName, ex);
+            try
+            {
+                var fallback = Path.ChangeExtension(dlg.FileName, ".json");
+                ProjectIO.Save(main.State.Project, fallback, null, null);
+                MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.SaveFallback.Title"), L.F("TopBar.SaveFallback.Body", fallback));
+            }
+            catch (Exception ex2)
+            {
+                MessageDialog.Warn(Window.GetWindow(this)!, L.T("TopBar.SaveFailed"), ex2.Message);
+            }
         }
     }
 

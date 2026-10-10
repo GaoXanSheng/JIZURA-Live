@@ -19,8 +19,8 @@ namespace JizuraLive.Engine.Packs;
 //
 // 跨文件符号对位：J.rgba→本地 Rgba、J.smooth→J.Smooth、J.mix/lum/contrast/noise1/r/rs/rr/h→J.*、
 // J.E.*→J.E.*；clamp/lerp→J.Clamp/J.Lerp、Math.hypot→本地 Hyp。
-// env 对位缺口：env.beat 对象（since/len）C# Env 未携带 → BeatSince 走无 beat 的 ltb 取模回退
-// （env.beat 已由渲染器挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatSince 按真节拍走）；
+// env 对位：env.beat 已由渲染器挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatSince 按真节拍
+// 走，无拍才回退 ltb 取模式；
 // cam 返回的 sx/sy（vertigo/jelly）走 CamState.Sx/Sy，由渲染器按 JS 的
 // X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1)) 应用。
 public static class P11BgcamB

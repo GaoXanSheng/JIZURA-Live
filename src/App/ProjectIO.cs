@@ -168,7 +168,7 @@ public static class ProjectIO
                     Weight = Math.Clamp(uf.Value<int?>("weight") ?? 400, 100, 900)
                 });
                 // 字体本体不进工程包（体积大）：装载后由 EditorState.RestoreFonts 从用户字体库
-                // %LOCALAPPDATA%\JizuraLiveonts 读回（上传时已落盘），缺的走系统字体栈并在日志点名
+                // %LOCALAPPDATA%\JizuraLive\fonts 读回（上传时已落盘），缺的走系统字体栈并在日志点名
             }
 
         // v0.10 行序迁移（只搬一次）

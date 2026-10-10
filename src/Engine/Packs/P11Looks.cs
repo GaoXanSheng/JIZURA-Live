@@ -1,4 +1,5 @@
-// 移植自 frontend/src/engine/11p_looks.js（pack = 'looks'：treat 24 + bg 24 + cam 15 + fx 24）。
+// 移植自 frontend/src/engine/11p_looks.js（pack = 'looks'：treat 24 + bg 24 + cam 15 + fx 24；
+// C# fx 注册 23 条——gridRepeat 有意剔除）。
 //
 // 契约（与 P11TreatTrans 同约定，不改共享文件）：
 // - treat：TreatDef.Plan(rng, st) → JObject（键名 = JS plan 字段，planner 存 cut.treatP）；

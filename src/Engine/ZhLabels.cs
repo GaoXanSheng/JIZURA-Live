@@ -957,7 +957,7 @@ public static class ZhLabels
         ["ascii"] = new("ASCII 字符画", "把整个画面实时转成 ASCII——亮度定字符密度，色彩保留"),
     };
 
-    /// <summary>氛围（源：J.MOODS）。C# 侧 08b_omakase 未移植，暂为纯数据。</summary>
+    /// <summary>氛围显示名（源：J.MOODS；Apply() 覆盖到 Omakase.Moods 的 Name）。</summary>
     public static readonly Dictionary<string, string> Moods = new()
     {
         ["horror"] = "恐怖",
@@ -970,7 +970,7 @@ public static class ZhLabels
         ["chaos"] = "不拘一格",
     };
 
-    /// <summary>一键随机主题（源：08b_omakase 的 J.THEMES）。C# 侧未移植，暂为纯数据。</summary>
+    /// <summary>一键随机主题显示名（源：J.THEMES；Apply() 覆盖到 Omakase.Themes 的 Name）。</summary>
     public static readonly Dictionary<string, string> Themes = new()
     {
         ["lyricpv"] = "文字PV",

@@ -46,7 +46,7 @@ public static class StorageCleaner
     /// 后台自愈清理（进程启动后低优先级跑一次）：
     /// - 清理 *.tmp / *.part 临时文件与 0 字节悬空文件；
     /// - 清理 cache\audio 下历史版本遗留的重复副本（仅保留最新一份与正在引用的文件）；
-    /// - 清理超过 7 天的历史日志，单日志超 20MB 时截断。
+    /// - 清理超过 7 天的历史日志（jizura.log 除外），总量超 15MB 时从最旧删起。
     /// </summary>
     public static void AutoCleanupAsync(string? activeAudioPath = null)
     {

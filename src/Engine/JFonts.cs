@@ -244,7 +244,7 @@ public static class JFonts
     // ---------------- 用户字体（运行时注册） ----------------
 
     /// <summary>J.addUserFont：登记用户字体到目录（本地 family 名或上传的文件）。
-    /// C# 只做目录登记 + 标记 User；SKTypeface 的实际加载由 LoadFontFile 做，TODO(M3) 接 UI。</summary>
+    /// C# 只做目录登记 + 标记 User；SKTypeface 的实际加载由 LoadFontFile 做（设置页字体导入已接）。</summary>
     public static void AddUserFont(string key, string label, string family, int weight = 400, string kind = "custom")
     {
         Table[key] = new FontFace

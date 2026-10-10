@@ -93,7 +93,7 @@ public partial class App : Application
                 main.State.ReplanAsync();
             });
 
-            // MCP：17 工具直调 EditorState（无页面桥）；窗口先建好（State/Plan 就绪）再起端点
+            // MCP：18 工具直调 EditorState（无页面桥）；窗口先建好（State/Plan 就绪）再起端点
             McpTools.Current = new McpTools(main.State, main.Preview);
             _server = McpHttpServer.Start(McpTools.Current);
             if (_server == null)

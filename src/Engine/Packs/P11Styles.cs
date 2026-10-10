@@ -567,7 +567,7 @@ public static class P11Styles
                 ["ghost"] = ToTok(ghost)
             }
         };
-        for (var i = 0; i < extra.Length; i += 2) st.Extra[extra[i].K] = ToTok(extra[i].V);
+        foreach (var (k, v) in extra) st.Extra[k] = ToTok(v);
         return st;
     }
 

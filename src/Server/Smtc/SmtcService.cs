@@ -113,7 +113,7 @@ public sealed class SmtcService : IDisposable
                 manager.SessionsChanged += OnSessionsChanged;
                 RefreshSessions();
 
-                // 事件兜底轮询：个别播放器不发全事件，定期补刷进度/状态/缺失的元数据
+                // 事件兜底轮询：个别播放器不发全事件，定期补刷进度/状态与全部会话元数据
                 _refreshTimer = new Timer(
                     _ => RefreshSessions(), null, 3000, 3000);
                 Log.Info("[Smtc] 会话管理器就绪");
@@ -450,7 +450,7 @@ public sealed class SmtcService : IDisposable
         ("foobar", "foobar2000"),
         ("musicbee", "MusicBee"),
         ("aimp", "AIMP"),
-        // 非「音乐应用」（不计 KnownMusic 分），仅用于会话下拉的显示名
+        // 非音乐应用，但同在 KnownApps：IsKnownMusic 会命中并计 KnownMusic 分；主要用作会话下拉的显示名
         ("msedge", "Edge 浏览器"),
         ("chrome", "Chrome 浏览器"),
         ("firefox", "Firefox 浏览器"),

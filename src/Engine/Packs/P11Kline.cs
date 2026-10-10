@@ -31,6 +31,7 @@ public static class P11Kline
     // 蜡烛数据：音高驱动 OHLC（高音涨/低音跌），能量当成交量。
     // 稳健聚合：开=前1/3中位、收=后1/3中位、高低=90/10分位——直接取 min/max 会被
     // 八度误检/滑音毛刺撑成满格柱子。窗口内全无声帧 = 横走的"停牌"蜡烛。
+    // （仅音高路径如此聚合；energy 分支无音高可聚，直接取 min/max。）
     private static CandleData? PrepareCandles(Plan plan)
     {
         var pitch = plan.Pitch is { Length: > 0 } ? plan.Pitch : null;

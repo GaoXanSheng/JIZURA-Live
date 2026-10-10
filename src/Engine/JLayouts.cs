@@ -2077,7 +2077,7 @@ public static class JLayouts
     }
 
     // 以拉丁字母为主的文本（英语、印尼语、越南语……歌词）。
-    // 对位 08_planner.js 的 J.isLatinText；TODO 02b_lang 移植后换正式对位符号。
+    // 对位 08_planner.js 的 J.isLatinText。
     private static bool IsLatinText(string? t)
     {
         var s = Regex.Replace(t ?? "", @"\s", "");

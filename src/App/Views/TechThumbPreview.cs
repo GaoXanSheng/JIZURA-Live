@@ -94,7 +94,7 @@ internal sealed class TechThumbPreview
 
     /// <summary>
     /// 交出可见卡集合（宿主在展开/筛选/滚动/切页/尺寸变化时调用）。
-    /// 签名变化时在这里换快照并清空 plan/位图缓存（UI 线程 JSON 克隆，worker 只经 Job 拿引用）。
+    /// 签名变化时在这里换快照并清空 plan 缓存（Bmp 不清，首帧后原位覆盖；UI 线程 JSON 克隆，worker 只经 Job 拿引用）。
     /// </summary>
     public void SetLive(object owner, IReadOnlyList<ThumbCard> cards)
     {
@@ -196,7 +196,7 @@ internal sealed class TechThumbPreview
 
     /// <summary>
     /// 单张出图（全程持 EngineRenderGate）：PreviewPlan（缓存）→ 离屏面 Frame → 拷进池化缓冲。
-    /// 失败出暗底占位（对位 Vue 的 catch 底色 #131316）。
+    /// Frame 失败出暗底占位（对位 Vue 的 catch 底色 #131316）；PreviewPlan 失败返回 null（卡片保持底色）。
     /// </summary>
     private (byte[] Pixels, int Stride)? Render(Job job)
     {
@@ -217,7 +217,7 @@ internal sealed class TechThumbPreview
                     return null;
                 }
                 _plans[key] = plan;
-                if (_plans.Count > 900) _plans.Clear(); // 八百卡保险丝：容量兜底清空，重建只是时间
+                if (_plans.Count > 900) _plans.Clear(); // 九百卡保险丝：容量兜底清空，重建只是时间
             }
             var tw = Math.Max(80, (int)Math.Round(th * (double)plan.W / plan.H));
             if (card.W != tw || card.H != th)

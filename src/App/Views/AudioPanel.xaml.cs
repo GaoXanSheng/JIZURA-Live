@@ -16,7 +16,7 @@ namespace JizuraLive.App.Views;
 // 音频投入面板（对位 frontend/src/components/lyrics/AudioPanel.vue）：
 // 文件选择 → NAudio 解码 → AudioAnalyzer 节拍分析（后台任务，UI 显示进度/耗时）→ State.SetAudio，
 // 以及 BPM / 开始(秒) / 行时长 / 对齐节拍 / 清除手动时间 / 打点同步入口。
-// 云端音乐与 .krc 歌词导入随云端歌词库在后续里程碑接入。
+// 云端音乐/.krc 歌词导入经 BtnCloud → CloudPanel（对位 openCloud → CloudMusicModal）。
 public partial class AudioPanel : UserControl
 {
     private bool _syncing;

@@ -8,7 +8,8 @@ namespace JizuraLive.Engine;
 //
 // C# 侧的两处对位（JS 里靠 def 上的 set/extra/wa 字段 + J.SETS/J.WA/J.BASE_PACKS 全局表）：
 //   1. 属性表：IRegEntry / StyleDef 没有 set/extra/wa 字段，这里按 pack 名派生 + 显式 Mark* 覆盖，
-//      结果缓存在 Attributes（注册表变化时自动重建）；
+//      结果缓存在 Attributes（指纹 = 各 group 条目数/风格数/字体数，变化时重建；同 key 替换不改
+//      计数、不触发重建——Extra/Wa 会读到陈旧值，已知近似，SetOf 有 live 优先兜底）；
 //   2. Reg.RandomOk 委托接线：Install() 里赋值，Planner 经 Reg.RandomAllows 读它。
 //
 // 补 mood 标签的范围与 JS 的载入顺序一致：08b_omakase.js 在 11p_* 表现包之前载入，所以当时只能给

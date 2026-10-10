@@ -210,8 +210,6 @@ public static class P11Horror2
         return @out;
     }
 
-    /// <summary>需裁掉 g 个字形时的 clipY 对位（hrDrain）。</summary>
-
     /// <summary>复制一份干净 item 给叠加通道用，钩子与特效字段全清空（JS bare）。JS L73-95。</summary>
     private static JObject Bare(JObject i, JObject? extra = null)
     {

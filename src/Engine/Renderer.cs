@@ -226,7 +226,6 @@ public sealed class Renderer : IDisposable
                 while (dt > (cur = Interlocked.Read(ref _stMaxTicks)))
                     if (Interlocked.CompareExchange(ref _stMaxTicks, dt, cur) == cur) break;
             }
-            if (cached) Interlocked.Increment(ref _stCached);
         }
 
         /// <summary>返回 true = 整帧缓存命中（只贴图，没真画）。</summary>

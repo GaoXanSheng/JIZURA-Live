@@ -1015,7 +1015,7 @@ public static class P11Kinetic3
             var mono = JLayouts.Font0(env.St, "mono") ?? "mono";
             env.DrawItem(new JObject
             {
-                ["text"] = Math.Max(1, k + 1).ToString("00") + " / " + n.ToString("00"),
+                ["text"] = Math.Max(0, k + 1).ToString("00") + " / " + n.ToString("00"),
                 ["font"] = mono,
                 ["size"] = fs,
                 ["align"] = "left",

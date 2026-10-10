@@ -136,7 +136,7 @@ public static class AudioPrep
     }
 }
 
-/// <summary>16-bit PCM WAV 写出（对位 10_audio.js 的 audioWav；导出侧与 MP4 音轨共用同一份采样）。</summary>
+/// <summary>32-bit float WAV 写出（IEEE float，对位 10_audio.js 的 audioWav；导出侧与 MP4 音轨共用同一份采样）。</summary>
 public static class WavWriter
 {
     public static void Write(ISampleProvider src, string path, double durationSec)
@@ -154,8 +154,7 @@ public static class WavWriter
             w.WriteSamples(buf, 0, got);
             done += got / format.Channels;
         }
-        // 补零到目标时长
-        var chunk = new float[SampleRateChunk(format)];
+        var chunk = new float[SampleRateChunk(format)]; // 剩余帧补零到目标时长
         while (done < frames)
         {
             var want = (int)Math.Min(chunk.Length, (frames - done) * format.Channels);

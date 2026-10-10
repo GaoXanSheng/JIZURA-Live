@@ -202,7 +202,7 @@ public static class ExportSpec
 
     /// <summary>
     /// MCP/agent-api 的旧 kind（本勾选模型上线前的 9 种按钮）→ 等价 spec，行为与旧版逐一对齐：
-    /// 旧版里只有 mp4/mp4file 烤字幕（v0.10 字幕回归修复），webm/png 家族一律不带字幕。
+    /// 旧版里 mp4/mp4file/subwebm 烤字幕（v0.10 字幕回归修复），其余 webm/png 家族一律不带字幕。
     /// 未知 kind 返回 null。
     /// </summary>
     public static ExportSpecDef? SpecFromLegacyKind(string kind, Project? project)

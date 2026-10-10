@@ -238,7 +238,7 @@ public sealed class EditorState : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error("Mutate 失败（已回滚通知）：" + label, ex);
+            Log.Error("Mutate 失败（未回滚：半套改动保留，照常 AfterChange）：" + label, ex);
         }
         AfterChange(replan);
         NotifyAsync(HistoryChanged);

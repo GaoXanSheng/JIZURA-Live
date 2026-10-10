@@ -15,11 +15,9 @@
 //    clockOut/floodOut/slashOut 用）：管线已接（Env.ClipFn → DrawFx ClipPath）——主文字与自画副本
 //    均走真 SKPath 裁剪（精确）。
 //    clapShut 单字分支与 shredOut 的轴对齐矩形分别折算成 it.clip / it.clipY（DrawFx 原生消费）。
-//    注：JLayouts.DrawFx 的 clip/clipY ClipRect 参数疑似按 (x,y,w,h) 传入（SKRect 是
-//    (l,t,r,b)）——共享文件的既有问题，本文件不修，仅在汇报中记录。
 // 4. `ae`（AE 导出模板名）：MoveDef 无对应属性，未注册——对位见各条目行内注释。
-// 5. env.beat 对象（len/since/index）C# Env 未携带（Env.Beat 只有归一相位 double），beatLen/
-//    beatSince/beatIdx 走 JS 无 beat 的 ltb 回退式（TODO(渲染器)：Env 挂 beat 对象后回迁）。
+// 5. env.beat：渲染器已挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatLen/BeatSince/BeatIdx
+//    按真节拍走，无拍才回退 ltb 式。
 // 6. mosaicOut 的 DOM 离屏 canvas 对位为常驻 SKSurface（静态复用，不足时扩容）。
 //
 // 跨文件符号对位：J.measure→JText.Measure、J.layoutText→JText.LayoutText、J.itemBox→JAnim.ItemBox、
