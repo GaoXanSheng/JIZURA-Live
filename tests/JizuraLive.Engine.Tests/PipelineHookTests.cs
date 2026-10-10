@@ -89,6 +89,52 @@ public class PipelineHookTests
         Assert.False(seen[0]);
     }
 
+    // ---------------- 1b. 作画时钟 env.Step 跟随输出帧率 ----------------
+
+    /// <summary>全帧（koma=0）的作画时钟 = 1/输出帧率，60fps 下每输出帧走一步。
+    /// 旧实现把它固定在 24Hz（`clock = koma > 0 ? stepDur : 1.0/24`），60fps 输出里同一 Step
+    /// 会连占 2~3 帧——随机抖动类内容（地震相机、look shake）就是 24Hz 一停的卡顿来源。
+    /// 探针一次 Frame 会被多个 pass 调用（含 ghost 的滞后 Step），故按「必须出现过」断言。</summary>
+    [Fact]
+    public void Renderer_StepClock_Follows_OutputFps_When_Koma0()
+    {
+        var (plan, r) = MakeRenderer();
+        var seen = new List<int>();
+        Reg.Register("layout", "__stepProbe", new LayoutDef
+        {
+            Name = "stepProbe", Special = true,
+            Draw = env => seen.Add((int)env.Step),
+        }, "test");
+        try
+        {
+            plan.Fx.Koma = 0;
+            foreach (var c in plan.Cuts) c.Layout = "__stepProbe";
+            using var surface = SKSurface.Create(new SKImageInfo(320, 180));
+
+            // 60fps：0.5 与 0.5+1/60 落在相邻两帧栅格 → Step 必须各进一步
+            plan.Fps = 60;
+            seen.Clear();
+            r.Frame(surface.Canvas, plan, 0.5);
+            Assert.Contains(30, seen);
+            seen.Clear();
+            r.Frame(surface.Canvas, plan, 0.5 + 1.0 / 60);
+            Assert.Contains(31, seen);
+
+            // 24fps：仍是 1/24 一步（与旧实现逐位相同，锁住 24fps 的 JS parity）
+            plan.Fps = 24;
+            seen.Clear();
+            r.Frame(surface.Canvas, plan, 0.5);
+            Assert.Contains(12, seen);
+            seen.Clear();
+            r.Frame(surface.Canvas, plan, 0.5 + 1.0 / 24);
+            Assert.Contains(13, seen);
+        }
+        finally
+        {
+            Reg.Layouts.Remove("__stepProbe");
+        }
+    }
+
     // ---------------- 2. DrawFx 的 pre/post/clipFn 消费 ----------------
 
     /// <summary>临时 layout：底板矩形（pre，画在文字下）→ 白底黑字 item（clipFn 圆裁）→ 红色满版方块（post，画在文字上）。

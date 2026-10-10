@@ -2215,7 +2215,7 @@ public static class P11LayoutsB
                 ["blur"] = Math.Min(60, size * (dark ? 0.24 : 0.14)),
             };
             BBox? bb = null;
-            // 点亮 + 偶发闪烁，走 ≤24Hz 的 step 时钟
+            // 点亮 + 偶发闪烁，走跟随输出帧率的 step 时钟
             double On(int i, double t0)
             {
                 var t = lt - t0;

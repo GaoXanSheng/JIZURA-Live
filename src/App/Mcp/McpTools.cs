@@ -8,10 +8,11 @@ using JizuraLive.Export;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using SkiaSharp;
 
 namespace JizuraLive.App.Mcp;
 
-// MCP 17 个工具的 C# 直调实现（对位旧前端的 agent-api.ts）。
+// MCP 18 个工具的 C# 直调实现（对位旧前端的 agent-api.ts）。
 // 协议语义（initialize / tools/list / tools/call、revision 乐观锁、工具级错误码映射）逐条对位；
 // 区别只有一处本质变化：旧版经页面求值桥，这里直接读写 EditorState / PreviewEngine /
 // Planner / ExportJob —— 无页面、无脚本求值。
@@ -152,6 +153,7 @@ public sealed class McpTools
     private JObject? RunTool(string name, JObject a) => name switch
     {
         "get_state" => ToolGetState(a),
+        "get_frame" => ToolGetFrame(a),
         "list_options" => ToolListOptions(a),
         "set_lyrics" => ToolSetLyrics(a),
         "update_settings" => ToolUpdateSettings(a),
@@ -172,6 +174,35 @@ public sealed class McpTools
     };
 
     // ============================================================ 工具实现
+
+    /// <summary>
+    /// get_frame：把当前（或 t 指定）时间点用引擎离屏渲成一帧 PNG 落盘并返回路径。
+    /// 预览画布走 GPU 直显（抓不到像素），这里用 CPU 面 + 同一 plan/Renderer 重渲一帧，
+    /// 供代理与排查核对「此刻真实画面」。渲染串行闸与预览/导出共享，避免动共享静态缓存。
+    /// </summary>
+    private JObject ToolGetFrame(JObject a)
+    {
+        var plan = _state.Plan;
+        Check(plan != null, L.T("Mcp.Err.EditorNotReady"));
+        var t = a["t"]?.Type is JTokenType.Float or JTokenType.Integer ? (double)a["t"]! : _preview.CurrentTime;
+        var w = a["width"]?.Type == JTokenType.Integer ? Math.Clamp((int)a["width"]!, 160, 1920) : 960;
+        var scale = w / (double)plan!.W;
+        var h = Math.Max(1, (int)Math.Round(plan.H * scale));
+        string path;
+        lock (EngineRenderGate.Lock)
+        {
+            using var surf = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
+            using var renderer = new Renderer();
+            renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = scale });
+            surf.Canvas.Flush();
+            using var img = surf.Snapshot();
+            using var data = img.Encode(SKEncodedImageFormat.Png, 95);
+            path = Path.Combine(Path.GetTempPath(), "jizura-frame.png");
+            using var fs = File.Create(path);
+            data.SaveTo(fs);
+        }
+        return new JObject { ["ok"] = true, ["t"] = Round3(t), ["path"] = path, ["w"] = w, ["h"] = h };
+    }
 
     private JObject ToolGetState(JObject a)
     {
@@ -1132,6 +1163,7 @@ public sealed class McpTools
     private const string ToolsJson = """
     {"tools":[
       {"name":"get_state","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"detail":{"type":"boolean"}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
+      {"name":"get_frame","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"t":{"type":"number","minimum":0,"maximum":86400},"width":{"type":"integer","minimum":160,"maximum":1920}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
       {"name":"list_options","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"category":{"type":"string","enum":["style","font","layout","enter","hold","exit","decor","treat","bg","cam","fx","trans"]},"query":{"type":"string","maxLength":100},"page":{"type":"integer","minimum":1,"maximum":10000},"pageSize":{"type":"integer","minimum":1,"maximum":100}},"required":["category"],"additionalProperties":false},"annotations":{"readOnlyHint":true}},
       {"name":"set_lyrics","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"text":{"type":"string","maxLength":200000},"clear":{"type":"boolean"},"revision":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":[],"additionalProperties":false},"annotations":{"readOnlyHint":false}},
       {"name":"update_settings","description":"{{DESC}}","inputSchema":{"type":"object","properties":{"revision":{"type":"integer","minimum":0,"maximum":9007199254740991},"settings":{"type":"object","properties":{"title":{"type":"string","maxLength":1000},"artist":{"type":"string","maxLength":1000},"lang":{"type":"string","enum":["auto","ja","en","zh-Hant","zh-Hans","ko"]},"style":{"type":"string","enum":{{STYLE_ORDER}}},"seed":{"type":"integer","minimum":-2147483648,"maximum":2147483647},"fx":{"type":"object","properties":{"motion":{"type":"number","minimum":0,"maximum":1},"glitch":{"type":"number","minimum":0,"maximum":1},"chroma":{"type":"number","minimum":0,"maximum":1},"decor":{"type":"number","minimum":0,"maximum":1},"density":{"type":"number","minimum":0,"maximum":1},"texture":{"type":"number","minimum":0,"maximum":1},"bgSwitch":{"type":"number","minimum":0,"maximum":1},"flash":{"type":"boolean"},"hud":{"type":"string","enum":["auto","on","off"]}}},"fonts":{"type":"object","properties":{"display":{"type":"string","maxLength":80},"serif":{"type":"string","maxLength":80},"body":{"type":"string","maxLength":80}}},"extra":{"type":"boolean"},"wa":{"type":"boolean"},"horror":{"type":"boolean"},"typo":{"type":"boolean"},"kinetic":{"type":"boolean"},"unify":{"type":"boolean"},"typeset":{"type":"boolean"},"centerFree":{"type":"boolean"},"includeAudio":{"type":"boolean"},"centerDir":{"type":"string","enum":["tb","lr"]},"keyBg":{"type":"string","enum":["off","green","black"]},"aspect":{"type":"string","enum":["16:9","9:16","4:3","3:4","1:1","4:5","21:9"]},"res":{"type":"integer","minimum":360,"maximum":2160},"fps":{"type":"integer","minimum":12,"maximum":120},"quality":{"type":"string","enum":["standard","high","max"]},"exportRange":{"type":["object","null"],"properties":{"from":{"type":"integer","minimum":1,"maximum":100000},"to":{"type":"integer","minimum":1,"maximum":100000}},"required":["from","to"]}}}},"required":["settings"],"additionalProperties":false},"annotations":{"readOnlyHint":false}},

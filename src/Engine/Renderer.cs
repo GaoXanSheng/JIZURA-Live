@@ -269,10 +269,10 @@ public sealed class Renderer : IDisposable
                     (inner, innerOpt) => Frame(inner, plan, t, innerOpt));
                 return false;
             }
-            // 动作按 koma 量化（24fps 作画基准）；随机闪烁走 <=24Hz 时钟
+            // 动作按 koma 量化：koma>0 → 1/koma；koma=0（全帧）→ 1/fps，作画时钟跟随输出帧率
             var stepDur = Planner.StepDur(fx, fps);
             var koma = Planner.KomaOf(fx);
-            var clock = koma > 0 ? stepDur : 1.0 / 24;
+            var clock = stepDur;
             var tq = Math.Floor(t / stepDur + 1e-6) * stepDur;
             var mainCut = Planner.CutAt(plan, tq);
             var schemes = st.Schemes;
@@ -1072,7 +1072,7 @@ public sealed class Renderer : IDisposable
             if (needScratch) S = Ensure(ref _scratch, cw, ch);
             ctx.Save();
             ctx.SetMatrix(SKMatrix.Identity);
-            var clock24 = (int)Math.Floor(t * 24); // glitch 随机数在任何输出帧率下至多 24 次/秒
+            var clock24 = (int)Math.Floor(t * (plan.Fps != 0 ? plan.Fps : 24)); // glitch 随机数跟随输出帧率
             var guard = opt.Transparent ? NewGuard(cw, ch) : null;
             foreach (var ev in active)
             {

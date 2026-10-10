@@ -258,6 +258,8 @@ public partial class CutInfo : UserControl
                 Style = (Style)FindResource("Hint"),
                 Margin = new Thickness(2, 4, 0, 4),
             });
+        // 刚建的卡还没测量（ActualHeight=0）→ 此刻算可见集必为空；排到布局之后再算一次
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshPickLive));
         _ = plan;
     }
 
@@ -375,7 +377,9 @@ public partial class CutInfo : UserControl
         return plan == null ? null : Planner.CutAt(plan, App.MainInstance!.Preview.CurrentTime);
     }
 
-    /// <summary>面板候选卡的可见集交给共享预览服务（面板收起/离树 → 交空集）。</summary>
+    /// <summary>面板候选卡的可见集交给共享预览服务（面板收起/离树 → 交空集）。
+    /// 只交落在视口内（±40px，同手法栏 RefreshLive）的卡：候选全集最多 184 张，
+    /// 全量入队会把每张卡的动画刷新周期拖到秒级（单张渲染 ~1ms、让路 sleep 占大头）。</summary>
     private void RefreshPickLive()
     {
         if (!IsLoaded)
@@ -384,7 +388,27 @@ public partial class CutInfo : UserControl
             return;
         }
         TechThumbPreview.Shared.SetLive(this,
-            Pick.Visibility == Visibility.Visible && IsVisible ? _pickCards : Array.Empty<ThumbCard>());
+            Pick.Visibility == Visibility.Visible && IsVisible ? VisiblePickCards() : Array.Empty<ThumbCard>());
+    }
+
+    /// <summary>视口内的候选卡。刚建完卡的首次调用还没测量（ActualHeight=0）→ 空集，
+    /// 由 BuildPickCards 末尾排的 Loaded 优先级回调在布局后补算。</summary>
+    private List<ThumbCard> VisiblePickCards()
+    {
+        var live = new List<ThumbCard>();
+        const double margin = 40;
+        var viewport = new Rect(0, 0, PickScroll.ViewportWidth, PickScroll.ViewportHeight);
+        viewport.Inflate(0, margin);
+        foreach (var card in _pickCards)
+        {
+            var host = card.Host;
+            if (host.ActualHeight <= 0) continue;
+            var pos = host.TransformToAncestor(PickScroll).Transform(new Point(0, 0));
+            if (!viewport.Contains(pos) && !viewport.Contains(new Point(pos.X, pos.Y + host.ActualHeight)))
+                continue;
+            live.Add(card);
+        }
+        return live;
     }
 
     // ---------------- 重抽 / 一键随机（对位 look.ts rerollCurrentCut） ----------------

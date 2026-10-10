@@ -105,7 +105,7 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
     }
 
     [Fact]
-    public async Task tools_list_返回17个工具与JSON_RPC结构()
+    public async Task tools_list_返回18个工具与JSON_RPC结构()
     {
         var (code, body) = await PostAsync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
         Assert.Equal(HttpStatusCode.OK, code);
@@ -116,12 +116,12 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
         Assert.Equal(1, (int?)res["id"]);
         var tools = (JArray?)res["result"]?["tools"];
         Assert.NotNull(tools);
-        Assert.Equal(17, tools!.Count);
+        Assert.Equal(18, tools!.Count);
 
         var names = tools.Select(t => (string?)t["name"]).ToArray();
         Assert.Equal(new[]
         {
-            "get_state", "list_options", "set_lyrics", "update_settings", "set_timing", "edit_line",
+            "get_state", "get_frame", "list_options", "set_lyrics", "update_settings", "set_timing", "edit_line",
             "edit_cut", "set_techniques", "set_locks", "randomize", "history", "preview", "tap_sync",
             "project", "start_export", "get_export_status", "reset_project"
         }, names);
@@ -161,6 +161,27 @@ public class McpTests : IDisposable, IClassFixture<AutosaveGuard>
         // detail=false：轻量状态不带工程/行/切分
         Assert.Null(state["project"]);
         Assert.Null(state["lines"]);
+    }
+
+    [Fact]
+    public async Task tools_call_get_frame_渲出当前帧并落盘()
+    {
+        var (code, body) = await PostAsync(
+            "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"get_frame\",\"arguments\":{\"t\":1.0,\"width\":320}}}");
+        Assert.Equal(HttpStatusCode.OK, code);
+        var res = JObject.Parse(body);
+        var call = res["result"]!;
+        Assert.False((bool?)call["isError"]);
+        var outObj = JObject.Parse((string?)call["content"]?[0]?["text"] ?? "{}");
+        Assert.True((bool?)outObj["ok"]);
+        Assert.Equal(320, (int?)outObj["w"]);
+        var path = (string?)outObj["path"];
+        Assert.False(string.IsNullOrEmpty(path));
+        Assert.True(File.Exists(path), "get_frame 没有落盘 PNG");
+        var bytes = File.ReadAllBytes(path!);
+        Assert.True(bytes.Length > 1000, $"PNG 过小：{bytes.Length} 字节");
+        Assert.Equal(new byte[] { 0x89, 0x50, 0x4E, 0x47 }, bytes.Take(4).ToArray()); // PNG 魔数
+        Assert.True((int?)outObj["h"] > 0);
     }
 
     [Fact]

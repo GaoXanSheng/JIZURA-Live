@@ -192,10 +192,10 @@ public static class P11Horror3
         };
     }
 
-    /// <summary>灯光亮度 0..1，按 ≤24Hz 时钟采样：大部分时间亮着，偶尔闪断。JS lamp。</summary>
-    private static double Lamp(double t, int seed, double rate = 1)
+    /// <summary>灯光亮度 0..1，按输出帧率时钟采样：大部分时间亮着，偶尔闪断。JS lamp。</summary>
+    private static double Lamp(double t, int seed, double rate = 1, int fps = 24)
     {
-        var st = (int)Math.Floor(t * 24);
+        var st = (int)Math.Floor(t * fps);
         var run = st >> 2;
         if (J.R(seed, run, 7) < 0.1 * rate) return J.R(seed, st, 8) < 0.5 ? 0.15 : 0.55;
         return 0.88 + 0.12 * J.R(seed, st, 9);
@@ -669,7 +669,7 @@ public static class P11Horror3
             var sc = env.Sc!;
             var t = env.T;
             var u = U(env);
-            var lv = Lamp(t, (int)JLayouts.D(Pm, "seed"), NumOr(Pm, "rate", 1));
+            var lv = Lamp(t, (int)JLayouts.D(Pm, "seed"), NumOr(Pm, "rate", 1), env.Fps);
             var fi = J.E.OutCubic(J.Clamp(BgT(env) / 0.6));
             var L = LightOf(sc);
             var dk = NightC(sc);
@@ -723,7 +723,7 @@ public static class P11Horror3
             var col = LayC(sc, IsDark(ScK(sc, "bg")) ? 0.28 : 0.22);
             var lw = Math.Max(1.2, u * 0.0026);
             // 尽头的灯（会闪）
-            var lv = Lamp(env.T, (int)JLayouts.D(Pm, "seed") + 1, 1);
+            var lv = Lamp(env.T, (int)JLayouts.D(Pm, "seed") + 1, 1, env.Fps);
             using (var g = Radial2(vx, vy, 0, Math.Max(bw, bh) * 3,
                        new[]
                        {

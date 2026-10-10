@@ -555,7 +555,7 @@ public static class P11Kinetic3
             {
                 ctx.Save();
                 ctx.Translate(px, py);
-                ctx.RotateDegrees((float)(ang * J.DEG));
+                ctx.RotateDegrees((float)ang); // JS rotate(ang * DEG) 收弧度；RotateDegrees 收度，不能再乘 DEG
                 ctx.Translate(-px, -py);
                 ctx.DrawImage(img, 0, 0);
                 ctx.Restore();
@@ -567,7 +567,7 @@ public static class P11Kinetic3
             var lw = Math.Max(2, MinD(i) * 0.006);
             ctx.Save();
             ctx.Translate(px, py);
-            ctx.RotateDegrees((float)(90 * sg * e * J.DEG));
+            ctx.RotateDegrees((float)(90 * sg * e)); // 同上：JS 传弧度，这里传度
             using (var fill = new SKPaint { Color = Env.SkColor(TAcc(i), BellK(p)) })
             {
                 var y0 = -(py != 0 ? ch : 0);

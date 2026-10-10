@@ -1,5 +1,6 @@
 {
   "Mcp.Tool.get_state.Desc": "读取编辑器完整状态：工程、行（1 起始）、切分、当前切分、加载与导出状态。detail=false 为轻量状态",
+  "Mcp.Tool.get_frame.Desc": "把当前（或 t 指定）时间点用引擎离屏渲染成一帧 PNG 并返回文件路径（默认 960 宽，160-1920）。预览走 GPU 直显抓不到像素，这里用 CPU 离屏同参重渲，供核对此刻真实画面",
   "Mcp.Tool.list_options.Desc": "查询 ID 与本地化名称。category：style/font 或手法组（layout/enter/hold/exit/decor/treat/bg/cam/fx/trans）。支持分页与关键词",
   "Mcp.Tool.list_options.SettingsNote": "设置字段见 update_settings 的说明；style/font/各手法组用 list_options 查询 ID",
   "Mcp.Tool.set_lyrics.Desc": "整体替换歌词（支持 LRC 与记法：/ 切分、*强调*、! 闪烁、| 注释、[间奏 N]）；或 clear=true 清空歌词与逐行时间",

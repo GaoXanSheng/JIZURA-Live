@@ -1314,7 +1314,7 @@ public static class Planner
                     if (trans != null)
                     {
                         var TD = Reg.Trans[trans];
-                        transDur = J.Clamp(TD.Dur ?? 0.35, 0.12, Math.Min(0.6, dur * 0.45));
+                        transDur = J.Clamp(TD.Dur is { } tdDur && tdDur != 0 ? tdDur : 0.35, 0.12, Math.Min(0.6, dur * 0.45));
                         transP = TD.Plan != null ? TD.Plan!(rng, st) ?? new JObject() : new JObject();
                         enter = "cut";
                         inDur = 0.12;
@@ -1347,7 +1347,7 @@ public static class Planner
                     morph = null;
                     trans = techTrans;
                     var TD = Reg.Trans[trans];
-                    transDur = J.Clamp(TD.Dur ?? 0.35, 0.12, Math.Min(0.6, dur * 0.45));
+                    transDur = J.Clamp(TD.Dur is { } tdDur && tdDur != 0 ? tdDur : 0.35, 0.12, Math.Min(0.6, dur * 0.45));
                     transP = TD.Plan != null
                         ? TD.Plan!(J.Rng(J.H((int)lineSeed, k, 96)), st) ?? new JObject()
                         : new JObject();
@@ -2747,7 +2747,7 @@ public static class Planner
         var cuts = new List<Cut>();
         if (group == "trans" && Reg.Trans.TryGetValue(key, out var td))
         {
-            var transDur = J.Clamp(td.Dur ?? 0.35, 0.18, 0.7);
+            var transDur = J.Clamp(td.Dur is { } tdDur2 && tdDur2 != 0 ? tdDur2 : 0.35, 0.18, 0.7);
             var transP = td.Plan != null ? td.Plan!(rng, st) ?? new JObject() : new JObject();
             var tA = enUI ? "BEFORE" : "前のカット";
             var tB = enUI ? "AFTER" : "字面";

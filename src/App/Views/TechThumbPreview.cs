@@ -161,10 +161,11 @@ internal sealed class TechThumbPreview
                             card.Pending = false;
                         }
                     });
-                    // 让路（对位旧 TechTab 的预算制）：播放中占闸 ~1/10 壁钟，暂停时全速补图
+                    // 让路（对位旧 TechTab 的预算制）：播放中占闸 ~1/10 壁钟（睡 9×实测成本），暂停时全速补图。
+                    // 下限只防自旋：旧下限 20ms 在单张 ~1ms 时把占闸压到 4%，几十张可见卡的刷新周期被拖成秒级。
                     var costMs = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
                     var playing = App.MainInstance?.Preview.IsPlaying == true;
-                    Thread.Sleep(playing ? (int)Math.Clamp(costMs * 9, 20, 400) : 6);
+                    Thread.Sleep(playing ? (int)Math.Clamp(costMs * 9, 2, 400) : 2);
                 }
                 catch (Exception ex)
                 {

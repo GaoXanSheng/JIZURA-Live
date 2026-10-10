@@ -366,7 +366,7 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("per", rng.Range(0.55, 0.8)), ("a", rng.Range(0.85, 1.1)))),
             Get = env =>
             {
-                // 一直有低频晃动，节拍上再叠一下猛的；纵向为主，跑在 ≤24Hz 的随机时钟上
+                // 一直有低频晃动，节拍上再叠一下猛的；纵向为主，跑在跟随输出帧率的随机时钟上
                 var p = CamP(env);
                 var K = KM(env) * Num(p, "a", 1);
                 var hit = Math.Exp(-BeatSince(env, Num(p, "per", 0.65)) * 7);

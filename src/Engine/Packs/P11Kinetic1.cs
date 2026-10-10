@@ -723,7 +723,7 @@ public static class P11Kinetic1
                         var ctx = env.Ctx;
                         ctx.Save();
                         ctx.Translate((float)(W / 2.0 + ev[0] * cam[3]), (float)(H / 2.0 + ev[1] * cam[3]));
-                        ctx.RotateDegrees((float)((cam[0] + 45) * J.DEG));
+                        ctx.RotateDegrees((float)(cam[0] + 45)); // JS rotate((cam.r + 45) * DEG) 收弧度；这里收度
                         env.Rect(-s / 2, -s / 2, s, s, sc.Str("accent"), 1, false);
                         ctx.Restore();
                     }

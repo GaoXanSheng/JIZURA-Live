@@ -52,6 +52,7 @@ get_state → list_options → set_lyrics → update_settings / set_timing
 | 工具 | 作用 / 关键参数 |
 |---|---|
 | `get_state` | 读完整状态（只读）。detail=true 附 project、逐行列表（start/end/text/layout/cuts/locked）、当前切分手法 |
+| `get_frame` | 把当前（或 `t` 指定）时间点用引擎离屏渲成一帧 PNG 落盘并返回路径（默认 960 宽）。预览走 GPU 直显抓不到像素，核对真实画面用它（只读） |
 | `list_options` | 查 ID（只读）。category 必填，query/page/pageSize 可选 |
 | `set_lyrics` | 整体替换歌词（text 或 clear=true）。**见下方警告** |
 | `update_settings` | 按字段改设置：title/artist/lang/style/seed/fx*/fonts/套装开关/aspect/res/fps/quality/keyBg/exportRange |
