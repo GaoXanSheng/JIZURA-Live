@@ -11,7 +11,7 @@ export interface AnalyzedAudio {
     energy: Float32Array;
     energyRate: number;
     peaks: Float32Array;
-    // F0（Hz/帧，0=无声帧），帧率同 energyRate，K线主题用它驱动蜡烛涨跌
+    // F0（Hz/帧，0=无声帧），帧率同 energyRate，音频表现包用它驱动音高相关特效
     pitch: Float32Array | null;
     pitchRate: number;
 }

@@ -112,7 +112,7 @@
             ascii: true,  // 09_render.js 整帧先走正常管线再经 asciiFrame 转成字符画
         };
         if (window.J.STYLE_ORDER && !window.J.STYLE_ORDER.includes('ascii')) {
-            window.J.STYLE_ORDER.push('ascii');   // 本文件在 11p_kline.js 之后导入，正好排在 K线后面
+            window.J.STYLE_ORDER.push('ascii');
         }
     }
 

@@ -41,8 +41,7 @@ import './11p_typo1.js';
 import './11p_typo2.js';
 import './11p_typo3.js';
 import './11q_sets.js';
-import './11p_kline.js'; // K线（股票蜡烛图）风格：完全独立的音频驱动渲染器
-import './11p_ascii.js'; // ASCII 终端风格：完全独立的音频驱动渲染器，排在 K线之后
+import './11p_ascii.js'; // ASCII 终端风格：完全独立的音频驱动渲染器
 import './11p_audiofx.js'; // 追加音频表现包：山脊线/随音高游移/ASCII化/心电图/换台（全部 extra 新增标记）
 import './zh-labels.js'; // 简中标签覆盖（风格/部件名/示例歌词），必须在所有引擎文件之后
 

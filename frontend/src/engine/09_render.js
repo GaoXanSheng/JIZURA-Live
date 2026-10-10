@@ -170,12 +170,6 @@
       const W = plan.W, H = plan.H, scale = opt.scale || 1;
       const cw = ctx.canvas.width, ch = ctx.canvas.height;
       const fx = plan.fx, st = plan.style, fps = plan.fps;
-      // K线风格走完全独立的渲染路径：图表+中心滚动歌词画满整帧直接返回，
-      // 不进普通文字管线（无 morph、无转场递归、无全屏特效），视角与画面稳定
-      if (st.kline && J.KLINE_RENDERER && opt.layer !== 'front') {
-        J.KLINE_RENDERER(ctx, plan, t, opt);
-        return;
-      }
       // ASCII 字符画风格：整帧先按正常管线渲进离屏，再整帧转成 ASCII 字符网格。
       // asciiInner 防递归（转场/字形采样的嵌套 frame 调用直接走普通管线）
       if (st.ascii && J.asciiFrame && !opt.asciiInner && opt.layer !== 'front') {
@@ -226,7 +220,7 @@
       // 多画布/多 plan 轮转时白付拷贝不值，同一键第二次出现才开始写缓存。
       const fc = this.fCache || (this.fCache = {plan: null, cv: null, key: '', hot: ''});
       let fKey = null;
-      if (!opt.glyphLog && !opt.klineBg && !opt.layer && !evLive && spike === 0 && shake === 0 &&
+      if (!opt.glyphLog && !opt.layer && !evLive && spike === 0 && shake === 0 &&
           beatPulse <= 0.02 && !transOn) {
         if (plan !== fc.plan) {
           fc.plan = plan;
@@ -257,12 +251,12 @@
       ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = 1;
       ctx.filter = 'none';
-      if (!opt.klineBg) ctx.clearRect(0, 0, cw, ch);   // K线背景已画好，不能清掉
+      ctx.clearRect(0, 0, cw, ch);
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
       if (key && !opt.transparent) {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, W, H);
-      } else if (!opt.transparent && !opt.klineBg) {
+      } else if (!opt.transparent) {
         ctx.fillStyle = sc.bg;
         ctx.fillRect(0, 0, W, H);
         ctx.fillStyle = this.bgGrad(ctx, W, H, J.lum(sc.bg) < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.10)');
@@ -282,7 +276,7 @@
       const beatInfo = plan.beats && plan.beats.length ? beatAt(plan.beats, tq) : null;
       // 透過PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
       const layer = opt.transparent ? opt.layer || null : null;
-      if ((!opt.transparent || layer === 'back') && !key && !opt.klineBg && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
+      if ((!opt.transparent || layer === 'back') && !key && mainCut && mainCut.bg && mainCut.bg !== 'none' && J.BG[mainCut.bg]) {
         const env = this.makeEnv(ctx, plan, mainCut, sc, {
           pass: 'main',
           t: tq,

@@ -41,7 +41,7 @@ export const useStage = defineStore('stage', {
                 ...(this.audioBeats.length ? {beats: this.audioBeats} : (this.project.timing?.bpm > 0
                     ? {beats: J.beatGrid(this.project.timing.bpm, this.project.timing.beatOffset || 0, this.audioDuration || 600)}
                     : {})),
-                // 音频分析数组，K线这类音频驱动风格靠它出画面（没有就是 NO AUDIO DATA）
+                // 音频分析数组，音频驱动风格靠它出画面（没有就是 NO AUDIO DATA）
                 ...(a ? {
                     energy: a.energy || null,
                     energyRate: a.energyRate || 0,

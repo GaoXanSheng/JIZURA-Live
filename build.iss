@@ -1,6 +1,6 @@
 #define AppName "JizuraLive"
 #define AppId "{{C5A3E1D2-9B47-4F86-A2C1-7E0B3D94F6A8}"
-#define AppVersion "2.1.0"
+#define AppVersion "2.2.0"
 #define AppExeName "JizuraLive.exe"
 
 [Setup]

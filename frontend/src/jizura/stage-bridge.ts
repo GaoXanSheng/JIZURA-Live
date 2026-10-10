@@ -54,7 +54,7 @@ function payloadMap() {
 }
 
 // 音频分析数组随消息走结构化克隆（Float32Array 原生支持）。
-// 渲染页的 plan 一直缺 energy/pitch，K线这类音频驱动风格在渲染端会全是无数据画面
+// 渲染页的 plan 一直缺 energy/pitch，音频驱动风格（ASCII/音频表现包）在渲染端会全是无数据画面
 function analysisOf() {
     return {
         energy: S.audio ? (S.audio.energy || null) : null,

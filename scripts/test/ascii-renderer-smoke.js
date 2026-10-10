@@ -5,7 +5,7 @@ globalThis.window = globalThis;
 window.J = {
     fontCSS: (key, px) => `${px}px "Test Mono", monospace`,
     STYLES: {},
-    STYLE_ORDER: ['noir', 'kline'],
+    STYLE_ORDER: ['noir'],
 };
 
 // --- stub canvas：getContext 返回可注入像素的 2D 桩 ---
@@ -41,7 +41,7 @@ require('../../frontend/src/engine/11p_ascii.js');
 const assert = require('assert');
 assert(window.J.asciiFrame, 'asciiFrame 未注册');
 assert(window.J.STYLES.ascii, 'STYLES.ascii 未注册');
-assert(window.J.STYLE_ORDER.indexOf('ascii') > window.J.STYLE_ORDER.indexOf('kline'), 'ascii 必须在 kline 后面');
+assert(window.J.STYLE_ORDER.indexOf('ascii') > window.J.STYLE_ORDER.indexOf('noir'), 'ascii 必须追加在已有风格之后');
 console.log('STYLE_ORDER =', window.J.STYLE_ORDER.join(', '));
 
 const plan = {W: 1920, H: 1080, fps: 30, fx: {}, events: [], cuts: []};
