@@ -1082,7 +1082,7 @@ public static class P11LayoutsB
                     // ctx.rect(整屏) + ctx.rect(文字块) 的 evenodd clip → 只画文字块之外的前半环
                     env.Ctx.Save();
                     using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
-                    path.AddRect(new SKRect((float)-W, (float)-H, (float)(W * 3), (float)(H * 3)));
+                    path.AddRect(new SKRect((float)-W, (float)-H, (float)(W * 2), (float)(H * 2)));
                     path.AddRect(new SKRect(
                         (float)(wb.X0 - size * 0.12), (float)(wb.Y0 - size * 0.1),
                         (float)(wb.X1 + size * 0.12), (float)(wb.Y1 + size * 0.1)));

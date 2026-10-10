@@ -4668,7 +4668,7 @@ public static class P11DecorB
             var lx = hx + s * 1.25;
             var ly = hy;
             ctx.Save();
-            ctx.ClipRect(new SKRect((float)(lx - 2 * u), (float)(ly - fs * 0.75), (float)(lx + w), (float)(ly + fs * 0.75)));
+            ctx.ClipRect(new SKRect((float)(lx - 2 * u), (float)(ly - fs * 0.75), (float)(lx - 2 * u + w), (float)(ly + fs * 0.75)));
             if (cur != prev)
             {
                 var f = J.E.OutCubic(J.Clamp(((t - tLike - 0.4) % 0.38 + 0.38) % 0.38 / 0.16));

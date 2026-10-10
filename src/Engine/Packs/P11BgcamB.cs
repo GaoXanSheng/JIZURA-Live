@@ -3022,7 +3022,7 @@ public static class P11BgcamB
             var ox = Math.Sin(t * 0.35 + i) * U * 0.006 * (i + 1);
             var oy = Math.Cos(t * 0.3 + i) * U * 0.004 * (i + 1);
             using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
-            path.AddRect(new SKRect(-W, -H, W * 3f, H * 3f));
+            path.AddRect(new SKRect(-W, -H, W * 2f, H * 2f));
             for (var j = 0; j < N; j++)
             {
                 var th = j / (double)N * J.TAU;

@@ -513,7 +513,7 @@ public static class P11Horror3
                 {
                     // 亮纸配色：改为压暗光柱之外的房间（evenodd：整屏 rect + 光柱 poly）
                     using var room = new SKPath { FillType = SKPathFillType.EvenOdd };
-                    room.AddRect(new SKRect(-10, -10, (float)(W + 20), (float)(H + 20)));
+                    room.AddRect(new SKRect(-10, -10, (float)(W + 10), (float)(H + 10)));
                     room.AddPath(path);
                     using (var dp = new SKPaint
                            {

@@ -6900,7 +6900,7 @@ public static class P11LayoutsC
                 env.Circle(cx, yy0 - H * 0.06, u * 0.006, sc.Str("fg"), null, 0, a, false);
                 var yb = yy0 + sh2 * Math.Max(0.03, open);
                 ctx.Save();
-                ctx.ClipRect(new SKRect((float)(cx - sw2), (float)(yy0 - 2), (float)(cx + sw2), (float)(yy0 + (yb - yy0 + 2))));
+                ctx.ClipRect(new SKRect((float)(cx - sw2), (float)(yy0 - 2), (float)(cx + sw2), (float)yb));
                 env.Rect(cx - sw2 / 2, yy0, sw2, sh2, mountC, a, false);
                 // 一文字绫边 + 画心纸
                 var pt = yy0 + sh2 * 0.2;

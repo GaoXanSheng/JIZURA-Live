@@ -299,7 +299,7 @@ public static class P11Horror1
         using var img = SKImage.FromBitmap(n);
         using var p = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round(J.Clamp(a) * 255)) };
         env.Ctx.DrawImage(img,
-            new SKRect(sx, sy, n.Width - sx, n.Height - sy),
+            new SKRect(sx, sy, n.Width, n.Height),
             new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), SampNearest, p);
     }
 

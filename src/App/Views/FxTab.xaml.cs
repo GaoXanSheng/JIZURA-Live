@@ -27,10 +27,11 @@ public partial class FxTab : UserControl
         ("density", "Fx.Param.Density"), ("texture", "Fx.Param.Texture"), ("bgSwitch", "Fx.Param.BgSwitch"),
     };
 
-    /// <summary>抽帧档位（koma：0/8/12/24）。</summary>
+    /// <summary>抽帧档位（koma：0/12/8）。三项与顺序都对位前端 FxTab.vue：全帧 → 一拍二 → 一拍三
+    /// （前端没有「一拍一」档，多出来的 24 会让前端那个下拉选不中任何项）。</summary>
     private static readonly (int V, string LKey)[] KomaOptions =
     {
-        (0, "Fx.Koma.Full"), (8, "Fx.Koma.Threes"), (12, "Fx.Koma.Twos"), (24, "Fx.Koma.Ones"),
+        (0, "Fx.Koma.Full"), (12, "Fx.Koma.Twos"), (8, "Fx.Koma.Threes"),
     };
 
     // 锁定按钮的悬浮说明（对位 Vue 的 LOCK_ON / LOCK_OFF）
@@ -336,10 +337,12 @@ public partial class FxTab : UserControl
             }
 
             // 显示值取「有效档位」= Planner.KomaOf（对位前端 rebuild 的 String(J.komaOf(fx))）：
-            // Koma 为 null（工程里没写这个键）时按 OnTwos 落到 0/12，直接看 Koma 字段会对不上
+            // Koma 为 null（工程里没写这个键）时按 OnTwos 落到 0/12，直接看 Koma 字段会对不上。
+            // 档位外的值（MCP/手改的 24、10 之类）不假装是全帧——清空选择，与前端空下拉同表现。
             var effKoma = Planner.KomaOf(p.Fx);
-            var koma = KomaOptions.Where(o => o.V == effKoma).Select(o => o.V).FirstOrDefault(0);
-            SelectTag(CbKoma, koma.ToString());
+            var koma = KomaOptions.Where(o => o.V == effKoma).Select(o => (int?)o.V).FirstOrDefault();
+            if (koma is { } kv) SelectTag(CbKoma, kv.ToString());
+            else CbKoma.SelectedIndex = -1;
             SelectTag(CbHud, string.IsNullOrEmpty(p.Fx.Hud) ? "auto" : p.Fx.Hud);
             if (TbSeed.Text != p.Seed.ToString()) TbSeed.Text = p.Seed.ToString();
 

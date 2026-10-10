@@ -7,7 +7,6 @@
   "Fx.Koma.Full": "全帧（同输出 fps）",
   "Fx.Koma.Threes": "一拍三（8 张/秒）",
   "Fx.Koma.Twos": "一拍二（12 张/秒）",
-  "Fx.Koma.Ones": "一拍一（24 张/秒）",
   "Fx.LockOn": "锁定：一键随机/重抽不改动此项",
   "Fx.LockOff": "锁定中，点击解除",
   "Fx.Hud": "HUD",

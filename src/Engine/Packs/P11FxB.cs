@@ -1529,7 +1529,7 @@ public static class P11FxB
                 ring.AddCircle((float)cx, (float)cy, (float)Math.Max(0, r - 0.6));
                 ctx.ClipPath(ring, antialias: true);
             }
-            DrawImg(ctx, simg, cx - cx * mm, cy - cy * mm);
+            DrawImg9(ctx, simg, 0, 0, simg.Width, simg.Height, cx - cx * mm, cy - cy * mm, cw * mm, ch * mm);
             ctx.Restore();
         }
         // 波峰高光
@@ -2277,15 +2277,16 @@ public static class P11FxB
 
         void Wrap(SKCanvas c, SKImage img, double off, double w, double h)
         {
+            // JS 是 drawImage(img, dx, dy, w, h)：整图缩放进 w×h（点重载按原尺寸贴，半尺寸缓冲只吃到左上角）
             if (vert)
             {
-                DrawImg(c, img, 0, off - h);
-                DrawImg(c, img, 0, off);
+                DrawImg9(c, img, 0, 0, img.Width, img.Height, 0, off - h, w, h);
+                DrawImg9(c, img, 0, 0, img.Width, img.Height, 0, off, w, h);
             }
             else
             {
-                DrawImg(c, img, off - w, 0);
-                DrawImg(c, img, off, 0);
+                DrawImg9(c, img, 0, 0, img.Width, img.Height, off - w, 0, w, h);
+                DrawImg9(c, img, 0, 0, img.Width, img.Height, off, 0, w, h);
             }
         }
 

@@ -90,10 +90,9 @@
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />
-      <!-- 引擎字体目录：exe 旁 fonts\（JFonts.ScanFontDirs 启动时扫描；用户投放/网络拉取也在这一带或用户字体库）。
-           这里带走随包自托管的 IBM Plex Sans JP（sansui/mono 键的真身，OFL）。界面字体用系统微软雅黑，
-           不读这个目录——WPF 的 pack 资源字体 URI 实测解析不到，界面字体没必要自托管。 -->
-      <Content Include="assets\fonts\*.ttf" Link="fonts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+      <!-- 引擎字体不随包：exe 旁 fonts\ 只放用户手动投放的字体（JFonts.ScanFontDirs 启动时扫描），
+           缺字体由 FontFetch 联网拉进用户字体库 %LOCALAPPDATA%\JizuraLive\fonts，拉不到落系统字体栈（雅黑保底）。
+           界面字体用系统微软雅黑，不读这个目录——WPF 的 pack 资源字体 URI 实测解析不到，界面字体没必要自托管。 -->
       <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
       <ApplicationDefinition Include="src\App\App.xaml" />
       <!-- i18n 词库：按语言目录嵌入（src/App/I18n/Locales/{lang}/{panel}.json），L 启动时全量装载 -->

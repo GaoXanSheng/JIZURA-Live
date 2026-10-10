@@ -82,9 +82,10 @@ public static class P11Ascii
         // 2) 降采样到 cols×rows 再读像素（tiny 位图采样，逐像素读全帧会拖垮帧率）
         using var smooth = new SKPaint { IsAntialias = true };
         _smallSurf!.Canvas.Clear();
-        _smallSurf.Canvas.DrawImage(
-            SKImage.FromPixels(_buf.PeekPixels()!.Info, _buf.PeekPixels()!.GetPixels(), _buf.PeekPixels()!.RowBytes),
-            0, 0, smooth);
+        // JS drawImage(buf, 0, 0, cols, rows)：整帧缩放进 cols×rows；点重载是原尺寸，只会取到画面左上角
+        using (var full = SKImage.FromPixels(_buf.PeekPixels()!.Info, _buf.PeekPixels()!.GetPixels(), _buf.PeekPixels()!.RowBytes))
+            _smallSurf.Canvas.DrawImage(full, new SKRect(0, 0, cols, rows),
+                new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear), smooth);
         var px = _small.PeekPixels();
         var data = px.GetPixelSpan();
 

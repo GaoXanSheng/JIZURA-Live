@@ -89,7 +89,7 @@ iscc build.iss
 
 ```
 JIZURA-Live/
-├── assets/                 # 应用图标、内置字体等静态资源
+├── assets/                 # 应用图标等静态资源（字体不随包，联网按需拉取）
 ├── native/                 # 原生动态链接库（SpoutDX、ANGLE）
 ├── src/
 │   ├── App/                # WPF 桌面宿主、窗口与视图、ViewModel、编辑器状态与 MCP 服务

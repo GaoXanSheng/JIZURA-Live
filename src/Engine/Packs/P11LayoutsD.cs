@@ -5020,7 +5020,7 @@ public static class P11LayoutsD
             if (env.Pass == "main")
             {
                 env.Ctx.Save();
-                env.Ctx.ClipRect(new SKRect((float)-W, (float)yb, (float)(W * 2), (float)(H * 2)));
+                env.Ctx.ClipRect(new SKRect((float)-W, (float)yb, (float)(W * 2), (float)(yb + H * 2)));
                 DrawAff(env, new JObject
                 {
                     ["text"] = text, ["font"] = font, ["size"] = size, ["x"] = W / 2.0, ["y"] = ty, ["mi"] = 0,
@@ -6900,8 +6900,8 @@ public static class P11LayoutsD
         }
         // 裁剪：喷头已喷的一侧，再减去模板桥接处，evenodd 挖洞
         env.Ctx.Save();
-        if (dir > 0) env.Ctx.ClipRect(new SKRect((float)-W, (float)-H, (float)(head + W), (float)(H * 3)));
-        else env.Ctx.ClipRect(new SKRect((float)head, (float)-H, (float)(head + W * 2), (float)(H * 3)));
+        if (dir > 0) env.Ctx.ClipRect(new SKRect((float)-W, (float)-H, (float)head, (float)(H * 2)));
+        else env.Ctx.ClipRect(new SKRect((float)head, (float)-H, (float)(head + W * 2), (float)(H * 2)));
         using (var stencilPath = new SKPath { FillType = SKPathFillType.EvenOdd })
         {
             stencilPath.AddRect(new SKRect((float)-W, (float)-H, (float)(W * 2), (float)(H * 2)));

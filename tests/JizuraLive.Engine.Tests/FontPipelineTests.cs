@@ -8,15 +8,14 @@ namespace JizuraLive.Engine.Tests;
 /// <summary>
 /// 字体管线（JFonts 解析层）：目录扫描 → 用户字体 → 系统族 → 语言×气质系统栈 → 逐字兜底。
 /// 断言的落点是「客户端离线可用的行为」：任何字体键都解析得出脸、CJK 不缺字、各键观感有区分、
-/// 上传字体真的进渲染路径、持久化能读回。运行环境的系统字体（如微软雅黑）缺失时会跳过对应断言。
+/// 上传字体真的进渲染路径、持久化能读回。运行环境的系统字体（如微软雅黑）缺失时会跳过对应断言；
+/// 上传/投放类用例的素材取自系统字体目录（引擎字体不随包）。
 /// </summary>
 [Collection("EngineRegistry")]
 public class FontPipelineTests : IDisposable
 {
     private readonly string _userDir;
     private readonly string? _oldUserDir;
-    private readonly string _repoRoot;
-    private readonly string _plexFile;
 
     public FontPipelineTests()
     {
@@ -25,8 +24,6 @@ public class FontPipelineTests : IDisposable
         _userDir = Path.Combine(Path.GetTempPath(), "jizura-font-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_userDir);
         JFonts.UserFontDir = _userDir;
-        _repoRoot = RepoRoot();
-        _plexFile = Path.Combine(_repoRoot, "assets", "fonts", "IBMPlexSansJP-Medium.ttf");
     }
 
     public void Dispose()
@@ -44,12 +41,25 @@ public class FontPipelineTests : IDisposable
         }
     }
 
-    private static string RepoRoot()
+    /// <summary>测试素材：系统字体文件（引擎字体不随包，测试不再依赖仓库内字体）。
+    /// 候选都取不到（精简系统）时，用它的用例直接跳过。</summary>
+    private static string? FontFixture()
     {
-        var d = new DirectoryInfo(AppContext.BaseDirectory);
-        while (d != null && !File.Exists(Path.Combine(d.FullName, "JizuraLive.csproj"))) d = d.Parent;
-        Assert.NotNull(d);
-        return d!.FullName;
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Fonts");
+        foreach (var name in new[] { "consola.ttf", "segoeui.ttf", "msyh.ttc" })
+        {
+            var path = Path.Combine(dir, name);
+            if (File.Exists(path)) return path;
+        }
+        return null;
+    }
+
+    /// <summary>素材文件真正的族名：断言不写死具体字体，换候选也能跑。</summary>
+    private static string FixtureFamily(string file)
+    {
+        using var tf = SKTypeface.FromFile(file);
+        Assert.NotNull(tf);
+        return tf!.FamilyName;
     }
 
     /// <summary>是否跑在有微软雅黑（保底脸）的机器上：CI/精简系统上跳过依赖它的断言。</summary>
@@ -115,18 +125,21 @@ public class FontPipelineTests : IDisposable
     [Fact]
     public void 上传字体进入渲染路径且能从字体库恢复()
     {
-        Assert.True(File.Exists(_plexFile), "缺 assets/fonts/IBMPlexSansJP-Medium.ttf（测试素材）");
+        var fixture = FontFixture();
+        if (fixture == null) return; // 精简系统没有素材：跳过
+        var family = FixtureFamily(fixture);
 
         // 1) 上传：登记 + 落盘进用户字体库
-        var uf = JFonts.LoadFontFile(_plexFile);
+        var uf = JFonts.LoadFontFile(fixture);
         Assert.True(JFonts.IsLoaded(uf.Key));
         Assert.True(File.Exists(Path.Combine(_userDir, uf.Key + ".font")), "上传字体没有落进用户字体库");
 
-        // 2) 渲染路径真的用它（此前 JText 不查 UserFaces，上传字体画不出来）
+        // 2) 渲染路径真的用它（此前 JText 不查 UserFaces，上传字体画不出来）。
+        // 上传字体按合成族名（UF_*）登记，系统里必然没有，所以解析出素材族名就说明走的是 UserFaces。
         JLang.SetLang("ja");
         var face = JLang.FaceOf(uf.Key);
         var tf = JFonts.ResolveChain(JFonts.FaceChain(face), face.Weight);
-        Assert.Equal("IBM Plex Sans JP", tf.FamilyName);
+        Assert.Equal(family, tf.FamilyName);
 
         // 3) 换进程式恢复：清掉目录项后从字体库读回
         JFonts.Table.Remove(uf.Key);
@@ -134,24 +147,26 @@ public class FontPipelineTests : IDisposable
         var missing = JFonts.RestoreUserFonts(new[] { uf });
         Assert.Empty(missing);
         Assert.True(JFonts.IsLoaded(uf.Key), "字体库里明明有本体，恢复后却标记为未加载");
-        Assert.Equal("IBM Plex Sans JP",
+        Assert.Equal(family,
             JFonts.ResolveChain(JFonts.FaceChain(JLang.FaceOf(uf.Key)), 400).FamilyName);
     }
 
     [Fact]
     public void 字体目录扫描后目录内的族可直接解析()
     {
-        Assert.True(File.Exists(_plexFile));
-        File.Copy(_plexFile, Path.Combine(_userDir, "plex-drop-in.ttf"), overwrite: true);
+        var fixture = FontFixture();
+        if (fixture == null) return; // 精简系统没有素材：跳过
+        var family = FixtureFamily(fixture);
+        File.Copy(fixture, Path.Combine(_userDir, "fixture-drop-in" + Path.GetExtension(fixture)), overwrite: true);
         JFonts.ScanFontDirs(force: true);
 
-        Assert.True(JFonts.InFontDirs("IBM Plex Sans JP"), "字体目录里的族没进索引");
-        var tf = JFonts.ResolveChain(new[] { "\"IBM Plex Sans JP\"" }, 500);
-        Assert.Equal("IBM Plex Sans JP", tf.FamilyName);
+        Assert.True(JFonts.InFontDirs(family), "字体目录里的族没进索引");
+        var tf = JFonts.ResolveChain(new[] { "\"" + family + "\"" }, 400);
+        Assert.Equal(family, tf.FamilyName);
 
-        // 同族多字重：按请求字重挑最近的一张（目录索引里 Medium=500 与 Medium 自身的一致性）
-        var bold = JFonts.ResolveChain(new[] { "\"IBM Plex Sans JP\"" }, 700);
-        Assert.Equal("IBM Plex Sans JP", bold.FamilyName);
+        // 同一个族换字重也能解析（单文件族按请求字重就近挑，回退不落空）
+        var bold = JFonts.ResolveChain(new[] { "\"" + family + "\"" }, 700);
+        Assert.Equal(family, bold.FamilyName);
     }
 
     [Fact]

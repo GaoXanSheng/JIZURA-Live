@@ -2122,7 +2122,7 @@ public static class P11EnterB
             {
                 var ctx = env2.Ctx;
                 ctx.Save();
-                ctx.ClipRect(new SKRect((float)(-env2.W), (float)gate[0], (float)(env2.W * 3), (float)FH));
+                ctx.ClipRect(new SKRect((float)(-env2.W), (float)gate[0], (float)(env2.W * 2), (float)(gate[0] + FH)));
                 var up1 = Shallow(x);
                 up1["y"] = N0(x, "y") - FH;
                 CopyDraw(env2, up1, null, null);
@@ -2977,7 +2977,7 @@ public static class P11EnterB
                 if (env2.Pass != "main") return;
                 var ctx = env2.Ctx;
                 ctx.Save();
-                ctx.ClipRect(new SKRect((float)B.X0, (float)B.Y0, (float)(B.X1 - B.X0), (float)(B.Y1 - B.Y0)));
+                ctx.ClipRect(new SKRect((float)B.X0, (float)B.Y0, (float)B.X1, (float)B.Y1));
                 var c = Shallow(x);
                 c["x"] = 0.0;
                 c["y"] = 0.0;

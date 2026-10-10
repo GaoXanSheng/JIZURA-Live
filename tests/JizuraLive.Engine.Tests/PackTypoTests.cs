@@ -401,6 +401,82 @@ public class PackTypoTests
         Assert.True(fails.Count == 0, "typo 三包冒烟失败：\n" + string.Join("\n", fails));
     }
 
+    // ---------------- clip/clipY 坐标口径（JS ctx.rect(x,y,w,h) → SKRect left/top/right/bottom） ----------------
+
+    /// <summary>退场「括号合上」：文字应从两端对称夹向中间被带走。
+    /// 防退化：DrawFx 的 clip/clipY/vbands/bands 是 JS `ctx.rect(x, y, w, h)` 的移植，而 SKRect 是
+    /// left/top/right/bottom——按 (x, y, w, h) 直接塞会把裁剪带按 [x, w] 收窄，表现成
+    /// 「整句先不可见、再从左往右一点点露出来」的单向裁切（括号合上了，句子还在）。</summary>
+    [Fact]
+    public void 括号合上_文字从两端对称夹向中间()
+    {
+        EngineBoot.Install();
+        P11Typo2.Install();
+        var proj = Project.NewDefault();
+        proj.Lyrics = "夜明けの色を覚えてる";
+        var plan = Planner.PreviewPlan(proj, "exit", "tyBracketClose");
+        var cut = plan.Cuts[0];
+        var sc = plan.Style.Schemes.Count > 0 ? plan.Style.Schemes[0] : new Scheme();
+        var bg = Env.SkColor(sc.Str("bg") ?? "#000000");
+        var design = Planner.DesignSize(proj.Aspect);
+        var cx = design.W / 2;
+        const int W = 720;
+        var scale = W / (double)design.W;
+        var H = (int)Math.Round(design.H * scale);
+        using var surface = SKSurface.Create(new SKImageInfo(W, H));
+        var canvas = surface.Canvas;
+
+        // 一帧：p = 退场进度；返回内容像素的设计空间 X 范围与占比
+        (double X0, double X1, double Ratio) Shot(double p)
+        {
+            var lt = cut.Dur - cut.OutDur + p * cut.OutDur + 1e-4;
+            canvas.Clear(bg);
+            canvas.Save();
+            canvas.Scale((float)scale);
+            var env = Env.Make(canvas, plan, cut, sc, lt, 1.0 / 24, 0.5, 0, null, "main", null, scale, cut.Start + lt, lt);
+            JLayouts.MainDraw(env, new JObject
+            {
+                ["text"] = "夜明けの色を覚えてる",
+                ["font"] = "gothic_black",
+                ["size"] = 42,
+                ["x"] = cx,
+                ["y"] = design.H / 2,
+                ["mi"] = 0,
+            });
+            canvas.Restore();
+            canvas.Flush();
+            using var img = surface.Snapshot();
+            using var px = img.PeekPixels();
+            double x0 = double.MaxValue, x1 = double.MinValue, content = 0;
+            for (var y = 0; y < px.Height; y++)
+                for (var x = 0; x < px.Width; x++)
+                {
+                    var c = px.GetPixelColor(x, y);
+                    var d = Math.Max(Math.Max(Math.Abs(c.Red - bg.Red), Math.Abs(c.Green - bg.Green)), Math.Abs(c.Blue - bg.Blue));
+                    if (d <= 40) continue;
+                    content++;
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                }
+            return content == 0 ? (0, 0, 0) : (x0 / scale, x1 / scale, content / ((double)px.Width * px.Height));
+        }
+
+        var (fx0, fx1, full) = Shot(0);
+        // 旧错法（SKRect 按 x,y,w,h 塞）在 p=0 是整帧全黑：阈值只求区分「有字」与「无字」，不锁具体墨量
+        Assert.True(full > 0.0008, $"p=0 应整句可见（实际占比 {full.ToString("P3", CultureInfo.InvariantCulture)}）");
+        Assert.True(fx1 - fx0 > 300, $"p=0 可见宽度应接近整句（实际 {fx1 - fx0:F0} 设计 px）");
+
+        var (mx0, mx1, mid) = Shot(0.5);
+        Assert.True(mid > 0, "p=0.5 应有可见文字");
+        Assert.True(mx1 - mx0 < (fx1 - fx0) * 0.8, "p=0.5 可见范围应比 p=0 窄（在往中间夹）");
+        var bandCenter = (mx0 + mx1) / 2; // 夹取带中心应仍在条目中心：旧错法单向裁切会明显偏左
+        Assert.True(Math.Abs(bandCenter - cx) < 40, $"p=0.5 可见带中心 {bandCenter:F0} 偏离条目中心 {cx:F0}");
+
+        var (_, _, closed) = Shot(0.99);
+        Assert.True(closed < full * 0.3,
+            $"p=0.99 文字应基本被夹走（实际占比 {closed.ToString("P4", CultureInfo.InvariantCulture)}，全量 {full.ToString("P4", CultureInfo.InvariantCulture)}）");
+    }
+
     // ---------------- 工具 ----------------
 
     private static SKImage SolidImage(int w, int h, SKColor c)

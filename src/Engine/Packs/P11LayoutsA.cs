@@ -2846,7 +2846,7 @@ public static class P11LayoutsA
                         ? Math.Sin(env.Ltb * 2.4 + k * 0.9) * size * 0.035 * (k + 1) / K
                         : 0;
                     ctx.Save();
-                    ctx.ClipRect(new SKRect((float)-W, (float)y0, (float)(W * 3), (float)(y1 - y0 + 0.6)));
+                    ctx.ClipRect(new SKRect((float)-W, (float)y0, (float)(W * 2), (float)(y1 + 0.6)));
                     ctx.Translate((float)dx, (float)hz);
                     ctx.Scale(1, (float)-squash);
                     ctx.Translate(0, (float)-hz);

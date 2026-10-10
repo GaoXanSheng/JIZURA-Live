@@ -272,17 +272,19 @@ public static class P11Typo3
         return map.Values.ToList();
     }
 
-    /// <summary>itemSpace：clip/平移/旋转/skew 的 item 本地空间。JS L345-366。</summary>
+    /// <summary>itemSpace：clip/平移/旋转/skew 的 item 本地空间。JS L345-366。
+    /// clip/clipY 与 JLayouts.DrawFx 是同一份 JS `ctx.rect(x, y, w, h)` 的两个移植点：
+    /// SKRect 要 left/top/right/bottom，右/下边界必须是绝对坐标（写成 w/h 会让夹取带反向）。</summary>
     private static void ItemSpace(Env env, JObject it, Action fn)
     {
         var ctx = env.Ctx;
         ctx.Save();
         if (it["clip"] is JArray clip)
             ctx.ClipRect(new SKRect((float)(double)clip[0]!, (float)-env.H,
-                (float)((double)clip[1]! - (double)clip[0]!), (float)(env.H * 3)));
+                (float)(double)clip[1]!, (float)(env.H * 2)));
         if (it["clipY"] is JArray clipY)
             ctx.ClipRect(new SKRect((float)-env.W, (float)(double)clipY[0]!,
-                (float)(env.W * 3), (float)((double)clipY[1]! - (double)clipY[0]!)));
+                (float)(env.W * 2), (float)(double)clipY[1]!));
         ctx.Translate((float)JAnim.Num(it, "x"), (float)JAnim.Num(it, "y"));
         var rot = JAnim.Num(it, "rot");
         if (rot != 0) ctx.RotateDegrees((float)rot);

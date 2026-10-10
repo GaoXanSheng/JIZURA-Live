@@ -1422,12 +1422,12 @@ public static class P11Typo1
                         if (topPart)
                         {
                             var yTop = li != 0 ? a : -H;
-                            rects.Add(new SKRect((float)-W, (float)yTop, (float)(W * 3), (float)yc));
+                            rects.Add(new SKRect((float)-W, (float)yTop, (float)(W * 2), (float)yc));
                         }
                         else
                         {
                             var yBot = li < L - 1 ? b : H * 2;
-                            rects.Add(new SKRect((float)-W, (float)yc, (float)(W * 3), (float)yBot));
+                            rects.Add(new SKRect((float)-W, (float)yc, (float)(W * 2), (float)yBot));
                         }
                     }
                     ClipUnion(env, rects);

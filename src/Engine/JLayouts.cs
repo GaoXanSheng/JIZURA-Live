@@ -290,15 +290,22 @@ public static class JLayouts
                 Log.Warn($"item pre: {e.GetType().Name}: {e.Message}\n{FirstStack(e)}");
             }
         }
+        // JS 这几处是 ctx.rect(x, y, w, h)：SKRect 不是 (x,y,w,h) 而是 left/top/right/bottom，
+        // 必须写成 (x, y, x+w, y+h)——否则裁剪带按 [x, w] 收窄，退场「括号合上」这类从中间夹走的
+        // 效果会变成从左往右裁掉右半边。
         if (it["clip"] is JArray clip)
         {
             ctx.Save();
-            ctx.ClipRect(new SKRect((float)(double)clip[0]!, -env.H, (float)((double)clip[1]! - (double)clip[0]!), env.H * 3f));
+            var x0 = (float)(double)clip[0]!;
+            var x1 = (float)(double)clip[1]!;
+            ctx.ClipRect(new SKRect(x0, -env.H, x1, env.H * 2f));
         }
         if (it["clipY"] is JArray clipY)
         {
             ctx.Save();
-            ctx.ClipRect(new SKRect(-env.W * 1f, (float)(double)clipY[0]!, env.W * 3f, (float)((double)clipY[1]! - (double)clipY[0]!)));
+            var y0 = (float)(double)clipY[0]!;
+            var y1 = (float)(double)clipY[1]!;
+            ctx.ClipRect(new SKRect(-env.W * 1f, y0, env.W * 2f, y1));
         }
         // JS it.clipFn：ctx.beginPath() 后由钩子在 ctx 上构造路径再 ctx.clip()——C# 返回 SKPath 由这里裁
         if (clipFn != null)
@@ -313,7 +320,7 @@ public static class JLayouts
             {
                 var b = (JArray)band!;
                 ctx.Save();
-                ctx.ClipRect(new SKRect((float)(double)b[0]!, -env.H * 2f, (float)((double)b[1]! - (double)b[0]!), env.H * 5f));
+                ctx.ClipRect(new SKRect((float)(double)b[0]!, -env.H * 2f, (float)(double)b[1]!, env.H * 3f));
                 ctx.Translate(0, (float)(double)b[2]!);
                 Draw();
                 ctx.Restore();
@@ -325,17 +332,17 @@ public static class JLayouts
             {
                 var b = (JArray)band!;
                 ctx.Save();
-                ctx.ClipRect(new SKRect(-env.W * 2f, (float)(double)b[0]!, env.W * 5f, (float)((double)b[1]! - (double)b[0]!)));
+                ctx.ClipRect(new SKRect(-env.W * 2f, (float)(double)b[0]!, env.W * 3f, (float)(double)b[1]!));
                 ctx.Translate((float)(double)b[2]!, 0);
                 Draw();
                 ctx.Restore();
             }
-            // bands 区间之外的部分
+            // bands 区间之外的部分（JS ctx.rect(-W*2, -H*3, W*5, lo+H*3) / (-W*2, hi, W*5, H*4)）
             var lo = (double)bands[0]![0]!;
             var hi = (double)bands[bands.Count - 1]![1]!;
             using var outPath = new SKPath();
-            outPath.AddRect(new SKRect(-env.W * 2f, -env.H * 3f, env.W * 5f, (float)(lo + env.H * 3)));
-            outPath.AddRect(new SKRect(-env.W * 2f, (float)hi, env.W * 5f, (float)(hi + env.H * 4)));
+            outPath.AddRect(new SKRect(-env.W * 2f, -env.H * 3f, env.W * 3f, (float)lo));
+            outPath.AddRect(new SKRect(-env.W * 2f, (float)hi, env.W * 3f, (float)(hi + env.H * 4)));
             ctx.Save();
             ctx.ClipPath(outPath);
             Draw();
