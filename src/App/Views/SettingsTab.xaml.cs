@@ -11,7 +11,7 @@ using JizuraLive.Logging;
 namespace JizuraLive.App.Views;
 
 // 设置面板（对位 SettingsTab.vue）：
-// 中央を空ける（centerFree/zone/gap/dir）、画幅/分辨率/fps/背景（project，即时生效）、
+// 中央を空ける（centerFree/zone/gap/dir）、画幅/背景（project，即时生效）、
 // 渲染窗口分辨率/帧率 + Spout 组（App Settings 草稿，点「重启渲染引擎」统一生效）。
 public partial class SettingsTab : UserControl
 {
@@ -21,11 +21,8 @@ public partial class SettingsTab : UserControl
 
     private EditorState S => App.MainInstance!.State;
 
-    // 对位 ASPECTS / OutTab 的分辨率与 fps 档位
+    // 对位 ASPECTS；分辨率/fps 只在「导出」页改（工程字段同源，设置页不再重复一份）
     private static readonly string[] Aspects = { "16:9", "9:16", "4:3", "3:4", "1:1", "4:5", "21:9" };
-    private static readonly (int V, string Label)[] ResOptions =
-        { (720, "720p"), (1080, "1080p"), (1440, "1440p"), (2160, "4K") };
-    private static readonly int[] FpsOptions = { 12, 15, 18, 24, 25, 30, 48, 50, 60, 90, 120 };
     // 带文案的下拉：数组存资源键，构建时经 L.T 解析（换语言时 RebuildLocalizedItems 重建）
     private static readonly (string V, string Key)[] KeyBgOptions =
         { ("off", "Settings.KeyBg.Off"), ("green", "Settings.KeyBg.Green"), ("black", "Settings.KeyBg.Black") };
@@ -101,8 +98,6 @@ public partial class SettingsTab : UserControl
     {
         if (CbAspect.Items.Count > 0) return;
         foreach (var a in Aspects) CbAspect.Items.Add(new ComboBoxItem { Content = a, Tag = a });
-        foreach (var (v, label) in ResOptions) CbRes.Items.Add(new ComboBoxItem { Content = label, Tag = v.ToString() });
-        foreach (var f in FpsOptions) CbFps.Items.Add(new ComboBoxItem { Content = f.ToString(), Tag = f.ToString() });
         RebuildLocalizedItems();
     }
 
@@ -210,22 +205,6 @@ public partial class SettingsTab : UserControl
         var v = SelectedTag(CbAspect);
         if (v == null || v == S.Project.Aspect) return;
         S.Mutate(p => p.Aspect = v, L.F("Settings.Mutate.AspectFmt", v)); // setAspect：与导出页同源
-    }
-
-    private void CbRes_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncing) return;
-        var v = SelectedTag(CbRes);
-        if (v == null || v == S.Project.Res.ToString()) return;
-        S.Mutate(p => p.Res = int.Parse(v), L.T("Settings.Res"), replan: false); // setRes 只 autosave
-    }
-
-    private void CbFps_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncing) return;
-        var v = SelectedTag(CbFps);
-        if (v == null || v == S.Project.Fps.ToString()) return;
-        S.Mutate(p => p.Fps = int.Parse(v), L.T("Settings.Fps"));
     }
 
     /// <summary>setKeyBg：三态清洗 + 镜像进 exportCfg.bgStyle（两处下拉同源）。</summary>
@@ -606,8 +585,6 @@ public partial class SettingsTab : UserControl
             JzAnim.ShowFade(CenterDirRow, (p.CenterZone ?? "center") == "center");
 
             SelectTag(CbAspect, Aspects.Contains(p.Aspect) ? p.Aspect : "16:9");
-            SelectTag(CbRes, ResOptions.Any(o => o.V == p.Res) ? p.Res.ToString() : "1080");
-            SelectTag(CbFps, FpsOptions.Contains(p.Fps) ? p.Fps.ToString() : "24");
             SelectTag(CbKeyBg, p.KeyBg is "green" or "black" ? p.KeyBg : "off");
             PullSubtitle();
         }

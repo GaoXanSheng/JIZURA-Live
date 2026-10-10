@@ -205,7 +205,7 @@
             </Grid>
         </StackPanel>
 
-        <!-- 画布比例 / 分辨率 / fps / 背景 / 渲染窗口分辨率 / 渲染帧率（flex flex-col gap-2.5） -->
+        <!-- 画布比例 / 背景 / 渲染窗口分辨率 / 渲染帧率（flex flex-col gap-2.5） -->
         <StackPanel Margin="0,16,0,0">
             <Grid Margin="0,0,0,10">
                 <Grid.ColumnDefinitions>
@@ -217,28 +217,6 @@
                           SelectionChanged="CbAspect_SelectionChanged" />
             </Grid>
             <TextBlock Text="{DynamicResource Loc.Settings.Aspect.SameSource}" Style="{StaticResource HintXs}"
-                       Margin="0,0,0,10" />
-
-            <Grid Margin="0,0,0,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="110" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{DynamicResource Loc.Settings.Res}" Style="{StaticResource RowLab}" />
-                <ComboBox x:Name="CbRes" Grid.Column="1" Margin="12,0,0,0"
-                          SelectionChanged="CbRes_SelectionChanged" />
-            </Grid>
-
-            <Grid Margin="0,0,0,10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="110" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="{DynamicResource Loc.Settings.Fps}" Style="{StaticResource RowLab}" />
-                <ComboBox x:Name="CbFps" Grid.Column="1" Margin="12,0,0,0"
-                          SelectionChanged="CbFps_SelectionChanged" />
-            </Grid>
-            <TextBlock Text="{DynamicResource Loc.Settings.Fps.SameSource}" Style="{StaticResource HintXs}"
                        Margin="0,0,0,10" />
 
             <Grid Margin="0,0,0,10">

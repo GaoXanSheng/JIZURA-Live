@@ -33,6 +33,7 @@ using SpoutDXWrapper;
 using Buffer = System.Buffer;
 using Device = SharpDX.Direct3D11.Device;
 using MapFlags = SharpDX.Direct3D11.MapFlags;
+using Resource = SharpDX.DXGI.Resource;
 
 namespace JizuraLive.Spout;
 
@@ -114,6 +115,18 @@ public sealed class SpoutOut : IDisposable
     // 镜像读回用的 staging 纹理（按尺寸/格式缓存复用；CopyResource 要求格式与共享纹理一致）
     private Texture2D? _mirrorStaging;
     private int _mirrorStgW = -1, _mirrorStgH = -1, _mirrorStgFmt = -1;
+
+    // 预览发布纹理：交给 WPF D3DImage 显存直显的那块面。引擎画的 pbuffer 每帧都被 Clear+重画，
+    // 把它的句柄直接给预览会让合成器按自己的 vsync 采到「清空后/画一半」的中间态（实测播放时
+    // 持续闪烁；暂停态不重画所以不闪）。改成每帧把画完的 pbuffer 整幅拷进这块专用共享纹理再发布
+    // ——它除一次 ~30µs 的 GPU 拷贝外全程静止，合成器采到的永远是完整帧。
+    // shortcut: 只有一块发布纹理，合成器理论上仍可能落在那 ~30µs 的拷贝里（最坏是两帧之间的
+    // 细缝，不是整屏清空）。若这点细缝真被看出来，改成 2~3 块轮转发布 + D3D11ImageSource
+    // 缓存多个句柄按帧 SetBackBuffer。
+    private Texture2D? _pubTex;
+    private IntPtr _pubHandle = IntPtr.Zero;
+    private int _pubW = -1, _pubH = -1, _pubFmt = -1;
+    private bool _pubUnavailable; // 共享发布纹理建不出来：只试一次，之后一直走 staging 读回
 
     public bool IsRunning => _running;
     public string? SenderName => _main?.Name;
@@ -224,6 +237,10 @@ public sealed class SpoutOut : IDisposable
         _mirrorStaging = null;
         _mirrorStgW = _mirrorStgH = -1;
         _mirrorStgFmt = -1;
+        _pubTex?.Dispose();
+        _pubTex = null;
+        _pubHandle = IntPtr.Zero;
+        _pubW = _pubH = _pubFmt = -1;
         if (_ownsDevice)
         {
             _device?.Dispose();
@@ -492,22 +509,36 @@ public sealed class SpoutOut : IDisposable
     private static double Ms(long a, long b) => (b - a) * 1000.0 / Stopwatch.Frequency;
 
     /// <summary>
-    /// 出图面 → 预览镜像：计划区经 D3D11 staging 读回 CPU 位图（1080p 实测 ~1.7ms；走 ANGLE 的
-    /// glReadPixels 同尺寸要 ~13.6ms）。必须在 FlushAndSync 之后调用（GPU 落盘后才读得到）；
-    /// staging 格式取共享纹理的 DXGI 格式——不一致时 CopyResource 会静默不拷。
+    /// 出图面 → 预览镜像，两条路：
+    /// GPU 直显（首选）：把画完的 pbuffer 整幅拷进发布纹理，只发布这块静止的共享纹理给
+    /// WPF D3DImage（见 EnsurePublishTexture 与字段注释）。
+    /// staging 读回（兜底：发布纹理建不出来/拷贝失败）：计划区经 D3D11 staging 读回 CPU 位图
+    /// （1080p 实测 ~1.7ms；走 ANGLE 的 glReadPixels 同尺寸要 ~13.6ms）。必须在 FlushAndSync
+    /// 之后调用（GPU 落盘后才读得到）；staging 格式取共享纹理的 DXGI 格式——不一致时
+    /// CopyResource 会静默不拷。
     /// </summary>
     private void MirrorFrame(Target t)
     {
         var m = Preview;
         if (m == null || !m.Wanted) return;
 
-        // GPU 零拷贝直显：若持有共享句柄，直接发布给 WPF D3DImage 显存直读，跳过整套 Staging 逆向读回。
-        // 发布的是纹理尺寸（Gpu.Width/Height），不是 plan 区域尺寸——共享资源就是全幅纹理，
+        // GPU 直显：发布的是**发布纹理**的句柄，不是 pbuffer 自己的——pbuffer 下一帧就被
+        // Clear+重画，直接发布会让 WPF 合成器采到中间态（见字段注释）。
+        // 尺寸用纹理尺寸（Gpu.Width/Height），不是 plan 区域尺寸——共享资源就是全幅纹理，
         // 预览侧按 plan 尺寸打开会被 D3D11 判 E_INVALIDARG；plan 区域单独给，供字幕排版。
-        if (t.Gpu != null && t.Gpu.ShareHandle != IntPtr.Zero)
+        if (t.Gpu != null && EnsurePublishTexture(t.Gpu.Width, t.Gpu.Height, t.Gpu.DxgiFormat))
         {
-            m.PublishGpu(t.Gpu.ShareHandle, t.Gpu.Width, t.Gpu.Height, t.PlanX, t.PlanY, t.PlanW, t.PlanH);
-            return;
+            try
+            {
+                _device!.ImmediateContext.CopyResource(t.Gpu.Texture, _pubTex!);
+                m.PublishGpu(_pubHandle, t.Gpu.Width, t.Gpu.Height, t.PlanX, t.PlanY, t.PlanW, t.PlanH);
+                return;
+            }
+            catch (Exception ex)
+            {
+                // 拷贝失败不该把 Spout 主通道拖降级（预览只是消费方）：记一次（节流）后走 staging 读回
+                LogRenderError(ex);
+            }
         }
 
         var back = m.BeginWrite(t.PlanW, t.PlanH);
@@ -575,6 +606,51 @@ public sealed class SpoutOut : IDisposable
         _mirrorStgW = w;
         _mirrorStgH = h;
         _mirrorStgFmt = dxgiFormat;
+    }
+
+    /// <summary>
+    /// 预览发布纹理：与出图面同尺寸同格式的 D3D11 共享纹理，WPF D3DImage 经 D3D9Ex 零拷贝打开它。
+    /// 必须带 ResourceOptionFlags.Shared 才有 D3D9Ex 认的共享句柄；格式随出图面（CopyResource 要求同规格）。
+    /// 建不出来（驱动不支持共享等）只试一次，之后返回 false 让调用方走 staging 读回。
+    /// </summary>
+    private bool EnsurePublishTexture(int w, int h, int dxgiFormat)
+    {
+        if (_pubUnavailable) return false;
+        if (_pubTex != null && _pubW == w && _pubH == h && _pubFmt == dxgiFormat) return true;
+        try
+        {
+            _pubTex?.Dispose();
+            _pubTex = new Texture2D(_device!, new Texture2DDescription
+            {
+                Width = w,
+                Height = h,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = (Format)dxgiFormat,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+                CpuAccessFlags = CpuAccessFlags.None,
+                OptionFlags = ResourceOptionFlags.Shared,
+            });
+            using var res = _pubTex.QueryInterface<Resource>();
+            _pubHandle = res.SharedHandle;
+            _pubW = w;
+            _pubH = h;
+            _pubFmt = dxgiFormat;
+            if (_pubHandle != IntPtr.Zero) return true;
+            throw new InvalidOperationException("共享纹理没有 D3D9Ex 可用的共享句柄");
+        }
+        catch (Exception ex)
+        {
+            _pubTex?.Dispose();
+            _pubTex = null;
+            _pubHandle = IntPtr.Zero;
+            _pubW = _pubH = _pubFmt = -1;
+            _pubUnavailable = true;
+            Log.Warn("[SpoutOut] 预览发布纹理创建失败，预览改走 staging 读回：" + ex.Message);
+            return false;
+        }
     }
 
     /// <summary>

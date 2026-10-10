@@ -65,6 +65,9 @@ public partial class MainWindow : Window
     private WriteableBitmap? _stageBmp;
     private int _stageBmpW = -1, _stageBmpH = -1;
     private D3D11ImageSource? _d3dStage;
+    // GPU 直显的共享纹理打不开（D3D9Ex 不认该格式/设备失效）：置位后预览泵改走 CPU 渲染，
+    // 否则 Stage.Source 停在没绑后缓冲的 D3DImage 上就是一块黑屏
+    private volatile bool _gpuPresentFailed;
     // GPU 直显分支的字幕叠加层：显存直显没有 SKCanvas 可画，字幕另画进这张透明底位图
     // （与 Stage 同格同 Stretch=Uniform，缩放一致即像素对齐）
     private WriteableBitmap? _stageOverlayBmp;
@@ -79,6 +82,8 @@ public partial class MainWindow : Window
     private readonly SKPaint _mirrorPaint = new() { IsAntialias = false };
     // 舞台尺寸缓存（UI SizeChanged 写，渲染线程读——每帧 Dispatcher.Invoke 会白烧调度器）
     private volatile int _stageWpx, _stageHpx;
+    // 留白指引框的显示几何（当前帧的纹理尺寸 + 画幅区位置，设备像素；UI 线程写读）
+    private int _guideTexW, _guideTexH, _guidePlanX, _guidePlanY, _guidePlanW, _guidePlanH;
     // 脏检查：暂停且 t/plan 没变就跳过重绘（暂停态省 ~96% CPU）
     private double _lastRT = -1;
     private long _lastRV = -1;
@@ -136,6 +141,7 @@ public partial class MainWindow : Window
         {
             _stageWpx = (int)e2.NewSize.Width;
             _stageHpx = (int)e2.NewSize.Height;
+            UpdateCenterGuide(); // 舞台缩放 → 留白指引框跟着重定位
         };
         // 可见性缓存（同理由：渲染线程每帧读，不碰 Dispatcher）：最小化/隐藏时预览泵整个停帧
         Stage.IsVisibleChanged += (_, _) => _stageShown = Stage.IsVisible;
@@ -189,6 +195,8 @@ public partial class MainWindow : Window
     private unsafe void PresentStage()
     {
         Interlocked.Exchange(ref _presentPending, 0);
+        var frameW = 0;
+        var frameH = 0;
         lock (_displayLock)
         {
             var seq = _displaySeq;
@@ -225,11 +233,62 @@ public partial class MainWindow : Window
             }
 
             _presentedSeq = seq;
+            frameW = w;
+            frameH = h;
         }
         // CPU 帧的字幕已烤进舞台位图：清掉 GPU 直显分支留下的覆盖层（模式切换/镜像兜底时），
         // 否则会与位图里的字幕重影
         if (StageOverlay.Source != null) StageOverlay.Source = null;
+        // 这一帧整幅就是画幅（无出边 letterbox）：留白指引框按它算
+        SetGuideGeometry(frameW, frameH, 0, 0, frameW, frameH);
         // AddDirtyRect 已通知 WPF D3D 合成管道刷新硬件纹理，无需再调用 InvalidateVisual 触发整树重复测量
+    }
+
+    // ---------------- 留白指引框（编辑器预览专用，不入 Spout 与导出） ----------------
+
+    /// <summary>当前预览帧的显示几何：纹理尺寸 + 画幅区（plan 区域）在纹理里的位置（设备像素）。
+    /// CPU/镜像路径整幅就是画幅（0,0,w,h）；GPU 直显时纹理是全幅、画幅是居中一块。</summary>
+    private void SetGuideGeometry(int texW, int texH, int planX, int planY, int planW, int planH)
+    {
+        _guideTexW = texW;
+        _guideTexH = texH;
+        _guidePlanX = planX;
+        _guidePlanY = planY;
+        _guidePlanW = planW;
+        _guidePlanH = planH;
+        UpdateCenterGuide();
+    }
+
+    /// <summary>
+    /// 把留白指引框摆到画幅里留空的那块（只在 UI 线程调用）。
+    /// 位置按 Stage 的 Stretch=Uniform 同一套 contain 计算反推：先把纹理贴进舞台格，再在纹理里定位画幅区，
+    /// 最后把构图坐标的留空区缩放到画幅区上。与帧内容无关，所以 CPU/GPU 两条呈现路径都成立。
+    /// </summary>
+    private void UpdateCenterGuide()
+    {
+        var plan = _preview.Plan;
+        var free = plan is { CenterFree: true } ? Planner.FreeZone(plan) : null;
+        // Stage 自己的 ActualWidth/Height 是「按 Uniform 缩放后的内容尺寸」，不是布局格尺寸
+        // （实测 9:16 源在 696x483 的格里报 696x392）——居中留白必须按父容器那一格算
+        var host = Stage.Parent as FrameworkElement;
+        var cellW = host?.ActualWidth ?? Stage.ActualWidth;
+        var cellH = host?.ActualHeight ?? Stage.ActualHeight;
+        if (free == null || _guideTexW < 2 || _guideTexH < 2 || cellW < 2 || cellH < 2)
+        {
+            CenterGuide.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var fit = Math.Min(cellW / _guideTexW, cellH / _guideTexH);
+        var originX = (cellW - _guideTexW * fit) / 2 + _guidePlanX * fit;
+        var originY = (cellH - _guideTexH * fit) / 2 + _guidePlanY * fit;
+        var s = _guidePlanW * fit / plan!.W; // 画幅区像素 → 构图坐标
+        var (gx, gy, gw, gh) = free.Value;
+
+        CenterGuide.Width = Math.Max(1, gw * s);
+        CenterGuide.Height = Math.Max(1, gh * s);
+        CenterGuide.Margin = new Thickness(originX + gx * s, originY + gy * s, 0, 0);
+        CenterGuide.Visibility = Visibility.Visible;
     }
 
     /// <summary>取与帧同尺寸的舞台位图（只在 UI 线程调用；尺寸不符才换新）。
@@ -245,6 +304,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>GPU 纯显存模式：D3D11 共享句柄直接映射进 WPF D3DImage 硬件表面。
+    /// 句柄来自 Spout 泵的**发布纹理**（已拷完的静止帧），不是引擎正在重画的出图面。
     /// 显存直显没有 SKCanvas 可画，字幕另开一层透明底覆盖层（DrawGpuOverlay）与帧同拍提交。
     /// w/h 是共享纹理尺寸；plan* 是画幅区域（出边时是居中一块），字幕排版以 plan 为坐标系。</summary>
     private void PresentGpuFrame(IntPtr shareHandle, int w, int h, int planX, int planY, int planW, int planH)
@@ -257,8 +317,16 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(() =>
         {
             Interlocked.Exchange(ref _presentPending, 0);
-            if (EnsureGpuStage(w, h, shareHandle)) DrawGpuOverlay(layer, t, w, h, planX, planY, planW, planH);
-            else if (StageOverlay.Source != null) StageOverlay.Source = null; // 绑定失败：不留上一帧的残影字幕
+            if (EnsureGpuStage(w, h, shareHandle))
+            {
+                DrawGpuOverlay(layer, t, w, h, planX, planY, planW, planH);
+                SetGuideGeometry(w, h, planX, planY, planW, planH);
+            }
+            else
+            {
+                _gpuPresentFailed = true; // 绑定失败：让预览泵退回 CPU 渲染，别停在黑屏
+                if (StageOverlay.Source != null) StageOverlay.Source = null; // 也不留上一帧的残影字幕
+            }
             _d3dStage?.Invalidate();
         }, DispatcherPriority.Render);
     }
@@ -305,7 +373,11 @@ public partial class MainWindow : Window
         {
             var info = new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
             using var surf = SKSurface.Create(info, _stageOverlayBmp.BackBuffer, _stageOverlayBmp.BackBufferStride);
-            if (surf == null) return;
+            if (surf == null)
+            {
+                Log.Warn($"[预览叠加] SKSurface.Create 失败（{w}x{h}，stride={_stageOverlayBmp.BackBufferStride}）：本帧不出字幕");
+                return;
+            }
             var c = surf.Canvas;
             c.Clear(SKColors.Transparent);
             c.Save();
@@ -317,7 +389,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log.Debug("GPU 字幕叠加失败：" + ex.Message); // 字幕出错不能拖垮预览（同 CPU 分支）
+            // 字幕出错不能拖垮预览（同 CPU 分支）。但必须可见：这条路径此前静默失败过
+            Log.Warn("GPU 字幕叠加失败：" + ex.Message);
         }
         finally
         {
@@ -411,7 +484,7 @@ public partial class MainWindow : Window
                 // 预览镜像：Spout 主通道走 GPU 时，画面直接消费它交付的帧——预览不再 CPU 重渲。
                 // （两者共用 EngineRenderGate 会串行超出帧预算：预览 ~15-25ms + Spout ~4.7ms > 16.7ms，
                 // 输出与预览同时掉到 22-45fps、UI 被挤到秒级抖动并灌 GC；镜像路径不消费引擎闸。）
-                var mirrorLive = _spout.IsRunning && _spout.MirrorActive;
+                var mirrorLive = _spout.IsRunning && _spout.MirrorActive && !_gpuPresentFailed;
                 _mirror.Request(mirrorLive ? rw : 0, mirrorLive ? rh : 0);
                 if (mirrorLive)
                 {
@@ -499,8 +572,6 @@ public partial class MainWindow : Window
                     _preview.Renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = fit, Stage = true });
                     // 字幕叠加：与导出烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
                     PaintSubtitleOverlay(surf.Canvas, OverlayLayer(), t, rw, rh);
-                    if (plan is { CenterFree: true })
-                        DrawCenterGuide(surf.Canvas, plan, rw, rh);
                 }
                 var cpuMs = (Stopwatch.GetTimestamp() - tCpu) * 1000.0 / Stopwatch.Frequency;
                 // P → 显示背缓冲（~1-3ms memcpy）→ 翻面 → 请 UI 线程贴图。UI 侧只做一次同尺寸
@@ -570,10 +641,6 @@ public partial class MainWindow : Window
         });
         // 字幕叠加：镜像帧来自 Spout 主通道（不含字幕，字幕走独立通道），预览侧叠注音/翻译行
         PaintSubtitleOverlay(sx.Canvas, OverlayLayer(), _preview.CurrentTime, rw, rh);
-        // 留出空白预览引导框（对位 Vue 的 drawCenterGuide，仅在编辑器主窗口画出虚线指引，不入 Spout 与导出）
-        var plan = _preview.Plan;
-        if (plan is { CenterFree: true })
-            DrawCenterGuide(sx.Canvas, plan, rw, rh);
 
         lock (_displayLock)
         {
@@ -629,35 +696,6 @@ public partial class MainWindow : Window
         }
 
         return _subLayer;
-    }
-
-    private static readonly SKPathEffect s_centerGuideDash = SKPathEffect.CreateDash(new float[] { 14, 10 }, 0);
-    private static readonly SKPaint s_centerGuidePaint = new()
-    {
-        IsAntialias = true,
-        IsStroke = true,
-        Color = new SKColor(255, 255, 255, (byte)Math.Round(0.55 * 255)),
-        PathEffect = s_centerGuideDash
-    };
-
-    /// <summary>
-    /// 留出空白预览虚线框（对位 Vue 的 drawCenterGuide(target, scale)）：
-    /// 仅在主编辑预览舞台上画出白色半透明虚线框（rgba(255,255,255,0.55)，[14, 10] 虚线），
-    /// 标明角色的留空范围；Spout 直出与最终导出不绘制该指引线。
-    /// </summary>
-    private static void DrawCenterGuide(SKCanvas canvas, Plan plan, double rw, double rh)
-    {
-        var free = Planner.FreeZone(plan);
-        if (free == null) return;
-        var (rx, ry, rwBox, rhBox) = free.Value;
-        if (rwBox < 2 || rhBox < 2) return;
-
-        var scale = rw / (double)plan.W;
-        canvas.Save();
-        canvas.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
-        s_centerGuidePaint.StrokeWidth = 2.5f / (float)scale;
-        canvas.DrawRect(new SKRect((float)(rx + 4), (float)(ry + 4), (float)(rx + rwBox - 4), (float)(ry + rhBox - 4)), s_centerGuidePaint);
-        canvas.Restore();
     }
 
     /// <summary>把字幕层叠到已渲染的帧上。只画注音/翻译行——主歌词由引擎自己画，叠主行会重影；

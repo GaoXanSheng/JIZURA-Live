@@ -117,6 +117,12 @@
                              CPU 分支的字幕已烤进舞台位图，那时这层会被置空（见 PresentStage）。 -->
                         <Image x:Name="StageOverlay" Stretch="Uniform" SnapsToDevicePixels="True"
                                IsHitTestVisible="False" RenderOptions.BitmapScalingMode="Linear" />
+                        <!-- 留白指引框（编辑器预览专用，不入 Spout 与导出）：用 WPF 图元画，
+                             位置由 UpdateCenterGuide 按 contain 后的画幅矩形算——CPU/GPU 两条
+                             呈现路径都可见（原来画进帧里，GPU 直显没有 SKCanvas 可画就丢了） -->
+                        <Rectangle x:Name="CenterGuide" Visibility="Collapsed" IsHitTestVisible="False"
+                                   HorizontalAlignment="Left" VerticalAlignment="Top"
+                                   Stroke="#8CFFFFFF" StrokeThickness="1.5" StrokeDashArray="9,6" />
                     </Grid>
                 </Border>
                 <views:Transport Grid.Row="1" Margin="0,10,0,0" />

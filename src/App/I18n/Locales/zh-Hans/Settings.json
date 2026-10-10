@@ -40,9 +40,6 @@
   "Settings.Dir": "竖屏分列",
   "Settings.Aspect": "画布比例",
   "Settings.Aspect.SameSource": "与「导出」页的画面比例同源，改这里导出页会同步。",
-  "Settings.Res": "分辨率",
-  "Settings.Fps": "帧率",
-  "Settings.Fps.SameSource": "与「导出」页的 fps 同源：工程/成片用的帧率（时间轴与导出）。实时预览与 Spout 输出的帧率是下面那条「渲染帧率」。",
   "Settings.KeyBg": "背景",
   "Settings.KeyBg.SameSource": "与「导出」页的背景同源：绿幕/黑幕时只在单色背景上绘制白色文字与演出，供合成抠像。",
   "Settings.WinRes": "渲染窗口分辨率",
@@ -65,7 +62,7 @@
   "Settings.Storage.CleanCloud": "清理云音乐",
   "Settings.Storage.CleanLogs": "清理历史日志",
   "Settings.Storage.SummaryFmt": "缓存: {0:F1} MB | 云音乐: {1:F1} MB | 日志: {2:F2} MB",
-  "Settings.Note": "分辨率・帧率・字幕帧率・Spout・透明背景・字幕通道的改动需点上方按钮保存后生效。画布比例即时生效。",
+  "Settings.Note": "渲染窗口分辨率・渲染帧率・字幕帧率・Spout・透明背景・字幕通道的改动需点上方按钮保存后生效。画布比例与背景即时生效。",
 
   "Settings.KeyBg.Off": "常规（风格背景）",
   "Settings.KeyBg.Green": "绿幕（用于合成）",

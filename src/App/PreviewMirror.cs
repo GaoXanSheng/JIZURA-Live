@@ -103,7 +103,8 @@ public sealed class PreviewMirror
     private int _gpuW, _gpuH;
     private int _gpuPlanX, _gpuPlanY, _gpuPlanW, _gpuPlanH;
 
-    /// <summary>GPU 纯显存模式：Spout 泵渲染完成，发布最新 D3D11 共享句柄（零 CPU 拷贝）。
+    /// <summary>GPU 纯显存模式：Spout 泵拷完帧，发布最新 D3D11 共享句柄（零 CPU 拷贝）。
+    /// 发布的是**发布纹理**的句柄（不是引擎正在重画的出图面），预览侧才能采到静止的完整帧。
     /// 纹理尺寸与 plan 区域分开给：出边（画幅比不一致）时纹理是全幅、plan 只是居中一块，
     /// 预览侧打开共享纹理必须用纹理尺寸（用 plan 尺寸开会被 D3D11 判 E_INVALIDARG），
     /// 而字幕叠加要按 plan 区域排版。</summary>
