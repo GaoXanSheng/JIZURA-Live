@@ -689,7 +689,9 @@ public static class JText
         var lay = GetLay(it);
         var sx = ZeroTo(Num(it, "sx"), 1);
         var sy = ZeroTo(Num(it, "sy"), 1);
-        var baseAlpha = ZeroTo(Num(it, "alpha"), 1) * (ghostPass ? ZeroTo(Num(it, "ghostAlpha"), 1) : 1);
+        // JS (it.alpha ?? 1) / (it.ghostAlpha ?? 1)：只把「缺字段」当 1——显式 0 就是 0（退场靠它让字幕离场）。
+        // 不能用 ZeroTo：那是 JS `|| 1` 的语义，会把效果写入的 0 还原成 1（文字永不消失）。
+        var baseAlpha = JAnim.NumNull(it, "alpha", 1) * (ghostPass ? JAnim.NumNull(it, "ghostAlpha", 1) : 1);
         if (baseAlpha <= 0.002) return null;
         var col = ghostPass ? env.PassColor ?? "#fff" : Str(it, "color") ?? "#fff";
         var sCol = ghostPass ? env.PassColor ?? "#fff" : Str(it, "strokeColor") ?? Str(it, "color") ?? "#fff";
@@ -741,7 +743,7 @@ public static class JText
         if (!ghostPass && Truthy(it["pattern"]) && fill && gradShader == null)
             gradShader = TextPattern(ctx, Str(it, "pattern") ?? "", Str(it, "patternColor") ?? Str(it, "color") ?? "#fff",
                 Str(it, "patternBg"), size, env.Scale != 0 ? env.Scale : 1);
-        var fillA = ZeroTo(Num(it, "fillAlpha"), 1);
+        var fillA = JAnim.NumNull(it, "fillAlpha", 1); // JS (it.fillAlpha ?? 1)：0 即 0
         var shadow = !ghostPass ? it["shadow"] as JObject : null;
         double shBlur = 0, shDx = 0, shDy = 0;
         SKColor shColor = default;
@@ -853,7 +855,7 @@ public static class JText
             if (ext != null && !outlineOnly)
             {
                 var extCol = CssColor(Str(ext, "color") ?? "#000");
-                var ea = ZeroTo(Num(ext, "a"), 1);
+                var ea = JAnim.NumNull(ext, "a", 1); // JS (ext.a ?? 1)：0 即 0
                 var fade = Truthy(ext["fade"]);
                 for (var k2 = extN; k2 >= 1; k2--)
                 {

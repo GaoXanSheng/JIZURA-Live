@@ -149,6 +149,13 @@ public static class P11Horror2
     private static double NumNull(JObject o, string k, double d) =>
         o[k] is JValue v && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : d;
 
+    /// <summary>JS (x || d)：0 也取默认（与 NumNull 的 `??` 语义区分，plan 参数里两义并存）。</summary>
+    private static double DOr(JObject o, string k, double d)
+    {
+        var v = JAnim.Num(o, k);
+        return v != 0 ? v : d;
+    }
+
     /// <summary>inItem(env, it, fn)：在项内空间里执行 fn（应用位移/旋转/斜切）。JS L117-128。</summary>
     private static void InItem(Env env, JObject it, Action fn)
     {
@@ -1041,7 +1048,7 @@ public static class P11Horror2
                     ["dy"] = sz * 0.02,
                 };
             var cs = Cseed(env);
-            var rate = NumNull(pm, "drips", 0.35);
+            var rate = DOr(pm, "drips", 0.35);
             // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main") return;
             env.PostFn = (e2, _, _) =>
@@ -1087,7 +1094,7 @@ public static class P11Horror2
             var cs = Cseed(env);
             var bg = ScK(env.Sc!, "bg");
             var sz = JAnim.Num(it, "size");
-            var dens = NumNull(pm, "dens", 1);
+            var dens = DOr(pm, "dens", 1);
             // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main" || NumNull(it, "alpha", 1) < 0.3) return;
             env.PostFn = (e2, _, _) =>
@@ -1231,12 +1238,12 @@ public static class P11Horror2
                 if (NumNull(it, "alpha", 1) < 0.05) return;
                 var t = e2.Ltb;
                 var sz = JAnim.Num(it, "size");
-                var amp = NumNull(pm, "amp", 0.12);
+                var amp = DOr(pm, "amp", 0.12);
                 var c2 = Bare(it, new JObject
                 {
                     ["x"] = JAnim.Num(it, "x") + J.Noise1(t * 0.6, cs + 3) * sz * amp,
                     ["y"] = JAnim.Num(it, "y") + J.Noise1(t * 0.5, cs + 4) * sz * amp * 0.7,
-                    ["size"] = sz * NumNull(pm, "k", 1.05),
+                    ["size"] = sz * DOr(pm, "k", 1.05),
                     ["color"] = col,
                     ["alpha"] = NumNull(it, "alpha", 1) * 0.4,
                     ["ghost"] = false,

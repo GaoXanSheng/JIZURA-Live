@@ -186,17 +186,17 @@ public static class ProjectIO
 
     private static void MergeFx(FxSettings f, JObject fx)
     {
-        if (fx["motion"]?.Type == JTokenType.Float) f.Motion = (double)fx["motion"];
-        if (fx["glitch"]?.Type == JTokenType.Float) f.Glitch = (double)fx["glitch"];
-        if (fx["chroma"]?.Type == JTokenType.Float) f.Chroma = (double)fx["chroma"];
-        if (fx["decor"]?.Type == JTokenType.Float) f.Decor = (double)fx["decor"];
-        if (fx["density"]?.Type == JTokenType.Float) f.Density = (double)fx["density"];
-        if (fx["texture"]?.Type == JTokenType.Float) f.Texture = (double)fx["texture"];
+        if (fx["motion"]?.Type is JTokenType.Float or JTokenType.Integer) f.Motion = (double)fx["motion"];
+        if (fx["glitch"]?.Type is JTokenType.Float or JTokenType.Integer) f.Glitch = (double)fx["glitch"];
+        if (fx["chroma"]?.Type is JTokenType.Float or JTokenType.Integer) f.Chroma = (double)fx["chroma"];
+        if (fx["decor"]?.Type is JTokenType.Float or JTokenType.Integer) f.Decor = (double)fx["decor"];
+        if (fx["density"]?.Type is JTokenType.Float or JTokenType.Integer) f.Density = (double)fx["density"];
+        if (fx["texture"]?.Type is JTokenType.Float or JTokenType.Integer) f.Texture = (double)fx["texture"];
         if (fx["flash"]?.Type == JTokenType.Boolean) f.Flash = (bool)fx["flash"];
         if (fx["onTwos"]?.Type == JTokenType.Boolean) f.OnTwos = (bool)fx["onTwos"];
         if (fx["koma"]?.Type == JTokenType.Integer) f.Koma = (int)fx["koma"];
         if (fx["hud"] != null) f.Hud = (string)fx["hud"];
-        if (fx["bgSwitch"]?.Type == JTokenType.Float) f.BgSwitch = (double)fx["bgSwitch"];
+        if (fx["bgSwitch"]?.Type is JTokenType.Float or JTokenType.Integer) f.BgSwitch = (double)fx["bgSwitch"];
         if (fx["hideNo"]?.Type == JTokenType.Boolean) f.HideNo = (bool)fx["hideNo"];
         if (fx["hideTime"]?.Type == JTokenType.Boolean) f.HideTime = (bool)fx["hideTime"];
     }

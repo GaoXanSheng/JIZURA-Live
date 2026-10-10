@@ -300,8 +300,8 @@ public static class P11TreatTrans
     private static List<Span> LineSpans(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
-        var sx = NumNull(it, "sx", 1);
-        var sy = NumNull(it, "sy", 1);
+        var sx = JAnim.NumOr1(it, "sx");
+        var sy = JAnim.NumOr1(it, "sy");
         var vert = Truthy(it["vertical"]);
         var map = new Dictionary<int, Span>();
         foreach (var g in lay.Cells)
@@ -338,8 +338,8 @@ public static class P11TreatTrans
     private static List<Gly> GlyphList(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
-        var sx = NumNull(it, "sx", 1);
-        var sy = NumNull(it, "sy", 1);
+        var sx = JAnim.NumOr1(it, "sx");
+        var sy = JAnim.NumOr1(it, "sy");
         var @out = new List<Gly>();
         foreach (var g in lay.Cells)
         {
@@ -867,8 +867,8 @@ public static class P11TreatTrans
             var spans = LineSpans(env, it);
             if (spans.Count == 0) return;
             var s = D(it, "size");
-            var sx = NumNull(it, "sx", 1);
-            var sy = NumNull(it, "sy", 1);
+            var sx = JAnim.NumOr1(it, "sx");
+            var sy = JAnim.NumOr1(it, "sy");
             var pad = s * 0.12;
             var tot = spans.Sum(l => l.A1 - l.A0);
             var rem = q * tot;
@@ -960,8 +960,8 @@ public static class P11TreatTrans
                     pp += w + tr;
                 }
             }
-            var sy = NumNull(it, "sy", 1);
-            var sx = NumNull(it, "sx", 1);
+            var sy = JAnim.NumOr1(it, "sy");
+            var sx = JAnim.NumOr1(it, "sx");
             env.CharFns.Add((gi, g, n2) =>
             {
                 if (gi < 0 || gi >= n) return null;
@@ -1022,8 +1022,8 @@ public static class P11TreatTrans
             var v = S(p, "v");
             var k = D(p, "k");
             var dir = D(p, "dir");
-            var sx = NumNull(it, "sx", 1);
-            var sy = NumNull(it, "sy", 1);
+            var sx = JAnim.NumOr1(it, "sx");
+            var sy = JAnim.NumOr1(it, "sy");
             env.CharFns.Add((gi, g, n) =>
             {
                 if (g == null) return null;
@@ -1099,7 +1099,7 @@ public static class P11TreatTrans
             {
                 var s = D(it, "size");
                 var a = NumNull(it, "alpha", 1);
-                var m = Math.Min(NumNull(it, "sx", 1), NumNull(it, "sy", 1));
+                var m = Math.Min(JAnim.NumOr1(it, "sx"), JAnim.NumOr1(it, "sy"));
                 foreach (var gl in GlyphList(env, it))
                 {
                     if (J.IsPunct(gl.G.Ch[0])) continue;
@@ -1164,7 +1164,7 @@ public static class P11TreatTrans
             {
                 var spans = LineSpans(env, it);
                 if (spans.Count == 0) return;
-                var s = D(it, "size") * Math.Min(NumNull(it, "sx", 1), NumNull(it, "sy", 1));
+                var s = D(it, "size") * Math.Min(JAnim.NumOr1(it, "sx"), JAnim.NumOr1(it, "sy"));
                 var a = NumNull(it, "alpha", 1);
                 var q = J.E.OutCubic(InP(env, it, env.Cut!.InDur * 0.45, 0.35)) * (1 - J.E.InCubic(env.POut));
                 if (q <= 0.01) return;
@@ -1223,7 +1223,7 @@ public static class P11TreatTrans
             if (env.Pass != "main" || Tracing(it) || InPieces(env, it)) return;
             var m = JLayouts.Measure(it);
             var s = D(it, "size");
-            var sy = NumNull(it, "sy", 1);
+            var sy = JAnim.NumOr1(it, "sy");
             var k = D(p, "k");
             var vert = Truthy(it["vertical"]);
             var alignLeft = S(it, "align") == "left";
@@ -1443,7 +1443,7 @@ public static class P11TreatTrans
             var pitch = D(p, "pitch");
             var m0 = JLayouts.Measure(it);
             var along0 = vert ? m0.H : m0.W;
-            var along1 = nMax * pitch * D(it, "size") * (vert ? NumNull(it, "sy", 1) : NumNull(it, "sx", 1));
+            var along1 = nMax * pitch * D(it, "size") * (vert ? JAnim.NumOr1(it, "sy") : JAnim.NumOr1(it, "sx"));
             if (along1 > along0 * 1.06) it["size"] = D(it, "size") * (along0 * 1.06 / along1);
             it["lead"] = Math.Max(NumNull(it, "lead", 1.3), pitch + 0.16);
             double Tgt(int ci, int n, double sz)
@@ -1454,8 +1454,8 @@ public static class P11TreatTrans
                 if (align == "right" && !vert) return -(n - ci - 0.5) * q;
                 return (ci - (n - 1) / 2.0) * q;
             }
-            var sy = NumNull(it, "sy", 1);
-            var sx = NumNull(it, "sx", 1);
+            var sy = JAnim.NumOr1(it, "sy");
+            var sx = JAnim.NumOr1(it, "sx");
             env.CharFns.Add((gi, g, n) =>
             {
                 if (g == null) return null;
@@ -1473,8 +1473,8 @@ public static class P11TreatTrans
                 if (q <= 0.01) return;
                 var lay = JText.LayoutText(it);
                 var s = D(it, "size");
-                var sxg = NumNull(it, "sx", 1);
-                var syg = NumNull(it, "sy", 1);
+                var sxg = JAnim.NumOr1(it, "sx");
+                var syg = JAnim.NumOr1(it, "sy");
                 var a = NumNull(it, "alpha", 1) * q;
                 var ctx = env.Ctx;
                 var main = env.Pass == "main";
@@ -1677,8 +1677,8 @@ public static class P11TreatTrans
                 {
                     var lw = Math.Max(1.2, s * 0.012);
                     var ex = s * 0.35 * q;
-                    var sx = NumNull(it, "sx", 1);
-                    var sy = NumNull(it, "sy", 1);
+                    var sx = JAnim.NumOr1(it, "sx");
+                    var sy = JAnim.NumOr1(it, "sy");
                     var alpha = NumNull(it, "alpha", 1) * Math.Min(1, q);
                     foreach (var l in LineSpans(env, it))
                     {
@@ -1792,7 +1792,7 @@ public static class P11TreatTrans
                 if (gl == null) return;
                 var q = QOf(env);
                 if (q <= 0.01) return;
-                var s = D(it, "size") * Math.Min(NumNull(it, "sx", 1), NumNull(it, "sy", 1)) * (gl.S / k) * k;
+                var s = D(it, "size") * Math.Min(JAnim.NumOr1(it, "sx"), JAnim.NumOr1(it, "sy")) * (gl.S / k) * k;
                 var a = NumNull(it, "alpha", 1) * gl.A;
                 var ctx = env.Ctx;
                 if (v == "disc")
@@ -1847,7 +1847,7 @@ public static class P11TreatTrans
             double QOf(Env e, int gi) =>
                 J.E.OutBack(J.Clamp((e.Lt - NumNull(it, "delay", 0) - gi * 0.03) / 0.22), 1.5)
                 * (1 - J.E.InCubic(J.Clamp(e.POut * 1.4 - gi * 0.03)));
-            var syN = NumNull(it, "sy", 1);
+            var syN = JAnim.NumOr1(it, "sy");
             env.CharFns.Add((gi, g, n2) =>
             {
                 if (gi >= r.Count || g == null || IsSp(S(g, "ch") ?? " ")) return null;
@@ -1865,7 +1865,7 @@ public static class P11TreatTrans
                     var qq = QOf(env, gl.G.I);
                     if (qq <= 0.01) continue;
                     var size = D(it, "size");
-                    var w = Math.Max(gl.W, size * 0.55 * NumNull(it, "sx", 1)) / 2;
+                    var w = Math.Max(gl.W, size * 0.55 * JAnim.NumOr1(it, "sx")) / 2;
                     var h = size * syN / 2;
                     var pad = q.Pad;
                     var jj = q.Jj;

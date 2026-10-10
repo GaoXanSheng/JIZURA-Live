@@ -500,8 +500,8 @@ public sealed class Renderer : IDisposable
                     X.Translate((float)(envW / 2.0 + shx + P.OffX + cam.X), (float)(envH / 2.0 + shy + P.OffY + cam.Y));
                     if (cam.Rot != 0) X.RotateDegrees((float)cam.Rot); // JS: rotate(cam.rot * DEG) 收弧度；RotateDegrees 直接收度
                     if (cam.Skx != 0) X.Concat(SKMatrix.CreateSkew((float)Math.Tan(cam.Skx * J.DEG), 0));
-                    // TODO(11p)：JS 还有 cam.sx/cam.sy（11p 相机用）；CamState 暂无该字段，按 s 统一处理
-                    X.Scale((float)cam.S, (float)cam.S);
+                    // JS: X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1))——vertigo/jelly 靠逐轴压扁/拉伸
+                    X.Scale((float)(cam.S * (cam.Sx ?? 1)), (float)(cam.S * (cam.Sy ?? 1)));
                     X.Translate((float)-envW / 2, (float)-envH / 2);
                     // ghost pass 的整 pass 染色（JS 的 X.globalCompositeOperation）
                     env.Blend = P.Pass != "main" && J.Lum(csc.Str("bg") ?? "#000000") > 0.55

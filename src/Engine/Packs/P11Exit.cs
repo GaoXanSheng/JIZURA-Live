@@ -2379,7 +2379,8 @@ public static class P11Exit
             var bh = Math.Max(N0(it, "size") * 0.24, h * 0.12);
             var y = bb.Y0 - bh + (h + bh) * v;
             var dx = N0(it, "size") * 0.075 * k * (J.R(SeedOf(it), cyc, 451) < 0.5 ? 1 : -1);
-            it["bands"] = new JArray(new JArray(y, y + bh, dx));
+            // JS it.bands = [[y, y + bh, dx]]：new JArray(集合) 会把集合摊平，必须用 JArr 建行
+            it["bands"] = JAnim.JArr(new[] { new[] { y, y + bh, dx } });
             var acc = ScK(env, "accent") ?? "#ffffff";
             var lw = Math.Max(1, N0(it, "size") * 0.012);
             // JS chainPost——就地执行

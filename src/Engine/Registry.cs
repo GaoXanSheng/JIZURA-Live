@@ -226,7 +226,7 @@ public sealed class BgDef : IRegEntry
     public Action<Env>? Draw { get; set; }
 }
 
-/// <summary>cam: 切分上的镜头运动。</summary>
+/// <summary>cam: 切分上的镜头运动。Sx/Sy 是逐轴压扁/拉伸（JS cam.sx ?? 1 / cam.sy ?? 1，只有 vertigo/jelly 用）。</summary>
 public sealed class CamState
 {
     public double S { get; set; } = 1;
@@ -235,6 +235,8 @@ public sealed class CamState
     public double Rot { get; set; }
     public double Skx { get; set; }
     public double Blur { get; set; }
+    public double? Sx { get; set; }
+    public double? Sy { get; set; }
 }
 
 public sealed class CamDef : IRegEntry

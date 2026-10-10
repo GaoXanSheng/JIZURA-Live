@@ -334,8 +334,8 @@ public static class P11Looks
     private static List<Span> LineSpans(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
-        var sx = NumNull(it, "sx", 1);
-        var sy = NumNull(it, "sy", 1);
+        var sx = DOr(it, "sx", 1);
+        var sy = DOr(it, "sy", 1);
         var vert = Truthy(it["vertical"]);
         var map = new Dictionary<int, Span>();
         foreach (var g in lay.Cells)
@@ -369,8 +369,8 @@ public static class P11Looks
     private static List<Gly> GlyphList(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
-        var sx = NumNull(it, "sx", 1);
-        var sy = NumNull(it, "sy", 1);
+        var sx = DOr(it, "sx", 1);
+        var sy = DOr(it, "sy", 1);
         var @out = new List<Gly>();
         foreach (var g in lay.Cells)
         {
@@ -981,8 +981,8 @@ public static class P11Looks
             AddPre(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
-                var sx = NumNull(it, "sx", 1);
-                var sy = NumNull(it, "sy", 1);
+                var sx = DOr(it, "sx", 1);
+                var sy = DOr(it, "sy", 1);
                 var a = NumNull(it, "alpha", 1);
                 foreach (var l in LineSpans(env, it))
                 {
@@ -1039,7 +1039,7 @@ public static class P11Looks
                 var a = NumNull(it, "alpha", 1);
                 var o = J.E.InCubic(env.POut);
                 var vert = Truthy(it["vertical"]);
-                var cross = s * (vert ? NumNull(it, "sx", 1) : NumNull(it, "sy", 1));
+                var cross = s * (vert ? DOr(it, "sx", 1) : DOr(it, "sy", 1));
                 var spans = LineSpans(env, it);
                 for (var k = 0; k < spans.Count; k++)
                 {
@@ -1173,8 +1173,8 @@ public static class P11Looks
             AddPre(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
-                var sx = NumNull(it, "sx", 1);
-                var sy = NumNull(it, "sy", 1);
+                var sx = DOr(it, "sx", 1);
+                var sy = DOr(it, "sy", 1);
                 var a = NumNull(it, "alpha", 1);
                 var ctx = env.Ctx;
                 var vert = Truthy(it["vertical"]);
@@ -1378,10 +1378,10 @@ public static class P11Looks
                 // 别让原本放得下的行超出版面
                 var w0 = JText.Measure(it).W;
                 var lim = env.W * 0.9;
-                it["sx"] = NumNull(it, "sx", 1) * 1.1;
+                it["sx"] = DOr(it, "sx", 1) * 1.1;
                 if (w0 <= lim && w0 * 1.1 > lim) it["size"] = D(it, "size") * (lim / (w0 * 1.1));
             }
-            it["sy"] = NumNull(it, "sy", 1) * 0.84;
+            it["sy"] = DOr(it, "sy", 1) * 0.84;
         },
     });
 
@@ -1395,11 +1395,11 @@ public static class P11Looks
         {
             var it = env.It;
             if (it == null || string.IsNullOrEmpty(S(it, "text"))) return;
-            it["sx"] = NumNull(it, "sx", 1) * 0.8;
-            if (Truthy(it["vertical"])) it["sy"] = NumNull(it, "sy", 1) * 1.02;
+            it["sx"] = DOr(it, "sx", 1) * 0.8;
+            if (Truthy(it["vertical"])) it["sy"] = DOr(it, "sy", 1) * 1.02;
             else
             {
-                it["sy"] = NumNull(it, "sy", 1) * 1.05;
+                it["sy"] = DOr(it, "sy", 1) * 1.05;
                 it["size"] = D(it, "size") * 1.05;
             }
         },
@@ -1457,8 +1457,8 @@ public static class P11Looks
             var v = S(p, "v") ?? "dot";
             var dc = MarkCol(env.Sc!, ColOfIt(env, it));
             var vert = Truthy(it["vertical"]);
-            var sx = NumNull(it, "sx", 1);
-            var sy = NumNull(it, "sy", 1);
+            var sx = DOr(it, "sx", 1);
+            var sy = DOr(it, "sy", 1);
             // addPost → env.PostFn（见头注）
             AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
@@ -1512,8 +1512,8 @@ public static class P11Looks
             var w = env.W;
             var h = env.H;
             var sc = env.Sc!;
-            var cx = w * DOr(p, "cx", 0.5);
-            var cy = h * DOr(p, "cy", 0.5);
+            var cx = w * NumNull(p, "cx", 0.5);
+            var cy = h * NumNull(p, "cy", 0.5);
             var n = (int)DOr(p, "n", 16);
             var e = J.E.OutCubic(J.Clamp(BgT(env) / 0.5));
             var r = Math.Sqrt(w * (double)w + h * (double)h) * 1.1 * (0.25 + 0.75 * e);

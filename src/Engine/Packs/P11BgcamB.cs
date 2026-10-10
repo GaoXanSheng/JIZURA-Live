@@ -21,8 +21,8 @@ namespace JizuraLive.Engine.Packs;
 // J.E.*→J.E.*；clamp/lerp→J.Clamp/J.Lerp、Math.hypot→本地 Hyp。
 // env 对位缺口：env.beat 对象（since/len）C# Env 未携带 → BeatSince 走无 beat 的 ltb 取模回退
 // （env.beat 已由渲染器挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatSince 按真节拍走）；
-// cam 返回的 sx/sy（vertigo/jelly）在
-// CamState 无对应字段 → 暂不入状态（TODO(Registry)：CamState 增补 Sx/Sy 后回迁）。
+// cam 返回的 sx/sy（vertigo/jelly）走 CamState.Sx/Sy，由渲染器按 JS 的
+// X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1)) 应用。
 public static class P11BgcamB
 {
     private const string PKG = "bgcamB";
@@ -416,10 +416,11 @@ public static class P11BgcamB
                 var z = J.E.InOutSine(CuOf(env));
                 var w = Math.Sin(env.Lt * 2.3);
                 var d = Num(p, "dir", 1);
-                // TODO(Registry)：CamState 无 Sx/Sy 字段——JS 的 sx/sy 变形暂不入状态（仅 Skx/Rot/S 生效）
                 return new CamState
                 {
                     S = 1 + Num(p, "a", 0.06) * K * z,
+                    Sx = 1 + 0.03 * K * z * w,
+                    Sy = 1 - 0.026 * K * z * w,
                     Skx = 2.2 * K * z * Math.Sin(env.Lt * 1.7) * d,
                     Rot = 0.8 * K * z * Math.Sin(env.Lt * 1.1 + 1) * d
                 };
@@ -502,14 +503,14 @@ public static class P11BgcamB
                 var t = env.Lt;
                 var f = Num(p, "f", 21);
                 var w = Math.Exp(-t * 5) * Math.Cos(t * f);
-                // JS：beat 且 t>0.6 时叠一记 exp(-s*7)*cos(s*f)（sx/sy 仍不入 CamState，见文件头 TODO）
+                // JS：beat 且 t>0.6 时叠一记 exp(-s*7)*cos(s*f)
                 if (env.BeatHas && env.BeatLen > 0.2 && t > 0.6)
                 {
                     var bs = BeatSince(env, 0.6);
                     w += 0.45 * Math.Exp(-bs * 7) * Math.Cos(bs * f);
                 }
                 var A = Num(p, "a", 0.055) * K;
-                return new CamState { Y = env.H * 0.008 * K * w, S = 1.01 }; // sx/sy 暂不入 CamState（见文件头 TODO）
+                return new CamState { Y = env.H * 0.008 * K * w, S = 1.01, Sx = 1 + A * w, Sy = 1 - A * w * 0.9 };
             }
         }, PKG);
     }
