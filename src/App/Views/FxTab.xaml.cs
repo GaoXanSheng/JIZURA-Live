@@ -335,7 +335,10 @@ public partial class FxTab : UserControl
                 row.Lock.ToolTip = locked ? LockOff : LockOn;
             }
 
-            var koma = KomaOptions.Where(o => o.V == p.Fx.Koma).Select(o => o.V).FirstOrDefault(12);
+            // 显示值取「有效档位」= Planner.KomaOf（对位前端 rebuild 的 String(J.komaOf(fx))）：
+            // Koma 为 null（工程里没写这个键）时按 OnTwos 落到 0/12，直接看 Koma 字段会对不上
+            var effKoma = Planner.KomaOf(p.Fx);
+            var koma = KomaOptions.Where(o => o.V == effKoma).Select(o => o.V).FirstOrDefault(0);
             SelectTag(CbKoma, koma.ToString());
             SelectTag(CbHud, string.IsNullOrEmpty(p.Fx.Hud) ? "auto" : p.Fx.Hud);
             if (TbSeed.Text != p.Seed.ToString()) TbSeed.Text = p.Seed.ToString();

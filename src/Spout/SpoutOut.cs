@@ -308,7 +308,8 @@ public sealed class SpoutOut : IDisposable
                     + $"，耗时 渲染{main.SumRender / Math.Max(1, main.Frames):F1}"
                     + $"+同步{main.SumFlush / Math.Max(1, main.Frames):F1}"
                     + $"+镜像{main.SumMirror / Math.Max(1, main.Frames):F1}"
-                    + $"+等闸{main.SumGate / Math.Max(1, main.Frames):F1}ms");
+                    + $"+等闸{main.SumGate / Math.Max(1, main.Frames):F1}ms"
+                    + RenderStatsTxt(main) + (lyrStat != null ? RenderStatsTxt(lyrStat) : ""));
                 lastStat = now;
                 main.Frames = 0;
                 main.KeepAlives = 0;
@@ -329,6 +330,10 @@ public sealed class SpoutOut : IDisposable
                     {
                         if (ElapsedMs(lastMain, now) >= main.IntervalMs)
                         {
+                            // 慢帧滞回按「上一拍到这一拍」的间隔推进（前端 dt 同义：用户实际看到的帧间隔）
+                            var pubNow = Stopwatch.GetTimestamp();
+                            if (main.LastPubTs != 0) main.TickSlow(Ms(main.LastPubTs, pubNow), pubNow);
+                            main.LastPubTs = pubNow;
                             RenderChannel(main, src);
                             lastMain = now;
                         }
@@ -348,6 +353,10 @@ public sealed class SpoutOut : IDisposable
                         // 但 Spout 流不能断：接收端在发送端静默一段时间后会把这一路判为掉线——
                         // 表现是主画面还留着上一帧、独立的字幕叠加层却空了。所以没脏也要把上一帧
                         // 纹理再投一次（纯句柄发布，不重画），让接收端看到流还活着。
+                        // 暂停帧一律满质量（前端同：!playing → slow=false），并清掉帧间隔基准，
+                        // 否则恢复播放的首拍会把「暂停时长」当成帧间隔，立刻误进慢态。
+                        main.Slow = false;
+                        main.LastPubTs = 0;
                         if (Dirty(main, src))
                         {
                             RenderChannel(main, src);
@@ -434,6 +443,16 @@ public sealed class SpoutOut : IDisposable
 
     /// <summary>统计行里的暂停态保活后缀（没保活就不加，保持原格式）。</summary>
     private static string KeepTxt(Channel ch) => ch.KeepAlives > 0 ? $"（保活{ch.KeepAlives}）" : "";
+
+    /// <summary>渲染侧窗口统计文本。出帧数只是 Frame 调用次数：命中整帧缓存那一帧只是一次贴图，
+    /// 真正说明「引擎画了多少、每帧多久」的是这里的真渲染次数与真渲染耗时，与上面的帧数分开看。</summary>
+    private static string RenderStatsTxt(Channel ch)
+    {
+        if (ch.Renderer == null) return $"｜{ch.Name} 字幕层无引擎渲染";
+        var s = ch.Renderer.TakeWindowStats();
+        return $"｜{ch.Name} 引擎调用 {s.Calls} 次（真渲染 {s.Real}、缓存 {s.Cached}，"
+             + $"真渲染平均 {(s.Real > 0 ? s.RealSumMs / s.Real : 0):F1}ms、峰值 {s.MaxMs:F1}ms）";
+    }
 
     // 渲染失败按帧发生（设备移除等持续性故障），首条立即记，之后每 30 秒汇总一条（对齐旧节流）
     private long _lastRenderErrorTick = -31_000;
@@ -787,6 +806,8 @@ public sealed class SpoutOut : IDisposable
                     Scale = scale,
                     Transparent = ch.Transparent,
                     Stage = true,
+                    Fast = ch.Slow,     // 慢帧降质（见 Channel.Slow）
+                    NoGhost = ch.Slow,
                 });
             }
             return only;
@@ -803,6 +824,8 @@ public sealed class SpoutOut : IDisposable
                 Scale = scale,
                 Transparent = ch.Transparent,
                 Stage = true,
+                Fast = ch.Slow,
+                NoGhost = ch.Slow,
             });
         }
 
@@ -925,6 +948,26 @@ public sealed class SpoutOut : IDisposable
         public long LastVersion = -1; // 泵的暂停态脏判断
         public long Frames;
         public long KeepAlives;       // 暂停态保活投递次数（不重渲，只重发上一帧纹理）
+
+        // 慢帧降质（对位前端 draw() 的 S.slow：帧间隔 >30ms 记慢、<14ms 持续 1.2s 才退出）。
+        // 慢态下出帧走 fast/noGhost —— 前端是「掉质量保帧率」，我们是「掉帧保质量」，补上这一半。
+        public bool Slow;
+        public long SlowAt;
+        public long LastPubTs; // 上次出帧时刻（算帧间隔；暂停时清零，恢复播放的首拍不作数）
+
+        /// <summary>按帧间隔推进慢帧滞回（前端 draw() 的 dt>30 / dt<14 规则）。</summary>
+        public void TickSlow(double dtMs, long nowTs)
+        {
+            if (dtMs > 30)
+            {
+                if (!Slow) SlowAt = nowTs;
+                Slow = true;
+            }
+            else if (dtMs < 14 && Slow && ElapsedMs(SlowAt, nowTs) > 1200)
+            {
+                Slow = false;
+            }
+        }
 
         /// <summary>上一帧投给 Spout 的纹理指针（暂停态保活直接重发它，不重渲）。</summary>
         public IntPtr LastTexture;

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using JizuraLive.App;
@@ -85,6 +86,23 @@ public static class ExportJob
         transparent ? SKColorType.Rgba8888 : SKColorType.Bgra8888,
         transparent ? SKAlphaType.Unpremul : SKAlphaType.Premul);
 
+    // ---------------- 引擎侧统计（"引擎真实容量"的地面真值） ----------------
+    // 导出逐帧真渲染：t = t0 + i/fps×speed 每帧都不同，整帧缓存帮不上忙。所以这里的真渲染次数与
+    // 单帧耗时，就是这台机器在该工程/该分辨率下引擎的实际容量——预览/Spout 的「帧数」只是泵拍数，
+    // 不能拿来推断渲染能力（命中缓存那一帧只是一次贴图）。
+
+    /// <summary>每 5s 报一次引擎侧真渲染数/耗时（导出跑一阵子才报；渲染器为空即跳过）。</summary>
+    private static void ReportRenderStats(Renderer? r, ref long at, string tag, long done, long total)
+    {
+        if (r == null) return;
+        var now = Stopwatch.GetTimestamp();
+        if ((now - at) * 1000.0 / Stopwatch.Frequency < 5000) return;
+        at = now;
+        var s = r.TakeWindowStats();
+        Log.Info($"[Export] {tag}近 5s：真渲染 {s.Real} 帧（缓存 {s.Cached}），"
+                 + $"平均 {(s.Real > 0 ? s.RealSumMs / s.Real : 0):F1}ms、峰值 {s.MaxMs:F1}ms；进度 {done}/{total}");
+    }
+
     // ---------------- 视频（MP4 / WebM） ----------------
 
     private static void ExportVideo(ExportRequest req, IProgress<(double Pct, string Stage)>? progress, CancellationToken ct)
@@ -129,6 +147,8 @@ public static class ExportJob
             using var enc = new FFmpegEncoder(BuildVideoArgs(req, fps, transparent, tmpWav), frames);
             var stride = bmp.RowBytes;
             var pixels = bmp.GetPixels();
+            var swLoop = Stopwatch.StartNew();
+            var statAt = Stopwatch.GetTimestamp();
             for (var i = 0; i < frames; i++)
             {
                 ct.ThrowIfCancellationRequested();
@@ -162,8 +182,12 @@ public static class ExportJob
                     enc.WriteFrame(new ReadOnlySpan<byte>((void*)pixels, stride * oh));
                 }
                 if ((i & 3) == 0) progress?.Report((enc.Progress * 0.98, L.F("Export.Stage.EncodeFmt", i + 1, frames)));
+                if ((i & 15) == 0) ReportRenderStats(renderer, ref statAt, "", i + 1, frames);
             }
             enc.Finish();
+            // 地面真值：整段导出的吞吐（含编码流水线；引擎单帧耗时看上面的 5s 行）
+            Log.Info($"[Export] 视频真渲染 {frames} 帧 / {swLoop.Elapsed.TotalSeconds:F1}s"
+                     + $" = {frames / Math.Max(0.001, swLoop.Elapsed.TotalSeconds):F1} 帧/s（{fps}fps 目标，{ow}x{oh}）");
         }
         finally
         {
@@ -255,6 +279,9 @@ public static class ExportJob
             frontRend = new Renderer();
         }
 
+        var swLoop = Stopwatch.StartNew();
+        var statAt = Stopwatch.GetTimestamp();
+        var statAtFront = Stopwatch.GetTimestamp(); // 分层两面各一套窗口（共用会把前者的窗口吃掉）
         try
         {
             for (var i = 0; i < frames; i++)
@@ -291,6 +318,11 @@ public static class ExportJob
                     zip.AddFrame(null, i + 1, backBmp);
                 }
                 if ((i & 3) == 0) progress?.Report((i / (double)frames * 0.98, L.F("Export.Stage.WriteFrameFmt", i + 1, frames)));
+                if (!isCustomDrawOnly && (i & 15) == 0)
+                {
+                    ReportRenderStats(backRend, ref statAt, layered ? "back " : "", i + 1, frames);
+                    ReportRenderStats(frontRend, ref statAtFront, "front ", i + 1, frames);
+                }
             }
         }
         finally
@@ -303,6 +335,10 @@ public static class ExportJob
             if (frontSurf != null) frontSurf.Dispose();
             if (frontBmp != null) frontBmp.Dispose();
         }
+
+        if (!isCustomDrawOnly)
+            Log.Info($"[Export] PNG 序列真渲染 {(layered ? frames * 2 : frames)} 帧 / {swLoop.Elapsed.TotalSeconds:F1}s"
+                     + $" = {(layered ? frames * 2 : frames) / Math.Max(0.001, swLoop.Elapsed.TotalSeconds):F1} 帧/s（{ow}x{oh}）");
 
         progress?.Report((1.0, L.T("Export.Stage.Done")));
     }

@@ -79,6 +79,16 @@ public partial class MainWindow : Window
     private long _mirrorAt;
     private long _mirrorWarnAt;
     private long _fallbackAt; // 兜底 CPU 渲染上次执行时刻（限速用，见镜像分支注释）
+    // 播放态 0→1 时把镜像计时/兜底起点重新起算：暂停期间 Spout 泵只保活不产新帧，计时若跨过
+    // 暂停就会把「刚恢复播放」误判成断供（实测一条 422715ms：暂停 7 分钟后首拍即落 CPU 兜底）
+    private bool _wasPlaying;
+    private long _playStartedAt;
+    private long _cpuFallbackCount; // 本 5s 窗口 CPU 兜底次数（进 [预览泵] 日志）
+    // CPU 直渲路径的慢帧降质（对位前端 draw() 的 S.slow：帧间隔 >30ms 进、<14ms 持续 1.2s 出；
+    // 慢态下出帧走 fast/noGhost，掉质量保帧率）。镜像模式不渲染引擎，这套滞回不参与。
+    private bool _cpuSlow;
+    private long _cpuSlowAt;
+    private long _cpuRenderPrevTs;
     private readonly SKPaint _mirrorPaint = new() { IsAntialias = false };
     // 舞台尺寸缓存（UI SizeChanged 写，渲染线程读——每帧 Dispatcher.Invoke 会白烧调度器）
     private volatile int _stageWpx, _stageHpx;
@@ -164,8 +174,18 @@ public partial class MainWindow : Window
                 var got = frames - _pumpFramesPrev;
                 _pumpFramesPrev = frames;
                 if (got > 0 && _preview.IsPlaying)
-                    Log.Info($"[预览泵] 近 5s {got} 帧（{got / 5.0:F0}fps，目标 {_targetFps}fps，"
-                             + $"{(_settings.SpoutEnabled ? "Spout 镜像" : "CPU 直渲")}）");
+                {
+                    // 上面的 got 只是泵拍数（InvalidateStage 次数），不是引擎渲染数：镜像模式下预览
+                    // 直接消费 Spout 交付的帧，引擎侧调用应为 0。要判断「渲染是否跟得上」看后半段的
+                    // 真渲染次数/耗时（CPU 直渲模式下才有意义）。
+                    var es = _preview.Renderer.TakeWindowStats();
+                    Log.Info($"[预览泵] 近 5s {got} 拍（{got / 5.0:F0}fps，目标 {_targetFps}fps，"
+                             + $"{(_settings.SpoutEnabled ? "Spout 镜像" : "CPU 直渲")}）"
+                             + $"｜引擎调用 {es.Calls} 次（真渲染 {es.Real}、缓存 {es.Cached}，"
+                             + $"真渲染平均 {(es.Real > 0 ? es.RealSumMs / es.Real : 0):F1}ms、峰值 {es.MaxMs:F1}ms）"
+                             + (_cpuFallbackCount > 0 ? $"；本窗 CPU 兜底 {_cpuFallbackCount} 次" : ""));
+                    _cpuFallbackCount = 0;
+                }
                 _probeWindowEnd = now + 5 * Stopwatch.Frequency;
             }
         };
@@ -447,6 +467,26 @@ public partial class MainWindow : Window
                 var plan = _preview.Plan;
                 if (plan == null || !_renderRunning || ExportBusy) continue;
                 _preview.Tick();
+                // 播放态 0→1：镜像「无新帧」计时与兜底起点必须从这里重新起算。暂停期间 Spout 泵
+                // 只保活、不产新帧（镜像 Seq 不动），计时跨过暂停就会把「刚恢复播放」误判成断供：
+                // 日志实测一条 422715ms（暂停 7 分钟→播放），首拍即落 4fps CPU 兜底并持引擎闸，
+                // 反把 Spout 泵堵住（下面注释里那个秒级冻结回环的入口）。
+                var playingNow = _preview.IsPlaying;
+                if (playingNow && !_wasPlaying)
+                {
+                    _mirrorAt = Stopwatch.GetTimestamp();
+                    _fallbackAt = 0;
+                    _playStartedAt = Stopwatch.GetTimestamp();
+                    _cpuRenderPrevTs = 0; // 同理由：帧间隔基准不能跨暂停（否则首拍即判慢）
+                }
+                if (!playingNow)
+                {
+                    // 暂停帧一律满质量（前端同：!playing → slow=false），并清帧间隔基准：
+                    // 留着的话恢复播放的首拍会把「暂停时长」当成帧间隔，立刻误进慢态。
+                    _cpuSlow = false;
+                    _cpuRenderPrevTs = 0;
+                }
+                _wasPlaying = playingNow;
                 // 窗口不可见（最小化/隐藏）：帧没人看，整条出帧路径停掉——镜像读回（1080p
                 // MapSubresource，是个 GPU 同步点）与引擎闸都不该再被占用。Tick 已经跑过，
                 // 播放/循环照常推进。必须放在下面的脏检查记账之前：记账被消耗掉的话，
@@ -537,10 +577,13 @@ public partial class MainWindow : Window
                         // （实测 0.7–1.8 秒/帧且持引擎闸），会把重规划与 Spout 泵一起拖住形成回环。
                         // 保持旧镜像帧，等新 plan 落地后泵自然续帧。
                         if (starveMs >= 4000 && _preview.ReplanPending) continue;
-                        if (_preview.IsPlaying && starveMs >= 4000)
+                        // 恢复播放后的头 4s 不给兜底：泵刚起步还在追拍，此刻兜底只会自伤（见上）
+                        var playMs = (Stopwatch.GetTimestamp() - _playStartedAt) * 1000.0 / Stopwatch.Frequency;
+                        if (_preview.IsPlaying && starveMs >= 4000 && playMs >= 4000)
                         {
                             if ((Stopwatch.GetTimestamp() - _fallbackAt) * 1000.0 / Stopwatch.Frequency < 250) continue;
                             _fallbackAt = Stopwatch.GetTimestamp();
+                            _cpuFallbackCount++;
                             if ((Stopwatch.GetTimestamp() - _mirrorWarnAt) * 1000.0 / Stopwatch.Frequency > 5000)
                             {
                                 _mirrorWarnAt = Stopwatch.GetTimestamp();
@@ -566,10 +609,28 @@ public partial class MainWindow : Window
                     _renderH = rh;
                 }
                 var surf = _renderSurface;
+                // 慢帧滞回（前端 S.slow 对位）：间隔 >30ms 记慢、<14ms 持续 1.2s 才退出。
+                // 只在播放中推进——暂停/单帧重绘不参与（暂停帧必须满质量）。
+                var cpuNow = Stopwatch.GetTimestamp();
+                if (_preview.IsPlaying && _cpuRenderPrevTs != 0)
+                {
+                    var gapMs = (cpuNow - _cpuRenderPrevTs) * 1000.0 / Stopwatch.Frequency;
+                    if (gapMs > 30)
+                    {
+                        if (!_cpuSlow) _cpuSlowAt = cpuNow;
+                        _cpuSlow = true;
+                    }
+                    else if (gapMs < 14 && _cpuSlow && (cpuNow - _cpuSlowAt) * 1000.0 / Stopwatch.Frequency > 1200)
+                    {
+                        _cpuSlow = false;
+                    }
+                }
+                _cpuRenderPrevTs = cpuNow;
                 var tCpu = Stopwatch.GetTimestamp();
                 lock (EngineRenderGate.Lock)
                 {
-                    _preview.Renderer.Frame(surf.Canvas, plan, t, new RenderOpts { Scale = fit, Stage = true });
+                    _preview.Renderer.Frame(surf.Canvas, plan, t,
+                        new RenderOpts { Scale = fit, Stage = true, Fast = _cpuSlow, NoGhost = _cpuSlow });
                     // 字幕叠加：与导出烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
                     PaintSubtitleOverlay(surf.Canvas, OverlayLayer(), t, rw, rh);
                 }

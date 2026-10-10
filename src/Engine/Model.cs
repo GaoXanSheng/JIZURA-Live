@@ -133,8 +133,12 @@ public sealed class FxSettings
     public double Density { get; set; } = 0.55;
     public double Texture { get; set; } = 0.6;
     public bool Flash { get; set; } = true;
-    public bool OnTwos { get; set; } = true;
-    public int Koma { get; set; } = 12;
+    /// <summary>抽帧档位：每秒作画张数（12 = 一拍二、8 = 一拍三、0 = 全帧/同输出 fps）。
+    /// 可空：null = 工程里没写这个键，取值回退到 OnTwos（对位 JS 的 fx.koma != null 判断，见 Planner.KomaOf）。</summary>
+    public int? Koma { get; set; }
+    /// <summary>一拍二开关：只在 Koma 为 null 时参与判定（对位 JS 的 fx.onTwos === false ? 0 : 12）。
+    /// 缺省 false —— 本 fork 的默认是「全帧」（上游 JS 默认 onTwos=true 即一拍二）。</summary>
+    public bool OnTwos { get; set; }
     public string Hud { get; set; } = "auto";
     public double BgSwitch { get; set; } = 0.35;
     public bool HideNo { get; set; }

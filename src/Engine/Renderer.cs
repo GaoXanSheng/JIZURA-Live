@@ -183,10 +183,54 @@ public sealed class Renderer : IDisposable
             _scan = sl;
         }
 
+        // ---------------- 渲染侧计数（诊断） ----------------
+        // 出帧侧（泵）报的帧数只是「Frame 被调用了几次」：命中整帧缓存时那一帧只是一次贴图，
+        // 不代表引擎真画了。真渲染次数/耗时只能在这里记账（渲染线程写、日志线程读 → Interlocked）。
+        private long _stCalls, _stCached, _stSumTicks, _stRealTicks, _stMaxTicks;
+
+        /// <summary>窗口统计：Calls = Frame 调用次数，Cached = 整帧缓存命中，
+        /// Real = Calls − Cached = 真渲染次数，SumMs = 全部调用耗时，RealSumMs = 仅真渲染耗时，MaxMs = 峰值。</summary>
+        public readonly record struct Stats(long Calls, long Cached, long Real, double SumMs, double RealSumMs, double MaxMs);
+
+        /// <summary>取本窗口统计，读取即清零（单读取方 = 日志线程；渲染线程只累加）。</summary>
+        public Stats TakeWindowStats()
+        {
+            var calls = Interlocked.Exchange(ref _stCalls, 0);
+            var cached = Interlocked.Exchange(ref _stCached, 0);
+            var sum = Interlocked.Exchange(ref _stSumTicks, 0) * 1000.0 / Stopwatch.Frequency;
+            var realSum = Interlocked.Exchange(ref _stRealTicks, 0) * 1000.0 / Stopwatch.Frequency;
+            var max = Interlocked.Exchange(ref _stMaxTicks, 0) * 1000.0 / Stopwatch.Frequency;
+            return new Stats(calls, cached, calls - cached, sum, realSum, max);
+        }
+
         // ---------------- 主入口 ----------------
 
-        /// <summary>把 t 时刻的一帧画进 ctx，画布像素 = 设计尺寸 * scale。</summary>
+        /// <summary>把 t 时刻的一帧画进 ctx，画布像素 = 设计尺寸 * scale。
+        /// 只做记账（调用次数/耗时/峰值/缓存命中），绘制在 FrameCore——FrameCore 有 4 个出口
+        /// （kline/ascii/缓存命中/正常收尾），由返回值报「是否整帧缓存命中」，在这里统计才不漏。</summary>
         public void Frame(SKCanvas ctx, Plan plan, double t, RenderOpts? optIn = null)
+        {
+            Interlocked.Increment(ref _stCalls);
+            var t0 = Stopwatch.GetTimestamp();
+            var cached = false;
+            try
+            {
+                cached = FrameCore(ctx, plan, t, optIn);
+            }
+            finally
+            {
+                var dt = Stopwatch.GetTimestamp() - t0;
+                Interlocked.Add(ref _stSumTicks, dt);
+                if (!cached) Interlocked.Add(ref _stRealTicks, dt);
+                long cur;
+                while (dt > (cur = Interlocked.Read(ref _stMaxTicks)))
+                    if (Interlocked.CompareExchange(ref _stMaxTicks, dt, cur) == cur) break;
+            }
+            if (cached) Interlocked.Increment(ref _stCached);
+        }
+
+        /// <summary>返回 true = 整帧缓存命中（只贴图，没真画）。</summary>
+        private bool FrameCore(SKCanvas ctx, Plan plan, double t, RenderOpts? optIn = null)
         {
             var opt = optIn ?? new RenderOpts();
             var W = plan.W;
@@ -215,7 +259,7 @@ public sealed class Renderer : IDisposable
             if (Truthy(JLayouts.StTok(st, "kline")))
             {
                 P11Kline.Frame(ctx, plan, t, opt, (int)cw, (int)ch);
-                return;
+                return false;
             }
             // ASCII 字符画风格（11p）：整帧先按正常管线渲进离屏，再整帧转字符网格；
             // AsciiInner 防 asciiFrame 递归内层再次进入本分支
@@ -223,7 +267,7 @@ public sealed class Renderer : IDisposable
             {
                 P11Ascii.Frame(ctx, plan, t, opt,
                     (inner, innerOpt) => Frame(inner, plan, t, innerOpt));
-                return;
+                return false;
             }
             // 动作按 koma 量化（24fps 作画基准）；随机闪烁走 <=24Hz 时钟
             var stepDur = Planner.StepDur(fx, fps);
@@ -297,12 +341,13 @@ public sealed class Renderer : IDisposable
             }
             if (fKey != null && fKey == _fcKey && _fcCv != null && _fcCv.Width == cw && _fcCv.Height == ch)
             {
+                Interlocked.Increment(ref _stCached); // 贴图而非真画：计入缓存命中（见 Stats）
                 ctx.Save();
                 ctx.SetMatrix(SKMatrix.Identity);
                 using (var p = new SKPaint { BlendMode = SKBlendMode.Src }) // JS globalCompositeOperation='copy'
                     ctx.DrawImage(_fcCv, 0, 0, p);
                 ctx.Restore();
-                return;
+                return true;
             }
             Stage("setup");
             ctx.Save();
@@ -582,6 +627,7 @@ public sealed class Renderer : IDisposable
                 }
             }
             Stage("fcsave");
+            return false;
         }
 
         private static Cut? mPrev2(Plan plan, Cut mainCut) =>

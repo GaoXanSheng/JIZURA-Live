@@ -568,10 +568,11 @@ public static class Planner
 
     /// <summary>
     /// J.komaOf：24fps 时间轴上每秒作画张数（12 = 二拍一，8 = 三拍一，0 = 每个输出帧）。
-    /// JS 是 fx.koma != null ? +koma : (onTwos === false ? 0 : 12)；C# 的 FxSettings.Koma 非 null
-    /// 且默认 12（即 JS onTwos=true 的回退值），koma 恒为权威——onTwos=false 的工程应物化为 Koma=0。
+    /// 逐字对位 JS：fx.koma != null ? +fx.koma : (fx.onTwos === false ? 0 : 12)——
+    /// 显式档位永远优先；没写这个键才回退看 onTwos。C# 用可空 Koma 表达「工程里没有这个键」。
+    /// 本 fork 的缺省是 Koma=null + OnTwos=false → 全帧（上游 JS 那个缺省是 onTwos=true → 12）。
     /// </summary>
-    public static int KomaOf(FxSettings fx) => fx.Koma;
+    public static int KomaOf(FxSettings fx) => fx.Koma ?? (fx.OnTwos ? 12 : 0);
 
     public static double StepDur(FxSettings fx, int fps)
     {
@@ -622,8 +623,8 @@ public static class Planner
         Density = f?.Density ?? 0.55,
         Texture = f?.Texture ?? 0.6,
         Flash = f?.Flash ?? true,
-        OnTwos = f?.OnTwos ?? true,
-        Koma = f?.Koma ?? 12,
+        OnTwos = f?.OnTwos ?? false,
+        Koma = f?.Koma,
         Hud = f?.Hud ?? "auto",
         BgSwitch = f?.BgSwitch ?? 0.35,
         HideNo = f?.HideNo ?? false,

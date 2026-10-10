@@ -768,7 +768,7 @@ public static class Omakase
         "bgSwitch" => f.BgSwitch,
         "flash" => f.Flash,
         "onTwos" => f.OnTwos,
-        "koma" => f.OnTwos ? f.Koma : 0,
+        "koma" => Planner.KomaOf(f), // 有效档位（Koma 为 null 时按 onTwos 回退），对位 J.komaOf
         "hud" => f.Hud,
         "hideNo" => f.HideNo,
         "hideTime" => f.HideTime,
@@ -779,6 +779,8 @@ public static class Omakase
     public static void FxSet(FxSettings f, string k, object? v)
     {
         double D(double d) => v is double d2 ? d2 : v is float f2 ? f2 : v is int i2 ? i2 : v is long l2 ? l2 : d;
+        // koma 可空（null = 工程里没写这个键）：非数值入参要保持 null，不能顺手物化成 0
+        int? I(int? d) => v is double d2 ? (int)d2 : v is float f2 ? (int)f2 : v is int i2 ? i2 : v is long l2 ? (int)l2 : d;
         bool B(bool d) => v is bool b ? b : d;
         switch (k)
         {
@@ -791,7 +793,7 @@ public static class Omakase
             case "bgSwitch": f.BgSwitch = D(f.BgSwitch); break;
             case "flash": f.Flash = B(f.Flash); break;
             case "onTwos": f.OnTwos = B(f.OnTwos); break;
-            case "koma": f.Koma = (int)D(f.Koma); break;
+            case "koma": f.Koma = I(f.Koma); break;
             case "hud": f.Hud = v is string s ? s : f.Hud; break;
             case "hideNo": f.HideNo = B(f.HideNo); break;
             case "hideTime": f.HideTime = B(f.HideTime); break;
