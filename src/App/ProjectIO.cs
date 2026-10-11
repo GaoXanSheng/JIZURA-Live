@@ -487,13 +487,12 @@ public static class ProjectIO
                 throw new InvalidDataException(L.T("ProjectIO.Err.Verify.AudioMismatch"));
         }
 
-        // 原子落盘（AtomicFile 只有文本重载，字节版就地内联：tmp → replace/move）
+        // 原子落盘（AtomicFile 只有文本重载，字节版就地内联：tmp → 覆盖改名；不用 File.Replace，原因见 AtomicFile）
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var tmp = path + ".tmp";
         File.WriteAllBytes(tmp, bytes);
-        if (File.Exists(path)) File.Replace(tmp, path, null);
-        else File.Move(tmp, path);
+        File.Move(tmp, path, overwrite: true);
         Log.Info($"[ProjectIO] 工程包已保存：{path}（{entries.Count} 条目，{bytes.Length} 字节，自校验通过）");
     }
 }

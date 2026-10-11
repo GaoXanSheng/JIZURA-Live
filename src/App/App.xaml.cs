@@ -144,6 +144,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Info("================ JIZURA Live 退出 ================");
+        Settings.FlushPending(); // 退出兜底：音量/消音等防抖窗口内未落盘的设置同步写掉
         _server?.Dispose();
         _mutex?.Dispose();
         Log.Shutdown();

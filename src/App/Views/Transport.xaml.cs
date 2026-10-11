@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -246,14 +247,16 @@ public partial class Transport : UserControl
         SetVolBar();
     }
 
-    /// <summary>预览音量/消音写回设置（对位 saveVolume：localStorage → Settings）。</summary>
+    /// <summary>预览音量/消音写回设置（对位 saveVolume：localStorage → Settings）。
+    /// 防抖后台落盘：点「声音」/拖音量条只记脏（400ms 后线程池写盘），UI 线程不碰磁盘也不等写盘；
+    /// 退出由 App.OnExit 兜底写掉。</summary>
     private void SaveVolume()
     {
         var s = App.SettingsOf();
         if (s == null) return;
         s.PreviewVolume = Preview.Volume;
         s.PreviewMuted = Preview.Muted;
-        s.Save();
+        s.SaveDebounced();
     }
 
     /// <summary>音量条同款自绘：填充宽按比例 + 拖柄平移（消音时条显示 0，免得按钮变青而条说谎）。</summary>

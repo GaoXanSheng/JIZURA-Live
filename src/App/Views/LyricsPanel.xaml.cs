@@ -76,7 +76,7 @@ public partial class LyricsPanel : UserControl
         if (s == null) return;
         s.WantRoma = CkRoma.IsChecked == true;
         s.WantTrans = CkTrans.IsChecked == true;
-        s.Save();
+        s.SaveDebounced();
         if (State.LyricSrc != null) SongLoader.ReapplyLyricOptions(State);
     }
 

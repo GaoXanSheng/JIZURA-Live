@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System.Diagnostics;
+using System.IO;
 using System.Text.RegularExpressions;
 using System.Windows;
 using JizuraLive.App.I18n;
@@ -19,7 +20,9 @@ namespace JizuraLive.App.Mcp;
 //
 // revision 契约：带 revision 的写操作要求参数与 EditorState.Revision 相等，否则 stale_revision（-32602）；
 // 写操作返回值附加当前 revision（与 JS 一致，代理可直接用于下一次写）。
-// 线程：所有工具体都在 UI 线程上跑（HTTP 线程经 Dispatcher 分发），与面板编辑同一把闸。
+// 线程：工具体默认在 UI 线程上跑（HTTP 线程经 Dispatcher 分发），与面板编辑同一把闸；
+// 唯一例外 get_frame——离屏渲一帧冷缓存可达秒级，留在 UI 就是「界面点啥都卡几秒」，
+// 它只读 plan 引用 + 渲染串行闸，改在 HTTP 线程直接跑（ExecTool 分流）。
 public sealed class McpTools
 {
     private readonly EditorState _state;
@@ -121,33 +124,56 @@ public sealed class McpTools
         throw new ToolError("method_not_found", L.F("Mcp.Err.UnknownMethod", method));
     }
 
-    /// <summary>tools/call 的公共闸：初始化检查、导出期只挡写、revision 契约、写回附加 revision。</summary>
+    /// <summary>tools/call 的公共闸：初始化检查、导出期只挡写、revision 契约、写回附加 revision。
+    /// get_frame 例外：离屏渲一帧冷缓存可达秒级（实测 3.5s），压在 UI 线程上就是「界面点啥都卡几秒」
+    /// ——它只读 plan 引用 + 渲染串行闸，HTTP 线程直接跑与预览/导出安全互斥。每次调用留耗时日志：
+    /// UI 探针报秒级抖动时，据此判断是不是 MCP 调用占住了主线程。</summary>
     private JObject ExecTool(JObject def, JObject args)
     {
         var readOnly = def["annotations"]?["readOnlyHint"]?.Type == JTokenType.Boolean
                        && (bool)def["annotations"]!["readOnlyHint"]!;
-        var run = OnUi(() =>
+        var name = (string?)def["name"] ?? "";
+        var t0 = Stopwatch.GetTimestamp();
+        JObject outObj;
+        if (name == "get_frame")
         {
             Check(_state.Plan != null, L.T("Mcp.Err.EditorNotReady"));
-            if (!readOnly) Check(!Exporting, L.T("Mcp.Err.ExportBusy"));
-            if (!readOnly)
+            outObj = ToolGetFrame(args);
+        }
+        else
+        {
+            outObj = OnUi(() =>
             {
-                // schema 里 revision 必填的工具缺参即拒；带 revision 但与当前值不符即拒
-                var required = def["inputSchema"]?["required"] as JArray;
-                if (required != null && required.Any(x => (string?)x == "revision")
-                    && args["revision"]?.Type != JTokenType.Integer)
-                    Fail("stale_revision", L.F("Mcp.Err.MissingRevision", _state.Revision));
-                if (args["revision"] != null && (int)args["revision"]! != _state.Revision)
-                    Fail("stale_revision",
-                        L.F("Mcp.Err.StaleRevision", args["revision"], _state.Revision));
-            }
-            var name = (string?)def["name"] ?? "";
-            var outObj = RunTool(name, args) ?? new JObject { ["ok"] = true };
-            // 写操作返回值带上新 revision（重规划已递增）：代理直接用返回值做下一次写
-            if (!readOnly) outObj["revision"] = _state.Revision;
-            return outObj;
-        });
-        return run;
+                UiStallProbe.Mark("mcp:" + name);
+                try
+                {
+                    Check(_state.Plan != null, L.T("Mcp.Err.EditorNotReady"));
+                    if (!readOnly) Check(!Exporting, L.T("Mcp.Err.ExportBusy"));
+                    if (!readOnly)
+                    {
+                        // schema 里 revision 必填的工具缺参即拒；带 revision 但与当前值不符即拒
+                        var required = def["inputSchema"]?["required"] as JArray;
+                        if (required != null && required.Any(x => (string?)x == "revision")
+                            && args["revision"]?.Type != JTokenType.Integer)
+                            Fail("stale_revision", L.F("Mcp.Err.MissingRevision", _state.Revision));
+                        if (args["revision"] != null && (int)args["revision"]! != _state.Revision)
+                            Fail("stale_revision",
+                                L.F("Mcp.Err.StaleRevision", args["revision"], _state.Revision));
+                    }
+                    var r = RunTool(name, args) ?? new JObject { ["ok"] = true };
+                    // 写操作返回值带上新 revision（重规划已递增）：代理直接用返回值做下一次写
+                    if (!readOnly) r["revision"] = _state.Revision;
+                    return r;
+                }
+                finally
+                {
+                    UiStallProbe.MarkIdle();
+                }
+            });
+        }
+        var ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+        if (ms > 200) Log.Info($"[Mcp] {name} {ms:F0}ms");
+        return outObj;
     }
 
     private JObject? RunTool(string name, JObject a) => name switch

@@ -156,7 +156,7 @@ public partial class SettingsTab : UserControl
         var st = App.SettingsOf();
         if (code == null || st == null || code == st.UiLang) return;
         st.UiLang = code;
-        st.Save();
+        st.SaveDebounced();
         L.SetLanguage(code);
     }
 
@@ -419,7 +419,7 @@ public partial class SettingsTab : UserControl
             return;
         }
         ApplyDraft(st);
-        st.Save();
+        st.SaveDebounced();
         main.RestartRender();
         _dirty = false;
         ValidateDraft();
@@ -557,7 +557,7 @@ public partial class SettingsTab : UserControl
         if (st == null) return;
         st.FetchFonts = CkFetchFonts.IsChecked == true;
         FontFetch.Enabled = st.FetchFonts;
-        st.Save();
+        st.SaveDebounced();
         if (FontFetch.Enabled)
             _ = JFonts.EnsureFonts(S.Project.Lyrics, JFonts.FontsOfPlan(App.MainInstance?.Preview.Plan));
     }

@@ -32,6 +32,9 @@ public sealed class D3D11ImageSource : D3DImage, IDisposable
         lock (DeviceLock)
         {
             if (_deviceEx != null) return;
+            // 卡顿取证：Direct3DEx/DeviceEx 是驱动级初始化，实测可占 UI 数秒（无 GC/线程池特征，
+            // 只能靠 marker 点名——见 UiStallProbe）
+            UiStallProbe.Mark("d3d9ex-create");
             try
             {
                 _d3dEx = new Direct3DEx();
@@ -55,6 +58,10 @@ public sealed class D3D11ImageSource : D3DImage, IDisposable
             {
                 Log.Error("[D3D11ImageSource] Direct3D9Ex 设备初始化失败：" + ex.Message, ex);
             }
+            finally
+            {
+                UiStallProbe.MarkIdle();
+            }
         }
     }
 
@@ -68,6 +75,9 @@ public sealed class D3D11ImageSource : D3DImage, IDisposable
         if (_lastShareHandle == shareHandle && _width == width && _height == height && _surface != null)
             return true;
 
+        // 卡顿取证：开共享纹理 + Lock/SetBackBuffer 是 UI 线程上的 GPU 同步点（驱动级，可秒级，
+        // 无 GC/线程池特征——靠 marker 点名，见 UiStallProbe）
+        UiStallProbe.Mark("d3d-bind");
         try
         {
             CleanupTexture();
@@ -91,6 +101,10 @@ public sealed class D3D11ImageSource : D3DImage, IDisposable
             Log.Error($"[D3D11ImageSource] 打开共享句柄 0x{shareHandle:x} ({width}x{height}) 失败: {ex.Message}", ex);
             CleanupTexture();
             return false;
+        }
+        finally
+        {
+            UiStallProbe.MarkIdle();
         }
     }
 

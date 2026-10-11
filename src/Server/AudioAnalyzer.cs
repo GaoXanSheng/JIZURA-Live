@@ -182,9 +182,6 @@ internal static class AudioAnalyzer
     }
 
     // F0 检测：窗口归一化互相关（NCCF），70..1000 Hz。
-    // 窗口取 2*hop（50Hz 帧率下 40ms），保证下限频率约两个完整周期；
-    // 能量门限（归一化后 <0.04）与相关性门限（<0.45）之外的帧输出 0（视为无声）；
-    // 短周期峰达最高峰 88% 即优先取短周期（倍频抑制），帧间 3 值中值滤波去毛刺
     private static float[] EstimatePitch(float[] mono, int sampleRate, float[] energy, int hop, int n, int len)
     {
         var pitch = new float[n];
@@ -292,10 +289,6 @@ internal static class AudioAnalyzer
     }
 
     // 任意 MediaFoundation 支持的音频文件（mp3/flac/m4a/wav…）→ 单声道 11025Hz float[]，
-    // 前端不再自己 decode+重采样+拷 40MB PCM，整文件直接丢过来。
-    // 实测（Reol 4:10 / 5.2MB mp3，tools/prof/AudioCheck decode）：改成「按容器时长一次预分配 + 收尾」
-    // 并不省——MediaFoundationResampler 按请求长度另开中转缓冲，整段请求反而多分配：36.9MB → 40.8MB，
-    // 耗时 476ms → 461ms（持平），GC0/GC2 次数相同。分块版峰值活对象略高但总账不吃亏，别再"优化"这里。
     public static float[] DecodeMonoAnalyzeRate(string filePath, out double duration)
     {
         using var mf = new MediaFoundationReader(filePath);

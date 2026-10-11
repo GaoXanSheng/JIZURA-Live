@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -77,15 +78,54 @@ public sealed class Settings
 
     public void Save()
     {
-        try
+        lock (SaveGate)
         {
-            Directory.CreateDirectory(ConfigDir);
-            AtomicFile.Write(FilePath, JsonConvert.SerializeObject(this, Formatting.Indented));
-            Log.Info($"配置已保存至：{FilePath}");
+            try
+            {
+                var t0 = Stopwatch.GetTimestamp();
+                Directory.CreateDirectory(ConfigDir);
+                AtomicFile.Write(FilePath, JsonConvert.SerializeObject(this, Formatting.Indented));
+                Log.Info($"配置已保存至：{FilePath}");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"保存配置文件失败 ({FilePath})：" + ex.Message);
+            }
         }
-        catch (Exception ex)
+    }
+
+    // ---------------- 防抖后台落盘（点击/拖动路径专用） ----------------
+    //
+    // 写盘不便宜：AtomicFile 走文件系统，杀软过滤驱动活跃时（本机火绒 HIPS 实测单次 4.5~9s）能到秒级。
+    // 点「声音」、拖音量条这种高频轻操作不该在 UI 线程碰磁盘，也不该等后台写盘：
+    // SaveDebounced 只记脏 + 重置 400ms 计时（只碰 DebounceGate，纳秒级），真正的写盘在线程池；
+    // 退出由 App.OnExit 的 FlushPending 兜底（防抖窗口内退出也不丢）。
+
+    private static readonly object SaveGate = new();     // 写盘串行（只在 Save 内部持有，可能慢）
+    private static readonly object DebounceGate = new(); // 防抖槽 + 计时器（UI 线程只碰这把）
+    private static System.Threading.Timer? _saveDebounce;
+    private static Settings? _savePending;
+
+    /// <summary>请求持久化（防抖 400ms）：立即返回，UI 线程零磁盘接触。关键路径/退出用 <see cref="Save"/>。</summary>
+    public void SaveDebounced()
+    {
+        lock (DebounceGate)
         {
-            Log.Error($"保存配置文件失败 ({FilePath})：" + ex.Message);
+            _savePending = this;
+            _saveDebounce ??= new System.Threading.Timer(_ => FlushPending(), null, System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+            _saveDebounce.Change(400, System.Threading.Timeout.Infinite);
         }
+    }
+
+    /// <summary>把防抖窗口内攒下的设置写掉（线程池回调/退出兜底）。写盘与同步 Save 互斥（SaveGate）。</summary>
+    public static void FlushPending()
+    {
+        Settings? s;
+        lock (DebounceGate)
+        {
+            s = _savePending;
+            _savePending = null;
+        }
+        s?.Save();
     }
 }

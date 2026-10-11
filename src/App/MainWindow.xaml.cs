@@ -161,6 +161,7 @@ public partial class MainWindow : Window
         _uiProbe = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(100) };
         _uiProbe.Tick += (_, _) =>
         {
+            UiStallProbe.Heartbeat(); // 卡顿取证探针的心跳（缺口超阈值时看门狗逐秒报「卡在哪」）
             var now = Stopwatch.GetTimestamp();
             var late = (now - _probeDue) * 1000.0 / Stopwatch.Frequency;
             if (late > _probeJitterMax) _probeJitterMax = late;
@@ -168,7 +169,14 @@ public partial class MainWindow : Window
             if (now >= _probeWindowEnd)
             {
                 if (_probeJitterMax > 33)
-                    Log.Warn($"[UI探针] 5s 最大调度抖动 {_probeJitterMax:F0}ms（>33ms 即按钮可感知卡顿）");
+                {
+                    // 秒级卡顿附 GC 证据：Gen2 计数与上一次报告的差值非零 = 卡顿主因是阻塞式 GC，
+                    // 而不是 UI 线程上的代码（文件 IO/D3D/引擎同步段）。对比相邻两行即可定位。
+                    var gc = _probeJitterMax > 2000
+                        ? $"｜GC Gen0={GC.CollectionCount(0)} Gen1={GC.CollectionCount(1)} Gen2={GC.CollectionCount(2)}"
+                        : "";
+                    Log.Warn($"[UI探针] 5s 最大调度抖动 {_probeJitterMax:F0}ms（>33ms 即按钮可感知卡顿）{gc}");
+                }
                 _probeJitterMax = 0;
                 var frames = Interlocked.Read(ref _pumpFrames);
                 var got = frames - _pumpFramesPrev;
@@ -190,6 +198,7 @@ public partial class MainWindow : Window
             }
         };
         _uiProbe.Start();
+        UiStallProbe.Start();
 
         UpdateStatusText();
         // 默认打开为暂停状态（暂停态泵出第一帧后空转，不抢占 CPU/GPU；用户主动点播放或按空格才开跑）
@@ -834,7 +843,7 @@ public partial class MainWindow : Window
     {
         if (on == _settings.SpoutEnabled && (on == _spout.IsRunning || !IsLoaded)) return;
         _settings.SpoutEnabled = on;
-        _settings.Save();
+        _settings.SaveDebounced();
         if (on) StartSpout();
         else StopSpout();
     }

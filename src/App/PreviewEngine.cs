@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Windows;
 using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -155,6 +156,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     private double _posBase;          // 计数器零点对应的歌曲时间（重定位/回卷时更新）
     private volatile bool _audioActive; // 波形位置钟可用（链建成功且未被降级）
 
+    /// <summary>音频链换代序号：装载/换歌/特效重建/卸载都 +1，后台建链完成时序号不符即整链丢弃。
+    /// 建链挪到后台后防「恢复期间又换歌/退出」的竞态（旧链装配完覆盖新状态）。</summary>
+    private int _chainSeq;
+
     private volatile bool _scrubbing; // 对位 S.scrubbing：拖动中画面钉在 seek 目标，音频静默
 
     /// <summary>已装载的分析音频（null = 无音频，纯墙钟播放）。</summary>
@@ -207,6 +212,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// </summary>
     public void SetAudioSource(AudioData? audio, string? path, bool keepCurrentTime = false, bool replan = true)
     {
+        var seq = Interlocked.Increment(ref _chainSeq); // 换代：在途的后台建链作废
         TeardownAudio();
         _audio = audio;
         _audioPath = path;
@@ -225,18 +231,22 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             : 0;
         _base = startT;
         _startTs = Stopwatch.GetTimestamp();
-        BuildChain(path, startT);
-        // 装载时若播放器已处于播放态 → 新链跟着起跑；暂停态保持暂停
-        if (IsPlaying && !_follow && _audioActive) SafePlay();
+        var fx = Project.AudioFx; // UI 线程取快照：后台建链不再读共享工程（Mutate 可能就地改它）
+        // 打文件 + 建链 + 开设备实测可到秒级（云盘冷文件 4.6s），压在 UI 线程上就是
+        // 「装载后点啥都卡几秒」——全部挪后台，装配完成回 UI 线程挂链（InstallChain）。
+        Task.Run(() => BuildChainAsync(path, startT, seq, fx));
         if (replan) Replan();
     }
 
-    /// <summary>解码并装配整条播放链（不启动播放；定位到 startT）。任何一步失败整体退回墙钟。</summary>
-    private void BuildChain(string path, double startT)
+    /// <summary>后台建链：打开文件/建 DSP 图/开设备都在调用线程（线程池）完成，完成后回 UI 线程挂链。
+    /// 期间换代（换歌/特效重建/卸载/退出）则整链丢弃。失败退回墙钟（保持 _audioActive=false）。</summary>
+    private void BuildChainAsync(string path, double startT, int seq, JObject fx)
     {
+        MediaFoundationReader? reader = null;
+        WaveOut? wo = null;
         try
         {
-            var reader = new MediaFoundationReader(path);
+            reader = new MediaFoundationReader(path);
             ISampleProvider node = reader.ToSampleProvider();
             if (node.WaveFormat.Channels == 1) node = new MonoToStereoSampleProvider(node);
             else if (node.WaveFormat.Channels > 2) node = new MultiplexingSampleProvider(new[] { node }, 2);
@@ -247,41 +257,61 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
                                      * reader.WaveFormat.AverageBytesPerSecond);
 
             // 特效图（J.buildAudioFx）：units 全关 → null = 不建图直通；anchorT 用当前歌曲时刻，seek 后 LFO 相位确定
-            _fxToken = Project.AudioFx;
-            var graph = AudioFx.Build(_fxToken, new FxBuildOpts { SampleRate = OutRate, AnchorT = startT });
+            var graph = AudioFx.Build(fx, new FxBuildOpts { SampleRate = OutRate, AnchorT = startT });
             if (graph != null) graph.Input.Source = node;
             node = graph?.Output ?? node;
 
             // 变速（J.fxSpeed）：playbackRate 等价实现——时长 ÷speed、音调同升（对位 BufferSource.playbackRate）
-            var speed = AudioFx.FxSpeedOf(_fxToken);
+            var speed = AudioFx.FxSpeedOf(fx);
             if (Math.Abs(speed - 1) > 1e-6) node = new SpeedSampleProvider(node, speed);
 
-            // 主音量（对位 AP.gain）：muted 直接 0，否则 vol²
             var gain = new VolumeSampleProvider(node) { Volume = _muted ? 0f : (float)(_vol * _vol) };
             var counter = new CountingSampleProvider(gain, _clockLock);
             // NAudio 3.x：WaveOutEvent 更名 WaveOut，延迟参数改为 BufferMilliseconds×NumberOfBuffers
-            var wo = new WaveOut { BufferMilliseconds = BufferMs, NumberOfBuffers = WaveBuffers };
-            wo.Init(counter); // 此时已填入首块缓冲，计数器初始化完成后再归零
-            lock (_clockLock)
-            {
-                _counter = counter;
-                _counter.Frames = 0;
-                _posBase = startT;
-            }
-            lock (_chainLock)
-            {
-                _reader = reader;
-                _waveOut = wo;
-                _gain = gain;
-            }
-            _speed = speed;
-            _audioActive = true;
+            var wo2 = new WaveOut { BufferMilliseconds = BufferMs, NumberOfBuffers = WaveBuffers };
+            wo2.Init(counter); // 此时已填入首块缓冲，计数器初始化完成后再归零
+            wo = wo2;
+
+            var d = Application.Current?.Dispatcher;
+            if (d == null) InstallChain(seq, reader, wo, counter, gain, speed, fx); // 无 Dispatcher（测试）直接装
+            else d.Invoke(() => InstallChain(seq, reader, wo, counter, gain, speed, fx));
         }
         catch (Exception ex)
         {
             Log.Warn("[Preview] 音频链装配失败，预览退回墙钟：" + ex.Message);
-            TeardownAudio();
+            try { reader?.Dispose(); } catch { /* 已失效 */ }
+            try { wo?.Dispose(); } catch { /* 已失效 */ }
         }
+    }
+
+    /// <summary>挂链（UI 线程；_clockLock/_chainLock 粒度见字段注释）。seq 不符 = 期间已换代，整链丢弃。
+    /// 锚点取安装时刻的墙钟位置：建链期间用户 seek/播放推进都反映进 _base，挂链不跳位。</summary>
+    private void InstallChain(int seq, MediaFoundationReader reader, WaveOut wo,
+        CountingSampleProvider counter, VolumeSampleProvider gain, double speed, JObject fx)
+    {
+        if (seq != Volatile.Read(ref _chainSeq))
+        {
+            try { wo.Stop(); } catch { /* 已失效 */ }
+            try { reader.Dispose(); wo.Dispose(); } catch { /* 已失效 */ }
+            return;
+        }
+        lock (_clockLock)
+        {
+            _posBase = RawTime; // 此时 _audioActive=false，RawTime=墙钟语义（含建链期间的 seek）
+            _counter = counter;
+            _counter.Frames = 0;
+            _startTs = Stopwatch.GetTimestamp();
+        }
+        lock (_chainLock)
+        {
+            _reader = reader;
+            _waveOut = wo;
+            _gain = gain;
+        }
+        _fxToken = fx;
+        _speed = speed;
+        _audioActive = true;
+        if (IsPlaying && !_follow) SafePlay();
     }
 
     /// <summary>停掉并丢弃整条音频链（幂等；Stop/Dispose 都可能因设备已消失抛错，逐一吞掉）。</summary>
@@ -304,7 +334,8 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _audioActive = false;
     }
 
-    /// <summary>project.AudioFx 变了就重建特效链（对位 applyAudioFx：播放中立即重建，未播放只作废缓存）。</summary>
+    /// <summary>project.AudioFx 变了就重建特效链（对位 applyAudioFx：播放中立即重建，未播放只作废缓存）。
+    /// 重建同样走后台建链（BuildChainAsync）：停掉旧链出声后装配新链，完成回 UI 挂链并按播放态续播。</summary>
     private void RebuildFxIfConfigChanged()
     {
         var cfg = Project.AudioFx;
@@ -315,14 +346,15 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             _fxToken = cfg; // 无音频链：只记快照，下次建链自然生效
             return;
         }
-        var resume = IsPlaying;
-        var t = CurrentTime;
+        var seq = Interlocked.Increment(ref _chainSeq); // 换代：在途的后台建链作废
+        var fx = cfg; // UI 线程取快照
         lock (_chainLock)
         {
             try { if (_waveOut != null && _waveOut.PlaybackState != PlaybackState.Stopped) _waveOut.Stop(); } catch { /* 设备失效 */ }
         }
-        BuildChain(_audioPath!, t);
-        if (resume && _audioActive && !_follow) SafePlay(); // 跟随中不出本地声
+        var path = _audioPath!;
+        var startT = CurrentTime;
+        Task.Run(() => BuildChainAsync(path, startT, seq, fx));
     }
 
     /// <summary>启动输出；设备打不开时降级为墙钟（只报一次，之后不再尝试）。</summary>
@@ -626,21 +658,29 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// </summary>
     public void Replan()
     {
-        Plan plan;
+        UiStallProbe.Mark("replan-sync"); // 同步路径持引擎闸跑规划，卡 UI 时探针直接点名
         try
         {
-            lock (EngineRenderGate.Lock)
+            Plan plan;
+            try
             {
-                EngineBoot.InstallPacks();
-                plan = Planner.Plan(Project, _audio);
+                lock (EngineRenderGate.Lock)
+                {
+                    EngineBoot.InstallPacks();
+                    plan = Planner.Plan(Project, _audio);
+                }
             }
+            catch (Exception ex)
+            {
+                Log.Error("[Preview] Replan 失败，保留旧 plan：" + ex.Message, ex);
+                return;
+            }
+            SetPlan(plan);
         }
-        catch (Exception ex)
+        finally
         {
-            Log.Error("[Preview] Replan 失败，保留旧 plan：" + ex.Message, ex);
-            return;
+            UiStallProbe.MarkIdle();
         }
-        SetPlan(plan);
     }
 
     /// <summary>
@@ -718,6 +758,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public void Dispose()
     {
+        Interlocked.Increment(ref _chainSeq); // 在途的后台建链作废
         TeardownAudio();
         _warmSurf?.Dispose();
         _warmSurf = null;
