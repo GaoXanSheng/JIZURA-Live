@@ -549,6 +549,7 @@ public partial class CloudPanel : Window
         }
         catch (Exception ex)
         {
+            Log.Error("[Cloud] 二维码获取失败：" + ex.Message, ex);
             TblQrTip.Text = L.F("Cloud.FailedMsg", ex.Message);
         }
     }
@@ -584,7 +585,9 @@ public partial class CloudPanel : Window
 
     private void StartQrPolling()
     {
-        StopQrPolling();
+        // 只停旧计时器，绝不能走 StopQrPolling：它会把 _qrKey 清空，
+        // 而 OpenQrAsync 是先设 key 再进这里，key 一清轮询就永远短路（扫码因此一直无效）
+        _qrTimer?.Stop();
         _qrTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _qrTimer.Tick += async (_, _) =>
         {
@@ -633,9 +636,9 @@ public partial class CloudPanel : Window
                         break;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 网络抖动，等下一轮
+                Log.Debug("[Cloud] 扫码轮询异常：" + ex.Message); // 网络抖动，等下一轮
             }
             finally
             {
