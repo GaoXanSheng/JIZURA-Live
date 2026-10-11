@@ -603,7 +603,7 @@ public static class P11LayoutsA
     {
         try
         {
-            var f = JText.FaceFont(font, 100); // 缓存实例，禁 Dispose
+            var f = JText.FaceFontFor(font, ch, 100); // 缓存实例，禁 Dispose；缺字时换能画它的脸，ink box 不按 .notdef 方块量
             var cp = ch.Length > 0 ? char.ConvertToUtf32(ch, 0) : 0;
             var gid = f.GetGlyph(cp);
             using var path = f.GetGlyphPath(gid);

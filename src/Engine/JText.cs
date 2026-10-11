@@ -709,6 +709,8 @@ public static class JText
         // 太さ（統一感）：歌词在可变字体（Noto Sans / Serif JP）上从细长长到粗
         var wg = env.Cut is { WeightGrow: true } && !Truthy(it["noWeight"]) ? WeightNow(env) : 0;
         var fontCss = wg > 0 ? VarFontCss(fontKey, size, wg) : JFonts.FontCss(fontKey, size);
+        // 主脸只定基线/度量；字形循环里逐字 FaceFontFor——缺字各自兜底（主脸可能是缺汉字的韩文/拉丁脸，
+        // 整串换脸只保证第一个缺字，二级缺字照样 .notdef；逐字对齐浏览器 CSS 字体栈的 per-glyph fallback）
         var font = FaceFont(fontKey, size, wg); // 缓存实例，禁 Dispose
         font.GetFontMetrics(out var fm);
         var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // Canvas textBaseline='middle' 的基线偏移
@@ -786,6 +788,8 @@ public static class JText
             var a = baseAlpha * (c?.A ?? 1);
             if (a <= 0.002) continue;
             var ch = c?.Ch ?? g.Ch;
+            // 逐字取脸：主脸缺这个字时换一张能画的（CoverFace 沿气质栈找到含该字的第一个脸）
+            var gFont = FaceFontFor(fontKey, ch, size, wg); // 缓存实例，禁 Dispose
             var cs = (c?.S ?? 1) * (g.Fs != 0 ? g.Fs : 1);
             var gx = g.X * sx + g.Vx * sx + (c?.Dx ?? 0);
             var gy = g.Y * sy + g.Vy * sy + (c?.Dy ?? 0);
@@ -863,14 +867,14 @@ public static class JText
                     paint.Color = extCol.WithAlpha((byte)Math.Round(
                         J.Clamp(a * ea * (fade ? 1 - (k2 - 1) / (double)extN * 0.85 : 1)) * 255));
                     ctx.DrawText(ch, (float)(Num(ext, "dx") * k2 / extN / csx), (float)(yMid + Num(ext, "dy") * k2 / extN / csy),
-                        SKTextAlign.Center, font, paint);
+                        SKTextAlign.Center, gFont, paint);
                 }
             }
             if (fill && !outlineOnly && fillA > 0.002 && dash == null)
             {
                 paint.Shader = gradShader;
                 paint.Color = CssColor(gcol, a * fillA); // shader 乘色用 alpha（Canvas: fillStyle=pattern + globalAlpha）
-                ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, font, paint);
+                ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, gFont, paint);
                 paint.Shader = null;
             }
             if (stroke > 0 || outlineOnly || dash != null)
@@ -890,14 +894,14 @@ public static class JText
                     paint.PathEffect = SKPathEffect.CreateDash(new[] { (float)Math.Max(0.01, L * dash.Value), (float)L }, 0);
                 }
                 else if (strokeDashArr != null) paint.PathEffect = SKPathEffect.CreateDash(strokeDashArr, 0);
-                ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, font, paint);
+                ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, gFont, paint);
                 paint.PathEffect?.Dispose();
                 paint.PathEffect = null;
                 if (fill && !outlineOnly && (Truthy(it["strokeUnder"]) || (dash != null && fillA > 0.002)))
                 {
                     paint.Shader = gradShader;
                     paint.Color = CssColor(gcol, a * (dash != null ? fillA : 1));
-                    ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, font, paint);
+                    ctx.DrawText(ch, 0, yMid, SKTextAlign.Center, gFont, paint);
                     paint.Shader = null;
                 }
                 paint.ImageFilter = withShadow;

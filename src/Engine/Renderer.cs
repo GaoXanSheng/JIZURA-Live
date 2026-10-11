@@ -803,7 +803,9 @@ public sealed class Renderer : IDisposable
             void Put(JText.GlyphLogEntry g, string col, double alpha, double blur)
             {
                 if (alpha <= 0.01) return;
-                var font = JText.FaceFont(g.FontKey ?? "", g.Px); // 缓存实例，禁 Dispose
+                var font = string.IsNullOrEmpty(g.Ch)
+                    ? JText.FaceFont(g.FontKey ?? "", g.Px) // 缓存实例，禁 Dispose
+                    : JText.FaceFontFor(g.FontKey ?? "", g.Ch, g.Px); // morph 单字形：逐字兜底防方块
                 font.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // textBaseline='middle'
                 using var p = new SKPaint { IsAntialias = true };

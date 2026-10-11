@@ -352,7 +352,7 @@ public sealed class SubtitleLayer
                 var cx = x;
                 for (var i = s; i < e; i++)
                 {
-                    ctx.DrawText(cps[i], (float)cx, (float)y, SKTextAlign.Left, font, strokeP);
+                    ctx.DrawText(cps[i], (float)cx, (float)y, SKTextAlign.Left, GlyphFont(font, cps[i], fontPx, _cfg.Font), strokeP);
                     cx += cpW[i];
                 }
             }
@@ -360,18 +360,26 @@ public sealed class SubtitleLayer
             var fx = x;
             for (var i = s; i < e; i++)
             {
-                ctx.DrawText(cps[i], (float)fx, (float)y, SKTextAlign.Left, font, fillP);
+                ctx.DrawText(cps[i], (float)fx, (float)y, SKTextAlign.Left, GlyphFont(font, cps[i], fontPx, _cfg.Font), fillP);
                 fx += cpW[i];
             }
 
             y += lh;
         }
 
-        // 注音行：单色整行（描边 + 填充，居中，TS strokeText/fillText 同序）
-        foreach (var (text, _) in subRows)
+        // 注音行：单色整行（描边 + 填充，居中，TS strokeText/fillText 同序）；
+        // 逐字取脸（主脸缺字时换脸），起点按主脸量出的行宽居中、推进也用主脸宽，与 Wrap 结果对齐
+        foreach (var (text, width) in subRows)
         {
-            if (strokePx > 0) ctx.DrawText(text, (float)centerX, (float)y, SKTextAlign.Center, font, strokeP);
-            ctx.DrawText(text, (float)centerX, (float)y, SKTextAlign.Center, font, fillP);
+            var x0 = centerX - width / 2;
+            foreach (var cp in CodePoints(text))
+            {
+                var gf = GlyphFont(font, cp, fontPx, _cfg.Font);
+                if (strokePx > 0) ctx.DrawText(cp, (float)x0, (float)y, SKTextAlign.Left, gf, strokeP);
+                ctx.DrawText(cp, (float)x0, (float)y, SKTextAlign.Left, gf, fillP);
+                x0 += font.MeasureText(cp);
+            }
+
             y += lh;
         }
 
@@ -513,6 +521,28 @@ public sealed class SubtitleLayer
         if (FontJobs.Count > 256) ClearFontJobs(); // 容量护栏（同 JText.FaceFont 模式）
         FontJobs[key] = f;
         return f;
+    }
+
+    /// <summary>逐字取脸：字幕主脸缺这个字时（如韩文主脸渲染简体汉字）问 JFonts 要一张能画的
+    /// （气质栈/系统逐字匹配）；kind 映射与 SubFont 一致。缓存复用同一张 FontJobs 表（\u0002 前缀区分）。</summary>
+    private static SKFont GlyphFont(SKFont baseFont, string ch, double px, string kind)
+    {
+        if (ch.Length == 0) return baseFont;
+        var cp = char.ConvertToUtf32(ch, 0);
+        if (baseFont.Typeface.ContainsGlyph(cp)) return baseFont;
+        var tf = JFonts.CoverFace(baseFont.Typeface, cp, 700, kind == "serif" ? "mincho" : "gothic");
+        if (ReferenceEquals(tf, baseFont.Typeface)) return baseFont;
+        var key = string.Create(CultureInfo.InvariantCulture,
+            $"\u0002{tf.FamilyName}\u0001{(int)tf.FontStyle.Weight}\u0001{px.ToString("R", CultureInfo.InvariantCulture)}");
+        if (FontJobs[key] is SKFont hit) return hit;
+        var nf = new SKFont(tf, (float)px)
+        {
+            Edging = SKFontEdging.Antialias,
+            Subpixel = true
+        };
+        if (FontJobs.Count > 256) ClearFontJobs();
+        FontJobs[key] = nf;
+        return nf;
     }
 
     /// <summary>清空并释放字体缓存：SKFont 是原生对象，光 Clear 会让句柄攒到 GC 终结器才还

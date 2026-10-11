@@ -400,14 +400,15 @@ public static class P11LayoutsB
         using (var canvas = new SKCanvas(bmp))
         {
             canvas.Clear(SKColors.Transparent);
-            var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose
+            var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose；基线用主脸度量
             f.GetFontMetrics(out var fm);
             var yMid = (-fm.Ascent - fm.Descent) / 2; // Canvas textBaseline='middle' 对位
             using var p = new SKPaint { IsAntialias = true, Color = SKColors.White };
             foreach (var g in lay.Cells)
             {
                 if (g.Ch is " " or "　") continue;
-                canvas.DrawText(g.Ch, (float)(cw / 2.0 + g.X), (float)(chh / 2.0 + g.Y + yMid), SKTextAlign.Center, f, p);
+                var gf = JText.FaceFontFor(font, g.Ch, fpx); // 逐字兜底：缺字各自换脸，采样模板不丢字
+                canvas.DrawText(g.Ch, (float)(cw / 2.0 + g.X), (float)(chh / 2.0 + g.Y + yMid), SKTextAlign.Center, gf, p);
             }
         }
         var lit = new List<int>();

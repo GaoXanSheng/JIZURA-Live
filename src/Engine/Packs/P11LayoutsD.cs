@@ -6325,7 +6325,7 @@ public static class P11LayoutsD
             using (var x = new SKCanvas(bmp))
             {
                 x.Clear(SKColors.Transparent);
-                var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose
+                var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose；基线用主脸度量
                 f.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
                 using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White };
@@ -6339,8 +6339,9 @@ public static class P11LayoutsD
                     if (g.Ch is " " or "　") continue;
                     var px = cw / 2f + (float)g.X;
                     var py = chh / 2f + (float)g.Y + yMid;
-                    x.DrawText(g.Ch, px, py, SKTextAlign.Center, f, fill);
-                    x.DrawText(g.Ch, px, py, SKTextAlign.Center, f, stroke);
+                    var gf = JText.FaceFontFor(font, g.Ch, fpx); // 逐字兜底：缺字各自换脸，采样模板不丢字
+                    x.DrawText(g.Ch, px, py, SKTextAlign.Center, gf, fill);
+                    x.DrawText(g.Ch, px, py, SKTextAlign.Center, gf, stroke);
                 }
             }
             var lit = new List<int>();
@@ -6617,7 +6618,7 @@ public static class P11LayoutsD
             var ph = (env.Ltb * D(Pm, "speed") % 1 + 1) % 1;
             var grow = J.E.OutCubic(J.Clamp(lt / 0.9));
             var fontKey = S(Pm, "fb")!;
-            var skf = JText.FaceFont(fontKey, bs); // 缓存实例，禁 Dispose
+            var skf = JText.FaceFontFor(fontKey, big, bs); // 缓存实例，禁 Dispose；单字逐字兜底
             skf.GetFontMetrics(out var fm);
             var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
             var yy = (float)by + yMid;
@@ -6706,14 +6707,15 @@ public static class P11LayoutsD
             using (var x = new SKCanvas(bmp))
             {
                 x.Clear(SKColors.Transparent);
-                var f = JText.FaceFont(font, S); // 缓存实例，禁 Dispose
+                var f = JText.FaceFont(font, S); // 缓存实例，禁 Dispose；基线用主脸度量
                 f.GetFontMetrics(out var fm);
                 var yMid = (float)((-fm.Ascent - fm.Descent) / 2);
                 using var fill = new SKPaint { IsAntialias = true, Color = SKColors.White };
                 foreach (var g in lay.Cells)
                 {
                     if (g.Ch is " " or "　") continue;
-                    x.DrawText(g.Ch, cw / 2f + (float)g.X, ch / 2f + (float)g.Y + yMid, SKTextAlign.Center, f, fill);
+                    var gf = JText.FaceFontFor(font, g.Ch, S); // 逐字兜底：缺字各自换脸，覆盖采样不丢字
+                    x.DrawText(g.Ch, cw / 2f + (float)g.X, ch / 2f + (float)g.Y + yMid, SKTextAlign.Center, gf, fill);
                 }
             }
             var a = new byte[cw * ch];
