@@ -130,7 +130,7 @@ public sealed partial class KuGouClient
     {
         if (string.IsNullOrWhiteSpace(kw)) return new KgSearchResponse { Ok = false, Error = "缺少关键词" };
         var d = await GetJsonAsync(
-            $"http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={Uri.EscapeDataString(kw)}&page={page}&pagesize=20");
+            $"https://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={Uri.EscapeDataString(kw)}&page={page}&pagesize=20");
         var r = new KgSearchResponse { Ok = true };
         foreach (var it in d["data"]?["info"] as JArray ?? new JArray())
             r.List.Add(new KgSong
@@ -183,12 +183,12 @@ public sealed partial class KuGouClient
         var free = PickUrl(await V5UrlAsync(hash, albumId, albumAudioId, quality, 0, "", 0));
         if (free != null)
             return new KgUrlResponse
-                { Ok = true, Url = free.Url, Ext = free.Ext, Trial = false, Logged = false, Quality = "128" };
+                { Ok = true, Url = free.Url, Ext = free.Ext, Trial = false, Logged = false, Quality = quality.ToString() };
 
         try
         {
             var d = await GetJsonAsync(
-                $"http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={Uri.EscapeDataString(hash)}");
+                $"https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash={Uri.EscapeDataString(hash)}");
             var u = d.Value<string>("url") ?? "";
             if (u.Length > 0)
                 return new KgUrlResponse

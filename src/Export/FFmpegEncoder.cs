@@ -54,7 +54,17 @@ public sealed class FFmpegEncoder : IDisposable
     /// <summary>写一帧（宽×高×4 字节，BGRA 或 RGBA，顺序与 ffmpeg 参数一致）。</summary>
     public void WriteFrame(ReadOnlySpan<byte> pixels)
     {
-        _stdin.Write(pixels);
+        try
+        {
+            _stdin.Write(pixels);
+        }
+        catch (IOException)
+        {
+            // ffmpeg 提前退出（参数错/编码器起不来）：真实原因在 stderr 异步收集里，等它落地再抛，
+            // 否则只报裸「管道已关闭」，排障全靠猜
+            Thread.Sleep(300);
+            throw new InvalidOperationException(L.F("Export.Err.FFmpegExitFmt", -1, StderrTail()));
+        }
         _framesWritten++;
     }
 

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using JizuraLive.App; // EngineRenderGate：字体重扫的 Dispose 必须与渲染串行（JFontFetch/JText 同款引用）
 using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -448,8 +449,13 @@ public static class JFonts
     /// <summary>扫描字体目录（幂等；目录内容变了才重建索引）。启动与字体落盘后自动跑。</summary>
     public static void ScanFontDirs(bool force = false)
     {
-        lock (DirLock)
+        // 重建会 Dispose 渲染线程可能正持着的旧 SKTypeface（FontJobs/ResolveCache 缓存的是同一批
+        // 引用）：必须先过渲染闸再拿 DirLock——锁序与渲染路径（gate→DirLock）一致，反序 ABBA 死锁。
+        // 渲染热路径调用时已在闸内，Monitor 可重入。
+        lock (EngineRenderGate.Lock)
         {
+            lock (DirLock)
+            {
             if (_dirScanned && !force && (DateTime.UtcNow - _dirScannedAt).TotalSeconds < 5) return;
             _dirScannedAt = DateTime.UtcNow;
             _dirScanned = true;
@@ -513,9 +519,10 @@ public static class JFonts
             _dirFingerprint = fp.ToString();
             Log.Info($"[字体目录] {DirFaces.Count} 个族 / {n} 张脸 / {files.Count} 个文件（" +
                      string.Join("、", FontDirs().Where(Directory.Exists).Select(Path.GetFileName)) + "）");
+            }
+            // 目录内容变了（新字体落盘/用户投字体）：字形与解析缓存全清（首次扫描时无缓存可清）
+            InvalidateResolveCache();
         }
-        // 目录内容变了（新字体落盘/用户投字体）：字形与解析缓存全清（首次扫描时无缓存可清）
-        InvalidateResolveCache();
     }
 
     /// <summary>族名归一（大小写与空格无关：字体的 FamilyName 与目录项写法常不一致）。</summary>
@@ -782,6 +789,7 @@ public static class JFonts
     {
         lock (ResolveLock) ResolveCache.Clear();
         lock (CoverLock) CoverCache.Clear();
+        _lastResort = null; // 兜底脸可能来自目录（rescan 后已 Dispose），悬空引用必须重建
         JLang.Glyphs?.Clear();
         JLang.Metrics?.Clear();
         JText.OnFontsChanged();

@@ -18,6 +18,7 @@ public static class P11Kline
 
     // 蜡烛数据缓存：JS WeakMap 语义（按 plan 实例弱引用缓存，预览/导出不同实例互不踩）
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Plan, CandleData> Cache = new();
+    private static SKTypeface? _cursorFace; // 游标时间文本的 Consolas（渲染单线程，静态缓存即可）
 
     private sealed class Candle
     {
@@ -333,13 +334,11 @@ public static class P11Kline
 
         ctx.Save();
         ctx.ClipRect(SKRect.Create(chartX, volY, chartW, volH));
-        foreach (var c in candles)
+        for (var i = startIdxInt; i <= Math.Min(candles.Length - 1, startIdxInt + visibleCandles + 1); i++)
         {
-            var i = Array.IndexOf(candles, c);
-            if (i < startIdxInt || i > startIdxInt + visibleCandles + 1) continue;
             var cx = (float)(chartX + (i - startIdxInt) * candleWidth - offsetX);
-            var color = CandleColor(c);
-            var vH = (float)Math.Max(1, c.Volume / maxVol * volH);
+            var color = CandleColor(candles[i]);
+            var vH = (float)Math.Max(1, candles[i].Volume / maxVol * volH);
             using var fp = new SKPaint { Color = WithAlpha(color, 140) };
             ctx.DrawRect(cx + (float)candleSpacing / 2, volY + volH - vH, (float)candleBodyWidth, vH, fp);
         }
@@ -361,7 +360,9 @@ public static class P11Kline
             glow.StrokeWidth = 2;
             ctx.DrawLine(cursorX, chartY, cursorX, volY + volH, glow);
 
-            using var font = new SKFont(SKTypeface.FromFamilyName("Consolas"), Math.Max(8, (int)Math.Round(timeH * 0.52)));
+            // Consolas 游标字体每帧新建会把 SKTypeface 灌进 finalizer 队列：提为缓存
+            _cursorFace ??= SKTypeface.FromFamilyName("Consolas");
+            using var font = new SKFont(_cursorFace, Math.Max(8, (int)Math.Round(timeH * 0.52)));
             using var fp = new SKPaint { Color = SKColor.Parse("#00e5ff"), IsAntialias = true };
             ctx.DrawText(J.FmtTime(t),
                 (float)Math.Min(chartX + chartW - 40, Math.Max(chartX + 40, cursorX)), volY + volH + gap,

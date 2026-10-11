@@ -41,7 +41,7 @@ public sealed class Rng
         foreach (var it in list) tot += it.W;
         var x = Next() * tot;
         foreach (var it in list)
-            if ((x -= it.W) <= 0)
+            if ((x -= it.W) < 0) // 严格小于：权重和为 0 时不中途命中，落到末尾的「取最后」分支
                 return it.V;
         return list[^1].V;
     }

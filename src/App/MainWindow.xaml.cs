@@ -1033,9 +1033,20 @@ public partial class MainWindow : Window
         Follow.Stop(); // 跟随循环与引擎时钟归位（FollowEnd 冻结时间轴）
         _hIcon16?.Dispose();
         _hIcon32?.Dispose();
-        // 先停后台渲染泵再释放：渲染线程还持着面/锁
+        // 先停后台渲染泵再释放：渲染线程还持着面/锁。冷缓存帧实测 0.7–1.8s/帧且持引擎闸，
+        // 固定 800ms 会超时后照常 Dispose 在途帧用的资源。给足 3s；仍不退出就记日志后照常释放
+        // （窗口已关，进程随即退出，残留句柄无害；卡着硬 Dispose 才有原生崩溃风险）。
         _renderRunning = false;
-        try { _renderThread?.Join(800); } catch { /* 线程已退出 */ }
+        if (_renderThread != null && _renderThread.IsAlive)
+        {
+            var waited = 0;
+            while (_renderThread.IsAlive && waited < 3000)
+            {
+                try { _renderThread.Join(100); } catch { /* 线程已退出 */ }
+                waited += 100;
+            }
+            if (_renderThread.IsAlive) Log.Warn("[Main] 渲染泵 3s 未退出，带活线程释放（进程即将退出）");
+        }
         _uiProbe.Stop();
         // 停泵释放：发送端、D3D 纹理/设备；渲染器先于 Skia 面释放（缓存快照引用着面）
         _spout.Preview = null;

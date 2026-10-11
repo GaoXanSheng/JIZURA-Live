@@ -153,7 +153,7 @@ public static class FontFetch
 
             try
             {
-                JFonts.ScanFontDirs(force: true); // 新文件进索引（自身加锁，可与渲染并发）
+                JFonts.ScanFontDirs(force: true); // 新文件进索引；内部自带渲染闸（重建 Dispose 旧脸必须与 Frame 串行）
                 lock (EngineRenderGate.Lock) // 字形/SKFont 是共享静态缓存：清缓存必须与渲染/导出串行
                 {
                     JFonts.InvalidateResolveCache();

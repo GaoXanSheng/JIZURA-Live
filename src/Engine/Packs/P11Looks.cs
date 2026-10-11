@@ -1584,7 +1584,7 @@ public static class P11Looks
         }),
     });
 
-    private static readonly Dictionary<string, SKBitmap> HtCache = new();
+    [ThreadStatic] private static Dictionary<string, SKBitmap>? _htCache; // 渲染缓存随线程走（约定同 _haloA/B）：满额逐出时 Dispose 的位图不能是别的线程 DrawBitmap 中的
 
     private static void RegisterBgHalftoneFade() => RegBg("halftoneFade", new BgDef
     {
@@ -1608,12 +1608,13 @@ public static class P11Looks
             var q = Math.Min(1, env.Scale != 0 ? env.Scale : 1);
             var key = string.Create(CultureInfo.InvariantCulture,
                 $"{D(p, "seed"):0}|{w}|{h}|{q:0.###}|{col}|{D(p, "dir"):0}|{D(p, "cell"):0.######}");
-            if (!HtCache.TryGetValue(key, out var cv))
+            var ht = _htCache ??= new Dictionary<string, SKBitmap>();
+            if (!ht.TryGetValue(key, out var cv))
             {
-                if (HtCache.Count > 2)
+                if (ht.Count > 2)
                 {
-                    foreach (var kv in HtCache) kv.Value.Dispose();
-                    HtCache.Clear();
+                    foreach (var kv in ht) kv.Value.Dispose();
+                    ht.Clear();
                 }
                 var wc = w + cell * 2;
                 var hc = h + cell * 2;
@@ -1640,7 +1641,7 @@ public static class P11Looks
                         }
                     x.DrawPath(path, pt);
                 }
-                HtCache[key] = cv;
+                ht[key] = cv;
             }
             using (var pt = ImgPaint(J.E.OutCubic(J.Clamp(BgT(env) / 0.5))))
                 env.Ctx.DrawBitmap(cv, new SKRect((float)(-cell * 2 + WrapV(env.T * cell * 0.35, cell)), (float)-cell,

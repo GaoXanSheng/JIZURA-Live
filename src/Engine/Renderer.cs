@@ -1057,7 +1057,7 @@ public sealed class Renderer : IDisposable
             var fx = plan.Fx;
             var st = plan.Style;
             var active = new List<PlanEvent>();
-            var evWin = 1.0 / plan.Fps;
+            var evWin = 1.0 / (plan.Fps > 0 ? plan.Fps : 24); // 守卫同 L1075 的 clock24：异常工程 Fps 不得污染事件窗口
             foreach (var ev in plan.Events)
                 if (t >= ev.T && t < ev.T + Math.Max(ev.Dur, evWin))
                     active.Add(ev);

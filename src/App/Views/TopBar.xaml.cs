@@ -83,7 +83,7 @@ public partial class TopBar : UserControl
         }
     }
 
-    private void BtnSave_Click(object sender, RoutedEventArgs e)
+    private async void BtnSave_Click(object sender, RoutedEventArgs e)
     {
         var main = App.MainInstance!;
         var dlg = new SaveFileDialog
@@ -92,33 +92,47 @@ public partial class TopBar : UserControl
             FileName = (string.IsNullOrWhiteSpace(main.State.Project.Title) ? "untitled" : main.State.Project.Title) + ".jizuralive"
         };
         if (dlg.ShowDialog(Window.GetWindow(this)!) != true) return;
+        BtnSave.IsEnabled = false;
         try
         {
-            byte[]? audio = null;
-            string? audioName = null;
+            // 快照在 UI 线程取（活对象不能与编辑/重规划并发序列化）；音频读取与压缩/自校验/写盘进后台，
+            // 大工程不再冻结整窗
             var resolvedAudioPath = EditorState.ResolveAudioPath(main.State.AudioPath, main.State.AudioFileName);
-            if (resolvedAudioPath != null && File.Exists(resolvedAudioPath))
+            var audioName = resolvedAudioPath != null && File.Exists(resolvedAudioPath)
+                ? main.State.AudioFileName ?? Path.GetFileName(resolvedAudioPath)
+                : null;
+            var json = ProjectIO.SerializeProject(main.State.Project);
+            var audio = resolvedAudioPath != null && File.Exists(resolvedAudioPath)
+                ? await Task.Run(() => File.ReadAllBytes(resolvedAudioPath))
+                : null;
+            await Task.Run(() =>
             {
-                audio = File.ReadAllBytes(resolvedAudioPath);
-                audioName = main.State.AudioFileName ?? Path.GetFileName(resolvedAudioPath);
-            }
-            ProjectIO.Save(main.State.Project, dlg.FileName, audio, audioName);
+                if (dlg.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                    AtomicFile.Write(dlg.FileName, json); // 手输 .json 扩展名：纯 JSON 存档（老 Save 的同口径）
+                else
+                    ProjectIO.SaveSnapshot(json, dlg.FileName, audio, audioName);
+            });
             Log.Info("[TopBar] 工程已保存：" + dlg.FileName);
         }
         catch (Exception ex)
         {
-            // 包保存失败：兜底存 .json（Save 按 .json 后缀走纯 JSON），防止丢失工程数据；兜底也失败则只告警
+            // 包保存失败：兜底存 .json（纯 JSON 快照），防止丢失工程数据；兜底也失败则只告警
             Log.Error("[TopBar] 工程保存失败，尝试 .json 兜底：" + dlg.FileName, ex);
             try
             {
                 var fallback = Path.ChangeExtension(dlg.FileName, ".json");
-                ProjectIO.Save(main.State.Project, fallback, null, null);
+                var json = ProjectIO.SerializeProject(main.State.Project);
+                await Task.Run(() => AtomicFile.Write(fallback, json));
                 MessageDialog.Info(Window.GetWindow(this)!, L.T("TopBar.SaveFallback.Title"), L.F("TopBar.SaveFallback.Body", fallback));
             }
             catch (Exception ex2)
             {
                 MessageDialog.Warn(Window.GetWindow(this)!, L.T("TopBar.SaveFailed"), ex2.Message);
             }
+        }
+        finally
+        {
+            BtnSave.IsEnabled = true;
         }
     }
 

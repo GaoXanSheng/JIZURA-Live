@@ -21,53 +21,62 @@ public static class AudioPrep
     /// 返回 48k 立体声 f32 provider；音频缺失/解码失败返回 null（导出走无音轨）。
     /// startT = 选段起点（秒）；speed = project.audioFx.speed（1 = 原速）。
     /// </summary>
-    public static ISampleProvider? Prepare(string audioPath, JObject? audioFx,
+    public static PreparedAudio? Prepare(string audioPath, JObject? audioFx,
         double durationSec, double startT = 0, double speed = 1)
     {
         if (!File.Exists(audioPath)) return null;
 
         var reader = new MediaFoundationReader(audioPath);
-        ISampleProvider src = reader.ToSampleProvider();
-
-        // 先定位再重采样（对位预览 BuildChain 的规矩：解码器重定位以文件时间为准）
-        if (startT > 0)
+        ISampleProvider src;
+        try
         {
-            try
+            src = reader.ToSampleProvider();
+
+            // 先定位再重采样（对位预览 BuildChain 的规矩：解码器重定位以文件时间为准）
+            if (startT > 0)
             {
-                reader.Position = (long)(Math.Clamp(startT, 0, reader.TotalTime.TotalSeconds)
-                                         * reader.WaveFormat.AverageBytesPerSecond);
+                try
+                {
+                    reader.Position = (long)(Math.Clamp(startT, 0, reader.TotalTime.TotalSeconds)
+                                             * reader.WaveFormat.AverageBytesPerSecond);
+                }
+                catch
+                {
+                    // 定位失败：从头导出（比整段静音更有用）
+                }
             }
-            catch
+
+            // 声道归一：mono → 双声道复制；>2 声道取前两轨（对位预览链路）
+            if (src.WaveFormat.Channels == 1)
+                src = new MonoToStereoSampleProvider(src);
+            else if (src.WaveFormat.Channels > 2)
+                src = new FirstTwoChannelsProvider(src);
+
+            if (src.WaveFormat.SampleRate != SampleRate)
+                src = new WdlResamplingSampleProvider(src, SampleRate);
+
+            // 音频特效链（units 全关时 Build 返回 null → 直通）；anchor 用选段起点，
+            // 与预览在同一歌曲时刻的 LFO/相位对齐
+            var graph = AudioFx.Build(audioFx,
+                new FxBuildOpts { SampleRate = SampleRate, AnchorT = startT });
+            if (graph != null)
             {
-                // 定位失败：从头导出（比整段静音更有用）
+                graph.Input.Source = src;
+                src = graph.Output;
             }
+
+            // 变速（对位 resample() 里 src.playbackRate = speed）：时长 ÷speed、音调同升
+            if (Math.Abs(speed - 1) > 1e-6)
+                src = new SpeedSampleProvider(src, speed);
+
+            // 时长钳制：写满输出时长（超出截断、不足补静音）
+            return new PreparedAudio(reader, new DurationPadProvider(src, durationSec));
         }
-
-        // 声道归一：mono → 双声道复制；>2 声道取前两轨（对位预览链路）
-        if (src.WaveFormat.Channels == 1)
-            src = new MonoToStereoSampleProvider(src);
-        else if (src.WaveFormat.Channels > 2)
-            src = new FirstTwoChannelsProvider(src);
-
-        if (src.WaveFormat.SampleRate != SampleRate)
-            src = new WdlResamplingSampleProvider(src, SampleRate);
-
-        // 音频特效链（units 全关时 Build 返回 null → 直通）；anchor 用选段起点，
-        // 与预览在同一歌曲时刻的 LFO/相位对齐
-        var graph = AudioFx.Build(audioFx,
-            new FxBuildOpts { SampleRate = SampleRate, AnchorT = startT });
-        if (graph != null)
+        catch
         {
-            graph.Input.Source = src;
-            src = graph.Output;
+            reader.Dispose(); // 链路构建半途抛出：COM 源读取器不能靠终结器等 GC
+            throw;
         }
-
-        // 变速（对位 resample() 里 src.playbackRate = speed）：时长 ÷speed、音调同升
-        if (Math.Abs(speed - 1) > 1e-6)
-            src = new SpeedSampleProvider(src, speed);
-
-        // 时长钳制：写满输出时长（超出截断、不足补静音）
-        return new DurationPadProvider(src, durationSec);
     }
 
     /// <summary>多声道取前两轨（对位预览的「取前 2」语义）。</summary>
@@ -139,7 +148,7 @@ public static class AudioPrep
 /// <summary>32-bit float WAV 写出（IEEE float，对位 10_audio.js 的 audioWav；导出侧与 MP4 音轨共用同一份采样）。</summary>
 public static class WavWriter
 {
-    public static void Write(ISampleProvider src, string path, double durationSec)
+    public static void Write(ISampleProvider src, string path, double durationSec, CancellationToken ct = default)
     {
         var format = WaveFormat.CreateIeeeFloatWaveFormat(src.WaveFormat.SampleRate, src.WaveFormat.Channels);
         using var w = new WaveFileWriter(path, format);
@@ -148,6 +157,7 @@ public static class WavWriter
         var done = 0L;
         while (done < frames)
         {
+            ct.ThrowIfCancellationRequested(); // 解码/写盘段不可中断，按块粒度协作取消
             var want = (int)Math.Min(buf.Length, (frames - done) * format.Channels);
             var got = src.Read(buf.AsSpan(0, want));
             if (got <= 0) break;
@@ -164,4 +174,24 @@ public static class WavWriter
     }
 
     private static int SampleRateChunk(WaveFormat f) => Math.Max(1, f.SampleRate / 10) * f.Channels;
+}
+
+/// <summary>Prepare 的返回包装：把链头的 MediaFoundationReader 挂在结果上随用随释放（调用方 using）。
+/// 不挂的话 COM 源读取器要等终结器才回收，导出完立刻移动/删除源音频会报「正在使用」。</summary>
+public sealed class PreparedAudio : ISampleProvider, IDisposable
+{
+    private readonly MediaFoundationReader _reader;
+    private readonly ISampleProvider _src;
+
+    internal PreparedAudio(MediaFoundationReader reader, ISampleProvider src)
+    {
+        _reader = reader;
+        _src = src;
+    }
+
+    public WaveFormat WaveFormat => _src.WaveFormat;
+
+    public int Read(Span<float> buffer) => _src.Read(buffer);
+
+    public void Dispose() => _reader.Dispose();
 }

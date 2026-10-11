@@ -37,12 +37,13 @@ public static class ProjectIO
     /// </summary>
     private static readonly JsonSerializer ProjectSerializer =
         new() { ContractResolver = new CamelCasePropertyNamesContractResolver() };
+    private static readonly object _serializerLock = new(); // JsonSerializer 非线程安全：autosave 定时器线程与保存并发用
 
     /// <summary>工程 → 紧凑 camelCase JSON（= JSON.stringify）。</summary>
     public static string SerializeProject(Project p)
     {
         var sw = new StringWriter();
-        ProjectSerializer.Serialize(sw, p);
+        lock (_serializerLock) ProjectSerializer.Serialize(sw, p);
         return sw.ToString();
     }
 
@@ -404,9 +405,19 @@ public static class ProjectIO
     public static void SavePackage(Project p, string path, byte[]? audioFile, string? audioName)
     {
         // project.json：全字段 + {app:'jizura-live', appVersion}（pkg.ts buildProjectPackage 同款，camelCase）
-        var proj = p == null
-            ? new JObject()
-            : JObject.FromObject(p, ProjectSerializer);
+        JObject proj;
+        if (p == null) proj = new JObject();
+        else lock (_serializerLock) proj = JObject.FromObject(p, ProjectSerializer);
+        SavePackageJson(proj, path, audioFile, audioName);
+    }
+
+    /// <summary>后台保存入口：调用方先在 UI 线程 SerializeProject 快照（活对象不能与编辑/重规划
+    /// 并发序列化），这里只做压缩/自校验/落盘。输出与 SavePackage 逐字节同口径。</summary>
+    public static void SaveSnapshot(string projectJson, string path, byte[]? audioFile, string? audioName)
+        => SavePackageJson(JObject.Parse(projectJson), path, audioFile, audioName);
+
+    private static void SavePackageJson(JObject proj, string path, byte[]? audioFile, string? audioName)
+    {
         proj["app"] = "jizura-live";
         proj["appVersion"] = typeof(ProjectIO).Assembly.GetName().Version?.ToString(3) ?? "";
         var projBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(proj)); // 紧凑输出 = JSON.stringify

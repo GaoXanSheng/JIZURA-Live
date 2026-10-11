@@ -215,7 +215,21 @@ public sealed class SpoutOut : IDisposable
         var pump = _pump;
         _pump = null;
         if (pump != null && pump.IsAlive && pump != Thread.CurrentThread)
-            pump.Join(500);
+        {
+            var waited = 0; // 单帧冷渲染实测可达 0.7–1.8s：分步等待给足退出窗口
+            while (pump.IsAlive && waited < 2000)
+            {
+                pump.Join(100);
+                waited += 100;
+            }
+            if (pump.IsAlive)
+            {
+                // 泵还卡着就 Cleanup = 销毁它正在用的原生资源（最坏原生崩溃）。宁可漏掉这组
+                // Channel 等进程退出回收，也不在活线程上 Dispose。
+                Log.Warn("[SpoutOut] 泵线程 2s 未退出：跳过 Cleanup，Channel 留待进程退出回收");
+                return;
+            }
+        }
 
         Cleanup();
         Log.Info("[SpoutOut] 管线已停止");

@@ -46,7 +46,7 @@ public static class ExportJob
                 ExportPng(req, progress, ct);
                 break;
             case "wav":
-                ExportWav(req, progress);
+                ExportWav(req, progress, ct);
                 break;
             case "mp4":
             case "mp4file":
@@ -114,36 +114,43 @@ public static class ExportJob
         var transparent = req.Spec.Transparent;
 
         var (ow, oh, scale) = OutputDims(req.Project, plan);
-        var bmp = new SKBitmap(StageInfo(ow, oh, transparent));
-        var surface = SKSurface.Create(bmp.Info, bmp.GetPixels(), bmp.RowBytes);
         var isCustomDrawOnly = req.Spec.CustomDrawOnly;
         var (subLines, subNotes) = ResolveSubtitleSource(req, plan);
         if (isCustomDrawOnly && subLines is not { Count: > 0 })
             throw new InvalidOperationException(L.T("Export.Err.SubsOnlyNoData"));
 
-        var renderer = isCustomDrawOnly ? null : new Renderer();
-        var opts = isCustomDrawOnly ? null : new RenderOpts { Scale = scale, Transparent = transparent, Layer = req.Spec.Layer, NoHud = req.Spec.NoHud };
-
-        // 音轨：解码 → 从选段起点取 → 特效链 + 变速 → 临时 WAV（与输出同长；ffmpeg 作第二输入混流）
+        // 分配全部进 try：任一步抛出（无字幕数据/解码失败/写 WAV 失败…）都走 finally 清干净，
+        // 不留半成品 surface 与 %TEMP% 里的 jizura-mix-*.wav
+        SKBitmap? bmp = null;
+        SKSurface? surface = null;
+        Renderer? renderer = null;
         string? tmpWav = null;
-        if (req.Spec.EmbedAudio && req.AudioPath != null)
-        {
-            progress?.Report((0, L.T("Export.Stage.PrepareAudio")));
-            var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed);
-            if (ap != null)
-            {
-                tmpWav = Path.Combine(Path.GetTempPath(), $"jizura-mix-{Guid.NewGuid():N}.wav");
-                WavWriter.Write(ap, tmpWav, outDur);
-            }
-        }
-
-        // 字幕：CustomDrawOnly 时画全套（mainLine: true）；BakeSubs 时只画注音/翻译行（mainLine: false，主歌词由引擎画）
-        var subLayer = (isCustomDrawOnly || req.Spec.BakeSubs) && subLines is { Count: > 0 }
-            ? new SubtitleLayer(subLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
-                subNotes, mainLine: isCustomDrawOnly)
-            : null;
         try
         {
+            bmp = new SKBitmap(StageInfo(ow, oh, transparent));
+            surface = SKSurface.Create(bmp.Info, bmp.GetPixels(), bmp.RowBytes);
+            renderer = isCustomDrawOnly ? null : new Renderer();
+            var opts = isCustomDrawOnly ? null : new RenderOpts { Scale = scale, Transparent = transparent, Layer = req.Spec.Layer, NoHud = req.Spec.NoHud };
+
+            // 音轨：解码 → 从选段起点取 → 特效链 + 变速 → 临时 WAV（与输出同长；ffmpeg 作第二输入混流）
+            if (req.Spec.EmbedAudio && req.AudioPath != null)
+            {
+                progress?.Report((0, L.T("Export.Stage.PrepareAudio")));
+                using (var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed))
+                {
+                    if (ap != null)
+                    {
+                        tmpWav = Path.Combine(Path.GetTempPath(), $"jizura-mix-{Guid.NewGuid():N}.wav");
+                        WavWriter.Write(ap, tmpWav, outDur, ct);
+                    }
+                }
+            }
+
+            // 字幕：CustomDrawOnly 时画全套（mainLine: true）；BakeSubs 时只画注音/翻译行（mainLine: false，主歌词由引擎画）
+            var subLayer = (isCustomDrawOnly || req.Spec.BakeSubs) && subLines is { Count: > 0 }
+                ? new SubtitleLayer(subLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
+                    subNotes, mainLine: isCustomDrawOnly)
+                : null;
             using var enc = new FFmpegEncoder(BuildVideoArgs(req, fps, transparent, tmpWav), frames);
             var stride = bmp.RowBytes;
             var pixels = bmp.GetPixels();
@@ -155,7 +162,7 @@ public static class ExportJob
                 var t = t0 + i / (double)fps * speed; // 对位 span.t0 + spd×i/fps（变速时歌曲时间走得快）
                 if (isCustomDrawOnly)
                 {
-                    surface.Canvas.SetMatrix(SKMatrix.Identity);
+                    surface!.Canvas.SetMatrix(SKMatrix.Identity);
                     surface.Canvas.Clear(transparent ? new SKColor(0, 0, 0, 0) : SKColors.Black);
                     subLayer!.Render(surface.Canvas, t, ow, oh);
                 }
@@ -164,11 +171,11 @@ public static class ExportJob
                     if (subLayer != null)
                     {
                         // 先清底层：引擎透明模式不铺满全帧，防上一帧字幕透出（引擎缓存 miss 路径自带全帧覆盖）
-                        surface.Canvas.SetMatrix(SKMatrix.Identity);
+                        surface!.Canvas.SetMatrix(SKMatrix.Identity);
                         surface.Canvas.Clear(transparent ? new SKColor(0, 0, 0, 0) : SKColors.Black);
                     }
                     lock (EngineRenderGate.Lock)
-                        renderer!.Frame(surface.Canvas, plan, t, opts!);
+                        renderer!.Frame(surface!.Canvas, plan, t, opts!);
                     if (subLayer != null)
                     {
                         surface.Canvas.SetMatrix(SKMatrix.Identity); // 字幕按设备像素绘制
@@ -193,8 +200,8 @@ public static class ExportJob
         {
             // 释放顺序：renderer（缓存快照）→ surface → bitmap
             renderer?.Dispose();
-            surface.Dispose();
-            bmp.Dispose();
+            surface?.Dispose();
+            bmp?.Dispose();
             if (tmpWav != null)
                 try { File.Delete(tmpWav); } catch { /* 清理失败不阻塞 */ }
         }
@@ -256,41 +263,48 @@ public static class ExportJob
         var layered = !isCustomDrawOnly && req.Spec.Layers;
 
         using var zip = new PngSequenceWriter(req.OutputPath, layered);
-        // 字幕：CustomDrawOnly 时画全套（mainLine: true）；BakeSubs 时只画注音/翻译行（mainLine: false，主歌词由引擎画）
-        var subLayer = (isCustomDrawOnly || (!layered && req.Spec.BakeSubs)) && subLines is { Count: > 0 }
-            ? new SubtitleLayer(subLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
-                subNotes, mainLine: isCustomDrawOnly)
-            : null;
 
         // 两股流各自常驻一面（back/front 渲染互不污染；单流内保持引擎跨帧语义）
         var (ow, oh, scale) = OutputDims(req.Project, plan);
         var backTransparent = isCustomDrawOnly ? req.Spec.Transparent : (!layered && req.Spec.Transparent);
-        var backBmp = new SKBitmap(StageInfo(ow, oh, transparent: backTransparent));
-        var backSurf = SKSurface.Create(backBmp.Info, backBmp.GetPixels(), backBmp.RowBytes);
-        var backRend = isCustomDrawOnly ? null : new Renderer();
 
+        // 分配全部进 try：字幕层/位图创建中途抛出也走 finally 清干净
+        SubtitleLayer? subLayer = null;
+        SKBitmap? backBmp = null;
+        SKSurface? backSurf = null;
+        Renderer? backRend = null;
         SKBitmap? frontBmp = null;
         SKSurface? frontSurf = null;
         Renderer? frontRend = null;
-        if (layered)
-        {
-            frontBmp = new SKBitmap(StageInfo(ow, oh, transparent: true));
-            frontSurf = SKSurface.Create(frontBmp.Info, frontBmp.GetPixels(), frontBmp.RowBytes);
-            frontRend = new Renderer();
-        }
-
         var swLoop = Stopwatch.StartNew();
         var statAt = Stopwatch.GetTimestamp();
         var statAtFront = Stopwatch.GetTimestamp(); // 分层两面各一套窗口（共用会把前者的窗口吃掉）
         try
         {
+            // 字幕：CustomDrawOnly 时画全套（mainLine: true）；BakeSubs 时只画注音/翻译行（mainLine: false，主歌词由引擎画）
+            subLayer = (isCustomDrawOnly || (!layered && req.Spec.BakeSubs)) && subLines is { Count: > 0 }
+                ? new SubtitleLayer(subLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
+                    subNotes, mainLine: isCustomDrawOnly)
+                : null;
+
+            backBmp = new SKBitmap(StageInfo(ow, oh, transparent: backTransparent));
+            backSurf = SKSurface.Create(backBmp.Info, backBmp.GetPixels(), backBmp.RowBytes);
+            backRend = isCustomDrawOnly ? null : new Renderer();
+
+            if (layered)
+            {
+                frontBmp = new SKBitmap(StageInfo(ow, oh, transparent: true));
+                frontSurf = SKSurface.Create(frontBmp.Info, frontBmp.GetPixels(), frontBmp.RowBytes);
+                frontRend = new Renderer();
+            }
+
             for (var i = 0; i < frames; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 var t = t0 + i / (double)fps * speed; // 与视频同口径（选段起点 + 变速）
                 if (isCustomDrawOnly)
                 {
-                    backSurf.Canvas.SetMatrix(SKMatrix.Identity);
+                    backSurf!.Canvas.SetMatrix(SKMatrix.Identity);
                     backSurf.Canvas.Clear(req.Spec.Transparent ? SKColors.Transparent : SKColors.Black);
                     subLayer!.Render(backSurf.Canvas, t, ow, oh);
                     zip.AddFrame(null, i + 1, backBmp);
@@ -298,7 +312,7 @@ public static class ExportJob
                 else if (layered)
                 {
                     lock (EngineRenderGate.Lock)
-                        backRend!.Frame(backSurf.Canvas, plan, t, new RenderOpts { Scale = scale, Layer = "back", NoHud = true });
+                        backRend!.Frame(backSurf!.Canvas, plan, t, new RenderOpts { Scale = scale, Layer = "back", NoHud = true });
                     zip.AddFrame("back", i + 1, backBmp);
                     lock (EngineRenderGate.Lock)
                         frontRend!.Frame(frontSurf!.Canvas, plan, t,
@@ -308,7 +322,7 @@ public static class ExportJob
                 else
                 {
                     lock (EngineRenderGate.Lock)
-                        backRend!.Frame(backSurf.Canvas, plan, t,
+                        backRend!.Frame(backSurf!.Canvas, plan, t,
                             new RenderOpts { Scale = scale, Transparent = req.Spec.Transparent, NoHud = req.Spec.NoHud });
                     if (subLayer != null)
                     {
@@ -329,11 +343,11 @@ public static class ExportJob
         {
             // 释放顺序：renderer → surface → bitmap
             backRend?.Dispose();
-            backSurf.Dispose();
-            backBmp.Dispose();
-            if (frontRend != null) frontRend.Dispose();
-            if (frontSurf != null) frontSurf.Dispose();
-            if (frontBmp != null) frontBmp.Dispose();
+            backSurf?.Dispose();
+            backBmp?.Dispose();
+            frontRend?.Dispose();
+            frontSurf?.Dispose();
+            frontBmp?.Dispose();
         }
 
         if (!isCustomDrawOnly)
@@ -345,16 +359,16 @@ public static class ExportJob
 
     // ---------------- 音频（WAV） ----------------
 
-    private static void ExportWav(ExportRequest req, IProgress<(double Pct, string Stage)>? progress)
+    private static void ExportWav(ExportRequest req, IProgress<(double Pct, string Stage)>? progress, CancellationToken ct)
     {
         if (req.AudioPath == null || !File.Exists(req.AudioPath))
             throw new InvalidOperationException(L.T("Export.Err.NoAudio"));
 
         progress?.Report((0, L.T("Export.Stage.DecodeAudio")));
         var (t0, _, outDur, speed) = SpanOf(req);
-        var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed)
+        using var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed)
                  ?? throw new InvalidOperationException(L.T("Export.Err.AudioDecodeFailed"));
-        WavWriter.Write(ap, req.OutputPath, outDur);
+        WavWriter.Write(ap, req.OutputPath, outDur, ct);
         progress?.Report((1.0, L.T("Export.Stage.Done")));
     }
 
@@ -366,7 +380,7 @@ public static class ExportJob
         var suffix = Ranges.RangeSuffix(req.Project.ExportRange, req.Plan.Cuts.Count);
         var wavPath = Path.ChangeExtension(req.OutputPath, null) + suffix + "_audio.wav";
         var (t0, _, outDur, speed) = SpanOf(req);
-        var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed);
+        using var ap = AudioPrep.Prepare(req.AudioPath, req.Project.AudioFx, outDur, t0, speed);
         if (ap != null)
         {
             WavWriter.Write(ap, wavPath, outDur);
