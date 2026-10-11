@@ -129,8 +129,11 @@ public sealed partial class KuGouClient
     public async Task<KgSearchResponse> SearchAsync(string kw, int page)
     {
         if (string.IsNullOrWhiteSpace(kw)) return new KgSearchResponse { Ok = false, Error = "缺少关键词" };
+        // 不用 mobilecdn.kugou.com：2026-10 起其 DNS 解析到未配置该域名的 CDN 节点，
+        // 下发 *.cdn.myqcloud.com 证书导致 TLS 校验失败（RemoteCertificateNameMismatch）；
+        // mobiles.kugou.com 是同款 v3 接口，响应结构一致
         var d = await GetJsonAsync(
-            $"https://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={Uri.EscapeDataString(kw)}&page={page}&pagesize=20");
+            $"https://mobiles.kugou.com/api/v3/search/song?format=json&keyword={Uri.EscapeDataString(kw)}&page={page}&pagesize=20");
         var r = new KgSearchResponse { Ok = true };
         foreach (var it in d["data"]?["info"] as JArray ?? new JArray())
             r.List.Add(new KgSong
