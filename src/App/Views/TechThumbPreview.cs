@@ -141,7 +141,6 @@ internal sealed class TechThumbPreview
                 try
                 {
                     if (job.Sig != _sig) { job.Card.Pending = false; continue; } // 旧签名的任务作废（不复位会让卡片永久卡黑）
-                    var t0 = Stopwatch.GetTimestamp();
                     var bmp = Render(job);
                     if (bmp == null) { job.Card.Pending = false; continue; }
                     var card = job.Card;
@@ -162,10 +161,10 @@ internal sealed class TechThumbPreview
                         }
                     });
                     // 让路（对位旧 TechTab 的预算制）：播放中占闸 ~1/10 壁钟（睡 9×实测成本），暂停时全速补图。
-                    // 下限只防自旋：旧下限 20ms 在单张 ~1ms 时把占闸压到 4%，几十张可见卡的刷新周期被拖成秒级。
-                    var costMs = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+                    // 成本只算锁内的纯渲染——等闸时间算进去的话，播放中等闸越久睡得越久，首帧被拖到秒级。
+                    // 首帧任务不退避：连发几十张首帧也就占闸几十毫秒，值得换来卡片立刻有图。
                     var playing = App.MainInstance?.Preview.IsPlaying == true;
-                    Thread.Sleep(playing ? (int)Math.Clamp(costMs * 9, 2, 400) : 2);
+                    Thread.Sleep(job.First ? 2 : playing ? (int)Math.Clamp(bmp.Value.RenderMs * 9, 2, 400) : 2);
                 }
                 catch (Exception ex)
                 {
@@ -177,7 +176,9 @@ internal sealed class TechThumbPreview
         _timer.Start();
     }
 
-    /// <summary>排帧：可见卡里缺图的按动画相位入队（已排队的不重复入）。</summary>
+    /// <summary>排帧：可见卡里缺图的按动画相位入队（已排队的不重复入）。
+    /// 首帧任务先排、动画任务后排——筛选/弹窗重建的新卡要跳过动画积压先出代表帧，
+    /// 否则播放中动画任务持续插队 FIFO，新卡首帧被拖到秒级（卡片看起来永远黑着）。</summary>
     private void Schedule()
     {
         if (_started == 0) return;
@@ -185,6 +186,12 @@ internal sealed class TechThumbPreview
         if (live.Length == 0) return;
         if (App.MainInstance == null) return;
         var now = _clock.Elapsed.TotalMilliseconds;
+        foreach (var card in live)
+        {
+            if (card.Pending || !(card.FirstFrame || card.Bmp == null)) continue;
+            card.Pending = true;
+            _queue.Enqueue(new Job { Card = card, Sig = _sig, NowMs = now, First = card.FirstFrame });
+        }
         foreach (var card in live)
         {
             if (card.Pending) continue;
@@ -196,14 +203,16 @@ internal sealed class TechThumbPreview
 
     /// <summary>
     /// 单张出图（全程持 EngineRenderGate）：PreviewPlan（缓存）→ 离屏面 Frame → 拷进池化缓冲。
+    /// 返回的 RenderMs 只计锁内成本（进锁后计时，等闸时间不算——那是让路睡眠要依据的「占闸量」）。
     /// Frame 失败出暗底占位（对位 Vue 的 catch 底色 #131316）；PreviewPlan 失败返回 null（卡片保持底色）。
     /// </summary>
-    private (byte[] Pixels, int Stride)? Render(Job job)
+    private (byte[] Pixels, int Stride, double RenderMs)? Render(Job job)
     {
         var card = job.Card;
         const int th = ThumbH;
         lock (EngineRenderGate.Lock)
         {
+            var t0 = Stopwatch.GetTimestamp();
             var key = $"{job.Sig}|{card.G}|{card.K}";
             if (!_plans.TryGetValue(key, out var plan))
             {
@@ -255,7 +264,8 @@ internal sealed class TechThumbPreview
             var len = px.RowBytes * px.Height;
             var buf = ArrayPool<byte>.Shared.Rent(len);
             Marshal.Copy(px.GetPixels(), buf, 0, len);
-            return (buf, px.RowBytes);
+            var renderMs = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+            return (buf, px.RowBytes, renderMs);
         }
     }
 

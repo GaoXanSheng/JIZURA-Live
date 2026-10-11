@@ -5,6 +5,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using JizuraLive.App.Controls;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
@@ -672,6 +673,10 @@ public partial class TechTab : UserControl
             _syncing = false;
         }
         RefreshLive();
+        // 刚重建的卡还没测量（ActualHeight=0）→ 上面的同步可见集必为空；之后只能靠 Extent 恰好
+        // 变化时的 ScrollChanged 兜底——搜索的最后一键若不改结果行数就没有那个事件，预览从此
+        // 黑到滚动为止。排到布局之后再补算一次（同 CutInfo.BuildPickCards 的做法）。
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshLive));
     }
 
     // ---------------- 可见集（交给共享预览服务） ----------------
@@ -692,13 +697,17 @@ public partial class TechTab : UserControl
             viewport.Inflate(0, margin);
             foreach (var ui in _groupList)
             {
-                if (!ui.Open || ui.Body.Visibility != Visibility.Visible) continue;
+                // 只看 Body 的实际可见性，不看 ui.Open：搜索时组是「筛选自动展开」（Open 仍为 false、
+                // Body 可见），按 Open 门就会把筛选展开的组整组漏掉——搜索出的卡永远进不了渲染队列。
+                if (ui.Body.Visibility != Visibility.Visible) continue;
                 if (!_cards.TryGetValue(ui.G, out var map)) continue;
                 foreach (var card in map.Values)
                 {
                     var thumb = card.Thumb;
                     if (thumb == null || card.Box.Visibility != Visibility.Visible) continue;
-                    if (card.Box.ActualHeight <= 0) continue;
+                    // 不按 ActualHeight 过滤：筛选重建后的补算可能跑在卡片布局之前，过滤必得空集，
+                    // 而最后一键不改行数时没有 ScrollChanged 兜底，预览会黑到滚动为止。
+                    // 未布局的卡变换落在 (0,0)（视口内），交给服务渲染无害。
                     var pos = card.Box.TransformToAncestor(GroupsScroll).Transform(new Point(0, 0));
                     if (!viewport.Contains(pos) && !viewport.Contains(new Point(pos.X, pos.Y + card.Box.ActualHeight)))
                         continue;

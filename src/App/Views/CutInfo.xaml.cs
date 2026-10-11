@@ -42,6 +42,10 @@ public partial class CutInfo : UserControl
     private int _pickLine = -1, _pickK = -1;
     private string _pickSearch = "";
     private readonly List<ThumbCard> _pickCards = new();
+    private string _pickBuiltG = "";          // 当前候选墙的组（ClosePick 归零，重开强制重建）
+    private string _pickBuiltSearch = "";     // 当前候选墙的搜索词
+    private readonly List<string> _pickBuiltKeys = new();
+    private readonly Dictionary<string, Border> _pickBoxes = new(); // 候选键 → 卡盒（高亮刷新用）
 
     public CutInfo()
     {
@@ -197,6 +201,8 @@ public partial class CutInfo : UserControl
     {
         _pickG = "";
         _pickSearch = "";
+        _pickBuiltG = ""; // 墙已拆（PickGrid 清空），重开同组也要重建
+        _pickBoxes.Clear();
         _pickCards.Clear();
         PickGrid.Children.Clear();
         Pick.Visibility = Visibility.Collapsed;
@@ -234,21 +240,41 @@ public partial class CutInfo : UserControl
     /// <summary>
     /// 候选卡（对位 fillPick）：当前值琥珀描边；decor/trans 前置「无」卡；搜索按手法名过滤
     /// （过滤时「无」卡不参与，同 Vue）。卡面动画走 TechThumbPreview（与手法栏同一台渲染器）。
+    /// 候选墙只随（组、搜索词）变，与切分无关——播放中切分 ~2s 一换，整墙重建会把刚出的首帧
+    /// 连带销毁（面板常年黑卡），所以同墙不重建，只把琥珀高亮挪到当前值。
     /// </summary>
     private void BuildPickCards(Plan plan, Project p, Cut cut)
     {
-        _pickCards.Clear();
-        PickGrid.Children.Clear();
         var forced = TechSlot(p, _pickLine, _pickK)[_pickG]?.ToString();
         var onKey = !string.IsNullOrEmpty(forced) ? forced : GroupVal(cut, _pickG);
         var filtering = _pickSearch.Length > 0;
-        if (!filtering && _pickG is "decor" or "trans")
-            PickGrid.Children.Add(MakePickCard(_pickG, "none", L.T("CutInfo.None"), null, onKey == "none", isNone: true));
+
+        var keys = new List<string>();
         foreach (var key in Reg.OrderOf(_pickG))
         {
             var def = RegDef(_pickG, key);
             if (def == null || def.Special) continue; // special（片头/间奏类）不出候选（对位 !special）
             if (filtering && !(def.Name ?? key).ToLowerInvariant().Contains(_pickSearch)) continue;
+            keys.Add(key);
+        }
+        if (_pickBuiltG == _pickG && _pickBuiltSearch == _pickSearch
+            && _pickBuiltKeys.Count == keys.Count
+            && _pickBuiltKeys.Zip(keys, (a, b) => a == b).All(x => x))
+        {
+            RefreshPickHighlight(onKey);
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshPickLive));
+            _ = plan;
+            return;
+        }
+
+        _pickCards.Clear();
+        _pickBoxes.Clear();
+        PickGrid.Children.Clear();
+        if (!filtering && _pickG is "decor" or "trans")
+            PickGrid.Children.Add(MakePickCard(_pickG, "none", L.T("CutInfo.None"), null, onKey == "none", isNone: true));
+        foreach (var key in keys)
+        {
+            var def = RegDef(_pickG, key)!;
             PickGrid.Children.Add(MakePickCard(_pickG, key, def.Name ?? key, def, onKey == key, isNone: false));
         }
         if (PickGrid.Children.Count == 0)
@@ -258,9 +284,20 @@ public partial class CutInfo : UserControl
                 Style = (Style)FindResource("Hint"),
                 Margin = new Thickness(2, 4, 0, 4),
             });
+        _pickBuiltG = _pickG;
+        _pickBuiltSearch = _pickSearch;
+        _pickBuiltKeys.Clear();
+        _pickBuiltKeys.AddRange(keys);
         // 刚建的卡还没测量（ActualHeight=0）→ 此刻算可见集必为空；排到布局之后再算一次
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshPickLive));
         _ = plan;
+    }
+
+    /// <summary>同墙复用：候选不动、首帧位图保留，只把当前值琥珀描边挪位（onKey 随切分/覆盖变）。</summary>
+    private void RefreshPickHighlight(string onKey)
+    {
+        foreach (var (key, box) in _pickBoxes)
+            box.BorderBrush = onKey == key ? _amber : _line;
     }
 
     /// <summary>一张候选卡：缩略图（动画）+ 名称 + 徽标；琥珀描边 = 当前值。</summary>
@@ -323,6 +360,7 @@ public partial class CutInfo : UserControl
             Child = stack,
         };
         ToolTipService.SetToolTip(box, name + tags);
+        _pickBoxes[key] = box;
         box.MouseLeftButtonUp += (_, _) => ApplyPick(g, key, name);
         return box;
     }
@@ -391,10 +429,14 @@ public partial class CutInfo : UserControl
             Pick.Visibility == Visibility.Visible && IsVisible ? VisiblePickCards() : Array.Empty<ThumbCard>());
     }
 
-    /// <summary>视口内的候选卡。刚建完卡的首次调用还没测量（ActualHeight=0）→ 空集，
-    /// 由 BuildPickCards 末尾排的 Loaded 优先级回调在布局后补算。</summary>
+    /// <summary>视口内的候选卡。不按 ActualHeight 过滤：搜索重建后的补算可能跑在卡片布局之前
+    /// （实测三次刷新都挤在 3ms 内、卡片 ActualHeight 仍为 0），此时过滤必得空集，而空集 = 服务
+    /// 永不排帧 = 卡片黑到底，之后再无刷新兜底。未布局的卡变换落在 (0,0)（视口内），交给服务
+    /// 渲染无害；布局跟上后由 ScrollChanged / 滚动刷新收窄。视口没量出来时同样交全集。</summary>
     private List<ThumbCard> VisiblePickCards()
     {
+        if (PickScroll.ViewportWidth <= 0 || PickScroll.ViewportHeight <= 0)
+            return new List<ThumbCard>(_pickCards);
         var live = new List<ThumbCard>();
         const double margin = 40;
         var viewport = new Rect(0, 0, PickScroll.ViewportWidth, PickScroll.ViewportHeight);
@@ -402,7 +444,6 @@ public partial class CutInfo : UserControl
         foreach (var card in _pickCards)
         {
             var host = card.Host;
-            if (host.ActualHeight <= 0) continue;
             var pos = host.TransformToAncestor(PickScroll).Transform(new Point(0, 0));
             if (!viewport.Contains(pos) && !viewport.Contains(new Point(pos.X, pos.Y + host.ActualHeight)))
                 continue;
