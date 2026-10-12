@@ -14,7 +14,7 @@
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
         <PublishDir>bin\publish\</PublishDir>
-        <Version>3.1.4</Version>
+        <Version>3.1.5</Version>
         <Product>JIZURA Live</Product>
         <Description>JIZURA-live（pure C#，无 CEF）</Description>
         <ApplicationIcon>assets\app.ico</ApplicationIcon>
