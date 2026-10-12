@@ -150,6 +150,24 @@
                                            MinWidth="72" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0" />
                             </Grid>
 
+                            <!-- 升降调（有音频才显示）：-12..+12 半音，负值降调；直接读写链上的「音调」单元，两处同步 -->
+                            <Grid x:Name="KeyRow" Margin="0,0,0,10" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{DynamicResource Loc.AudioFx.Key}" FontSize="12"
+                                           Foreground="{StaticResource Mut}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <Slider x:Name="SlKey" Grid.Column="1" Style="{StaticResource FxSlider}"
+                                        Minimum="-12" Maximum="12" SmallChange="1" LargeChange="2"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        ToolTip="{DynamicResource Loc.AudioFx.Key.Tip}"
+                                        ValueChanged="SlKey_ValueChanged" Loaded="OnKeySliderLoaded" />
+                                <TextBlock x:Name="TblKeyVal" Grid.Column="2" Style="{StaticResource MonoMut}" FontSize="12"
+                                           MinWidth="64" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0" />
+                            </Grid>
+
                             <!-- 效果链 rack（模板 + VM：结构变化重绑、值变化回填，不整段重建控件） -->
                             <ItemsControl x:Name="RackHost" ItemTemplate="{StaticResource UnitTpl}" Focusable="False" />
 

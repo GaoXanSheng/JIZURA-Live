@@ -259,6 +259,7 @@ public partial class AudioFxDialog : Window
             TblEmpty.Visibility = units.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             RefreshAddCombo(units);
             RefreshSpeed(cfg);
+            RefreshKey(cfg);
         }
         finally
         {
@@ -495,6 +496,83 @@ public partial class AudioFxDialog : Window
     private static string DurationText(double secs) => secs >= 60
         ? L.F("AudioFx.Dur.MinSecFmt", (int)(secs / 60), Math.Round(secs % 60))
         : L.F("AudioFx.Dur.SecFmt", secs.ToString("F1"));
+
+    // ---------------- 升降调（写链里「音调」单元的 semitones；0 = 移除单元；与 rack 里同一份数据） ----------------
+
+    private void RefreshKey(JObject cfg)
+    {
+        // 先刷值与滑块（无音频只是不显示这行，数据仍保持一致），再管显隐
+        var semi = PitchSemitonesOf(cfg);
+        if (Math.Abs(SlKey.Value - semi) > 1e-6) SlKey.Value = semi;
+        TblKeyVal.Text = KeyLabel(semi);
+        var audio = Preview.Audio;
+        KeyRow.Visibility = audio != null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>链里「音调」单元的 semitones（无单元 = 0 = 直通）。</summary>
+    private static double PitchSemitonesOf(JObject cfg)
+    {
+        if (cfg["units"] is JArray units)
+            foreach (var t in units)
+                if (t is JObject u && u["id"]?.ToString() == "pitch")
+                    return Math.Round(JNum(u["params"]?["semitones"]));
+        return 0;
+    }
+
+    private static string KeyLabel(double semi)
+        => L.F("AudioFx.Key.ValueFmt", ((int)Math.Round(semi)).ToString("+0;-0;0"));
+
+    /// <summary>写 pitch 单元：n=0 移除（回直通、链保持干净）；存在则改 semitones、不存在则追加默认单元。</summary>
+    private static JObject SetPitch(JObject cfg, int semitones)
+    {
+        if (cfg["units"] is not JArray units) return cfg;
+        JObject? hit = null;
+        foreach (var t in units)
+            if (t is JObject u && u["id"]?.ToString() == "pitch")
+            {
+                hit = u;
+                break;
+            }
+        if (semitones == 0)
+        {
+            if (hit != null) units.Remove(hit);
+            return cfg;
+        }
+        if (hit == null)
+        {
+            units.Add(new JObject
+            {
+                ["id"] = "pitch", ["on"] = true, ["params"] = new JObject { ["semitones"] = semitones }
+            });
+        }
+        else
+        {
+            if (hit["params"] is not JObject pr)
+            {
+                pr = new JObject();
+                hit["params"] = pr;
+            }
+            pr["semitones"] = semitones;
+        }
+        return cfg;
+    }
+
+    private void SlKey_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing || !_ready || App.MainInstance == null) return; // 构造期与回填早退
+        var n = (int)Math.Round(e.NewValue);
+        TblKeyVal.Text = KeyLabel(n);
+        if (_dragging) return; // 拖动中只刷显示（松手由 AttachDrag 提交）
+        SubmitDebounced(L.F("AudioFx.Mutate.Key", KeyLabel(n)), cur => SetPitch(cur, n));
+    }
+
+    private void OnKeySliderLoaded(object sender, RoutedEventArgs e)
+        => AttachDrag(SlKey, () =>
+        {
+            if (_ready)
+                SubmitNow(L.F("AudioFx.Mutate.Key", KeyLabel(SlKey.Value)),
+                    cur => SetPitch(cur, (int)Math.Round(SlKey.Value)));
+        });
 
     // ---------------- 预设（对位 usePreset） ----------------
 

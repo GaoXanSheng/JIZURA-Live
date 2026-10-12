@@ -33,6 +33,97 @@ public class AudioFxChainTests
         }
     }
 
+    /// <summary>按样本生成函数产出的测试源（频率/脉冲串测试用）。</summary>
+    private sealed class FnSource(Func<int, double> gen, double seconds) : ISampleProvider
+    {
+        private int _pos;
+        private readonly int _total = (int)(48000 * seconds);
+
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+
+        public int Read(Span<float> buffer)
+        {
+            for (var i = 0; i < buffer.Length; i += 2)
+            {
+                var v = _pos >= _total ? 0f : (float)gen(_pos);
+                buffer[i] = v;
+                buffer[i + 1] = v;
+                _pos++;
+            }
+
+            return buffer.Length;
+        }
+    }
+
+    private static double[] RunPitch(int semitones, Func<int, double> gen, double seconds)
+    {
+        var cfg = JObject.Parse(
+            "{\"units\":[{\"id\":\"pitch\",\"on\":true,\"params\":{\"semitones\":" + semitones + "}}]}");
+        var g = AudioFx.Build(cfg, new FxBuildOpts { SampleRate = 48000 })!;
+        g.Input.Source = new FnSource(gen, seconds);
+        var outl = new List<double>((int)(48000 * seconds));
+        var buf = new float[4096];
+        while (outl.Count < 48000 * seconds)
+        {
+            var n = g.Output.Read(buf.AsSpan());
+            if (n <= 0) break;
+            for (var i = 0; i < n; i += 2) outl.Add(buf[i]);
+        }
+
+        return outl.ToArray();
+    }
+
+    /// <summary>Goertzel 单频功率（归一化到样本数）。</summary>
+    private static double Goertzel(ReadOnlySpan<double> x, double f)
+    {
+        var w = 2 * Math.PI * f / 48000;
+        double c = 2 * Math.Cos(w), s1 = 0, s2 = 0;
+        foreach (var v in x)
+        {
+            var s0 = v + c * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+
+        return (s1 * s1 + s2 * s2 - c * s1 * s2) / x.Length;
+    }
+
+    /// <summary>
+    /// 移调器（pitch 单元的 WSOLA 两级实现）的红线：音高 ×2^(n/12) 精确、时长严格不变（1:1）。
+    /// 回归背景：旧"延迟往复"实现平均音高不变（只是合唱颤音）、首版两级前身单级架构在极端档
+    /// 退化成纯重采样（内容半速 2× + 环形越界相位跳）。判据：输出期望频率功率远大于原频（无干声残留），
+    /// 且脉冲串（每 0.5s 一个）的输出间隔仍 ≈0.5s（时长/内容完整性）。
+    /// </summary>
+    [Fact]
+    public void 移调器音高精确且时长不变()
+    {
+        // 音高：440Hz 正弦 → 各档主频 = 440·2^(n/12)，原频泄漏必须可忽略
+        foreach (var s in new[] { -7, -2, 2, 7 })
+        {
+            var x = RunPitch(s, n => 0.5 * Math.Sin(2 * Math.PI * 440 * n / 48000), 2.0);
+            var seg = x.AsSpan(24000, 72000); // 跳过启动（128ms 预填）
+            var expect = 440 * Math.Pow(2, s / 12.0);
+            var pe = Goertzel(seg, expect);
+            var p440 = Goertzel(seg, 440);
+            Assert.True(pe > 100 * p440, $"semitones={s}: 期望主频功率 {pe:F3} 应远大于原频 {p440:F3}");
+        }
+
+        // 时长：脉冲串每 0.5s 一个 → 输出间隔仍 ≈0.5s（音高改动不得改变内容节奏）
+        var pulse = RunPitch(-2, n => n % 24000 < 24 ? 0.9 * Math.Sin(2 * Math.PI * 1000 * n / 48000) : 0, 5.0);
+        var peaks = new List<int>();
+        for (var i = 1; i < pulse.Length - 1; i++)
+            if (Math.Abs(pulse[i]) > 0.35 && Math.Abs(pulse[i]) >= Math.Abs(pulse[i - 1])
+                                           && Math.Abs(pulse[i]) > Math.Abs(pulse[i + 1])
+                                           && (peaks.Count == 0 || i - peaks[^1] > 5000))
+                peaks.Add(i);
+        Assert.True(peaks.Count >= 8, $"脉冲检出 {peaks.Count} 个（应 ≈9）");
+        for (var i = 1; i < peaks.Count; i++)
+        {
+            var gap = (peaks[i] - peaks[i - 1]) / 48000.0;
+            Assert.InRange(gap, 0.47, 0.53);
+        }
+    }
+
     /// <summary>
     /// 混响 IR 必须做单位能量归一化（对齐浏览器 ConvolverNode normalize=true，1/√(Σh²)）。
     /// 回归背景：移植时这层缩放属于 WebAudio 节点、不在 makeIR 代码里，首版漏掉后湿声功率增益

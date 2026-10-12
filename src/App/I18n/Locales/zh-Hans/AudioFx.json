@@ -5,6 +5,9 @@
   "AudioFx.Speed": "变速",
   "AudioFx.Speed.Tip": "播放速度倍率（0.5–2 倍）：改变歌曲时长，歌词与节拍按歌曲原时刻自动跟随；预览与导出同时生效",
   "AudioFx.Speed.ValueFmt": "×{0}",
+  "AudioFx.Key": "升降调",
+  "AudioFx.Key.Tip": "整首歌升降调（不改速度/时长，歌词时间轴不变）：负值降调、正值升调；等价于链上的「音调」单元，两处同步",
+  "AudioFx.Key.ValueFmt": "{0} 半音",
   "AudioFx.AddPlaceholder": "添加效果…",
   "AudioFx.Add": "添加",
   "AudioFx.Empty": "链上没有效果——从上面挑个预设，或在下方添加效果单元自由组合。",
@@ -24,5 +27,6 @@
   "AudioFx.Mutate.Move": "音频效果：调整顺序",
   "AudioFx.Mutate.Param": "音频效果：{0}",
   "AudioFx.Mutate.Eq": "音频效果：EQ 曲线",
-  "AudioFx.Mutate.Speed": "音频效果：变速 {0}"
+  "AudioFx.Mutate.Speed": "音频效果：变速 {0}",
+  "AudioFx.Mutate.Key": "音频效果：升降调 {0}"
 }
