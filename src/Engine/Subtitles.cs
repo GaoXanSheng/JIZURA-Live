@@ -1,4 +1,4 @@
-// 移植自 frontend/src/cloud/subtitle.ts + subtitle-draw.ts（git 历史 20c717e^，M7 已删 TS 参照）。
+﻿// 移植自 frontend/src/cloud/subtitle.ts + subtitle-draw.ts（git 历史 20c717e^，M7 已删 TS 参照）。
 //
 // 独立字幕渲染层，纯渲染模块：不依赖 Env/Plan/渲染器/宿主状态，输入只有
 // KRC 时间轴（Krc.Parse 产物的 KrcLine）+ 每行注音（JIZURA LRC 的 "roma　trans" 串），
@@ -156,7 +156,7 @@ public sealed class SubtitleLayer
         Dictionary<string, string>? map = null;
         foreach (var c in plan.Cuts)
         {
-            if (string.IsNullOrEmpty(c.Note) || c.LineText.Length == 0) continue;
+            if (string.IsNullOrEmpty(c.Note) || string.IsNullOrEmpty(c.LineText)) continue;
             map ??= new Dictionary<string, string>(StringComparer.Ordinal);
             map.TryAdd(c.LineText, c.Note!);
         }

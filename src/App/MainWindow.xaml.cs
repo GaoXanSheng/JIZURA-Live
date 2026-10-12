@@ -111,6 +111,8 @@ public partial class MainWindow : Window
     private long _lastRV = -1;
     private long _lastRSub = -1;
     private Plan? _lastRPlan;
+    private int _lastRW = -1;   // 上次出帧的预览渲染尺寸（尺寸变化也要重出：暂停时切布局/改窗口大小）
+    private int _lastRH = -1;
 
     // 字幕叠加层缓存（只在渲染泵线程访问）：字幕版本或 plan 变了就重建——注音行来自 plan 的
     // cut 注音（SubtitleLayer.NotesFromPlan），plan 换对象（重规划）也要跟着换
@@ -122,6 +124,7 @@ public partial class MainWindow : Window
     private long _probeDue, _probeWindowEnd;
     private double _probeJitterMax;
     // 预览泵实际出帧数（5s 窗口汇总进日志）：设置页「渲染帧率」到底有没有生效，看这条对数
+    private int _pumpErrors;
     private long _pumpFrames;
     private long _pumpFramesPrev;
 
@@ -524,19 +527,6 @@ public partial class MainWindow : Window
                     continue;
                 }
                 var t = _preview.CurrentTime;
-                // 脏检查：暂停且 t/plan/字幕都没变就跳过（暂停态省 ~96% CPU）；
-                // 字幕版本覆盖「装载/清空字幕」与「设置页改字幕样式」两种情况（暂停态也要重出一帧）
-                var ver = _preview.Version;
-                var subVer = _preview.SubtitleVersion;
-                var subDirty = subVer != _lastRSub;
-                if (!_preview.IsPlaying && t == _lastRT && ver == _lastRV && !subDirty
-                    && ReferenceEquals(plan, _lastRPlan))
-                    continue;
-                _lastRT = t;
-                _lastRV = ver;
-                _lastRSub = subVer;
-                _lastRPlan = plan;
-                Interlocked.Increment(ref _pumpFrames);
                 // 预览渲染尺寸：contain 适配舞台（尺寸缓存由 UI SizeChanged 维护），钳 1.0 不超采
                 // 注意：_stageWpx/H 是 int，除法必须转 double——整数除法会让 756/1920=0，
                 // fit=0 → 渲染面退化成 1×1 像素（预览「什么都不渲染」的元凶）
@@ -548,6 +538,25 @@ public partial class MainWindow : Window
                 fit = Math.Min(fit, 1100.0 / Math.Max(plan.W, plan.H));
                 var rw = Math.Max(1, (int)Math.Round(plan.W * fit));
                 var rh = Math.Max(1, (int)Math.Round(plan.H * fit));
+
+                // 脏检查：暂停且 t/plan/字幕/**预览尺寸**都没变就跳过（暂停态省 ~96% CPU）。
+                // 字幕版本覆盖「装载/清空字幕」与「设置页改字幕样式」；
+                // 尺寸覆盖「暂停时切编辑器/播放器布局、改窗口大小」——不看尺寸的话那一帧会停在旧尺寸上，
+                // 表现就是「切回播放器模式画面定死、不渲染」（镜像帧按旧尺寸贴完就再没人重贴）。
+                var ver = _preview.Version;
+                var subVer = _preview.SubtitleVersion;
+                var subDirty = subVer != _lastRSub;
+                var sizeDirty = rw != _lastRW || rh != _lastRH;
+                if (!_preview.IsPlaying && t == _lastRT && ver == _lastRV && !subDirty && !sizeDirty
+                    && ReferenceEquals(plan, _lastRPlan))
+                    continue;
+                _lastRT = t;
+                _lastRV = ver;
+                _lastRSub = subVer;
+                _lastRPlan = plan;
+                _lastRW = rw;
+                _lastRH = rh;
+                Interlocked.Increment(ref _pumpFrames);
                 // 预览镜像：Spout 主通道走 GPU 时，画面直接消费它交付的帧——预览不再 CPU 重渲。
                 // （两者共用 EngineRenderGate 会串行超出帧预算：预览 ~15-25ms + Spout ~4.7ms > 16.7ms，
                 // 输出与预览同时掉到 22-45fps、UI 被挤到秒级抖动并灌 GC；镜像路径不消费引擎闸。）
@@ -687,7 +696,9 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                Log.Debug("预览渲染泵异常：" + ex.Message);
+                // 首次用 Warn：这里的异常会让整帧（含字幕叠加）静默消失，Debug 级等于看不见
+                if (Interlocked.Increment(ref _pumpErrors) <= 3) Log.Warn("预览渲染泵异常：" + ex);
+                else Log.Debug("预览渲染泵异常：" + ex.Message);
             }
         }
     }
@@ -752,7 +763,10 @@ public partial class MainWindow : Window
         }
 
         var plan = _preview.Plan;
-        if (plan == null) return null;
+        if (plan == null)
+        {
+            return null;
+        }
 
         var lines = _preview.Subtitles;
         IReadOnlyList<string>? notes;
