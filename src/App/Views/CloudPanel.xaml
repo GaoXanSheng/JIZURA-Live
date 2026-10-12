@@ -1,7 +1,9 @@
-<Window x:Class="JizuraLive.App.Views.CloudPanel"
+﻿<Window x:Class="JizuraLive.App.Views.CloudPanel"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ctl="clr-namespace:JizuraLive.App.Controls"
+        xmlns:views="clr-namespace:JizuraLive.App.Views"
+        xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         Title="{DynamicResource Loc.Cloud.WindowTitle}"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="NoResize" ShowInTaskbar="False" WindowStartupLocation="Manual"
@@ -204,6 +206,198 @@
             <Setter Property="TextAlignment" Value="Center" />
             <Setter Property="IsHitTestVisible" Value="False" />
         </Style>
+
+        <!-- 归属筛选条（取代原来的三段标题：虚拟化卡片墙只有一条滚动，塞不进整行标题） -->
+        <Style x:Key="ChipBtn" TargetType="Button">
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Foreground" Value="{StaticResource Mut}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="13"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Line2}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 卡片墙的容器（ListBox 提供自己的 ScrollViewer，虚拟化靠它） -->
+        <Style x:Key="PlaylistCardItem" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 歌单卡片：悬停提亮 + 上浮 2px（只位移不缩放——逐像素透明窗口缩放要重采样，字会发虚） -->
+        <Style x:Key="PlaylistCard" TargetType="Button">
+            <Setter Property="Width" Value="204" />
+            <Setter Property="Height" Value="66" />
+            <Setter Property="Margin" Value="0,0,10,10" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="CardBg" Background="{StaticResource Raised}"
+                                BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                CornerRadius="10" Padding="10" SnapsToDevicePixels="True">
+                            <Border.RenderTransform>
+                                <TranslateTransform />
+                            </Border.RenderTransform>
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CardBg" Property="BorderBrush" Value="{StaticResource Line2}" />
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="CardBg"
+                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                             To="-2" Duration="0:0:0.11">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut" />
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="CardBg"
+                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                             To="0" Duration="0:0:0.11" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 歌单卡片内容（三个分组共用）：色块首字 + 歌单名 + 「N 首 · 创建者」 + 归属徽标 -->
+        <DataTemplate x:Key="PlaylistCardTpl">
+            <Button Style="{StaticResource PlaylistCard}" Tag="{Binding}" Click="BtnPlaylist_Click"
+                    Loaded="Card_Loaded" DataContextChanged="Card_DataChanged">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Width="42" Height="42" CornerRadius="8" Background="{Binding Tile}"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Initial}" FontSize="18" FontWeight="SemiBold"
+                                   Foreground="#D8FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Visibility="{Binding InitialVisibility}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" FontSize="13"
+                                   Foreground="{StaticResource Fg}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding MetaLine}" ToolTip="{Binding MetaLine}" FontSize="11"
+                                   Foreground="{StaticResource Mut}" Margin="0,3,0,0"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <Border Grid.Column="2" BorderThickness="1" CornerRadius="4" Padding="4,0"
+                            VerticalAlignment="Top" BorderBrush="{Binding BadgeBrush}"
+                            Visibility="{Binding BadgeVisibility}">
+                        <TextBlock Text="{Binding Badge}" FontSize="10" LineHeight="14"
+                                   Foreground="{Binding BadgeBrush}" />
+                    </Border>
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+        <!-- 歌曲行（搜索页与歌单详情共用）：播放键(序号) + 歌名 + 歌手/专辑/时长 + VIP + 状态。
+             点行本体＝载入工程（老语义不变）；点左边那个键＝试听，之后顺序播下去。
+             序号只由歌单详情填（搜索页为空串）。 -->
+        <DataTemplate x:Key="SongRowTpl">
+            <Button Style="{StaticResource RowBtn}" Tag="{Binding}" Click="BtnLoad_Click">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="52*" />
+                        <ColumnDefinition Width="48*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="RowPlay" Grid.Column="0" Style="{StaticResource RowPlayBtn}"
+                            Tag="{Binding}" Click="BtnRowPlay_Click" VerticalAlignment="Center"
+                            ToolTip="{DynamicResource Loc.Cloud.PreviewTip}">
+                        <Grid>
+                            <TextBlock x:Name="TxIdx" Text="{Binding Index}" FontSize="11"
+                                       Foreground="{StaticResource Faint}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <TextBlock x:Name="TxGlyph" Text="{Binding PlayGlyph}" FontSize="11"
+                                       Foreground="{StaticResource Cyan}" Visibility="Collapsed"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Button>
+                    <TextBlock Grid.Column="1" Text="{Binding Name}"
+                               ToolTip="{Binding Name}"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding SingerLine}"
+                               ToolTip="{Binding SingerLine}" FontSize="11"
+                               Foreground="{StaticResource Mut}"
+                               TextTrimming="CharacterEllipsis" Margin="8,0,8,0"
+                               VerticalAlignment="Center" />
+                    <Border Grid.Column="3" BorderBrush="#8A6D2F" BorderThickness="1"
+                            CornerRadius="4" Padding="4,0" Margin="0,0,8,0"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding VipVisibility}">
+                        <TextBlock Text="VIP" FontSize="10" LineHeight="15"
+                                   Foreground="#C8A24A" />
+                    </Border>
+                    <TextBlock Grid.Column="4" Text="{Binding Status}" FontSize="11"
+                               Foreground="{StaticResource Cyan}"
+                               VerticalAlignment="Center" />
+                </Grid>
+            </Button>
+            <DataTemplate.Triggers>
+                <!-- 悬停该行：序号让位给播放键图标 -->
+                <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type ListBoxItem}}}"
+                             Value="True">
+                    <Setter TargetName="TxIdx" Property="Visibility" Value="Collapsed" />
+                    <Setter TargetName="TxGlyph" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <!-- 正在试听的那一行：常显图标（▶/⏸） -->
+                <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                    <Setter TargetName="RowPlay" Property="ToolTip" Value="{DynamicResource Loc.Cloud.PreviewToggleTip}" />
+                    <Setter TargetName="TxIdx" Property="Visibility" Value="Collapsed" />
+                    <Setter TargetName="TxGlyph" Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -218,6 +412,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- 头部：标题 + 平台切换 + 关闭 -->
@@ -311,43 +506,9 @@
                                         CornerRadius="6" ClipToBounds="True">
                                     <ListBox x:Name="Lst" Background="Transparent" BorderThickness="0" Padding="0"
                                              ItemContainerStyle="{StaticResource SongItem}"
+                                             ItemTemplate="{StaticResource SongRowTpl}"
                                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                             VirtualizingPanel.VirtualizationMode="Recycling">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <Button Style="{StaticResource RowBtn}" Tag="{Binding}"
-                                                        Click="BtnLoad_Click">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="52*" />
-                                                            <ColumnDefinition Width="48*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                                   ToolTip="{Binding Name}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   VerticalAlignment="Center" />
-                                                        <TextBlock Grid.Column="1" Text="{Binding SingerLine}"
-                                                                   ToolTip="{Binding SingerLine}" FontSize="11"
-                                                                   Foreground="{StaticResource Mut}"
-                                                                   TextTrimming="CharacterEllipsis" Margin="8,0,8,0"
-                                                                   VerticalAlignment="Center" />
-                                                        <Border Grid.Column="2" BorderBrush="#8A6D2F" BorderThickness="1"
-                                                                CornerRadius="4" Padding="4,0" Margin="0,0,8,0"
-                                                                VerticalAlignment="Center"
-                                                                Visibility="{Binding VipVisibility}">
-                                                            <TextBlock Text="VIP" FontSize="10" LineHeight="15"
-                                                                       Foreground="#C8A24A" />
-                                                        </Border>
-                                                        <TextBlock Grid.Column="3" Text="{Binding Status}" FontSize="11"
-                                                                   Foreground="{StaticResource Cyan}"
-                                                                   VerticalAlignment="Center" />
-                                                    </Grid>
-                                                </Button>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                                             VirtualizingPanel.VirtualizationMode="Recycling" />
                                 </Border>
                                 <TextBlock Text="{DynamicResource Loc.Cloud.SearchEmpty}"
                                            VerticalAlignment="Center" Foreground="{StaticResource Mut}">
@@ -402,44 +563,89 @@
                             </Grid>
 
                             <Grid Grid.Row="1">
-                                <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
-                                        CornerRadius="6" ClipToBounds="True">
-                                    <ListBox x:Name="LstPlaylists" Background="Transparent" BorderThickness="0"
-                                             Padding="0" ItemContainerStyle="{StaticResource SongItem}"
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button x:Name="ChipAll" Style="{StaticResource ChipBtn}" Tag="all"
+                                            Click="ChipFilter_Click" />
+                                    <Button x:Name="ChipMine" Style="{StaticResource ChipBtn}" Tag="mine"
+                                            Click="ChipFilter_Click" />
+                                    <Button x:Name="ChipSub" Style="{StaticResource ChipBtn}" Tag="sub"
+                                            Click="ChipFilter_Click" />
+                                    <Button x:Name="ChipLiked" Style="{StaticResource ChipBtn}" Tag="liked"
+                                            Click="ChipFilter_Click" />
+                                </StackPanel>
+                                <Grid Grid.Row="1">
+                                    <!-- 虚拟化换行面板：只实例化视口内的卡片（滚动时回收复用），
+                                         封面在容器实例化时才加载（见 Card_Realized） -->
+                                    <ListBox x:Name="LstPlaylists" Background="Transparent" BorderThickness="0" Padding="0"
+                                             ItemContainerStyle="{StaticResource PlaylistCardItem}"
+                                             ItemTemplate="{StaticResource PlaylistCardTpl}"
                                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.CanContentScroll="True"
+                                             VirtualizingPanel.IsVirtualizing="True"
                                              VirtualizingPanel.VirtualizationMode="Recycling">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <Button Style="{StaticResource RowBtn}" Tag="{Binding}"
-                                                        Click="BtnPlaylist_Click">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                                   ToolTip="{Binding Name}"
-                                                                   TextTrimming="CharacterEllipsis"
-                                                                   VerticalAlignment="Center" />
-                                                        <TextBlock Grid.Column="1" Text="{Binding CountLine}"
-                                                                   FontSize="11" Foreground="{StaticResource Mut}"
-                                                                   Margin="8,0,0,0" VerticalAlignment="Center" />
-                                                    </Grid>
-                                                </Button>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
+                                        <ListBox.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <vwp:VirtualizingWrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ListBox.ItemsPanel>
                                     </ListBox>
-                                </Border>
-                                <!-- 空态 / 加载中 / 错误共用一行（文案与配色由代码按状态写） -->
-                                <TextBlock x:Name="TblPlaylistStatus" Text="{DynamicResource Loc.Cloud.PlaylistLoading}"
-                                           TextAlignment="Center" TextWrapping="Wrap"
-                                           VerticalAlignment="Center" HorizontalAlignment="Center"
-                                           Margin="24,0" Foreground="{StaticResource Mut}" />
+                                    <!-- 空态 / 加载中 / 错误共用一行（文案与配色由代码按状态写） -->
+                                    <TextBlock x:Name="TblPlaylistStatus" Text="{DynamicResource Loc.Cloud.PlaylistLoading}"
+                                               TextAlignment="Center" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" HorizontalAlignment="Center"
+                                               Margin="24,0" Foreground="{StaticResource Mut}" />
+                                </Grid>
                             </Grid>
 
                             <TextBlock x:Name="TblPlaylistTip" Grid.Row="2" FontSize="11"
                                        Foreground="{StaticResource Mut}" TextWrapping="Wrap" Text=""
                                        Margin="0,8,0,0" />
+                        </Grid>
+
+                        <!-- ===== 歌单详情（点卡片进来；不再把歌曲灌进搜索页） ===== -->
+                        <Grid x:Name="PanePlaylistDetail" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid Grid.Row="0" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Button x:Name="BtnDetailBack" Grid.Column="0" Style="{StaticResource BtnGhost}"
+                                        Content="{DynamicResource Loc.Cloud.DetailBack}" Padding="8,4"
+                                        VerticalAlignment="Center" Click="BtnDetailBack_Click" />
+                                <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TblDetailName" FontSize="15" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock x:Name="TblDetailMeta" FontSize="11" Foreground="{StaticResource Mut}"
+                                               Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Button x:Name="BtnPlayAll" Grid.Column="2" Style="{StaticResource BtnPrimary}"
+                                        Content="{DynamicResource Loc.Cloud.PlayAll}" Padding="12,4"
+                                        VerticalAlignment="Center" Click="BtnPlayAll_Click"
+                                        ToolTip="{DynamicResource Loc.Cloud.PlayAllTip}" />
+                            </Grid>
+
+                            <Grid Grid.Row="1">
+                                <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                        CornerRadius="6" ClipToBounds="True">
+                                    <ListBox x:Name="LstDetail" Background="Transparent" BorderThickness="0" Padding="0"
+                                             ItemContainerStyle="{StaticResource SongItem}"
+                                             ItemTemplate="{StaticResource SongRowTpl}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             VirtualizingPanel.VirtualizationMode="Recycling" />
+                                </Border>
+                                <TextBlock x:Name="TblDetailStatus" TextAlignment="Center" TextWrapping="Wrap"
+                                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                                           Margin="24,0" Foreground="{StaticResource Mut}" Text="" />
+                            </Grid>
                         </Grid>
 
                         <!-- ===== 跟随播放器（FollowPane.vue） ===== -->
@@ -623,6 +829,10 @@
                         </ScrollViewer>
                     </Grid>
                 </Grid>
+
+                <!-- 试听条：与主界面底部那条是同一个控件（Compact 去掉音量），
+                     数据源都是全局的 CloudPlayService -->
+                <views:CloudBar x:Name="BarCloud" Grid.Row="2" Compact="True" Visibility="Collapsed" />
             </Grid>
         </Border>
 

@@ -26,14 +26,15 @@
     <ItemGroup>
         <!-- M6：EmbedIO 已整体移除（/api 端点拍板删除，/mcp 改用 BCL HttpListener，见 src/App/Mcp/） -->
         <PackageReference Include="log4net" Version="3.5.0" />
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12"/>
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
         <PackageReference Include="NAudio" Version="3.1.0" />
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.4"/>
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
         <PackageReference Include="QRCoder" Version="1.8.0" />
         <PackageReference Include="SkiaSharp" Version="4.153.1" />
         <PackageReference Include="SkiaSharp.Views.WPF" Version="4.153.1" />
         <PackageReference Include="SharpDX" Version="4.2.0" />
         <PackageReference Include="SharpDX.Direct3D9" Version="4.2.0" />
+        <PackageReference Include="VirtualizingWrapPanel" Version="2.5.4" />
     </ItemGroup>
     <ItemGroup>
         <Reference Include="SharpDX">
@@ -52,17 +53,16 @@
             <HintPath>native\SpoutDXWrapper.dll</HintPath>
         </Reference>
         <!-- SpoutDX 原生依赖：拷贝到输出根目录（与 SpoutDXWrapper.dll 同级），绝不生成 native\ 冗余子目录 -->
-        <None Remove="native\SpoutDX.dll"/>
-        <None Include="native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest"/>
+        <None Remove="native\SpoutDX.dll" />
+        <None Include="native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest" />
         <!-- GPU 光栅用的 ANGLE（tools/fetch-angle.ps1 拉取，二进制不入库）：落到 exe 旁的 angle\ 子目录，
              GpuRasterHost 优先从这里加载；目录不存在 = GPU 路不可用，自动回退 CPU 光栅 -->
-        <None Include="native\angle\*" CopyToOutputDirectory="PreserveNewest"
-              Link="angle\%(Filename)%(Extension)" Condition="Exists('native\angle')"/>
+        <None Include="native\angle\*" CopyToOutputDirectory="PreserveNewest" Link="angle\%(Filename)%(Extension)" Condition="Exists('native\angle')" />
     </ItemGroup>
 
     <!-- 确保 publish 目录也包含根目录的 SpoutDX.dll，并清理掉任何误生的 native\ 冗余目录 -->
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish">
-        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll') And Exists('native\SpoutDX.dll')"/>
+        <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll') And Exists('native\SpoutDX.dll')" />
         <Delete Files="$(OutDir)native\SpoutDX.dll" Condition="Exists('$(OutDir)native\SpoutDX.dll')" />
         <Delete Files="$(PublishDir)native\SpoutDX.dll" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)native\SpoutDX.dll')" />
         <RemoveDir Directories="$(OutDir)native" Condition="Exists('$(OutDir)native')" />
@@ -77,9 +77,7 @@
     </Target>
     
     <Target Name="WriteIssVersion" AfterTargets="Build;Publish">
-        <WriteLinesToFile File="bin\build.version.iss"
-                          Lines="#define AppVersion &quot;$(Version)&quot;"
-                          Overwrite="true" />
+        <WriteLinesToFile File="bin\build.version.iss" Lines="#define AppVersion &quot;$(Version)&quot;" Overwrite="true" />
     </Target>
 
     <!-- 发布产物不携带引用程序的 pdb/xml -->

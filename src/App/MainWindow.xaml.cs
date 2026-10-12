@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -12,6 +12,7 @@ using JizuraLive.App.Cloud;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
+using JizuraLive.Server;
 using JizuraLive.Spout;
 using SkiaSharp;
 
@@ -22,6 +23,8 @@ public partial class MainWindow : Window
     private readonly Settings _settings;
     private readonly PreviewEngine _preview = new();
     private readonly SpoutOut _spout = new();
+    private readonly CloudPlayService _cloud = new();
+    private readonly CloudPlayerSession _player;
 
     /// <summary>预览镜像：Spout 泵渲好的 GPU 帧经 D3D11 staging 读回供预览直接贴显示
     /// （预览不再 CPU 重渲同一内容——两者共用引擎闸会让双方都掉出帧预算，见 PreviewMirror 注释）。</summary>
@@ -37,6 +40,15 @@ public partial class MainWindow : Window
     public volatile bool ExportBusy;
     public PreviewEngine Preview => _preview;
     public SpoutOut Spout => _spout;
+
+    /// <summary>云试听播放会话（队列 + 独立播放链；面板与底部常驻条都操作它）。</summary>
+    public CloudPlayService Cloud => _cloud;
+
+    /// <summary>播放器模式会话（PV 跟着云歌单渲染；进模式快照工程、退出还原）。</summary>
+    public CloudPlayerSession Player => _player;
+
+    /// <summary>当前是不是播放器模式（两套布局的开关）。</summary>
+    public bool PlayerMode { get; private set; }
 
     // 引擎渲染挪到专用后台线程（乒乓双面）：M2b/c 烟雾实测「koma=12 真渲染 ~24 次/s 每次 ~40ms」
     // ——Render 优先级 DispatcherTimer 把它整个压在 UI 线程 ≈96% 饱和，点击事件永远排不上队
@@ -197,6 +209,10 @@ public partial class MainWindow : Window
                 _probeWindowEnd = now + 5 * Stopwatch.Frequency;
             }
         };
+        _player = new CloudPlayerSession(State, _cloud);
+        _player.Changed += RefreshPlayerOverlay;
+        _cloud.Changed += RefreshPlayerOverlay;
+
         _uiProbe.Start();
         UiStallProbe.Start();
 
@@ -208,6 +224,8 @@ public partial class MainWindow : Window
             // Spout 启动放 Loaded：管线建 D3D 设备要几百毫秒，别挡窗口先画出来
             if (_settings.SpoutEnabled)
                 StartSpout();
+            // 上次播放器模式异常退出：把用户工程从会话快照里还原回来（autosave 里是云歌工程）
+            if (_player.RecoverLeftoverIfAny()) RefreshPlayerOverlay();
             // 后台自愈清理临时文件、重复音频与超期日志
             StorageCleaner.AutoCleanupAsync(State.AudioPath);
         };
@@ -861,12 +879,73 @@ public partial class MainWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        // 空格 = 播放/暂停；歌词编辑框里打空格要照常输入
+        // 空格 = 播放/暂停；歌词编辑框里打空格要照常输入。
+        // 谁在响就切谁：云试听在响（或工程侧没在响而云试听有曲）→ 切云试听，否则工程预览。
         if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBoxBase)
         {
-            _preview.TogglePlay();
+            if (_cloud.HasTrack && (_cloud.IsPlaying || !_preview.IsPlaying)) _cloud.Toggle();
+            else _preview.TogglePlay();
             e.Handled = true;
         }
+    }
+
+    // ---------------- 编辑器 / 播放器 两套布局 ----------------
+
+    private static readonly System.Windows.Media.Brush StageBg =
+        new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0F, 0x0F, 0x12));
+
+    private void BtnMode_Click(object sender, RoutedEventArgs e) =>
+        SetPlayerMode(ReferenceEquals(sender, BtnModePlayer));
+
+    /// <summary>
+    /// 切模式：**瞬切**——连续改列宽/边距会让 Stage 每帧 SizeChanged，CPU 渲染路径会反复冲刷帧缓存。
+    /// 播放器模式把顶栏/左右栏/时间轴/切分/工程播放条全让位，只留标题栏 + PV + 云队列条。
+    /// </summary>
+    public void SetPlayerMode(bool on, bool restoreSnapshot = true)
+    {
+        if (PlayerMode == on) return;
+        PlayerMode = on;
+        if (on)
+        {
+            Views.TapSession.Stop(); // 打点会话会抢窗口级空格
+            Keyboard.ClearFocus(); // 隐藏的输入框别继续持有焦点（空格判定看 FocusedElement）
+            _player.Enter();
+        }
+
+        BarTop.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        PaneLeft.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        PaneRight.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        // 播放器模式：左栏换成歌单侧栏（窄一点），编辑器面板让位
+        PanePlaylistSide.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        ColLeft.Width = on ? new GridLength(300) : new GridLength(340);
+        ColLeft.MinWidth = on ? 260 : 280;
+        ColRight.Width = on ? new GridLength(0) : new GridLength(370);
+        ColRight.MinWidth = on ? 0 : 300;
+        // 播放器模式：画面是内嵌的圆角卡片（四周留出底色），控制块紧贴画面下方 —— 对位酷狗歌曲页
+        PaneCenter.Margin = on ? new Thickness(16, 18, 28, 18) : new Thickness(16, 12, 16, 12);
+        StageFrame.BorderThickness = new Thickness(1);
+        StageFrame.CornerRadius = on ? new CornerRadius(14) : new CornerRadius(10);
+        StageFrame.Background = on ? System.Windows.Media.Brushes.Black : StageBg;
+        BarTransport.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        BarNowPlaying.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        BarTimeline.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        BarCutInfo.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        // 播放器模式下控制键在画面下方那张卡里，底部常驻条让位（避免两套控制重复）
+        BarCloud.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+        CenterGuide.Visibility = Visibility.Collapsed; // 播放器模式不留白指引
+        BtnModeEditor.Tag = on ? null : "on";
+        BtnModePlayer.Tag = on ? "on" : null;
+
+        if (!on) _player.Exit(restoreSnapshot);
+        RefreshPlayerOverlay();
+        Log.Info("[Main] 切换到" + (on ? "播放器" : "编辑器") + "模式");
+    }
+
+    /// <summary>播放器模式的空态提示：没在放歌时才显示（歌名/控制都在画面下方那张卡里）。</summary>
+    private void RefreshPlayerOverlay()
+    {
+        if (!PlayerMode) return;
+        TblPvHint.Visibility = _cloud.HasTrack ? Visibility.Collapsed : Visibility.Visible;
     }
 
     // ---------------- 窗口 chrome ----------------
@@ -1039,6 +1118,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _cloud.Dispose(); // 云试听：先停链再拆（进程要退了，避免设备句柄留到 GC）
         Follow.Stop(); // 跟随循环与引擎时钟归位（FollowEnd 冻结时间轴）
         _hIcon16?.Dispose();
         _hIcon32?.Dispose();

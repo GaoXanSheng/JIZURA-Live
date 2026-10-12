@@ -1281,6 +1281,88 @@
         </Setter>
     </Style>
 
+    <!-- 歌单卡片歌单卡片/侧栏色块底（无封面时按歌单名稳定哈希取一档暗色渐变；云面板与播放器侧栏共用） -->
+    <LinearGradientBrush x:Key="Tile1" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF3B2E4E" Offset="0" />
+        <GradientStop Color="#FF221C2C" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Tile2" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF24405C" Offset="0" />
+        <GradientStop Color="#FF181F2B" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Tile3" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF4A3620" Offset="0" />
+        <GradientStop Color="#FF241C15" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Tile4" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF1F4438" Offset="0" />
+        <GradientStop Color="#FF15241F" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Tile5" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF4A2434" Offset="0" />
+        <GradientStop Color="#FF25171E" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Tile6" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FF2A3350" Offset="0" />
+        <GradientStop Color="#FF1A1D29" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- 行内播放键（默认显示序号，悬停或正在试听时换成播放/暂停图标，见 SongRowTpl 的触发器） -->
+        <Style x:Key="RowPlayBtn" TargetType="Button">
+            <Setter Property="Width" Value="26" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource HoverWhite5}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    <!-- 标题栏的「编辑器 / 播放器」分段按钮（Tag="on" 为选中态；照抄云面板 PaneBtn 的选中视觉） -->
+    <Style x:Key="SegBtn" TargetType="Button">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Mut}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="10,3" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="6"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource HoverWhite5}" />
+                            <Setter Property="Foreground" Value="{StaticResource Fg}" />
+                        </Trigger>
+                        <Trigger Property="Tag" Value="on">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Amber10}" />
+                            <Setter Property="Foreground" Value="{StaticResource Amber}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- 通用几何图标（16 视图框，stroke 1.4 currentColor） -->
     <Geometry x:Key="IconLockPath">M5 7V5a3 3 0 0 1 6 0v2</Geometry>
     <Geometry x:Key="IconLockBody">M3 7h10v7H3z</Geometry>
@@ -1290,4 +1372,13 @@
     <Geometry x:Key="IconTapInner">M8 5.8a2.2 2.2 0 1 0 0 4.4a2.2 2.2 0 0 0 0-4.4z</Geometry>
     <Geometry x:Key="IconRangeEdge">M3 3v10M13 3v10</Geometry>
     <Geometry x:Key="IconRangeArrow">M5.5 8h5M8.5 5.5L11 8l-2.5 2.5</Geometry>
+
+    <!-- 云试听播放条的媒体图标（实心填充，16 视图框）。用几何不用字体图标：
+         pack 字体 URI 在本项目实测解析不到，Segoe Fluent Icons 也不允许随包分发 -->
+    <Geometry x:Key="IconPlay">M4.5 2.6v10.8L13 8z</Geometry>
+    <Geometry x:Key="IconPause">M4.2 2.8h2.8v10.4H4.2zM9 2.8h2.8v10.4H9z</Geometry>
+    <Geometry x:Key="IconPrev">M4 2.8h1.7v10.4H4zM12.6 2.8v10.4L5.9 8z</Geometry>
+    <Geometry x:Key="IconNext">M10.3 2.8H12v10.4h-1.7zM3.4 2.8v10.4L10.1 8z</Geometry>
+    <Geometry x:Key="IconVolume">M3 6h2.4L8.6 3.4v9.2L5.4 10H3zM10.6 6.2a2.6 2.6 0 0 1 0 3.6</Geometry>
+    <Geometry x:Key="IconVolumeMute">M3 6h2.4L8.6 3.4v9.2L5.4 10H3zM10.6 6.4l2.6 3.2M13.2 6.4l-2.6 3.2</Geometry>
 </ResourceDictionary>

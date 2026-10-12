@@ -276,32 +276,65 @@ public sealed partial class KuGouClient
         var token = S(st, "token");
         if (token.Length == 0)
             return new PlaylistsResponse { Ok = false, Error = "请先扫码登录酷狗" };
-        var d = await GatewayAsync("/v7/get_all_list", "cloudlist.service.kugou.com",
-            new Dictionary<string, string> { ["plat"] = "1" },
-            new JObject
-            {
-                ["userid"] = long.TryParse(S(st, "userid"), out var uid) ? uid : 0,
-                ["token"] = token,
-                ["total_ver"] = 979,
-                ["type"] = 2,
-                ["page"] = 1,
-                ["pagesize"] = 100
-            });
+        var myUid = long.TryParse(S(st, "userid"), out var uid) ? uid : 0;
         var r = new PlaylistsResponse { Ok = true };
-        foreach (var p in d["data"]?["info"] as JArray ?? new JArray())
+        // 分页拉全（原来固定 page=1&pagesize=100，歌单超过 100 个会被悄悄截断）；20 页封顶防呆
+        for (var page = 1; page <= 20; page++)
+        {
+            var d = await GatewayAsync("/v7/get_all_list", "cloudlist.service.kugou.com",
+                new Dictionary<string, string> { ["plat"] = "1" },
+                new JObject
+                {
+                    ["userid"] = myUid,
+                    ["token"] = token,
+                    ["total_ver"] = 979,
+                    ["type"] = 2,
+                    ["page"] = page,
+                    ["pagesize"] = 100
+                });
+            // 成功响应实测 status=1 / error_code=0；第一页就非 1 = 登录态问题（原来会静默变成「没有歌单」）
+            if (d.Value<int?>("status") is { } status && status != 1)
+            {
+                if (page == 1) return new PlaylistsResponse { Ok = false, Error = "酷狗登录状态已失效，请重新扫码" };
+                break; // 后续页失败：已读到的照常返回
+            }
+            if (d["data"]?["info"] is not JArray info) break;
+            r.List.AddRange(ParsePlaylistsPage(info, myUid));
+            var total = d["data"]?.Value<int?>("list_count") ?? r.List.Count;
+            if (info.Count == 0 || r.List.Count >= total) break;
+        }
+
+        return r;
+    }
+
+    /// <summary>
+    /// 解析 /v7/get_all_list 的一页（抽出来是为了能拿真实响应做测试）。
+    /// 归属判据实测：is_def 是平台自带的收藏夹（1=默认收藏、2=我喜欢）；is_mine 在这个接口上恒为 0
+    /// 不能用，改用 list_create_userid 是否是自己。
+    /// </summary>
+    public static List<PlaylistInfo> ParsePlaylistsPage(JArray info, long myUid)
+    {
+        var list = new List<PlaylistInfo>();
+        foreach (var p in info)
         {
             var id = p.Value<string>("global_collection_id") ?? "";
             var name = p.Value<string>("name") ?? "";
             if (id.Length == 0 || name.Length == 0) continue;
-            r.List.Add(new PlaylistInfo
+            var creatorId = p.Value<long?>("list_create_userid") ?? 0;
+            list.Add(new PlaylistInfo
             {
                 Id = id,
                 Name = name,
-                Count = p.Value<int?>("count") ?? 0
+                Count = p.Value<int?>("count") ?? 0,
+                Creator = p.Value<string>("list_create_username") ?? "",
+                // 歌单封面与歌曲封面同形：pic 里带 {size} 占位
+                Cover = p.Value<string>("pic")?.Replace("{size}", "240") ?? "",
+                Kind = (p.Value<int?>("is_def") ?? 0) > 0 ? PlaylistKind.Liked
+                    : creatorId > 0 && creatorId == myUid ? PlaylistKind.Mine
+                    : PlaylistKind.Subscribed,
             });
         }
-
-        return r;
+        return list;
     }
 
     // 歌单歌曲映射成搜索结果同款 DTO，前端渲染零改动

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -90,47 +90,38 @@ public static class SongLoader
         string quality, Action<string>? progress = null, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
+        var prepared = await PrepareAsync(state, source, song, quality, progress,
+            // 歌词一拿到就先落进工程（老语义：音频装载失败时已写入的歌词也得排进 plan）
+            lrc => state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: false), ct);
+        state.Mutate(p =>
+        {
+            p.Title = song.Name;
+            p.Artist = song.Singer;
+        }, L.T("CloudSong.MutateTitleArtist"), replan: false, look: true);
+
+        state.SetAudio(prepared.Audio, prepared.Path, prepared.FileName); // 内部 ReplanAsync，歌词与音频一次排进 plan
+        sw.Stop();
+        Log.Info($"[Cloud] 已装载：{song.Name} - {song.Singer} → {prepared.Path}"
+                 + $"（{J.FmtTime(prepared.Audio.Duration)}，{prepared.Audio.Bpm:0.0} BPM，{sw.ElapsedMilliseconds:#,0}ms{prepared.Note}）");
+        return new CloudLoadResult(prepared.Path, prepared.FileName, prepared.Lrc, prepared.Note, prepared.Trial,
+            prepared.Audio.Duration, prepared.Audio.Bpm, sw.ElapsedMilliseconds);
+    }
+
+    /// <summary>一首云歌"能渲染 PV"所需的全部素材。</summary>
+    public sealed record PreparedSong(string Path, string FileName, bool Trial, string Lrc, string Note, AudioData Audio);
+
+    /// <summary>
+    /// 把一首云歌准备成能渲染的 PV：下载（走下载记录/缓存）→ 取词（AdoptLyric 写字幕层与歌词来源，会话级）
+    /// → 解码 + 节拍分析。**不写工程**——写不写歌词/曲名由调用方决定（装载要写、播放器模式预取不写）。
+    /// onLyrics：歌词一就绪就回调（装载路径借它实现"音频失败也保住歌词"的老语义）。
+    /// 分析失败抛 CloudException（此时歌词已通过 onLyrics/AdoptLyric 生效）。
+    /// </summary>
+    public static async Task<PreparedSong> PrepareAsync(EditorState state, string source, KgSong song,
+        string quality, Action<string>? progress = null, Action<string>? onLyrics = null,
+        CancellationToken ct = default)
+    {
         var identity = IdentityOf(source, song);
-
-        // 下载记录先行：同一首歌 + 同一音质已经下好，连 URL 接口都不请求（离线、VIP 状态变化都能重载）
-        string path;
-        string fileName;
-        var trial = false;
-        var rec = AudioIndex.Get(source, identity, quality);
-        if (rec != null)
-        {
-            progress?.Invoke(L.T("CloudSong.CacheHit"));
-            path = AudioIndex.FilePath(rec.File)!;
-            fileName = rec.File;
-            Log.Info($"[Cloud] 命中下载记录：{rec.File}（{source}:{identity}:{quality}）");
-        }
-        else
-        {
-            progress?.Invoke(L.T("CloudSong.GetUrl"));
-            var u = source == "netease"
-                ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
-                : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
-                    int.TryParse(quality, out var q) ? q : 128);
-            if (!u.Ok || string.IsNullOrEmpty(u.Url))
-            {
-                var name = source == "netease" ? L.T("Cloud.SourceNetease") : L.T("Cloud.SourceKugou");
-                throw new CloudException(u.Error
-                                         ?? (u.NeedVip == true
-                                             ? L.F("CloudSong.NeedVip", name)
-                                             : L.T("CloudSong.NoUrl")));
-            }
-
-            var ext = (u.Ext ?? "mp3").ToLowerInvariant();
-            fileName = AudioIndex.ResolveFileName(source, identity, song.Singer, song.Name, ext);
-            trial = u.Trial == true;
-            // 同一首歌的旧记录：换了音质（128k/320k 都落 mp3、文件名相同）、或上次只下到试听片段而现在能拿
-            // 完整音轨 → 同名文件不能沿用，重下覆盖；其余情况沿用「同名文件存在即复用」的老口径（兼容老缓存）
-            var prev = AudioIndex.GetAny(source, identity);
-            progress?.Invoke(L.T("CloudSong.Download"));
-            path = await DownloadAudioAsync(u.Url, fileName, ct, AudioIndex.CanReuseExisting(prev, quality, trial));
-            AudioIndex.Put(source, identity, quality, fileName, new FileInfo(path).Length, ext, trial,
-                song.Name, song.Singer);
-        }
+        var (path, fileName, trial, _) = await EnsureAudioFileAsync(source, song, quality, progress, ct);
 
         // 歌词：失败不拦音频（老版本同策略——有歌没词照样能做）
         string lrc = "";
@@ -159,15 +150,7 @@ public static class SongLoader
             Log.Debug("[Cloud] 歌词加载失败（继续装载音频）：" + ex.Message);
             lyricNote = "，歌词加载失败";
         }
-
-        // 写工程（音频装载成功与否都要落：老版本音频失败时已写入的歌词也得排进 plan）
-        if (lrc.Length > 0)
-            state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: false);
-        state.Mutate(p =>
-        {
-            p.Title = song.Name;
-            p.Artist = song.Singer;
-        }, L.T("CloudSong.MutateTitleArtist"), replan: false, look: true);
+        if (lrc.Length > 0) onLyrics?.Invoke(lrc);
 
         progress?.Invoke(L.T("CloudSong.Analyze"));
         AudioData audio;
@@ -192,16 +175,11 @@ public static class SongLoader
         }
         catch (Exception ex)
         {
-            state.ReplanAsync(); // 歌词已写入但音频装载失败：这里补一次重排
+            state.ReplanAsync(); // 歌词可能已写入：这里补一次重排
             throw new CloudException(L.F("CloudSong.LoadAudioFailed", ex.Message));
         }
 
-        state.SetAudio(audio, path, fileName); // 内部 ReplanAsync，歌词与音频一次排进 plan
-        sw.Stop();
-        Log.Info($"[Cloud] 已装载：{song.Name} - {song.Singer} → {path}"
-                 + $"（{J.FmtTime(audio.Duration)}，{audio.Bpm:0.0} BPM，{sw.ElapsedMilliseconds:#,0}ms{lyricNote}）");
-        return new CloudLoadResult(path, fileName, lrc, lyricNote, trial,
-            audio.Duration, audio.Bpm, sw.ElapsedMilliseconds);
+        return new PreparedSong(path, fileName, trial, lrc, lyricNote, audio);
     }
 
     /// <summary>
@@ -311,6 +289,53 @@ public static class SongLoader
     }
 
     // ---------------- 音频下载 ----------------
+
+    /// <summary>
+    /// 装载与试听共用的第一步：拿到这首歌的本地音频文件（不碰工程、不解码分析）。
+    /// 下载记录命中 → 连 URL 接口都不请求；否则 URL 接口 + 下载并记账。
+    /// 返回 (文件路径, 缓存文件名, 是否试听片段, 是否来自缓存)。
+    /// </summary>
+    public static async Task<(string Path, string FileName, bool Trial, bool FromCache)> EnsureAudioFileAsync(
+        string source, KgSong song, string quality, Action<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        var identity = IdentityOf(source, song);
+
+        // 下载记录先行：同一首歌 + 同一音质已经下好，连 URL 接口都不请求（离线、VIP 状态变化都能重载）
+        var rec = AudioIndex.Get(source, identity, quality);
+        if (rec != null)
+        {
+            progress?.Invoke(L.T("CloudSong.CacheHit"));
+            Log.Info($"[Cloud] 命中下载记录：{rec.File}（{source}:{identity}:{quality}）");
+            return (AudioIndex.FilePath(rec.File)!, rec.File, false, true);
+        }
+
+        progress?.Invoke(L.T("CloudSong.GetUrl"));
+        var u = source == "netease"
+            ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
+            : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
+                int.TryParse(quality, out var q) ? q : 128);
+        if (!u.Ok || string.IsNullOrEmpty(u.Url))
+        {
+            var name = source == "netease" ? L.T("Cloud.SourceNetease") : L.T("Cloud.SourceKugou");
+            throw new CloudException(u.Error
+                                     ?? (u.NeedVip == true
+                                         ? L.F("CloudSong.NeedVip", name)
+                                         : L.T("CloudSong.NoUrl")));
+        }
+
+        var ext = (u.Ext ?? "mp3").ToLowerInvariant();
+        var fileName = AudioIndex.ResolveFileName(source, identity, song.Singer, song.Name, ext);
+        var trial = u.Trial == true;
+        // 同一首歌的旧记录：换了音质（128k/320k 都落 mp3、文件名相同）、或上次只下到试听片段而现在能拿
+        // 完整音轨 → 同名文件不能沿用，重下覆盖；其余情况沿用「同名文件存在即复用」的老口径（兼容老缓存）
+        var prev = AudioIndex.GetAny(source, identity);
+        progress?.Invoke(L.T("CloudSong.Download"));
+        var path = await DownloadAudioAsync(u.Url, fileName, ct, AudioIndex.CanReuseExisting(prev, quality, trial));
+        AudioIndex.Put(source, identity, quality, fileName, new FileInfo(path).Length, ext, trial,
+            song.Name, song.Singer);
+        return (path, fileName, trial, false);
+    }
 
     /// <summary>
     /// 下载音频到缓存目录（同名复用已有文件；大小&gt;0 视为有效）。域名白名单 + 重定向后复检 +

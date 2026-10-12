@@ -39,6 +39,10 @@ public sealed class Settings
     public double PreviewVolume { get; set; } = 0.8;
     public bool PreviewMuted { get; set; }
 
+    // 云试听音量/消音（独立于工程预览：两条链各一台 WaveOut，音量也各管各的）
+    public double CloudVolume { get; set; } = 0.85;
+    public bool CloudMuted { get; set; }
+
     // 字体按需拉取（老前端 fetch-fonts 的联网对应物）：目录/系统都没有的字体家族后台从
     // Google Fonts 仓库镜像拉进用户字体库；关掉 = 纯本地（exe 旁 fonts\ + 系统字体栈）
     public bool FetchFonts { get; set; } = true;

@@ -49,29 +49,42 @@ public static class JzAnim
 
     // ---------------- 进入动画 ----------------
 
-    /// <summary>淡入：Opacity 0→1（元素基值保持 1，播完不留时钟）。</summary>
-    public static void FadeIn(FrameworkElement? el, Duration? dur = null)
+    /// <summary>淡入：Opacity 0→1（元素基值保持 1，播完不留时钟）。
+    /// <paramref name="delay"/> &gt; 0 时元素先隐形等着（否则延迟期间会先亮着再淡入），播完把基值补回 1。</summary>
+    public static void FadeIn(FrameworkElement? el, Duration? dur = null, TimeSpan delay = default)
     {
         if (el == null || !Enabled) return;
-        el.BeginAnimation(UIElement.OpacityProperty,
-            new DoubleAnimation(0, 1, dur ?? Panel) { EasingFunction = EaseOut, FillBehavior = FillBehavior.Stop });
+        var anim = new DoubleAnimation(0, 1, dur ?? Panel) { EasingFunction = EaseOut, FillBehavior = FillBehavior.Stop };
+        if (delay > TimeSpan.Zero)
+        {
+            el.Opacity = 0;
+            anim.BeginTime = delay;
+            anim.Completed += (_, _) => el.Opacity = 1;
+        }
+        el.BeginAnimation(UIElement.OpacityProperty, anim);
     }
 
     /// <summary>
-    /// 淡入 + 轻微上浮（面板 / 浮层进入）。
+    /// 淡入 + 轻微上浮（面板 / 浮层进入，也用于列表卡片错峰入场）。
     /// 契约：会整体接管 <paramref name="el"/> 的 RenderTransform —— 只可用于本身没有
     /// RenderTransform 的元素（各面板、浮层根、卡片）；Transport 的拖柄之类自带变换的元素别传。
     /// </summary>
-    public static void FadeSlideIn(FrameworkElement? el, double dy = 4, Duration? dur = null)
+    public static void FadeSlideIn(FrameworkElement? el, double dy = 4, Duration? dur = null,
+        TimeSpan delay = default)
     {
         if (el == null || !Enabled) return;
         var d = dur ?? Panel;
-        FadeIn(el, d);
+        FadeIn(el, d, delay);
         // 基值必须是终值（0）：FillBehavior.Stop 播完回落基值，基值若设成起点 dy 元素会永久下移
         var tt = new TranslateTransform(0, 0);
         el.RenderTransform = tt;
         tt.BeginAnimation(TranslateTransform.YProperty,
-            new DoubleAnimation(dy, 0, d) { EasingFunction = EaseOut, FillBehavior = FillBehavior.Stop });
+            new DoubleAnimation(dy, 0, d)
+            {
+                BeginTime = delay > TimeSpan.Zero ? delay : null,
+                EasingFunction = EaseOut,
+                FillBehavior = FillBehavior.Stop
+            });
     }
 
     /// <summary>弹窗卡片微缩放 + 上浮（不做透明度 —— 遮罩那层已经在淡入，卡片再淡一层会发灰）。</summary>

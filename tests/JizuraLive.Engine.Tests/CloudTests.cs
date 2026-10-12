@@ -1,10 +1,13 @@
-using System.IO;
+﻿using System.IO;
 using System.IO.Compression;
 using System.Text;
 using JizuraLive.App;
 using JizuraLive.App.Cloud;
 using JizuraLive.App.Views;
+using JizuraLive.Server.KuGou;
 using JizuraLive.Server.Models;
+using JizuraLive.Server.Netease;
+using Newtonsoft.Json.Linq;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -457,7 +460,105 @@ public class CloudTests
         }
     }
 
+    // ---------------- 歌单：归属解析与分组（字段取自真实响应，值做了替换） ----------------
+
+    [Fact]
+    public void 歌单解析_酷狗_默认收藏夹与自建收藏三分()
+    {
+        // /v7/get_all_list 实测片段：is_def 1=默认收藏、2=我喜欢；is_mine 恒为 0 不可用，
+        // 自建靠 list_create_userid 是否等于自己
+        var page = JObject.Parse("""
+        {"data":{"info":[
+          {"global_collection_id":"collection_3_111_1_0","name":"默认收藏","count":39,"is_def":1,"is_mine":0,"list_create_userid":111,"list_create_username":"我"},
+          {"global_collection_id":"collection_3_111_2_0","name":"我喜欢","count":95,"is_def":2,"is_mine":0,"list_create_userid":111,"list_create_username":"我"},
+          {"global_collection_id":"collection_3_111_3_0","name":"我的自建","count":12,"is_def":0,"is_mine":0,"list_create_userid":111,"list_create_username":"我"},
+          {"global_collection_id":"collection_3_222_4_0","name":"别人的歌单","count":7,"is_def":0,"is_mine":0,"list_create_userid":222,"list_create_username":"别人"},
+          {"global_collection_id":"","name":"没有 ID","count":1}
+        ]}}
+        """);
+        var list = KuGouClient.ParsePlaylistsPage((JArray)page["data"]!["info"]!, 111);
+
+        Assert.Equal(4, list.Count); // 缺 ID 的那条丢掉
+        Assert.Equal([PlaylistKind.Liked, PlaylistKind.Liked, PlaylistKind.Mine, PlaylistKind.Subscribed],
+            list.Select(p => p.Kind));
+        Assert.Equal("我", list[2].Creator);
+        Assert.Equal("别人", list[3].Creator);
+        Assert.Equal(39, list[0].Count);
+    }
+
+    [Fact]
+    public void 歌单解析_网易云_喜欢的音乐与订阅区开()
+    {
+        // /api/user/playlist 实测片段：specialType=5 是我喜欢的音乐（trackCount 常见为 0）
+        var d = JObject.Parse("""
+        {"code":200,"playlist":[
+          {"id":4970371340,"name":"我喜欢的音乐","trackCount":0,"subscribed":false,"specialType":5,
+           "creator":{"userId":333,"nickname":"我"}},
+          {"id":6660664727,"name":"steam","trackCount":18,"subscribed":false,"specialType":0,
+           "creator":{"userId":333,"nickname":"我"}},
+          {"id":8888888888,"name":"收藏别人的","trackCount":40,"subscribed":true,"specialType":0,
+           "creator":{"userId":444,"nickname":"别人"}}
+        ]}
+        """);
+        var list = NeteaseClient.ParsePlaylists(d, 333);
+
+        Assert.Equal(3, list.Count);
+        Assert.Equal([PlaylistKind.Liked, PlaylistKind.Mine, PlaylistKind.Subscribed],
+            list.Select(p => p.Kind));
+        Assert.Equal("我喜欢的音乐", list[0].Name);
+        Assert.Equal("别人", list[2].Creator);
+        Assert.Equal(18, list[1].Count);
+    }
+
+    [Fact]
+    public void 歌单分组_按归属三段_缺归属信息时合成一段()
+    {
+        var all = new List<PlaylistInfo>
+        {
+            new() { Name = "喜欢", Kind = PlaylistKind.Liked },
+            new() { Name = "自建一", Kind = PlaylistKind.Mine },
+            new() { Name = "自建二", Kind = PlaylistKind.Mine },
+            new() { Name = "收藏的", Kind = PlaylistKind.Subscribed },
+        };
+        var g = CloudPanel.GroupPlaylists(all);
+        Assert.True(g.Grouped);
+        Assert.Single(g.Liked);
+        Assert.Equal(2, g.Mine.Count);
+        Assert.Single(g.Sub);
+
+        // 平台没给归属信息：不假装分组，全部合成一段（否则歌单会凭空消失）
+        var u = CloudPanel.GroupPlaylists(new List<PlaylistInfo> { new() { Name = "一" }, new() { Name = "二" } });
+        Assert.False(u.Grouped);
+        Assert.Equal(2, u.Mine.Count);
+        Assert.Empty(u.Liked);
+        Assert.Empty(u.Sub);
+    }
+
     // ---------------- 工程音频自动备份去重（cache\audio\autosave_song.*） ----------------
+
+    // ---------------- 云试听会话（纯逻辑，不碰音频设备） ----------------
+
+    [Fact]
+    public void 试听队列_上一首下一首与放完收场()
+    {
+        Assert.Equal(1, CloudPlayService.StepIndex(0, 1, 3));
+        Assert.Equal(0, CloudPlayService.StepIndex(0, -1, 3));  // 开头按上一首：停在第一首
+        Assert.Equal(0, CloudPlayService.StepIndex(-1, 1, 3));  // 还没起播时按下一位：从第一首（下标 0）开始
+        Assert.Equal(-1, CloudPlayService.StepIndex(2, 1, 3));  // 最后一首放完：收场（不循环）
+        Assert.Equal(-1, CloudPlayService.StepIndex(0, 1, 0));  // 空队列
+    }
+
+    [Fact]
+    public void 试听同歌判定_平台加平台内身份()
+    {
+        var a = new KgSong { Source = "kugou", Hash = "H1", Name = "A" };
+        var b = new KgSong { Source = "kugou", Hash = "H1", Name = "A（面板重建后的另一份对象）" };
+        var c = new KgSong { Source = "kugou", Hash = "H2", Name = "A" };
+        var d = new KgSong { Source = "netease", Id = "H1", Name = "A" };
+        Assert.True(CloudPlayService.SameSong(a, b));   // 队列与列表是两批对象，按身份认领
+        Assert.False(CloudPlayService.SameSong(a, c));  // 同平台不同歌
+        Assert.False(CloudPlayService.SameSong(a, d));  // 平台不同（酷狗 Hash 与网易云 Id 撞值也不算同一首）
+    }
 
     [Fact]
     public void 音频备份_同一份源文件只拷一次()

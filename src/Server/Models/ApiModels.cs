@@ -110,12 +110,31 @@ public sealed class KgLoginResponse : ApiResponse
     public string? UserId { get; set; }
 }
 
+/// <summary>歌单归属（两块都实测过：酷狗 /v7/get_all_list 的 is_def + list_create_userid，
+/// 网易云 /api/user/playlist 的 specialType + subscribed）。空串＝平台没给，UI 不分组。</summary>
+public static class PlaylistKind
+{
+    public const string Mine = "mine";       // 我创建的
+    public const string Subscribed = "sub";  // 我收藏的
+    public const string Liked = "liked";     // 平台默认收藏夹（网易云「我喜欢的音乐」/酷狗「默认收藏」「我喜欢」）
+}
+
 // 歌单条目，酷狗（global_collection_id）与网易云共用同一形态
 public sealed class PlaylistInfo
 {
     [JsonProperty("id")] public string Id { get; set; } = "";
     [JsonProperty("name")] public string Name { get; set; } = "";
     [JsonProperty("count")] public int Count { get; set; }
+
+    [JsonProperty("kind", NullValueHandling = NullValueHandling.Ignore)]
+    public string Kind { get; set; } = "";
+
+    [JsonProperty("creator", NullValueHandling = NullValueHandling.Ignore)]
+    public string Creator { get; set; } = "";
+
+    /// <summary>歌单封面（酷狗 pic 的 {size} 已替换成实尺寸；两平台都可能为空）。</summary>
+    [JsonProperty("cover", NullValueHandling = NullValueHandling.Ignore)]
+    public string Cover { get; set; } = "";
 }
 
 public sealed class PlaylistsResponse : ApiResponse

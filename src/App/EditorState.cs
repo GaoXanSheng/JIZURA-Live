@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
@@ -225,6 +225,55 @@ public sealed class EditorState : IDisposable
         {
             _mutating = false;
         }
+    }
+
+    /// <summary>
+    /// 不压撤销历史的修改：播放器模式逐首换歌词/曲名/歌手用它——50 步的历史栈会被几十首歌挤光，
+    /// 用户自己的编辑历史就没了。其余语义（重规划/通知/防抖存盘）与 <see cref="Mutate"/> 一致。
+    /// </summary>
+    public void MutateNoHistory(Action<Project> edit, string label, bool replan = true)
+    {
+        if (_mutating)
+        {
+            Log.Error($"Mutate 重入被拒绝：{label}（StateChanged 处理器内再次 Mutate 属 UI 回环）");
+            return;
+        }
+        _mutating = true;
+        try
+        {
+            try
+            {
+                edit(Project);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Mutate 失败（未回滚：半套改动保留，照常 AfterChange）：" + label, ex);
+            }
+            AfterChange(replan);
+        }
+        finally
+        {
+            _mutating = false;
+        }
+    }
+
+    /// <summary>
+    /// 把工程整份还原到某个快照（播放器模式退出时用）：不压历史、不碰音频字段（音频全程没被改过），
+    /// 还原后重规划 + 存盘。快照损坏时保持现状并记日志。
+    /// </summary>
+    public bool RestoreSnapshotSilently(string json)
+    {
+        try
+        {
+            PopulateFrom(json, Project);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[Player] 工程快照还原失败（保持现状）：" + ex.Message);
+            return false;
+        }
+        AfterChange(true);
+        return true;
     }
 
     private void MutateCore(Action<Project> edit, string label, bool replan, bool look)

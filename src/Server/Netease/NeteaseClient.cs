@@ -292,20 +292,46 @@ public sealed partial class NeteaseClient
         var d = await PostAsync("/api/user/playlist", new JObject
         {
             ["uid"] = long.Parse(uid),
-            ["limit"] = 60,
+            ["limit"] = 1000, // 一次拉全（原来 60 会让歌单多的账号被截断）
             ["offset"] = 0,
             ["includeVideoSong"] = true
         }, false);
+        // 成功响应实测 code=200（原来不查 code：凭据失效会静默显示成「还没有歌单」）
+        if (d.Value<int?>("code") is { } code && code != 200)
+            return new PlaylistsResponse { Ok = false, Error = "网易云登录状态已失效，请重新扫码" };
         var r = new PlaylistsResponse { Ok = true };
-        foreach (var p in d["playlist"] as JArray ?? new JArray())
-            r.List.Add(new PlaylistInfo
-            {
-                Id = p.Value<long?>("id")?.ToString() ?? "",
-                Name = p.Value<string>("name") ?? "",
-                Count = p.Value<int?>("trackCount") ?? 0
-            });
-
+        r.List.AddRange(ParsePlaylists(d, long.TryParse(uid, out var me) ? me : 0));
         return r;
+    }
+
+    /// <summary>解析 /api/user/playlist（抽出来是为了能拿真实响应做测试）：
+    /// specialType=5 是我喜欢的音乐（平台的默认收藏夹，不算自建）；其余按 subscribed/creator 判。</summary>
+    public static List<PlaylistInfo> ParsePlaylists(JObject d, long myUid)
+    {
+        var list = new List<PlaylistInfo>();
+        foreach (var p in d["playlist"] as JArray ?? new JArray())
+        {
+            var id = p.Value<long?>("id")?.ToString() ?? "";
+            var name = p.Value<string>("name") ?? "";
+            if (id.Length == 0 || name.Length == 0) continue;
+            var creatorId = p["creator"]?.Value<long?>("userId") ?? p.Value<long?>("userId") ?? 0;
+            var subscribed = p.Value<bool?>("subscribed") ?? false;
+            list.Add(new PlaylistInfo
+            {
+                Id = id,
+                Name = name,
+                Count = p.Value<int?>("trackCount") ?? 0,
+                Creator = p["creator"]?.Value<string>("nickname") ?? "",
+                // 封面：网易云图床支持 ?param=WxH 取小图（面板卡片只要 96px）
+                Cover = (p.Value<string>("coverImgUrl") ?? "") is { Length: > 0 } c && !c.Contains('?')
+                    ? c + "?param=96y96"
+                    : p.Value<string>("coverImgUrl") ?? "",
+                Kind = p.Value<int?>("specialType") == 5 ? PlaylistKind.Liked
+                    : !subscribed || (creatorId > 0 && creatorId == myUid) ? PlaylistKind.Mine
+                    : PlaylistKind.Subscribed,
+            });
+        }
+        return list;
     }
 
     public async Task<KgSearchResponse> PlaylistSongsAsync(string? id)
