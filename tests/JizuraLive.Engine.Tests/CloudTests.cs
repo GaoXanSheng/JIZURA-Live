@@ -211,6 +211,38 @@ public class CloudTests
         Assert.Equal("[00:10.00]你好世界|hello world\n", text);
     }
 
+    [Fact]
+    public void ParseLrc_标准时间标签_成功解析字幕行与时长()
+    {
+        var src = "[ti:Test]\n" +
+                  "[00:02.50]第一句歌词\n" +
+                  "[00:06.00]第二句歌词|注音忽略\n" +
+                  "[间奏 4]\n" +
+                  "[00:12.00]第三句歌词\n";
+        var lines = Krc.ParseLrc(src);
+        Assert.NotNull(lines);
+        Assert.Equal(3, lines!.Count);
+        Assert.Equal(2500, lines[0].StartMs);
+        Assert.Equal("第一句歌词", lines[0].Text);
+        Assert.Equal(3500, lines[0].DurMs); // 6000 - 2500
+
+        Assert.Equal(6000, lines[1].StartMs);
+        Assert.Equal("第二句歌词", lines[1].Text);
+        Assert.Equal(6000, lines[1].DurMs); // 12000 - 6000
+
+        Assert.Equal(12000, lines[2].StartMs);
+        Assert.Equal("第三句歌词", lines[2].Text);
+        Assert.Equal(4000, lines[2].DurMs); // 末行兜底 4000ms
+    }
+
+    [Fact]
+    public void ParseLrc_纯文本无时间戳_返回null()
+    {
+        Assert.Null(Krc.ParseLrc("我还记得黎明的颜色\n远处响起渐渐散去的声音"));
+        Assert.Null(Krc.ParseLrc(""));
+        Assert.Null(Krc.ParseLrc(null));
+    }
+
     // ---------------- 文件名 ----------------
 
     [Fact]

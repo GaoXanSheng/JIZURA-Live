@@ -792,7 +792,7 @@ public partial class MainWindow : Window
         var ver = _preview.SubtitleVersion;
         if (_subLayer == null || _subLayerVer != ver || !ReferenceEquals(_subLayerPlan, plan))
         {
-            _subLayer = new SubtitleLayer(lines, _preview.SubtitleCfg, notes, mainLine: false);
+            _subLayer = new SubtitleLayer(lines, _preview.SubtitleCfg, notes, mainLine: true);
             _subLayerVer = ver;
             _subLayerPlan = plan;
         }
@@ -800,7 +800,7 @@ public partial class MainWindow : Window
         return _subLayer;
     }
 
-    /// <summary>把字幕层叠到已渲染的帧上。只画注音/翻译行——主歌词由引擎自己画，叠主行会重影；
+    /// <summary>把字幕层叠到已渲染的帧上。包含主歌词行与注音/翻译行（配置为 Off 时由 OverlayLayer 返回 null 略过）；
     /// 尺寸用设备像素（w/h），排版常数与导出烤入同源派生，保证预览与导出所见一致。</summary>
     private static void PaintSubtitleOverlay(SKCanvas canvas, SubtitleLayer? layer, double t, int w, int h)
     {
@@ -908,8 +908,13 @@ public partial class MainWindow : Window
     private static readonly System.Windows.Media.Brush StageBg =
         new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0F, 0x0F, 0x12));
 
-    private void BtnMode_Click(object sender, RoutedEventArgs e) =>
-        SetPlayerMode(ReferenceEquals(sender, BtnModePlayer));
+    private void BtnMode_Click(object sender, RoutedEventArgs e)
+    {
+        var toPlayer = ReferenceEquals(sender, BtnModePlayer);
+        // 从播放器切回编辑器时：若在播放器中已选歌播放过，应保留当前播放的云歌到编辑器（不以旧快照覆盖）
+        var restore = !toPlayer && !_player.HasActiveSong;
+        SetPlayerMode(toPlayer, restore);
+    }
 
     /// <summary>
     /// 切模式：**瞬切**——连续改列宽/边距会让 Stage 每帧 SizeChanged，CPU 渲染路径会反复冲刷帧缓存。

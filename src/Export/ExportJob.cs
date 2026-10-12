@@ -146,10 +146,10 @@ public static class ExportJob
                 }
             }
 
-            // 字幕：CustomDrawOnly 时画全套（mainLine: true）；BakeSubs 时只画注音/翻译行（mainLine: false，主歌词由引擎画）
+            // 字幕：CustomDrawOnly 与 BakeSubs 烤入均画全套字幕（mainLine: true，主歌词+注音翻译）
             var subLayer = (isCustomDrawOnly || req.Spec.BakeSubs) && subLines is { Count: > 0 }
                 ? new SubtitleLayer(subLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
-                    subNotes, mainLine: isCustomDrawOnly)
+                    subNotes, mainLine: true)
                 : null;
             using var enc = new FFmpegEncoder(BuildVideoArgs(req, fps, transparent, tmpWav), frames);
             var stride = bmp.RowBytes;
@@ -281,10 +281,10 @@ public static class ExportJob
         var statAtFront = Stopwatch.GetTimestamp(); // 分层两面各一套窗口（共用会把前者的窗口吃掉）
         try
         {
-            // 字幕：CustomDrawOnly 时画全套（mainLine: true）；BakeSubs 时只画注音/翻译行（mainLine: false，主歌词由引擎画）
+            // 字幕：CustomDrawOnly 与 BakeSubs 烤入均画全套字幕（mainLine: true，主歌词+注音翻译）
             subLayer = (isCustomDrawOnly || (!layered && req.Spec.BakeSubs)) && subLines is { Count: > 0 }
                 ? new SubtitleLayer(subLines, req.SubtitleCfg ?? new SubtitleConfig { Content = SubContent.Both },
-                    subNotes, mainLine: isCustomDrawOnly)
+                    subNotes, mainLine: true)
                 : null;
 
             backBmp = new SKBitmap(StageInfo(ow, oh, transparent: backTransparent));

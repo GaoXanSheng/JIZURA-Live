@@ -168,7 +168,9 @@ public partial class LyricsPanel : UserControl
         var v = _pendingLyrics;
         _pendingLyrics = null;
         if (v == null || v == State.Project.Lyrics) return;
-        // 歌词是内容修改：edit 历史 + 重规划（replan:true）
+        // 歌词修改：尝试从时间标签提取字幕层；若无时间标签则清空逐字字幕避免残留不匹配
+        var subs = Krc.ParseLrc(v);
+        State.SetSubtitles(subs);
         State.Mutate(p => p.Lyrics = v, L.T("Lyrics.Mutate.Lyrics"), replan: true);
     }
 
@@ -214,12 +216,14 @@ public partial class LyricsPanel : UserControl
         LoadLrc(text);
     }
 
-    /// <summary>loadLrc 移植：去 BOM、统一换行、清行时间/覆盖，回到开头（可撤销）。</summary>
+    /// <summary>loadLrc 移植：去 BOM、统一换行、解析字幕行、清行时间/覆盖，回到开头（可撤销）。</summary>
     public void LoadLrc(string text)
     {
         var main = App.MainInstance!;
         main.Preview.Pause();
         var normalized = (text ?? "").Replace("\uFEFF", "").Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+        var subs = Krc.ParseLrc(normalized);
+        State.SetSubtitles(subs);
         State.Mutate(p =>
         {
             p.Lyrics = normalized;
@@ -241,6 +245,7 @@ public partial class LyricsPanel : UserControl
 
         var main = App.MainInstance!;
         main.Preview.Pause();
+        State.SetSubtitles(null);
         State.Mutate(x =>
         {
             x.Lyrics = "";

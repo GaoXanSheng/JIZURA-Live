@@ -127,6 +127,13 @@ public sealed class CloudPlayService : IDisposable
         Changed?.Invoke();
     }
 
+    public void Pause()
+    {
+        if (!_player.IsPlaying) return;
+        _player.Pause();
+        Changed?.Invoke();
+    }
+
     public void Next() => _ = StepAsync(1);
 
     public void Prev() => _ = StepAsync(-1);

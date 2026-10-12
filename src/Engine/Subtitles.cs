@@ -177,7 +177,7 @@ public sealed class SubtitleLayer
     /// 没有 KRC 逐字数据时（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）从 plan 的行与
     /// 注音合成字幕行：非间奏行整行合成一个「词」（无逐字时间），这样 mainLine=true
     /// 的 Spout 字幕通道与纯字幕导出也能画出主行；注音取 PlanLine.Note。
-    /// 全行都没有注音内容返回 null（调用方退化为不画字幕）。
+    /// 全行都没有非空歌词与注音内容返回 null（调用方退化为不画字幕）。
     /// 预览叠加、导出烤入、Spout 字幕通道三条路共用这一份，避免各处行为漂移。
     /// </summary>
     public static (List<KrcLine> Lines, IReadOnlyList<string> Notes)? FromPlan(Plan? plan)

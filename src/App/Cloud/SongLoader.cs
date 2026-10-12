@@ -92,13 +92,15 @@ public static class SongLoader
         var sw = Stopwatch.StartNew();
         var prepared = await PrepareAsync(state, source, song, quality, progress,
             // 歌词一拿到就先落进工程（老语义：音频装载失败时已写入的歌词也得排进 plan）
-            lrc => state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: false), ct);
+            lrc => state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: false), ct, applyToState: false);
         state.Mutate(p =>
         {
             p.Title = song.Name;
             p.Artist = song.Singer;
         }, L.T("CloudSong.MutateTitleArtist"), replan: false, look: true);
 
+        state.SetSubtitles(prepared.Subtitles);
+        if (prepared.LyricSource != null) state.SetLyricSource(prepared.LyricSource);
         state.SetAudio(prepared.Audio, prepared.Path, prepared.FileName); // 内部 ReplanAsync，歌词与音频一次排进 plan
         sw.Stop();
         Log.Info($"[Cloud] 已装载：{song.Name} - {song.Singer} → {prepared.Path}"
@@ -108,7 +110,8 @@ public static class SongLoader
     }
 
     /// <summary>一首云歌"能渲染 PV"所需的全部素材。</summary>
-    public sealed record PreparedSong(string Path, string FileName, bool Trial, string Lrc, string Note, AudioData Audio);
+    public sealed record PreparedSong(string Path, string FileName, bool Trial, string Lrc, string Note, AudioData Audio,
+        List<KrcLine>? Subtitles = null, LyricSource? LyricSource = null);
 
     /// <summary>
     /// 把一首云歌准备成能渲染的 PV：下载（走下载记录/缓存）→ 取词（AdoptLyric 写字幕层与歌词来源，会话级）
@@ -118,7 +121,7 @@ public static class SongLoader
     /// </summary>
     public static async Task<PreparedSong> PrepareAsync(EditorState state, string source, KgSong song,
         string quality, Action<string>? progress = null, Action<string>? onLyrics = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, bool applyToState = false)
     {
         var identity = IdentityOf(source, song);
         var (path, fileName, trial, _) = await EnsureAudioFileAsync(source, song, quality, progress, ct);
@@ -126,6 +129,8 @@ public static class SongLoader
         // 歌词：失败不拦音频（老版本同策略——有歌没词照样能做）
         string lrc = "";
         var lyricNote = "，没找到歌词";
+        List<KrcLine>? subs = null;
+        LyricSource? lyricSrc = null;
         try
         {
             progress?.Invoke(L.T("CloudSong.GetLyric"));
@@ -139,7 +144,7 @@ public static class SongLoader
                 LyricCache.Put(source, identity, ly, song.AlbumId);
             }
             if (ly.Ok && !string.IsNullOrEmpty(ly.Content))
-                (lrc, lyricNote) = AdoptLyric(state, source, ly, song.AlbumId);
+                (lrc, lyricNote, subs, lyricSrc) = AdoptLyric(applyToState ? state : null, source, ly, song.AlbumId, applyToState: applyToState);
         }
         catch (CloudException)
         {
@@ -179,18 +184,19 @@ public static class SongLoader
             throw new CloudException(L.F("CloudSong.LoadAudioFailed", ex.Message));
         }
 
-        return new PreparedSong(path, fileName, trial, lrc, lyricNote, audio);
+        return new PreparedSong(path, fileName, trial, lrc, lyricNote, audio, subs, lyricSrc);
     }
 
     /// <summary>
     /// 装载/切换歌词：解析原始歌词 → 按当前音译/翻译勾选生成 JIZURA 语法的 LRC →
     /// 写入字幕层逐字数据 → 记下来源与候选版本（歌词面板的版本下拉读它）。
-    /// 返回 (LRC 文本, 提示语)；调用方负责把 LRC 写进工程（装载是中间步，不能顺手 replan）。
+    /// 返回 (LRC 文本, 提示语, KRC 字幕行, 歌词来源)；调用方负责把 LRC 写进工程（装载是中间步，不能顺手 replan）。
     /// </summary>
     /// <param name="selected">当前选中的候选下标（-1 = 没走候选，直接用接口返回的那份）。</param>
     /// <param name="candidates">切换版本时沿用上一份候选（对位 Vue adoptKgLyric 的 keepCands）。</param>
-    public static (string Lrc, string Note) AdoptLyric(EditorState state, string source, KgLyricResponse ly,
-        string albumId, int selected = -1, List<KgLyricCandidate>? candidates = null)
+    /// <param name="applyToState">是否直接更新 state 的字幕与歌词来源（预取时为 false 防污染当前正在播的歌）。</param>
+    public static (string Lrc, string Note, List<KrcLine>? Subtitles, LyricSource Src) AdoptLyric(EditorState? state, string source, KgLyricResponse ly,
+        string albumId, int selected = -1, List<KgLyricCandidate>? candidates = null, bool applyToState = true)
     {
         var wantRoma = App.SettingsOf()?.WantRoma ?? true;
         var wantTrans = App.SettingsOf()?.WantTrans ?? true;
@@ -227,24 +233,39 @@ public static class SongLoader
             }
         }
 
-        // KRC 逐字 → 字幕层数据（预览叠加/导出烤字幕/Spout 字幕通道消费）；
-        // 网易云 LRC 与酷狗普通 LRC 都无逐字 → 清空避免残留
+        // KRC 逐字 / LRC 时间戳 → 字幕层数据（预览叠加/导出烤字幕/Spout 字幕通道消费）
+        List<KrcLine>? subs = null;
         if (source == "kugou")
         {
-            try { state.SetSubtitles(Krc.ParseKgLyric(ly.Fmt, ly.Content)); }
+            try
+            {
+                subs = Krc.ParseKgLyric(ly.Fmt, ly.Content)
+                       ?? (string.IsNullOrEmpty(ly.Content) ? null : Krc.ParseLrc(Krc.B64Text(ly.Content)));
+            }
             catch (Exception ex)
             {
-                Log.Debug("[Cloud] KRC 逐字解析失败（字幕层跳过）：" + ex.Message);
-                state.SetSubtitles(null);
+                Log.Debug("[Cloud] 酷狗歌词解析失败（字幕层跳过）：" + ex.Message);
             }
         }
-        else
+        else if (source == "netease" && !string.IsNullOrEmpty(ly.Content))
         {
-            state.SetSubtitles(null);
+            try
+            {
+                subs = Krc.ParseLrc(Krc.B64Text(ly.Content!));
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("[Cloud] 网易云歌词解析失败（字幕层跳过）：" + ex.Message);
+            }
         }
 
-        state.SetLyricSource(src);
-        return (src.BuildLrc(wantRoma, wantTrans), note);
+        if (applyToState && state != null)
+        {
+            state.SetSubtitles(subs);
+            state.SetLyricSource(src);
+        }
+
+        return (src.BuildLrc(wantRoma, wantTrans), note, subs, src);
     }
 
     /// <summary>
@@ -279,7 +300,7 @@ public static class SongLoader
         }
         if (!ly.Ok || string.IsNullOrEmpty(ly.Content))
             throw new CloudException(ly.Error ?? L.T("CloudSong.NoLyric"));
-        var (lrc, _) = AdoptLyric(state, src.Source, ly, src.AlbumId, idx, src.Candidates);
+        var (lrc, _, _, _) = AdoptLyric(state, src.Source, ly, src.AlbumId, idx, src.Candidates);
         state.Mutate(p => p.Lyrics = lrc, L.T("CloudSong.MutateLyrics"), replan: true);
         // KRC 解出来却没有时间轴 = 这份词不是逐字格式（解密成功但内容不是歌词）
         var bad = ly.Fmt == "krc" && !Regex.IsMatch(lrc, @"^\[\d\d:\d\d[.:]", RegexOptions.Multiline);

@@ -233,10 +233,82 @@ public static class Krc
         return string.Join('\n', outLines).TrimEnd('\n') + "\n";
     }
 
-    // ---------------- 网易云 LRC ----------------
+    // ---------------- 标准 / 网易云 LRC 解析 ----------------
 
     /// <summary>base64 → UTF8 文本（网易云歌词接口的 content/trans/roma 都是 base64）。</summary>
     public static string B64Text(string b64) => Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+
+    private static readonly Regex LrcStamp = new(@"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 解析标准 LRC 或任意带时间标签歌词为字幕层时间轴（KrcLine 列表）。
+    /// 每行整行合成一个 KrcWord；行时长根据下一行起始时间推算（clamp 到 500ms ~ 15000ms，末行 4000ms）。
+    /// 纯文本（无时间标签）返回 null。
+    /// </summary>
+    public static List<KrcLine>? ParseLrc(string? src)
+    {
+        if (string.IsNullOrWhiteSpace(src)) return null;
+        var entries = new List<(long Ms, string Text)>();
+        foreach (var raw in src.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r').Trim();
+            if (line.Length == 0 || line.StartsWith("#")) continue;
+
+            var matches = LrcStamp.Matches(line);
+            if (matches.Count == 0) continue;
+
+            var lastM = matches[^1];
+            var text = line[(lastM.Index + lastM.Length)..].Trim();
+            // 剥离行内可能附带的 |注音
+            var pipe = text.IndexOf('|');
+            if (pipe >= 0) text = text[..pipe].Trim();
+
+            // 间奏或空文本跳过
+            if (text.StartsWith("[间奏") || text.StartsWith("[間奏") || text.StartsWith("[interlude", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (text.Length == 0) continue;
+
+            foreach (Match m in matches)
+            {
+                var min = long.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+                var sec = long.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+                var msPart = 0L;
+                if (m.Groups[3].Success)
+                {
+                    var msStr = m.Groups[3].Value;
+                    msPart = long.Parse(msStr, System.Globalization.CultureInfo.InvariantCulture);
+                    if (msStr.Length == 1) msPart *= 100;
+                    else if (msStr.Length == 2) msPart *= 10;
+                }
+                var totalMs = min * 60_000 + sec * 1_000 + msPart;
+                entries.Add((totalMs, text));
+            }
+        }
+
+        if (entries.Count == 0) return null;
+        entries.Sort((a, b) => a.Ms.CompareTo(b.Ms));
+
+        var lines = new List<KrcLine>(entries.Count);
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var cur = entries[i];
+            long durMs;
+            if (i + 1 < entries.Count)
+            {
+                var next = entries[i + 1];
+                durMs = Math.Clamp(next.Ms - cur.Ms, 500, 15000);
+            }
+            else
+            {
+                durMs = 4000;
+            }
+            var words = new[] { new KrcWord(cur.Ms, durMs, cur.Text) };
+            lines.Add(new KrcLine(cur.Ms, durMs, cur.Text, words));
+        }
+
+        return lines.Count > 0 ? lines : null;
+    }
 
     private static readonly Regex NeStamp = new(@"\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]", RegexOptions.Compiled);
 

@@ -216,6 +216,23 @@ public class SubtitleChannelTests
         Assert.Null(SubtitleLayer.FromPlan(Planner.Plan(project, null)));
     }
 
+    [Fact]
+    public void SubtitleLayer_解析LRC行_mainLineTrue无注音也能画出主行()
+    {
+        var lrc = "[00:02.00]夜明けの色を覚えてる\n[00:05.00]遠くで鳴った声\n";
+        var lines = Krc.ParseLrc(lrc);
+        Assert.NotNull(lines);
+
+        var cfg = new SubtitleConfig { Content = SubContent.Both };
+        var layer = new SubtitleLayer(lines!, cfg, notes: null, mainLine: true);
+        using var surface = SKSurface.Create(new SKImageInfo(1280, 720, SKColorType.Bgra8888, SKAlphaType.Premul));
+        surface.Canvas.Clear(SKColors.Transparent);
+        var stats = layer.Render(surface.Canvas, 2.5, 1280, 720);
+        Assert.True(stats.Drawn, "无注音的 LRC 歌词在 mainLine=true 时应当画出主行字幕");
+        Assert.True(stats.MainRows >= 1);
+        Assert.Equal(0, stats.SubRows);
+    }
+
     private static string RepoObjDir()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

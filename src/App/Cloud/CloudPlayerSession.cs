@@ -34,8 +34,11 @@ public sealed class CloudPlayerSession
     private readonly List<string> _preparedOrder = [];   // 上限内保留最近几首（重进模式秒接，不无限占内存）
     private const int KeepPrepared = 6;
     private string _preparing = "";         // 正在预取的身份（防重复）
+    private KgSong? _activeSong;
+    private SongLoader.PreparedSong? _activePrepared;
 
     public bool Active { get; private set; }
+    public bool HasActiveSong => _activeSong != null;
 
     /// <summary>会话状态变化（叠加层/播放条刷新）。</summary>
     public event Action? Changed;
@@ -56,6 +59,8 @@ public sealed class CloudPlayerSession
         if (Active) return;
         Active = true;
         _seq++;
+        _activeSong = null;
+        _activePrepared = null;
         _snapshot = _state.Snapshot();
         _savedSubtitles = _state.Subtitles; // 用户工程自己的 KRC 逐字（会话级），退出时还原
         try
@@ -90,15 +95,13 @@ public sealed class CloudPlayerSession
         _svc.BeforePlay = null;
         _preparing = "";   // 素材缓存留着：队列还在放，重进模式可秒接
 
+        if (_svc.IsPlaying) _svc.Pause();
         _state.Engine.FollowEnd();
         if (restore)
         {
             // 字幕层也还回去：云歌的 KRC 逐字不该留在你的工程里（它按行号对齐，跟工程词对不上）
             _state.SetSubtitles(_savedSubtitles);
             _savedSubtitles = null;
-        }
-        if (restore)
-        {
             _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: false); // 拆跟随、把用户的音频接回引擎
             if (_snapshot.Length > 0 && !_state.RestoreSnapshotSilently(_snapshot))
                 Log.Warn("[Player] 工程还原失败：快照仍留在 " + SessionFile);
@@ -108,8 +111,23 @@ public sealed class CloudPlayerSession
         else
         {
             // 留在工程里的就是刚载入的那首云歌：引擎自己建链放它，音量/循环按工程侧来
-            _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: false);
-            _state.ReplanAsync();
+            if (_activePrepared != null && _activeSong != null)
+            {
+                _state.SetAudio(_activePrepared.Audio, _activePrepared.Path, _activePrepared.FileName);
+                _state.Mutate(p =>
+                {
+                    if (_activePrepared.Lrc.Length > 0) p.Lyrics = _activePrepared.Lrc;
+                    p.Title = _activeSong.Name;
+                    p.Artist = _activeSong.Singer;
+                }, L.T("Player.MutateSong"), replan: true);
+                _state.SetSubtitles(_activePrepared.Subtitles);
+                if (_activePrepared.LyricSource != null) _state.SetLyricSource(_activePrepared.LyricSource);
+            }
+            else
+            {
+                _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: false);
+                _state.ReplanAsync();
+            }
         }
 
         try
@@ -120,7 +138,7 @@ public sealed class CloudPlayerSession
         {
             Log.Debug("[Player] 会话文件删除失败：" + ex.Message);
         }
-        Log.Info("[Player] 已退出播放器模式（工程与音频已还原）");
+        Log.Info("[Player] 已退出播放器模式" + (restore ? "（工程与音频已还原）" : "（云歌已留入工程）"));
         Changed?.Invoke();
     }
 
@@ -160,6 +178,9 @@ public sealed class CloudPlayerSession
             return;
         }
 
+        _activeSong = song;
+        _activePrepared = prepared;
+
         // 歌词 + 曲名/歌手一次写完（不压撤销历史：几十首歌会把用户自己的历史挤光）
         _state.MutateNoHistory(p =>
         {
@@ -167,6 +188,9 @@ public sealed class CloudPlayerSession
             p.Title = song.Name;
             p.Artist = song.Singer;
         }, L.T("Player.MutateSong"), replan: false);
+
+        _state.SetSubtitles(prepared.Subtitles);
+        if (prepared.LyricSource != null) _state.SetLyricSource(prepared.LyricSource);
 
         // 分析数据交给引擎（path=null：只换规划用的节拍/时长/能量，不建播放链——声音由云链出）。
         // replan:false + 走 EditorState 的**后台**重规划：同步 Replan 在 UI 线程要 0.7~1.8s，
@@ -215,7 +239,7 @@ public sealed class CloudPlayerSession
         try
         {
             Log.Info($"[Player] 预取下一首：{next.Name} - {next.Singer}");
-            var prepared = await SongLoader.PrepareAsync(_state, next.Source, next, _svc.Quality);
+            var prepared = await SongLoader.PrepareAsync(_state, next.Source, next, _svc.Quality, applyToState: false);
             if (Active && token == _seq) Remember(key, prepared);
         }
         catch (Exception ex)
