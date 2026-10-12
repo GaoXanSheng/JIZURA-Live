@@ -32,7 +32,7 @@ public partial class CloudPlaylistSidebar : UserControl
 
         private bool _expanded;
         private bool _loading;
-        public List<SongRow> Songs { get; } = [];
+        public List<SongRow> Songs { get; private set; } = [];
 
         public Row(PlaylistInfo info, Brush tile)
         {
@@ -81,9 +81,9 @@ public partial class CloudPlaylistSidebar : UserControl
 
         public void SetSongs(IEnumerable<KgSong> songs)
         {
-            Songs.Clear();
-            var i = 1;
-            foreach (var s in songs) Songs.Add(new SongRow(s, i++));
+            // 必须换实例再通知：绑在 ItemsSource 上的 List 原地 Clear/Add 不会刷新视图
+            //（WPF 按引用判等，同一个集合对象的 PropertyChanged 等于没变——首次展开曲目出不来就是这个）
+            Songs = songs.Select((s, i) => new SongRow(s, i + 1)).ToList();
             Raise(nameof(Songs));
         }
 
