@@ -67,7 +67,8 @@ public static class JzAnim
         if (el == null || !Enabled) return;
         var d = dur ?? Panel;
         FadeIn(el, d);
-        var tt = new TranslateTransform(0, dy);
+        // 基值必须是终值（0）：FillBehavior.Stop 播完回落基值，基值若设成起点 dy 元素会永久下移
+        var tt = new TranslateTransform(0, 0);
         el.RenderTransform = tt;
         tt.BeginAnimation(TranslateTransform.YProperty,
             new DoubleAnimation(dy, 0, d) { EasingFunction = EaseOut, FillBehavior = FillBehavior.Stop });
@@ -78,8 +79,10 @@ public static class JzAnim
     {
         if (el == null || !Enabled) return;
         var d = dur ?? Dialog;
-        var sc = new ScaleTransform(from, from);
-        var tt = new TranslateTransform(0, dy);
+        // 基值 = 终值（1 / 0）：播完回落终值。此前基值设成起点（from/dy），卡片动画结束后
+        // 永久停在 0.985 缩放 —— RenderTransform 缩放是重采样，全篇文字跟着发虚（且末尾跳 6px）
+        var sc = new ScaleTransform(1, 1);
+        var tt = new TranslateTransform(0, 0);
         var tg = new TransformGroup();
         tg.Children.Add(sc);
         tg.Children.Add(tt);

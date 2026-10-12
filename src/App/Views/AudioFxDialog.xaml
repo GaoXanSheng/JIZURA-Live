@@ -1,94 +1,184 @@
 <Window x:Class="JizuraLive.App.Views.AudioFxDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ctl="clr-namespace:JizuraLive.App.Controls"
         Title="{DynamicResource Loc.AudioFx.Title}"
         WindowStyle="None" AllowsTransparency="True" ResizeMode="NoResize" ShowInTaskbar="False"
         WindowStartupLocation="Manual"
         FontFamily="{StaticResource UiFont}" FontSize="12" Background="Transparent"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
         PreviewKeyDown="OnPreviewKeyDown">
-    <!-- 遮罩 + 卡片（对位 Dialogs.vue 的音频特效弹窗）：点遮罩空白处 / Esc / ✕ 关闭。
-         内容分三段（预设 chips / 变速 / 效果链 rack / 添加效果 / 注记），动态部分在 code-behind 搭。
-         窗口必须分层（AllowsTransparency=True，见上）：本窗按 owner 尺寸铺满，遮罩是半透明的；
-         非分层窗口的客户区被 DWM 当作不透明面，遮罩会叠在窗口自身的黑底上 —— 整块主界面被涂黑，
-         而不是透出后面的主界面变暗（CloudPanel 同一套路）。 -->
-    <Grid x:Name="Overlay" Background="#99060808" MouseLeftButtonDown="Overlay_MouseDown">
-        <Border x:Name="Card" Width="560" Margin="24"
-                HorizontalAlignment="Center" VerticalAlignment="Center"
-                Background="{StaticResource Panel}" BorderBrush="{StaticResource Line2}" BorderThickness="1"
-                CornerRadius="14" Padding="24,24,24,16"
-                MouseLeftButtonDown="Card_MouseDown">
-            <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="6" Opacity="0.6" />
-            </Border.Effect>
+    <!-- 遮罩 + 卡片：点遮罩空白处 / Esc / ✕ 关闭（CloudPanel 同套路：按 owner 尺寸铺满，
+         遮罩是半透明的，所以窗口必须分层）。动态部分（效果链 rack / 预设 chips / 添加下拉）
+         在 code-behind 搭；rack 行是 ItemsControl 模板 + VM（见 .xaml.cs 的 UnitVm/ParamVm）。 -->
+    <Window.Resources>
+        <!-- 分层窗口用不了 ClearType（只能灰度抗锯齿）：应用级隐式样式钉死 Ideal + 19.5px 行高，
+             且 Style setter 优先于窗口级继承值——只能在本窗 Resources 用派生隐式样式覆盖回
+             Display（笔画吸附像素网格）与自然行高，弹窗里的 10-12px 小字才不会发虚。 -->
+        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+            <Setter Property="TextOptions.TextRenderingMode" Value="Auto" />
+            <Setter Property="LineHeight" Value="NaN" />
+        </Style>
+
+        <!-- 参数行（数值）与 EQ 行共用一个模板，按 ParamVm.IsEq 切显隐（引擎里 eq 是唯一特殊类型） -->
+        <DataTemplate x:Key="ParamTpl">
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <!-- 标题 + ✕ -->
-                <Grid Margin="0,0,0,10">
-                    <TextBlock Text="{DynamicResource Loc.AudioFx.Title}" FontSize="15" FontWeight="SemiBold"
-                               Foreground="{StaticResource Fg}" VerticalAlignment="Center" />
-                    <Button x:Name="BtnClose" Style="{StaticResource BtnIcon}" Content="✕"
-                            HorizontalAlignment="Right" VerticalAlignment="Top"
-                            Click="BtnClose_Click" ToolTip="{DynamicResource Loc.AudioFx.Close}" />
+                <Grid Visibility="{Binding NumVis}" Margin="0,3,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="64" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="64" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="{Binding Label}" FontSize="11" Foreground="{StaticResource Mut}"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Slider Grid.Column="1" Style="{StaticResource FxSlider}"
+                            Minimum="{Binding Min}" Maximum="{Binding Max}" SmallChange="{Binding Step}"
+                            Value="{Binding Value, Mode=TwoWay}" TickFrequency="{Binding TickFreq}"
+                            IsSnapToTickEnabled="{Binding SnapTicks}"
+                            Loaded="OnParamSliderLoaded" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding Display}" Style="{StaticResource MonoMut}"
+                               FontSize="11" TextAlignment="Right" VerticalAlignment="Center" />
                 </Grid>
-
-                <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled" Margin="0,0,-10,0">
-                    <StackPanel Margin="0,0,10,0">
-                        <!-- 预设包 chips（一键写整条链） -->
-                        <WrapPanel x:Name="PresetHost" Margin="0,0,0,10" />
-
-                        <!-- 变速（有音频才显示：0.5–2 倍，改速度会改歌曲时长） -->
-                        <Grid x:Name="SpeedRow" Margin="0,0,0,10" Visibility="Collapsed">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="{DynamicResource Loc.AudioFx.Speed}" FontSize="12"
-                                       Foreground="{StaticResource Mut}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <Slider x:Name="SlSpeed" Grid.Column="1" Style="{StaticResource FxSlider}"
-                                    Minimum="0.5" Maximum="2" SmallChange="0.05" LargeChange="0.1"
-                                    IsSnapToTickEnabled="False" ToolTip="{DynamicResource Loc.AudioFx.Speed.Tip}"
-                                    ValueChanged="SlSpeed_ValueChanged" />
-                            <TextBlock x:Name="TblSpeedVal" Grid.Column="2" Style="{StaticResource MonoTx}" FontSize="12"
-                                       MinWidth="48" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0" />
-                            <TextBlock x:Name="TblSpeedDur" Grid.Column="3" Style="{StaticResource MonoMut}" FontSize="12"
-                                       MinWidth="72" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0" />
-                        </Grid>
-
-                        <!-- 效果链 rack（每单元一行：开关 / 展开 / 参数摘要 / ↑ ↓ ✕） -->
-                        <StackPanel x:Name="RackHost" />
-
-                        <!-- 空链提示 -->
-                        <TextBlock x:Name="TblEmpty" Text="{DynamicResource Loc.AudioFx.Empty}" TextWrapping="Wrap"
-                                   FontSize="12" Foreground="{StaticResource Mut}" Margin="0,2,0,8" />
-
-                        <!-- 添加效果（未入链的单元） -->
-                        <Grid Margin="0,8,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="CbAdd" Style="{StaticResource SelSm}" SelectionChanged="CbAdd_Changed" />
-                            <Button x:Name="BtnAdd" Grid.Column="1" Style="{StaticResource BtnGhost}" MinWidth="64"
-                                    Content="{DynamicResource Loc.AudioFx.Add}" Margin="6,0,0,0"
-                                    Click="BtnAdd_Click" />
-                        </Grid>
-
-                        <!-- 注记（照抄 Dialogs.vue 底部 note） -->
-                        <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0" Padding="10,0,0,0"
-                                Margin="0,10,0,0">
-                            <TextBlock Text="{DynamicResource Loc.AudioFx.Note}" Style="{StaticResource NoteTx}"
-                                       FontSize="10" />
-                        </Border>
-                    </StackPanel>
-                </ScrollViewer>
+                <StackPanel Visibility="{Binding EqVis}" Margin="0,4,0,0">
+                    <ctl:EqCurve Loaded="OnEqLoaded"
+                                 TextElement.FontFamily="{StaticResource MonoFont}" TextElement.FontSize="10" />
+                </StackPanel>
             </Grid>
-        </Border>
+        </DataTemplate>
+
+        <!-- 效果链单元行：开关 / 名称（▸▾） / 参数摘要 / ↑ ↓ ✕ -->
+        <DataTemplate x:Key="UnitTpl">
+            <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4"
+                    Margin="0,0,0,4">
+                <StackPanel>
+                    <Grid Margin="8,4,8,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <CheckBox IsChecked="{Binding IsOn, Mode=TwoWay}" VerticalAlignment="Center"
+                                  ToolTip="{Binding Note}" />
+                        <Button Grid.Column="1" Content="{Binding HeadText}" Click="OnUnitHead"
+                                Background="Transparent" BorderThickness="0"
+                                Foreground="{StaticResource Fg}" FontWeight="SemiBold"
+                                Padding="6,0,6,0" Height="20" Cursor="Hand" Focusable="False"
+                                VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="11"
+                                   Foreground="{StaticResource Mut}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" Margin="8,0,8,0" />
+                        <Button Grid.Column="3" Content="↑" Click="OnUnitUp" IsEnabled="{Binding CanUp}"
+                                Style="{StaticResource BtnGhostSm}" Padding="6,0,6,0" MinWidth="26"
+                                Margin="2,0,0,0" VerticalAlignment="Center"
+                                ToolTip="{DynamicResource Loc.AudioFx.Rack.Up}" />
+                        <Button Grid.Column="4" Content="↓" Click="OnUnitDown" IsEnabled="{Binding CanDown}"
+                                Style="{StaticResource BtnGhostSm}" Padding="6,0,6,0" MinWidth="26"
+                                Margin="2,0,0,0" VerticalAlignment="Center"
+                                ToolTip="{DynamicResource Loc.AudioFx.Rack.Down}" />
+                        <Button Grid.Column="5" Content="✕" Click="OnUnitRemove"
+                                Style="{StaticResource BtnGhostSm}" Padding="6,0,6,0" MinWidth="26"
+                                Margin="2,0,0,0" VerticalAlignment="Center"
+                                ToolTip="{DynamicResource Loc.AudioFx.Rack.Remove}" />
+                    </Grid>
+                    <StackPanel Margin="12,0,10,8" Visibility="{Binding DetailVis}">
+                        <TextBlock Text="{Binding Note}" FontSize="10" Foreground="{StaticResource Mut}"
+                                   TextWrapping="Wrap" Margin="0,0,0,4" />
+                        <ItemsControl ItemsSource="{Binding Params}" ItemTemplate="{StaticResource ParamTpl}"
+                                      Focusable="False" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid x:Name="Overlay" Background="#99060808" MouseLeftButtonDown="Overlay_MouseDown">
+        <Grid Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <!-- 阴影独立一层、卡片本身不带 Effect：Effect 会把整个子树先光栅成中间面，卡片里的
+                 文字跟着一起糊（且 Effect 子树内 WPF 不用 ClearType，小字更糊）——MessageDialog 同款规避 -->
+            <Border x:Name="ShadowLayer" Background="{StaticResource Panel}"
+                    BorderBrush="{StaticResource Line2}" BorderThickness="1" CornerRadius="14">
+                <Border.Effect>
+                    <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="6" Opacity="0.6" />
+                </Border.Effect>
+            </Border>
+            <Border x:Name="Card" Width="560"
+                    Background="{StaticResource Panel}" BorderBrush="{StaticResource Line2}"
+                    BorderThickness="1" CornerRadius="14" Padding="24,24,24,16"
+                    MouseLeftButtonDown="Card_MouseDown">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 标题 + ✕ -->
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="{DynamicResource Loc.AudioFx.Title}" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Fg}" VerticalAlignment="Center" />
+                        <Button x:Name="BtnClose" Style="{StaticResource BtnIcon}" Content="✕"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Click="BtnClose_Click" ToolTip="{DynamicResource Loc.AudioFx.Close}" />
+                    </Grid>
+
+                    <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled" Margin="0,0,-10,0">
+                        <StackPanel Margin="0,0,10,0">
+                            <!-- 预设包 chips（一键写整条链） -->
+                            <WrapPanel x:Name="PresetHost" Margin="0,0,0,10" />
+
+                            <!-- 变速（有音频才显示：0.5–2 倍，改速度会改歌曲时长） -->
+                            <Grid x:Name="SpeedRow" Margin="0,0,0,10" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{DynamicResource Loc.AudioFx.Speed}" FontSize="12"
+                                           Foreground="{StaticResource Mut}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <Slider x:Name="SlSpeed" Grid.Column="1" Style="{StaticResource FxSlider}"
+                                        Minimum="0.5" Maximum="2" SmallChange="0.05" LargeChange="0.1"
+                                        IsSnapToTickEnabled="False" ToolTip="{DynamicResource Loc.AudioFx.Speed.Tip}"
+                                        ValueChanged="SlSpeed_ValueChanged" Loaded="OnSpeedSliderLoaded" />
+                                <TextBlock x:Name="TblSpeedVal" Grid.Column="2" Style="{StaticResource MonoTx}" FontSize="12"
+                                           MinWidth="48" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0" />
+                                <TextBlock x:Name="TblSpeedDur" Grid.Column="3" Style="{StaticResource MonoMut}" FontSize="12"
+                                           MinWidth="72" TextAlignment="Right" VerticalAlignment="Center" Margin="8,0,0,0" />
+                            </Grid>
+
+                            <!-- 效果链 rack（模板 + VM：结构变化重绑、值变化回填，不整段重建控件） -->
+                            <ItemsControl x:Name="RackHost" ItemTemplate="{StaticResource UnitTpl}" Focusable="False" />
+
+                            <!-- 空链提示 -->
+                            <TextBlock x:Name="TblEmpty" Text="{DynamicResource Loc.AudioFx.Empty}" TextWrapping="Wrap"
+                                       FontSize="12" Foreground="{StaticResource Mut}" Margin="0,2,0,8" />
+
+                            <!-- 添加效果（未入链的单元） -->
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox x:Name="CbAdd" Style="{StaticResource SelSm}" SelectionChanged="CbAdd_Changed" />
+                                <Button x:Name="BtnAdd" Grid.Column="1" Style="{StaticResource BtnGhost}" MinWidth="64"
+                                        Content="{DynamicResource Loc.AudioFx.Add}" Margin="6,0,0,0"
+                                        Click="BtnAdd_Click" />
+                            </Grid>
+
+                            <!-- 注记（照抄 Dialogs.vue 底部 note） -->
+                            <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0" Padding="10,0,0,0"
+                                    Margin="0,10,0,0">
+                                <TextBlock Text="{DynamicResource Loc.AudioFx.Note}" Style="{StaticResource NoteTx}"
+                                           FontSize="10" />
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

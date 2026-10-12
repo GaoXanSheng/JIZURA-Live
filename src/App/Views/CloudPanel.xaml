@@ -629,13 +629,18 @@
         <!-- 扫码登录弹层（AccountPane 的 Teleport：自身的遮罩 + 居中卡片，点空白关闭） -->
         <Grid x:Name="QrPanel" Visibility="Collapsed">
             <Border Background="#99060608" MouseLeftButtonDown="QrMask_Click" />
-            <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource Line2}" BorderThickness="1"
-                    CornerRadius="16" Padding="24" HorizontalAlignment="Center" VerticalAlignment="Center"
-                    MinWidth="236">
-                <Border.Effect>
-                    <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="8" Opacity="0.5" />
-                </Border.Effect>
-                <StackPanel HorizontalAlignment="Center">
+            <!-- 阴影独立一层、卡片本身不带 Effect：Effect 子树会先光栅成中间面且不用 ClearType，
+                 卡片里的文字跟着一起糊（MessageDialog 同款规避；两层同格即同尺寸） -->
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="236">
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource Line2}" BorderThickness="1"
+                        CornerRadius="16">
+                    <Border.Effect>
+                        <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="8" Opacity="0.5" />
+                    </Border.Effect>
+                </Border>
+                <Border Background="{StaticResource Panel}" BorderBrush="{StaticResource Line2}" BorderThickness="1"
+                        CornerRadius="16" Padding="24">
+                    <StackPanel HorizontalAlignment="Center">
                     <TextBlock x:Name="TblQrTitle" Text="{DynamicResource Loc.Cloud.Login}" FontWeight="Bold"
                                HorizontalAlignment="Center" />
                     <Border Width="188" Height="188" CornerRadius="10" Background="White" Margin="0,12,0,0"
@@ -658,8 +663,9 @@
                         <Button x:Name="BtnQrClose" Content="{DynamicResource Loc.Cloud.Close}" Style="{StaticResource BtnGhostSm}"
                                 Margin="8,0,0,0" Click="BtnQrClose_Click" />
                     </StackPanel>
-                </StackPanel>
-            </Border>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </Window>

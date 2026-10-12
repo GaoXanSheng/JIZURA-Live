@@ -1,10 +1,14 @@
-﻿using System.Windows;
+﻿using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Shapes;
 using System.Windows.Threading;
+using JizuraLive.App.Controls;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using Newtonsoft.Json.Linq;
@@ -12,56 +16,41 @@ using Newtonsoft.Json.Linq;
 namespace JizuraLive.App.Views;
 
 /// <summary>
-/// 音频效果弹窗（对位 Dialogs.vue 的「音频特效」弹窗，逐块对位）：
-/// 预设 chips（一键写整条链）+ 变速滑块（改歌曲时长，歌词/节拍按原时刻跟随）+
-/// 效果链 rack（开关 / 展开参数 / ↑↓ 调序 / ✕ 移除；单位与参数表来自引擎 AudioFx.Units）+
-/// EQ 七段曲线画布（拖点 ±12dB）+ 添加效果（未入链的单元）+ 注记。
+/// 音频效果弹窗（重写版）：预设 chips（一键写整条链）+ 变速滑块（改歌曲时长，歌词/节拍按原时刻
+/// 跟随）+ 效果链 rack（开关 / 展开参数 / ↑↓ 调序 / ✕ 移除；单位与参数表来自引擎 AudioFx.Units）+
+/// EQ 七段曲线（EqCurve 控件，拖点 ±12dB）+ 添加效果 + 注记。
 ///
-/// 全部改动经 EditorState.Mutate 写 project.audioFx（replan:false，不动画面编排）；
-/// 预览链由引擎在 Tick/Play 时按 AudioFx 配置差异重建（PreviewEngine.RebuildFxIfConfigChanged），
-/// 所以拖动参数/换预设立即听得到；导出侧同一条 AudioFx.Build（逐样本一致）。
-/// 入口只有播放条声音组的「音频效果」按钮（不再落在右栏「特效」面板里）。
+/// 结构：rack 走 ItemsControl + 模板 + 轻量 VM（UnitVm / ParamVm）——结构变化重绑 VM、值变化只
+/// 回填（不再有「整段重建控件 + RefreshValues 闭包列表」的手工同步）；展开态与滚动位置在重建后保留。
+/// 骨架外的一切动态文案仍走 code-behind（本仓房屋风格），本地化键沿用 AudioFx.json。
 ///
-/// 提交节奏（对位 Vue 的 @input/@change 分工）：拖动滑块只刷显示，松手立即提交；
-/// 点击/键盘等非拖动改动走 120ms 防抖；EQ 曲线拖动中 120ms 防抖、松手落定。
+/// 提交节奏：拖动滑块只刷显示、松手 SubmitNow；EQ 拖动中只重绘、松手 SubmitNow；
+/// 点击/键盘等非拖动改动走 120ms 防抖。SubmitNow 会先把挂起的防抖编辑合并进来再提交——
+/// 旧实现直接丢弃挂起编辑，快速连改会静默丢最后一次参数改动。
+///
+/// 数据权威在 project.audioFx（EditorState.Mutate，replan:false）；预览链由 PreviewEngine 在
+/// Tick/Play 时按配置差异重建，导出侧同一条 AudioFx.Build。
 /// </summary>
 public partial class AudioFxDialog : Window
 {
-    private const double EqH = 120;   // EQ 画布高（对位 canvas height=120）
-    private const double EqW = 452;   // EQ 画布宽（对位 512，本弹窗内容宽 560−48 后取整）
-    private const double EqL = 30;    // 曲线左侧留白（对位 eqX 的 30）
-
-    private static readonly string[] EqLabels = { "60", "150", "400", "1k", "2.4k", "6k", "15k" };
-
     private EditorState S => App.MainInstance!.State;
     private PreviewEngine Preview => App.MainInstance!.Preview;
 
     private readonly DispatcherTimer _debounce; // 非拖动改动的提交防抖
     private bool _ready;                        // OnLoaded 之后才允许提交（构造期 XAML 赋值不提交）
-    private bool _syncing;                      // 程序回填时不提交
+    private bool _syncing;                      // 程序回填（回填路径）不提交
     private bool _dragging;                     // 任一滑块拖动中（拖动只刷显示，松手才提交）
     private string _pendingLabel = "";
     private Func<JObject, JObject>? _pendingEdit;
 
-    private string _shape = "";    // 链形状签名（id 序列）：变了才整段重建
+    private string _shape = "";    // 链形状签名（id 序列）：变了才重建 VM 列表
     private int _openUnit = -1;    // 展开的单元下标（对位 openUnit）
-
-    private sealed class UnitRow
-    {
-        public int Index;
-        public string Id = "";
-        public CheckBox On = null!;
-        public Button Head = null!;
-        public TextBlock Summary = null!;
-        public StackPanel Detail = null!;
-        public readonly List<Action> RefreshValues = new(); // 展开区回填（参数滑块 / EQ 曲线）
-    }
-
-    private readonly List<UnitRow> _rows = new();
+    private readonly ObservableCollection<UnitVm> _units = new();
 
     public AudioFxDialog()
     {
         InitializeComponent();
+        RackHost.ItemsSource = _units;
         _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _debounce.Tick += (_, _) =>
         {
@@ -86,7 +75,6 @@ public partial class AudioFxDialog : Window
         }
         SlSpeed.TickFrequency = 0.05;
         SlSpeed.IsSnapToTickEnabled = true; // 档位 0.05（对位 step=0.05）
-        AttachDrag(SlSpeed, () => SubmitNow(SpeedLabel(SlSpeed.Value), SpeedEdit(SlSpeed.Value)));
         S.StateChanged += OnState;
         L.LanguageChanged += OnLang;
         _ready = true;
@@ -105,11 +93,12 @@ public partial class AudioFxDialog : Window
 
     private void OnState() => Dispatcher.Invoke(Refresh);
 
-    /// <summary>语言切换：预设 chips 与添加下拉重读文案（动态文案都在 code-behind），再整段回填。</summary>
+    /// <summary>语言切换：预设 chips、添加下拉重读文案，rack 整体重绑（摘要/EQ 文案在 VM 上）。</summary>
     private void OnLang() => Dispatcher.Invoke(() =>
     {
         BuildPresets();
         CbAdd.Tag = null; // 强制重建添加下拉项（占位文案）
+        _shape = "";      // 强制重建 VM（摘要等动态文案）
         Refresh();
     });
 
@@ -128,6 +117,384 @@ public partial class AudioFxDialog : Window
         Close();
         e.Handled = true;
     }
+
+    // ---------------- VM ----------------
+
+    /// <summary>VM 基类：回填抑制 + 属性通知（Suppress 期间 setter 只更新显示、不提交）。</summary>
+    private abstract class VmBase : INotifyPropertyChanged
+    {
+        public bool Suppress;
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected void Raise([CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    /// <summary>效果链单元行：开关 / 名称（▸▾）/ 参数摘要 / 上移下移移除（CanUp/CanDown）。</summary>
+    private sealed class UnitVm : VmBase
+    {
+        private readonly AudioFxDialog _d;
+        public UnitVm(AudioFxDialog d) => _d = d;
+
+        public int Index;
+        public string Id = "";
+
+        /// <summary>以下成员是绑定源：WPF 绑定不认字段，必须是属性（Params/Note 曾是字段，
+        /// 展开区说明与参数行整块绑不上、渲染成空白）。</summary>
+        public string Label { get; set; } = "";
+
+        public string Note { get; set; } = "";
+        public List<ParamVm> Params { get; } = new();
+
+        private bool _on = true, _open, _canUp, _canDown;
+        private string _summary = "";
+
+        public bool IsOn
+        {
+            get => _on;
+            set
+            {
+                if (_on == value) return;
+                _on = value;
+                Raise();
+                if (!Suppress) _d.UserToggleUnit(this, value);
+            }
+        }
+
+        public bool IsOpen
+        {
+            get => _open;
+            set
+            {
+                if (_open == value) return;
+                _open = value;
+                Raise();
+                Raise(nameof(HeadText));
+                Raise(nameof(DetailVis));
+            }
+        }
+
+        public bool CanUp { get => _canUp; set { if (_canUp == value) return; _canUp = value; Raise(); } }
+        public bool CanDown { get => _canDown; set { if (_canDown == value) return; _canDown = value; Raise(); } }
+
+        public string Summary { get => _summary; set { if (_summary == value) return; _summary = value; Raise(); } }
+        public string HeadText => Label + (_open ? " ▾" : " ▸");
+        public Visibility DetailVis => _open ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>参数行（数值滑块或 EQ 曲线，按 Def.Type 切模板内显隐）。</summary>
+    private sealed class ParamVm : VmBase
+    {
+        private readonly AudioFxDialog _d;
+        public readonly UnitVm Unit;
+        public readonly FxParamDef Def;
+
+        public ParamVm(AudioFxDialog d, UnitVm unit, FxParamDef def)
+        {
+            _d = d;
+            Unit = unit;
+            Def = def;
+            Label = def.Label ?? def.Key;
+        }
+
+        public string Label { get; }
+        public bool IsEq => Def.Type == "eq";
+        public Visibility NumVis => IsEq ? Visibility.Collapsed : Visibility.Visible;
+        public Visibility EqVis => IsEq ? Visibility.Visible : Visibility.Collapsed;
+
+        public double Min => Def.Min;
+        public double Max => Def.Max;
+        public double Step => Def.Step;
+        public double TickFreq => Def.Type == "int" ? Math.Max(1, Def.Step) : 0;
+        public bool SnapTicks => Def.Type == "int";
+
+        private double _value;
+        public double Value
+        {
+            get => _value;
+            set
+            {
+                if (Math.Abs(_value - value) < 1e-9) return;
+                _value = value;
+                Raise();
+                Raise(nameof(Display));
+                if (!Suppress && !Unit.Suppress) _d.UserEditParam(Unit, this);
+            }
+        }
+
+        public string Display => Round2(_value) + (Def.Unit ?? "");
+
+        private double[] _gains = new double[AudioFx.EqBands.Length];
+        public double[] Gains
+        {
+            get => _gains;
+            set
+            {
+                _gains = value;
+                Raise();
+            }
+        }
+    }
+
+    // ---------------- 回填 / 重建 ----------------
+
+    private void Refresh()
+    {
+        if (App.MainInstance == null) return;
+        _syncing = true;
+        try
+        {
+            var cfg = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
+            var units = (JArray)cfg["units"]!;
+            var shape = string.Join(",", units.OfType<JObject>().Select(u => u["id"]?.ToString() ?? ""));
+            if (shape != _shape)
+            {
+                _shape = shape;
+                RebuildRack(units);
+            }
+            else
+            {
+                PushRackValues(units);
+            }
+            TblEmpty.Visibility = units.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            RefreshAddCombo(units);
+            RefreshSpeed(cfg);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    /// <summary>结构变化（增删/调序/换预设）：重绑 VM 列表；展开态与滚动位置保留。</summary>
+    private void RebuildRack(JArray units)
+    {
+        var keepScroll = Scroller.VerticalOffset;
+        _units.Clear();
+        var i = 0;
+        foreach (var t in units.OfType<JObject>())
+        {
+            var id = t["id"]?.ToString() ?? "";
+            if (!AudioFx.Units.TryGetValue(id, out var def)) continue; // sanitize 已保证，不防御
+            var vm = new UnitVm(this) { Index = i, Id = id, Label = def.Label, Note = def.Note, Suppress = true };
+            foreach (var ps in def.Params) vm.Params.Add(new ParamVm(this, vm, ps) { Suppress = true });
+            _units.Add(vm);
+            i++;
+        }
+        if (_openUnit >= _units.Count) _openUnit = -1;
+        PushRackValues(units);
+        if (keepScroll > 0) // 重建后恢复滚动位置（ItemsControl 清空会把 offset 归零）
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => Scroller.ScrollToVerticalOffset(keepScroll));
+    }
+
+    /// <summary>值回填（不回建）：开关态、箭头、摘要、滑块值 / EQ 增益。Suppress 期间 setter 不提交。</summary>
+    private void PushRackValues(JArray units)
+    {
+        for (var i = 0; i < _units.Count && i < units.Count; i++)
+        {
+            var vm = _units[i];
+            var u = (JObject)units[i]!;
+            vm.Suppress = true;
+            foreach (var p in vm.Params) p.Suppress = true;
+
+            vm.Index = i;
+            vm.IsOn = u["on"]?.Type != JTokenType.Boolean || (bool)u["on"]!;
+            vm.CanUp = i > 0;
+            vm.CanDown = i < _units.Count - 1;
+            vm.IsOpen = i == _openUnit;
+
+            var pr = (JObject)(u["params"] ?? new JObject())!;
+            foreach (var p in vm.Params)
+            {
+                if (p.IsEq)
+                {
+                    var src = pr["gains"] as JArray;
+                    var arr = new double[AudioFx.EqBands.Length];
+                    for (var k = 0; k < arr.Length; k++)
+                        if (src != null && k < src.Count) arr[k] = JNum(src[k]);
+                    p.Gains = arr; // 新引用：EqCurve 的 AffectsRender 生效
+                }
+                else
+                {
+                    var v = ParamValueOrNull(pr, p.Def);
+                    if (v != null) p.Value = v.Value;
+                }
+                p.Suppress = false;
+            }
+            if (AudioFx.Units.TryGetValue(vm.Id, out var def)) vm.Summary = Summary(def, u);
+            vm.Suppress = false;
+        }
+    }
+
+    /// <summary>参数摘要（对位 paramSummary）：`标签 值单位` 用「・」连；EQ 写 平直 / 自定义曲线。</summary>
+    private static string Summary(FxUnitDef def, JObject unit)
+    {
+        var pr = (JObject)(unit["params"] ?? new JObject())!;
+        var parts = new List<string>();
+        foreach (var ps in def.Params)
+        {
+            if (ps.Type == "eq")
+            {
+                var any = (pr["gains"] as JArray)?.Any(v => Math.Abs(JNum(v)) > 0.05) == true;
+                parts.Add(L.T(any ? "AudioFx.Eq.Custom" : "AudioFx.Eq.Flat"));
+            }
+            else
+            {
+                parts.Add($"{ps.Label} {Round2(ParamValue(pr, ps))}{ps.Unit}");
+            }
+        }
+        return string.Join("・", parts);
+    }
+
+    // ---------------- rack 交互（模板按钮的 Click 都在这里落到 VM.Index） ----------------
+
+    private void OnUnitHead(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not UnitVm vm) return;
+        _openUnit = vm.IsOpen ? -1 : vm.Index; // 对位 openUnit：同一下标再点收起
+        foreach (var u in _units) u.IsOpen = u.Index == _openUnit;
+    }
+
+    private void OnUnitUp(object sender, RoutedEventArgs e) => MoveUnit(((FrameworkElement)sender).DataContext as UnitVm, -1);
+
+    private void OnUnitDown(object sender, RoutedEventArgs e) => MoveUnit(((FrameworkElement)sender).DataContext as UnitVm, 1);
+
+    private void OnUnitRemove(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not UnitVm vm) return;
+        var label = LabelOf(vm);
+        var i = vm.Index;
+        EditUnits(L.F("AudioFx.Mutate.Remove", label), units =>
+        {
+            if (i >= 0 && i < units.Count) units.RemoveAt(i);
+            return units;
+        });
+        _openUnit = -1;
+    }
+
+    private void MoveUnit(UnitVm? vm, int delta)
+    {
+        if (vm == null) return;
+        var i = vm.Index;
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= _units.Count) return;
+        EditUnits(L.T("AudioFx.Mutate.Move"), units =>
+        {
+            if (i >= units.Count || j >= units.Count) return units;
+            (units[i], units[j]) = (units[j], units[i]);
+            return units;
+        });
+        _openUnit = -1;
+    }
+
+    private string LabelOf(UnitVm vm) => AudioFx.Units.TryGetValue(vm.Id, out var d) ? d.Label : "";
+
+    /// <summary>参数滑块拖动落定（Loaded 时挂 Thumb 事件；WPF 的 Slider 不公开 IsDragging）。</summary>
+    private void OnParamSliderLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Slider sl) return;
+        AttachDrag(sl, () =>
+        {
+            if (!_ready || sl.DataContext is not ParamVm p) return;
+            SubmitNow(L.F("AudioFx.Mutate.Param", p.Label),
+                cur => SetParamOn(cur, p.Unit.Index, p.Def.Key, ParamToken(p)));
+        });
+    }
+
+    /// <summary>EQ 曲线拖动落定：提交整组增益（拖动中控件自己只重绘，不提交）。
+    /// Gains←Bands 的绑定在代码里挂：XAML 编译器对数组型 DP 的 {Binding} 直接报 MC4102
+    /// （PropertyArrayStart），模板里写不了；Loaded 时 DataContext 已是 ParamVm。</summary>
+    private void OnEqLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not EqCurve eq) return;
+        if (BindingOperations.GetBinding(eq, EqCurve.BandsProperty) == null)
+            eq.SetBinding(EqCurve.BandsProperty, new Binding(nameof(ParamVm.Gains)));
+        eq.DragCommitted += gains =>
+        {
+            if (!_ready || eq.DataContext is not ParamVm p) return;
+            SubmitNow(L.T("AudioFx.Mutate.Eq"), cur => SetParamOn(cur, p.Unit.Index, "gains", new JArray(gains)));
+        };
+    }
+
+    private void AttachDrag(Slider sl, Action onRelease)
+    {
+        if (sl.Tag as string == "drag") return; // Loaded 可能多次触发（模板重应用），只挂一次
+        if (sl.Template.FindName("PART_Track", sl) is not Track track) return;
+        sl.Tag = "drag";
+        track.Thumb.DragStarted += (_, _) => _dragging = true;
+        track.Thumb.DragCompleted += (_, _) =>
+        {
+            _dragging = false;
+            onRelease();
+        };
+    }
+
+    // ---------------- 参数编辑（VM 写回 → 提交管线） ----------------
+
+    private void UserToggleUnit(UnitVm vm, bool on)
+    {
+        if (_syncing || !_ready || App.MainInstance == null) return;
+        var label = LabelOf(vm);
+        EditUnits(L.F(on ? "AudioFx.Mutate.UnitOn" : "AudioFx.Mutate.UnitOff", label), units =>
+        {
+            if (vm.Index >= 0 && vm.Index < units.Count && units[vm.Index] is JObject u) u["on"] = on;
+            return units;
+        });
+    }
+
+    private void UserEditParam(UnitVm unit, ParamVm p)
+    {
+        if (_syncing || !_ready || App.MainInstance == null) return;
+        if (_dragging) return; // 拖动中只刷显示，松手由 AttachDrag 提交
+        SubmitDebounced(L.F("AudioFx.Mutate.Param", p.Label),
+            cur => SetParamOn(cur, unit.Index, p.Def.Key, ParamToken(p)));
+    }
+
+    private static JToken ParamToken(ParamVm p)
+        => p.Def.Type == "int" ? new JValue((int)Math.Round(p.Value)) : new JValue(p.Value);
+
+    // ---------------- 变速（对位 applyFx({speed})） ----------------
+
+    private void OnSpeedSliderLoaded(object sender, RoutedEventArgs e)
+        => AttachDrag(SlSpeed, () =>
+        {
+            if (_ready) SubmitNow(SpeedLabel(SlSpeed.Value), SpeedEdit(SlSpeed.Value));
+        });
+
+    private void SlSpeed_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing || !_ready || App.MainInstance == null) return; // 构造期与回填早退
+        var speed = Math.Round(e.NewValue / 0.05) * 0.05;            // 档位对齐 0.05
+        TblSpeedVal.Text = SpeedLabel(speed);
+        var audio = Preview.Audio;
+        if (audio != null) TblSpeedDur.Text = DurationText(audio.Duration / Math.Max(0.01, speed));
+        if (_dragging) return;                                       // 拖动中只刷显示（松手由 AttachDrag 提交）
+        SubmitDebounced(SpeedLabel(speed), SpeedEdit(speed));
+    }
+
+    private void RefreshSpeed(JObject cfg)
+    {
+        var audio = Preview.Audio;
+        SpeedRow.Visibility = audio != null ? Visibility.Visible : Visibility.Collapsed;
+        if (audio == null) return;
+        var speed = AudioFx.FxSpeedOf(cfg);
+        if (Math.Abs(SlSpeed.Value - speed) > 1e-6) SlSpeed.Value = speed;
+        TblSpeedVal.Text = SpeedLabel(speed);
+        TblSpeedDur.Text = DurationText(audio.Duration / Math.Max(0.01, speed));
+    }
+
+    private static string SpeedLabel(double speed) => L.F("AudioFx.Speed.ValueFmt", speed.ToString("F2"));
+
+    private static Func<JObject, JObject> SpeedEdit(double speed) => cur =>
+    {
+        cur["speed"] = Math.Round(speed / 0.05) * 0.05;
+        return cur;
+    };
+
+    /// <summary>变速后的歌曲时长文案（对位 fmtDur：≥60 秒写「x分y秒」）。</summary>
+    private static string DurationText(double secs) => secs >= 60
+        ? L.F("AudioFx.Dur.MinSecFmt", (int)(secs / 60), Math.Round(secs % 60))
+        : L.F("AudioFx.Dur.SecFmt", secs.ToString("F1"));
 
     // ---------------- 预设（对位 usePreset） ----------------
 
@@ -153,487 +520,6 @@ public partial class AudioFxDialog : Window
             PresetHost.Children.Add(b);
         }
     }
-
-    // ---------------- 回填 / 重建 ----------------
-
-    private void Refresh()
-    {
-        if (App.MainInstance == null) return;
-        _syncing = true;
-        try
-        {
-            var cfg = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
-            var units = (JArray)cfg["units"]!;
-            var shape = string.Join(",", units.OfType<JObject>().Select(u => u["id"]?.ToString() ?? ""));
-            if (shape != _shape)
-            {
-                _shape = shape;
-                BuildRack(units);
-            }
-            else
-            {
-                UpdateRackValues(units);
-            }
-            TblEmpty.Visibility = units.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            RefreshAddCombo(units);
-            RefreshSpeed(cfg);
-        }
-        finally
-        {
-            _syncing = false;
-        }
-    }
-
-    private void RefreshSpeed(JObject cfg)
-    {
-        var audio = Preview.Audio;
-        SpeedRow.Visibility = audio != null ? Visibility.Visible : Visibility.Collapsed;
-        if (audio == null) return;
-        var speed = AudioFx.FxSpeedOf(cfg);
-        if (Math.Abs(SlSpeed.Value - speed) > 1e-6) SlSpeed.Value = speed;
-        TblSpeedVal.Text = SpeedLabel(speed);
-        TblSpeedDur.Text = DurationText(audio.Duration / Math.Max(0.01, speed));
-    }
-
-    /// <summary>变速后的歌曲时长文案（对位 fmtDur：≥60 秒写「x分y秒」）。</summary>
-    private static string DurationText(double secs) => secs >= 60
-        ? L.F("AudioFx.Dur.MinSecFmt", (int)(secs / 60), Math.Round(secs % 60))
-        : L.F("AudioFx.Dur.SecFmt", secs.ToString("F1"));
-
-    private void BuildRack(JArray units)
-    {
-        RackHost.Children.Clear();
-        _rows.Clear();
-        foreach (var u in units.OfType<JObject>()) RackHost.Children.Add(BuildRow(_rows.Count, u));
-        if (_openUnit >= _rows.Count) _openUnit = -1;
-        if (_openUnit >= 0) BuildDetail(_rows[_openUnit]);
-    }
-
-    /// <summary>单行（对位 Vue 的 rack 行）：开关 + 名称（▸/▾）+ 参数摘要 + ↑ ↓ ✕。</summary>
-    private UIElement BuildRow(int index, JObject unit)
-    {
-        var id = unit["id"]?.ToString() ?? "";
-        if (!AudioFx.Units.TryGetValue(id, out var def)) return new Border();
-        var row = new UnitRow { Index = index, Id = id };
-
-        var head = new Grid { Margin = new Thickness(8, 4, 8, 4) };
-        for (var c = 0; c < 6; c++)
-            head.ColumnDefinitions.Add(new ColumnDefinition
-            {
-                Width = c == 2 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto,
-            });
-
-        var on = new CheckBox
-        {
-            IsChecked = unit["on"]?.Type != JTokenType.Boolean || (bool)unit["on"]!,
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = def.Note,
-        };
-        on.Checked += (_, _) => { if (!_syncing) ToggleUnit(row, true); };
-        on.Unchecked += (_, _) => { if (!_syncing) ToggleUnit(row, false); };
-        row.On = on;
-        head.Children.Add(on);
-
-        var headBtn = new Button
-        {
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Foreground = (Brush)FindResource("Fg"),
-            FontWeight = FontWeights.SemiBold,
-            Padding = new Thickness(6, 0, 6, 0),
-            Height = 20,
-            Cursor = Cursors.Hand,
-            Focusable = false,
-            VerticalAlignment = VerticalAlignment.Center,
-            Content = def.Label + " ▸",
-        };
-        headBtn.Click += (_, _) => ToggleOpen(row);
-        row.Head = headBtn;
-        Grid.SetColumn(headBtn, 1);
-        head.Children.Add(headBtn);
-
-        var summary = new TextBlock
-        {
-            FontSize = 11,
-            Foreground = (Brush)FindResource("Mut"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 8, 0),
-        };
-        row.Summary = summary;
-        Grid.SetColumn(summary, 2);
-        head.Children.Add(summary);
-
-        var up = MakeSmall("↑", "AudioFx.Rack.Up");
-        up.IsEnabled = index > 0;
-        up.Click += (_, _) => MoveUnit(row, -1);
-        Grid.SetColumn(up, 3);
-        head.Children.Add(up);
-
-        var down = MakeSmall("↓", "AudioFx.Rack.Down");
-        down.IsEnabled = index < _rows.Count; // 建最后一行时 _rows.Count == index，故末尾行为 false
-        down.Click += (_, _) => MoveUnit(row, 1);
-        Grid.SetColumn(down, 4);
-        head.Children.Add(down);
-
-        var del = MakeSmall("✕", "AudioFx.Rack.Remove");
-        del.Click += (_, _) => RemoveUnit(row);
-        Grid.SetColumn(del, 5);
-        head.Children.Add(del);
-
-        row.Detail = new StackPanel { Margin = new Thickness(12, 0, 10, 8) };
-        row.Summary.Text = Summary(def, unit);
-        _rows.Add(row);
-
-        return new Border
-        {
-            BorderBrush = (Brush)FindResource("LineBrush"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            Margin = new Thickness(0, 0, 0, 4),
-            Child = new StackPanel { Children = { head, row.Detail } },
-        };
-    }
-
-    private Button MakeSmall(string glyph, string tipKey)
-    {
-        var b = new Button
-        {
-            Style = (Style)FindResource("BtnGhostSm"),
-            Content = glyph,
-            Padding = new Thickness(6, 0, 6, 0),
-            MinWidth = 26,
-            Margin = new Thickness(2, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        ToolTipService.SetToolTip(b, L.T(tipKey));
-        return b;
-    }
-
-    /// <summary>展开/收起（对位 openUnit：同一下标再点收起）。</summary>
-    private void ToggleOpen(UnitRow row)
-    {
-        _openUnit = _openUnit == row.Index ? -1 : row.Index;
-        foreach (var r in _rows)
-            if (AudioFx.Units.TryGetValue(r.Id, out var d))
-                r.Head.Content = d.Label + (r.Index == _openUnit ? " ▾" : " ▸");
-        if (_openUnit >= 0) BuildDetail(_rows[_openUnit]);
-    }
-
-    /// <summary>展开区（对位 Vue 的 v-if="openUnit === i" 块）：note + 参数行 / EQ 曲线，每次展开重建。</summary>
-    private void BuildDetail(UnitRow row)
-    {
-        row.Detail.Children.Clear();
-        row.RefreshValues.Clear();
-        if (!AudioFx.Units.TryGetValue(row.Id, out var def)) return;
-        var units = (JArray)AudioFx.SanitizeAudioFx(S.Project.AudioFx)["units"]!;
-        if (row.Index < 0 || row.Index >= units.Count) return;
-        var pr = (JObject)(((JObject)units[row.Index]!)["params"] ?? new JObject())!;
-
-        row.Detail.Children.Add(new TextBlock
-        {
-            Text = def.Note,
-            FontSize = 10,
-            Foreground = (Brush)FindResource("Mut"),
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 4),
-        });
-        foreach (var ps in def.Params)
-        {
-            if (ps.Type == "eq") row.Detail.Children.Add(BuildEq(row, pr));
-            else row.Detail.Children.Add(BuildParamRow(row, ps, pr));
-        }
-    }
-
-    /// <summary>数值参数行：标签 56 | 滑块 | 值 64（对位 `w-14` / `flex-1` / `w-16`）。</summary>
-    private UIElement BuildParamRow(UnitRow row, FxParamDef ps, JObject pr)
-    {
-        var g = new Grid { Margin = new Thickness(0, 3, 0, 0) };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
-
-        g.Children.Add(new TextBlock
-        {
-            Text = ps.Label ?? ps.Key,
-            FontSize = 11,
-            Foreground = (Brush)FindResource("Mut"),
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-
-        var valueText = new TextBlock
-        {
-            Style = (Style)FindResource("MonoMut"),
-            FontSize = 11,
-            TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var sl = new Slider
-        {
-            Style = (Style)FindResource("FxSlider"),
-            Minimum = ps.Min,
-            Maximum = ps.Max,
-            SmallChange = ps.Step,
-            LargeChange = ps.Step * 10,
-            Value = ParamValue(pr, ps),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        if (ps.Type == "int")
-        {
-            sl.TickFrequency = Math.Max(1, ps.Step);
-            sl.IsSnapToTickEnabled = true;
-        }
-        void Show() => valueText.Text = Round2(sl.Value) + (ps.Unit ?? "");
-        Show();
-        string Label() => L.F("AudioFx.Mutate.Param", ps.Label ?? ps.Key);
-        JToken Value() => ps.Type == "int" ? new JValue((int)Math.Round(sl.Value)) : new JValue(sl.Value);
-
-        sl.ValueChanged += (_, _) =>
-        {
-            Show();
-            if (_syncing || _dragging || !_ready) return; // 拖动中只刷显示（松手统一提交）
-            SubmitDebounced(Label(), cur => SetParamOn(cur, row.Index, ps.Key, Value()));
-        };
-        AttachDrag(sl, () =>
-        {
-            if (_ready) SubmitNow(Label(), cur => SetParamOn(cur, row.Index, ps.Key, Value()));
-        });
-
-        Grid.SetColumn(sl, 1);
-        g.Children.Add(sl);
-        Grid.SetColumn(valueText, 2);
-        g.Children.Add(valueText);
-
-        row.RefreshValues.Add(() =>
-        {
-            var cfg = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
-            if (cfg["units"] is not JArray us || row.Index >= us.Count) return;
-            var pr2 = ((JObject)us[row.Index]!)["params"] as JObject;
-            if (pr2 == null) return;
-            var v = ParamValueOrNull(pr2, ps);
-            if (v != null && Math.Abs(sl.Value - v.Value) > 1e-9) sl.Value = v.Value;
-            Show();
-        });
-        return g;
-    }
-
-    /// <summary>给滑块的 Thumb 挂拖动事件（WPF 的 Slider 不公开 IsDragging，只能听 Thumb 的路由事件）。</summary>
-    private void AttachDrag(Slider sl, Action onRelease)
-    {
-        sl.Loaded += (_, _) =>
-        {
-            if (sl.Template.FindName("PART_Track", sl) is not Track track) return;
-            track.Thumb.DragStarted += (_, _) => _dragging = true;
-            track.Thumb.DragCompleted += (_, _) =>
-            {
-                _dragging = false;
-                onRelease();
-            };
-        };
-    }
-
-    private static double EqX(int i) => EqL + i * (EqW - EqL - 12) / (AudioFx.EqBands.Length - 1);
-
-    private static double EqY(double db) => EqH / 2 - (Math.Clamp(db, -12, 12) / 12) * (EqH / 2 - 8);
-
-    private static int NearestBand(double x)
-    {
-        var best = 0;
-        var bd = double.MaxValue;
-        for (var i = 0; i < AudioFx.EqBands.Length; i++)
-        {
-            var d = Math.Abs(EqX(i) - x);
-            if (d >= bd) continue;
-            bd = d;
-            best = i;
-        }
-        return best;
-    }
-
-    /// <summary>EQ 七段曲线（对位 eqCanvas）：折线 + 拉点，拖点改 ±12dB；拖动中 120ms 防抖、松手落定。</summary>
-    private UIElement BuildEq(UnitRow row, JObject pr)
-    {
-        var gains = new double[AudioFx.EqBands.Length];
-        var src = pr["gains"] as JArray;
-        for (var i = 0; i < gains.Length; i++)
-            if (src != null && i < src.Count) gains[i] = JNum(src[i]);
-
-        var canvas = new Canvas
-        {
-            Width = EqW,
-            Height = EqH,
-            Background = (Brush)FindResource("Ink"),
-            Cursor = Cursors.Cross,
-            ClipToBounds = true,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            SnapsToDevicePixels = true,
-        };
-        canvas.Children.Add(new Line
-        {
-            X1 = 0,
-            X2 = EqW,
-            Y1 = EqY(0),
-            Y2 = EqY(0),
-            Stroke = new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)), // 对位 rgba(255,255,255,.18)
-            StrokeThickness = 1,
-        });
-        var curve = new Polyline
-        {
-            Stroke = (Brush)FindResource("Amber"),
-            StrokeThickness = 2,
-            StrokeLineJoin = PenLineJoin.Round,
-        };
-        canvas.Children.Add(curve);
-        var dots = new List<Ellipse>();
-        for (var i = 0; i < gains.Length; i++)
-        {
-            var dot = new Ellipse
-            {
-                Width = 8,
-                Height = 8,
-                Fill = (Brush)FindResource("Amber"),
-                IsHitTestVisible = false,
-            };
-            dots.Add(dot);
-            canvas.Children.Add(dot);
-        }
-        foreach (var (text, top) in new[] { ("+12", EqY(12) - 6), ("0", EqY(0) - 6), ("-12", EqY(-12) + 10) })
-        {
-            var cap = new TextBlock
-            {
-                Text = text,
-                Style = (Style)FindResource("MonoMut"),
-                FontSize = 9,
-                IsHitTestVisible = false,
-            };
-            Canvas.SetLeft(cap, 2);
-            Canvas.SetTop(cap, top);
-            canvas.Children.Add(cap);
-        }
-
-        void Redraw()
-        {
-            curve.Points = new PointCollection(gains.Select((db, i) => new Point(EqX(i), EqY(db))));
-            for (var i = 0; i < dots.Count; i++)
-            {
-                Canvas.SetLeft(dots[i], EqX(i) - 4);
-                Canvas.SetTop(dots[i], EqY(gains[i]) - 4);
-            }
-        }
-        Redraw();
-
-        var drag = -1;
-        void ApplyEq(double y)
-        {
-            if (drag < 0) return;
-            var db = Math.Clamp((EqH / 2 - y) / (EqH / 2 - 8) * 12, -12, 12);        // 对位 eqApply 的映射
-            gains[drag] = Math.Round(db * 10) / 10;                                  // 对位 +db.toFixed(1)
-            Redraw();
-            SubmitDebounced(L.T("AudioFx.Mutate.Eq"),
-                cur => SetParamOn(cur, row.Index, "gains", new JArray(gains)));
-        }
-        canvas.MouseLeftButtonDown += (_, e) =>
-        {
-            canvas.CaptureMouse();
-            drag = NearestBand(e.GetPosition(canvas).X);
-            ApplyEq(e.GetPosition(canvas).Y);
-            e.Handled = true;
-        };
-        canvas.MouseMove += (_, e) =>
-        {
-            if (drag >= 0) ApplyEq(e.GetPosition(canvas).Y);
-        };
-        canvas.MouseLeftButtonUp += (_, _) =>
-        {
-            if (drag < 0) return;
-            drag = -1;
-            canvas.ReleaseMouseCapture();
-            SubmitNow(L.T("AudioFx.Mutate.Eq"), cur => SetParamOn(cur, row.Index, "gains", new JArray(gains)));
-        };
-        canvas.LostMouseCapture += (_, _) => drag = -1;
-
-        var labels = new Grid { Width = EqW, Margin = new Thickness(0, -2, 0, 0) };
-        for (var i = 0; i < EqLabels.Length; i++)
-        {
-            labels.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var t = new TextBlock
-            {
-                Text = EqLabels[i],
-                Style = (Style)FindResource("MonoMut"),
-                FontSize = 9,
-                HorizontalAlignment = i == 0 ? HorizontalAlignment.Left
-                    : i == EqLabels.Length - 1 ? HorizontalAlignment.Right
-                    : HorizontalAlignment.Center,
-            };
-            Grid.SetColumn(t, i);
-            labels.Children.Add(t);
-        }
-
-        var wrap = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
-        wrap.Children.Add(canvas);
-        wrap.Children.Add(labels);
-
-        row.RefreshValues.Add(() =>
-        {
-            var cfg = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
-            if (cfg["units"] is not JArray us || row.Index >= us.Count) return;
-            var g2 = ((JObject)us[row.Index]!)["params"]?["gains"] as JArray;
-            if (g2 == null || g2.Count != gains.Length) return;
-            for (var i = 0; i < gains.Length; i++) gains[i] = JNum(g2[i]);
-            Redraw();
-        });
-        return wrap;
-    }
-
-    /// <summary>回填不回建：开关态、名称箭头、参数摘要、展开区控件。</summary>
-    private void UpdateRackValues(JArray units)
-    {
-        for (var i = 0; i < _rows.Count && i < units.Count; i++)
-        {
-            var row = _rows[i];
-            var u = (JObject)units[i]!;
-            var on = u["on"]?.Type != JTokenType.Boolean || (bool)u["on"]!;
-            if (row.On.IsChecked != on) row.On.IsChecked = on;
-            if (AudioFx.Units.TryGetValue(row.Id, out var def))
-            {
-                row.Head.Content = def.Label + (i == _openUnit ? " ▾" : " ▸");
-                row.Summary.Text = Summary(def, u);
-            }
-            foreach (var f in row.RefreshValues) f();
-        }
-    }
-
-    /// <summary>参数摘要（对位 paramSummary）：`标签 值单位` 用「・」连；EQ 写 平直 / 自定义曲线。</summary>
-    private static string Summary(FxUnitDef def, JObject unit)
-    {
-        var pr = (JObject)(unit["params"] ?? new JObject())!;
-        var parts = new List<string>();
-        foreach (var ps in def.Params)
-        {
-            if (ps.Type == "eq")
-            {
-                var any = (pr["gains"] as JArray)?.Any(v => Math.Abs(JNum(v)) > 0.05) == true;
-                parts.Add(L.T(any ? "AudioFx.Eq.Custom" : "AudioFx.Eq.Flat"));
-            }
-            else
-            {
-                parts.Add($"{ps.Label} {Round2(ParamValue(pr, ps))}{ps.Unit}");
-            }
-        }
-        return string.Join("・", parts);
-    }
-
-    private static double ParamValue(JObject pr, FxParamDef ps) => ParamValueOrNull(pr, ps) ?? ps.Def;
-
-    private static double? ParamValueOrNull(JObject pr, FxParamDef ps)
-        => pr[ps.Key] is JValue { Type: JTokenType.Float or JTokenType.Integer } v ? Convert.ToDouble(v.Value) : null;
-
-    /// <summary>JSON 数值取 double（非数值回 0）——JToken.Value 是泛型方法，不能直接喂给 Convert。</summary>
-    private static double JNum(JToken? tok)
-        => tok is JValue { Type: JTokenType.Float or JTokenType.Integer } v ? Convert.ToDouble(v.Value) : 0;
-
-    private static string Round2(double v)
-        => Math.Abs(v) >= 100 ? Math.Round(v).ToString("0") : Math.Round(v, 2).ToString("0.##");
 
     // ---------------- 添加效果（对位 addable / addUnit） ----------------
 
@@ -672,48 +558,8 @@ public partial class AudioFxDialog : Window
             units.Add(new JObject { ["id"] = id, ["on"] = true, ["params"] = defaults });
             return units;
         });
-        _openUnit = _rows.Count; // 新单元落在末尾并自动展开（对位 addUnit 的 openUnit = length-1）
+        _openUnit = _units.Count; // 新单元落在末尾并自动展开（对位 addUnit 的 openUnit = length-1）
     }
-
-    // ---------------- 链操作（对位 addUnit/rmUnit/moveUnit/toggleUnit） ----------------
-
-    private void ToggleUnit(UnitRow row, bool on)
-    {
-        var label = LabelOf(row);
-        EditUnits(L.F(on ? "AudioFx.Mutate.UnitOn" : "AudioFx.Mutate.UnitOff", label), units =>
-        {
-            if (row.Index >= 0 && row.Index < units.Count && units[row.Index] is JObject u) u["on"] = on;
-            return units;
-        });
-    }
-
-    private void MoveUnit(UnitRow row, int delta)
-    {
-        var i = row.Index;
-        var j = i + delta;
-        if (i < 0 || j < 0 || j >= _rows.Count) return;
-        EditUnits(L.T("AudioFx.Mutate.Move"), units =>
-        {
-            if (i >= units.Count || j >= units.Count) return units;
-            (units[i], units[j]) = (units[j], units[i]);
-            return units;
-        });
-        _openUnit = -1;
-    }
-
-    private void RemoveUnit(UnitRow row)
-    {
-        var label = LabelOf(row);
-        var i = row.Index;
-        EditUnits(L.F("AudioFx.Mutate.Remove", label), units =>
-        {
-            if (i >= 0 && i < units.Count) units.RemoveAt(i);
-            return units;
-        });
-        _openUnit = -1;
-    }
-
-    private string LabelOf(UnitRow row) => AudioFx.Units.TryGetValue(row.Id, out var d) ? d.Label : "";
 
     // ---------------- 提交（防抖 / 立即） ----------------
 
@@ -724,16 +570,20 @@ public partial class AudioFxDialog : Window
             return cur;
         });
 
-    /// <summary>立即提交（结构操作与松手落定走这条）；挂起的防抖先作废，避免旧值后到。</summary>
+    /// <summary>立即提交（结构操作与松手落定走这条）。挂起的防抖编辑先合并进来再提交——
+    /// 旧实现直接丢弃挂起编辑，快速连改（改参数后立刻调序/移除）会静默丢最后一次参数改动。</summary>
     private void SubmitNow(string label, Func<JObject, JObject> edit)
     {
         _debounce.Stop();
+        var pending = _pendingEdit;
         _pendingEdit = null;
-        var next = AudioFx.SanitizeAudioFx(edit(AudioFx.SanitizeAudioFx(S.Project.AudioFx)));
+        var cur = AudioFx.SanitizeAudioFx(S.Project.AudioFx);
+        if (pending != null) cur = pending(cur); // 挂起的是更早的编辑：先落它，再落新编辑
+        var next = AudioFx.SanitizeAudioFx(edit(cur));
         S.Mutate(p => p.AudioFx = next, label, replan: false);
     }
 
-    /// <summary>防抖提交（点击/键盘/EQ 拖动中的连续改动合成一次写）。</summary>
+    /// <summary>防抖提交（点击/键盘/EQ 之外的连续改动合成一次写）。</summary>
     private void SubmitDebounced(string label, Func<JObject, JObject> edit)
     {
         _pendingLabel = label;
@@ -761,24 +611,17 @@ public partial class AudioFxDialog : Window
         return cfg;
     }
 
-    // ---------------- 变速（对位 applyFx({speed})） ----------------
+    // ---------------- 小助手 ----------------
 
-    private static string SpeedLabel(double speed) => L.F("AudioFx.Speed.ValueFmt", speed.ToString("F2"));
+    private static double ParamValue(JObject pr, FxParamDef ps) => ParamValueOrNull(pr, ps) ?? ps.Def;
 
-    private static Func<JObject, JObject> SpeedEdit(double speed) => cur =>
-    {
-        cur["speed"] = Math.Round(speed / 0.05) * 0.05;
-        return cur;
-    };
+    private static double? ParamValueOrNull(JObject pr, FxParamDef ps)
+        => pr[ps.Key] is JValue { Type: JTokenType.Float or JTokenType.Integer } v ? Convert.ToDouble(v.Value) : null;
 
-    private void SlSpeed_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_syncing || !_ready || App.MainInstance == null) return; // 构造期与回填早退
-        var speed = Math.Round(e.NewValue / 0.05) * 0.05;            // 档位对齐 0.05
-        TblSpeedVal.Text = SpeedLabel(speed);
-        var audio = Preview.Audio;
-        if (audio != null) TblSpeedDur.Text = DurationText(audio.Duration / Math.Max(0.01, speed));
-        if (_dragging) return;                                       // 拖动中只刷显示（松手由 AttachDrag 提交）
-        SubmitDebounced(SpeedLabel(speed), SpeedEdit(speed));
-    }
+    /// <summary>JSON 数值取 double（非数值回 0）——JToken.Value 是泛型方法，不能直接喂给 Convert。</summary>
+    private static double JNum(JToken? tok)
+        => tok is JValue { Type: JTokenType.Float or JTokenType.Integer } v ? Convert.ToDouble(v.Value) : 0;
+
+    private static string Round2(double v)
+        => Math.Abs(v) >= 100 ? Math.Round(v).ToString("0") : Math.Round(v, 2).ToString("0.##");
 }

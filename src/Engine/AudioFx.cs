@@ -1201,6 +1201,17 @@ internal static class AfxIr
                 lp += k * (n - lp); // 一极低通做阻尼
                 buf[i] = (float)(lp * Math.Pow(1 - i / (double)len, 1.8 + damp)); // 衰减包络
             }
+            // 单位能量归一化（1/√(Σh²)）：浏览器 ConvolverNode 默认 normalize=true 会做这层缩放，
+            // 它属于节点而非 makeIR 代码——移植时漏掉后湿声功率增益 ≈43×（-32dB 误差），
+            // 混响直接淹没干声并削波轰鸣（实测 wet=1 时 Σy²=1843）。补回后白噪声输入下
+            // 湿声 RMS ≈ 输入 RMS，混响量由 wet 参数掌控；预览与导出同一条 Make，行为一致。
+            var power = 0.0;
+            for (var i = 0; i < len; i++) power += (double)buf[i] * buf[i];
+            if (power > 1e-9)
+            {
+                var s = (float)(1.0 / Math.Sqrt(power));
+                for (var i = 0; i < len; i++) buf[i] *= s;
+            }
             ir[ch] = buf;
         }
         return ir;

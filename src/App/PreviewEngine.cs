@@ -160,6 +160,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// 建链挪到后台后防「恢复期间又换歌/退出」的竞态（旧链装配完覆盖新状态）。</summary>
     private int _chainSeq;
 
+    /// <summary>特效重建在途序号（0=无在途）。重建起手旧链就被 Stop 且即将被替换/释放：
+    /// Play/AudioJump 靠它避免把旧链重新拉起来（否则新旧两链同时出声，旧链此后无人停）。</summary>
+    private volatile int _fxRebuildSeq;
+
     private volatile bool _scrubbing; // 对位 S.scrubbing：拖动中画面钉在 seek 目标，音频静默
 
     /// <summary>已装载的分析音频（null = 无音频，纯墙钟播放）。</summary>
@@ -273,37 +277,67 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             wo = wo2;
 
             var d = Application.Current?.Dispatcher;
-            if (d == null) InstallChain(seq, reader, wo, counter, gain, speed, fx); // 无 Dispatcher（测试）直接装
-            else d.Invoke(() => InstallChain(seq, reader, wo, counter, gain, speed, fx));
+            if (d == null) InstallChain(seq, reader, wo, counter, gain, speed, fx, startT); // 无 Dispatcher（测试）直接装
+            else d.Invoke(() => InstallChain(seq, reader, wo, counter, gain, speed, fx, startT));
         }
         catch (Exception ex)
         {
             Log.Warn("[Preview] 音频链装配失败，预览退回墙钟：" + ex.Message);
             try { reader?.Dispose(); } catch { /* 已失效 */ }
             try { wo?.Dispose(); } catch { /* 已失效 */ }
+            // 特效重建失败：旧链在重建起手时已被 Stop、不会再被替换回来——整条拆掉退回墙钟，
+            // 否则 _audioActive 仍为真，位置钟永远冻在停点（且无人再拉起旧链）
+            if (_fxRebuildSeq == seq)
+            {
+                _fxRebuildSeq = 0;
+                var d = Application.Current?.Dispatcher;
+                if (d == null) TeardownAudio();
+                else d.Invoke(() =>
+                {
+                    if (seq != Volatile.Read(ref _chainSeq)) return; // 期间已有更新的一代建链：留给它收尾
+                    var t = CurrentTime;    // 先锚住当前位置，拆链后退回墙钟时间不跳
+                    TeardownAudio();
+                    _base = t;
+                    _startTs = Stopwatch.GetTimestamp();
+                });
+            }
         }
     }
 
     /// <summary>挂链（UI 线程；_clockLock/_chainLock 粒度见字段注释）。seq 不符 = 期间已换代，整链丢弃。
     /// 锚点取安装时刻的墙钟位置：建链期间用户 seek/播放推进都反映进 _base，挂链不跳位。</summary>
     private void InstallChain(int seq, MediaFoundationReader reader, WaveOut wo,
-        CountingSampleProvider counter, VolumeSampleProvider gain, double speed, JObject fx)
+        CountingSampleProvider counter, VolumeSampleProvider gain, double speed, JObject fx, double startT)
     {
         if (seq != Volatile.Read(ref _chainSeq))
         {
             try { wo.Stop(); } catch { /* 已失效 */ }
             try { reader.Dispose(); wo.Dispose(); } catch { /* 已失效 */ }
+            if (_fxRebuildSeq == seq) _fxRebuildSeq = 0; // 本代重建被作废：清在途标记
             return;
         }
         lock (_clockLock)
         {
-            _posBase = RawTime; // 此时 _audioActive=false，RawTime=墙钟语义（含建链期间的 seek）
+            // 建链期间用户 seek 过：链内容还从 spawn 时的 startT 开始——装前直接重定位到当前时刻
+            //（新链还没播，重定位零成本；不修则音频与画面差一个 seek 量）
+            var now = Math.Max(0, RawTime); // 此时 _audioActive=false（换歌）或停在旧链停点（重建），都是墙钟语义
+            if (Math.Abs(now - startT) > 0.25)
+            {
+                try { reader.Position = (long)(now * reader.WaveFormat.AverageBytesPerSecond); }
+                catch (Exception ex) { Log.Debug("[Preview] 挂链重定位失败：" + ex.Message); }
+            }
+            _posBase = now;
             _counter = counter;
             _counter.Frames = 0;
             _startTs = Stopwatch.GetTimestamp();
         }
         lock (_chainLock)
         {
+            // 被替换的旧链停掉并释放：重建起手时旧链只 Stop 没释放，WaveOut/解码器句柄留给 GC
+            // 终结器就是句柄累积——连续微调效果最终设备打不开（"爆音/卡顿/无声"的末段）
+            try { if (_waveOut != null && _waveOut.PlaybackState != PlaybackState.Stopped) _waveOut.Stop(); } catch { /* 设备失效 */ }
+            try { _waveOut?.Dispose(); } catch { /* 同上 */ }
+            try { _reader?.Dispose(); } catch { /* 同上 */ }
             _reader = reader;
             _waveOut = wo;
             _gain = gain;
@@ -311,6 +345,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _fxToken = fx;
         _speed = speed;
         _audioActive = true;
+        if (_fxRebuildSeq == seq) _fxRebuildSeq = 0;
         if (IsPlaying && !_follow) SafePlay();
     }
 
@@ -348,6 +383,10 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         }
         var seq = Interlocked.Increment(ref _chainSeq); // 换代：在途的后台建链作废
         var fx = cfg; // UI 线程取快照
+        // 快照立即落地并记在途序号：本方法每个 Tick 都会调到这里，等挂链成功再记 _fxToken 会让
+        // 重建完成前的每一帧都再 spawn 一次完整建链（开文件+建 DSP 图+开设备）——连续调整参数就是建链风暴
+        _fxToken = cfg;
+        _fxRebuildSeq = seq;
         lock (_chainLock)
         {
             try { if (_waveOut != null && _waveOut.PlaybackState != PlaybackState.Stopped) _waveOut.Stop(); } catch { /* 设备失效 */ }
@@ -399,7 +438,8 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             if (_counter != null) _counter.Frames = 0;
             _posBase = Math.Max(0, t);
         }
-        if (resume) SafePlay();
+        // 特效重建在途：旧链即将被替换，别把它拉起来（新链挂上后按 IsPlaying 续播）
+        if (resume && _fxRebuildSeq == 0) SafePlay();
     }
 
     /// <summary>波形位置钟：计数器帧数（扣掉已入队未播出的缓冲）换算回歌曲时间。</summary>
@@ -588,7 +628,9 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             _base = 0;
             AudioJump(0, resume: false); // 先定位，SafePlay 统一启动
         }
-        if (_audioActive) SafePlay();
+        // 特效重建在途：旧链已被 Stop 且即将被替换——不拉起它（否则新旧两链同时出声），
+        // 新链挂上时 InstallChain 会按 IsPlaying 统一起播
+        if (_audioActive && _fxRebuildSeq == 0) SafePlay();
         _startTs = Stopwatch.GetTimestamp();
         _isPlaying = true;
     }
