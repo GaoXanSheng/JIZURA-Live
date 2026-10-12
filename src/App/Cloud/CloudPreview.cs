@@ -70,9 +70,9 @@ public sealed class CloudPreview : IDisposable
     /// <summary>放一首本地文件（后台建链，回 UI 挂链）。失败返回 false，调用方负责提示。</summary>
     public async Task<bool> PlayAsync(string path, double startSec = 0)
     {
+        Teardown(); // 先拆旧链（内部换代：旧链回调线程的收尾异常就此作废，见 BuildChain 的守卫）
         var seq = Interlocked.Increment(ref _seq);
-        Teardown();
-        var chain = await Task.Run(() => BuildChain(path, Math.Max(0, startSec)));
+        var chain = await Task.Run(() => BuildChain(path, Math.Max(0, startSec), seq));
         if (chain == null) return false;
         if (seq != Volatile.Read(ref _seq)) // 期间又换歌了
         {
@@ -97,7 +97,7 @@ public sealed class CloudPreview : IDisposable
         }
     }
 
-    private Chain? BuildChain(string path, double startSec)
+    private Chain? BuildChain(string path, double startSec, int seq)
     {
         MediaFoundationReader? reader = null;
         WaveOut? wo = null;
@@ -112,7 +112,6 @@ public sealed class CloudPreview : IDisposable
             // 先定位再 Init：WaveOut 建缓冲时就开始从链上读帧，定位晚了首块内容就错位
             var total = reader.TotalTime.TotalSeconds;
             if (startSec > 0.05) reader.CurrentTime = TimeSpan.FromSeconds(Math.Clamp(startSec, 0, total));
-            Volatile.Write(ref _durationSec, total);
 
             var gain = new VolumeSampleProvider(node) { Volume = (float)_volume };
             // NAudio 3.x：WaveOutEvent 更名 WaveOut，延迟参数改为 BufferMilliseconds×NumberOfBuffers
@@ -121,10 +120,20 @@ public sealed class CloudPreview : IDisposable
             wo2.PlaybackStopped += (_, se) =>
             {
                 if (se.Exception == null) return; // 我方 Stop/拆链的正常停机
-                Log.Warn("[Cloud] 试听输出意外停止：" + se.Exception.Message);
+                // 换代守卫：waveOutReset/close 期间回调线程的 waveOutWrite 会报 InvalidParameter，
+                // 这条异常属于已被替换的旧链。上报它会经 OnDeviceFailed 把刚挂上的新链一起拆掉，
+                // 并让新链的时长停在 0（AtEnd 要求 dur>0 → 播完不换歌、时长显示成 00:00）。
+                // 判定放在真正上报的那一刻（含派发回 UI 之后）：换歌间隙里排队中的旧异常也不误伤新链。
+                void Report()
+                {
+                    if (seq != Volatile.Read(ref _seq)) return;
+                    Log.Warn("[Cloud] 试听输出意外停止：" + se.Exception.Message);
+                    Failed?.Invoke();
+                }
+
                 var d = Application.Current?.Dispatcher;
-                if (d == null || d.CheckAccess()) Failed?.Invoke();
-                else d.BeginInvoke(() => Failed?.Invoke());
+                if (d == null || d.CheckAccess()) Report();
+                else d.BeginInvoke(Report);
             };
             wo = wo2;
             return new Chain(reader, wo2, gain);
@@ -150,6 +159,10 @@ public sealed class CloudPreview : IDisposable
             _reader = chain.Reader;
             _waveOut = chain.Out;
             _gain = chain.Gain;
+            // 时长与 reader 同锁写入：只有真正挂上的链才有已知时长。写在 BuildChain 里会被
+            // 建链途中插入的 Teardown 清零，留下「reader 在放、Duration=0」的错位状态
+            //（AtEnd 永不成立 → 播完不换歌；显示成 已播 x / 00:00）。
+            Volatile.Write(ref _durationSec, chain.Reader.TotalTime.TotalSeconds);
         }
         chain.Out.Play();
     }
@@ -188,6 +201,7 @@ public sealed class CloudPreview : IDisposable
     /// <summary>停掉并拆链（换歌、关面板、退出）。</summary>
     public void Teardown()
     {
+        Interlocked.Increment(ref _seq); // 换代：在途建链、以及被拆链的回调异常（见 BuildChain 守卫）一并作废
         Chain? toDispose = null;
         lock (_lock)
         {

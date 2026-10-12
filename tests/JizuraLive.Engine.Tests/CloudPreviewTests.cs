@@ -50,6 +50,14 @@ public class CloudPreviewTests
             pv.Teardown();
             Assert.False(pv.HasTrack);
             Assert.False(pv.AtEnd);
+            // 时长与链必须同生共死：拆链后不许留下「时长还在 / 位置还在」的错位状态。
+            // 播放器显示的「已播 x / 00:00」与播完不换歌（AtEnd 要求 dur>0）都源于这里被拆开。
+            Assert.Equal(0, pv.Duration);
+            Assert.Equal(0, pv.Position);
+
+            // 换歌（换代后重挂链）：时长必须跟着新链恢复，不靠建链时写过的旧值
+            Assert.True(await pv.PlayAsync(path), "换歌后重建链应成功");
+            Assert.Equal(1.2, pv.Duration, 1);
         }
         finally
         {
