@@ -127,10 +127,32 @@
                                                    Foreground="{Binding BadgeBrush}" VerticalAlignment="Center"
                                                    Visibility="{Binding BadgeVisibility}" />
                                     </Grid>
-                                    <!-- 展开后的曲目（懒加载）：点曲目从这首开始播 -->
-                                    <ItemsControl ItemsSource="{Binding Songs}" Margin="24,0,0,4"
-                                                  Visibility="{Binding SongsVisibility}">
-                                        <ItemsControl.ItemTemplate>
+                                    <!-- 展开后的曲目（懒加载）：**虚拟化 + 高度上限**——125~1000 首的
+                                         歌单如果一次把行都建出来，主线程会卡住（就是"歌单内歌曲加载卡"） -->
+                                    <ListBox ItemsSource="{Binding Songs}" Margin="24,0,0,4" MaxHeight="300"
+                                             Background="Transparent" BorderThickness="0" Padding="0"
+                                             Visibility="{Binding SongsVisibility}"
+                                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                             ScrollViewer.CanContentScroll="True"
+                                             VirtualizingPanel.IsVirtualizing="True"
+                                             VirtualizingPanel.VirtualizationMode="Recycling">
+                                        <ListBox.ItemContainerStyle>
+                                            <Style TargetType="ListBoxItem">
+                                                <Setter Property="Padding" Value="0" />
+                                                <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="BorderThickness" Value="0" />
+                                                <Setter Property="Focusable" Value="False" />
+                                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="ListBoxItem">
+                                                            <ContentPresenter />
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </ListBox.ItemContainerStyle>
+                                        <ListBox.ItemTemplate>
                                             <DataTemplate>
                                                 <Button Style="{StaticResource SongRowBtn}" Tag="{Binding}"
                                                         Click="BtnSong_Click" ToolTip="{Binding Name}">
@@ -152,8 +174,8 @@
                                                     </Grid>
                                                 </Button>
                                             </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
                                     <TextBlock Text="{DynamicResource Loc.Cloud.PlaylistReading}" FontSize="11"
                                                Foreground="{StaticResource Faint}" Margin="24,0,0,6"
                                                Visibility="{Binding SongsLoadingVisibility}" />

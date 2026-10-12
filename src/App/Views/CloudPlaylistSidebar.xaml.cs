@@ -240,7 +240,7 @@ public partial class CloudPlaylistSidebar : UserControl
         row.Loading = true;
         try
         {
-            var songs = await FetchSongsAsync(row.Info.Id);
+            var songs = await FetchSongsAsync(row.Info.Id, row.Name);
             if (!IsLoaded) return;
             row.SetSongs(songs);
         }
@@ -261,7 +261,7 @@ public partial class CloudPlaylistSidebar : UserControl
         e.Handled = true;
         try
         {
-            var songs = row.Songs.Count > 0 ? row.Songs.Select(s => s.Song).ToList() : await FetchSongsAsync(row.Info.Id);
+            var songs = row.Songs.Count > 0 ? row.Songs.Select(s => s.Song).ToList() : await FetchSongsAsync(row.Info.Id, row.Name);
             if (!IsLoaded || songs.Count == 0) return;
             if (row.Songs.Count == 0) row.SetSongs(songs);
             Svc?.Play(songs, 0, CloudPanel.LastQuality);
@@ -284,8 +284,15 @@ public partial class CloudPlaylistSidebar : UserControl
         if (index >= 0) Svc?.Play(queue, index, CloudPanel.LastQuality);
     }
 
-    private Task<List<KgSong>> FetchSongsAsync(string id) =>
-        _source == "netease"
-            ? ServerContext.Netease.PlaylistSongsAsync(id).ContinueWith(t => t.Result.List)
-            : ServerContext.KuGou.PlaylistSongsAsync(id).ContinueWith(t => t.Result.List);
+    /// <summary>取歌单曲目（大歌单会分页，进度写在状态行上：几百首的等待不再像卡死）。</summary>
+    private async Task<List<KgSong>> FetchSongsAsync(string id, string? label = null)
+    {
+        void Report(int n) => SetStatus(L.F("Cloud.PlaylistReadingCount", label ?? "", n), "Mut");
+        var r = _source == "netease"
+            ? await ServerContext.Netease.PlaylistSongsAsync(id, Report)
+            : await ServerContext.KuGou.PlaylistSongsAsync(id, Report);
+        if (!r.Ok) throw new SongLoader.CloudException(r.Error ?? L.T("Cloud.ReadFailed"));
+        SetStatus("", "Mut");
+        return r.List.ToList();
+    }
 }

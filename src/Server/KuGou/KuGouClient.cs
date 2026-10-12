@@ -1,4 +1,4 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 using JizuraLive.Logging;
@@ -356,7 +356,7 @@ public sealed partial class KuGouClient
         };
     }
 
-    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id)
+    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id, Action<int>? progress = null)
     {
         var gcid = (id ?? "").Trim();
         var m = Regex.Match(gcid, @"[?&](?:global_collection_id|id)=([\w-]+)");
@@ -367,42 +367,59 @@ public sealed partial class KuGouClient
         if (token.Length == 0)
             return new KgSearchResponse { Ok = false, Error = "请先扫码登录酷狗" };
 
-        var r = new KgSearchResponse { Ok = true };
-        const int pageSize = 300;
-        for (var begin = 0; begin < 1000; begin += pageSize)
-        {
-            var d = await GatewayAsync("/pubsongs/v2/get_other_list_file_nofilt", null,
-                new Dictionary<string, string>
-                {
-                    ["area_code"] = "1",
-                    ["begin_idx"] = begin.ToString(),
-                    ["plat"] = "1",
-                    ["type"] = "1",
-                    ["mode"] = "1",
-                    ["personal_switch"] = "1",
-                    ["extend_fields"] = "abtags,hot_cmt,popularization",
-                    ["pagesize"] = pageSize.ToString(),
-                    ["global_collection_id"] = gcid
-                }, null);
-            if (d.Value<int?>("status") != 1)
-            {
-                if (r.List.Count > 0) break;
-                var msg = d.Value<string>("errmsg") ?? "";
-                return new KgSearchResponse
-                {
-                    Ok = false,
-                    Error = "酷狗歌单读取失败" + (msg.Length > 0 ? "：" + msg : "，请确认歌单 ID 或重新扫码登录")
-                };
-            }
+        // 第一页：拿总数（也用它判失败）
+        var first = await FetchPlaylistPageAsync(gcid, 0);
+        if (first == null)
+            return new KgSearchResponse { Ok = false, Error = "酷狗歌单读取失败，请确认歌单 ID 或重新扫码登录" };
 
-            foreach (var it in d["data"]?["songs"] as JArray ?? new JArray())
-                r.List.Add(PlSongToSong((JObject)it));
-            var count = d["data"]?.Value<int?>("count") ?? r.List.Count;
-            if (r.List.Count >= count) break;
+        var r = new KgSearchResponse { Ok = true };
+        AppendPage(r, first.Value.Songs);
+        progress?.Invoke(r.List.Count);
+
+        // 剩余页**并行**拉：酷狗一次最多 300 首、上限 1000，原来 4 次串行 ≈ 4 个 RTT，
+        // 并行后 ≈ 1 个 RTT（几百首的大歌单从数秒降到一秒内）
+        var total = Math.Min(first.Value.Count, 1000);
+        var begins = new List<int>();
+        for (var begin = 300; begin < total; begin += 300) begins.Add(begin);
+        if (begins.Count > 0)
+        {
+            var pages = await Task.WhenAll(begins.Select(b => FetchPlaylistPageAsync(gcid, b)));
+            for (var i = 0; i < pages.Length; i++)
+            {
+                if (pages[i] == null) continue; // 某页失败：已拿到的照常用
+                AppendPage(r, pages[i]!.Value.Songs);
+                progress?.Invoke(r.List.Count);
+            }
         }
 
         r.Total = r.List.Count;
         return r;
+    }
+
+    private async Task<(JArray Songs, int Count)?> FetchPlaylistPageAsync(string gcid, int begin)
+    {
+        var d = await GatewayAsync("/pubsongs/v2/get_other_list_file_nofilt", null,
+            new Dictionary<string, string>
+            {
+                ["area_code"] = "1",
+                ["begin_idx"] = begin.ToString(),
+                ["plat"] = "1",
+                ["type"] = "1",
+                ["mode"] = "1",
+                ["personal_switch"] = "1",
+                ["extend_fields"] = "abtags,hot_cmt,popularization",
+                ["pagesize"] = "300",
+                ["global_collection_id"] = gcid
+            }, null);
+        if (d.Value<int?>("status") != 1) return null;
+        var songs = d["data"]?["songs"] as JArray ?? new JArray();
+        var count = d["data"]?.Value<int?>("count") ?? songs.Count;
+        return (songs, count);
+    }
+
+    private static void AppendPage(KgSearchResponse r, JArray songs)
+    {
+        foreach (var it in songs) r.List.Add(PlSongToSong((JObject)it));
     }
 
     public async Task<KgQrResponse> QrAsync()

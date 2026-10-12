@@ -28,6 +28,7 @@ public sealed class CloudPlayerSession
     private readonly CloudPlayService _svc;
 
     private string _snapshot = "";
+    private List<KrcLine>? _savedSubtitles;   // 进模式前的引擎字幕层（KRC 逐字），退出时还回去
     private int _seq;                       // 换代：退出/重进都作废在途的预取
     private readonly Dictionary<string, SongLoader.PreparedSong> _prepared = new(); // 身份 → 已备好的素材
     private readonly List<string> _preparedOrder = [];   // 上限内保留最近几首（重进模式秒接，不无限占内存）
@@ -56,6 +57,7 @@ public sealed class CloudPlayerSession
         Active = true;
         _seq++;
         _snapshot = _state.Snapshot();
+        _savedSubtitles = _state.Subtitles; // 用户工程自己的 KRC 逐字（会话级），退出时还原
         try
         {
             AtomicFile.Write(SessionFile, _snapshot);
@@ -91,14 +93,23 @@ public sealed class CloudPlayerSession
         _state.Engine.FollowEnd();
         if (restore)
         {
-            _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: true); // 拆跟随、把用户的音频接回引擎
+            // 字幕层也还回去：云歌的 KRC 逐字不该留在你的工程里（它按行号对齐，跟工程词对不上）
+            _state.SetSubtitles(_savedSubtitles);
+            _savedSubtitles = null;
+        }
+        if (restore)
+        {
+            _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: false); // 拆跟随、把用户的音频接回引擎
             if (_snapshot.Length > 0 && !_state.RestoreSnapshotSilently(_snapshot))
                 Log.Warn("[Player] 工程还原失败：快照仍留在 " + SessionFile);
+            else
+                _state.ReplanAsync();
         }
         else
         {
             // 留在工程里的就是刚载入的那首云歌：引擎自己建链放它，音量/循环按工程侧来
-            _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: true);
+            _state.Engine.SetAudioSource(_state.Audio, _state.AudioPath, replan: false);
+            _state.ReplanAsync();
         }
 
         try
@@ -157,8 +168,11 @@ public sealed class CloudPlayerSession
             p.Artist = song.Singer;
         }, L.T("Player.MutateSong"), replan: false);
 
-        // 分析数据交给引擎（path=null：只换规划用的节拍/时长/能量，不建播放链——声音由云链出）
-        _state.Engine.SetAudioSource(prepared.Audio, null, replan: true);
+        // 分析数据交给引擎（path=null：只换规划用的节拍/时长/能量，不建播放链——声音由云链出）。
+        // replan:false + 走 EditorState 的**后台**重规划：同步 Replan 在 UI 线程要 0.7~1.8s，
+        // 每首歌都卡一下（"歌单内歌曲加载卡主线程"的真凶）
+        _state.Engine.SetAudioSource(prepared.Audio, null, replan: false);
+        _state.ReplanAsync();
 
         _svc.SetStatus(prepared.Trial ? L.T("Cloud.PreviewTrial") : L.T("Player.NowPlaying"));
         Changed?.Invoke();

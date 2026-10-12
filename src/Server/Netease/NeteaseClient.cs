@@ -1,4 +1,4 @@
-using System.Net.Http;
+﻿using System.Net.Http;
 using System.Text;
 using JizuraLive.Logging;
 using JizuraLive.Server.Models;
@@ -334,7 +334,7 @@ public sealed partial class NeteaseClient
         return list;
     }
 
-    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id)
+    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id, Action<int>? progress = null)
     {
         if (string.IsNullOrWhiteSpace(id) || !long.TryParse(id.Trim(), out _))
             return new KgSearchResponse { Ok = false, Error = "缺少歌单 ID（可粘贴 music.163.com 的歌单链接）" };
@@ -347,6 +347,7 @@ public sealed partial class NeteaseClient
         foreach (var t in d["playlist"]?["tracks"] as JArray ?? new JArray())
             r.List.Add(TrackToSong((JObject)t));
         r.Total = r.List.Count;
+        progress?.Invoke(r.List.Count);
         return r;
     }
 }

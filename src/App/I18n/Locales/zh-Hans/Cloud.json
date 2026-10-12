@@ -26,6 +26,7 @@
   "Cloud.PlaylistTipHas": "点歌单卡片看曲目；也可粘贴歌单链接 / ID 打开",
   "Cloud.PlaylistTipEmpty": "这个账号还没有歌单；可粘贴歌单链接 / ID 打开",
   "Cloud.PlaylistReading": "歌单读取中…",
+  "Cloud.PlaylistReadingCount": "读取中…（{0} 首）",
   "Cloud.PlaylistWord": "歌单",
   "Cloud.PlaylistLoadedLine": "{0}：{1} 首，点歌名即可载入",
   "Cloud.PlaylistLoadFailedMsg": "歌单载入失败：{0}",
