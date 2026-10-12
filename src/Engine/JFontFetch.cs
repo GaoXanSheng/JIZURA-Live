@@ -3,6 +3,8 @@ using System.Net.Http;
 using System.Text.RegularExpressions;
 using JizuraLive.App;
 using JizuraLive.Logging;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SkiaSharp;
 
 // EngineRenderGate（渲染串行闸，与预览/导出共享引擎静态缓存的规矩）
@@ -19,8 +21,9 @@ namespace JizuraLive.Engine;
 /// 画面热更新——用户不需要重启，也不用手动投字体。
 ///
 /// 触发点：EnsureFonts（plan 用到的脸）/ StyleTab 选字体。整族都拉不到（离线、被墙、字体名
-/// 对不上仓库路径）就维持系统气质栈兜底，功能不受影响；拉过的家族有本地缓存，不再联网。
-/// 一次只跑一个家族（后台、低优先级），失败退避，重复请求合并。
+/// 对不上仓库路径）就维持系统气质栈兜底，功能不受影响；拉过的家族有本地缓存 + 持久账本
+/// （.fetchlog.json，成功即不再联网，失败按 10 分钟→1 小时→24 小时递增退避，跨重启有效）。
+/// 一次只跑一个家族（后台、低优先级），重复请求合并。
 /// </summary>
 public static class FontFetch
 {
@@ -41,7 +44,7 @@ public static class FontFetch
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(120) };
 
-    // 正在拉 / 拉过（含失败的，防抖 10 分钟）的家族键
+    // 正在拉的家族键（合并同一家族的重复请求）；「拉过/刚失败」的退避由持久账本负责（见 Ledger）
     private static readonly Dictionary<string, DateTime> Tried = new();
     private static readonly object Gate = new();
     private static Task? _worker;
@@ -98,10 +101,10 @@ public static class FontFetch
             foreach (var (fam, weight) in want)
             {
                 var key = fam + "|" + weight;
+                if (SkipByLedger(key)) continue; // 拉过（成/败）→ 账本说了算
                 if (Tried.TryGetValue(key, out var at))
                 {
                     if (at == DateTime.MinValue) continue;                  // 正在拉：合并重复请求
-                    if ((DateTime.UtcNow - at).TotalMinutes < 10) continue; // 拉过/刚失败：退避
                 }
                 Tried[key] = DateTime.MinValue; // 占位（正在拉）；成/败后由工人写实时间
                 _queue.Enqueue((fam, weight));
@@ -136,10 +139,10 @@ public static class FontFetch
                 if (_queue.Count == 0) return;
                 job = _queue.Dequeue();
             }
-            var ok = false;
+            string? file = null;
             try
             {
-                ok = await FetchFamily(job.Family, job.Weight).ConfigureAwait(false);
+                file = await FetchFamily(job.Family, job.Weight).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -147,9 +150,10 @@ public static class FontFetch
             }
             lock (Gate)
             {
-                Tried[job.Family + "|" + job.Weight] = DateTime.UtcNow; // 成/败都记时间（失败做 10 分钟退避）
+                Tried[job.Family + "|" + job.Weight] = DateTime.UtcNow;
+                LedgerPut(job.Family + "|" + job.Weight, file != null, file ?? "");
             }
-            if (!ok) continue;
+            if (file == null) continue;
 
             try
             {
@@ -167,8 +171,9 @@ public static class FontFetch
         }
     }
 
-    /// <summary>拉一个家族的一份字重：候选文件名 × 镜像逐个试，先落地再验（族名对得上、字形数像完整字库）。</summary>
-    private static async Task<bool> FetchFamily(string family, int weight)
+    /// <summary>拉一个家族的一份字重：候选文件名 × 镜像逐个试，先落地再验（族名对得上、字形数像完整字库）。
+    /// 成功返回落盘路径，全试完没拉到返回 null。</summary>
+    private static async Task<string?> FetchFamily(string family, int weight)
     {
         var dir = DirOf(family);
         Directory.CreateDirectory(JFonts.UserFontDir);
@@ -209,7 +214,7 @@ public static class FontFetch
                     }
                     File.Move(tmp, path, overwrite: true);
                     Log.Info($"[字体拉取] {family} {weight} ← {url}（{bytes.Length / 1048576.0:F1}MB，CJK={(cjk ? "有" : "无")}）");
-                    return true;
+                    return path;
                 }
                 catch (Exception ex)
                 {
@@ -218,7 +223,76 @@ public static class FontFetch
             }
         }
         Log.Info($"[字体拉取] {family} {weight} 没拉到（用系统字体栈兜底）");
-        return false;
+        return null;
+    }
+
+    // ---------------- 拉取账本（fonts\.fetchlog.json）----------------
+    // 记「这个族这个字重拉过没有」：拉成功过就不再请求（族名归一化跟目录索引对不上时也不会反复重下），
+    // 失败按次数递增退避并跨重启保留——否则仓库里根本没有的族，每次启动、每 10 分钟都要把镜像再敲一遍。
+
+    private sealed record LedgerEntry(bool Ok, long Ts, int Fails, string File);
+
+    private static Dictionary<string, LedgerEntry>? _log;
+
+    private static string LedgerPath => Path.Combine(JFonts.UserFontDir, ".fetchlog.json");
+
+    private static Dictionary<string, LedgerEntry> Ledger()
+    {
+        lock (Gate)
+        {
+            if (_log != null) return _log;
+            var map = new Dictionary<string, LedgerEntry>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                if (File.Exists(LedgerPath))
+                    foreach (var p in JObject.Parse(File.ReadAllText(LedgerPath)).Properties())
+                        map[p.Name] = new LedgerEntry(p.Value.Value<bool?>("ok") ?? false,
+                            p.Value.Value<long?>("ts") ?? 0, p.Value.Value<int?>("fails") ?? 0,
+                            p.Value.Value<string>("file") ?? "");
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("[字体拉取] 账本读取失败（忽略）：" + ex.Message);
+            }
+            return _log = map;
+        }
+    }
+
+    /// <summary>账本判定：拉成功过的跳过（拉到的文件被删了则重新拉）；失败过的按递增退避跳过。</summary>
+    private static bool SkipByLedger(string key)
+    {
+        var e = Ledger().GetValueOrDefault(key);
+        if (e == null) return false;
+        if (e.Ok) return e.File.Length == 0 || File.Exists(e.File);
+        var backoff = e.Fails switch
+        {
+            <= 1 => TimeSpan.FromMinutes(10),
+            2 => TimeSpan.FromHours(1),
+            _ => TimeSpan.FromHours(24),
+        };
+        return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - e.Ts < backoff.TotalMilliseconds;
+    }
+
+    private static void LedgerPut(string key, bool ok, string file)
+    {
+        lock (Gate)
+        {
+            var map = Ledger();
+            var fails = ok ? 0 : (map.GetValueOrDefault(key)?.Fails ?? 0) + 1;
+            map[key] = new LedgerEntry(ok, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), fails, file);
+            try
+            {
+                var j = new JObject();
+                foreach (var (k, v) in map)
+                    j[k] = new JObject { ["ok"] = v.Ok, ["ts"] = v.Ts, ["fails"] = v.Fails, ["file"] = v.File };
+                Directory.CreateDirectory(JFonts.UserFontDir);
+                AtomicFile.Write(LedgerPath, j.ToString(Formatting.None));
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("[字体拉取] 账本落盘失败：" + ex.Message);
+            }
+        }
     }
 
     /// <summary>族名相等判定（忽略大小写/空格/连字符；仓库文件名与 family 写法常有出入）。</summary>

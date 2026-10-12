@@ -73,9 +73,19 @@ public sealed class FollowController : IDisposable
     private int _matchSeq;
     private string _lastSrtcStatus = "";
 
+    // 跟随期间顶栏就是外部曲目：覆盖工程 Title/Artist 前先存一份原值，停止跟随时还回去
+    private bool _titleSaved;
+    private string _savedTitle = "";
+    private string _savedArtist = "";
+
     private static readonly string CloudDir = Path.Combine(AppDirs.Root, "cloud");
-    private static readonly string CacheFile = Path.Combine(CloudDir, "follow_cache.json");
-    private static readonly string StateFile = Path.Combine(CloudDir, "follow_state.json");
+
+    /// <summary>跟随匹配缓存 / 对齐偏移的文件名（清云缓存时按名保留：偏移是用户手调的）。</summary>
+    public const string CacheFileName = "follow_cache.json";
+    public const string StateFileName = "follow_state.json";
+
+    private static readonly string CacheFile = Path.Combine(CloudDir, CacheFileName);
+    private static readonly string StateFile = Path.Combine(CloudDir, StateFileName);
     private readonly object _cacheLock = new();
     private Dictionary<string, CacheEntry> _cache = new();
 
@@ -176,6 +186,7 @@ public sealed class FollowController : IDisposable
         _matchedKey = "";
         _candidateKey = "";
         _lastSrtcStatus = "";
+        _titleSaved = false;
         _matchSeq++;
         _dispatcher.Invoke(() =>
         {
@@ -201,6 +212,7 @@ public sealed class FollowController : IDisposable
         {
             Engine.FollowEnd(); // 时间轴冻结在当前位置
             Engine.SetLoop(_savedLoop);
+            RestoreTitle();
         });
         Status = StOff;
         Detail = "";
@@ -298,6 +310,7 @@ public sealed class FollowController : IDisposable
         AppName = cur.AppName;
         Title = cur.Title;
         Artist = cur.Artist;
+        PushExternalTitle(Title, Artist);
 
         // 切歌检测（去抖）：新歌一露头立刻冻结时间轴并清掉旧歌的匹配信息，
         // 元数据连续稳定 2 秒后才发起匹配
@@ -341,6 +354,45 @@ public sealed class FollowController : IDisposable
         _lastSrtcStatus = cur.Status;
         Engine.FollowAnchor(liveSec, cur.Status == "Playing");
         Notify();
+    }
+
+    // ---------------- 顶栏曲名/歌手 ----------------
+
+    /// <summary>
+    /// 跟随期间顶栏（以及 HUD / 导出用的工程 Title/Artist）显示外部曲目：与上一首不同的外部歌名
+    /// 就写进工程；第一次覆盖前把原值存下来，停止跟随时还回去。写的是播放器给的原文，不做标题清洗
+    /// （清洗只用于匹配搜索）。
+    /// </summary>
+    private void PushExternalTitle(string title, string artist)
+    {
+        var p = _state.Project;
+        if (p.Title == title && p.Artist == artist) return;
+        if (!_titleSaved)
+        {
+            _savedTitle = p.Title;
+            _savedArtist = p.Artist;
+            _titleSaved = true;
+        }
+        _state.Mutate(q =>
+        {
+            q.Title = title;
+            q.Artist = artist;
+        }, L.T("CloudFollow.MutateTitleArtist"), replan: true, look: true);
+    }
+
+    /// <summary>停止跟随：把被外部曲目顶掉的曲名/歌手还回工程。</summary>
+    private void RestoreTitle()
+    {
+        if (!_titleSaved) return;
+        _titleSaved = false;
+        var (title, artist) = (_savedTitle, _savedArtist);
+        var p = _state.Project;
+        if (p.Title == title && p.Artist == artist) return;
+        _state.Mutate(q =>
+        {
+            q.Title = title;
+            q.Artist = artist;
+        }, L.T("CloudFollow.MutateTitleArtist"), replan: true, look: true);
     }
 
     // ---------------- 匹配 ----------------
@@ -491,9 +543,16 @@ public sealed class FollowController : IDisposable
             }
 
             var (source, song) = (found.Source, found.Song);
-            var ly = source == "netease"
-                ? await ServerContext.Netease.GetLyricAsync(song.Id)
-                : await ServerContext.KuGou.GetLyricAsync(song.Hash, null, null, song.AlbumId);
+            // 歌词走落盘缓存：同一首外部歌反复跟随/重生匹配不再请求接口
+            var identity = SongLoader.IdentityOf(source, song);
+            var ly = LyricCache.Get(source, identity);
+            if (ly == null)
+            {
+                ly = source == "netease"
+                    ? await ServerContext.Netease.GetLyricAsync(song.Id)
+                    : await ServerContext.KuGou.GetLyricAsync(song.Hash, null, null, song.AlbumId);
+                LyricCache.Put(source, identity, ly, song.AlbumId);
+            }
             if (seq != Volatile.Read(ref _matchSeq)) return;
             if (!ly.Ok || string.IsNullOrEmpty(ly.Content))
             {

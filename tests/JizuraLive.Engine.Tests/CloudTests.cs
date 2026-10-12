@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Text;
+using JizuraLive.App;
 using JizuraLive.App.Cloud;
 using JizuraLive.App.Views;
 using JizuraLive.Server.Models;
@@ -11,7 +12,8 @@ namespace JizuraLive.Engine.Tests;
 
 /// <summary>
 /// M6 云音乐纯逻辑测试（不依赖网络）：KRC 解密 roundtrip + 逐字时间轴解析 + JIZURA LRC 生成 +
-/// 网易 LRC 展开/重建 + 文件名清洗 + 跟随匹配的标题清洗/歌手拆分/挑歌评分。
+/// 网易 LRC 展开/重建 + 文件名清洗 + 跟随匹配的标题清洗/歌手拆分/挑歌评分 +
+/// 下载记录索引与歌词缓存的命中判定（都在临时数据根里落盘往返）。
 /// </summary>
 public class CloudTests
 {
@@ -315,5 +317,177 @@ public class CloudTests
         var list = new List<KgSong> { S("Song", "完全不同的歌手", 300) };
         // 标题同 60 + 时长差>30 扣 10 + 歌手不沾边罚 45 = 5 < 30 → 不硬塞
         Assert.Null(FollowController.PickSong(list, "Song", "Someone", 200));
+    }
+
+    // ---------------- 下载记录索引（cloud\downloads.json） ----------------
+
+    private static string CloudPath(string name) => Path.Combine(AppDirs.CloudDir, name);
+
+    private static void WriteCloudBytes(string name, int size)
+    {
+        Directory.CreateDirectory(AppDirs.CloudDir);
+        File.WriteAllBytes(CloudPath(name), new byte[size]);
+    }
+
+    [Fact]
+    public void 下载记录_命中判定_换音质换平台不算命中()
+    {
+        AudioIndex.Reload();
+        var id = "t" + Guid.NewGuid().ToString("N");
+        const string file = "索引测试 - 命中.mp3";
+        try
+        {
+            WriteCloudBytes(file, 1024);
+            AudioIndex.Put("kugou", id, "320", file, 1024, "mp3", false, "命中", "索引测试");
+            AudioIndex.Reload(); // 走一遍落盘 → 读盘
+
+            Assert.NotNull(AudioIndex.Get("kugou", id, "320"));
+            Assert.Null(AudioIndex.Get("kugou", id, "128"));   // 音质不同的记录：不能拿 320 的文件顶 128
+            Assert.Null(AudioIndex.Get("netease", id, "320")); // 别的平台
+            Assert.Null(AudioIndex.Get("kugou", id + "x", "320"));
+
+            // 文件长度变成别的值（被覆盖过 / 没下完）：记录作废，不能拿坏文件当命中
+            WriteCloudBytes(file, 2048);
+            AudioIndex.Reload();
+            Assert.Null(AudioIndex.Get("kugou", id, "320"));
+
+            // 文件没了：记录作废，Prune 顺手清掉
+            File.Delete(CloudPath(file));
+            AudioIndex.Reload();
+            Assert.Null(AudioIndex.Get("kugou", id, "320"));
+            AudioIndex.Prune();
+            Assert.Null(AudioIndex.GetAny("kugou", id));
+        }
+        finally
+        {
+            try { File.Delete(CloudPath(file)); } catch { }
+        }
+    }
+
+    [Fact]
+    public void 下载记录_试听片段不当完整音轨命中()
+    {
+        AudioIndex.Reload();
+        var id = "t" + Guid.NewGuid().ToString("N");
+        const string file = "索引测试 - 试听.mp3";
+        try
+        {
+            WriteCloudBytes(file, 512);
+            AudioIndex.Put("kugou", id, "128", file, 512, "mp3", true, "试听", "索引测试");
+            AudioIndex.Reload();
+
+            var rec = AudioIndex.GetAny("kugou", id);
+            Assert.NotNull(rec);                             // 记录在
+            Assert.Null(AudioIndex.Get("kugou", id, "128")); // 但不命中：登录后可能已有完整音轨，要重新问接口
+            Assert.False(AudioIndex.CanReuseExisting(rec, "128", false)); // 现在是完整音轨 → 重下覆盖
+            Assert.True(AudioIndex.CanReuseExisting(rec, "128", true));   // 还是试听 → 沿用片段
+            Assert.False(AudioIndex.CanReuseExisting(rec, "320", true));  // 换音质 → 重下
+            Assert.True(AudioIndex.CanReuseExisting(null, "320", false)); // 无记录的老缓存：沿用现有口径
+        }
+        finally
+        {
+            try { File.Delete(CloudPath(file)); } catch { }
+        }
+    }
+
+    [Fact]
+    public void 下载记录_同名不同歌分配独立文件名()
+    {
+        AudioIndex.Reload();
+        var idA = "a" + Guid.NewGuid().ToString("N");
+        var idB = "b" + Guid.NewGuid().ToString("N");
+        var first = AudioIndex.ResolveFileName("kugou", idA, "同一个歌手", "同一首歌", "mp3");
+        Assert.Equal("同一个歌手 - 同一首歌.mp3", first);
+        try
+        {
+            WriteCloudBytes(first, 256);
+            AudioIndex.Put("kugou", idA, "128", first, 256, "mp3", false, "同一首歌", "同一个歌手");
+            // 同名文件已被别的歌占用 → 换后缀，别互相覆盖
+            Assert.Equal("同一个歌手 - 同一首歌 (2).mp3",
+                AudioIndex.ResolveFileName("kugou", idB, "同一个歌手", "同一首歌", "mp3"));
+            // 自己的歌反复解析拿到同一个名字（重复装载不会越排越多）
+            Assert.Equal(first, AudioIndex.ResolveFileName("kugou", idA, "同一个歌手", "同一首歌", "mp3"));
+        }
+        finally
+        {
+            try { File.Delete(CloudPath(first)); } catch { }
+        }
+    }
+
+    // ---------------- 歌词缓存（cloud\lyrics） ----------------
+
+    [Fact]
+    public void 歌词缓存_落盘往返_含翻译音译与候选版本()
+    {
+        var key = "t" + Guid.NewGuid().ToString("N");
+        var ly = new KgLyricResponse
+        {
+            Ok = true,
+            Fmt = "krc",
+            Content = Convert.ToBase64String(MakeKrcFile(SampleKrc)),
+            Trans = "dHJhbnM=",
+            Roma = "cm9tYQ==",
+            Candidates = [new KgLyricCandidate { Id = "c1", AccessKey = "ak", From = "kg", Nick = "nick" }],
+        };
+        try
+        {
+            Assert.Null(LyricCache.Get("kugou", key)); // 还没缓存
+            LyricCache.Put("kugou", key, ly, "album-1");
+
+            var got = LyricCache.Get("kugou", key);
+            Assert.NotNull(got);
+            Assert.Equal("krc", got!.Fmt);
+            Assert.Equal(ly.Content, got.Content);
+            Assert.Equal("dHJhbnM=", got.Trans);
+            Assert.Equal("cm9tYQ==", got.Roma);
+            Assert.Equal("c1", got.Candidates![0].Id);
+            Assert.Equal("ak", got.Candidates[0].AccessKey);
+            // 取回来的响应与接口返回同形：直接能进歌词装载（base64 → krc 解密 → 逐字解析）
+            Assert.Equal(3, Krc.Parse(Krc.Decrypt(Convert.FromBase64String(got.Content!))).Count);
+
+            // 失败响应 / 空内容不落缓存，下次仍然重新请求
+            var bad = "b" + Guid.NewGuid().ToString("N");
+            LyricCache.Put("kugou", bad, new KgLyricResponse { Ok = false }, null);
+            LyricCache.Put("kugou", bad, new KgLyricResponse { Ok = true, Content = "" }, null);
+            Assert.Null(LyricCache.Get("kugou", bad));
+        }
+        finally
+        {
+            try { File.Delete(LyricCache.FileOf("kugou", key)); } catch { }
+        }
+    }
+
+    // ---------------- 工程音频自动备份去重（cache\audio\autosave_song.*） ----------------
+
+    [Fact]
+    public void 音频备份_同一份源文件只拷一次()
+    {
+        var src = Path.Combine(Path.GetTempPath(), $"jz-autosave-{Guid.NewGuid():N}.mp3");
+        File.WriteAllBytes(src, new byte[4096]);
+        string? dest = null;
+        try
+        {
+            dest = AutosaveAudioCache.Mirror(src);
+            Assert.NotNull(dest);
+            Assert.Equal(4096, new FileInfo(dest!).Length);
+
+            // 往备份里写标记字节再镜像一次：源没变 → 不重拷（标记还在）
+            File.WriteAllBytes(dest!, Enumerable.Repeat((byte)0xAB, 4096).ToArray());
+            Assert.Equal(dest, AutosaveAudioCache.Mirror(src));
+            Assert.Equal(0xAB, File.ReadAllBytes(dest!)[0]);
+
+            // 源文件变了（长度不同）→ 重拷
+            File.WriteAllBytes(src, new byte[8192]);
+            Assert.Equal(dest, AutosaveAudioCache.Mirror(src));
+            Assert.Equal(8192, new FileInfo(dest!).Length);
+        }
+        finally
+        {
+            try { File.Delete(src); } catch { }
+            if (dest != null)
+            {
+                try { File.Delete(dest); } catch { }
+            }
+        }
     }
 }

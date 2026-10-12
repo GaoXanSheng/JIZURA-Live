@@ -536,21 +536,32 @@ public static class JFonts
             return DirFaces.ContainsKey(FaceKey(family.Trim().Trim('"')));
     }
 
-    /// <summary>系统里装了这个族没有（FromFamilyName 缺字体时返回默认体，须比对族名）。</summary>
+    /// <summary>系统里装了这个族没有（FromFamilyName 缺字体时返回默认体，须比对族名）。
+    /// 结果按族名记忆：它在 Replan→FontFetch.Request 里对每个脸都要问一次，而底层是原生族名查询。
+    /// </summary>
     public static bool IsFamilyInstalled(string family)
     {
         var fam = family.Trim().Trim('"');
         if (fam.Length == 0) return false;
+        var key = FaceKey(fam);
+        lock (DirLock)
+            if (InstalledCache.TryGetValue(key, out var hit)) return hit;
+        bool installed;
         try
         {
             using var t = SKTypeface.FromFamilyName(fam, SKFontStyleWeight.Normal, SKFontStyleWidth.Normal, SKFontStyleSlant.Upright);
-            return t != null && string.Equals(FaceKey(t.FamilyName), FaceKey(fam), StringComparison.Ordinal);
+            installed = t != null && string.Equals(FaceKey(t.FamilyName), key, StringComparison.Ordinal);
         }
         catch
         {
-            return false;
+            installed = false;
         }
+        lock (DirLock) InstalledCache[key] = installed;
+        return installed;
     }
+
+    // 系统族查询结果（FaceKey → 装了没有）；字体登记变化时随解析缓存一起清
+    private static readonly Dictionary<string, bool> InstalledCache = new(StringComparer.Ordinal);
 
     /// <summary>单族解析：用户字体 → 字体目录 → 系统族。命中返回 true（不打日志；上层统一缓存）。</summary>
     private static bool TryFamily(string familyQuoted, int weight, out SKTypeface tf)
@@ -789,6 +800,7 @@ public static class JFonts
     {
         lock (ResolveLock) ResolveCache.Clear();
         lock (CoverLock) CoverCache.Clear();
+        lock (DirLock) InstalledCache.Clear();
         _lastResort = null; // 兜底脸可能来自目录（rescan 后已 Dispose），悬空引用必须重建
         JLang.Glyphs?.Clear();
         JLang.Metrics?.Clear();

@@ -418,7 +418,7 @@ public sealed class EditorState : IDisposable
         SetAudioInternal(audio, path, fileName);
         Project.AudioPath = path;
         Project.AudioName = fileName;
-        Task.Run(() => TryCacheAutosaveAudio(path, fileName));
+        Task.Run(() => TryCacheAutosaveAudio(path));
         Revision++;
         ReplanAsync(); // plan.energy/pitch/beats 来自音频（后台重规划）
         StateChanged?.Invoke();
@@ -508,21 +508,13 @@ public sealed class EditorState : IDisposable
 
     /// <summary>
     /// 把当前工程的音频文件备份一份到本地缓存（对位前端 J.saveSong(f)），
-    /// 即使原路径被移动或删除，重启后仍可无缝恢复。
+    /// 即使原路径被移动或删除，重启后仍可无缝恢复。同一份源文件已备份过就跳过整份拷贝。
     /// </summary>
-    private static void TryCacheAutosaveAudio(string path, string? fileName)
+    private static void TryCacheAutosaveAudio(string path)
     {
         try
         {
-            if (!File.Exists(path)) return;
-            Directory.CreateDirectory(AppDirs.AudioCacheDir);
-            var ext = Path.GetExtension(path);
-            if (string.IsNullOrEmpty(ext)) ext = ".mp3";
-            var autosavePath = Path.Combine(AppDirs.AudioCacheDir, "autosave_song" + ext);
-            if (!string.Equals(Path.GetFullPath(path), Path.GetFullPath(autosavePath), StringComparison.OrdinalIgnoreCase))
-            {
-                File.Copy(path, autosavePath, overwrite: true);
-            }
+            AutosaveAudioCache.Mirror(path);
         }
         catch (Exception ex)
         {

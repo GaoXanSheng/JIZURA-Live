@@ -47,6 +47,8 @@ Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desk
 Type: filesandordirs; Name: "{localappdata}\JizuraLive"
 
 [Code]
+#include "build.cache-clean.iss"
+
 // 首次安装判定：注册表里没有我们的卸载项，且用户数据目录还不存在
 function IsFirstInstall(): Boolean;
 begin
@@ -57,10 +59,10 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  // 升级覆盖时先清掉旧版日志：日志目录由程序启动时自动重建，可整目录删除
+  // 升级覆盖时先清掉旧版缓存（首次安装时目录还不存在，无需处理）：
+  // 日志 / 云音乐下载与歌词缓存 / 解包音频，保留跟随对齐偏移与自动恢复用的音频备份
   if (CurStep = ssInstall) and (not IsFirstInstall()) then
-    if DirExists(ExpandConstant('{localappdata}\JizuraLive\logs')) then
-      DelTree(ExpandConstant('{localappdata}\JizuraLive\logs'), True, True, True);
+    CleanCachesUnder(ExpandConstant('{localappdata}\JizuraLive'));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

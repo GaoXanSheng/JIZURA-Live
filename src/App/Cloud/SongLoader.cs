@@ -67,6 +67,18 @@ public static class SongLoader
         return stem + "." + ext;
     }
 
+    /// <summary>歌曲身份（下载记录与歌词缓存共用）：酷狗优先 Hash，拿不到退回 AlbumAudioId/Id；网易云用 Id。
+    /// 空串＝这首歌没法标识，两边都退化成不记缓存。</summary>
+    public static string IdentityOf(string source, KgSong song)
+    {
+        var id = source == "netease"
+            ? song.Id
+            : !string.IsNullOrWhiteSpace(song.Hash) ? song.Hash
+            : !string.IsNullOrWhiteSpace(song.AlbumAudioId) ? song.AlbumAudioId
+            : song.Id;
+        return (id ?? "").Trim();
+    }
+
     // ---------------- 装载主流程 ----------------
 
     /// <summary>
@@ -78,25 +90,47 @@ public static class SongLoader
         string quality, Action<string>? progress = null, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
-        progress?.Invoke(L.T("CloudSong.GetUrl"));
-        var u = source == "netease"
-            ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
-            : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
-                int.TryParse(quality, out var q) ? q : 128);
-        if (!u.Ok || string.IsNullOrEmpty(u.Url))
+        var identity = IdentityOf(source, song);
+
+        // 下载记录先行：同一首歌 + 同一音质已经下好，连 URL 接口都不请求（离线、VIP 状态变化都能重载）
+        string path;
+        string fileName;
+        var trial = false;
+        var rec = AudioIndex.Get(source, identity, quality);
+        if (rec != null)
         {
-            var name = source == "netease" ? L.T("Cloud.SourceNetease") : L.T("Cloud.SourceKugou");
-            throw new CloudException(u.Error
-                                     ?? (u.NeedVip == true
-                                         ? L.F("CloudSong.NeedVip", name)
-                                         : L.T("CloudSong.NoUrl")));
+            progress?.Invoke(L.T("CloudSong.CacheHit"));
+            path = AudioIndex.FilePath(rec.File)!;
+            fileName = rec.File;
+            Log.Info($"[Cloud] 命中下载记录：{rec.File}（{source}:{identity}:{quality}）");
         }
+        else
+        {
+            progress?.Invoke(L.T("CloudSong.GetUrl"));
+            var u = source == "netease"
+                ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
+                : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
+                    int.TryParse(quality, out var q) ? q : 128);
+            if (!u.Ok || string.IsNullOrEmpty(u.Url))
+            {
+                var name = source == "netease" ? L.T("Cloud.SourceNetease") : L.T("Cloud.SourceKugou");
+                throw new CloudException(u.Error
+                                         ?? (u.NeedVip == true
+                                             ? L.F("CloudSong.NeedVip", name)
+                                             : L.T("CloudSong.NoUrl")));
+            }
 
-        var ext = (u.Ext ?? "mp3").ToLowerInvariant();
-        var fileName = AudioFileName(song.Singer, song.Name, ext);
-
-        progress?.Invoke(L.T("CloudSong.Download"));
-        var path = await DownloadAudioAsync(u.Url, fileName, ct);
+            var ext = (u.Ext ?? "mp3").ToLowerInvariant();
+            fileName = AudioIndex.ResolveFileName(source, identity, song.Singer, song.Name, ext);
+            trial = u.Trial == true;
+            // 同一首歌的旧记录：换了音质（128k/320k 都落 mp3、文件名相同）、或上次只下到试听片段而现在能拿
+            // 完整音轨 → 同名文件不能沿用，重下覆盖；其余情况沿用「同名文件存在即复用」的老口径（兼容老缓存）
+            var prev = AudioIndex.GetAny(source, identity);
+            progress?.Invoke(L.T("CloudSong.Download"));
+            path = await DownloadAudioAsync(u.Url, fileName, ct, AudioIndex.CanReuseExisting(prev, quality, trial));
+            AudioIndex.Put(source, identity, quality, fileName, new FileInfo(path).Length, ext, trial,
+                song.Name, song.Singer);
+        }
 
         // 歌词：失败不拦音频（老版本同策略——有歌没词照样能做）
         string lrc = "";
@@ -105,9 +139,14 @@ public static class SongLoader
         {
             progress?.Invoke(L.T("CloudSong.GetLyric"));
             ct.ThrowIfCancellationRequested();
-            var ly = source == "netease"
-                ? await ServerContext.Netease.GetLyricAsync(song.Id)
-                : await ServerContext.KuGou.GetLyricAsync(song.Hash, null, null, song.AlbumId);
+            var ly = LyricCache.Get(source, identity);
+            if (ly == null)
+            {
+                ly = source == "netease"
+                    ? await ServerContext.Netease.GetLyricAsync(song.Id)
+                    : await ServerContext.KuGou.GetLyricAsync(song.Hash, null, null, song.AlbumId);
+                LyricCache.Put(source, identity, ly, song.AlbumId);
+            }
             if (ly.Ok && !string.IsNullOrEmpty(ly.Content))
                 (lrc, lyricNote) = AdoptLyric(state, source, ly, song.AlbumId);
         }
@@ -161,7 +200,7 @@ public static class SongLoader
         sw.Stop();
         Log.Info($"[Cloud] 已装载：{song.Name} - {song.Singer} → {path}"
                  + $"（{J.FmtTime(audio.Duration)}，{audio.Bpm:0.0} BPM，{sw.ElapsedMilliseconds:#,0}ms{lyricNote}）");
-        return new CloudLoadResult(path, fileName, lrc, lyricNote, u.Trial == true,
+        return new CloudLoadResult(path, fileName, lrc, lyricNote, trial,
             audio.Duration, audio.Bpm, sw.ElapsedMilliseconds);
     }
 
@@ -252,7 +291,14 @@ public static class SongLoader
         var src = state.LyricSrc;
         if (src == null || idx < 0 || idx >= src.Candidates.Count) return "";
         var c = src.Candidates[idx];
-        var ly = await ServerContext.KuGou.GetLyricAsync(null, c.Id, c.AccessKey, src.AlbumId);
+        // 候选版本按「候选 id」单独缓存（跟歌曲身份不是一个键空间），切回切过的版本不再请求接口
+        var key = LyricCache.CandidatePrefix + c.Id;
+        var ly = LyricCache.Get("kugou", key);
+        if (ly == null)
+        {
+            ly = await ServerContext.KuGou.GetLyricAsync(null, c.Id, c.AccessKey, src.AlbumId);
+            LyricCache.Put("kugou", key, ly, src.AlbumId);
+        }
         if (!ly.Ok || string.IsNullOrEmpty(ly.Content))
             throw new CloudException(ly.Error ?? L.T("CloudSong.NoLyric"));
         var (lrc, _) = AdoptLyric(state, src.Source, ly, src.AlbumId, idx, src.Candidates);
@@ -269,8 +315,10 @@ public static class SongLoader
     /// <summary>
     /// 下载音频到缓存目录（同名复用已有文件；大小&gt;0 视为有效）。域名白名单 + 重定向后复检 +
     /// 握手 30s / 读停滞 60s 看门狗（与旧版 AudioProxy 同套纪律，流落盘版）。
+    /// reuseExisting=false 时忽略已存在的同名文件强制重下（换音质 / 试听片段升级为完整音轨）。
     /// </summary>
-    public static async Task<string> DownloadAudioAsync(string url, string fileName, CancellationToken ct)
+    public static async Task<string> DownloadAudioAsync(string url, string fileName, CancellationToken ct,
+        bool reuseExisting = true)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https") || !AllowedHost(uri.Host))
@@ -278,7 +326,7 @@ public static class SongLoader
 
         Directory.CreateDirectory(CacheDir);
         var path = Path.Combine(CacheDir, fileName);
-        if (File.Exists(path) && new FileInfo(path).Length > 0)
+        if (reuseExisting && File.Exists(path) && new FileInfo(path).Length > 0)
         {
             Log.Info("[Cloud] 命中缓存：" + fileName);
             return path;

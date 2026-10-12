@@ -1,4 +1,5 @@
 using System.IO;
+using JizuraLive.App.Cloud;
 using JizuraLive.Logging;
 
 namespace JizuraLive.App;
@@ -55,10 +56,12 @@ public static class StorageCleaner
             try
             {
                 var tempCleaned = CleanTempFiles(AppDirs.CacheDir) + CleanTempFiles(AppDirs.CloudDir);
+                var indexPruned = AudioIndex.Prune(); // 下载记录里指向已删/长度不符文件的条目
                 var dupCleaned = DeduplicateAudioCache(activeAudioPath);
                 var logsCleaned = TrimLogs(keepDays: 7, maxBytesTotal: 15 * 1024 * 1024);
-                if (tempCleaned > 0 || dupCleaned > 0 || logsCleaned > 0)
-                    Log.Info($"[StorageCleaner] 自动清理完成：临时文件={tempCleaned}，重复音频={dupCleaned}，旧日志={logsCleaned}");
+                if (tempCleaned > 0 || indexPruned > 0 || dupCleaned > 0 || logsCleaned > 0)
+                    Log.Info($"[StorageCleaner] 自动清理完成：临时文件={tempCleaned}，失效下载记录={indexPruned}，" +
+                             $"重复音频={dupCleaned}，旧日志={logsCleaned}");
             }
             catch (Exception ex)
             {
@@ -85,7 +88,7 @@ public static class StorageCleaner
         return count;
     }
 
-    /// <summary>清理云音乐下载（cloud\ 目录）：排除当前激活的音频文件。</summary>
+    /// <summary>清理云音乐下载（cloud\ 目录）：排除当前激活的音频与跟随状态（对齐偏移是用户手调的）。</summary>
     public static int ClearCloud(string? activeAudioPath = null)
     {
         var count = 0;
@@ -93,6 +96,9 @@ public static class StorageCleaner
         foreach (var file in Directory.EnumerateFiles(AppDirs.CloudDir, "*", SearchOption.AllDirectories))
         {
             if (IsSamePath(file, activeAudioPath)) continue;
+            var name = Path.GetFileName(file);
+            if (string.Equals(name, FollowController.CacheFileName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, FollowController.StateFileName, StringComparison.OrdinalIgnoreCase)) continue;
             try
             {
                 File.Delete(file);
@@ -100,6 +106,7 @@ public static class StorageCleaner
             }
             catch { }
         }
+        AudioIndex.Reload(); // 记录指向的文件刚被删：内存索引作废，下次访问重新读盘
         return count;
     }
 
