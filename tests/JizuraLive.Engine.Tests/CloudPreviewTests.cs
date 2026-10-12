@@ -66,6 +66,51 @@ public class CloudPreviewTests
         }
     }
 
+    /// <summary>
+    /// 连续换歌的哨兵：旧链拆除（waveOutReset/close）会让它的回调线程在 waveOutWrite 上抛
+    /// InvalidParameter，这条异常属于已被替换的旧设备，绝不能被当成「当前设备故障」上报
+    /// （上报会经 OnDeviceFailed 把刚挂上的新链一起拆掉：播放器表现为「一切歌就报音频设备异常，
+    /// 试听已停止」，且时长清零、播完不换歌）。真机实测旧代码 33 次换歌撞出 20 次。
+    ///
+    /// 注意这条哨兵**抓不住**那个竞态：进程内（设备空闲、无 UI 抖动）即使停用守卫也复现不出来
+    /// ——撞车窗口被真机的调度抖动（实测 300~480ms）放大才会高频触发。它守的是「连续换歌不出
+    /// 设备故障」这个外部可见结果；竞态本身只能靠真机日志验证（修前 20/33，修后 0/N）。
+    /// </summary>
+    [Fact]
+    public async Task 试听链_连续换歌_旧链拆除异常不上报()
+    {
+        var a = MakeTone("jz-sw-a");
+        var b = MakeTone("jz-sw-b");
+        var pv = new CloudPreview { Volume = 0 };
+        var failures = 0;
+        pv.Failed += () => Interlocked.Increment(ref failures);
+        try
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                Assert.True(await pv.PlayAsync(i % 2 == 0 ? a : b), $"第 {i + 1} 次换歌应建链成功");
+                await Task.Delay(150); // 让设备真的在放：回调线程在跑，拆链才撞得上 waveOutWrite
+            }
+            await Task.Delay(400); // 等最后一次拆链的收尾回调落地
+            Assert.Equal(0, failures);
+        }
+        finally
+        {
+            pv.Dispose();
+            try { File.Delete(a); File.Delete(b); } catch { /* 设备句柄可能还没放完 */ }
+        }
+    }
+
+    /// <summary>造一个 1.2 秒的正弦 WAV（44.1k 单声道 → 链上要重采样到 48k）。</summary>
+    private static string MakeTone(string prefix)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}.wav");
+        using var w = new WaveFileWriter(path, new WaveFormat(44100, 16, 1));
+        for (var i = 0; i < 44100 * 1.2; i++)
+            w.WriteSample((float)(Math.Sin(2 * Math.PI * 440 * i / 44100.0) * 0.2));
+        return path;
+    }
+
     /// <summary>播放器模式的进出：进模式快照工程、退出按快照还原（歌词/曲名/歌手是会话内唯一被改的字段）。</summary>
     [Fact]
     public void 播放器会话_进出模式还原工程与音频字段()
