@@ -251,14 +251,18 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         try
         {
             reader = new MediaFoundationReader(path);
-            ISampleProvider node = reader.ToSampleProvider();
+            // EOF 对下游不可见：WDL 重采样器在"源读到文件尾、帧数不足"时会 Array.Copy 越界抛
+            // ArgumentException（实测堆栈 WdlResampler.ResampleOut → WdlResamplingSampleProvider.Read），
+            // 异常打在 WaveOut 回调线程上把设备停机成"幽灵播放"（引擎以为在播、实际无声，
+            // 且 waveOutWrite 报 WaveStillPlaying 后 Play 也无法恢复）。补零到满即静音，
+            // seek 回有效位置后数据照常流入。
+            ISampleProvider node = new ZeroPadSampleProvider(reader.ToSampleProvider());
             if (node.WaveFormat.Channels == 1) node = new MonoToStereoSampleProvider(node);
             else if (node.WaveFormat.Channels > 2) node = new MultiplexingSampleProvider(new[] { node }, 2);
             if (node.WaveFormat.SampleRate != OutRate) node = new WdlResamplingSampleProvider(node, OutRate);
 
             // 先定位再 Init：WaveOut 建缓冲时就开始从链上读帧，定位晚了首块内容就错位了
-            reader.Position = (long)(Math.Clamp(startT, 0, Math.Max(0, reader.TotalTime.TotalSeconds))
-                                     * reader.WaveFormat.AverageBytesPerSecond);
+            RepositionReader(reader, Math.Clamp(startT, 0, Math.Max(0, reader.TotalTime.TotalSeconds)));
 
             // 特效图（J.buildAudioFx）：units 全关 → null = 不建图直通；anchorT 用当前歌曲时刻，seek 后 LFO 相位确定
             var graph = AudioFx.Build(fx, new FxBuildOpts { SampleRate = OutRate, AnchorT = startT });
@@ -274,6 +278,25 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             // NAudio 3.x：WaveOutEvent 更名 WaveOut，延迟参数改为 BufferMilliseconds×NumberOfBuffers
             var wo2 = new WaveOut { BufferMilliseconds = BufferMs, NumberOfBuffers = WaveBuffers };
             wo2.Init(counter); // 此时已填入首块缓冲，计数器初始化完成后再归零
+            // 意外停机（回调线程异常，如解码器读到越界位置）：同步降级退回墙钟——否则设备已死而
+            // 引擎仍以为在播，表现为「按播放没反应、一点声音都没有」。我方 Stop/Dispose 的正常停机
+            // Exception 为空，不处理。
+            wo2.PlaybackStopped += (_, se) =>
+            {
+                if (se.Exception == null) return; // 我方 Stop/Dispose 的正常停机
+                Log.Warn("[Preview] 音频输出意外停止（解码/设备异常），自动重建音频链恢复：" + se.Exception.Message);
+                var d0 = Application.Current?.Dispatcher;
+                if (d0 == null)
+                {
+                    if (seq == Volatile.Read(ref _chainSeq)) RebuildChainNow();
+                    return;
+                }
+                d0.InvokeAsync(() =>
+                {
+                    if (seq != Volatile.Read(ref _chainSeq)) return; // 已被更新的一代替换
+                    RebuildChainNow();
+                });
+            };
             wo = wo2;
 
             var d = Application.Current?.Dispatcher;
@@ -323,7 +346,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             var now = Math.Max(0, RawTime); // 此时 _audioActive=false（换歌）或停在旧链停点（重建），都是墙钟语义
             if (Math.Abs(now - startT) > 0.25)
             {
-                try { reader.Position = (long)(now * reader.WaveFormat.AverageBytesPerSecond); }
+                try { RepositionReader(reader, now); }
                 catch (Exception ex) { Log.Debug("[Preview] 挂链重定位失败：" + ex.Message); }
             }
             _posBase = now;
@@ -396,6 +419,27 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         Task.Run(() => BuildChainAsync(path, startT, seq, fx));
     }
 
+    /// <summary>意外停机后的自愈：以当前位置换代重建整条链（spawn 语义同特效重建；期间
+    /// Play/AudioJump 不拉旧链，新链挂上按播放态续播）。设备可能已被异常打坏成
+    /// waveOutWrite 报 WaveStillPlaying 的死状态，只有换代重建能恢复出声。</summary>
+    private void RebuildChainNow()
+    {
+        if (_audioPath == null || !File.Exists(_audioPath))
+        {
+            TeardownAudio(); // 无路径可重建：退回墙钟
+            return;
+        }
+        var seq = Interlocked.Increment(ref _chainSeq);
+        _fxRebuildSeq = seq; // 复用"重建在途"标记：旧链即将被替换，别拉起来
+        lock (_chainLock)
+        {
+            try { if (_waveOut != null && _waveOut.PlaybackState != PlaybackState.Stopped) _waveOut.Stop(); } catch { /* 设备失效 */ }
+        }
+        var fx = Project.AudioFx;
+        var startT = CurrentTime;
+        Task.Run(() => BuildChainAsync(_audioPath!, startT, seq, fx!));
+    }
+
     /// <summary>启动输出；设备打不开时降级为墙钟（只报一次，之后不再尝试）。</summary>
     private void SafePlay()
     {
@@ -431,8 +475,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         {
             try
             {
-                if (_reader != null)
-                    _reader.Position = (long)(Math.Max(0, t) * _reader.WaveFormat.AverageBytesPerSecond);
+                RepositionReader(_reader, t);
             }
             catch (Exception ex) { Log.Debug("[Preview] 音频重定位失败：" + ex.Message); }
             if (_counter != null) _counter.Frames = 0;
@@ -451,6 +494,19 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             var audible = Math.Max(0, frames - QueuedSeconds * OutRate);
             return _posBase + audible * _speed / OutRate;
         }
+    }
+
+    /// <summary>定位解码器，位置钳在文件有效字节内。定位越过 EOF（进度条拖到底而计划时长 ≥ 音频
+    /// 长度，或计划比音频长）会让 MF 读取器在下一次读取时抛 MediaFoundationException（0xC00D36E5），
+    /// 异常发生在 WaveOut 回调线程上把设备停机且此前无人知晓（引擎仍以为在播）——实测表现为
+    /// 「进度条到底后从零播放，一点声音都没有」。钳到 Length−4 字节：正常读到尾返回 0
+    /// （静音由计数环节补零，无异常）。</summary>
+    private static void RepositionReader(MediaFoundationReader? reader, double seconds)
+    {
+        if (reader == null) return;
+        var bytes = (long)(Math.Max(0, seconds) * reader.WaveFormat.AverageBytesPerSecond);
+        var max = Math.Max(0, reader.Length - 4);
+        reader.Position = Math.Min(bytes, max);
     }
 
     /// <summary>当前时钟原值（未做循环/钳位）：scrub 中钉在 _base；跟随模式走墙钟（忽略本地音频链）；
@@ -815,6 +871,29 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 /// 上游欠数/到尾（EOF）时补零给满——WaveOut 的缓冲不清零，回 0 会把旧内容当新块重播（NAudio 老坑）；
 /// 帧数照常累计（按给到设备的算），这样音频播完后位置钟继续走向 plan.Duration，循环/到尾停不卡死。
 /// </summary>
+/// <summary>尾后补零的读取包装：源读到文件尾后返回 0/短读时补零到满，让 EOF 对下游不可见。
+/// 背景：NAudio 的 WDL 重采样器在"源不足一帧"时 Array.Copy 越界抛 ArgumentException——异常
+/// 打在 WaveOut 回调线程上把设备停机成"幽灵播放"（引擎以为在播、实际无声）。</summary>
+public sealed class ZeroPadSampleProvider : ISampleProvider
+{
+    private readonly ISampleProvider _source;
+
+    public ZeroPadSampleProvider(ISampleProvider source)
+    {
+        _source = source;
+        WaveFormat = source.WaveFormat;
+    }
+
+    public WaveFormat WaveFormat { get; }
+
+    public int Read(Span<float> buffer)
+    {
+        var got = _source.Read(buffer);
+        if (got < buffer.Length) buffer.Slice(got).Clear();
+        return buffer.Length;
+    }
+}
+
 public sealed class CountingSampleProvider : ISampleProvider
 {
     private readonly ISampleProvider _source;

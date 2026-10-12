@@ -1,3 +1,4 @@
+using JizuraLive.App;
 using JizuraLive.Engine;
 using NAudio.Wave;
 using Newtonsoft.Json.Linq;
@@ -122,6 +123,45 @@ public class AudioFxChainTests
             var gap = (peaks[i] - peaks[i - 1]) / 48000.0;
             Assert.InRange(gap, 0.47, 0.53);
         }
+    }
+
+    /// <summary>源读到尾后返回 0 的短读源（测补零包装）。</summary>
+    private sealed class DrainedSource : ISampleProvider
+    {
+        private int _left = 4; // 先给 4 帧（恰好一次读满 8 个 float），之后永远 0（模拟读到文件尾）
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+
+        public int Read(Span<float> buffer)
+        {
+            var n = Math.Min(buffer.Length, _left * 2);
+            buffer[..n].Fill(1f);
+            _left -= n / 2;
+            return n;
+        }
+    }
+
+    /// <summary>
+    /// 尾后补零包装（ZeroPadSampleProvider）的红线：源短读/返回 0 时必须补零到满长——
+    /// 下游 NAudio WDL 重采样器在"源不足一帧"时 Array.Copy 越界抛 ArgumentException，
+    /// 异常打在 WaveOut 回调线程上把设备停机成"幽灵播放"（引擎以为在播、实际永久无声，
+    /// 用户实测：「进度条到底后从零播放，一点声音都没有」）。EOF 必须对重采样器不可见。
+    /// </summary>
+    [Fact]
+    public void 尾后补零包装对下游不可见()
+    {
+        var p = new ZeroPadSampleProvider(new DrainedSource());
+        var buf = new float[8];
+
+        Assert.Equal(8, p.Read(buf.AsSpan()));   // 源有数据：原样透传
+        Assert.All(buf, v => Assert.Equal(1f, v));
+
+        Array.Fill(buf, 1f);
+        Assert.Equal(8, p.Read(buf.AsSpan()));   // 源读到尾（返回 0）：补零、仍满长
+        Assert.All(buf, v => Assert.Equal(0f, v));
+
+        Array.Fill(buf, 1f);
+        Assert.Equal(8, p.Read(buf.AsSpan()));   // EOF 后持续满长零（永不短读）
+        Assert.All(buf, v => Assert.Equal(0f, v));
     }
 
     /// <summary>
