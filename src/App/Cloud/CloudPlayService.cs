@@ -17,6 +17,13 @@ namespace JizuraLive.App.Cloud;
 ///  · 起播先 Pause() 工程预览；tick 里反向仲裁（工程预览在播 → 试听让位）——面板关了也要继续跑；
 ///  · "一首放完"只能看解码位置（链上补零包装让设备永远不会自己停，见 CloudPreview.AtEnd）；
 ///  · 取音频失败要拆链，否则旧链停在片尾会被连判成"放完了"而连跳整张歌单。
+///
+/// 播放器模式下再加两条（同样真机踩过）：
+///  · 跟随态里引擎的"在播/暂停"完全由本服务的 tick 锚定（PreviewEngine.Pause/Play 在跟随态是空操作），
+///    所以**每一条停 tick 的出口都必须先把画面钉住**（HoldEngine）——漏一步就留下"换歌失败后画面
+///    还在循环播放、按空格也停不住"的死状态；
+///  · 取不到音频的那首直接跳过（"平台上没有标识"的歌立即失败，不走接口重试链；其余失败连跳有上限），
+///    推进队列只由 tick 做，起播在途期间不许重复推进（否则会把整张歌单跑空）。
 /// </summary>
 public sealed class CloudPlayService : IDisposable
 {
@@ -27,6 +34,22 @@ public sealed class CloudPlayService : IDisposable
     private int _index = -1;
     private string _quality = "128";
     private int _session;   // 换代：面板关闭/换队列/停播都作废在途任务
+    private int _loading;   // 起播链在途计数（跳过会嵌套触发新的起播，所以用计数不用布尔）
+    private bool _skip;     // 这首取不到，等 tick 跳过它（推进只由 tick 做）
+    private int _skipStreak; // 连续跳过次数（到上限停手报错，见 SkipUnplayable）
+    private const int SkipStreakMax = 3;
+
+    /// <summary>引擎（跟随时钟的写入端，MainWindow 构造时接上）。为空则一切跟随调用静默跳过
+    /// ——无窗口的纯逻辑测试、或引擎还没建好的场景。</summary>
+    public PreviewEngine? Engine { get; set; }
+
+    /// <summary>试听 tick 是否在跑。有曲就必须在跑：跟随态的画面锚定、以及"取不到的那首跳过"
+    /// 都由它驱动（tick 一停，画面就再没人管）。</summary>
+    public bool Ticking => _timer.IsEnabled;
+
+    /// <summary>手动跑一拍（对位 DispatcherTimer 的 Tick）：测试里不依赖消息泵也能驱动
+    /// 跳过/收场/锚定这些逐拍逻辑。</summary>
+    public void TickOnce() => OnTick();
 
     /// <summary>状态变化（换曲、播放态、队列、状态文案、音量）——视图据此整体刷新。</summary>
     public event Action? Changed;
@@ -117,12 +140,23 @@ public sealed class CloudPlayService : IDisposable
         foreach (var s in queue) s.Source = string.IsNullOrEmpty(s.Source) ? "kugou" : s.Source;
         _queue = [.. queue];
         _quality = quality;
+        _skipStreak = 0; // 换队列＝重新数：用户新点的一首不该背上一队列的连跳计数
+        // 有曲就得有 tick：跟随态的画面完全由 tick 锚定，tick 一停就再没人管它（见 HoldEngine）
+        if (!_timer.IsEnabled) _timer.Start();
         _ = PlayAtAsync(index);
     }
 
     public void Toggle()
     {
         if (!HasTrack) return;
+        if (!_player.HasTrack)
+        {
+            // 链已拆（取音频失败/收场/设备故障）：这一下当"暂停画面"用——跟随态里引擎自己的 Pause
+            // 是空操作，不在这里接住的话用户没有任何办法让画面停下来
+            HoldEngine();
+            Changed?.Invoke();
+            return;
+        }
         _player.Toggle();
         Changed?.Invoke();
     }
@@ -154,8 +188,11 @@ public sealed class CloudPlayService : IDisposable
         _timer.Stop();
         _queue = [];
         _index = -1;
+        _skip = false;
         Status = "";
+        HoldEngine(); // 收场也要钉住画面：tick 停了就再没人锚定，画面会一直空转
         Changed?.Invoke();
+        Log.Info("[Cloud] 试听会话收场（队列放完/主动停），画面已钉住");
     }
 
     // ---------------- 播放链 ----------------
@@ -165,61 +202,99 @@ public sealed class CloudPlayService : IDisposable
         if (index < 0 || index >= _queue.Count) return;
         var token = ++_session;
         _index = index;
+        _skip = false; // 新的一首开始准备：作废上一首留下的"待跳过"
         var song = _queue[index];
         Status = L.T("Cloud.PreviewLoading");
         Changed?.Invoke();
 
-        App.MainInstance?.State.Engine.Pause(); // 单一音频焦点：试听出声，工程预览先停
+        Engine?.Pause(); // 单一音频焦点：试听出声，工程预览先停
 
-        string path;
-        var trial = false;
+        _loading++; // 起播在途：tick 在此期间不推进队列（否则旧链停在片尾会被反复判"放完"而连跳）
         try
         {
-            (path, _, trial, _) = await SongLoader.EnsureAudioFileAsync(song.Source, song, _quality,
-                s => { if (token == _session) { Status = s; Changed?.Invoke(); } });
-        }
-        catch (Exception ex)
-        {
-            if (token != _session) return;
-            _player.Teardown(); // 旧链停在片尾，不拆会被连判成"放完了"而连跳整张歌单
-            Status = L.F("Cloud.PreviewFailed", ex.Message);
-            Log.Info("[Cloud] 试听取音频失败：" + ex.Message);
-            Changed?.Invoke();
-            return;
-        }
-        if (token != _session) return; // 期间停播/换曲/面板换代
-
-        // 起播前先把 PV 换成这首歌（播放器模式）：钩子返回后画面已就绪，再出声
-        if (BeforePlay is { } hook)
-        {
+            string path;
+            var trial = false;
             try
             {
-                await hook(song);
+                (path, _, trial, _) = await SongLoader.EnsureAudioFileAsync(song.Source, song, _quality,
+                    s => { if (token == _session) { Status = s; Changed?.Invoke(); } });
             }
             catch (Exception ex)
             {
-                Log.Warn("[Cloud] 起播前钩子失败（继续出声）：" + ex.Message);
+                if (token != _session) return;
+                SkipUnplayable(ex); // 这首取不到：拆链钉画面，交给 tick 跳过（不在这里直接 Next，推进只有一个入口）
+                return;
             }
-            if (token != _session) return;
-        }
+            if (token != _session) return; // 期间停播/换曲/面板换代
 
-        if (!await _player.PlayAsync(path))
-        {
-            if (token != _session) return;
-            Status = L.T("Cloud.PreviewDeviceFailed");
+            // 起播前先把 PV 换成这首歌（播放器模式）：钩子返回后画面已就绪，再出声
+            if (BeforePlay is { } hook)
+            {
+                try
+                {
+                    await hook(song);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[Cloud] 起播前钩子失败（继续出声）：" + ex.Message);
+                }
+                if (token != _session) return;
+            }
+
+            if (!await _player.PlayAsync(path))
+            {
+                if (token != _session) return;
+                Status = L.T("Cloud.PreviewDeviceFailed");
+                Changed?.Invoke();
+                return;
+            }
+            if (token != _session)
+            {
+                _player.Teardown();
+                return;
+            }
+
+            _skipStreak = 0; // 起播成功：连跳计数归零
+            Status = trial ? L.T("Cloud.PreviewTrial") : "";
+            if (!_timer.IsEnabled) _timer.Start();
             Changed?.Invoke();
-            return;
+            Log.Info($"[Cloud] 试听：{song.Name}（{_index + 1}/{_queue.Count}）");
         }
-        if (token != _session)
+        finally
         {
-            _player.Teardown();
-            return;
+            _loading--;
         }
+    }
 
-        Status = trial ? L.T("Cloud.PreviewTrial") : "";
-        if (!_timer.IsEnabled) _timer.Start();
+    /// <summary>
+    /// 这首取不到音频（歌不存在/无版权/登录失效/断网）：拆链、把画面钉住，然后交给 tick 跳过它。
+    ///
+    /// "平台上没有标识"（歌单里的空条目）是**歌本身**的问题：立即跳过，且不计数——这类条目点几次都播不了，
+    /// 卡在这里报错毫无意义（而且旧口径要走完整条接口重试链，一首能卡近一分钟）。其余失败（登录失效/
+    /// 断网）是**整片**的问题：连跳整张歌单同样没意义，连跳到上限就停手，把原因报出来。
+    /// </summary>
+    private void SkipUnplayable(Exception ex)
+    {
+        _player.Teardown(); // 旧链停在片尾不拆会被连判成"放完了"而连跳整张歌单
+        HoldEngine();       // 画面钉在当前位置：tick 停摆时也停得住
+        var songScoped = ex is SongLoader.CloudException { SongScoped: true };
+        if (!songScoped) _skipStreak++;
+        if (!songScoped && _skipStreak > SkipStreakMax)
+        {
+            _skip = false;
+            Status = L.F("Cloud.PreviewFailed", ex.Message);
+            Log.Warn($"[Cloud] 连续 {_skipStreak} 首取不到音频，停止跳过：{ex.Message}");
+        }
+        else
+        {
+            _skip = true;
+            Status = songScoped
+                ? L.F("Cloud.PreviewSkippedNoId", _index + 1)
+                : L.F("Cloud.PreviewSkipped", _index + 1);
+            Log.Info($"[Cloud] 第 {_index + 1} 首取不到音频，跳过（{_skipStreak}/{SkipStreakMax}）：{ex.Message}");
+        }
+        if (!_timer.IsEnabled) _timer.Start(); // 推进由 tick 做：tick 必须在跑
         Changed?.Invoke();
-        Log.Info($"[Cloud] 试听：{song.Name}（{_index + 1}/{_queue.Count}）");
     }
 
     private async Task StepAsync(int step)
@@ -239,35 +314,68 @@ public sealed class CloudPlayService : IDisposable
         if (!HasTrack)
         {
             _timer.Stop();
+            HoldEngine(); // 没曲可播：先把画面钉住再停 tick（tick 一停就再没人锚定它）
+            Log.Info("[Cloud] 无曲可播，试听 tick 停摆（画面已钉住）");
             return;
         }
-        // 顺序播放：一首放完自动下一首（判据见 CloudPreview.AtEnd 的注释）
+        // 取不到的那首：跳过（队列推进只在这里做，起播在途期间不重复推进）
+        if (_skip && _loading == 0)
+        {
+            _skip = false;
+            Next();
+            return;
+        }
+        // 顺序播放：一首放完自动下一首（判据见 CloudPreview.AtEnd 的注释）。
+        // 先钉住画面再换歌：旧链还停在片尾时，之后每一拍都还会判一次 AtEnd，不钉的话画面会顺着
+        // 跟随钟越过片尾、按整首取模回卷——看起来就是"这首放完了画面还在循环播"。
         if (_player.AtEnd)
         {
-            Next();
+            HoldEngine();
+            if (_loading == 0) Next();
             return;
         }
         Tick?.Invoke();
         // 播放器模式：把云链的进度喂给引擎的跟随时钟，PV 就跟着这首歌走（引擎不自己出声）
         if (PlayerMode)
         {
-            App.MainInstance?.State.Engine.FollowAnchor(_player.Position, _player.IsPlaying);
+            AnchorEngine();
             return;
         }
         // 反向仲裁：用户去播工程预览了，试听让位（面板关了这条也要跑）
-        if (_player.IsPlaying && App.MainInstance?.State.Engine.IsPlaying == true)
+        if (_player.IsPlaying && Engine?.IsPlaying == true)
         {
             _player.Pause();
             Changed?.Invoke();
         }
     }
 
+    // ---------------- 引擎跟随时钟（播放器模式） ----------------
+
+    /// <summary>正常锚定：位置与播放态照抄云链（每拍一次）。</summary>
+    private void AnchorEngine() => Engine?.FollowAnchor(_player.Position, _player.IsPlaying);
+
+    /// <summary>
+    /// 把画面钉在当前位置并暂停——**所有"云链不出声了"的出口都要走它**（取音频失败、队列放完、
+    /// 设备故障、用户按暂停）。跟随态里引擎自己的 Pause/Play 是空操作（PreviewEngine 直接 return），
+    /// 画面停不停完全取决于有没有人重新锚定：漏掉这一步，跟随钟就会带着上一次的 run=true 一直按墙钟
+    /// 外推、CurrentTime 又按整首取模回卷——表现为「换歌失败后画面还在循环播放、按空格也停不住」。
+    /// 位置取"画面现在在哪"：这首放完就钉在最后一帧，链已拆就钉在当前位置（都不跳到 0、不回卷）。
+    /// </summary>
+    private void HoldEngine()
+    {
+        if (Engine is not { } e || !PlayerMode) return;
+        var t = _player.AtEnd ? Math.Max(0, _player.Duration - 0.05) : Math.Max(0, e.CurrentTime);
+        e.FollowAnchor(t, false);
+    }
+
     private void OnDeviceFailed()
     {
         _player.Teardown();
         _timer.Stop();
+        HoldEngine(); // 设备没了画面也得停住（tick 停了，这里不锚就永远在播）
         Status = L.T("Cloud.PreviewDeviceFailed");
         Changed?.Invoke();
+        Log.Warn("[Cloud] 试听输出故障停机，画面已钉住");
     }
 
     // ---------------- 音量（独立于工程预览，落盘记忆） ----------------

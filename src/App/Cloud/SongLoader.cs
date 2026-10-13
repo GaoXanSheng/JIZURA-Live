@@ -26,7 +26,13 @@ public sealed record CloudLoadResult(string AudioPath, string FileName, string L
 public static class SongLoader
 {
     /// <summary>带用户可读消息的失败（区别于意外异常）。</summary>
-    public class CloudException(string message) : Exception(message);
+    public class CloudException(string message) : Exception(message)
+    {
+        /// <summary>失败是"这首歌本身"造成的（平台上没有标识／无版权／链接为空），与"登录失效／断网"
+        /// 这类整片失败区分开：前者直接跳过，后者连跳整张歌单没意义
+        /// （见 CloudPlayService.SkipUnplayable）。</summary>
+        public bool SongScoped { get; init; }
+    }
 
     // 与旧版 AudioProxy 同一套白名单：只从这些域下载音频，防 url 接口被滥用当通用下载器
     private static readonly string[] HostSuffixes = ["kugou.com", "kgimg.com", "kglink.cn", "music.126.net"];
@@ -321,6 +327,11 @@ public static class SongLoader
         CancellationToken ct = default)
     {
         var identity = IdentityOf(source, song);
+
+        // 歌单里的空条目（名字/哈希皆空）连 URL 接口都没法问：立即失败，别走完整条接口重试链
+        // （实测一首能卡近一分钟，最后报的还是"登录可能已失效"——既慢又误导）
+        if (identity.Length == 0)
+            throw new CloudException(L.T("CloudSong.NoIdentity")) { SongScoped = true };
 
         // 下载记录先行：同一首歌 + 同一音质已经下好，连 URL 接口都不请求（离线、VIP 状态变化都能重载）
         var rec = AudioIndex.Get(source, identity, quality);

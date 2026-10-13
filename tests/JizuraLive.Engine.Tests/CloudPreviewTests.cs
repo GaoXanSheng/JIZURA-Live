@@ -3,6 +3,7 @@ using JizuraLive.App;
 using JizuraLive.App.Cloud;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
+using JizuraLive.Server.Models;
 using NAudio.Wave;
 using Xunit;
 
@@ -147,6 +148,61 @@ public class CloudPreviewTests
         Assert.Equal("用户", state.Project.Artist);
         Assert.Equal("[00:01.00]用户自己的词", state.Project.Lyrics);
         Assert.False(File.Exists(CloudPlayerSession.SessionFile), "正常退出应清掉会话文件");
+    }
+
+    /// <summary>
+    /// 播放器模式的画面归属（真机事故的回归哨兵）：跟随态里引擎自己的 Pause/Play 都是空操作，
+    /// 画面停不停完全由 CloudPlayService 的 tick 锚定——所以"云链不出声了"的每条出口都必须先把
+    /// 画面钉住（HoldEngine）。漏掉这一步，跟随钟就会带着上一次的 run=true 一直按墙钟外推、
+    /// CurrentTime 又按整首取模回卷：换歌失败后画面循环播放近两分钟、按空格也停不住。
+    /// </summary>
+    [Fact]
+    public void 播放器模式_收场钉住画面_不停在跟随播放态()
+    {
+        L.Initialize(null);
+        EngineBoot.Install();
+        using var preview = new PreviewEngine();
+        using var svc = new CloudPlayService { Engine = preview, PlayerMode = true };
+
+        preview.FollowAnchor(12.5, true); // 模拟"云链在播"：跟随态 + run=true
+        Assert.True(preview.IsPlaying);
+        Assert.True(preview.FollowMode);
+
+        svc.Stop(); // 队列放完/主动停：清链 + 停 tick
+        Assert.False(preview.IsPlaying, "收场后画面必须停住（不能留在跟随播放态里空转）");
+        Assert.True(preview.FollowMode, "钉住＝停在跟随态，不是退出跟随");
+    }
+
+    /// <summary>
+    /// 取不到音频的那首直接跳过（真机诉求）：歌单里的空条目（平台上没有标识）立即失败、不走接口
+    /// 重试链，画面钉住，队列由 tick 推进到下一首——而不是卡在这首报"试听失败"。
+    /// </summary>
+    [Fact]
+    public void 播放器模式_无标识的歌跳过_队列由tick推进()
+    {
+        L.Initialize(null);
+        EngineBoot.Install();
+        using var preview = new PreviewEngine();
+        using var svc = new CloudPlayService { Engine = preview, PlayerMode = true };
+
+        var ghost1 = new KgSong { Source = "kugou", Name = "", Hash = "" };
+        var ghost2 = new KgSong { Source = "kugou", Name = "", Hash = "" };
+        svc.Play([ghost1, ghost2], 0, "128");
+
+        Assert.True(svc.Ticking, "起播即起 tick：跳过与画面锚定都靠它驱动");
+        Assert.True(svc.HasTrack);
+        Assert.Contains("已跳过", svc.Status); // 处理成"跳过"，不是"试听失败"
+        Assert.Equal(0, svc.QueueIndex);
+        Assert.False(preview.IsPlaying); // 取不到音频：画面先钉住
+        Assert.True(preview.FollowMode);
+
+        svc.TickOnce(); // 一拍后跳过这首，继续下一首
+        Assert.Equal(1, svc.QueueIndex);
+        Assert.Contains("第 2 首", svc.Status);
+
+        svc.TickOnce(); // 队列放完：收场
+        Assert.False(svc.HasTrack);
+        Assert.False(preview.IsPlaying); // 收场后画面仍钉住
     }
 
     /// <summary>上次播放器模式异常退出（会话文件还在）→ 启动时还原工程并删掉文件。</summary>

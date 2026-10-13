@@ -140,6 +140,8 @@ public partial class MainWindow : Window
         State = new EditorState(_preview);
         State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
         Follow = new FollowController(Dispatcher, State);
+        // 云试听会话的跟随时钟写入端（播放器模式）：给它真引擎，别让它去摸 App.MainInstance 全局
+        _cloud.Engine = _preview;
         // 预览音量/消音：上次退出时的档位（对位旧前端 jizura.previewVolume 的记忆恢复）
         _preview.SetVolume(settings.PreviewVolume, settings.PreviewMuted);
 
@@ -894,10 +896,13 @@ public partial class MainWindow : Window
     {
         base.OnPreviewKeyDown(e);
         // 空格 = 播放/暂停；歌词编辑框里打空格要照常输入。
-        // 谁在响就切谁：云试听在响（或工程侧没在响而云试听有曲）→ 切云试听，否则工程预览。
+        // 播放器模式：空格一律归云会话——跟随态里引擎自己的 TogglePlay 是空操作，链已拆（换歌失败/
+        // 收场）时也只有云会话能把画面钉住（见 CloudPlayService.Toggle 的"链已拆"分支）。
+        // 编辑器模式：谁在响就切谁——云试听在响（或工程侧没在响而云试听有曲）→ 切云试听，否则工程预览。
         if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBoxBase)
         {
-            if (_cloud.HasTrack && (_cloud.IsPlaying || !_preview.IsPlaying)) _cloud.Toggle();
+            if (PlayerMode) _cloud.Toggle();
+            else if (_cloud.HasTrack && (_cloud.IsPlaying || !_preview.IsPlaying)) _cloud.Toggle();
             else _preview.TogglePlay();
             e.Handled = true;
         }

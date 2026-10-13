@@ -787,9 +787,12 @@ public partial class CloudPanel : Window
             return;
         }
         var src = LstDetail.Items.Contains(row) ? LstDetail.Items : Lst.Items;
-        var queue = src.OfType<CloudRow>().Select(r => r.Song).ToList();
-        var index = queue.FindIndex(s => CloudPlayService.SameSong(s, row.Song));
-        if (index >= 0) Cloud.Play(queue, index, Quality);
+        var rows = src.OfType<CloudRow>().ToList();
+        var index = rows.FindIndex(r => CloudPlayService.SameSong(r.Song, row.Song));
+        // 身份认不出来的条目（歌单里的空 Hash 空条目）退回列表位置：否则点击静默失效，
+        // 看着就是"点了没反应"（这种条目点下去会取不到音频，由会话跳过并给出提示）
+        if (index < 0) index = rows.FindIndex(r => ReferenceEquals(r, row));
+        if (index >= 0) Cloud.Play(rows.Select(r => r.Song).ToList(), index, Quality);
     }
 
     /// <summary>歌单详情页的「播放全部」：整单顺序试听。</summary>
