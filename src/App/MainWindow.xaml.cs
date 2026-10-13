@@ -965,11 +965,11 @@ public partial class MainWindow : Window
         Log.Info("[Main] 切换到" + (on ? "播放器" : "编辑器") + "模式");
     }
 
-    /// <summary>播放器模式的空态提示：没在放歌时才显示（歌名/控制都在画面下方那张卡里）。</summary>
+    /// <summary>画面里的空态提示：只有播放器模式且没在放歌时才显示（歌名/控制都在画面下方那张卡里）。
+    /// 编辑器模式一律收起——切回编辑器时不能把这条留在画面上（它只在播放器模式有意义）。</summary>
     private void RefreshPlayerOverlay()
     {
-        if (!PlayerMode) return;
-        TblPvHint.Visibility = _cloud.HasTrack ? Visibility.Collapsed : Visibility.Visible;
+        TblPvHint.Visibility = PlayerMode && !_cloud.HasTrack ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---------------- 窗口 chrome ----------------
