@@ -189,7 +189,7 @@ public partial class CloudPanel : Window
         ApplyTexts();
         Loaded += (_, _) =>
         {
-            FitToOwner();
+            FitToOwner(); // 复核一次（Open 里已摆过；宿主尺寸在 Show 前还没定下时以这里为准）
             JzAnim.PlayWindowIn(Mask, Card); // 打开动效：遮罩淡入 + 卡片微缩放上浮
             RestoreLastState();               // 上次的搜索词/结果/歌单列表：重开即恢复
             ShowPane(_pane);
@@ -248,6 +248,7 @@ public partial class CloudPanel : Window
 
         var w = new CloudPanel { Owner = owner };
         _open = w;
+        w.FitToOwner(); // 先摆位再 Show：否则窗口先出现在系统默认位置，Loaded 才跳到位（看着像随机出现）
         w.Show();
     }
 
@@ -256,22 +257,18 @@ public partial class CloudPanel : Window
     /// <summary>遮罩窗口铺满 owner；卡片按旧版 w-[min(860px,96vw)] h-[min(600px,88vh)] 定尺寸。</summary>
     private void FitToOwner()
     {
-        if (Owner == null || Owner.ActualWidth < 200 || Owner.ActualHeight < 200)
+        if (WindowFit.TryCover(this, Owner))
         {
-            Width = 860;
-            Height = 600;
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Card.Width = 860;
-            Card.Height = 600;
+            Card.Width = Math.Min(860, Width * 0.96);
+            Card.Height = Math.Min(600, Height * 0.88);
             return;
         }
 
-        Left = Owner.Left;
-        Top = Owner.Top;
-        Width = Owner.ActualWidth;
-        Height = Owner.ActualHeight;
-        Card.Width = Math.Min(860, Width * 0.96);
-        Card.Height = Math.Min(600, Height * 0.88);
+        Width = 860;
+        Height = 600;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Card.Width = 860;
+        Card.Height = 600;
     }
 
     private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();

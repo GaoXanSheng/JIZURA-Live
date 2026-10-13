@@ -64,15 +64,10 @@ public partial class AudioFxDialog : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        // 遮罩铺满 owner（对位 fixed inset-0）
-        if (Owner != null)
-        {
-            Left = Owner.Left;
-            Top = Owner.Top;
-            Width = Owner.ActualWidth;
-            Height = Owner.ActualHeight;
-            Card.MaxHeight = Math.Max(200, Owner.ActualHeight - 48);
-        }
+        // 遮罩铺满 owner（对位 fixed inset-0）；宿主最大化时 Window.Left/Top 是还原位置，不能用
+        var owner = Owner;
+        if (owner != null && WindowFit.TryCover(this, owner))
+            Card.MaxHeight = Math.Max(200, owner.ActualHeight - 48);
         SlSpeed.TickFrequency = 0.05;
         SlSpeed.IsSnapToTickEnabled = true; // 档位 0.05（对位 step=0.05）
         S.StateChanged += OnState;

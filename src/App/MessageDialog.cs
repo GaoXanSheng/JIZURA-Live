@@ -176,13 +176,11 @@ public static class MessageDialog
         footer.Child = btnRow;
         stack.Children.Add(footer);
 
-        // 遮罩铺满 owner（对位 fixed inset-0）
+        // 遮罩铺满 owner（对位 fixed inset-0）；先摆位再弹：否则先出现在系统默认位置、Loaded 才跳到位
+        WindowFit.TryCover(dialog, owner);
         dialog.Loaded += (_, _) =>
         {
-            dialog.Left = owner.Left;
-            dialog.Top = owner.Top;
-            dialog.Width = owner.ActualWidth;
-            dialog.Height = owner.ActualHeight;
+            WindowFit.TryCover(dialog, owner); // 复核一次（宿主 Show 前尺寸未定时以这里为准）
             // 打开动效：只动卡片 —— 淡入 + 微缩放上浮（遮罩是窗口自身的底色、铺满 owner，不做动效）
             JzAnim.FadeIn(card, JzAnim.Dialog);
             JzAnim.PopIn(card, 0.985, 6);
