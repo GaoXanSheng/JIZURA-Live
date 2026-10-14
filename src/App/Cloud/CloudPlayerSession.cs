@@ -3,6 +3,7 @@ using System.Windows;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
+using JizuraLive.Pv;
 using JizuraLive.Server;
 using JizuraLive.Server.Models;
 
@@ -202,6 +203,9 @@ public sealed class CloudPlayerSession
         Changed?.Invoke();
         Log.Info($"[Player] PV 已就绪：{song.Name} - {song.Singer}"
                  + $"（{J.FmtTime(prepared.Audio.Duration)}，{prepared.Audio.Bpm:0.0} BPM，试听片段={prepared.Trial}）");
+
+        // 发布解耦的换歌事件（外设/VTS联动通过订阅事件总线处理，播放层不直接认识VTS）
+        PvTrackEventBus.PublishSongChanged(song.Name, song.Singer, prepared.Audio.Bpm, prepared.Audio.Duration);
 
         _ = PrefetchNextAsync(); // 边播边备下一首
     }

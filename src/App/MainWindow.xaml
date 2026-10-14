@@ -41,7 +41,7 @@
                            VerticalAlignment="Center"
                            FontSize="12" Opacity="0.65" Foreground="{StaticResource FgMain}" />
             </StackPanel>
-            <!-- 模式切换（两套布局共用这一处：播放器模式下顶栏会隐藏，只有这里常驻可见） -->
+            <!-- 模式切换（三套布局共用这一处：播放器/PV 模式下顶栏会隐藏，只有这里常驻可见） -->
             <Border HorizontalAlignment="Center" VerticalAlignment="Center"
                     Background="{StaticResource Raised}" BorderBrush="{StaticResource Line2}"
                     BorderThickness="1" CornerRadius="8" Padding="2">
@@ -50,8 +50,11 @@
                             Style="{StaticResource SegBtn}" Tag="on" Margin="0,0,2,0"
                             ToolTip="{DynamicResource Loc.Cloud.ModeSwitchTip}" Click="BtnMode_Click" />
                     <Button x:Name="BtnModePlayer" Content="{DynamicResource Loc.Cloud.ModePlayer}"
-                            Style="{StaticResource SegBtn}"
+                            Style="{StaticResource SegBtn}" Margin="0,0,2,0"
                             ToolTip="{DynamicResource Loc.Cloud.ModeSwitchTip}" Click="BtnMode_Click" />
+                    <Button x:Name="BtnModePv" Content="{DynamicResource Loc.Cloud.ModePv}"
+                            Style="{StaticResource SegBtn}"
+                            ToolTip="{DynamicResource Loc.Cloud.ModePvTip}" Click="BtnMode_Click" />
                 </StackPanel>
             </Border>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -147,6 +150,13 @@
                                    FontSize="14" Foreground="#88FFFFFF" TextAlignment="Center"
                                    TextWrapping="Wrap" MaxWidth="420" IsHitTestVisible="False"
                                    Visibility="Collapsed" Text="{DynamicResource Loc.Cloud.PlayerEmpty}" />
+                        <!-- PV 模式的推流状态条（源连接数 + 输出通道名）：只在 PV 模式显示 -->
+                        <Border x:Name="PvBadge" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                Margin="10" Padding="8,4" CornerRadius="6" Background="#B3000000"
+                                IsHitTestVisible="False" Visibility="Collapsed">
+                            <TextBlock x:Name="TblPvStatus" FontSize="11" Foreground="#DDFFFFFF"
+                                       Text="—" />
+                        </Border>
                     </Grid>
                 </Border>
                 <views:Transport x:Name="BarTransport" Grid.Row="1" Margin="0,10,0,0" />

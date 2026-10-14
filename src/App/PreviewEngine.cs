@@ -793,6 +793,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     private SKBitmap? _warmBmp;
     private SKSurface? _warmSurf;
     private int _warmW = -1, _warmH = -1;
+    private bool _disposed; // Dispose 已收摊（在引擎闸内读写）：在途的后台预热据此直接退出
 
     /// <summary>
     /// 新 plan 首帧预热（性能专项）：换 plan 后的第一帧是**冷缓存**——全部条目的排版重建、
@@ -807,20 +808,24 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         var scale = Math.Min(1.0, warmLong / Math.Max(1, Math.Max(plan.W, plan.H)));
         var w = Math.Max(2, (int)Math.Round(plan.W * scale));
         var h = Math.Max(2, (int)Math.Round(plan.H * scale));
-        if (_warmSurf == null || _warmW != w || _warmH != h)
-        {
-            lock (EngineRenderGate.Lock)
-                Renderer.ClearFrameCache();
-            _warmSurf?.Dispose();
-            _warmBmp?.Dispose();
-            _warmBmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-            _warmSurf = SKSurface.Create(_warmBmp.Info, _warmBmp.GetPixels(), _warmBmp.RowBytes);
-            _warmW = w;
-            _warmH = h;
-        }
-        _warmSurf.Canvas.Clear(SKColors.Black);
+        // 整段持闸（调用方本就持闸，Monitor 可重入）：除了与渲染/规划串行，还要与 Dispose 串行——
+        // ReplanAsync 的线程池任务可能在 Dispose 之后才跑到这里，不设防就会把一帧画进已释放的画布
+        // （SKCanvas.DeviceClipBounds 原生 AV，0xC0000005）。
         lock (EngineRenderGate.Lock)
         {
+            if (_disposed) return;
+            if (_warmSurf == null || _warmW != w || _warmH != h)
+            {
+                Renderer.ClearFrameCache();
+                _warmSurf?.Dispose();
+                _warmBmp?.Dispose();
+                _warmBmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
+                _warmSurf = SKSurface.Create(_warmBmp.Info, _warmBmp.GetPixels(), _warmBmp.RowBytes);
+                _warmW = w;
+                _warmH = h;
+            }
+
+            _warmSurf.Canvas.Clear(SKColors.Black);
             Renderer.Frame(_warmSurf.Canvas, plan, 0, new RenderOpts { Scale = scale, Stage = true, NoPost = true, NoTrans = true });
             Renderer.ClearFrameCache(); // 预热只为成型字体/排版，不保留 480 低清整帧快照
         }
@@ -858,11 +863,18 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     {
         Interlocked.Increment(ref _chainSeq); // 在途的后台建链作废
         TeardownAudio();
-        _warmSurf?.Dispose();
-        _warmSurf = null;
-        _warmBmp?.Dispose();
-        _warmBmp = null;
-        Renderer.Dispose();
+        // 预热面/渲染器的释放与「在途预热」串行（见 WarmFirstFrame）：ReplanAsync 的线程池任务
+        // 是 fire-and-forget，本方法可能在它跑到一半时被调（测试的 using 块收尾就是这种时序）。
+        // 闸内先立 _disposed 再释放，在途那帧要么已画完、要么看到标志直接退出，不会画进已释放的画布。
+        lock (EngineRenderGate.Lock)
+        {
+            _disposed = true;
+            _warmSurf?.Dispose();
+            _warmSurf = null;
+            _warmBmp?.Dispose();
+            _warmBmp = null;
+            Renderer.Dispose();
+        }
     }
 }
 

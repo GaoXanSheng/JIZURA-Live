@@ -2,7 +2,7 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:JizuraLive.App.Views">
-    <!-- 对位 RightPanel.vue：五等分页签（sticky top，选中等宽下边框琥珀）+ 内容 -->
+    <!-- 对位 RightPanel.vue：等宽页签（sticky top，选中等宽下边框琥珀）+ 内容；PV 页签为本仓新增 -->
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -11,11 +11,12 @@
 
         <Border Grid.Row="0" Background="{StaticResource Panel}" BorderBrush="{StaticResource LineBrush}"
                 BorderThickness="0,0,0,1">
-            <UniformGrid Columns="5">
+            <UniformGrid x:Name="TabGrid" Columns="5">
                 <Button x:Name="TabStyle" Content="{DynamicResource Loc.RightPanel.TabStyle}" Style="{StaticResource TabHeader}" Tag="on"
                         Click="Tab_Click" />
                 <Button x:Name="TabFx" Content="{DynamicResource Loc.RightPanel.TabFx}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
                 <Button x:Name="TabTech" Content="{DynamicResource Loc.RightPanel.TabTech}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
+                <Button x:Name="TabPv" Content="{DynamicResource Loc.RightPanel.TabPv}" Style="{StaticResource TabHeader}" Click="Tab_Click" Visibility="Collapsed" />
                 <Button x:Name="TabSettings" Content="{DynamicResource Loc.RightPanel.TabSettings}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
                 <Button x:Name="TabOut" Content="{DynamicResource Loc.RightPanel.TabOut}" Style="{StaticResource TabHeader}" Click="Tab_Click" />
             </UniformGrid>
@@ -31,6 +32,9 @@
             <Grid x:Name="HostTech" Visibility="Collapsed">
                 <views:TechTab />
             </Grid>
+            <ScrollViewer x:Name="HostPv" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+                <views:PvTab x:Name="Pv" Margin="16,12" />
+            </ScrollViewer>
             <ScrollViewer x:Name="HostSettings" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
                 <views:SettingsTab Margin="16,12" />
             </ScrollViewer>

@@ -48,6 +48,7 @@
   "Settings.Spout.Lyrics.Hint": "透明底只出字幕层：KRC 逐字主行 + 音译/翻译行，供 OBS 分层叠在画面上；没有 KRC 字幕数据时输出全透明帧。",
   "Settings.Spout.LyricsFps": "字幕渲染帧率：",
   "Settings.Spout.LyricsFps.Hint": "字幕通道的输出帧率，生效值不超过渲染帧率；改后随「重启渲染引擎」生效。",
+
   "Settings.Fonts.Fetch": "缺字体自动联网补",
   "Settings.Fonts.UserDir": "用户字体目录（可读写）：",
   "Settings.Fonts.OpenDir": "打开字体文件夹",
@@ -59,7 +60,7 @@
   "Settings.Storage.CleanCloud": "清理云音乐",
   "Settings.Storage.CleanLogs": "清理历史日志",
   "Settings.Storage.SummaryFmt": "缓存: {0:F1} MB | 云音乐: {1:F1} MB | 日志: {2:F2} MB",
-  "Settings.Note": "渲染窗口分辨率・渲染帧率・字幕帧率・Spout・透明背景・字幕通道的改动需点上方按钮保存后生效。画布比例与背景即时生效。",
+  "Settings.Note": "渲染窗口分辨率・渲染帧率・字幕帧率・Spout・透明背景・字幕通道的改动需点上方按钮保存后生效。画布比例与背景即时生效，PV 面板（右侧「PV」页签）的源合成参数也即时生效。",
 
   "Settings.KeyBg.Off": "常规（风格背景）",
   "Settings.KeyBg.Green": "绿幕（用于合成）",

@@ -48,6 +48,29 @@ public sealed class RenderOpts
     /// <summary>K线背景已画好，不能再清底（kline 渲染路径专用）。</summary>
     public bool KlineBg;
 
+    /// <summary>
+    /// 外部实时层（PV 源的 Spout 输入等）：画在背景之上、歌词之下，并吃整帧 Post 的纹理后期。
+    /// null/空 = 无（导出/内层递归帧一律不设）。带实时层时整帧缓存被绕过（内容逐帧在变）。
+    /// 顺序 = 合成层次（先画在下）。<see cref="LiveFollowCamera"/> 决定它们是否吃 cut 的镜头。
+    /// 例外：kline 风格走独立全帧路径（图表+滚动歌词自己铺满），不合成实时层；
+    /// ascii 风格会把它一起转成字符网格（整帧转换，符合该风格的语义）。
+    /// </summary>
+    public List<LiveLayer>? Live;
+
+    /// <summary>
+    /// 整帧镜头（PV 模式「整个合成一起吃镜头」）：背景定义 + 歌词 + 人物 + HUD 整幅合成套同一台
+    /// 摄影机（当前 cut 的镜头 def + 抖动），cut 切换时整幅画面一起切镜。false = 老路径：
+    /// 镜头只作用于 cut 内容（文字/装饰），人物按 <see cref="LiveFollowCamera"/> 单独决定。
+    /// </summary>
+    public bool FrameCamera;
+
+    /// <summary>
+    /// 实时层跟随镜头：true（PV 模式默认）时把当前 cut 的镜头矩阵（位移/旋转/斜切/缩放 +
+    /// 抖动偏移）套在实时层上，源与歌词共享同一台摄影机——源就跟着画面一起推拉/手持/地震。
+    /// false = 源钉在画布上（老行为）。仅 <see cref="FrameCamera"/> 关闭时生效（开着时整帧都在镜头里）。
+    /// </summary>
+    public bool LiveFollowCamera = true;
+
     /// <summary>跳过 cut 间转场（转场 A 帧递归、morph 抓取时置真）。</summary>
     public bool NoTrans;
 
@@ -80,6 +103,9 @@ public sealed class RenderOpts
         Stage = Stage,
         AsciiInner = AsciiInner,
         GlyphLog = GlyphLog,
+        Live = Live,
+        LiveFollowCamera = LiveFollowCamera,
+        FrameCamera = FrameCamera,
     };
 }
 
@@ -323,7 +349,8 @@ public sealed class Renderer : IDisposable
             // 多画布/多 plan 轮转时白付拷贝不值，同一键第二次出现才开始写缓存。
             string? fKey = null;
             if (opt.GlyphLog == null && !opt.KlineBg && opt.Layer == null && !evLive && spike == 0 && shake == 0
-                && beatPulse <= 0.02 && !transOn && !opt.NoTrans && !opt.NoPost)
+                && beatPulse <= 0.02 && !transOn && !opt.NoTrans && !opt.NoPost
+                && opt.Live is not { Count: > 0 }) // 实时层（PV 源输入）逐帧在变，整帧缓存无意义
             {
                 if (!ReferenceEquals(plan, _fcPlan))
                 {
@@ -335,7 +362,7 @@ public sealed class Renderer : IDisposable
                 }
                 fKey = string.Create(CultureInfo.InvariantCulture,
                     $"{tq.ToString(CultureInfo.InvariantCulture)}:{step}:{cw}x{ch}:{scale.ToString("F4", CultureInfo.InvariantCulture)}:" +
-                    $"{(opt.Fast ? 1 : 0)}{(opt.Transparent ? 1 : 0)}{(opt.NoGhost ? 1 : 0)}{(opt.NoHud ? 1 : 0)}{(opt.NoPost ? 1 : 0)}{(opt.NoTrans ? 1 : 0)}" +
+                    $"{(opt.Fast ? 1 : 0)}{(opt.Transparent ? 1 : 0)}{(opt.NoGhost ? 1 : 0)}{(opt.NoHud ? 1 : 0)}{(opt.NoPost ? 1 : 0)}{(opt.NoTrans ? 1 : 0)}{(opt.FrameCamera ? 1 : 0)}" +
                     $":{key}:{eIdxIdx(plan, tq)}");
             }
             if (fKey != null && fKey == _fcKey && _fcCv != null && _fcCv.Width == cw && _fcCv.Height == ch)
@@ -386,8 +413,45 @@ public sealed class Renderer : IDisposable
             var stGhost = StNum(st, "ghost", 1);
             var chroma = fx.Chroma * stGhost * (1 + spike + beatPulse);
             var beatInfo = plan.Beats is { Length: > 0 } ? BeatAt(plan.Beats, tq) : null;
-            // 透過PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
+            // 透过PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
             var layer = opt.Transparent ? opt.Layer ?? null : null;
+            var shx = J.Rs(step, 71) * shake * 16 * u;
+            var shy = J.Rs(step, 72) * shake * 11 * u;
+            // 某 cut 在当前时刻的镜头状态（缺省/出错与主 pass 同规矩：退化成恒等）
+            CamState CamOf(Cut cut, Scheme csc)
+            {
+                if (!Reg.Camera.TryGetValue(cut.Cam, out var def) || def == null)
+                    Reg.Camera.TryGetValue("push", out def);
+                try
+                {
+                    var e = MakeEnv(ctx, plan, cut, csc,
+                        t: tq, lt: tq - cut.Start, ltb: tq - cut.Start, stepI: step, scale: scale,
+                        allowFilter: allowFilter, energy: energy, beatInfo: beatInfo,
+                        pass: "main", passColor: null, layer: layer, zone: null, hideText: false, glyphLog: null);
+                    return def?.Get?.Invoke(e) ?? new CamState();
+                }
+                catch
+                {
+                    return new CamState();
+                }
+            }
+
+            // PV 全局镜头（opt.FrameCamera）：背景定义 + 歌词 + 人物 + HUD 整幅合成由当前 cut 的
+            // 同一台摄影机拍下——cut 切换时整幅画面一起切镜（「整个合成一起吃镜头」）。
+            // 底衬（清底/底色渐变/纸纹）保持屏面不参与：它是摄影棚地板，镜头之外不会露出空洞。
+            // 非 PV 路径 FrameCamera=false，走各自的 per-cut 镜头（观感不变）。
+            var frameCam = opt.FrameCamera && mainCut != null ? CamOf(mainCut, sc) : null;
+            void CamApply(SKCanvas c)
+            {
+                if (frameCam is not { } fc) return;
+                c.Translate((float)(W / 2.0 + shx + fc.X), (float)(H / 2.0 + shy + fc.Y));
+                if (fc.Rot != 0) c.RotateDegrees((float)fc.Rot);
+                if (fc.Skx != 0) c.Concat(SKMatrix.CreateSkew((float)Math.Tan(fc.Skx * J.DEG), 0));
+                c.Scale((float)(fc.S * (fc.Sx ?? 1)), (float)(fc.S * (fc.Sy ?? 1)));
+                c.Translate((float)-W / 2, (float)-H / 2);
+            }
+
+            if (frameCam != null) { ctx.Save(); CamApply(ctx); }
             if ((!opt.Transparent || layer == "back") && key == null && !opt.KlineBg && mainCut != null
                 && !string.IsNullOrEmpty(mainCut.Bg) && mainCut.Bg != "none"
                 && Reg.Bg.TryGetValue(mainCut.Bg, out var bgDef))
@@ -409,8 +473,7 @@ public sealed class Renderer : IDisposable
                 ctx.Restore();
             }
             Stage("bgdef");
-            var shx = J.Rs(step, 71) * shake * 16 * u;
-            var shy = J.Rs(step, 72) * shake * 11 * u;
+            if (frameCam != null) ctx.Restore(); // 背景定义已跟着镜头：退出这一层（后面整段再套一次，含 LX）
             _passes[0].OffX = -3.4 * chroma * u;
             _passes[0].OffY = -1.3 * chroma * u;
             _passes[1].OffX = 3.2 * chroma * u;
@@ -449,6 +512,19 @@ public sealed class Renderer : IDisposable
                     LX.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
                 }
             }
+            // 整帧镜头（PV 全局镜头）在这里一次性套上：cut 内容、morph、人物、HUD 都在这一层里；
+            // 层内 LV 是镜头虚焦层的画布，也要套同一台摄影机（它最后以整帧身份贴回，见下面 camblur）。
+            if (frameCam != null)
+            {
+                ctx.Save();
+                CamApply(ctx);
+                if (LX != null)
+                {
+                    LX.Save();
+                    CamApply(LX);
+                }
+            }
+
             foreach (var P in _passes)
             {
                 if (P.Pass != "main" && !ghostOn) continue;
@@ -483,25 +559,35 @@ public sealed class Renderer : IDisposable
                     }
                     var envW = env.W;
                     var envH = env.H;
-                    // 该 cut 的镜头运动，默认缓推
-                    if (!Reg.Camera.TryGetValue(cut.Cam, out var camDef) || camDef == null)
-                        Reg.Camera.TryGetValue("push", out camDef);
-                    CamState? cam = null;
-                    try
+                    if (frameCam == null)
                     {
-                        cam = camDef?.Get?.Invoke(env);
+                        // 该 cut 的镜头运动，默认缓推
+                        if (!Reg.Camera.TryGetValue(cut.Cam, out var camDef) || camDef == null)
+                            Reg.Camera.TryGetValue("push", out camDef);
+                        CamState? cam = null;
+                        try
+                        {
+                            cam = camDef?.Get?.Invoke(env);
+                        }
+                        catch
+                        {
+                            cam = null;
+                        }
+
+                        cam ??= new CamState();
+                        X.Translate((float)(envW / 2.0 + shx + P.OffX + cam.X), (float)(envH / 2.0 + shy + P.OffY + cam.Y));
+                        if (cam.Rot != 0) X.RotateDegrees((float)cam.Rot); // JS: rotate(cam.rot * DEG) 收弧度；RotateDegrees 直接收度
+                        if (cam.Skx != 0) X.Concat(SKMatrix.CreateSkew((float)Math.Tan(cam.Skx * J.DEG), 0));
+                        // JS: X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1))——vertigo/jelly 靠逐轴压扁/拉伸
+                        X.Scale((float)(cam.S * (cam.Sx ?? 1)), (float)(cam.S * (cam.Sy ?? 1)));
+                        X.Translate((float)-envW / 2, (float)-envH / 2);
                     }
-                    catch
+                    else if (P.OffX != 0 || P.OffY != 0)
                     {
-                        cam = null;
+                        // 整帧镜头已在外面套好：这里只补 ghost pass 的色差偏移（设计空间内，随镜头一起走）
+                        X.Translate((float)P.OffX, (float)P.OffY);
                     }
-                    cam ??= new CamState();
-                    X.Translate((float)(envW / 2.0 + shx + P.OffX + cam.X), (float)(envH / 2.0 + shy + P.OffY + cam.Y));
-                    if (cam.Rot != 0) X.RotateDegrees((float)cam.Rot); // JS: rotate(cam.rot * DEG) 收弧度；RotateDegrees 直接收度
-                    if (cam.Skx != 0) X.Concat(SKMatrix.CreateSkew((float)Math.Tan(cam.Skx * J.DEG), 0));
-                    // JS: X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1))——vertigo/jelly 靠逐轴压扁/拉伸
-                    X.Scale((float)(cam.S * (cam.Sx ?? 1)), (float)(cam.S * (cam.Sy ?? 1)));
-                    X.Translate((float)-envW / 2, (float)-envH / 2);
+
                     // ghost pass 的整 pass 染色（JS 的 X.globalCompositeOperation）
                     env.Blend = P.Pass != "main" && J.Lum(csc.Str("bg") ?? "#000000") > 0.55
                         ? SKBlendMode.Multiply
@@ -532,6 +618,38 @@ public sealed class Renderer : IDisposable
                 else MorphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
             }
             Stage("morph");
+            // 外部实时层（PV 源输入：VTS/游戏/桌面等）：**人物位——歌词画面之上、字幕之下**。
+            // 顺序固定为 [PV 画面（底衬+背景定义+歌词/装饰）] → [人物] → [字幕]，见调用方：
+            // 主通道在 Frame() 之后把 SubtitleLayer 烤在整帧最上层（字幕永远压着人物，好看清）。
+            // 跟随镜头：非整帧镜头时按当前 cut 的镜头矩阵套在源上（源与文字共享一台摄影机）；
+            // 整帧镜头（opt.FrameCamera）时源已在外面那层里，这里不再套第二次。
+            // 镜头虚焦（LX）时源与歌词一起进虚焦层。
+            if (opt.Live is { Count: > 0 } lives)
+            {
+                var lv = LX ?? ctx;
+                lv.Save();
+                try
+                {
+                    if (frameCam == null && opt.LiveFollowCamera && mainCut != null)
+                    {
+                        // 与主 pass 的字幕镜头逐句同源：平移(中心+抖动+镜头偏移) → 旋转 → 斜切 → 缩放 → 平移回原点
+                        var lc = CamOf(mainCut, sc);
+                        lv.Translate((float)(W / 2.0 + shx + lc.X), (float)(H / 2.0 + shy + lc.Y));
+                        if (lc.Rot != 0) lv.RotateDegrees((float)lc.Rot);
+                        if (lc.Skx != 0) lv.Concat(SKMatrix.CreateSkew((float)Math.Tan(lc.Skx * J.DEG), 0));
+                        lv.Scale((float)(lc.S * (lc.Sx ?? 1)), (float)(lc.S * (lc.Sy ?? 1)));
+                        lv.Translate((float)-W / 2, (float)-H / 2);
+                    }
+
+                    foreach (var l in lives)
+                        if (l != null) DrawLive(lv, l, W, H, allowFilter);
+                }
+                finally
+                {
+                    lv.Restore();
+                }
+            }
+            Stage("live");
             // cut 间转场：用上一 cut 的收尾帧和当前帧合成（窗口判定已在开头算好：transOn）
             if (transOn && mainCut != null && mPrev2(plan, mainCut) is { } prev)
             {
@@ -551,6 +669,7 @@ public sealed class Renderer : IDisposable
                     prevOpt.NoTrans = true;
                     prevOpt.NoPost = true;
                     prevOpt.NoHud = true;
+                    prevOpt.Live = null; // 上一 cut 的静帧只当转场素材：带实时层会让角色叠两层
                     Frame(A.Canvas, plan, Math.Max(prev.Start, prev.End - 1e-3), prevOpt);
                     var psc = schemes.Count > 0
                         ? schemes[((prev.Scheme % schemes.Count) + schemes.Count) % schemes.Count]
@@ -606,6 +725,12 @@ public sealed class Renderer : IDisposable
                 JDecor.DrawHud(env, plan);
             }
             Stage("hud");
+            if (frameCam != null) // 退出整帧镜头（含 LX 的画布层）
+            {
+                if (LX != null) LX.Restore();
+                ctx.Restore();
+            }
+
             ctx.Restore();
             if (!opt.NoPost) Post(ctx, plan, t, tq, step, sc, scale, opt, allowFilter);
             if (key != null && !opt.NoPost) KeyFinish(ctx, key, opt);
@@ -627,6 +752,69 @@ public sealed class Renderer : IDisposable
             }
             Stage("fcsave");
             return false;
+        }
+
+        // ---------------- 外部实时层（VTS 等 Spout 输入） ----------------
+
+        /// <summary>
+        /// 画一路外部实时层。调用点上下文是 scale 矩阵（设计坐标系 cw×ch），且可能已经套了
+        /// 跟随镜头的镜头矩阵（PV 模式）——这里只管层自身的镜像/旋转/模糊/发光/色相。
+        /// 位图按**借用**处理（SKImage.FromPixels 不持有像素），绘制完即失效——接收端的缓冲下一帧
+        /// 就会被复用，所以绝不能留存引用。模糊/发光受 allowFilter 管辖：慢帧降质时退化成直贴，
+        /// 与引擎其余滤镜同一套降级纪律。
+        /// </summary>
+        private static void DrawLive(SKCanvas ctx, LiveLayer live, float cw, float ch, bool allowFilter)
+        {
+            var bmp = live.Frame;
+            if (bmp == null || bmp.Width <= 0 || bmp.Height <= 0 || live.Alpha <= 0.004) return;
+            var dest = live.Dest(cw, ch);
+            if (dest.Width < 0.5f || dest.Height < 0.5f) return;
+
+            var px = bmp.PeekPixels();
+            if (px == null) return;
+            using var img = SKImage.FromPixels(px.Info, px.GetPixels(), px.RowBytes);
+            if (img == null) return;
+
+            var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None);
+            var sigma = (float)Math.Max(0, live.Blur);
+            using var hue = LiveLayer.HueFilter(live.Hue);
+            ctx.Save();
+            try
+            {
+                if (live.MirrorX) // 以目标矩形中轴镜像：rect 映射回自身
+                {
+                    ctx.Translate(dest.Left + dest.Right, 0);
+                    ctx.Scale(-1, 1);
+                }
+
+                if (live.Rotation != 0) // 绕目标矩形中心旋转（镜像在中轴线上，枢轴不受镜像影响）
+                    ctx.RotateDegrees((float)live.Rotation, (dest.Left + dest.Right) / 2f, (dest.Top + dest.Bottom) / 2f);
+
+                // 自发光：整层模糊后以 Plus 垫在下面（层自身颜色的泛光；不挂色相，泛光偏色反而脏）
+                if (allowFilter && live.Glow > 0.02)
+                {
+                    var gs = Math.Max(sigma, 10f);
+                    using var gp = new SKPaint
+                    {
+                        BlendMode = SKBlendMode.Plus,
+                        Color = SKColors.White.WithAlpha((byte)Math.Round(Math.Clamp(live.Glow, 0, 1) * 200)),
+                        ImageFilter = SKImageFilter.CreateBlur(gs, gs),
+                    };
+                    ctx.DrawImage(img, dest, sampling, gp);
+                }
+
+                using var p = new SKPaint
+                {
+                    Color = SKColors.White.WithAlpha((byte)Math.Round(Math.Clamp(live.Alpha, 0, 1) * 255)),
+                    ColorFilter = hue,
+                    ImageFilter = allowFilter && sigma > 0.3 ? SKImageFilter.CreateBlur(sigma, sigma) : null,
+                };
+                ctx.DrawImage(img, dest, sampling, p);
+            }
+            finally
+            {
+                ctx.Restore();
+            }
         }
 
         private static Cut? mPrev2(Plan plan, Cut mainCut) =>

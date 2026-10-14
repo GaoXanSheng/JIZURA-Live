@@ -20,6 +20,24 @@
         <ProjectReference Include="..\..\JizuraLive.csproj"/>
     </ItemGroup>
 
+    <!-- Spout 收发回归（SpoutInTests）：要自己造 D3D11 纹理 + 直连 SpoutDXWrapper。
+         主工程用的是 <Reference>（不随 ProjectReference 传递），这里得再引一遍 -->
+    <ItemGroup>
+        <Reference Include="SharpDX">
+            <HintPath>$(NuGetPackageRoot)sharpdx\4.2.0\lib\net45\SharpDX.dll</HintPath>
+        </Reference>
+        <Reference Include="SharpDX.Direct3D11">
+            <HintPath>$(NuGetPackageRoot)sharpdx.direct3d11\4.2.0\lib\net45\SharpDX.Direct3D11.dll</HintPath>
+        </Reference>
+        <Reference Include="SharpDX.DXGI">
+            <HintPath>$(NuGetPackageRoot)sharpdx.dxgi\4.2.0\lib\net45\SharpDX.DXGI.dll</HintPath>
+        </Reference>
+        <Reference Include="SpoutDXWrapper">
+            <HintPath>..\..\native\SpoutDXWrapper.dll</HintPath>
+        </Reference>
+        <None Include="..\..\native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
     <!-- fixtures（engine-goldens.json / parity 案例）已随仓库清理移除（8a747a7）：
          ParityTests / ParityGoldenTests 在缺文件时自动 Skip，不再拷贝内容 -->
 </Project>

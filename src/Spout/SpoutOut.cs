@@ -13,12 +13,18 @@
 //            （SubtitleLayer：KRC 逐字主行 + 音译/翻译行，与导出烤字幕同一个渲染器；
 //             无 KRC 字幕数据时输出全透明帧）
 //
+// 外部输入（PV 模式的多路源）：主通道另可接收多路外部 Spout 源（<see cref="SpoutIn"/>，如 VTube Studio
+// 的 Spout2 输出、游戏/桌面捕获），作为「实时层」按槽位顺序合成进主通道——背景之上、歌词之下，
+// 于是源与歌词在我们这边合成成一路流再交给 Shoost/OBS，下游不必自己叠两层。源跟随歌曲镜头
+// （RenderOpts.LiveFollowCamera）。源在动 = 画面在动：暂停态下只要实时层还在更新，主通道就照满帧
+// 出图（不再走静止帧保活）。字幕通道与导出都不含实时层。
+//
 // 泵语义（对位旧版 EBF 泵）：固定帧率泵线程；播放态 = 目标帧率；暂停态降到 10Hz 且只在
-// 「画面会变」（seek/重规划/换字幕 → 版本号变）时重绘——暂停帧是静态的，10Hz 只是让编辑/seek
-// 后 ≤100ms 反映到接收端，不空转烧 CPU/GPU。
+// 「画面会变」（seek/重规划/换字幕/外部输入来帧 → 版本号变）时重绘——暂停帧是静态的，10Hz 只是
+// 让编辑/seek 后 ≤100ms 反映到接收端，不空转烧 CPU/GPU。
 //
 // 线程纪律：GPU 路线下泵线程是 EGL 上下文的唯一持有者（PumpLoop 进 Enter / 出 Exit），
-// 引擎静态缓存经 PreviewEngine.EngineRenderGate 与 WPF 预览串行。
+// 引擎静态缓存经 PreviewEngine.EngineRenderGate 与 WPF 预览串行；SpoutIn 的接收端也在泵线程上。
 
 using System.Diagnostics;
 using JizuraLive.App;
@@ -82,6 +88,13 @@ public sealed class SpoutOutOptions
 
     /// <summary>字幕通道帧率（调用方先钳 min(LyricsFps, RenderFps)——字幕画得比主通道快没意义）。</summary>
     public int LyricsFps { get; set; } = 10;
+
+    /// <summary>
+    /// PV 模式的多路外部 Spout 输入（VTS/游戏/桌面等）合成参数：非空即启用接收端。
+    /// 对象由宿主持有并被 UI 线程实时改写（启用/增删源/改名/透明度都是即时生效，不走重启），
+    /// 泵每拍取一次快照。合成位置：背景之上、歌词之下；只进主通道与预览，不进独立字幕通道与导出。
+    /// </summary>
+    public PvOptions? Pv { get; set; }
 }
 
 /// <summary>
@@ -109,6 +122,19 @@ public sealed class SpoutOut : IDisposable
     private volatile bool _running;
     private ISpoutSource? _source;
 
+    /// <summary>外部 Spout 输入（PV 源）：接收端与读回都在泵线程上（见 SpoutIn 的线程纪律）。
+    /// 列表按源槽位懒建、只增不减（增删源即时生效，不用重启管线）。</summary>
+    private readonly List<SpoutIn> _ins = new();
+
+    /// <summary>PV 合成参数（宿主持有、UI 实时改；泵每拍取快照）。</summary>
+    private PvOptions? _pv;
+
+    /// <summary>本拍的实时层快照（借用位图，仅泵线程本拍内有效）；空 = 本拍没有可合成的外部画面。</summary>
+    private List<LiveLayer>? _liveLayers;
+
+    /// <summary>本拍的实时层世代号（0 = 无）：任一源来了新帧就 +1，暂停态泵据此判断「源还在动，必须继续出帧」。</summary>
+    private long _liveGen;
+
     /// <summary>预览镜像（MainWindow 建、Spout 泵写；null = 不需要）。见 <see cref="JizuraLive.App.PreviewMirror"/>。</summary>
     public PreviewMirror? Preview { get; set; }
 
@@ -132,6 +158,12 @@ public sealed class SpoutOut : IDisposable
     public string? SenderName => _main?.Name;
     public string? LyricsSenderName => _lyrics?.Name;
     public bool LyricsRunning => _lyrics != null;
+
+    /// <summary>外部 Spout 输入接收端（预览自渲染路径要它们发布的位图；空表 = 本管线没收外部输入）。</summary>
+    public IReadOnlyList<SpoutIn> LiveIns => _ins;
+
+    /// <summary>实时层世代号：任一源来了新帧就变（预览脏判断/暂停态满帧出图的依据）。</summary>
+    public long LiveGen => Interlocked.Read(ref _liveGen);
 
     /// <summary>主通道正走 GPU 光栅（预览镜像可用；CPU 回退时预览必须走自己的 CPU 路径）。</summary>
     public bool MirrorActive => _running && _gpu != null && _main is { Gpu: true };
@@ -191,6 +223,10 @@ public sealed class SpoutOut : IDisposable
         }
 
         _running = true;
+
+        // 外部 Spout 输入（PV 源）：接收端本体在泵线程上按需建（启用/增删源即时生效，不用重启管线）
+        _pv = opt.Pv;
+
         _pump = new Thread(PumpLoop)
         {
             IsBackground = true,
@@ -198,12 +234,20 @@ public sealed class SpoutOut : IDisposable
         };
         _pump.Start();
 
+        var pvSrc = opt.Pv?.Snapshot() ?? [];
         Log.Info(
             $"[SpoutOut] 管线已启动（{(_gpu != null ? "GPU 光栅" : "CPU 光栅")}）：主通道={opt.SenderName} {opt.Width}x{opt.Height}@{opt.Fps}"
             + (opt.MainTransparent ? "（透明底）" : "")
             + (_lyrics != null
                 ? $"；字幕通道={opt.SenderName}-LYRICS@{opt.LyricsFps}（透明底，KRC 字幕层）"
-                : "；字幕通道=关"));
+                : "；字幕通道=关")
+            + (opt.Pv != null
+                ? pvSrc.Length > 0
+                    ? $"，PV 源 {pvSrc.Length} 路（{string.Join("、", pvSrc.Select(s => s.SenderName))}）合成到主通道"
+                      + (opt.Pv.GlobalCamera ? "，整幅一起吃镜头" : "")
+                      + (opt.Pv.SubtitleOnTop ? "，字幕压人物之上" : "")
+                    : "，PV 合成为空"
+                : ""));
         return true;
     }
 
@@ -241,6 +285,16 @@ public sealed class SpoutOut : IDisposable
             ch?.Dispose();
         _main = null;
         _lyrics = null;
+        // 外部输入接收端：泵已退出（Stop 保证），这里释放接收端/位图；设置对象不归我们释放
+        foreach (var inSink in _ins)
+        {
+            try { inSink.Dispose(); }
+            catch (Exception ex) { Log.Debug("[SpoutOut] SpoutIn.Dispose 失败：" + ex.Message); }
+        }
+
+        _ins.Clear();
+        _liveLayers = null;
+        _liveGen = 0;
     }
 
     public void Dispose()
@@ -338,10 +392,25 @@ public sealed class SpoutOut : IDisposable
 
             try
             {
+                // 外部 Spout 输入（PV 源）：每拍逐路各收一帧（含连接管理）。必须排在脏判断之前——
+                // 本拍收到的画面就是本拍要合成的画面内容。（放在 try 里：收帧出岔子只该丢这一拍，
+                // 不能把泵线程带走。）
+                PumpLive();
+
                 if (src != null && src.Plan.Cuts.Count > 0)
                 {
-                    if (src.IsPlaying)
+                    // 播放中，或外部实时层在动（源在动，暂停态也得满帧出图）：主通道按节拍连续出帧
+                    var live = _liveLayers is { Count: > 0 };
+                    if (src.IsPlaying || live)
                     {
+                        if (!src.IsPlaying)
+                        {
+                            // 暂停但实时层在动：主通道照常重出，但慢帧滞回与帧间隔基准不参与
+                            //（暂停帧一律满质量，恢复播放的首拍也不该把暂停时长当帧间隔）
+                            main.Slow = false;
+                            main.LastPubTs = 0;
+                        }
+
                         if (ElapsedMs(lastMain, now) >= main.IntervalMs)
                         {
                             // 慢帧滞回按「上一拍到这一拍」的间隔推进（前端 dt 同义：用户实际看到的帧间隔）
@@ -351,19 +420,10 @@ public sealed class SpoutOut : IDisposable
                             RenderChannel(main, src);
                             lastMain = now;
                         }
-
-                        var lyr = _lyrics;
-                        if (lyr != null && ElapsedMs(lastLyrics, now) >= lyr.IntervalMs)
-                        {
-                            RenderChannel(lyr, src);
-                            lastLyrics = now;
-                        }
                     }
                     else
                     {
-                        // 暂停：画面内容只在 seek/重规划（Version 变）时改变，不逐帧重渲；
-                        // 两条通道各自记 Version，重规划后各补一帧。字幕通道还要看字幕数据
-                        // 版本（换歌装载字幕时暂停态也得重出一帧）。
+                        // 暂停且画面静止（无实时层）：内容只在 seek/重规划（Version 变）时改变，不逐帧重渲。
                         // 但 Spout 流不能断：接收端在发送端静默一段时间后会把这一路判为掉线——
                         // 表现是主画面还留着上一帧、独立的字幕叠加层却空了。所以没脏也要把上一帧
                         // 纹理再投一次（纯句柄发布，不重画），让接收端看到流还活着。
@@ -380,19 +440,29 @@ public sealed class SpoutOut : IDisposable
                         {
                             KeepAlive(main);
                         }
+                    }
 
-                        var lyr = _lyrics;
-                        if (lyr != null)
+                    // 字幕通道（独立透明底歌词层）不合成外部输入：仍是播放按 fps 滤帧、
+                    // 暂停按脏判断重出/保活的老规矩
+                    var lyr = _lyrics;
+                    if (lyr != null)
+                    {
+                        if (src.IsPlaying)
                         {
-                            if (Dirty(lyr, src))
+                            if (ElapsedMs(lastLyrics, now) >= lyr.IntervalMs)
                             {
                                 RenderChannel(lyr, src);
-                                lastLyrics = Stopwatch.GetTimestamp();
+                                lastLyrics = now;
                             }
-                            else
-                            {
-                                KeepAlive(lyr);
-                            }
+                        }
+                        else if (Dirty(lyr, src))
+                        {
+                            RenderChannel(lyr, src);
+                            lastLyrics = Stopwatch.GetTimestamp();
+                        }
+                        else
+                        {
+                            KeepAlive(lyr);
                         }
                     }
                 }
@@ -407,7 +477,7 @@ public sealed class SpoutOut : IDisposable
             // 间隔（那会让实际周期 = 渲染耗时 + 间隔，1080p GPU 光栅下掉到 ~47fps）。
             // 已落后（渲染超时/长暂停后恢复）则不再等，立刻进入下一拍，避免追赶风暴。
             long next;
-            if (src is { IsPlaying: true })
+            if (src is { IsPlaying: true } || _liveLayers is { Count: > 0 })
             {
                 next = lastMain
                        + (long)(Math.Max(MinIntervalMs, main.IntervalMs) / 1000.0 * Stopwatch.Frequency);
@@ -432,9 +502,74 @@ public sealed class SpoutOut : IDisposable
 
     private static double ElapsedMs(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
 
-    /// <summary>暂停态脏判断：引擎通道看内容版本；字幕通道还要看字幕数据版本（换歌/装载字幕）。</summary>
-    private static bool Dirty(Channel ch, ISpoutSource src) =>
-        src.Version != ch.LastVersion || (ch.Subtitle && src.SubtitleVersion != ch.SubLayerVersion);
+    /// <summary>
+    /// 暂停态脏判断：引擎通道看内容版本（seek/重规划）；字幕通道还要看字幕数据版本（换歌/装载字幕）；
+    /// 主通道另看实时层世代号——外部源还在动，画面就不算静止。
+    /// </summary>
+    private bool Dirty(Channel ch, ISpoutSource src)
+    {
+        if (src.Version != ch.LastVersion) return true;
+        if (ch.Subtitle) return src.SubtitleVersion != ch.SubLayerVersion;
+        // 主通道：烤了字幕的话，字幕变化（换歌/装载/改样式）也要重出一帧
+        if (_pv?.SubtitleOnTop == true && src.SubtitleVersion != ch.SubLayerVersion) return true;
+        return _liveGen != ch.LastLiveSeq;
+    }
+
+    /// <summary>
+    /// 外部 Spout 输入（PV 源）：按槽位收一帧并组装本拍的实时层快照。
+    /// 启用/改名/增删源都在这里就地生效（泵每拍取一次 Pv 快照），所以面板改完不用重启管线。
+    /// 某个源未连接（VTS 没开/名字不符）时它缺席本拍，主通道照旧画工程内容。
+    /// </summary>
+    private void PumpLive()
+    {
+        var pv = _pv;
+        var sources = pv?.Snapshot() ?? [];
+        if (sources.Length == 0)
+        {
+            // 全部收摊（含 UI 删源后多出来的槽位）：接收端只在真有源时才占资源
+            foreach (var idle in _ins) idle.Pump(false, "", false);
+            _liveLayers = null;
+            _liveGen = 0;
+            return;
+        }
+
+        // 接收端按槽位懒建、只增不减：增删源不重建已有的连接（重建会丢掉已连接状态的连续性）
+        while (_ins.Count < sources.Length)
+            _ins.Add(new SpoutIn(_device!));
+
+        var anyNew = false;
+        for (var i = 0; i < _ins.Count; i++)
+        {
+            if (i >= sources.Length)
+            {
+                _ins[i].Pump(false, "", false); // 槽位暂时空着：收摊，留着实例下次直接用
+                continue;
+            }
+
+            var s = sources[i];
+            if (_ins[i].Pump(s.Enabled, s.SenderName, s.Premultiplied)) anyNew = true;
+        }
+
+        var layers = _liveLayers ??= new List<LiveLayer>(sources.Length);
+        layers.Clear();
+        var connected = 0;
+        for (var i = 0; i < sources.Length; i++)
+        {
+            var frame = _ins[i].FrontForRender;
+            if (frame == null) continue;
+            layers.Add(LiveLayer.From(sources[i], frame));
+            connected++;
+        }
+
+        if (connected == 0)
+        {
+            _liveLayers = null;
+            _liveGen = 0;
+            return;
+        }
+
+        if (anyNew) _liveGen++; // 世代号只增不减：暂停态泵据此判断源还在动
+    }
 
     /// <summary>暂停态保活：不重渲，把该通道上一帧的纹理再投一次。Spout 接收端（OBS/Shoost 等）在发送端
     /// 静默一段时间后会把这一路判为掉线——独立字幕层这种叠加源会直接空掉，而主画面还留着上一帧。
@@ -536,6 +671,7 @@ public sealed class SpoutOut : IDisposable
         }
 
         ch.LastVersion = src.Version;
+        ch.LastLiveSeq = _liveGen;
         ch.Frames++;
     }
 
@@ -751,49 +887,56 @@ public sealed class SpoutOut : IDisposable
         oc.SetMatrix(SKMatrix.Identity);
         oc.Clear(SKColors.Transparent);
 
-        // 换歌/装载/清空字幕、改字幕样式（都走字幕版本号）、重规划（注音来自 plan：KRC 走 cut 注音
-        // 回填，无 KRC 时整行合成）时重建字幕层；plan 变化不记日志（编辑时每次重规划都记会刷屏）
-        var lines = src.Subtitles;
-        var versionChanged = src.SubtitleVersion != ch.SubLayerVersion;
-        var planChanged = !ReferenceEquals(src.Plan, ch.SubLayerPlan);
-        if (versionChanged || planChanged)
-        {
-            ch.SubLayerVersion = src.SubtitleVersion;
-            ch.SubLayerPlan = src.Plan;
-
-            var fromKrc = lines is { Count: > 0 };
-            IReadOnlyList<string>? notes;
-            if (fromKrc)
-            {
-                notes = SubtitleLayer.NotesFromPlan(lines!, src.Plan);
-            }
-            else
-            {
-                // 没有 KRC 逐字（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）：
-                // 从 plan 行合成，与预览叠加、导出烤入共用同一份，避免「预览有字幕、Spout 通道空」
-                var synth = SubtitleLayer.FromPlan(src.Plan);
-                lines = synth?.Lines;
-                notes = synth?.Notes;
-            }
-
-            ch.SubLayer = lines is { Count: > 0 }
-                ? new SubtitleLayer(lines, src.SubtitleConfig, notes)
-                : null;
-            if (versionChanged)
-            {
-                if (ch.SubLayer == null)
-                    Log.Info("[SpoutOut] 字幕通道：当前没有可用字幕数据，输出透明帧"
-                             + "（既无酷狗 KRC 逐字，工程歌词行也没有注音内容）");
-                else
-                    Log.Info($"[SpoutOut] 字幕通道：字幕层就绪，{lines!.Count} 行"
-                             + $"（{(fromKrc ? "KRC 逐字" : "工程行合成")}）"
-                             + (src.SubtitleConfig.Content == SubContent.Off ? "（内容=off，不出画面）" : ""));
-            }
-        }
-
+        EnsureSubLayer(ch, src);
         // 排版按输出分辨率全幅派生（字号 = H 百分比、底部 5.5% 起排），与导出烤字幕所见一致
         ch.SubLayer?.Render(oc, src.CurrentTime, ch.W, ch.H);
         return tgt;
+    }
+
+    /// <summary>
+    /// 字幕层按需重建（字幕通道与「字幕烤进主通道」共用；每个通道各存自己那一份）。
+    /// 换歌/装载/清空字幕、改字幕样式（都走字幕版本号）、重规划（注音来自 plan：KRC 走 cut 注音
+    /// 回填，无 KRC 时整行合成）时重建；plan 变化不记日志（编辑时每次重规划都记会刷屏）。
+    /// </summary>
+    private void EnsureSubLayer(Channel ch, ISpoutSource src)
+    {
+        var lines = src.Subtitles;
+        var versionChanged = src.SubtitleVersion != ch.SubLayerVersion;
+        var planChanged = !ReferenceEquals(src.Plan, ch.SubLayerPlan);
+        if (!versionChanged && !planChanged) return;
+
+        ch.SubLayerVersion = src.SubtitleVersion;
+        ch.SubLayerPlan = src.Plan;
+
+        var fromKrc = lines is { Count: > 0 };
+        IReadOnlyList<string>? notes;
+        if (fromKrc)
+        {
+            notes = SubtitleLayer.NotesFromPlan(lines!, src.Plan);
+        }
+        else
+        {
+            // 没有 KRC 逐字（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）：
+            // 从 plan 行合成，与预览叠加、导出烤入共用同一份，避免「预览有字幕、Spout 通道空」
+            var synth = SubtitleLayer.FromPlan(src.Plan);
+            lines = synth?.Lines;
+            notes = synth?.Notes;
+        }
+
+        ch.SubLayer = lines is { Count: > 0 }
+            ? new SubtitleLayer(lines, src.SubtitleConfig, notes)
+            : null;
+        if (versionChanged)
+        {
+            var where = ch.Subtitle ? "字幕通道" : "主通道字幕烤入";
+            if (ch.SubLayer == null)
+                Log.Info($"[SpoutOut] {where}：当前没有可用字幕数据，不出字幕"
+                         + "（既无酷狗 KRC 逐字，工程歌词行也没有注音内容）");
+            else
+                Log.Info($"[SpoutOut] {where}：字幕层就绪，{lines!.Count} 行"
+                         + $"（{(fromKrc ? "KRC 逐字" : "工程行合成")}）"
+                         + (src.SubtitleConfig.Content == SubContent.Off ? "（内容=off，不出画面）" : ""));
+        }
     }
 
     private Target PaintEngine(Channel ch, ISpoutSource src)
@@ -822,8 +965,12 @@ public sealed class SpoutOut : IDisposable
                     Stage = true,
                     Fast = ch.Slow,     // 慢帧降质（见 Channel.Slow）
                     NoGhost = ch.Slow,
+                    Live = _liveLayers, // 外部 Spout 输入（PV 源）合成进这一帧
+                    LiveFollowCamera = _pv?.FollowCamera ?? true,
+                    FrameCamera = _pv?.GlobalCamera == true,
                 });
             }
+            BakeSubtitle(ch, src);
             return only;
         }
 
@@ -840,6 +987,9 @@ public sealed class SpoutOut : IDisposable
                 Stage = true,
                 Fast = ch.Slow,
                 NoGhost = ch.Slow,
+                Live = _liveLayers, // 出边（letterbox）时实时层画在场景面里，随场景一起居中 blit
+                LiveFollowCamera = _pv?.FollowCamera ?? true,
+                FrameCamera = _pv?.GlobalCamera == true,
             });
         }
 
@@ -852,8 +1002,27 @@ public sealed class SpoutOut : IDisposable
         var spx = scene.PeekPixels() ?? throw new InvalidOperationException("场景面 PeekPixels 返回空");
         using var borrow = SKImage.FromPixels(spx.Info, spx.GetPixels(), spx.RowBytes);
         oc.DrawImage(borrow, (ch.W - rw) / 2f, (ch.H - rh) / 2f);
+        BakeSubtitle(ch, src);
 
         return new Target(tgt.Surface, tgt.Gpu, (ch.W - rw) / 2, (ch.H - rh) / 2, rw, rh);
+    }
+
+    /// <summary>
+    /// 字幕烤进主通道最上层（PV「字幕压着人物」）：Frame 画完（人物与整帧后期都在里面）之后，
+    /// 以输出分辨率为准把字幕层整幅叠上去——与独立字幕通道、预览叠加、导出烤字幕同一份排版。
+    /// 开关在 PV 面板（<see cref="PvOptions.SubtitleOnTop"/>）；关掉就只走 -LYRICS 通道，OBS 自己叠。
+    /// </summary>
+    private void BakeSubtitle(Channel ch, ISpoutSource src)
+    {
+        if (_pv?.SubtitleOnTop != true) return;
+        EnsureSubLayer(ch, src);
+        if (ch.SubLayer == null) return;
+        lock (EngineRenderGate.Lock) // 字幕排版走引擎文字静态缓存：与预览/其他管线同一把闸
+        {
+            var oc = AcquireOut(ch).Canvas;
+            oc.SetMatrix(SKMatrix.Identity);
+            ch.SubLayer.Render(oc, src.CurrentTime, ch.W, ch.H);
+        }
     }
 
     /// <summary>像素 → D3D11 纹理 → Spout 发送（两条通道共用）。</summary>
@@ -960,6 +1129,7 @@ public sealed class SpoutOut : IDisposable
         public int TexW;
         public int TexH;
         public long LastVersion = -1; // 泵的暂停态脏判断
+        public long LastLiveSeq;      // 实时层帧号（暂停态下角色还在动 → 主通道照样重出帧）
         public long Frames;
         public long KeepAlives;       // 暂停态保活投递次数（不重渲，只重发上一帧纹理）
 

@@ -18,6 +18,16 @@ public sealed class Settings
     // 独立字幕通道：KRC 字幕层单独输出到 <SpoutID>-LYRICS，透明底供分层合成
     public bool SpoutLyricsEnabled { get; set; } = true;
 
+    // PV 模式：多路外部 Spout 源（VTS/游戏/桌面等）合成到主通道与预览，并跟随歌曲镜头动效。
+    // 合成在我们这边做（不再让下游叠层），下游只需接一路流。
+    // 该对象实时生效（面板直接改字段、泵与预览每拍读一次），不随「重启渲染引擎」才应用。
+    public PvOptions Pv { get; set; } = new();
+
+    // 旧的单路外部输入（VTS）合成参数：只在 Load 时用于迁移进 Pv.Sources，迁移完置 null 不再写回
+    // （NullValueHandling.Ignore：新配置文件里不再出现这个键）
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public LiveLayerOptions? Live { get; set; }
+
     // 字幕通道帧率：生效值钳到 min(LyricsFps, RenderFps)——字幕层画得比主通道快没有意义，纯烧 GPU
     public int LyricsFps { get; set; } = 10;
     public int Width { get; set; } = 1920;
@@ -64,6 +74,7 @@ public sealed class Settings
                 var settings = JsonConvert.DeserializeObject<Settings>(text);
                 if (settings != null)
                 {
+                    settings.MigratePv();
                     Log.Info($"已加载配置文件：{FilePath}");
                     return settings;
                 }
@@ -80,9 +91,29 @@ public sealed class Settings
         return defaultSettings;
     }
 
-    public void Save()
+    /// <summary>
+    /// 旧配置迁移：历史版本只有单路外部输入（外部 Spout 合成），这里搬进 Pv.Sources 第一路，
+    /// 用户原来的 VTS 源名与参数原样保留；迁移完把 Live 置 null，之后不再写回。
+    /// （Live 无键时反序列化后为 null，天然区分「新配置」与「老配置」。）
+    /// </summary>
+    private void MigratePv()
     {
-        lock (SaveGate)
+        if (Live == null) return;
+        if (Pv.Sources.Count == 0)
+        {
+            Pv.Sources.Add(Live);
+            // 老配置开着外部输入 = 用户本来就在用合成：总开关要跟着搬过去，
+            // 否则升级后合成会悄悄停掉（源还在列表里，但主通道不再带它）
+            Pv.Enabled |= Live.Enabled;
+        }
+
+        Live = null;
+        Log.Info($"[Settings] 已把旧版单路外部输入配置迁移为 PV 源（共 {Pv.Sources.Count} 路，"
+                 + $"合成{(Pv.Enabled ? "开" : "关")}）");
+    }
+
+    public void Save()
+    {        lock (SaveGate)
         {
             try
             {

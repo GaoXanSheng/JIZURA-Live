@@ -402,7 +402,7 @@ public partial class SettingsTab : UserControl
 
     private void Draft_Changed(object sender, RoutedEventArgs e)
     {
-        if (_syncing) return;
+        if (!_built || _syncing) return;
         _dirty = true;
         ValidateDraft();
     }
@@ -482,16 +482,17 @@ public partial class SettingsTab : UserControl
 	            Directory.CreateDirectory(AppDirs.FontsDir);
 	            TblFontDir.Text = AppDirs.FontsDir;
 	            RefreshStorageInfo();
-	            _dirty = false;
-	        }
-	        finally
-	        {
-	            _syncing = false;
-	        }
-	        ValidateDraft();
-	    }
+		            _dirty = false;
+		        }
+		        finally
+		        {
+		            _syncing = false;
+		        }
+		        ValidateDraft();
+		    }
 
-	    private void BtnOpenFontDir_Click(object sender, RoutedEventArgs e)
+
+    private void BtnOpenFontDir_Click(object sender, RoutedEventArgs e)
 	    {
 	        try
 	        {
