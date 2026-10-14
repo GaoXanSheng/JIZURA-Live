@@ -89,6 +89,12 @@ public sealed class RenderOpts
     /// <summary>モーフ字形抓取（非 null 时主 pass 记录每个字形落点，不进整帧缓存）。</summary>
     public List<JText.GlyphLogEntry>? GlyphLog;
 
+    /// <summary>
+    /// 整帧镜头回填盒（可选）：算出当前 cut 的相机后写进去，供 PV 的 VTS 直接驱动读。
+    /// Clone 不复制（转场/内层递归帧不覆盖外层回报）。
+    /// </summary>
+    public CameraProbe? Camera;
+
     public RenderOpts Clone() => new()
     {
         Scale = Scale,
@@ -441,6 +447,12 @@ public sealed class Renderer : IDisposable
             // 底衬（清底/底色渐变/纸纹）保持屏面不参与：它是摄影棚地板，镜头之外不会露出空洞。
             // 非 PV 路径 FrameCamera=false，走各自的 per-cut 镜头（观感不变）。
             var frameCam = opt.FrameCamera && mainCut != null ? CamOf(mainCut, sc) : null;
+            // 整帧镜头回报（PV 的 VTS 直接驱动读它把模型跟着镜头挪）
+            if (opt.Camera != null)
+            {
+                if (frameCam is { } fcRep) opt.Camera.Set(fcRep, W, H);
+                else opt.Camera.Clear();
+            }
             void CamApply(SKCanvas c)
             {
                 if (frameCam is not { } fc) return;

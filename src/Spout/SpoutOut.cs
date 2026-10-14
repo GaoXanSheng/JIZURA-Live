@@ -151,6 +151,9 @@ public sealed class SpoutOut : IDisposable
     /// <summary>外部 Spout 输入接收端（预览自渲染路径要它们发布的位图；空表 = 本管线没收外部输入）。</summary>
     public IReadOnlyList<SpoutIn> LiveIns => _ins;
 
+    /// <summary>整帧镜头回填盒（宿主注入）：泵每帧把当前 cut 的相机写进去，PV 的 VTS 直接驱动读它。</summary>
+    public CameraProbe? CameraProbe { get; set; }
+
     /// <summary>实时层世代号：任一源来了新帧就变（预览脏判断/暂停态满帧出图的依据）。</summary>
     public long LiveGen => Interlocked.Read(ref _liveGen);
 
@@ -899,6 +902,7 @@ public sealed class SpoutOut : IDisposable
                     Live = _liveLayers, // 外部 Spout 输入（PV 源）合成进这一帧
                     LiveFollowCamera = _pv?.FollowCamera ?? true,
                     FrameCamera = _pv?.GlobalCamera == true,
+                    Camera = CameraProbe,
                 });
             }
             BakeSubtitle(ch, src);
@@ -921,6 +925,7 @@ public sealed class SpoutOut : IDisposable
                 Live = _liveLayers, // 出边（letterbox）时实时层画在场景面里，随场景一起居中 blit
                 LiveFollowCamera = _pv?.FollowCamera ?? true,
                 FrameCamera = _pv?.GlobalCamera == true,
+                Camera = CameraProbe,
             });
         }
 

@@ -848,12 +848,16 @@
                         <Border x:Name="bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6">
                             <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
                                 <!-- 选中项文字：ContentPresenter 为字符串内容生成的 TextBlock 会吃到 Theme 的
                                      隐式 TextBlock 样式（13px），而 ComboBox 的 MeasureOverride 是按自身
                                      FontSize 量的 —— 量 10px 画 13px，框比字窄，末字被右侧箭头压住
                                      （行内手法下拉「电子跑马灯」只出前四字）。这里用局部资源样式顶掉隐式
                                      样式，字号/字体/前景改由控件继承（与量测同源），并压平行高、超长出省略号。 -->
-                                <ContentPresenter x:Name="cp" IsHitTestVisible="False"
+                                <ContentPresenter x:Name="cp" Grid.Column="0" IsHitTestVisible="False"
                                                   Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
                                                   Content="{TemplateBinding SelectionBoxItem}"
                                                   ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}">
@@ -865,12 +869,26 @@
                                         </Style>
                                     </ContentPresenter.Resources>
                                 </ContentPresenter>
-                                <Path Data="M 0 0 L 3.6 3.6 L 7.2 0" Stroke="{StaticResource Mut}"
-                                      StrokeThickness="1.4" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                <!-- 可编辑模式的输入框：IsEditable=True 时显示（WPF 按 PART_EditableTextBox
+                                     这个名字对接内部的文本/选区/输入法逻辑，缺了它 Text 就没有落点——
+                                     PV 面板「源名」下拉当初就是因此一片空白）。Style 置空以避开隐式 TextBox 样式。 -->
+                                <TextBox x:Name="PART_EditableTextBox" Grid.Column="0" Style="{x:Null}"
+                                         Background="Transparent" BorderThickness="0"
+                                         Foreground="{TemplateBinding Foreground}"
+                                         CaretBrush="{TemplateBinding Foreground}"
+                                         FontFamily="{TemplateBinding FontFamily}"
+                                         FontSize="{TemplateBinding FontSize}"
+                                         Padding="{TemplateBinding Padding}"
+                                         VerticalContentAlignment="Center"
+                                         Visibility="Collapsed" IsReadOnly="{TemplateBinding IsReadOnly}" />
+                                <Path Grid.Column="1" Data="M 0 0 L 3.6 3.6 L 7.2 0" Stroke="{StaticResource Mut}"
+                                      StrokeThickness="1.4" VerticalAlignment="Center"
                                       Margin="0,0,10,0" />
                             </Grid>
                         </Border>
-                        <ToggleButton Focusable="False" ClickMode="Press" Background="Transparent" BorderThickness="0"
+                        <!-- 整块可点 = 开下拉；可编辑时缩到右侧箭头区，把文字区让给输入框 -->
+                        <ToggleButton x:Name="toggle" Focusable="False" ClickMode="Press" Background="Transparent"
+                                      BorderThickness="0" HorizontalAlignment="Stretch"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
@@ -894,6 +912,14 @@
                         </Popup>
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <!-- 可编辑：显示输入框、收起整块热区（只留右侧箭头），未编辑项文字让位 -->
+                        <Trigger Property="IsEditable" Value="True">
+                            <Setter Property="IsTabStop" Value="False" />
+                            <Setter TargetName="cp" Property="Visibility" Value="Hidden" />
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="toggle" Property="HorizontalAlignment" Value="Right" />
+                            <Setter TargetName="toggle" Property="Width" Value="26" />
+                        </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Line2}" />
                         </Trigger>

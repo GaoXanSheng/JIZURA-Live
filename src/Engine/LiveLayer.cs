@@ -95,6 +95,12 @@ public sealed class PvOptions
     public List<LiveLayerOptions> Sources { get; set; } = new();
 
     /// <summary>
+    /// VTS 直接驱动：把画面与音乐的运动**映射到 VTube Studio 的模型本体**（节拍律动、摇摆、
+    /// 口型/表情参数注入、跟随镜头位移），而不是只在我们这边叠特效。
+    /// </summary>
+    public VtsDriveOptions VtsDrive { get; set; } = new();
+
+    /// <summary>
     /// 参数修订号：UI 改任何字段/增删源时 +1。暂停态下没有新画面时，预览泵靠它知道「这一帧得重出」。
     /// 泵侧不需要——有实时层时本来就逐帧出图。不落盘。
     /// </summary>
@@ -119,6 +125,49 @@ public sealed class PvOptions
         Array.Copy(arr, trimmed, n);
         return trimmed;
     }
+}
+
+/// <summary>
+/// VTS 直接驱动参数（PV 面板「VTube Studio 联动」区改）：把画面与音乐的运动映射到模型本体。
+/// 与 <see cref="LiveLayerOptions"/> 同一套无锁纪律（原始类型直接读，最坏读到上一拍的组合）。
+/// 驱动线程每拍取一份值算偏移/参数注入；关掉即把模型放回手动取景基准。
+/// </summary>
+public sealed class VtsDriveOptions
+{
+    /// <summary>
+    /// 总开关（关 = 偏移不参与，模型完全由手动取景控制）。
+    /// 默认开：本软件就是 PV + VTS 工作台，模型跟着节拍动是主功能；幅度保守、参数注入默认关，
+    /// 不想要的话面板上一个勾就停，停手即平滑回到手动取景。
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>节拍律动幅度：每拍下沉/回弹的垂直位移（VTS 模型坐标，0.05 ≈ 半个头身）。</summary>
+    public double Bounce { get; set; } = 0.05;
+
+    /// <summary>摇摆幅度：左右位移（VTS 模型坐标）。</summary>
+    public double Sway { get; set; } = 0.04;
+
+    /// <summary>摇摆旋转幅度（度）：随摇摆一起左右转头/侧身。</summary>
+    public double SwayRotation { get; set; } = 5;
+
+    /// <summary>口型注入权重 0~1（按音乐能量开合嘴；0 = 不注入，交给 VTS 自己的口型源）。</summary>
+    public double MouthWeight { get; set; }
+
+    /// <summary>头部/身体摆动注入权重 0~1（FaceAngleZ / BodyAngleZ 随节拍摆动）。</summary>
+    public double HeadWeight { get; set; }
+
+    /// <summary>跟随 PV 镜头位移：镜头推拉/平移时模型反向移动，看着像"人在场景里"。</summary>
+    public double CameraFollow { get; set; }
+
+    /// <summary>按拍触发的 VTS 热键 ID（空 = 不触发）：让模型自己做动作/表情，跟着节拍走。</summary>
+    public string BeatHotkeyId { get; set; } = "";
+
+    /// <summary>每几拍触发一次 <see cref="BeatHotkeyId"/>（1 = 每拍，4 = 每小节）。</summary>
+    public int BeatHotkeyEvery { get; set; } = 4;
+
+    /// <summary>参数修订号（UI 改动时 +1；驱动线程据此立刻改用新值）。不落盘。</summary>
+    [JsonIgnore]
+    public int Revision { get; set; }
 }
 
 /// <summary>

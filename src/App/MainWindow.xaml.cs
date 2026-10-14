@@ -29,6 +29,11 @@ public partial class MainWindow : Window
     private readonly CloudPlayerSession _player;
     private readonly VtsApi _vts = new();
 
+    /// <summary>整帧镜头回填盒：渲染泵每帧写、VTS 直接驱动读（模型跟着镜头挪）。</summary>
+    private readonly CameraProbe _camProbe = new();
+
+    private readonly VtsPerformanceDriver _vtsDrive;
+
     /// <summary>预览镜像：Spout 泵渲好的 GPU 帧经 D3D11 staging 读回供预览直接贴显示
     /// （预览不再 CPU 重渲同一内容——两者共用引擎闸会让双方都掉出帧预算，见 PreviewMirror 注释）。</summary>
     private readonly PreviewMirror _mirror = new();
@@ -146,6 +151,8 @@ public partial class MainWindow : Window
         State = new EditorState(_preview);
         // 云试听会话的跟随时钟写入端：给它真引擎，别让它去摸 App.MainInstance 全局
         _cloud.Engine = _preview;
+        // VTS 直接驱动：把节拍/能量/镜头映射到模型本体（开关与强度在 PV 面板）
+        _vtsDrive = new VtsPerformanceDriver(_vts, () => _settings.Pv.VtsDrive, SamplePerf);
         // 预览音量/消音：上次退出时的档位（对位旧前端 jizura.previewVolume 的记忆恢复）
         _preview.SetVolume(settings.PreviewVolume, settings.PreviewMuted);
 
@@ -250,6 +257,8 @@ public partial class MainWindow : Window
                 StartSpout();
             // VTS 插件 API：连不上（VTS 没开）就静默退避重连，PV 面板里能看到状态
             _vts.Start();
+            // VTS 直接驱动（默认关，PV 面板里开）：开关关着时线程只做一次空采样，开销可忽略
+            _vtsDrive.Start();
             // 后台自愈清理临时文件、重复音频与超期日志
             StorageCleaner.AutoCleanupAsync(State.AudioPath);
         };
@@ -653,6 +662,7 @@ public partial class MainWindow : Window
                             Live = _liveLayers,
                             LiveFollowCamera = _settings.Pv.FollowCamera,
                             FrameCamera = _settings.Pv.Enabled && _settings.Pv.GlobalCamera,
+                            Camera = _camProbe,
                         });
                     // 字幕叠加：与主通道烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
                     PaintSubtitleOverlay(surf.Canvas, OverlayLayer(), t, rw, rh);
@@ -847,6 +857,24 @@ public partial class MainWindow : Window
 
     // ---------------- Spout 直出（SpoutOut 管线） ----------------
 
+    /// <summary>VTS 直接驱动的采样：规划拍点/能量包络 + 预览时钟 + 最近一帧的整帧镜头。</summary>
+    private VtsPerfSample? SamplePerf()
+    {
+        if (_preview.Plan is not { } plan) return null;
+        var hasCam = _camProbe.TryRead(500, out var cx, out var cy, out _, out _, out _, out _);
+        return new VtsPerfSample(
+            _preview.CurrentTime,
+            _preview.IsPlaying,
+            plan.W,
+            plan.H,
+            plan.Beats,
+            plan.Energy,
+            plan.EnergyRate,
+            cx,
+            cy,
+            hasCam);
+    }
+
     private SpoutOutOptions SpoutOpts() => new()
     {
         SenderName = _settings.SpoutName,
@@ -869,6 +897,7 @@ public partial class MainWindow : Window
         }
 
         _spout.Preview = _mirror; // 预览镜像：Spout 泵写、预览泵读（见 PreviewMirror）
+        _spout.CameraProbe = _camProbe; // 泵每帧回填整帧镜头（VTS 直接驱动读它）
         _spout.Start(_preview, SpoutOpts());
     }
 
@@ -885,6 +914,7 @@ public partial class MainWindow : Window
 
         Log.Info($"[MainWindow] 重启 Spout 管线：{_settings.SpoutName} {_settings.Width}×{_settings.Height}@{_settings.RenderFps}");
         _spout.Preview = _mirror;
+        _spout.CameraProbe = _camProbe;
         _spout.Restart(_preview, SpoutOpts());
     }
 
@@ -1159,6 +1189,7 @@ public partial class MainWindow : Window
         }
         _uiProbe.Stop();
         // 停泵释放：发送端、D3D 纹理/设备；渲染器先于 Skia 面释放（缓存快照引用着面）
+        _vtsDrive.Dispose(); // 先停驱动：它还会往 VTS 投递"归位"命令
         _vts.Stop();
         _spout.Preview = null;
         _spout.Dispose();

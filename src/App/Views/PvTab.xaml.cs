@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -79,6 +79,9 @@ public partial class PvTab : UserControl
             VtsHost.Children.Clear();
             _vtsCard = null;
             _vtsRows.Clear();
+            _driveRows.Clear();
+            _driveHotkey.ItemsSource = null;
+            _driveEvery.ItemsSource = null;
         }
 
         Pull();
@@ -537,6 +540,10 @@ public partial class PvTab : UserControl
     private Button _vtsFire = null!;
     private CheckBox _vtsAuto = null!;
     private readonly List<Row> _vtsRows = new();
+    private readonly List<Row> _driveRows = new();   // 直接驱动（模型跟随节拍/能量/镜头）
+    private CheckBox _driveEnable = null!;
+    private ComboBox _driveHotkey = null!;
+    private ComboBox _driveEvery = null!;
     private bool _vtsSyncing;
 
     private static VtsApi? Vts => App.MainInstance?.Vts;
@@ -634,6 +641,67 @@ public partial class PvTab : UserControl
             SetVtsRows(-45, 0, -0.15, 0);
         };
         body.Children.Add(full);
+
+        // ---- 直接驱动：把节拍/能量/镜头映射到模型本体（不是只在我们这边叠特效） ----
+        body.Children.Add(new TextBlock
+        {
+            Text = L.T("Pv.Vts.Drive.Title"),
+            Style = (Style)FindResource("RowLab"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 2, 0, 2),
+        });
+        _driveEnable = new CheckBox
+        {
+            Content = L.T("Pv.Vts.Drive.Enable"),
+            FontSize = 12,
+            Margin = new Thickness(0, 0, 0, 4),
+            ToolTip = L.T("Pv.Vts.Drive.Enable.Tip"),
+        };
+        _driveEnable.Checked += (_, _) => ApplyDrive();
+        _driveEnable.Unchecked += (_, _) => ApplyDrive();
+        body.Children.Add(_driveEnable);
+        var driveBox = new StackPanel { Margin = new Thickness(18, 0, 0, 6) };
+        AddDriveRow(driveBox, "Pv.Vts.Drive.Bounce", 0, 0.2, 0.005,
+            v => v.ToString("F3"), o => o.Bounce, (o, v) => o.Bounce = v);
+        AddDriveRow(driveBox, "Pv.Vts.Drive.Sway", 0, 0.2, 0.005,
+            v => v.ToString("F3"), o => o.Sway, (o, v) => o.Sway = v);
+        AddDriveRow(driveBox, "Pv.Vts.Drive.SwayRot", 0, 20, 0.5,
+            v => v.ToString("F1") + "°", o => o.SwayRotation, (o, v) => o.SwayRotation = v);
+        AddDriveRow(driveBox, "Pv.Vts.Drive.Mouth", 0, 1, 0.01,
+            v => v.ToString("F2"), o => o.MouthWeight, (o, v) => o.MouthWeight = v);
+        AddDriveRow(driveBox, "Pv.Vts.Drive.Head", 0, 1, 0.01,
+            v => v.ToString("F2"), o => o.HeadWeight, (o, v) => o.HeadWeight = v);
+        AddDriveRow(driveBox, "Pv.Vts.Drive.Camera", 0, 1.5, 0.01,
+            v => v.ToString("F2"), o => o.CameraFollow, (o, v) => o.CameraFollow = v);
+        body.Children.Add(driveBox);
+
+        // 按拍触发热键（VTS 侧的动作/表情跟着节拍走）
+        var bhRow = new Grid { Margin = new Thickness(18, 0, 0, 4) };
+        bhRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        bhRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        bhRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var bhLab = new TextBlock { Text = L.T("Pv.Vts.Drive.BeatHotkey"), Style = (Style)FindResource("RowLab") };
+        Grid.SetColumn(bhLab, 0);
+        bhRow.Children.Add(bhLab);
+        _driveHotkey = new ComboBox { FontSize = 12, Margin = new Thickness(8, 0, 6, 0) };
+        _driveHotkey.SelectionChanged += (_, _) => ApplyBeatHotkey();
+        Grid.SetColumn(_driveHotkey, 1);
+        bhRow.Children.Add(_driveHotkey);
+        _driveEvery = new ComboBox { FontSize = 12, Width = 84 };
+        _driveEvery.SelectionChanged += (_, _) => ApplyBeatHotkey();
+        Grid.SetColumn(_driveEvery, 2);
+        bhRow.Children.Add(_driveEvery);
+        body.Children.Add(bhRow);
+
+        body.Children.Add(new TextBlock
+        {
+            Text = L.T("Pv.Vts.Drive.Hint"),
+            Style = (Style)FindResource("HintXs"),
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 320,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(18, 0, 0, 8),
+        });
 
         body.Children.Add(new TextBlock
         {
@@ -736,6 +804,127 @@ public partial class PvTab : UserControl
         _vtsRows.Add(row);
     }
 
+    /// <summary>直接驱动的一行滑块：写进 Pv.VtsDrive（驱动线程每拍读，改即生效）。</summary>
+    private void AddDriveRow(Panel host, string labelKey, double min, double max, double step,
+        Func<double, string> fmt, Func<VtsDriveOptions, double> get, Action<VtsDriveOptions, double> set)
+    {
+        var row = new Row
+        {
+            Fmt = fmt,
+            Store = v =>
+            {
+                var st = St;
+                if (st == null) return;
+                set(st.Pv.VtsDrive, v);
+                st.Pv.VtsDrive.Revision++;
+                st.SaveDebounced();
+            },
+        };
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+        var lab = new TextBlock { Text = L.T(labelKey), Style = (Style)FindResource("RowLab") };
+        Grid.SetColumn(lab, 0);
+        grid.Children.Add(lab);
+        row.Sl = new Slider
+        {
+            Style = (Style)FindResource("FxSlider"),
+            Minimum = min,
+            Maximum = max,
+            SmallChange = step,
+            LargeChange = step * 10,
+            Margin = new Thickness(8, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        row.Sl.ValueChanged += (_, _) =>
+        {
+            if (_vtsSyncing) return;
+            row.Val.Text = row.Fmt(row.Sl.Value);
+            row.Store(row.Sl.Value);
+        };
+        Grid.SetColumn(row.Sl, 1);
+        grid.Children.Add(row.Sl);
+        row.Val = new TextBlock
+        {
+            Style = (Style)FindResource("MonoMut"),
+            FontSize = 11,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(row.Val, 2);
+        grid.Children.Add(row.Val);
+        host.Children.Add(grid);
+        _driveRows.Add(row);
+    }
+
+    /// <summary>按拍热键改动 → 落盘（下拉第一项是「不触发」）。</summary>
+    private void ApplyBeatHotkey()
+    {
+        var st = St;
+        if (st == null || _vtsSyncing) return;
+        var d = st.Pv.VtsDrive;
+        d.BeatHotkeyId = (_driveHotkey.SelectedItem as VtsHotkey)?.HotkeyId ?? "";
+        d.BeatHotkeyEvery = EveryValues[Math.Max(0, _driveEvery.SelectedIndex)];
+        d.Revision++;
+        st.SaveDebounced();
+    }
+
+    private static readonly int[] EveryValues = [1, 2, 4, 8, 16];
+
+    /// <summary>总开关改动 → 落盘（驱动线程下一拍就按新状态跑）。</summary>
+    private void ApplyDrive()
+    {
+        ApplyVtsDriveFlag();
+        PullDriveRows();
+    }
+
+    private void ApplyVtsDriveFlag()
+    {
+        var st = St;
+        if (st == null || _vtsSyncing) return;
+        st.Pv.VtsDrive.Enabled = _driveEnable.IsChecked == true;
+        st.Pv.VtsDrive.Revision++;
+        st.SaveDebounced();
+    }
+
+    /// <summary>设置 → 直接驱动控件（滑块正被拖的那一行不动）。</summary>
+    private void PullDriveRows()
+    {
+        var st = St;
+        if (st == null || _driveEnable == null) return;
+        var d = st.Pv.VtsDrive;
+        _driveEnable.IsChecked = d.Enabled;
+        var vals = new[] { d.Bounce, d.Sway, d.SwayRotation, d.MouthWeight, d.HeadWeight, d.CameraFollow };
+        for (var i = 0; i < _driveRows.Count && i < vals.Length; i++)
+        {
+            var row = _driveRows[i];
+            if (row.Sl.IsMouseCaptureWithin) continue;
+            var v = Math.Clamp(vals[i], row.Sl.Minimum, row.Sl.Maximum);
+            row.Sl.Value = v;
+            row.Val.Text = row.Fmt(v);
+        }
+
+        // 按拍热键：候选 = 当前模型热键（第一项「不触发」），拍数档 1/2/4/8/16
+        var keys = Vts?.Hotkeys ?? [];
+        if (_driveHotkey.ItemsSource is not IReadOnlyList<VtsHotkey> cur || !cur.SequenceEqual(keys))
+        {
+            var items = new List<VtsHotkey> { new("", L.T("Pv.Vts.Drive.BeatHotkeyNone"), "", "") };
+            items.AddRange(keys);
+            _driveHotkey.ItemsSource = items;
+        }
+
+        if (_driveEvery.Items.Count == 0)
+            _driveEvery.ItemsSource = EveryValues.Select(n => L.F("Pv.Vts.Drive.EveryFmt", n)).ToList();
+        var everyIdx = Math.Max(0, Array.IndexOf(EveryValues, d.BeatHotkeyEvery));
+        if (_driveEvery.SelectedIndex != everyIdx) _driveEvery.SelectedIndex = everyIdx;
+
+        var wantKey = (_driveHotkey.ItemsSource as IReadOnlyList<VtsHotkey>)?
+            .FirstOrDefault(k => k.HotkeyId == d.BeatHotkeyId);
+        if (!ReferenceEquals(_driveHotkey.SelectedItem, wantKey)) _driveHotkey.SelectedItem = wantKey;
+        _driveHotkey.IsEnabled = keys.Count > 0;
+    }
+
     /// <summary>四个滑块 → 一次 MoveModel（客户端自己合并高频拖动，这里只管拼当前值）。</summary>
     private void SendVtsFrame()
     {
@@ -819,6 +1008,7 @@ public partial class PvTab : UserControl
             _vtsHotkeys.IsEnabled = keys.Count > 0;
             _vtsFire.IsEnabled = _vtsHotkeys.SelectedItem is VtsHotkey;
             _vtsAuto.IsChecked = st.Pv.AutoHotkeyOnSong;
+            PullDriveRows();
         }
         finally
         {

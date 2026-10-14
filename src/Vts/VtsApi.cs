@@ -1,4 +1,4 @@
-// VTube Studio 插件 API 客户端（VTS Public API：ws://127.0.0.1:8001）。
+﻿// VTube Studio 插件 API 客户端（VTS Public API：ws://127.0.0.1:8001）。
 //
 // 为什么需要它：VTS 的 Spout 输出就是它在窗口里**当前取景**的画面——模型在 VTS 里被放大/偏到一边时，
 // 「渲染不全面」（半身、被窗口裁掉）在我们这边怎么调都救不回来（源本身就没有全身像素）。
@@ -31,6 +31,22 @@ using Newtonsoft.Json.Linq;
 namespace JizuraLive.Vts;
 
 /// <summary>VTS 连接/鉴权状态。</summary>
+/// <summary>
+/// 表演驱动的输出口：<see cref="VtsApi"/> 实现它（真发 VTS），测试用替身。
+/// 分离出来是为了让 <see cref="VtsPerformanceDriver"/> 的节拍/能量/归位逻辑可单测。
+/// </summary>
+public interface IVtsDriveTarget
+{
+    /// <summary>取景偏移（叠在手动基准之上；全 0 = 归位）。</summary>
+    void SetDriveOffset(double size, double x, double y, double rotation);
+
+    /// <summary>参数注入（weight 0 = 把注入过的参数放回追踪源）。</summary>
+    void InjectParameters(IReadOnlyDictionary<string, double> values, double weight);
+
+    /// <summary>触发热键（按拍触发模型动作/表情用）。</summary>
+    void TriggerHotkey(string hotkeyId);
+}
+
 public enum VtsState
 {
     /// <summary>VTS 没开 / 连不上（会自己退避重连）。</summary>
@@ -56,7 +72,7 @@ public sealed record VtsHotkey(string HotkeyId, string Name, string Type, string
 public sealed record VtsFraming(double Size, double X, double Y, double Rotation);
 
 /// <summary>VTube Studio 插件 API 客户端。线程安全：外部随便调，命令排队在工作线程上执行。</summary>
-public sealed class VtsApi : IDisposable
+public sealed class VtsApi : IDisposable, IVtsDriveTarget
 {
     private const string Url = "ws://127.0.0.1:8001";
     private const string PluginName = "JIZURA Live PV";
@@ -76,6 +92,7 @@ public sealed class VtsApi : IDisposable
     private volatile VtsHotkey[] _hotkeys = [];
     private volatile VtsFraming? _framing;
     private volatile string _modelName = "";
+    private volatile Dictionary<string, (double Min, double Max)> _params = new(StringComparer.Ordinal);
 
     public VtsState State => (VtsState)_state;
     public string LastError => _lastError;
@@ -84,9 +101,66 @@ public sealed class VtsApi : IDisposable
     public IReadOnlyList<VtsHotkey> Hotkeys => _hotkeys;
 
     /// <summary>VTS 里模型当前的取景（连上后回读；null = 还没读到）。</summary>
+    /// <summary>手动基准取景（不掺表演偏移；面板回显它）。</summary>
     public VtsFraming? Framing => _framing;
 
+    /// <summary>
+    /// 模型可注入的参数及其取值范围（InputParameterListRequest 拉取；空 = 未知，注入时不筛不缩放）。
+    /// 取值范围必须留着：VTS 参数各按自己的量纲给值（MouthOpen 是 0~1，FaceAngleZ 是 -90~90 度），
+    /// 驱动侧只算 0~1 的归一化量，注入前按这张表映射。
+    /// </summary>
+    public IReadOnlyDictionary<string, (double Min, double Max)> ParameterRanges => _params;
+
     public event Action? Changed;
+    /// <summary>
+    /// 注入负载（纯函数，形状与量纲映射可单测）：
+    /// 归一化 0~1 → 参数自身范围（MouthOpen 0~1、FaceAngleZ -90~90 度…）；
+    /// 表里没有的参数直接跳过（别发过去换一条 APIError 回来刷日志）；
+    /// weight≈0 = 收手：把 <paramref name="injected"/> 里记过的参数按 weight 0 放回追踪源。
+    /// 返回 null = 无事可做。
+    /// </summary>
+    public static JObject? BuildInjectPayload(
+        IReadOnlyDictionary<string, double> values, double weight,
+        IReadOnlyDictionary<string, (double Min, double Max)> ranges,
+        HashSet<string> injected)
+    {
+        var arr = new JArray();
+        if (weight > 0.0005)
+        {
+            foreach (var kv in values)
+            {
+                double lo = 0, hi = 1;
+                if (ranges.Count > 0)
+                {
+                    if (!ranges.TryGetValue(kv.Key, out var r)) continue;
+                    (lo, hi) = (r.Min, r.Max);
+                }
+
+                arr.Add(new JObject
+                {
+                    ["id"] = kv.Key,
+                    ["value"] = lo + (hi - lo) * Math.Clamp(kv.Value, 0, 1),
+                    ["weight"] = Math.Clamp(weight, 0, 1),
+                });
+                injected.Add(kv.Key);
+            }
+        }
+        else
+        {
+            foreach (var name in injected)
+                arr.Add(new JObject { ["id"] = name, ["value"] = 0, ["weight"] = 0 });
+            injected.Clear();
+        }
+
+        if (arr.Count == 0) return null;
+        return new JObject
+        {
+            ["faceFound"] = false,
+            ["mode"] = "set",
+            ["parameterValues"] = arr,
+        };
+    }
+
 
     private void Notify() => Changed?.Invoke();
 
@@ -126,12 +200,29 @@ public sealed class VtsApi : IDisposable
     /// <summary>
     /// 设置模型取景（大小/位置/旋转）。<paramref name="seconds"/> = VTS 侧的过渡时长（0 = 立即到）。
     /// 面板拖动时会高频调用：客户端做「最新值胜出」合并，不会把 VTS 淹掉。
+    /// 这是**基准取景**——表演驱动（<see cref="SetDriveOffset"/>）的偏移叠在它之上，互不覆盖。
     /// </summary>
     public void MoveModel(double size, double x, double y, double rotation, double seconds)
     {
         var target = new VtsFraming(size, x, y, rotation);
         Post(w => w.MoveModel(target, seconds));
     }
+
+    /// <summary>
+    /// 表演驱动的取景偏移（节拍律动/摇摆/跟随镜头）：叠在手动基准之上。
+    /// 驱动线程每拍调用，发送端做合并（不会把 VTS 淹掉）。全 0 = 回到手动基准。
+    /// </summary>
+    public void SetDriveOffset(double size, double x, double y, double rotation)
+        => PostLossy(w => w.SetDriveOffset(new VtsFraming(size, x, y, rotation)));
+
+    /// <summary>
+    /// 注入模型参数（口型/表情/身体角度）：weight 0~1 与 VTS 自身的追踪值混合，0 = 完全放开。
+    /// <paramref name="values"/> 的键是 VTS 参数名（MouthOpen / FaceAngleZ …），值是 **0~1 归一化量**——
+    /// 发送端按该参数自己的取值范围（0~1 / -90~90 度 …）映射后再发，调用方不用关心量纲。
+    /// weight = 0 时只用于「收手」：把之前注入过的参数放回追踪源。
+    /// </summary>
+    public void InjectParameters(IReadOnlyDictionary<string, double> values, double weight)
+        => PostLossy(w => w.InjectParameters(values, weight));
 
     public void TriggerHotkey(string hotkeyId)
     {
@@ -146,6 +237,21 @@ public sealed class VtsApi : IDisposable
         catch (InvalidOperationException) { /* 已 CompleteAdding：退出中 */ }
     }
 
+    /// <summary>
+    /// 可丢命令（表演驱动每拍给的值）：队列积压时直接丢掉这一拍——下一拍带的是更新的值，
+    /// 没人需要一份过期的模型姿态。这样采样线程永远不会把命令队列堆爆。
+    /// </summary>
+    private void PostLossy(Action<Worker> cmd)
+    {
+        if (_stopping) return;
+        try
+        {
+            if (_commands.Count > 6) return;
+            _commands.Add(cmd);
+        }
+        catch (InvalidOperationException) { /* 已 CompleteAdding：退出中 */ }
+    }
+
     // ---------------- 工作线程 ----------------
 
     private void WorkerLoop()
@@ -157,7 +263,9 @@ public sealed class VtsApi : IDisposable
             {
                 // 带超时地取命令，好让「该重连了」这类周期性动作有机会跑
                 if (_commands.TryTake(out var cmd, 500)) cmd(w);
-                else w.Idle();
+                // 连接维护与合并补发**每轮都做**：表演驱动会持续投递命令（每拍都有），
+                // 只在「队列空」时才 Idle 的话，连接永远建不起来（有命令就一直不进这条分支）。
+                w.Idle();
             }
             catch (Exception ex)
             {
@@ -172,14 +280,36 @@ public sealed class VtsApi : IDisposable
     /// <summary>工作线程内部：连接 + 请求响应（只能在这条线程上碰）。</summary>
     private sealed class Worker
     {
+        /// <summary>取景合并窗口：驱动线程 30Hz 采样，实际最多这么多毫秒发一次（VTS 不会被淹）。</summary>
+        private const int MoveIntervalMs = 60;
+
+        /// <summary>参数注入合并窗口（口型/表情不需要比这更密）。</summary>
+        private const int ParamIntervalMs = 100;
+
+        /// <summary>驱动拍的过渡时长（秒）：略大于发送间隔，VTS 侧就是连续插值。</summary>
+        private const double DriveTransitionSec = 0.09;
+
         private readonly VtsApi _api;
         private ClientWebSocket? _ws;
         private long _nextConnectAt;
         private string _token = "";
         private int _seq;
-        private VtsFraming? _pendingMove;   // 拖滑块时的高频命令：只发最后一拍
-        private double _pendingMoveSec = 0.12;
+        // 取景分两层：手动基准（面板/JIZURA 设定） + 表演偏移（驱动线程每拍给）。
+        // 合成值才是发出去的；面板回显只读基准，免得滑块跟着律动抖。
+        private string _connectFail = "";   // 上次连接失败原因（同因只记一条，不每 5s 刷）
+        private VtsFraming _manual = new(0, 0, 0, 1);
+        private VtsFraming _drive = new(0, 0, 0, 0);
+        private bool _moveDirty;
+        private bool _driveMove;            // 本次待发是驱动拍（用更短的过渡时长，动作才跟手）
+        private double _pendingMoveSec = 0.12; // 手动基准的过渡时长
         private long _lastMoveAt;
+
+        // 参数注入（口型/表情/身体角度）：同拍合并 + 限速
+        private IReadOnlyDictionary<string, double> _pendingParams = new Dictionary<string, double>();
+        private double _pendingParamWeight;
+        private bool _paramDirty;
+        private long _lastParamAt;
+        private readonly HashSet<string> _injected = new(StringComparer.Ordinal); // 注入过的参数名（收手时放回）
 
         public Worker(VtsApi api)
         {
@@ -206,8 +336,10 @@ public sealed class VtsApi : IDisposable
 
         public void Idle()
         {
-            // 拖动停止后的最后一拍：合并窗口里剩下的那次移动要补发（否则松手位置差一格）
-            if (_pendingMove != null && Environment.TickCount64 - _lastMoveAt >= 120) FlushMove(_pendingMoveSec);
+            // 合并窗口里剩下的那一拍要补发（拖滑块松手的位置、驱动停手时的最后一格）
+            var now = Environment.TickCount64;
+            if (_moveDirty && now - _lastMoveAt >= MoveIntervalMs) FlushMove();
+            if (_paramDirty && now - _lastParamAt >= ParamIntervalMs) FlushParams();
 
             if (_ws != null && _ws.State == WebSocketState.Open) return;
             if (Environment.TickCount64 < _nextConnectAt) return;
@@ -238,6 +370,7 @@ public sealed class VtsApi : IDisposable
                 ws.ConnectAsync(new Uri(Url), cts.Token).GetAwaiter().GetResult();
                 _ws = ws;
                 _api._lastError = "";
+                _connectFail = "";
                 var state = Send("APIStateRequest", new JObject());
                 _api._version = (string?)state?["vTubeStudioVersion"] ?? "";
                 var authed = (bool?)state?["currentSessionAuthenticated"] ?? false;
@@ -247,6 +380,7 @@ public sealed class VtsApi : IDisposable
                 {
                     SetState(VtsState.Ready);
                     FetchFraming();
+                    FetchParameters();
                     FetchHotkeys();
                 }
                 else
@@ -260,6 +394,9 @@ public sealed class VtsApi : IDisposable
                 _nextConnectAt = Environment.TickCount64 + RetryMs;
                 if ((VtsState)_api._state != VtsState.Disconnected)
                     Log.Info("[VTS] 连接断开：" + ex.Message);
+                else if (_connectFail != ex.Message)
+                    Log.Warn("[VTS] 连接失败（5s 后重试）：" + ex.Message); // 首次/换原因记一条
+                _connectFail = ex.Message;
                 SetState(VtsState.Disconnected);
             }
         }
@@ -314,6 +451,7 @@ public sealed class VtsApi : IDisposable
             {
                 SetState(VtsState.Ready);
                 FetchFraming();
+                FetchParameters();
                 FetchHotkeys();
             }
             else
@@ -325,22 +463,41 @@ public sealed class VtsApi : IDisposable
 
         // ---- 业务请求 ----
 
+        /// <summary>手动基准取景（面板滑块 / 一键全身）：改的是基准，驱动偏移不受影响。</summary>
         public void MoveModel(VtsFraming f, double seconds)
         {
             if (_ws == null || _ws.State != WebSocketState.Open) return;
             // 合并：上一拍还没发出去的移动直接丢掉（拖动滑块 60Hz 发过去只会把 VTS 淹掉）
-            _pendingMove = f;
+            _manual = f;
+            _api._framing = f;          // 面板回显基准（不掺驱动偏移）
+            _driveMove = false;
+            _moveDirty = true;
             _pendingMoveSec = seconds;
-            var now = Environment.TickCount64;
-            if (now - _lastMoveAt < 80) return;
-            FlushMove(seconds);
+            if (Environment.TickCount64 - _lastMoveAt >= MoveIntervalMs) FlushMove();
         }
 
-        private void FlushMove(double seconds)
+        /// <summary>表演偏移（驱动线程每拍给）：只改偏移那一层。</summary>
+        public void SetDriveOffset(VtsFraming off)
         {
-            if (_pendingMove is not { } f) return;
-            _pendingMove = null;
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+            _drive = off;
+            _driveMove = true;
+            _moveDirty = true;
+            if (Environment.TickCount64 - _lastMoveAt >= MoveIntervalMs) FlushMove();
+        }
+
+        private void FlushMove()
+        {
+            if (!_moveDirty) return;
+            _moveDirty = false;
             _lastMoveAt = Environment.TickCount64;
+            var f = new VtsFraming(
+                _manual.Size + _drive.Size,
+                _manual.X + _drive.X,
+                _manual.Y + _drive.Y,
+                _manual.Rotation + _drive.Rotation);
+            // 驱动拍用固定短过渡（配合 ~20Hz 节拍是连续插值，看着才是"动"而不是"跳"）
+            var seconds = _driveMove ? DriveTransitionSec : _pendingMoveSec;
             Send("MoveModelRequest", new JObject
             {
                 ["timeInSeconds"] = seconds,
@@ -350,8 +507,6 @@ public sealed class VtsApi : IDisposable
                 ["rotation"] = f.Rotation,
                 ["size"] = f.Size,
             });
-            _api._framing = f;
-            _api.Notify();
         }
 
         public void FetchFraming()
@@ -360,14 +515,57 @@ public sealed class VtsApi : IDisposable
             _api._modelName = (string?)resp?["modelName"] ?? "";
             if (resp?["modelPosition"] is JObject p)
             {
-                _api._framing = new VtsFraming(
+                var f = new VtsFraming(
                     (double?)p["size"] ?? 1,
                     (double?)p["positionX"] ?? 0,
                     (double?)p["positionY"] ?? 0,
                     (double?)p["rotation"] ?? 0);
+                _manual = f;        // 从 VTS 读回来的就是「当前基准」
+                _api._framing = f;
                 _api.Notify();
             }
         }
+
+        /// <summary>拉取模型可用参数名（注入前筛一遍，避免给不存在的参数发请求刷屏报错）。</summary>
+        public void FetchParameters()
+        {
+            var resp = Send("InputParameterListRequest", new JObject());
+            var map = new Dictionary<string, (double Min, double Max)>(StringComparer.Ordinal);
+            foreach (var key in new[] { "defaultParameters", "customParameters" })
+                if (resp?[key] is JArray arr)
+                    foreach (var d in arr)
+                    {
+                        var n = (string?)d["name"];
+                        if (string.IsNullOrEmpty(n)) continue;
+                        map[n!] = ((double?)d["min"] ?? 0, (double?)d["max"] ?? 1);
+                    }
+            _api._params = map;
+            Log.Info($"[VTS] 可注入参数：{map.Count} 个");
+            _api.Notify();
+        }
+
+        /// <summary>注入参数值（驱动线程每拍给）：合并 + 限速；weight=0 表示收手放回追踪源。</summary>
+        public void InjectParameters(IReadOnlyDictionary<string, double> values, double weight)
+        {
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+            _pendingParams = values;
+            _pendingParamWeight = weight;
+            _paramDirty = true;
+            if (Environment.TickCount64 - _lastParamAt >= ParamIntervalMs) FlushParams();
+        }
+
+        private void FlushParams()
+        {
+            if (!_paramDirty) return;
+            _paramDirty = false;
+            _lastParamAt = Environment.TickCount64;
+
+            var payload = BuildInjectPayload(_pendingParams, _pendingParamWeight, _api._params, _injected);
+            if (payload == null) return;
+            Send("InjectParameterDataRequest", payload);
+        }
+
+
 
         public void FetchHotkeys()
         {
