@@ -286,7 +286,7 @@ public static class JFonts
     /// <summary>用户字体库目录（旧前端的 IndexedDB 对应物）：上传的字体本体落这里，重启/换工程还能恢复。
     /// 可写属性：App 侧启动时按 AppDirs 口径覆盖（引擎不依赖 App 层）。</summary>
     public static string UserFontDir { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLive", "fonts");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLivePV", "fonts");
 
     private static readonly object UserFontLock = new();
 

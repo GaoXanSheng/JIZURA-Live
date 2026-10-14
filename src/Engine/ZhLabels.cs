@@ -1,4 +1,4 @@
-// 简体中文标签包（移植自 frontend/src/engine/zh-labels.js）。
+﻿// 简体中文标签包（移植自 frontend/src/engine/zh-labels.js）。
 // 运行时覆盖注册表条目的 name，引擎零改动；必须在全部引擎文件之后应用
 // （EngineBoot.Install 末尾——对位 index.ts 里 zh-labels 最后导入，依赖 Reg 已填充）。
 //
@@ -9,7 +9,7 @@
 //   3. 源第三段的 J.MOODS / J.THEMES 已接上（Apply 里覆盖 Omakase.Moods/Themes 的显示名）；
 //      J.SAMPLE_LYRICS 有意不接：示例歌词是渲染内容（默认工程歌词），改动会影响规划器输出
 //      与黄金值对拍，待做按语言的默认内容机制时再接（表保留在 SampleLyrics 常量）。
-//   4. 源第四段 TR（导出错误文案替换）是 JS 导出层的字符串替换；C# 导出（src/Export）的
+//   4. 源第四段 TR（错误文案替换）是 JS 导出层的字符串替换；C# 侧无对应替换，
 //      进度/错误文案本就是简体中文，无对应物，故未移植。
 
 namespace JizuraLive.Engine;

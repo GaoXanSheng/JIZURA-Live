@@ -1,35 +1,37 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
+using JizuraLive.Pv;
 using Newtonsoft.Json;
 
 namespace JizuraLive.App;
 
 public sealed class Settings
 {
-    public string SpoutName { get; set; } = "JIZURA-live";
+    /// <summary>JIZURA Live PV 统一配置文件架构版本号</summary>
+    public int SchemaVersion { get; set; } = 1;
+
+    public string SpoutName { get; set; } = "JIZURA-live-PV";
     public bool Clean { get; set; }
     public bool SpoutEnabled { get; set; } = true;
 
     // Spout 输出透明底：主通道跳过背景填充，只出歌词+特效透明图层给 OBS 合成；主界面预览不受影响，重启镜像生效
     public bool SpoutTransparent { get; set; } = false;
 
-    // 独立字幕通道：KRC 字幕层单独输出到 <SpoutID>-LYRICS，透明底供分层合成
-    public bool SpoutLyricsEnabled { get; set; } = true;
-
     // PV 模式：多路外部 Spout 源（VTS/游戏/桌面等）合成到主通道与预览，并跟随歌曲镜头动效。
     // 合成在我们这边做（不再让下游叠层），下游只需接一路流。
     // 该对象实时生效（面板直接改字段、泵与预览每拍读一次），不随「重启渲染引擎」才应用。
     public PvOptions Pv { get; set; } = new();
+
+    /// <summary>独立 PV 场景文档（图层栈、3D 视差、环境光影、前景特效等）</summary>
+    public PvScene Scene { get; set; } = PvScene.CreateDefault();
 
     // 旧的单路外部输入（VTS）合成参数：只在 Load 时用于迁移进 Pv.Sources，迁移完置 null 不再写回
     // （NullValueHandling.Ignore：新配置文件里不再出现这个键）
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
     public LiveLayerOptions? Live { get; set; }
 
-    // 字幕通道帧率：生效值钳到 min(LyricsFps, RenderFps)——字幕层画得比主通道快没有意义，纯烧 GPU
-    public int LyricsFps { get; set; } = 10;
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;
@@ -45,7 +47,7 @@ public sealed class Settings
     public SubtitleConfig Subtitle { get; set; } = new() { Content = SubContent.Both };
 
     // 预览音量/消音（对位旧前端 localStorage 的 jizura.previewVolume：v/m，重启恢复；
-    // 只影响预览出声，导出始终原电平）
+    // 只影响预览出声）
     public double PreviewVolume { get; set; } = 0.8;
     public bool PreviewMuted { get; set; }
 
@@ -61,8 +63,8 @@ public sealed class Settings
     // 后续加语言 = 加词库目录 + 设置页下拉清单里补一项
     public string UiLang { get; set; } = "zh-Hans";
 
-    private static string ConfigDir => AppDirs.ConfigDir;
-    private static string FilePath => Path.Combine(ConfigDir, "settings.json");
+    public static string ConfigDir => AppDirs.ConfigDir;
+    public static string FilePath => Path.Combine(ConfigDir, "pv_config.json");
 
     public static Settings Load()
     {

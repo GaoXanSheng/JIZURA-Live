@@ -1,11 +1,11 @@
-using SkiaSharp;
+﻿using SkiaSharp;
 
 namespace JizuraLive.App;
 
 /// <summary>
 /// 预览镜像（性能专项）：让「预览」直接消费 Spout 泵渲好的 GPU 帧，不再自己用 CPU 重渲同一内容。
 ///
-/// 动机（实测，TEST-我把我唱给你听.jizuralive + 一键随机冷缓存工况）：
+/// 动机（实测，一键随机冷缓存工况）：
 ///   预览 CPU 光栅 ~15-25ms/帧、Spout GPU 光栅 ~4.7ms/帧，两者共用 EngineRenderGate 串行执行——
 ///   合计超过 16.7ms 帧预算，输出与预览同时掉到 22-45fps，UI 线程也被挤到 100-3400ms 抖动。
 ///   现在 Spout 泵在 FlushAndSync 后把出图面经 D3D11 staging 读回（1080p 实测 ~1.7ms；

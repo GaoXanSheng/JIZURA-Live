@@ -1,10 +1,10 @@
-// 字幕烤入主通道（PV「字幕压人物之上」）的端到端接线：
+﻿// 字幕烤入主通道（PV「字幕压人物之上」）的端到端接线：
 //   起一条真 SpoutOut（自己的发送端名，避免与别的测试/程序撞名），主通道按设置收字幕；
 //   用 SpoutIn 把主通道收回来，量画面下部那条字幕带里有没有字 → 开/关 SubtitleOnTop 对比。
 // 这条盯的是 SpoutOut 里「Frame() 之后把字幕层画到出图面最上层」的那一步（Renderer 管不到它）。
 //
 // 源用测试自带的最小 ISpoutSource（plan + 一条 KRC 行），不依赖云服务与音频。
-// （类名带 Pv 前缀：ExportSmokeTests 里已经有一个导出向的 SubtitleBakeTests。）
+// （类名带 Pv 前缀：SubtitleLayerTests 已覆盖纯字幕层渲染，这里专测烤进主通道的路径。）
 
 using System.Threading;
 using JizuraLive.App.Cloud;
@@ -52,7 +52,6 @@ public class PvSubtitleBakeTests
             Width = 960,
             Height = 540,
             Fps = 20,
-            LyricsEnabled = false, // 只要主通道：独立字幕通道不参与
             Pv = new PvOptions { Enabled = false, SubtitleOnTop = subtitleOnTop },
         }));
 

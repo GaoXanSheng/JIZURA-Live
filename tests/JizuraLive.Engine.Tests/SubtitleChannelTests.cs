@@ -1,5 +1,5 @@
-// 独立 Spout 字幕通道（<SpoutID>-LYRICS）的回归测试：
-//   1. 通道渲染契约——透明底只出底部字幕条（曾经错画成引擎 front 层整帧画面）；
+﻿// 字幕层与主通道烤入的回归测试：
+//   1. 字幕层渲染契约——透明底只出底部字幕条（曾经错画成引擎 front 层整帧画面）；
 //   2. 注音行从 plan 的 cut 注音回填（KrcToLrc 的全角斜杠归一化）；
 //   3. PreviewEngine 的字幕数据接线（Spout 泵经 ISpoutSource 读）。
 using System.IO;
@@ -183,7 +183,7 @@ public class SubtitleChannelTests
 
     /// <summary>
     /// 回归：Spout 字幕通道曾经只认 KRC 逐字数据，重启恢复工程（KRC 不落盘）后通道一直是空的，
-    /// 而预览叠加与导出烤入各自有一份 plan 合成 fallback。合成逻辑现在收进 SubtitleLayer.FromPlan，
+    /// 而预览叠加与主通道烤入各自有一份 plan 合成 fallback。合成逻辑现在收进 SubtitleLayer.FromPlan，
     /// 三条路共用。这里钉住合成结果的形状与「mainLine=true 时主行也能画」。
     /// </summary>
     [Fact]
@@ -198,7 +198,7 @@ public class SubtitleChannelTests
         var synth = SubtitleLayer.FromPlan(plan);
         Assert.NotNull(synth);
         Assert.Equal(2, synth!.Value.Lines.Count);
-        // 整行合成一个「词」：mainLine=true 的 Spout 通道 / 纯字幕导出要能画出主行
+        // 整行合成一个「词」：mainLine=true 的纯字幕出图要能画出主行
         Assert.Single(synth.Value.Lines[0].Words);
         Assert.Equal("夜明けの色を覚えてる", synth.Value.Lines[0].Words[0].Text);
         Assert.Equal("yoromeki　黎明之色", synth.Value.Notes[0]);

@@ -29,7 +29,7 @@ namespace JizuraLive.App.Views;
 /// 旧实现直接丢弃挂起编辑，快速连改会静默丢最后一次参数改动。
 ///
 /// 数据权威在 project.audioFx（EditorState.Mutate，replan:false）；预览链由 PreviewEngine 在
-/// Tick/Play 时按配置差异重建，导出侧同一条 AudioFx.Build。
+/// Tick/Play 时按配置差异重建，预览播放链同一条 AudioFx.Build。
 /// </summary>
 public partial class AudioFxDialog : Window
 {

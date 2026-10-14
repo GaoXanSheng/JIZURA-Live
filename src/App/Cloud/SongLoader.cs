@@ -239,7 +239,7 @@ public static class SongLoader
             }
         }
 
-        // KRC 逐字 / LRC 时间戳 → 字幕层数据（预览叠加/导出烤字幕/Spout 字幕通道消费）
+        // KRC 逐字 / LRC 时间戳 → 字幕层数据（预览叠加/主通道烤字幕/Spout 字幕通道消费）
         List<KrcLine>? subs = null;
         if (source == "kugou")
         {

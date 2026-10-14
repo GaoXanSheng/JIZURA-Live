@@ -15,7 +15,7 @@ namespace JizuraLive.App.I18n;
 /// </summary>
 public static class L
 {
-    /// <summary>资源键前缀：XAML 里 {DynamicResource Loc.TopBar.Open} ↔ 词库键 "TopBar.Open"。</summary>
+    /// <summary>资源键前缀：XAML 里 {DynamicResource Loc.Cloud.Search} ↔ 词库键 "Cloud.Search"。</summary>
     public const string Prefix = "Loc.";
 
     public const string DefaultLang = "zh-Hans";

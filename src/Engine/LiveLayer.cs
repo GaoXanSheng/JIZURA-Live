@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using SkiaSharp;
 
 namespace JizuraLive.Engine;
@@ -79,7 +79,7 @@ public sealed class PvOptions
     public bool GlobalCamera { get; set; } = true;
 
     /// <summary>字幕层烤进主通道最上层（人物之上）：单路推流的画面里字幕永远压着人物。
-    /// 关掉 = 只走独立的 -LYRICS 通道（OBS 自己叠）。</summary>
+    /// 关掉 = 只画歌词动效，不出字幕（下游可自行叠）。</summary>
     public bool SubtitleOnTop { get; set; } = true;
 
     /// <summary>源跟随歌曲镜头动效（仅 <see cref="GlobalCamera"/> 关闭时生效）。</summary>

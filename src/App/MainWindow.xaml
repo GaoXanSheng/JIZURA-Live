@@ -24,10 +24,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="36" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <!-- 云试听常驻条：固定高度、常显（显隐会改 Stage 尺寸 → 冲刷帧缓存 + 冷帧 0.7~1.8s） -->
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 自绘标题栏（bg #151519；图标与标题 12 左距，窗口按钮右贴） -->
@@ -41,22 +38,6 @@
                            VerticalAlignment="Center"
                            FontSize="12" Opacity="0.65" Foreground="{StaticResource FgMain}" />
             </StackPanel>
-            <!-- 模式切换（三套布局共用这一处：播放器/PV 模式下顶栏会隐藏，只有这里常驻可见） -->
-            <Border HorizontalAlignment="Center" VerticalAlignment="Center"
-                    Background="{StaticResource Raised}" BorderBrush="{StaticResource Line2}"
-                    BorderThickness="1" CornerRadius="8" Padding="2">
-                <StackPanel Orientation="Horizontal">
-                    <Button x:Name="BtnModeEditor" Content="{DynamicResource Loc.Cloud.ModeEditor}"
-                            Style="{StaticResource SegBtn}" Tag="on" Margin="0,0,2,0"
-                            ToolTip="{DynamicResource Loc.Cloud.ModeSwitchTip}" Click="BtnMode_Click" />
-                    <Button x:Name="BtnModePlayer" Content="{DynamicResource Loc.Cloud.ModePlayer}"
-                            Style="{StaticResource SegBtn}" Margin="0,0,2,0"
-                            ToolTip="{DynamicResource Loc.Cloud.ModeSwitchTip}" Click="BtnMode_Click" />
-                    <Button x:Name="BtnModePv" Content="{DynamicResource Loc.Cloud.ModePv}"
-                            Style="{StaticResource SegBtn}"
-                            ToolTip="{DynamicResource Loc.Cloud.ModePvTip}" Click="BtnMode_Click" />
-                </StackPanel>
-            </Border>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="BtnMin" Style="{StaticResource ChromeBtn}" Click="BtnMin_Click" ToolTip="{DynamicResource Loc.Main.Min.Tip}">
                     <Path Data="M 0 0 H 10" Stroke="{StaticResource FgMain}" StrokeThickness="1"
@@ -82,55 +63,29 @@
             </StackPanel>
         </Grid>
 
-        <!-- 顶栏：曲名/歌手 + 打开/保存/初始化/使用说明（对位 TopBar.vue） -->
-        <views:TopBar x:Name="BarTop" Grid.Row="1" />
-        <!-- 三栏工作区（对位 EditorPage.vue：minmax(280,340) | 1fr | minmax(300,370)） -->
-        <Grid Grid.Row="2">
+        <!-- PV 工作台三栏：左歌单 | 中舞台 | 右合成控制台 -->
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
-                <!-- 播放器模式把左右列压到 0：MinWidth 必须一起归零，否则列宽被钳住不让位 -->
-                <ColumnDefinition x:Name="ColLeft" Width="340" MinWidth="280" MaxWidth="340" />
+                <ColumnDefinition x:Name="ColLeft" Width="300" MinWidth="260" MaxWidth="340" />
                 <ColumnDefinition Width="*" MinWidth="0" />
                 <ColumnDefinition x:Name="ColRight" Width="370" MinWidth="300" MaxWidth="370" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左栏：歌词与时间（bg-panel + border-r） -->
-            <Border x:Name="PaneLeft" Grid.Column="0" Background="{StaticResource Panel}">
-                <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-                        <StackPanel Grid.Row="0">
-                            <!-- 打点浮层（对位 TapPanel：active 时盖在歌词面板上） -->
-                            <views:TapPanel />
-                            <views:LyricsPanel />
-                            <views:AudioPanel />
-                        </StackPanel>
-                        <!-- 歌词行列表：占满下方剩余高度，获得确定的测量边界，真正激活 VirtualizingStackPanel 虚拟化 -->
-                        <views:LineList Grid.Row="1" />
-                    </Grid>
-                </Border>
-            </Border>
+            <!-- 左栏：云歌单（选曲即出 PV） -->
+            <views:CloudPlaylistSidebar x:Name="PanePlaylistSide" Grid.Column="0" />
 
-            <!-- 播放器模式的左侧歌单栏（与编辑器左栏同格互斥显示） -->
-            <views:CloudPlaylistSidebar x:Name="PanePlaylistSide" Grid.Column="0" Visibility="Collapsed" />
-
-            <!-- 中栏：舞台 / 播放条 / 时间轴 / 切分信息（px-4 py-3 gap-2.5） -->
-            <Grid x:Name="PaneCenter" Grid.Column="1" Margin="16,12,16,12">
+            <!-- 中栏：舞台 + 正在播放控制块 -->
+            <Grid x:Name="PaneCenter" Grid.Column="1" Margin="16,18,28,18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <!-- 舞台视口：1px line + 圆角 10（对位 StageCanvas.vue 的 viewport）。
+                <!-- 舞台视口：1px line + 圆角 14（内嵌卡片式画面）。
                      呈现面是 WriteableBitmap + Image（不是 SKElement）：渲染泵把整帧直接写进位图后缓冲，
-                     UI 线程每帧零工作、零锁，缩放/合成交给 WPF 的 GPU 合成器（SKElement 会在 UI 线程
-                     做一次全幅软件光栅 + 每帧 Dispatcher 失效，是「一卡一卡」的主因）。
-                     底色用 #0F0F12：与帧内 letterbox 的承托色一致（原来由 SKElement 自己填）。 -->
-                <Border x:Name="StageFrame" Grid.Row="0" Background="#FF0F0F12" BorderBrush="{StaticResource LineBrush}"
-                        BorderThickness="1" CornerRadius="10" ClipToBounds="True">
+                     UI 线程每帧零工作、零锁，缩放/合成交给 WPF 的 GPU 合成器。
+                     底色用 #0F0F12：与帧内 letterbox 的承托色一致。 -->
+                <Border x:Name="StageFrame" Grid.Row="0" Background="Black" BorderBrush="{StaticResource LineBrush}"
+                        BorderThickness="1" CornerRadius="14" ClipToBounds="True">
                     <Grid>
                         <Image x:Name="Stage" Stretch="Uniform" SnapsToDevicePixels="True"
                                RenderOptions.BitmapScalingMode="Linear" />
@@ -139,43 +94,30 @@
                              CPU 分支的字幕已烤进舞台位图，那时这层会被置空（见 PresentStage）。 -->
                         <Image x:Name="StageOverlay" Stretch="Uniform" SnapsToDevicePixels="True"
                                IsHitTestVisible="False" RenderOptions.BitmapScalingMode="Linear" />
-                        <!-- 留白指引框（编辑器预览专用，不入 Spout 与导出）：用 WPF 图元画，
-                             位置由 UpdateCenterGuide 按 contain 后的画幅矩形算——CPU/GPU 两条
-                             呈现路径都可见（原来画进帧里，GPU 直显没有 SKCanvas 可画就丢了） -->
-                        <Rectangle x:Name="CenterGuide" Visibility="Collapsed" IsHitTestVisible="False"
-                                   HorizontalAlignment="Left" VerticalAlignment="Top"
-                                   Stroke="#8CFFFFFF" StrokeThickness="1.5" StrokeDashArray="9,6" />
-                        <!-- 播放器模式：歌名/控制都在画面下方，这里只留空态提示 -->
+                        <!-- 空态提示：没在放歌时才显示（歌名/控制都在画面下方那张卡里） -->
                         <TextBlock x:Name="TblPvHint" HorizontalAlignment="Center" VerticalAlignment="Center"
                                    FontSize="14" Foreground="#88FFFFFF" TextAlignment="Center"
                                    TextWrapping="Wrap" MaxWidth="420" IsHitTestVisible="False"
                                    Visibility="Collapsed" Text="{DynamicResource Loc.Cloud.PlayerEmpty}" />
-                        <!-- PV 模式的推流状态条（源连接数 + 输出通道名）：只在 PV 模式显示 -->
+                        <!-- 推流状态条（源连接数 + 输出通道名） -->
                         <Border x:Name="PvBadge" HorizontalAlignment="Left" VerticalAlignment="Top"
                                 Margin="10" Padding="8,4" CornerRadius="6" Background="#B3000000"
-                                IsHitTestVisible="False" Visibility="Collapsed">
+                                IsHitTestVisible="False">
                             <TextBlock x:Name="TblPvStatus" FontSize="11" Foreground="#DDFFFFFF"
                                        Text="—" />
                         </Border>
                     </Grid>
                 </Border>
-                <views:Transport x:Name="BarTransport" Grid.Row="1" Margin="0,10,0,0" />
-                <!-- 播放器模式的"正在播放"控制块（画面下方：进度 → 控制行 → 大字歌名），
-                     与底部常驻条互斥：这个页面里底部条会隐藏 -->
-                <views:CloudNowPlaying x:Name="BarNowPlaying" Grid.Row="1" Margin="0,12,0,0"
-                                       Visibility="Collapsed" />
-                <views:TimelineCanvas x:Name="BarTimeline" Grid.Row="2" Margin="0,10,0,0" />
-                <views:CutInfo x:Name="BarCutInfo" Grid.Row="3" Margin="0,10,0,0" />
+                <!-- 正在播放控制块（进度 → 控制行 → 大字歌名） -->
+                <views:CloudNowPlaying x:Name="BarNowPlaying" Grid.Row="1" Margin="0,12,0,0" />
             </Grid>
 
-            <!-- 右栏：风格与导出（bg-panel + border-l） -->
+            <!-- 右栏：PV 合成控制台 -->
             <Border x:Name="PaneRight" Grid.Column="2" Background="{StaticResource Panel}">
                 <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0">
                     <views:RightPanel x:Name="Right" />
                 </Border>
             </Border>
         </Grid>
-
-        <views:CloudBar x:Name="BarCloud" Grid.Row="3" />
     </Grid>
 </Window>

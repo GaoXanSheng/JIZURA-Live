@@ -152,53 +152,6 @@
             </Setter>
         </Style>
 
-        <!-- 跟随开关（FollowPane：未开=btn-primary「开始跟随」，开启=btn-ghost「停止跟随」；仍是 CheckBox，语义/事件不变） -->
-        <Style x:Key="FollowToggle" TargetType="CheckBox">
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Focusable" Value="False" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CheckBox">
-                        <Border x:Name="bd" Background="{StaticResource Amber}" BorderBrush="{StaticResource Amber}"
-                                BorderThickness="1" CornerRadius="6" Height="32" Padding="12,0">
-                            <Border.Effect>
-                                <DropShadowEffect Color="#F5A50C" BlurRadius="14" ShadowDepth="2" Opacity="0.25" />
-                            </Border.Effect>
-                            <TextBlock x:Name="tx" Text="{DynamicResource Loc.Cloud.FollowStart}" FontSize="13" FontWeight="Bold"
-                                       Foreground="{StaticResource PrimaryInk}" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="Transparent" />
-                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource LineBrush}" />
-                                <Setter TargetName="bd" Property="Effect" Value="{x:Null}" />
-                                <Setter TargetName="tx" Property="Text" Value="{DynamicResource Loc.Cloud.FollowStop}" />
-                                <Setter TargetName="tx" Property="Foreground" Value="{StaticResource Fg}" />
-                                <Setter TargetName="tx" Property="FontWeight" Value="Normal" />
-                            </Trigger>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="IsMouseOver" Value="True" />
-                                    <Condition Property="IsChecked" Value="False" />
-                                </MultiTrigger.Conditions>
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource PrimaryHover}" />
-                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource PrimaryHover}" />
-                            </MultiTrigger>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="IsMouseOver" Value="True" />
-                                    <Condition Property="IsChecked" Value="True" />
-                                </MultiTrigger.Conditions>
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource HoverWhite5}" />
-                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Line2}" />
-                            </MultiTrigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <!-- 空态/占位文案（text-xs mut） -->
         <Style x:Key="EmptyTx" TargetType="TextBlock" BasedOn="{StaticResource Hint}">
             <Setter Property="FontSize" Value="12" />
@@ -452,8 +405,6 @@
                                     Click="Nav_Click" />
                             <Button x:Name="NavPlaylists" Content="{DynamicResource Loc.Cloud.NavPlaylists}" Style="{StaticResource PaneBtn}"
                                     Click="Nav_Click" />
-                            <Button x:Name="NavFollow" Content="{DynamicResource Loc.Cloud.NavFollow}" Style="{StaticResource PaneBtn}"
-                                    Click="Nav_Click" />
                             <Button x:Name="NavAccount" Content="{DynamicResource Loc.Cloud.NavAccount}" Style="{StaticResource PaneBtn}"
                                     Click="Nav_Click" />
                         </StackPanel>
@@ -647,107 +598,6 @@
                                            Margin="24,0" Foreground="{StaticResource Mut}" Text="" />
                             </Grid>
                         </Grid>
-
-                        <!-- ===== 跟随播放器（FollowPane.vue） ===== -->
-                        <ScrollViewer x:Name="PaneFollow" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
-                            <StackPanel>
-                                <Border Style="{StaticResource AccountCard}" Margin="0,0,0,12">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Center">
-                                            <TextBlock Text="{DynamicResource Loc.Cloud.FollowTitle}" FontWeight="Bold" />
-                                            <TextBlock Text="{DynamicResource Loc.Cloud.FollowSubtitle}"
-                                                       FontSize="11" Foreground="{StaticResource Mut}"
-                                                       TextWrapping="Wrap" Margin="0,2,0,0" />
-                                        </StackPanel>
-                                        <CheckBox x:Name="ChkFollow" Grid.Column="1" VerticalAlignment="Center"
-                                                  Style="{StaticResource FollowToggle}"
-                                                  ToolTip="{DynamicResource Loc.Cloud.FollowToggle.Tip}"
-                                                  Checked="ChkFollow_Changed" Unchecked="ChkFollow_Changed" />
-                                    </Grid>
-                                </Border>
-
-                                <Border x:Name="FollowDetail" Visibility="Collapsed" Margin="0,0,0,12"
-                                        Style="{StaticResource AccountCard}">
-                                    <StackPanel>
-                                        <TextBlock x:Name="TblFollowNow" TextTrimming="CharacterEllipsis" />
-                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                            <TextBlock x:Name="TblFollowStatus" FontSize="12"
-                                                       VerticalAlignment="Center" />
-                                            <Button x:Name="BtnRematch" Style="{StaticResource LinkBtn}" Margin="8,0,0,0"
-                                                    Visibility="Collapsed" Click="BtnRematch_Click">
-                                                <TextBlock Text="{DynamicResource Loc.Cloud.Rematch}" TextDecorations="Underline"
-                                                           Foreground="{StaticResource Cyan}" FontSize="11" />
-                                            </Button>
-                                        </StackPanel>
-                                        <TextBlock x:Name="TblFollowDetail" FontSize="11"
-                                                   Foreground="{StaticResource Amber}" TextWrapping="Wrap"
-                                                   Margin="0,6,0,0" Visibility="Collapsed" />
-                                        <Border x:Name="SessionsRow" BorderBrush="{StaticResource LineBrush}"
-                                                BorderThickness="0,1,0,0" Padding="0,4,0,0" Margin="0,8,0,0"
-                                                Visibility="Collapsed">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="Auto" />
-                                                    <ColumnDefinition Width="*" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="{DynamicResource Loc.Cloud.FollowSessions}" FontSize="11"
-                                                           Foreground="{StaticResource Mut}"
-                                                           VerticalAlignment="Center" Margin="0,0,8,0" />
-                                                <ComboBox x:Name="CmbFollowSession" Grid.Column="1"
-                                                          Style="{StaticResource SelSm}"
-                                                          SelectedValuePath="AppId" DisplayMemberPath="Label"
-                                                          SelectionChanged="CmbFollowSession_Changed" />
-                                            </Grid>
-                                        </Border>
-                                        <Border BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0"
-                                                Padding="0,4,0,0" Margin="0,8,0,0">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="{DynamicResource Loc.Cloud.NudgeLabel}" FontSize="11" Foreground="{StaticResource Mut}"
-                                                           VerticalAlignment="Center" Margin="0,0,8,0" />
-                                                <Button x:Name="BtnNudgeM" Content="-0.5s"
-                                                        Style="{StaticResource BtnGhostSm}" Click="BtnNudgeM_Click" />
-                                                <Button x:Name="BtnNudgeP" Content="+0.5s"
-                                                        Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0"
-                                                        Click="BtnNudgeP_Click" />
-                                                <Button x:Name="BtnNudgeM5" Content="-5s"
-                                                        Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0"
-                                                        Visibility="Collapsed" Click="BtnNudgeM5_Click" />
-                                                <Button x:Name="BtnNudgeP5" Content="+5s"
-                                                        Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0"
-                                                        Visibility="Collapsed" Click="BtnNudgeP5_Click" />
-                                                <Button x:Name="BtnOffsetReset" Content="{DynamicResource Loc.Cloud.Reset}"
-                                                        Style="{StaticResource BtnGhostSm}" Margin="6,0,0,0"
-                                                        IsEnabled="False" Click="BtnOffsetReset_Click" />
-                                                <TextBlock x:Name="TblOffset" FontSize="11"
-                                                           Foreground="{StaticResource Mut}"
-                                                           VerticalAlignment="Center" Margin="8,0,0,0" Text="" />
-                                            </StackPanel>
-                                        </Border>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0"
-                                        Padding="10,0,0,0" Margin="0,0,0,12">
-                                    <TextBlock Style="{StaticResource Hint}"
-                                               Text="{DynamicResource Loc.Cloud.FollowHint}" />
-                                </Border>
-                                <Border BorderBrush="{StaticResource Line2}" BorderThickness="2,0,0,0"
-                                        Padding="10,0,0,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <Button Style="{StaticResource LinkBtn}" Click="FollowGoSearch_Click">
-                                            <TextBlock Text="{DynamicResource Loc.Cloud.GoSearch}" TextDecorations="Underline"
-                                                       Foreground="{StaticResource Cyan}" FontSize="11" />
-                                        </Button>
-                                        <TextBlock Style="{StaticResource Hint}"
-                                                   Text="{DynamicResource Loc.Cloud.FollowLoopNote}" />
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                        </ScrollViewer>
 
                         <!-- ===== 账号（AccountPane.vue） ===== -->
                         <ScrollViewer x:Name="PaneAccount" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">

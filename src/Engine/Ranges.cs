@@ -1,11 +1,10 @@
-// 移植自 frontend/src/jizura/state.ts（cutAround / loopRange）+ jizura/look.ts（exportRangeCuts / exportRange / rangeSuffix）。
-// 纯函数：只吃 plan 与 project.exportRange，供预览循环（PreviewEngine）、时间轴（TimelineCanvas）、
-// 导出裁剪（ExportJob）与 MCP（McpTools）共用同一份范围口径，避免四处各写一遍。
+﻿// 移植自 frontend/src/jizura/state.ts（cutAround / loopRange）+ jizura/look.ts（exportRangeCuts / exportRange / rangeSuffix）。
+// 纯函数：只吃 plan 与 project.exportRange，供预览循环（PreviewEngine）的整首/行/切分/选段四档共用。
 //
 // 术语反挂（Vue 有意为之，见 Transport.vue 注释：「用户术语是反的」）：
 //   内部 Line  = 当前行的完整切分 → 界面文案「切分循环」
 //   内部 Cut   = 当前单个切分     → 界面文案「行循环」
-//   Range      = 导出范围（选段） → 界面文案「选段循环」（C# 扩展档，Vue 无）
+//   Range      = 选段范围 → 界面文案「选段循环」（C# 扩展档，Vue 无）
 
 using Newtonsoft.Json.Linq;
 
@@ -68,7 +67,7 @@ public static class Ranges
 
     /// <summary>
     /// loopRange（state.ts:199-214）：Line = 当前行的完整切分（首切分 start → 末切分 end，
-    /// 跳过 interlude/title）；Cut = 当前单个切分；Range = 导出范围（未设/越界 → 整首）；
+    /// 跳过 interlude/title）；Cut = 当前单个切分；Range = 选段范围（未设/越界 → 整首）；
     /// 其余（All/Off）= 整首。
     /// </summary>
     public static (double Start, double End) LoopRange(Plan? plan, LoopMode mode, JObject? exportRange, double t)
@@ -100,7 +99,7 @@ public static class Ranges
         return (0, endAll);
     }
 
-    // ---------------- 导出范围（look.ts exportRangeCuts / exportRange / rangeSuffix） ----------------
+    // ---------------- 选段范围（look.ts exportRangeCuts / exportRange / rangeSuffix） ----------------
 
     /// <summary>
     /// exportRangeCuts：{from,to} 为 0 基切分索引（fork 的存储单位，上游按行）。clamp 到
@@ -161,7 +160,7 @@ public static class Ranges
     }
 
     /// <summary>
-    /// 行按钮语义（look.ts setExportRange）：把该行首→末切分设为导出范围；extend = 与现有范围取并集；
+    /// 行按钮语义（look.ts setExportRange）：把该行首→末切分设为选段范围；extend = 与现有范围取并集；
     /// 点在与当前范围完全相同的一段上 = 取消（null）。行没有切分回 false（调用方提示）。
     /// </summary>
     public static bool ApplyLineRange(Project project, Plan? plan, int line, bool extend)

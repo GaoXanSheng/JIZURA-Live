@@ -112,8 +112,6 @@ public class GpuRasterTests
             Width = 1920,
             Height = 1080,
             Fps = 30,
-            LyricsEnabled = true,
-            LyricsFps = 30,
         });
         Assert.True(started);
         pe.Play();
@@ -128,9 +126,8 @@ public class GpuRasterTests
         var host = GpuRasterHost.TryGet(out var err);
         if (host == null) return;
 
-        var projPath = @"E:\CSharp\VTB-JIZURA\tools\TEST-我把我唱给你听.jizuralive";
-        if (!File.Exists(projPath)) return;
-        var project = ProjectIO.Open(projPath);
+        var project = Project.NewDefault();
+        project.Lyrics = "夜明けの色を/覚えてる\nその先へ/進もう";
         project.Aspect = "9:16"; // 竖屏，强制触发 letterbox
 
         var pe = new PreviewEngine();
@@ -157,8 +154,6 @@ public class GpuRasterTests
                 Width = 1920,
                 Height = 1080,
                 Fps = 60,
-                LyricsEnabled = true,
-                LyricsFps = 60,
             });
             Assert.True(started);
             pe.Play();

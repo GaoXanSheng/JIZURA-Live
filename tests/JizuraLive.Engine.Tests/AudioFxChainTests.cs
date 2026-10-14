@@ -1,4 +1,4 @@
-using JizuraLive.App;
+﻿using JizuraLive.App;
 using JizuraLive.Engine;
 using NAudio.Wave;
 using Newtonsoft.Json.Linq;
@@ -7,7 +7,7 @@ using Xunit;
 namespace JizuraLive.Engine.Tests;
 
 /// <summary>
-/// AudioFx 清洗与建链的行为红线（预览 PreviewEngine 与导出 AudioPrep 共用同一条 Build）：
+/// AudioFx 清洗与建链的行为红线（预览 PreviewEngine 播放链的 Build）：
 /// 工程/settings 里写进来的裸 JObject 是不可信输入——清洗必须丢未知/重复单元、clamp 越界参数、
 /// on 缺省为真；建链必须跳过 on:false 的单元、空链返回 null（不建图直通）。
 /// </summary>

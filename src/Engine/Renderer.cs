@@ -1,4 +1,4 @@
-// 移植自 frontend/src/engine/09_render.js
+﻿// 移植自 frontend/src/engine/09_render.js
 //
 // 渲染器主流程：整帧缓存（koma 量化步内逐像素相同才复用）、paper 纸纹、色差 ghost 三 pass
 // （B/A/main，lag 1.6/24 与 0.8/24）、每 cut 的 bg/layout/enter/hold/exit/decor/cam（经 Env.Make
@@ -39,7 +39,7 @@ public sealed class RenderOpts
     /// <summary>关掉色差 ghost pass。</summary>
     public bool NoGhost;
 
-    /// <summary>透過PNG（保留 alpha；配合 Layer 分层导出）。</summary>
+    /// <summary>透过 PNG（保留 alpha；配合 Layer 分层渲染）。</summary>
     public bool Transparent;
 
     /// <summary>透過分层：'back' = 背景图+歌词后面的装饰，'front' = 其余。</summary>
@@ -50,7 +50,7 @@ public sealed class RenderOpts
 
     /// <summary>
     /// 外部实时层（PV 源的 Spout 输入等）：画在背景之上、歌词之下，并吃整帧 Post 的纹理后期。
-    /// null/空 = 无（导出/内层递归帧一律不设）。带实时层时整帧缓存被绕过（内容逐帧在变）。
+    /// null/空 = 无（内层递归帧一律不设）。带实时层时整帧缓存被绕过（内容逐帧在变）。
     /// 顺序 = 合成层次（先画在下）。<see cref="LiveFollowCamera"/> 决定它们是否吃 cut 的镜头。
     /// 例外：kline 风格走独立全帧路径（图表+滚动歌词自己铺满），不合成实时层；
     /// ascii 风格会把它一起转成字符网格（整帧转换，符合该风格的语义）。
@@ -131,13 +131,13 @@ public sealed class TransCtx
     public Func<int, int, SKSurface> Tmp = null!;
 }
 
-/// <summary>渲染器：J.Renderer 对位。线程不安全（每画布/每导出管线各建一个）。</summary>
+/// <summary>渲染器：J.Renderer 对位。线程不安全（每画布/每渲染管线各建一个）。</summary>
 public sealed class Renderer : IDisposable
 {
     /// <summary>
     /// 中间面工厂（GPU 光栅接线用）：非空时 scratch/small/tiny/camLayer/transA·B·C/morph/guard 等
     /// 中间面改由它创建（GPU 面，省掉每帧「CPU 面 → GPU 上传」）。null = CPU 面（默认：
-    /// 导出/测试/校验路径保持位级一致）。主画布不在此列——由调用方给（Spout 给 GPU 面，预览/导出给 CPU 面）。
+    /// 测试/校验路径保持位级一致）。主画布不在此列——由调用方给（Spout 给 GPU 面，预览给 CPU 面）。
     /// </summary>
     public Func<int, int, SKSurface>? SurfaceFactory;
 
@@ -413,7 +413,7 @@ public sealed class Renderer : IDisposable
             var stGhost = StNum(st, "ghost", 1);
             var chroma = fx.Chroma * stGhost * (1 + spike + beatPulse);
             var beatInfo = plan.Beats is { Length: > 0 } ? BeatAt(plan.Beats, tq) : null;
-            // 透过PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
+            // 分层渲染（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
             var layer = opt.Transparent ? opt.Layer ?? null : null;
             var shx = J.Rs(step, 71) * shake * 16 * u;
             var shy = J.Rs(step, 72) * shake * 11 * u;
@@ -1767,7 +1767,7 @@ public sealed class Renderer : IDisposable
         private static SKImage SnapshotOf(SKCanvas ctx)
         {
             // SkiaSharp 3.x 的 SKCanvas 没有 ReadPixels：整帧缓存/特效 scratch 依赖 snapshot，
-            // 主画布必须是 SKSurface 的 canvas（导出/冒烟管线均满足；SKCanvas(bitmap) 场景由上层包 surface）
+            // 主画布必须是 SKSurface 的 canvas（冒烟/校验管线均满足；SKCanvas(bitmap) 场景由上层包 surface）
             var s = ctx.Surface ?? throw new NotSupportedException(
                 "Renderer 需要 SKSurface 的 canvas（可 Snapshot）；请用 SKSurface 包裹目标位图后再画");
             return s.Snapshot();

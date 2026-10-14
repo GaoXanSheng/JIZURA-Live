@@ -1,7 +1,7 @@
-#define AppName "JizuraLive"
-#define AppId "{{C5A3E1D2-9B47-4F86-A2C1-7E0B3D94F6A8}"
+#define AppName "JizuraLivePV"
+#define AppId "{{E7B5A3C1-4D6F-4E82-9B7A-1C2D3E4F5A6B}"
 #include "bin\build.version.iss"
-#define AppExeName "JizuraLive.exe"
+#define AppExeName "JizuraLivePV.exe"
 
 [Setup]
 AppId={#AppId}
@@ -34,7 +34,7 @@ Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附加任务:"; Flags: unchecked
 
 [Files]
-; 运行时数据（config/logs/云缓存）已统一放 %LOCALAPPDATA%\JizuraLive，
+; 运行时数据（config/logs/云缓存）已统一放 %LOCALAPPDATA%\JizuraLivePV，
 ; publish 产物里不会再混入，无需 Excludes
 Source: "bin\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
@@ -44,7 +44,7 @@ Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desk
 
 [UninstallDelete]
 ; 用户数据目录（设置与登录态 config、日志 logs）随卸载一并删除
-Type: filesandordirs; Name: "{localappdata}\JizuraLive"
+Type: filesandordirs; Name: "{localappdata}\JizuraLivePV"
 
 [Code]
 #include "build.cache-clean.iss"
@@ -54,7 +54,7 @@ function IsFirstInstall(): Boolean;
 begin
   Result := (not RegKeyExists(HKLM,
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{#AppId}_is1'))
-    and (not DirExists(ExpandConstant('{localappdata}\JizuraLive')));
+    and (not DirExists(ExpandConstant('{localappdata}\JizuraLivePV')));
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -62,7 +62,7 @@ begin
   // 升级覆盖时先清掉旧版缓存（首次安装时目录还不存在，无需处理）：
   // 日志 / 云音乐下载与歌词缓存 / 解包音频，保留跟随对齐偏移与自动恢复用的音频备份
   if (CurStep = ssInstall) and (not IsFirstInstall()) then
-    CleanCachesUnder(ExpandConstant('{localappdata}\JizuraLive'));
+    CleanCachesUnder(ExpandConstant('{localappdata}\JizuraLivePV'));
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

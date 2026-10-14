@@ -1,9 +1,9 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Engine;
 
-// 引擎数据模型。字段名与 JS 保持一致（JSON 序列化直接对齐 .jizuralive / MCP / AE 导出契约）。
+// 引擎数据模型。字段名与 JS 保持一致（JSON 序列化直接对齐工程持久化契约）。
 // 松散的 pack 专用参数（params/bgP/treatP/camP/transP）保持 JObject：
 // 与前端 duck-typed 对象一一对应，锁定行快照（lockedCuts）也按原样 JSON 往返。
 
@@ -98,14 +98,11 @@ public sealed class Project
     /// <summary>音频本地绝对路径或缓存标识。</summary>
     public string? AudioPath { get; set; }
 
-    /// <summary>音频特效配置（预览+导出共用）：{ units: [...], preset? }，J.sanitizeAudioFx 清洗。</summary>
+    /// <summary>音频特效配置（预览共用）：{ units: [...], preset? }，J.sanitizeAudioFx 清洗。</summary>
     public JObject? AudioFx { get; set; }
 
-    /// <summary>导出勾选（export-spec 勾选模型）。M4 接入 typed 模型前保持 JObject。</summary>
-    public JObject? ExportCfg { get; set; }
-
-    /// <summary>导出范围（选段）：{from,to} = 0 基切分索引（本 fork 的存储单位，上游按行），
-    /// null = 整片。预览的「选段循环」档与导出裁剪都读它（对位 project.exportRange）。</summary>
+    /// <summary>选段范围：{from,to} = 0 基切分索引（本 fork 的存储单位，上游按行），
+    /// null = 整片。预览的「选段循环」档读它（对位 project.exportRange）。</summary>
     public JObject? ExportRange { get; set; }
 
     [JsonIgnore]

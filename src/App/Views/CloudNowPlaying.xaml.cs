@@ -9,8 +9,8 @@ using JizuraLive.Server.Models;
 namespace JizuraLive.App.Views;
 
 /// <summary>
-/// 播放器模式的「正在播放」控制块：进度条 + 上/播/下 + 时间 + 队列位置 + 操作 + 大字歌名 + 歌手/meta。
-/// 状态全在 <see cref="CloudPlayService"/>（与底部常驻条同一个会话），本控件只是它的视图。
+/// 舞台下方的「正在播放」控制块：进度条 + 上/播/下 + 时间 + 队列位置 + 操作 + 大字歌名 + 歌手/meta。
+/// 状态全在 <see cref="CloudPlayService"/>（云歌单会话），本控件只是它的视图。
 /// </summary>
 public partial class CloudNowPlaying : UserControl
 {
@@ -53,7 +53,6 @@ public partial class CloudNowPlaying : UserControl
         BtnPrev.IsEnabled = has;
         BtnNext.IsEnabled = has;
         BtnPlay.IsEnabled = has;
-        BtnLoadToEditor.IsEnabled = has;
         IcPlay.Data = (Geometry)FindResource(_svc.IsPlaying ? "IconPause" : "IconPlay");
 
         TblTitle.Text = has ? song!.Name : L.T("Cloud.BarIdle");
@@ -90,29 +89,6 @@ public partial class CloudNowPlaying : UserControl
     private void BtnNext_Click(object sender, RoutedEventArgs e) => _svc?.Next();
 
     private void BtnPick_Click(object sender, RoutedEventArgs e) => CloudPanel.Open(Window.GetWindow(this)!);
-
-    /// <summary>把当前这首云歌载入编辑器（下载+分析+写工程），载入后退出播放器模式去编辑。</summary>
-    private async void BtnLoadToEditor_Click(object sender, RoutedEventArgs e)
-    {
-        if (_svc?.Current is not { } song) return;
-        BtnLoadToEditor.IsEnabled = false;
-        try
-        {
-            var quality = _svc.Quality;
-            _svc.SetStatus(L.T("Cloud.PlayerLoading"));
-            await SongLoader.LoadAsync(App.MainInstance!.State, song.Source, song, quality,
-                s => _svc.SetStatus(s));
-            App.MainInstance.SetPlayerMode(false, restoreSnapshot: false); // 回编辑器看刚载入的这支 PV（别拿旧快照盖掉）
-        }
-        catch (Exception ex)
-        {
-            _svc.SetStatus(L.F("Cloud.PreviewFailed", ex.Message));
-        }
-        finally
-        {
-            BtnLoadToEditor.IsEnabled = true;
-        }
-    }
 
     // ---------------- 音量（与底部条同一套：拖动中只改链，松手落盘） ----------------
 

@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using JizuraLive.App;
@@ -7,7 +7,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
 
-// EngineRenderGate（渲染串行闸，与预览/导出共享引擎静态缓存的规矩）
+// EngineRenderGate（渲染串行闸，与预览共享引擎静态缓存的规矩）
 
 namespace JizuraLive.Engine;
 
@@ -158,7 +158,7 @@ public static class FontFetch
             try
             {
                 JFonts.ScanFontDirs(force: true); // 新文件进索引；内部自带渲染闸（重建 Dispose 旧脸必须与 Frame 串行）
-                lock (EngineRenderGate.Lock) // 字形/SKFont 是共享静态缓存：清缓存必须与渲染/导出串行
+                lock (EngineRenderGate.Lock) // 字形/SKFont 是共享静态缓存：清缓存必须与渲染串行
                 {
                     JFonts.InvalidateResolveCache();
                 }

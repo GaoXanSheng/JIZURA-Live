@@ -8,11 +8,10 @@ using JizuraLive.App.I18n;
 using JizuraLive.Logging;
 using JizuraLive.Server;
 using JizuraLive.Server.Models;
-
 namespace JizuraLive.App.Views;
 
 /// <summary>
-/// 播放器模式左侧的歌单栏：我的歌单（封面 + 曲目数 + 归属徽标），点整单播、点箭头展开曲目、点曲目从这首播。
+/// 左侧歌单栏：我的歌单（封面 + 曲目数 + 归属徽标），点整单播、点箭头展开曲目、点曲目从这首播。
 /// 歌单/曲目都走与云音乐面板同一套接口与缓存（PlaylistInfo / LyricCache 无关，只是队列来源）。
 /// </summary>
 public partial class CloudPlaylistSidebar : UserControl
@@ -130,16 +129,23 @@ public partial class CloudPlaylistSidebar : UserControl
         {
             _source = CloudPanel.LastSource;
             SyncSourceButtons();
+            RefreshLoginState();
+            CloudPanel.LoginStateChanged += OnLoginStateChanged;
             L.LanguageChanged += ApplyTexts;
             _ = LoadPlaylistsAsync();
         };
-        Unloaded += (_, _) => L.LanguageChanged -= ApplyTexts;
+        Unloaded += (_, _) =>
+        {
+            CloudPanel.LoginStateChanged -= OnLoginStateChanged;
+            L.LanguageChanged -= ApplyTexts;
+        };
     }
 
     private void ApplyTexts()
     {
         // 行内文案（N 首 / 徽标）是构造时定格的：换语言后重建一遍
         if (Lst.ItemsSource is List<Row> rows && rows.Count > 0) Render(rows.Select(r => r.Info).ToList());
+        RefreshLoginState();
     }
 
     private void SyncSourceButtons()
@@ -154,8 +160,52 @@ public partial class CloudPlaylistSidebar : UserControl
         if (next == _source) return;
         _source = next;
         SyncSourceButtons();
+        RefreshLoginState();
         _ = LoadPlaylistsAsync();
     }
+
+    // ---------------- 登录（按钮状态 + 一键扫码） ----------------
+
+    private bool LoggedIn => LoginState().Logged;
+
+    private KgLoginResponse LoginState() =>
+        _source == "netease" ? ServerContext.Netease.LoginState() : ServerContext.KuGou.LoginState();
+
+    /// <summary>登录按钮跟随当前平台的登录态：未登录=琥珀「登录」，已登录=昵称（幽灵底）。</summary>
+    private void RefreshLoginState()
+    {
+        var st = LoginState();
+        if (st.Logged)
+        {
+            var nick = st.Nickname ?? "";
+            BtnLogin.Content = nick.Length > 0 ? nick : L.T("Cloud.LoggedIn");
+            BtnLogin.Tag = "on";
+            BtnLogin.ToolTip = L.F("Cloud.LoggedInTip", nick.Length > 0 ? nick : L.T("Cloud.LoggedIn"));
+        }
+        else
+        {
+            BtnLogin.Content = L.T("Cloud.LoginBtn");
+            BtnLogin.Tag = null;
+            BtnLogin.ToolTip = L.T("Cloud.LoginBtnTip");
+        }
+    }
+
+    /// <summary>未登录 → 打开面板直接起扫码；已登录 → 打开账号页（退出登录 / 换号）。</summary>
+    private void BtnLogin_Click(object sender, RoutedEventArgs e)
+    {
+        if (Window.GetWindow(this) is not { } owner) return;
+        if (LoggedIn) CloudPanel.Open(owner, "account");
+        else CloudPanel.OpenLogin(owner, _source);
+    }
+
+    /// <summary>面板里登录/退出成功：刷新按钮；刚登录且歌单还没拉出来就补拉一次。</summary>
+    private void OnLoginStateChanged() => Dispatcher.Invoke(() =>
+    {
+        if (!IsLoaded) return;
+        var wasEmpty = Lst.ItemsSource is not List<Row> { Count: > 0 };
+        RefreshLoginState();
+        if (LoggedIn && wasEmpty) _ = LoadPlaylistsAsync();
+    });
 
     private async Task LoadPlaylistsAsync()
     {

@@ -10,13 +10,13 @@ using JizuraLive.Server.Models;
 namespace JizuraLive.App.Cloud;
 
 /// <summary>
-/// 播放器模式的会话协调器：让 PV 跟着云歌单当前播放的那首歌**真渲染**，同时**不动工程音频**。
+/// PV 会话协调器：让 PV 跟着云歌单当前播放的那首歌**真渲染**，同时**不动工程音频**。
 ///
 /// 做法（比"逐首载入工程"干净一档）：
 ///   · 声音仍由云试听链（CloudPreview）出；
 ///   · 每首歌真下载 + 取词 + 解码分析，然后把**分析结果**交给引擎（`SetAudioSource(audio, path:null)`
 ///     ——只换规划用的节拍/时长/能量，顺手拆掉引擎自己的播放链，它不出声）；
-///   · 引擎进入**跟随态**，时钟由 CloudPlayService 的 tick 用云链位置驱动（FollowController 同款）；
+///   · 引擎进入**跟随态**，时钟由 CloudPlayService 的 tick 用云链位置驱动；
 ///   · 工程只被临时改写歌词/曲名/歌手（一次 Mutate，且不压撤销历史）；**AudioPath/AudioName 一个字节不动**。
 ///
 /// 进模式前把整份工程快照写 `config\player_session.json`（防崩溃），退出时原样还原 + 把引擎音频还回去
@@ -54,7 +54,7 @@ public sealed class CloudPlayerSession
 
     // ---------------- 进出 ----------------
 
-    /// <summary>进播放器模式：快照工程 → 接管引擎（跟随态）→ 让云链的每次起播先换 PV。</summary>
+    /// <summary>进 PV 会话：快照工程 → 接管引擎（跟随态）→ 让云链的每次起播先换 PV。</summary>
     public void Enter()
     {
         if (Active) return;
@@ -81,12 +81,12 @@ public sealed class CloudPlayerSession
         // 重进模式：正在播的那首立刻把 PV 接回来——否则画面停在你自己的工程上，
         // 看着就像"歌词被清空了"（只有切歌才会重新灌词）
         if (_svc.Current is { } cur) _ = AdoptForPlayAsync(cur);
-        Log.Info("[Player] 进入播放器模式（工程已快照，退出时还原）");
+        Log.Info("[Player] 进入 PV 会话（工程已快照，退出时还原）");
         Changed?.Invoke();
     }
 
-    /// <summary>退出播放器模式：停跟随 → 引擎音频还回去 → 工程按快照还原 → 删会话文件。
-    /// restore=false：用户主动把当前这首"载入编辑器"（工程已经被这次装载改写），别再拿旧快照盖回去。</summary>
+    /// <summary>退出 PV 会话：停跟随 → 引擎音频还回去 → 工程按快照还原 → 删会话文件。
+    /// restore=false：把当前这首云歌留在工程里（不再拿旧快照盖回去）。</summary>
     public void Exit(bool restore = true)
     {
         if (!Active) return;
@@ -139,7 +139,7 @@ public sealed class CloudPlayerSession
         {
             Log.Debug("[Player] 会话文件删除失败：" + ex.Message);
         }
-        Log.Info("[Player] 已退出播放器模式" + (restore ? "（工程与音频已还原）" : "（云歌已留入工程）"));
+        Log.Info("[Player] 已退出 PV 会话" + (restore ? "（工程与音频已还原）" : "（云歌已留入工程）"));
         Changed?.Invoke();
     }
 
@@ -153,7 +153,7 @@ public sealed class CloudPlayerSession
             File.Delete(SessionFile);
             if (json.Length == 0) return false;
             var ok = _state.RestoreSnapshotSilently(json);
-            Log.Warn($"[Player] 检测到上次播放器模式异常退出，已{(ok ? "还原" : "尝试还原（失败）")}工程");
+            Log.Warn($"[Player] 检测到上次会话异常退出，已{(ok ? "还原" : "尝试还原（失败）")}工程");
             return ok;
         }
         catch (Exception ex)

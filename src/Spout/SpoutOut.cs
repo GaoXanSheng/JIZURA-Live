@@ -1,4 +1,4 @@
-// Spout 直出管线（pure-csharp 分支）：Skia 光栅 → D3D11 纹理 → SpoutDX。
+﻿// Spout 直出管线（pure-csharp 分支）：Skia 光栅 → D3D11 纹理 → SpoutDX。
 //
 // 两条光栅路线（同一套泵/通道/发送语义，接收端无感）：
 //   GPU（默认，GpuRasterHost 可用时）：ANGLE(GL on D3D11) → Skia GRContext 直接画进
@@ -7,17 +7,15 @@
 //   CPU（回退：缺 ANGLE 二进制 / 初始化失败 / JIZURA_GPU=0）：SkiaSharp CPU 光栅（BGRA 8888）
 //        → PeekPixels → 逐行拷进 D3D11 Dynamic 纹理 → SendTexture。
 //
-// 双通道：
-//   主通道   <SpoutName>        settings.Width×Height @ RenderFps，SpoutTransparent 时透出底
-//   字幕通道 <SpoutName>-LYRICS 同分辨率 @ min(LyricsFps, RenderFps)，恒透明底只画字幕层
-//            （SubtitleLayer：KRC 逐字主行 + 音译/翻译行，与导出烤字幕同一个渲染器；
-//             无 KRC 字幕数据时输出全透明帧）
+// 单通道（<SpoutName>，settings.Width×Height @ RenderFps，SpoutTransparent 时透出底）：
+// 字幕层由主通道烤入最上层（SubtitleLayer：KRC 逐字主行 + 音译/翻译行，与预览叠加同一个渲染器；
+// 无 KRC 字幕数据时不出字幕）
 //
 // 外部输入（PV 模式的多路源）：主通道另可接收多路外部 Spout 源（<see cref="SpoutIn"/>，如 VTube Studio
 // 的 Spout2 输出、游戏/桌面捕获），作为「实时层」按槽位顺序合成进主通道——背景之上、歌词之下，
 // 于是源与歌词在我们这边合成成一路流再交给 Shoost/OBS，下游不必自己叠两层。源跟随歌曲镜头
 // （RenderOpts.LiveFollowCamera）。源在动 = 画面在动：暂停态下只要实时层还在更新，主通道就照满帧
-// 出图（不再走静止帧保活）。字幕通道与导出都不含实时层。
+// 出图（不再走静止帧保活）。字幕烤入不含实时层。
 //
 // 泵语义（对位旧版 EBF 泵）：固定帧率泵线程；播放态 = 目标帧率；暂停态降到 10Hz 且只在
 // 「画面会变」（seek/重规划/换字幕/外部输入来帧 → 版本号变）时重绘——暂停帧是静态的，10Hz 只是
@@ -61,7 +59,7 @@ public interface ISpoutSource
     /// （连注音内容都没有时才输出全透明帧）。</summary>
     IReadOnlyList<KrcLine>? Subtitles { get; }
 
-    /// <summary>字幕层配置（与导出烤字幕同一份）。</summary>
+    /// <summary>字幕层配置（与预览叠加同一份）。</summary>
     SubtitleConfig SubtitleConfig { get; }
 
     /// <summary>字幕数据版本号：装载/清空字幕时变，字幕通道据此重建字幕层。</summary>
@@ -72,7 +70,7 @@ public interface ISpoutSource
 public sealed class SpoutOutOptions
 {
     /// <summary>主通道 Spout 发送端名。</summary>
-    public string SenderName { get; set; } = "JIZURA-live";
+    public string SenderName { get; set; } = "JIZURA-live-PV";
 
     /// <summary>主通道透明底（跳过背景填充，只出歌词+特效透明图层给 OBS 合成）。</summary>
     public bool MainTransparent { get; set; }
@@ -83,16 +81,10 @@ public sealed class SpoutOutOptions
     /// <summary>主通道帧率（泵节拍基准）。</summary>
     public int Fps { get; set; } = 60;
 
-    /// <summary>独立字幕通道开关。</summary>
-    public bool LyricsEnabled { get; set; } = true;
-
-    /// <summary>字幕通道帧率（调用方先钳 min(LyricsFps, RenderFps)——字幕画得比主通道快没意义）。</summary>
-    public int LyricsFps { get; set; } = 10;
-
     /// <summary>
     /// PV 模式的多路外部 Spout 输入（VTS/游戏/桌面等）合成参数：非空即启用接收端。
     /// 对象由宿主持有并被 UI 线程实时改写（启用/增删源/改名/透明度都是即时生效，不走重启），
-    /// 泵每拍取一次快照。合成位置：背景之上、歌词之下；只进主通道与预览，不进独立字幕通道与导出。
+    /// 泵每拍取一次快照。合成位置：背景之上、歌词之下；只进主通道与预览。
     /// </summary>
     public PvOptions? Pv { get; set; }
 }
@@ -117,7 +109,6 @@ public sealed class SpoutOut : IDisposable
 
     private GpuRasterHost? _gpu;
     private Channel? _main;
-    private Channel? _lyrics;
     private Thread? _pump;
     private volatile bool _running;
     private ISpoutSource? _source;
@@ -156,8 +147,6 @@ public sealed class SpoutOut : IDisposable
 
     public bool IsRunning => _running;
     public string? SenderName => _main?.Name;
-    public string? LyricsSenderName => _lyrics?.Name;
-    public bool LyricsRunning => _lyrics != null;
 
     /// <summary>外部 Spout 输入接收端（预览自渲染路径要它们发布的位图；空表 = 本管线没收外部输入）。</summary>
     public IReadOnlyList<SpoutIn> LiveIns => _ins;
@@ -209,11 +198,7 @@ public sealed class SpoutOut : IDisposable
         try
         {
             _main = new Channel(opt.SenderName, opt.Width, opt.Height, opt.Fps, opt.MainTransparent,
-                subtitle: false, _device, _gpu != null);
-            _lyrics = opt.LyricsEnabled
-                ? new Channel(opt.SenderName + "-LYRICS", opt.Width, opt.Height,
-                    Math.Max(1, opt.LyricsFps), transparent: true, subtitle: true, _device, _gpu != null)
-                : null;
+                _device, _gpu != null);
         }
         catch (Exception ex)
         {
@@ -238,9 +223,6 @@ public sealed class SpoutOut : IDisposable
         Log.Info(
             $"[SpoutOut] 管线已启动（{(_gpu != null ? "GPU 光栅" : "CPU 光栅")}）：主通道={opt.SenderName} {opt.Width}x{opt.Height}@{opt.Fps}"
             + (opt.MainTransparent ? "（透明底）" : "")
-            + (_lyrics != null
-                ? $"；字幕通道={opt.SenderName}-LYRICS@{opt.LyricsFps}（透明底，KRC 字幕层）"
-                : "；字幕通道=关")
             + (opt.Pv != null
                 ? pvSrc.Length > 0
                     ? $"，PV 源 {pvSrc.Length} 路（{string.Join("、", pvSrc.Select(s => s.SenderName))}）合成到主通道"
@@ -281,10 +263,8 @@ public sealed class SpoutOut : IDisposable
 
     private void Cleanup()
     {
-        foreach (var ch in new[] { _main, _lyrics })
-            ch?.Dispose();
+        _main?.Dispose();
         _main = null;
-        _lyrics = null;
         // 外部输入接收端：泵已退出（Stop 保证），这里释放接收端/位图；设置对象不归我们释放
         foreach (var inSink in _ins)
         {
@@ -300,7 +280,7 @@ public sealed class SpoutOut : IDisposable
     public void Dispose()
     {
         Stop();
-        // 宿主设备是进程单例（预览/导出将来复用），不能在这里释放；只有 CPU 回退路径自建的设备归本实例
+        // 宿主设备是进程单例（预览将来复用），不能在这里释放；只有 CPU 回退路径自建的设备归本实例
         _mirrorStaging?.Dispose();
         _mirrorStaging = null;
         _mirrorStgW = _mirrorStgH = -1;
@@ -338,8 +318,7 @@ public sealed class SpoutOut : IDisposable
             catch (Exception ex)
             {
                 Log.Error("[SpoutOut] GPU 上下文绑定失败，本管线转 CPU 光栅：" + ex.Message, ex);
-                foreach (var ch in new[] { _main, _lyrics })
-                    if (ch != null) ch.Gpu = false;
+                if (_main != null) _main.Gpu = false;
                 gpu = null;
             }
         }
@@ -358,7 +337,6 @@ public sealed class SpoutOut : IDisposable
     private void PumpLoopCore(Channel main)
     {
         var lastMain = Stopwatch.GetTimestamp();
-        var lastLyrics = Stopwatch.GetTimestamp();
         var lastStat = Stopwatch.GetTimestamp();
 
         while (_running)
@@ -369,25 +347,17 @@ public sealed class SpoutOut : IDisposable
             // 每 5s 报一次帧数 + 耗时归因（掉出帧率时一眼定位：渲染 / 等 GPU 落盘 / 镜像读回 / 等引擎闸）
             if (ElapsedMs(lastStat, now) >= 5_000)
             {
-                var lyrStat = _lyrics;
                 Log.Info(
                     $"[SpoutOut] 近 5s：{main.Name} {main.Frames} 帧{KeepTxt(main)}"
-                    + (lyrStat != null ? $"；{lyrStat.Name} {lyrStat.Frames} 帧{KeepTxt(lyrStat)}" : "")
                     + $"，耗时 渲染{main.SumRender / Math.Max(1, main.Frames):F1}"
                     + $"+同步{main.SumFlush / Math.Max(1, main.Frames):F1}"
                     + $"+镜像{main.SumMirror / Math.Max(1, main.Frames):F1}"
                     + $"+等闸{main.SumGate / Math.Max(1, main.Frames):F1}ms"
-                    + RenderStatsTxt(main) + (lyrStat != null ? RenderStatsTxt(lyrStat) : ""));
+                    + RenderStatsTxt(main));
                 lastStat = now;
                 main.Frames = 0;
                 main.KeepAlives = 0;
                 main.SumRender = main.SumFlush = main.SumMirror = main.SumGate = 0;
-                if (lyrStat != null)
-                {
-                    lyrStat.Frames = 0;
-                    lyrStat.KeepAlives = 0;
-                    lyrStat.SumRender = lyrStat.SumFlush = lyrStat.SumMirror = lyrStat.SumGate = 0;
-                }
             }
 
             try
@@ -441,30 +411,6 @@ public sealed class SpoutOut : IDisposable
                             KeepAlive(main);
                         }
                     }
-
-                    // 字幕通道（独立透明底歌词层）不合成外部输入：仍是播放按 fps 滤帧、
-                    // 暂停按脏判断重出/保活的老规矩
-                    var lyr = _lyrics;
-                    if (lyr != null)
-                    {
-                        if (src.IsPlaying)
-                        {
-                            if (ElapsedMs(lastLyrics, now) >= lyr.IntervalMs)
-                            {
-                                RenderChannel(lyr, src);
-                                lastLyrics = now;
-                            }
-                        }
-                        else if (Dirty(lyr, src))
-                        {
-                            RenderChannel(lyr, src);
-                            lastLyrics = Stopwatch.GetTimestamp();
-                        }
-                        else
-                        {
-                            KeepAlive(lyr);
-                        }
-                    }
                 }
             }
             catch (Exception ex)
@@ -509,8 +455,7 @@ public sealed class SpoutOut : IDisposable
     private bool Dirty(Channel ch, ISpoutSource src)
     {
         if (src.Version != ch.LastVersion) return true;
-        if (ch.Subtitle) return src.SubtitleVersion != ch.SubLayerVersion;
-        // 主通道：烤了字幕的话，字幕变化（换歌/装载/改样式）也要重出一帧
+        // 烤了字幕的话，字幕变化（换歌/装载/改样式）也要重出一帧
         if (_pv?.SubtitleOnTop == true && src.SubtitleVersion != ch.SubLayerVersion) return true;
         return _liveGen != ch.LastLiveSeq;
     }
@@ -647,7 +592,7 @@ public sealed class SpoutOut : IDisposable
     private void RenderChannelCore(Channel ch, ISpoutSource src)
     {
         var t0 = Stopwatch.GetTimestamp();
-        var t = ch.Subtitle ? PaintSubtitle(ch, src) : PaintEngine(ch, src);
+        var t = PaintEngine(ch, src);
         var tRender = Stopwatch.GetTimestamp();
         if (t.Gpu != null)
         {
@@ -658,7 +603,7 @@ public sealed class SpoutOut : IDisposable
             ch.Sender!.SendTexture(t.Gpu.TexturePointer);
             ch.LastTexture = t.Gpu.TexturePointer; // 暂停态保活复用（面是池化的，指针跨帧稳定）
             // 预览镜像：主通道 GPU 帧读回一块给预览用（消费方是 WPF 预览泵；无请求零开销）
-            if (!ch.Subtitle && ReferenceEquals(ch, _main))
+            if (ReferenceEquals(ch, _main))
                 MirrorFrame(t);
             var tMirror = Stopwatch.GetTimestamp();
             ch.SumRender += Ms(t0, tRender);
@@ -879,22 +824,8 @@ public sealed class SpoutOut : IDisposable
         return ch.Scene;
     }
 
-    /// <summary>字幕通道：透明底全幅只画字幕层（SubtitleLayer 与导出烤字幕同一个渲染器）。</summary>
-    private Target PaintSubtitle(Channel ch, ISpoutSource src)
-    {
-        var tgt = AcquireOut(ch);
-        var oc = tgt.Canvas;
-        oc.SetMatrix(SKMatrix.Identity);
-        oc.Clear(SKColors.Transparent);
-
-        EnsureSubLayer(ch, src);
-        // 排版按输出分辨率全幅派生（字号 = H 百分比、底部 5.5% 起排），与导出烤字幕所见一致
-        ch.SubLayer?.Render(oc, src.CurrentTime, ch.W, ch.H);
-        return tgt;
-    }
-
     /// <summary>
-    /// 字幕层按需重建（字幕通道与「字幕烤进主通道」共用；每个通道各存自己那一份）。
+    /// 字幕层按需重建（每个通道各存自己那一份）。
     /// 换歌/装载/清空字幕、改字幕样式（都走字幕版本号）、重规划（注音来自 plan：KRC 走 cut 注音
     /// 回填，无 KRC 时整行合成）时重建；plan 变化不记日志（编辑时每次重规划都记会刷屏）。
     /// </summary>
@@ -917,7 +848,7 @@ public sealed class SpoutOut : IDisposable
         else
         {
             // 没有 KRC 逐字（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）：
-            // 从 plan 行合成，与预览叠加、导出烤入共用同一份，避免「预览有字幕、Spout 通道空」
+            // 从 plan 行合成，与预览叠加共用同一份，避免「预览有字幕、Spout 通道空」
             var synth = SubtitleLayer.FromPlan(src.Plan);
             lines = synth?.Lines;
             notes = synth?.Notes;
@@ -928,7 +859,7 @@ public sealed class SpoutOut : IDisposable
             : null;
         if (versionChanged)
         {
-            var where = ch.Subtitle ? "字幕通道" : "主通道字幕烤入";
+            const string where = "主通道字幕烤入";
             if (ch.SubLayer == null)
                 Log.Info($"[SpoutOut] {where}：当前没有可用字幕数据，不出字幕"
                          + "（既无酷狗 KRC 逐字，工程歌词行也没有注音内容）");
@@ -1009,8 +940,8 @@ public sealed class SpoutOut : IDisposable
 
     /// <summary>
     /// 字幕烤进主通道最上层（PV「字幕压着人物」）：Frame 画完（人物与整帧后期都在里面）之后，
-    /// 以输出分辨率为准把字幕层整幅叠上去——与独立字幕通道、预览叠加、导出烤字幕同一份排版。
-    /// 开关在 PV 面板（<see cref="PvOptions.SubtitleOnTop"/>）；关掉就只走 -LYRICS 通道，OBS 自己叠。
+    /// 以输出分辨率为准把字幕层整幅叠上去——与预览叠加同一份排版。
+    /// 开关在 PV 面板（<see cref="PvOptions.SubtitleOnTop"/>）。
     /// </summary>
     private void BakeSubtitle(Channel ch, ISpoutSource src)
     {
@@ -1106,8 +1037,6 @@ public sealed class SpoutOut : IDisposable
         public readonly int IntervalMs;
         public readonly bool Transparent;
 
-        /// <summary>字幕通道：画 SubtitleLayer（透明底字幕层），不跑引擎渲染。</summary>
-        public readonly bool Subtitle;
         public readonly Device Device;
 
         /// <summary>光栅路线：true = GPU 面（宿主共享纹理直发）；运行期出错可降回 CPU 面。</summary>
@@ -1159,26 +1088,22 @@ public sealed class SpoutOut : IDisposable
         // 5s 窗口耗时归因（渲染 / 等 GPU 落盘 / 镜像读回 / 等引擎闸）
         public double SumRender, SumFlush, SumMirror, SumGate;
 
-        public Channel(string name, int w, int h, int fps, bool transparent, bool subtitle, Device device, bool gpu)
+        public Channel(string name, int w, int h, int fps, bool transparent, Device device, bool gpu)
         {
             Name = name;
             W = Math.Max(64, w);
             H = Math.Max(64, h);
             IntervalMs = Math.Max(MinIntervalMs, 1000 / Math.Max(1, fps));
             Transparent = transparent;
-            Subtitle = subtitle;
             Device = device;
             Gpu = gpu;
-            if (!subtitle)
+            Renderer = new Renderer();
+            // 引擎内部中间面（scratch/trans/morph 等）默认走 CPU 面（稳健防 GC 终结器与 GPU 上下文冲突）。
+            // 若显式指定 JIZURA_GPU_SCRATCH=1 则实验性启用 GPU 中间面。
+            if (gpu && Environment.GetEnvironmentVariable("JIZURA_GPU_SCRATCH") is "1" or "on" or "true")
             {
-                Renderer = new Renderer();
-                // 引擎内部中间面（scratch/trans/morph 等）默认走 CPU 面（稳健防 GC 终结器与 GPU 上下文冲突）。
-                // 若显式指定 JIZURA_GPU_SCRATCH=1 则实验性启用 GPU 中间面。
-                if (gpu && Environment.GetEnvironmentVariable("JIZURA_GPU_SCRATCH") is "1" or "on" or "true")
-                {
-                    var host = GpuRasterHost.TryGet(out _);
-                    if (host != null) Renderer.SurfaceFactory = host.CreateGpuSurface;
-                }
+                var host = GpuRasterHost.TryGet(out _);
+                if (host != null) Renderer.SurfaceFactory = host.CreateGpuSurface;
             }
 
             Sender = new SpoutSender();

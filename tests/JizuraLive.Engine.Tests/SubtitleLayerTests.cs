@@ -1,4 +1,4 @@
-using JizuraLive.App.Cloud;
+﻿using JizuraLive.App.Cloud;
 using JizuraLive.Engine;
 using SkiaSharp;
 using Xunit;
@@ -12,6 +12,7 @@ namespace JizuraLive.Engine.Tests;
 /// 整行单色（同一行内输出与时刻无关）、配置项（内容模式/字号/底板/垂直偏移）生效。
 /// 画布底统一清成中灰 #808080：白字、黑描边、半透明黑底板都与之拉开可测的差。
 /// </summary>
+[Collection("EngineRegistry")]
 public class SubtitleLayerTests
 {
     private readonly ITestOutputHelper _out;
@@ -250,7 +251,7 @@ public class SubtitleLayerTests
     [Fact]
     public void 配置_只画注音行_主行不出画面()
     {
-        // 预览叠加与导出烤入用 mainLine:false：主歌词由引擎自己画（叠主行会重影），只画注音/翻译行
+        // 预览叠加用 mainLine:false：主歌词由引擎自己画（叠主行会重影），只画注音/翻译行
         var notesOnly = new SubtitleLayer(SampleLines(), Cfg(), Notes, mainLine: false);
         var r = Shot(notesOnly, 2.5);
         Assert.True(r.Stats.Drawn);

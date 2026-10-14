@@ -88,7 +88,7 @@ public static class StorageCleaner
         return count;
     }
 
-    /// <summary>清理云音乐下载（cloud\ 目录）：排除当前激活的音频与跟随状态（对齐偏移是用户手调的）。</summary>
+    /// <summary>清理云音乐下载（cloud\ 目录）：排除当前激活的音频。</summary>
     public static int ClearCloud(string? activeAudioPath = null)
     {
         var count = 0;
@@ -96,9 +96,6 @@ public static class StorageCleaner
         foreach (var file in Directory.EnumerateFiles(AppDirs.CloudDir, "*", SearchOption.AllDirectories))
         {
             if (IsSamePath(file, activeAudioPath)) continue;
-            var name = Path.GetFileName(file);
-            if (string.Equals(name, FollowController.CacheFileName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(name, FollowController.StateFileName, StringComparison.OrdinalIgnoreCase)) continue;
             try
             {
                 File.Delete(file);

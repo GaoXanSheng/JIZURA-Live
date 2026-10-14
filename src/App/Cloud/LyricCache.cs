@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using JizuraLive.Logging;
@@ -9,7 +9,7 @@ using Newtonsoft.Json.Linq;
 namespace JizuraLive.App.Cloud;
 
 /// <summary>
-/// 歌词落盘缓存（cloud\lyrics\{平台}_{歌曲身份}.json）：装载、版本切换、跟随匹配三处取词前都先查它。
+/// 歌词落盘缓存（cloud\lyrics\{平台}_{歌曲身份}.json）：装载与版本切换取词前都先查它。
 /// 歌词基本不会变，缓存不过期；「清理云缓存」递归删 cloud\ 时一并清掉。
 /// 键＝平台 + 歌曲身份（酷狗 Hash / 网易云 Id）；版本切换的候选词用单独的候选键空间（cand_…）。
 /// </summary>

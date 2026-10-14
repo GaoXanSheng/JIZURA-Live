@@ -1,11 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
-        <!-- windows10.0.19041.0：引入 WinRT 投影（Microsoft.Windows.SDK.NET.Ref），SMTC 读外部播放器进度用 -->
-        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <TargetFramework>net10.0-windows</TargetFramework>
         <RootNamespace>JizuraLive</RootNamespace>
-        <AssemblyName>JizuraLive</AssemblyName>
+        <AssemblyName>JizuraLivePV</AssemblyName>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWPF>true</UseWPF>
@@ -15,8 +14,8 @@
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
         <PublishDir>bin\publish\</PublishDir>
         <Version>3.2.6</Version>
-        <Product>JIZURA Live</Product>
-        <Description>JIZURA-live（pure C#，无 CEF）</Description>
+        <Product>JIZURA Live PV</Product>
+        <Description>JIZURA Live PV（专用于歌词 PV 与 VTS 虚拟角色特效联动工作台）</Description>
         <ApplicationIcon>assets\app.ico</ApplicationIcon>
         <!-- 自包含发布只带简中卫星资源：默认会把运行时全部语言目录（cs/de/es/...）打进去 -->
         <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
@@ -106,9 +105,9 @@
     </ItemGroup>
 
     <!-- ================= pure-csharp 重构说明 =================
-         3.0 纯 C# 版：无 CEF/无前端/无 EmbedIO。
-           - 渲染引擎：src/Engine（SkiaSharp，逐文件对位移植自原 frontend/src/engine，已全量完成）
-           - 导出：src/Export（FFmpeg 编码 + SkiaSharp PNG/ZIP）
-           - 编辑器 UI：WPF 原生（M2/M3 回归）
+         3.2 纯 C# 版：无 CEF/无前端/无 EmbedIO。
+           - 渲染引擎：src/Engine（SkiaSharp，逐文件对位移植自原 frontend/src/engine）
+           - PV 合成：src/Pv（多图层视差与光影合成）+ src/Spout（收发）+ src/Vts（VTube Studio 联动）
+           - UI：WPF 原生（PV 独立工作台）
          原 frontend/ 移植参照已删除（git 历史可溯；tools/parity 黄金值重生成需旧提交检出）。 -->
 </Project>

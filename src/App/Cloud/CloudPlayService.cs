@@ -83,14 +83,14 @@ public sealed class CloudPlayService : IDisposable
     public double Volume => App.SettingsOf()?.CloudVolume ?? 0.85;
     public bool Muted => App.SettingsOf()?.CloudMuted ?? false;
 
-    /// <summary>播放器模式：tick 把云链位置喂给引擎的跟随时钟（PV 跟着云歌走），并关掉反向仲裁
+    /// <summary>PV 跟随：tick 把云链位置喂给引擎的跟随时钟（PV 跟着云歌走），并关掉反向仲裁
     /// （引擎此时在跟随态，它的 IsPlaying 是跟随位，不代表工程音频在播）。</summary>
     public bool PlayerMode { get; set; }
 
-    /// <summary>起播前的钩子（播放器模式用它先把 PV 换成这首歌，再出声：画面与声音同时开始）。</summary>
+    /// <summary>起播前的钩子（PV 会话用它先把 PV 换成这首歌，再出声：画面与声音同时开始）。</summary>
     public Func<KgSong, Task>? BeforePlay { get; set; }
 
-    /// <summary>当前装载音质（播放器模式预取要用同一档，和试听保持一致）。</summary>
+    /// <summary>当前装载音质（PV 会话预取要用同一档，和试听保持一致）。</summary>
     public string Quality => _quality;
 
     /// <summary>队列里的下一首（预取用）；没有则 null。</summary>
@@ -335,7 +335,7 @@ public sealed class CloudPlayService : IDisposable
             return;
         }
         Tick?.Invoke();
-        // 播放器模式：把云链的进度喂给引擎的跟随时钟，PV 就跟着这首歌走（引擎不自己出声）
+        // PV 跟随：把云链的进度喂给引擎的跟随时钟，PV 就跟着这首歌走（引擎不自己出声）
         if (PlayerMode)
         {
             AnchorEngine();
@@ -349,7 +349,7 @@ public sealed class CloudPlayService : IDisposable
         }
     }
 
-    // ---------------- 引擎跟随时钟（播放器模式） ----------------
+    // ---------------- 引擎跟随时钟（PV 跟随） ----------------
 
     /// <summary>正常锚定：位置与播放态照抄云链（每拍一次）。</summary>
     private void AnchorEngine() => Engine?.FollowAnchor(_player.Position, _player.IsPlaying);

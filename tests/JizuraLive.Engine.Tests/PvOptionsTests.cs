@@ -36,7 +36,7 @@ public class PvOptionsTests
     [Fact]
     public void Legacy_Live_Block_Migrates_Into_Pv_And_Is_Not_Written_Back()
     {
-        var file = Path.Combine(AppDirs.ConfigDir, "settings.json");
+        var file = Settings.FilePath;
         var backup = File.Exists(file) ? File.ReadAllText(file) : null;
         try
         {
@@ -85,7 +85,7 @@ public class PvOptionsTests
     public void Legacy_Disabled_Live_Does_Not_Enable_Pv()
     {
         // 反向：老配置里外部输入是关着的 → 迁移不能把合成打开（否则用户升级后画面凭空多一路源）
-        var file = Path.Combine(AppDirs.ConfigDir, "settings.json");
+        var file = Settings.FilePath;
         var backup = File.Exists(file) ? File.ReadAllText(file) : null;
         try
         {

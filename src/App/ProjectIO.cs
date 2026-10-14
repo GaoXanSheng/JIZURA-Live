@@ -1,11 +1,6 @@
-using System.IO;
-using System.IO.Compression;
-using System.Security.Cryptography;
-using System.Text;
-using JizuraLive.App.I18n;
+﻿using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
-using JizuraLive.Server;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json.Serialization;
@@ -15,14 +10,10 @@ namespace JizuraLive.App;
 
 /// <summary>
 /// 工程持久化：mergeProject（不信任外部输入的合并清洗，逐条对位旧前端 project.ts）
-/// + autosave（%LOCALAPPDATA% 下的 autosave.json）+ 打开/保存。
-/// .jizuralive 容器写入（pkg.ts 移植）由 SavePackage 提供。
+/// + autosave（%LOCALAPPDATA% 下的 autosave.json，含启动恢复与退出兜底）。
 /// </summary>
 public static class ProjectIO
 {
-    public const string FileFilter =
-        "字面 Live 工程 (*.jizuralive)|*.jizuralive|工程 JSON (*.json)|*.json|全部|*.*";
-
     private static string AutosavePath => Path.Combine(AppDirs.ConfigDir, "autosave.json");
 
     private static Timer? _autosaveTimer;
@@ -100,21 +91,14 @@ public static class ProjectIO
         d.AudioName = p.Value<string>("audioName") ?? p.Value<string>("audio_name");
         d.AudioPath = p.Value<string>("audioPath") ?? p.Value<string>("audio_path");
 
-        // 音频特效（预览+导出共用）：不信任外部输入，统一清洗
+        // 音频特效（预览共用）：不信任外部输入，统一清洗
         d.AudioFx = AudioFx.SanitizeAudioFx(p["audioFx"] as JObject ?? new JObject());
 
         // keyBg 只认三态（plan 渲染读它做抠像底色）
         var keyBg = p.Value<string>("keyBg");
         d.KeyBg = keyBg is "green" or "black" ? keyBg : "off";
 
-        // 导出勾选：深拷贝并让 bgStyle 镜像 keyBg
-        d.ExportCfg = p["exportCfg"] is JObject ec ? DeepClone(ec) : null;
-        if (d.ExportCfg != null) d.ExportCfg["bgStyle"] = d.KeyBg;
-        // 老字段迁移：includeAudio=false → exportCfg.audio=false
-        if (d.ExportCfg != null && d.ExportCfg["audio"] == null && p["includeAudio"]?.Type == JTokenType.Boolean)
-            d.ExportCfg["audio"] = (bool)p["includeAudio"];
-
-        // 导出范围（选段）：{from,to} 0 基切分索引（对位 project.ts 的 exportRange）；
+        // 选段范围：{from,to} 0 基切分索引（对位 project.ts 的 exportRange）；
         // 形状不合法（非数值 / from < 0）直接丢 → null = 整片。越界 clamp 在 Ranges.ExportRangeCuts 里做。
         if (p["exportRange"] is JObject er && Ranges.TryInt(er["from"], out var erFrom) && erFrom >= 0)
             d.ExportRange = new JObject
@@ -262,7 +246,6 @@ public static class ProjectIO
         s.StartsWith('#') && s.Length is 4 or 7 or 9 &&
         s[1..].All(c => char.IsAsciiHexDigit(c));
 
-    private static JObject DeepClone(JObject o) => (JObject)o.DeepClone();
 
     // ---------------- autosave（project.ts 的 localStorage → %LOCALAPPDATA%） ----------------
 
@@ -323,176 +306,5 @@ public static class ProjectIO
         {
             Log.Debug("autosave 失败：" + ex.Message);
         }
-    }
-
-    // ---------------- 打开 / 保存 ----------------
-
-    /// <summary>打开 .jizuralive（全量恢复）或 .json（样式配置导入）。</summary>
-    public static Project Open(string path)
-    {
-        var bytes = File.ReadAllBytes(path);
-        if (JizuraPackage.LooksLikePackage(bytes.AsSpan()))
-        {
-            var entries = JizuraPackage.Read(bytes);
-            var pj = entries.FirstOrDefault(e => e.Name == "project.json")
-                     ?? throw new InvalidDataException(L.T("ProjectIO.Err.MissingProjectJson"));
-            var raw = JObject.Parse(Encoding.UTF8.GetString(pj.Data));
-            var project = MergeProject(raw);
-
-            // 包内音频裸存提取落盘
-            var audioEntry = entries.FirstOrDefault(e => e.Name == "audio.bin");
-            if (audioEntry != null && audioEntry.Data.Length > 0)
-            {
-                try
-                {
-                    Directory.CreateDirectory(AppDirs.AudioCacheDir);
-                    var rawName = !string.IsNullOrEmpty(project.AudioName) ? project.AudioName : "audio.mp3";
-                    var ext = Path.GetExtension(rawName);
-                    if (string.IsNullOrEmpty(ext)) ext = ".mp3";
-                    var safeBase = Path.GetFileNameWithoutExtension(rawName);
-                    // 基于音频内容哈希去重：同包同音频复用已有缓存，不再每次打开生成不同的随机 GUID 文件
-                    var hash = Convert.ToHexString(SHA256.HashData(audioEntry.Data))[..12].ToLowerInvariant();
-                    var cachedPath = Path.Combine(AppDirs.AudioCacheDir, $"{safeBase}_{hash}{ext}");
-                    if (!File.Exists(cachedPath) || new FileInfo(cachedPath).Length != audioEntry.Data.Length)
-                    {
-                        File.WriteAllBytes(cachedPath, audioEntry.Data);
-                        Log.Info($"[ProjectIO] 工程包音频已解包落盘：{cachedPath}");
-                    }
-                    else
-                    {
-                        Log.Info($"[ProjectIO] 工程包音频复用已有缓存：{cachedPath}");
-                    }
-                    project.AudioPath = cachedPath;
-                    if (string.IsNullOrEmpty(project.AudioName)) project.AudioName = rawName;
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("[ProjectIO] 工程包音频提取失败：" + ex.Message);
-                }
-            }
-
-            return project;
-        }
-        return MergeProject(JObject.Parse(Encoding.UTF8.GetString(bytes)));
-    }
-
-    /// <summary>
-    /// 保存 .jizuralive：pkg.ts 的容器写入移植（M3-A 代理落地：JZLV 头 + project.json(brotli) + 音频/字体裸存）。
-    /// 保存 .json：仅工程 JSON。
-    /// </summary>
-    public static void Save(Project p, string path, byte[]? audioFile, string? audioName)
-    {
-        if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-        {
-            // 样式配置导入用 JSON（camelCase，与 .jizuralive 内的 project.json 同口径）
-            var sw = new StringWriter();
-            ProjectSerializer.Serialize(sw, p);
-            AtomicFile.Write(path, sw.ToString());
-            return;
-        }
-        SavePackage(p, path, audioFile, audioName);
-    }
-
-    /// <summary>
-    /// .jizuralive 写入（pkg.ts 的 buildPackage/buildProjectPackage 移植）：
-    ///   "JZLV" | u16 version=1 | u16 entryCount | u32 reserved(0)   —— 头 16 字节
-    ///   每条目: u8 nameLen | name(UTF-8) | u8 codec(0=raw,1=brotli) | u64 rawSize | u64 packSize | u64 offset
-    ///   之后各条目负载连续排列，全部小端；offset 是文件内绝对偏移（首条目 = 头长）。
-    /// 条目：project.json（brotli；末尾附 app/appVersion 字段，对齐 pkg.ts 的 Object.assign）+ audio.bin（裸存，
-    /// 音频本体已是压缩格式不白费 CPU）。用户字体（fonts/&lt;key&gt;）随 M2 字体管线落盘后接入。
-    /// 写完先自校验：用读取端 JizuraPackage.Read 读回，断言 project.json/音频逐字节一致才落盘。
-    /// </summary>
-    public static void SavePackage(Project p, string path, byte[]? audioFile, string? audioName)
-    {
-        // project.json：全字段 + {app:'jizura-live', appVersion}（pkg.ts buildProjectPackage 同款，camelCase）
-        JObject proj;
-        if (p == null) proj = new JObject();
-        else lock (_serializerLock) proj = JObject.FromObject(p, ProjectSerializer);
-        SavePackageJson(proj, path, audioFile, audioName);
-    }
-
-    /// <summary>后台保存入口：调用方先在 UI 线程 SerializeProject 快照（活对象不能与编辑/重规划
-    /// 并发序列化），这里只做压缩/自校验/落盘。输出与 SavePackage 逐字节同口径。</summary>
-    public static void SaveSnapshot(string projectJson, string path, byte[]? audioFile, string? audioName)
-        => SavePackageJson(JObject.Parse(projectJson), path, audioFile, audioName);
-
-    private static void SavePackageJson(JObject proj, string path, byte[]? audioFile, string? audioName)
-    {
-        proj["app"] = "jizura-live";
-        proj["appVersion"] = typeof(ProjectIO).Assembly.GetName().Version?.ToString(3) ?? "";
-        var projBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(proj)); // 紧凑输出 = JSON.stringify
-
-        var entries = new List<(string Name, byte[] Data, bool Raw)> { ("project.json", projBytes, false) };
-        if (audioFile is { Length: > 0 }) entries.Add(("audio.bin", audioFile, true)); // audioName 仅作元数据，条目名固定（pkg.ts AUDIO_ENTRY_PREFIX + 'bin'）
-
-        using var ms = new MemoryStream();
-        using (var w = new BinaryWriter(ms, Encoding.UTF8, true))
-        {
-            w.Write((byte)'J'); w.Write((byte)'Z'); w.Write((byte)'L'); w.Write((byte)'V');
-            w.Write((ushort)JizuraPackage.LatestVersion);
-            w.Write((ushort)entries.Count);
-            w.Write(0u); // reserved（u32）
-            w.Write(0u); // 头部补齐到 16 字节（pkg.ts 的 head = Uint8Array(16)，12..16 四个字节恒 0；
-                         // 读取端 p=16 起解析条目，这里少 4 字节就会整体错位）
-
-            // 条目头 = nameLen(1) + name + codec(1) + rawSize(8) + packSize(8) + offset(8) = nameLen + 26
-            var headerLen = 16 + entries.Sum(e => 2 + Encoding.UTF8.GetByteCount(e.Name) + 24);
-            var payloads = new List<byte[]>(entries.Count);
-            long off = headerLen;
-            foreach (var (name, data, raw) in entries)
-            {
-                byte[] packed;
-                byte codec;
-                if (raw)
-                {
-                    codec = 0;
-                    packed = data;
-                }
-                else
-                {
-                    var src = new MemoryStream();
-                    using (var br = new BrotliStream(src, CompressionLevel.Optimal, true))
-                        br.Write(data, 0, data.Length);
-                    packed = src.ToArray(); // BrotliStream Dispose 已把收尾字节刷进 src
-                    codec = 1;
-                }
-
-                payloads.Add(packed);
-                var nameBytes = Encoding.UTF8.GetBytes(name);
-                w.Write((byte)nameBytes.Length);
-                w.Write(nameBytes);
-                w.Write(codec);
-                w.Write((ulong)data.LongLength);
-                w.Write((ulong)packed.LongLength);
-                w.Write((ulong)off);
-                off += packed.LongLength;
-            }
-
-            foreach (var pl in payloads) w.Write(pl);
-        }
-
-        var bytes = ms.ToArray();
-
-        // 自校验：读取端逐字节断言（project.json 原文一致 + JSON 可解析 + 音频一致），不合格不落盘
-        var back = JizuraPackage.Read(bytes);
-        var backPj = back.FirstOrDefault(e => e.Name == "project.json")
-                     ?? throw new InvalidDataException(L.T("ProjectIO.Err.Verify.MissingProjectJson"));
-        if (!backPj.Data.AsSpan().SequenceEqual(projBytes))
-            throw new InvalidDataException(L.T("ProjectIO.Err.Verify.ProjectJsonMismatch"));
-        JObject.Parse(Encoding.UTF8.GetString(backPj.Data));
-        if (audioFile is { Length: > 0 })
-        {
-            var backAudio = back.FirstOrDefault(e => e.Name == "audio.bin");
-            if (backAudio == null || !backAudio.Data.AsSpan().SequenceEqual(audioFile))
-                throw new InvalidDataException(L.T("ProjectIO.Err.Verify.AudioMismatch"));
-        }
-
-        // 原子落盘（AtomicFile 只有文本重载，字节版就地内联：tmp → 覆盖改名；不用 File.Replace，原因见 AtomicFile）
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var tmp = path + ".tmp";
-        File.WriteAllBytes(tmp, bytes);
-        File.Move(tmp, path, overwrite: true);
-        Log.Info($"[ProjectIO] 工程包已保存：{path}（{entries.Count} 条目，{bytes.Length} 字节，自校验通过）");
     }
 }

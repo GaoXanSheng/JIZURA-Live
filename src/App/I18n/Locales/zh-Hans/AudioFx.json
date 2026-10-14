@@ -1,9 +1,9 @@
-{
+﻿{
   "AudioFx.Title": "音频效果",
   "AudioFx.Close": "关闭",
   "AudioFx.Preset.TipFmt": "套用预设：{0}",
   "AudioFx.Speed": "变速",
-  "AudioFx.Speed.Tip": "播放速度倍率（0.5–2 倍）：改变歌曲时长，歌词与节拍按歌曲原时刻自动跟随；预览与导出同时生效",
+  "AudioFx.Speed.Tip": "播放速度倍率（0.5–2 倍）：改变歌曲时长，歌词与节拍按歌曲原时刻自动跟随；改即生效",
   "AudioFx.Speed.ValueFmt": "×{0}",
   "AudioFx.Key": "升降调",
   "AudioFx.Key.Tip": "整首歌升降调（不改速度/时长，歌词时间轴不变）：负值降调、正值升调；等价于链上的「音调」单元，两处同步",
@@ -11,7 +11,7 @@
   "AudioFx.AddPlaceholder": "添加效果…",
   "AudioFx.Add": "添加",
   "AudioFx.Empty": "链上没有效果——从上面挑个预设，或在下方添加效果单元自由组合。",
-  "AudioFx.Note": "效果按顺序串联，↑↓ 调整先后（顺序影响听感）；预览与导出 MP4/WAV 同时生效。变速改变歌曲时长，歌词与节拍自动跟随；混响等需要噪声的效果用固定种子，导出与预览逐样本一致。",
+  "AudioFx.Note": "效果按顺序串联，↑↓ 调整先后（顺序影响听感），改即生效。变速改变歌曲时长，歌词与节拍自动跟随；混响等需要噪声的效果用固定种子，每次播放听感一致。",
   "AudioFx.Eq.Flat": "平直",
   "AudioFx.Eq.Custom": "自定义曲线",
   "AudioFx.Dur.MinSecFmt": "{0}分{1}秒",
@@ -27,6 +27,5 @@
   "AudioFx.Mutate.Move": "音频效果：调整顺序",
   "AudioFx.Mutate.Param": "音频效果：{0}",
   "AudioFx.Mutate.Eq": "音频效果：EQ 曲线",
-  "AudioFx.Mutate.Speed": "音频效果：变速 {0}",
   "AudioFx.Mutate.Key": "音频效果：升降调 {0}"
 }

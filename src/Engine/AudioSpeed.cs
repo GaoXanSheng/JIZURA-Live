@@ -1,7 +1,7 @@
-// 变速（对位 WebAudio 的 playbackRate，以及 JS 导出里的 `spd`）：
-// 预览与导出共用一个样本级实现——JS 版靠 AudioBufferSourceNode.playbackRate / OfflineAudioContext
+﻿// 变速（对位 WebAudio 的 playbackRate，以及 JS 时代的 `spd`）：
+// 预览共用一个样本级实现——JS 版靠 AudioBufferSourceNode.playbackRate / OfflineAudioContext
 // 的 src.playbackRate 实现「时长 ÷speed、音调同升」，C# 版此前用「重采样到 48000/speed 再交给
-// WaveOut」的把戏（依赖设备/文件头按降下来的采样率播放，导出侧更是完全没接）。这里补成显式实现：
+// WaveOut」的把戏（依赖设备/文件头按降下来的采样率播放，原本也完全没接）。这里补成显式实现：
 // 输出恒为上游采样率（两条链都已统一到 48000），按 speed 倍率向上游索取样本、线性插值，
 // 于是同一段内容在 48000 下占用的时间变成 1/speed，设备/编码器都不需要配合。
 

@@ -1,4 +1,4 @@
-using Newtonsoft.Json.Linq;
+﻿using Newtonsoft.Json.Linq;
 using SkiaSharp;
 
 namespace JizuraLive.Engine;
@@ -10,7 +10,7 @@ namespace JizuraLive.Engine;
 public sealed class Env
 {
     // ---------------- 每线程共享 Skia 对象（性能：SKPaint/SKPath 每帧几百次的 new 会灌满 finalizer 队列） ----------------
-    // 线程本地：预览泵/导出可同进程多线程渲染，共享实例不得跨线程互踩。
+    // 线程本地：预览泵可同进程多线程渲染，共享实例不得跨线程互踩。
     // 使用规矩：取出的 paint/path 只在当次 Draw 调用内有效（Draw 同步消费），用完即改属性复用；
     // 绝不 Dispose 缓存实例；带 Shader 的绘制用完必须置回 null（免 shader 被 paint 拖住不释放）。
     [ThreadStatic] private static SKPaint? _paint;
@@ -157,7 +157,7 @@ public sealed class Env
 
     // ---- 渲染器管理的内部标记（JS env.layer/hideText/allowFilter/glyphLog；09_render 移植时由渲染器写入） ----
 
-    /// <summary>透過PNG 分层导出：'back' = 背景图+歌词后面的装饰，'front'/'null' = 其余。</summary>
+    /// <summary>分层渲染（RenderOpts.Layer）：'back' = 背景图+歌词后面的装饰，'front'/'null' = 其余。</summary>
     public string? Layer { get; set; }
 
     /// <summary>env.hideText：morph 抓取期间只记不画。</summary>

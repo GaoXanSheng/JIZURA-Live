@@ -1,17 +1,17 @@
-// 移植自 frontend/src/engine/10b_audiofx.js
+﻿// 移植自 frontend/src/engine/10b_audiofx.js
 //
 // 音频特效系统 v2：效果器架（多效果串联）+ 预设包 + 变速。
 // WebAudio 的 AudioContext / OfflineAudioContext 双语境在这里统一为一个样本级 DSP 图：
-// 全部单元都是 NAudio ISampleProvider（立体声 float 交错），实时播放与导出离线渲染
+// 全部单元都是 NAudio ISampleProvider（立体声 float 交错），实时播放渲染
 // 走同一条 Build → Read 代码路径，天然逐样本一致——JS 版靠种子随机（mulberry32）
-// 保证 LFO / 混响 IR 在预览与导出一致，C# 版同构保留（J.Rng 已位级对拍）。
+// 保证 LFO / 混响 IR 在预览一致，C# 版同构保留（J.Rng 已位级对拍）。
 //
 // 对位关系：
 //   J.AUDIO_EQ_BANDS               → AudioFx.EqBands
 //   J.AFX_UNITS[id]                → AudioFx.Units[id]（FxUnitDef：label/note/params schema/defaults/build）
 //   J.AFX_PRESETS                  → AudioFx.Presets（FxPreset：id/label/cfg）
 //   J.sanitizeAudioFx              → AudioFx.SanitizeAudioFx（含 v1 preset → v2 units 迁移，逐行对齐）
-//   J.fxSpeed(project)             → AudioFx.FxSpeed(project)（不进 DSP 图：由播放/导出两端缩放时长，与 JS 一致）
+//   J.fxSpeed(project)             → AudioFx.FxSpeed(project)（不进 DSP 图：由播放端缩放时长，与 JS 一致）
 //   J.buildAudioFx(ctx, cfg, opts) → AudioFx.Build(cfg, opts) → FxGraph?（units 全空 → null，不建图直通）
 //
 // WebAudio 节点 → 自实现 DSP 原语：
@@ -44,7 +44,7 @@ public static class AudioFx
     /// <summary>EQ 频点（Hz），7 段 peaking。</summary>
     public static readonly double[] EqBands = { 60, 150, 400, 1000, 2400, 6000, 15000 };
 
-    /// <summary>程序化混响 IR 的固定种子（JS makeIR 默认值），预览与导出同 IR。</summary>
+    /// <summary>程序化混响 IR 的固定种子（JS makeIR 默认值），预览同 IR。</summary>
     public const uint IrSeed = 20261004;
 
     private static Dictionary<string, FxUnitDef>? _units;
@@ -91,7 +91,7 @@ public static class AudioFx
         };
         u["reverb"] = new FxUnitDef
         {
-            Id = "reverb", Label = "混响", Note = "程序化房间脉冲响应（无外部文件），种子固定保证导出一致",
+            Id = "reverb", Label = "混响", Note = "程序化房间脉冲响应（无外部文件），种子固定保证每次播放听感一致",
             Params = new List<FxParamDef>
             {
                 P("size", "空间", 0.3, 6, 0.1, 2.2, "秒"),
@@ -335,7 +335,7 @@ public static class AudioFx
 
     // ---------------- 变速倍率（J.fxSpeed；不进 DSP 图） ----------------
 
-    /// <summary>播放/导出两端的时长缩放（歌词/节拍仍按歌曲原时刻）。</summary>
+    /// <summary>播放端的时长缩放（歌词/节拍仍按歌曲原时刻）。</summary>
     public static double FxSpeed(Project? project)
     {
         var fx = project?.AudioFx;
@@ -346,7 +346,7 @@ public static class AudioFx
     public static double FxSpeedOf(JObject? fx)
         => AfxMath.Cmp(AfxMath.Num(fx?["speed"], double.NaN), 0.5, 2, 1);
 
-    // ---------------- 链式构建：预览与导出共用（J.buildAudioFx） ----------------
+    // ---------------- 链式构建：预览共用（J.buildAudioFx） ----------------
 
     /// <summary>构建特效 DSP 图。与 JS 同语义：空链返回 null（不建图直通）；on:false 的单元跳过但图仍在。</summary>
     public static FxGraph? Build(JObject? cfg, FxBuildOpts? opts = null)
@@ -531,7 +531,7 @@ public static class AudioFx
     /// <summary>
     /// reverb：程序化 IR（种子固定）卷积 + 低通定湿声音色，干声直通。
     /// JS 图：input→dry(1)→output；input→conv→tone(lowpass)→wet→output。
-    /// 卷积用 2048 样本分块 FFT（重叠保留），湿声带一个块的固有延迟（听感无差，预览/导出一致）。
+    /// 卷积用 2048 样本分块 FFT（重叠保留），湿声带一个块的固有延迟（听感无差，预览一致）。
     /// </summary>
     private sealed class ReverbUnit : UnitBase
     {
@@ -910,7 +910,7 @@ public sealed class FxRenderContext
 
     public int SampleRate { get; }
 
-    /// <summary>LFO 锚点（秒）：预览可传当前时钟对齐墙钟；导出缺省 0（对齐 11_export 不传 anchorT）。</summary>
+    /// <summary>LFO 锚点（秒）：预览可传当前时钟对齐墙钟；缺省 0（对齐 11_export 不传 anchorT）。</summary>
     public double AnchorT { get; }
 }
 
@@ -983,7 +983,7 @@ public sealed class FxInlet : ISampleProvider
     }
 }
 
-// ---------------- DSP 原语（internal，预览/导出共用，可被测试工程引用） ----------------
+// ---------------- DSP 原语（internal，预览共用，可被测试工程引用） ----------------
 
 /// <summary>JS clamp(v, a, b, d)：非有限数值回落默认值。</summary>
 internal static class AfxMath
@@ -1155,7 +1155,7 @@ internal sealed class AfxDelay
 
 /// <summary>
 /// 程序化脉冲响应：指数衰减白噪声 + 单极点低通阻尼（对齐 10b 的 makeIR）。
-/// 无外部文件，种子固定 → 预览与导出同 IR。注意随机流跨声道共用一个实例（同 JS）。
+/// 无外部文件，种子固定 → 预览同 IR。注意随机流跨声道共用一个实例（同 JS）。
 /// </summary>
 internal static class AfxIr
 {
@@ -1181,7 +1181,7 @@ internal static class AfxIr
             // 单位能量归一化（1/√(Σh²)）：浏览器 ConvolverNode 默认 normalize=true 会做这层缩放，
             // 它属于节点而非 makeIR 代码——移植时漏掉后湿声功率增益 ≈43×（-32dB 误差），
             // 混响直接淹没干声并削波轰鸣（实测 wet=1 时 Σy²=1843）。补回后白噪声输入下
-            // 湿声 RMS ≈ 输入 RMS，混响量由 wet 参数掌控；预览与导出同一条 Make，行为一致。
+            // 湿声 RMS ≈ 输入 RMS，混响量由 wet 参数掌控；预览同一条 Make，行为一致。
             var power = 0.0;
             for (var i = 0; i < len; i++) power += (double)buf[i] * buf[i];
             if (power > 1e-9)
@@ -1478,7 +1478,7 @@ internal sealed class AfxFft
 /// <summary>
 /// 均匀分块 FFT 卷积（重叠保留法）：IR 按 2048 切片预变换，逐块 1 次正/逆 FFT + P 次谱乘。
 /// 直接 O(n·m) 在 2s+ IR 下不可行（≈10⁹ MAC/s），故上 FFT；输出相对输入固有延迟一个块
-/// （≈43ms@48k，混响湿声听感无差，且预览/导出同路径一致）。单声道实例，立体声各建一个。
+/// （≈43ms@48k，混响湿声听感无差，且预览同路径一致）。单声道实例，立体声各建一个。
 /// </summary>
 internal sealed class AfxConvolver
 {

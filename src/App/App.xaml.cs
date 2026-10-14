@@ -2,7 +2,6 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using JizuraLive.App.I18n;
-using JizuraLive.App.Mcp;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Server;
@@ -14,9 +13,8 @@ public partial class App : Application
     [DllImport("shell32.dll", SetLastError = true)]
     private static extern void SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
 
-    private const string MutexName = "JizuraLive_SingleInstance";
+    private const string MutexName = "JizuraLivePV_SingleInstance";
     private Mutex? _mutex;
-    private McpHttpServer? _server;
     private Settings? _settings;
 
     private bool _startupComplete;
@@ -35,7 +33,7 @@ public partial class App : Application
         int self = Environment.ProcessId;
         try
         {
-            return Process.GetProcessesByName("JizuraLive").Any(p => p.Id != self && !p.HasExited);
+            return Process.GetProcessesByName("JizuraLivePV").Any(p => p.Id != self && !p.HasExited);
         }
         catch (Exception ex)
         {
@@ -51,7 +49,7 @@ public partial class App : Application
         try
         {
             // Windows 任务栏应用分组与图标关联：指定显式 AUMID，防止无边框窗口被判定为通用无图标应用
-            SetCurrentProcessExplicitAppUserModelID("JizuraLive.App");
+            SetCurrentProcessExplicitAppUserModelID("JizuraLivePV.App");
         }
         catch { }
 
@@ -93,18 +91,6 @@ public partial class App : Application
                 main.State.ReplanAsync();
             });
 
-            // MCP：18 工具直调 EditorState（无页面桥）；窗口先建好（State/Plan 就绪）再起端点
-            McpTools.Current = new McpTools(main.State, main.Preview);
-            _server = McpHttpServer.Start(McpTools.Current);
-            if (_server == null)
-            {
-                Log.Error("MCP 服务启动失败：端口 8642~8651 都被占用。");
-                Shutdown(-2);
-                return;
-            }
-
-            Log.Info($"MCP 就绪：http://127.0.0.1:{_server.Port}/mcp（/api 已随 EmbedIO 移除）");
-
             main.Show();
             _startupComplete = true;
         }
@@ -143,9 +129,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        Log.Info("================ JIZURA Live 退出 ================");
+        Log.Info("================ JIZURA Live PV 退出 ================");
         Settings.FlushPending(); // 退出兜底：音量/消音等防抖窗口内未落盘的设置同步写掉
-        _server?.Dispose();
         _mutex?.Dispose();
         Log.Shutdown();
         base.OnExit(e);

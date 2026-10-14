@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d">
-    <!-- 播放器模式的"正在播放"控制块（对位酷狗音乐歌曲页的排布）：
+    <!-- 舞台下方的"正在播放"控制块（对位酷狗音乐歌曲页的排布）：
          紧贴画面下方的进度条 → 控制键行（上/播/下 + 时间 + 队列 + 操作）→ 大字歌名 → 歌手/meta。
          数据源是 CloudPlayService（与底部常驻条同一个会话），自己不持有播放状态。 -->
     <UserControl.Resources>
@@ -76,7 +76,7 @@
         <Grid x:Name="BarProg" Height="16" Background="Transparent" Cursor="Hand"
               MouseLeftButtonDown="Prog_Down" MouseMove="Prog_Move" MouseLeftButtonUp="Prog_Up"
               LostMouseCapture="Prog_LostCapture" SizeChanged="Prog_SizeChanged"
-              ToolTip="{DynamicResource Loc.Transport.Progress.Tip}">
+              ToolTip="{DynamicResource Loc.Cloud.Progress.Tip}">
             <Border Style="{StaticResource BarTrack}">
                 <Border x:Name="ProgFill" Style="{StaticResource BarFill}">
                     <Border.RenderTransform>
@@ -126,9 +126,6 @@
                 <Button x:Name="BtnPick" Content="{DynamicResource Loc.Cloud.WindowTitle}"
                         Style="{StaticResource BtnGhost}" Padding="12,4" FontSize="12"
                         Click="BtnPick_Click" ToolTip="{DynamicResource Loc.Cloud.PlayerPickTip}" />
-                <Button x:Name="BtnLoadToEditor" Content="{DynamicResource Loc.Cloud.PlayerLoadToEditor}"
-                        Style="{StaticResource BtnPrimary}" Padding="12,4" FontSize="12" Margin="8,0,0,0"
-                        Click="BtnLoadToEditor_Click" ToolTip="{DynamicResource Loc.Cloud.PlayerLoadToEditorTip}" />
             </StackPanel>
         </Grid>
 

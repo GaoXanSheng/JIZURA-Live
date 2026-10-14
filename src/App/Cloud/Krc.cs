@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,7 +14,7 @@ public sealed record KrcLine(long StartMs, long DurMs, string Text, IReadOnlyLis
 
 /// <summary>
 /// 酷狗 KRC 解密与解析，对位 frontend/src/cloud/krc.ts（逐字节同算法）：
-/// 解密（krc1 魔数 + 16 字节 key 循环异或 + zlib inflate）→ 逐字时间轴解析（跟随模式高亮用）
+/// 解密（krc1 魔数 + 16 字节 key 循环异或 + zlib inflate）→ 逐字时间轴解析（字幕逐字高亮用）
 /// → JIZURA 语法的 LRC 生成（音译/翻译注音随行）。
 /// 另含网易云 LRC 的展开/重建（neParseLrc / neBuildLrc）。
 /// 纯逻辑，无 IO 无 UI——KRC 加密样例的可 roundtrip 构造在 CloudTests 里。
@@ -54,7 +54,7 @@ public static class Krc
         }
     }
 
-    // ---------------- 逐字时间轴解析（跟随模式高亮用） ----------------
+    // ---------------- 逐字时间轴解析（字幕逐字高亮用） ----------------
 
     private static readonly Regex ReTimed = new(@"^\[(\d+),(\d+)\](.*)$", RegexOptions.Compiled);
     private static readonly Regex ReWord = new(@"<(\d+),(\d+),\d+>", RegexOptions.Compiled);

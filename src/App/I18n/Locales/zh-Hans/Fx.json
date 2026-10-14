@@ -1,9 +1,9 @@
-{
+﻿{
   "Fx.Unify": "统一感",
   "Fx.Typeset": "文字排列",
   "Fx.Flash": "闪光",
   "Fx.Koma": "抽帧",
-  "Fx.Koma.Tip": "动效每秒画多少张（与导出 fps 无关）",
+  "Fx.Koma.Tip": "动效每秒画多少张（与渲染帧率无关）",
   "Fx.Koma.Full": "全帧（同输出 fps）",
   "Fx.Koma.Threes": "一拍三（8 张/秒）",
   "Fx.Koma.Twos": "一拍二（12 张/秒）",

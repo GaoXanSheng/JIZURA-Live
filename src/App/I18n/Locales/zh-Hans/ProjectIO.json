@@ -1,6 +1,0 @@
-{
-  "ProjectIO.Err.MissingProjectJson": "工程包缺 project.json",
-  "ProjectIO.Err.Verify.MissingProjectJson": "自校验失败：写出的工程包缺 project.json",
-  "ProjectIO.Err.Verify.ProjectJsonMismatch": "自校验失败：project.json 读回与原文不一致",
-  "ProjectIO.Err.Verify.AudioMismatch": "自校验失败：audio.bin 读回与原文不一致"
-}

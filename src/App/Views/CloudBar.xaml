@@ -1,4 +1,4 @@
-<UserControl x:Class="JizuraLive.App.Views.CloudBar"
+﻿<UserControl x:Class="JizuraLive.App.Views.CloudBar"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:JizuraLive.App.Controls"
@@ -115,7 +115,7 @@
             <Grid x:Name="BarProg" Grid.Column="3" Height="24" Margin="10,0" Background="Transparent"
                   Cursor="Hand" MouseLeftButtonDown="Prog_Down" MouseMove="Prog_Move"
                   MouseLeftButtonUp="Prog_Up" LostMouseCapture="Prog_LostCapture"
-                  SizeChanged="Prog_SizeChanged" ToolTip="{DynamicResource Loc.Transport.Progress.Tip}">
+                  SizeChanged="Prog_SizeChanged" ToolTip="{DynamicResource Loc.Cloud.Progress.Tip}">
                 <Border Style="{StaticResource BarTrack}">
                     <Border x:Name="ProgFill" Style="{StaticResource BarFill}">
                         <Border.RenderTransform>

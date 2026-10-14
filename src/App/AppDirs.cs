@@ -6,12 +6,14 @@ namespace JizuraLive.App;
 // 设置和登录态每发一版丢一次
 public static class AppDirs
 {
-    /// <summary>数据根目录。JIZURA_DATA_DIR 可重定向——测试进程必须指向临时目录：
+    /// <summary>数据根目录。JIZURA_PV_DATA_DIR / JIZURA_DATA_DIR 可重定向——测试进程必须指向临时目录：
     /// 测试曾经直接读写用户的真实 autosave（工程被覆盖成测试标题，userFonts 被灌成百万条）。</summary>
     public static string Root { get; } =
-        Environment.GetEnvironmentVariable("JIZURA_DATA_DIR") is { Length: > 0 } dir
-            ? dir
-            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLive");
+        Environment.GetEnvironmentVariable("JIZURA_PV_DATA_DIR") is { Length: > 0 } pvDir
+            ? pvDir
+            : Environment.GetEnvironmentVariable("JIZURA_DATA_DIR") is { Length: > 0 } dir
+                ? dir
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLivePV");
 
     public static string ConfigDir => Path.Combine(Root, "config");
     public static string LogsDir => Path.Combine(Root, "logs");

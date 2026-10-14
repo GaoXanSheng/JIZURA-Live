@@ -4,7 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              mc:Ignorable="d">
-    <!-- 播放器模式的左侧歌单栏（对位酷狗音乐歌曲页左边的"我的歌单"）：
+    <!-- 左侧歌单栏（对位酷狗音乐歌曲页左边的"我的歌单"）：
          点歌单 = 整单从第一首播；点左边的小箭头 = 展开曲目（懒加载）；点曲目 = 从这首开始播。
          封面走同一份 CoverCache（内存 + 磁盘），与云音乐面板共用。 -->
     <UserControl.Resources>
@@ -42,6 +42,36 @@
             <Setter Property="Padding" Value="6,3" />
             <Setter Property="Foreground" Value="{StaticResource Mut}" />
         </Style>
+        <!-- 登录按钮：未登录=琥珀主按钮「登录」（点开扫码）；已登录=幽灵底显示昵称（点开账号页可退出/换号） -->
+        <Style x:Key="LoginBtn" TargetType="Button">
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="9,0" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Foreground" Value="{StaticResource PrimaryInk}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{StaticResource Amber}" CornerRadius="6"
+                                Padding="{TemplateBinding Padding}" MaxWidth="150">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag" Value="on">
+                                <Setter TargetName="bd" Property="Background" Value="Transparent" />
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                                <Setter TargetName="bd" Property="BorderThickness" Value="1" />
+                                <Setter Property="Foreground" Value="{StaticResource Fg}" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.82" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Border Background="{StaticResource Panel}">
@@ -53,8 +83,13 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="14,12,14,8">
-                    <TextBlock Text="{DynamicResource Loc.Cloud.NavPlaylists}" FontSize="13" FontWeight="SemiBold"
-                               Foreground="{StaticResource Fg}" />
+                    <Grid>
+                        <TextBlock Text="{DynamicResource Loc.Cloud.NavPlaylists}" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Fg}" VerticalAlignment="Center" />
+                        <!-- 登录按钮：未登录=「登录」（一键扫码），已登录=昵称（点开账号页） -->
+                        <Button x:Name="BtnLogin" Style="{StaticResource LoginBtn}"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Click="BtnLogin_Click" />
+                    </Grid>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                         <Button x:Name="BtnKg" Content="{DynamicResource Loc.Cloud.SourceKugou}"
                                 Style="{StaticResource SegBtn}" Tag="on" Margin="0,0,6,0" Click="BtnSource_Click" />

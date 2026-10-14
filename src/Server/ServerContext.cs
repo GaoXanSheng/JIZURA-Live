@@ -1,7 +1,6 @@
 using System.IO;
 using JizuraLive.Server.KuGou;
 using JizuraLive.Server.Netease;
-using JizuraLive.Server.Smtc;
 
 namespace JizuraLive.Server;
 
@@ -33,8 +32,6 @@ internal static class ServerContext
     public static KuGouClient KuGou { get; } = new();
 
     public static NeteaseClient Netease { get; } = new();
-
-    public static SmtcService Smtc { get; } = new();
 
     public static string? MimeOf(string path)
     {

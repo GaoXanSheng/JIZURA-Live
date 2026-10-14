@@ -36,33 +36,19 @@ public partial class MainWindow : Window
     /// <summary>编辑器单一事实源（面板经 App.Main.State 访问）。</summary>
     public EditorState State { get; }
 
-    /// <summary>SMTC 跟随外部播放器（M6；云音乐面板与 TopBar 的「跟随」开关都驱动它）。</summary>
-    public FollowController Follow { get; }
-
-    /// <summary>导出进行中：预览渲染泵让路（编码线程优先吃引擎闸）。</summary>
-    public volatile bool ExportBusy;
     public PreviewEngine Preview => _preview;
     public SpoutOut Spout => _spout;
 
     /// <summary>云试听播放会话（队列 + 独立播放链；面板与底部常驻条都操作它）。</summary>
     public CloudPlayService Cloud => _cloud;
 
-    /// <summary>播放器模式会话（PV 跟着云歌单渲染；进模式快照工程、退出还原）。
-    /// 播放器与 PV 两个模式共用它——都是「跟着云歌单出 PV」的场景。</summary>
+    /// <summary>PV 会话（PV 跟着云歌单渲染；启动快照工程，会话文件用于异常退出还原）。</summary>
     public CloudPlayerSession Player => _player;
 
     /// <summary>VTube Studio 插件 API（模型取景 + 热键；VTS 没开时自己退避重连，不影响别处）。</summary>
     public VtsApi Vts => _vts;
 
-    private AppMode _mode = AppMode.Editor;
-
-    /// <summary>当前模式（三套布局的开关）。</summary>
-    public AppMode Mode => _mode;
-
-    /// <summary>当前是不是播放器模式。</summary>
-    public bool PlayerMode => _mode == AppMode.Player;
-
-    // PV 模式的推流状态条（1s 刷新，只在 PV 模式跑）
+    // 推流状态条（1s 刷新：源连接数 + 输出通道）
     private System.Windows.Threading.DispatcherTimer? _pvStatusTimer;
 
     // 引擎渲染挪到专用后台线程（乒乓双面）：M2b/c 烟雾实测「koma=12 真渲染 ~24 次/s 每次 ~40ms」
@@ -119,8 +105,6 @@ public partial class MainWindow : Window
     private readonly SKPaint _mirrorPaint = new() { IsAntialias = false };
     // 舞台尺寸缓存（UI SizeChanged 写，渲染线程读——每帧 Dispatcher.Invoke 会白烧调度器）
     private volatile int _stageWpx, _stageHpx;
-    // 留白指引框的显示几何（当前帧的纹理尺寸 + 画幅区位置，设备像素；UI 线程写读）
-    private int _guideTexW, _guideTexH, _guidePlanX, _guidePlanY, _guidePlanW, _guidePlanH;
     // 脏检查：暂停且 t/plan 没变就跳过重绘（暂停态省 ~96% CPU）
     private double _lastRT = -1;
     private long _lastRV = -1;
@@ -157,12 +141,10 @@ public partial class MainWindow : Window
         _settings = settings;
         App.MainInstance = this;
         // 字幕层样式：上次退出时的档位（对位旧前端 localStorage 的 jizura.kgsub 记忆恢复；
-        // 灌的是同一份共享实例——预览叠加/导出烤入/Spout 字幕通道都读它）
+        // 灌的是同一份共享实例——预览叠加/Spout 主通道字幕都读它）
         _preview.SubtitleCfg.CopyFrom(settings.Subtitle);
         State = new EditorState(_preview);
-        State.StateChanged += () => Dispatcher.Invoke(UpdateStatusText);
-        Follow = new FollowController(Dispatcher, State);
-        // 云试听会话的跟随时钟写入端（播放器模式）：给它真引擎，别让它去摸 App.MainInstance 全局
+        // 云试听会话的跟随时钟写入端：给它真引擎，别让它去摸 App.MainInstance 全局
         _cloud.Engine = _preview;
         // 预览音量/消音：上次退出时的档位（对位旧前端 jizura.previewVolume 的记忆恢复）
         _preview.SetVolume(settings.PreviewVolume, settings.PreviewMuted);
@@ -200,7 +182,6 @@ public partial class MainWindow : Window
         {
             _stageWpx = (int)e2.NewSize.Width;
             _stageHpx = (int)e2.NewSize.Height;
-            UpdateCenterGuide(); // 舞台缩放 → 留白指引框跟着重定位
         };
         // 可见性缓存（同理由：渲染线程每帧读，不碰 Dispatcher）：最小化/隐藏时预览泵整个停帧
         Stage.IsVisibleChanged += (_, _) => _stageShown = Stage.IsVisible;
@@ -253,8 +234,13 @@ public partial class MainWindow : Window
         _uiProbe.Start();
         UiStallProbe.Start();
 
-        UpdateStatusText();
-        Right.SetMode(_mode); // 确保启动时根据模式初始化右栏（常规编辑器模式不渲染 PV 设置）
+        // 上次异常退出遗留的会话快照：先把工程还原回来，再进 PV 会话（否则 Enter 的新快照会把它盖掉）
+        _player.RecoverLeftoverIfAny();
+        // JIZURA Live PV：启动即进入 PV 舞台会话（云歌单驱动，跟随态引擎），右栏常驻 PV 控制台
+        _player.Enter();
+        Right.ShowTab("pv");
+        StartPvStatus();
+        RefreshPlayerOverlay();
         // 默认打开为暂停状态（暂停态泵出第一帧后空转，不抢占 CPU/GPU；用户主动点播放或按空格才开跑）
 
         Loaded += (_, _) =>
@@ -264,8 +250,6 @@ public partial class MainWindow : Window
                 StartSpout();
             // VTS 插件 API：连不上（VTS 没开）就静默退避重连，PV 面板里能看到状态
             _vts.Start();
-            // 上次播放器模式异常退出：把用户工程从会话快照里还原回来（autosave 里是云歌工程）
-            if (_player.RecoverLeftoverIfAny()) RefreshPlayerOverlay();
             // 后台自愈清理临时文件、重复音频与超期日志
             StorageCleaner.AutoCleanupAsync(State.AudioPath);
         };
@@ -282,8 +266,6 @@ public partial class MainWindow : Window
     private unsafe void PresentStage()
     {
         Interlocked.Exchange(ref _presentPending, 0);
-        var frameW = 0;
-        var frameH = 0;
         lock (_displayLock)
         {
             var seq = _displaySeq;
@@ -320,62 +302,11 @@ public partial class MainWindow : Window
             }
 
             _presentedSeq = seq;
-            frameW = w;
-            frameH = h;
         }
         // CPU 帧的字幕已烤进舞台位图：清掉 GPU 直显分支留下的覆盖层（模式切换/镜像兜底时），
         // 否则会与位图里的字幕重影
         if (StageOverlay.Source != null) StageOverlay.Source = null;
-        // 这一帧整幅就是画幅（无出边 letterbox）：留白指引框按它算
-        SetGuideGeometry(frameW, frameH, 0, 0, frameW, frameH);
         // AddDirtyRect 已通知 WPF D3D 合成管道刷新硬件纹理，无需再调用 InvalidateVisual 触发整树重复测量
-    }
-
-    // ---------------- 留白指引框（编辑器预览专用，不入 Spout 与导出） ----------------
-
-    /// <summary>当前预览帧的显示几何：纹理尺寸 + 画幅区（plan 区域）在纹理里的位置（设备像素）。
-    /// CPU/镜像路径整幅就是画幅（0,0,w,h）；GPU 直显时纹理是全幅、画幅是居中一块。</summary>
-    private void SetGuideGeometry(int texW, int texH, int planX, int planY, int planW, int planH)
-    {
-        _guideTexW = texW;
-        _guideTexH = texH;
-        _guidePlanX = planX;
-        _guidePlanY = planY;
-        _guidePlanW = planW;
-        _guidePlanH = planH;
-        UpdateCenterGuide();
-    }
-
-    /// <summary>
-    /// 把留白指引框摆到画幅里留空的那块（只在 UI 线程调用）。
-    /// 位置按 Stage 的 Stretch=Uniform 同一套 contain 计算反推：先把纹理贴进舞台格，再在纹理里定位画幅区，
-    /// 最后把构图坐标的留空区缩放到画幅区上。与帧内容无关，所以 CPU/GPU 两条呈现路径都成立。
-    /// </summary>
-    private void UpdateCenterGuide()
-    {
-        var plan = _preview.Plan;
-        var free = plan is { CenterFree: true } ? Planner.FreeZone(plan) : null;
-        // Stage 自己的 ActualWidth/Height 是「按 Uniform 缩放后的内容尺寸」，不是布局格尺寸
-        // （实测 9:16 源在 696x483 的格里报 696x392）——居中留白必须按父容器那一格算
-        var host = Stage.Parent as FrameworkElement;
-        var cellW = host?.ActualWidth ?? Stage.ActualWidth;
-        var cellH = host?.ActualHeight ?? Stage.ActualHeight;
-        if (free == null || _guideTexW < 2 || _guideTexH < 2 || cellW < 2 || cellH < 2)
-        {
-            CenterGuide.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var fit = Math.Min(cellW / _guideTexW, cellH / _guideTexH);
-        var originX = (cellW - _guideTexW * fit) / 2 + _guidePlanX * fit;
-        var originY = (cellH - _guideTexH * fit) / 2 + _guidePlanY * fit;
-        var s = _guidePlanW * fit / plan!.W; // 画幅区像素 → 构图坐标
-        var (gx, gy, gw, gh) = free.Value;
-
-        CenterGuide.Width = Math.Max(1, gw * s);
-        CenterGuide.Height = Math.Max(1, gh * s);
-        CenterGuide.Margin = new Thickness(originX + gx * s, originY + gy * s, 0, 0);
-        CenterGuide.Visibility = Visibility.Visible;
     }
 
     /// <summary>取与帧同尺寸的舞台位图（只在 UI 线程调用；尺寸不符才换新）。
@@ -408,7 +339,6 @@ public partial class MainWindow : Window
             if (EnsureGpuStage(w, h, shareHandle))
             {
                 DrawGpuOverlay(layer, t, w, h, planX, planY, planW, planH);
-                SetGuideGeometry(w, h, planX, planY, planW, planH);
             }
             else
             {
@@ -437,7 +367,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// GPU 直显分支的字幕叠加层：主画面是显存直显（无 SKCanvas 可画），字幕画进一张与 Stage
     /// 同尺寸、同 Stretch=Uniform 的透明底位图，两层缩放一致即像素对齐。
-    /// 字幕排版以 plan 区域为坐标系（与 CPU 叠加/导出烤入同源派生），出边时整体平移到 plan 左上角。
+    /// 字幕排版以 plan 区域为坐标系（与 CPU 叠加/主通道烤入同源派生），出边时整体平移到 plan 左上角。
     /// </summary>
     private void DrawGpuOverlay(SubtitleLayer? layer, double t, int w, int h,
         int planX, int planY, int planW, int planH)
@@ -533,7 +463,7 @@ public partial class MainWindow : Window
             try
             {
                 var plan = _preview.Plan;
-                if (plan == null || !_renderRunning || ExportBusy) continue;
+                if (plan == null || !_renderRunning) continue;
                 _preview.Tick();
                 // 播放态 0→1：镜像「无新帧」计时与兜底起点必须从这里重新起算。暂停期间 Spout 泵
                 // 只保活、不产新帧（镜像 Seq 不动），计时跨过暂停就会把「刚恢复播放」误判成断供：
@@ -580,7 +510,7 @@ public partial class MainWindow : Window
                 // 脏检查：暂停且 t/plan/字幕/**预览尺寸**都没变就跳过（暂停态省 ~96% CPU）。
                 // 字幕版本覆盖「装载/清空字幕」与「设置页改字幕样式」；
                 // 尺寸覆盖「暂停时切编辑器/播放器布局、改窗口大小」——不看尺寸的话那一帧会停在旧尺寸上，
-                // 表现就是「切回播放器模式画面定死、不渲染」（镜像帧按旧尺寸贴完就再没人重贴）。
+                // 表现就是「画面定死、不渲染」（镜像帧按旧尺寸贴完就再没人重贴）。
                 var ver = _preview.Version;
                 var subVer = _preview.SubtitleVersion;
                 var subDirty = subVer != _lastRSub;
@@ -724,7 +654,7 @@ public partial class MainWindow : Window
                             LiveFollowCamera = _settings.Pv.FollowCamera,
                             FrameCamera = _settings.Pv.Enabled && _settings.Pv.GlobalCamera,
                         });
-                    // 字幕叠加：与导出烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
+                    // 字幕叠加：与主通道烤入同语义（只画注音/翻译行，主歌词由引擎画），按设备像素落笔
                     PaintSubtitleOverlay(surf.Canvas, OverlayLayer(), t, rw, rh);
                 }
                 var cpuMs = (Stopwatch.GetTimestamp() - tCpu) * 1000.0 / Stopwatch.Frequency;
@@ -758,11 +688,6 @@ public partial class MainWindow : Window
                 else Log.Debug("预览渲染泵异常：" + ex.Message);
             }
         }
-    }
-
-    private void UpdateStatusText()
-    {
-        StatusChanged?.Invoke();
     }
 
     // ---------------- 镜像/显示缓冲帮手 ----------------
@@ -847,7 +772,7 @@ public partial class MainWindow : Window
         else
         {
             // 没有 KRC 逐字数据（网易云 LRC / 手动粘贴 / 重启恢复工程）：从 plan 行合成。
-            // 与 Spout 字幕通道、导出烤入共用 SubtitleLayer.FromPlan，三处行为一致。
+            // 与 Spout 字幕通道、主通道烤入共用 SubtitleLayer.FromPlan，三处行为一致。
             var synth = SubtitleLayer.FromPlan(plan);
             if (synth == null)
             {
@@ -905,7 +830,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>把字幕层叠到已渲染的帧上。包含主歌词行与注音/翻译行（配置为 Off 时由 OverlayLayer 返回 null 略过）；
-    /// 尺寸用设备像素（w/h），排版常数与导出烤入同源派生，保证预览与导出所见一致。</summary>
+    /// 尺寸用设备像素（w/h），排版常数与主通道烤入同源派生，保证预览所见一致。</summary>
     private static void PaintSubtitleOverlay(SKCanvas canvas, SubtitleLayer? layer, double t, int w, int h)
     {
         if (layer == null) return;
@@ -920,9 +845,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>状态行变化（TopBar 订阅刷新）。</summary>
-    public event Action? StatusChanged;
-
     // ---------------- Spout 直出（SpoutOut 管线） ----------------
 
     private SpoutOutOptions SpoutOpts() => new()
@@ -932,9 +854,6 @@ public partial class MainWindow : Window
         Width = _settings.Width,
         Height = _settings.Height,
         Fps = _settings.RenderFps,
-        LyricsEnabled = _settings.SpoutLyricsEnabled,
-        // 字幕层画得比主通道快没有意义（旧管线同钳法）
-        LyricsFps = Math.Min(_settings.LyricsFps, _settings.RenderFps),
         // 外部 Spout 输入（PV 源）：同一个设置对象交给泵实时读，所以启用/增删源/改名/透明度都不需要重启
         Pv = _settings.Pv,
     };
@@ -951,14 +870,9 @@ public partial class MainWindow : Window
 
         _spout.Preview = _mirror; // 预览镜像：Spout 泵写、预览泵读（见 PreviewMirror）
         _spout.Start(_preview, SpoutOpts());
-        UpdateStatusText();
     }
 
-    public void StopSpout()
-    {
-        _spout.Stop();
-        UpdateStatusText();
-    }
+    public void StopSpout() => _spout.Stop();
 
     /// <summary>按当前 settings 重建管线（分辨率/帧率/名称/透明底改动由此生效）。</summary>
     public void RestartSpout()
@@ -969,11 +883,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        Log.Info($"[MainWindow] 重启 Spout 管线：{_settings.SpoutName} {_settings.Width}×{_settings.Height}@{_settings.RenderFps}"
-                 + ($", 字幕通道{(_settings.SpoutLyricsEnabled ? "开" : "关")}"));
+        Log.Info($"[MainWindow] 重启 Spout 管线：{_settings.SpoutName} {_settings.Width}×{_settings.Height}@{_settings.RenderFps}");
         _spout.Preview = _mirror;
         _spout.Restart(_preview, SpoutOpts());
-        UpdateStatusText();
     }
 
     /// <summary>顶栏 Spout 开关（即时启停并持久化）。</summary>
@@ -999,128 +911,36 @@ public partial class MainWindow : Window
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
-        // 空格 = 播放/暂停；歌词编辑框里打空格要照常输入。
-        // 播放器/PV 模式：空格一律归云会话——跟随态里引擎自己的 TogglePlay 是空操作，链已拆（换歌失败/
+        // 空格 = 播放/暂停；文本框里打空格要照常输入。
+        // 空格一律归云会话——跟随态里引擎自己的 TogglePlay 是空操作，链已拆（换歌失败/
         // 收场）时也只有云会话能把画面钉住（见 CloudPlayService.Toggle 的"链已拆"分支）。
-        // 编辑器模式：谁在响就切谁——云试听在响（或工程侧没在响而云试听有曲）→ 切云试听，否则工程预览。
         if (e.Key == Key.Space && Keyboard.FocusedElement is not TextBoxBase)
         {
-            if (_mode != AppMode.Editor) _cloud.Toggle();
-            else if (_cloud.HasTrack && (_cloud.IsPlaying || !_preview.IsPlaying)) _cloud.Toggle();
-            else _preview.TogglePlay();
+            _cloud.Toggle();
             e.Handled = true;
         }
     }
 
-    // ---------------- 编辑器 / 播放器 / PV 三套布局 ----------------
+    // ---------------- 推流状态条 ----------------
 
-    private static readonly System.Windows.Media.Brush StageBg =
-        new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0F, 0x0F, 0x12));
-
-    private void BtnMode_Click(object sender, RoutedEventArgs e)
+    /// <summary>推流状态条（源连接数 + 输出通道）：常驻 1s 刷新。</summary>
+    private void StartPvStatus()
     {
-        var to = ReferenceEquals(sender, BtnModePv) ? AppMode.Pv
-            : ReferenceEquals(sender, BtnModePlayer) ? AppMode.Player
-            : AppMode.Editor;
-        // 从播放器/PV 切回编辑器时：若在里面已选歌播放过，应保留当前播放的云歌到编辑器（不以旧快照覆盖）
-        var restore = to == AppMode.Editor && !_player.HasActiveSong;
-        SetMode(to, restore);
-    }
-
-    /// <summary>播放器 / 编辑器的两态入口（历史调用点：CloudNowPlaying 的「载入编辑器」）。</summary>
-    public void SetPlayerMode(bool on, bool restoreSnapshot = true) =>
-        SetMode(on ? AppMode.Player : AppMode.Editor, restoreSnapshot);
-
-    /// <summary>
-    /// 切模式：**瞬切**——连续改列宽/边距会让 Stage 每帧 SizeChanged，CPU 渲染路径会反复冲刷帧缓存。
-    /// 编辑器 = 全套编辑面板；播放器 = 标题栏 + PV + 云队列条；PV = 播放器布局 + 右侧 PV 面板（合成控制台）。
-    /// 播放器与 PV 共用云播放会话（都是「跟着云歌单出 PV」的场景），退出回编辑器才还原快照。
-    /// </summary>
-    public void SetMode(AppMode mode, bool restoreSnapshot = true)
-    {
-        if (_mode == mode) return;
-        var prev = _mode;
-        _mode = mode;
-        var compact = mode != AppMode.Editor;       // 精简布局（播放器/PV 共用）
-        var pv = mode == AppMode.Pv;
-        var wasCompact = prev != AppMode.Editor;
-
-        if (compact && !wasCompact)
+        _pvStatusTimer ??= new System.Windows.Threading.DispatcherTimer
         {
-            Views.TapSession.Stop(); // 打点会话会抢窗口级空格
-            Keyboard.ClearFocus(); // 隐藏的输入框别继续持有焦点（空格判定看 FocusedElement）
-            _player.Enter();
-        }
-
-        BarTop.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        PaneLeft.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        // PV 模式保留右栏（PV 面板 = 合成控制台），播放器模式让位给满画面
-        PaneRight.Visibility = mode == AppMode.Player ? Visibility.Collapsed : Visibility.Visible;
-        // 精简布局：左栏换成歌单侧栏（窄一点），编辑器面板让位
-        PanePlaylistSide.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
-        ColLeft.Width = compact ? new GridLength(300) : new GridLength(340);
-        ColLeft.MinWidth = compact ? 260 : 280;
-        ColRight.Width = pv ? new GridLength(370) : compact ? new GridLength(0) : new GridLength(370);
-        ColRight.MinWidth = pv ? 300 : compact ? 0 : 300;
-        // 播放器/PV：画面是内嵌的圆角卡片（四周留出底色），控制块紧贴画面下方 —— 对位酷狗歌曲页
-        PaneCenter.Margin = compact ? new Thickness(16, 18, 28, 18) : new Thickness(16, 12, 16, 12);
-        StageFrame.BorderThickness = new Thickness(1);
-        StageFrame.CornerRadius = compact ? new CornerRadius(14) : new CornerRadius(10);
-        StageFrame.Background = compact ? System.Windows.Media.Brushes.Black : StageBg;
-        BarTransport.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        BarNowPlaying.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
-        BarTimeline.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        BarCutInfo.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        // 精简布局下控制键在画面下方那张卡里，底部常驻条让位（避免两套控制重复）
-        BarCloud.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        CenterGuide.Visibility = Visibility.Collapsed; // 精简布局不留白指引
-        BtnModeEditor.Tag = mode == AppMode.Editor ? "on" : null;
-        BtnModePlayer.Tag = mode == AppMode.Player ? "on" : null;
-        BtnModePv.Tag = pv ? "on" : null;
-
-        Right.SetMode(mode);
-        if (pv)
-        {
-            if (!_spout.IsRunning) StartSpout(); // 自动拉起 Spout 接收与发送管线
-        }
-        SetPvStatus(pv);
-        if (!compact) _player.Exit(restoreSnapshot);
-        RefreshPlayerOverlay();
-        Log.Info("[Main] 切换到" + mode switch
-        {
-            AppMode.Pv => "PV",
-            AppMode.Player => "播放器",
-            _ => "编辑器",
-        } + "模式");
-    }
-
-    /// <summary>PV 模式的画面状态条（源连接数 + 输出通道）：进模式才跑那条 1s 计时器。</summary>
-    private void SetPvStatus(bool on)
-    {
-        if (on)
-        {
-            _pvStatusTimer ??= new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(1),
-            };
-            _pvStatusTimer.Tick -= OnPvStatusTick;
-            _pvStatusTimer.Tick += OnPvStatusTick;
-            _pvStatusTimer.Start();
-            PvBadge.Visibility = Visibility.Visible;
-            TickPvStatus();
-        }
-        else
-        {
-            _pvStatusTimer?.Stop();
-            PvBadge.Visibility = Visibility.Collapsed;
-        }
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _pvStatusTimer.Tick -= OnPvStatusTick;
+        _pvStatusTimer.Tick += OnPvStatusTick;
+        _pvStatusTimer.Start();
+        PvBadge.Visibility = Visibility.Visible;
+        TickPvStatus();
     }
 
     private void OnPvStatusTick(object? sender, EventArgs e) => TickPvStatus();
 
     private void TickPvStatus()
     {
-        if (_mode != AppMode.Pv) return;
         TblPvStatus.Text = PvStatusText();
     }
 
@@ -1144,13 +964,10 @@ public partial class MainWindow : Window
         return string.Join("｜", parts);
     }
 
-    /// <summary>画面里的空态提示：精简布局（播放器/PV）且没在放歌时才显示（歌名/控制都在画面下方那张卡里）。
-    /// 编辑器模式一律收起——切回编辑器时不能把这条留在画面上（它只在精简布局里有意义）。</summary>
+    /// <summary>画面里的空态提示：没在放歌时才显示（歌名/控制都在画面下方那张卡里）。</summary>
     private void RefreshPlayerOverlay()
     {
-        TblPvHint.Visibility = _mode != AppMode.Editor && !_cloud.HasTrack
-            ? Visibility.Visible
-            : Visibility.Collapsed;
+        TblPvHint.Visibility = !_cloud.HasTrack ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---------------- 窗口 chrome ----------------
@@ -1324,7 +1141,6 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _cloud.Dispose(); // 云试听：先停链再拆（进程要退了，避免设备句柄留到 GC）
-        Follow.Stop(); // 跟随循环与引擎时钟归位（FollowEnd 冻结时间轴）
         _hIcon16?.Dispose();
         _hIcon32?.Dispose();
         // 先停后台渲染泵再释放：渲染线程还持着面/锁。冷缓存帧实测 0.7–1.8s/帧且持引擎闸，

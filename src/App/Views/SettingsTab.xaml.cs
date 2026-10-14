@@ -21,7 +21,7 @@ public partial class SettingsTab : UserControl
 
     private EditorState S => App.MainInstance!.State;
 
-    // 对位 ASPECTS；分辨率/fps 只在「导出」页改（工程字段同源，设置页不再重复一份）
+    // 对位 ASPECTS；分辨率/fps 在这里改（工程字段同源，设置页不再重复一份）
     private static readonly string[] Aspects = { "16:9", "9:16", "4:3", "3:4", "1:1", "4:5", "21:9" };
     // 带文案的下拉：数组存资源键，构建时经 L.T 解析（换语言时 RebuildLocalizedItems 重建）
     private static readonly (string V, string Key)[] KeyBgOptions =
@@ -205,20 +205,16 @@ public partial class SettingsTab : UserControl
         if (_syncing) return;
         var v = SelectedTag(CbAspect);
         if (v == null || v == S.Project.Aspect) return;
-        S.Mutate(p => p.Aspect = v, L.F("Settings.Mutate.AspectFmt", v)); // setAspect：与导出页同源
+        S.Mutate(p => p.Aspect = v, L.F("Settings.Mutate.AspectFmt", v));
     }
 
-    /// <summary>setKeyBg：三态清洗 + 镜像进 exportCfg.bgStyle（两处下拉同源）。</summary>
+    /// <summary>setKeyBg：三态清洗后写工程（背景档位）。</summary>
     private void CbKeyBg_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_syncing) return;
         var v = SelectedTag(CbKeyBg) ?? "off";
         if (v == S.Project.KeyBg) return;
-        S.Mutate(p =>
-        {
-            p.KeyBg = v;
-            ExportSpec.SetCfg(p, ExportSpec.CfgOf(p) with { BgStyle = v });
-        }, L.F("Settings.Mutate.KeyBgFmt",
+        S.Mutate(p => p.KeyBg = v, L.F("Settings.Mutate.KeyBgFmt",
             v == "green" ? L.T("Settings.KeyBgShort.Green")
             : v == "black" ? L.T("Settings.KeyBgShort.Black")
             : L.T("Settings.KeyBgShort.Off")));
@@ -431,10 +427,8 @@ public partial class SettingsTab : UserControl
         st.Height = int.Parse(TbWinH.Text.Trim());
         st.RenderFps = int.Parse(TbWinFps.Text.Trim());
         st.SpoutEnabled = CkSpoutEnabled.IsChecked == true;
-        st.SpoutName = string.IsNullOrWhiteSpace(TbSpoutName.Text) ? "JIZURA-live" : TbSpoutName.Text.Trim();
+        st.SpoutName = string.IsNullOrWhiteSpace(TbSpoutName.Text) ? "JIZURA-live-PV" : TbSpoutName.Text.Trim();
         st.SpoutTransparent = CkSpoutTransparent.IsChecked == true;
-        st.SpoutLyricsEnabled = CkSpoutLyrics.IsChecked == true;
-        st.LyricsFps = int.Parse(TbLyricsFps.Text.Trim());
     }
 
     private bool ValidateDraft()
@@ -442,25 +436,13 @@ public partial class SettingsTab : UserControl
         var wOk = int.TryParse(TbWinW.Text.Trim(), out var w) && w >= ResMin && w <= ResMax;
         var hOk = int.TryParse(TbWinH.Text.Trim(), out var h) && h >= ResMin && h <= ResMax;
         var fOk = int.TryParse(TbWinFps.Text.Trim(), out var f) && f >= 1 && f <= 240;
-        var lOk = int.TryParse(TbLyricsFps.Text.Trim(), out var l) && l >= 1 && l <= 240;
         JzAnim.ShowFade(TbResErr, !(wOk && hOk), 2);
         JzAnim.ShowFade(TbFpsErr, !fOk, 2);
-        JzAnim.ShowFade(TbLyricsFpsErr, !lOk, 2);
-        var ok = wOk && hOk && fOk && lOk;
+        var ok = wOk && hOk && fOk;
         BtnRestart.Content = !_dirty ? L.T("Settings.Btn.Restart") : L.T("Settings.Btn.RestartSave");
         BtnRestart.ToolTip = _dirty ? L.T("Settings.Btn.RestartSave.Tip") : L.T("Settings.Btn.Restart.Tip");
         BtnRestart.IsEnabled = ok; // 对位 Vue 的 :disabled="applying || !canApply"
-        // 字幕通道名与帧率行随「独立 Spout 字幕通道」勾选显隐（Vue 的 v-if）
-        SyncLyricsChan();
-        JzAnim.ShowFade(LyricsFpsRow, CkSpoutLyrics.IsChecked == true);
         return ok;
-    }
-
-    /// <summary>「{SpoutName}-LYRICS」后缀随 Spout ID 输入实时刷新（Vue 模板里的 b 元素）。</summary>
-    private void SyncLyricsChan()
-    {
-        var name = string.IsNullOrEmpty(TbSpoutName.Text) ? "JIZURA-live" : TbSpoutName.Text;
-        if (TblLyricsChan.Text != name + "-LYRICS") TblLyricsChan.Text = name + "-LYRICS";
     }
 
     private void PullSettingsDraft()
@@ -476,9 +458,7 @@ public partial class SettingsTab : UserControl
             CkSpoutEnabled.IsChecked = st.SpoutEnabled;
             TbSpoutName.Text = st.SpoutName;
             CkSpoutTransparent.IsChecked = st.SpoutTransparent;
-            CkSpoutLyrics.IsChecked = st.SpoutLyricsEnabled;
-	            TbLyricsFps.Text = st.LyricsFps.ToString();
-	            CkFetchFonts.IsChecked = st.FetchFonts;
+            CkFetchFonts.IsChecked = st.FetchFonts;
 	            Directory.CreateDirectory(AppDirs.FontsDir);
 	            TblFontDir.Text = AppDirs.FontsDir;
 	            RefreshStorageInfo();

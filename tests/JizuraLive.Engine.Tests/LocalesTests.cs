@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using JizuraLive.App.I18n;
 using Xunit;
@@ -27,10 +27,10 @@ public class LocalesTests
         throw new InvalidOperationException("未找到仓库根（JizuraLive.csproj）");
     }
 
-    /// <summary>扫描范围：src/App + src/Export（UI 与导出层的 L 使用方）。</summary>
+    /// <summary>扫描范围：src/App（UI 层的 L 使用方）。</summary>
     private static IEnumerable<string> ScanFiles()
     {
-        foreach (var sub in new[] { "src/App", "src/Export" })
+        foreach (var sub in new[] { "src/App" })
         {
             var root = Path.Combine(RepoRoot.Value, sub);
             if (!Directory.Exists(root)) continue;

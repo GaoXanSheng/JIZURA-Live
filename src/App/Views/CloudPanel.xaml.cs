@@ -84,9 +84,6 @@ public partial class CloudPanel : Window
         }
     }
 
-    /// <summary>跟随页「跟随的播放器」下拉项（AccountPane/FollowPane 的 session 选择）。</summary>
-    private sealed record SessionItem(string AppId, string Label);
-
     /// <summary>歌单卡片 VM：色块（无缩略图时用歌单名稳定哈希取一档渐变）+ 首字 + 名字 + 「N 首 · 创建者」+ 归属徽标。
     /// 封面拉到后把色块换成图（同一处绑定），首字隐去。</summary>
     public sealed class PlaylistRow : INotifyPropertyChanged
@@ -171,17 +168,15 @@ public partial class CloudPanel : Window
     /// <summary>上次选的音质（"128"/"320"/"flac"）。</summary>
     public static string LastQuality => LastQualityOf(_lastQuality);
     private static readonly Dictionary<string, List<KgSong>> DetailCache = new(); // 歌单 id → 曲目（来回切不重拉）
-    private bool _syncingFollow;
+    private bool _syncingQuality;
     private bool _closed;
     private DispatcherTimer? _qrTimer;
     private string _qrKey = "";
     private bool _qrBusy;
-    private readonly List<string> _sessionSig = [];
 
     private static CloudPanel? _open;
 
     private EditorState State => App.MainInstance!.State;
-    private FollowController Follow => App.MainInstance!.Follow;
 
     public CloudPanel()
     {
@@ -195,11 +190,6 @@ public partial class CloudPanel : Window
             ShowPane(_pane);
             SyncSourceButtons();
             RefreshLogin();
-            _syncingFollow = true;
-            ChkFollow.IsChecked = Follow.On;
-            _syncingFollow = false;
-            Follow.Changed += RefreshFollow;
-            RefreshFollow();
             Cloud.Changed += SyncPlayGlyphs; // 播放会话是唯一事实源：行内 glyph 与条显隐都跟着它
             SyncPlayGlyphs();
             L.LanguageChanged += ApplyTexts; // 换语言：重建音质下拉、复位搜索按钮并重刷登录/跟随状态行
@@ -213,7 +203,6 @@ public partial class CloudPanel : Window
             if (App.MainInstance != null)
             {
                 App.MainInstance.Cloud.Changed -= SyncPlayGlyphs;
-                Follow.Changed -= RefreshFollow;
             }
             if (ReferenceEquals(_open, this)) _open = null;
         };
@@ -223,33 +212,54 @@ public partial class CloudPanel : Window
     private void ApplyTexts()
     {
         // 音质下拉重建（「无损」走词库，128k/320k 无中文原样）；_syncing 防误触发 SelectionChanged
-        _syncingFollow = true;
+        _syncingQuality = true;
         var idx = CmbQuality.SelectedIndex;
         CmbQuality.ItemsSource = new[] { "128k", "320k", L.T("Cloud.QualityLossless") };
         CmbQuality.SelectedIndex = idx < 0 ? 0 : idx;
-        _syncingFollow = false;
+        _syncingQuality = false;
         if (!_searching && !_loading) BtnSearch.Content = L.T("Cloud.Search");
         if (!IsLoaded) return; // 构造期：登录卡片与跟随状态由 Loaded 里的首刷负责
         if (_playlists.Count > 0) RenderPlaylists(); // 筛选条/徽标等文案重刷
         if (_pane == "detail" && _curPlaylist != null)
             TblDetailMeta.Text = MetaOf(_curPlaylist, LstDetail.Items.Count);
         RefreshLogin();
-        RefreshFollow();
     }
 
+    /// <summary>登录状态变化（扫码成功 / 退出登录）：侧栏登录按钮据此刷新。</summary>
+    public static event Action? LoginStateChanged;
+
     /// <summary>打开面板（单例：已开则激活）。</summary>
-    public static void Open(Window owner)
+    public static void Open(Window owner) => Open(owner, null);
+
+    /// <summary>打开面板并切到指定页（null = 保持上次停留的页）。</summary>
+    public static void Open(Window owner, string? pane)
     {
         if (_open != null)
         {
             _open.Activate();
+            if (pane != null) _open.ShowPane(pane);
             return;
         }
 
         var w = new CloudPanel { Owner = owner };
         _open = w;
         w.FitToOwner(); // 先摆位再 Show：否则窗口先出现在系统默认位置，Loaded 才跳到位（看着像随机出现）
+        if (pane != null) w._pane = pane; // Loaded 里的 ShowPane(_pane) 会切过去
         w.Show();
+    }
+
+    /// <summary>侧栏「登录」一键入口：切到指定来源并直接起扫码。</summary>
+    public static void OpenLogin(Window owner, string source)
+    {
+        Open(owner, "account");
+        _open?.BeginLogin(source);
+    }
+
+    /// <summary>起扫码（指定来源）：切来源 → 打开二维码浮层 → 轮询。</summary>
+    private void BeginLogin(string source)
+    {
+        SetSource(source);
+        _ = OpenQrAsync();
     }
 
     // ---------------- 弹窗外壳（遮罩铺满 owner + 居中卡片，对位 MessageDialog / CloudMusicModal） ----------------
@@ -303,11 +313,9 @@ public partial class CloudPanel : Window
         JzAnim.ShowFade(PaneSearch, pane == "search");
         JzAnim.ShowFade(PanePlaylists, pane == "playlists");
         JzAnim.ShowFade(PanePlaylistDetail, pane == "detail");
-        JzAnim.ShowFade(PaneFollow, pane == "follow");
         JzAnim.ShowFade(PaneAccount, pane == "account");
         NavSearch.Tag = pane == "search" ? "on" : null;
         NavPlaylists.Tag = pane is "playlists" or "detail" ? "on" : null; // 歌单详情仍属「我的歌单」
-        NavFollow.Tag = pane == "follow" ? "on" : null;
         NavAccount.Tag = pane == "account" ? "on" : null;
         // 进歌单页就拉一次我的歌单（对位 PlaylistPane 的 onMounted → loadPlaylists）；
         // 已经拿到过就不重拉（从歌单详情返回时不必再打一次网络）
@@ -316,11 +324,8 @@ public partial class CloudPanel : Window
 
     private void Nav_Click(object sender, RoutedEventArgs e) =>
         ShowPane(ReferenceEquals(sender, NavPlaylists) ? "playlists"
-            : ReferenceEquals(sender, NavFollow) ? "follow"
             : ReferenceEquals(sender, NavAccount) ? "account"
             : "search");
-
-    private void FollowGoSearch_Click(object sender, RoutedEventArgs e) => ShowPane("search");
 
     // ---------------- 平台 / 登录 ----------------
 
@@ -400,6 +405,7 @@ public partial class CloudPanel : Window
         }
 
         RefreshLogin();
+        LoginStateChanged?.Invoke(); // 侧栏登录按钮跟着刷新（登录态是面板与侧栏共用的）
     }
 
     // ---------------- 搜索 ----------------
@@ -744,9 +750,9 @@ public partial class CloudPanel : Window
     private void RestoreLastState()
     {
         _source = _lastSource;
-        _syncingFollow = true;
+        _syncingQuality = true;
         CmbQuality.SelectedIndex = _lastQuality is >= 0 and <= 2 ? _lastQuality : 0;
-        _syncingFollow = false;
+        _syncingQuality = false;
         TbQuery.Text = _lastQuery;
         if (_lastResults.Count > 0)
         {
@@ -974,6 +980,7 @@ public partial class CloudPanel : Window
                         QrScanned.Visibility = Visibility.Collapsed;
                         QrPanel.Visibility = Visibility.Collapsed;
                         RefreshLogin();
+                        LoginStateChanged?.Invoke(); // 侧栏登录按钮跟着刷新
                         Log.Info($"[Cloud] 扫码登录成功（{_source}）");
                         break;
                     default:
@@ -1004,115 +1011,6 @@ public partial class CloudPanel : Window
     /// <summary>音质选择记进会话（重开面板与试听/装载共用同一档；本次装载即刻生效）。</summary>
     private void CmbQuality_Changed(object sender, SelectionChangedEventArgs e)
     {
-        if (!_syncingFollow) _lastQuality = CmbQuality.SelectedIndex;
-    }
-
-    // ---------------- SMTC 跟随 ----------------
-
-    private void ChkFollow_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_syncingFollow || !IsLoaded) return; // XAML 初始化期
-        var want = ChkFollow.IsChecked == true;
-        if (want != Follow.On) Follow.Toggle();
-        RefreshFollow();
-    }
-
-    private void BtnNudgeM_Click(object sender, RoutedEventArgs e) => Follow.Nudge(-0.5);
-
-    private void BtnNudgeP_Click(object sender, RoutedEventArgs e) => Follow.Nudge(0.5);
-
-    // ±5s / 重置只在「估算进度」的播放器上有意义（对位 FollowPane 的 estimated 分支）
-    private void BtnNudgeM5_Click(object sender, RoutedEventArgs e) => Follow.Nudge(-5);
-
-    private void BtnNudgeP5_Click(object sender, RoutedEventArgs e) => Follow.Nudge(5);
-
-    private void BtnOffsetReset_Click(object sender, RoutedEventArgs e) => Follow.Nudge(-Follow.Offset);
-
-    private void BtnRematch_Click(object sender, RoutedEventArgs e) => Follow.Rematch();
-
-    /// <summary>跟随的播放器下拉（FollowPane：自动选择 + 各会话；>1 个会话才显示）。</summary>
-    private void CmbFollowSession_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingFollow || !IsLoaded) return;
-        Follow.SelectSession(CmbFollowSession.SelectedValue as string);
-    }
-
-    private void RefreshFollowSessions(FollowController f, bool has)
-    {
-        var items = new List<SessionItem> { new("", L.T("Cloud.AutoSelect")) };
-        if (has)
-            foreach (var s in f.Sessions)
-                items.Add(new SessionItem(s.AppId,
-                    L.F("Cloud.SessionItem", s.AppName,
-                        s.Title.Length > 0 ? s.Title : L.T("Cloud.NoSongInfo"))));
-
-        SessionsRow.Visibility = has && f.Sessions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-
-        // 会话清单没变就不重设 ItemsSource（否则下拉展开时会被打断）
-        var sig = items.Select(i => i.AppId + "|" + i.Label).ToList();
-        if (!sig.SequenceEqual(_sessionSig))
-        {
-            _sessionSig.Clear();
-            _sessionSig.AddRange(sig);
-            CmbFollowSession.ItemsSource = items;
-        }
-
-        var want = f.AutoSelected ? "" : f.SelectedAppId;
-        if (!Equals(CmbFollowSession.SelectedValue as string, want))
-        {
-            _syncingFollow = true;
-            CmbFollowSession.SelectedValue = want;
-            _syncingFollow = false;
-        }
-    }
-
-    private void RefreshFollow()
-    {
-        if (_closed || App.MainInstance == null) return;
-        var f = Follow;
-        _syncingFollow = true;
-        ChkFollow.IsChecked = f.On;
-        _syncingFollow = false;
-        TblOffset.Text = L.F("Cloud.OffsetText", $"{(f.Offset > 0 ? "+" : "")}{f.Offset:0.0}s");
-
-        var has = f.On && f.Status != FollowController.StOff;
-        FollowDetail.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
-        TblFollowDetail.Visibility = f.On && f.Detail.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        BtnRematch.Visibility = has && f.Status is FollowController.StNoMatch or FollowController.StError
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        var est = has && f.Estimated;
-        BtnNudgeM5.Visibility = est ? Visibility.Visible : Visibility.Collapsed;
-        BtnNudgeP5.Visibility = est ? Visibility.Visible : Visibility.Collapsed;
-        BtnOffsetReset.IsEnabled = has && f.Offset != 0;
-        RefreshFollowSessions(f, has);
-        if (!has)
-        {
-            TblFollowStatus.Text = "";
-            TblFollowNow.Text = "";
-            TblFollowDetail.Text = "";
-            return;
-        }
-
-        // 文案/配色对位旧版 FollowPane 的 STATUS 映射
-        var (text, color) = f.Status switch
-        {
-            FollowController.StNoSession => (L.T("Cloud.StNoSession"), "Amber"),
-            FollowController.StNoMeta => (L.T("Cloud.StNoMeta"), "Amber"),
-            FollowController.StMatching => (L.T("Cloud.StMatching"), "Mut"),
-            FollowController.StOk => (L.T("Cloud.StOk"), "Cyan"),
-            FollowController.StNoMatch => (L.T("Cloud.StNoMatch"), "Amber"),
-            FollowController.StError => (L.T("Cloud.StError"), "Danger"),
-            _ => (L.T("Cloud.StOff"), "Mut"),
-        };
-        TblFollowStatus.Text = text + (f.Fmt.Length > 0
-            ? " · " + (f.Fmt == "krc" ? L.T("Cloud.FmtKrc") : f.Fmt == "ne" ? L.T("Cloud.FmtNe") : "LRC")
-            : "");
-        TblFollowStatus.Foreground = (SolidColorBrush)FindResource(color);
-        var now = (f.AppName.Length > 0 ? f.AppName + " ｜ " : "") + f.Title +
-                  (f.Artist.Length > 0 ? " - " + f.Artist : "");
-        TblFollowNow.Text = (now + (f.MatchedAs.Length > 0 ? L.F("Cloud.MatchedAs", f.MatchedAs) : "")).Trim('　');
-        TblFollowDetail.Text = f.Detail +
-                               (f.Estimated ? L.T("Cloud.EstimatedNote") : "");
+        if (!_syncingQuality) _lastQuality = CmbQuality.SelectedIndex;
     }
 }

@@ -82,7 +82,6 @@ public class PvPipelineTests
             Width = 640,
             Height = 360,
             Fps = 30,
-            LyricsEnabled = false,
             Pv = pv,
         });
         Assert.True(ok, "SpoutOut 启动失败");

@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using JizuraLive.App;
 using JizuraLive.Engine;
@@ -26,33 +26,6 @@ public sealed class AudioPersistenceTests : IClassFixture<AutosaveGuard>
         var restored = ProjectIO.MergeProject(raw);
         Assert.Equal("test_song.mp3", restored.AudioName);
         Assert.Equal(@"C:\Music\test_song.mp3", restored.AudioPath);
-    }
-
-    [Fact]
-    public void ProjectIO_OpenPackage_ExtractsAndSetsAudioPath()
-    {
-        var tempPkg = Path.Combine(Path.GetTempPath(), $"test_pkg_{Guid.NewGuid():N}.jizuralive");
-        try
-        {
-            var p = Project.NewDefault();
-            p.AudioName = "embedded.mp3";
-            var fakeAudio = Encoding.UTF8.GetBytes("FAKE_AUDIO_DATA_FOR_TESTING");
-
-            ProjectIO.SavePackage(p, tempPkg, fakeAudio, "embedded.mp3");
-            Assert.True(File.Exists(tempPkg));
-
-            var opened = ProjectIO.Open(tempPkg);
-            Assert.Equal("embedded.mp3", opened.AudioName);
-            Assert.NotNull(opened.AudioPath);
-            Assert.True(File.Exists(opened.AudioPath));
-
-            var extractedData = File.ReadAllBytes(opened.AudioPath);
-            Assert.Equal(fakeAudio, extractedData);
-        }
-        finally
-        {
-            if (File.Exists(tempPkg)) File.Delete(tempPkg);
-        }
     }
 
     [Fact]

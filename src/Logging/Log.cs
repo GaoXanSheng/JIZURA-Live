@@ -11,7 +11,7 @@ namespace JizuraLive.Logging;
 
 public static class Log
 {
-    private static readonly ILog L = LogManager.GetLogger("JizuraLive");
+    private static readonly ILog L = LogManager.GetLogger("JizuraLivePV");
 
     public static string? LogDir { get; private set; }
     public static string? LogFile { get; private set; }
@@ -46,7 +46,7 @@ public static class Log
 
         BasicConfigurator.Configure(file, panel);
 
-        Info("================ JIZURA Live 启动 ================");
+        Info("================ JIZURA Live PV 启动 ================");
         Info("日志文件：" + LogFile);
     }
 

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using JizuraLive.App.Cloud;
@@ -37,7 +37,7 @@ public static class EngineRenderGate
 ///   → WdlResampling 统一到 48k（FxInlet 要求图与音源同采样率）
 ///   → AudioFx.Build(project.AudioFx) 特效图（units 全关返回 null = 直通）
 ///   → SpeedSampleProvider 变速（对位 BufferSource.playbackRate；speed==1 跳过）
-///   → VolumeSampleProvider（预览音量/消音，对位 AP 的 vol²/muted，见 SetVolume；导出侧不经这里）
+///   → VolumeSampleProvider（预览音量/消音，对位 AP 的 vol²/muted，见 SetVolume；只影响预览）
 ///   → CountingSampleProvider（读帧计数 = 波形位置钟）
 ///   → WaveOutEvent
 /// 输出设备打不开（无声卡/独占占用）时 Log.Warn 并整体退回墙钟，不崩。
@@ -54,19 +54,13 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>当前 plan（Replan 后换新对象；Spout 泵每帧取一次引用，换 plan 时旧对象仍有效）。</summary>
     public Plan Plan => _plan;
 
-    /// <summary>循环档位（对位 state.ts 的 S.loop：all/line/cut/false；Range = 循环导出范围，C# 扩展档）。
+    /// <summary>循环档位（对位 state.ts 的 S.loop：all/line/cut/false；Range = 循环选段范围，C# 扩展档）。
     /// 默认整首。档位只在会话内有效，不落盘（同 Vue）。</summary>
     public LoopMode Loop { get; private set; } = LoopMode.All;
 
     /// <summary>Line/Cut/Range 的冻结范围（对位 S.loopHold）：play/seek/replan/换档时刷新，不逐帧重取——
     /// 逐帧重取的话播放中范围会随播放头漂移（一整行会被越切越碎）。</summary>
     private (double Start, double End)? _loopHold;
-
-    /// <summary>打点会话进行中（TapSession 置位）：到界不回卷而是停住，交打点会话收尾（对位 S.tap）。</summary>
-    public bool TapActive { get; set; }
-
-    /// <summary>打点到界（对位 bus 'tapend' → look.ts stopTap）：Tick 触发，订阅方结束会话。</summary>
-    public event Action? TapEnded;
 
     private volatile bool _isPlaying;
     public bool IsPlaying => _isPlaying;
@@ -76,13 +70,13 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>内容版本号：Seek / Replan / 循环回卷时 +1。Spout 泵在暂停态据此判断「画面会不会变」，不变则不重绘。</summary>
     public long Version => _version;
 
-    // ---------------- 字幕层数据（独立 Spout 字幕通道与导出烤字幕同一来源） ----------------
+    // ---------------- 字幕层数据（独立 Spout 字幕通道与主通道烤字幕同一来源） ----------------
 
     /// <summary>云字幕时间轴（KRC 逐字；云音乐装载 / 跟随匹配写入，null = 没有字幕层——
     /// 网易云 LRC 无逐字不产生）。</summary>
     public List<KrcLine>? Subtitles { get; private set; }
 
-    /// <summary>字幕层配置（与导出共用同一实例：改一处两处都变）。</summary>
+    /// <summary>字幕层配置（预览与 Spout 共用同一实例：改一处两处都变）。</summary>
     public SubtitleConfig SubtitleCfg { get; } = new() { Content = SubContent.Both };
 
     private long _subVersion = 1;
@@ -116,7 +110,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>设备输出率（特效图按它建；变速靠重采样改变流时长，见 BuildChain）。</summary>
     private const int OutRate = 48000;
 
-    /// <summary>预览音量/消音（对位 AP.vol 与 AP.muted；导出侧不经这里，导出始终原电平）。</summary>
+    /// <summary>预览音量/消音（对位 AP.vol 与 AP.muted；只影响预览出声，Spout 主通道按同一份设置出图）。</summary>
     private double _vol = 0.8;
     private bool _muted;
     private VolumeSampleProvider? _gain; // 主音量环节：链上最后一个 DSP，随链重建（对位 AP.gain）
@@ -172,19 +166,19 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>scrub 拖动中（时间轴/进度条按下到松开）：画面跟手、不推进、不出声。</summary>
     public bool Scrubbing => _scrubbing;
 
-    // ---------------- 跟随模式（M6，对位 frontend 的 S.follow：外部播放器出声，这里只同步进度） ----------------
+    // ---------------- 跟随模式（对位 frontend 的 S.follow：外部时钟出声，这里只同步进度） ----------------
     //
     // 跟随开启期间本地音频链一律忽略（RawTime 走墙钟路径，同旧版「不碰 AP」）：
-    // FollowController 每 300ms 拿 SMTC 快照调 FollowAnchor 重锚定 _base/_startTs，
+    // 云歌单播放链每拍调 FollowAnchor 重锚定 _base/_startTs（PV 跟着云歌走），
     // 两次锚定之间本地按墙钟平滑推进，漂移有界；FollowEnd 冻结并退出。
 
     private volatile bool _follow;
 
-    /// <summary>跟随模式中（外部播放器决定进度/暂停，本地循环与到尾暂停被跳过）。</summary>
+    /// <summary>跟随模式中（外部时钟决定进度/暂停，本地循环与到尾暂停被跳过）。</summary>
     public bool FollowMode => _follow;
 
     /// <summary>
-    /// 跟随重锚定：SMTC 快照的「此刻进度」 t（秒）与播放态 run 直接落到墙钟上；
+    /// 跟随重锚定：外部时钟的「此刻进度」 t（秒）与播放态 run 直接落到墙钟上；
     /// 不碰音频链。t 变化或播放态翻转才 +Version（暂停且进度冻结时不制造无谓重绘）。
     /// </summary>
     public void FollowAnchor(double t, bool run)
@@ -221,7 +215,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         _audio = audio;
         _audioPath = path;
         // 注意：这里曾经缓存整份音频字节（File.ReadAllBytes）供保存工程包用，但没有任何消费方——
-        // 保存走 TopBar 自己读文件（ProjectIO.Save 的 audioFile 参数），那份缓存只是白占一份
+        // 音频本体只由工程音频字段持有，引擎不再另存一份（省一份内存占用）
         // 与音频文件等大的 LOH（长歌几十 MB）。已删（性能专项：内存）。
         if (audio == null || path == null || !File.Exists(path))
         {
@@ -565,7 +559,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         {
             try
             {
-                // 与渲染/导出串行：解析预热可能触发字体目录重扫（网络拉取落盘后），进而清共享字形缓存。
+                // 与渲染串行：解析预热可能触发字体目录重扫（网络拉取落盘后），进而清共享字形缓存。
                 // 走后台线程预热，坚决不阻塞 UI 线程与消息循环。
                 lock (EngineRenderGate.Lock)
                     _ = JFonts.EnsureFonts(lyrics, fonts);
@@ -636,12 +630,12 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
     /// <summary>
     /// 播放节拍维护（UI 定时器驱动，~10–60Hz 随意）：到界回卷 / 到尾自动暂停 / 特效配置重建。
     /// 回卷通过重置基准实现，t 不会无限增大（保住 double 精度）；有音频时回卷/到尾同步驱动波形链。
-    /// 对位 engine.ts 的 tick：打点中不回卷（停住 + tapend），跟随模式整段跳过。
+    /// 对位 engine.ts 的 tick：跟随模式整段跳过（到界/回卷由跟随方驱动）。
     /// </summary>
     public void Tick()
     {
         RebuildFxIfConfigChanged();
-        if (_follow) return; // 跟随模式：外部播放器决定到尾/回卷，本地循环与到尾暂停不参与
+        if (_follow) return; // 跟随模式：到界/回卷由跟随方（云歌链）决定，本地循环与到尾暂停不参与
         if (!IsPlaying) return;
         var dur = Duration;
         if (dur <= 0) return;
@@ -651,7 +645,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
         if (rangeEnd <= rangeStart) rangeEnd = dur; // 空范围兜底（等价整首）
         if (raw < rangeEnd - 1e-3) return;
 
-        if (Loop != LoopMode.Off && !TapActive)
+        if (Loop != LoopMode.Off)
         {
             _base = rangeStart;
             _startTs = Stopwatch.GetTimestamp();
@@ -660,7 +654,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             return;
         }
 
-        // 到界暂停（不循环 / 打点中）：停在范围末端不越过，打点会话由 tapend 收尾
+        // 到界暂停（不循环）：停在范围末端不越过
         _base = Math.Min(Math.Max(raw, 0), dur);
         _startTs = Stopwatch.GetTimestamp();
         _isPlaying = false;
@@ -669,12 +663,11 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
             try { if (_waveOut != null && _waveOut.PlaybackState == PlaybackState.Playing) _waveOut.Pause(); } catch { /* 设备失效 */ }
         }
         _version++;
-        if (TapActive) TapEnded?.Invoke();
     }
 
     public void Play()
     {
-        if (_follow) return; // 跟随模式：播放态由外部播放器驱动（Transport 不抢）
+        if (_follow) return; // 跟随模式：播放态由跟随方驱动（本地播放键不抢）
         if (IsPlaying) return;
         RebuildFxIfConfigChanged();
         RefreshLoopHold(); // 对位 play()：起播时按当前位置重取范围
@@ -693,7 +686,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public void Pause()
     {
-        if (_follow) return; // 跟随模式：暂停态由外部播放器驱动
+        if (_follow) return; // 跟随模式：暂停态由跟随方驱动
         if (!IsPlaying) return;
         _base = CurrentTime;
         _startTs = Stopwatch.GetTimestamp();
@@ -713,7 +706,7 @@ public sealed class PreviewEngine : ISpoutSource, IDisposable
 
     public void Seek(double t)
     {
-        if (_follow) return; // 跟随模式：进度由外部播放器驱动（时间轴拖动不生效，避免打架）
+        if (_follow) return; // 跟随模式：进度由跟随方驱动（本地 seek 不生效，避免打架）
         _base = ClampPlayPos(t);
         _startTs = Stopwatch.GetTimestamp();
         _version++;

@@ -59,8 +59,8 @@ public sealed record VtsFraming(double Size, double X, double Y, double Rotation
 public sealed class VtsApi : IDisposable
 {
     private const string Url = "ws://127.0.0.1:8001";
-    private const string PluginName = "JIZURA Live";
-    private const string PluginDev = "JIZURA Live";
+    private const string PluginName = "JIZURA Live PV";
+    private const string PluginDev = "JIZURA Live PV";
     private const int RetryMs = 5_000;      // 连不上时的重连间隔（VTS 没开是常态，别刷）
     private const int RequestMs = 8_000;    // 普通请求超时
     private const int ApprovalMs = 90_000;  // 等用户在 VTS 里点允许的超时

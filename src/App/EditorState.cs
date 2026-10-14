@@ -41,18 +41,18 @@ public sealed class EditorState : IDisposable
     /// <summary>音频投入/卸载。</summary>
     public event Action? AudioChanged;
 
-    /// <summary>云字幕（KRC 逐字）：云音乐装载 / 跟随匹配时写入；导出烤字幕与独立 Spout 字幕通道消费。</summary>
+    /// <summary>云字幕（KRC 逐字）：云音乐装载 / 跟随匹配时写入；主通道烤字幕与独立 Spout 字幕通道消费。</summary>
     public List<KrcLine>? Subtitles => Engine.Subtitles;
 
     /// <summary>字幕层配置（字号/颜色/双语/位置等，UI 可调）。
     /// 模块默认 Content=Off（对位 TS）；编辑器侧默认双语——有字幕数据即出画面。
-    /// 与引擎单一实例同源（导出与 Spout 字幕通道读同一份）。</summary>
+    /// 与引擎单一实例同源（预览与 Spout 主通道读同一份）。</summary>
     public SubtitleConfig SubtitleCfg => Engine.SubtitleCfg;
 
     public void SetSubtitles(List<KrcLine>? lines)
     {
         Engine.SetSubtitles(lines);
-        NotifyAsync(StateChanged); // OutTab 的 SubOn 等面板读数随字幕状态刷新
+        NotifyAsync(StateChanged); // 面板的字幕读数（SubOn 等）随字幕状态刷新
     }
 
     /// <summary>当前装载的云端歌词来源（原文 + 候选版本）。会话级，不落工程；歌词面板的版本下拉读它。</summary>

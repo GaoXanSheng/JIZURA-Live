@@ -2,13 +2,13 @@
 //
 // 独立字幕渲染层，纯渲染模块：不依赖 Env/Plan/渲染器/宿主状态，输入只有
 // KRC 时间轴（Krc.Parse 产物的 KrcLine）+ 每行注音（JIZURA LRC 的 "roma　trans" 串），
-// Render(t) 直画到任意 SKCanvas——预览叠加（subtitle.ts 的 overlay 语义）与导出烤入
+// Render(t) 直画到任意 SKCanvas——预览叠加（subtitle.ts 的 overlay 语义）与主通道烤入
 // （SubPayload/makeSubtitleOverlay 语义）以后都接这一个类（接线是下一个任务）。
 //
 // 与 TS 的有意差异（其余排版常数逐条对位 subtitle-draw.ts）：
 //   1. TS 字幕层只画注音（主歌词由 JIZURA 引擎本体画）；C# 独立字幕通道要自带主行，
 //      所以画「主行 + 注音行」整块，注音按 roma/trans 拆行（TS 是 '　' join 后一起 wrap）。
-//      mainLine=false 可退回 TS 语义（只画注音行）——预览叠加与导出烤入用：主歌词由引擎画，
+//      mainLine=false 可退回 TS 语义（只画注音行）——预览叠加用：主歌词由引擎画，
 //      字幕层只叠翻译/音译，防止主行重影。
 //   2. 行间空隙默认不画（TS lineAt 语义）；HoldLastLine=true 时保持上一句到下一句开始。
 //   3. localStorage/BroadcastChannel/worker 载荷等宿主逻辑不移植——配置就是纯 POCO。
@@ -84,7 +84,7 @@ public sealed class SubtitleConfig
     public bool HoldLastLine { get; set; }
 
     /// <summary>字段逐项拷贝（启动时从 settings.json 灌入、设置面板存盘取快照）——
-    /// 不换实例：预览/导出/Spout 字幕通道共用同一份配置对象。</summary>
+    /// 不换实例：预览/Spout 字幕通道共用同一份配置对象。</summary>
     public void CopyFrom(SubtitleConfig src)
     {
         Content = src.Content;
@@ -104,7 +104,7 @@ public sealed class SubtitleConfig
 /// <summary>
 /// 字幕层：KRC 时间轴 + 配置 → 逐帧 SkiaSharp 直画。输入不可变、输出是输入的纯函数，可完全离线测试。
 /// 渲染整体过一把静态锁：FontJobs 字体缓存与 SKFont 测量/绘制不能并发（Spout 字幕通道在泵线程、
-/// 导出烤入在后台线程、预览叠加入口在预览泵线程，三方可同时调 Render）。
+/// 主通道烤入在后台线程、预览叠加入口在预览泵线程，三方可同时调 Render）。
 /// </summary>
 public sealed class SubtitleLayer
 {
@@ -115,7 +115,7 @@ public sealed class SubtitleLayer
     private readonly bool _mainLine;
 
     // 渲染串行锁：FontJobs 静态缓存与 SKFont 测量/绘制不线程安全，而本类的调用方分布在三条线程上
-    // （Spout 字幕通道的泵线程、导出烤入的后台线程、预览叠加的预览泵线程）
+    // （Spout 字幕通道的泵线程、主通道烤入的后台线程、预览叠加的预览泵线程）
     private static readonly object Gate = new();
 
     /// <summary>
@@ -123,7 +123,7 @@ public sealed class SubtitleLayer
     /// notes：每行注音（JIZURA LRC 的 "roma　trans" 串，Krc.KrcToLrc 生成；缺省 = 无注音行）。
     /// cfg：缺省 = SUB_DEFAULT（Content=Off，什么都不画——要出画面得显式开）。
     /// mainLine：是否画主行（KRC 正文）。独立 Spout 字幕通道 = true（整块自带主行）；
-    ///   预览叠加与导出烤入 = false（主歌词由引擎自己画，只叠注音/翻译行，防重影）。
+    ///   预览叠加 = false（主歌词由引擎自己画，只叠注音/翻译行，防重影）。
     /// </summary>
     public SubtitleLayer(IReadOnlyList<KrcLine> lines, SubtitleConfig? cfg = null, IReadOnlyList<string>? notes = null,
         bool mainLine = true)
@@ -176,9 +176,9 @@ public sealed class SubtitleLayer
     /// <summary>
     /// 没有 KRC 逐字数据时（网易云 LRC / 手动粘贴 / 重启恢复工程——KRC 不随工程落盘）从 plan 的行与
     /// 注音合成字幕行：非间奏行整行合成一个「词」（无逐字时间），这样 mainLine=true
-    /// 的 Spout 字幕通道与纯字幕导出也能画出主行；注音取 PlanLine.Note。
+    /// 的 Spout 主通道也能画出主行；注音取 PlanLine.Note。
     /// 全行都没有非空歌词与注音内容返回 null（调用方退化为不画字幕）。
-    /// 预览叠加、导出烤入、Spout 字幕通道三条路共用这一份，避免各处行为漂移。
+    /// 预览叠加、Spout 主通道字幕三条路共用这一份，避免各处行为漂移。
     /// </summary>
     public static (List<KrcLine> Lines, IReadOnlyList<string> Notes)? FromPlan(Plan? plan)
     {
@@ -213,8 +213,8 @@ public sealed class SubtitleLayer
 
     /// <summary>
     /// 字幕层是否有可画内容：内容模式非 off，且「有 KRC 逐字 或 能从 plan 行合成出注音」。
-    /// 导出面板的 subOn、MCP 导出的 hasSubs、导出引擎的取源判据统一走这里——否则重启恢复工程
-    /// （KRC 不落盘）后会出现「通道/预览有字幕、导出面板却报没字幕」这类判据打架。
+    /// 预览叠加与 Spout 主通道的取源判据统一走这里——否则重启恢复工程
+    /// （KRC 不落盘）后会出现「通道/预览有字幕、主通道却报没字幕」这类判据打架。
     /// </summary>
     public static bool HasContent(IReadOnlyList<KrcLine>? krc, Plan? plan, SubtitleConfig cfg)
         => cfg.Content != SubContent.Off && (krc is { Count: > 0 } || FromPlan(plan) != null);
@@ -273,7 +273,7 @@ public sealed class SubtitleLayer
         var font = SubFont(fontPx, _cfg.Font);
 
         var cpW = new double[cps.Count];
-        if (_mainLine) // 只画注音的模式（预览叠加/导出烤入）不做主行测量与折行
+        if (_mainLine) // 只画注音的模式（预览叠加/主通道烤入）不做主行测量与折行
             for (var i = 0; i < cps.Count; i++) cpW[i] = font.MeasureText(cps[i]);
         var mainRows = _mainLine ? Wrap(cps, cpW, maxW) : new List<(int Start, int End)>();
 

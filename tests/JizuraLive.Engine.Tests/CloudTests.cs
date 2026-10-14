@@ -15,7 +15,7 @@ namespace JizuraLive.Engine.Tests;
 
 /// <summary>
 /// M6 云音乐纯逻辑测试（不依赖网络）：KRC 解密 roundtrip + 逐字时间轴解析 + JIZURA LRC 生成 +
-/// 网易 LRC 展开/重建 + 文件名清洗 + 跟随匹配的标题清洗/歌手拆分/挑歌评分 +
+/// 网易 LRC 展开/重建 + 文件名清洗 +
 /// 下载记录索引与歌词缓存的命中判定（都在临时数据根里落盘往返）。
 /// </summary>
 public class CloudTests
@@ -71,7 +71,7 @@ public class CloudTests
     {
         // 真实响应形态：fmt=krc + content 是 base64（解码后才是 krc1 文件）。
         // 旧写法把 base64 直接丢给 Krc.Parse → 一行都解析不出 → 字幕层永远为空
-        //（预览叠加/导出烤入/Spout 字幕通道全都不出画面），这里把回归钉住。
+        //（预览叠加与 Spout 主通道全都不出画面），这里把回归钉住。
         var b64 = Convert.ToBase64String(MakeKrcFile(SampleKrc));
         var lines = Krc.ParseKgLyric("krc", b64);
         Assert.NotNull(lines);
@@ -280,78 +280,6 @@ public class CloudTests
         Assert.Equal("", CloudPanel.ParsePlaylistId(""));
         Assert.Equal("", CloudPanel.ParsePlaylistId("abc"));
         Assert.Equal("", CloudPanel.ParsePlaylistId("https://music.163.com/"));
-    }
-
-    // ---------------- 跟随：标题清洗 / 歌手拆分 / 挑歌 ----------------
-
-    [Fact]
-    public void 跟随_标题剥垃圾括段但不伤正经括号()
-    {
-        Assert.Equal("Song Name", FollowController.CleanTitle("Song Name (Official Video)"));
-        Assert.Equal("Song Name", FollowController.CleanTitle("【MV】Song Name【歌词】"));
-        Assert.Equal("Song Name", FollowController.CleanTitle("Song Name (MV)"));
-        Assert.Equal("Song Name (Deluxe)", FollowController.CleanTitle("Song Name (Deluxe)"));
-        Assert.Equal("Lemon", FollowController.CleanTitle("Lemon"));
-    }
-
-    [Fact]
-    public void 跟随_无歌手时标题两种顺序都试()
-    {
-        // 歌手非空 = 不拆标题，原样一对一
-        Assert.Equal(new[] { ("Hotel California - Eagles", "Eagles") },
-            FollowController.TitleArtistCandidates("Hotel California - Eagles", "Eagles"));
-        // 歌手为空 = 「A - B」两边顺序各试一轮
-        var cands = FollowController.TitleArtistCandidates("Hotel California - Eagles", "");
-        Assert.Equal(new[] { ("Eagles", "Hotel California"), ("Hotel California", "Eagles") }, cands);
-    }
-
-    [Fact]
-    public void 跟随_歌手拆分与匹配()
-    {
-        Assert.Equal(["a", "b"], FollowController.ArtistParts("A feat. B"));
-        Assert.Equal(["a", "b", "c"], FollowController.ArtistParts("A / B、C"));
-        Assert.True(FollowController.ArtistMatches("A / B", "B feat. C"));
-        Assert.True(FollowController.ArtistMatches("周杰伦", "周杰伦 / 费玉清"));
-        Assert.False(FollowController.ArtistMatches("A", ""));
-        Assert.Equal("ablive", FollowController.Norm("A - B (Live)!"));
-    }
-
-    private static KgSong S(string name, string singer, long dur) =>
-        new() { Name = name, Singer = singer, Duration = dur, Source = "kugou" };
-
-    [Fact]
-    public void 跟随_挑歌_标题歌手时长综合最优()
-    {
-        var list = new List<KgSong>
-        {
-            S("Song (Live)", "Someone", 200), // live 扣分
-            S("Song", "Someone", 201),        // 全中
-            S("Song", "其他歌手", 201),        // 歌手沾不上边重罚
-        };
-        var pick = FollowController.PickSong(list, "Song", "Someone", 201);
-        Assert.Equal(201, pick!.Duration);
-        Assert.Equal("Someone", pick.Singer);
-    }
-
-    [Fact]
-    public void 跟随_挑歌_歌手是硬把关()
-    {
-        var list = new List<KgSong>
-        {
-            S("Song", "完全不同的歌手", 300),
-            S("Song", "Someone feat. X", 201),
-        };
-        var pick = FollowController.PickSong(list, "Song", "Someone", 200);
-        Assert.NotNull(pick);
-        Assert.Contains("Someone", pick!.Singer);
-    }
-
-    [Fact]
-    public void 跟随_挑歌_分太低宁缺毋滥()
-    {
-        var list = new List<KgSong> { S("Song", "完全不同的歌手", 300) };
-        // 标题同 60 + 时长差>30 扣 10 + 歌手不沾边罚 45 = 5 < 30 → 不硬塞
-        Assert.Null(FollowController.PickSong(list, "Song", "Someone", 200));
     }
 
     // ---------------- 下载记录索引（cloud\downloads.json） ----------------
