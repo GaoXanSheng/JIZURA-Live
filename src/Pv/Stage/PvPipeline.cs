@@ -3,6 +3,7 @@ using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
+using JizuraLive.Spout;
 using JizuraLive.Vts;
 using Vortice.Direct2D1;
 using Vortice.Mathematics;
@@ -33,6 +34,17 @@ public sealed class PvPipeline : IDisposable
     private int _layerSeq;
     private bool _disposed;
 
+    // 广播发送端：native 资源，只在渲染线程建立与释放（Prepare / Dispose）。
+    // UI 线程投递请求（_pendingBroadcast）、读回执（BroadcastInfo），不碰发送端本身。
+    private SpoutOut? _broadcast;
+    private volatile BroadcastRequest? _pendingBroadcast;
+
+    // 引用类型 + volatile：UI 线程写、渲染线程读的跨线程投递必须能整份发布（Nullable<struct> 不能用 volatile）
+    private sealed record BroadcastRequest(bool Enable, string Name);
+
+    /// <summary>广播回执：Enabled = 用户开着；Active = native 发送端已建立（≠ 下游已收到）。</summary>
+    public readonly record struct BroadcastState(bool Enabled, bool Active, long Sent, long Failed, string? LastError);
+
     private readonly VtsTrackingProbe? _tracking;
     private VtsTrackingOptions _trackOptions = new();
     private bool _prevBlink;
@@ -56,6 +68,27 @@ public sealed class PvPipeline : IDisposable
 
     public string SubtitleSummary =>
         _subtitle is null ? "无字幕层" : "字幕 就绪";
+
+    /// <summary>开关广播（任意线程）：渲染线程在下一帧 Prepare 里消费（native 对象必须在本线程建）。</summary>
+    public void RequestBroadcast(bool enable, string name) =>
+        // 名字在这里就定成非空（空/纯空白交给 SpoutOut 兜默认名）
+        _pendingBroadcast = new BroadcastRequest(enable, name?.Trim() ?? "");
+
+    /// <summary>广播回执快照（UI 状态条用，任意线程可读）。</summary>
+    public BroadcastState BroadcastInfo
+    {
+        get
+        {
+            var b = _broadcast;
+            var pending = _pendingBroadcast;
+            return new BroadcastState(
+                b is not null || pending is { Enable: true },
+                b?.IsActive ?? false,
+                b?.SentCount ?? 0,
+                b?.FailedCount ?? 0,
+                b?.LastError);
+        }
+    }
 
     public event Action? LayersChanged;
 
@@ -88,6 +121,7 @@ public sealed class PvPipeline : IDisposable
     public void Prepare(double time)
     {
         ApplyLayerOps();
+        ApplyBroadcast();
 
         if (!_stopPumping)
             foreach (var p in _spoutProviders) p.PumpFrame();
@@ -232,6 +266,54 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
+    /// <summary>
+    /// 消费广播开关请求（渲染线程，帧首）。发送端的 native 资源只在本线程建立与释放；
+    /// 停机后（_stopPumping）跳过：那时只剩收尾，不再新建任何资源。
+    /// </summary>
+    private void ApplyBroadcast()
+    {
+        var request = _pendingBroadcast;
+        if (request is null) return;
+        _pendingBroadcast = null;
+        if (_stopPumping) return;
+
+        if (!request.Enable)
+        {
+            if (_broadcast is null) return;
+            _renderer.SetBroadcast(null);
+            _broadcast.Dispose();
+            _broadcast = null;
+            Log.Info("[PV 管线] Spout 广播已关闭");
+            return;
+        }
+
+        // 同名重复开启：不重建。重建会先注销再注册发送端名字，下游会看到源闪断一下
+        if (_broadcast is not null
+            && string.Equals(_broadcast.SenderName, request.Name, StringComparison.Ordinal)) return;
+
+        if (_broadcast is not null)
+        {
+            _renderer.SetBroadcast(null);
+            _broadcast.Dispose();
+            _broadcast = null;
+        }
+
+        try
+        {
+            var outlet = new SpoutOut(_renderer.Device, request.Name,
+                _renderer.DesignWidth, _renderer.DesignHeight);
+            // D2D 目标位图在渲染线程、用渲染用的 D2D 上下文建：Composite 直接拿它当绘制目标
+            if (outlet.IsActive) outlet.EnsureD2DBitmap(_renderer.D2DContext);
+            _broadcast = outlet;
+            _renderer.SetBroadcast(outlet);
+            Log.Info($"[PV 管线] Spout 广播已开启：'{outlet.SenderName}' ({outlet.Width}×{outlet.Height})");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("[PV 管线] 建立 Spout 广播失败：" + ex.Message, ex);
+        }
+    }
+
     private void ApplyTracking()
     {
         if (_tracking is null) return;
@@ -282,6 +364,11 @@ public sealed class PvPipeline : IDisposable
         _spoutProviders.Clear();
         _subtitle = null;
         _character = null;
+
+        // 广播发送端（渲染线程）：先摘掉渲染器的引用再释放，避免 Composite 摸到已释放的位图
+        _renderer.SetBroadcast(null);
+        _broadcast?.Dispose();
+        _broadcast = null;
 
         // D2D 位图缓存（fx 临时面→位图）先于渲染器整体释放清掉：
         // 这些位图按代际绑在 D2D 上下文上，留到进程退出才回收就等于代际泄漏

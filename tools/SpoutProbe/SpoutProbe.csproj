@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <!-- M1 路线图第 6 步「SpoutIn 可终止性核实」专用探针。
-         回答三个问题，全部以实测数字为准：
-           1) 无人发送时 native ReceiveTexturePtr 是否立即返回（不阻塞渲染线程）；
-           2) 起接收 → Pump 若干次 → Dispose/Close，进程能否干净退出（退出码 0、无未处理异常）；
-           3) 每帧 PumpFrame 耗时的实际量级（min/max/p50）。
-         独立小工程（tools/ 已被主工程用 <Compile Remove="tools\**" /> 排除编译），
-         用 ProjectReference 复用主程序集里的 SpoutIn / SpoutSourceProvider。 -->
+    <!-- Spout 实测探针。两个模式：
+           Q（默认，M1 路线图第 6 步「SpoutIn 可终止性」）：无人发送时 native ReceiveTexturePtr
+             是否立即返回、起接收→Pump→Dispose 能否干净退出、PumpFrame 的真实耗时量级。
+           S（启动参数传 "sender"，M3 路线图 §5 第 1 条「发送端原生行为」）：用生产类 SpoutOut + SpoutIn
+             同进程往返，测无人接收时发送是否阻塞、像素/尺寸往返与换色延迟、两个方向的 Dispose、
+             同名源重启（同尺寸/变尺寸）重连、慢消费反压与纹理借用期。见 SenderProbe/SenderReport。
+         独立小工程（tools/ 已被主工程用 Compile Remove 排除编译），
+         用 ProjectReference 复用主程序集里的 SpoutOut / SpoutIn / SpoutSourceProvider。 -->
     <PropertyGroup>
         <OutputType>Exe</OutputType>
         <TargetFramework>net10.0-windows</TargetFramework>
@@ -22,7 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\JizuraLive.csproj" />
-    <!-- Q6 要直接调 native SpoutReceiver，绕开主工程的 SpoutIn 封装；
+    <!-- S1b 要直接调 native SpoutSender，Q6 要直接调 native SpoutReceiver，都绕开主工程的封装；
          该包装是 C++/CLI 程序集，主工程已用 HintPath 引用，这里复用同一路径。 -->
     <Reference Include="SpoutDXWrapper">
       <HintPath>..\..\native\SpoutDXWrapper.dll</HintPath>

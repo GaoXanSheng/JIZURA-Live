@@ -33,6 +33,14 @@ public sealed class SpoutOut : IDisposable
     public int Height => _height;
     public bool IsActive => _initialized && _sender is not null;
 
+    // 发送回执（工作台状态条用）。只统计本对象上的发送调用：
+    // 成功发送 ≠ OBS 已收到——回执只到 native 发送返回这一层，收端是否接住无法在这里知道。
+    public long SentCount { get; private set; }
+    public long FailedCount { get; private set; }
+    /// <summary>最近一次成功发送的耗时（毫秒，含 Flush + SendTexture）。</summary>
+    public double LastSendMs { get; private set; }
+    public string? LastError { get; private set; }
+
     /// <summary>D2D 可绘制的目标位图（管线可直接在此位图上合成出图）。</summary>
     public ID2D1Bitmap1? Bitmap => _bitmap;
 
@@ -99,18 +107,26 @@ public sealed class SpoutOut : IDisposable
         return _bitmap;
     }
 
-    /// <summary>提交并广播当前纹理帧给 OBS。</summary>
-    public void PresentFrame()
+    /// <summary>提交并广播当前纹理帧给下游。返回是否真的发出去了（未初始化 = 没发，不算失败）。</summary>
+    public bool PresentFrame()
     {
-        if (!_initialized || _sender is null || _texture is null) return;
+        if (!_initialized || _sender is null || _texture is null) return false;
+        var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             _gpu.Context.Flush();
             _sender.SendTexture(_texture.NativePointer);
+            SentCount++;
+            LastSendMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0
+                         / System.Diagnostics.Stopwatch.Frequency;
+            return true;
         }
         catch (Exception ex)
         {
+            FailedCount++;
+            LastError = ex.Message;
             Log.Warn("[SpoutOut] 发送帧异常：" + ex.Message);
+            return false;
         }
     }
 

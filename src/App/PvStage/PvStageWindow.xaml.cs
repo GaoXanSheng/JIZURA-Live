@@ -45,11 +45,19 @@ public partial class PvStageWindow : Window
     private Border? _colorSwatch;
     private bool _draggingTime;
 
+    // 广播开关：UI 只持有"用户意图"，native 发送端由管线在渲染线程建/拆
+    private bool _broadcastOn;
+    private readonly string _spoutName;
+
     private bool _ready => _pipe is { Ready: true };
 
     public PvStageWindow()
     {
         InitializeComponent();
+
+        var settings = App.SettingsOf();
+        _broadcastOn = settings?.SpoutEnabled ?? false;
+        _spoutName = settings?.SpoutName ?? "JIZURA-live-PV";
 
         var boot = ProjectStore.LoadOrImport(ProjectPath, LegacyScenePath, LegacyEffectsPath);
         _project = boot.Project;
@@ -180,6 +188,10 @@ public partial class PvStageWindow : Window
             _pipe = null;
 
             _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
+
+            UpdateBroadcastButton();
+            // 沿用设置：上次开着广播的这次开窗自动接上（发送端由管线在渲染线程建）
+            if (_broadcastOn) _pipe.RequestBroadcast(true, _spoutName);
 
             _pipe.LayersChanged += () => Dispatcher.BeginInvoke(() =>
             {
@@ -789,6 +801,24 @@ public partial class PvStageWindow : Window
         }
     }
 
+    private void BtnBroadcast_Click(object sender, RoutedEventArgs e)
+    {
+        _broadcastOn = !_broadcastOn;
+        _pipe?.RequestBroadcast(_broadcastOn, _spoutName);
+
+        var s = App.SettingsOf();
+        if (s is not null)
+        {
+            s.SpoutEnabled = _broadcastOn;
+            s.Save();
+        }
+
+        // 按钮只说开关状态；发没发出去、下游接没接住，看状态条的广播回执
+        UpdateBroadcastButton();
+    }
+
+    private void UpdateBroadcastButton() => BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
+
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e)
     {
         IReadOnlyList<string> senders;
@@ -883,6 +913,16 @@ public partial class PvStageWindow : Window
             var (live, total) = pipe.SpoutState;
             var srcTxt = total == 0 ? "无外部源" : $"{live}/{total} 路源已连";
             TblStatus.Text = $"效果 {pipe.Renderer.EffectCount} 段 · 图层 {_scene.Layers.Count} · {srcTxt}";
+
+            var b = pipe.BroadcastInfo;
+            if (b.Enabled)
+            {
+                string seg;
+                if (b.Sent > 0) seg = b.Failed > 0 ? $"广播 {b.Sent} 帧 · 丢 {b.Failed}" : $"广播 {b.Sent} 帧";
+                else if (b.LastError is { } berr) seg = $"广播失败：{berr}";
+                else seg = "广播就绪";
+                TblStatus.Text += $" · {seg}";
+            }
         }
 
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";

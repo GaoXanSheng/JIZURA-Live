@@ -18,13 +18,21 @@ namespace SpoutProbe;
 ///   Q4 发送端用着用着消失（VTS 被关掉）后，取帧是否仍立即返回——停机握手最关心的一拍。
 ///   Q5 Q4 离群点定位：sender 释放后「第一帧」的代价是否确定性。
 ///
-/// 用法：SpoutProbe.exe [--seconds N] [--max-pumps N] [--sender 名] [--self-send] [--no-exit]
+///   S1-S5 M3 路线图 §5 第 1 条「发送端原生行为」实测，见 <see cref="SenderProbe"/>。
+///
+/// 用法：SpoutProbe.exe [--seconds N] [--max-pumps N] [--name 名] [--self-send] [--no-exit]
+///                      [--sender [名]] [--frames N] [--slow-frames N]
 ///   --seconds N    Q1/Q3 各自跑多少秒（默认 Q1=12s，覆盖 10s 的等待日志节拍；Q3=6s）
 ///   --max-pumps N  Q1 的 Pump 次数上限（默认 20000，防失控）
-///   --sender 名    Q3/Q4 用的 sender 名（默认 SpoutProbeSelfTest）
+///   --name 名      Q3/Q4/Q6 与 S1-S5 用的 sender 名（默认 SpoutProbeSelfTest）
 ///   --self-send    先用 SpoutOut 自己发一路，测「有源」路径下 PumpFrame 的真实量级
 ///   --no-exit      跑完不自动关窗（人工观察用；默认自动关，退出码即结论）
-/// 退出码：0 = 全部断言通过；3 = 取帧阻塞；4 = Q2 关闭不安全；5 = GPU/初始化失败。
+///   --sender       走**发送端**验证模式（S1-S5，不跑 Q1-Q6）。后面紧跟一个不带 -- 的词
+///                  仍按旧用法当作 sender 名接受，但推荐改用 --name。
+///   --frames N     S1/S5 的帧数（默认 1000 / 200）
+/// 退出码（Q 模式）：0 = 全部断言通过；3 = 取帧阻塞；4 = Q2 关闭不安全；5 = GPU/初始化失败。
+/// 退出码（S 模式）：0 = 通过（接线放行）；3 = S1 发送阻塞；4 = S2 像素/尺寸；6 = S3 关闭不安全；
+///                   7 = S4 同名变尺寸重连失败；8 = S5 慢消费反压；9 = 无样本。
 /// </summary>
 internal static class Program
 {
@@ -53,6 +61,9 @@ internal static class Program
         var sender = DefaultSender;
         var selfSend = false;
         var autoExit = true;
+        var senderMode = false;
+        var sendFrames = 1000;
+        var slowFrames = 200;
         for (var i = 0; i < args.Length; i++)
         {
             if (args[i] == "--seconds" && i + 1 < args.Length)
@@ -60,13 +71,31 @@ internal static class Program
                 if (double.TryParse(args[i + 1], out var s)) { q1Seconds = s; q3Seconds = Math.Max(2, s / 2); }
             }
             if (args[i] == "--max-pumps" && i + 1 < args.Length) int.TryParse(args[i + 1], out maxPumps);
-            if (args[i] == "--sender" && i + 1 < args.Length) sender = args[i + 1];
+            if (args[i] == "--name" && i + 1 < args.Length) sender = args[i + 1];
             if (args[i] == "--self-send") selfSend = true;
             if (args[i] == "--no-exit") autoExit = false;
+            if (args[i] == "--frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var n) && n > 0)
+                sendFrames = n;
+            if (args[i] == "--slow-frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var m) && m > 0)
+                slowFrames = m;
+            if (args[i] != "--sender") continue;
+
+            senderMode = true;
+            // 兼容旧用法 `--sender 名字`：名字现在请用 --name，这里仍接受一次
+            if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
+            {
+                sender = args[i + 1];
+                Console.WriteLine("[Probe] `--sender <名字>` 旧用法仍被接受；名字参数以后请用 --name");
+                i++;
+            }
         }
 
-        Console.WriteLine("[Probe] SpoutIn 可终止性实测（M1 路线图第 6 步）");
-        Console.WriteLine($"[Probe] Q1={q1Seconds}s（覆盖 10s 等待日志节拍）Q3={q3Seconds}s maxPumps={maxPumps} sender='{sender}' selfSend={selfSend}");
+        Console.WriteLine(senderMode
+            ? "[Probe] SpoutOut 发送端原生行为实测（M3 路线图 §5 第 1 条）"
+            : "[Probe] SpoutIn 可终止性实测（M1 路线图第 6 步）");
+        Console.WriteLine(senderMode
+            ? $"[Probe] S1/S5={sendFrames}/{slowFrames} 帧 sender='{sender}'"
+            : $"[Probe] Q1={q1Seconds}s（覆盖 10s 等待日志节拍）Q3={q3Seconds}s maxPumps={maxPumps} sender='{sender}' selfSend={selfSend}");
         Console.WriteLine($"[Probe] 数据目录（隔离）：{isoDir}");
 
         // 只需要一个 D3D11 设备 + D2D 上下文（SpoutSourceProvider 构造要 ID2D1DeviceContext）。
@@ -82,32 +111,46 @@ internal static class Program
         Console.WriteLine($"[Probe] GPU：{gpu.AdapterName}｜feature level {gpu.FeatureLevel}｜软件光栅={gpu.IsSoftware}");
 
         using var d2d = D2DHost.Create(gpu);
-        using var outSend = selfSend ? new SpoutOut(gpu, sender, 640, 480) : null;
-        var probe = new Probe(gpu, d2d.Ctx, sender);
 
-        var q1 = probe.NoSenderReturns(q1Seconds, maxPumps);
-        var q3 = probe.PumpFrameStats(q3Seconds, selfSend, outSend);
-        var q2 = probe.CloseSafety();
-        var q4 = probe.SenderDiesMidStream();
-        var q5 = probe.FirstPumpAfterSenderGone(6);
-        var q6 = new NativeProbe(gpu, sender).Run(40);
-
-        var report = new Report(q1, q3, q2, q4, q5, q6, gpu.AdapterName, gpu.IsSoftware, maxPumps, selfSend);
-        report.Print();
-
-        if (autoExit)
+        int exitCode;
+        if (senderMode)
         {
-            // 走 WPF Application 的正常关闭路径再退：native 收尾若卡在进程退出上，这里会挂住不放
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
-            timer.Tick += (_, _) =>
-            {
-                timer.Stop();
-                Application.Current?.Shutdown(report.ExitCode);
-            };
-            timer.Start();
-            var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-            return app.Run();
+            // S 模式：只跑发送端验证，不跑 Q1-Q6（两者一起跑会让 S1 的基准线被 Q 段的
+            // native receiver / provider 状态污染，且耗时翻倍）
+            var results = new SenderProbe(gpu, d2d, sender).Run(sendFrames, slowFrames, warmup: 10);
+            var report = new SenderReport(results, gpu.AdapterName, gpu.IsSoftware);
+            report.Print();
+            exitCode = report.ExitCode;
+        }
+        else
+        {
+            using var outSend = selfSend ? new SpoutOut(gpu, sender, 640, 480) : null;
+            var probe = new Probe(gpu, d2d.Ctx, sender);
+
+            var q1 = probe.NoSenderReturns(q1Seconds, maxPumps);
+            var q3 = probe.PumpFrameStats(q3Seconds, selfSend, outSend);
+            var q2 = probe.CloseSafety();
+            var q4 = probe.SenderDiesMidStream();
+            var q5 = probe.FirstPumpAfterSenderGone(6);
+            var q6 = new NativeProbe(gpu, sender).Run(40);
+
+            var report = new Report(q1, q3, q2, q4, q5, q6, gpu.AdapterName, gpu.IsSoftware, maxPumps, selfSend);
+            report.Print();
+            exitCode = report.ExitCode;
         }
 
-        return report.ExitCode;    }
+        if (!autoExit) return exitCode;
+
+        // 走 WPF Application 的正常关闭路径再退：native 收尾若卡在进程退出上，这里会挂住不放。
+        // 两个模式都走这条路（退出码原样带回），失败时也要证明进程退得出去。
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            Application.Current?.Shutdown(exitCode);
+        };
+        timer.Start();
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        return app.Run();
+    }
 }

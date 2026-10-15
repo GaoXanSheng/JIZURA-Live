@@ -3,6 +3,7 @@ using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Render.Text;
+using JizuraLive.Spout;
 using Vortice.Direct2D1;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -24,6 +25,9 @@ public sealed class PvStageRenderer : IDisposable
     private readonly Dictionary<IntPtr, ID2D1Bitmap1> _fxBitmaps = new();
     private OffscreenTarget? _stageTarget;
     private ID3D11ShaderResourceView? _stageSrv;
+
+    /// <summary>广播发送端（可空）。所有权在管线：这里只记引用，绝不 Dispose 它。</summary>
+    private SpoutOut? _broadcast;
 
     /// <summary>设计画布尺寸：本渲染器一生不变，窗口尺寸只影响预览怎么贴上去。</summary>
     private readonly int _designW, _designH;
@@ -78,6 +82,12 @@ public sealed class PvStageRenderer : IDisposable
     public int DesignHeight => _designH;
 
     public void SetLyrics(IReadOnlyList<KrcLine>? lines) => Lyric?.SetLyrics(lines);
+
+    /// <summary>
+    /// 接入 / 摘除广播发送端。仅渲染线程调用（与 Composite 同一线程，无同步）。
+    /// 只存引用：发送端 native 资源的建立与释放都归管线。
+    /// </summary>
+    public void SetBroadcast(SpoutOut? outlet) => _broadcast = outlet;
 
     public void Prepare(double time)
     {
@@ -173,6 +183,22 @@ public sealed class PvStageRenderer : IDisposable
             Letterbox(_designW, _designH, width, height));
         d.End();
 
+        // 4) 广播：把同一张完成帧（有效果取效果输出，无效果取舞台面）再贴一次到发送端纹理后发出。
+        //    不重求值、不重跑 Composite——只是同一块显存的第二次贴图。
+        //    广播尺寸恒为设计尺寸（发送端由管线按 DesignWidth/DesignHeight 建）：预览窗口怎么缩，
+        //    接收端拿到的一直是设计分辨率，这是闸门要求。
+        //    慢发送策略（绝对截止点、跳过时隙）留给 M7：同步渲染循环里发送不积压，量级已实测。
+        if (_broadcast is { IsActive: true, Bitmap: { } bbmp } b)
+        {
+            var src = fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut);
+            d.SetTarget(bbmp, b.Width, b.Height);
+            d.Begin();
+            d.Clear(new Color4(0f, 0f, 0f, 1f));
+            d.DrawBitmap(src, new Rect(0, 0, b.Width, b.Height));
+            d.End();
+            b.PresentFrame();
+        }
+
         if (!_freezeLast && fxOut is not null) _fx.Pool.Return(fxOut);
         LastTiming = (LastTiming.Engine, Elapsed(t1), Elapsed(t2));
     }
@@ -228,6 +254,8 @@ public sealed class PvStageRenderer : IDisposable
 
     public void Dispose()
     {
+        // 只摘引用：广播发送端归管线所有，由管线在自己的 Dispose 里释放
+        _broadcast = null;
         ClearFxBitmapCache();
         _stageSrv?.Dispose();
         _stageTarget?.Dispose();

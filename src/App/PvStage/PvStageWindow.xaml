@@ -167,7 +167,7 @@
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="BtnOpenProject" Style="{StaticResource PvBtnGhost}" Padding="9,5"
-                            Content="打开工程" Click="BtnOpenProject_Click" />
+                            Content="打开歌词" Click="BtnOpenProject_Click" />
                     <Button x:Name="BtnOpenAudio" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                             Content="打开音频" Click="BtnOpenAudio_Click" />
                     <Border Width="1" Height="16" Margin="8,0" Background="{StaticResource PvLine}" />
@@ -183,6 +183,8 @@
                         Minimum="0" Maximum="1" ValueChanged="SldTime_ValueChanged" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnBroadcast" Style="{StaticResource PvBtnGhost}" Padding="9,5"
+                            Margin="0,0,14,0" Content="广播 关" Click="BtnBroadcast_Click" />
                     <TextBlock Text="预设" Style="{StaticResource PvRowLabel}" Margin="0,0,8,0" />
                     <ComboBox x:Name="CmbPreset" Width="140" SelectionChanged="CmbPreset_SelectionChanged" />
                     <TextBlock x:Name="TblFps" Margin="14,0,0,0" Style="{StaticResource PvValue}" MinWidth="64" />
