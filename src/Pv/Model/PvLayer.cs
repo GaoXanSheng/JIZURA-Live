@@ -100,8 +100,11 @@ public sealed class PvLayerConfig
     /// <summary>Spout 源名称（仅当 Kind == VisualAsset 时有效）</summary>
     public string? SpoutSenderName { get; set; } = "VTubeStudio";
 
-    /// <summary>源像素是否已预乘 alpha</summary>
-    public bool Premultiplied { get; set; }
+    /// <summary>
+    /// 源像素是否已预乘 alpha。默认 true：VTS/Spout 发送端发的是预乘像素，
+    /// 且 D2D 的 surface 位图只接受 Premultiplied（声明 Straight 建不出位图 → 该层永不出图）。
+    /// </summary>
+    public bool Premultiplied { get; set; } = true;
 
     /// <summary>视差运镜控制参数</summary>
     public PvParallaxConfig Parallax { get; set; } = new();

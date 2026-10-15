@@ -236,7 +236,8 @@ public sealed class PvPipeline : IDisposable
         foreach (var layer in _scene.Layers)
         {
             if (!WantsSpout(layer)) continue;
-            var provider = new SpoutSourceProvider(layer.Id, gpu, _d2d.Ctx, layer.SpoutSenderName!);
+            var provider = new SpoutSourceProvider(layer.Id, gpu, _d2d.Ctx, layer.SpoutSenderName!,
+                layer.Premultiplied);
             _renderer.Stage.Register(provider);
             _spoutProviders.Add(provider);
             if (layer.Id == PvScene.CharacterLayerId) _character = provider;
@@ -259,7 +260,8 @@ public sealed class PvPipeline : IDisposable
             var layer = NewSourceLayer(id, sender);
             _scene.Layers.Add(layer);
 
-            var provider = new SpoutSourceProvider(id, _renderer.Device, _d2d.Ctx, sender);
+            var provider = new SpoutSourceProvider(id, _renderer.Device, _d2d.Ctx, sender,
+                layer.Premultiplied);
             _renderer.Stage.Register(provider);
             _spoutProviders.Add(provider);
             changed = true;
