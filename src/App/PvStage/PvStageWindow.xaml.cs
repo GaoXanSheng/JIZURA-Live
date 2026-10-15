@@ -1877,7 +1877,17 @@ public partial class PvStageWindow : Window
         UpdateBroadcastButton();
     }
 
-    private void UpdateBroadcastButton() => BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
+    // BuildPipeline 在渲染线程建管线时也会调到这里：按钮归 UI 线程，跨线程 SetValue 直接抛，
+    // 曾让整个 PV 舞台初始化失败——统一在入口编组，调用方不必各自记得绕。
+    private void UpdateBroadcastButton()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(UpdateBroadcastButton);
+            return;
+        }
+        BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
+    }
 
     // ---------------- 导出 MP4 ----------------
 
