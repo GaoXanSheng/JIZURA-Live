@@ -45,7 +45,9 @@ public sealed class PvPipeline : IDisposable
     /// <summary>广播回执：Enabled = 用户开着；Active = native 发送端已建立（≠ 下游已收到）。</summary>
     public readonly record struct BroadcastState(bool Enabled, bool Active, long Sent, long Failed, string? LastError);
 
-    private readonly VtsTrackingProbe? _tracking;
+    // 探针由 VTS 会话（VtsApi）拥有，会话一生一死、只能 new 新实例重连：
+    // UI 线程换引用、渲染线程下一帧读到；引用交换原子，不做锁。
+    private volatile VtsTrackingProbe? _tracking;
     private VtsTrackingOptions _trackOptions = new();
     private bool _prevBlink;
 
@@ -117,6 +119,12 @@ public sealed class PvPipeline : IDisposable
 
     public void SetLyrics(IReadOnlyList<JizuraLive.Engine.KrcLine>? lines) =>
         _renderer.SetLyrics(lines);
+
+    /// <summary>
+    /// 换追踪探针（任意线程）。探针实例随 VTS 会话一起重建，UI 线程换引用、渲染线程下一帧读到；
+    /// 引用交换原子，不做锁。传 null = 断开 VTS，镜头回场景基础值。
+    /// </summary>
+    public void SetTracking(VtsTrackingProbe? probe) => _tracking = probe;
 
     public void Prepare(double time)
     {
@@ -316,11 +324,18 @@ public sealed class PvPipeline : IDisposable
 
     private void ApplyTracking()
     {
-        if (_tracking is null) return;
+        // 基础态来自场景文档，不是 Identity：追踪失效时镜头落在工程量好的取景上，
+        // 而不是每次都弹回 (0,0,1)。Scale 下限保护：Scale=0 会让每层缩放塌成 0、
+        // 整幅空白，手改文件也不能把画面改没（Camera 被手改成 null 同理：回落默认）。
+        var cam = _scene.Camera ?? new PvCameraConfig();
+        var baseCam = new PvCamState(
+            cam.X, cam.Y, Math.Max(0.01, cam.Scale), 0, 0, null, null);
 
-        if (!_tracking.TryRead(250, out var st))
+        if (_tracking is null || !_tracking.TryRead(250, out var st))
         {
-            _renderer.Stage.Camera = PvCamState.Identity;
+            // 每帧都写回基础态（不是"什么都不做"）：否则最后一帧的追踪姿态会一直留在镜头上，
+            // 断连后画面冻在歪着的取景里。
+            _renderer.Stage.Camera = baseCam;
             _renderer.Stage.Energy = 0;
             _prevBlink = false;
             return;
@@ -329,11 +344,12 @@ public sealed class PvPipeline : IDisposable
         var drive = VtsTrackingMap.Compute(st, _trackOptions, _prevBlink);
         _prevBlink = drive.Blink;
 
-        // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度
+        // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度。
+        // Zoom 的夹持是追踪通道自身的上下界；基础值自由相乘。
         _renderer.Stage.Camera = new PvCamState(
-            drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
-            drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
-            Math.Clamp(drive.Zoom, 0.5, 2.0),
+            cam.X + drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
+            cam.Y + drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
+            Math.Max(0.01, cam.Scale) * Math.Clamp(drive.Zoom, 0.5, 2.0),
             0, 0, null, null);
         _renderer.Stage.Energy = drive.MouthEnergy;
     }

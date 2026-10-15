@@ -23,6 +23,8 @@ public class ProjectStoreTests
             var scene = PvScene.CreateDefault();
             scene.Width = 1280;
             scene.Height = 720;
+            scene.Camera.X = -40;  // 镜头基础值必须落盘：重启后静息取景不能变回 (0,0,1)
+            scene.Camera.Scale = 1.2;
 
             var colorGrade = EffectCatalog.Get("colorGrade")!;
             var glow = EffectCatalog.Get("glow")!;
@@ -58,6 +60,8 @@ public class ProjectStoreTests
             Assert.Equal(1280, loaded.Scene.Width);
             Assert.Equal(720, loaded.Scene.Height);
             Assert.Equal(scene.Fps, loaded.Scene.Fps);
+            Assert.Equal(-40, loaded.Scene.Camera.X, 3);
+            Assert.Equal(1.2, loaded.Scene.Camera.Scale, 3);
             Assert.Equal("assets/audio/song.mp3", loaded.AudioPath);
             Assert.Equal(project.LrcText, loaded.LrcText);
 

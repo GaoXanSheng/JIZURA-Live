@@ -287,6 +287,63 @@ public class PvStageTests
     }
 
     /// <summary>
+    /// 场景里的镜头基础值（PvCameraConfig）是追踪的**基准**，不是被追踪替换掉的常量：
+    /// ① 追踪过期 → 精确回落到基础值（不是 Identity、更不是全零相机）；
+    /// ② 追踪新鲜 → 基础值 + 追踪偏移（X/Y 相加、Scale 相乘），基础值仍然在。
+    /// </summary>
+    [GpuFact]
+    public void CameraFallsBackToSceneBaseWhenTrackingStale()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        {
+            var scene = PvScene.CreateDefault();
+            scene.Width = 1920;
+            scene.Height = 1080;
+            scene.Camera = new PvCameraConfig { X = -40, Y = 25, Scale = 1.2 };
+
+            var probe = new VtsTrackingProbe();
+            // 一次过期快照（10s 前）：TryRead(250) 必须判失效
+            probe.Set(VtsTrackingState.Empty with { AtMs = Environment.TickCount64 - 10_000 });
+
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph(), null, probe);
+
+            // ① 失效 → 镜头就是工程量好的静息取景，一个分量都不许被改写
+            pipe.Prepare(0.0);
+            var stale = pipe.Renderer.Stage.Camera;
+            Assert.Equal(-40, stale.X, 3);
+            Assert.Equal(25, stale.Y, 3);
+            Assert.Equal(1.2, stale.Scale, 3);
+
+            // ② 同一个管线里探针转为新鲜：要求"基础值 + 偏移"的合成，而不是替换
+            var fresh = VtsTrackingState.Empty with
+            {
+                FaceFound = true,
+                HeadX = 0.8,
+                HeadY = -0.5,
+                HeadZ = 0.2,
+                MouthOpen = 0.9,
+                EyeOpenLeft = 1,
+                EyeOpenRight = 1,
+                AtMs = Environment.TickCount64,
+            };
+            probe.Set(fresh);
+            pipe.Prepare(1.0 / 60);
+
+            var drive = VtsTrackingMap.Compute(fresh, new VtsTrackingOptions(), previousBlink: false);
+            Assert.True(drive.Active, "新鲜姿态应当产出有效驱动");
+
+            var moved = pipe.Renderer.Stage.Camera;
+            Assert.Equal(-40 + drive.CameraX * scene.Width * 0.10, moved.X, 3);
+            Assert.Equal(25 + drive.CameraY * scene.Height * 0.10, moved.Y, 3);
+            Assert.Equal(1.2 * Math.Clamp(drive.Zoom, 0.5, 2.0), moved.Scale, 3);
+            Assert.Equal(0.9, pipe.Renderer.Stage.Energy, 3);
+        }
+    }
+
+    /// <summary>
     /// 效果图文档存储与往返。
     /// </summary>
     [Fact]

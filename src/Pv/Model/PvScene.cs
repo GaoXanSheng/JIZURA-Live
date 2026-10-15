@@ -34,6 +34,9 @@ public sealed class PvScene
     /// <summary>全局三维视差运镜总开关（开启时各层按自身 Depth 表现不同位移与缩放）</summary>
     public bool GlobalParallaxEnabled { get; set; } = true;
 
+    /// <summary>镜头基础值（持久化到工程）：追踪失效/未连接时的静息取景，也是追踪位移的基准。</summary>
+    public PvCameraConfig Camera { get; set; } = new();
+
     /// <summary>全局自适应环境光调色与光影融合开关（杜绝生硬贴片感）</summary>
     public bool AmbientBlendEnabled { get; set; } = true;
 
@@ -175,4 +178,15 @@ public sealed class PvScene
             return CreateDefault();
         }
     }
+}
+
+/// <summary>
+/// 镜头基础值（持久化到工程）：追踪失效/未连接时的静息取景，也是追踪位移的基准。
+/// 不能由 PvCamState 兼任——那是每帧运行态，把运行态当已保存常量会导致"重启后镜头随机位"。
+/// </summary>
+public sealed class PvCameraConfig
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Scale { get; set; } = 1.0;
 }

@@ -12,6 +12,7 @@ using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Spout;
+using JizuraLive.Vts;
 using Vortice.Mathematics;
 
 namespace JizuraLive.App.PvStage;
@@ -48,6 +49,10 @@ public partial class PvStageWindow : Window
     // 广播开关：UI 只持有"用户意图"，native 发送端由管线在渲染线程建/拆
     private bool _broadcastOn;
     private readonly string _spoutName;
+
+    // VTS 会话：null = 关。UI 线程建/断（Stop 单向不可逆，重连只能 new 新实例）；
+    // volatile 是因为 OnStageReady（渲染线程）要把它接给新管线。
+    private volatile VtsApi? _vts;
 
     private bool _ready => _pipe is { Ready: true };
 
@@ -157,6 +162,7 @@ public partial class PvStageWindow : Window
         pipe?.StopPumping();
         var maxRecv = pipe?.MaxReceiveMs ?? 0;
         _audio.Dispose();
+        _vts?.Stop(); // VTS 会话（工作线程 + 命令队列）与音频一样，停机时收掉
 
         if (!Stage.StopRender())
         {
@@ -188,6 +194,9 @@ public partial class PvStageWindow : Window
             _pipe = null;
 
             _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
+
+            // 万一 VTS 会话在管线之前就开着（不太可能，但保持自洽）：把它的探针接上
+            if (_vts is not null) _pipe.SetTracking(_vts.Tracking);
 
             UpdateBroadcastButton();
             // 沿用设置：上次开着广播的这次开窗自动接上（发送端由管线在渲染线程建）
@@ -819,6 +828,73 @@ public partial class PvStageWindow : Window
 
     private void UpdateBroadcastButton() => BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
 
+    // ---------------- VTS 会话 ----------------
+
+    /// <summary>
+    /// 一个按钮包办会话全周期：关→开；待授权→再请求一次授权；其余状态→断开。
+    /// 断开为什么是"销毁"而不是"挂起"：VtsApi.Stop/Dispose 单向不可逆（工作线程与命令队列
+    /// 不会复活），要用只能 new 新实例——探针随之新建，靠 SetTracking 换给管线。
+    /// 不做二次确认弹窗：这是本机的可逆操作（再点一下就回来），状态条会说清楚结果。
+    /// </summary>
+    private void BtnVts_Click(object sender, RoutedEventArgs e)
+    {
+        var vts = _vts;
+        if (vts is null)
+        {
+            _vts = vts = new VtsApi();
+            vts.Start();
+            _pipe?.SetTracking(vts.Tracking);
+        }
+        else if (vts.State == VtsState.NeedAuth)
+        {
+            vts.RequestAuth(); // VTS 侧会弹出插件授权框，用户点「允许」后才继续
+        }
+        else
+        {
+            _pipe?.SetTracking(null); // 先摘探针：渲染线程立刻回场景基础值
+            vts.Stop();
+            vts.Dispose();
+            _vts = null;
+        }
+
+        RefreshStatus();
+    }
+
+    /// <summary>VTS 段的状态条文案（独立于 Spout 源状态：一个说输入，一个说输出）。</summary>
+    private string VtsStatusText()
+    {
+        var vts = _vts;
+        if (vts is null) return "VTS 关";
+
+        switch (vts.State)
+        {
+            case VtsState.Disconnected:
+            {
+                var err = vts.LastError;
+                if (string.IsNullOrWhiteSpace(err)) return "VTS 未连接";
+                return $"VTS 未连接：{(err.Length > 60 ? err[..60] : err)}";
+            }
+            case VtsState.NeedAuth:
+                return "VTS 待授权（再点 VTS 按钮）";
+            case VtsState.AwaitApproval:
+                return "VTS 等待授权…";
+            case VtsState.Ready:
+                var posed = vts.Tracking.TryRead(500, out var st) && st.FaceFound;
+                return posed ? "VTS 已连接 · 姿态有效" : "VTS 已连接 · 无姿态";
+            default:
+                return "VTS 未连接";
+        }
+    }
+
+    private string VtsButtonText() => _vts?.State switch
+    {
+        null => "VTS 关",
+        VtsState.NeedAuth => "VTS 待授权",
+        VtsState.AwaitApproval => "VTS 等待授权",
+        VtsState.Ready => "VTS 已连接",
+        _ => "VTS 未连接",
+    };
+
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e)
     {
         IReadOnlyList<string> senders;
@@ -924,6 +1000,10 @@ public partial class PvStageWindow : Window
                 TblStatus.Text += $" · {seg}";
             }
         }
+
+        // VTS 与 Spout 源状态分开两段：一个说输入（追踪姿态有没有），一个说输出（广播发没发出去）
+        BtnVts.Content = VtsButtonText();
+        TblStatus.Text += $" · {VtsStatusText()}";
 
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
         if (_saveError is { } saveFault) TblStatus.Text = $"工程未保存：{saveFault}";
