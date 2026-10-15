@@ -10,6 +10,14 @@ namespace JizuraLive.Spout;
 /// <summary>
 /// 外部 Spout 源的接收端（纯 Vortice D3D11 实现，零旧依赖）。
 /// 把外部发送端（如 VTS 角色画面）读回内存或直接共享给渲染管线。
+///
+/// 【M1 第 6 步实测结论 · 2026-10-15 · RTX 4060 Laptop，见 DOC/PV-ENGINE-ARCHITECTURE.md 验证证据节】
+/// 无人发送时 <see cref="SpoutReceiver.ReceiveTexturePtr"/> **立即返回**：20000 次连续 Pump
+/// p50=0.0007ms、p99=0.001ms，<1ms 占 19999/20000（唯一离群 18.9ms 是进程首帧 JIT/GC）。
+/// 空转吞吐约 5×10^5 次/秒——不会把渲染线程关在门外。
+/// 唯一例外：**发送端刚消失后的那一帧**，native 自己会等 ~67ms（6/6 轮确定性复现，
+/// 直接调 native 也复现，托管侧无嫌疑）。所以停机握手仍必须先把 _stopPumping 置上再停线程，
+/// 不能让渲染线程恰好撞上这一帧。数字与复现方式见 tools/SpoutProbe（Q4/Q5/Q6）。
 /// </summary>
 public sealed class SpoutIn : IDisposable
 {
@@ -32,6 +40,13 @@ public sealed class SpoutIn : IDisposable
     private long _lastWaitLog = -WaitLogMs;
     private long _retryAfterTs;
     private int _fails;
+
+    /// <summary>
+    /// 连续失败 <see cref="MaxFails"/> 次后置位，此后 Pump 恒返回 false——**本实例内永不清除**。
+    /// 这是有意的：失败来自 OpenDirectX/收帧/读回，属设备或源状态异常，重试无益。
+    /// 恢复路径不在本对象内：删掉再添加图层会新建 <see cref="SpoutSourceProvider"/>（连带新 SpoutIn），
+    /// 见 PvPipeline.ApplyLayerOps 的 pendingAdds/pendingRemoves。不要在 Pump 里自作聪明清它。
+    /// </summary>
     private bool _gaveUp;
 
     public string LastError { get; private set; } = "";
@@ -71,6 +86,9 @@ public sealed class SpoutIn : IDisposable
             if (!Open(name)) return false;
         }
 
+        // native 无超时/取消参数，但实测无人发送时它立即返回（p50 0.0007ms，见类注释）。
+        // 唯一的例外是「发送端刚消失后的那一帧」：native 会等 ~67ms（确定性，6/6 轮复现）。
+        // 停机握手因此必须先让上层 StopPumping()，别让渲染线程撞上那一帧。
         IntPtr ptr;
         try
         {

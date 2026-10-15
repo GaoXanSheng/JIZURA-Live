@@ -35,6 +35,11 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     public string LastError => _in.LastError;
 
     /// <summary>取帧耗时（毫秒）。停机握手要用实测判断原生接收会不会把渲染线程关在门外。</summary>
+    /// <remarks>
+    /// 【M1 第 6 步实测 · 2026-10-15 · RTX 4060 Laptop】无人发送时本值约 0.001ms（空转）；
+    /// 有源时（640×480 自发送）avg 0.30ms、p50 0.25ms；上限是「发送端刚消失后那一帧」的
+    /// ~67ms（native 内部，非托管侧）。停机握手看到 MaxReceiveMs 落在 60–70ms 区间即属正常已知代价。
+    /// </remarks>
     public double LastReceiveMs { get; private set; }
     public double MaxReceiveMs { get; private set; }
 
