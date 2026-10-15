@@ -42,17 +42,22 @@ public readonly record struct VtsPoseSnapshot(VtsTrackingState State, double AtL
 /// <paramref name="vts"/> **故意没有默认值**：VtsPose 节点在实机里恒失效过——三处生产调用点都"没传就当 default"，
 /// 而 default 恰好是"无姿态"，于是求值侧全绿、屏幕上什么都不动。要接 VTS 就必须显式写下快照
 /// （<see cref="VtsPoseSnapshot.Read"/>），没有姿态就显式写 <c>default</c>，由编译器盯着这件事。
+///
+/// <paramref name="frame"/> 是**渲染线程本帧的草稿**帧状态（相机/图层域的 base 与写入目标都在它上面）。
+/// 传 null 表示调用方没有草稿：相机/图层域的 base 读所有者场景当前**已发布**的快照（UI 徽标求值走这条）。
+/// 帧状态每帧整份换新，所以这里必须逐帧给，不能存实例。
 /// </summary>
 public readonly struct SignalFrameInputs
 {
     public SignalFrameInputs(double transportTime, double liveTime, AudioBandSnapshot audio, DirectorEvaluator? curves,
-        VtsPoseSnapshot vts)
+        VtsPoseSnapshot vts, PvFrameState? frame = null)
     {
         TransportTime = transportTime;
         LiveTime = liveTime;
         Audio = audio;
         Curves = curves;
         Vts = vts;
+        Frame = frame;
     }
 
     public double TransportTime { get; }
@@ -65,6 +70,9 @@ public readonly struct SignalFrameInputs
 
     /// <summary>本帧的 VTS 姿态快照（判龄用 <see cref="LiveTime"/>，见 <see cref="VtsPoseSnapshot"/>）。</summary>
     public VtsPoseSnapshot Vts { get; }
+
+    /// <summary>本帧的草稿帧状态（渲染线程）；null = 读所有者场景已发布的快照。</summary>
+    public PvFrameState? Frame { get; }
 }
 
 /// <summary>本帧某个目标参数的值来自哪里（UI 的"显示值来源"就是它）。</summary>
@@ -144,7 +152,8 @@ public sealed partial class CompiledSignalGraph
                     break;
 
                 case SignalNodeKind.TimelineBaseValue:
-                    value = SignalTargets.BaseValue(in _targets[_timelineTarget[i]], inputs.Curves, inputs.TransportTime);
+                    value = SignalTargets.BaseValue(in _targets[_timelineTarget[i]], inputs.Curves, inputs.TransportTime,
+                        inputs.Frame);
                     if (!double.IsFinite(value))
                     {
                         // 曲线/常量本身坏了：本节点无效；绑定随后回落目标默认值，绝不把 NaN 送到下游
@@ -291,7 +300,7 @@ public sealed partial class CompiledSignalGraph
             else
             {
                 // 输出无效 ⇒ 回落 base(t)；文档常量与两个 Key 始终不变（契约 §3.3 步骤 3/4）
-                value = SignalTargets.BaseValue(in target, inputs.Curves, inputs.TransportTime);
+                value = SignalTargets.BaseValue(in target, inputs.Curves, inputs.TransportTime, inputs.Frame);
                 if (double.IsFinite(value))
                 {
                     source = ParamValueSource.Base;

@@ -38,13 +38,22 @@ public sealed class PvScene
     /// <summary>镜头基础值（持久化到工程）：追踪失效/未连接时的静息取景，也是追踪位移的基准。</summary>
     public PvCameraConfig Camera { get; set; } = new();
 
+    private PvFrameState _frame = new();
+
     /// <summary>
-    /// 本帧的解析帧状态（契约 §3.3）：相机四槽 + 每层五参。渲染线程每帧在 Prepare 里重算，
-    /// 合成链与信号求值只消费它——文档常量与曲线/信号的仲裁结果都落在这份运行态上。
+    /// 本帧的解析帧状态（契约 §3.3）：相机四槽 + 每层五参。
+    /// 渲染线程每帧建一份**新的**、填完再整份发布（<see cref="PublishFrame"/>），所以读者拿到的永远是
+    /// 某一帧的完整快照——UI 徽标求值读到的不会是一份写了一半的字典。
     /// 运行态不进工程文件，所以存盘（UI 线程遍历文档）不会碰到它。
     /// </summary>
     [JsonIgnore]
-    public PvFrameState Frame { get; } = new();
+    public PvFrameState Frame => Volatile.Read(ref _frame);
+
+    /// <summary>
+    /// 整份发布一帧（渲染线程；换引用，无锁）。发布出去的那份此后**不许再改**：
+    /// 它就是读者正在读的快照，改它等于把半更新的帧露出去。
+    /// </summary>
+    public void PublishFrame(PvFrameState frame) => Volatile.Write(ref _frame, frame);
 
     /// <summary>全局自适应环境光调色与光影融合开关（杜绝生硬贴片感）</summary>
     public bool AmbientBlendEnabled { get; set; } = true;

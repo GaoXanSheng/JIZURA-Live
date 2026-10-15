@@ -65,8 +65,11 @@ public readonly record struct PvLayerState(
 }
 
 /// <summary>
-/// 本帧的解析帧状态（契约 §3.3 的产物）：相机四槽 + 每层五参的本帧值。
-/// 渲染线程每帧重算（<see cref="PvPipeline.Prepare"/>），合成链与信号求值只读它；运行态，不进工程文件。
+/// 一帧的解析帧状态（契约 §3.3 的产物）：相机四槽 + 每层五参的本帧值。
+///
+/// 渲染线程每帧建一份**新的**（<see cref="PvPipeline.Prepare"/>），填完由 <see cref="PvScene.PublishFrame"/>
+/// 整份发布；发布出去之后不许再改——读者（UI 徽标求值）读的就是它，改它等于把半更新的帧露出去。
+/// 运行态，不进工程文件。
 /// </summary>
 public sealed class PvFrameState
 {
@@ -74,9 +77,6 @@ public sealed class PvFrameState
 
     /// <summary>本帧相机：相机域的常量、曲线与信号都落在这一份上。</summary>
     public PvCamState Camera { get; set; } = PvCamState.Identity;
-
-    /// <summary>清空图层帧状态：帧状态只描述**本帧**，删掉的图层不留残影。</summary>
-    public void ClearLayers() => _layers.Clear();
 
     public void SetLayer(string id, in PvLayerState state) => _layers[id] = state;
 

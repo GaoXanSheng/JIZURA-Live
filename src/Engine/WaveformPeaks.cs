@@ -104,6 +104,12 @@ public sealed class WaveformPeaks
     }
 
     /// <summary>
+    /// 建一个分块构建器（见 <see cref="Builder"/>）：波形装载不必先把整曲 PCM 攒下来。
+    /// </summary>
+    public static Builder CreateBuilder(int channels, int baseWindow = DefaultBaseWindow) =>
+        new(channels, baseWindow);
+
+    /// <summary>
     /// 选层级：取窗口覆盖样本数不小于 sampleCount/pixelWidth 的最细层级（视区越窄选越粗），
     /// pixelWidth >= sampleCount 时是 level0。层级不足时退到最粗可用层级。
     /// firstSample 只用于固定调用形状（可见段起点不参与选级：选级只看可见样本数）。
@@ -150,5 +156,129 @@ public sealed class WaveformPeaks
         min = mn;
         max = mx;
         return true;
+    }
+
+    /// <summary>
+    /// 分块构建入口：与 <see cref="Build"/> **逐值一致**（同一套窗口边界、同一套两两合并），
+    /// 但内存 O(输出)，不要求整曲 PCM 驻留（§15.2）。尾部不足一帧的样本与 <see cref="Build"/> 一样丢弃。
+    /// </summary>
+    public sealed class Builder
+    {
+        private readonly int _channels;
+        private readonly int _baseWindow;
+        private readonly List<float> _min = new();   // 窗口主序：i * channels + c
+        private readonly List<float> _max = new();
+        private readonly float[] _openMin;           // 还没满一窗的当前窗极值
+        private readonly float[] _openMax;
+        private readonly float[] _carry;             // 上一次 Feed 结尾不足一帧的样本
+        private int _openFrames;
+        private int _carryCount;
+        private long _frames;
+
+        internal Builder(int channels, int baseWindow)
+        {
+            if (channels <= 0) throw new ArgumentOutOfRangeException(nameof(channels));
+            if (baseWindow <= 0) throw new ArgumentOutOfRangeException(nameof(baseWindow));
+
+            _channels = channels;
+            _baseWindow = baseWindow;
+            _openMin = new float[channels];
+            _openMax = new float[channels];
+            _carry = new float[channels];
+            ResetOpen();
+        }
+
+        /// <summary>喂一段交错 PCM。任意长度：可以跨帧、跨窗口、跨块边界切分。</summary>
+        public void Feed(ReadOnlySpan<float> interleaved)
+        {
+            var i = 0;
+
+            if (_carryCount > 0)
+            {
+                while (_carryCount < _channels && i < interleaved.Length) _carry[_carryCount++] = interleaved[i++];
+                if (_carryCount < _channels) return;
+
+                AddFrame(_carry);
+                _carryCount = 0;
+            }
+
+            while (interleaved.Length - i >= _channels)
+            {
+                AddFrame(interleaved.Slice(i, _channels));
+                i += _channels;
+            }
+
+            _carryCount = interleaved.Length - i;
+            for (var k = 0; k < _carryCount; k++) _carry[k] = interleaved[i + k];
+        }
+
+        /// <summary>出末窗、交出多级极值。之后本实例不再可用。</summary>
+        public WaveformPeaks Finish()
+        {
+            if (_openFrames > 0) FlushWindow();
+
+            var count = _min.Count / _channels;
+            // 窗口主序 → Build 的布局（下标 = channel × count + i）
+            var min = new List<float[]> { new float[_channels * count] };
+            var max = new List<float[]> { new float[_channels * count] };
+            for (var c = 0; c < _channels; c++)
+            {
+                for (var i = 0; i < count; i++)
+                {
+                    min[0][c * count + i] = _min[i * _channels + c];
+                    max[0][c * count + i] = _max[i * _channels + c];
+                }
+            }
+
+            while (count > 1)
+            {
+                int next = (count + 1) / 2;                 // 奇数时末窗只并自己，尾段不丢
+                float[] prevMin = min[^1], prevMax = max[^1];
+                var nextMin = new float[_channels * next];
+                var nextMax = new float[_channels * next];
+                for (int c = 0; c < _channels; c++)
+                {
+                    for (int i = 0; i < next; i++)
+                    {
+                        int a = c * count + 2 * i;
+                        int b = c * count + Math.Min(2 * i + 1, count - 1);
+                        nextMin[c * next + i] = Math.Min(prevMin[a], prevMin[b]);
+                        nextMax[c * next + i] = Math.Max(prevMax[a], prevMax[b]);
+                    }
+                }
+                min.Add(nextMin);
+                max.Add(nextMax);
+                count = next;
+            }
+
+            return new WaveformPeaks([.. min], [.. max], _frames, _channels, _baseWindow);
+        }
+
+        private void AddFrame(ReadOnlySpan<float> frame)
+        {
+            for (var c = 0; c < _channels; c++)
+            {
+                var v = frame[c];
+                if (v < _openMin[c]) _openMin[c] = v;
+                if (v > _openMax[c]) _openMax[c] = v;
+            }
+
+            _frames++;
+            if (++_openFrames >= _baseWindow) FlushWindow();
+        }
+
+        private void FlushWindow()
+        {
+            _min.AddRange(_openMin);
+            _max.AddRange(_openMax);
+            _openFrames = 0;
+            ResetOpen();
+        }
+
+        private void ResetOpen()
+        {
+            Array.Fill(_openMin, float.PositiveInfinity);
+            Array.Fill(_openMax, float.NegativeInfinity);
+        }
     }
 }
