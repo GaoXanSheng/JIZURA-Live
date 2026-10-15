@@ -5,6 +5,8 @@ namespace JizuraLive.Engine.Tests;
 /// <summary>
 /// 渲染核心的 GPU 冒烟测试。<see cref="D3DDevice.TryCreate"/> 在无 GPU/无 D3D 的环境
 /// （CI 容器、WARP 也被禁的机器）允许失败——但**失败必须给出原因**，且成功时设备必须可用。
+/// 设备创建失败本身也是一条被测行为，所以这里用普通 <c>[Fact]</c> 而不是 <see cref="GpuFactAttribute"/>：
+/// 它要的正是「建不出来时也能断言错误信息非空」。
 /// </summary>
 public class D3DDeviceTests
 {

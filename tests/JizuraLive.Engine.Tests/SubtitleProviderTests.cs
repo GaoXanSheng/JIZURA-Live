@@ -1,4 +1,4 @@
-using JizuraLive.Engine;
+﻿using JizuraLive.Engine;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
@@ -42,11 +42,11 @@ public class SubtitleProviderTests
         ];
     }
 
-    [Fact]
+    [GpuFact]
     public void SubtitleLayerDrawsThroughProvider()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         {
@@ -61,11 +61,11 @@ public class SubtitleProviderTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void NoSubtitleDataYieldsNoContent()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         {

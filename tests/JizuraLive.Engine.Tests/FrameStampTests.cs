@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -64,7 +64,7 @@ public class FrameStampTests
     private static ReadbackImage RenderAt(double time)
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) throw new InvalidOperationException("no gpu");
+        if (gpu is null) GpuRequire.Fail();
 
         using (gpu)
         {
@@ -93,7 +93,7 @@ public class FrameStampTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void HostFrameTimeReachesGpuWithoutAnyDriver()
     {
         using var early = RenderAt(1.23);

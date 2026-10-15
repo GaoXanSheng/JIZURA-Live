@@ -1,0 +1,51 @@
+name: CI
+
+# 主工程是 net10.0-windows 的 WPF x64 应用，测试工程同框架同平台，
+# 因此 runner 必须是 windows-latest——Linux/macOS 上连 restore 都过不去。
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# 同一分支上的新推送取消上一次未跑完的运行，省 runner 时间。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # SDK 版本锁在仓库根的 global.json（10.0.0），用 global-json-file 读它，
+      # 避免 workflow 里再抄一份版本号、两边漂移。
+      - name: 安装 .NET SDK（版本跟随 global.json）
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # NuGet 包缓存：key 取 csproj 的哈希，依赖清单没变就命中缓存。
+      # 三个 csproj 都会 restore（测试工程与 RenderProbe 经 ProjectReference 串起来），
+      # 所以 cache 的是 ~/.nuget/packages 这一个目录。
+      - name: 缓存 NuGet 包
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: restore
+        run: dotnet restore JizuraLive.csproj
+
+      - name: 构建主程序（Rebuild）
+        run: dotnet build JizuraLive.csproj -t:Rebuild -nologo
+
+      - name: 引擎测试
+        run: dotnet test tests/JizuraLive.Engine.Tests/JizuraLive.Engine.Tests.csproj -nologo
+
+      # RenderProbe 只构建不运行：它要开窗口跑 8 秒实帧渲染，CI runner 没有 GPU，
+      # 跑起来只会失败或无谓消耗时间。构建本身仍然验证工程能编译、能引用主程序集。
+      - name: 构建 RenderProbe（不运行）
+        run: dotnet build tools/RenderProbe/RenderProbe.csproj -nologo

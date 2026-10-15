@@ -1,4 +1,4 @@
-using JizuraLive.Render.Draw;
+﻿using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
 
@@ -127,10 +127,11 @@ public class Immediate2DTests
         return target.Readback();
     }
 
-    [Fact]
+    [GpuFact]
     public void RendersNonBlankFrameWithExpectedPrimitives()
     {
-        if (!TrySetup(out var gpu, out var host, out var target)) return; // 无 GPU：跳过
+        // 兜底：无 GPU 时本用例已被 [GpuFact] 判为跳过；走到这里说明探测与实测不一致，必须失败
+        if (!TrySetup(out var gpu, out var host, out var target)) GpuRequire.Fail();
         using (gpu)
         using (host)
         using (target)
@@ -153,10 +154,10 @@ public class Immediate2DTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void SameSceneRendersIdenticallyTwice()
     {
-        if (!TrySetup(out var gpu, out var host, out var target)) return;
+        if (!TrySetup(out var gpu, out var host, out var target)) GpuRequire.Fail();
         using (gpu)
         using (host)
         using (target)
@@ -168,31 +169,27 @@ public class Immediate2DTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void MatchesGoldenWithinTolerance()
     {
-        if (!TrySetup(out var gpu, out var host, out var target)) return;
+        if (!TrySetup(out var gpu, out var host, out var target)) GpuRequire.Fail();
         using (gpu)
         using (host)
         using (target)
         {
             using var frame = RenderOnce(gpu!, host!, target!);
 
+            // 显式更新基准：JIZURA_GOLDEN_UPDATE=1 时写盘后必须人工复核，不允许「顺手生成即通过」
             if (GoldenImage.UpdateRequested)
             {
                 GoldenImage.SaveOrUpdate(GoldenName, frame);
                 return;
             }
 
-            using var golden = GoldenImage.TryLoad(GoldenName);
-            if (golden is null)
-            {
-                Console.WriteLine($"[golden] 缺基准 {GoldenImage.PathOf(GoldenName)}；"
-                                  + "设 JIZURA_GOLDEN_UPDATE=1 运行即可生成");
-                return;
-            }
+            // 缺基准 = 失败（LoadOrFail 会抛出并说明如何显式更新），不再静默 return
+            using var golden = GoldenImage.LoadOrFail(GoldenName, "Immediate2D 参考场景 640x360");
 
-            var diff = GoldenImage.Compare(golden.Value, frame);
+            var diff = GoldenImage.Compare(golden, frame);
             Assert.True(diff.SameSize, "尺寸与基准不一致：" + diff);
             Assert.True(diff.MeanAbs <= MeanAbsTolerance, $"平均绝对差超容差：{diff}");
             Assert.True(diff.PctOver8 <= PctOverTolerance, $"超阈值像素占比超容差：{diff}");

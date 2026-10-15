@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using JizuraLive.App.PvStage;
 using JizuraLive.Engine;
 using JizuraLive.Pv;
@@ -52,11 +52,11 @@ public class TypographyTests
         Assert.Equal(-1, LrcParser.FindLineIndex(lines, 30.0));
     }
 
-    [Fact]
+    [GpuFact]
     public void TypographyLayerRendersTextOntoSurface()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
 
         using (gpu)
         using (var host = D2DHost.Create(gpu))

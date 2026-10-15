@@ -1,4 +1,4 @@
-using JizuraLive.Render.Draw;
+﻿using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
@@ -21,11 +21,11 @@ public class EffectGraphTests
     public EffectGraphTests(ITestOutputHelper output) => _out = output;
 
     /// <summary>目录里每个效果的 HLSL 都要能编译——把语法错误挡在测试里，而不是运行期黑屏。</summary>
-    [Fact]
+    [GpuFact]
     public void EveryCatalogShaderCompiles()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var runner = new GpuEffectRunner(gpu))
         {
@@ -197,11 +197,11 @@ public class EffectGraphTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void EffectChainProducesVisibleDeterministicOutput()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))
@@ -236,11 +236,11 @@ public class EffectGraphTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void EffectChainMatchesGolden()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))
@@ -248,20 +248,17 @@ public class EffectGraphTests
         {
             using var frame = RunChain(gpu, host, target, runner, BuildShowcaseGraph(), 1.5f);
 
+            // 显式更新基准：JIZURA_GOLDEN_UPDATE=1 时写盘后必须人工复核，不允许「顺手生成即通过」
             if (GoldenImage.UpdateRequested)
             {
                 GoldenImage.SaveOrUpdate(GoldenName, frame);
                 return;
             }
 
-            using var golden = GoldenImage.TryLoad(GoldenName);
-            if (golden is null)
-            {
-                _out.WriteLine($"[golden] 缺基准 {GoldenImage.PathOf(GoldenName)}");
-                return;
-            }
+            // 缺基准 = 失败（LoadOrFail 会抛出并说明如何显式更新），不再静默 return
+            using var golden = GoldenImage.LoadOrFail(GoldenName, "效果链参考帧 640x360");
 
-            var diff = GoldenImage.Compare(golden.Value, frame);
+            var diff = GoldenImage.Compare(golden, frame);
             Assert.True(diff.SameSize, "尺寸与基准不一致：" + diff);
             Assert.True(diff.MeanAbs <= 2.0, $"平均绝对差超容差：{diff}");
             Assert.True(diff.PctOver8 <= 0.02, $"超阈值像素占比超容差：{diff}");
@@ -269,11 +266,11 @@ public class EffectGraphTests
     }
 
     /// <summary>每个效果单独跑一遍，确认都真的改变了画面（抓「编译过但什么都没做」的空效果）。</summary>
-    [Fact]
+    [GpuFact]
     public void EveryEffectChangesTheFrame()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))

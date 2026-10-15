@@ -1,4 +1,4 @@
-using JizuraLive.Render.Draw;
+﻿using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
 using Xunit.Abstractions;
@@ -14,11 +14,11 @@ public class PushSurfaceDiagnostics
 
     public PushSurfaceDiagnostics(ITestOutputHelper output) => _out = output;
 
-    [Fact]
+    [GpuFact]
     public void SurfaceIsolatesDrawingThenCompositesBack()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))

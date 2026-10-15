@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -64,7 +64,7 @@ public class DesignCanvasTests
     private static (ReadbackImage Image, SizeProbe Probe) RenderPreview(int previewW, int previewH)
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) throw new InvalidOperationException("no gpu");
+        if (gpu is null) GpuRequire.Fail();
 
         using (gpu)
         {
@@ -97,7 +97,7 @@ public class DesignCanvasTests
         return new Color4(p[i + 2] / 255f, p[i + 1] / 255f, p[i] / 255f, p[i + 3] / 255f);
     }
 
-    [Fact]
+    [GpuFact]
     public void LayersSeeDesignSizeNotPreviewSize()
     {
         var (image, probe) = RenderPreview(PreviewW, PreviewH);
@@ -107,7 +107,7 @@ public class DesignCanvasTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void PreviewLetterboxesTheDesignCanvas()
     {
         using var image = RenderPreview(PreviewW, PreviewH).Image;

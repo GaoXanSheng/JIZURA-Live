@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
@@ -101,15 +101,13 @@ public class RenderCoreBaselineTests
         d.End();
     }
 
-    [Fact]
+    [GpuFact]
     public void Measures1080pFrameCost()
     {
         var gpu = D3DDevice.TryCreate(out var err);
-        if (gpu is null)
-        {
-            Console.WriteLine("[render-core baseline] 无 GPU，跳过：" + err);
-            return;
-        }
+        // 带 [GpuFact] 的设备用例：探测说可用、真建却失败，那是真问题，必须显式失败。
+        // 之前这里打印一句「无 GPU，跳过」就 return——报告里一片绿，实际一帧没量。
+        if (gpu is null) GpuRequire.Fail(err);
 
         using (gpu)
         using (var host = D2DHost.Create(gpu))

@@ -1,4 +1,4 @@
-using JizuraLive.Render.Draw;
+﻿using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
@@ -148,11 +148,11 @@ public class EffectPersistenceTests
     }
 
     /// <summary>预设要真的互相不同——否则「预设库」只是几个换了名字的同一张图。</summary>
-    [Fact]
+    [GpuFact]
     public void PresetsProduceVisiblyDifferentFrames()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))
@@ -204,15 +204,18 @@ public class EffectPersistenceTests
 
                 // 联表图：8 个预设拼成 4x2 一张，既是肉眼验收材料，也是视觉回归基准
                 using var sheet = BuildContactSheet(frames);
-                if (GoldenImage.UpdateRequested) GoldenImage.SaveOrUpdate("render-core-presets", sheet);
+                if (GoldenImage.UpdateRequested)
+                {
+                    GoldenImage.SaveOrUpdate("render-core-presets", sheet);
+                }
                 else
                 {
-                    using var golden = GoldenImage.TryLoad("render-core-presets");
-                    if (golden is not null)
-                    {
-                        var d = GoldenImage.Compare(golden.Value, sheet);
-                        Assert.True(d.MeanAbs <= 3.0, "预设联表图与基准差异过大：" + d);
-                    }
+                    // 缺基准 = 失败（LoadOrFail 会抛出并说明如何显式更新）；
+                    // 之前这里是「TryLoad 到 null 就什么都不断言」，等于把这条回归闸拆了。
+                    using var golden = GoldenImage.LoadOrFail("render-core-presets", "预设联表图 4x2");
+
+                    var d = GoldenImage.Compare(golden, sheet);
+                    Assert.True(d.MeanAbs <= 3.0, "预设联表图与基准差异过大：" + d);
                 }
             }
             finally

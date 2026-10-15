@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
@@ -99,11 +99,11 @@ public class PvStageTests
     /// 重开工程后新增图层不许复用量标：序号必须从场景里已有的 src_&lt;n&gt; 接着往下编。
     /// 撞名后两层共用一个提供者，删一层会把另一层也变成空层。
     /// </summary>
-    [Fact]
+    [GpuFact]
     public void NewLayerIdsContinueAfterReloadedScene()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
 
         var dir = Path.Combine(Path.GetTempPath(), "jizura-seq-" + Guid.NewGuid());
         Directory.CreateDirectory(dir);
@@ -132,11 +132,11 @@ public class PvStageTests
     /// <summary>
     /// 舞台能把合成直接写进外部分享纹理（纯 D3D11 共享纹理）。
     /// </summary>
-    [Fact]
+    [GpuFact]
     public void StageCompositesIntoExternalSharedTexture()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
 
         using (gpu)
         using (var host = D2DHost.Create(gpu))
@@ -199,14 +199,14 @@ public class PvStageTests
     /// <summary>
     /// 1080p 纯 GPU 合成耗时基线验证。
     /// </summary>
-    [Fact]
+    [GpuFact]
     public void StageCompositeIntoSharedTextureFitsFrameBudgetAt1080p()
     {
         const int w = 1920, h = 1080;
         const int frames = 30;
 
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
 
         using (gpu)
         using (var host = D2DHost.Create(gpu))
@@ -264,35 +264,48 @@ public class PvStageTests
 
     /// <summary>
     /// VTS 追踪驱动虚拟摄像机。
+    ///
+    /// 场景/效果路径一律写独立临时目录（Guid 隔离，finally 删除）：
+    /// PvPipeline 会把效果文档写在场景文件同目录（pv_effects.json），
+    /// 用相对路径 "unused.json" 会让它落在测试进程工作目录，留下垃圾并可能被别的用例读到。
     /// </summary>
-    [Fact]
+    [GpuFact]
     public void VtsTrackingDrivesCameraInPipeline()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
 
-        using (gpu)
+        var dir = Path.Combine(Path.GetTempPath(), "jizura-vts-cam-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
         {
-            var probe = new VtsTrackingProbe();
-            using var pipe = new PvPipeline(gpu, "unused.json", PvScene.CreateDefault(),
-                new EffectGraph(), null, false, probe);
-
-            probe.Set(VtsTrackingState.Empty with
+            using (gpu)
             {
-                FaceFound = true,
-                HeadX = 0.8,
-                HeadY = -0.5,
-                MouthOpen = 0.9,
-                EyeOpenLeft = 1,
-                EyeOpenRight = 1,
-                AtMs = Environment.TickCount64,
-            });
+                var probe = new VtsTrackingProbe();
+                using var pipe = new PvPipeline(gpu, Path.Combine(dir, "scene.json"),
+                    PvScene.CreateDefault(), new EffectGraph(), null, false, probe);
 
-            pipe.Prepare(0.0);
-            var cam = pipe.Renderer.Stage.Camera;
+                probe.Set(VtsTrackingState.Empty with
+                {
+                    FaceFound = true,
+                    HeadX = 0.8,
+                    HeadY = -0.5,
+                    MouthOpen = 0.9,
+                    EyeOpenLeft = 1,
+                    EyeOpenRight = 1,
+                    AtMs = Environment.TickCount64,
+                });
 
-            Assert.True(Math.Abs(cam.X) > 1, $"头右移镜位移应显著，实际 {cam.X}");
-            Assert.True(cam.Scale > 0.5, "缩放应合理");
+                pipe.Prepare(0.0);
+                var cam = pipe.Renderer.Stage.Camera;
+
+                Assert.True(Math.Abs(cam.X) > 1, $"头右移镜位移应显著，实际 {cam.X}");
+                Assert.True(cam.Scale > 0.5, "缩放应合理");
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
         }
     }
 
@@ -404,7 +417,7 @@ public class PvStageTests
         Action<D2DHost, PvStage, List<IDisposable>> bind)
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) throw new InvalidOperationException("no gpu");
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))

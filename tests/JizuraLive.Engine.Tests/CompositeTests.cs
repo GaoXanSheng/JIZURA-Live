@@ -1,4 +1,4 @@
-using JizuraLive.Render.Draw;
+﻿using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
 
@@ -53,11 +53,11 @@ public class CompositeTests
             $"{what} 不符：实际 ({got.R},{got.G},{got.B})，期望 ({er},{eg},{eb})（容差 {tol}）");
     }
 
-    [Fact]
+    [GpuFact]
     public void BlendModesMatchHandComputedResults()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         {
@@ -73,11 +73,11 @@ public class CompositeTests
         }
     }
 
-    [Fact]
+    [GpuFact]
     public void CompositeRespectsOpacity()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         {
@@ -114,7 +114,7 @@ public class CompositeTests
     public void CompositeIsDeterministic()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         {

@@ -1,4 +1,4 @@
-using JizuraLive.Render.Draw;
+﻿using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
 using Xunit.Abstractions;
@@ -24,11 +24,11 @@ public class EffectChainDiagnostics
         0, 0, 0, 1,
         1, 1, 1, 0);
 
-    [Fact]
+    [GpuFact]
     public void EachEffectBehaves()
     {
         var gpu = D3DDevice.TryCreate(out _);
-        if (gpu is null) return;
+        if (gpu is null) GpuRequire.Fail();
         using (gpu)
         using (var host = D2DHost.Create(gpu))
         {
