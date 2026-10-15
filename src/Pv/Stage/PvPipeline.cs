@@ -443,11 +443,15 @@ public sealed class PvPipeline : IDisposable
             {
                 var scene = PvScene.FromJson(File.ReadAllText(path));
                 if (scene is not null) return scene;
+                Log.Warn("[PV 管线] 场景文件解析结果为空，本次会话使用默认场景（磁盘文件保持原样）");
             }
             catch (Exception ex)
             {
-                Log.Warn($"[PV 管线] 场景文件读取失败，重置为默认：{ex.Message}");
+                // 文件存在但坏了：只在内存里回落默认，绝不写盘——旧行为会把用户场景覆盖成默认
+                Log.Warn($"[PV 管线] 场景文件解析失败，本次会话使用默认场景（磁盘文件保持原样）：{ex.Message}");
             }
+
+            return PvScene.CreateDefault();
         }
 
         var def = PvScene.CreateDefault();

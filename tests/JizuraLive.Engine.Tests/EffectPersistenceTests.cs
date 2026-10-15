@@ -105,6 +105,82 @@ public class EffectPersistenceTests
             Assert.Equal(p.Default, g.Nodes[0].Value(p), 3);
     }
 
+    /// <summary>
+    /// 同一种效果放两个（M4/M6 要靠实例 Id 寻址，参数必须各归各）：
+    /// Id 非空且互不相同，落盘往返后每个 Id 仍带着自己那组参数值。
+    /// </summary>
+    [Fact]
+    public void SameDefTwiceKeepsIndependentInstanceIdsAndValues()
+    {
+        var intensity = EffectCatalog.Get("glow")!.Params[1];
+
+        var g = new EffectGraph()
+            .Add("glow", n => n.Set(intensity, 0.3f));
+        g.Add("glow", n => n.Set(intensity, 1.4f));
+
+        var idA = g.Nodes[0].InstanceId;
+        var idB = g.Nodes[1].InstanceId;
+        Assert.False(string.IsNullOrEmpty(idA), "Add 必须给节点发实例 Id");
+        Assert.False(string.IsNullOrEmpty(idB), "Add 必须给节点发实例 Id");
+        Assert.NotEqual(idA, idB);
+
+        var restored = EffectGraphJson.Deserialize(EffectGraphJson.Serialize(g));
+        Assert.Equal(2, restored.Nodes.Count);
+        Assert.Equal(0.3f, restored.Nodes.First(n => n.InstanceId == idA).Value(intensity), 3);
+        Assert.Equal(1.4f, restored.Nodes.First(n => n.InstanceId == idB).Value(intensity), 3);
+    }
+
+    /// <summary>
+    /// 旧存档没有 InstanceId：读入时全图补号且唯一，补出来的号被写回 JSON，再次读入保持一致
+    /// （即补号结果本身可往返，不会每次加载都换一批号）。
+    /// </summary>
+    [Fact]
+    public void LegacySaveWithoutInstanceIdsIsBackfilledAndStable()
+    {
+        const string legacy = """
+            {
+              "version": 1,
+              "nodes": [
+                { "defId": "glow", "enabled": true, "values": { "intensity": 0.4 } },
+                { "defId": "glow", "enabled": true, "values": { "intensity": 1.7 } },
+                { "defId": "vignette", "enabled": false }
+              ]
+            }
+            """;
+
+        var g = EffectGraphJson.Deserialize(legacy);
+        Assert.Equal(3, g.Nodes.Count);
+        Assert.All(g.Nodes, n => Assert.False(string.IsNullOrEmpty(n.InstanceId), "旧存档节点必须补号"));
+        Assert.Equal(3, g.Nodes.Select(n => n.InstanceId).Distinct().Count());
+
+        var json = EffectGraphJson.Serialize(g);
+        Assert.Contains("InstanceId", json, StringComparison.Ordinal);
+
+        var again = EffectGraphJson.Deserialize(json);
+        Assert.Equal(g.Nodes.Select(n => n.InstanceId), again.Nodes.Select(n => n.InstanceId));
+    }
+
+    /// <summary>预设与默认后期链产出的图同样全带号，且图内唯一。</summary>
+    [Fact]
+    public void PresetsAndDefaultPostAssignUniqueInstanceIds()
+    {
+        var graphs = EffectPresets.All.Select(p => (p.Id, Graph: p.Build()))
+            .Append(("CreateDefaultPost", EffectGraph.CreateDefaultPost()));
+
+        foreach (var (id, graph) in graphs)
+        {
+            Assert.NotEmpty(graph.Nodes);
+            foreach (var n in graph.Nodes)
+            {
+                Assert.False(string.IsNullOrEmpty(n.InstanceId), $"{id} 的 {n.DefId} 节点没有实例 Id");
+                Assert.StartsWith($"fx_{n.DefId}_", n.InstanceId);
+            }
+
+            Assert.Equal(graph.Nodes.Count,
+                graph.Nodes.Select(n => n.InstanceId).Distinct().Count());
+        }
+    }
+
     private static ReadbackImage BuildContactSheet(IReadOnlyList<(string Id, ReadbackImage Bmp)> frames)
     {
         const int cols = 4;

@@ -13,13 +13,22 @@ namespace JizuraLive.Render.Effects;
 /// </summary>
 public static class EffectGraphJson
 {
-    /// <summary>当前存档版本（结构变化时递增，供将来做迁移）。</summary>
+    /// <summary>
+    /// 当前存档版本（结构变化时递增，供将来做迁移）。
+    /// 加 <c>InstanceId</c> 属于纯增量扩展，所以**不**抬版本号：旧读方忽略未知字段照样能读；
+    /// 抬了反而会让旧读方把整份存档判成不认识的版本而整段拒绝。
+    /// </summary>
     public const int CurrentVersion = 1;
 
     private sealed class NodeDto
     {
         public string DefId { get; set; } = "";
         public bool Enabled { get; set; } = true;
+
+        /// <summary>实例 Id；空则不写（旧读方视野里这份 JSON 和从前没有区别）。</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string? InstanceId { get; set; }
+
         public Dictionary<string, float>? Values { get; set; }
         public Dictionary<string, string>? Colors { get; set; }
     }
@@ -39,6 +48,7 @@ public static class EffectGraphJson
             {
                 DefId = n.DefId,
                 Enabled = n.Enabled,
+                InstanceId = string.IsNullOrEmpty(n.InstanceId) ? null : n.InstanceId,
                 Values = n.Values.Count > 0 ? new Dictionary<string, float>(n.Values) : null,
                 Colors = n.Colors.Count > 0 ? new Dictionary<string, string>(n.Colors) : null,
             }).ToList(),
@@ -74,7 +84,18 @@ public static class EffectGraphJson
                 continue;
             }
 
-            var node = new EffectNode { DefId = nd.DefId, Enabled = nd.Enabled };
+            // 有 Id 原样保留；旧存档没有 Id 的节点在这里统一补号——补出来的号会被下一次 Serialize
+            // 写进 JSON，所以补号结果本身可往返。补号就地做，不另开 public EnsureInstanceIds：
+            // 调用方不该关心「这个节点有没有号」。
+            // （InstanceId 是 init 属性，只能在对象初始化器里赋值，所以补号落在构造处，而不是循环末尾。）
+            var node = new EffectNode
+            {
+                DefId = nd.DefId,
+                Enabled = nd.Enabled,
+                InstanceId = string.IsNullOrEmpty(nd.InstanceId)
+                    ? EffectGraph.NewInstanceId(nd.DefId)
+                    : nd.InstanceId,
+            };
             if (nd.Values is not null)
             {
                 foreach (var (key, value) in nd.Values)

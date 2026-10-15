@@ -21,11 +21,19 @@ public sealed class EffectGraph
 
     public EffectGraph Add(string defId, Action<EffectNode>? configure = null)
     {
-        var node = new EffectNode { DefId = defId };
+        var node = new EffectNode { DefId = defId, InstanceId = NewInstanceId(defId) };
         configure?.Invoke(node);
         Nodes.Add(node);
         return this;
     }
+
+    /// <summary>
+    /// 发一个实例 Id：<c>fx_&lt;defId&gt;_&lt;6 位十六进制&gt;</c>。
+    /// 为什么不用 GUID 全长：Id 要写进 JSON、还会显示在 UI 上，选短格式是为了能一眼看出
+    /// 「这是哪个效果的第几个实例」；6 位十六进制约 1677 万种，单张图内的碰撞概率可忽略。
+    /// </summary>
+    internal static string NewInstanceId(string defId) =>
+        $"fx_{defId}_{Guid.NewGuid().ToString("N")[..6]}";
 
     public bool Remove(string defId) => Nodes.RemoveAll(n => n.DefId == defId) > 0;
 

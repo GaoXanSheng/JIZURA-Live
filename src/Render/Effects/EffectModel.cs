@@ -139,6 +139,14 @@ public sealed class EffectNode
 {
     public string DefId { get; init; } = "";
 
+    /// <summary>
+    /// 实例身份：同一种 <see cref="EffectDef"/> 在图里可以出现多次，参数寻址
+    /// （<c>effect:&lt;instance-id&gt;.param</c>）靠它区分「是哪一个」。
+    /// 空 = 未分配（旧存档、以及测试里直接 new 的节点），由 <see cref="EffectGraph.Add"/> 发号、
+    /// <see cref="EffectGraphJson.Deserialize"/> 给旧数据补号。
+    /// </summary>
+    public string InstanceId { get; init; } = "";
+
     public bool Enabled { get; set; } = true;
 
     /// <summary>数值/开关参数值。</summary>
