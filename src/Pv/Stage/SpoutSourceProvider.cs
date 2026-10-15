@@ -135,8 +135,12 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
         try
         {
             using var surface = tex.QueryInterface<IDXGISurface>();
+            // 位图格式**跟随纹理自身**（BGRA8 或 RGBA8）：SpoutIn 的自有纹理已按源格式建，
+            // D2D 按这个格式解释通道序，两种 8 位 RGBA 源都能正确出图。
+            // 早先恒声明 B8G8R8A8 会让 RGBA8 源红蓝互换（而当时又只放行 BGRA8 源，索性整源拒掉）。
+            var texFormat = tex.Description.Format;
             var alphaMode = _premultiplied ? DCommonAlphaMode.Premultiplied : DCommonAlphaMode.Straight;
-            var format = new DCommonPixelFormat(Format.B8G8R8A8_UNorm, alphaMode);
+            var format = new DCommonPixelFormat(texFormat, alphaMode);
             var bmp = _ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(format, 96f, 96f, BitmapOptions.None));
             _bitmaps[frontIndex] = bmp;
             return bmp;

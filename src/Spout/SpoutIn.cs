@@ -340,10 +340,12 @@ public sealed class SpoutIn : IDisposable
     }
 
     /// <summary>
-    /// 建/重建两张自有帧纹理。只在 (w,h,源格式) 变化时重建——每帧重建纹理是显存抖动，
+    /// 收/重建两张自有帧纹理。只在 (w,h,源格式) 变化时重建——每帧重建纹理是显存抖动，
     /// 而源尺寸在 VTS 改分辨率时确实会变，所以这里必须能重建。
-    /// <paramref name="dxgiFormat"/> 只用于判断「是否换了源格式」，纹理本身恒为 BGRA8
-    /// （调用方已过 <see cref="SpoutSourceFormat.IsSupported"/> 白名单）。
+    ///
+    /// **纹理格式跟随源**（白名单内的 BGRA8 / RGBA8）：D2D 的 surface 位图按该格式解释通道，
+    /// 所以两种 8 位 RGBA 通道序都能正确显示，不需要通道交换 pass。早先恒建 BGRA8 并只放行
+    /// BGRA8 源，等于把 VTS 这类发 RGBA8 的真实源整源拒掉（工作台表现为「收不到画面」）。
     /// </summary>
     private bool EnsureTargets(int w, int h, int dxgiFormat)
     {
@@ -358,7 +360,7 @@ public sealed class SpoutIn : IDisposable
             Height = (uint)h,
             MipLevels = 1,
             ArraySize = 1,
-            Format = Format.B8G8R8A8_UNorm,
+            Format = (Format)dxgiFormat, // 跟随源：BGRA8 或 RGBA8，调用方已过白名单
             SampleDescription = new SampleDescription(1, 0),
             Usage = ResourceUsage.Default,
             // RT|SR：SR 是 D2D 位图（CreateBitmapFromDxgiSurface）与后续效果链要的；

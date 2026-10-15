@@ -70,6 +70,8 @@ internal static class Program
         var autoExit = true;
         var senderMode = false;
         var gpuInputMode = false;
+        var liveMode = false;
+        var nameGiven = false;
         var sendFrames = 1000;
         var slowFrames = 200;
         for (var i = 0; i < args.Length; i++)
@@ -79,10 +81,11 @@ internal static class Program
                 if (double.TryParse(args[i + 1], out var s)) { q1Seconds = s; q3Seconds = Math.Max(2, s / 2); }
             }
             if (args[i] == "--max-pumps" && i + 1 < args.Length) int.TryParse(args[i + 1], out maxPumps);
-            if (args[i] == "--name" && i + 1 < args.Length) sender = args[i + 1];
+            if (args[i] == "--name" && i + 1 < args.Length) { sender = args[i + 1]; nameGiven = true; }
             if (args[i] == "--self-send") selfSend = true;
             if (args[i] == "--no-exit") autoExit = false;
             if (args[i] == "--gpu-input") gpuInputMode = true;
+            if (args[i] == "--live") liveMode = true;
             if (args[i] == "--frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var n) && n > 0)
                 sendFrames = n;
             if (args[i] == "--slow-frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var m) && m > 0)
@@ -101,9 +104,9 @@ internal static class Program
 
         // 三个模式互斥：同时指定会让两套 native 状态（sender 注册表 / receiver 句柄）互相污染，
         // 拿到的数字既不能归给 Q 也不能归给 S/G。宁可报错退出。
-        if (senderMode && gpuInputMode)
+        if ((senderMode && gpuInputMode) || (senderMode && liveMode) || (gpuInputMode && liveMode))
         {
-            Console.WriteLine("[Probe][FAIL] --sender 与 --gpu-input 互斥，一次只跑一个模式");
+            Console.WriteLine("[Probe][FAIL] --sender / --gpu-input / --live 互斥，一次只跑一个模式");
             return 2;
         }
 
@@ -150,6 +153,11 @@ internal static class Program
             var report = new GpuReceiveReport(results, gpu.AdapterName, gpu.IsSoftware);
             report.Print();
             exitCode = report.ExitCode;
+        }
+        else if (liveMode)
+        {
+            // LIVE 模式：对真实运行中的外部发送端跑生产接收链（G1 是自发送，测不出真实源的问题）
+            exitCode = new LiveReceiveProbe(gpu, d2d, nameGiven ? sender : null).Run();
         }
         else
         {

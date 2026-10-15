@@ -65,6 +65,7 @@ internal static class Program
         var vsync = true;
         string? csvPath = null;
         var selfTest = false;
+        var stress = false;
         for (var i = 0; i < args.Length; i++)
         {
             if (args[i] == "--seconds" && i + 1 < args.Length) double.TryParse(args[i + 1], out seconds);
@@ -73,6 +74,7 @@ internal static class Program
             if (args[i] == "--nosync") vsync = false;
             if (args[i] == "--csv" && i + 1 < args.Length) csvPath = args[i + 1];
             if (args[i] == "--self-test") selfTest = true;
+            if (args[i] == "--stress") stress = true;
         }
 
         // 长跑：预热固定 10s，总时长 = 预热 + N 分钟统计窗口。
@@ -82,6 +84,17 @@ internal static class Program
         {
             warmup = 10.0;
             seconds = warmup + minutes * 60.0;
+        }
+
+        // 压力模式必须长跑：事件节拍 5s/8s/3s 在 8 秒短跑里一个完整周期都踩不满，曲线没有意义。
+        // 默认 2 分钟就够（加压后泄漏斜率在几十秒内就显形，不需要跑满 10 分钟）
+        if (stress && !longRun)
+        {
+            minutes = 2;
+            longRun = true;
+            warmup = 10.0;
+            seconds = warmup + minutes * 60.0;
+            Console.WriteLine("[Bench] --stress 未带 --minutes：默认按 2 分钟压力跑执行（预热 10s 不计）");
         }
 
         // 自检在最前面：不碰数据目录、不写文件、不建设备（否则「纯数学闸门」就不纯了）
@@ -110,7 +123,7 @@ internal static class Program
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         var window = new Window
         {
-            Title = "JIZURA PerfBench（M7 基准 · 短跑）",
+            Title = stress ? "JIZURA PerfBench（压力剖面 · 产品全链）" : "JIZURA PerfBench（M7 基准 · 短跑）",
             Width = 1280,
             Height = 720,
             Background = System.Windows.Media.Brushes.Black,
@@ -122,6 +135,26 @@ internal static class Program
             InitialHeight = 720,
             VSync = vsync,
         };
+
+        if (stress)
+        {
+            // 压力模式：挂产品管线全链 + 事件节拍。内存采样/斜率结论复用 Bench 的同一套机制——
+            // 泄漏对比的前提是"测法不变、只换负载"，两套采样器就没法前后比了
+            var stressBench = new StressBench(host, seed: 20261015);
+            var memProbe = new StressMemProbe(host, stressBench, warmup);
+            window.Content = host;
+            window.Show();
+            var codeS = app.Run(window);
+            if (host.Error is not null)
+            {
+                Console.WriteLine($"[Bench][FAIL] GPU 路初始化失败：{host.Error}");
+                return 2;
+            }
+            Console.WriteLine(memProbe.Conclusion());
+            Console.WriteLine("[Bench] 结束：退出码 0（压力剖面跑完；曲线斜率即泄漏判据，对照稳态长跑读）");
+            return codeS == 0 ? 0 : codeS;
+        }
+
         var bench = new Bench(host, seconds, warmup, vsync);
         window.Content = host;
 

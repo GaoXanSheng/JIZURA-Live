@@ -40,27 +40,35 @@ public class SpoutGpuInputTests
     // ============================================================ 1. 白名单
 
     /// <summary>
-    /// 白名单只认 BGRA8，其余一律拒绝**且必须给得出可读诊断**。
+    /// 白名单收 8 位 RGBA 家族的两种通道序（BGRA8 / RGBA8），其余一律拒绝**且必须给得出可读诊断**。
+    ///
+    /// RGBA8 为什么在名单里（2026-10-15 用真实发送端实测后修正）：VTube Studio 的 Spout 源实际就发
+    /// R8G8B8A8_UNorm（1872×1057），而**自有纹理跟随源格式**、D2D 按该格式解释通道序，所以 RGBA8
+    /// 能被正确消费（tools/SpoutProbe --live 的 L4 段取证：直收成功、像素非黑、D2D 包装成功）。
+    /// 早先恒建 BGRA8 纹理时 RGBA8 源会红蓝互换，当时只好整源拒掉——那会让最常见的真实源完全不出图
+    /// （工作台里表现为「Spout 收不到画面」）。
+    ///
     /// 这条用例存在的理由：拒绝而不给诊断等于把「静默错色」换成「静默黑屏」，用户还是不知道该去改发送端格式。
     /// </summary>
     [Fact]
-    public void SpoutSourceFormat_RejectsUnsupportedFormats_WithReadableDiagnostic()
+    public void SpoutSourceFormat_AcceptsRgbaFamily_AndRejectsOthersWithReadableDiagnostic()
     {
         Assert.True(SpoutSourceFormat.IsSupported(Format.B8G8R8A8_UNorm),
-            "B8G8R8A8_UNorm 是全引擎 BGRA8 约定，必须在白名单里");
+            "B8G8R8A8_UNorm 是全引擎内部约定，必须在白名单里");
+        Assert.True(SpoutSourceFormat.IsSupported(Format.R8G8B8A8_UNorm),
+            "R8G8B8A8_UNorm 是 VTS 等真实发送端实际发的格式，必须能收（跟随源格式，通道序由 D2D 解释）");
 
         Format[] unsupported =
         [
             Format.R10G10B10A2_UNorm,
             Format.R16G16B16A16_Float,
-            Format.R8G8B8A8_UNorm,        // 同为 4 字节/像素但通道顺序不同，按 BGRA 读一样错色
-            Format.B8G8R8A8_UNorm_SRgb,   // 布局同 BGRA8 但带 sRGB 语义：采样会做 gamma 转换，同样按 BGRA8 消费会错色
+            Format.B8G8R8A8_UNorm_SRgb,   // 布局同 BGRA8 但带 sRGB 语义：采样会做 gamma 转换，按线性消费会错色
             Format.Unknown,
         ];
 
         foreach (var f in unsupported)
         {
-            Assert.False(SpoutSourceFormat.IsSupported(f), $"{f} 不该被当作 BGRA8 消费");
+            Assert.False(SpoutSourceFormat.IsSupported(f), $"{f} 不是 8 位 RGBA 家族（每像素 4 字节），不该被消费");
 
             var d = SpoutSourceFormat.DescribeUnsupported(f);
             Assert.False(string.IsNullOrWhiteSpace(d), $"{f} 必须给得出诊断串");

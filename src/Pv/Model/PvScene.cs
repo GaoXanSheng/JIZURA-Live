@@ -102,7 +102,7 @@ public sealed class PvScene
             Id = CharacterLayerId,
             Name = "Character Asset",
             Kind = PvLayerKind.VisualAsset,
-            SpoutSenderName = "VTubeStudio",
+            SpoutSenderName = "VTubeStudioSpout", // 必须与真实发送端同名：VTS 发的是 "VTubeStudioSpout"（不是 "VTubeStudio"），对不上就永远收不到帧；SpoutIn.Normalize 的兜底名也是它
             Parallax = new PvParallaxConfig { Depth = 0.85, RotationFactor = 0.6 },
             VisualBlend = new PvVisualBlendConfig
             {
