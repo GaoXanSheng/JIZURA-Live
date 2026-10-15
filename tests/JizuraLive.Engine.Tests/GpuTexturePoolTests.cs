@@ -1,4 +1,8 @@
+using JizuraLive.Render.Draw;
+using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
+using Vortice.Direct2D1;
+using Vortice.DXGI;
 using Vortice.Mathematics;
 
 namespace JizuraLive.Engine.Tests;
@@ -198,5 +202,184 @@ public class GpuTexturePoolTests
             Assert.Throws<ObjectDisposedException>(() => { pool.Rent(64, 64); });
             Assert.Throws<ObjectDisposedException>(() => pool.Return(leased));
         });
+    }
+
+    /// <summary>
+    /// 附件（挂在 entry 上的派生资源，如包住纹理的 D2D 位图）随 entry 一起走：
+    /// 淘汰即释放、池 Dispose 时连租出面上的也释放。这条是「位图钉住已淘汰纹理」那个漏法的机制闸。
+    /// </summary>
+    [GpuFact]
+    public void Attachment_DiesWithEntry_OnEvictionAndOnPoolDispose()
+    {
+        WithPool(GpuTexturePool.DefaultFreeCacheBudgetBytes, 1, (_, pool) =>
+        {
+            // ① 淘汰：上限 1 → 先归还的那张被挤出去
+            var victim = pool.Rent(64, 64);
+            var evicted = new TrackedDisposable();
+            victim.Attach(evicted);
+            var keep = pool.Rent(64, 64);
+            pool.Return(victim);
+            pool.Return(keep);
+
+            Assert.Equal(IntPtr.Zero, victim.Texture.NativePointer); // 前提：确实发生了淘汰
+            Assert.True(evicted.Disposed, "entry 被淘汰时，挂在它上面的派生资源必须一起释放");
+            Assert.False(victim.TryGetAttachment(out TrackedDisposable? _), "淘汰后不该还能取到附件");
+
+            // ② 池 Dispose：租出中的面上的附件同样要释放（末帧冻结时最后一张 fx 面就一直是租出的）
+            var leased = pool.Rent(96, 96);
+            var onLeased = new TrackedDisposable();
+            leased.Attach(onLeased);
+            pool.Dispose();
+            Assert.True(onLeased.Disposed, "池 Dispose 时租出面上的派生资源也必须释放");
+        });
+    }
+
+    /// <summary>
+    /// 附件可以单独摘掉（换代重建：D2D 上下文重建后旧位图必须作废，但 entry 本身继续可用），
+    /// 且重新挂一份之后取到的必须是新的那份——旧附件不能被当成命中。
+    /// </summary>
+    [GpuFact]
+    public void Attachment_CanBeDroppedPerGeneration_EntryStaysUsable()
+    {
+        // 上限 0：归还即淘汰，于是"换代清掉 + 归还释放"两条路径在同一个用例里都能观察到
+        WithPool(GpuTexturePool.DefaultFreeCacheBudgetBytes, 0, (_, pool) =>
+        {
+            var e = pool.Rent(64, 64);
+            var old = new TrackedDisposable();
+            e.Attach(old);
+            Assert.True(e.TryGetAttachment<TrackedDisposable>(out var got));
+            Assert.Same(old, got);
+
+            e.DisposeAttachment(); // 换代清理
+            Assert.True(old.Disposed);
+            Assert.False(e.TryGetAttachment(out TrackedDisposable? _));
+            Assert.NotEqual(IntPtr.Zero, e.Texture.NativePointer); // entry 本身还活着、还能用
+
+            var fresh = new TrackedDisposable();
+            e.Attach(fresh);
+            Assert.True(e.TryGetAttachment<TrackedDisposable>(out var got2));
+            Assert.Same(fresh, got2); // 换代后取到的是新附件，不是被 Dispose 的旧附件
+
+            pool.Return(e); // 上限 0 → 当场淘汰
+            Assert.True(fresh.Disposed, "归还后当场淘汰时，附件同样要释放");
+        });
+    }
+
+    /// <summary>
+    /// 泄漏根因的机制闸：包住纹理的 D2D 位图挂在 entry 上，entry 被淘汰时它必须一起死。
+    /// 位图持有底层 DXGI 面的引用——只要它活着，被淘汰的纹理就释放不掉（显存漏）。
+    /// 用弱引用观察：旧写法（按 NativePointer 建字典缓存位图）在这里会留下活着的位图，用例失败。
+    /// </summary>
+    [GpuFact]
+    public void AttachedD2DBitmap_DoesNotOutliveEvictedEntry()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        using (var host = D2DHost.Create(gpu))
+        using (var pool = new GpuTexturePool(gpu.Device, GpuTexturePool.DefaultFreeCacheBudgetBytes, 1))
+        {
+            var victim = pool.Rent(256, 256);
+            var weak = AttachBitmap(victim, host);
+            var other = pool.Rent(256, 256); // 同时租出 → 必是另一张面
+            pool.Return(victim);
+            pool.Return(other);              // 上限 1：两张同尺寸归还 → 最旧的 victim 被淘汰
+
+            Assert.Equal(IntPtr.Zero, victim.Texture.NativePointer); // 前提：确实发生了淘汰
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            Assert.False(weak.IsAlive,
+                "被淘汰 entry 上的 D2D 位图仍然存活：它持有底层 DXGI 面的引用，会一直钉住这张纹理（显存只增不减）");
+        }
+    }
+
+    /// <summary>
+    /// 默认每尺寸上限必须覆盖**现目录里最长的一条同尺寸 pass 链**。
+    /// 上限小于链长时，池在稳态下永远进不了固定复用集（每帧新分配 + 每帧淘汰，1080p 一张 7.91MiB）。
+    /// 有人往预设/目录里加更长的链时这条闸会失败，提醒同步抬上限或让执行器提前归还。
+    /// </summary>
+    [GpuFact]
+    public void DefaultFreeCapCoversLongestSameSizeChainOfShippedPresets()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        using (var runner = new GpuEffectRunner(gpu))
+        {
+            var longest = 0;
+            var worst = "(无)";
+            foreach (var preset in EffectPresets.All)
+            {
+                var graph = preset.Build().BuildRenderGraph(runner.Shaders, 0f, 1920, 1080);
+                var perSize = graph.Passes
+                    .GroupBy(p => (W: (int)Math.Round(1920 * p.Scale), H: (int)Math.Round(1080 * p.Scale)))
+                    .Max(g => g.Count());
+                if (perSize > longest)
+                {
+                    longest = perSize;
+                    worst = preset.Id;
+                }
+            }
+
+            Assert.True(GpuTexturePool.DefaultMaxFreePerSize >= longest,
+                $"最长同尺寸链是预设「{worst}」的 {longest} 段，超过每尺寸空闲上限 "
+                + $"{GpuTexturePool.DefaultMaxFreePerSize}——稳态会每帧新分配并淘汰，池化名存实亡");
+        }
+    }
+
+    /// <summary>
+    /// 稳态零分配：一帧里同尺寸 pass 数不超过每尺寸上限时，归还不得触发淘汰，
+    /// 下一轮必须原样复用同一批实例（池化的目的就是稳态不分配）。
+    /// </summary>
+    [GpuFact]
+    public void SteadyState_ChainWithinCap_ReusesWithoutEviction()
+    {
+        // 8 = 默认上限，也是「现目录最长同尺寸链（5）」之上留了余量的档位
+        const int chain = 8;
+        Assert.True(GpuTexturePool.DefaultMaxFreePerSize >= chain,
+            "默认每尺寸上限已小于本用例的链长，用例前提不成立");
+
+        WithPool(GpuTexturePool.DefaultFreeCacheBudgetBytes, GpuTexturePool.DefaultMaxFreePerSize, (_, pool) =>
+        {
+            var first = new List<GpuTexturePool.Entry>();
+            for (var i = 0; i < chain; i++) first.Add(pool.Rent(512, 512));
+            foreach (var e in first) pool.Return(e);
+
+            var afterFirst = pool.GetStats();
+            Assert.Equal(0, afterFirst.Evictions);
+            Assert.Equal(chain, afterFirst.FreeCount);
+
+            var second = new List<GpuTexturePool.Entry>();
+            for (var i = 0; i < chain; i++) second.Add(pool.Rent(512, 512));
+
+            foreach (var e in second) Assert.Contains(e, first); // 引用相等：全是复用来的
+            var afterSecond = pool.GetStats();
+            Assert.Equal(0, afterSecond.Evictions);
+            Assert.Equal(afterFirst.AllocatedBytes, afterSecond.AllocatedBytes); // 一张都没新建
+
+            foreach (var e in second) pool.Return(e);
+        });
+    }
+
+    /// <summary>把一张 entry 的纹理包成 D2D 位图挂上去（模拟 PvStageRenderer.BitmapFor），返回它的弱引用。</summary>
+    private static WeakReference AttachBitmap(GpuTexturePool.Entry entry, D2DHost host)
+    {
+        using var surface = entry.Texture.QueryInterface<IDXGISurface>();
+        var bmp = host.Ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
+            new Vortice.DCommon.PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied),
+            96f, 96f, BitmapOptions.None));
+        entry.Attach(bmp);
+        return new WeakReference(bmp);
+    }
+
+    private sealed class TrackedDisposable : IDisposable
+    {
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
     }
 }

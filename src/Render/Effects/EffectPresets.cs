@@ -199,6 +199,30 @@ public static class EffectPresets
     public static EffectGraph? Create(string id) =>
         All.FirstOrDefault(p => p.Id == id)?.Build();
 
+    /// <summary>预设选择器的占位项：表示「当前效果图不是任何预设」。选中它不改动效果图。</summary>
+    public const string PickerPlaceholder = "（当前效果图）";
+
+    /// <summary>
+    /// 预设选择器的初始选中项：恒为占位项。
+    ///
+    /// 启动时**绝不能**程序化选中某个预设：<c>SelectionChanged</c> 会把工程里已存的效果图整份换掉，
+    /// 还会被随后的自动存盘写回磁盘——用户上次存的效果图就这么没了，而界面上只是「默认选中了某个风格」。
+    /// </summary>
+    public const int PickerInitialIndex = 0;
+
+    /// <summary>选择器要显示的项（下标与 <see cref="PickerItemAt"/> 对应）：占位项 + 全部预设 Id。</summary>
+    public static IEnumerable<string> PickerLabels() =>
+        All.Select(p => p.Id).Prepend(PickerPlaceholder);
+
+    /// <summary>
+    /// 选择器第 <paramref name="index"/> 项对应的预设。占位项（<see cref="PickerInitialIndex"/>）
+    /// 与越界返回 null = **不改动效果图**。
+    ///
+    /// 映射只此一处：选择器的下标与 <see cref="All"/> 差一个占位项，写两遍迟早有一天对不上。
+    /// </summary>
+    public static EffectPreset? PickerItemAt(int index) =>
+        index <= 0 || index > All.Count ? null : All[index - 1];
+
     /// <summary>
     /// 按 key 设参数（预设里用 key 而不是下标，读起来才像配置而不是魔法数字）。
     /// key 写错时**直接抛**：预设是代码，拼错的参数名如果被静默忽略，会变成「预设看起来生效了、

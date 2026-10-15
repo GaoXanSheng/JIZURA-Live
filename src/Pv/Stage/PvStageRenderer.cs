@@ -22,7 +22,6 @@ public sealed class PvStageRenderer : IDisposable
     private readonly D3DDevice _gpu;
     private readonly D2DHost _d2d;
     private readonly GpuEffectRunner _fx;
-    private readonly Dictionary<IntPtr, ID2D1Bitmap1> _fxBitmaps = new();
     private OffscreenTarget? _stageTarget;
     private ID3D11ShaderResourceView? _stageSrv;
 
@@ -61,6 +60,16 @@ public sealed class PvStageRenderer : IDisposable
 
     /// <summary>效果链段数（状态条显示用）。</summary>
     public int EffectCount => Effects.Nodes.Count(n => n.Enabled);
+
+    /// <summary>效果链的纹理池（诊断/验收用：池的计数快照是显存复用的观测面）。</summary>
+    public GpuTexturePool FxPool => _fx.Pool;
+
+    /// <summary>
+    /// 本代际创建的 fx 位图数（诊断用）。位图挂在池 entry 上、随 entry 复用，
+    /// 所以它由「池的复用集大小」封顶，**不随帧数增长**——它涨到帧数量级就说明
+    /// 最终输出的纹理每帧都是新的（池在稳态下没有真正复用）。
+    /// </summary>
+    public int FxBitmapsCreated { get; private set; }
 
     /// <summary>D2D 设备上下文：调用方用它把交换链后缓冲包成绘制目标。</summary>
     public ID2D1DeviceContext D2DContext => _d2d.Ctx;
@@ -235,14 +244,18 @@ public sealed class PvStageRenderer : IDisposable
     public void FreezeFrames() => _freezeLast = true;
 
     /// <summary>
-    /// 清掉 D2D 位图缓存（临时面句柄→位图）。按代际清理用：设备/上下文重建或画布换代时，
-    /// 旧位图绑的是已作废的 DXGI 面，留着只会持续占 D2D 资源且再也不会被命中。
+    /// 清掉挂在池 entry 上的 D2D 位图（按代际清理用）：设备/上下文重建或画布换代时，
+    /// 旧位图绑的是已作废的 D2D 上下文，留着只会持续占资源且再也不会被正确命中。
+    /// 下一次 <see cref="BitmapFor"/> 会按当前上下文重建。
+    ///
+    /// 位图挂在 entry 上、随 entry 淘汰/释放自动 Dispose（见 <see cref="GpuTexturePool.Entry.Attach"/>），
+    /// 所以这里只负责「换代」这一件事，运行期不需要逐帧维护。
     /// 必须在渲染线程上调用（与 <see cref="BitmapFor"/> 同一线程）。
     /// </summary>
     public void ClearFxBitmapCache()
     {
-        foreach (var b in _fxBitmaps.Values) b.Dispose();
-        _fxBitmaps.Clear();
+        foreach (var entry in _fx.Pool.LiveEntries) entry.DisposeAttachment();
+        FxBitmapsCreated = 0;
     }
 
     /// <summary>把设计画布等比放进目标矩形，居中，余量留黑。</summary>
@@ -261,16 +274,24 @@ public sealed class PvStageRenderer : IDisposable
         _stageSrv = _gpu.Device.CreateShaderResourceView(_stageTarget.Texture);
     }
 
+    /// <summary>
+    /// 把效果链的输出面包成 D2D 位图（预览与广播共用同一张）。
+    ///
+    /// 缓存挂在 <see cref="GpuTexturePool.Entry"/> 上，不按纹理指针另建字典：
+    /// 位图持有底层 DXGI 面的引用，只要它活着，被淘汰的纹理就释放不掉；而按指针索引还会在
+    /// 纹理释放、指针被 COM 分配器复用后把旧位图当成新纹理的命中。绑到 entry 身份上，
+    /// 位图随 entry 淘汰/释放一起 Dispose，缓存集也由池的复用集封顶。
+    /// </summary>
     private ID2D1Bitmap1 BitmapFor(GpuTexturePool.Entry entry)
     {
-        var key = entry.Texture.NativePointer;
-        if (_fxBitmaps.TryGetValue(key, out var bmp)) return bmp;
+        if (entry.TryGetAttachment(out ID2D1Bitmap1? cached)) return cached;
 
         using var surface = entry.Texture.QueryInterface<IDXGISurface>();
-        bmp = _d2d.Ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
+        var bmp = _d2d.Ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
             new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
             96f, 96f, BitmapOptions.None));
-        _fxBitmaps[key] = bmp;
+        entry.Attach(bmp);
+        FxBitmapsCreated++;
         return bmp;
     }
 

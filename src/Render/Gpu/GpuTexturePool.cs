@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using JizuraLive.Logging;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -26,8 +27,18 @@ public sealed class GpuTexturePool : IDisposable
     /// </summary>
     public const long DefaultFreeCacheBudgetBytes = 128L << 20;
 
-    /// <summary>同一 (宽, 高) 允许留在空闲缓存里的张数初值（同上，待 M7 实测调整）。</summary>
-    public const int DefaultMaxFreePerSize = 2;
+    /// <summary>
+    /// 同一 (宽, 高) 允许留在空闲缓存里的张数初值。
+    ///
+    /// 为什么是 8 而不是 2：这个数是**稳态零分配**的门槛——小于「一帧里同尺寸 pass 数」，
+    /// 每帧归还时都会淘汰掉下一帧还要用的面，稳态下每帧新分配、每帧淘汰，池化就名存实亡
+    /// （1080p 一张 7.91 MiB，每帧两进两出就是持续 16 MiB 的分配器抖动）。
+    /// 现目录里最长的一条同尺寸链是 vhs 预设的 5 段（colorGrade/chromatic/scanline/grain/vignette），
+    /// 留到 8 是给它留出用户再叠几段的余量。上界只约束**空闲**面，且全局字节预算仍然兜底，
+    /// 所以调大它的代价是常驻复用面（最坏 8×(7.91+1.98+0.49+0.12) ≈ 84 MiB，仍在 128MiB 预算内），
+    /// 不是峰值显存。与 <see cref="DefaultFreeCacheBudgetBytes"/> 一样是待 M7 实测调整的初值。
+    /// </summary>
+    public const int DefaultMaxFreePerSize = 8;
 
     /// <summary>一张可作渲染目标也可作着色器输入的纹理。</summary>
     public sealed class Entry : IDisposable
@@ -37,6 +48,9 @@ public sealed class GpuTexturePool : IDisposable
         public ID3D11ShaderResourceView Srv { get; }
         public int Width { get; }
         public int Height { get; }
+
+        /// <summary>派生资源（目前只有包住 <see cref="Texture"/> 的 D2D 位图）：生命周期与本 entry 绑定。</summary>
+        private IDisposable? _attachment;
 
         /// <summary>归还序号（LRU 用）：池内单调递增，只在空闲缓存里有效，用于跨尺寸桶比较「谁更久没用」。</summary>
         internal long ReturnSeq;
@@ -50,8 +64,44 @@ public sealed class GpuTexturePool : IDisposable
             Height = h;
         }
 
+        /// <summary>
+        /// 挂一份派生资源，生命周期与本 entry 绑定：淘汰或池 <see cref="Dispose"/> 时随 entry 一起释放
+        /// （重复挂会先释放上一份，不叠加）。
+        ///
+        /// 为什么必须挂在 entry 上，而不是让调用方按纹理指针另建一张缓存表：
+        /// <list type="number">
+        /// <item>派生资源（D2D 位图）持有底层 DXGI 面的引用，它活着这张纹理就释放不掉——
+        /// 「按指针缓存」会同时漏掉缓存表本身与它钉住的显存。</item>
+        /// <item>纹理被淘汰后指针会被 COM 分配器复用，按指针查表会把旧派生资源当成新纹理的命中。</item>
+        /// </list>
+        /// 绑到 entry 身份上，这两条一起消失（契约见 DOC/PV-DIRECTOR-SYSTEM.md「不能只凭 NativePointer 跨生命周期命中旧 Bitmap」）。
+        /// </summary>
+        public void Attach(IDisposable resource)
+        {
+            var previous = _attachment;
+            _attachment = resource;
+            previous?.Dispose();
+        }
+
+        /// <summary>取当前附件（没挂过或类型不符返回 false）。</summary>
+        public bool TryGetAttachment<T>([NotNullWhen(true)] out T? resource) where T : class, IDisposable
+        {
+            resource = _attachment as T;
+            return resource is not null;
+        }
+
+        /// <summary>摘掉并释放附件，entry 本身继续存活：按代际重建派生资源时用（见 PvStageRenderer.ClearFxBitmapCache）。</summary>
+        public void DisposeAttachment()
+        {
+            var attachment = _attachment;
+            _attachment = null;
+            attachment?.Dispose();
+        }
+
         public void Dispose()
         {
+            // 先释放附件再释放纹理：D2D 位图持有 Texture 的 DXGI 面引用，反过来顺序等于让纹理多活一轮
+            DisposeAttachment();
             Srv.Dispose();
             Rtv.Dispose();
             Texture.Dispose();
@@ -183,6 +233,13 @@ public sealed class GpuTexturePool : IDisposable
     /// <summary>池的运行计数快照。Dispose 之后各项归零，不抛异常。</summary>
     public PoolStats GetStats() =>
         new(_freeCount, _freeBytes, _leased.Count, _allocatedBytes, _evictions, _doubleReturns);
+
+    /// <summary>
+    /// 池当前持有的全部 entry（含租出中）。给调用方清理挂在 entry 上的派生资源用
+    /// （如按代际重建的 D2D 位图，见 <see cref="Entry.DisposeAttachment"/>）。
+    /// 只读遍历：不要在遍历过程中 Rent/Return/Dispose 池。
+    /// </summary>
+    public IReadOnlyList<Entry> LiveEntries => _all;
 
     /// <summary>
     /// 把空闲缓存收回上界内：先每尺寸上限，再全局字节预算；两段都从最久未用的一端开始。

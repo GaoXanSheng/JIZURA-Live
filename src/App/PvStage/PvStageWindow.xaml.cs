@@ -870,13 +870,12 @@ public partial class PvStageWindow : Window
         foreach (var def in EffectCatalog.All)
             CmbAddFx.Items.Add($"{def.Id}  ·  {CategoryLabel(def.Category)}");
 
-        foreach (var preset in EffectPresets.All)
-            CmbPreset.Items.Add(preset.Id);
-
-        var idx = 0;
-        for (var i = 0; i < EffectPresets.All.Count; i++)
-            if (EffectPresets.All[i].Id == "cinematic") idx = i;
-        CmbPreset.SelectedIndex = idx;
+        // 预设下拉框首项是占位项（不是任何预设）。必须有这么一项：程序化选中是构造期唯一能做的
+        // "当前状态"回填，若只能落在某个预设上，那一选就会清空工程里已存的效果图并立刻存盘——
+        // 用户上次存的效果图直接消失（EffectPresets.PickerInitialIndex 是同一约定）。
+        foreach (var label in EffectPresets.PickerLabels())
+            CmbPreset.Items.Add(label);
+        CmbPreset.SelectedIndex = EffectPresets.PickerInitialIndex;
     }
 
     private void CmbAddFx_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -890,8 +889,9 @@ public partial class PvStageWindow : Window
 
     private void CmbPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (CmbPreset.SelectedIndex < 0) return;
-        var preset = EffectPresets.All[CmbPreset.SelectedIndex];
+        // 占位项/越界 → 不改动效果图（启动时的初始选中就是这一项）
+        var preset = EffectPresets.PickerItemAt(CmbPreset.SelectedIndex);
+        if (preset is null) return;
 
         // 换实例之前先记下旧实例 Id：换完之后它们一个都不在了，挂在它们身上的曲线与信号绑定必须跟着走。
         // 删单个效果那条路径（效果架的 ✕）已经这么做了，预设切换是同一件事的批量版——
