@@ -94,6 +94,9 @@ public static class ProjectStore
         var signalFault = SanitizeSignalGraph(project);
         if (signalFault is not null) return new ProjectLoadResult(null, signalFault);
 
+        // 布局不是内容：坏了就当"还没有布局"，绝不因它拒绝打开一份工程
+        SanitizeLayout(project);
+
         return new ProjectLoadResult(project, null);
     }
 
@@ -162,6 +165,10 @@ public static class ProjectStore
             if (node.Params is null) node.Params = new Dictionary<string, double>();
             if (node.Texts is null) node.Texts = new Dictionary<string, string>();
 
+            // 坐标是布局不是内容：非有限值会让画布变换整片失效，按"还没布局"处理（null ⇒ 待自动布局）
+            if (node.X is { } x && !double.IsFinite(x)) node.X = null;
+            if (node.Y is { } y && !double.IsFinite(y)) node.Y = null;
+
             // 只接受 schema 里声明过的键（同 EffectGraphJson 对未知 key 的处理：丢这一个，不炸整份工程）
             DropUnknownKeys(node.Id, node.Params, def, SignalParamKind.Number);
             DropUnknownTextKeys(node.Id, node.Texts, def);
@@ -179,6 +186,27 @@ public static class ProjectStore
 
         return null;
     }
+
+    /// <summary>
+    /// 编辑器布局的兜底：非有限数值（手改 JSON / 坏写盘的 NaN、Infinity）会让画布变换整片失效，
+    /// 按"这个字段没有"回落默认；null 列表按空处理（同信号图三个列表的约定）。
+    /// 只改内存：布局不是内容，不值得为它拒绝一份工程，也不该顺手回写用户的文件。
+    /// </summary>
+    private static void SanitizeLayout(DirectorProject project)
+    {
+        // 存档里写 null 与缺字段同义：默认视图（1× 无平移、无选中），不是"打不开"
+        var layout = project.EditorLayout ??= new EditorLayout();
+
+        layout.CanvasZoom = Finite(layout.CanvasZoom, 1);
+        layout.CanvasPanX = Finite(layout.CanvasPanX, 0);
+        layout.CanvasPanY = Finite(layout.CanvasPanY, 0);
+        layout.TimelineZoom = Finite(layout.TimelineZoom, 1);
+
+        layout.SelectedNodeIds ??= new List<string>();
+        layout.CollapsedTrackIds ??= new List<string>();
+    }
+
+    private static double Finite(double value, double fallback) => double.IsFinite(value) ? value : fallback;
 
     /// <summary>丢掉节点上 schema 未声明的参数键。先收集再删，避免边遍历边改集合。</summary>
     private static void DropUnknownKeys(string nodeId, Dictionary<string, double> values, SignalNodeDef def, SignalParamKind kind)

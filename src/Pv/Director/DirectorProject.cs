@@ -12,8 +12,12 @@ namespace JizuraLive.Pv;
 /// </summary>
 public sealed class DirectorProject
 {
-    /// <summary>当前工程架构版本。读取时高于此值的文档直接拒绝打开（未来版本可能含当前代码不认识的语义）。</summary>
-    public const int CurrentSchemaVersion = 1;
+    /// <summary>
+    /// 当前工程架构版本。读取时高于此值的文档直接拒绝打开（未来版本可能含当前代码不认识的语义）。
+    /// 2 = 信号图新增 VtsPose 节点种类：旧读方只会把它当未知节点连边一起丢掉，
+    /// 那种"看起来能跑"比整份拒绝打开危险得多（理由见 <see cref="SignalGraph"/> 注释第 2 条）。
+    /// </summary>
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>工程架构版本（= <see cref="CurrentSchemaVersion"/>）。</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -65,6 +69,45 @@ public sealed class DirectorProject
     /// </summary>
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public SignalGraph SignalGraph { get; set; } = new();
+
+    /// <summary>
+    /// 编辑器布局（画布视图与选择、时间轴视图）。
+    ///
+    /// 布局不是内容：改它不触发编译、不计 dirty，只在保存时附带落盘（契约 §3.1）。
+    /// 它不引用 Scene/Effects/SignalGraph 里的任何对象，所以读入缺字段、或字段坏了，都只回落默认视图。
+    ///
+    /// 必须 Replace：同 <see cref="Scene"/> 的理由（Auto 会把存档条目追加进已有实例）。
+    /// </summary>
+    [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+    public EditorLayout EditorLayout { get; set; } = new();
+}
+
+/// <summary>
+/// 编辑器布局：这一台机器上"上次看到哪儿"，不是文档内容——改它不计 dirty、不触发编译、不参与撤销语义（契约 §3.1）。
+/// 时间轴三个字段先存不消费：多轨时间轴接入后再读，先存下来省得以后再加一次格式。
+/// </summary>
+public sealed class EditorLayout
+{
+    /// <summary>画布缩放（1 = 100%）。</summary>
+    public double CanvasZoom { get; set; } = 1;
+
+    /// <summary>画布横向平移（画布像素）。</summary>
+    public double CanvasPanX { get; set; }
+
+    /// <summary>画布纵向平移（画布像素）。</summary>
+    public double CanvasPanY { get; set; }
+
+    /// <summary>画布选中的节点 Id（顺序 = 选中顺序；已删节点的 Id 由画布自行忽略）。</summary>
+    public List<string> SelectedNodeIds { get; set; } = new();
+
+    /// <summary>时间轴横向缩放（1 = 默认密度）。</summary>
+    public double TimelineZoom { get; set; } = 1;
+
+    /// <summary>时间轴滚动位置（ticks，一秒 10,000,000 tick）。</summary>
+    public long TimelineScrollTicks { get; set; }
+
+    /// <summary>折叠的轨 Id（时间轴折叠态）。</summary>
+    public List<string> CollapsedTrackIds { get; set; } = new();
 }
 
 /// <summary>

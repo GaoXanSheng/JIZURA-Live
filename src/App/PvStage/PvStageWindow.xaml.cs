@@ -87,7 +87,7 @@ public partial class PvStageWindow : Window
     // 离线音频装载（波形 + 频带分析）：换音频 / 换工程时取消上一次，两份结果一起作废
     private CancellationTokenSource? _audioLoadCts;
 
-    // 离线频带序列：分析算完发布给管线（信号面板的「能量」节点读它）。null = 分析未就绪
+    // 离线频带序列：分析算完发布给管线（蓝图画布的「能量」节点读它）。null = 分析未就绪
     private AudioBandSeries? _audioBands;
 
     // 属性检查器：null = 没有选中对象，显示工程级信息
@@ -103,10 +103,6 @@ public partial class PvStageWindow : Window
     // 歌词样式下拉的固定项：与 LyricStyle 的四个预设同名（FromName 按名大小写不敏感地取）
     private static readonly string[] LyricStyleNames = ["Classic", "Neon", "Outline", "Minimal"];
     private bool _syncingLyricStyle;  // 程序化回填下拉时为 true：那次 SelectionChanged 不是用户选择
-
-    // 信号面板（M6）：编辑只发生在草稿上，确认才换引用并落盘。
-    // 直接在 _project.SignalGraph 上编辑的话，"关掉弹窗"就成了一次不可撤销的改动——5 秒一次的自动存盘会把它写进磁盘。
-    private SignalGraph? _signalDraft;
 
     // 广播开关：UI 只持有"用户意图"，native 发送端由管线在渲染线程建/拆
     private bool _broadcastOn;
@@ -154,11 +150,15 @@ public partial class PvStageWindow : Window
         TheTimeline.EditCommitted += Timeline_EditCommitted;
         TheTimeline.Fps = _scene.Fps;
 
+        BlueprintCanvas.EditCommitted += Blueprint_EditCommitted;
+
         BuildLayerList();
         BuildEffectRack();
         BuildPickers();
         BuildInspector();
         RefreshTimeline();
+        RefreshBlueprint();
+        ApplyBlueprintLayout(); // 上次退出时的画布缩放/平移/选中集
 
         _uiTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -213,6 +213,7 @@ public partial class PvStageWindow : Window
         _project.AudioPath = _audioPath;
         _project.LrcText = _lrcText;
         SyncCurvesToProject();
+        SaveBlueprintLayout(); // 画布缩放/平移/选中集顺带落盘（布局不计 dirty、不触发编译）
         return ProjectStore.Save(_project, ProjectPath);
     }
 
@@ -560,6 +561,7 @@ public partial class PvStageWindow : Window
         TblLayerCount.Text = $"{_scene.Layers.Count} 层";
         HighlightLayerCards();
         BuildInspector();
+        RefreshBlueprint(); // 图层域的地址候选跟着图层集合走（层增删 = 绑定目标清单变了）
     }
 
     private static string LayerKindLabel(PvLayerKind k) => k switch
@@ -782,6 +784,7 @@ public partial class PvStageWindow : Window
         }
 
         RefreshParamRows();
+        RefreshBlueprint(); // 地址下拉的候选来自效果实例：效果架变了，画布的绑定目标清单就得跟着变
         var count = _effects.Nodes.Count(n => n.Enabled);
         TblStatus.Text = $"效果 {count} 段";
     }
@@ -966,19 +969,12 @@ public partial class PvStageWindow : Window
         TblStatus.Text = $"歌词样式：{_scene.LyricStyleName}";
     }
 
-    // ---------------- 信号面板（M6） ----------------
-
-    private void BtnSignal_Click(object sender, RoutedEventArgs e)
-    {
-        _signalDraft = CloneSignalGraph(_project.SignalGraph);
-        TblSignalIssue.Text = "";
-        BuildSignalPanel();
-        SignalPop.IsOpen = true; // 与取色弹窗同款：先填好内容再开，免得开出来是空框
-    }
+    // ---------------- 信号图（蓝图工作区与状态条共用） ----------------
 
     /// <summary>
-    /// 工程的信号图 → 面板草稿。逐条走公开的 TryAddXxx 重建（源图已被 ProjectStore 治理过），
-    /// 于是草稿自带一份自己的结构版本，而工程的文档对象在确认之前一字不改。
+    /// 工程的信号图 → 可改副本。逐条走公开的 TryAddXxx 重建（源图已被 ProjectStore 治理过），
+    /// 于是副本自带一份自己的结构版本，而工程的文档对象在采用之前一字不改。
+    /// 坐标一并带上：它是布局不是内容，但漏一次就整张图的节点叠到原点。
     /// </summary>
     private static SignalGraph CloneSignalGraph(SignalGraph source)
     {
@@ -987,7 +983,14 @@ public partial class PvStageWindow : Window
         foreach (var node in source.Nodes)
         {
             if (node is null) continue;
-            var copy = new SignalNode { Id = node.Id, Kind = node.Kind, Enabled = node.Enabled };
+            var copy = new SignalNode
+            {
+                Id = node.Id,
+                Kind = node.Kind,
+                Enabled = node.Enabled,
+                X = node.X,
+                Y = node.Y,
+            };
             foreach (var (key, value) in node.Params) copy.Params[key] = value;
             foreach (var (key, text) in node.Texts) copy.Texts[key] = text;
             draft.TryAddNode(copy, out _);
@@ -1037,11 +1040,10 @@ public partial class PvStageWindow : Window
     }
 
     /// <summary>
-    /// 状态条上的信号编译结论。编辑入口（预设切换、删效果）改完图必须当场给回执——
+    /// 状态条上的信号编译结论。编辑入口（蓝图编辑、预设切换、删效果）改完图必须当场给回执——
     /// 只写日志等于没说：log 不在用户眼前，而"信号是不是全停了"正是他此刻最需要知道的。
     ///
-    /// 编的是**工程里已发布**的那张图（渲染线程真正在跑的那一份），与面板里草稿的结论分开算：
-    /// 草稿可能只是"改到一半"，而工程那份是当前生效的真相。
+    /// 编的是**工程里已发布**的那张图（渲染线程真正在跑的那一份），与画布上正在编辑的那份分开算。
     /// </summary>
     private string SignalStatusText()
     {
@@ -1053,7 +1055,7 @@ public partial class PvStageWindow : Window
 
         if (result.Plan is null)
         {
-            // 码是稳定契约，文案可以改：状态条只放第一条码，全量清单在信号面板里
+            // 码是稳定契约，文案可以改：状态条只放第一条码，全量清单在画布的状态条与日志里
             if (errors.Count == 0) return "信号 未通过";
             return errors.Count == 1
                 ? $"信号 未通过：{errors[0].Code}"
@@ -1064,249 +1066,22 @@ public partial class PvStageWindow : Window
         return warnings == 0 ? "信号 正常" : $"信号 正常（注意 {warnings} 条）";
     }
 
-    private void BtnSignalTime_Click(object sender, RoutedEventArgs e) => AddSignalNode(SignalNodeKind.Time);
-
-    private void BtnSignalEnergy_Click(object sender, RoutedEventArgs e) => AddSignalNode(SignalNodeKind.AudioBands);
-
-    private void BtnSignalRemap_Click(object sender, RoutedEventArgs e) => AddSignalNode(SignalNodeKind.Remap);
-
-    private void BtnSignalOutput_Click(object sender, RoutedEventArgs e) => AddSignalNode(SignalNodeKind.ParameterOutput);
-
-    private void AddSignalNode(SignalNodeKind kind)
-    {
-        var draft = _signalDraft;
-        if (draft is null) return;
-
-        var node = draft.CreateNode(kind);
-        TblSignalIssue.Text = draft.TryAddNode(node, out var error) ? "" : error;
-        BuildSignalPanel();
-    }
-
     /// <summary>
-    /// 整份重画面板。只在结构增删（加/删节点、连/断边、改绑定）之后调：
-    /// 改参数值不需要重画，那些控件自己就显示着新值（重画反而会把焦点从输入框里抢走）。
-    /// </summary>
-    private void BuildSignalPanel()
-    {
-        SignalHost.Children.Clear();
-        CmbSignalFrom.Items.Clear();
-        CmbSignalTo.Items.Clear();
-
-        var draft = _signalDraft;
-        if (draft is null) return;
-
-        foreach (var node in draft.Nodes)
-            if (node is not null) SignalHost.Children.Add(SignalNodeCard(draft, node));
-
-        if (draft.Edges.Count > 0)
-        {
-            SignalHost.Children.Add(new TextBlock { Text = "连线", Style = (Style)FindResource("PvSectionTitle") });
-            foreach (var edge in draft.Edges)
-                if (edge is not null) SignalHost.Children.Add(SignalEdgeRow(draft, edge));
-        }
-
-        // 连边用下拉而不是画布拖线：先能把图接对，再谈手感（画布是后续的事）
-        foreach (var node in draft.Nodes)
-        {
-            if (node is null) continue;
-            var def = SignalNodeCatalog.Get(node.Kind);
-            if (def is null) continue;
-
-            foreach (var port in def.Ports)
-            {
-                // 只列出求值器真正消费的输入端口：列出一个编译得过却不参与计算的引脚，比不列更坏
-                if (port.IsInput && SignalRules.PortSlotOf(node.Kind, port.Name) < 0) continue;
-
-                var item = new ComboBoxItem { Content = $"{SignalKindLabel(node.Kind)} {node.Id} · {port.Name}" };
-                item.Tag = SignalPortKey(node.Id, port.Name);
-                (port.IsInput ? CmbSignalTo : CmbSignalFrom).Items.Add(item);
-            }
-        }
-
-        TblSignalCount.Text = $"{draft.Nodes.Count} 节点 · {draft.Edges.Count} 边 · {draft.Bindings.Count} 绑定";
-        RefreshSignalCompile(draft);
-    }
-
-    /// <summary>
-    /// 面板上的编译结论（环、悬空、重复写入）：每次结构变化都刷一遍，
-    /// 免得"连得上却跑不起来"要等到确认那一刻才知道。码原样显示（码是稳定契约，文案给人看）。
-    /// </summary>
-    private void RefreshSignalCompile(SignalGraph draft)
-    {
-        var result = SignalCompiler.Compile(draft, _effects, _scene);
-        var lines = new List<string>();
-
-        foreach (var issue in result.Issues)
-            lines.Add((issue.Severity == SignalIssueSeverity.Error ? "错误 " : "注意 ") + $"{issue.Code}：{issue.Message}");
-
-        if (lines.Count == 0)
-        {
-            TblSignalCompile.Text = result.Plan is null ? "编译未通过（且未给出原因）" : "编译通过";
-            return;
-        }
-
-        // 只列前几条：这类错误常常一次报一长串（环下游的每个节点各报一条），全贴出来反而看不到第一句
-        var shown = string.Join("\n", lines.Take(5));
-        TblSignalCompile.Text = lines.Count > 5 ? shown + $"\n…共 {lines.Count} 条" : shown;
-    }
-
-    private FrameworkElement SignalNodeCard(SignalGraph draft, SignalNode node)
-    {
-        var card = new Border { Style = (Style)FindResource("PvCard") };
-        var stack = new StackPanel();
-        card.Child = stack;
-
-        var head = new Grid();
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var title = new TextBlock
-        {
-            Text = $"{SignalKindLabel(node.Kind)}  {node.Id}",
-            FontSize = (double)FindResource("PvTextSm"),
-            Foreground = (System.Windows.Media.Brush)FindResource("PvFg"),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(title, 0);
-        head.Children.Add(title);
-
-        var del = new Button
-        {
-            Style = (Style)FindResource("PvBtnGhost"),
-            Padding = new Thickness(6, 1, 6, 1),
-            Content = "✕",
-            ToolTip = "删除节点（连带它的连线与绑定）",
-        };
-        var nodeRef = node;
-        del.Click += (_, _) =>
-        {
-            draft.RemoveNode(nodeRef.Id);
-            BuildSignalPanel();
-        };
-        Grid.SetColumn(del, 1);
-        head.Children.Add(del);
-        stack.Children.Add(head);
-
-        switch (node.Kind)
-        {
-            case SignalNodeKind.Time:
-                stack.Children.Add(SignalChoiceRow("时间源", ["Transport（工程时间轴）", "Live（单调时钟）"],
-                    (int)SignalParam(node, "source"), v => SetSignalParam(node, "source", v)));
-                break;
-
-            case SignalNodeKind.AudioBands:
-                stack.Children.Add(SignalChoiceRow("频带", ["Rms", "Bass", "Mid", "High"],
-                    (int)SignalParam(node, "band"), v => SetSignalParam(node, "band", v)));
-                // 这句话必须写在面板上：四个频带眼下取的是同一个数，不说就是让人以为选了 Bass 就真拿到了低频
-                stack.Children.Add(SignalHintRow("本线只有一路能量（Stage.Energy，即 VTS 口型能量）：四个频带取同一个值"));
-                break;
-
-            case SignalNodeKind.Remap:
-                stack.Children.Add(SignalRemapRow(node, "入", "inMin", "inMax"));
-                stack.Children.Add(SignalRemapRow(node, "出", "outMin", "outMax"));
-                break;
-
-            case SignalNodeKind.ParameterOutput:
-                stack.Children.Add(SignalTargetRow(draft, node));
-                break;
-
-            default:
-                // 常量/基础值/算术/振荡这些只能来自工程文件：面板先只提供"看得见 + 删得掉"，
-                // 悄悄把它们藏起来会让"确认后行为变了"无从解释（它们照常参与求值）
-                stack.Children.Add(SignalHintRow("该节点来自工程文件，面板暂不提供参数编辑"));
-                break;
-        }
-
-        return card;
-    }
-
-    private FrameworkElement SignalEdgeRow(SignalGraph draft, SignalEdge edge)
-    {
-        var row = new Grid { Margin = new Thickness(0, 0, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var text = new TextBlock
-        {
-            Text = $"{edge.FromNode} · {edge.FromPort}  →  {edge.ToNode} · {edge.ToPort}",
-            FontFamily = (System.Windows.Media.FontFamily)FindResource("PvMono"),
-            FontSize = (double)FindResource("PvTextXs"),
-            Foreground = (System.Windows.Media.Brush)FindResource("PvFgDim"),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-        Grid.SetColumn(text, 0);
-        row.Children.Add(text);
-
-        var del = new Button
-        {
-            Style = (Style)FindResource("PvBtnGhost"),
-            Padding = new Thickness(6, 1, 6, 1),
-            Content = "✕",
-            ToolTip = "删除这条连线",
-        };
-        del.Click += (_, _) =>
-        {
-            draft.RemoveEdge(edge.Id);
-            BuildSignalPanel();
-        };
-        Grid.SetColumn(del, 1);
-        row.Children.Add(del);
-        return row;
-    }
-
-    private FrameworkElement SignalTargetRow(SignalGraph draft, SignalNode node)
-    {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var lab = new TextBlock { Text = "目标", Style = (Style)FindResource("PvRowLabel") };
-        Grid.SetColumn(lab, 0);
-        row.Children.Add(lab);
-
-        var combo = new ComboBox { FontSize = (double)FindResource("PvTextXs") };
-        combo.Items.Add(new ComboBoxItem { Content = "（未绑定）", Tag = "" });
-
-        var current = "";
-        foreach (var binding in draft.Bindings)
-            if (binding is not null && binding.NodeId == node.Id) current = binding.Address;
-
-        var selected = 0;
-        foreach (var (label, address) in SignalTargetChoices())
-        {
-            combo.Items.Add(new ComboBoxItem { Content = label, Tag = address });
-            if (address == current) selected = combo.Items.Count - 1;
-        }
-
-        combo.SelectedIndex = selected;
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedItem is ComboBoxItem item && item.Tag is string address)
-                SetSignalBinding(node, address);
-        };
-        Grid.SetColumn(combo, 1);
-        row.Children.Add(combo);
-        return row;
-    }
-
-    /// <summary>
-    /// 可绑定的参数：镜头已注册地址 + 每个图层的已注册地址 + 效果实例的 Number 参数。
+    /// 可绑定的参数地址：镜头已注册地址 + 每个图层的已注册地址 + 效果实例的 Number 参数。
     /// 地址文本按 <see cref="ParamAddress"/> 的往返形态拼（镜头 <c>camera.scale</c>、图层 <c>layer:&lt;id&gt;.opacity</c>、
-    /// 效果用**实例** Id：同一种效果可以有多个实例，DefId 指不到"哪一个"），
-    /// 可选性一律由 <see cref="ParamRegistry"/> 判定——注册表不认的地址不进下拉，免得"选得到、编译不过"。
+    /// 效果用**实例** Id：同一种效果可以有多个实例，DefId 指不到"哪一个"）。
+    /// 只给裸地址：画布把选项文本原样写进绑定，带任何后缀都会变成一个解析不了的地址。
     /// </summary>
-    private List<(string Label, string Address)> SignalTargetChoices()
+    private List<string> SignalAddressOptions()
     {
-        var choices = new List<(string Label, string Address)>();
+        var addresses = new List<string>();
 
         foreach (var name in CameraParamNames)
-            AddTargetChoice(choices, new ParamAddress(ParamAddressKind.Camera, "", name), "镜头 · " + ParamDisplayName(name));
+            AddTargetChoice(addresses, new ParamAddress(ParamAddressKind.Camera, "", name));
 
         foreach (var layer in _scene.Layers)
             foreach (var name in LayerParamNames)
-                AddTargetChoice(choices, new ParamAddress(ParamAddressKind.Layer, layer.Id, name),
-                    LayerTitle(layer) + " · " + ParamDisplayName(name));
+                AddTargetChoice(addresses, new ParamAddress(ParamAddressKind.Layer, layer.Id, name));
 
         foreach (var node in _effects.Nodes)
         {
@@ -1316,240 +1091,24 @@ public partial class PvStageWindow : Window
 
             foreach (var p in def.Params)
                 if (p.Kind == EffectParamKind.Number)
-                    AddTargetChoice(choices, new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key),
-                        $"{node.DefId} · {p.Key}");
+                    AddTargetChoice(addresses, new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key));
         }
 
-        return choices;
+        return addresses;
     }
 
     // 注册表的静态参数表（ParamRegistry 认不认由 AddTargetChoice 当场判，这里只负责给候选）
     private static readonly string[] CameraParamNames = ["offsetX", "offsetY", "scale", "rotation"];
     private static readonly string[] LayerParamNames = ["offsetX", "offsetY", "scale", "opacity", "rotation"];
 
-    /// <summary>注册表认过的地址才进下拉；范围也取自注册项——与限幅用的是同一份范围。</summary>
-    private void AddTargetChoice(List<(string Label, string Address)> choices, in ParamAddress addr, string label)
+    /// <summary>注册表认过的地址才进下拉——免得"选得到、编译不过"。</summary>
+    private void AddTargetChoice(List<string> addresses, in ParamAddress addr)
     {
-        if (!ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _)) return;
-        choices.Add(($"{label}  [{spec.Min:0.##}–{spec.Max:0.##}]", addr.ToString()));
+        if (!ParamRegistry.TryResolve(addr, _effects, _scene, out _, out _)) return;
+        addresses.Add(addr.ToString());
     }
-
-    /// <summary>一个输出节点至多一条绑定：先摘旧的再按新地址加一条（重复目标由 TryAddBinding 拒掉并说明原因）。</summary>
-    private void SetSignalBinding(SignalNode node, string address)
-    {
-        var draft = _signalDraft;
-        if (draft is null) return;
-
-        foreach (var old in draft.Bindings.Where(b => b is not null && b.NodeId == node.Id).ToList())
-            draft.RemoveBinding(old.Id);
-
-        if (string.IsNullOrEmpty(address))
-        {
-            TblSignalIssue.Text = "";
-            BuildSignalPanel();
-            return;
-        }
-
-        var binding = new SignalBinding { Id = NewSignalId("b"), NodeId = node.Id, Address = address };
-        TblSignalIssue.Text = draft.TryAddBinding(binding, out var error) ? "" : error;
-        BuildSignalPanel();
-    }
-
-    private void BtnSignalLink_Click(object sender, RoutedEventArgs e)
-    {
-        var draft = _signalDraft;
-        if (draft is null || CmbSignalFrom.SelectedItem is not ComboBoxItem from
-            || CmbSignalTo.SelectedItem is not ComboBoxItem to) return;
-
-        var (fromNode, fromPort) = SplitSignalPort(from.Tag as string);
-        var (toNode, toPort) = SplitSignalPort(to.Tag as string);
-        var edge = new SignalEdge
-        {
-            Id = NewSignalId("e"),
-            FromNode = fromNode,
-            FromPort = fromPort,
-            ToNode = toNode,
-            ToPort = toPort,
-        };
-
-        TblSignalIssue.Text = draft.TryAddEdge(edge, out var error) ? "" : error;
-        BuildSignalPanel();
-    }
-
-    /// <summary>
-    /// 确认：编译一次，有硬错误只报错不采用（编译器的契约是任一 Error 即 Plan=null，绝不采用一半）；
-    /// 通过才换进工程、发布给管线、落盘。面板不关，用户可以直接接着改。
-    /// </summary>
-    private void BtnSignalCommit_Click(object sender, RoutedEventArgs e)
-    {
-        var draft = _signalDraft;
-        if (draft is null) return;
-
-        // 带场景编译：相机位移的范围是 ±1 个设计画布，与徽标、发布给管线的那两份同一口径
-        var result = SignalCompiler.Compile(draft, _effects, _scene);
-        if (result.Plan is null)
-        {
-            var errors = result.Issues
-                .Where(i => i.Severity == SignalIssueSeverity.Error)
-                .Select(i => $"{i.Code}：{i.Message}");
-            TblSignalIssue.Text = "未采用，先改好这些：\n" + string.Join("\n", errors);
-            RefreshSignalCompile(draft);
-            return;
-        }
-
-        // 绑定要写的键在 UI 线程先铺好位：渲染线程每帧写的是"已存在的键"，不会触发字典扩容——
-        // 扩容与这里 5 秒一次的存盘枚举（EffectGraphJson 遍历 Values）撞上才是真的会炸。
-        foreach (var binding in draft.Bindings)
-        {
-            if (binding is null) continue;
-            if (!ParamAddress.TryParse(binding.Address, out var addr)) continue;
-            if (!SignalTargets.TryResolve(addr, _effects, out var target, out _)) continue;
-            target.Node.Values.TryAdd(target.Param.Key, target.Node.Value(target.Param));
-        }
-
-        // 发布草稿的**拷贝**：面板里的草稿接着还能改，而发布出去的那份从此一字不改——
-        // 渲染线程每帧都可能正在读它（编译走 Nodes/Edges/Bindings，求值读节点的参数表），
-        // 让面板的可变对象当发布物，等于把"用户输入"和"渲染线程正在读的文档"变成同一个东西。
-        _project.SignalGraph = CloneSignalGraph(draft);
-        PublishSignalGraph();
-        PushUndo();
-        _saveError = SaveProjectNow();
-        RefreshParamRows(); // 采用后每行的值来源徽标当场跟着变，不等下一次 500ms 刷新
-
-        TblSignalIssue.Text = "";
-        RefreshSignalCompile(draft); // 注意项（例如悬空输入）留在结论行上，别只闪一下就没
-        TblStatus.Text = $"信号图已采用：{draft.Nodes.Count} 节点 · {draft.Edges.Count} 边 · {draft.Bindings.Count} 绑定";
-    }
-
-    /// <summary>写一个数值参数（走引擎的域校验）。不合法就保持原值，并把原因写到面板的错误行上。</summary>
-    private bool SetSignalParam(SignalNode node, string name, double value)
-    {
-        var draft = _signalDraft;
-        var def = draft is null ? null : SignalNodeCatalog.Get(node.Kind);
-        var param = def is null ? null : SignalNodeCatalog.FindParam(def, name);
-        if (draft is null || param is null) return false;
-
-        if (draft.SetParam(node, name, value))
-        {
-            TblSignalIssue.Text = "";
-            return true;
-        }
-
-        TblSignalIssue.Text = $"节点 {node.Id} 的 {name} = {value} 不合法（允许 {param.Min}–{param.Max}，离散参数只能是枚举成员）";
-        return false;
-    }
-
-    private static double SignalParam(SignalNode node, string name)
-    {
-        var def = SignalNodeCatalog.Get(node.Kind);
-        return def is null ? 0 : SignalNodeCatalog.ParamValue(node, def, name);
-    }
-
-    private FrameworkElement SignalChoiceRow(string label, string[] choices, int selected, Action<int> onChange)
-    {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var lab = new TextBlock { Text = label, Style = (Style)FindResource("PvRowLabel") };
-        Grid.SetColumn(lab, 0);
-        row.Children.Add(lab);
-
-        var combo = new ComboBox { FontSize = (double)FindResource("PvTextXs") };
-        foreach (var c in choices) combo.Items.Add(c);
-        combo.SelectedIndex = Math.Clamp(selected, 0, choices.Length - 1);
-        // 先定初值再接事件：装载期那一次 SelectedIndex 不是用户输入（与滑杆那处的守卫同一个道理）
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (combo.SelectedIndex >= 0) onChange(combo.SelectedIndex);
-        };
-        Grid.SetColumn(combo, 1);
-        row.Children.Add(combo);
-        return row;
-    }
-
-    private FrameworkElement SignalRemapRow(SignalNode node, string label, string keyA, string keyB)
-    {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var lab = new TextBlock { Text = label, Style = (Style)FindResource("PvRowLabel") };
-        Grid.SetColumn(lab, 0);
-        row.Children.Add(lab);
-
-        var boxA = SignalNumberBox(node, keyA);
-        Grid.SetColumn(boxA, 1);
-        row.Children.Add(boxA);
-
-        var boxB = SignalNumberBox(node, keyB);
-        Grid.SetColumn(boxB, 2);
-        row.Children.Add(boxB);
-        return row;
-    }
-
-    private TextBox SignalNumberBox(SignalNode node, string key)
-    {
-        var box = new TextBox
-        {
-            Text = SignalParam(node, key).ToString("0.####", CultureInfo.InvariantCulture),
-            FontFamily = (System.Windows.Media.FontFamily)FindResource("PvMono"),
-            FontSize = (double)FindResource("PvTextXs"),
-            Margin = new Thickness(0, 0, 4, 0),
-        };
-
-        void Commit()
-        {
-            if (double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
-                && SetSignalParam(node, key, v)) return;
-
-            // 非法输入不静默吞掉：把框里的内容恢复成节点真值（SetSignalParam 已在错误行写了原因）
-            box.Text = SignalParam(node, key).ToString("0.####", CultureInfo.InvariantCulture);
-        }
-
-        box.LostFocus += (_, _) => Commit();
-        box.KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter) Commit();
-        };
-        return box;
-    }
-
-    private FrameworkElement SignalHintRow(string text) => new TextBlock
-    {
-        Text = text,
-        FontSize = (double)FindResource("PvTextXs"),
-        Foreground = (System.Windows.Media.Brush)FindResource("PvFgFaint"),
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 3, 0, 0),
-    };
-
-    private static string SignalKindLabel(SignalNodeKind kind) => kind switch
-    {
-        SignalNodeKind.Constant => "常量",
-        SignalNodeKind.TimelineBaseValue => "基础值",
-        SignalNodeKind.Time => "时间",
-        SignalNodeKind.AudioBands => "能量",
-        SignalNodeKind.Add => "相加",
-        SignalNodeKind.Multiply => "相乘",
-        SignalNodeKind.Clamp => "夹取",
-        SignalNodeKind.Remap => "Remap",
-        SignalNodeKind.Lfo => "振荡",
-        SignalNodeKind.ParameterOutput => "输出",
-        _ => kind.ToString(),
-    };
 
     private static string NewSignalId(string prefix) => $"{prefix}_{Guid.NewGuid().ToString("N")[..6]}";
-
-    // 节点与端口拼成一个字符串塞进 ComboBoxItem.Tag：端口名与节点 Id 都不会含 \0，切回来不会歧义
-    private static string SignalPortKey(string nodeId, string port) => nodeId + "\0" + port;
-
-    private static (string NodeId, string Port) SplitSignalPort(string? key)
-    {
-        var parts = (key ?? "").Split('\0');
-        return parts.Length == 2 ? (parts[0], parts[1]) : ("", "");
-    }
 
     // ---------------- 撤销 / 重做 ----------------
 
@@ -1694,7 +1253,7 @@ public partial class PvStageWindow : Window
         _audio.Dispose();
         _audio = new AudioClockDriver();
 
-        // UI 侧先清干净：留着旧工程的歌词行/图层卡/信号草稿，等于两套工程同时显示在屏幕上
+        // UI 侧先清干净：留着旧工程的歌词行/图层卡/画布投影，等于两套工程同时显示在屏幕上
         _lyrics = null;
         _tailUncalibrated = false;
         _uiLayerIds = Array.Empty<string>();
@@ -1704,15 +1263,14 @@ public partial class PvStageWindow : Window
         // 频带序列属于旧音频：立刻作废并发布 null，别让渲染线程拿旧频带去配新时钟
         _audioBands = null;
         PublishAudioBands();
-        _signalDraft = null;
         _colorNode = null;
         _colorParam = null;
         _colorSwatch = null;
         _saveError = null;
-        SignalPop.IsOpen = false; // 面板草稿挂在旧工程的文档上，留着它等于留一个会写错对象的弹窗
 
         BuildEffectRack();
         BuildLayerList();
+        RefreshBlueprint(); // 画布上的节点/连线/绑定与选中集都属于旧工程，必须整份重投影
         TheTimeline.Fps = _scene.Fps;
         RefreshTimeline();
 
@@ -1723,6 +1281,8 @@ public partial class PvStageWindow : Window
         if (resetUndo)
         {
             _undo.Clear();
+            // 只有"新建/打开"恢复画布视图态：布局不参与撤销语义，撤销重做时画布不该跟着跳视图
+            ApplyBlueprintLayout();
             PushUndo();
         }
 

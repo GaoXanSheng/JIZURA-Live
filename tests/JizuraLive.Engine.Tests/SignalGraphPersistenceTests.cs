@@ -294,8 +294,183 @@ public class SignalGraphPersistenceTests
         }
     }
 
-    // ---------------- 小工具 ----------------
+    /// <summary>
+    /// 画布坐标与编辑器布局随工程往返：坐标是**布局**，缺坐标的节点读回来仍标记"待布局"，
+    /// 绝不用 (0,0) 冒充"已经摆好"（否则旧工程一打开就所有节点叠在原点）。
+    /// </summary>
+    [Fact]
+    public void NodeCoordinatesAndEditorLayoutRoundTrip()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            var graph = new SignalGraph();
+            var positioned = Node(graph, "n_a", SignalNodeKind.Constant);
+            positioned.X = 120;      // 网格吸附后的值由画布写入，模型只存
+            positioned.Y = -48.5;
+            Node(graph, "n_b", SignalNodeKind.ParameterOutput);   // 还没摆的节点：没有坐标
 
+            var project = new DirectorProject
+            {
+                Name = "布局往返",
+                SignalGraph = graph,
+                EditorLayout =
+                {
+                    CanvasZoom = 1.5,
+                    CanvasPanX = -320,
+                    CanvasPanY = 64,
+                    SelectedNodeIds = { "n_a" },
+                    TimelineZoom = 2.25,
+                    TimelineScrollTicks = 12_345_678,
+                    CollapsedTrackIds = { "track_lyrics" },
+                },
+            };
+
+            Assert.Null(ProjectStore.Save(project, path));
+
+            var nodes = (JArray)JObject.Parse(File.ReadAllText(path))["SignalGraph"]!["Nodes"]!;
+            Assert.Equal(120.0, (double)nodes[0]!["X"]!);
+            Assert.Equal(-48.5, (double)nodes[0]!["Y"]!);
+
+            var result = ProjectStore.Load(path);
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+
+            var back = loaded.SignalGraph.Nodes[0];
+            Assert.True(back.HasPosition);
+            Assert.Equal(120.0, back.X!.Value);
+            Assert.Equal(-48.5, back.Y!.Value);
+
+            var pending = loaded.SignalGraph.Nodes[1];
+            Assert.False(pending.HasPosition);
+            Assert.Null(pending.X);
+            Assert.Null(pending.Y);
+            Assert.False(((JObject)nodes[1]!).ContainsKey("X"));   // 没坐标就不写坐标字段
+
+            var layout = loaded.EditorLayout;
+            Assert.Equal(1.5, layout.CanvasZoom);
+            Assert.Equal(-320.0, layout.CanvasPanX);
+            Assert.Equal(64.0, layout.CanvasPanY);
+            Assert.Equal(new[] { "n_a" }, layout.SelectedNodeIds);
+            Assert.Equal(2.25, layout.TimelineZoom);
+            Assert.Equal(12_345_678L, layout.TimelineScrollTicks);
+            Assert.Equal(new[] { "track_lyrics" }, layout.CollapsedTrackIds);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>加坐标/布局之前的工程（v1）：节点没有 X/Y、没有 EditorLayout——读得开、图内容一字不差、只改内存。</summary>
+    [Fact]
+    public void LegacyProjectWithoutCoordinatesLoadsAsUnpositioned()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            const string json = """
+            {
+              "SchemaVersion": 1,
+              "Name": "无坐标的旧工程",
+              "SignalGraph": {
+                "Nodes": [
+                  { "Id": "n_c", "Kind": 0, "Enabled": true, "Params": { "value": 1.0, "unit": 1 }, "Texts": {} },
+                  { "Id": "n_out", "Kind": 9, "Enabled": true, "Params": {}, "Texts": {} }
+                ],
+                "Edges": [
+                  { "Id": "e_1", "FromNode": "n_c", "FromPort": "out", "ToNode": "n_out", "ToPort": "in" }
+                ],
+                "Bindings": []
+              }
+            }
+            """;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+
+            var result = ProjectStore.Load(path);
+
+            Assert.Null(result.Fault);   // 缺布局字段不是"打不开"
+            var project = Assert.IsType<DirectorProject>(result.Project);
+
+            Assert.Equal(2, project.SignalGraph.Nodes.Count);
+            Assert.All(project.SignalGraph.Nodes, n => Assert.False(n.HasPosition));   // 全部待自动布局
+            Assert.Equal(1.0, project.SignalGraph.Nodes[0].Params["value"]);
+
+            // 没有布局段 ⇒ 默认视图，而不是 null
+            Assert.Equal(1.0, project.EditorLayout.CanvasZoom);
+            Assert.Equal(0.0, project.EditorLayout.CanvasPanX);
+            Assert.Empty(project.EditorLayout.SelectedNodeIds);
+            Assert.Empty(project.EditorLayout.CollapsedTrackIds);
+
+            // 治理只发生在内存：磁盘文件一字未动
+            Assert.Equal(json, File.ReadAllText(path));
+
+            // 写 null 与缺字段同义（同"SignalGraph": null 的处置）：都回落默认视图，不是"布局损坏"
+            var nullPath = Path.Combine(Path.GetDirectoryName(path)!, "null_layout.jzpv");
+            File.WriteAllText(nullPath, "{ \"SchemaVersion\": 1, \"Name\": \"null 布局\", \"EditorLayout\": null }");
+            var nullLayout = ProjectStore.Load(nullPath);
+            Assert.Null(nullLayout.Fault);
+            Assert.Equal(1.0, Assert.IsType<DirectorProject>(nullLayout.Project).EditorLayout.CanvasZoom);
+            Assert.Empty(nullLayout.Project.EditorLayout.SelectedNodeIds);
+
+            // 用户保存一次：还没布局的节点仍不带坐标（等画布排完再写回）
+            Assert.Null(ProjectStore.Save(project, path));
+            var savedNodes = (JArray)JObject.Parse(File.ReadAllText(path))["SignalGraph"]!["Nodes"]!;
+            Assert.All(savedNodes, n => Assert.False(((JObject)n!).ContainsKey("X")));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>
+    /// 坐标与布局**不是内容**（契约 §3.1 / §13.6 变化分类）：拖动/缩放/平移/选中都不动结构版本，
+    /// 已编译的拓扑照旧复用——否则画布每拖一下都要重编一次。
+    /// </summary>
+    [Fact]
+    public void MovingNodesOrLayoutDoesNotInvalidateCompiledPlan()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            var effects = new EffectGraph();
+            effects.Add("bloom");
+            var address = $"effect:{effects.Nodes[0].InstanceId}.intensity";
+
+            var graph = new SignalGraph();
+            var constant = Constant(graph, "n_c", 1.0);
+            var output = Node(graph, "n_out", SignalNodeKind.ParameterOutput);
+            Connect(graph, constant, output, "in");
+            Assert.True(graph.TryAddBinding(new SignalBinding { Id = "b_out", NodeId = output.Id, Address = address }, out var error), error);
+
+            var compiled = SignalCompiler.Compile(graph, effects);
+            Assert.NotNull(compiled.Plan);
+            var plan = compiled.Plan!;
+            var structureVersion = graph.StructureVersion;
+
+            constant.X = 240;
+            constant.Y = 96;
+            var project = new DirectorProject
+            {
+                SignalGraph = graph,
+                EditorLayout = { CanvasZoom = 0.75, SelectedNodeIds = { "n_c" }, TimelineZoom = 4 },
+            };
+
+            Assert.Equal(structureVersion, graph.StructureVersion);
+            Assert.True(plan.TryApplyParams(graph, effects, out var issues),
+                "布局变化不该让已编译的拓扑过期：" + string.Join("；", issues.Select(i => $"{i.Code}: {i.Message}")));
+            Assert.Empty(issues);
+            Assert.Null(ProjectStore.Save(project, path));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    // ---------------- 小工具 ----------------
     /// <summary>首版全部 10 种节点各来一个，连成一条能编译、能求值的链（TimelineBaseValue + 音频调制 → Add → Clamp → Multiply → ParameterOutput）。</summary>
     private static SignalGraph BuildAllKindsGraph(string address)
     {
@@ -344,6 +519,8 @@ public class SignalGraphPersistenceTests
             Assert.Equal(e.Id, a.Id);
             Assert.Equal(e.Kind, a.Kind);
             Assert.Equal(e.Enabled, a.Enabled);
+            Assert.Equal(e.X, a.X);   // 坐标随图往返（null 也要一样是 null）
+            Assert.Equal(e.Y, a.Y);
             Assert.Equal(e.Params.Count, a.Params.Count);
             foreach (var (key, value) in e.Params)
             {
@@ -418,7 +595,7 @@ public class SignalGraphPersistenceTests
     }
 
     private static SignalFrameInputs Frame(double transportTime, double bass, DirectorEvaluator? curves) =>
-        new(transportTime, transportTime, new AudioBandSnapshot(true, bass, bass, bass, bass), curves);
+        new(transportTime, transportTime, new AudioBandSnapshot(true, bass, bass, bass, bass), curves, default);
 
     private static string NewProjectPath() =>
         Path.Combine(Path.GetTempPath(), "jizura-signalgraph-" + Guid.NewGuid().ToString("N"), "project.jzpv");

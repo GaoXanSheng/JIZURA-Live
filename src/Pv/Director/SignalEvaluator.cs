@@ -1,4 +1,5 @@
 using JizuraLive.Render.Effects;
+using JizuraLive.Vts;
 
 namespace JizuraLive.Pv;
 
@@ -9,18 +10,49 @@ namespace JizuraLive.Pv;
 public readonly record struct AudioBandSnapshot(bool Valid, double Rms, double Bass, double Mid, double High);
 
 /// <summary>
-/// 一帧的输入：两个时间口径 + 音频快照 + 冻结只读的曲线求值器。
+/// 本帧的 VTS 姿态快照：姿态值 + 采集时刻（**与 <see cref="SignalFrameInputs.LiveTime"/> 同一单调时钟域的秒**）。
+/// 时间域只在输入边界归一一次，帧内不拿两个时钟域相减（契约 §5）。
+/// 默认值 = 没有姿态（无脸、时刻为 0 ⇒ 恒过期），所以既没接 VTS 也没人喂快照时通道一律失效。
+/// </summary>
+public readonly record struct VtsPoseSnapshot(VtsTrackingState State, double AtLiveSeconds)
+{
+    /// <summary>首版新鲜度阈值：超过 250ms 未更新即失效（契约 §8.3）。</summary>
+    public const double MaxAgeSeconds = 0.25;
+
+    /// <summary>
+    /// 从追踪探针取本帧快照：探针为空（未连 VTS）或快照超过 <see cref="MaxAgeSeconds"/> 未更新，
+    /// 都返回 <c>default</c>（= 无效姿态）——**不编造 FaceFound=true 的假数据**。
+    /// <paramref name="liveSeconds"/> 必须与同一帧传给 <see cref="SignalFrameInputs.LiveTime"/> 的**同一个**读数，
+    /// 否则判龄会拿两个时钟域的差去比（契约 §5：时间域只在输入边界归一一次）。
+    ///
+    /// 三处生产调用点（PvPipeline.ApplySignals、PvStageWindow 的参数行徽标与蓝图诊断）都必须走这一份：
+    /// 手工传 vts 的求值用例钉不住调用点，各写一遍这个条件迟早分叉成"预览有、实机没有"。
+    /// </summary>
+    public static VtsPoseSnapshot Read(VtsTrackingProbe? probe, double liveSeconds) =>
+        probe is not null && probe.TryRead((int)(MaxAgeSeconds * 1000), out var state)
+            ? new VtsPoseSnapshot(state, liveSeconds)
+            : default;
+}
+
+/// <summary>
+/// 一帧的输入：两个时间口径 + 音频与姿态快照 + 冻结只读的曲线求值器。
 /// <paramref name="TransportTime"/> 是工程时间轴（与帧时间戳同轴），<paramref name="LiveTime"/> 是单调时钟
 /// （暂停也在走，供实时输入判龄）；曲线一律按 transport 口径采样。
+///
+/// <paramref name="vts"/> **故意没有默认值**：VtsPose 节点在实机里恒失效过——三处生产调用点都"没传就当 default"，
+/// 而 default 恰好是"无姿态"，于是求值侧全绿、屏幕上什么都不动。要接 VTS 就必须显式写下快照
+/// （<see cref="VtsPoseSnapshot.Read"/>），没有姿态就显式写 <c>default</c>，由编译器盯着这件事。
 /// </summary>
 public readonly struct SignalFrameInputs
 {
-    public SignalFrameInputs(double transportTime, double liveTime, AudioBandSnapshot audio, DirectorEvaluator? curves)
+    public SignalFrameInputs(double transportTime, double liveTime, AudioBandSnapshot audio, DirectorEvaluator? curves,
+        VtsPoseSnapshot vts)
     {
         TransportTime = transportTime;
         LiveTime = liveTime;
         Audio = audio;
         Curves = curves;
+        Vts = vts;
     }
 
     public double TransportTime { get; }
@@ -30,6 +62,9 @@ public readonly struct SignalFrameInputs
     public AudioBandSnapshot Audio { get; }
 
     public DirectorEvaluator? Curves { get; }
+
+    /// <summary>本帧的 VTS 姿态快照（判龄用 <see cref="LiveTime"/>，见 <see cref="VtsPoseSnapshot"/>）。</summary>
+    public VtsPoseSnapshot Vts { get; }
 }
 
 /// <summary>本帧某个目标参数的值来自哪里（UI 的"显示值来源"就是它）。</summary>
@@ -136,6 +171,26 @@ public sealed partial class CompiledSignalGraph
                     }
 
                     break;
+
+                case SignalNodeKind.VtsPose:
+                {
+                    // 过期与丢脸都标记失效：不保留上一个姿态偏移（契约 §8.3）；
+                    // 判龄用 LiveTime，所以暂停音乐也照常过期（§13.7「暂停时仍用 LiveTime 判断过期」）。
+                    // 已列通道全部出自脸部追踪，所以门就是 FaceFound——快照里没有逐通道"这一项在不在响应里"
+                    // 的粒度（ParseTracking 把缺项折成 0），手位/位置通道又因量纲未实测不进节点（见 VtsChannel）
+                    var pose = inputs.Vts;
+                    if (pose.State.FaceFound && inputs.LiveTime - pose.AtLiveSeconds <= VtsPoseSnapshot.MaxAgeSeconds)
+                    {
+                        value = VtsChannelValue(pose.State, (VtsChannel)(int)_params[i * NodeParamSlots + SlotChannel]);
+                    }
+                    else
+                    {
+                        _issueList.Add(new SignalEvalIssue(CodeSourceInvalid, _nodes[i].Id));
+                        valid = false;
+                    }
+
+                    break;
+                }
 
                 case SignalNodeKind.Add:
                 {
@@ -333,5 +388,21 @@ public sealed partial class CompiledSignalGraph
         2 => audio.Mid,
         3 => audio.High,
         _ => audio.Bass,
+    };
+
+    /// <summary>
+    /// 通道取值（通道集合与量纲见 <see cref="VtsChannel"/>）：通道号在编译期已按枚举域校验过，
+    /// 所以这里的 default 只是"到不了"的兜底而不是容错分支。
+    /// </summary>
+    private static double VtsChannelValue(VtsTrackingState state, VtsChannel channel) => channel switch
+    {
+        VtsChannel.HeadAngleX => state.HeadAngleX,
+        VtsChannel.HeadAngleY => state.HeadAngleY,
+        VtsChannel.HeadAngleZ => state.HeadAngleZ,
+        VtsChannel.EyeOpenLeft => state.EyeOpenLeft,
+        VtsChannel.EyeOpenRight => state.EyeOpenRight,
+        VtsChannel.MouthOpen => state.MouthOpen,
+        VtsChannel.MouthSmile => state.MouthSmile,
+        _ => 0,
     };
 }

@@ -5,7 +5,8 @@ namespace JizuraLive.Pv;
 /// <summary>
 /// 信号图节点种类。数值即**存档契约**：种类重排等于让所有旧工程接到别的节点上，
 /// 只能追加、不能改已有成员的数值（新增种类算结构变化，必须抬 DirectorProject.CurrentSchemaVersion）。
-/// 首版只开放 Float 数值节点（契约 §8.1）：VtsPose 与有状态节点（Beat/Blink/Damper/Envelope）未过准入门槛。
+/// 只开放 Float 数值节点（契约 §8.1）：VtsPose 已按 §8.3 的口径开放（通道量纲已实测、按通道失效、250ms 过期）；
+/// 有状态节点（Beat/Blink/Damper/Envelope）仍未过准入门槛。
 /// </summary>
 public enum SignalNodeKind
 {
@@ -38,6 +39,29 @@ public enum SignalNodeKind
 
     /// <summary>绑定出口：一个 ParameterOutput 通过 bindings 写目标（节点本身不存第二份 Target）。</summary>
     ParameterOutput = 9,
+
+    /// <summary>VTS 姿态快照的一个通道（通道号见 <see cref="VtsChannel"/>）；无脸/过期即输出无效，不保留旧偏移。</summary>
+    VtsPose = 10,
+}
+
+/// <summary>
+/// VtsPose 节点的通道选择。数值即**存档契约**（同 <see cref="SignalNodeKind"/>：只能追加，不能重排）。
+///
+/// 只列**量纲已实测**的通道：头角是度数（VTS 的 FaceAngleX/Y/Z，实测度数、标称 ±30），
+/// 眼/口是响应自带的 0..1 比例（参数项的 min/max 就是 0/1）。
+/// 位置（FacePositionX/Y/Z）与手位没有实测口径，**不列**——头部的归一化位移也不必另开通道，
+/// 由 HeadAngle 经 Remap 显式换算（§3.2「角度/比例转换必须显式可见」）；
+/// 把未知单位接进偏移比少几个通道更糟（§8.3「头角归一化不能直接套到未知单位的位置参数上」）。
+/// </summary>
+public enum VtsChannel
+{
+    HeadAngleX = 0,
+    HeadAngleY = 1,
+    HeadAngleZ = 2,
+    EyeOpenLeft = 3,
+    EyeOpenRight = 4,
+    MouthOpen = 5,
+    MouthSmile = 6,
 }
 
 /// <summary>节点参数的种类（决定编辑控件、以及合法性检查走哪条规则）。</summary>
@@ -59,7 +83,7 @@ public sealed record SignalPortDef(string Name, bool IsInput, bool Required, dou
 /// <summary>
 /// 参数定义。<see cref="Kind"/> = Number 时用 <see cref="Default"/>/<see cref="Min"/>/<see cref="Max"/>；
 /// = Text 时用 <see cref="DefaultText"/>。
-/// 离散选择参数（band/source/unit/outUnit）的 [Min,Max] 就是它的枚举域，越域报 <c>param-invalid-enum</c>。
+/// 离散选择参数（band/source/unit/outUnit/channel）的 [Min,Max] 就是它的枚举域，越域报 <c>param-invalid-enum</c>。
 /// </summary>
 public sealed record SignalParamDef(string Name, SignalParamKind Kind, double Default, double Min, double Max, string DefaultText);
 
@@ -165,6 +189,14 @@ public static class SignalNodeCatalog
         new(SignalNodeKind.ParameterOutput, "Signal.Node.ParameterOutput",
             [InRequired],
             []),
+
+        new(SignalNodeKind.VtsPose, "Signal.Node.VtsPose",
+            [Out],
+            [
+                // channel：VtsChannel 的枚举域（越域报 param-invalid-enum），默认头角 X
+                new SignalParamDef("channel", SignalParamKind.Number, (double)VtsChannel.HeadAngleX,
+                    (double)VtsChannel.HeadAngleX, (double)VtsChannel.MouthSmile, ""),
+            ]),
     ];
 
     private static readonly Dictionary<SignalNodeKind, SignalNodeDef> ByKind =
@@ -212,7 +244,15 @@ public static class SignalNodeCatalog
         SignalNodeKind.Time => name == "source",
         SignalNodeKind.AudioBands => name == "band",
         SignalNodeKind.Remap => name == "outUnit",
+        SignalNodeKind.VtsPose => name == "channel",
         _ => false,
+    };
+
+    /// <summary>通道量纲（头角=度，眼/口=比例）：编译期据此做单位校验，帧内只搬运数值。</summary>
+    internal static ParamUnit VtsChannelUnit(VtsChannel channel) => channel switch
+    {
+        VtsChannel.HeadAngleX or VtsChannel.HeadAngleY or VtsChannel.HeadAngleZ => ParamUnit.Degrees,
+        _ => ParamUnit.Ratio,
     };
 
     /// <summary>单位声明参数：除了"是已定义枚举成员"，还必须 ≠ Unspecified（它是"没登记"，不是一种量纲）。</summary>

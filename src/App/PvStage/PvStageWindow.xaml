@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:gpu="clr-namespace:JizuraLive.Render.Gpu"
         xmlns:tl="clr-namespace:JizuraLive.App.PvStage.Timeline"
+        xmlns:bp="clr-namespace:JizuraLive.App.PvStage.Blueprint"
         Title="JIZURA PV 舞台"
         Width="1440" Height="880" MinWidth="1200" MinHeight="720"
         WindowStyle="None" WindowStartupLocation="CenterScreen"
@@ -98,8 +99,18 @@
                               Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
                     </Button>
 
-                    <!-- 视图组 -->
+                    <!-- 视图组：舞台 / 蓝图 切换 -->
                     <Border Width="1" Height="16" Margin="6,0" Background="{StaticResource PvLine}" />
+                    <Border Background="{StaticResource PvSunken}" CornerRadius="{StaticResource PvRadiusSm}"
+                            Padding="2" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="BtnViewStage" Style="{StaticResource PvSegBtn}" Tag="on"
+                                    Content="舞台" ToolTip="中央工作区：GPU 预览" Click="BtnViewStage_Click" />
+                            <Button x:Name="BtnViewBlueprint" Style="{StaticResource PvSegBtn}"
+                                    Content="蓝图" ToolTip="中央工作区：信号图节点画布"
+                                    Click="BtnViewBlueprint_Click" />
+                        </StackPanel>
+                    </Border>
                     <Button x:Name="BtnFold" Style="{StaticResource PvBtnIcon}" Click="BtnFold_Click"
                             ToolTip="折叠时间轴">
                         <Path x:Name="FoldIcon" Data="M3.6 6.4 L8 10.8 L12.4 6.4"
@@ -192,18 +203,23 @@
                 </Grid>
             </Border>
 
-            <!-- 中：舞台 -->
+            <!-- 中：舞台 / 蓝图两个工作区。两块都留在树上，只切可见性——切回来时交换链、画布的缩放与选中都还在。
+                 舞台必须先收起：它是 HwndHost 子窗口，WPF 元素盖不住它（airspace）。 -->
             <Grid Grid.Column="1" Background="{StaticResource PvStageVoid}">
-                <gpu:PresentHost x:Name="Stage" Margin="0" />
-                <TextBlock x:Name="TblStageHint" HorizontalAlignment="Center" VerticalAlignment="Center"
-                           FontSize="{StaticResource PvTextSm}" Foreground="{StaticResource PvFgFaint}"
-                           IsHitTestVisible="False" Text="舞台初始化中…" />
-                <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12"
-                        Background="#99000000" CornerRadius="{StaticResource PvRadiusSm}" Padding="8,4"
-                        IsHitTestVisible="False">
-                    <TextBlock x:Name="TblStageInfo" FontFamily="{StaticResource PvMono}"
-                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgDim}" />
-                </Border>
+                <Grid x:Name="StageWorkspace">
+                    <gpu:PresentHost x:Name="Stage" Margin="0" />
+                    <TextBlock x:Name="TblStageHint" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="{StaticResource PvTextSm}" Foreground="{StaticResource PvFgFaint}"
+                               IsHitTestVisible="False" Text="舞台初始化中…" />
+                    <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12"
+                            Background="#99000000" CornerRadius="{StaticResource PvRadiusSm}" Padding="8,4"
+                            IsHitTestVisible="False">
+                        <TextBlock x:Name="TblStageInfo" FontFamily="{StaticResource PvMono}"
+                                   FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgDim}" />
+                    </Border>
+                </Grid>
+
+                <bp:BlueprintView x:Name="BlueprintCanvas" Visibility="Collapsed" />
             </Grid>
 
             <!-- 右：属性检查器 -->
@@ -259,10 +275,6 @@
                                 Margin="0,0,8,0" Content="广播 关" Click="BtnBroadcast_Click" />
                         <Button x:Name="BtnVts" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                                 Margin="0,0,14,0" Content="VTS 关" Click="BtnVts_Click" />
-                        <Button x:Name="BtnSignal" Style="{StaticResource PvBtnGhost}" Padding="9,5"
-                                Margin="0,0,14,0" Content="信号"
-                                ToolTip="数值信号图：把时间/能量这类信号接到镜头、图层或效果参数上（改动确认后才生效）"
-                                Click="BtnSignal_Click" />
                         <TextBlock Text="预设" Style="{StaticResource PvRowLabel}" Margin="0,0,8,0" />
                         <ComboBox x:Name="CmbPreset" Width="140" SelectionChanged="CmbPreset_SelectionChanged" />
                         <TextBlock x:Name="TblFps" Margin="14,0,0,0" VerticalAlignment="Center"
@@ -292,67 +304,6 @@
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>
                 </StackPanel>
-            </Border>
-        </Popup>
-
-        <!-- 信号面板（M6）：改的是一份草稿，确认才发布并落盘——直接改工程文档，会让"关掉弹窗"
-             变成一次不可撤销的编辑（5 秒一次的自动存盘随后就把它写进磁盘）。
-             声明位置在传输条之后：PlacementTarget 指向的按钮必须先存在于名字域里。 -->
-        <Popup x:Name="SignalPop" StaysOpen="False" AllowsTransparency="True"
-               Placement="Top" PlacementTarget="{Binding ElementName=BtnSignal}"
-               HorizontalOffset="-90" VerticalOffset="-6">
-            <Border Background="{StaticResource PvRaised}" BorderBrush="{StaticResource PvLineStrong}"
-                    BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="10">
-                <DockPanel Width="440">
-                    <Grid DockPanel.Dock="Top">
-                        <TextBlock Text="信号图" FontSize="{StaticResource PvTextBase}"
-                                   Foreground="{StaticResource PvFg}" VerticalAlignment="Center" />
-                        <TextBlock x:Name="TblSignalCount" HorizontalAlignment="Right"
-                                   FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextXs}"
-                                   Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
-                    </Grid>
-                    <TextBlock DockPanel.Dock="Top" Margin="0,4,0,6" TextWrapping="Wrap"
-                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}"
-                               Text="按「输出 → 输入」连线，一个输入至多一条连线，一个参数至多一个输出绑定。关闭弹窗 = 放弃未确认的改动。" />
-
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
-                        <Button x:Name="BtnSignalTime" Style="{StaticResource PvBtnGhost}" Padding="7,3"
-                                Content="+ 时间" Click="BtnSignalTime_Click" />
-                        <Button x:Name="BtnSignalEnergy" Style="{StaticResource PvBtnGhost}" Padding="7,3"
-                                Content="+ 能量" Click="BtnSignalEnergy_Click"
-                                ToolTip="音频 / VTS 口型能量：本线只有这一个能量数（Stage.Energy）" />
-                        <Button x:Name="BtnSignalRemap" Style="{StaticResource PvBtnGhost}" Padding="7,3"
-                                Content="+ Remap" Click="BtnSignalRemap_Click" />
-                        <Button x:Name="BtnSignalOutput" Style="{StaticResource PvBtnGhost}" Padding="7,3"
-                                Content="+ 输出" Click="BtnSignalOutput_Click" />
-                        <Border Width="1" Height="16" Margin="6,0" Background="{StaticResource PvLine}" />
-                        <Button x:Name="BtnSignalCommit" Style="{StaticResource PvBtnGhost}" Padding="9,3"
-                                Content="确认并保存" Foreground="{StaticResource PvAccent}"
-                                Click="BtnSignalCommit_Click" />
-                    </StackPanel>
-
-                    <TextBlock x:Name="TblSignalIssue" DockPanel.Dock="Bottom" Margin="0,6,0,0"
-                               TextWrapping="Wrap" MaxHeight="60"
-                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvWarn}" />
-
-                    <!-- 编译结论单独一行：编辑错误（我这次填的数不合法）与全图结论（环/悬空/重复写入）
-                         是两条不同寿命的信息，挤在一行里后写的会抹掉先写的 -->
-                    <TextBlock x:Name="TblSignalCompile" DockPanel.Dock="Bottom" Margin="0,4,0,0"
-                               TextWrapping="Wrap" MaxHeight="60"
-                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}" />
-
-                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,6,0,0">
-                        <ComboBox x:Name="CmbSignalFrom" Width="164" FontSize="{StaticResource PvTextXs}" />
-                        <TextBlock Text="→" Style="{StaticResource PvRowLabel}" Margin="6,0" />
-                        <ComboBox x:Name="CmbSignalTo" Width="164" FontSize="{StaticResource PvTextXs}" />
-                        <Button x:Name="BtnSignalLink" Style="{StaticResource PvBtnGhost}" Padding="7,3"
-                                Margin="6,0,0,0" Content="连边" Click="BtnSignalLink_Click" />
-                    </StackPanel>
-
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="360" Padding="0,2,2,2">
-                        <StackPanel x:Name="SignalHost" />
-                    </ScrollViewer>
-                </DockPanel>
             </Border>
         </Popup>
     </Grid>

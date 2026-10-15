@@ -234,6 +234,42 @@
         </Setter>
     </Style>
 
+    <!-- ================= 分段按钮（工作区切换：Tag="on" 为选中态） =================
+         旧主题的同名 SegBtn 用琥珀色，与 PvTokens 的靛蓝主色是两套色值，这里按 Pv* 重写一份。 -->
+    <Style x:Key="PvSegBtn" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource PvFgDim}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="10,3" />
+        <Setter Property="FontSize" Value="{StaticResource PvTextSm}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{TemplateBinding Background}"
+                            CornerRadius="{StaticResource PvRadiusSm}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource PvHover}" />
+                            <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+                        </Trigger>
+                        <Trigger Property="Tag" Value="on">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource PvAccentSoft}" />
+                            <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ================= 开关 ================= -->
     <Style x:Key="PvSwitch" TargetType="ToggleButton">
         <Setter Property="Width" Value="30" />

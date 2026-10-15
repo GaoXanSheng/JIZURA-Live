@@ -1,12 +1,16 @@
 using JizuraLive.App.PvStage;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
+using JizuraLive.Render.Gpu;
+using JizuraLive.Vts;
 
 namespace JizuraLive.Engine.Tests;
 
 /// <summary>
 /// 信号图（M6/S07 纯数值部分）：编译校验、单位规则、绑定仲裁、帧内求值的有效位与回落、拓扑复用、0 分配。
-/// 全部是纯 CPU 用例：无 GPU、无文件、无网络。
+/// 除 <see cref="PipelineFeedsTrackingPoseIntoVtsPoseNode"/> 外全部是纯 CPU 用例：无 GPU、无文件、无网络。
+/// 那一条例外走真实 PvPipeline（需要 D3D11 设备，<see cref="GpuFactAttribute"/> 会在无 GPU 机器上显式跳过）——
+/// 它钉的是**生产端接线**：求值语义再对，调用点漏传 vts 一样让节点在实机里恒失效，而纯 CPU 用例看不见这一点。
 /// </summary>
 public class SignalGraphTests
 {
@@ -721,6 +725,159 @@ public class SignalGraphTests
         Assert.Equal(AudioNodeId, issue.NodeId);
     }
 
+    /// <summary>
+    /// VtsPose 的量纲按实测口径逐通道声明（`VtsApi.ParseTracking` 的字段）：头角是度数、眼/口是 0..1 比例。
+    /// 单位不匹配照旧整张图拒绝——VtsPose 不是一个"什么单位都能接"的万能源。
+    /// </summary>
+    [Fact]
+    public void VtsPoseReadsItsChannelWithMeasuredUnits()
+    {
+        var effects = new EffectGraph();
+        effects.Add("bloom");
+        var threshold = $"effect:{effects.Nodes[0].InstanceId}.threshold";  // Ratio
+        var scene = SceneWithLayers(1280, 720);
+        var face = Pose(headAngleZ: -12.5, mouthSmile: 0.42);
+
+        // 头角（Degrees）→ 镜头 rotation 槽
+        var rotation = CompileOk(VtsChain("camera.rotation", VtsChannel.HeadAngleZ), effects, scene);
+        rotation.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(face, 5.0)));
+        var angle = Resolve(rotation, "camera.rotation");
+        Assert.Equal(ParamValueSource.Signal, angle.Source);
+        Assert.Equal(-12.5, angle.Value, 12);
+
+        // 口型（Ratio）→ bloom.threshold（Ratio）
+        var mouth = CompileOk(VtsChain(threshold, VtsChannel.MouthSmile), effects, scene);
+        mouth.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(face, 5.0)));
+        var smile = Resolve(mouth, threshold);
+        Assert.Equal(ParamValueSource.Signal, smile.Source);
+        Assert.Equal(0.42, smile.Value, 12);
+
+        // 度 ↔ 比例不能互换：眼开度接镜头 rotation、头角接 threshold 都必须被拒绝
+        AssertUnitMismatch(VtsChain("camera.rotation", VtsChannel.MouthOpen), effects, scene);
+        AssertUnitMismatch(VtsChain(threshold, VtsChannel.HeadAngleX), effects, scene);
+
+        // 未过准入门槛的通道（手位/位置）不在参数域内：越域由编译器报 param-invalid-enum
+        var def = SignalNodeCatalog.Get(SignalNodeKind.VtsPose)!;
+        var channel = Assert.Single(def.Params);
+        Assert.Equal("channel", channel.Name);
+        Assert.Equal(0, channel.Default);
+        Assert.Equal((double)VtsChannel.MouthSmile, channel.Max);
+
+        var outOfDomain = new SignalGraph();
+        Node(outOfDomain, "n_pose", SignalNodeKind.VtsPose).Params["channel"] = 7;
+        AssertIssue(outOfDomain, new EffectGraph(), "param-invalid-enum");
+    }
+
+    /// <summary>VTS 失效语义（契约 §8.3）：250ms 未更新或 FaceFound=false 都失效，不保留上一个姿态偏移。</summary>
+    [Fact]
+    public void VtsPoseIsInvalidWhenStaleOrFaceLost()
+    {
+        var effects = new EffectGraph();
+        effects.Add("bloom");
+        var address = $"effect:{effects.Nodes[0].InstanceId}.threshold";
+        var plan = CompileOk(VtsChain(address, VtsChannel.MouthOpen), effects);
+
+        var face = Pose(mouthOpen: 0.42);
+
+        // 新鲜：按通道读数
+        plan.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(face, 5.0)));
+        Assert.Equal(0.42, Resolve(plan, address).Value, 12);
+
+        // 真 0（嘴没张）是有效值，不是"没数据"（契约 §8.1）
+        plan.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(Pose(mouthOpen: 0.0), 5.0)));
+        var zero = Resolve(plan, address);
+        Assert.Equal(ParamValueSource.Signal, zero.Source);
+        Assert.Equal(0.0, zero.Value, 12);
+
+        // 正好 250ms 以内仍算新鲜
+        plan.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(face, 4.75)));
+        Assert.Equal(ParamValueSource.Signal, Resolve(plan, address).Source);
+
+        // 超过 250ms：失效并回落 base，且能定位到那个 VtsPose 节点
+        plan.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(face, 4.749)));
+        var stale = Resolve(plan, address);
+        Assert.Equal(ParamValueSource.Base, stale.Source);
+        Assert.Equal((double)BloomThreshold.Default, stale.Value, 12);
+        Assert.Contains(plan.Issues, i => i.Code == "eval-source-invalid" && i.NodeId == "n_pose");
+
+        // 丢脸（连接还在、时间也新）：头脸相关通道同样失效，不保留旧偏移
+        plan.Evaluate(Frame(5.0, 0.0, vts: new VtsPoseSnapshot(Pose(faceFound: false, mouthOpen: 0.42), 5.0)));
+        Assert.Equal(ParamValueSource.Base, Resolve(plan, address).Source);
+
+        // 完全没有姿态输入（默认快照）：失效，而不是把 0 当成"-"
+        plan.Evaluate(Frame(5.0, 0.0));
+        Assert.Equal(ParamValueSource.Base, Resolve(plan, address).Source);
+
+        // 判龄用 LiveTime：暂停（transport 不动）也照常过期（§13.7「暂停时仍用 LiveTime 判断过期」）
+        var paused = Frame(5.0, 0.0, vts: new VtsPoseSnapshot(face, 4.0));
+        plan.Evaluate(in paused);
+        Assert.Equal(ParamValueSource.Base, Resolve(plan, address).Source);
+    }
+
+    /// <summary>
+    /// VtsPose 的**生产端喂线**（回归）：真实管线必须把追踪探针的本帧姿态喂进
+    /// <see cref="SignalFrameInputs.Vts"/>。
+    ///
+    /// 为什么必须另起一条：<see cref="VtsPoseReadsItsChannelWithMeasuredUnits"/> 是手工传 vts 的，
+    /// 只钉得住求值语义、钉不到调用点——而 <c>SignalFrameInputs</c> 的 vts 是可选参数，
+    /// 三处生产 Evaluate 曾经都漏传（默认 default ⇒ FaceFound 恒 false），
+    /// 于是节点在实机里恒失效、求值侧用例却全绿。所以这里走真实 <see cref="PvPipeline"/> +
+    /// 真实 <see cref="VtsTrackingProbe"/>，并断言帧状态槽 camera.rotation 这个**信号写回的终点**。
+    ///
+    /// 基础旋转刻意取 7（既非 0 也非被测通道值）：否则"信号真的写进去了"与"基础值恰好等于期望值"分不开。
+    /// </summary>
+    [GpuFact]
+    public void PipelineFeedsTrackingPoseIntoVtsPoseNode()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        {
+            var probe = new VtsTrackingProbe();
+            var scene = PvScene.CreateDefault();
+            scene.Camera = new PvCameraConfig { Rotation = 7 };
+
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph(), null, probe);
+            pipe.SetSignalGraph(VtsChain("camera.rotation", VtsChannel.HeadAngleZ));
+
+            // ① 探针没数据（未连 VTS / 从未 Set）：节点失效 ⇒ 回落基础值，
+            //    不许把"没数据"当成 0 度（§8.1：失效与有效 0 是两件事）
+            pipe.Prepare(0.0);
+            Assert.Equal(7.0, pipe.Renderer.Stage.Camera.Rotation, 6);
+
+            // ② 新鲜姿态：HeadAngleZ 原样落到 camera.rotation（信号覆盖基础值）
+            probe.Set(VtsTrackingState.Empty with
+            {
+                FaceFound = true,
+                HeadAngleZ = -12.5,
+                AtMs = Environment.TickCount64,
+            });
+            pipe.Prepare(1.0 / 60);
+            Assert.Equal(-12.5, pipe.Renderer.Stage.Camera.Rotation, 6);
+
+            // ③ 过期（250ms 以外）：失效 ⇒ 回基础值，不保留上一帧的姿态偏移（§8.3）
+            probe.Set(VtsTrackingState.Empty with
+            {
+                FaceFound = true,
+                HeadAngleZ = -12.5,
+                AtMs = Environment.TickCount64 - 10_000,
+            });
+            pipe.Prepare(2.0 / 60);
+            Assert.Equal(7.0, pipe.Renderer.Stage.Camera.Rotation, 6);
+
+            // ④ 丢脸（连接还在、时间也新）：同样失效，不回落到 0 也不保留旧偏移
+            probe.Set(VtsTrackingState.Empty with
+            {
+                FaceFound = false,
+                HeadAngleZ = -12.5,
+                AtMs = Environment.TickCount64,
+            });
+            pipe.Prepare(3.0 / 60);
+            Assert.Equal(7.0, pipe.Renderer.Stage.Camera.Rotation, 6);
+        }
+    }
+
     [Fact]
     public void NonFiniteDynamicValueIsInvalidAndResolvedStaysFinite()
     {
@@ -852,7 +1009,7 @@ public class SignalGraphTests
         Set(graph, live, "source", 1);                     // 1 = Live
 
         var plan = CompileOk(graph, new EffectGraph());
-        var inputs = new SignalFrameInputs(5.0, 11.0, new AudioBandSnapshot(true, 0.1, 0.2, 0.3, 0.4), null);
+        var inputs = new SignalFrameInputs(5.0, 11.0, new AudioBandSnapshot(true, 0.1, 0.2, 0.3, 0.4), null, default);
         plan.Evaluate(in inputs);
 
         Assert.Equal(5.0, Value(plan, "n_transport"));
@@ -863,8 +1020,8 @@ public class SignalGraphTests
         Assert.Equal(5.0, Value(plan, "n_transport"));
 
         // 先求 t=5 再求 t=1，与直接求 t=1 逐位相同：纯函数、无按帧累计状态
-        var five = new SignalFrameInputs(5.0, 11.0, new AudioBandSnapshot(true, 0, 0, 0, 0), null);
-        var one = new SignalFrameInputs(1.0, 12.0, new AudioBandSnapshot(true, 0, 0, 0, 0), null);
+        var five = new SignalFrameInputs(5.0, 11.0, new AudioBandSnapshot(true, 0, 0, 0, 0), null, default);
+        var one = new SignalFrameInputs(1.0, 12.0, new AudioBandSnapshot(true, 0, 0, 0, 0), null, default);
         plan.Evaluate(in five);
         plan.Evaluate(in one);
 
@@ -1309,6 +1466,26 @@ public class SignalGraphTests
         return scene;
     }
 
-    private static SignalFrameInputs Frame(double transportTime, double bass, bool audioValid = true, DirectorEvaluator? curves = null) =>
-        new(transportTime, transportTime, new AudioBandSnapshot(audioValid, bass, bass, bass, bass), curves);
+    private static SignalFrameInputs Frame(double transportTime, double bass, bool audioValid = true,
+        DirectorEvaluator? curves = null, VtsPoseSnapshot vts = default) =>
+        new(transportTime, transportTime, new AudioBandSnapshot(audioValid, bass, bass, bass, bass), curves, vts);
+
+    /// <summary>可控假姿态快照：只填用例关心的通道，其余保持 0（形态同 <see cref="VtsTrackingState.Empty"/>）。</summary>
+    private static VtsTrackingState Pose(bool faceFound = true, double headAngleX = 0, double headAngleY = 0,
+        double headAngleZ = 0, double eyeOpenLeft = 0, double eyeOpenRight = 0, double mouthOpen = 0,
+        double mouthSmile = 0) =>
+        new(faceFound, 0, 0, 0, headAngleX, headAngleY, headAngleZ, 0, 0, eyeOpenLeft, eyeOpenRight, mouthOpen,
+            mouthSmile, false, false, 0, 0, 0, 0, 1000);
+
+    /// <summary>VtsPose(channel) → ParameterOutput → 绑定 address 的最小链路。</summary>
+    private static SignalGraph VtsChain(string address, VtsChannel channel)
+    {
+        var graph = new SignalGraph();
+        var pose = Node(graph, "n_pose", SignalNodeKind.VtsPose);
+        Set(graph, pose, "channel", (double)channel);
+        var output = Node(graph, "n_out", SignalNodeKind.ParameterOutput);
+        Connect(graph, pose, output, "in");
+        Bind(graph, output, address);
+        return graph;
+    }
 }

@@ -497,6 +497,13 @@ public static class SignalCompiler
                     unitKnown[i] = true;
                     break;
 
+                case SignalNodeKind.VtsPose:
+                    // 通道的量纲逐通道声明（头角=度、眼/口=比例）：通道号已按枚举域校验过
+                    units[i] = SignalNodeCatalog.VtsChannelUnit(
+                        (VtsChannel)(int)paramValues[i * CompiledSignalGraph.NodeParamSlots + CompiledSignalGraph.SlotChannel]);
+                    unitKnown[i] = true;
+                    break;
+
                 case SignalNodeKind.Lfo:
                     // 输出无量纲（幅度×正弦）；输入只要求"不是未注册单位"
                     units[i] = ParamUnit.Dimensionless;
@@ -738,6 +745,7 @@ public sealed partial class CompiledSignalGraph
     internal const int SlotConstantValue = 0, SlotConstantUnit = 1;
     internal const int SlotTimeSource = 0;
     internal const int SlotBand = 0;
+    internal const int SlotChannel = 0;
     internal const int SlotClampMin = 0, SlotClampMax = 1;
     internal const int SlotRemapInMin = 0, SlotRemapInMax = 1, SlotRemapOutMin = 2, SlotRemapOutMax = 3, SlotRemapOutUnit = 4;
     internal const int SlotLfoFrequency = 0, SlotLfoPhase = 1;
@@ -985,6 +993,10 @@ public sealed partial class CompiledSignalGraph
 
             case SignalNodeKind.AudioBands:
                 dest[offset + SlotBand] = SignalNodeCatalog.ParamValue(node, def, "band");
+                break;
+
+            case SignalNodeKind.VtsPose:
+                dest[offset + SlotChannel] = SignalNodeCatalog.ParamValue(node, def, "channel");
                 break;
 
             case SignalNodeKind.Clamp:

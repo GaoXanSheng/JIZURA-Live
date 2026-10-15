@@ -21,6 +21,22 @@ public sealed class SignalNode
 
     /// <summary>文本参数（目前只有地址文本）。</summary>
     public Dictionary<string, string> Texts { get; set; } = new();
+
+    /// <summary>
+    /// 画布横坐标（网格吸附后的值，由画布写入）。
+    /// null = 存档里没有坐标（旧工程，或新节点还没摆）：读入按 (0,0) 参与显示并**标记待自动布局**。
+    /// 坐标是布局不是内容——改它不动 <see cref="SignalGraph.StructureVersion"/>，已编译的拓扑继续复用。
+    /// </summary>
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public double? X { get; set; }
+
+    /// <summary>画布纵坐标，语义同 <see cref="X"/>。</summary>
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public double? Y { get; set; }
+
+    /// <summary>两个坐标都有 = 这个节点不用再自动布局。</summary>
+    [JsonIgnore]
+    public bool HasPosition => X.HasValue && Y.HasValue;
 }
 
 /// <summary>

@@ -433,9 +433,12 @@ public partial class PvStageWindow
 
         var t = _audio.Time;
         var plan = BadgePlan();
-        // 徽标复用渲染线程那条编译/求值路径：同一份图、同一套输入，结论才不会与屏幕上不一致
-        plan?.Evaluate(new SignalFrameInputs(t, Monotonic.Elapsed.TotalSeconds,
-            PvPipeline.SampleAudioBands(_audioBands, t), _evaluator));
+        // 徽标复用渲染线程那条编译/求值路径：同一份图、同一套输入，结论才不会与屏幕上不一致。
+        // VTS 姿态同样照 PvPipeline.ApplySignals 的口径取（同一个探针、同一个 250ms 新鲜度），
+        // 否则 VtsPose 的行会显示"实机没有、预览有"的假值。
+        var live = Monotonic.Elapsed.TotalSeconds;
+        plan?.Evaluate(new SignalFrameInputs(t, live,
+            PvPipeline.SampleAudioBands(_audioBands, t), _evaluator, VtsPoseSnapshot.Read(_vts?.Tracking, live)));
 
         foreach (var row in _inspectorRows) RefreshRow(row, t, plan);
         foreach (var row in _rackRows) RefreshRow(row, t, plan);

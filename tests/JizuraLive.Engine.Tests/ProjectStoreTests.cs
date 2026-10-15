@@ -378,6 +378,90 @@ public class ProjectStoreTests
         }
     }
 
+    /// <summary>
+    /// 布局/坐标的读入治理：非有限数值（NaN/Infinity）会让画布变换整片失效，按"这个字段没有"回落；
+    /// 缺布局段按默认视图。它们都不是内容，绝不因此拒绝打开工程，也不顺手回写磁盘。
+    /// </summary>
+    [Fact]
+    public void NonFiniteLayoutAndCoordinatesFallBackToDefaults()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            var graph = new SignalGraph();
+            var node = new SignalNode
+            {
+                Id = "n_c",
+                Kind = SignalNodeKind.Constant,
+                Params = new Dictionary<string, double> { ["value"] = 1, ["unit"] = 1 },
+                X = double.PositiveInfinity,
+                Y = 48,
+            };
+            graph.Nodes.Add(node);
+
+            var project = new DirectorProject
+            {
+                Name = "坏布局",
+                SignalGraph = graph,
+                EditorLayout =
+                {
+                    CanvasZoom = double.NaN,
+                    CanvasPanX = double.NegativeInfinity,
+                    CanvasPanY = 12,
+                    SelectedNodeIds = null!,
+                    TimelineZoom = double.NaN,
+                },
+            };
+
+            // 存盘不许因坏值失败（真实来源是坏写盘/手改 JSON；这里直接构造同一形态）
+            Assert.Null(ProjectStore.Save(project, path));
+
+            var result = ProjectStore.Load(path);
+
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+
+            // 非有限坐标 ⇒ 按"还没布局"处理（画布会用 (0,0) 参与布局并标记待布局）
+            var loadedNode = Assert.Single(loaded.SignalGraph.Nodes);
+            Assert.Null(loadedNode.X);
+            Assert.Equal(48.0, loadedNode.Y!.Value);
+            Assert.False(loadedNode.HasPosition);
+
+            // 非有限视图参数 ⇒ 默认视图；null 列表 ⇒ 空
+            Assert.Equal(1.0, loaded.EditorLayout.CanvasZoom);
+            Assert.Equal(0.0, loaded.EditorLayout.CanvasPanX);
+            Assert.Equal(12.0, loaded.EditorLayout.CanvasPanY);
+            Assert.Equal(1.0, loaded.EditorLayout.TimelineZoom);
+            Assert.Empty(loaded.EditorLayout.SelectedNodeIds);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>
+    /// 存盘写的是当前架构版本。VtsPose 是新节点种类，旧读方会把未知种类连边一起丢掉——
+    /// 与其"看起来能跑"，不如让旧读方按版本过新拒绝打开（契约 §15.3 的拒绝而非截断）。
+    /// </summary>
+    [Fact]
+    public void SavedProjectCarriesCurrentSchemaVersion()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            Assert.Null(ProjectStore.Save(new DirectorProject { Name = "版本" }, path));
+
+            var root = JObject.Parse(File.ReadAllText(path));
+            Assert.Equal(DirectorProject.CurrentSchemaVersion, (int)root["SchemaVersion"]!);
+            Assert.Equal(DirectorProject.CurrentSchemaVersion, Assert.IsType<DirectorProject>(ProjectStore.Load(path).Project).SchemaVersion);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
     private static string NewProjectPath()
     {
         var dir = Path.Combine(Path.GetTempPath(), "jizura-project-" + Guid.NewGuid().ToString("N"));
