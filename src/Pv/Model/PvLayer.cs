@@ -107,6 +107,12 @@ public sealed class PvLayerConfig
     public string? ImagePath { get; set; }
 
     /// <summary>
+    /// 视频文件路径（仅当 Kind == VisualAsset 时有效，循环播放）。与 <see cref="ImagePath"/>/<see cref="SpoutSenderName"/>
+    /// 三者互斥，同挂多个时优先级 Spout &gt; Video &gt; Image（判据见 PvPipeline.WantsSpout/WantsVideo/WantsImage）。
+    /// </summary>
+    public string? VideoPath { get; set; }
+
+    /// <summary>
     /// 源像素是否已预乘 alpha。默认 true：VTS/Spout 发送端发的是预乘像素，
     /// 且 D2D 的 surface 位图只接受 Premultiplied（声明 Straight 建不出位图 → 该层永不出图）。
     /// </summary>

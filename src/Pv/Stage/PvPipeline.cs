@@ -27,6 +27,7 @@ public sealed class PvPipeline : IDisposable
     // 跨线程交接只有这一条命令通道：UI 投递，渲染线程在帧首消费（图层提供者的 COM 对象必须在渲染线程建）。
     private readonly ConcurrentQueue<string> _pendingAdds = new();
     private readonly ConcurrentQueue<string> _pendingImageAdds = new();
+    private readonly ConcurrentQueue<string> _pendingVideoAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
@@ -207,6 +208,16 @@ public sealed class PvPipeline : IDisposable
         _pendingImageAdds.Enqueue(imagePath);
     }
 
+    /// <summary>
+    /// 新增一层视频图层（任意线程）：只投递路径，解码器与纹理的建立在渲染线程上做
+    /// （D2D 位图必须与绘制同线程建）。空路径当场丢弃——同 RequestAddImage。
+    /// </summary>
+    public void RequestAddVideo(string videoPath)
+    {
+        if (string.IsNullOrWhiteSpace(videoPath)) return;
+        _pendingVideoAdds.Enqueue(videoPath);
+    }
+
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
     public void RequestOrder(IReadOnlyList<string> idsTopFirst) =>
         _pendingOrder = [.. idsTopFirst];
@@ -235,12 +246,19 @@ public sealed class PvPipeline : IDisposable
 
     public static bool WantsSpout(PvLayerConfig layer) =>
         layer.Kind == PvLayerKind.VisualAsset
-        && string.IsNullOrWhiteSpace(layer.ImagePath) // 有图就是图片层：两层源互斥（同名注册会让先建的那个被覆盖且永不释放）
         && !string.IsNullOrWhiteSpace(layer.SpoutSenderName);
 
-    /// <summary>该层是否由磁盘图片驱动（仅视觉素材层；有 ImagePath 即图片层，与 Spout 源互斥）。</summary>
+    /// <summary>该层是否由视频文件驱动（仅视觉素材层；三源互斥，Spout 已占用时不算）。</summary>
+    public static bool WantsVideo(PvLayerConfig layer) =>
+        layer.Kind == PvLayerKind.VisualAsset
+        && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+        && !string.IsNullOrWhiteSpace(layer.VideoPath);
+
+    /// <summary>该层是否由磁盘图片驱动（仅视觉素材层；三源互斥，Spout/Video 已占用时不算）。</summary>
     public static bool WantsImage(PvLayerConfig layer) =>
         layer.Kind == PvLayerKind.VisualAsset
+        && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+        && string.IsNullOrWhiteSpace(layer.VideoPath)
         && !string.IsNullOrWhiteSpace(layer.ImagePath);
 
     public static PvLayerConfig NewSourceLayer(string id, string sender) => new()
@@ -269,6 +287,19 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
+    /// <summary>新建一层视频图层：与图片层同档（名字取文件名、默认铺满）；同样必须显式清掉 SpoutSenderName。</summary>
+    public static PvLayerConfig NewVideoLayer(string id, string videoPath) => new()
+    {
+        Id = id,
+        Name = Path.GetFileNameWithoutExtension(videoPath),
+        Kind = PvLayerKind.VisualAsset,
+        VideoPath = videoPath,
+        SpoutSenderName = null,
+        Cover = true,
+        Parallax = new PvParallaxConfig { Depth = 0.9 },
+        VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
+    };
+
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
         var tint = PvScene.ParseHex(_scene.AmbientTint);
@@ -291,23 +322,30 @@ public sealed class PvPipeline : IDisposable
 
     /// <summary>
     /// 建某层的提供者并注册进舞台（只在渲染线程调）。场景装载与运行期新增共用这一条路径：
-    /// "两条源互斥、以图片为先"只写一次，不会分叉成装载一套、新增另一套。
+    /// 「三源互斥、优先级 Spout &gt; Video &gt; Image」只写一次，不会分叉成装载一套、新增另一套。
     /// </summary>
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
-        if (WantsImage(layer))
+        if (WantsSpout(layer))
         {
-            _renderer.Stage.Register(new FileImageProvider(layer.Id, _d2d.Ctx, layer.ImagePath!));
+            var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
+                layer.Premultiplied);
+            _renderer.Stage.Register(provider);
+            _spoutProviders.Add(provider);
+            if (layer.Id == PvScene.CharacterLayerId) _character = provider;
             return;
         }
 
-        if (!WantsSpout(layer)) return;
+        if (WantsVideo(layer))
+        {
+            _renderer.Stage.Register(new FileVideoProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.VideoPath!));
+            return;
+        }
 
-        var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
-            layer.Premultiplied);
-        _renderer.Stage.Register(provider);
-        _spoutProviders.Add(provider);
-        if (layer.Id == PvScene.CharacterLayerId) _character = provider;
+        if (WantsImage(layer))
+        {
+            _renderer.Stage.Register(new FileImageProvider(layer.Id, _d2d.Ctx, layer.ImagePath!));
+        }
     }
 
     private void ApplyLayerOps()
@@ -332,6 +370,16 @@ public sealed class PvPipeline : IDisposable
             RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建图片图层 '{id}' <- '{imagePath}'");
+        }
+
+        while (_pendingVideoAdds.TryDequeue(out var videoPath))
+        {
+            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
+            var layer = NewVideoLayer(id, videoPath);
+            _scene.Layers.Add(layer);
+            RegisterLayerProvider(layer);
+            changed = true;
+            Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
         }
 
         while (_pendingRemoves.TryDequeue(out var id))
