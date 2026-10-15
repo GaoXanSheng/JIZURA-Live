@@ -22,6 +22,11 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     /// <summary>同刻合并后的多行文本按行拆开画：DwFont 的文本格式是单行不换行的，'\n' 得自己分层。</summary>
     private static readonly string[] LineSeparators = ["\r\n", "\r", "\n"];
 
+    /// <summary>描边方向数：与 SubtitleLayout 同量级，16 向在数 px 描边下看不出缺口。</summary>
+    private const int StrokeDirections = 16;
+
+    private LyricStyle? _style;
+
     private int _w, _h;
     private double _scale = 1.0;
     private long _version = 1;
@@ -64,6 +69,16 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         _scale = scale;
         _version++;
     }
+
+    /// <summary>设定排版样式；<c>null</c> = 回到 <see cref="LyricStyle.Classic"/> 预设。</summary>
+    public void SetStyle(LyricStyle? style)
+    {
+        _style = style;
+        _version++;
+    }
+
+    /// <summary>本层实际生效的样式（没设过就用 Classic）。</summary>
+    public LyricStyle EffectiveStyle => _style ?? LyricStyle.Classic;
 
     public void Render(double time)
     {
@@ -110,9 +125,15 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                     offsetY = -outP * 10f * (float)_scale;
                 }
 
-                var font = d.Fonts.Get("Microsoft YaHei UI", 52f * (float)_scale, weight: Vortice.DirectWrite.FontWeight.Bold);
+                var style = EffectiveStyle;
+                var font = d.Fonts.Get("Microsoft YaHei UI", style.FontSizePx(_scale), weight: Vortice.DirectWrite.FontWeight.Bold);
                 var cx = w / 2f;
                 var cy = h * 0.75f + offsetY;
+
+                var glow = style.GlowColorValue;
+                var fill = style.ColorValue;
+                var stroke = style.StrokeColorValue;
+                var strokeOffsets = style.StrokeWidth > 0f ? BuildStrokeOffsets(style.StrokeWidth) : null;
 
                 // 同刻合并的文本是多行的：逐行各自排版，整块以 cy 为中心
                 // （单行时与旧路径完全一致，多行不会被裁掉半截）
@@ -128,15 +149,29 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                     var baseline = firstBaseline + i * lineHeight;
 
                     // 1) 柔和外发光底影
-                    d.DrawText(line, cx, baseline + 2f, TextAlign2D.Center, font, new Paint2D
+                    if (style.GlowSize != 0f && glow.A > 0f)
                     {
-                        Brush = new SolidBrush2D(new Color4(0f, 0.05f, 0.15f, alpha * 0.6f)),
-                    });
+                        d.DrawText(line, cx, baseline + style.GlowSize, TextAlign2D.Center, font, new Paint2D
+                        {
+                            Brush = new SolidBrush2D(new Color4(glow.R, glow.G, glow.B, glow.A * alpha)),
+                        });
+                    }
 
-                    // 2) 主高亮正文
+                    // 2) 描边（D2D 的 DrawText 没有描边笔，只能沿圆周偏移重画模拟）
+                    if (strokeOffsets is not null && stroke.A > 0f)
+                    {
+                        var paint = new Paint2D
+                        {
+                            Brush = new SolidBrush2D(new Color4(stroke.R, stroke.G, stroke.B, stroke.A * alpha)),
+                        };
+                        foreach (var offset in strokeOffsets)
+                            d.DrawText(line, cx + offset.X, baseline + offset.Y, TextAlign2D.Center, font, paint);
+                    }
+
+                    // 3) 主高亮正文
                     d.DrawText(line, cx, baseline, TextAlign2D.Center, font, new Paint2D
                     {
-                        Brush = new SolidBrush2D(new Color4(1f, 1f, 1f, alpha)),
+                        Brush = new SolidBrush2D(new Color4(fill.R, fill.G, fill.B, fill.A * alpha)),
                     });
                 }
             }
@@ -153,6 +188,20 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     /// 空档清屏这类断言必须看像素——只查 HasContent 只说明「有目标面」，是假绿。
     /// </summary>
     public ReadbackImage? ReadbackTarget() => _target?.Readback();
+
+    /// <summary>描边方向：半径 StrokeWidth/2 的圆周偏移（不含 (0,0)，中心那笔由填充覆盖）。</summary>
+    private static Vector2[] BuildStrokeOffsets(float strokeWidth)
+    {
+        var radius = strokeWidth / 2f;
+        var offsets = new Vector2[StrokeDirections];
+        for (var i = 0; i < StrokeDirections; i++)
+        {
+            var angle = i * 2f * MathF.PI / StrokeDirections;
+            offsets[i] = new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
+        }
+
+        return offsets;
+    }
 
     public void Dispose()
     {

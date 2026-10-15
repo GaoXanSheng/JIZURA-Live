@@ -1,4 +1,5 @@
 using System.IO;
+using JizuraLive.Render.Text;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Pv;
@@ -39,6 +40,12 @@ public sealed class PvScene
 
     /// <summary>全局自适应环境光调色与光影融合开关（杜绝生硬贴片感）</summary>
     public bool AmbientBlendEnabled { get; set; } = true;
+
+    /// <summary>歌词层样式预设名（Classic / Neon / Outline / Minimal），未知名字按 Classic 画。</summary>
+    public string? LyricStyleName { get; set; } = JizuraLive.Render.Text.LyricStyle.ClassicName;
+
+    /// <summary>自定义歌词样式（null = 用 <see cref="LyricStyleName"/> 指定的预设）。</summary>
+    public LyricStyle? LyricStyle { get; set; }
 
     /// <summary>防露底自适应安全边缘保护开关（镜头晃动时自动延展边缘，杜绝黑边穿帮）</summary>
     public bool AntiBleedGuardEnabled { get; set; } = true;
