@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using JizuraLive.Logging;
 using SpoutDXWrapper;
 using Vortice.Direct3D11;
@@ -189,7 +190,10 @@ public sealed class SpoutIn : IDisposable
 
         try
         {
-            // 只包一层壳读 Description，不持有所有权（native 的共享纹理归 sender）。
+            // 非拥有包装，但必须手动配平：Vortice 的 ID3D11Texture2D(IntPtr) 构造不 AddRef、
+            // Dispose 却 Release（tools/SpoutProbe --leak 的 W 段实测每次 wrap+Dispose 净 -1），
+            // 不补一个 AddRef 就等于每帧错减发送端纹理的引用计数。补一句 Marshal.AddRef 后净 0。
+            Marshal.AddRef(ptr);
             using var src = new ID3D11Texture2D(ptr);
             var d = src.Description;
             if (d.Width <= 0 || d.Height <= 0) return false;

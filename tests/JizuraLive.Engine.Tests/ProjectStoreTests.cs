@@ -367,7 +367,7 @@ public class ProjectStoreTests
     }
 
     [Fact]
-    public void CorruptLegacySceneFallsBackToDefaultAndStillCreatesProject()
+    public void CorruptLegacySceneFallsBackToBlankSceneAndStillCreatesProject()
     {
         var (dir, projectPath, legacyScenePath, legacyEffectsPath) = NewImportLayout();
         try
@@ -384,18 +384,19 @@ public class ProjectStoreTests
             Assert.NotNull(boot.Fault);
             Assert.Contains("旧场景文件", boot.Fault);
 
-            var def = PvScene.CreateDefault();
-            Assert.Equal(def.Name, boot.Project.Scene.Name);
-            Assert.Equal(def.Layers.Count, boot.Project.Scene.Layers.Count);
+            // 回退是**空白场景**（零图层），不是那套预置模板图层——没有可用旧数据时
+            // 不该替用户决定画面结构。画布等基础设施仍在（有合理默认）。
+            Assert.Empty(boot.Project.Scene.Layers);
+            Assert.True(boot.Project.Scene.Width > 0 && boot.Project.Scene.Height > 0);
 
             // 坏掉的旧文件也不许被"顺手修好"
             Assert.Equal(corrupt, File.ReadAllText(legacyScenePath));
 
-            // 导入路径照常写工程文件，内容 = 内存里的默认场景
+            // 导入路径照常写工程文件，内容 = 内存里的空白场景
             Assert.True(File.Exists(projectPath));
             var reloaded = ProjectStore.Load(projectPath);
             Assert.Null(reloaded.Fault);
-            Assert.Equal(def.Layers.Count, reloaded.Project!.Scene.Layers.Count);
+            Assert.Empty(reloaded.Project!.Scene.Layers);
         }
         finally
         {

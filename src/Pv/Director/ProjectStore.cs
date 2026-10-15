@@ -292,10 +292,11 @@ public static class ProjectStore
         return new ProjectBootstrap(project, faults.Count > 0 ? string.Join("；", faults) : null, true);
     }
 
-    /// <summary>只读导入旧版场景：文件不存在用默认；解析失败也回落默认并在 Fault 里记原因。</summary>
+    /// <summary>只读导入旧版场景：文件不存在/解析失败都回落**空白场景**并在 Fault 里记原因
+    /// （没有旧数据不等于该送用户一套模板图层）。</summary>
     private static PvScene ReadLegacyScene(string path, List<string> faults)
     {
-        if (!File.Exists(path)) return PvScene.CreateDefault();
+        if (!File.Exists(path)) return PvScene.CreateBlank();
 
         try
         {
@@ -308,7 +309,7 @@ public static class ProjectStore
             faults.Add($"旧场景文件解析失败：{ex.Message}");
         }
 
-        return PvScene.CreateDefault();
+        return PvScene.CreateBlank();
     }
 
     /// <summary>

@@ -22,13 +22,14 @@ public sealed class DirectorProject
     public string Name { get; set; } = "Untitled PV";
 
     /// <summary>
-    /// 场景文档（画布尺寸 / fps / 图层栈的唯一真相）。
+    /// 场景文档（画布尺寸 / fps / 图层栈的唯一真相）。默认**空白**（零图层）：工程是用户的画布，
+    /// 不该预置一套模板图层替他决定画面结构。
     ///
     /// 必须 Replace：Json.NET 默认的 ObjectCreationHandling.Auto 会复用属性上已有的实例
-    /// （初始值里已有 5 个默认图层），再把存档条目追加进同一个 Layers，读回就成了 10 层。
+    /// 再把存档条目追加进同一个 Layers，读回就会多出一份重复图层。
     /// </summary>
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
-    public PvScene Scene { get; set; } = PvScene.CreateDefault();
+    public PvScene Scene { get; set; } = PvScene.CreateBlank();
 
     /// <summary>效果图（工程文件里是嵌套 JSON，见 <see cref="EffectGraphJsonConverter"/>）。</summary>
     [JsonConverter(typeof(EffectGraphJsonConverter))]

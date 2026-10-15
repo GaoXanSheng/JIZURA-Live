@@ -82,6 +82,12 @@ public sealed class PvScene
     /// </summary>
     public List<PvLayerConfig> Layers { get; set; } = new();
 
+    /// <summary>
+    /// 空白场景：仅画布/帧率等基础设施，**零图层**。新工程用这个——
+    /// 预置那套模板图层（角色/歌词/前景/字幕）等于替用户决定好画面结构，那不叫新建。
+    /// </summary>
+    public static PvScene CreateBlank() => new();
+
     /// <summary>创建默认的工业级 PV 场景模板</summary>
     public static PvScene CreateDefault()
     {

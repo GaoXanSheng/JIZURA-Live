@@ -22,8 +22,11 @@ namespace SpoutProbe;
 ///
 ///   G1-G3 M7「Spout 输入去 CPU 往返」实测，见 <see cref="GpuReceiveProbe"/>。
 ///
+///   LEAK 静态画面上仍增长的内存分档二分（A 收帧 / B 收帧+D2D 包装 / C 完整管线），见
+///   <see cref="LeakBisectProbe"/>。
+///
 /// 用法：SpoutProbe.exe [--seconds N] [--max-pumps N] [--name 名] [--self-send] [--no-exit]
-///                      [--sender [名]] [--gpu-input] [--frames N] [--slow-frames N]
+///                      [--sender [名]] [--gpu-input] [--live] [--leak] [--frames N] [--slow-frames N]
 ///   --seconds N    Q1/Q3 各自跑多少秒（默认 Q1=12s，覆盖 10s 的等待日志节拍；Q3=6s）
 ///   --max-pumps N  Q1 的 Pump 次数上限（默认 20000，防失控）
 ///   --name 名      Q3/Q4/Q6 与 S1-S5/G1-G3 用的 sender 名（默认 SpoutProbeSelfTest）
@@ -32,7 +35,9 @@ namespace SpoutProbe;
 ///   --sender       走**发送端**验证模式（S1-S5，不跑 Q1-Q6）。后面紧跟一个不带 -- 的词
 ///                  仍按旧用法当作 sender 名接受，但推荐改用 --name。
 ///   --gpu-input    走 **Spout 输入去 CPU 往返**验证模式（G1-G3，不跑 Q1-Q6/S1-S5）。
-///                  与 --sender 互斥（三选一，避免两套状态互相污染）。
+///                  与 --sender 互斥（四选一，避免两套状态互相污染）。
+///   --live         走 **真实外部发送端**诊断模式（对枚举到的真实源跑生产接收链）。
+///   --leak         走 **内存泄漏分档二分**模式（对真实源跑 A/B/C 三档，各 40s，出斜率）。
 ///   --frames N     S1/S5 的帧数（默认 1000 / 200）；G1 每档尺寸的 Pump 次数；G3 借用期的帧数
 /// 退出码（Q 模式）：0 = 全部断言通过；3 = 取帧阻塞；4 = Q2 关闭不安全；5 = GPU/初始化失败。
 /// 退出码（S 模式）：0 = 通过（接线放行）；3 = S1 发送阻塞；4 = S2 像素/尺寸；6 = S3 关闭不安全；
@@ -71,6 +76,7 @@ internal static class Program
         var senderMode = false;
         var gpuInputMode = false;
         var liveMode = false;
+        var leakMode = false;
         var nameGiven = false;
         var sendFrames = 1000;
         var slowFrames = 200;
@@ -86,6 +92,7 @@ internal static class Program
             if (args[i] == "--no-exit") autoExit = false;
             if (args[i] == "--gpu-input") gpuInputMode = true;
             if (args[i] == "--live") liveMode = true;
+            if (args[i] == "--leak") leakMode = true;
             if (args[i] == "--frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var n) && n > 0)
                 sendFrames = n;
             if (args[i] == "--slow-frames" && i + 1 < args.Length && int.TryParse(args[i + 1], out var m) && m > 0)
@@ -102,11 +109,12 @@ internal static class Program
             }
         }
 
-        // 三个模式互斥：同时指定会让两套 native 状态（sender 注册表 / receiver 句柄）互相污染，
+        // 四个模式互斥：同时指定会让两套 native 状态（sender 注册表 / receiver 句柄）互相污染，
         // 拿到的数字既不能归给 Q 也不能归给 S/G。宁可报错退出。
-        if ((senderMode && gpuInputMode) || (senderMode && liveMode) || (gpuInputMode && liveMode))
+        var modeCount = (senderMode ? 1 : 0) + (gpuInputMode ? 1 : 0) + (liveMode ? 1 : 0) + (leakMode ? 1 : 0);
+        if (modeCount > 1)
         {
-            Console.WriteLine("[Probe][FAIL] --sender / --gpu-input / --live 互斥，一次只跑一个模式");
+            Console.WriteLine("[Probe][FAIL] --sender / --gpu-input / --live / --leak 互斥，一次只跑一个模式");
             return 2;
         }
 
@@ -114,12 +122,20 @@ internal static class Program
             ? "[Probe] SpoutOut 发送端原生行为实测（M3 路线图 §5 第 1 条）"
             : gpuInputMode
                 ? "[Probe] Spout 输入去 CPU 往返实测（M7 G 段：G1/G1b/G2/G3）"
-                : "[Probe] SpoutIn 可终止性实测（M1 路线图第 6 步）");
+                : liveMode
+                    ? "[Probe] 真实外部 Spout 发送端 → 生产接收链 逐档诊断（LIVE）"
+                    : leakMode
+                        ? "[Probe] 静态画面内存分档二分实测（LEAK：A 收帧 / B 收帧+D2D 包装 / C 完整管线）"
+                        : "[Probe] SpoutIn 可终止性实测（M1 路线图第 6 步）");
         Console.WriteLine(senderMode
             ? $"[Probe] S1/S5={sendFrames}/{slowFrames} 帧 sender='{sender}'"
             : gpuInputMode
                 ? $"[Probe] G1 每档 {sendFrames} 次 Pump｜G3 借用期 {slowFrames} 帧｜sender='{sender}'"
-                : $"[Probe] Q1={q1Seconds}s（覆盖 10s 等待日志节拍）Q3={q3Seconds}s maxPumps={maxPumps} sender='{sender}' selfSend={selfSend}");
+                : liveMode
+                    ? $"[Probe] sender='{(nameGiven ? sender : "（枚举第一个）")}'"
+                    : leakMode
+                        ? $"[Probe] 三档各 40s｜sender='{(nameGiven ? sender : "（枚举第一个）")}'"
+                        : $"[Probe] Q1={q1Seconds}s（覆盖 10s 等待日志节拍）Q3={q3Seconds}s maxPumps={maxPumps} sender='{sender}' selfSend={selfSend}");
         Console.WriteLine($"[Probe] 数据目录（隔离）：{isoDir}");
 
         // 只需要一个 D3D11 设备 + D2D 上下文（SpoutSourceProvider 构造要 ID2D1DeviceContext）。
@@ -158,6 +174,11 @@ internal static class Program
         {
             // LIVE 模式：对真实运行中的外部发送端跑生产接收链（G1 是自发送，测不出真实源的问题）
             exitCode = new LiveReceiveProbe(gpu, d2d, nameGiven ? sender : null).Run();
+        }
+        else if (leakMode)
+        {
+            // LEAK 模式：对真实运行中的外部发送端做 A/B/C 分档二分，定位「静态画面仍增长」在哪一层
+            exitCode = new LeakBisectProbe(gpu, d2d, nameGiven ? sender : null).Run();
         }
         else
         {
