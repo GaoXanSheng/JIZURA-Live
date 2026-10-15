@@ -105,27 +105,18 @@ public class PvStageTests
         var gpu = D3DDevice.TryCreate(out _);
         if (gpu is null) GpuRequire.Fail();
 
-        var dir = Path.Combine(Path.GetTempPath(), "jizura-seq-" + Guid.NewGuid());
-        Directory.CreateDirectory(dir);
-        try
+        using (gpu)
         {
-            using (gpu)
-            {
-                var scene = PvScene.CreateDefault();
-                scene.Layers.Add(PvPipeline.NewSourceLayer("src_7", "OldCam"));
+            var scene = PvScene.CreateDefault();
+            scene.Layers.Add(PvPipeline.NewSourceLayer("src_7", "OldCam"));
 
-                using var pipe = new PvPipeline(gpu, Path.Combine(dir, "scene.json"), scene, new EffectGraph());
-                pipe.RequestAdd("NewCam");
-                pipe.Prepare(0.0);
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph());
+            pipe.RequestAdd("NewCam");
+            pipe.Prepare(0.0);
 
-                var ids = pipe.Scene.Layers.Select(l => l.Id).ToArray();
-                Assert.Equal(ids.Length, ids.Distinct().Count());
-                Assert.Contains("src_8", ids);
-            }
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
+            var ids = pipe.Scene.Layers.Select(l => l.Id).ToArray();
+            Assert.Equal(ids.Length, ids.Distinct().Count());
+            Assert.Contains("src_8", ids);
         }
     }
 
@@ -264,10 +255,6 @@ public class PvStageTests
 
     /// <summary>
     /// VTS 追踪驱动虚拟摄像机。
-    ///
-    /// 场景/效果路径一律写独立临时目录（Guid 隔离，finally 删除）：
-    /// PvPipeline 会把效果文档写在场景文件同目录（pv_effects.json），
-    /// 用相对路径 "unused.json" 会让它落在测试进程工作目录，留下垃圾并可能被别的用例读到。
     /// </summary>
     [GpuFact]
     public void VtsTrackingDrivesCameraInPipeline()
@@ -275,37 +262,27 @@ public class PvStageTests
         var gpu = D3DDevice.TryCreate(out _);
         if (gpu is null) GpuRequire.Fail();
 
-        var dir = Path.Combine(Path.GetTempPath(), "jizura-vts-cam-" + Guid.NewGuid());
-        Directory.CreateDirectory(dir);
-        try
+        using (gpu)
         {
-            using (gpu)
+            var probe = new VtsTrackingProbe();
+            using var pipe = new PvPipeline(gpu, PvScene.CreateDefault(), new EffectGraph(), null, probe);
+
+            probe.Set(VtsTrackingState.Empty with
             {
-                var probe = new VtsTrackingProbe();
-                using var pipe = new PvPipeline(gpu, Path.Combine(dir, "scene.json"),
-                    PvScene.CreateDefault(), new EffectGraph(), null, false, probe);
+                FaceFound = true,
+                HeadX = 0.8,
+                HeadY = -0.5,
+                MouthOpen = 0.9,
+                EyeOpenLeft = 1,
+                EyeOpenRight = 1,
+                AtMs = Environment.TickCount64,
+            });
 
-                probe.Set(VtsTrackingState.Empty with
-                {
-                    FaceFound = true,
-                    HeadX = 0.8,
-                    HeadY = -0.5,
-                    MouthOpen = 0.9,
-                    EyeOpenLeft = 1,
-                    EyeOpenRight = 1,
-                    AtMs = Environment.TickCount64,
-                });
+            pipe.Prepare(0.0);
+            var cam = pipe.Renderer.Stage.Camera;
 
-                pipe.Prepare(0.0);
-                var cam = pipe.Renderer.Stage.Camera;
-
-                Assert.True(Math.Abs(cam.X) > 1, $"头右移镜位移应显著，实际 {cam.X}");
-                Assert.True(cam.Scale > 0.5, "缩放应合理");
-            }
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
+            Assert.True(Math.Abs(cam.X) > 1, $"头右移镜位移应显著，实际 {cam.X}");
+            Assert.True(cam.Scale > 0.5, "缩放应合理");
         }
     }
 

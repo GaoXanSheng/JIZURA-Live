@@ -22,10 +22,15 @@ namespace JizuraLive.App.PvStage;
 /// </summary>
 public partial class PvStageWindow : Window
 {
+    private readonly DirectorProject _project;
     private readonly PvScene _scene;
     private readonly EffectGraph _effects;
     private readonly AudioClockDriver _audio = new();
     private volatile PvPipeline? _pipe;
+
+    // 音频与歌词的绑定：回写进 _project 后随工程一起落盘，下次打开自动恢复
+    private string? _audioPath;
+    private string? _lrcText;
 
     private int _saveTick;
     private string? _saveError;
@@ -46,9 +51,13 @@ public partial class PvStageWindow : Window
     {
         InitializeComponent();
 
-        _scene = PvPipeline.LoadScene(ScenePath);
+        var boot = ProjectStore.LoadOrImport(ProjectPath, LegacyScenePath, LegacyEffectsPath);
+        _project = boot.Project;
+        _scene = _project.Scene;
+        _effects = _project.Effects;
+        _audioPath = _project.AudioPath;
+        _lrcText = _project.LrcText;
         if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
-        _effects = new EffectGraph();
 
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -72,10 +81,24 @@ public partial class PvStageWindow : Window
             {
                 _saveTick = 0;
                 // 存盘留在 UI 线程做：渲染帧路径不碰磁盘。失败留在状态条上，不静默吞掉。
-                _saveError = _pipe?.SaveSceneNow();
+                _saveError = SaveProjectNow();
             }
         };
         _uiTimer.Start();
+
+        // 载入结论（导入 / 载入失败）必须在日志与状态条各留一句：用户不能只在心里猜工程为什么是空的
+        var bootNotes = new List<string>();
+        if (boot.ImportedFromLegacy)
+        {
+            Log.Info($"[PV 工作台] 已从旧版场景/效果导入工程：{ProjectPath}");
+            bootNotes.Add("已从旧版场景/效果导入工程");
+        }
+        if (boot.Fault is { } bootFault)
+        {
+            Log.Warn($"[PV 工作台] 工程未能完整载入，磁盘文件保持原样：{bootFault}");
+            bootNotes.Add($"载入异常：{bootFault}（磁盘文件保持原样）");
+        }
+        if (bootNotes.Count > 0) TblStatus.Text = string.Join("；", bootNotes);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -84,7 +107,20 @@ public partial class PvStageWindow : Window
         if (_ready) TblStageHint.Visibility = Visibility.Collapsed;
     }
 
-    private static string ScenePath => Path.Combine(AppDirs.ConfigDir, "pv_scene.json");
+    private static string ProjectPath => Path.Combine(AppDirs.ConfigDir, "pv_project.jzpv");
+    private static string LegacyScenePath => Path.Combine(AppDirs.ConfigDir, "pv_scene.json");
+    private static string LegacyEffectsPath => Path.Combine(AppDirs.ConfigDir, "pv_effects.json");
+
+    /// <summary>
+    /// 把内存工程落盘（.jzpv）。UI 线程专用（调用点都在 UI 线程），失败原因交状态条显示。
+    /// _scene / _effects 与 _project 本来就是同一批引用，只需回写两个字符串字段。
+    /// </summary>
+    private string? SaveProjectNow()
+    {
+        _project.AudioPath = _audioPath;
+        _project.LrcText = _lrcText;
+        return ProjectStore.Save(_project, ProjectPath);
+    }
 
     /// <summary>
     /// 停机顺序按执行契约走：先完成保存/放弃决策，再停止发布（取帧、音频），
@@ -92,7 +128,7 @@ public partial class PvStageWindow : Window
     /// </summary>
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        var fault = _pipe?.SaveSceneNow() ?? _pipe?.SaveEffectsNow();
+        var fault = SaveProjectNow();
         if (fault is not null)
         {
             Log.Error($"[PV 工作台] 关闭前保存失败：{fault}");
@@ -132,14 +168,6 @@ public partial class PvStageWindow : Window
         _pipe = null;
         pipe?.Dispose();
 
-        // 收尾存盘失败不能静默：这里可能随窗口关闭一起来（Dispatcher 已不许同步弹窗），
-        // 所以只把原因落到状态条与日志，和 host.Error 同一套处理
-        if (pipe?.LastDisposeFault is { } fault)
-        {
-            Log.Error($"[PV 工作台] 关闭时保存失败：{fault}");
-            Dispatcher.BeginInvoke(() => TblStatus.Text = $"关闭时保存失败：{fault}");
-        }
-
         if (host.Error is not null)
             Dispatcher.BeginInvoke(() => TblStatus.Text = "预览已停止：" + host.Error);
     }
@@ -151,14 +179,42 @@ public partial class PvStageWindow : Window
             _pipe?.Dispose();
             _pipe = null;
 
-            _pipe = new PvPipeline(host.Gpu!, ScenePath, _scene, _effects);
+            _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
 
             _pipe.LayersChanged += () => Dispatcher.BeginInvoke(() =>
             {
                 BuildLayerList();
-                _saveError = _pipe?.SaveSceneNow();
+                _saveError = SaveProjectNow();
             });
-            _pipe.EffectsChanged += () => Dispatcher.BeginInvoke(new Action(BuildEffectRack));
+
+            // 恢复工程里绑定的歌词与音频。放在这里而不是 OnLoaded：OnLoaded 会 _audio.Play()，
+            // 而恢复要停在暂停态，等用户自己点播放。
+            if (!string.IsNullOrWhiteSpace(_lrcText))
+            {
+                try
+                {
+                    var lines = LrcParser.Parse(_lrcText);
+                    _pipe.SetLyrics(lines);
+                    Log.Info($"[PV 工作台] 已恢复工程歌词：{lines.Count} 行");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[PV 工作台] 工程歌词解析失败：" + ex.Message);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_audioPath))
+            {
+                if (!File.Exists(_audioPath))
+                {
+                    Log.Warn($"[PV 工作台] 工程音频文件不存在：{_audioPath}");
+                    Dispatcher.BeginInvoke(() => TblStatus.Text = $"找不到工程音频：{_audioPath}");
+                }
+                else if (!_audio.LoadAudio(_audioPath))
+                {
+                    Dispatcher.BeginInvoke(() => TblStatus.Text = "工程音频加载失败：" + _audioPath);
+                }
+            }
 
             var msg = $"[PV 舞台] 渲染就绪：{host.Gpu!.AdapterName}";
             Log.Info(msg);
@@ -691,6 +747,7 @@ public partial class PvStageWindow : Window
         {
             var text = File.ReadAllText(dlg.FileName);
             var lines = LrcParser.Parse(text);
+            _lrcText = text; // 绑定进工程：下次打开自动恢复
             _pipe?.SetLyrics(lines);
             TblStatus.Text = $"已装载歌词：{lines.Count} 行";
             Log.Info($"[工作台] 已装载歌词：{lines.Count} 行 ({dlg.FileName})");
@@ -714,13 +771,16 @@ public partial class PvStageWindow : Window
 
         if (_audio.LoadAudio(dlg.FileName))
         {
+            _audioPath = dlg.FileName; // 绑定进工程：下次打开自动恢复（停在暂停态）
             TblStatus.Text = "音频已加载";
             var lrcPath = Path.ChangeExtension(dlg.FileName, ".lrc");
             if (File.Exists(lrcPath))
             {
                 try
                 {
-                    var lines = LrcParser.Parse(File.ReadAllText(lrcPath));
+                    var text = File.ReadAllText(lrcPath);
+                    var lines = LrcParser.Parse(text);
+                    _lrcText = text;
                     _pipe?.SetLyrics(lines);
                     Log.Info($"[工作台] 自动加载同名歌词：{lines.Count} 行");
                 }
@@ -826,7 +886,7 @@ public partial class PvStageWindow : Window
         }
 
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
-        if (_saveError is { } saveFault) TblStatus.Text = $"场景未保存：{saveFault}";
+        if (_saveError is { } saveFault) TblStatus.Text = $"工程未保存：{saveFault}";
 
         UpdatePlayIcon();
     }

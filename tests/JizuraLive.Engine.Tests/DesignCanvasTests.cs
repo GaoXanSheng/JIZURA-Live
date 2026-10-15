@@ -1,5 +1,4 @@
-﻿using System.IO;
-using JizuraLive.Pv;
+﻿using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
@@ -68,25 +67,15 @@ public class DesignCanvasTests
 
         using (gpu)
         {
-            var dir = Path.Combine(Path.GetTempPath(), "jz-canvas-" + Guid.NewGuid());
-            Directory.CreateDirectory(dir);
-            try
-            {
-                using var pipe = new PvPipeline(gpu, Path.Combine(dir, "scene.json"), RedCanvasScene(),
-                    new EffectGraph(), null, false, null);
-                var probe = new SizeProbe();
-                pipe.Renderer.Stage.Register(probe);
+            using var pipe = new PvPipeline(gpu, RedCanvasScene(), new EffectGraph());
+            var probe = new SizeProbe();
+            pipe.Renderer.Stage.Register(probe);
 
-                using var target = OffscreenTarget.Create(gpu, pipe.D2DContext, previewW, previewH);
-                pipe.Prepare(0.0);
-                pipe.Composite(target.Bitmap, previewW, previewH);
-                gpu.Context.Flush();
-                return (target.Readback(), probe);
-            }
-            finally
-            {
-                Directory.Delete(dir, true);
-            }
+            using var target = OffscreenTarget.Create(gpu, pipe.D2DContext, previewW, previewH);
+            pipe.Prepare(0.0);
+            pipe.Composite(target.Bitmap, previewW, previewH);
+            gpu.Context.Flush();
+            return (target.Readback(), probe);
         }
     }
 

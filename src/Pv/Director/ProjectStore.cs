@@ -1,6 +1,7 @@
 using System.IO;
 using JizuraLive.App;
 using JizuraLive.Logging;
+using JizuraLive.Render.Effects;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Pv;
@@ -12,12 +13,18 @@ namespace JizuraLive.Pv;
 public sealed record ProjectLoadResult(DirectorProject? Project, string? Fault);
 
 /// <summary>
+/// 工作台启动装载的结果：Project 恒非空（载入失败时是内存里的默认工程，磁盘文件保持原样）；
+/// Fault 非空说明有需要告诉用户的原因；ImportedFromLegacy 标记这次是否走了旧版双文件导入。
+/// </summary>
+public sealed record ProjectBootstrap(DirectorProject Project, string? Fault, bool ImportedFromLegacy);
+
+/// <summary>
 /// 工程文件（.jzpv）的读写边界。
 ///
 /// Pv 层复用 App 层原子写（<see cref="AtomicFile"/>，同一程序集内直接引用，不复制第二套临时文件逻辑）：
 /// 写入先落 <c>.tmp</c> 再覆盖改名，进程被杀不会留下截断的工程文件。
 ///
-/// 写盘约定与仓库现有 SaveSceneNow 一致：返回 null = 成功，非 null = 失败原因。
+/// 写盘约定沿用旧存盘路径：返回 null = 成功，非 null = 失败原因（调用方负责显示）。
 /// <see cref="Load"/> 只读：文件不存在 / 损坏 / 版本过新一律只报告 Fault，绝不写盘——
 /// 尤其不沿用「读失败就写回默认」的旧策略，那是覆盖用户数据的入口。
 /// </summary>
@@ -81,5 +88,79 @@ public static class ProjectStore
                 $"工程版本过新（{project.SchemaVersion} > {DirectorProject.CurrentSchemaVersion}），本程序不识别，请升级后再打开");
 
         return new ProjectLoadResult(project, null);
+    }
+
+    /// <summary>
+    /// 工作台启动入口：工程文件存在就只走 <see cref="Load"/>；不存在才把旧版
+    /// <c>pv_scene.json</c> / <c>pv_effects.json</c> 导入成新工程。
+    ///
+    /// 只有「工程文件不存在」这一条路径允许写盘。工程存在但坏了/被占用时，只把默认工程放进内存，
+    /// 绝不借导入之名把用户的工程文件用旧文件内容覆盖掉——那是覆盖数据的入口，比打不开更糟。
+    /// </summary>
+    public static ProjectBootstrap LoadOrImport(string projectPath, string legacyScenePath, string legacyEffectsPath)
+    {
+        if (File.Exists(projectPath))
+        {
+            var loaded = Load(projectPath);
+            if (loaded.Project is not null)
+                return new ProjectBootstrap(loaded.Project, null, false);
+
+            Log.Warn("[工程存储] 打开工程失败，本次会话使用默认工程（磁盘文件保持原样）：" + loaded.Fault);
+            return new ProjectBootstrap(new DirectorProject(), loaded.Fault, false);
+        }
+
+        // 工程文件不存在 = 首次升级到工程格式：只读解析两个旧文件，一个字节都不改
+        // （用户可能还要用旧版程序打开它们）。解析问题只记进 Fault，继续用能拿到的部分。
+        var faults = new List<string>();
+        var project = new DirectorProject
+        {
+            Scene = ReadLegacyScene(legacyScenePath, faults),
+            Effects = ReadLegacyEffects(legacyEffectsPath, faults),
+        };
+
+        // 导入结果立即落成工程文件：下次启动就走 Load，导入只发生一次。
+        // 写失败不致命——本次会话照常用内存里的导入结果，只把原因交给调用方显示。
+        var saveFault = Save(project, projectPath);
+        if (saveFault is not null) faults.Add($"工程文件写入失败：{saveFault}");
+
+        return new ProjectBootstrap(project, faults.Count > 0 ? string.Join("；", faults) : null, true);
+    }
+
+    /// <summary>只读导入旧版场景：文件不存在用默认；解析失败也回落默认并在 Fault 里记原因。</summary>
+    private static PvScene ReadLegacyScene(string path, List<string> faults)
+    {
+        if (!File.Exists(path)) return PvScene.CreateDefault();
+
+        try
+        {
+            var scene = PvScene.FromJson(File.ReadAllText(path));
+            if (scene is not null) return scene;
+            faults.Add($"旧场景文件解析结果为空：{path}");
+        }
+        catch (Exception ex)
+        {
+            faults.Add($"旧场景文件解析失败：{ex.Message}");
+        }
+
+        return PvScene.CreateDefault();
+    }
+
+    /// <summary>
+    /// 只读导入旧版效果图：文件不存在用空图；<see cref="EffectGraphJson.Deserialize"/> 自带
+    /// 「损坏按空图处理」的回落与告警，这里只需兜住读取失败（占用 / 权限）。
+    /// </summary>
+    private static EffectGraph ReadLegacyEffects(string path, List<string> faults)
+    {
+        if (!File.Exists(path)) return new EffectGraph();
+
+        try
+        {
+            return EffectGraphJson.Deserialize(File.ReadAllText(path));
+        }
+        catch (Exception ex)
+        {
+            faults.Add($"旧效果文件读取失败：{ex.Message}");
+            return new EffectGraph();
+        }
     }
 }

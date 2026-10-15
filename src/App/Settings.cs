@@ -2,7 +2,6 @@
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
-using JizuraLive.Pv;
 using Newtonsoft.Json;
 
 namespace JizuraLive.App;
@@ -23,9 +22,6 @@ public sealed class Settings
     // 合成在我们这边做（不再让下游叠层），下游只需接一路流。
     // 该对象实时生效（面板直接改字段、泵与预览每拍读一次），不随「重启渲染引擎」才应用。
     public PvOptions Pv { get; set; } = new();
-
-    /// <summary>独立 PV 场景文档（图层栈、3D 视差、环境光影、前景特效等）</summary>
-    public PvScene Scene { get; set; } = PvScene.CreateDefault();
 
     // 旧的单路外部输入（VTS）合成参数：只在 Load 时用于迁移进 Pv.Sources，迁移完置 null 不再写回
     // （NullValueHandling.Ignore：新配置文件里不再出现这个键）

@@ -1,5 +1,4 @@
-﻿using System.IO;
-using JizuraLive.Pv;
+﻿using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
@@ -68,28 +67,18 @@ public class FrameStampTests
 
         using (gpu)
         {
-            var dir = Path.Combine(Path.GetTempPath(), "jz-framestamp-" + Guid.NewGuid());
-            Directory.CreateDirectory(dir);
-            try
-            {
-                var effects = new EffectGraph();
-                effects.Add("wave");
+            var effects = new EffectGraph();
+            effects.Add("wave");
 
-                using var pipe = new PvPipeline(gpu, Path.Combine(dir, "scene.json"), FlatScene(),
-                    effects, null, false, null);
-                using var img = Image2D.FromBgraPixels(pipe.D2DContext, Gradient(), W, H);
-                pipe.Renderer.Stage.Register(new TextureProvider("bg", img.Bitmap, W, H));
+            using var pipe = new PvPipeline(gpu, FlatScene(), effects);
+            using var img = Image2D.FromBgraPixels(pipe.D2DContext, Gradient(), W, H);
+            pipe.Renderer.Stage.Register(new TextureProvider("bg", img.Bitmap, W, H));
 
-                using var target = OffscreenTarget.Create(gpu, pipe.D2DContext, W, H);
-                pipe.Prepare(time);
-                pipe.Composite(target.Bitmap, W, H);
-                gpu.Context.Flush();
-                return target.Readback();
-            }
-            finally
-            {
-                Directory.Delete(dir, true);
-            }
+            using var target = OffscreenTarget.Create(gpu, pipe.D2DContext, W, H);
+            pipe.Prepare(time);
+            pipe.Composite(target.Bitmap, W, H);
+            gpu.Context.Flush();
+            return target.Readback();
         }
     }
 
