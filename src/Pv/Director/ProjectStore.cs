@@ -90,7 +90,138 @@ public static class ProjectStore
         // 宽松治理：坏曲线只丢它自己，不改 Load 的既有语义（失败分类、绝不写盘）
         SanitizeCurves(project);
 
+        // 信号图的治理分两档：能定位到"这一条读不出来"的就地丢弃；整图超容量则拒绝打开整份工程
+        var signalFault = SanitizeSignalGraph(project);
+        if (signalFault is not null) return new ProjectLoadResult(null, signalFault);
+
         return new ProjectLoadResult(project, null);
+    }
+
+    /// <summary>
+    /// 信号图的装载治理：**只处理"这条内容读不出来"，不处理"这张图语义非法"**。
+    ///
+    /// 丢弃型（改内存 + 告警）：未知节点种类连它的边与绑定一起丢、schema 未声明的参数键、不可解析的绑定地址。
+    /// 拒绝型（返回原因 ⇒ 整份工程打不开）：节点/边数超上限——只丢几个节点就悄悄换成"另一张语义不同的图"，
+    /// 比打不开更糟（契约 §15.3「超过限制在候选采用之前拒绝并说明数量，不截断保存」）。
+    ///
+    /// 重复 Id / 悬空端口 / 环 / 单位不一致 / 目标不存在**不在这里丢**：它们留给编译期报错，
+    /// 因为编译器能一次报全并保留用户修错所需的上下文（契约 §8.1「静态配置错误在编辑/编译时拒绝」）。
+    /// 返回 null = 可以继续打开。
+    /// </summary>
+    private static string? SanitizeSignalGraph(DirectorProject project)
+    {
+        // "SignalGraph": null 按空图处理，不算打不开（与 EffectGraphJson 收到 null 的策略一致）
+        if (project.SignalGraph is null)
+        {
+            project.SignalGraph = new SignalGraph();
+            return null;
+        }
+
+        var graph = project.SignalGraph;
+
+        // 手写 JSON 可能把三个列表写成 null：这里的约定是"没有就是空"，而不是抛异常
+        if (graph.Nodes is null) graph.Nodes = new List<SignalNode>();
+        if (graph.Edges is null) graph.Edges = new List<SignalEdge>();
+        if (graph.Bindings is null) graph.Bindings = new List<SignalBinding>();
+
+        if (graph.Nodes.Count > SignalGraph.MaxNodes || graph.Edges.Count > SignalGraph.MaxEdges)
+            return $"信号图超出容量上限（节点 {graph.Nodes.Count}/{SignalGraph.MaxNodes}，边 {graph.Edges.Count}/{SignalGraph.MaxEdges}），本程序不打开这份工程";
+
+        // 未知种类的节点无法求值，留着只会让编译报错；它挂着的边与绑定一起走（引用完整性）
+        HashSet<string>? doomed = null;
+        for (var i = graph.Nodes.Count - 1; i >= 0; i--)
+        {
+            var node = graph.Nodes[i];
+            if (node is not null && SignalNodeCatalog.Get(node.Kind) is not null) continue;
+
+            Log.Warn("[工程存储] 丢弃未知种类的信号节点：" +
+                     (node is null ? "(null)" : $"{(int)node.Kind}（{node.Id}）"));
+
+            if (node is not null && !string.IsNullOrEmpty(node.Id))
+                (doomed ??= new HashSet<string>(StringComparer.Ordinal)).Add(node.Id);
+
+            graph.Nodes.RemoveAt(i);
+        }
+
+        if (doomed is not null)
+        {
+            // 局部非空副本：lambda 里不能依赖外层变量的可空性分析
+            var dropped = doomed;
+            graph.Edges.RemoveAll(e => e is null ||
+                dropped.Contains(e.FromNode ?? "") || dropped.Contains(e.ToNode ?? ""));
+            graph.Bindings.RemoveAll(b => b is null || dropped.Contains(b.NodeId ?? ""));
+        }
+
+        foreach (var node in graph.Nodes)
+        {
+            if (node is null) continue;
+            var def = SignalNodeCatalog.Get(node.Kind);
+            if (def is null) continue;
+
+            // 同上：手写 JSON 可能给出 null 字典，按"没有参数"处理
+            if (node.Params is null) node.Params = new Dictionary<string, double>();
+            if (node.Texts is null) node.Texts = new Dictionary<string, string>();
+
+            // 只接受 schema 里声明过的键（同 EffectGraphJson 对未知 key 的处理：丢这一个，不炸整份工程）
+            DropUnknownKeys(node.Id, node.Params, def, SignalParamKind.Number);
+            DropUnknownTextKeys(node.Id, node.Texts, def);
+        }
+
+        // 坏地址只说明"这条绑定读不出来"，不代表整个工程不可用（同曲线对坏地址的处理）
+        for (var i = graph.Bindings.Count - 1; i >= 0; i--)
+        {
+            var binding = graph.Bindings[i];
+            if (binding is not null && ParamAddress.TryParse(binding.Address, out _)) continue;
+
+            Log.Warn("[工程存储] 丢弃不可解析的信号绑定：" + (binding is null ? "(null)" : binding.Address));
+            graph.Bindings.RemoveAt(i);
+        }
+
+        return null;
+    }
+
+    /// <summary>丢掉节点上 schema 未声明的参数键。先收集再删，避免边遍历边改集合。</summary>
+    private static void DropUnknownKeys(string nodeId, Dictionary<string, double> values, SignalNodeDef def, SignalParamKind kind)
+    {
+        if (values.Count == 0) return;
+
+        List<string>? doomed = null;
+        foreach (var key in values.Keys)
+        {
+            var p = SignalNodeCatalog.FindParam(def, key);
+            if (p is not null && p.Kind == kind) continue;
+            (doomed ??= new List<string>()).Add(key);
+        }
+
+        if (doomed is null) return;
+
+        foreach (var key in doomed)
+        {
+            Log.Warn($"[工程存储] 丢弃节点 {nodeId} 上未声明的参数键：{key}");
+            values.Remove(key);
+        }
+    }
+
+    /// <summary>文本参数同理（目前只有地址文本，但规则一样：未声明就丢）。</summary>
+    private static void DropUnknownTextKeys(string nodeId, Dictionary<string, string> texts, SignalNodeDef def)
+    {
+        if (texts.Count == 0) return;
+
+        List<string>? doomed = null;
+        foreach (var key in texts.Keys)
+        {
+            var p = SignalNodeCatalog.FindParam(def, key);
+            if (p is not null && p.Kind == SignalParamKind.Text) continue;
+            (doomed ??= new List<string>()).Add(key);
+        }
+
+        if (doomed is null) return;
+
+        foreach (var key in doomed)
+        {
+            Log.Warn($"[工程存储] 丢弃节点 {nodeId} 上未声明的文本参数键：{key}");
+            texts.Remove(key);
+        }
     }
 
     /// <summary>

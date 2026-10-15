@@ -47,6 +47,23 @@ public sealed class DirectorProject
     /// （与 EffectGraphJson 加 InstanceId 同一个理由）。
     /// </summary>
     public List<CurveSave> Curves { get; set; } = new();
+
+    /// <summary>
+    /// 数值信号图（节点 / 边 / 绑定）。
+    ///
+    /// 两条规则写在这里，免得下次有人凭直觉改错其一：
+    /// <list type="number">
+    /// <item>加这个字段是**纯增量扩展**，不抬 <see cref="SchemaVersion"/>（同 <see cref="Curves"/> 的理由）：
+    /// 旧读方不认识它，照样读得到场景、效果与曲线。</item>
+    /// <item>但**新增节点种类**或**改属性名**属结构变化，必须抬 <see cref="CurrentSchemaVersion"/>：
+    /// 旧版本对着一张语义不同的图"看起来能跑"（把新种类当未知、把改名的属性当默认）比整份拒绝打开危险得多。</item>
+    /// </list>
+    ///
+    /// 必须 Replace：Json.NET 默认的 ObjectCreationHandling.Auto 会复用属性上已有的实例，
+    /// 再把存档条目**追加**进同一个列表（同 <see cref="Scene"/> 的理由）。
+    /// </summary>
+    [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+    public SignalGraph SignalGraph { get; set; } = new();
 }
 
 /// <summary>

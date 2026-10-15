@@ -95,9 +95,9 @@ public static class EffectCatalog
         new("glow", "Fx.Glow", EffectStage.GlobalPost, EffectCategory.LightGlow,
             ShaderSources.Glow,
             [
-                EffectParam.Num("threshold", "Fx.Glow.Threshold", 0, 0, 0f, 1f, 0.6f),
-                EffectParam.Num("intensity", "Fx.Glow.Intensity", 0, 1, 0f, 3f, 1.1f, 0.05f),
-                EffectParam.Num("radius", "Fx.Glow.Radius", 0, 2, 1f, 160f, 32f, 1f),
+                EffectParam.Num("threshold", "Fx.Glow.Threshold", 0, 0, 0f, 1f, 0.6f, unit: ParamUnit.Ratio),
+                EffectParam.Num("intensity", "Fx.Glow.Intensity", 0, 1, 0f, 3f, 1.1f, 0.05f, unit: ParamUnit.Dimensionless),
+                EffectParam.Num("radius", "Fx.Glow.Radius", 0, 2, 1f, 160f, 32f, 1f, unit: ParamUnit.Pixels),
             ],
             ["pop", "emotional", "neon"], CostHint: 2.5f),
 
@@ -211,9 +211,9 @@ public static class EffectCatalog
         new("bloom", "Fx.Bloom", EffectStage.GlobalPost, EffectCategory.LightGlow,
             ShaderSources.BloomComposite,   // 文档用：真正绘制由 GraphBuild 编排
             [
-                EffectParam.Num("threshold", "Fx.Bloom.Threshold", 0, 0, 0f, 1f, 0.62f),
-                EffectParam.Num("intensity", "Fx.Bloom.Intensity", 0, 1, 0f, 3f, 1.1f, 0.05f),
-                EffectParam.Num("radius", "Fx.Bloom.Radius", 0, 2, 1f, 120f, 26f, 1f),
+                EffectParam.Num("threshold", "Fx.Bloom.Threshold", 0, 0, 0f, 1f, 0.62f, unit: ParamUnit.Ratio),
+                EffectParam.Num("intensity", "Fx.Bloom.Intensity", 0, 1, 0f, 3f, 1.1f, 0.05f, unit: ParamUnit.Dimensionless),
+                EffectParam.Num("radius", "Fx.Bloom.Radius", 0, 2, 1f, 120f, 26f, 1f, unit: ParamUnit.Pixels),
             ],
             ["pop", "emotional", "neon", "cinematic"], CostHint: 3f)
         {

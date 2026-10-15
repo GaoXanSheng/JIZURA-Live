@@ -88,9 +88,23 @@ public sealed record EffectParam(
     /// <summary>颜色参数的默认值（<c>#rrggbb</c>）。</summary>
     public string DefaultColor { get; init; } = "#ffffff";
 
+    /// <summary>
+    /// 参数单位（量纲）。默认 <see cref="ParamUnit.Unspecified"/> = 尚未标注，
+    /// 因而**不能**被信号绑定当作目标：绑定会被 fail-closed 拒绝，把"这个参数还没登记单位"的缺口暴露出来，
+    /// 而不是静默按错单位接线（补齐属 S06 参数注册表的工作）。
+    ///
+    /// 刻意不进位置参数：全仓 60+ 处 <see cref="Num"/> 构造只在需要标注时才写它，
+    /// 加一个 init 属性既不改既有调用，也不改任何既有行为（没有地方把 EffectParam 当字典键或做相等比较）。
+    /// </summary>
+    public ParamUnit Unit { get; init; } = ParamUnit.Unspecified;
+
     public static EffectParam Num(string key, string labelKey, int slot, int comp,
-        float min, float max, float def, float step = 0.01f, string group = "main") =>
-        new(key, labelKey, EffectParamKind.Number, slot, comp, min, max, def, step, group);
+        float min, float max, float def, float step = 0.01f, string group = "main",
+        ParamUnit unit = ParamUnit.Unspecified) =>
+        new(key, labelKey, EffectParamKind.Number, slot, comp, min, max, def, step, group)
+        {
+            Unit = unit,
+        };
 
     public static EffectParam Flag(string key, string labelKey, int slot, int comp,
         bool def, string group = "main") =>

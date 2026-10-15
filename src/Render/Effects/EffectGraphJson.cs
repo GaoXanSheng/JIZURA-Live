@@ -100,6 +100,15 @@ public static class EffectGraphJson
             {
                 foreach (var (key, value) in nd.Values)
                 {
+                    // 非有限值在这里就丢掉，绝不进常量缓冲：EffectNode.Set 走 Math.Clamp，
+                    // 而 NaN 与上下界比较恒为 false、不会被夹住，会一路写进 GPU 常量。
+                    // 不入 Values ⇒ EffectNode.Value 回落 schema 默认——与信号求值器「失效回落声明默认」是同一条规则。
+                    if (!float.IsFinite(value))
+                    {
+                        Log.Warn($"[EffectGraph] 效果「{nd.DefId}」的参数 {key} 值非有限（{value}），已丢弃并按 schema 默认处理");
+                        continue;
+                    }
+
                     // 只接受 schema 里声明过的 key；范围由 Set 夹住
                     var p = def.Params.FirstOrDefault(x => x.Key == key);
                     if (p is not null) node.Set(p, value);
