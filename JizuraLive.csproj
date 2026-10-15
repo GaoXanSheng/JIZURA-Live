@@ -19,44 +19,27 @@
         <ApplicationIcon>assets\app.ico</ApplicationIcon>
         <!-- 自包含发布只带简中卫星资源：默认会把运行时全部语言目录（cs/de/es/...）打进去 -->
         <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
-        <NoWarn>$(NoWarn);NU1701</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
-        <!-- M6：EmbedIO 已整体移除（/api 端点拍板删除，/mcp 改用 BCL HttpListener，见 src/App/Mcp/） -->
         <PackageReference Include="log4net" Version="3.5.0" />
         <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
         <PackageReference Include="NAudio" Version="3.1.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
         <PackageReference Include="QRCoder" Version="1.8.0" />
-        <PackageReference Include="SkiaSharp" Version="4.153.1" />
-        <PackageReference Include="SkiaSharp.Views.WPF" Version="4.153.1" />
-        <PackageReference Include="SharpDX" Version="4.2.0" />
-        <PackageReference Include="SharpDX.Direct3D9" Version="4.2.0" />
         <PackageReference Include="VirtualizingWrapPanel" Version="2.5.4" />
+        <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+        <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
+        <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+        <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     </ItemGroup>
     <ItemGroup>
-        <Reference Include="SharpDX">
-            <HintPath>$(NuGetPackageRoot)sharpdx\4.2.0\lib\net45\SharpDX.dll</HintPath>
-        </Reference>
-        <Reference Include="SharpDX.Direct3D9">
-            <HintPath>$(NuGetPackageRoot)sharpdx.direct3d9\4.2.0\lib\net45\SharpDX.Direct3D9.dll</HintPath>
-        </Reference>
-        <Reference Include="SharpDX.Direct3D11">
-            <HintPath>$(NuGetPackageRoot)sharpdx.direct3d11\4.2.0\lib\net45\SharpDX.Direct3D11.dll</HintPath>
-        </Reference>
-        <Reference Include="SharpDX.DXGI">
-            <HintPath>$(NuGetPackageRoot)sharpdx.dxgi\4.2.0\lib\net45\SharpDX.DXGI.dll</HintPath>
-        </Reference>
         <Reference Include="SpoutDXWrapper">
             <HintPath>native\SpoutDXWrapper.dll</HintPath>
         </Reference>
         <!-- SpoutDX 原生依赖：拷贝到输出根目录（与 SpoutDXWrapper.dll 同级），绝不生成 native\ 冗余子目录 -->
         <None Remove="native\SpoutDX.dll" />
         <None Include="native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest" />
-        <!-- GPU 光栅用的 ANGLE（tools/fetch-angle.ps1 拉取，二进制不入库）：落到 exe 旁的 angle\ 子目录，
-             GpuRasterHost 优先从这里加载；目录不存在 = GPU 路不可用，自动回退 CPU 光栅 -->
-        <None Include="native\angle\*" CopyToOutputDirectory="PreserveNewest" Link="angle\%(Filename)%(Extension)" Condition="Exists('native\angle')" />
     </ItemGroup>
 
     <!-- 确保 publish 目录也包含根目录的 SpoutDX.dll，并清理掉任何误生的 native\ 冗余目录 -->
@@ -87,9 +70,6 @@
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />
-      <!-- 引擎字体不随包：exe 旁 fonts\ 只放用户手动投放的字体（JFonts.ScanFontDirs 启动时扫描），
-           缺字体由 FontFetch 联网拉进用户字体库 %LOCALAPPDATA%\JizuraLive\fonts，拉不到落系统字体栈（雅黑保底）。
-           界面字体用系统微软雅黑，不读这个目录——WPF 的 pack 资源字体 URI 实测解析不到，界面字体没必要自托管。 -->
       <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
       <ApplicationDefinition Include="src\App\App.xaml" />
       <!-- i18n 词库：按语言目录嵌入（src/App/I18n/Locales/{lang}/{panel}.json），L 启动时全量装载 -->
@@ -98,16 +78,8 @@
       <Compile Remove="tests\**" />
       <None Remove="tests\**" />
       <Content Remove="tests\**" />
-      <!-- tools/ 下是对拍工具（ParityCli 等）与脚本，同样不进主程序 -->
       <Compile Remove="tools\**" />
       <None Remove="tools\**" />
       <Content Remove="tools\**" />
     </ItemGroup>
-
-    <!-- ================= pure-csharp 重构说明 =================
-         3.2 纯 C# 版：无 CEF/无前端/无 EmbedIO。
-           - 渲染引擎：src/Engine（SkiaSharp，逐文件对位移植自原 frontend/src/engine）
-           - PV 合成：src/Pv（多图层视差与光影合成）+ src/Spout（收发）+ src/Vts（VTube Studio 联动）
-           - UI：WPF 原生（PV 独立工作台）
-         原 frontend/ 移植参照已删除（git 历史可溯；tools/parity 黄金值重生成需旧提交检出）。 -->
 </Project>

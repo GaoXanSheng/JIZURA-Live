@@ -11,7 +11,7 @@ obj/
 # Runtime data
 logs/
 cef-cache/
-
+DOC/
 # ZCode session data
 .zcode/
 # Build output

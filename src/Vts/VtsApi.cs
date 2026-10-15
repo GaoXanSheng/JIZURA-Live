@@ -94,6 +94,14 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
     private volatile string _modelName = "";
     private volatile Dictionary<string, (double Min, double Max)> _params = new(StringComparer.Ordinal);
 
+    /// <summary>实时追踪快照（TrackingDataRequest 轮询写入；渲染侧读它做效果联动）。</summary>
+    private readonly VtsTrackingProbe _tracking = new();
+
+    private volatile string[] _expressions = [];
+    private volatile HashSet<string> _createdParams = new(StringComparer.Ordinal);
+
+    private volatile bool _trackingOn = true;
+
     public VtsState State => (VtsState)_state;
     public string LastError => _lastError;
     public string Version => _version;
@@ -110,6 +118,22 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
     /// 驱动侧只算 0~1 的归一化量，注入前按这张表映射。
     /// </summary>
     public IReadOnlyDictionary<string, (double Min, double Max)> ParameterRanges => _params;
+
+    /// <summary>实时追踪快照（脸部/手部姿态与 Live2D 参数）。</summary>
+    public VtsTrackingProbe Tracking => _tracking;
+
+    /// <summary>模型自带的表情名列表（ExpressionStateRequest 拉取）。</summary>
+    public IReadOnlyList<string> Expressions => _expressions;
+
+    /// <summary>已由我们创建的自定义参数名（ParameterCreationRequest 的结果）。</summary>
+    public IReadOnlyCollection<string> CreatedParameters => _createdParams;
+
+    /// <summary>是否轮询追踪数据（默认开；关掉可省掉每个节拍一次往返）。</summary>
+    public bool TrackingEnabled
+    {
+        get => _trackingOn;
+        set => _trackingOn = value;
+    }
 
     public event Action? Changed;
     /// <summary>
@@ -161,6 +185,112 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
         };
     }
 
+
+    /// <summary>
+    /// 解析 **InputParameterListRequest** 的响应 → 追踪快照（纯函数，形状可单测）。
+    ///
+    /// 为什么不直接「问追踪数据」：VTS 插件 API 里**没有那种消息**。之前发的是
+    /// <c>TrackingDataRequest</c>，VTS 1.35 直接回 <c>Unknown messageType</c>——
+    /// 这条路从建立起就是死的，而且一直没被发现，因为解析函数与它的单测是按**臆想的响应形状**
+    /// 一起写的（position/rotation/handLeft…），两边自洽，跟真实 API 毫无关系。
+    /// 教训：解析器的单测只证明「解析器和测试里的形状一致」；形状本身必须来自真实响应。
+    ///
+    /// 真实可用的出口是**模型的输入参数**：VTS 自己的追踪结果就落在这些参数上
+    /// （转头 → <c>ParamAngleX/Y/Z</c>，眨眼 → <c>ParamEyeLOpen/ROpen</c>，
+    /// 口型 → <c>ParamMouthOpenY</c>）。<c>InputParameterListRequest</c> 是本文件里
+    /// 早就在用的消息（拉参数名时用过），返回 defaultParameters / customParameters 两串，
+    /// 每项带 name / value。
+    ///
+    /// **实测拿到的**（VTS 1.35.10）：头角 FaceAngleX/Y/Z、口型 MouthOpen/MouthSmile、
+    /// 眼睛 EyeOpenLeft/Right + EyeLeftX/Y、眉毛、手 HandLeft/RightFound + 位置、
+    /// 甚至语音口型 VoiceA/I/U/E/O 与穿戴体捕 Mocopi*。
+    ///
+    /// **还没确认的**（不装作有）：① <c>FacePositionX/Y/Z</c> 的量纲（实测 X0.50/Y-4.02/Z2.14，
+    /// 不知道 1.0 代表多少）——所以头部位移仍用角度驱动，不用它；
+    /// ② 两次相隔数秒的采样**逐位相同**，怀疑这些 value 是快照而不是实时流——
+    /// 这一条被 VTS 侧的鉴权状态挡住没能验证（那一轮连接停在「需要鉴权」，参数列表都没取到）。
+    /// 若确认是快照，实时追踪就得换路子（EventSubscriptionRequest 或参数注入回读）。
+    /// 代码里的「追踪已接通 / 追踪参数读不到」两条日志就是为验证这件事留的。
+    /// </summary>
+    public static VtsTrackingState ParseTracking(JObject? d)
+    {
+        if (d is null) return VtsTrackingState.Empty;
+        var at = Environment.TickCount64;
+
+        var values = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var key in ParamListKeys)
+        {
+            if (d[key] is not JArray arr) continue;
+            foreach (var e in arr)
+            {
+                var name = (string?)e["name"];
+                if (string.IsNullOrEmpty(name)) continue;
+                if (e["value"] is null) continue;
+                values[name!] = (double?)e["value"] ?? 0;
+            }
+        }
+
+        if (values.Count == 0) return VtsTrackingState.Empty with { AtMs = at };
+
+        double V(string name) => values.TryGetValue(name, out var v) ? v : 0;
+        bool Has(string name) => values.ContainsKey(name);
+
+        // 「有追踪」= 至少认出**一个**已知的追踪参数，而不是「响应里有参数」：
+        // 换到参数名不标准的模型时，全 0 的姿态会让状态条谎称追踪在跑。
+        var recognised = 0;
+        foreach (var name in TrackingParamNames)
+            if (values.ContainsKey(name)) recognised++;
+
+        // 角度是度数（实测 FaceAngleX≈7.9），标称 ±30 → 归一化到 ±1。
+        // 映射侧的 HeadRange 就是按归一化单位写的。
+        static double Angle(double deg) => Math.Clamp(deg / 30.0, -1, 1);
+
+        return new VtsTrackingState(
+            FaceFound: recognised > 0,
+            // 头部位移用「角度」而不是 FacePositionX/Y/Z：后者的量纲没确认
+            // （实测值 X0.50 / Y-4.02 / Z2.14，不知道 1.0 代表多少），
+            // 硬套 HeadRange 会饱和。转头驱动视差本来就够用，且量纲已知。
+            HeadX: Angle(V("FaceAngleX")),
+            HeadY: Angle(V("FaceAngleY")),
+            HeadZ: 0,
+            HeadAngleX: V("FaceAngleX"),
+            HeadAngleY: V("FaceAngleY"),
+            HeadAngleZ: V("FaceAngleZ"),
+            // 列表里没有 BodyAngle*（只有 Mocopi* 的体角，属于穿戴设备）；恒 0
+            BodyAngleX: V("MocopiBodyAngleX"),
+            BodyAngleZ: V("MocopiBodyAngleZ"),
+            EyeOpenLeft: Math.Clamp(V("EyeOpenLeft"), 0, 1),
+            EyeOpenRight: Math.Clamp(V("EyeOpenRight"), 0, 1),
+            MouthOpen: Math.Clamp(V("MouthOpen"), 0, 1),
+            MouthSmile: Math.Clamp(V("MouthSmile"), 0, 1),
+            HandLeftFound: Has("HandLeftFound") && V("HandLeftFound") > 0.5,
+            HandRightFound: Has("HandRightFound") && V("HandRightFound") > 0.5,
+            HandLeftX: V("HandLeftPositionX"),
+            HandLeftY: V("HandLeftPositionY"),
+            HandRightX: V("HandRightPositionX"),
+            HandRightY: V("HandRightPositionY"),
+            AtMs: at);
+    }
+
+    /// <summary>参数列表响应里的两个数组名（default / custom，后者是插件自建的）。</summary>
+    internal static readonly string[] ParamListKeys = ["defaultParameters", "customParameters"];
+
+    /// <summary>
+    /// 承载追踪结果的输入参数名。**这是实测出来的，不是照 Live2D 惯例猜的**：
+    /// VTS 1.35 用的是 <c>FaceAngleX/Y/Z</c> 与 <c>MouthOpen</c>，
+    /// 而不是模型里的 <c>ParamAngleX</c> / <c>ParamMouthOpenY</c>。
+    /// （从 VTS 1.35.10 的 InputParameterListRequest 响应里读到的完整名单，共 128 项，
+    /// 还包含 FacePositionX/Y/Z、EyeOpenLeft/Right、EyeLeftX/Y、BrowLeftY/RightY、
+    /// HandLeftFound/HandRightFound、HandLeft/RightPositionX/Y/Z、VoiceVolume/VoiceA-I-U-E-O、
+    /// Mocopi*（穿戴体捕）、Controller*（手柄）。）
+    /// 拿来判断「这个模型有没有可用的追踪数据」——名字对不上就是没有，不能拿全 0 冒充。
+    /// </summary>
+    private static readonly string[] TrackingParamNames =
+    [
+        "FaceAngleX", "FaceAngleY", "FaceAngleZ",
+        "MouthOpen", "MouthSmile",
+        "EyeOpenLeft", "EyeOpenRight",
+    ];
 
     private void Notify() => Changed?.Invoke();
 
@@ -224,6 +354,32 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
     public void InjectParameters(IReadOnlyDictionary<string, double> values, double weight)
         => PostLossy(w => w.InjectParameters(values, weight));
 
+    /// <summary>立刻轮询一次追踪数据（平时由工作线程按节拍自动轮询，这个方法用于手动催一次）。</summary>
+    public void PollTracking() => Post(w => w.PollTracking(force: true));
+
+    /// <summary>刷新表情列表（连上后自动刷一次；换模型后可手动刷）。</summary>
+    public void RefreshExpressions() => Post(w => w.FetchExpressions());
+
+    /// <summary>
+    /// 开关一个表情（按段落/节拍驱动情绪用）。<paramref name="fadeSec"/> = VTS 侧的过渡时长。
+    /// </summary>
+    public void SetExpression(string name, bool active, double fadeSec = 0.4)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        PostLossy(w => w.SetExpression(name, active, fadeSec));
+    }
+
+    /// <summary>
+    /// 确保这些自定义参数存在（不存在就建）。用途：不再挤占 MouthOpen / FaceAngleZ 这类
+    /// VTS 自己的追踪参数——建专属参数后，我们注入的值与真人的追踪值互不干扰。
+    /// </summary>
+    public void EnsureParameters(IEnumerable<string> names)
+    {
+        var list = names.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToArray();
+        if (list.Length == 0) return;
+        Post(w => w.EnsureParameters(list));
+    }
+
     public void TriggerHotkey(string hotkeyId)
     {
         if (string.IsNullOrEmpty(hotkeyId)) return;
@@ -286,6 +442,14 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
         /// <summary>参数注入合并窗口（口型/表情不需要比这更密）。</summary>
         private const int ParamIntervalMs = 100;
 
+        /// <summary>追踪轮询间隔（~15Hz）：够驱动视觉联动，又不至于把 WebSocket 占满。</summary>
+        private const int TrackIntervalMs = 66;
+
+        private bool _trackOk;
+        private long _trackMisses;
+
+        private long _lastTrackAt;
+
         /// <summary>驱动拍的过渡时长（秒）：略大于发送间隔，VTS 侧就是连续插值。</summary>
         private const double DriveTransitionSec = 0.09;
 
@@ -340,6 +504,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
             var now = Environment.TickCount64;
             if (_moveDirty && now - _lastMoveAt >= MoveIntervalMs) FlushMove();
             if (_paramDirty && now - _lastParamAt >= ParamIntervalMs) FlushParams();
+            PollTracking(force: false);
 
             if (_ws != null && _ws.State == WebSocketState.Open) return;
             if (Environment.TickCount64 < _nextConnectAt) return;
@@ -382,6 +547,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
                     FetchFraming();
                     FetchParameters();
                     FetchHotkeys();
+                    FetchExpressions();
                 }
                 else
                 {
@@ -566,6 +732,106 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
         }
 
 
+
+        /// <summary>拉取表情列表（换模型后名字会变，所以每次连接都刷）。</summary>
+        public void FetchExpressions()
+        {
+            var resp = Send("ExpressionStateRequest", new JObject());
+            if (resp?["expressions"] is not JArray arr)
+            {
+                _api._expressions = [];
+                _api.Notify();
+                return;
+            }
+
+            var names = arr.Select(e => (string?)e["name"])
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Select(n => n!)
+                .ToArray();
+            _api._expressions = names;
+            _api.Notify();
+            Log.Info($"[VTS] 表情：{names.Length} 个");
+        }
+
+        public void SetExpression(string name, bool active, double fadeSec)
+        {
+            var resp = Send("SetExpressionStateRequest", new JObject
+            {
+                ["expression"] = name,
+                ["active"] = active,
+                ["fadeTime"] = fadeSec,
+            });
+            if (resp == null) Log.Warn($"[VTS] 表情「{name}」设置失败：{_api._lastError}");
+        }
+
+        /// <summary>创建缺失的自定义参数（已存在的跳过，避免每次连接都刷一串 APIError）。</summary>
+        public void EnsureParameters(string[] names)
+        {
+            var existing = new HashSet<string>(_api._params.Keys, StringComparer.Ordinal);
+            foreach (var name in names)
+            {
+                if (existing.Contains(name) || _api._createdParams.Contains(name)) continue;
+                var resp = Send("ParameterCreationRequest", new JObject
+                {
+                    ["parameterName"] = name,
+                    ["explanation"] = "created by JIZURA Live PV",
+                    ["min"] = 0.0,
+                    ["max"] = 1.0,
+                    ["defaultValue"] = 0.0,
+                });
+                if (resp == null) continue;   // 失败不阻断其余参数
+                var set = new HashSet<string>(_api._createdParams, StringComparer.Ordinal) { name };
+                _api._createdParams = set;
+            }
+
+            // 新参数要重新拉一遍范围表，注入时才认得出量纲
+            FetchParameters();
+        }
+
+        /// <summary>
+        /// 轮询实时追踪数据。节流到 <see cref="TrackIntervalMs"/>：追踪是持续量，
+        /// 每个节拍都发一次会把 WebSocket 占满（而且 VTS 侧也要算），~15Hz 足够驱动视觉联动。
+        /// </summary>
+        public void PollTracking(bool force)
+        {
+            if (!_api.TrackingEnabled) return;
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+            var now = Environment.TickCount64;
+            if (!force && now - _lastTrackAt < TrackIntervalMs) return;
+            _lastTrackAt = now;
+
+            var resp = Send("InputParameterListRequest", new JObject(), 1500);
+            if (resp is null) return;
+            var state = VtsApi.ParseTracking(resp);
+            _api._tracking.Set(state);
+
+            // 「接通」与「读不到」都必须留痕：这条链路曾经整条是死的（发的是不存在的消息，
+            // 解析器又只对着自己臆想的形状自测），日志上看不出任何异常。
+            if (state.FaceFound)
+            {
+                if (!_trackOk)
+                {
+                    _trackOk = true;
+                    Log.Info($"[VTS] 追踪已接通：头角 X{state.HeadAngleX:F1} Y{state.HeadAngleY:F1}"
+                             + $" Z{state.HeadAngleZ:F1}°，口 {state.MouthOpen:F2}"
+                             + $"，眼 {state.EyeOpenLeft:F2}/{state.EyeOpenRight:F2}"
+                             + $"，手 {(state.HandLeftFound ? "左" : "")}{(state.HandRightFound ? "右" : "")}"
+                             + (state.HandLeftFound || state.HandRightFound ? "" : "无"));
+                }
+            }
+            else if (!_trackOk && ++_trackMisses % 60 == 1)
+            {
+                // 不只报「读不到」，还要报**收到了什么**：否则只能靠猜参数名。
+                // 这段诊断就是这次修 bug 的产物——当初它要是在，就不会以为链路是通的。
+                var keys = string.Join(",", resp.Properties().Select(q => q.Name));
+                var names = new List<string>();
+                foreach (var key in VtsApi.ParamListKeys)
+                    if (resp[key] is JArray arr)
+                        names.AddRange(arr.Take(16).Select(e => (string?)e["name"] ?? "?"));
+                Log.Warn($"[VTS] 追踪参数读不到（缺 FaceAngleX/Y）。响应顶层 [{keys}]，"
+                         + $"参数名样例 [{string.Join(", ", names)}]");
+            }
+        }
 
         public void FetchHotkeys()
         {

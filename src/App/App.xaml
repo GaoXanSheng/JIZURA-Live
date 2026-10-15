@@ -7,6 +7,10 @@
             <ResourceDictionary.MergedDictionaries>
                 <!-- 设计 token 与全局控件样式（从 frontend/src/styles/main.css 搬运） -->
                 <ResourceDictionary Source="Theme.xaml" />
+                <!-- PV 工作台的新设计语言（P5）：冷调近黑 + 靛蓝主色，与旧主题刻意区分。
+                     放在 App 级是因为窗口自身的 Background/FontFamily 属性要在 Window.Resources
+                     之前解析——StaticResource 找不到同一元素里后声明的资源。 -->
+                <ResourceDictionary Source="PvStage/PvTokens.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
             <!-- 窗口 chrome 专用（无边框标题栏）；面板级样式统一走 Theme.xaml -->

@@ -1,6 +1,6 @@
 ﻿<div align="center">
 
-  <img src="./DOC/icon.png" alt="JIZURA Live PV Logo" width="128" />
+  <img src="./assets/icon.png" alt="JIZURA Live PV Logo" width="128" />
 
   <h1>JIZURA Live PV（字面 Live PV）</h1>
 

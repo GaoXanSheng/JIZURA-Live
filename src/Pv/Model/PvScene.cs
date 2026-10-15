@@ -35,6 +35,34 @@ public sealed class PvScene
     public bool AntiBleedGuardEnabled { get; set; } = true;
 
     /// <summary>
+    /// 场景环境主色（<c>#rrggbb</c>）：图层做环境光染色时向它靠
+    /// （<c>PvVisualBlendConfig.AmbientTintIntensity</c> 为权重）。通常取当前歌词工程的配色主色，
+    /// 这样角色/素材才会"吃"到画面氛围。
+    ///
+    /// 存字符串而不是 <c>Color4</c>：后者是公共**字段**的结构体，Newtonsoft 默认只序列化属性，
+    /// 直接存会变成 <c>{}</c>、读回全 0（实测踩过）。字符串还顺带让 pv.json 可读可手改。
+    /// </summary>
+    public string AmbientTint { get; set; } = "#ffffff";
+
+    /// <summary>环境主色的解析结果（不参与序列化）。</summary>
+    [JsonIgnore]
+    public Vortice.Mathematics.Color4 AmbientTintColor => ParseHex(AmbientTint);
+
+    /// <summary>解析 <c>#rgb</c> / <c>#rrggbb</c>；非法输入回落白色。</summary>
+    public static Vortice.Mathematics.Color4 ParseHex(string? hex)
+    {
+        var t = (hex ?? "").Trim().TrimStart('#');
+        if (t.Length == 3) t = $"{t[0]}{t[0]}{t[1]}{t[1]}{t[2]}{t[2]}";
+        if (t.Length < 6) return new Vortice.Mathematics.Color4(1f, 1f, 1f, 1f);
+
+        static float C(string s, int i) =>
+            int.TryParse(s.AsSpan(i, 2), System.Globalization.NumberStyles.HexNumber, null, out var v)
+                ? v / 255f : 1f;
+
+        return new Vortice.Mathematics.Color4(C(t, 0), C(t, 2), C(t, 4), 1f);
+    }
+
+    /// <summary>
     /// 图层栈（从下至上合成）：
     /// 典型工业级层序：
     /// [0] Background    (底衬/环境渐变/底纹，Depth ~ 0.35)
@@ -106,6 +134,12 @@ public sealed class PvScene
 
         return scene;
     }
+
+    /// <summary>序列化为 JSON 字符串</summary>
+    public string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented);
+
+    /// <summary>从 JSON 字符串反序列化</summary>
+    public static PvScene? FromJson(string json) => JsonConvert.DeserializeObject<PvScene>(json);
 
     /// <summary>保存为 JSON 文件</summary>
     public void SaveToFile(string filePath)

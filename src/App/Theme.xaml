@@ -15,41 +15,44 @@
          ============================================================ -->
 
     <!-- ============================================================
-         设计 token：从 frontend/src/styles/main.css @theme 逐值搬运（暗色 + 琥珀基因）
+         设计 token（P5 起为新设计语言）：**冷调近黑 + 靛蓝主色**。
+         原先是从 frontend/src/styles/main.css @theme 逐值搬运的「暗色 + 琥珀」；
+         换成冷调的理由：这工具长时间盯画面做视觉判断，冷调不刺眼，且与 PV 画面里常见的
+         暖色内容（肤色、暖光）形成中性衬底。令牌名保持不变，所以全部控件自动换肤。
          ============================================================ -->
-    <SolidColorBrush x:Key="Ink" Color="#FF0C0C0E" />
-    <SolidColorBrush x:Key="Panel" Color="#FF131316" />
-    <SolidColorBrush x:Key="Raised" Color="#FF1B1B20" />
-    <SolidColorBrush x:Key="Raised2" Color="#FF232329" />
-    <SolidColorBrush x:Key="LineBrush" Color="#FF2A2A31" />
-    <SolidColorBrush x:Key="Line2" Color="#FF383840" />
-    <SolidColorBrush x:Key="Fg" Color="#FFECE7E1" />
-    <SolidColorBrush x:Key="Mut" Color="#FF8E8A94" />
-    <SolidColorBrush x:Key="Faint" Color="#FF5D5A63" />
-    <SolidColorBrush x:Key="Amber" Color="#FFF5A50C" />
-    <SolidColorBrush x:Key="Cyan" Color="#FF16F4D4" />
+    <SolidColorBrush x:Key="Ink" Color="#FF0A0A0D" />
+    <SolidColorBrush x:Key="Panel" Color="#FF101015" />
+    <SolidColorBrush x:Key="Raised" Color="#FF17171E" />
+    <SolidColorBrush x:Key="Raised2" Color="#FF1E1E27" />
+    <SolidColorBrush x:Key="LineBrush" Color="#FF23232C" />
+    <SolidColorBrush x:Key="Line2" Color="#FF31313C" />
+    <SolidColorBrush x:Key="Fg" Color="#FFECECF2" />
+    <SolidColorBrush x:Key="Mut" Color="#FF9A9AA8" />
+    <SolidColorBrush x:Key="Faint" Color="#FF5E5E6C" />
+    <SolidColorBrush x:Key="Amber" Color="#FF5B8CFF" />
+    <SolidColorBrush x:Key="Cyan" Color="#FF38E1C4" />
     <SolidColorBrush x:Key="Rose" Color="#FFFF6F9C" />
-    <SolidColorBrush x:Key="Danger" Color="#FFFF5A6A" />
+    <SolidColorBrush x:Key="Danger" Color="#FFFF5F6E" />
 
     <!-- 派生色（border-amber/55、bg-white/5、btn hover 边框一类） -->
-    <SolidColorBrush x:Key="Amber55" Color="#8CF5A50C" />
-    <SolidColorBrush x:Key="Amber60" Color="#99F5A50C" />
-    <SolidColorBrush x:Key="Amber10" Color="#1AF5A50C" />
-    <SolidColorBrush x:Key="Amber12" Color="#1FF5A50C" />
-    <SolidColorBrush x:Key="Amber25" Color="#40F5A50C" />
-    <SolidColorBrush x:Key="Cyan55" Color="#8C16F4D4" />
+    <SolidColorBrush x:Key="Amber55" Color="#8C5B8CFF" />
+    <SolidColorBrush x:Key="Amber60" Color="#995B8CFF" />
+    <SolidColorBrush x:Key="Amber10" Color="#1A5B8CFF" />
+    <SolidColorBrush x:Key="Amber12" Color="#1F5B8CFF" />
+    <SolidColorBrush x:Key="Amber25" Color="#405B8CFF" />
+    <SolidColorBrush x:Key="Cyan55" Color="#8C38E1C4" />
     <SolidColorBrush x:Key="Rose60" Color="#99FF6F9C" />
     <SolidColorBrush x:Key="Purple60" Color="#99B48CFF" />
     <SolidColorBrush x:Key="Green55" Color="#8C78C878" />
     <SolidColorBrush x:Key="Blue60" Color="#9978AAFF" />
-    <SolidColorBrush x:Key="ChipGray" Color="#FF55525C" />
+    <SolidColorBrush x:Key="ChipGray" Color="#FF5E5E6C" />
     <SolidColorBrush x:Key="HoverWhite5" Color="#0DFFFFFF" />
-    <SolidColorBrush x:Key="BtnHoverBorder" Color="#FF4A4A54" />
-    <SolidColorBrush x:Key="PrimaryInk" Color="#FF120C00" />
-    <SolidColorBrush x:Key="PrimaryHover" Color="#FFFFB52A" />
+    <SolidColorBrush x:Key="BtnHoverBorder" Color="#FF3A3A46" />
+    <SolidColorBrush x:Key="PrimaryInk" Color="#FF08101F" />
+    <SolidColorBrush x:Key="PrimaryHover" Color="#FF7AA3FF" />
     <SolidColorBrush x:Key="DangerBg" Color="#FFC9433A" />
     <SolidColorBrush x:Key="DangerHover" Color="#FFDD5146" />
-    <SolidColorBrush x:Key="Ink85" Color="#D90C0C0E" />
+    <SolidColorBrush x:Key="Ink85" Color="#D90A0A0D" />
 
     <!-- ============================================================
          字体：font-ui / font-mono。界面字体用系统字体（微软雅黑；英文/符号回退 Segoe UI），
@@ -249,7 +252,7 @@
         <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="Effect">
             <Setter.Value>
-                <DropShadowEffect Color="#F5A50C" BlurRadius="14" ShadowDepth="2" Opacity="0.25" />
+                <DropShadowEffect Color="#5B8CFF" BlurRadius="14" ShadowDepth="2" Opacity="0.25" />
             </Setter.Value>
         </Setter>
         <Setter Property="Template">
