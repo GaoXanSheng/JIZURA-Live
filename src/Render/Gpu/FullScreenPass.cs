@@ -26,6 +26,17 @@ public sealed class FullScreenPass : IDisposable
     private readonly ID3D11SamplerState _sampler;
     private readonly float[] _scratch = new float[ParamSlots * 4];
 
+    /// <summary>
+    /// 「把槽 0/1 解绑」用的空 view 数组（数组元素默认即 null，语义 = 这两个槽位不绑任何 view）。
+    ///
+    /// 为什么不用两次 <c>PSSetShaderResource(0, null)</c>：Vortice 3.8.3 的单数重载
+    /// <c>PSSetShaderResource(uint slot, ID3D11ShaderResourceView shaderResourceView)</c> 第二参数是
+    /// **非空**引用类型，传 null 字面量会得到 CS8625（DOC/PV-ENGINE-ARCHITECTURE.md §5 记录的
+    /// 两处现存 nullable 警告正是这里）；复数重载的形参是 <c>ID3D11ShaderResourceView[]</c>、
+    /// 元素允许为 null，一次调用表达「0 号起连续 2 个槽位都清空」，与两次单数解绑等价。
+    /// </summary>
+    private static readonly ID3D11ShaderResourceView[] NoViews = new ID3D11ShaderResourceView[2];
+
     public FullScreenPass(ID3D11Device device, ID3D11DeviceContext ctx, ShaderLibrary lib)
     {
         _device = device;
@@ -71,8 +82,8 @@ public sealed class FullScreenPass : IDisposable
         // 绑定顺序很重要（踩过的坑）：上一段 pass 的输出面此刻还挂在 RTV 上；若先把**同一张纹理**
         // 绑成 SRV，D3D11 会判定「同一资源既是输入又是输出」而把 SRV 解绑——第二段起采样全 0，
         // 表现为「任何多段效果链都输出全透明」。所以：先解绑 SRV → 再换 RTV → 最后绑新输入。
-        _ctx.PSSetShaderResource(0, null);
-        _ctx.PSSetShaderResource(1, null);
+        // 解绑本身不能省，只换表达方式（见 NoViews 的说明）。
+        _ctx.PSSetShaderResources(0, 2, NoViews);
         _ctx.OMSetRenderTargets(target.Rtv, null);
         _ctx.RSSetViewport(0, 0, target.Width, target.Height, 0f, 1f);
         _ctx.PSSetShaderResource(0, input0);

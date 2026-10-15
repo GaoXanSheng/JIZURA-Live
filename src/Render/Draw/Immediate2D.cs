@@ -303,7 +303,26 @@ public sealed class Immediate2D : IDisposable
     public void StrokeRoundRect(Rect r, float rx, float ry, Paint2D p)
     {
         var rr = new RoundedRectangle(new Vortice.RawRectF(r.Left, r.Top, r.Right, r.Bottom), rx, ry);
-        DrawCore(p, b => Rt.DrawRoundedRectangle(rr, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)));
+        var w = MathF.Max(0.01f, p.StrokeWidth);
+
+        // 显式分派，不是 suppression：Vortice 3.8.3 的 4 参
+        // DrawRoundedRectangle(RoundedRectangle, ID2D1Brush, float, ID2D1StrokeStyle) 的 strokeStyle
+        // 是**非空**引用类型（CS8604 的成因，编译器报错串里点名的就是这个签名），而 3 参重载等价于
+        // 传 null。StrokeStyle(p) 返回 null 的条件（无虚线 && Miter && Flat && MiterLimit≈10）正好就是
+        // D2D 的内建默认样式，所以走 3 参重载语义等价。
+        // 收窄成局部 s：把「此处 style 一定非空」这个事实落在 lambda 的捕获点上，而不是依赖外层变量的
+        // 流分析状态（本会话最小编译实测：直接捕获已收窄的 style 同样 0 警告——收窄是为了让非空事实
+        // 显式可见，不是 suppress）。
+        var style = StrokeStyle(p);
+        if (style is null)
+        {
+            DrawCore(p, b => Rt.DrawRoundedRectangle(rr, b, w));
+        }
+        else
+        {
+            var s = style;
+            DrawCore(p, b => Rt.DrawRoundedRectangle(rr, b, w, s));
+        }
     }
 
     public void DrawRoundRect(Rect r, float rx, float ry, Paint2D p)

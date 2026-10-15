@@ -118,7 +118,8 @@ internal sealed class Report
         else
         {
             Console.WriteLine($"     → 结论：源消失后仍立即返回（max={_q4.Max:F3}ms < {Probe.BlockMs}ms），"
-                              + "慢在 GPU→CPU→GPU 往返而不是 native 等待");
+                              + "取帧本身没有 native 等待；收帧的字节搬运成本已在 M7 由同设备 GPU 拷贝取代"
+                              + "（GPU→CPU→GPU 往返已删除，见 --gpu-input 的 G 段）");
         }
 
         // ---------- Q5 ----------

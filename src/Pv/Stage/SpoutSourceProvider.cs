@@ -3,8 +3,8 @@ using JizuraLive.Render.Gpu;
 using JizuraLive.Spout;
 using Vortice.DCommon;
 using Vortice.Direct2D1;
+using Vortice.Direct3D11;
 using Vortice.DXGI;
-using Vortice.Mathematics;
 using DCommonAlphaMode = Vortice.DCommon.AlphaMode;
 using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
@@ -13,6 +13,12 @@ namespace JizuraLive.Pv;
 /// <summary>
 /// Spout 源图层：把一路外部 Spout 输入（VTS 角色画面、游戏画面）作为图层交给 PV 舞台。
 /// 纯 Vortice 实现，零旧依赖。
+///
+/// 【M7 零拷贝线】取图不再经过 CPU：<see cref="SpoutIn"/> 交出的是一张**本设备自有纹理**，
+/// 这里用 <c>CreateBitmapFromDxgiSurface</c> 把它直接包成 D2D 位图（与 PvStageRenderer.BitmapFor
+/// 同一手法）。旧实现的 <c>CopyFromMemory</c> 上传（每帧一次 w*h*4 的托管数组 → GPU）已删除。
+/// 位图按 (纹理代次, 槽位) 缓存：<see cref="SpoutIn.Generation"/> 变化说明底层纹理被重建过，
+/// 旧位图指着已释放的纹理，必须先 Dispose 再重建。
 /// </summary>
 public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
 {
@@ -21,8 +27,16 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     private readonly string _sender;
     private readonly bool _premultiplied;
 
-    private ID2D1Bitmap? _bitmap;
-    private int _cachedW, _cachedH;
+    /// <summary>两张帧纹理各配一张 surface 位图（槽位与 <see cref="SpoutIn.FrontIndex"/> 对齐）。</summary>
+    private readonly ID2D1Bitmap?[] _bitmaps = new ID2D1Bitmap?[2];
+    private long _bitmapGeneration = -1;
+
+    /// <summary>alpha 模式被 surface 位图拒绝时只记一条诊断（每帧重试但别每帧刷屏）。</summary>
+    private bool _alphaWarned;
+
+    /// <summary>本代次下该 alpha 模式已被证明建不出位图——别再每帧往 D2D 里扔异常（异常很贵）。</summary>
+    private bool _alphaUnsupported;
+
     private long _version = 1;
 
     public string Id { get; }
@@ -33,6 +47,9 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     public int SourceWidth => _in.SourceWidth;
     public int SourceHeight => _in.SourceHeight;
     public string LastError => _in.LastError;
+
+    /// <summary>源格式不在白名单时的可读诊断（null = 正常）。工作台状态条据此提示用户改发送端格式。</summary>
+    public string? FormatDiagnostic => _in.FormatDiagnostic;
 
     /// <summary>取帧耗时（毫秒）。停机握手要用实测判断原生接收会不会把渲染线程关在门外。</summary>
     /// <remarks>
@@ -59,7 +76,9 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
         var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
-            if (_in.Pump(true, _sender, _premultiplied)) _version++;
+            // alpha 模式只归属本 provider 的 D2D 位图（_premultiplied），与收帧无关——
+            // 所以收帧这一步没有 premultiplied 参数。
+            if (_in.Pump(true, _sender)) _version++;
         }
         catch (Exception ex)
         {
@@ -76,59 +95,76 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
 
     public PvLayerImage Pump(in PvFrameContext ctx)
     {
-        var pixels = _in.FrontPixels;
+        var tex = _in.FrontTexture;
+        if (tex is null) return PvLayerImage.Empty;
+
         var w = _in.SourceWidth;
         var h = _in.SourceHeight;
-        if (pixels is null || w <= 0 || h <= 0) return PvLayerImage.Empty;
+        if (w <= 0 || h <= 0) return PvLayerImage.Empty;
 
-        var bmp = EnsureBitmap(w, h);
+        var bmp = EnsureBitmap(tex, _in.Generation, _in.FrontIndex);
         if (bmp is null) return PvLayerImage.Empty;
-
-        try
-        {
-            unsafe
-            {
-                fixed (byte* p = pixels)
-                {
-                    bmp.CopyFromMemory((IntPtr)p, (uint)(w * 4));
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("[PV/Spout] 上传像素失败：" + ex.Message);
-            return PvLayerImage.Empty;
-        }
 
         return new PvLayerImage(bmp, null, w, h);
     }
 
-    private ID2D1Bitmap? EnsureBitmap(int w, int h)
+    /// <summary>
+    /// 把自有帧纹理包成 D2D 位图。缓存键是 (代次, 槽位)：代次变了说明纹理被重建（尺寸/源变了），
+    /// 旧位图指着已释放的纹理，必须先全部 Dispose；槽位对应 ping-pong 的两张纹理。
+    /// </summary>
+    private ID2D1Bitmap? EnsureBitmap(ID3D11Texture2D tex, long generation, int frontIndex)
     {
-        if (_bitmap is not null && _cachedW == w && _cachedH == h)
-            return _bitmap;
+        if (frontIndex is < 0 or >= 2) return null;
 
-        _bitmap?.Dispose();
+        if (_bitmapGeneration != generation)
+        {
+            DisposeBitmaps();
+            _bitmapGeneration = generation;
+            _alphaUnsupported = false; // 换了纹理代次，重新试一次（失败多半与格式无关，但没必要记着）
+        }
+
+        if (_alphaUnsupported) return null;
+        if (_bitmaps[frontIndex] is { } cached) return cached;
 
         try
         {
+            using var surface = tex.QueryInterface<IDXGISurface>();
             var alphaMode = _premultiplied ? DCommonAlphaMode.Premultiplied : DCommonAlphaMode.Straight;
             var format = new DCommonPixelFormat(Format.B8G8R8A8_UNorm, alphaMode);
-            _bitmap = _ctx.CreateBitmap(new SizeI(w, h), new BitmapProperties1(format, 96f, 96f));
-            _cachedW = w;
-            _cachedH = h;
-            return _bitmap;
+            var bmp = _ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(format, 96f, 96f, BitmapOptions.None));
+            _bitmaps[frontIndex] = bmp;
+            return bmp;
         }
         catch (Exception ex)
         {
-            Log.Warn("[PV/Spout] 建位图失败：" + ex.Message);
+            // 建位图失败（实测就是 alpha 模式不被 surface 位图接受，见 SpoutGpuInputTests
+            // 的 OwnedTexture_WrapsIntoD2DBitmap_AndRenders）：不出图，并留下可读原因。
+            // 声明 Straight 却被拒时必须显式诊断——静默回退成 Premultiplied 会让画面悄悄变色。
+            _alphaUnsupported = true;
+            if (!_alphaWarned)
+            {
+                _alphaWarned = true;
+                Log.Warn($"[PV/Spout] 把源纹理包成 D2D 位图失败（alphaMode={(_premultiplied ? "Premultiplied" : "Straight")}）："
+                         + ex.Message + "；本图层不出图（每次纹理代次变化会再试一次），不静默改用别的 alpha 模式。");
+            }
+
             return null;
+        }
+    }
+
+    private void DisposeBitmaps()
+    {
+        for (var i = 0; i < _bitmaps.Length; i++)
+        {
+            _bitmaps[i]?.Dispose();
+            _bitmaps[i] = null;
         }
     }
 
     public void Dispose()
     {
-        _bitmap?.Dispose();
+        // 先位图后 in：位图指着 in 的纹理，反过来的话 in 会释放纹理而位图还在。
+        DisposeBitmaps();
         _in.Dispose();
     }
 }

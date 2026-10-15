@@ -159,7 +159,7 @@ internal sealed class SenderProbe
 
             // 阶段 B：有接收端，连上为止
             rx = new SpoutIn(_gpu.Device);
-            var connect = PumpUntil(rx, rawName, r => r.FrontPixels is not null, 3000);
+            var connect = PumpUntil(rx, rawName, r => r.FrontTexture is not null, 3000);
             st.ReceiverConnected = connect.Hit;
             st.ReceiverConnectPumps = connect.Pumps;
             for (var i = 0; i < warmup; i++) raw.SendTexture(tex.NativePointer);
@@ -411,9 +411,10 @@ internal sealed class SenderProbe
     /// 若 B 相对 A 没有明显变慢，说明发送端不因下游不消费而阻塞/积压（Spout 不排队，只留最新一帧）。
     ///
     /// B 段里顺带验**借用期**：接收端已经取到红色帧后，发送端把共享纹理改成蓝色并连发 200 帧，
-    /// 期间接收端一次都不 Pump——此时再读 <see cref="SpoutIn.FrontPixels"/>（借用句柄）必须还是
-    /// 原来的那口红色数据（同一数组、逐字节不变）。若变了，说明上游写直接漏进了下游的借用缓冲
-    /// （零拷贝别名），合成器读到一半就会被改，那是必须挡在接线前的问题。
+    /// 期间接收端一次都不 Pump——此时再读 <see cref="SpoutIn.FrontTexture"/>（借用句柄）必须还是
+    /// 同一张纹理实例、且回读内容逐字节不变（M7 前是「同一个托管数组」，现在是「同一张自有纹理
+    /// 上的独立 GPU 副本」）。若变了，说明上游写直接漏进了下游的借用缓冲（零拷贝别名），
+    /// 合成器读到一半就会被改，那是必须挡在接线前的问题。
     /// </summary>
     public SlowConsumerStats SlowConsumer(int frames, int warmup)
     {
@@ -436,9 +437,9 @@ internal sealed class SenderProbe
             st.ConnectPumps = connect;
             if (!st.Connected) return st;
 
-            // 借用期基线：此刻接收端手里这口帧
-            var borrow = rx.FrontPixels;
-            var snapshot = borrow is null ? Array.Empty<byte>() : (byte[])borrow.Clone();
+            // 借用期基线：此刻接收端手里这口帧（自有纹理上的独立 GPU 副本）
+            var borrow = rx.FrontTexture;
+            var snapshot = ReadPixels(borrow, rx.SourceWidth, rx.SourceHeight);
             st.BorrowSeqBefore = rx.Seq;
             st.BorrowLength = snapshot.Length;
 
@@ -453,14 +454,15 @@ internal sealed class SenderProbe
                     Console.WriteLine($"[S5-B] 不消费时 PresentFrame#{i} {st.StalledSend.Last:F4}ms");
             }
 
-            // 借用期检查：不 Pump，直接再读那口借用数据
-            var after = rx.FrontPixels;
-            st.BorrowSameArray = ReferenceEquals(borrow, after);
+            // 借用期检查：不 Pump，直接再读那口借用纹理
+            var after = rx.FrontTexture;
+            st.BorrowSameTexture = borrow is not null && ReferenceEquals(borrow, after);
             st.BorrowSeqAfter = rx.Seq;
             st.BorrowSeqUnchanged = st.BorrowSeqBefore == st.BorrowSeqAfter;
-            st.BorrowChangedBytes = after is null || after.Length != snapshot.Length
+            var afterPixels = ReadPixels(after, rx.SourceWidth, rx.SourceHeight);
+            st.BorrowChangedBytes = afterPixels.Length != snapshot.Length
                 ? -1
-                : CountDiff(snapshot, after);
+                : CountDiff(snapshot, afterPixels);
             st.StallMs = Timing(stallStart);
 
             // 阶段 C：接收端同步消费
@@ -580,29 +582,38 @@ internal sealed class SenderProbe
         return (pumps, frames, false, sw.Elapsed.TotalMilliseconds);
     }
 
-    /// <summary>取 5 个采样点的颜色（中心 + 四角内缩）——只看一个点容易被 letterbox/边角骗。</summary>
-    private static List<(byte R, byte G, byte B, byte A)> Samples(SpoutIn rx)
+    /// <summary>取 5 个采样点的颜色（中心 + 四角内缩）——只看一个点容易被 letterbox/边角骗。
+    /// M7 起接收端交出的是一张**自有纹理**（不再有托管像素数组），所以采样走 GPU 回读。</summary>
+    private List<(byte R, byte G, byte B, byte A)> Samples(SpoutIn rx)
     {
-        var px = rx.FrontPixels;
+        var tex = rx.FrontTexture;
         var w = rx.SourceWidth;
         var h = rx.SourceHeight;
-        if (px is null || w <= 0 || h <= 0 || px.Length < w * h * 4) return new List<(byte, byte, byte, byte)>();
+        if (tex is null || w <= 0 || h <= 0) return new List<(byte, byte, byte, byte)>();
 
+        using var img = GpuReadback.ToImage(_gpu, tex, w, h);
         return new List<(byte, byte, byte, byte)>
         {
-            Pixel(px, w, w / 2, h / 2),
-            Pixel(px, w, w / 4, h / 4),
-            Pixel(px, w, w - 1 - w / 4, h - 1 - h / 4),
-            Pixel(px, w, 1, 1),
-            Pixel(px, w, w - 2, h - 2),
+            At(img, w / 2, h / 2),
+            At(img, w / 4, h / 4),
+            At(img, w - 1 - w / 4, h - 1 - h / 4),
+            At(img, 1, 1),
+            At(img, w - 2, h - 2),
         };
     }
 
-    /// <summary>BGRA 排布取单点（<see cref="SpoutIn.FrontPixels"/> 是 BGRA）。</summary>
-    private static (byte R, byte G, byte B, byte A) Pixel(byte[] px, int w, int x, int y)
+    /// <summary>把一张纹理整口回读到 CPU（借用期检查用；只在非实时路径）。</summary>
+    private byte[] ReadPixels(ID3D11Texture2D? tex, int w, int h)
     {
-        var o = (y * w + x) * 4;
-        return (px[o + 2], px[o + 1], px[o], px[o + 3]);
+        if (tex is null || w <= 0 || h <= 0) return [];
+        using var img = GpuReadback.ToImage(_gpu, tex, w, h);
+        return img.BgraPixels;
+    }
+
+    private static (byte R, byte G, byte B, byte A) At(ReadbackImage img, int x, int y)
+    {
+        var p = img.GetPixel(x, y);
+        return (p.Red, p.Green, p.Blue, p.Alpha);
     }
 
     private static bool IsRed((byte R, byte G, byte B, byte A) c) =>
@@ -614,7 +625,7 @@ internal sealed class SenderProbe
     private static bool IsGreen((byte R, byte G, byte B, byte A) c) =>
         c.G > 200 && c.R < 50 && c.B < 50 && c.A > 200;
 
-    private static string SampleText(SpoutIn rx)
+    private string SampleText(SpoutIn rx)
     {
         var s = Samples(rx);
         if (s.Count == 0) return "（无帧）";
@@ -644,7 +655,11 @@ internal sealed class TimingStats
     public int BlockHits { get; private set; }
     public double Avg => _ms.Count == 0 ? 0 : _ms.Average();
     public double P50 => P(0.50);
+    public double P95 => P(0.95);
     public double P99 => P(0.99);
+
+    /// <summary>原始样本（只读）——G 段要把两档尺寸的样本合并成一份分布。</summary>
+    public IReadOnlyList<double> Values => _ms;
 
     public void Add(double ms)
     {
@@ -835,9 +850,9 @@ internal sealed class SlowConsumerStats
     public long BorrowSeqBefore { get; set; }
     public long BorrowSeqAfter { get; set; }
     public bool BorrowSeqUnchanged { get; set; }
-    /// <summary>借用句柄是不是同一个数组实例（true = 期间没被换过缓冲）。</summary>
-    public bool BorrowSameArray { get; set; }
-    /// <summary>B 段期间借用数据的差异字节数（0 = 上游写入没漏进下游缓冲）。-1 = 长度都不对了。</summary>
+    /// <summary>借用句柄是不是同一张纹理实例（true = 期间没被换过缓冲）。</summary>
+    public bool BorrowSameTexture { get; set; }
+    /// <summary>B 段期间借用纹理回读内容的差异字节数（0 = 上游写入没漏进下游缓冲）。-1 = 长度都不对了。</summary>
     public int BorrowChangedBytes { get; set; } = -1;
     public double StallMs { get; set; }
 }

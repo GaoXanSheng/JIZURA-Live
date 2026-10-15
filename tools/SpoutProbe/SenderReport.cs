@@ -319,8 +319,8 @@ internal sealed class SenderReport
         // 纹理借用期
         Console.WriteLine($"     借用期：B 段期间接收端一次没 Pump（Seq {s.BorrowSeqBefore}→{s.BorrowSeqAfter}，"
                           + $"未变={(s.BorrowSeqUnchanged ? "是" : "否")}），上游连发 {s.StalledSend.Count} 帧改了共享纹理内容；"
-                          + $"再读 FrontPixels：同一数组={(s.BorrowSameArray ? "是" : "否")}，"
-                          + $"差异字节={s.BorrowChangedBytes}（共 {s.BorrowLength} 字节）");
+                          + $"再读 FrontTexture：同一张纹理实例={(s.BorrowSameTexture ? "是" : "否")}，"
+                          + $"回读差异字节={s.BorrowChangedBytes}（共 {s.BorrowLength} 字节）");
         if (s.BorrowChangedBytes != 0)
         {
             Console.WriteLine("     → 结论（不通过）：上游写入漏进了下游的借用缓冲（上游一写、下游那口帧就变），"
@@ -340,8 +340,9 @@ internal sealed class SenderReport
         Console.WriteLine($"     → 结论：**没有反压**——接收端连着却不取帧时，发送耗时与「根本没接收端」同一量级"
                           + $"（p50 {b.P50:F4}→{s.StalledSend.P50:F4}ms），"
                           + "发送端不会因下游不消费而阻塞或积压。");
-        Console.WriteLine("       借用期安全：接收端手里那口帧是**托管副本**，上游接着写共享纹理不会改到它"
-                          + "（差异 0 字节、Seq 未变）——合成器中途读帧不会被撕裂。");
+        Console.WriteLine("       借用期安全：接收端手里那口帧是**自有纹理上的独立 GPU 副本**"
+                          + "（M7 起由 native 直收进自有纹理，不再经过 CPU 回读），上游接着写共享纹理不会改到它"
+                          + "（回读差异 0 字节、Seq 未变、纹理实例未换）——合成器中途读帧不会被撕裂。");
         Console.WriteLine(s.LatestIsGreen
             ? $"       恢复取帧后 {s.LatestPumps} 次 Pump 拿到**最新**颜色：Spout 不排队，只留最新一帧，"
               + "所以下游慢消费丢的是中间帧，不会拿到陈旧帧。"
