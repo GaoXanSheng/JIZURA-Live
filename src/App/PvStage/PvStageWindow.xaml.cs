@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -12,8 +13,10 @@ using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
+using JizuraLive.Render.Text;
 using JizuraLive.Spout;
 using JizuraLive.Vts;
+using Newtonsoft.Json;
 using Vortice.Mathematics;
 
 namespace JizuraLive.App.PvStage;
@@ -67,6 +70,9 @@ public partial class PvStageWindow : Window
     private Border? _colorSwatch;
     private bool _draggingTime;
 
+    private bool _exporting;        // 导出中：按钮禁用防重入，状态条上的百分比由 RefreshStatus 末尾兜住
+    private double _exportPercent;
+
     // 关键帧曲线：编辑只发生在这一份（UI 线程）上，渲染线程拿到的是 PublishDirector 发布的不可变快照。
     // 地址解析一次存字段：它是值相等类型，每帧/每次编辑现拼字符串没有意义。
     // 换工程时整份重来（旧工程的曲线留在里面，会按同 Id 的新实例地址继续生效）。
@@ -84,6 +90,22 @@ public partial class PvStageWindow : Window
     private double _stripSpan;    // 曲线条上次重画用的时间跨度，用来发现"时长变了要及时重量程"
     private System.Windows.Shapes.Line? _playhead;  // 播放头：只挪位置，不参与整条重画
     private double _scaleEditTime;  // 滑杆编辑的时刻：按下滑杆那一刻冻结，拖动全程替换同一条 key（播放中时钟在走，不冻结会堆 key）
+
+    // 关键帧圆点拖动：按下时那个 key（位移一律从它起算）+ 当前所在位置 + 快照（Esc 整份还原）。
+    // 拖动期间整条曲线不重画——重画会 Children.Clear，被拖动的那颗圆点连同鼠标捕获一起消失。
+    private System.Windows.Shapes.Ellipse? _keyDragDot;
+    private CurveKey _keyDragOriginKey;
+    private CurveKey _keyDragKey;
+    private System.Windows.Point _keyDragOrigin;
+    private bool _keyDragMoved;
+    private List<CurveKey>? _keyDragSnapshot;
+
+    // 撤销/重做：栈里放的是工程 JSON 串（与 ProjectStore.Save 同一序列化），深度上限由 UndoLog 管
+    private readonly UndoLog _undo = new();
+
+    // 歌词样式下拉的固定项：与 LyricStyle 的四个预设同名（FromName 按名大小写不敏感地取）
+    private static readonly string[] LyricStyleNames = ["Classic", "Neon", "Outline", "Minimal"];
+    private bool _syncingLyricStyle;  // 程序化回填下拉时为 true：那次 SelectionChanged 不是用户选择
 
     // 信号面板（M6）：编辑只发生在草稿上，确认才换引用并落盘。
     // 直接在 _project.SignalGraph 上编辑的话，"关掉弹窗"就成了一次不可撤销的改动——5 秒一次的自动存盘会把它写进磁盘。
@@ -165,6 +187,9 @@ public partial class PvStageWindow : Window
             bootNotes.Add($"载入异常：{bootFault}（磁盘文件保持原样）");
         }
         if (bootNotes.Count > 0) TblStatus.Text = string.Join("；", bootNotes);
+
+        // 撤销栈的基线：没有它，第一次编辑之前的那份状态就无处可退
+        PushUndo();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -294,6 +319,8 @@ public partial class PvStageWindow : Window
         _pipe = null;
 
         _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
+        // 工程里存的歌词样式在这里落到提供者上：换工程与撤销走的都是重建管线这条路
+        _pipe.Renderer.Lyric?.SetStyle(ProjectLyricStyle());
         // 建完管线就把工程里已有的曲线与信号图带上，否则要等第一次编辑才生效。
         // 绕一下 UI 线程：本回调跑在渲染线程上，而曲线字典与工程文档归 UI 线程所有——
         // 在这里直接读会与用户编辑撞上（枚举中改 = 抛异常）。
@@ -313,6 +340,7 @@ public partial class PvStageWindow : Window
         _pipe.LayersChanged += () => Dispatcher.BeginInvoke(() =>
         {
             BuildLayerList();
+            PushUndo(); // 管线只在图层集合真的变了时发这个事件（增 / 删 / 重排）
             _saveError = SaveProjectNow();
         });
 
@@ -643,6 +671,7 @@ public partial class PvStageWindow : Window
                 // 信号绑定同理：留着指向已删实例的绑定，整张图会因目标失效而编译不过，所有信号一起停
                 CascadeSignalTarget(nRef.InstanceId);
                 PublishDirector();
+                PushUndo();
                 _saveError = SaveProjectNow();
                 BuildEffectRack();
             };
@@ -876,6 +905,9 @@ public partial class PvStageWindow : Window
         foreach (var label in EffectPresets.PickerLabels())
             CmbPreset.Items.Add(label);
         CmbPreset.SelectedIndex = EffectPresets.PickerInitialIndex;
+
+        foreach (var name in LyricStyleNames) CmbLyricStyle.Items.Add(name);
+        SyncLyricStylePicker();
     }
 
     private void CmbAddFx_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -884,6 +916,7 @@ public partial class PvStageWindow : Window
         var def = EffectCatalog.All[CmbAddFx.SelectedIndex];
         CmbAddFx.SelectedIndex = -1;
         _effects.Add(def.Id);
+        PushUndo();
         BuildEffectRack();
     }
 
@@ -914,6 +947,7 @@ public partial class PvStageWindow : Window
         }
 
         PublishDirector();
+        PushUndo();
         _saveError = SaveProjectNow();
         BuildEffectRack();
         TblStatus.Text = SignalStatusText(); // 结论当场可见，不等下一次 500ms 状态刷新
@@ -1030,6 +1064,40 @@ public partial class PvStageWindow : Window
         Panel panel => panel.Children.OfType<TextBlock>().FirstOrDefault(),
         _ => null,
     };
+
+    // ---------------- 歌词样式 ----------------
+
+    /// <summary>工程里生效的歌词样式：自定义优先，否则按名取预设（名字未知/为空回落 Classic）。</summary>
+    private LyricStyle ProjectLyricStyle() => _scene.LyricStyle ?? LyricStyle.FromName(_scene.LyricStyleName);
+
+    /// <summary>把下拉回填成工程当前样式名。这是程序化路径，不是一次用户选择。</summary>
+    private void SyncLyricStylePicker()
+    {
+        _syncingLyricStyle = true;
+        try
+        {
+            CmbLyricStyle.SelectedIndex = Math.Max(0, Array.FindIndex(LyricStyleNames,
+                n => string.Equals(n, _scene.LyricStyleName, StringComparison.OrdinalIgnoreCase)));
+        }
+        finally
+        {
+            _syncingLyricStyle = false;
+        }
+    }
+
+    private void CmbLyricStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingLyricStyle || CmbLyricStyle.SelectedIndex < 0) return;
+
+        _scene.LyricStyleName = LyricStyleNames[CmbLyricStyle.SelectedIndex];
+        _scene.LyricStyle = null; // 选了预设就不再是自定义样式（自定义只可能来自手改的工程文件）
+        // 立即生效：管线还没建起来时由建管线那条路带上，不必在这里等
+        _pipe?.Renderer.Lyric?.SetStyle(ProjectLyricStyle());
+
+        PushUndo();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = $"歌词样式：{_scene.LyricStyleName}";
+    }
 
     // ---------------- 信号面板（M6） ----------------
 
@@ -1589,6 +1657,59 @@ public partial class PvStageWindow : Window
         return parts.Length == 2 ? (parts[0], parts[1]) : ("", "");
     }
 
+    // ---------------- 撤销 / 重做 ----------------
+
+    /// <summary>编辑动作（打/删/拖 key、滑杆、图层与效果增删、样式切换）之后压一份当前工程快照。</summary>
+    private void PushUndo() => _undo.Push(ProjectSnapshot());
+
+    /// <summary>
+    /// 当前工程的 JSON 串：序列化调用与 ProjectStore.Save 逐参数相同，只是不落盘。
+    /// 还原不能借 ProjectStore.Load——它收的是文件路径，而栈里躺的是一段内存字符串。
+    /// </summary>
+    private string ProjectSnapshot()
+    {
+        _project.AudioPath = _audioPath;
+        _project.LrcText = _lrcText;
+        SyncCurvesToProject();
+        return JsonConvert.SerializeObject(_project, Formatting.Indented);
+    }
+
+    /// <summary>
+    /// 快照串 → 工程文档。读不出来返回 null，并把原因写到状态条（<paramref name="what"/> 是"撤销"/"导出"这类前缀）。
+    ///
+    /// 与 ProjectStore.Load 同一条反序列化（同类型、同默认设置）：Load 收的是文件路径，这里只有内存串。
+    /// 快照由本进程自己写出，不再过 Load 的治理与版本闸门。
+    /// </summary>
+    private DirectorProject? ProjectFromSnapshot(string text, string what)
+    {
+        try
+        {
+            var project = JsonConvert.DeserializeObject<DirectorProject>(text);
+            if (project is not null) return project;
+
+            TblStatus.Text = $"{what}失败：快照解析为空";
+            return null;
+        }
+        catch (Exception ex)
+        {
+            TblStatus.Text = $"{what}失败：快照读不出来（{ex.Message}）";
+            return null;
+        }
+    }
+
+    private void UndoRedo(bool undo)
+    {
+        var text = undo ? _undo.Undo() : _undo.Redo();
+        if (text is null)
+        {
+            TblStatus.Text = undo ? "没有可撤销的改动" : "没有可重做的改动";
+            return;
+        }
+
+        if (ProjectFromSnapshot(text, undo ? "撤销" : "重做") is { } project)
+            AdoptProject(project, undo ? "已撤销" : "已重做", resetUndo: false);
+    }
+
     // ---------------- 工程：新建 / 打开 ----------------
 
     /// <summary>
@@ -1644,13 +1765,13 @@ public partial class PvStageWindow : Window
     }
 
     /// <summary>
-    /// 把一份工程装进工作台（新建 / 打开共用）。UI 线程专用。
+    /// 把一份工程装进工作台（新建 / 打开共用；撤销重做也走这条路）。UI 线程专用。
     ///
     /// 为什么不是"就地改旧对象的列表"：场景与效果图按引用吃进管线与渲染器，渲染线程每帧都在枚举它们，
     /// UI 线程就地 Clear/Add 就是与那个枚举撞上（与信号图"克隆 → 换引用"是同一条理由）。
     /// 所以换的是**整份文档对象**，再请渲染线程重建管线——设计画布尺寸也在管线构造期定死，就地改不到。
     /// </summary>
-    private void AdoptProject(DirectorProject project, string note)
+    private void AdoptProject(DirectorProject project, string note, bool resetUndo = true)
     {
         if (!BackupProjectFile()) return;
 
@@ -1690,9 +1811,17 @@ public partial class PvStageWindow : Window
         BuildLayerList();
         BuildLyricList();
         RedrawCurveStrip();
+        SyncLyricStylePicker();
 
         // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
         if (_pipe is not null) _rebuildPipe = true;
+
+        // 换工程不跨工程撤销：栈里那些快照属于上一份文档，留着它们会让 Ctrl+Z 把旧工程整份搬回来
+        if (resetUndo)
+        {
+            _undo.Clear();
+            PushUndo();
+        }
 
         _saveError = SaveProjectNow(); // 会话工程文件立刻与内存一致，避免"界面上是这个、磁盘上是那个"
         TblStatus.Text = _saveError is null ? note : $"{note}（工程文件写入失败：{_saveError}）";
@@ -1833,6 +1962,126 @@ public partial class PvStageWindow : Window
 
     private void UpdateBroadcastButton() => BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
 
+    // ---------------- 导出 MP4 ----------------
+
+    /// <summary>导出对话框：路径 + 帧率 + 时长都在这一个弹窗里定。确认后交后台线程逐帧渲染。</summary>
+    private void BtnExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_exporting) return;
+
+        var audioPath = _audioPath;
+        var dir = string.IsNullOrWhiteSpace(audioPath) ? null : Path.GetDirectoryName(audioPath);
+        var defaultDir = string.IsNullOrEmpty(dir) ? AppDirs.ConfigDir : dir;
+        var path = new TextBox
+        {
+            Text = Path.Combine(defaultDir,
+                (string.IsNullOrWhiteSpace(audioPath) ? "pv_export" : Path.GetFileNameWithoutExtension(audioPath)) + ".mp4"),
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+
+        var browse = new Button { Content = "浏览…", Padding = new Thickness(10, 2, 10, 2) };
+        browse.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "导出 MP4",
+                Filter = "MP4 视频 (*.mp4)|*.mp4",
+                DefaultExt = ".mp4",
+                AddExtension = true,
+                FileName = Path.GetFileName(path.Text),
+                InitialDirectory = Path.GetDirectoryName(path.Text) ?? defaultDir,
+            };
+            if (dlg.ShowDialog(this) == true) path.Text = dlg.FileName;
+        };
+
+        // 无音源时时长为空：那一路要用户自己填秒（帧率同理，默认 60）
+        var fps = new TextBox { Text = "60", Width = 72 };
+        var seconds = new TextBox
+        {
+            Text = _audio.Duration > 0 ? _audio.Duration.ToString("F2", CultureInfo.InvariantCulture) : "",
+            Width = 72,
+        };
+
+        var extra = new StackPanel();
+        extra.Children.Add(ExportRow("输出", path, browse));
+        extra.Children.Add(ExportRow("帧率", fps));
+        extra.Children.Add(ExportRow("时长(秒)", seconds));
+
+        MessageDialog.Confirm(this, "导出 MP4",
+            "逐帧离屏渲染当前工程，导出期间界面照常用。导出的是图层与效果：不含歌词、字幕与镜头动画。",
+            "开始导出",
+            () =>
+            {
+                // 弹窗是先关再回调，所以这里校验不出结果就没法把错误留在框里：交状态条说
+                if (string.IsNullOrWhiteSpace(path.Text)
+                    || !int.TryParse(fps.Text.Trim(), out var framesPerSecond)
+                    || !double.TryParse(seconds.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var sec))
+                {
+                    TblStatus.Text = "导出未开始：输出路径不能为空，帧率与时长都必须是数字";
+                    return;
+                }
+
+                StartExport(path.Text.Trim(), framesPerSecond, sec);
+            },
+            extra);
+    }
+
+    private async void StartExport(string outPath, int fps, double seconds)
+    {
+        _exporting = true;
+        BtnExport.IsEnabled = false;
+        _exportPercent = 0;
+        TblStatus.Text = ExportText();
+
+        // 快照交给后台：导出要跑几分钟，活动文档不能让导出线程去枚举（这期间 UI 照样能改图层）
+        var copy = ProjectFromSnapshot(ProjectSnapshot(), "导出");
+        var progress = new Progress<double>(p =>
+        {
+            _exportPercent = p;
+            if (_exporting) TblStatus.Text = ExportText();
+        });
+
+        var fault = copy is null
+            ? "导出失败：工程快照读不出来"
+            : await Task.Run(() => PvExporter.Export(copy.Scene, copy.Effects, seconds, fps, outPath, progress));
+
+        _exporting = false;
+        BtnExport.IsEnabled = true;
+        TblStatus.Text = fault ?? $"导出完成：{outPath}";
+    }
+
+    private string ExportText() => $"导出中… {_exportPercent * 100:F0}%";
+
+    /// <summary>导出一行：标签 + 输入控件（+ 可选尾按钮）。</summary>
+    private FrameworkElement ExportRow(string label, FrameworkElement input, FrameworkElement? tail = null)
+    {
+        var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new TextBlock
+        {
+            Text = label,
+            Style = (Style)FindResource("PvRowLabel"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(text, 0);
+        row.Children.Add(text);
+
+        Grid.SetColumn(input, 1);
+        row.Children.Add(input);
+
+        if (tail is not null)
+        {
+            tail.Margin = new Thickness(6, 0, 0, 0);
+            Grid.SetColumn(tail, 2);
+            row.Children.Add(tail);
+        }
+
+        return row;
+    }
+
     // ---------------- 镜头缩放的关键帧 ----------------
 
     /// <summary>
@@ -1866,6 +2115,7 @@ public partial class PvStageWindow : Window
 
         PublishDirector();
         RedrawCurveStrip();
+        PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = $"已打关键帧 t={t:F2}s · 缩放 {v:F2}";
     }
@@ -1910,7 +2160,11 @@ public partial class PvStageWindow : Window
 
         // 存盘不在每个 ValueChanged 里做：这是整份工程 JSON 的序列化+原子写，拖动一次能触发上百次
         // （UiStallProbe 自己就把文件写标注为 UI 卡顿来源）。拖动中只更新内存模型，松手时落盘一次。
-        if (!SldCamScale.IsMouseCaptureWithin) _saveError = SaveProjectNow();
+        if (!SldCamScale.IsMouseCaptureWithin)
+        {
+            PushUndo(); // 同存盘：一次拖动只压一份快照，不是每个 ValueChanged 压一份
+            _saveError = SaveProjectNow();
+        }
     }
 
     /// <summary>曲线条的时间跨度（秒）：跟音频总长走；没音源时用 30 秒占位，好过拿 0 当除数。</summary>
@@ -1999,20 +2253,18 @@ public partial class PvStageWindow : Window
                 Canvas.SetLeft(dot, x - KeyDotSize / 2);
                 Canvas.SetTop(dot, y - KeyDotSize / 2);
 
-                var keyTime = key.Time;
+                var pressed = key;
                 dot.MouseLeftButtonDown += (_, e) =>
                 {
-                    // 先吃掉事件：命中 key 的这一次点击不能既删了 key、又冒泡到画布背景变成一次 seek
+                    // 先吃掉事件：命中 key 的这一次点击不能既动了 key、又冒泡到画布背景变成一次 seek
                     e.Handled = true;
-                    if (!curve.Remove(keyTime)) return;
-                    // 空了就把整条曲线撤掉：求值上"空曲线"等价于"没有曲线"，存档里留个空壳只会误导
-                    if (curve.Count == 0) _evaluator.RemoveCurve(_camScaleAddr);
-
-                    PublishDirector();
-                    RedrawCurveStrip();
-                    _saveError = SaveProjectNow();
-                    TblStatus.Text = "已删除关键帧";
+                    BeginKeyDrag(dot, curve, pressed, e.GetPosition(CurveStrip));
                 };
+                dot.MouseMove += (_, e) => MoveKeyDrag(curve, e.GetPosition(CurveStrip));
+                dot.MouseLeftButtonUp += (_, _) => CommitKeyDrag(curve);
+                // 捕获从别的路径丢掉（元素被重画移除、窗口失活）也要在这里收尾：留着的陈旧快照
+                // 会留给很久以后一次 Esc 去"还原"
+                dot.LostMouseCapture += (_, _) => CommitKeyDrag(curve);
 
                 CurveStrip.Children.Add(dot);
             }
@@ -2046,6 +2298,126 @@ public partial class PvStageWindow : Window
         if (w <= 0) return;
         _audio.Seek(e.GetPosition(CurveStrip).X / w * _stripSpan);
     }
+
+    // ---------------- 关键帧拖动 ----------------
+
+    private void BeginKeyDrag(System.Windows.Shapes.Ellipse dot, FloatCurve curve, CurveKey key,
+        System.Windows.Point at)
+    {
+        // 抓不到鼠标（别处占着）就不进拖动：此后收不到 MouseUp，状态会永远卡在"拖动中"
+        if (!dot.CaptureMouse()) return;
+
+        _keyDragSnapshot = new List<CurveKey>(curve.Keys); // 取消要精确还原：靠位移回推会有浮点残差
+        _keyDragDot = dot;
+        _keyDragOriginKey = key;
+        _keyDragKey = key;
+        _keyDragOrigin = at;
+        _keyDragMoved = false;
+    }
+
+    private void MoveKeyDrag(FloatCurve curve, System.Windows.Point at)
+    {
+        var dot = _keyDragDot;
+        if (dot is null) return;
+
+        var dx = at.X - _keyDragOrigin.X;
+        var dy = at.Y - _keyDragOrigin.Y;
+        if (!_keyDragMoved)
+        {
+            // 手抖几像素不该把"点一下删掉"变成一次挪动（与图层卡拖拽同一门槛）
+            if (Math.Abs(dx) < SystemParameters.MinimumHorizontalDragDistance
+                && Math.Abs(dy) < SystemParameters.MinimumVerticalDragDistance) return;
+            _keyDragMoved = true;
+        }
+
+        var w = CurveStrip.ActualWidth;
+        var h = CurveStrip.Height;
+        if (w <= 0 || h <= 0) return;
+
+        // 换算与 TimeToX / ScaleToY 同一映射，一律从按下时那个 key 起算：
+        // 拿"移动中"的当前值再加本帧位移会把同一段位移累加两遍
+        var src = _keyDragOriginKey;
+        var t = Math.Clamp(src.Time + dx / w * _stripSpan, 0, _stripSpan);
+        var v = Math.Clamp(src.Value - dy / h * (ScaleMax - ScaleMin), ScaleMin, ScaleMax);
+
+        // 同刻替换（沿用原 Mode）。摘下旧 key 后新时刻若撞上别的 key 而插不回去，就补回原位——
+        // 否则这一次拖动会把用户的这条 key 弄丢
+        curve.Remove(_keyDragKey.Time);
+        if (curve.TryAdd(t, v, src.Mode)) _keyDragKey = new CurveKey(t, v, src.Mode);
+        else curve.TryAdd(_keyDragKey.Time, _keyDragKey.Value, _keyDragKey.Mode);
+
+        // 只挪这一颗圆点（重画会把它删掉，见字段处说明）
+        Canvas.SetLeft(dot, TimeToX(_keyDragKey.Time, w) - KeyDotSize / 2);
+        Canvas.SetTop(dot, Math.Clamp(ScaleToY(_keyDragKey.Value, h), 0, h) - KeyDotSize / 2);
+        TblStatus.Text = KeyDragText();
+    }
+
+    /// <summary>松手 / 丢捕获：这次拖动到此为止。没挪过就是"点一下删掉"——那是删 key 的唯一入口。</summary>
+    private void CommitKeyDrag(FloatCurve curve)
+    {
+        var dot = _keyDragDot;
+        if (dot is null) return;
+        _keyDragDot = null;
+        _keyDragSnapshot = null;
+        dot.ReleaseMouseCapture(); // 丢捕获会回调回这里，状态已清，重入即空操作
+
+        if (!_keyDragMoved)
+        {
+            if (!curve.Remove(_keyDragKey.Time)) return;
+            // 空了就把整条曲线撤掉：求值上"空曲线"等价于"没有曲线"，存档里留个空壳只会误导
+            if (curve.Count == 0) _evaluator.RemoveCurve(_camScaleAddr);
+            TblStatus.Text = "已删除关键帧";
+        }
+        else
+        {
+            TblStatus.Text = "关键帧已移至 " + KeyDragText();
+        }
+
+        PublishDirector();
+        RedrawCurveStrip();
+        PushUndo(); // 松手才压一次：拖动途中每帧压一份会把栈塞满中间态
+        _saveError = SaveProjectNow();
+    }
+
+    /// <summary>Esc：放弃这次拖动，曲线整份回到按下之前（拖动期间没发布过，改回数据即可）。</summary>
+    private void CancelKeyDrag()
+    {
+        var dot = _keyDragDot;
+        if (dot is null) return;
+        var snapshot = _keyDragSnapshot;
+        _keyDragDot = null;
+        _keyDragSnapshot = null;
+        dot.ReleaseMouseCapture();
+
+        if (snapshot is null || !_evaluator.Curves.TryGetValue(_camScaleAddr, out var curve)) return;
+        curve.Keys.Clear();
+        curve.Keys.AddRange(snapshot);
+        RedrawCurveStrip();
+        TblStatus.Text = "已取消关键帧拖动（曲线已还原）";
+    }
+
+    protected override void OnPreviewKeyDown(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && _keyDragDot is not null)
+        {
+            CancelKeyDrag();
+            e.Handled = true;
+        }
+        // 焦点在输入框里就不拦：那里的 Ctrl+Z / Ctrl+Y 是文本框自己的撤销与重做。
+        // 圆点还按着时也不拦：撤销会整份换工程，而这次拖动还捏着旧曲线，只能由松手收尾。
+        else if (_keyDragDot is null
+                 && Keyboard.FocusedElement is not TextBox
+                 && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)
+                 && e.Key is Key.Z or Key.Y)
+        {
+            e.Handled = true;
+            UndoRedo(e.Key == Key.Z);
+        }
+
+        base.OnPreviewKeyDown(e);
+    }
+
+    private string KeyDragText() => $"t={_keyDragKey.Time:F2}s · 缩放 {_keyDragKey.Value:F2}";
 
     // ---------------- VTS 会话 ----------------
 
@@ -2129,13 +2501,17 @@ public partial class PvStageWindow : Window
 
         var known = senders.Where(n => !_scene.Layers.Any(l => l.SpoutSenderName == n)).ToList();
 
-        // 图片入口与 Spout 段并列，且**不受**"没有发送端"影响：图片层不需要发送端。
-        // 原来整张菜单在没有 Spout 源时直接不弹，图片层就永远加不进来。
+        // 图片与视频入口都与 Spout 段并列，且**不受**"没有发送端"影响：它们不需要发送端。
+        // 原来整张菜单在没有 Spout 源时直接不弹，这些层就永远加不进来。
         var menu = new ContextMenu { PlacementTarget = BtnAddLayer };
 
         var imageItem = new MenuItem { Header = "图片文件…", ToolTip = "png / jpg / webp / bmp" };
         imageItem.Click += (_, _) => AddImageLayer();
         menu.Items.Add(imageItem);
+
+        var videoItem = new MenuItem { Header = "视频文件…", ToolTip = "mp4 / mkv / avi / wmv，循环播放" };
+        videoItem.Click += (_, _) => AddVideoLayer();
+        menu.Items.Add(videoItem);
 
         if (known.Count > 0)
         {
@@ -2188,6 +2564,28 @@ public partial class PvStageWindow : Window
         pipe.RequestAddImage(dlg.FileName);
         TblStatus.Text = $"添加图片图层 {Path.GetFileName(dlg.FileName)}…";
         Log.Info($"[工作台] 添加图片图层：{dlg.FileName}");
+    }
+
+    /// <summary>加一层磁盘视频：与图片层同一条投递路径（解码器与纹理都由管线在渲染线程上建）。</summary>
+    private void AddVideoLayer()
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "添加视频图层",
+            Filter = "视频 (*.mp4;*.mkv;*.avi;*.wmv)|*.mp4;*.mkv;*.avi;*.wmv|所有文件 (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        var pipe = _pipe;
+        if (pipe is null)
+        {
+            TblStatus.Text = "舞台未就绪：视频图层未加入";
+            return;
+        }
+
+        pipe.RequestAddVideo(dlg.FileName);
+        TblStatus.Text = $"添加视频图层 {Path.GetFileName(dlg.FileName)}…";
+        Log.Info($"[工作台] 添加视频图层：{dlg.FileName}");
     }
 
     private void BtnPlay_Click(object sender, RoutedEventArgs e)
@@ -2289,6 +2687,10 @@ public partial class PvStageWindow : Window
 
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
         if (_saveError is { } saveFault) TblStatus.Text = $"工程未保存：{saveFault}";
+
+        // 拖动中的读数写在这条链的最后：上面每 500ms 一次的状态行刷新会把刚显示的 t / 值抹掉
+        if (_keyDragDot is not null) TblStatus.Text = KeyDragText();
+        if (_exporting) TblStatus.Text = ExportText(); // 同理：导出进度也要活过这 500ms
 
         UpdatePlayIcon();
     }

@@ -109,6 +109,16 @@
                                            FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextXs}"
                                            Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
                             </Grid>
+                            <Grid DockPanel.Dock="Top" Margin="14,0,10,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="样式" Style="{StaticResource PvRowLabel}" Margin="0,0,8,0"
+                                           VerticalAlignment="Center" />
+                                <ComboBox x:Name="CmbLyricStyle" Grid.Column="1"
+                                          SelectionChanged="CmbLyricStyle_SelectionChanged" />
+                            </Grid>
                             <ScrollViewer x:Name="LyricScroll" VerticalScrollBarVisibility="Auto"
                                           Padding="10,0,8,10">
                                 <StackPanel x:Name="LyricsHost" />
@@ -225,6 +235,9 @@
                             Content="打开歌词" Click="BtnOpenLyrics_Click" />
                     <Button x:Name="BtnOpenAudio" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                             Content="打开音频" Click="BtnOpenAudio_Click" />
+                    <Button x:Name="BtnExport" Style="{StaticResource PvBtnGhost}" Padding="9,5"
+                            Content="导出" ToolTip="把当前工程逐帧离屏渲染成 MP4（另建一条管线，不动舞台）"
+                            Click="BtnExport_Click" />
                     <Border Width="1" Height="16" Margin="8,0" Background="{StaticResource PvLine}" />
                     <Button x:Name="BtnPlay" Style="{StaticResource PvBtnGhost}" Click="BtnPlay_Click" Padding="10,6">
                         <Path x:Name="PlayIcon" Data="M0,0 L11,6 L0,12 Z" Fill="{StaticResource PvFg}" />
