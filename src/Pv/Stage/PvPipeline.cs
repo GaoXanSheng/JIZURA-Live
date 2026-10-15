@@ -53,6 +53,14 @@ public sealed class PvPipeline : IDisposable
 
     private const double TrackingCameraFrac = 0.10;
 
+    // 关键帧曲线：UI 线程发布不可变快照（DirectorEvaluator.Snapshot），渲染线程下一帧读到；
+    // 引用交换原子，无锁。快照发布后永不修改，所以渲染线程读它是安全的。
+    private volatile DirectorEvaluator? _director;
+
+    /// <summary>镜头缩放的参数地址（文本形式 <c>camera.scale</c>）。地址是值相等类型，静态构造一次即可。</summary>
+    private static readonly ParamAddress CameraScaleAddr =
+        new(ParamAddressKind.Camera, "", "scale");
+
     public PvScene Scene => _scene;
     public EffectGraph Effects => _effects;
     public PvStageRenderer Renderer => _renderer;
@@ -126,6 +134,12 @@ public sealed class PvPipeline : IDisposable
     /// </summary>
     public void SetTracking(VtsTrackingProbe? probe) => _tracking = probe;
 
+    /// <summary>
+    /// 换导演求值器快照（任意线程）。UI 线程在曲线上改完打一份不可变快照发布过来，渲染线程下一帧读到；
+    /// 引用交换原子，无锁。传 null = 关掉曲线驱动，镜头回场景基础值。
+    /// </summary>
+    public void SetDirector(DirectorEvaluator? d) => _director = d;
+
     public void Prepare(double time)
     {
         ApplyLayerOps();
@@ -134,7 +148,7 @@ public sealed class PvPipeline : IDisposable
         if (!_stopPumping)
             foreach (var p in _spoutProviders) p.PumpFrame();
 
-        ApplyTracking();
+        ApplyTracking(time);
 
         // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
@@ -322,20 +336,25 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
-    private void ApplyTracking()
+    private void ApplyTracking(double time)
     {
         // 基础态来自场景文档，不是 Identity：追踪失效时镜头落在工程量好的取景上，
-        // 而不是每次都弹回 (0,0,1)。Scale 下限保护：Scale=0 会让每层缩放塌成 0、
-        // 整幅空白，手改文件也不能把画面改没（Camera 被手改成 null 同理：回落默认）。
+        // 而不是每次都弹回 (0,0,1)。Camera 被手改成 null 同理：回落默认。
         var cam = _scene.Camera ?? new PvCameraConfig();
-        var baseCam = new PvCamState(
-            cam.X, cam.Y, Math.Max(0.01, cam.Scale), 0, 0, null, null);
+
+        // 缩放取值曲线优先：有 scale 曲线时它**替换**基础 Scale（曲线值即绝对取景），追踪缩放仍在它之上相乘；
+        // 曲线与信号图（追踪通道）的统一仲裁是 M6 的事，这里不做混合。无曲线回落场景常量。
+        // 两条路都夹 Math.Max：Scale=0 会让每层缩放塌成 0、整幅空白，手改文件也不能把画面改没。
+        var baseScale = Math.Max(0.01, cam.Scale);
+        var director = _director;
+        if (director is not null && director.TryEvaluate(CameraScaleAddr, time, out var curveScale))
+            baseScale = Math.Max(0.01, curveScale);
 
         if (_tracking is null || !_tracking.TryRead(250, out var st))
         {
             // 每帧都写回基础态（不是"什么都不做"）：否则最后一帧的追踪姿态会一直留在镜头上，
             // 断连后画面冻在歪着的取景里。
-            _renderer.Stage.Camera = baseCam;
+            _renderer.Stage.Camera = new PvCamState(cam.X, cam.Y, baseScale, 0, 0, null, null);
             _renderer.Stage.Energy = 0;
             _prevBlink = false;
             return;
@@ -346,10 +365,11 @@ public sealed class PvPipeline : IDisposable
 
         // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度。
         // Zoom 的夹持是追踪通道自身的上下界；基础值自由相乘。
+        // 曲线在这里就进了 Stage.Camera，而预览与广播都从同一个 Stage 合成本帧，天然同步反映。
         _renderer.Stage.Camera = new PvCamState(
             cam.X + drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
             cam.Y + drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
-            Math.Max(0.01, cam.Scale) * Math.Clamp(drive.Zoom, 0.5, 2.0),
+            baseScale * Math.Clamp(drive.Zoom, 0.5, 2.0),
             0, 0, null, null);
         _renderer.Stage.Energy = drive.MouthEnergy;
     }

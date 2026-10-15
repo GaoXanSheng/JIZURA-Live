@@ -46,6 +46,23 @@ public partial class PvStageWindow : Window
     private Border? _colorSwatch;
     private bool _draggingTime;
 
+    // 关键帧曲线：编辑只发生在这一份（UI 线程）上，渲染线程拿到的是 PublishDirector 发布的不可变快照。
+    // 地址解析一次存字段：它是值相等类型，每帧/每次编辑现拼字符串没有意义。
+    private readonly DirectorEvaluator _evaluator = new();
+    private readonly ParamAddress _camScaleAddr = new(ParamAddressKind.Camera, "", "scale");
+
+    // 缩放的值域（与 XAML 里滑杆的 Minimum / Maximum 是同一对数）：曲线条的纵向映射也用它，两处必须同域
+    private const double ScaleMin = 0.5;
+    private const double ScaleMax = 2.0;
+
+    // 关键帧圆点直径
+    private const double KeyDotSize = 8;
+
+    private bool _updatingScale;  // 程序化回写滑杆时为 true：那条 ValueChanged 不是用户输入，不能当编辑写回去
+    private double _stripSpan;    // 曲线条上次重画用的时间跨度，用来发现"时长变了要及时重量程"
+    private System.Windows.Shapes.Line? _playhead;  // 播放头：只挪位置，不参与整条重画
+    private double _scaleEditTime;  // 滑杆编辑的时刻：按下滑杆那一刻冻结，拖动全程替换同一条 key（播放中时钟在走，不冻结会堆 key）
+
     // 广播开关：UI 只持有"用户意图"，native 发送端由管线在渲染线程建/拆
     private bool _broadcastOn;
     private readonly string _spoutName;
@@ -71,6 +88,15 @@ public partial class PvStageWindow : Window
         _audioPath = _project.AudioPath;
         _lrcText = _project.LrcText;
         if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
+
+        // 恢复工程里的关键帧曲线。ProjectStore.Load 已经治理过坏地址，这里再挡一次：
+        // 解析失败的条目一旦进了求值器，就是一条谁也取不到、UI 上也看不见的孤儿曲线，会一直跟着存回磁盘。
+        foreach (var save in _project.Curves)
+        {
+            if (save?.Curve is null) continue;
+            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
+            _evaluator.SetCurve(addr, save.Curve);
+        }
 
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -132,8 +158,29 @@ public partial class PvStageWindow : Window
     {
         _project.AudioPath = _audioPath;
         _project.LrcText = _lrcText;
+        SyncCurvesToProject();
         return ProjectStore.Save(_project, ProjectPath);
     }
+
+    /// <summary>
+    /// 把求值器里的曲线回写进工程文档，供随后的一次序列化落盘。
+    ///
+    /// 为什么可以共享同一个 <see cref="FloatCurve"/> 实例：ProjectStore.Save 就在这一句之后、
+    /// 在 UI 线程上同步序列化，而渲染线程只读它自己那份快照（PublishDirector 发的），
+    /// 不会有人与这次序列化同时动 _project.Curves。
+    /// </summary>
+    private void SyncCurvesToProject()
+    {
+        _project.Curves.Clear();
+        foreach (var (addr, curve) in _evaluator.Curves)
+            _project.Curves.Add(new CurveSave { Address = addr.ToString(), Curve = curve });
+    }
+
+    /// <summary>
+    /// 把当前曲线整份拷成快照交给管线（引用交换，渲染线程下一帧读到）。
+    /// 每次编辑之后都必须调：渲染线程只看快照，漏掉这一句 = 这次编辑屏幕上不生效。
+    /// </summary>
+    private void PublishDirector() => _pipe?.SetDirector(_evaluator.Snapshot());
 
     /// <summary>
     /// 停机顺序按执行契约走：先完成保存/放弃决策，再停止发布（取帧、音频），
@@ -194,6 +241,10 @@ public partial class PvStageWindow : Window
             _pipe = null;
 
             _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
+            // 建完管线就把工程里已有的曲线带上，否则要等第一次编辑才生效。
+            // 绕一下 UI 线程：本回调跑在渲染线程上，而曲线字典归 UI 线程所有——
+            // 在这里直接 Snapshot() 会与用户编辑撞上同一个字典（枚举中改 = 抛异常）。
+            Dispatcher.BeginInvoke(new Action(PublishDirector));
 
             // 万一 VTS 会话在管线之前就开着（不太可能，但保持自洽）：把它的探针接上
             if (_vts is not null) _pipe.SetTracking(_vts.Tracking);
@@ -347,7 +398,15 @@ public partial class PvStageWindow : Window
                     ToolTip = "删除本图层",
                 };
                 var idRef = layer.Id;
-                del.Click += (_, _) => _pipe?.RequestRemove(idRef);
+                del.Click += (_, _) =>
+                {
+                    // 曲线跟着图层走：SeedLayerSeq 会在"删最高号 src_N + 重启"后重新发出同一个
+                    // src_N，遗留的 layer:src_N.* 曲线会被下一个同名新层继承（与效果实例串味同理）。
+                    // 现在还没有图层曲线的编辑入口，但级联语义先钉死，别等 UI 造得出来才补。
+                    _evaluator.RemoveCurvesForTarget(idRef);
+                    PublishDirector();
+                    _pipe?.RequestRemove(idRef);
+                };
                 headRight.Children.Add(del);
             }
 
@@ -500,6 +559,10 @@ public partial class PvStageWindow : Window
             del.Click += (_, _) =>
             {
                 _effects.Nodes.Remove(nRef);
+                // 删实例连带删它的曲线：按实例 Id 挂的动画不能留给同 DefId 的下一个实例去继承
+                _evaluator.RemoveCurvesForTarget(nRef.InstanceId);
+                PublishDirector();
+                _saveError = SaveProjectNow();
                 BuildEffectRack();
             };
             headRight.Children.Add(del);
@@ -828,6 +891,220 @@ public partial class PvStageWindow : Window
 
     private void UpdateBroadcastButton() => BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
 
+    // ---------------- 镜头缩放的关键帧 ----------------
+
+    /// <summary>
+    /// 给 camera.scale 打一个 key：时刻取当前播放位置，值取滑杆当前值。
+    /// 曲线不存在就新建——"还没曲线时按打 key"是最自然的第一次打点方式，
+    /// 逼用户先做一步"新建曲线"没有任何信息量。
+    /// </summary>
+    private void BtnKeyCamera_Click(object sender, RoutedEventArgs e)
+    {
+        var t = _audio.Time;
+        // 打 key 的值不能拿滑杆显示值：滑杆只在 500ms 定时器上跟播放位置同步，
+        // seek 之后立刻打 key 会把上一位置的值钉到新时刻上。曲线存在就按"这一刻曲线本来该是什么"
+        // （也是管线实际生效的值，不夹显示域——曲线是替换语义，夹过再写回会把取景静默拉近/推远）来打；
+        // 只在新建曲线时才用滑杆值起步。
+        var v = _evaluator.TryEvaluate(_camScaleAddr, t, out var eval)
+            ? eval
+            : SldCamScale.Value;
+
+        if (!_evaluator.Curves.TryGetValue(_camScaleAddr, out var curve))
+        {
+            curve = new FloatCurve();
+            _evaluator.SetCurve(_camScaleAddr, curve);
+        }
+
+        // 同一时刻只许有一个 key（TryAdd 会拒绝重复时刻），所以"替换"用 Remove + TryAdd 表达；
+        // 反复点打 key 只是刷新同一条 key 的值，不会堆出一摞同刻的 key。
+        // 替换沿用原 key 的插值模式（模式是用户的选择）；新时刻才用 SmoothStep。
+        var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
+        curve.Remove(t);
+        curve.TryAdd(t, v, mode);
+
+        PublishDirector();
+        RedrawCurveStrip();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = $"已打关键帧 t={t:F2}s · 缩放 {v:F2}";
+    }
+
+    /// <summary>同刻窗口（1µs，与 FloatCurve 一致）内已有 key 的插值模式；没有返回 null。</summary>
+    private static CurveInterp? ModeOfKeyAt(FloatCurve curve, double time)
+    {
+        foreach (var k in curve.Keys)
+            if (Math.Abs(k.Time - time) < 1e-6) return k.Mode;
+        return null;
+    }
+
+    private void SldCamScale_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        // 挡两条非用户路径：工程装载前 InitializeComponent 定 Minimum 夹 Value 那一次（若事件已接上），
+        // 以及 RefreshStatus 每 500ms 把"当前生效值"写回滑杆那一次。
+        if (_updatingScale || _scene is null) return;
+
+        var v = e.NewValue;
+        if (_evaluator.Curves.TryGetValue(_camScaleAddr, out var curve))
+        {
+            // 有曲线时滑杆改的是"这一刻的曲线值"。编辑时刻在按下滑杆那一刻冻结：
+            // 播放中设备钟每帧推进，相邻 ValueChanged 的时刻差远大于 1µs 的同刻窗口，
+            // 不冻结的话 Remove 找不到上一条 key、TryAdd 每次都插新的，一次拖动堆出上百条 key。
+            if (!SldCamScale.IsMouseCaptureWithin) _scaleEditTime = _audio.Time;
+            var t = _scaleEditTime;
+            // 替换沿用该 key 原有的插值模式：模式是用户的选择，改值不该把它静默抹成 SmoothStep。
+            // 新时刻才用 SmoothStep 默认——与打 key 按钮同款。
+            var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
+            curve.Remove(t);
+            curve.TryAdd(t, v, mode);
+            PublishDirector();
+            RedrawCurveStrip();
+        }
+        else
+        {
+            // 还没有曲线：滑杆改的是取景基础值（与 PvScene.Camera.Scale 是同一份事实）
+            _scene.Camera ??= new PvCameraConfig(); // 手改文件可能留 null，基础值得有落点
+            _scene.Camera.Scale = v;
+            _scaleEditTime = _audio.Time; // 无曲线路径也要记住时刻，之后第一次打 key 从它起步
+        }
+
+        // 存盘不在每个 ValueChanged 里做：这是整份工程 JSON 的序列化+原子写，拖动一次能触发上百次
+        // （UiStallProbe 自己就把文件写标注为 UI 卡顿来源）。拖动中只更新内存模型，松手时落盘一次。
+        if (!SldCamScale.IsMouseCaptureWithin) _saveError = SaveProjectNow();
+    }
+
+    /// <summary>曲线条的时间跨度（秒）：跟音频总长走；没音源时用 30 秒占位，好过拿 0 当除数。</summary>
+    private double CurveSpan() => _audio.Duration > 0.5 ? _audio.Duration : 30;
+
+    private double TimeToX(double t, double width) => _stripSpan <= 0 ? 0 : t / _stripSpan * width;
+
+    /// <summary>值 → 纵向像素，固定映射 [0.5, 2.0]（与滑杆同域）：自动量程会在打一个 key 时让整条曲线跳形。</summary>
+    private static double ScaleToY(double value, double height) =>
+        (1 - (value - ScaleMin) / (ScaleMax - ScaleMin)) * height;
+
+    private void CurveStrip_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawCurveStrip();
+
+    /// <summary>
+    /// 重画关键帧条。整条重画只在尺寸变化与编辑之后发生；
+    /// 播放头是独立元素，RefreshStatus 里只挪它的位置，播放时不会闪。
+    /// </summary>
+    private void RedrawCurveStrip()
+    {
+        CurveStrip.Children.Clear();
+
+        var w = CurveStrip.ActualWidth;
+        var h = CurveStrip.Height;
+        _stripSpan = CurveSpan();
+
+        var accent = (System.Windows.Media.Brush)FindResource("PvAccent");
+
+        // 基线画在值域下限（0.5）上：没有这条参照线，一个圆点的高低读不出是拉近还是推远
+        CurveStrip.Children.Add(new System.Windows.Shapes.Line
+        {
+            X1 = 0, X2 = w, Y1 = h - 0.5, Y2 = h - 0.5,
+            Stroke = (System.Windows.Media.Brush)FindResource("PvLine"),
+            StrokeThickness = 1,
+        });
+
+        _evaluator.Curves.TryGetValue(_camScaleAddr, out var curve);
+
+        if (curve is null || curve.Count == 0)
+        {
+            var hint = new TextBlock
+            {
+                Text = "无关键帧",
+                FontSize = (double)FindResource("PvTextXs"),
+                Foreground = (System.Windows.Media.Brush)FindResource("PvFgFaint"),
+            };
+            Canvas.SetLeft(hint, 6);
+            Canvas.SetTop(hint, (h - 14) / 2);
+            CurveStrip.Children.Add(hint);
+        }
+        else
+        {
+            if (curve.Count >= 2)
+            {
+                // 逐 key 直连当近似：SmoothStep 的弧度在 30px 高的条上肉眼分不出来，
+                // 按曲线采样反而会让每次编辑都多跑一遍求值。
+                var poly = new System.Windows.Shapes.Polyline
+                {
+                    Stroke = accent,
+                    StrokeThickness = 1.2,
+                };
+                foreach (var k in curve.Keys)
+                    poly.Points.Add(new System.Windows.Point(
+                        TimeToX(k.Time, w), Math.Clamp(ScaleToY(k.Value, h), 0, h)));
+                CurveStrip.Children.Add(poly);
+            }
+
+            foreach (var key in curve.Keys)
+            {
+                var x = TimeToX(key.Time, w);
+                // 值域外的 key 钉在上下边缘：管线的保护只拦 Scale<=0，0.5~2 之外的值会真实生效
+                // （旧版导入/手改工程都能造出来）。夹进显示域但保留可点选——把它画到画布外，
+                // 用户就删不掉它了；y 越贴边越说明这条 key 超域。
+                var y = Math.Clamp(ScaleToY(key.Value, h), 0, h);
+                var outOfRange = key.Value < ScaleMin || key.Value > ScaleMax;
+                var dot = new System.Windows.Shapes.Ellipse
+                {
+                    Width = KeyDotSize,
+                    Height = KeyDotSize,
+                    Fill = accent,
+                    Stroke = outOfRange ? (System.Windows.Media.Brush)FindResource("PvFg") : null, // 越界标记
+                    StrokeThickness = outOfRange ? 1.5 : 0,
+                    Cursor = Cursors.Hand,
+                    ToolTip = outOfRange ? $"越界值 {key.Value:F2}（显示域 {ScaleMin:0.0}–{ScaleMax:0.0}）" : null,
+                    Tag = key.Time, // 删除时靠它把时刻找回来
+                };
+                Canvas.SetLeft(dot, x - KeyDotSize / 2);
+                Canvas.SetTop(dot, y - KeyDotSize / 2);
+
+                var keyTime = key.Time;
+                dot.MouseLeftButtonDown += (_, e) =>
+                {
+                    // 先吃掉事件：命中 key 的这一次点击不能既删了 key、又冒泡到画布背景变成一次 seek
+                    e.Handled = true;
+                    if (!curve.Remove(keyTime)) return;
+                    // 空了就把整条曲线撤掉：求值上"空曲线"等价于"没有曲线"，存档里留个空壳只会误导
+                    if (curve.Count == 0) _evaluator.RemoveCurve(_camScaleAddr);
+
+                    PublishDirector();
+                    RedrawCurveStrip();
+                    _saveError = SaveProjectNow();
+                    TblStatus.Text = "已删除关键帧";
+                };
+
+                CurveStrip.Children.Add(dot);
+            }
+        }
+
+        _playhead = new System.Windows.Shapes.Line
+        {
+            X1 = 0, X2 = 0, Y1 = 0, Y2 = h,
+            Stroke = (System.Windows.Media.Brush)FindResource("PvFg"),
+            StrokeThickness = 1,
+            IsHitTestVisible = false, // 播放头压在 key 上时，点击要落在 key 上，不能被它吃掉
+        };
+        CurveStrip.Children.Add(_playhead);
+        UpdatePlayhead();
+    }
+
+    /// <summary>把播放头挪到当前时刻。位置用上次重画时的那根时间轴（_stripSpan），与圆点同源。</summary>
+    private void UpdatePlayhead()
+    {
+        var play = _playhead;
+        if (play is null) return;
+        var w = CurveStrip.ActualWidth;
+        if (w <= 0 || _stripSpan <= 0) return;
+        Canvas.SetLeft(play, Math.Clamp(_audio.Time / _stripSpan * w, 0, w));
+    }
+
+    /// <summary>点曲线条空白处 = 定位（圆点会自己把事件吃掉，走不到这里）。</summary>
+    private void CurveStrip_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var w = CurveStrip.ActualWidth;
+        if (w <= 0) return;
+        _audio.Seek(e.GetPosition(CurveStrip).X / w * _stripSpan);
+    }
+
     // ---------------- VTS 会话 ----------------
 
     /// <summary>
@@ -975,6 +1252,28 @@ public partial class PvStageWindow : Window
             SldTime.Maximum = Math.Max(0.01, d);
             SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
         }
+
+        // 滑杆显示"当前生效的缩放"：有曲线是曲线值，没有就是场景基础值。
+        // 用户正按着滑杆时不同步（否则刚拖到一半就被拉回去）；程序化设 Value 会再触发一次 ValueChanged，
+        // 用 _updatingScale 把那一次挡在编辑路径外。
+        if (!SldCamScale.IsMouseCaptureWithin)
+        {
+            var want = _evaluator.TryEvaluate(_camScaleAddr, t, out var curveScale)
+                ? Math.Clamp(curveScale, ScaleMin, ScaleMax)
+                : Math.Clamp(_scene.Camera?.Scale ?? 1.0, ScaleMin, ScaleMax);
+
+            if (Math.Abs(SldCamScale.Value - want) > 1e-4)
+            {
+                _updatingScale = true;
+                try { SldCamScale.Value = want; }
+                finally { _updatingScale = false; }
+            }
+        }
+
+        // 时长会变（载入/换音源），时间→像素的比例跟着变：重画一次让 key 与播放头重新对齐。
+        // 播放头只是被挪位置，不重画整条——播放中每 500ms 清一次 Children 会闪。
+        if (Math.Abs(_stripSpan - CurveSpan()) > 1e-6) RedrawCurveStrip();
+        UpdatePlayhead();
 
         var pipe = _pipe;
         if (pipe is not null)

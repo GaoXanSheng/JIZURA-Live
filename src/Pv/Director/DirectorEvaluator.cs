@@ -41,6 +41,30 @@ public sealed class DirectorEvaluator
     }
 
     /// <summary>
+    /// 深拷贝一份求值器，供跨线程发布（UI 线程编辑 → 渲染线程每帧求值）。
+    ///
+    /// 为什么必须拷贝：曲线在 UI 线程上被编辑，而 <see cref="FloatCurve.Keys"/> 是可变的
+    /// <see cref="List{T}"/>，不能跨线程共享——编辑线程一次 Insert / RemoveAt 就可能让求值线程
+    /// 读到"容量已变、内容未更"的表。所以每个 <see cref="FloatCurve"/> 都新建实例，Keys 逐条复制进新列表
+    /// （<see cref="CurveKey"/> 是 readonly record struct，复制即与源列表脱钩）。
+    ///
+    /// 契约：快照发布之后**永不修改**。后续编辑在源实例上继续做，再发布下一份快照覆盖；
+    /// 正因如此，拿到快照的渲染线程可以完全无锁地读它。
+    /// </summary>
+    public DirectorEvaluator Snapshot()
+    {
+        var copy = new DirectorEvaluator();
+        foreach (var (addr, curve) in _curves)
+        {
+            var cloned = new FloatCurve();
+            foreach (var key in curve.Keys) cloned.Keys.Add(key);
+            copy._curves[addr] = cloned;
+        }
+
+        return copy;
+    }
+
+    /// <summary>
     /// 删除某个目标（图层 Id 或效果**实例** Id）的全部曲线——删除对象时的级联：
     /// 删掉效果实例 <c>fx_glow_ab12</c>，它的 intensity 曲线必须跟着消失。留着就是一条再也没有主人的孤儿曲线，
     /// 下次同 DefId 的新实例（<c>fx_glow_9f31</c>）不该继承别人的动画。

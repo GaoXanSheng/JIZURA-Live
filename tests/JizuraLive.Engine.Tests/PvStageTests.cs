@@ -344,6 +344,53 @@ public class PvStageTests
     }
 
     /// <summary>
+    /// camera.scale 的关键帧曲线在管线里真的替换了场景常量（不是叠加），且区外钳制、撤掉后回基础值：
+    /// 曲线是"绝对取景"，与场景常量的关系一旦搞成相乘，播放到一半关掉曲线画面就会跳一下。
+    /// </summary>
+    [GpuFact]
+    public void CurveOverridesCameraScaleInPipeline()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        {
+            var scene = PvScene.CreateDefault();
+            scene.Camera = new PvCameraConfig { Scale = 1.0 };
+
+            // 不注入探针：追踪通道全程静默，镜头缩放只可能来自曲线或场景基础值
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph());
+
+            Assert.True(ParamAddress.TryParse("camera.scale", out var scaleAddr),
+                "camera.scale 应能解析为镜头参数地址");
+
+            var eval = new DirectorEvaluator();
+            var curve = new FloatCurve();
+            Assert.True(curve.TryAdd(0, 0.8, CurveInterp.Linear));
+            Assert.True(curve.TryAdd(2, 1.5, CurveInterp.Linear));
+            eval.SetCurve(scaleAddr, curve);
+
+            // 这里直接给活对象：生产路径是 UI 线程编辑完 Snapshot() 发布不可变快照（见 PvPipeline._director），
+            // 单线程用例里没有并发编辑，少一层拷贝不影响被测的取景仲裁
+            pipe.SetDirector(eval);
+
+            pipe.Prepare(0.0);
+            Assert.Equal(0.8, pipe.Renderer.Stage.Camera.Scale, 3);  // 曲线值即绝对取景，不是 1.0 × 0.8
+
+            pipe.Prepare(1.0);
+            Assert.Equal(1.15, pipe.Renderer.Stage.Camera.Scale, 3); // 区间中点：(0.8 + 1.5) / 2
+
+            pipe.Prepare(5.0);
+            Assert.Equal(1.5, pipe.Renderer.Stage.Camera.Scale, 3);  // 末 key 之后钳制在末值
+
+            // 关掉曲线驱动：镜头必须回基础值，而不是冻在最后一帧的曲线值上
+            pipe.SetDirector(null);
+            pipe.Prepare(1.0);
+            Assert.Equal(1.0, pipe.Renderer.Stage.Camera.Scale, 3);
+        }
+    }
+
+    /// <summary>
     /// 效果图文档存储与往返。
     /// </summary>
     [Fact]

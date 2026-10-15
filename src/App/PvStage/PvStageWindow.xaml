@@ -23,6 +23,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="38" />
             <RowDefinition Height="*" />
+            <!-- 关键帧条：夹在舞台与传输条之间，给曲线一个不抢舞台高度、又始终在视野里的位置 -->
+            <RowDefinition Height="34" />
             <RowDefinition Height="46" />
         </Grid.RowDefinitions>
 
@@ -134,6 +136,29 @@
             </Border>
         </Grid>
 
+        <!-- ============ 关键帧条 ============ -->
+        <!-- 曲线自己画在 Canvas 上而不引图表控件：一条曲线最多也就几百个 key，
+             折线加圆点足够读，为它拖进一整套"坐标轴 / 光标 / 缩放"概念不划算。 -->
+        <Border Grid.Row="2" Background="{StaticResource PvPanel}"
+                BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,1,0,0">
+            <Grid Margin="14,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="镜头缩放" Style="{StaticResource PvRowLabel}"
+                           Margin="0,0,10,0" />
+
+                <!-- Background 必须是实色笔刷（透明也算）：Canvas 没有笔刷就整块不参与命中测试，
+                     点空白处 seek 会静默失效。 -->
+                <Canvas x:Name="CurveStrip" Grid.Column="1" Height="30" ClipToBounds="True"
+                        Background="Transparent"
+                        SizeChanged="CurveStrip_SizeChanged"
+                        MouseLeftButtonDown="CurveStrip_MouseLeftButtonDown" />
+            </Grid>
+        </Border>
+
         <!-- 取色弹窗：共享一个实例，点色块时定位过去（每个色块各建一个太浪费） -->
         <Popup x:Name="ColorPop" StaysOpen="False" AllowsTransparency="True" Placement="Mouse"
                HorizontalOffset="6" VerticalOffset="6">
@@ -156,7 +181,7 @@
         </Popup>
 
         <!-- ============ 传输条 ============ -->
-        <Border Grid.Row="2" Background="{StaticResource PvPanel}"
+        <Border Grid.Row="3" Background="{StaticResource PvPanel}"
                 BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,1,0,0">
             <Grid Margin="14,0">
                 <Grid.ColumnDefinitions>
@@ -183,6 +208,16 @@
                         Minimum="0" Maximum="1" ValueChanged="SldTime_ValueChanged" />
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 缩放：没有曲线时它就是取景基础值（工程里存的那一个数）；有曲线时显示曲线在当前时刻的值。
+                         装载期间设 Minimum 会把 Value 从 0 夹上来，那次回调（若事件已接上）由处理器里的守卫挡掉。 -->
+                    <TextBlock Text="缩放" Style="{StaticResource PvRowLabel}" Margin="0,0,6,0" />
+                    <Slider x:Name="SldCamScale" Style="{StaticResource PvSlider}" Width="90"
+                            Minimum="0.5" Maximum="2" SmallChange="0.01" Value="1"
+                            ValueChanged="SldCamScale_ValueChanged" />
+                    <Button x:Name="BtnKeyCamera" Style="{StaticResource PvBtnGhost}" Padding="9,5"
+                            Margin="6,0,10,0" Content="◆K"
+                            ToolTip="在当前时刻打一个镜头缩放关键帧（已存在则替换）"
+                            Click="BtnKeyCamera_Click" />
                     <Button x:Name="BtnBroadcast" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                             Margin="0,0,8,0" Content="广播 关" Click="BtnBroadcast_Click" />
                     <Button x:Name="BtnVts" Style="{StaticResource PvBtnGhost}" Padding="9,5"

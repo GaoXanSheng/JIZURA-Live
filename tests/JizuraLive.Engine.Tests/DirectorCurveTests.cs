@@ -319,6 +319,45 @@ public class DirectorCurveTests
         Assert.Equal(curve.Evaluate(1.5), value); // 求值是转发给曲线本身，没有第二套插值
     }
 
+    [Fact]
+    public void SnapshotIsIndependentOfOriginal()
+    {
+        var eval = new DirectorEvaluator();
+        var addr = Address("camera.scale");
+        var curve = Curve(CurveInterp.Linear, (0, 0.8), (2, 1.5));
+        eval.SetCurve(addr, curve);
+
+        var snap = eval.Snapshot();
+
+        // 快照要给渲染线程无锁读，就必须是发布那一刻的深拷贝而不是共享视图：
+        // 曲线实例与 Keys 列表都得是新的，否则编辑线程的 Insert / RemoveAt 会当着求值线程的面改表
+        Assert.NotSame(curve, snap.Curves[addr]);
+        Assert.NotSame(curve.Keys, snap.Curves[addr].Keys);
+        Assert.Equal(2, snap.Curves[addr].Count);
+        Assert.True(snap.TryEvaluate(addr, 1, out var atOne));
+        Assert.Equal(1.15, atOne, 3);
+
+        // 发布之后源实例继续编辑——这正是生产路径的用法，快照必须停在按下那一刻
+        Assert.True(curve.TryAdd(4, 3.0));
+        Assert.True(curve.Remove(0));
+        Assert.Equal(2, curve.Count);
+
+        Assert.Equal(2, snap.Curves[addr].Count);
+        Assert.True(snap.TryEvaluate(addr, 1, out var unchangedAtOne));
+        Assert.Equal(atOne, unchangedAtOne); // 逐位相同，不是容差内近似
+        Assert.True(snap.TryEvaluate(addr, 4, out var atFour));
+        Assert.Equal(1.5, atFour, 3);        // 新加的 (4, 3.0) 没渗进来：快照仍钳制在末 key
+
+        // 反方向同样独立：改快照不能回渗到源曲线，否则 UI 上的编辑会被"渲染线程那边"悄悄改写
+        Assert.True(snap.Curves[addr].TryAdd(6, 9.0));
+        Assert.True(snap.Curves[addr].Remove(0));
+        Assert.Equal(new[] { 2.0, 6.0 }, snap.Curves[addr].Keys.Select(k => k.Time).ToArray());
+
+        Assert.Equal(new[] { 2.0, 4.0 }, curve.Keys.Select(k => k.Time).ToArray());
+        Assert.Equal(1.5, curve.Evaluate(0), 3); // 源曲线首 key 仍是 (2, 1.5)，区外取值照旧钳制
+        Assert.Equal(3, curve.Evaluate(4));      // 源曲线自己的 (4, 3.0) 还没被谁动过
+    }
+
     // ---------- helpers ----------
 
     private static ParamAddress Address(string text)
