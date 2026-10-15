@@ -7,6 +7,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using JizuraLive.App.Controls;
+using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
@@ -47,15 +49,13 @@ public partial class PvStageWindow : Window
     private string? _audioPath;
     private string? _lrcText;
 
-    // 歌词轨（UI 侧）：与交给管线的同一份 KrcLine 列表，定位只走 LrcParser.FindLineIndex 的二分——
-    // 这里再自己算一遍"当前第几句"，迟早与管线的清屏判定给出不同结果。
+    // 歌词（UI 侧）：与交给管线的同一份 KrcLine 列表，时间轴的歌词轨由它转成 TClip。
     private IReadOnlyList<KrcLine>? _lyrics;
 
     // 末句是不是"待校准的临时区间"（导入那一刻既没有下一个时间戳、也没有音频时长）。
     // 与 _lyrics 同一次导入产生、同一次导入更新：分开存是因为 KrcLine 里只有时长，装不下这个判定。
     private bool _tailUncalibrated;
-    private Border[] _lyricRows = Array.Empty<Border>();
-    private int _lyricCursor = -1; // 当前高亮行的下标；-1 = 此刻没有歌词（空档/句尾/越界）
+    private ComboBox? _cmbLyricStyle;
 
     private int _saveTick;
     private string? _saveError;
@@ -79,26 +79,27 @@ public partial class PvStageWindow : Window
     private DirectorEvaluator _evaluator = new();
     private readonly ParamAddress _camScaleAddr = new(ParamAddressKind.Camera, "", "scale");
 
-    // 缩放的值域（与 XAML 里滑杆的 Minimum / Maximum 是同一对数）：曲线条的纵向映射也用它，两处必须同域
+    // 缩放的值域：检查器滑杆与时间轴那条 camera.scale 轨道的显示域都用它，两处必须同域
     private const double ScaleMin = 0.5;
     private const double ScaleMax = 2.0;
 
-    // 关键帧圆点直径
-    private const double KeyDotSize = 8;
-
     private bool _updatingScale;  // 程序化回写滑杆时为 true：那条 ValueChanged 不是用户输入，不能当编辑写回去
-    private double _stripSpan;    // 曲线条上次重画用的时间跨度，用来发现"时长变了要及时重量程"
-    private System.Windows.Shapes.Line? _playhead;  // 播放头：只挪位置，不参与整条重画
     private double _scaleEditTime;  // 滑杆编辑的时刻：按下滑杆那一刻冻结，拖动全程替换同一条 key（播放中时钟在走，不冻结会堆 key）
 
-    // 关键帧圆点拖动：按下时那个 key（位移一律从它起算）+ 当前所在位置 + 快照（Esc 整份还原）。
-    // 拖动期间整条曲线不重画——重画会 Children.Clear，被拖动的那颗圆点连同鼠标捕获一起消失。
-    private System.Windows.Shapes.Ellipse? _keyDragDot;
-    private CurveKey _keyDragOriginKey;
-    private CurveKey _keyDragKey;
-    private System.Windows.Point _keyDragOrigin;
-    private bool _keyDragMoved;
-    private List<CurveKey>? _keyDragSnapshot;
+    // 时间轴（TimelineView）宿主侧状态：快照只在模型变了时整份重建，播放头每 500ms 原位刷一次
+    private TSnapshot? _snap;
+    private WaveformPeaks? _peaks;
+    private CancellationTokenSource? _waveformCts;
+
+    // 属性检查器：null = 没有选中对象，显示工程级信息
+    private PvLayerConfig? _selectedLayer;
+    private JzBadge? _camBadge;
+    private TextBlock? _camScaleText;
+    private Slider SldCamScale = null!; // 检查器每次重建都会换一个新的
+
+    private const double TimelineExpandedHeight = 220;
+    private const double TimelineCollapsedHeight = 40;
+    private bool TimelineExpanded => TimelineRow.Height.Value >= TimelineExpandedHeight;
 
     // 撤销/重做：栈里放的是工程 JSON 串（与 ProjectStore.Save 同一序列化），深度上限由 UndoLog 管
     private readonly UndoLog _undo = new();
@@ -153,10 +154,15 @@ public partial class PvStageWindow : Window
         Stage.Frame += OnStageFrame;
         Stage.Shutdown += OnStageShutdown;
 
+        TheTimeline.SeekRequested += Timeline_SeekRequested;
+        TheTimeline.EditCommitted += Timeline_EditCommitted;
+        TheTimeline.Fps = _scene.Fps;
+
         BuildLayerList();
         BuildEffectRack();
         BuildPickers();
-        BuildLyricList(); // 先给出"无歌词"的空态：轨道的位置与标题从一开始就是稳定的
+        BuildInspector();
+        RefreshTimeline();
 
         _uiTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -360,13 +366,19 @@ public partial class PvStageWindow : Window
             {
                 Dispatcher.BeginInvoke(() => TblStatus.Text = "工程音频加载失败：" + _audioPath);
             }
+            else
+            {
+                // 波形解码在后台线程做，这里只发起（本回调跑在渲染线程上，不在这里碰 UI）
+                var path = _audioPath;
+                Dispatcher.BeginInvoke(() => StartWaveformLoad(path));
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(_lrcText))
         {
             try
             {
-                // 解析是纯函数，在哪条线程跑都一样；但歌词轨控件归 UI 线程，赋值与建行必须绕回去
+                // 解析是纯函数，在哪条线程跑都一样；但时间轴与检查器归 UI 线程，赋值必须绕回去
                 // （本回调也在渲染线程上，与上面 PublishDirector 同理）。
                 var (lines, tailUncalibrated) = ParseLyrics(_lrcText);
                 _pipe.SetLyrics(lines);
@@ -374,7 +386,8 @@ public partial class PvStageWindow : Window
                 {
                     _lyrics = lines;
                     _tailUncalibrated = tailUncalibrated;
-                    BuildLyricList();
+                    BuildInspector();
+                    RefreshTimeline();
                 });
                 Log.Info($"[PV 工作台] 已恢复工程歌词：{lines.Count} 行，末句待校准={tailUncalibrated}");
             }
@@ -452,6 +465,9 @@ public partial class PvStageWindow : Window
             for (var i = _scene.Layers.Count - 1; i >= 0; i--) _uiLayers.Add(_scene.Layers[i]);
         }
 
+        // 选中的图层可能已经不在（删除 / 换工程）：检查器不能继续指着一个不存在的对象
+        if (_selectedLayer is not null && !_uiLayers.Contains(_selectedLayer)) _selectedLayer = null;
+
         LayersHost.Children.Clear();
         foreach (var layer in _uiLayers)
         {
@@ -523,27 +539,19 @@ public partial class PvStageWindow : Window
 
             var meta = new TextBlock
             {
-                Text = $"{LayerKindLabel(layer.Kind)} · 深度 {layer.Parallax.Depth:F2}",
+                Text = LayerKindLabel(layer.Kind),
                 FontSize = (double)FindResource("PvTextXs"),
                 Foreground = (System.Windows.Media.Brush)FindResource("PvFgFaint"),
-                Margin = new Thickness(0, 2, 0, 6),
+                Margin = new Thickness(0, 2, 0, 0),
             };
             stack.Children.Add(meta);
-
-            var lRef = layer;
-            stack.Children.Add(ParamRow("深度", layer.Parallax.Depth, 0, 2, 0.05,
-                v => lRef.Parallax.Depth = v));
-            stack.Children.Add(ParamRow("不透明", layer.Opacity, 0, 1, 0.02,
-                v => lRef.Opacity = v));
-            stack.Children.Add(ParamRow("环境光", layer.VisualBlend.AmbientTintIntensity, 0, 1, 0.02,
-                v => lRef.VisualBlend.AmbientTintIntensity = v));
-            stack.Children.Add(ParamRow("边缘光", layer.VisualBlend.RimGlow, 0, 1, 0.02,
-                v => lRef.VisualBlend.RimGlow = v));
 
             LayersHost.Children.Add(card);
         }
 
         TblLayerCount.Text = $"{_scene.Layers.Count} 层";
+        HighlightLayerCards();
+        BuildInspector();
     }
 
     private static string LayerKindLabel(PvLayerKind k) => k switch
@@ -559,8 +567,10 @@ public partial class PvStageWindow : Window
     private void LayerCard_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is DependencyObject d && FindAncestor<System.Windows.Controls.Primitives.RangeBase>(d) is not null) return;
+        var layer = ((Border)sender).Tag as PvLayerConfig;
+        if (!ReferenceEquals(layer, _selectedLayer)) SelectLayer(layer);
         _dragStart = e.GetPosition(this);
-        _dragLayer = ((Border)sender).Tag as PvLayerConfig;
+        _dragLayer = layer;
     }
 
     private void LayerCard_MouseMove(object sender, MouseEventArgs e)
@@ -848,12 +858,13 @@ public partial class PvStageWindow : Window
     };
 
     private FrameworkElement ParamRow(string label, double value, double min, double max,
-        double step, Action<double> onChange)
+        double step, Action<double> onChange, bool keySlot = false)
     {
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        if (keySlot) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
 
         var lab = new TextBlock
         {
@@ -891,6 +902,14 @@ public partial class PvStageWindow : Window
         Grid.SetColumn(valText, 2);
         row.Children.Add(slider);
         row.Children.Add(valText);
+
+        if (keySlot)
+        {
+            var slot = new Border { Width = 24 }; // ◆K 的位置（打帧还没接）
+            Grid.SetColumn(slot, 3);
+            row.Children.Add(slot);
+        }
+
         return row;
     }
 
@@ -906,8 +925,6 @@ public partial class PvStageWindow : Window
             CmbPreset.Items.Add(label);
         CmbPreset.SelectedIndex = EffectPresets.PickerInitialIndex;
 
-        foreach (var name in LyricStyleNames) CmbLyricStyle.Items.Add(name);
-        SyncLyricStylePicker();
     }
 
     private void CmbAddFx_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -953,118 +970,6 @@ public partial class PvStageWindow : Window
         TblStatus.Text = SignalStatusText(); // 结论当场可见，不等下一次 500ms 状态刷新
     }
 
-    // ---------------- 歌词轨 ----------------
-
-    /// <summary>
-    /// 按当前歌词整份重建列表。只在歌词换了（装载/恢复）时调，不随播放重建：
-    /// 重建会把滚动位置与命中目标一起丢掉，而定位每 500ms 都在发生。
-    /// </summary>
-    private void BuildLyricList()
-    {
-        LyricsHost.Children.Clear();
-        _lyricCursor = -1;
-
-        var lyrics = _lyrics;
-        _lyricRows = lyrics is null ? Array.Empty<Border>() : new Border[lyrics.Count];
-
-        if (lyrics is not null)
-        {
-            for (var i = 0; i < lyrics.Count; i++)
-            {
-                var startSeconds = lyrics[i].StartMs / 1000.0;
-                var row = new Border
-                {
-                    // 背景必须有笔刷（透明也算）：没有它这一行不参与命中测试，点歌词会静默失效，
-                    // 与曲线条 Canvas 是同一个坑。
-                    Background = System.Windows.Media.Brushes.Transparent,
-                    CornerRadius = (CornerRadius)FindResource("PvRadiusSm"),
-                    Padding = new Thickness(8, 5, 8, 5),
-                    Margin = new Thickness(0, 0, 0, 2),
-                    Cursor = Cursors.Hand,
-                    ToolTip = "定位到 " + Fmt(startSeconds),
-                };
-                var text = new TextBlock
-                {
-                    Text = lyrics[i].Text,
-                    FontSize = (double)FindResource("PvTextSm"),
-                    Foreground = (System.Windows.Media.Brush)FindResource("PvFgDim"),
-                    TextWrapping = TextWrapping.Wrap,
-                };
-
-                // 末句区间是"待校准的临时值"（导入时既没有下一个时间戳、也没有音频时长）：标在行上而不是只写日志——
-                // 用户看到的是"最后一句恰好收在 3 秒后"，不标出来只会以为歌词文件本来就是那样。
-                // OutOfRange 只可能落在末句（LrcParser 只在最后一组没有下一个时间戳时才走 TailEnd）。
-                if (_tailUncalibrated && i == lyrics.Count - 1)
-                {
-                    row.ToolTip = $"定位到 {Fmt(startSeconds)} · 末句区间是临时值（导入时没有音频时长）";
-                    var block = new StackPanel();
-                    block.Children.Add(text);
-                    block.Children.Add(new TextBlock
-                    {
-                        Text = "末句待校准",
-                        FontSize = (double)FindResource("PvTextXs"),
-                        Foreground = (System.Windows.Media.Brush)FindResource("PvWarn"),
-                        Margin = new Thickness(0, 2, 0, 0),
-                    });
-                    row.Child = block;
-                }
-                else
-                {
-                    row.Child = text;
-                }
-
-                // 点行 = 定位到该句起点。只改播放位置、不碰工程数据，所以不必回写 _project
-                row.MouseLeftButtonDown += (_, _) => _audio.Seek(startSeconds);
-                LyricsHost.Children.Add(row);
-                _lyricRows[i] = row;
-            }
-        }
-
-        TblLyricCount.Text = lyrics is null ? "无" : $"{lyrics.Count} 句";
-    }
-
-    /// <summary>
-    /// 按播放位置刷新高亮与滚动。只在"当前句变了"时才动样式与滚动：
-    /// 500ms 一次的 tick 每次都刷一遍的话，滚动会被反复抢走，用户手动翻歌词永远翻不走。
-    /// </summary>
-    private void UpdateLyricTrack()
-    {
-        var lyrics = _lyrics;
-        if (lyrics is null || lyrics.Count == 0) return;
-
-        // 半开区间：空档与句尾都返回 -1 = 不高亮，与管线的清屏判定同源（FindLineIndex 是同一个入口）
-        var index = LrcParser.FindLineIndex(lyrics, _audio.Time);
-        if (index == _lyricCursor) return;
-
-        PaintLyricRow(_lyricCursor, false);
-        _lyricCursor = index;
-        PaintLyricRow(index, true);
-
-        if (index >= 0) _lyricRows[index].BringIntoView();
-    }
-
-    private void PaintLyricRow(int index, bool active)
-    {
-        if (index < 0 || index >= _lyricRows.Length) return;
-
-        var row = _lyricRows[index];
-        // 高亮用令牌里现成的 PvAccentSoft（主色压暗的那一档），不另外调一个半透明刷子
-        row.Background = active
-            ? (System.Windows.Media.Brush)FindResource("PvAccentSoft")
-            : System.Windows.Media.Brushes.Transparent;
-        if (LyricRowText(row) is { } text)
-            text.Foreground = (System.Windows.Media.Brush)FindResource(active ? "PvFg" : "PvFgDim");
-    }
-
-    /// <summary>行里的歌词正文。末句行外面套了一层 StackPanel（它还挂着"末句待校准"那一行），
-    /// 高亮改的是正文的笔刷，所以取的是行内第一个 TextBlock 而不是行本身。</summary>
-    private static TextBlock? LyricRowText(Border row) => row.Child switch
-    {
-        TextBlock single => single,
-        Panel panel => panel.Children.OfType<TextBlock>().FirstOrDefault(),
-        _ => null,
-    };
-
     // ---------------- 歌词样式 ----------------
 
     /// <summary>工程里生效的歌词样式：自定义优先，否则按名取预设（名字未知/为空回落 Classic）。</summary>
@@ -1073,10 +978,13 @@ public partial class PvStageWindow : Window
     /// <summary>把下拉回填成工程当前样式名。这是程序化路径，不是一次用户选择。</summary>
     private void SyncLyricStylePicker()
     {
+        var picker = _cmbLyricStyle;
+        if (picker is null) return;
+
         _syncingLyricStyle = true;
         try
         {
-            CmbLyricStyle.SelectedIndex = Math.Max(0, Array.FindIndex(LyricStyleNames,
+            picker.SelectedIndex = Math.Max(0, Array.FindIndex(LyricStyleNames,
                 n => string.Equals(n, _scene.LyricStyleName, StringComparison.OrdinalIgnoreCase)));
         }
         finally
@@ -1085,11 +993,12 @@ public partial class PvStageWindow : Window
         }
     }
 
-    private void CmbLyricStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void LyricStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_syncingLyricStyle || CmbLyricStyle.SelectedIndex < 0) return;
+        var picker = _cmbLyricStyle;
+        if (_syncingLyricStyle || picker is null || picker.SelectedIndex < 0) return;
 
-        _scene.LyricStyleName = LyricStyleNames[CmbLyricStyle.SelectedIndex];
+        _scene.LyricStyleName = LyricStyleNames[picker.SelectedIndex];
         _scene.LyricStyle = null; // 选了预设就不再是自定义样式（自定义只可能来自手改的工程文件）
         // 立即生效：管线还没建起来时由建管线那条路带上，不必在这里等
         _pipe?.Renderer.Lyric?.SetStyle(ProjectLyricStyle());
@@ -1660,7 +1569,11 @@ public partial class PvStageWindow : Window
     // ---------------- 撤销 / 重做 ----------------
 
     /// <summary>编辑动作（打/删/拖 key、滑杆、图层与效果增删、样式切换）之后压一份当前工程快照。</summary>
-    private void PushUndo() => _undo.Push(ProjectSnapshot());
+    private void PushUndo()
+    {
+        _undo.Push(ProjectSnapshot());
+        UpdateUndoButtons();
+    }
 
     /// <summary>
     /// 当前工程的 JSON 串：序列化调用与 ProjectStore.Save 逐参数相同，只是不落盘。
@@ -1700,6 +1613,7 @@ public partial class PvStageWindow : Window
     private void UndoRedo(bool undo)
     {
         var text = undo ? _undo.Undo() : _undo.Redo();
+        UpdateUndoButtons();
         if (text is null)
         {
             TblStatus.Text = undo ? "没有可撤销的改动" : "没有可重做的改动";
@@ -1798,8 +1712,10 @@ public partial class PvStageWindow : Window
         // UI 侧先清干净：留着旧工程的歌词行/图层卡/信号草稿，等于两套工程同时显示在屏幕上
         _lyrics = null;
         _tailUncalibrated = false;
-        _lyricCursor = -1;
         _uiLayerIds = Array.Empty<string>();
+        _selectedLayer = null;
+        _peaks = null;
+        _waveformCts?.Cancel();
         _signalDraft = null;
         _colorNode = null;
         _colorParam = null;
@@ -1809,9 +1725,8 @@ public partial class PvStageWindow : Window
 
         BuildEffectRack();
         BuildLayerList();
-        BuildLyricList();
-        RedrawCurveStrip();
-        SyncLyricStylePicker();
+        TheTimeline.Fps = _scene.Fps;
+        RefreshTimeline();
 
         // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
         if (_pipe is not null) _rebuildPipe = true;
@@ -1861,7 +1776,7 @@ public partial class PvStageWindow : Window
     /// 行为与旧路径逐字段相同，只是末句会被标成待校准。
     ///
     /// 返回的 KrcLine 与 <see cref="LrcParser.Parse"/> 的产物同构（Start + End-Start），
-    /// 所以管线与歌词轨的既有消费路径一字不用改。
+    /// 所以管线既有的消费路径一字不用改。
     /// </summary>
     private (List<KrcLine> Lines, bool TailUncalibrated) ParseLyrics(string text)
     {
@@ -1876,7 +1791,7 @@ public partial class PvStageWindow : Window
         return (lines, result.Clips.Count > 0 && result.Clips[^1].OutOfRange);
     }
 
-    /// <summary>装载一次歌词：解析 → 屏幕上的歌词轨 → 管线，三处吃同一份，不在别处再解析一遍。</summary>
+    /// <summary>装载一次歌词：解析 → 时间轴歌词轨 + 检查器 → 管线，几处吃同一份，不在别处再解析一遍。</summary>
     private void LoadLyrics(string text)
     {
         var (lines, tailUncalibrated) = ParseLyrics(text);
@@ -1884,7 +1799,8 @@ public partial class PvStageWindow : Window
         _lyrics = lines;
         _tailUncalibrated = tailUncalibrated;
         _pipe?.SetLyrics(lines);
-        BuildLyricList();
+        BuildInspector();
+        RefreshTimeline();
     }
 
     private void BtnOpenLyrics_Click(object sender, RoutedEventArgs e)
@@ -1923,6 +1839,7 @@ public partial class PvStageWindow : Window
         {
             _audioPath = dlg.FileName; // 绑定进工程：下次打开自动恢复（停在暂停态）
             TblStatus.Text = "音频已加载";
+            StartWaveformLoad(dlg.FileName); // 波形轨：后台解码，到位后自己刷新时间轴
             var lrcPath = Path.ChangeExtension(dlg.FileName, ".lrc");
             if (File.Exists(lrcPath))
             {
@@ -2114,7 +2031,8 @@ public partial class PvStageWindow : Window
         curve.TryAdd(t, v, mode);
 
         PublishDirector();
-        RedrawCurveStrip();
+        RefreshCamBadge();
+        RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = $"已打关键帧 t={t:F2}s · 缩放 {v:F2}";
@@ -2148,7 +2066,8 @@ public partial class PvStageWindow : Window
             curve.Remove(t);
             curve.TryAdd(t, v, mode);
             PublishDirector();
-            RedrawCurveStrip();
+            RefreshCamBadge();
+            RefreshTimeline();
         }
         else
         {
@@ -2167,257 +2086,48 @@ public partial class PvStageWindow : Window
         }
     }
 
-    /// <summary>曲线条的时间跨度（秒）：跟音频总长走；没音源时用 30 秒占位，好过拿 0 当除数。</summary>
-    private double CurveSpan() => _audio.Duration > 0.5 ? _audio.Duration : 30;
-
-    private double TimeToX(double t, double width) => _stripSpan <= 0 ? 0 : t / _stripSpan * width;
-
-    /// <summary>值 → 纵向像素，固定映射 [0.5, 2.0]（与滑杆同域）：自动量程会在打一个 key 时让整条曲线跳形。</summary>
-    private static double ScaleToY(double value, double height) =>
-        (1 - (value - ScaleMin) / (ScaleMax - ScaleMin)) * height;
-
-    private void CurveStrip_SizeChanged(object sender, SizeChangedEventArgs e) => RedrawCurveStrip();
-
-    /// <summary>
-    /// 重画关键帧条。整条重画只在尺寸变化与编辑之后发生；
-    /// 播放头是独立元素，RefreshStatus 里只挪它的位置，播放时不会闪。
-    /// </summary>
-    private void RedrawCurveStrip()
-    {
-        CurveStrip.Children.Clear();
-
-        var w = CurveStrip.ActualWidth;
-        var h = CurveStrip.Height;
-        _stripSpan = CurveSpan();
-
-        var accent = (System.Windows.Media.Brush)FindResource("PvAccent");
-
-        // 基线画在值域下限（0.5）上：没有这条参照线，一个圆点的高低读不出是拉近还是推远
-        CurveStrip.Children.Add(new System.Windows.Shapes.Line
-        {
-            X1 = 0, X2 = w, Y1 = h - 0.5, Y2 = h - 0.5,
-            Stroke = (System.Windows.Media.Brush)FindResource("PvLine"),
-            StrokeThickness = 1,
-        });
-
-        _evaluator.Curves.TryGetValue(_camScaleAddr, out var curve);
-
-        if (curve is null || curve.Count == 0)
-        {
-            var hint = new TextBlock
-            {
-                Text = "无关键帧",
-                FontSize = (double)FindResource("PvTextXs"),
-                Foreground = (System.Windows.Media.Brush)FindResource("PvFgFaint"),
-            };
-            Canvas.SetLeft(hint, 6);
-            Canvas.SetTop(hint, (h - 14) / 2);
-            CurveStrip.Children.Add(hint);
-        }
-        else
-        {
-            if (curve.Count >= 2)
-            {
-                // 逐 key 直连当近似：SmoothStep 的弧度在 30px 高的条上肉眼分不出来，
-                // 按曲线采样反而会让每次编辑都多跑一遍求值。
-                var poly = new System.Windows.Shapes.Polyline
-                {
-                    Stroke = accent,
-                    StrokeThickness = 1.2,
-                };
-                foreach (var k in curve.Keys)
-                    poly.Points.Add(new System.Windows.Point(
-                        TimeToX(k.Time, w), Math.Clamp(ScaleToY(k.Value, h), 0, h)));
-                CurveStrip.Children.Add(poly);
-            }
-
-            foreach (var key in curve.Keys)
-            {
-                var x = TimeToX(key.Time, w);
-                // 值域外的 key 钉在上下边缘：管线的保护只拦 Scale<=0，0.5~2 之外的值会真实生效
-                // （旧版导入/手改工程都能造出来）。夹进显示域但保留可点选——把它画到画布外，
-                // 用户就删不掉它了；y 越贴边越说明这条 key 超域。
-                var y = Math.Clamp(ScaleToY(key.Value, h), 0, h);
-                var outOfRange = key.Value < ScaleMin || key.Value > ScaleMax;
-                var dot = new System.Windows.Shapes.Ellipse
-                {
-                    Width = KeyDotSize,
-                    Height = KeyDotSize,
-                    Fill = accent,
-                    Stroke = outOfRange ? (System.Windows.Media.Brush)FindResource("PvFg") : null, // 越界标记
-                    StrokeThickness = outOfRange ? 1.5 : 0,
-                    Cursor = Cursors.Hand,
-                    ToolTip = outOfRange ? $"越界值 {key.Value:F2}（显示域 {ScaleMin:0.0}–{ScaleMax:0.0}）" : null,
-                    Tag = key.Time, // 删除时靠它把时刻找回来
-                };
-                Canvas.SetLeft(dot, x - KeyDotSize / 2);
-                Canvas.SetTop(dot, y - KeyDotSize / 2);
-
-                var pressed = key;
-                dot.MouseLeftButtonDown += (_, e) =>
-                {
-                    // 先吃掉事件：命中 key 的这一次点击不能既动了 key、又冒泡到画布背景变成一次 seek
-                    e.Handled = true;
-                    BeginKeyDrag(dot, curve, pressed, e.GetPosition(CurveStrip));
-                };
-                dot.MouseMove += (_, e) => MoveKeyDrag(curve, e.GetPosition(CurveStrip));
-                dot.MouseLeftButtonUp += (_, _) => CommitKeyDrag(curve);
-                // 捕获从别的路径丢掉（元素被重画移除、窗口失活）也要在这里收尾：留着的陈旧快照
-                // 会留给很久以后一次 Esc 去"还原"
-                dot.LostMouseCapture += (_, _) => CommitKeyDrag(curve);
-
-                CurveStrip.Children.Add(dot);
-            }
-        }
-
-        _playhead = new System.Windows.Shapes.Line
-        {
-            X1 = 0, X2 = 0, Y1 = 0, Y2 = h,
-            Stroke = (System.Windows.Media.Brush)FindResource("PvFg"),
-            StrokeThickness = 1,
-            IsHitTestVisible = false, // 播放头压在 key 上时，点击要落在 key 上，不能被它吃掉
-        };
-        CurveStrip.Children.Add(_playhead);
-        UpdatePlayhead();
-    }
-
-    /// <summary>把播放头挪到当前时刻。位置用上次重画时的那根时间轴（_stripSpan），与圆点同源。</summary>
-    private void UpdatePlayhead()
-    {
-        var play = _playhead;
-        if (play is null) return;
-        var w = CurveStrip.ActualWidth;
-        if (w <= 0 || _stripSpan <= 0) return;
-        Canvas.SetLeft(play, Math.Clamp(_audio.Time / _stripSpan * w, 0, w));
-    }
-
-    /// <summary>点曲线条空白处 = 定位（圆点会自己把事件吃掉，走不到这里）。</summary>
-    private void CurveStrip_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        var w = CurveStrip.ActualWidth;
-        if (w <= 0) return;
-        _audio.Seek(e.GetPosition(CurveStrip).X / w * _stripSpan);
-    }
-
-    // ---------------- 关键帧拖动 ----------------
-
-    private void BeginKeyDrag(System.Windows.Shapes.Ellipse dot, FloatCurve curve, CurveKey key,
-        System.Windows.Point at)
-    {
-        // 抓不到鼠标（别处占着）就不进拖动：此后收不到 MouseUp，状态会永远卡在"拖动中"
-        if (!dot.CaptureMouse()) return;
-
-        _keyDragSnapshot = new List<CurveKey>(curve.Keys); // 取消要精确还原：靠位移回推会有浮点残差
-        _keyDragDot = dot;
-        _keyDragOriginKey = key;
-        _keyDragKey = key;
-        _keyDragOrigin = at;
-        _keyDragMoved = false;
-    }
-
-    private void MoveKeyDrag(FloatCurve curve, System.Windows.Point at)
-    {
-        var dot = _keyDragDot;
-        if (dot is null) return;
-
-        var dx = at.X - _keyDragOrigin.X;
-        var dy = at.Y - _keyDragOrigin.Y;
-        if (!_keyDragMoved)
-        {
-            // 手抖几像素不该把"点一下删掉"变成一次挪动（与图层卡拖拽同一门槛）
-            if (Math.Abs(dx) < SystemParameters.MinimumHorizontalDragDistance
-                && Math.Abs(dy) < SystemParameters.MinimumVerticalDragDistance) return;
-            _keyDragMoved = true;
-        }
-
-        var w = CurveStrip.ActualWidth;
-        var h = CurveStrip.Height;
-        if (w <= 0 || h <= 0) return;
-
-        // 换算与 TimeToX / ScaleToY 同一映射，一律从按下时那个 key 起算：
-        // 拿"移动中"的当前值再加本帧位移会把同一段位移累加两遍
-        var src = _keyDragOriginKey;
-        var t = Math.Clamp(src.Time + dx / w * _stripSpan, 0, _stripSpan);
-        var v = Math.Clamp(src.Value - dy / h * (ScaleMax - ScaleMin), ScaleMin, ScaleMax);
-
-        // 同刻替换（沿用原 Mode）。摘下旧 key 后新时刻若撞上别的 key 而插不回去，就补回原位——
-        // 否则这一次拖动会把用户的这条 key 弄丢
-        curve.Remove(_keyDragKey.Time);
-        if (curve.TryAdd(t, v, src.Mode)) _keyDragKey = new CurveKey(t, v, src.Mode);
-        else curve.TryAdd(_keyDragKey.Time, _keyDragKey.Value, _keyDragKey.Mode);
-
-        // 只挪这一颗圆点（重画会把它删掉，见字段处说明）
-        Canvas.SetLeft(dot, TimeToX(_keyDragKey.Time, w) - KeyDotSize / 2);
-        Canvas.SetTop(dot, Math.Clamp(ScaleToY(_keyDragKey.Value, h), 0, h) - KeyDotSize / 2);
-        TblStatus.Text = KeyDragText();
-    }
-
-    /// <summary>松手 / 丢捕获：这次拖动到此为止。没挪过就是"点一下删掉"——那是删 key 的唯一入口。</summary>
-    private void CommitKeyDrag(FloatCurve curve)
-    {
-        var dot = _keyDragDot;
-        if (dot is null) return;
-        _keyDragDot = null;
-        _keyDragSnapshot = null;
-        dot.ReleaseMouseCapture(); // 丢捕获会回调回这里，状态已清，重入即空操作
-
-        if (!_keyDragMoved)
-        {
-            if (!curve.Remove(_keyDragKey.Time)) return;
-            // 空了就把整条曲线撤掉：求值上"空曲线"等价于"没有曲线"，存档里留个空壳只会误导
-            if (curve.Count == 0) _evaluator.RemoveCurve(_camScaleAddr);
-            TblStatus.Text = "已删除关键帧";
-        }
-        else
-        {
-            TblStatus.Text = "关键帧已移至 " + KeyDragText();
-        }
-
-        PublishDirector();
-        RedrawCurveStrip();
-        PushUndo(); // 松手才压一次：拖动途中每帧压一份会把栈塞满中间态
-        _saveError = SaveProjectNow();
-    }
-
-    /// <summary>Esc：放弃这次拖动，曲线整份回到按下之前（拖动期间没发布过，改回数据即可）。</summary>
-    private void CancelKeyDrag()
-    {
-        var dot = _keyDragDot;
-        if (dot is null) return;
-        var snapshot = _keyDragSnapshot;
-        _keyDragDot = null;
-        _keyDragSnapshot = null;
-        dot.ReleaseMouseCapture();
-
-        if (snapshot is null || !_evaluator.Curves.TryGetValue(_camScaleAddr, out var curve)) return;
-        curve.Keys.Clear();
-        curve.Keys.AddRange(snapshot);
-        RedrawCurveStrip();
-        TblStatus.Text = "已取消关键帧拖动（曲线已还原）";
-    }
-
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (e.Key == Key.Escape && _keyDragDot is not null)
+        // 焦点在输入框里就不拦：那里的空格 / Ctrl+S / Ctrl+Z / Ctrl+Y 是文本框自己的行为
+        if (Keyboard.FocusedElement is TextBox)
         {
-            CancelKeyDrag();
-            e.Handled = true;
+            base.OnPreviewKeyDown(e);
+            return;
         }
-        // 焦点在输入框里就不拦：那里的 Ctrl+Z / Ctrl+Y 是文本框自己的撤销与重做。
-        // 圆点还按着时也不拦：撤销会整份换工程，而这次拖动还捏着旧曲线，只能由松手收尾。
-        else if (_keyDragDot is null
-                 && Keyboard.FocusedElement is not TextBox
-                 && Keyboard.Modifiers.HasFlag(ModifierKeys.Control)
-                 && e.Key is Key.Z or Key.Y)
+
+        if (e.Key == Key.Space)
         {
             e.Handled = true;
-            UndoRedo(e.Key == Key.Z);
+            TogglePlay();
+            base.OnPreviewKeyDown(e);
+            return;
+        }
+
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            base.OnPreviewKeyDown(e);
+            return;
+        }
+
+        switch (e.Key)
+        {
+            case Key.S:
+                e.Handled = true;
+                SaveNow();
+                break;
+            case Key.Z:
+                e.Handled = true;
+                UndoRedo(true);
+                break;
+            case Key.Y:
+                e.Handled = true;
+                UndoRedo(false);
+                break;
         }
 
         base.OnPreviewKeyDown(e);
     }
 
-    private string KeyDragText() => $"t={_keyDragKey.Time:F2}s · 缩放 {_keyDragKey.Value:F2}";
 
     // ---------------- VTS 会话 ----------------
 
@@ -2588,19 +2298,17 @@ public partial class PvStageWindow : Window
         Log.Info($"[工作台] 添加视频图层：{dlg.FileName}");
     }
 
-    private void BtnPlay_Click(object sender, RoutedEventArgs e)
+    private void BtnPlay_Click(object sender, RoutedEventArgs e) => TogglePlay();
+
+    private void TogglePlay()
     {
         if (_audio.IsPlaying) _audio.Pause();
         else _audio.Play();
         UpdatePlayIcon();
     }
 
-    private void UpdatePlayIcon()
-    {
-        PlayIcon.Data = _audio.IsPlaying
-            ? System.Windows.Media.Geometry.Parse("M0,0 H4 V12 H0 Z M7,0 H11 V12 H7 Z")
-            : System.Windows.Media.Geometry.Parse("M0,0 L11,6 L0,12 Z");
-    }
+    private void UpdatePlayIcon() =>
+        PlayIcon.Data = (System.Windows.Media.Geometry)FindResource(_audio.IsPlaying ? "IconPause" : "IconPlay");
 
     private void SldTime_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -2648,11 +2356,8 @@ public partial class PvStageWindow : Window
             }
         }
 
-        // 时长会变（载入/换音源），时间→像素的比例跟着变：重画一次让 key 与播放头重新对齐。
-        // 播放头只是被挪位置，不重画整条——播放中每 500ms 清一次 Children 会闪。
-        if (Math.Abs(_stripSpan - CurveSpan()) > 1e-6) RedrawCurveStrip();
-        UpdatePlayhead();
-        UpdateLyricTrack(); // 与播放头同一个节拍：歌词高亮和曲线上那根竖线必须指向同一时刻
+        RefreshCamBadge();
+        TickTimeline();
 
         var pipe = _pipe;
         if (pipe is not null)
@@ -2688,9 +2393,8 @@ public partial class PvStageWindow : Window
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
         if (_saveError is { } saveFault) TblStatus.Text = $"工程未保存：{saveFault}";
 
-        // 拖动中的读数写在这条链的最后：上面每 500ms 一次的状态行刷新会把刚显示的 t / 值抹掉
-        if (_keyDragDot is not null) TblStatus.Text = KeyDragText();
-        if (_exporting) TblStatus.Text = ExportText(); // 同理：导出进度也要活过这 500ms
+        // 导出进度写在这条链的最后：上面每 500ms 一次的状态行刷新会把刚显示的百分比抹掉
+        if (_exporting) TblStatus.Text = ExportText();
 
         UpdatePlayIcon();
     }
@@ -2699,6 +2403,38 @@ public partial class PvStageWindow : Window
     {
         var ts = TimeSpan.FromSeconds(Math.Max(0, seconds));
         return $"{(int)ts.TotalMinutes:00}:{ts.Seconds:00}.{ts.Milliseconds / 100}";
+    }
+
+    // ---------------- 工具栏命令 ----------------
+
+    /// <summary>保存：与 5 秒自动存盘同一条路径，失败原因留在状态条上。</summary>
+    private void SaveNow()
+    {
+        _saveError = SaveProjectNow();
+        TblStatus.Text = _saveError is null ? "工程已保存" : $"保存失败：{_saveError}";
+    }
+
+    private void BtnSave_Click(object sender, RoutedEventArgs e) => SaveNow();
+
+    private void BtnUndo_Click(object sender, RoutedEventArgs e) => UndoRedo(true);
+
+    private void BtnRedo_Click(object sender, RoutedEventArgs e) => UndoRedo(false);
+
+    /// <summary>撤销/重做按钮的禁用态跟着栈走。</summary>
+    private void UpdateUndoButtons()
+    {
+        BtnUndo.IsEnabled = _undo.CanUndo;
+        BtnRedo.IsEnabled = _undo.CanRedo;
+    }
+
+    private void BtnFold_Click(object sender, RoutedEventArgs e)
+    {
+        var expanded = !TimelineExpanded;
+        TimelineRow.Height = new GridLength(expanded ? TimelineExpandedHeight : TimelineCollapsedHeight);
+        FoldIcon.Data = System.Windows.Media.Geometry.Parse(expanded
+            ? "M3.6 6.4 L8 10.8 L12.4 6.4"
+            : "M3.6 9.6 L8 5.2 L12.4 9.6");
+        BtnFold.ToolTip = expanded ? "折叠时间轴" : "展开时间轴";
     }
 
     // ---------------- 窗口外壳 ----------------

@@ -1,6 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+                    xmlns:app="clr-namespace:JizuraLive.App">
 
     <!-- ============================================================
          PV 工作台设计语言（P5）
@@ -8,30 +9,47 @@
          这里是**冷调近黑 + 靛蓝主色**——做视觉工作时长时间盯画面，冷调更不刺眼，
          且与 PV 画面里常见的暖色内容（人物肤色、暖光）形成中性衬底。
          令牌分四组：表面 / 线 / 文字 / 强调，外加排版尺度与圆角。
+
+         本文件是唯一一份 token（Theme.xaml 的同名色值/字号/圆角只转发过来）。
+         共用色值写成 *Color 再转成画刷：WPF 的资源项之间没法互相别名
+         （<StaticResource> 不能作字典项，XAML 编译器直接报错），旧键名要复用同一个数
+         只能转发 Color。
          ============================================================ -->
 
     <!-- 表面：从最深到最亮，层级靠明度差而不是描边堆叠 -->
     <SolidColorBrush x:Key="PvSunken" Color="#070709" />
-    <SolidColorBrush x:Key="PvBg" Color="#0A0A0D" />
-    <SolidColorBrush x:Key="PvPanel" Color="#101015" />
-    <SolidColorBrush x:Key="PvRaised" Color="#17171E" />
-    <SolidColorBrush x:Key="PvHover" Color="#1E1E27" />
+    <Color x:Key="PvBgColor">#0A0A0D</Color>
+    <SolidColorBrush x:Key="PvBg" Color="{StaticResource PvBgColor}" />
+    <Color x:Key="PvPanelColor">#101015</Color>
+    <SolidColorBrush x:Key="PvPanel" Color="{StaticResource PvPanelColor}" />
+    <Color x:Key="PvRaisedColor">#17171E</Color>
+    <SolidColorBrush x:Key="PvRaised" Color="{StaticResource PvRaisedColor}" />
+    <Color x:Key="PvHoverColor">#1E1E27</Color>
+    <SolidColorBrush x:Key="PvHover" Color="{StaticResource PvHoverColor}" />
 
     <!-- 线：默认几乎不可见，只在需要分层时才用 -->
     <SolidColorBrush x:Key="PvLineSoft" Color="#191920" />
-    <SolidColorBrush x:Key="PvLine" Color="#23232C" />
-    <SolidColorBrush x:Key="PvLineStrong" Color="#31313C" />
+    <Color x:Key="PvLineColor">#23232C</Color>
+    <SolidColorBrush x:Key="PvLine" Color="{StaticResource PvLineColor}" />
+    <Color x:Key="PvLineStrongColor">#31313C</Color>
+    <SolidColorBrush x:Key="PvLineStrong" Color="{StaticResource PvLineStrongColor}" />
 
     <!-- 文字：三级明度，正文只用前两级 -->
-    <SolidColorBrush x:Key="PvFg" Color="#ECECF2" />
-    <SolidColorBrush x:Key="PvFgDim" Color="#9A9AA8" />
-    <SolidColorBrush x:Key="PvFgFaint" Color="#5E5E6C" />
+    <Color x:Key="PvFgColor">#ECECF2</Color>
+    <SolidColorBrush x:Key="PvFg" Color="{StaticResource PvFgColor}" />
+    <Color x:Key="PvFgDimColor">#9A9AA8</Color>
+    <SolidColorBrush x:Key="PvFgDim" Color="{StaticResource PvFgDimColor}" />
+    <Color x:Key="PvFgFaintColor">#5E5E6C</Color>
+    <SolidColorBrush x:Key="PvFgFaint" Color="{StaticResource PvFgFaintColor}" />
 
     <!-- 强调：靛蓝主色 + 青绿次色；仅用于交互态与关键数值 -->
-    <SolidColorBrush x:Key="PvAccent" Color="#5B8CFF" />
+    <Color x:Key="PvAccentColor">#5B8CFF</Color>
+    <SolidColorBrush x:Key="PvAccent" Color="{StaticResource PvAccentColor}" />
     <SolidColorBrush x:Key="PvAccentSoft" Color="#2A3A66" />
-    <SolidColorBrush x:Key="PvAccent2" Color="#38E1C4" />
-    <SolidColorBrush x:Key="PvDanger" Color="#FF5F6E" />
+    <Color x:Key="PvAccent2Color">#38E1C4</Color>
+    <SolidColorBrush x:Key="PvAccent2" Color="{StaticResource PvAccent2Color}" />
+    <Color x:Key="PvDangerColor">#FF5F6E</Color>
+    <SolidColorBrush x:Key="PvDanger" Color="{StaticResource PvDangerColor}" />
     <SolidColorBrush x:Key="PvWarn" Color="#FFB347" />
 
     <!-- 舞台衬底：纯黑，让画面自己说话（不做任何渐变/纹理干扰判断） -->
@@ -81,7 +99,8 @@
         <Setter Property="HorizontalAlignment" Value="Right" />
     </Style>
 
-    <!-- ================= 幽灵按钮 ================= -->
+    <!-- ================= 幽灵按钮 =================
+         共享画刷不能改色：hover 叠一层 PvHover 动 Opacity（110ms 进 / 130ms 出）。 -->
     <Style x:Key="PvBtnGhost" TargetType="Button">
         <Setter Property="Foreground" Value="{StaticResource PvFgDim}" />
         <Setter Property="Background" Value="Transparent" />
@@ -93,20 +112,75 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="bd" Background="{TemplateBinding Background}"
-                            CornerRadius="{StaticResource PvRadiusSm}"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    <Grid>
+                        <Grid.RenderTransform>
+                            <TranslateTransform x:Name="prs" />
+                        </Grid.RenderTransform>
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                CornerRadius="{StaticResource PvRadiusSm}" />
+                        <Border x:Name="hx" Background="{StaticResource PvHover}"
+                                CornerRadius="{StaticResource PvRadiusSm}"
+                                Opacity="0" IsHitTestVisible="False" />
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}" />
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource PvHover}" />
                             <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="hx" Storyboard.TargetProperty="Opacity"
+                                                         From="0" To="1" Duration="{x:Static app:JzAnim.Fast}"
+                                                         EasingFunction="{x:Static app:JzAnim.EaseOut}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="hx" Storyboard.TargetProperty="Opacity"
+                                                         From="1" To="0" Duration="{x:Static app:JzAnim.Out}"
+                                                         EasingFunction="{x:Static app:JzAnim.EaseOut}" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="prs" Storyboard.TargetProperty="Y"
+                                                         To="1" Duration="0" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="prs" Storyboard.TargetProperty="Y"
+                                                         To="0" Duration="0" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+
+    <!-- 图标按钮：热区 28×28（图标本体给 Path，Data 取 Theme.xaml 里的 Icon* 几何资源） -->
+    <Style x:Key="PvBtnIcon" TargetType="Button" BasedOn="{StaticResource PvBtnGhost}">
+        <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+        <Setter Property="Width" Value="28" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinWidth" Value="28" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="Padding" Value="0" />
     </Style>
 
     <!-- ================= 滑杆（效果参数的主力控件） =================
