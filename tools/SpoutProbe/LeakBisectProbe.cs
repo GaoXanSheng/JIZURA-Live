@@ -100,7 +100,23 @@ internal sealed class LeakBisectProbe
         var b = RunTier("B", "B0 + 每帧把缓存位图画到小目标（复现生产侧包装与绘制）", () => BuildB(name));
         var c = RunTier("C", "完整 PvPipeline（默认场景 + 默认后期链 + 该 Spout 源作为角色层）", () => BuildC(name));
 
-        PrintSummary(a, b0, b, c);
+        // C 的子档：C 比 B 多三段（收帧后的 Prepare、fx 链、图层环境光离屏面），各自摘掉一段看斜率跟着谁走
+        var c0 = RunTier("C0", "C 只 Prepare 不 Composite（隔离收帧/取图/歌词层）", () => BuildC(name, composite: false));
+        var c1 = RunTier("C1", "C 去掉后期链（隔离 fx 链）", () => BuildC(name, fx: false));
+        var c2 = RunTier("C2", "C 去掉角色层环境光离屏面（隔离 PushSurface/模糊/投影）", () => BuildC(name, ambient: AmbientMode.CharacterOff));
+        var c3 = RunTier("C3", "C 去掉**全部**图层的环境光离屏面（三个图层都不走 PushSurface/模糊/投影）",
+            () => BuildC(name, ambient: AmbientMode.AllOff));
+        var c4 = RunTier("C4", "C 禁用全部图层（空舞台：只剩目标切换 + 后期链 + 贴回小目标）",
+            () => BuildC(name, layers: false));
+        var c5 = RunTier("C5", "C 禁用全部图层 + 去掉后期链（只剩目标切换与贴回小目标）",
+            () => BuildC(name, layers: false, fx: false));
+        // 逐层归因：全部图层环境光关掉后，只剩各层一次 DrawContent —— 看漏量挂在哪种层上
+        var c6 = RunTier("C6", "C3 但只留底色层（纯色 FillRect，没有任何位图）",
+            () => BuildC(name, ambient: AmbientMode.AllOff, onlyLayers: ["bg"]));
+        var c7 = RunTier("C7", "C3 但只留角色层（画的是 Spout 位图）",
+            () => BuildC(name, ambient: AmbientMode.AllOff, onlyLayers: ["character"]));
+
+        PrintSummary([a, b0, b, c, c0, c1, c2, c3, c4, c5, c6, c7]);
         return 0;
     }
 
@@ -203,7 +219,7 @@ internal sealed class LeakBisectProbe
             if (elapsedMs >= nextSampleMs)
             {
                 nextSampleMs += SampleSeconds * 1000.0;
-                r.Samples.Add(MakeSample(elapsedMs / 60000.0, r.Frames - framesAtSample, gc0Base, gc1Base, gc2Base));
+                r.Samples.Add(MakeSample(elapsedMs / 60000.0, r.Frames, gc0Base, gc1Base, gc2Base));
                 framesAtSample = r.Frames;
             }
 
@@ -213,7 +229,7 @@ internal sealed class LeakBisectProbe
 
         // 档末补一次采样：主循环可能在最后一行 [sample] 之后才到 40s，缺了它最后 ~10s 的趋势不参与回归
         if (r.Frames > framesAtSample)
-            r.Samples.Add(MakeSample(sw.Elapsed.TotalMinutes, r.Frames - framesAtSample, gc0Base, gc1Base, gc2Base));
+            r.Samples.Add(MakeSample(sw.Elapsed.TotalMinutes, r.Frames, gc0Base, gc1Base, gc2Base));
 
         r.Fps = r.Frames / Math.Max(1e-6, sw.Elapsed.TotalSeconds);
         r.SlopeMbPerMinute = SlopeMinutes(r.Samples);
@@ -398,12 +414,27 @@ internal sealed class LeakBisectProbe
         };
     }
 
+    /// <summary>C 档子档用的环境光开关：默认全开；关角色层 / 关全部图层各是一档。</summary>
+    private enum AmbientMode
+    {
+        Keep,
+        CharacterOff,
+        AllOff,
+    }
+
     /// <summary>
     /// C 档：完整生产稳态。默认场景的角色层本来就指向 VTubeStudioSpout，这里把它的源名对齐到实际枚举到的那个，
     /// 于是「默认场景 + 默认后期链 + 该 Spout 源作为图层」一次成立；字幕/歌词不接（传 null），
     /// 若本档斜率与 B 档相当，字幕/歌词就**不是**本泄漏源。
+    ///
+    /// 三个开关是 C 的子档用的（C 档自身全为默认，行为不变）：<paramref name="composite"/> = 是否每帧
+    /// Composite，<paramref name="fx"/> = 是否挂默认后期链，<paramref name="ambient"/> = 哪些图层走
+    /// 环境光离屏面（边缘光模糊 + 接触阴影都在那条路上）。
     /// </summary>
-    private TierHandle? BuildC(string name)
+    /// <param name="layers">false = 场景里所有图层 Enabled=false（空舞台：只跑目标切换 / 后期链 / 贴回小目标）。</param>
+    /// <param name="onlyLayers">非 null 时只保留这些 Id 的图层（逐层归因用）。</param>
+    private TierHandle? BuildC(string name, bool composite = true, bool fx = true,
+        AmbientMode ambient = AmbientMode.Keep, bool layers = true, string[]? onlyLayers = null)
     {
         var scene = PvScene.CreateDefault();
         var character = scene.Layers.FirstOrDefault(l => l.Id == PvScene.CharacterLayerId);
@@ -414,7 +445,16 @@ internal sealed class LeakBisectProbe
         }
 
         character.SpoutSenderName = name;
-        var effects = EffectGraph.CreateDefaultPost();
+        // 三个 VisualBlend 强度归零 → PvAmbient.NeedsSurface 为 false，该层直接画、不走离屏面
+        static void NoAmbient(PvLayerConfig l) =>
+            l.VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0, RimGlow = 0, DropShadow = 0 };
+        if (ambient == AmbientMode.CharacterOff) NoAmbient(character);
+        else if (ambient == AmbientMode.AllOff) foreach (var l in scene.Layers) NoAmbient(l);
+        if (!layers) foreach (var l in scene.Layers) l.Enabled = false;
+        if (onlyLayers is not null)
+            foreach (var l in scene.Layers) l.Enabled = onlyLayers.Contains(l.Id);
+
+        var effects = fx ? EffectGraph.CreateDefaultPost() : new EffectGraph();
 
         PvPipeline pipe;
         try
@@ -435,10 +475,14 @@ internal sealed class LeakBisectProbe
         }
 
         // 目标位图必须由管线自己的 D2D 上下文建（管线内部另建了一个 D2DHost）：跨上下文的位图不能当绘制目标
-        var props = new BitmapProperties1(
-            new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
-            96f, 96f, BitmapOptions.Target);
-        var target = pipe.D2DContext.CreateBitmap(new SizeI(TargetW, TargetH), props);
+        ID2D1Bitmap1? target = null;
+        if (composite)
+        {
+            var props = new BitmapProperties1(
+                new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
+                96f, 96f, BitmapOptions.Target);
+            target = pipe.D2DContext.CreateBitmap(new SizeI(TargetW, TargetH), props);
+        }
 
         // 等 Spout 图层连上源：连不上本档就退化成「空管线跑效果链」，测的不是目标路径
         var wait = Stopwatch.StartNew();
@@ -446,14 +490,14 @@ internal sealed class LeakBisectProbe
         while (wait.Elapsed.TotalSeconds < 5 && !live)
         {
             pipe.Prepare(wait.Elapsed.TotalSeconds);
-            pipe.Composite(target, TargetW, TargetH);
+            if (target is not null) pipe.Composite(target, TargetW, TargetH);
             live = pipe.SpoutState.Live > 0;
             Thread.Sleep(10);
         }
 
         if (!live)
         {
-            target.Dispose();
+            target?.Dispose();
             pipe.Dispose();
             Console.WriteLine($"      C 档 N/A：5s 内 Spout 图层没有连上源 '{name}'");
             return null;
@@ -463,12 +507,13 @@ internal sealed class LeakBisectProbe
         var frames = 0;
         return new TierHandle
         {
-            Note = $"画布 {scene.Width}×{scene.Height}｜效果 {effects.Nodes.Count} 个｜目标 {TargetW}×{TargetH}",
+            Note = $"画布 {scene.Width}×{scene.Height}｜效果 {effects.Nodes.Count} 个｜"
+                   + (composite ? $"目标 {TargetW}×{TargetH}" : "只 Prepare 不 Composite"),
             Tick = () =>
             {
                 time += 1.0 / TargetFps;
                 pipe.Prepare(time);
-                pipe.Composite(target, TargetW, TargetH);
+                if (target is not null) pipe.Composite(target, TargetW, TargetH);
                 frames++;
             },
             Dispose = () =>
@@ -477,7 +522,7 @@ internal sealed class LeakBisectProbe
                 var state = pipe.SpoutState;
                 var stats = pipe.Renderer.FxPool.GetStats();
                 var fxBitmaps = pipe.Renderer.FxBitmapsCreated;
-                target.Dispose();
+                target?.Dispose();
                 pipe.Dispose();
                 Console.WriteLine($"      C 档合成 {frames} 帧｜Spout 图层 {state.Live}/{state.Total} 在连");
                 Console.WriteLine($"      C 档效果池：空闲 {stats.FreeCount}｜租出 {stats.LeasedCount}｜"
@@ -620,7 +665,11 @@ internal sealed class LeakBisectProbe
 
     // ============================================================== 采样与回归
 
-    /// <summary>一次工作集采样（纯数据；[sample] 行的原始读数，也是回归的点来源）。</summary>
+    /// <summary>
+    /// 一次工作集采样（纯数据；[sample] 行的原始读数，也是回归的点来源）。
+    /// <paramref name="Frames"/> 是**累计**帧数：字节/帧 的 x 轴必须是累计帧，用「本区间帧数」回归
+    /// 等于拿一堆彼此只差几帧的 x 去拟合，斜率会被起点那一个 0 点独占（本列曾因此虚高约 3 倍）。
+    /// </summary>
     private readonly record struct TierSample(
         double Minute,
         int Frames,
@@ -761,12 +810,12 @@ internal sealed class LeakBisectProbe
         return slope > 0 ? "疑似泄漏" : "疑似异常下降";
     }
 
-    private void PrintSummary(TierResult a, TierResult b0, TierResult b, TierResult c)
+    private void PrintSummary(IReadOnlyList<TierResult> tiers)
     {
         Console.WriteLine("======================================================================");
         Console.WriteLine("[leak] 分档斜率汇总（工作集，最小二乘，正 = 增长；每档预热 " + WarmupSeconds.ToString("F0") + "s 不计）");
         Console.WriteLine("[leak] 档  可用  斜率 MB/分钟   字节/帧    实测 fps   帧数   托管分配/帧   GC 后相对起点   说明");
-        foreach (var r in new[] { a, b0, b, c }) Console.WriteLine(FormatLine(r));
+        foreach (var r in tiers) Console.WriteLine(FormatLine(r));
 
         Console.WriteLine("----------------------------------------------------------------------");
         Console.WriteLine("[leak] 读法：斜率明显不为 0 且强制 GC 后**不塌**的那一档就是原生泄漏所在层——");
@@ -774,6 +823,8 @@ internal sealed class LeakBisectProbe
         Console.WriteLine("[leak]   B0 平而 B 非 0 = D2D 绘制层；B 平而 C 非 0 = 管线/效果/合成层。");
         Console.WriteLine("[leak] 「GC 后相对起点」≈ 起点 = 增长是托管垃圾（会被回收，不是泄漏）；");
         Console.WriteLine("[leak]   它明显为正且斜率非 0 = 增长驻留在原生/COM 侧（真泄漏）。");
+        Console.WriteLine("[leak]   C0/C1/C2/C3/C4/C5 是 C 的子档，逐段摘：只 Prepare / 去后期链 / 去角色层环境光面 /");
+        Console.WriteLine("[leak]   去全部图层环境光面 / 空舞台 / 空舞台且无后期链——相邻两档的斜率差就是被摘掉那一段的贡献。");
         Console.WriteLine("[leak] 若 B 与 C 相当，则字幕/歌词层（本档未接）不可能是本泄漏源。");
         Console.WriteLine("======================================================================");
     }
