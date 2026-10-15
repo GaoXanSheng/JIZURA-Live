@@ -14,6 +14,7 @@ namespace JizuraLive.Engine.Tests;
 /// 时间轴纯逻辑（W1-TL）：网格吸附（含 Alt 关吸附）、时间/值 ↔ 像素往返、Ctrl+滚轮锚点缩放、
 /// key 命中与同刻替换；外加 TimelineView 的 UI 冒烟（构造 + SetSnapshot）。
 /// 全是数值断言，不需要 GPU / 窗口。
+/// W2-TL 补：五档插值（Bezier 句柄归一化/clamp、采样单调性；Spring 端点与超调）。
 /// </summary>
 public class TimelineTests
 {
@@ -143,6 +144,158 @@ public class TimelineTests
         Assert.Equal(new[] { 1.0, 2.0, 3.0 }, keys.Select(k => k.TimeSeconds));
     }
 
+    [Fact]
+    public void InterpMenuHasFiveGears()
+    {
+        Assert.Equal(new[] { "Step", "Linear", "SmoothStep", "Bezier", "Spring" }, TimelineMath.Interps);
+    }
+
+    /// <summary>句柄 (1/3, 2/3) 时 x 参数化退化为恒等，值 = 3u²−2u³；默认句柄下逐点非降。</summary>
+    [Fact]
+    public void BezierSamplingFollowsHandlesAndStaysMonotonic()
+    {
+        var exact = new List<TKey>
+        {
+            new(0, 0, "Bezier", 1.0 / 3, 0, 1.0 / 3, 0),
+            new(1, 1, "Bezier", 1.0 / 3, 0, 1.0 / 3, 0),
+        };
+        Assert.Equal(0, TimelineMath.Evaluate(exact, 0, -1), 9);
+        Assert.Equal(1, TimelineMath.Evaluate(exact, 1, -1), 9);
+        Assert.Equal(0.15625, TimelineMath.Evaluate(exact, 0.25, -1), 5);   // 3u²−2u³ 在 u=1/4（二分容差 1e-6）
+
+        var defaults = new List<TKey> { new(0, 0, "Bezier"), new(1, 1, "Bezier") };
+        double prev = double.NegativeInfinity;
+        for (int i = 0; i <= 200; i++)
+        {
+            double v = TimelineMath.Evaluate(defaults, i / 200.0, -1);
+            Assert.True(v >= prev, $"Bezier 在 t={i / 200.0} 处回退：{prev} → {v}");
+            prev = v;
+        }
+        Assert.True(TimelineMath.Evaluate(defaults, 0.25, -1) < 0.25, "Bezier 默认句柄应比 Linear 缓起步");
+
+        // 出柄 Y 拉满 = 起步被抬起来（同一 u 处值更大）
+        var pulled = new List<TKey> { new(0, 0, "Bezier", 0.333, 1, 0.333, 0), new(1, 1, "Bezier") };
+        Assert.True(TimelineMath.Evaluate(pulled, 0.5, -1) > TimelineMath.Evaluate(defaults, 0.5, -1));
+    }
+
+    /// <summary>Spring 端点精确取 V0/V1；中间按 q(u)=e^(−5u)cos(12u) 归一化，超调不钳回。</summary>
+    [Fact]
+    public void SpringEndpointsAreExactAndOvershootIsNotClamped()
+    {
+        var keys = new List<TKey> { new(0, 0, "Spring"), new(1, 1, "Spring") };
+        Assert.Equal(0, TimelineMath.Evaluate(keys, 0, -1), 12);
+        Assert.Equal(1, TimelineMath.Evaluate(keys, 1, -1), 12);
+        Assert.Equal(0, TimelineMath.Evaluate(keys, -3, -1), 12);   // 端点钳制
+        Assert.Equal(1, TimelineMath.Evaluate(keys, 9, -1), 12);
+
+        Assert.Equal(0.9265, TimelineMath.Evaluate(keys, 0.5, -1), 3);  // 与 SmoothStep 的 0.5 明显不同
+
+        double peak = double.NegativeInfinity;
+        for (int i = 0; i <= 1000; i++) peak = Math.Max(peak, TimelineMath.Evaluate(keys, i / 1000.0, -1));
+        Assert.True(peak > 1.25, $"Spring 超调不足：{peak}");   // 约 1.30，Evaluate 不把超调钳回 [V0,V1]
+    }
+
+    [Fact]
+    public void BezierHandlesNormalizeAndClampX()
+    {
+        var a = new TKey(1, 0, "Bezier", 0.25, 0.5, 1, 0);
+        var b = new TKey(3, 4, "Bezier", 0.333, 0, 0.5, 0);
+
+        var p1 = TimelineMath.OutHandlePoint(a, b);
+        Assert.Equal(1.5, p1.Time, 9);    // 1 + 0.25·2
+        Assert.Equal(2.0, p1.Value, 9);   // 0 + 0.5·4
+        var p2 = TimelineMath.InHandlePoint(a, b);
+        Assert.Equal(2.0, p2.Time, 9);    // 3 − 0.5·2
+        Assert.Equal(4.0, p2.Value, 9);
+
+        // 像素点 → 归一化往返
+        Assert.Equal((0.25, 0.5), TimelineMath.OutHandleAt(p1.Time, p1.Value, a, b, a.OutY));
+        Assert.Equal((0.5, 0.0), TimelineMath.InHandleAt(p2.Time, p2.Value, a, b, b.InY));
+
+        // X 恒 clamp 0..1：拖到段外也落在端点上
+        Assert.Equal(1, TimelineMath.OutHandleAt(9, 2, a, b, a.OutY).X, 9);
+        Assert.Equal(0, TimelineMath.OutHandleAt(-9, 2, a, b, a.OutY).X, 9);
+        Assert.Equal(0, TimelineMath.InHandleAt(9, 2, a, b, b.InY).X, 9);
+        Assert.Equal(1, TimelineMath.InHandleAt(-9, 2, a, b, b.InY).X, 9);
+        Assert.Equal(3, TimelineMath.InHandleAt(9, -8, a, b, b.InY).Y, 9);  // 1 − (−8−0)/4
+
+        // Δv = 0：Y 不影响形状，保持原值而不是算出 NaN/0
+        var flat = new TKey(0, 5, "Bezier", 0.5, 0.7, 0.5, 0);
+        var flatB = new TKey(1, 5, "Bezier");
+        Assert.Equal((0.5, 0.7), TimelineMath.OutHandleAt(0.5, 9, flat, flatB, flat.OutY));
+        Assert.Equal((0.5, flatB.InY), TimelineMath.InHandleAt(0.5, 9, flat, flatB, flatB.InY));
+    }
+
+    [Fact]
+    public void InterpEditCarriesHandlesThroughTEdit()
+    {
+        Assert.True(ParamAddress.TryParse("camera.scale", out var address));
+        var before = new List<TKey> { new(1, 0.2, "Linear") };
+        var after = new List<TKey> { before[0] with { Interp = "Bezier" } };
+        var edit = new TEdit { Address = address, Before = before, After = after, Reason = "interp" };
+
+        Assert.Equal("Linear", edit.Before[0].Interp);
+        Assert.Equal("Bezier", edit.After[0].Interp);
+        Assert.Equal(0.333, edit.After[0].OutX, 9);   // 默认句柄 (1/3, 0)
+        Assert.Equal(0.333, edit.After[0].InX, 9);
+        Assert.NotEqual(edit.Before[0], edit.After[0]);  // record 相等性把句柄算在内
+    }
+
+    /// <summary>五档切换：每次一次 EditCommitted（Reason 仍是 "interp"），After 带新模式且句柄不丢。</summary>
+    [Fact]
+    public void InterpSwitchCommitsOncePerChange()
+    {
+        Assert.True(ParamAddress.TryParse("camera.scale", out var address));
+        var edits = new List<TEdit>();
+        Exception? failure = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var view = new TimelineView { Fps = 30 };
+                view.SetSnapshot(new TSnapshot
+                {
+                    DurationSeconds = 10,
+                    Curves =
+                    {
+                        new TCurve
+                        {
+                            Address = address,
+                            Label = "镜头 · 缩放",
+                            Min = 0,
+                            Max = 1,
+                            Keys = { new TKey(1, 0, "Linear", 0.5, 0.25, 0.2, -0.1), new TKey(2, 1, "Linear") },
+                        },
+                    },
+                });
+                view.EditCommitted += edits.Add;
+
+                view.SelectKey(address, 1);
+                view.SetInterp("Bezier");
+                view.SelectKey(address, 1);
+                view.SetInterp("Spring");
+            }
+            catch (Exception ex) { failure = ex; }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "STA 线程未在 30 秒内结束");
+        Assert.Null(failure);
+
+        Assert.Equal(2, edits.Count);
+        Assert.All(edits, edit => Assert.Equal("interp", edit.Reason));
+        Assert.Equal("Bezier", edits[0].After[0].Interp);
+        Assert.Equal("Linear", edits[0].Before[0].Interp);
+        Assert.Equal(0.5, edits[0].After[0].OutX, 9);      // 句柄随事务往返
+        Assert.Equal(0.25, edits[0].After[0].OutY, 9);
+        Assert.Equal(-0.1, edits[0].After[0].InY, 9);
+        Assert.Equal("Spring", edits[1].After[0].Interp);
+        Assert.Equal("Bezier", edits[1].Before[0].Interp);
+        Assert.Equal(0.5, edits[1].After[0].OutX, 9);
+    }
+
     /// <summary>UI 冒烟：Control 构造需要 STA 线程，测试线程是 MTA，所以另起一根。</summary>
     [Fact]
     public void TimelineViewAcceptsSnapshot()
@@ -208,7 +361,13 @@ public class TimelineTests
                             Label = "歌词 · 不透明度",
                             Min = 0,
                             Max = 1,
-                            Keys = { new TKey(1, 0, "SmoothStep"), new TKey(4, 0.8, "Linear"), new TKey(30, 1, "Step") },
+                            Keys =
+                            {
+                                new TKey(1, 0, "SmoothStep"),
+                                new TKey(4, 0.8, "Bezier", 0.5, 0.6, 0.4, -0.3),
+                                new TKey(10, 0.3, "Spring"),
+                                new TKey(30, 1, "Step"),
+                            },
                         },
                     },
                     Lyrics =
@@ -218,6 +377,7 @@ public class TimelineTests
                     },
                     Waveform = WaveformPeaks.Build(SineSamples(44100), 1),
                 });
+                view.SelectKey(address, 4);   // 选中 Bezier 段端点：渲染要走控制柄那条分支
 
                 view.Measure(new Size(900, 260));
                 view.Arrange(new Rect(0, 0, 900, 260));

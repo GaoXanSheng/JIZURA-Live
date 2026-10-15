@@ -8,6 +8,7 @@ public sealed partial class TimelineView
 {
     private const double ValuePad = 3;
     private const double KeyRadius = 4;
+    private const double HandleRadius = 3.5;
 
     private static readonly Brush BgBrush = Solid(0x0A, 0x0A, 0x0D);
     private static readonly Brush PanelBrush = Solid(0x10, 0x10, 0x15);
@@ -28,6 +29,7 @@ public sealed partial class TimelineView
     private static readonly Pen CurvePen = FrozenPen(AccentBrush, 1.4);
     private static readonly Pen KeyPen = FrozenPen(AccentBrush, 1);
     private static readonly Pen SelKeyPen = FrozenPen(FgBrush, 1.4);
+    private static readonly Pen HandlePen = FrozenPen(AccentSoftBrush, 1);
     private static readonly Pen PlayheadPen = FrozenPen(PlayheadBrush, 1.5);
     private static readonly Typeface UiFont = new("Microsoft YaHei UI");
     private static readonly Typeface MonoFont = new("Consolas");
@@ -170,6 +172,9 @@ public sealed partial class TimelineView
         double height = row.Height - 2 * ValuePad;
         double fallback = (curve.Min + curve.Max) / 2;
 
+        // 曲线画在本轨矩形内：Spring/Bezier 的超调越出 Min/Max 显示域时裁掉，而不是钳回显示域
+        dc.PushClip(new RectangleGeometry(new Rect(HeaderWidth, row.Top, w, row.Height)));
+
         var geometry = new StreamGeometry();
         using (var g = geometry.Open())
         {
@@ -199,6 +204,19 @@ public sealed partial class TimelineView
             bool selected = IsKeySelected(curve.Address, i, key.TimeSeconds);
             dc.DrawGeometry(selected ? AccentBrush : PanelBrush, selected ? SelKeyPen : KeyPen, Diamond(x, y, KeyRadius));
         }
+
+        foreach (var (index, outSide) in HandleTargets(curve))
+        {
+            var key = curve.Keys[index];
+            var anchor = new Point(
+                HeaderWidth + TimelineMath.TimeToX(key.TimeSeconds, _viewStart, _pixelsPerSecond),
+                TimelineMath.ValueToY(key.Value, curve.Min, curve.Max, top, height));
+            var handle = HandlePixel(curve, row, index, outSide);
+            dc.DrawLine(HandlePen, anchor, handle);
+            dc.DrawEllipse(AccentBrush, null, handle, HandleRadius, HandleRadius);
+        }
+
+        dc.Pop();
     }
 
     private void RenderHeader(DrawingContext dc, Row row)

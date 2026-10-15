@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -60,6 +61,9 @@ public sealed class PvPipeline : IDisposable
     // 关键帧曲线：UI 线程发布不可变快照（DirectorEvaluator.Snapshot），渲染线程下一帧读到；
     // 引用交换原子，无锁。快照发布后永不修改，所以渲染线程读它是安全的。
     private volatile DirectorEvaluator? _director;
+
+    // 音频频带序列：与 _director 同款引用交换（UI 线程发布、渲染线程每帧查询，原子无锁）。
+    private volatile AudioBandSeries? _audioBands;
 
     // 信号图（M6）：UI 线程发布整份文档，渲染线程在 Prepare 里编译 + 求值。
     // 与 _director 同款引用交换（原子、无锁）。约定：发布出去的那份文档此后不许再改——
@@ -153,6 +157,26 @@ public sealed class PvPipeline : IDisposable
     /// 引用交换原子，无锁。传 null = 关掉曲线驱动，镜头回场景基础值。
     /// </summary>
     public void SetDirector(DirectorEvaluator? d) => _director = d;
+
+    /// <summary>
+    /// 换音频频带分析序列（任意线程）。后台把整段音频算完（见 <see cref="AudioFileAnalyzer.Analyze"/>）
+    /// 再发布过来，渲染线程每帧按 transport 时刻查询；引用交换原子，无锁。
+    /// 传 null = 还没有分析结果，频带输入失效（Valid=false ⇒ 绑定的目标回落到基础值），不是"静音"。
+    /// </summary>
+    public void SetAudioAnalysis(AudioBandSeries? series) => _audioBands = series;
+
+    /// <summary>
+    /// 取本帧的频带快照：<paramref name="series"/> 未就绪返回 Valid=false（不是四个 0）。
+    ///
+    /// 只读、纯函数：同一时刻在任何预览帧率下逐位相同（序列侧的窗口与插值规则见
+    /// <see cref="AudioBandSeries.Sample"/>），暂停/seek 也不会因为"上次查过哪"而不同。
+    /// </summary>
+    public static AudioBandSnapshot SampleAudioBands(AudioBandSeries? series, double transportSeconds)
+    {
+        if (series is null || !series.Sample(transportSeconds, out var bands)) return default;
+
+        return new AudioBandSnapshot(bands.Valid, bands.Rms, bands.Bass, bands.Mid, bands.High);
+    }
 
     /// <summary>
     /// 换信号图（任意线程）。UI 线程在信号面板里确认后把整份文档发布过来，渲染线程下一帧编译并采用；
@@ -546,11 +570,9 @@ public sealed class PvPipeline : IDisposable
         var plan = _signalPlan;
         if (plan is null) return;
 
-        // 本线只有一个能量数：Stage.Energy（追踪/VTS 口型能量）。引擎的频带分析器（Engine.AudioAnalysis）
-        // 还没接进管线，所以四个频带取同一个值——不是"没有分析结果"，而是"分析结果只有一路"。
-        // 有效位恒真：0 是"静音"这个合法读数，与"没有数据"是两件事。
-        var energy = _renderer.Stage.Energy;
-        var audio = new AudioBandSnapshot(true, energy, energy, energy, energy);
+        // 音频频带来自离线分析序列（按 transport 时刻查询），分析未就绪 ⇒ Valid=false ⇒ 绑定回落基础值。
+        // Stage.Energy 是另一路（VTS 口型能量），由 ApplyTracking 写、给渲染器消费，不冒充频带。
+        var audio = SampleAudioBands(_audioBands, time);
 
         plan.Evaluate(new SignalFrameInputs(time, Monotonic.Elapsed.TotalSeconds, audio, _director));
 
@@ -558,7 +580,10 @@ public sealed class PvPipeline : IDisposable
         {
             // 用编译期就解析好的目标引用（TryGetTarget），不再按 InstanceId 拼字符串回查效果图：
             // 字符串只在显示与序列化时用，这一点是 SignalTargets 的设计前提。
-            if (!plan.TryGetTarget(resolved.Address, out var node, out var param)) continue;
+            // 本线只写效果实例参数：相机/图层域没有效果实例可写，它们在编译期就被
+            // SignalTargets.TryResolveBinding 以 target-domain-unwired 拒掉了（解析值没人消费 = 静默无效），
+            // 所以计划里不会有 Node 为 null 的目标；这个 continue 只是防御性兜底。
+            if (!plan.TryGetTarget(resolved.Address, out var node, out var param) || node is null) continue;
             node.Set(param, (float)resolved.Value);
         }
     }
@@ -594,7 +619,8 @@ public sealed class PvPipeline : IDisposable
     /// <summary>编译并采用一份新发布的信号图；编译结论在这里各报一次（静态错误不会自己消失，每帧刷日志没有意义）。</summary>
     private void AdoptSignalGraph(SignalGraph graph)
     {
-        var result = SignalCompiler.Compile(graph, _effects);
+        // 带场景编译：相机的位移范围是 ±1 个设计画布，编译期要按本工程的画布解析注册范围
+        var result = SignalCompiler.Compile(graph, _effects, _scene);
         _signalPlan = result.Plan;
         _signalPlanGraph = graph;
 

@@ -93,6 +93,8 @@ public class DirectorCurveTests
     [InlineData(CurveInterp.Step)]
     [InlineData(CurveInterp.Linear)]
     [InlineData(CurveInterp.SmoothStep)]
+    [InlineData(CurveInterp.Bezier)]
+    [InlineData(CurveInterp.Spring)]
     public void KeyTimesReturnKeyValuesExactly(CurveInterp mode)
     {
         var curve = Curve(mode, (0.1, -1.1), (1.7, 2.7), (4.05, 0.3), (9.25, -0.7));
@@ -103,7 +105,7 @@ public class DirectorCurveTests
             Assert.Equal(key.Value, curve.Evaluate(key.Time));
     }
 
-    // ---------- 三种插值 ----------
+    // ---------- 五种插值 ----------
 
     [Fact]
     public void StepChangesOnlyAtTheNextKeyTime()
@@ -149,6 +151,131 @@ public class DirectorCurveTests
         Assert.Equal(0.15625, curve.Evaluate(0.25)); // u=0.25 → 3u²-2u³ = 0.15625
         Assert.True(curve.Evaluate(0.25) < 0.25);    // 起步比线性更慢（严格小于）
         Assert.True(curve.Evaluate(0.75) > 0.75);    // 收尾同理
+    }
+
+    // ---------- Bezier ----------
+
+    [Fact]
+    public void BezierWithDefaultHandlesMatchesSmoothStep()
+    {
+        // 默认句柄 (0.333,0,0.333,0) 等于"没编辑过手柄"：x(w)≈w、y(w)=3w²-2w³，与 SmoothStep 同形
+        // （0.333 与 1/3 的差在 1e-3 量级，所以这里按 2 位小数比）
+        var bezier = Curve(CurveInterp.Bezier, (0, 0), (1, 1));
+        var smooth = Curve(CurveInterp.SmoothStep, (0, 0), (1, 1));
+
+        for (var i = 1; i < 10; i++)
+        {
+            var u = i / 10.0;
+            Assert.Equal(smooth.Evaluate(u), bezier.Evaluate(u), 2);
+        }
+
+        Assert.Equal(0.5, bezier.Evaluate(0.5), 5);  // 对称手柄的中点精确落在中值上
+    }
+
+    [Fact]
+    public void BezierHonoursExplicitHandles()
+    {
+        // OutX=InX=0.5：x 的控制点关于中点对称 ⇒ x(0.5)=0.5 ⇒ u=0.5 反查到的就是 w=0.5。
+        // 归一化值 y(0.5) = 0.375·(OutY + (1−InY)) + 0.125 = 0.375×1.5 + 0.125 = 0.6875（手算 oracle）
+        var curve = new FloatCurve();
+        AddKey(curve, 0, 0, CurveInterp.Bezier, outX: 0.5, outY: 0.5, inX: 0.5, inY: 0);
+        AddKey(curve, 1, 1, CurveInterp.Bezier, outX: 0.5, outY: 0.5, inX: 0.5, inY: 0);
+
+        Assert.Equal(0.6875, curve.Evaluate(0.5), 5);
+        Assert.True(curve.Evaluate(0.5) > 0.5);      // 手柄把中段拉高：不是"换个算式算线性"
+    }
+
+    [Fact]
+    public void BezierHandleXIsClampedToUnitRange()
+    {
+        // OutX=5 / InX=-3 是手改 JSON 才有机会出现的越界手柄：clamp 进 0..1 后必须与 (1, 0) 那段逐点相同，
+        // 否则 x(w) 不再单调，反查参数会落到多个解上（求值随 u 抖）
+        var wild = new FloatCurve();
+        AddKey(wild, 0, 0, CurveInterp.Bezier, outX: 5, outY: 0.3, inX: -3, inY: 0.2);
+        AddKey(wild, 1, 1, CurveInterp.Bezier, outX: 5, outY: 0.3, inX: -3, inY: 0.2);
+
+        var clamped = new FloatCurve();
+        AddKey(clamped, 0, 0, CurveInterp.Bezier, outX: 1, outY: 0.3, inX: 0, inY: 0.2);
+        AddKey(clamped, 1, 1, CurveInterp.Bezier, outX: 1, outY: 0.3, inX: 0, inY: 0.2);
+
+        for (var i = 1; i < 10; i++)
+        {
+            var u = i / 10.0;
+            Assert.Equal(clamped.Evaluate(u), wild.Evaluate(u));
+        }
+    }
+
+    [Fact]
+    public void BezierSegmentIsMonotonicInTime()
+    {
+        var curve = new FloatCurve();
+        AddKey(curve, 0, 0, CurveInterp.Bezier, outX: 1, outY: 0, inX: 0.2, inY: 0);
+        AddKey(curve, 1, 1, CurveInterp.Bezier, outX: 1, outY: 0, inX: 0.2, inY: 0);
+
+        // x(w) 单调是 clamp 的目的：同一段内值必须随时刻单调不减（这里 y 也是递增的）
+        var previous = double.NegativeInfinity;
+        for (var i = 0; i <= 100; i++)
+        {
+            var value = curve.Evaluate(i / 100.0);
+            Assert.True(value >= previous, $"u={i / 100.0} 处回退：{value} < {previous}");
+            previous = value;
+        }
+
+        Assert.Equal(1, previous);
+    }
+
+    // ---------- Spring ----------
+
+    [Fact]
+    public void SpringMatchesTheNormalisedFormula()
+    {
+        // 契约 §7.1 原式：q(u)=exp(-5u)cos(12u)，f(u)=(1-q(u))/(1-q(1))，V=V0+ΔV·f(u)。
+        // 公式在测试里独立重写一遍：改实现（例如换阻尼）必须在这里现形。
+        var curve = Curve(CurveInterp.Spring, (0, 0), (1, 1));
+
+        foreach (var u in new[] { 0.1, 0.25, 0.5, 0.75, 0.9 })
+        {
+            static double Q(double x) => Math.Exp(-5 * x) * Math.Cos(12 * x);
+            Assert.Equal((1 - Q(u)) / (1 - Q(1)), curve.Evaluate(u), 6);
+        }
+    }
+
+    [Fact]
+    public void SpringOvershootsAndStillEndsOnTheValue()
+    {
+        var rise = Curve(CurveInterp.Spring, (0, 0), (1, 1));
+        var peak = double.NegativeInfinity;
+        for (var i = 0; i < 1000; i++) peak = Math.Max(peak, rise.Evaluate(i / 1000.0));
+
+        // 允许超调、UI 不限幅到 [V0,V1]（限幅是写目标时按 schema 打 clamp 标的事）
+        Assert.True(peak > 1.0, $"弹簧段应越过末值，实测峰值 {peak}");
+
+        // 端点显式取 V0/V1：u=0/1 不经过任何浮点算式
+        Assert.Equal(0, rise.Evaluate(0));
+        Assert.Equal(1, rise.Evaluate(1));
+
+        // 下落段对称地向负向超调
+        var fall = Curve(CurveInterp.Spring, (0, 1), (1, 0));
+        var trough = double.PositiveInfinity;
+        for (var i = 0; i < 1000; i++) trough = Math.Min(trough, fall.Evaluate(i / 1000.0));
+        Assert.True(trough < 0.0, $"下落段应低于末值，实测谷值 {trough}");
+    }
+
+    [Fact]
+    public void BezierAndSpringClampOutsideTheSegment()
+    {
+        // 区外取值仍钳到端点（与三种既有档位同一语义），且不动 key 本身
+        foreach (var mode in new[] { CurveInterp.Bezier, CurveInterp.Spring })
+        {
+            var curve = Curve(mode, (1, 5), (2, 7));
+
+            Assert.Equal(5, curve.Evaluate(0));
+            Assert.Equal(5, curve.Evaluate(0.999));
+            Assert.Equal(5, curve.Evaluate(1));
+            Assert.Equal(7, curve.Evaluate(2));
+            Assert.Equal(7, curve.Evaluate(99));
+            Assert.Equal(2, curve.Count);
+        }
     }
 
     // ---------- 区外钳制与 key 保留 ----------
@@ -372,5 +499,17 @@ public class DirectorCurveTests
         var curve = new FloatCurve();
         foreach (var (time, value) in keys) Assert.True(curve.TryAdd(time, value, mode));
         return curve;
+    }
+
+    /// <summary>
+    /// 打一个**带句柄**的 key：TryAdd 只管时刻唯一性（它按契约不带句柄），句柄在插入后按值替换上去。
+    /// 句柄是归一化量，只被该段的左 key 出柄 / 右 key 入柄读取。
+    /// </summary>
+    private static void AddKey(FloatCurve curve, double time, double value, CurveInterp mode,
+        double outX = 0.333, double outY = 0, double inX = 0.333, double inY = 0)
+    {
+        Assert.True(curve.TryAdd(time, value, mode));
+        var index = curve.Keys.FindIndex(k => k.Time == time);
+        curve.Keys[index] = new CurveKey(time, value, mode, outX, outY, inX, inY);
     }
 }

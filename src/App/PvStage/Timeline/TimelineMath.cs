@@ -19,7 +19,13 @@ public static class TimelineMath
     private static readonly double[] RulerSteps = [1, 5, 10, 30, 60, 300];
 
     /// <summary>Interp 取值，顺序 = 右键菜单顺序。</summary>
-    public static readonly string[] Interps = ["Step", "Linear", "SmoothStep"];
+    public static readonly string[] Interps = ["Step", "Linear", "SmoothStep", "Bezier", "Spring"];
+
+    /// <summary>Bezier 反查参数的二分次数：1/2²⁰ ≈ 1e-6，与契约的容差同量级。</summary>
+    private const int BezierIterations = 20;
+
+    /// <summary>Spring 归一化式的分母 1−q(1)，q(u)=e^(−5u)cos(12u)。</summary>
+    private static readonly double SpringQ1 = Math.Exp(-5) * Math.Cos(12);
 
     /// <summary>吸附网格：取仍占 ≥10px 的最细步长（1s / 0.5s / 0.1s / 1 帧）。</summary>
     public static double GridStep(double pixelsPerSecond, double fps)
@@ -136,8 +142,80 @@ public static class TimelineMath
         {
             "Step" => a.Value,
             "SmoothStep" => a.Value + (b.Value - a.Value) * (u * u * (3 - 2 * u)),
+            "Bezier" => BezierValue(a, b, u),
+            "Spring" => a.Value + (b.Value - a.Value) * SpringValue(u),
             _ => a.Value + (b.Value - a.Value) * u,
         };
+    }
+
+    /// <summary>
+    /// Bezier 段：控制柄是归一化 u/v，x 句柄 clamp 0..1 保证时间单调；
+    /// 值 = y(w)，w 由 x(w)=u 二分反查（<see cref="BezierIterations"/>）。
+    /// </summary>
+    private static double BezierValue(in TKey a, in TKey b, double u)
+    {
+        double w = SolveBezierX(u, Math.Clamp(a.OutX, 0, 1), 1 - Math.Clamp(b.InX, 0, 1));
+        return a.Value + (b.Value - a.Value) * Cubic(w, 0, a.OutY, 1 - b.InY, 1);
+    }
+
+    /// <summary>契约 §7.1 的 Spring 归一化式 f(u)=(1−q(u))/(1−q(1))；端点由 <see cref="Evaluate"/> 的钳制分支精确取 V0/V1。</summary>
+    private static double SpringValue(double u) =>
+        (1 - Math.Exp(-5 * u) * Math.Cos(12 * u)) / (1 - SpringQ1);
+
+    /// <summary>二分反查 x(w)=u 的 w：x 控制点都在 0..1 内，x(w) 单调不减。</summary>
+    private static double SolveBezierX(double u, double x1, double x2)
+    {
+        if (u <= 0) return 0;
+        if (u >= 1) return 1;
+
+        double lo = 0, hi = 1;
+        for (int i = 0; i < BezierIterations; i++)
+        {
+            double mid = (lo + hi) / 2;
+            if (Cubic(mid, 0, x1, x2, 1) < u) lo = mid;
+            else hi = mid;
+        }
+        return (lo + hi) / 2;
+    }
+
+    /// <summary>三次贝塞尔在参数 w 处的分量（段端点是 0 与 1）。</summary>
+    private static double Cubic(double w, double p0, double p1, double p2, double p3)
+    {
+        double s = 1 - w;
+        return s * s * s * p0 + 3 * s * s * w * p1 + 3 * s * w * w * p2 + w * w * w * p3;
+    }
+
+    /// <summary>Bezier 出柄 P1 的时间/值（段 [a,b)，<see cref="TKey.OutX"/> 等是归一化坐标）。</summary>
+    public static (double Time, double Value) OutHandlePoint(in TKey a, in TKey b) =>
+        (a.TimeSeconds + a.OutX * (b.TimeSeconds - a.TimeSeconds), a.Value + a.OutY * (b.Value - a.Value));
+
+    /// <summary>Bezier 入柄 P2 的时间/值（取段右 key 的入柄）。</summary>
+    public static (double Time, double Value) InHandlePoint(in TKey a, in TKey b) =>
+        (b.TimeSeconds - b.InX * (b.TimeSeconds - a.TimeSeconds), b.Value - b.InY * (b.Value - a.Value));
+
+    /// <summary>拖动点 → 出柄归一化坐标：X clamp 0..1；Δv=0 时 Y 不影响形状，保持 <paramref name="outY"/>。</summary>
+    public static (double X, double Y) OutHandleAt(double time, double value, in TKey a, in TKey b, double outY) =>
+        (HandleU(time, a, b), HandleV(value, a, b, outY));
+
+    /// <summary>拖动点 → 入柄归一化坐标：P2 从段右端反向量，故 X/Y 都是 1 减去正向比例。</summary>
+    public static (double X, double Y) InHandleAt(double time, double value, in TKey a, in TKey b, double inY)
+    {
+        double delta = b.Value - a.Value;
+        return (1 - HandleU(time, a, b), delta != 0 ? 1 - (value - a.Value) / delta : inY);
+    }
+
+    /// <summary>段内归一化时间，clamp 0..1（零长段取 0）。</summary>
+    private static double HandleU(double time, in TKey a, in TKey b)
+    {
+        double span = b.TimeSeconds - a.TimeSeconds;
+        return span > 0 ? Math.Clamp((time - a.TimeSeconds) / span, 0, 1) : 0;
+    }
+
+    /// <summary>段内归一化值；Δv=0 时形状与 Y 无关，保持 <paramref name="fallback"/>。</summary>
+    private static double HandleV(double value, in TKey a, in TKey b, double fallback)
+    {
+        double delta = b.Value - a.Value;
+        return delta != 0 ? (value - a.Value) / delta : fallback;
     }
 
     /// <summary>时刻 → 波形样本下标：波形覆盖整段音频，按时长线性摊到 SampleCount 上。</summary>

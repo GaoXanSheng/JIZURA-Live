@@ -1,10 +1,12 @@
+using System.IO;
 using JizuraLive.Engine;
+using JizuraLive.Pv;
 
 namespace JizuraLive.Engine.Tests;
 
 /// <summary>
-/// 波形与频带分析（<see cref="AudioAnalyzer"/> / <see cref="WaveformPeaks"/>）的纯数值测试：
-/// 合成 PCM 进、序列出，不碰文件/播放器/GPU（契约 §13.4）。数值口径即产品口径，所以断言按精确值钉住。
+/// 波形与频带分析（<see cref="AudioAnalyzer"/> / <see cref="AudioFileAnalyzer"/> / <see cref="WaveformPeaks"/>）的纯数值测试：
+/// 合成 PCM 进、序列出，只在整文件入口那条用例碰一次临时 WAV。
 /// </summary>
 public class AudioAnalysisTests
 {
@@ -203,6 +205,61 @@ public class AudioAnalysisTests
         Assert.Equal(7, series.ConfigVersion);
     }
 
+    // ---------- 整文件入口与管线快照 ----------
+
+    [Fact]
+    public void WholeFileAnalysisDecodesAndLandsInTheExpectedBand()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "jizura-audio-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            WriteSineWav(path, 1500, 0.5, seconds: 1.0);
+
+            var series = AudioFileAnalyzer.Analyze(path);
+
+            // 整文件入口与"喂 PCM"是同一条分析：采样率/步长/窗口对齐规则一字不差
+            Assert.Equal(Rate, series.SampleRate);
+            Assert.Equal(Hop / (double)Rate, series.StepSeconds);
+            Assert.True(series.IsComplete);
+            Assert.True(series.Count > 0);
+
+            int j = series.Count / 2;
+            Assert.True(series.Mid[j] > series.Bass[j] && series.Mid[j] > series.High[j]);
+            Assert.True(series.Mid[j] > 0.5f);   // 1500Hz 正弦落在 Mid
+            Assert.True(float.IsFinite(series.Mid[j]));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void PipelineSnapshotQueriesTheTransportTimeAndReportsNotReadyAsInvalid()
+    {
+        var series = AudioAnalyzer.Analyze(SineMono(Rate, 1500, 0.5), 1, Rate);
+
+        // 管线按 transport 时刻查询序列：快照就是该时刻的查询结果（不再是把一路能量填进四个频带）
+        Assert.True(series.Sample(0.5, out var bands));
+        var snapshot = PvPipeline.SampleAudioBands(series, 0.5);
+        Assert.True(snapshot.Valid);
+        Assert.Equal((double)bands.Rms, snapshot.Rms);
+        Assert.Equal((double)bands.Bass, snapshot.Bass);
+        Assert.Equal((double)bands.Mid, snapshot.Mid);
+        Assert.Equal((double)bands.High, snapshot.High);
+
+        // 同一时刻重复查询逐位相同：帧率/顺序都不改变结果
+        Assert.Equal(snapshot, PvPipeline.SampleAudioBands(series, 0.5));
+
+        // 分析未就绪：Valid=false（回落到基础值），而不是四个 0 的"静音"
+        var notReady = PvPipeline.SampleAudioBands(null, 0.5);
+        Assert.False(notReady.Valid);
+        Assert.Equal(0, notReady.Rms);
+
+        var empty = AudioAnalyzer.Analyze([], 1, Rate);
+        Assert.False(PvPipeline.SampleAudioBands(empty, 0.5).Valid);
+    }
+
     // ---------- 波形极值 ----------
 
     [Fact]
@@ -322,6 +379,20 @@ public class AudioAnalysisTests
     }
 
     // ---------- 合成辅助 ----------
+
+    /// <summary>写一个单声道 16bit PCM 的 WAV（整文件入口的输入）：解码器与真实素材走同一条路。</summary>
+    private static void WriteSineWav(string path, double hz, double amplitude, double seconds)
+    {
+        var format = new NAudio.Wave.WaveFormat(Rate, 16, 1);
+        using var writer = new NAudio.Wave.WaveFileWriter(path, format);
+
+        var samples = (int)(Rate * seconds);
+        for (int n = 0; n < samples; n++)
+        {
+            var value = amplitude * Math.Sin(2 * Math.PI * hz * n / Rate);
+            writer.WriteSample((float)value);   // 16bit 格式下 WriteSample 自带换算
+        }
+    }
 
     private static float[] SineMono(int frames, double hz, double amplitude, int rate = Rate)
     {

@@ -7,6 +7,9 @@ namespace JizuraLive.Pv;
 ///
 /// <see cref="Node"/>/<see cref="Param"/> 是**引用**：编译期解析一次之后，求值路径只按引用读基础值，
 /// 不再解析地址文本（契约 §3.2：字符串只供显示和序列化，不在每帧解析）。
+/// 相机与图层域当前解析不出目标（没有写入方，见 <see cref="SignalTargets.TryResolveBinding"/>），
+/// 所以经 <see cref="SignalTargets"/> 拿到的目标恒来自效果实例：<see cref="Node"/>/<see cref="Param"/>
+/// 非 null，单位/范围/默认值取自该实例的 schema。
 /// </summary>
 public readonly record struct SignalTarget(
     ParamAddress Address,
@@ -18,24 +21,17 @@ public readonly record struct SignalTarget(
     EffectParam Param);
 
 /// <summary>
-/// 目标键解析（首版只注册 effect 域，按域分派）。
+/// 目标键解析：注册表（S06）定单位/范围/默认值，本类补上效果实例的写入引用。
 ///
 /// 错误文本形如 <c>&lt;code&gt;: &lt;消息&gt;</c>：码给编译器和 UI 做稳定分类（面板与测试都断言码，文案可以改），
-/// 消息给人看。相机/图层域的参数注册表（S06）在代码里还不存在，所以这里明确拒绝该域——
-/// 在信号线里另建一份相机参数表就是"同一事实两处真相"。
+/// 消息给人看。
 /// </summary>
 public static class SignalTargets
 {
-    internal const string CodeMissingInstance = "target-missing-instance";
-    internal const string CodeMissingKey = "target-missing-key";
-    internal const string CodeNotNumber = "target-not-number";
-    internal const string CodeDomainUnregistered = "target-domain-unregistered";
-
-    private const char CodeSeparator = ':';
-
     /// <summary>
-    /// 解析地址到一个真实目标。
-    /// 只认 effect 域、只认 <see cref="EffectParamKind.Number"/> 参数（Bool/Color 首版仍走静态控件）。
+    /// 解析到**效果实例**参数。只认 effect 域：调用方（铺参数键、面板预检）要的是"哪个实例的哪个键"，
+    /// 相机/图层没有效果参数可铺。相机与图层的地址走 <see cref="TryResolveBinding"/>——那里同样解析不到
+    /// 写入方，当前一律以 <c>target-domain-unwired</c> fail-closed 拒绝。
     /// </summary>
     public static bool TryResolve(in ParamAddress addr, EffectGraph effects, out SignalTarget target, out string? error)
     {
@@ -43,46 +39,50 @@ public static class SignalTargets
 
         if (addr.Kind != ParamAddressKind.Effect)
         {
-            error = $"{CodeDomainUnregistered}: 该域参数表尚未注册（S06），本线只注册 effect 域：{addr}";
+            error = $"{ParamRegistry.CodeMissingInstance}: {addr} 不是效果实例参数（本入口只解析 effect 域，相机/图层走 SignalTargets.TryResolveBinding）";
             return false;
         }
 
-        var node = FindByInstanceId(effects, addr.Target);
-        if (node is null)
-        {
-            // 用 DefId 当地址是最常见的手滑：同一种效果可以有多个实例，DefId 指不到"哪一个"。
-            // 这条路径必须点名，否则用户看到的是"找不到实例"却明明有那个效果。
-            var defIdHit = FindByDefId(effects, addr.Target) is not null;
-            error = defIdHit
-                ? $"{CodeMissingInstance}: 地址里的「{addr.Target}」是效果**定义** Id；DefId 不能代替实例 Id（同一种效果可以有多个实例，各自独立寻址）"
-                : $"{CodeMissingInstance}: 效果图里没有实例 Id 为「{addr.Target}」的节点（地址 {addr}）";
-            return false;
-        }
+        return TryResolveEffect(addr, effects, out target, out error);
+    }
 
-        var def = EffectCatalog.Get(node.DefId);
-        if (def is null)
-        {
-            error = $"{CodeMissingKey}: 实例 {node.InstanceId} 的效果定义「{node.DefId}」不在目录里，无法确认参数表";
-            return false;
-        }
+    /// <summary>
+    /// 解析**任意域**的绑定/基础值目标（契约 §8.1：绑定的 Address 三种形态都是合法地址）。
+    /// <paramref name="scene"/> 只影响相机的位移范围，传 null 按默认画布解析。
+    ///
+    /// 相机/图层域 fail-closed 拒绝（<see cref="ParamRegistry.CodeDomainUnwired"/>）：地址合法，
+    /// 但渲染侧没有写入方——<c>PvPipeline.ApplySignals</c> 只写效果实例参数（这些目标的
+    /// <see cref="SignalTarget.Node"/> 是 null，解析值会被直接丢掉），而图层参数是文档常量、
+    /// 帧内没有覆盖通道。编译通过而值被丢掉就是"显示连线、画面不动"，比报错更难查，所以宁可拒绝。
+    /// 等渲染侧真接上（相机写本帧 <c>Stage.Camera</c>、图层写该层的合成输入）再放开这一条。
+    /// </summary>
+    public static bool TryResolveBinding(in ParamAddress addr, EffectGraph effects, PvScene? scene,
+        out SignalTarget target, out string? error)
+    {
+        target = default;
 
-        foreach (var p in def.Params)
-        {
-            if (!string.Equals(p.Key, addr.Param, StringComparison.Ordinal)) continue;
+        if (addr.Kind == ParamAddressKind.Effect)
+            return TryResolveEffect(addr, effects, out target, out error);
 
-            if (p.Kind != EffectParamKind.Number)
-            {
-                error = $"{CodeNotNumber}: {addr} 是 {p.Kind} 参数；信号绑定首版只开放 Number";
-                return false;
-            }
+        // 先走注册表：地址本身写错了（未知参数名 / 缺图层 Id / 镜头带了 Target）要报它自己的码，
+        // 不能一律报成"没接线"——两种拒绝的原因必须分得开
+        if (!ParamRegistry.TryResolve(addr, effects, scene, out _, out error)) return false;
 
-            target = new SignalTarget(addr, p.Unit, p.Min, p.Max, p.Default, node, p);
-            error = null;
-            return true;
-        }
-
-        error = $"{CodeMissingKey}: 实例 {node.InstanceId}（{node.DefId}）没有参数「{addr.Param}」（地址应按 Key，不是 DefId/列表下标/槽位）";
+        error = $"{ParamRegistry.CodeDomainUnwired}: {addr} 是相机/图层参数；注册表认得它，"
+            + "但渲染侧还没有写入方（信号只写效果实例参数，图层参数是文档常量、帧内没有覆盖通道）。"
+            + "接线完成前拒绝绑定：编译通过而值被丢掉等于静默无效";
         return false;
+    }
+
+    private static bool TryResolveEffect(in ParamAddress addr, EffectGraph effects, out SignalTarget target, out string? error)
+    {
+        target = default;
+
+        if (!ParamRegistry.TryFindEffectParam(addr, effects, out var node, out var param, out error)) return false;
+
+        target = new SignalTarget(addr, param!.Unit, param.Min, param.Max, param.Default, node!, param);
+        error = null;
+        return true;
     }
 
     /// <summary>
@@ -90,45 +90,14 @@ public static class SignalTargets
     /// （<see cref="EffectNode.Value"/> 已回落 schema 默认）。
     ///
     /// 纯函数、只读：曲线 Key 与实例常量在求值前后一字不改——动画值绝不写回文档。
+    /// 相机/图层的目标到不了这里（<see cref="TryResolveBinding"/> 在编译期就拒了它们），
+    /// 所以这条路径上的 <see cref="SignalTarget.Node"/> 恒非 null：基础值就是实例常量。
     /// </summary>
     public static double BaseValue(in SignalTarget target, DirectorEvaluator? curves, double transportTime)
     {
         if (curves is not null && curves.TryEvaluate(target.Address, transportTime, out var animated))
             return animated;
 
-        return target.Node.Value(target.Param);
-    }
-
-    /// <summary>从 <c>&lt;code&gt;: &lt;消息&gt;</c> 里取码（编译期把它转成 <c>SignalCompileIssue.Code</c>）。</summary>
-    internal static string CodeOf(string? error)
-    {
-        if (string.IsNullOrEmpty(error)) return "";
-        var i = error.IndexOf(CodeSeparator);
-        return i > 0 ? error[..i] : error;
-    }
-
-    /// <summary>从 <c>&lt;code&gt;: &lt;消息&gt;</c> 里取消息部分。</summary>
-    internal static string MessageOf(string? error)
-    {
-        if (string.IsNullOrEmpty(error)) return "";
-        var i = error.IndexOf(CodeSeparator);
-        return i >= 0 && i + 1 < error.Length ? error[(i + 1)..].Trim() : error;
-    }
-
-    /// <summary>按**实例** Id 找（绝不用 DefId 匹配：那是"哪种效果"而不是"哪一个"）。</summary>
-    private static EffectNode? FindByInstanceId(EffectGraph effects, string instanceId)
-    {
-        foreach (var n in effects.Nodes)
-            if (n is not null && string.Equals(n.InstanceId, instanceId, StringComparison.Ordinal))
-                return n;
-        return null;
-    }
-
-    private static EffectNode? FindByDefId(EffectGraph effects, string defId)
-    {
-        foreach (var n in effects.Nodes)
-            if (n is not null && string.Equals(n.DefId, defId, StringComparison.Ordinal))
-                return n;
-        return null;
+        return target.Node is null ? target.Default : target.Node.Value(target.Param);
     }
 }

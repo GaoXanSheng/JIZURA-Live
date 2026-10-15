@@ -3,8 +3,13 @@ using JizuraLive.Pv;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
-/// <summary>关键帧。<see cref="Interp"/> 与 <see cref="CurveInterp"/> 同名："Step" | "Linear" | "SmoothStep"。</summary>
-public readonly record struct TKey(double TimeSeconds, double Value, string Interp);
+/// <summary>
+/// 关键帧。<see cref="Interp"/> 与 <see cref="CurveInterp"/> 同名：
+/// "Step" | "Linear" | "SmoothStep" | "Bezier" | "Spring"。
+/// <see cref="OutX"/>/<see cref="OutY"/>/<see cref="InX"/>/<see cref="InY"/> 是 Bezier 控制柄的归一化 u/v，仅 Bezier 段参与求值。
+/// </summary>
+public readonly record struct TKey(double TimeSeconds, double Value, string Interp,
+    double OutX = 0.333, double OutY = 0, double InX = 0.333, double InY = 0);
 
 /// <summary>一条自动化轨。轨道身份 = 参数地址（同址只有一条活动曲线）。</summary>
 public sealed class TCurve

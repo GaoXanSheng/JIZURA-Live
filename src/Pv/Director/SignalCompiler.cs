@@ -176,14 +176,18 @@ internal static class SignalRules
 /// </summary>
 public static class SignalCompiler
 {
-    public static SignalCompileResult Compile(SignalGraph graph, EffectGraph effects)
+    /// <summary>
+    /// 编译一张信号图。<paramref name="scene"/> 只用于解析相机位移的注册范围（±1 个画布），
+    /// 传 null 按默认画布解析；与信号图无关的调用方（持久化往返、纯图用例）不必给。
+    /// </summary>
+    public static SignalCompileResult Compile(SignalGraph graph, EffectGraph effects, PvScene? scene = null)
     {
         var issues = new List<SignalCompileIssue>();
-        var plan = Build(graph, effects, issues);
+        var plan = Build(graph, effects, scene, issues);
         return new SignalCompileResult(plan, issues);
     }
 
-    private static CompiledSignalGraph? Build(SignalGraph graph, EffectGraph effects, List<SignalCompileIssue> issues)
+    private static CompiledSignalGraph? Build(SignalGraph graph, EffectGraph effects, PvScene? scene, List<SignalCompileIssue> issues)
     {
         var failed = false;
 
@@ -469,10 +473,10 @@ public static class SignalCompiler
                         break;
                     }
 
-                    if (!SignalTargets.TryResolve(addr, effects, out var target, out var resolveError))
+                    if (!SignalTargets.TryResolveBinding(addr, effects, scene, out var target, out var resolveError))
                     {
-                        Error(SignalTargets.CodeOf(resolveError), node.Id, null, null,
-                            $"TimelineBaseValue 的地址 {addr} 解析失败：{SignalTargets.MessageOf(resolveError)}");
+                        Error(ParamRegistry.CodeOf(resolveError), node.Id, null, null,
+                            $"TimelineBaseValue 的地址 {addr} 解析失败：{ParamRegistry.MessageOf(resolveError)}");
                         break;
                     }
 
@@ -653,9 +657,9 @@ public static class SignalCompiler
                 continue;
             }
 
-            if (!SignalTargets.TryResolve(addr, effects, out var target, out var resolveError))
+            if (!SignalTargets.TryResolveBinding(addr, effects, scene, out var target, out var resolveError))
             {
-                Error(SignalTargets.CodeOf(resolveError), node.Id, null, binding.Id, SignalTargets.MessageOf(resolveError));
+                Error(ParamRegistry.CodeOf(resolveError), node.Id, null, binding.Id, ParamRegistry.MessageOf(resolveError));
                 continue;
             }
 
@@ -841,20 +845,21 @@ public sealed partial class CompiledSignalGraph
         }
 
         // 2) 目标身份：绑定与 TimelineBaseValue 的地址仍解析到同一个 EffectNode / 同一个 EffectParam
+        // （只比引用身份，不比注册项：范围随画布/单位随 schema 变不算身份变化，所以这里不必传场景）
         for (var b = 0; b < _bindingAddress.Length; b++)
         {
             var address = _bindingAddress[b];
             var compiled = _targets[_bindingTarget[b]];
-            if (!SignalTargets.TryResolve(address, effects, out var fresh, out var error))
+            if (!SignalTargets.TryResolveBinding(address, effects, null, out var fresh, out var error))
             {
-                Fail(SignalTargets.CodeOf(error), _nodes[_bindingNode[b]].Id, null,
-                    $"{SignalTargets.MessageOf(error)}（绑定 {address} 的目标已失效）");
+                Fail(ParamRegistry.CodeOf(error), _nodes[_bindingNode[b]].Id, null,
+                    $"{ParamRegistry.MessageOf(error)}（绑定 {address} 的目标已失效）");
                 return false;
             }
 
             if (!ReferenceEquals(fresh.Node, compiled.Node) || !ReferenceEquals(fresh.Param, compiled.Param))
             {
-                Fail(SignalTargets.CodeMissingInstance, _nodes[_bindingNode[b]].Id, null,
+                Fail(ParamRegistry.CodeMissingInstance, _nodes[_bindingNode[b]].Id, null,
                     $"绑定 {address} 的目标已换成另一个实例或参数：计划不得沿用旧引用");
                 return false;
             }
@@ -876,15 +881,15 @@ public sealed partial class CompiledSignalGraph
                 return false;
             }
 
-            if (!SignalTargets.TryResolve(addr, effects, out var fresh, out var error))
+            if (!SignalTargets.TryResolveBinding(addr, effects, null, out var fresh, out var error))
             {
-                Fail(SignalTargets.CodeOf(error), _nodes[i].Id, null, SignalTargets.MessageOf(error));
+                Fail(ParamRegistry.CodeOf(error), _nodes[i].Id, null, ParamRegistry.MessageOf(error));
                 return false;
             }
 
             if (!ReferenceEquals(fresh.Node, compiled.Node) || !ReferenceEquals(fresh.Param, compiled.Param))
             {
-                Fail(SignalTargets.CodeMissingInstance, _nodes[i].Id, null,
+                Fail(ParamRegistry.CodeMissingInstance, _nodes[i].Id, null,
                     $"TimelineBaseValue 的目标 {addr} 已换成另一个实例或参数");
                 return false;
             }

@@ -1,3 +1,4 @@
+using JizuraLive.App.PvStage;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
 
@@ -242,6 +243,143 @@ public class SignalGraphTests
         Assert.Null(noUnit.Plan);
         var noUnitIssue = Assert.Single(noUnit.Issues, i => i.Code == "unit-unspecified");
         Assert.Contains("尚未注册单位", noUnitIssue.Message);
+    }
+
+    /// <summary>
+    /// 相机/图层的地址是**合法地址**（注册表给单位/范围/默认值），但渲染侧没有写入方：
+    /// <c>PvPipeline.ApplySignals</c> 只写效果实例参数，node 为 null 的解析值被直接丢掉；
+    /// 图层参数又是文档常量、帧内没有覆盖通道。编译通过而值被丢掉 = 静默无效，
+    /// 所以绑定必须 fail-closed 拒绝，并用一个与"地址写错"分开的稳定码，
+    /// 让界面与日志说的是"没接上"而不是"已连线"。
+    /// </summary>
+    [Fact]
+    public void CameraAndLayerBindingsAreRefusedUntilTheRenderSideConsumesThem()
+    {
+        var effects = new EffectGraph();
+        var scene = new PvScene { Width = 1280, Height = 720 };
+
+        // 注册表这一侧仍然认得相机/图层：检查器行与时间轴轨读的就是这份单位/范围/默认值
+        Assert.True(ParamRegistry.TryResolve(Addr("camera.scale"), effects, scene, out var camScale, out var camError), camError);
+        Assert.Equal(ParamUnit.Dimensionless, camScale.Unit);
+        Assert.True(ParamRegistry.TryResolve(Addr("layer:character.opacity"), effects, scene, out var layerOpacity, out var layerError), layerError);
+        Assert.Equal(ParamUnit.Ratio, layerOpacity.Unit);
+
+        // 绑定这一侧一律拒绝：拒的是"没有消费方"，与信号单位对不对无关
+        foreach (var address in new[] { "camera.scale", "camera.offsetX", "layer:character.opacity", "layer:character.rotation" })
+        {
+            var result = SignalCompiler.Compile(ConstantChain(address, 0.5, ParamUnit.Ratio), effects, scene);
+            Assert.Null(result.Plan);
+            var issue = Assert.Single(result.Issues, i => i.Code == "target-domain-unwired");
+            Assert.Equal("n_out", issue.NodeId);
+            Assert.Equal(SignalIssueSeverity.Error, issue.Severity);
+            Assert.Contains("相机/图层", issue.Message);
+        }
+
+        // TimelineBaseValue 与绑定走同一个解析入口：地址合法但没有消费方，同样 fail-closed
+        var baseOnly = new SignalGraph();
+        var baseNode = Node(baseOnly, "n_base", SignalNodeKind.TimelineBaseValue);
+        SetAddress(baseOnly, baseNode, "camera.scale");
+        var output = Node(baseOnly, "n_out", SignalNodeKind.ParameterOutput);
+        Connect(baseOnly, baseNode, output, "in");
+        Bind(baseOnly, output, "camera.scale");
+
+        var baseResult = SignalCompiler.Compile(baseOnly, effects, scene);
+        Assert.Null(baseResult.Plan);
+        Assert.Contains(baseResult.Issues, i => i.Code == "target-domain-unwired" && i.NodeId == "n_base");
+
+        // 两种拒绝的码必须分得开：注册表里没有的键仍是 target-missing-key
+        var unknown = SignalCompiler.Compile(ConstantChain("layer:character.alpha", 0.5, ParamUnit.Ratio), effects, scene);
+        Assert.Null(unknown.Plan);
+        Assert.Contains(unknown.Issues, i => i.Code == "target-missing-key");
+        Assert.DoesNotContain(unknown.Issues, i => i.Code == "target-domain-unwired");
+
+        // 对照：效果域不受影响，单位不匹配照旧是 unit-mismatch
+        effects.Add("bloom");
+        AssertUnitMismatch(ConstantChain($"effect:{effects.Nodes[0].InstanceId}.radius", 8, ParamUnit.Degrees), effects, scene);
+    }
+
+    /// <summary>
+    /// 相机/图层的范围仍由注册表给（限幅是将来那个消费方的职责），但"能绑上"这件事现在是 fail-closed。
+    /// 一条用例同时钉住两侧：范围照旧随画布解析，绑定照样被拒。
+    /// </summary>
+    [Fact]
+    public void CameraAndLayerRangesStayRegisteredWhileTheirBindingsAreRefused()
+    {
+        var effects = new EffectGraph();
+
+        // 画布 1280×720：相机位移范围 ±1280/±720
+        var scene = new PvScene { Width = 1280, Height = 720 };
+        Assert.True(ParamRegistry.TryResolve(Addr("camera.offsetX"), effects, scene, out var offset, out var offsetError), offsetError);
+        Assert.Equal(-1280, offset.Min, 6);
+        Assert.Equal(1280, offset.Max, 6);
+
+        // 换宽画布：同一地址的范围随画布变（编译期按本工程画布解析）
+        var wide = new PvScene { Width = 3840, Height = 2160 };
+        Assert.True(ParamRegistry.TryResolve(Addr("camera.offsetX"), effects, wide, out var wideOffset, out var wideError), wideError);
+        Assert.Equal(-3840, wideOffset.Min, 6);
+        Assert.Equal(3840, wideOffset.Max, 6);
+
+        // 相机 scale 0.5..2、图层 opacity 0..1
+        Assert.True(ParamRegistry.TryResolve(Addr("camera.scale"), effects, scene, out var scale, out var scaleError), scaleError);
+        Assert.Equal(0.5, scale.Min, 6);
+        Assert.Equal(2, scale.Max, 6);
+
+        Assert.True(ParamRegistry.TryResolve(Addr("layer:bg.opacity"), effects, scene, out var opacity, out var opacityError), opacityError);
+        Assert.Equal(0, opacity.Min, 6);
+        Assert.Equal(1, opacity.Max, 6);
+
+        // 但绑定一律被拒：没有消费方时"限幅"只是纸面承诺，接上线就等于"显示连线、画面不动"
+        var refused = SignalCompiler.Compile(ConstantChain("camera.offsetX", 3000, ParamUnit.Pixels), effects, scene);
+        Assert.Null(refused.Plan);
+        Assert.Contains(refused.Issues, i => i.Code == "target-domain-unwired");
+    }
+
+    /// <summary>
+    /// 契约 §3.3 的算例（base(t) + Remap(audio.bass)）在效果域由 <see cref="UnlockPathMatchesDocumentedArithmetic"/> 钉住。
+    /// 相机域现在没有消费方：同一张图必须整张被拒，而不是"编译通过、值被 ApplySignals 丢掉"。
+    /// </summary>
+    [Fact]
+    public void CameraScaleModulationIsRefusedInsteadOfSilentlyDropped()
+    {
+        var effects = new EffectGraph();
+        var result = SignalCompiler.Compile(UnlockPath(effects, "camera.scale"), effects, new PvScene());
+
+        Assert.Null(result.Plan);
+        // 图里有两条相机地址（TimelineBaseValue 的地址文本 + 绑定），两条都要点名
+        var issues = result.Issues.Where(i => i.Code == "target-domain-unwired").ToList();
+        Assert.Equal(2, issues.Count);
+        Assert.Equal(
+            new[] { "n_base", "n_out" },
+            issues.Select(i => i.NodeId!).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// 值来源徽标：文档里有绑定、当前计划里却没有这个地址时，徽标必须说「未接线」，
+    /// 绝不能说「连线」。相机/图层域现在正是这种情形——编译被 <c>target-domain-unwired</c> 拒掉，
+    /// 渲染侧也确实不会写它的值。
+    /// </summary>
+    [Fact]
+    public void ValueSourceBadgeNeverClaimsAnUnwiredBindingIsLive()
+    {
+        // 绑定生效：来源是信号 → 连线；输出无效回落 → 失效回落
+        Assert.Equal(ValueSourceBadge.Wired,
+            ValueSourceBadge.Label(bound: true, ParamValueSource.Signal, boundInDocument: true, hasCurve: false));
+        Assert.Equal(ValueSourceBadge.Fallback,
+            ValueSourceBadge.Label(bound: true, ParamValueSource.Base, boundInDocument: true, hasCurve: true));
+        Assert.Equal(ValueSourceBadge.Fallback,
+            ValueSourceBadge.Label(bound: true, ParamValueSource.TargetDefault, boundInDocument: true, hasCurve: false));
+
+        // 文档里有绑定、计划里没有（编译被拒 / 目标域还没有消费方）：未接线
+        Assert.Equal(ValueSourceBadge.Unwired,
+            ValueSourceBadge.Label(bound: false, ParamValueSource.Signal, boundInDocument: true, hasCurve: false));
+        Assert.Equal(ValueSourceBadge.Unwired,
+            ValueSourceBadge.Label(bound: false, ParamValueSource.Signal, boundInDocument: true, hasCurve: true));
+
+        // 没有绑定：曲线 / 常量
+        Assert.Equal(ValueSourceBadge.Curve,
+            ValueSourceBadge.Label(bound: false, ParamValueSource.Signal, boundInDocument: false, hasCurve: true));
+        Assert.Equal(ValueSourceBadge.Constant,
+            ValueSourceBadge.Label(bound: false, ParamValueSource.Signal, boundInDocument: false, hasCurve: false));
     }
 
     [Fact]
@@ -976,12 +1114,20 @@ public class SignalGraphTests
         Assert.Contains(result.Issues, i => i.Code == code);
     }
 
-    private static CompiledSignalGraph CompileOk(SignalGraph graph, EffectGraph effects)
+    private static CompiledSignalGraph CompileOk(SignalGraph graph, EffectGraph effects, PvScene? scene = null)
     {
-        var result = SignalCompiler.Compile(graph, effects);
+        var result = SignalCompiler.Compile(graph, effects, scene);
         Assert.True(result.Plan is not null,
             "编译失败：" + string.Join("；", result.Issues.Select(i => $"{i.Code}({i.NodeId}): {i.Message}")));
         return result.Plan!;
+    }
+
+    /// <summary>绑定的信号单位与目标注册单位不一致：必须整张图拒绝（不是夹一下照跑）。</summary>
+    private static void AssertUnitMismatch(SignalGraph graph, EffectGraph effects, PvScene? scene)
+    {
+        var result = SignalCompiler.Compile(graph, effects, scene);
+        Assert.Null(result.Plan);
+        Assert.Contains(result.Issues, i => i.Code == "unit-mismatch" && i.NodeId == "n_out");
     }
 
     private static ResolvedParam Resolve(CompiledSignalGraph plan, string address)

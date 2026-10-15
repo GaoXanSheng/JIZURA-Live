@@ -37,6 +37,7 @@ public sealed partial class TimelineView : Control
         None,
         Scrub,
         Key,
+        Handle,
         Pan,
     }
 
@@ -54,6 +55,8 @@ public sealed partial class TimelineView : Control
     private Point _dragOrigin;
     private double _dragValuePerPixel;
     private string? _dragTip;
+    private (ParamAddress Address, int KeyIndex, bool Out) _handleDrag;
+    private Row _dragRow;
 
     public TimelineView()
     {
@@ -217,6 +220,21 @@ public sealed partial class TimelineView : Control
         return true;
     }
 
+    /// <summary>Bezier 段的 Interp 名（段由左 key 的 Interp 决定）。</summary>
+    private const string BezierInterp = "Bezier";
+
+    /// <summary>选中某轨某刻的 key（同刻窗口 1µs）；该处没有 key 时清空选区。宿主与检查器的入口。</summary>
+    public void SelectKey(ParamAddress address, double time)
+    {
+        _selection.Clear();
+        if (FindCurve(address) is { } curve)
+        {
+            int index = TimelineMath.IndexAtTime(curve.Keys, time);
+            if (index >= 0) _selection.Add(new SelKey(address, curve.Keys[index].TimeSeconds));
+        }
+        InvalidateVisual();
+    }
+
     private bool IsSelected(ParamAddress address, double time) =>
         _selection.Exists(s => s.Address == address && Math.Abs(s.Time - time) <= TimelineMath.TimeEpsilon);
 
@@ -226,5 +244,28 @@ public sealed partial class TimelineView : Control
         if (_drag == DragMode.Key)
             return _dragKeys.Exists(d => d.Address == address && d.KeyIndex == index);
         return IsSelected(address, time);
+    }
+
+    /// <summary>可拖的控制柄 = 两端至少一个被选中的 Bezier 段的两个柄（段左 key 决定是不是 Bezier 段）。</summary>
+    private IEnumerable<(int KeyIndex, bool Out)> HandleTargets(TCurve curve)
+    {
+        for (int i = 0; i + 1 < curve.Keys.Count; i++)
+        {
+            if (curve.Keys[i].Interp != BezierInterp) continue;
+            if (!IsKeySelected(curve.Address, i, curve.Keys[i].TimeSeconds) &&
+                !IsKeySelected(curve.Address, i + 1, curve.Keys[i + 1].TimeSeconds)) continue;
+            yield return (i, true);
+            yield return (i + 1, false);
+        }
+    }
+
+    /// <summary>控制柄的时间/值 → 像素（出柄取段的左 key，入柄取右 key）。</summary>
+    private Point HandlePixel(TCurve curve, Row row, int index, bool outSide)
+    {
+        var a = outSide ? curve.Keys[index] : curve.Keys[index - 1];
+        var b = outSide ? curve.Keys[index + 1] : curve.Keys[index];
+        var (time, value) = outSide ? TimelineMath.OutHandlePoint(a, b) : TimelineMath.InHandlePoint(a, b);
+        return new Point(HeaderWidth + TimelineMath.TimeToX(time, _viewStart, _pixelsPerSecond),
+            TimelineMath.ValueToY(value, curve.Min, curve.Max, row.Top + ValuePad, row.Height - 2 * ValuePad));
     }
 }

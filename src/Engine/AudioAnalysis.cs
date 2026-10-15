@@ -1,4 +1,6 @@
+using System.IO;
 using NAudio.Dsp;
+using NAudio.Wave;
 
 namespace JizuraLive.Engine;
 
@@ -240,5 +242,48 @@ public static class AudioAnalyzer
         int m = 0;
         while ((1 << m) < powerOfTwo) m++;
         return m;
+    }
+}
+
+/// <summary>
+/// 整文件离线分析入口（S04）：解码整个音频文件，一次算完 rms/bass/mid/high 序列。
+///
+/// 文件 IO 只在这一层——<see cref="AudioAnalyzer"/> 保持"PCM 进、序列出"的纯函数形态。
+/// 只用解码器（AudioFileReader），不碰播放设备、不移动播放 reader 的位置（§13.4）；
+/// 调用方在后台线程跑，失败（IO/解码）抛异常由调用方兜住。
+/// </summary>
+public static class AudioFileAnalyzer
+{
+    private const int ChunkFloats = 65536;
+
+    /// <summary>
+    /// 解码 + 分析整段音频。窗口/步长/频带与归一化规则取 <see cref="AudioAnalyzer.Analyze"/> 的同一份配置，
+    /// 所以这里产出的序列与逐块喂 PCM 的结果逐位相同。
+    /// </summary>
+    public static AudioBandSeries Analyze(string path, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(path)) throw new ArgumentException("音频路径为空", nameof(path));
+
+        using var reader = new AudioFileReader(path);
+        var format = reader.WaveFormat;
+        if (format.Channels <= 0) throw new InvalidDataException("音频声道数为 0");
+
+        long frames = (long)Math.Ceiling(reader.TotalTime.TotalSeconds * format.SampleRate);
+        if (frames > int.MaxValue / format.Channels)
+            throw new InvalidDataException($"音频过长：{frames} 帧 × {format.Channels} 声道超出单次解码上限");
+
+        var data = new float[(int)(frames * format.Channels)];
+        var samples = (ISampleProvider)reader;   // float 读取只在 ISampleProvider 上（WaveStream.Read 是 byte[]）
+        var total = 0;
+        while (total < data.Length)
+        {
+            ct.ThrowIfCancellationRequested();
+            var read = samples.Read(data.AsSpan(total, Math.Min(ChunkFloats, data.Length - total)));
+            if (read <= 0) break;
+            total += read;
+        }
+
+        // 尾部不足一帧的样本由 Analyze 忽略（interleaved.Length / channels），不在这里凑整
+        return AudioAnalyzer.Analyze(data.AsSpan(0, total), format.Channels, format.SampleRate);
     }
 }

@@ -72,6 +72,9 @@ public sealed partial class TimelineView
             case DragMode.Key:
                 MoveSelectedKeys(p);
                 break;
+            case DragMode.Handle:
+                MoveHandle(p);
+                break;
             case DragMode.Pan:
                 PanTo(p.X);
                 break;
@@ -90,6 +93,11 @@ public sealed partial class TimelineView
             _dragTip = null;
             _drag = DragMode.None;
             CommitGesture("move");
+        }
+        else if (_drag == DragMode.Handle)
+        {
+            _drag = DragMode.None;
+            CommitGesture("interp");
         }
         else _drag = DragMode.None;
 
@@ -171,6 +179,7 @@ public sealed partial class TimelineView
     private void StartAutomationDrag(Row row, Point p, double x)
     {
         var curve = _snap!.Curves[row.Index];
+        if (StartHandleDrag(row, curve, p)) return;
         int hit = TimelineMath.HitKey(curve.Keys, x, _viewStart, _pixelsPerSecond);
         if (hit < 0)
         {
@@ -213,6 +222,52 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
+    /// <summary>命中控制柄则起拖（先于 key 拖动判定：柄就画在 key 旁边）。</summary>
+    private bool StartHandleDrag(Row row, TCurve curve, Point p)
+    {
+        foreach (var (index, outSide) in HandleTargets(curve))
+        {
+            var handle = HandlePixel(curve, row, index, outSide);
+            if (Math.Abs(handle.X - p.X) > TimelineMath.KeyHitRadiusPx) continue;
+            if (Math.Abs(handle.Y - p.Y) > TimelineMath.KeyHitRadiusPx) continue;
+
+            BeginGesture([curve.Address]);
+            _handleDrag = (curve.Address, index, outSide);
+            _dragRow = row;
+            _drag = DragMode.Handle;
+            CaptureMouse();
+            return true;
+        }
+        return false;
+    }
+
+    private void MoveHandle(Point p)
+    {
+        var curve = FindCurve(_handleDrag.Address);
+        if (curve is null || _handleDrag.KeyIndex >= curve.Keys.Count) return;
+
+        int index = _handleDrag.KeyIndex;
+        double time = TimeAt(p.X - HeaderWidth);
+        double value = TimelineMath.YToValue(p.Y, curve.Min, curve.Max,
+            _dragRow.Top + ValuePad, _dragRow.Height - 2 * ValuePad);
+
+        if (_handleDrag.Out)
+        {
+            if (index + 1 >= curve.Keys.Count) return;
+            var key = curve.Keys[index];
+            var (x, y) = TimelineMath.OutHandleAt(time, value, key, curve.Keys[index + 1], key.OutY);
+            curve.Keys[index] = key with { OutX = x, OutY = y };
+        }
+        else
+        {
+            if (index == 0) return;
+            var key = curve.Keys[index];
+            var (x, y) = TimelineMath.InHandleAt(time, value, curve.Keys[index - 1], key, key.InY);
+            curve.Keys[index] = key with { InX = x, InY = y };
+        }
+        InvalidateVisual();
+    }
+
     private void MoveSelectedKeys(Point p)
     {
         bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
@@ -227,7 +282,7 @@ public sealed partial class TimelineView
             double time = Math.Max(0, TimelineMath.Snap(origin.TimeSeconds + dt, grid, snap));
             // 值域非法（Max ≤ Min）时不钳制：Math.Clamp 的 min > max 会抛
             double value = curve.Max > curve.Min ? Math.Clamp(origin.Value + dv, curve.Min, curve.Max) : origin.Value + dv;
-            curve.Keys[index] = new TKey(time, value, origin.Interp);
+            curve.Keys[index] = origin with { TimeSeconds = time, Value = value };
         }
 
         if (_dragKeys.Count > 0)
@@ -317,12 +372,7 @@ public sealed partial class TimelineView
         if (hit < 0) return;
 
         var key = curve.Keys[hit];
-        if (!IsSelected(curve.Address, key.TimeSeconds))
-        {
-            _selection.Clear();
-            _selection.Add(new SelKey(curve.Address, key.TimeSeconds));
-            InvalidateVisual();
-        }
+        if (!IsSelected(curve.Address, key.TimeSeconds)) SelectKey(curve.Address, key.TimeSeconds);
 
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
         foreach (var interp in TimelineMath.Interps)
@@ -338,7 +388,8 @@ public sealed partial class TimelineView
         menu.IsOpen = true;
     }
 
-    private void SetInterp(string interp)
+    /// <summary>把当前选区的插值改成 <paramref name="interp"/>（右键五档菜单的入口）。一次 EditCommitted。</summary>
+    public void SetInterp(string interp)
     {
         if (_selection.Count == 0) return;
         BeginGesture(_selection.Select(s => s.Address));
@@ -397,8 +448,8 @@ public sealed partial class TimelineView
         {
             double time = _snap.PlayheadSeconds + (key.TimeSeconds - anchor);
             int conflict = TimelineMath.IndexAtTime(curve.Keys, time);
-            if (conflict >= 0) curve.Keys[conflict] = new TKey(time, key.Value, key.Interp);
-            else curve.Keys.Add(new TKey(time, key.Value, key.Interp));
+            if (conflict >= 0) curve.Keys[conflict] = key with { TimeSeconds = time };
+            else curve.Keys.Add(key with { TimeSeconds = time });
         }
         _selection.Clear();
         CommitGesture("add");

@@ -199,6 +199,71 @@ public class ProjectStoreTests
     }
 
     [Fact]
+    public void CurveHandlesRoundTripAndOldKeysGetDefaultHandles()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            // 旧档（没有句柄字段）与新档（显式句柄、Bezier/Spring 档位）混在一份文件里：
+            // Mode：0=Step 1=Linear 2=SmoothStep 3=Bezier 4=Spring
+            const string json = """
+            {
+              "SchemaVersion": 1,
+              "Name": "句柄",
+              "Curves": [
+                { "Address": "camera.scale", "Curve": { "Keys": [
+                    { "Time": 0.0, "Value": 1.0, "Mode": 2 },
+                    { "Time": 1.0, "Value": 1.4, "Mode": 3, "OutX": 0.5, "OutY": 0.25, "InX": 0.1, "InY": -0.4 } ] } },
+                { "Address": "layer:lyrics_pv.opacity", "Curve": { "Keys": [
+                    { "Time": 0.0, "Value": 0.0, "Mode": 4, "OutX": 0.0, "OutY": 0.0, "InX": 0.0, "InY": 0.0 } ] } }
+              ]
+            }
+            """;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+
+            var result = ProjectStore.Load(path);
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+
+            var camera = Assert.Single(loaded.Curves, c => c.Address == "camera.scale").Curve;
+            var old = camera.Keys[0];
+            // 旧档缺句柄字段 ⇒ 补默认 (0.333,0,0.333,0)：不能读成 0（那是"两端都没有手柄"的退化形状）
+            Assert.Equal(0.333, old.OutX);
+            Assert.Equal(0, old.OutY);
+            Assert.Equal(0.333, old.InX);
+            Assert.Equal(0, old.InY);
+            Assert.Equal(CurveInterp.SmoothStep, old.Mode);
+
+            // 新档的句柄原样读回（含显式的 0）：任何一位都不许被"补默认"覆盖
+            var young = camera.Keys[1];
+            Assert.Equal(CurveInterp.Bezier, young.Mode);
+            Assert.Equal(0.5, young.OutX);
+            Assert.Equal(0.25, young.OutY);
+            Assert.Equal(0.1, young.InX);
+            Assert.Equal(-0.4, young.InY);
+            Assert.Equal(1.4, camera.Evaluate(1.0));       // 端点值照旧精确
+            Assert.Equal(1.0, camera.Evaluate(0.0));
+
+            var spring = Assert.Single(loaded.Curves, c => c.Address == "layer:lyrics_pv.opacity").Curve;
+            Assert.Equal(CurveInterp.Spring, spring.Keys[0].Mode);
+            Assert.Equal(0, spring.Keys[0].OutX);          // 显式 0 被保留：默认值只补"字段缺失"
+
+            // 存盘再读：句柄与档位都要原样往返（写出去少一个字段就是丢用户的编辑）
+            Assert.Null(ProjectStore.Save(loaded, path));
+            var reloaded = Assert.IsType<DirectorProject>(ProjectStore.Load(path).Project);
+            var back = Assert.Single(reloaded.Curves, c => c.Address == "camera.scale").Curve;
+            Assert.Equal(camera.Keys[1], back.Keys[1]);
+            Assert.Equal(camera.Keys[0], back.Keys[0]);
+            Assert.Equal(camera.Evaluate(0.5), back.Evaluate(0.5));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
     public void CorruptJsonIsRejectedAndDiskFileUntouched()
     {
         var path = NewProjectPath();

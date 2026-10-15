@@ -74,28 +74,24 @@ public partial class PvStageWindow : Window
     private double _exportPercent;
 
     // 关键帧曲线：编辑只发生在这一份（UI 线程）上，渲染线程拿到的是 PublishDirector 发布的不可变快照。
-    // 地址解析一次存字段：它是值相等类型，每帧/每次编辑现拼字符串没有意义。
     // 换工程时整份重来（旧工程的曲线留在里面，会按同 Id 的新实例地址继续生效）。
     private DirectorEvaluator _evaluator = new();
-    private readonly ParamAddress _camScaleAddr = new(ParamAddressKind.Camera, "", "scale");
 
-    // 缩放的值域：检查器滑杆与时间轴那条 camera.scale 轨道的显示域都用它，两处必须同域
-    private const double ScaleMin = 0.5;
-    private const double ScaleMax = 2.0;
-
-    private bool _updatingScale;  // 程序化回写滑杆时为 true：那条 ValueChanged 不是用户输入，不能当编辑写回去
-    private double _scaleEditTime;  // 滑杆编辑的时刻：按下滑杆那一刻冻结，拖动全程替换同一条 key（播放中时钟在走，不冻结会堆 key）
+    // camera.scale 的地址：时间轴在没有曲线时也给它留一条空白轨（双击打第一个 key 的入口）
+    private static readonly ParamAddress _camScaleAddr = new(ParamAddressKind.Camera, "", "scale");
 
     // 时间轴（TimelineView）宿主侧状态：快照只在模型变了时整份重建，播放头每 500ms 原位刷一次
     private TSnapshot? _snap;
     private WaveformPeaks? _peaks;
-    private CancellationTokenSource? _waveformCts;
+
+    // 离线音频装载（波形 + 频带分析）：换音频 / 换工程时取消上一次，两份结果一起作废
+    private CancellationTokenSource? _audioLoadCts;
+
+    // 离线频带序列：分析算完发布给管线（信号面板的「能量」节点读它）。null = 分析未就绪
+    private AudioBandSeries? _audioBands;
 
     // 属性检查器：null = 没有选中对象，显示工程级信息
     private PvLayerConfig? _selectedLayer;
-    private JzBadge? _camBadge;
-    private TextBlock? _camScaleText;
-    private Slider SldCamScale = null!; // 检查器每次重建都会换一个新的
 
     private const double TimelineExpandedHeight = 220;
     private const double TimelineCollapsedHeight = 40;
@@ -247,6 +243,12 @@ public partial class PvStageWindow : Window
     private void PublishSignalGraph() => _pipe?.SetSignalGraph(_project.SignalGraph);
 
     /// <summary>
+    /// 把离线频带序列整份发布给管线（引用交换，渲染线程下一帧读到）。传 null = 分析未就绪：
+    /// 频带输入失效（绑定的目标回落基础值），不是"静音"。
+    /// </summary>
+    private void PublishAudioBands() => _pipe?.SetAudioAnalysis(_audioBands);
+
+    /// <summary>
     /// 停机顺序按执行契约走：先完成保存/放弃决策，再停止发布（取帧、音频），
     /// 最后等渲染线程在自己的线程上释放 GPU 资源并确认退出。反过来做就是 use-after-dispose。
     /// </summary>
@@ -334,6 +336,7 @@ public partial class PvStageWindow : Window
         {
             PublishDirector();
             PublishSignalGraph();
+            PublishAudioBands();
         }));
 
         // 万一 VTS 会话在管线之前就开着（不太可能，但保持自洽）：把它的探针接上
@@ -368,9 +371,9 @@ public partial class PvStageWindow : Window
             }
             else
             {
-                // 波形解码在后台线程做，这里只发起（本回调跑在渲染线程上，不在这里碰 UI）
+                // 波形与频带分析都在后台线程做，这里只发起（本回调跑在渲染线程上，不在这里碰 UI）
                 var path = _audioPath;
-                Dispatcher.BeginInvoke(() => StartWaveformLoad(path));
+                Dispatcher.BeginInvoke(() => StartAudioLoad(path));
             }
         }
 
@@ -631,6 +634,10 @@ public partial class PvStageWindow : Window
     private void BuildEffectRack()
     {
         EffectsHost.Children.Clear();
+        _rackRows.Clear();
+        // 效果图变了（增删实例 / 换预设）：徽标判定用的编译计划按引用缓存，这里必须整份作废
+        _badgeGraph = null;
+        _badgePlan = null;
         foreach (var node in _effects.Nodes)
         {
             var def = EffectCatalog.Get(node.DefId);
@@ -707,8 +714,9 @@ public partial class PvStageWindow : Window
                     case EffectParamKind.Number:
                     {
                         var nodeRef = node;
-                        stack.Children.Add(ParamRow(p.Key, nodeRef.Value(p), p.Min, p.Max, p.Step,
-                            v => nodeRef.Set(p, (float)v)));
+                        var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
+                        stack.Children.Add(AnimParamRow(_rackRows, addr, p.Key, p.Min, p.Max, p.Step,
+                            () => nodeRef.Value(p), v => nodeRef.Set(p, (float)v)));
                         break;
                     }
                     case EffectParamKind.Bool:
@@ -768,6 +776,7 @@ public partial class PvStageWindow : Window
             EffectsHost.Children.Add(card);
         }
 
+        RefreshParamRows();
         var count = _effects.Nodes.Count(n => n.Enabled);
         TblStatus.Text = $"效果 {count} 段";
     }
@@ -856,62 +865,6 @@ public partial class PvStageWindow : Window
         EffectCategory.Camera => "镜头",
         _ => c.ToString(),
     };
-
-    private FrameworkElement ParamRow(string label, double value, double min, double max,
-        double step, Action<double> onChange, bool keySlot = false)
-    {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
-        if (keySlot) row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
-
-        var lab = new TextBlock
-        {
-            Text = label,
-            Style = (Style)FindResource("PvRowLabel"),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(lab, 0);
-        row.Children.Add(lab);
-
-        var slider = new Slider
-        {
-            Style = (Style)FindResource("PvSlider"),
-            Minimum = min,
-            Maximum = max,
-            SmallChange = step,
-            Value = value,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var valText = new TextBlock
-        {
-            Style = (Style)FindResource("PvValue"),
-            Text = value.ToString("F2"),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextAlignment = TextAlignment.Right,
-        };
-
-        slider.ValueChanged += (_, e) =>
-        {
-            valText.Text = e.NewValue.ToString("F2");
-            onChange(e.NewValue);
-        };
-
-        Grid.SetColumn(slider, 1);
-        Grid.SetColumn(valText, 2);
-        row.Children.Add(slider);
-        row.Children.Add(valText);
-
-        if (keySlot)
-        {
-            var slot = new Border { Width = 24 }; // ◆K 的位置（打帧还没接）
-            Grid.SetColumn(slot, 3);
-            row.Children.Add(slot);
-        }
-
-        return row;
-    }
 
     private void BuildPickers()
     {
@@ -1429,7 +1382,9 @@ public partial class PvStageWindow : Window
         // 让面板的可变对象当发布物，等于把"用户输入"和"渲染线程正在读的文档"变成同一个东西。
         _project.SignalGraph = CloneSignalGraph(draft);
         PublishSignalGraph();
+        PushUndo();
         _saveError = SaveProjectNow();
+        RefreshParamRows(); // 采用后每行的值来源徽标当场跟着变，不等下一次 500ms 刷新
 
         TblSignalIssue.Text = "";
         RefreshSignalCompile(draft); // 注意项（例如悬空输入）留在结论行上，别只闪一下就没
@@ -1715,7 +1670,10 @@ public partial class PvStageWindow : Window
         _uiLayerIds = Array.Empty<string>();
         _selectedLayer = null;
         _peaks = null;
-        _waveformCts?.Cancel();
+        _audioLoadCts?.Cancel();
+        // 频带序列属于旧音频：立刻作废并发布 null，别让渲染线程拿旧频带去配新时钟
+        _audioBands = null;
+        PublishAudioBands();
         _signalDraft = null;
         _colorNode = null;
         _colorParam = null;
@@ -1839,7 +1797,7 @@ public partial class PvStageWindow : Window
         {
             _audioPath = dlg.FileName; // 绑定进工程：下次打开自动恢复（停在暂停态）
             TblStatus.Text = "音频已加载";
-            StartWaveformLoad(dlg.FileName); // 波形轨：后台解码，到位后自己刷新时间轴
+            StartAudioLoad(dlg.FileName); // 波形轨 + 频带分析：后台解码，到位后自己刷新
             var lrcPath = Path.ChangeExtension(dlg.FileName, ".lrc");
             if (File.Exists(lrcPath))
             {
@@ -2007,93 +1965,6 @@ public partial class PvStageWindow : Window
         }
 
         return row;
-    }
-
-    // ---------------- 镜头缩放的关键帧 ----------------
-
-    /// <summary>
-    /// 给 camera.scale 打一个 key：时刻取当前播放位置，值取滑杆当前值。
-    /// 曲线不存在就新建——"还没曲线时按打 key"是最自然的第一次打点方式，
-    /// 逼用户先做一步"新建曲线"没有任何信息量。
-    /// </summary>
-    private void BtnKeyCamera_Click(object sender, RoutedEventArgs e)
-    {
-        var t = _audio.Time;
-        // 打 key 的值不能拿滑杆显示值：滑杆只在 500ms 定时器上跟播放位置同步，
-        // seek 之后立刻打 key 会把上一位置的值钉到新时刻上。曲线存在就按"这一刻曲线本来该是什么"
-        // （也是管线实际生效的值，不夹显示域——曲线是替换语义，夹过再写回会把取景静默拉近/推远）来打；
-        // 只在新建曲线时才用滑杆值起步。
-        var v = _evaluator.TryEvaluate(_camScaleAddr, t, out var eval)
-            ? eval
-            : SldCamScale.Value;
-
-        if (!_evaluator.Curves.TryGetValue(_camScaleAddr, out var curve))
-        {
-            curve = new FloatCurve();
-            _evaluator.SetCurve(_camScaleAddr, curve);
-        }
-
-        // 同一时刻只许有一个 key（TryAdd 会拒绝重复时刻），所以"替换"用 Remove + TryAdd 表达；
-        // 反复点打 key 只是刷新同一条 key 的值，不会堆出一摞同刻的 key。
-        // 替换沿用原 key 的插值模式（模式是用户的选择）；新时刻才用 SmoothStep。
-        var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
-        curve.Remove(t);
-        curve.TryAdd(t, v, mode);
-
-        PublishDirector();
-        RefreshCamBadge();
-        RefreshTimeline();
-        PushUndo();
-        _saveError = SaveProjectNow();
-        TblStatus.Text = $"已打关键帧 t={t:F2}s · 缩放 {v:F2}";
-    }
-
-    /// <summary>同刻窗口（1µs，与 FloatCurve 一致）内已有 key 的插值模式；没有返回 null。</summary>
-    private static CurveInterp? ModeOfKeyAt(FloatCurve curve, double time)
-    {
-        foreach (var k in curve.Keys)
-            if (Math.Abs(k.Time - time) < 1e-6) return k.Mode;
-        return null;
-    }
-
-    private void SldCamScale_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        // 挡两条非用户路径：工程装载前 InitializeComponent 定 Minimum 夹 Value 那一次（若事件已接上），
-        // 以及 RefreshStatus 每 500ms 把"当前生效值"写回滑杆那一次。
-        if (_updatingScale || _scene is null) return;
-
-        var v = e.NewValue;
-        if (_evaluator.Curves.TryGetValue(_camScaleAddr, out var curve))
-        {
-            // 有曲线时滑杆改的是"这一刻的曲线值"。编辑时刻在按下滑杆那一刻冻结：
-            // 播放中设备钟每帧推进，相邻 ValueChanged 的时刻差远大于 1µs 的同刻窗口，
-            // 不冻结的话 Remove 找不到上一条 key、TryAdd 每次都插新的，一次拖动堆出上百条 key。
-            if (!SldCamScale.IsMouseCaptureWithin) _scaleEditTime = _audio.Time;
-            var t = _scaleEditTime;
-            // 替换沿用该 key 原有的插值模式：模式是用户的选择，改值不该把它静默抹成 SmoothStep。
-            // 新时刻才用 SmoothStep 默认——与打 key 按钮同款。
-            var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
-            curve.Remove(t);
-            curve.TryAdd(t, v, mode);
-            PublishDirector();
-            RefreshCamBadge();
-            RefreshTimeline();
-        }
-        else
-        {
-            // 还没有曲线：滑杆改的是取景基础值（与 PvScene.Camera.Scale 是同一份事实）
-            _scene.Camera ??= new PvCameraConfig(); // 手改文件可能留 null，基础值得有落点
-            _scene.Camera.Scale = v;
-            _scaleEditTime = _audio.Time; // 无曲线路径也要记住时刻，之后第一次打 key 从它起步
-        }
-
-        // 存盘不在每个 ValueChanged 里做：这是整份工程 JSON 的序列化+原子写，拖动一次能触发上百次
-        // （UiStallProbe 自己就把文件写标注为 UI 卡顿来源）。拖动中只更新内存模型，松手时落盘一次。
-        if (!SldCamScale.IsMouseCaptureWithin)
-        {
-            PushUndo(); // 同存盘：一次拖动只压一份快照，不是每个 ValueChanged 压一份
-            _saveError = SaveProjectNow();
-        }
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -2349,24 +2220,9 @@ public partial class PvStageWindow : Window
             SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
         }
 
-        // 滑杆显示"当前生效的缩放"：有曲线是曲线值，没有就是场景基础值。
-        // 用户正按着滑杆时不同步（否则刚拖到一半就被拉回去）；程序化设 Value 会再触发一次 ValueChanged，
-        // 用 _updatingScale 把那一次挡在编辑路径外。
-        if (!SldCamScale.IsMouseCaptureWithin)
-        {
-            var want = _evaluator.TryEvaluate(_camScaleAddr, t, out var curveScale)
-                ? Math.Clamp(curveScale, ScaleMin, ScaleMax)
-                : Math.Clamp(_scene.Camera?.Scale ?? 1.0, ScaleMin, ScaleMax);
-
-            if (Math.Abs(SldCamScale.Value - want) > 1e-4)
-            {
-                _updatingScale = true;
-                try { SldCamScale.Value = want; }
-                finally { _updatingScale = false; }
-            }
-        }
-
-        RefreshCamBadge();
+        // 检查器每行都显示"当前生效值"：曲线/信号随播放头走，没有的显示文档常量。
+        // 用户正按着滑杆时不同步（否则刚拖到一半就被拉回去）。
+        RefreshParamRows();
         TickTimeline();
 
         var pipe = _pipe;
