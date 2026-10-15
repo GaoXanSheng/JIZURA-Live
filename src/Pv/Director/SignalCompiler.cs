@@ -177,8 +177,9 @@ internal static class SignalRules
 public static class SignalCompiler
 {
     /// <summary>
-    /// 编译一张信号图。<paramref name="scene"/> 只用于解析相机位移的注册范围（±1 个画布），
-    /// 传 null 按默认画布解析；与信号图无关的调用方（持久化往返、纯图用例）不必给。
+    /// 编译一张信号图。<paramref name="scene"/> 给相机位移的注册范围（±1 个画布）与图层目标的存在性；
+    /// 传 null 时相机/图层域的地址一律报 <c>target-domain-unwired</c>——它们的写入方是本帧帧状态，
+    /// 没有场景就没有写入方；只含效果域的图不需要场景。
     /// </summary>
     public static SignalCompileResult Compile(SignalGraph graph, EffectGraph effects, PvScene? scene = null)
     {
@@ -853,11 +854,14 @@ public sealed partial class CompiledSignalGraph
         }
 
         // 2) 目标身份：绑定与 TimelineBaseValue 的地址仍解析到同一个 EffectNode / 同一个 EffectParam
-        // （只比引用身份，不比注册项：范围随画布/单位随 schema 变不算身份变化，所以这里不必传场景）
+        // （只比引用身份，不比注册项：范围随画布/单位随 schema 变不算身份变化，所以这里不必传场景。
+        //   相机/图层目标没有效果实例身份可核验——它们的写入方是本帧帧状态，槽位在编译期就定死了，直接跳过）
         for (var b = 0; b < _bindingAddress.Length; b++)
         {
             var address = _bindingAddress[b];
             var compiled = _targets[_bindingTarget[b]];
+            if (compiled.Slot != PvFrameSlot.None) continue;
+
             if (!SignalTargets.TryResolveBinding(address, effects, null, out var fresh, out var error))
             {
                 Fail(ParamRegistry.CodeOf(error), _nodes[_bindingNode[b]].Id, null,
@@ -888,6 +892,9 @@ public sealed partial class CompiledSignalGraph
                     $"TimelineBaseValue 的地址文本已改为「{text}」：地址决定读哪个目标，改了必须重编");
                 return false;
             }
+
+            // 相机/图层目标：同绑定那条，只核验地址文本（没有效果实例身份可核验）
+            if (compiled.Slot != PvFrameSlot.None) continue;
 
             if (!SignalTargets.TryResolveBinding(addr, effects, null, out var fresh, out var error))
             {
@@ -926,15 +933,15 @@ public sealed partial class CompiledSignalGraph
     }
 
     /// <summary>
-    /// 把本帧 Resolved 写进帧状态（契约 §3.3 步骤 3/4）：相机四槽写帧相机、图层五参写该层帧副本；
+    /// 把本帧 Resolved 写进给定帧状态（契约 §3.3 步骤 3/4）：相机四槽写帧相机、图层五参写该层帧副本；
     /// 效果域不在这里写（调用方写实例参数）。只改帧状态，不回写文档、曲线与实例常量。
-    /// 必须在 <see cref="Evaluate"/> 之后调用：Evaluate 读的正是同一份帧状态的 base 值。
+    ///
+    /// <paramref name="frame"/> 必须是本帧**还没发布**的草稿：帧状态每帧整份换新（copy-on-write），
+    /// 写进已发布的那份就是当着读者的面改它。
+    /// 必须在 <see cref="Evaluate"/> 之后调用：Evaluate 读的正是同一份草稿的 base 值。
     /// </summary>
-    public void ApplyFrameState()
+    public void ApplyFrameState(PvFrameState frame)
     {
-        var frame = FrameState;
-        if (frame is null) return;
-
         var camera = frame.Camera;
         for (var b = 0; b < _bindingAddress.Length; b++)
         {
@@ -957,19 +964,6 @@ public sealed partial class CompiledSignalGraph
         }
 
         frame.Camera = camera;
-    }
-
-    /// <summary>本计划的帧状态（编译时从场景捕获；纯效果域的计划为 null）。</summary>
-    private PvFrameState? FrameState
-    {
-        get
-        {
-            foreach (var target in _targets)
-                if (target.Frame is not null)
-                    return target.Frame;
-
-            return null;
-        }
     }
 
     /// <summary>

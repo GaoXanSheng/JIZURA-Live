@@ -114,6 +114,90 @@ public class BlueprintTests
     }
 
     [Fact]
+    public void PinHitRadiusIsInclusiveAndSquare()
+    {
+        var pin = new BpPoint(100, 50);
+        Assert.True(BlueprintMath.WithinPinRadius(pin, pin));
+        Assert.True(BlueprintMath.WithinPinRadius(new BpPoint(100 + BlueprintMath.PinHitRadius, 50 - BlueprintMath.PinHitRadius), pin));
+        Assert.False(BlueprintMath.WithinPinRadius(new BpPoint(100 + BlueprintMath.PinHitRadius + 0.01, 50), pin));
+        Assert.False(BlueprintMath.WithinPinRadius(new BpPoint(100, 50 - BlueprintMath.PinHitRadius - 0.01), pin));
+
+        // 与 HitPin 同一口径：半径内命中、出界不命中
+        var snap = Graph(Node("n1", SignalNodeKind.Add, 100, 50));
+        double y = 50 + BlueprintMath.PinRowY(0);
+        Assert.NotNull(BlueprintMath.HitPin(snap, new BpPoint(100 + BlueprintMath.PinHitRadius, y)));
+        Assert.Null(BlueprintMath.HitPin(snap, new BpPoint(100 + BlueprintMath.PinHitRadius + 0.5, y)));
+    }
+
+    [Fact]
+    public void HitParamRowUsesSchemaRowsAndTheBindingRow()
+    {
+        var snap = Graph(Node("n1", SignalNodeKind.Remap, 100, 50), Node("n2", SignalNodeKind.ParameterOutput, 100, 400));
+        var def = SignalNodeCatalog.Get(SignalNodeKind.Remap)!;
+        var rect = BlueprintMath.NodeRect(snap.Nodes[0]);
+
+        Assert.Equal("inMin", BlueprintMath.HitParamRow(snap, "n1", new BpPoint(rect.X + 10, rect.Y + BlueprintMath.ParamRowY(def, 0))));
+        Assert.Equal("outMax", BlueprintMath.HitParamRow(snap, "n1", new BpPoint(rect.Right - 10, rect.Y + BlueprintMath.ParamRowY(def, 3))));
+        Assert.Null(BlueprintMath.HitParamRow(snap, "n1", new BpPoint(rect.X - 20, rect.Y + BlueprintMath.ParamRowY(def, 0)))); // 卡外
+        Assert.Null(BlueprintMath.HitParamRow(snap, "n1", new BpPoint(rect.X + 10, rect.Y + BlueprintMath.TitleHeight / 2)));   // 标题行
+        Assert.Null(BlueprintMath.HitParamRow(snap, "missing", new BpPoint(0, 0)));
+
+        // ParameterOutput 没有 schema 参数，唯一一行是绑定目标
+        var outputDef = SignalNodeCatalog.Get(SignalNodeKind.ParameterOutput)!;
+        var outputRect = BlueprintMath.NodeRect(snap.Nodes[1]);
+        Assert.Equal(BlueprintMath.TargetRow, BlueprintMath.HitParamRow(snap, "n2",
+            new BpPoint(outputRect.X + 10, outputRect.Y + BlueprintMath.ParamRowY(outputDef, 0))));
+    }
+
+    [Fact]
+    public void MarqueeSelectionMapsScreenBackToCanvas()
+    {
+        var snap = Graph(Node("n1", SignalNodeKind.Constant, 0, 0), Node("n2", SignalNodeKind.Constant, 400, 200));
+        var pan = new BpPoint(37, -14);
+        const double zoom = 0.5;
+
+        // 屏幕框由画布框经同一份换算得到：往返回同一个节点集
+        var topLeft = BlueprintMath.ToScreen(new BpPoint(-40, -40), zoom, pan);
+        var bottomRight = BlueprintMath.ToScreen(new BpPoint(200, 120), zoom, pan);
+        Assert.Equal(new[] { "n1" }, BlueprintMath.MarqueeSelection(snap, topLeft, bottomRight, zoom, pan));
+        Assert.Equal(new[] { "n1" }, BlueprintMath.MarqueeSelection(snap, bottomRight, topLeft, zoom, pan)); // 反向拖也认
+
+        Assert.Equal(new[] { "n1", "n2" }, BlueprintMath.MarqueeSelection(snap,
+            new BpPoint(-1e4, -1e4), new BpPoint(1e4, 1e4), zoom, pan));
+
+        // 空区的一小格不命中任何节点
+        var empty = BlueprintMath.ToScreen(new BpPoint(-100, -100), zoom, pan);
+        Assert.Empty(BlueprintMath.MarqueeSelection(snap, empty, new BpPoint(empty.X + 1, empty.Y + 1), zoom, pan));
+
+        // 框的角与节点矩形的左上角相接也算命中（闭边界，与 WPF 的 IntersectsWith 同口径）
+        var corner = BlueprintMath.ToScreen(new BpPoint(0, 0), zoom, pan);
+        Assert.Equal(new[] { "n1" }, BlueprintMath.MarqueeSelection(snap, new BpPoint(corner.X - 1, corner.Y - 1), corner, zoom, pan));
+    }
+
+    // ---- 节点拖动落点 ----
+
+    [Fact]
+    public void DragDeltaSnapsToTheGrid()
+    {
+        Assert.Equal(new BpPoint(8, -16), BlueprintMath.DragDelta(new BpPoint(30, 40), new BpPoint(35, 22)));
+        Assert.Equal(new BpPoint(0, 0), BlueprintMath.DragDelta(new BpPoint(10, 10), new BpPoint(13, 13))); // 半步之内不动
+        Assert.Equal(new BpPoint(0, 0), BlueprintMath.DragDelta(new BpPoint(5, 5), new BpPoint(5, 5)));
+    }
+
+    [Fact]
+    public void DragMovesComposeOriginsWithTheSnappedDelta()
+    {
+        var origins = new Dictionary<string, BpPoint> { ["n2"] = new(0, 0), ["n1"] = new(100, 50) };
+
+        var moves = BlueprintMath.DragMoves(origins, new BpPoint(8, -16));
+
+        Assert.Equal(new[] { "n1", "n2" }, moves.Select(m => m.NodeId)); // 顺序钉死，宿主按它写文档
+        Assert.Equal(new BpNodeMove("n1", 108, 34), moves[0]);
+        Assert.Equal(new BpNodeMove("n2", 8, -16), moves[1]);
+        Assert.Empty(BlueprintMath.DragMoves(new Dictionary<string, BpPoint>(), new BpPoint(8, 8)));
+    }
+
+    [Fact]
     public void HitEdgeFollowsTheBezier()
     {
         var snap = new BpSnapshot

@@ -266,18 +266,19 @@ public class SignalGraphTests
         Assert.True(ParamRegistry.TryResolve(Addr("layer:character.opacity"), effects, scene, out var layerOpacity, out var layerError), layerError);
         Assert.Equal(ParamUnit.Ratio, layerOpacity.Unit);
 
-        // 相机绑定：解析成帧状态槽，求值后写进帧相机
+        // 相机绑定：解析成帧状态槽，求值后写进本帧草稿的相机
+        var frame = new PvFrameState();
         var scalePlan = CompileOk(ConstantChain("camera.scale", 0.5, ParamUnit.Dimensionless), effects, scene);
-        scalePlan.Evaluate(Frame(0.0, 0.0));
-        scalePlan.ApplyFrameState();
-        Assert.Equal(0.5, scene.Frame.Camera.Scale, 12);
+        scalePlan.Evaluate(Frame(0.0, 0.0, frame: frame));
+        scalePlan.ApplyFrameState(frame);
+        Assert.Equal(0.5, frame.Camera.Scale, 12);
 
         // 图层绑定：写该层的帧副本；没绑定的槽保持 base 不被写坏
-        scene.Frame.SetLayer("character", PvLayerState.From(scene.Layers[0]));
+        frame.SetLayer("character", PvLayerState.From(scene.Layers[0]));
         var opacityPlan = CompileOk(ConstantChain("layer:character.opacity", 0.5, ParamUnit.Ratio), effects, scene);
-        opacityPlan.Evaluate(Frame(0.0, 0.0));
-        opacityPlan.ApplyFrameState();
-        Assert.True(scene.Frame.TryGetLayer("character", out var layerState));
+        opacityPlan.Evaluate(Frame(0.0, 0.0, frame: frame));
+        opacityPlan.ApplyFrameState(frame);
+        Assert.True(frame.TryGetLayer("character", out var layerState));
         Assert.Equal(0.5, layerState.Opacity, 12);
         Assert.Equal(1.0, layerState.Scale, 12);
 
@@ -336,15 +337,62 @@ public class SignalGraphTests
         Assert.Equal(1, opacity.Max, 6);
 
         // 越界信号：夹进范围、打标，帧状态拿到夹过的值
+        var frame = new PvFrameState();
         var plan = CompileOk(ConstantChain("camera.offsetX", 3000, ParamUnit.Pixels), effects, scene);
-        plan.Evaluate(Frame(0.0, 0.0));
+        plan.Evaluate(Frame(0.0, 0.0, frame: frame));
 
         Assert.True(plan.TryGetResolved(Addr("camera.offsetX"), out var resolved));
         Assert.True(resolved.Clamped);
         Assert.Equal(1280, resolved.Value, 6);
 
-        plan.ApplyFrameState();
-        Assert.Equal(1280, scene.Frame.Camera.X, 6);
+        plan.ApplyFrameState(frame);
+        Assert.Equal(1280, frame.Camera.X, 6);
+    }
+
+    /// <summary>
+    /// 相机/图层域的地址在 <c>scene = null</c> 时**编译报错**（target-domain-unwired），
+    /// 不是"编译通过、Frame 为 null、值被静默丢掉"：它们的写入方是本帧帧状态，没有场景就没有帧状态。
+    /// 效果域不写帧状态，scene 为 null 依旧合法（纯图用例与持久化往返都走那条）。
+    /// </summary>
+    [Fact]
+    public void CameraAndLayerDomainsFailClosedWithoutScene()
+    {
+        var effects = new EffectGraph();
+        effects.Add("bloom");
+        var bloomAddress = $"effect:{effects.Nodes[0].InstanceId}.intensity";
+
+        // 效果域：不需要场景
+        Assert.NotNull(SignalCompiler.Compile(ConstantChain(bloomAddress, 1, ParamUnit.Dimensionless), effects).Plan);
+
+        // 相机/图层域：地址合法但没有写入方 ⇒ 整张图拒绝，码与"地址写错"分得开
+        foreach (var address in new[] { "camera.scale", "layer:character.opacity" })
+        {
+            var result = SignalCompiler.Compile(ConstantChain(address, 0.5, ParamUnit.Dimensionless), effects);
+            Assert.Null(result.Plan);
+            var issue = Assert.Single(result.Issues, i => i.Code == "target-domain-unwired");
+            Assert.Equal("n_out", issue.NodeId);
+        }
+
+        // TimelineBaseValue 走同一个解析入口：读与写两条都报同一个码
+        var graph = new SignalGraph();
+        var baseNode = Node(graph, "n_base", SignalNodeKind.TimelineBaseValue);
+        SetAddress(graph, baseNode, "camera.scale");
+        var output = Node(graph, "n_out", SignalNodeKind.ParameterOutput);
+        Connect(graph, baseNode, output, "in");
+        Bind(graph, output, "camera.scale");
+
+        var fromBase = SignalCompiler.Compile(graph, effects);
+        Assert.Null(fromBase.Plan);
+        Assert.Contains(fromBase.Issues, i => i.Code == "target-domain-unwired");
+
+        // 同一张图给了场景就编译通过：拒的是"没有写入方"，不是地址本身
+        var scene = SceneWithLayers(1280, 720, "character");
+        var plan = SignalCompiler.Compile(graph, effects, scene).Plan;
+        Assert.NotNull(plan);
+
+        // 计划复用（渲染线程每帧走的那条）内部不传场景，不能因此把相机/图层计划判成失效：
+        // 帧状态目标没有效果实例身份可核验，槽位在编译期就定死了
+        Assert.True(plan!.TryApplyParams(graph, effects, out _));
     }
 
     /// <summary>
@@ -366,20 +414,21 @@ public class SignalGraphTests
 
         var plan = CompileOk(UnlockPath(effects, "camera.scale"), effects, scene);
 
-        // 步骤 1/2：文档常量 → 曲线 base(t)；5s 的 base = 1.1
-        scene.Frame.Camera = PvPipeline.BaseCamera(scene.Camera, curves, 5.0);
-        Assert.Equal(1.1, scene.Frame.Camera.Scale, 12);
+        // 步骤 1/2：文档常量 → 曲线 base(t)；5s 的 base = 1.1（渲染侧每帧建一份新草稿）
+        var frame = new PvFrameState();
+        frame.Camera = PvPipeline.BaseCamera(scene.Camera, curves, 5.0);
+        Assert.Equal(1.1, frame.Camera.Scale, 12);
 
         // 步骤 3/4：有效 bass 0.8 经 Remap(0..1 → 0..0.04) 得 0.032，帧状态 = 1.132
-        plan.Evaluate(Frame(5.0, 0.8, curves: curves));
-        plan.ApplyFrameState();
-        Assert.Equal(1.132, scene.Frame.Camera.Scale, 12);
+        plan.Evaluate(Frame(5.0, 0.8, curves: curves, frame: frame));
+        plan.ApplyFrameState(frame);
+        Assert.Equal(1.132, frame.Camera.Scale, 12);
 
         // 同一张图输入失效：本帧重新算 base（渲染侧每帧都重铺），帧状态回到 1.1 而不是 0
-        scene.Frame.Camera = PvPipeline.BaseCamera(scene.Camera, curves, 5.0);
-        plan.Evaluate(Frame(5.0, 0.8, audioValid: false, curves: curves));
-        plan.ApplyFrameState();
-        Assert.Equal(1.1, scene.Frame.Camera.Scale, 12);
+        frame.Camera = PvPipeline.BaseCamera(scene.Camera, curves, 5.0);
+        plan.Evaluate(Frame(5.0, 0.8, audioValid: false, curves: curves, frame: frame));
+        plan.ApplyFrameState(frame);
+        Assert.Equal(1.1, frame.Camera.Scale, 12);
 
         // 文档一字未改：常量与两个 Key 都不动
         Assert.Equal(1.0, scene.Camera.Scale, 12);
@@ -404,47 +453,97 @@ public class SignalGraphTests
         Assert.True(curve.TryAdd(10.0, 0.4));
         curves.SetCurve(Addr("layer:character.offsetX"), curve);
 
+        var frame = new PvFrameState();
+
         double OffsetX()
         {
-            Assert.True(scene.Frame.TryGetLayer("character", out var s));
+            Assert.True(frame.TryGetLayer("character", out var s));
             return s.OffsetX;
         }
 
         // ① 常量：没有曲线就是文档常量 0.1
-        scene.Frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, null, 5.0));
+        frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, null, 5.0));
         Assert.Equal(0.1, OffsetX(), 12);
 
-        // ② 曲线 base(t)：5s 落在两个 Key 中点 = 0.3
-        scene.Frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, curves, 5.0));
+        // ② 曲线 base(t)：5s 落在两个 Key 中点 = 0.3（渲染侧每帧建一份新草稿）
+        frame = new PvFrameState();
+        frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, curves, 5.0));
         Assert.Equal(0.3, OffsetX(), 12);
 
         // ③ 信号有效：覆盖 base（Constant 0.8 在 -1..1 内，不限幅）
         var plan = CompileOk(UnlockPath(effects, "layer:character.offsetX", outUnit: ParamUnit.Ratio), effects, scene);
-        plan.Evaluate(Frame(5.0, 1.0, curves: curves));
+        plan.Evaluate(Frame(5.0, 1.0, curves: curves, frame: frame));
         Assert.Equal(ParamValueSource.Signal, Resolve(plan, "layer:character.offsetX").Source);
-        plan.ApplyFrameState();
+        plan.ApplyFrameState(frame);
         Assert.Equal(0.34, OffsetX(), 12);   // 0.3 + Remap(1.0 → 0..0.04)
 
         // ④ 输出无效：回落 base(t)；每帧重新铺 base 正是渲染侧的顺序（否则会读到上一帧的解析值 = 自反馈）
-        scene.Frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, curves, 5.0));
-        plan.Evaluate(Frame(5.0, 0.0, audioValid: false, curves: curves));
+        frame = new PvFrameState();
+        frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, curves, 5.0));
+        plan.Evaluate(Frame(5.0, 0.0, audioValid: false, curves: curves, frame: frame));
         Assert.Equal(ParamValueSource.Base, Resolve(plan, "layer:character.offsetX").Source);
-        plan.ApplyFrameState();
+        plan.ApplyFrameState(frame);
         Assert.Equal(0.3, OffsetX(), 12);
 
         // ⑤ 限幅：opacity 范围 0..1，信号 2 夹到 1 并打标
-        scene.Frame.SetLayer(layer.Id, PvLayerState.From(layer));
+        frame = new PvFrameState();
+        frame.SetLayer(layer.Id, PvLayerState.From(layer));
         var clampPlan = CompileOk(ConstantChain("layer:character.opacity", 2.0, ParamUnit.Ratio), effects, scene);
-        clampPlan.Evaluate(Frame(0.0, 0.0));
+        clampPlan.Evaluate(Frame(0.0, 0.0, frame: frame));
         Assert.True(clampPlan.TryGetResolved(Addr("layer:character.opacity"), out var clamped));
         Assert.True(clamped.Clamped);
-        clampPlan.ApplyFrameState();
-        Assert.True(scene.Frame.TryGetLayer("character", out var afterClamp));
+        clampPlan.ApplyFrameState(frame);
+        Assert.True(frame.TryGetLayer("character", out var afterClamp));
         Assert.Equal(1.0, afterClamp.Opacity, 12);
 
         // 文档常量与曲线 Key 全程一字未改
         Assert.Equal(0.1, layer.OffsetX, 12);
         Assert.Equal(2, curve.Count);
+    }
+
+    /// <summary>
+    /// 帧状态 copy-on-write：每帧整份换新并原子发布。两件事必须同时成立——
+    /// ① 读者手里那一份**永不改变**（UI 徽标拿到的永远是某一帧的完整快照，不是写了一半的字典）；
+    /// ② 求值不存帧状态实例，base 读的是**发布时的当前快照**（编译期捕获实例的话，计划一建就永远读旧帧）。
+    /// </summary>
+    [Fact]
+    public void PublishedFrameSnapshotIsStableAndBaseReadsTheCurrentOne()
+    {
+        var effects = new EffectGraph();
+        var scene = SceneWithLayers(1920, 1080, "character");
+
+        var first = new PvFrameState();
+        first.SetLayer("character", PvLayerState.From(scene.Layers[0]) with { OffsetX = 0.25 });
+        scene.PublishFrame(first);
+        var readerSnapshot = scene.Frame;
+
+        // 下一帧换新：读者手里那一份一字不改（图层被删掉也不影响它）
+        var second = new PvFrameState();
+        second.Camera = second.Camera with { Scale = 1.5 };
+        scene.PublishFrame(second);
+
+        Assert.NotSame(readerSnapshot, scene.Frame);
+        Assert.True(readerSnapshot.TryGetLayer("character", out var kept));
+        Assert.Equal(0.25, kept.OffsetX, 12);
+        Assert.False(scene.Frame.TryGetLayer("character", out _));
+        Assert.Equal(1.0, readerSnapshot.Camera.Scale, 12);
+        Assert.Equal(1.5, scene.Frame.Camera.Scale, 12);
+
+        // 计划在第三帧时编译、第四帧才求值：base 必须来自第四帧（0.4），不是编译时那一帧（-0.5）
+        var third = new PvFrameState();
+        third.SetLayer("character", PvLayerState.From(scene.Layers[0]) with { OffsetX = -0.5 });
+        scene.PublishFrame(third);
+
+        var plan = CompileOk(UnlockPath(effects, "layer:character.offsetX", outUnit: ParamUnit.Ratio), effects, scene);
+
+        var fourth = new PvFrameState();
+        fourth.SetLayer("character", PvLayerState.From(scene.Layers[0]) with { OffsetX = 0.4 });
+        scene.PublishFrame(fourth);
+
+        // 信号输入失效 ⇒ 回落 base(t)：读的是当前已发布快照的 0.4
+        plan.Evaluate(Frame(0.0, 0.0, audioValid: false));
+        Assert.Equal(ParamValueSource.Base, Resolve(plan, "layer:character.offsetX").Source);
+        Assert.Equal(0.4, Resolve(plan, "layer:character.offsetX").Value, 12);
     }
 
     /// <summary>
@@ -1467,8 +1566,8 @@ public class SignalGraphTests
     }
 
     private static SignalFrameInputs Frame(double transportTime, double bass, bool audioValid = true,
-        DirectorEvaluator? curves = null, VtsPoseSnapshot vts = default) =>
-        new(transportTime, transportTime, new AudioBandSnapshot(audioValid, bass, bass, bass, bass), curves, vts);
+        DirectorEvaluator? curves = null, VtsPoseSnapshot vts = default, PvFrameState? frame = null) =>
+        new(transportTime, transportTime, new AudioBandSnapshot(audioValid, bass, bass, bass, bass), curves, vts, frame);
 
     /// <summary>可控假姿态快照：只填用例关心的通道，其余保持 0（形态同 <see cref="VtsTrackingState.Empty"/>）。</summary>
     private static VtsTrackingState Pose(bool faceFound = true, double headAngleX = 0, double headAngleY = 0,

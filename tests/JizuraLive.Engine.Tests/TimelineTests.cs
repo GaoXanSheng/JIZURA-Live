@@ -241,6 +241,213 @@ public class TimelineTests
         Assert.NotEqual(edit.Before[0], edit.After[0]);  // record 相等性把句柄算在内
     }
 
+    // ---- 歌词轨 Clip 编辑（W4-TL：半开区间 [start,end)、不重叠、允许空档）----
+
+    private static List<TClip> Lyrics() =>
+    [
+        new TClip { Start = 1, End = 3, Text = "第一句" },
+        new TClip { Start = 5, End = 8, Text = "第二句" },
+    ];
+
+    [Fact]
+    public void ClipHitPrefersEdgesAndLeavesTheGapEmpty()
+    {
+        var clips = Lyrics();
+
+        Assert.Equal(new ClipHit(0, ClipEdge.Start), TimelineMath.HitClip(clips, 1.05, 0.1));
+        Assert.Equal(new ClipHit(0, ClipEdge.End), TimelineMath.HitClip(clips, 2.95, 0.1));
+        Assert.Equal(new ClipHit(0, ClipEdge.None), TimelineMath.HitClip(clips, 2, 0.2));   // 条体
+        Assert.Equal(new ClipHit(1, ClipEdge.None), TimelineMath.HitClip(clips, 7.5, 0.1)); // 条体：半开右端点不含在内
+        Assert.Equal(new ClipHit(1, ClipEdge.End), TimelineMath.HitClip(clips, 8, 0));       // 8 是它的右端点（开），命中尾巴
+        Assert.Null(TimelineMath.HitClip(clips, 4, 0.1));                                    // 空档
+        Assert.Null(TimelineMath.HitClip(clips, 9, 0));                                      // [8,∞) 不是任何一句
+        Assert.Null(TimelineMath.HitClip([], 1, 0.1));
+    }
+
+    [Fact]
+    public void DragClipMovesWholeClipKeepingDuration()
+    {
+        var origin = new ClipRange(1, 3);
+
+        var moved = TimelineMath.DragClip(origin, ClipEdge.None, 0.5, 0.1, false);
+        Assert.Equal(1.5, moved.Start, 9);
+        Assert.Equal(3.5, moved.End, 9);
+
+        var snapped = TimelineMath.DragClip(origin, ClipEdge.None, 0.8, 0.5, true);   // 吸附 0.5 网格
+        Assert.Equal(2, snapped.Start, 9);
+        Assert.Equal(4, snapped.End, 9);
+        Assert.Equal(2, snapped.End - snapped.Start, 9);                              // 时长不变
+
+        var unsnapped = TimelineMath.DragClip(origin, ClipEdge.None, 0.8, 0, true);   // 步长非法 = 不吸附
+        Assert.Equal(1.8, unsnapped.Start, 9);
+
+        var clamped = TimelineMath.DragClip(origin, ClipEdge.None, -9, 0.5, false);
+        Assert.Equal(0, clamped.Start, 9);                                            // 夹到 0
+        Assert.Equal(2, clamped.End, 9);
+    }
+
+    [Fact]
+    public void DragClipEdgeMovesOnlyThatEdge()
+    {
+        var origin = new ClipRange(1, 3);
+
+        var head = TimelineMath.DragClip(origin, ClipEdge.Start, -0.5, 0.1, false);
+        Assert.Equal(0.5, head.Start, 9);
+        Assert.Equal(3, head.End, 9);
+
+        var tail = TimelineMath.DragClip(origin, ClipEdge.End, -0.6, 0.1, true);
+        Assert.Equal(1, tail.Start, 9);
+        Assert.Equal(2.4, tail.End, 9);
+
+        // 拖尾越过起点：这里不夹时长，交给 ClipFault 拒（拖不动比悄悄改掉时长好）
+        var crossed = TimelineMath.DragClip(origin, ClipEdge.End, -9, 0.1, false);
+        Assert.Equal(1, crossed.Start, 9);
+        Assert.Equal(0, crossed.End, 9);
+    }
+
+    [Fact]
+    public void ClipFaultRejectsOverlapAndNonPositiveRange()
+    {
+        var clips = Lyrics();
+
+        Assert.Contains("重叠", TimelineMath.ClipFault(clips, 1, new ClipRange(1, 3)));       // 盖住第一句
+        Assert.Contains("重叠", TimelineMath.ClipFault(clips, 0, new ClipRange(2, 5.001)));   // 盖住第二句的起点
+        Assert.Contains("重叠", TimelineMath.ClipFault(clips, 0, new ClipRange(7.999, 9)));   // 咬住第二句的尾巴
+        Assert.Contains("太短", TimelineMath.ClipFault(clips, 1, new ClipRange(6, 6)));       // end == start
+        Assert.Contains("太短", TimelineMath.ClipFault(clips, 1, new ClipRange(7, 6)));       // 反向
+        Assert.Contains("太短", TimelineMath.ClipFault(clips, 0,
+            TimelineMath.DragClip(new ClipRange(1, 3), ClipEdge.End, -5, 0.1, false)));       // 拖尾越到起点之前
+    }
+
+    [Fact]
+    public void ClipFaultAllowsTouchingEndpointsAndEmptyGaps()
+    {
+        var clips = Lyrics();
+
+        Assert.Null(TimelineMath.ClipFault(clips, 0, new ClipRange(3, 5)));       // 端点相接：半开区间不算重叠
+        Assert.Null(TimelineMath.ClipFault(clips, 0, new ClipRange(3.5, 4.9)));   // 空档里
+        Assert.Null(TimelineMath.ClipFault(clips, 0, new ClipRange(8, 9)));       // 末句之后
+        Assert.Null(TimelineMath.ClipFault(clips, 0, new ClipRange(0.5, 1)));     // 首句之前
+        Assert.Null(TimelineMath.ClipFault([new TClip { Start = 1, End = 3 }], 0, new ClipRange(1, 3))); // 只有这一句
+    }
+
+    /// <summary>拖动落点整条走一遍：进空档合法，咬住邻句被拒。</summary>
+    [Fact]
+    public void ClipDragIntoTheGapCommitsAndOverlapIsRefused()
+    {
+        var clips = Lyrics();
+        var origin = new ClipRange(clips[0].Start, clips[0].End);
+
+        var intoGap = TimelineMath.DragClip(origin, ClipEdge.None, 1.0, 0.1, false);   // [2,4)
+        Assert.Null(TimelineMath.ClipFault(clips, 0, intoGap));
+        Assert.Equal(4, intoGap.End, 9);
+
+        var overlap = TimelineMath.DragClip(origin, ClipEdge.None, 3.0, 0.1, false);   // [4,6)
+        Assert.Contains("重叠", TimelineMath.ClipFault(clips, 0, overlap));
+    }
+
+    // ---- 歌词条顺序契约（审查阻塞项：跨位拖动后非升序 → 查找侧整段失联）----
+
+    /// <summary>歌词条的 Clip 序列（查找侧真正吃的那份，不是时间轴快照的 TClip）。</summary>
+    private static List<LyricClip> ClipSeq() =>
+    [
+        new LyricClip("c0", 1000, 3000, "第一句", false),
+        new LyricClip("c1", 5000, 8000, "第二句", false),
+    ];
+
+    /// <summary>
+    /// 缺陷机制对照（不依赖宿主）：把第一句整条挪到第二句之后，ClipFault 放行（它只挡重叠、不挡跨位），
+    /// 而查找侧是二分「最后一个 StartMs ≤ t」——序列一旦非升序，挪过去的那句与被跨过的那句
+    /// 在各自区间内都命中不了（屏幕上表现为歌词整段消失）。
+    /// 这条钉的是查找侧对升序的硬要求：宿主提交时必须归一化，否则这里的两条命中就是绿的。
+    /// </summary>
+    [Fact]
+    public void OutOfOrderClipsMakeBothLinesUnfindable()
+    {
+        var clips = ClipSeq();
+
+        // 跨位不被拒：区间 [9,11) 与第二句 [5,8) 不重叠
+        var snapshot = new List<TClip>
+        {
+            new() { Id = "c0", Start = 1, End = 3, Text = "第一句" },
+            new() { Id = "c1", Start = 5, End = 8, Text = "第二句" },
+        };
+        Assert.Null(TimelineMath.ClipFault(snapshot, 0, new ClipRange(9, 11)));
+
+        // 未归一化的提交结果：第一句挪到 9s，序列 [9s, 5s] 非升序
+        var unnormalized = new List<LyricClip>
+        {
+            clips[0] with { StartMs = 9000, EndMs = 11000 },
+            clips[1],
+        };
+
+        Assert.Null(LrcParser.FindSample(unnormalized, 6));    // 第二句在 [5,8) 内，却被非升序挡掉
+        Assert.Null(LrcParser.FindSample(unnormalized, 10));   // 挪过去的第一句同样查不到
+        Assert.Null(LrcParser.FindLastBefore(unnormalized, 6)); // 「保留上一句」也一起失联
+    }
+
+    /// <summary>
+    /// 回归（审查阻塞项）：提交一次跨位拖动后，交给查找侧的序列必须仍是升序。
+    /// 归一化后两句各自的新位置都能命中，且新下标即新快照的下标（控件按新快照继续报编辑，不会错位）。
+    /// </summary>
+    [Fact]
+    public void CommittingACrossOrderMoveKeepsTheSequenceAscending()
+    {
+        var clips = ClipSeq();
+
+        var next = TimelineMath.WithClipRange(clips, 0, 9500, 11000);   // 第一句整条挪到第二句之后
+
+        Assert.Equal(new[] { "第二句", "第一句" }, next.Select(c => c.Text));
+        Assert.Equal(new long[] { 5000, 9500 }, next.Select(c => c.StartMs));
+
+        Assert.Equal("第二句", LrcParser.FindSample(next, 6)!.Value.Text);    // 被跨过的那句照旧命中
+        Assert.Equal("第一句", LrcParser.FindSample(next, 10)!.Value.Text);   // 挪过去的按新位置命中
+        Assert.Null(LrcParser.FindSample(next, 4));                          // 空档仍然清屏
+
+        // 身份跟着句子走，只换时刻；被跨过的那句一字未动
+        Assert.Equal(new[] { "c1", "c0" }, next.Select(c => c.Id));
+        Assert.Equal(clips[1], next[0]);
+        Assert.Equal("第一句", next[1].Text);
+        Assert.False(next[1].OutOfRange);
+
+        // 发布出去的那份不许被就地改写（克隆 → 改 → 换引用，与信号图同一条约定）
+        Assert.Equal(new long[] { 1000, 5000 }, clips.Select(c => c.StartMs));
+    }
+
+    /// <summary>
+    /// 归一化是稳定排序：同 StartMs 的两句保持原相对次序。
+    /// 并列区间本来就会被 <see cref="TimelineMath.ClipFault"/> 挡在提交之外，这里钉的是排序本身不许
+    /// 顺手换位——非稳定排序会让"只是把别处挪了一下"的编辑悄悄改掉并列两句的先后。
+    /// </summary>
+    [Fact]
+    public void NormalizationIsStableForEqualStarts()
+    {
+        var tied = new List<LyricClip>
+        {
+            new("t0", 5000, 6000, "甲", false),
+            new("t1", 1000, 2000, "乙", false),
+            new("t2", 5000, 7000, "丙", false),
+        };
+
+        var next = TimelineMath.WithClipRange(tied, 1, 1000, 2000);   // 乙原地不动
+
+        Assert.Equal(new[] { "t1", "t0", "t2" }, next.Select(c => c.Id));
+    }
+
+    /// <summary>歌词轨事务走同一个 TEdit（Reason = "clip"）：宿主凭 Clip 分支，Before/After 不带 key。</summary>
+    [Fact]
+    public void ClipEditCarriesTheNewRangeThroughTEdit()
+    {
+        var edit = new TEdit { Reason = "clip", Clip = new TClipEdit(2, 1.5, 3.5) };
+
+        Assert.NotNull(edit.Clip);
+        Assert.Equal(2, edit.Clip!.Value.Index);
+        Assert.Equal(1.5, edit.Clip!.Value.Start, 9);
+        Assert.Equal(3.5, edit.Clip!.Value.End, 9);
+        Assert.Empty(edit.After);
+        Assert.Empty(edit.Before);
+    }
+
     /// <summary>五档切换：每次一次 EditCommitted（Reason 仍是 "interp"），After 带新模式且句柄不丢。</summary>
     [Fact]
     public void InterpSwitchCommitsOncePerChange()

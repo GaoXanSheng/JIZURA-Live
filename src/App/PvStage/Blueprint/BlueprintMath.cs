@@ -69,6 +69,25 @@ public static class BlueprintMath
 
     public static BpPoint Snap(BpPoint p) => new(Snap(p.X), Snap(p.Y));
 
+    // ---- 节点拖动落点 ----
+
+    /// <summary>拖动位移（吸附 8px 网格）。</summary>
+    public static BpPoint DragDelta(BpPoint from, BpPoint to) =>
+        Snap(new BpPoint(to.X - from.X, to.Y - from.Y));
+
+    /// <summary>落点表：各选中节点的起点 + 吸附后的位移。按 Id 排序，好让宿主写文档的顺序可复现。</summary>
+    public static IReadOnlyList<BpNodeMove> DragMoves(IReadOnlyDictionary<string, BpPoint> origins, BpPoint delta)
+    {
+        var moves = new List<BpNodeMove>(origins.Count);
+        foreach (var id in origins.Keys.OrderBy(static k => k, StringComparer.Ordinal))
+        {
+            var origin = origins[id];
+            moves.Add(new BpNodeMove(id, origin.X + delta.X, origin.Y + delta.Y));
+        }
+
+        return moves;
+    }
+
     // ---- 坐标 ↔ 画布 ----
 
     public static BpPoint ToScreen(BpPoint canvas, double zoom, BpPoint pan) =>
@@ -151,6 +170,10 @@ public static class BlueprintMath
         return null;
     }
 
+    /// <summary>命中半径判定（方形域、含边界；两个轴有一个出界就不算）。</summary>
+    public static bool WithinPinRadius(BpPoint point, BpPoint pin, double radius = PinHitRadius) =>
+        Math.Abs(point.X - pin.X) <= radius && Math.Abs(point.Y - pin.Y) <= radius;
+
     /// <summary>最近的引脚（半径内）；后画的节点在上层，所以倒序命中。</summary>
     public static BpPin? HitPin(BpSnapshot snap, BpPoint canvas)
     {
@@ -163,14 +186,51 @@ public static class BlueprintMath
             for (var i = 0; i < def.Ports.Length; i++)
             {
                 var port = def.Ports[i];
-                double x = node.X + (port.IsInput ? 0 : NodeWidth);
-                double y = node.Y + PinRowY(i);
-                if (Math.Abs(canvas.X - x) > PinHitRadius || Math.Abs(canvas.Y - y) > PinHitRadius) continue;
+                var pin = new BpPoint(node.X + (port.IsInput ? 0 : NodeWidth), node.Y + PinRowY(i));
+                if (!WithinPinRadius(canvas, pin)) continue;
                 return new BpPin(node.Id, port.Name, port.IsInput);
             }
         }
 
         return null;
+    }
+
+    /// <summary>命中的参数行名（绑定目标行返回 <see cref="TargetRow"/>）；没命中返回 null。</summary>
+    public static string? HitParamRow(BpSnapshot snap, string nodeId, BpPoint canvas)
+    {
+        var node = FindNode(snap, nodeId);
+        if (node is null) return null;
+        var def = SignalNodeCatalog.Get(node.Kind);
+        if (def is null) return null;
+
+        var rect = NodeRect(node);
+        if (canvas.X < rect.X || canvas.X > rect.Right) return null;
+
+        for (var i = 0; i < ParamRowCount(def); i++)
+        {
+            double y = rect.Y + ParamRowY(def, i);
+            if (Math.Abs(canvas.Y - y) <= ParamRowHeight / 2) return ParamNameAt(def, i);
+        }
+
+        return null;
+    }
+
+    /// <summary>框选命中：屏幕框换算到画布后与节点矩形求交（顺序 = 快照里的节点序）。</summary>
+    public static IReadOnlyList<string> MarqueeSelection(BpSnapshot snap, BpPoint from, BpPoint to, double zoom, BpPoint pan)
+    {
+        var topLeft = ToCanvas(new BpPoint(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y)), zoom, pan);
+        var bottomRight = ToCanvas(new BpPoint(Math.Max(from.X, to.X), Math.Max(from.Y, to.Y)), zoom, pan);
+        var box = new BpRect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y);
+
+        var hits = new List<string>();
+        foreach (var node in snap.Nodes)
+        {
+            var rect = NodeRect(node);
+            if (box.X <= rect.Right && rect.X <= box.Right && box.Y <= rect.Bottom && rect.Y <= box.Bottom)
+                hits.Add(node.Id);
+        }
+
+        return hits;
     }
 
     /// <summary>节点卡片命中（最上层优先）；未知节点也吃命中（它占位、可选中、可删）。</summary>

@@ -50,8 +50,7 @@ public sealed partial class TimelineView
                 StartScrub(x);
                 break;
             case RowKind.Lyrics:
-                var clip = ClipAt(x);
-                RaiseSeek(clip?.Start ?? TimeAt(x));
+                StartClipGesture(x);
                 break;
             case RowKind.Automation:
                 StartAutomationDrag(row, p, x);
@@ -78,6 +77,9 @@ public sealed partial class TimelineView
             case DragMode.Pan:
                 PanTo(p.X);
                 break;
+            case DragMode.Clip:
+                MoveClip(p);
+                break;
         }
     }
 
@@ -98,6 +100,11 @@ public sealed partial class TimelineView
         {
             _drag = DragMode.None;
             CommitGesture("interp");
+        }
+        else if (_drag == DragMode.Clip)
+        {
+            _drag = DragMode.None;
+            CommitClip();
         }
         else _drag = DragMode.None;
 
@@ -167,13 +174,80 @@ public sealed partial class TimelineView
         RaiseSeek(TimeAt(x));
     }
 
-    private TClip? ClipAt(double x)
+    /// <summary>
+    /// 歌词轨上按下：点句首仍 seek 到 start（W1 行为），按住句首/句尾/条体则起拖；空档点击只 seek。
+    /// 拖动中就地改那句的区间（渲染跟着走），松手才决定提交还是还原。
+    /// </summary>
+    private void StartClipGesture(double x)
     {
-        if (_snap is null) return null;
-        double t = TimeAt(x);
-        foreach (var clip in _snap.Lyrics)
-            if (t >= clip.Start && t < clip.End) return clip;
-        return null;
+        _dragTip = null;
+        double time = TimeAt(x);
+        double tolerance = TimelineMath.ClipEdgeHitPx / Math.Max(1, _pixelsPerSecond);
+        if (_snap is null || TimelineMath.HitClip(_snap.Lyrics, time, tolerance) is not { } hit)
+        {
+            RaiseSeek(time);
+            return;
+        }
+
+        var clip = _snap.Lyrics[hit.Index];
+        RaiseSeek(clip.Start);
+        _clipIndex = hit.Index;
+        _clipEdge = hit.Edge;
+        _clipOrigin = new ClipRange(clip.Start, clip.End);
+        _clipAnchorTime = time;
+        _clipConflict = false;
+        _drag = DragMode.Clip;
+        CaptureMouse();
+        InvalidateVisual();
+    }
+
+    /// <summary>落点冲突时置高亮与提示，但快照照旧跟着指针走（拖动中的样子就是提交后的样子）。</summary>
+    private void MoveClip(Point p)
+    {
+        if (_snap is null || _clipIndex < 0 || _clipIndex >= _snap.Lyrics.Count) return;
+
+        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        var range = TimelineMath.DragClip(_clipOrigin, _clipEdge,
+            TimeAt(p.X - HeaderWidth) - _clipAnchorTime,
+            TimelineMath.GridStep(_pixelsPerSecond, Fps), snap);
+
+        var clip = _snap.Lyrics[_clipIndex];
+        clip.Start = range.Start;
+        clip.End = range.End;
+        var fault = TimelineMath.ClipFault(_snap.Lyrics, _clipIndex, range);
+        _clipConflict = fault is not null;
+        _dragTip = fault ?? $"{range.Start:F3}s – {range.End:F3}s";
+        InvalidateVisual();
+    }
+
+    /// <summary>冲突则还原并把原因留在提示条（不提交、不入撤销栈）；否则一次 EditCommitted（Reason = "clip"）。</summary>
+    private void CommitClip()
+    {
+        if (_snap is null || _clipIndex < 0 || _clipIndex >= _snap.Lyrics.Count)
+        {
+            _clipIndex = -1;
+            _clipConflict = false;
+            return;
+        }
+
+        int index = _clipIndex;
+        var clip = _snap.Lyrics[index];
+        var range = new ClipRange(clip.Start, clip.End);
+        _clipIndex = -1;
+        _clipConflict = false;
+
+        if (TimelineMath.ClipFault(_snap.Lyrics, index, range) is { } fault)
+        {
+            clip.Start = _clipOrigin.Start;
+            clip.End = _clipOrigin.End;
+            _dragTip = fault;
+            return;
+        }
+
+        bool moved = Math.Abs(range.Start - _clipOrigin.Start) > TimelineMath.TimeEpsilon ||
+                     Math.Abs(range.End - _clipOrigin.End) > TimelineMath.TimeEpsilon;
+        _dragTip = null;
+        if (moved) EditCommitted?.Invoke(new TEdit { Reason = "clip", Clip = new TClipEdit(index, range.Start, range.End) });
     }
 
     private void StartAutomationDrag(Row row, Point p, double x)

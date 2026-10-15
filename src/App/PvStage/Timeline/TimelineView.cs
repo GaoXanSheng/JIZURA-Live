@@ -39,6 +39,7 @@ public sealed partial class TimelineView : Control
         Key,
         Handle,
         Pan,
+        Clip,
     }
 
     private readonly List<SelKey> _selection = new();
@@ -57,6 +58,11 @@ public sealed partial class TimelineView : Control
     private string? _dragTip;
     private (ParamAddress Address, int KeyIndex, bool Out) _handleDrag;
     private Row _dragRow;
+    private int _clipIndex = -1;
+    private ClipEdge _clipEdge;
+    private ClipRange _clipOrigin;
+    private double _clipAnchorTime;
+    private bool _clipConflict;
 
     public TimelineView()
     {
@@ -200,6 +206,7 @@ public sealed partial class TimelineView : Control
     /// <summary>还原到手势起点（Esc / 拖动中丢捕获）。</summary>
     private void RestoreGesture()
     {
+        RestoreClip();
         foreach (var (address, before) in _gestureBefore)
         {
             if (FindCurve(address) is not { } curve) continue;
@@ -210,6 +217,22 @@ public sealed partial class TimelineView : Control
         _dragKeys.Clear();
         _dragTip = null;
         _drag = DragMode.None;
+    }
+
+    /// <summary>歌词条拖动改的是快照里那句（就地改），手势作废时按起点还原。</summary>
+    private void RestoreClip()
+    {
+        _clipConflict = false;
+        if (_snap is null || _clipIndex < 0 || _clipIndex >= _snap.Lyrics.Count)
+        {
+            _clipIndex = -1;
+            return;
+        }
+
+        var clip = _snap.Lyrics[_clipIndex];
+        clip.Start = _clipOrigin.Start;
+        clip.End = _clipOrigin.End;
+        _clipIndex = -1;
     }
 
     private static bool SameKeys(List<TKey> a, List<TKey> b)

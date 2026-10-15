@@ -92,6 +92,71 @@ public class EffectGraphTests
         }
     }
 
+    // ---------------- 重排（效果架拖拽的写入口） ----------------
+
+    /// <summary>
+    /// 重排只动列表顺序：节点身份（实例 Id）与参数值一字不动。
+    /// 身份不能变是因为曲线与信号绑定都按实例 Id 寻址——重排顺手换了号，动画与连线就全指到别人身上了。
+    /// </summary>
+    [Fact]
+    public void MoveReordersNodesAndKeepsIdentityAndParams()
+    {
+        var graph = new EffectGraph();
+        var grainParam = EffectCatalog.Get("grain")!.Params[0];
+        graph.Add("grain", n => n.Set(grainParam, 0.21f));
+        graph.Add("glow");
+        graph.Add("vignette");
+
+        var grain = graph.Nodes[0];
+        var instanceId = grain.InstanceId;
+
+        Assert.True(graph.Move(grain, 2));
+
+        Assert.Equal(new[] { "glow", "vignette", "grain" }, graph.Nodes.Select(n => n.DefId));
+        Assert.Same(grain, graph.Nodes[2]);
+        Assert.Equal(instanceId, graph.Nodes[2].InstanceId);
+        Assert.Equal(0.21f, graph.Nodes[2].Value(grainParam), 4);
+    }
+
+    /// <summary>越界夹进合法区间；原地不动、以及不在图里的节点都返回 false（调用方据此决定要不要入撤销栈）。</summary>
+    [Fact]
+    public void MoveClampsIndexAndReportsNoOp()
+    {
+        var graph = new EffectGraph().Add("grain").Add("glow");
+        var grain = graph.Nodes[0];
+
+        Assert.False(graph.Move(grain, 0), "已经在该位置不该算一次改动");
+        Assert.False(graph.Move(new EffectNode { DefId = "grain" }, 1), "不在图里的节点不该被搬进来");
+
+        Assert.True(graph.Move(grain, 99));                          // 越界 → 夹到末尾
+        Assert.Equal(new[] { "glow", "grain" }, graph.Nodes.Select(n => n.DefId));
+
+        Assert.True(graph.Move(grain, -5));                          // 越界 → 夹到开头
+        Assert.Equal(new[] { "grain", "glow" }, graph.Nodes.Select(n => n.DefId));
+    }
+
+    /// <summary>顺序 = 执行顺序：重排之后 pass 链跟着换序，不只是列表好看。用各自的参数值区分两个 pass。</summary>
+    [GpuFact]
+    public void MoveChangesPassOrder()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+        using (gpu)
+        using (var runner = new GpuEffectRunner(gpu))
+        {
+            var graph = new EffectGraph();
+            graph.Add("grain", n => n.Set(EffectCatalog.Get("grain")!.Params[0], 0.07f));
+            graph.Add("vignette", n => n.Set(EffectCatalog.Get("vignette")!.Params[0], 0.45f));
+
+            Assert.Equal(new[] { 0.07f, 0.45f },
+                graph.BuildPasses(runner.Shaders, 0f, W, H).Select(p => p.Constants[0]));
+
+            Assert.True(graph.Move(graph.Nodes[0], 1));
+            Assert.Equal(new[] { 0.45f, 0.07f },
+                graph.BuildPasses(runner.Shaders, 0f, W, H).Select(p => p.Constants[0]));
+        }
+    }
+
     /// <summary>画一张有颜色层次、有细节、有文字的底图，让各种效果都看得出差别。</summary>
     private static void DrawBaseScene(Immediate2D d, int w, int h)
     {

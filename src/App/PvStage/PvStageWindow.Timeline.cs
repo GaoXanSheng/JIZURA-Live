@@ -1,3 +1,4 @@
+using System.Text;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -34,14 +35,15 @@ public partial class PvStageWindow
         if (!_evaluator.Curves.ContainsKey(_camScaleAddr))
             snap.Curves.Add(TrackFor(_camScaleAddr, null));
 
-        if (_lyrics is { } lyrics)
-            foreach (var line in lyrics)
-                snap.Lyrics.Add(new TClip
-                {
-                    Start = line.StartMs / 1000.0,
-                    End = (line.StartMs + line.DurMs) / 1000.0,
-                    Text = line.Text,
-                });
+        // 歌词轨的条来自冻结的 Clip 序列（动效歌词层吃同一份）：编辑过的区间就在这里，不再是导入时的原文。
+        // 下标即 _lyricClips 的下标——控件按下标报编辑，两边必须同序。
+        foreach (var clip in _lyricClips)
+            snap.Lyrics.Add(new TClip
+            {
+                Start = clip.StartMs / 1000.0,
+                End = clip.EndMs / 1000.0,
+                Text = clip.Text,
+            });
 
         _snap = snap;
         TheTimeline.SetSnapshot(snap);
@@ -100,6 +102,12 @@ public partial class PvStageWindow
     /// <summary>一次手势（After = 该轨完整 key 列表）写回求值器，再压一份撤销快照。</summary>
     private void Timeline_EditCommitted(TEdit edit)
     {
+        if (edit.Reason == "clip")
+        {
+            CommitLyricClip(edit);
+            return;
+        }
+
         if (!_evaluator.Curves.TryGetValue(edit.Address, out var curve))
         {
             curve = new FloatCurve();
@@ -118,6 +126,70 @@ public partial class PvStageWindow
         PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = $"关键帧已{ReasonLabel(edit.Reason)} · {edit.After.Count} 个 key";
+    }
+
+    /// <summary>
+    /// 歌词条的一次拖动。区间规则用控件同一份判定（<see cref="TimelineMath.ClipFault"/>）：宿主才是文档的主人，
+    /// 控件快照若已过期，这里必须挡住——一条重叠或倒置的区间进了工程，动效歌词与字幕会一起错。
+    /// 拒绝 = 一字不改、不入撤销栈，原因写状态条；接受 = 一次 PushUndo。
+    /// </summary>
+    private void CommitLyricClip(TEdit edit)
+    {
+        if (edit.Clip is not { } moved) return;
+        // 控件按下标报编辑；下标对的是时间轴快照里的条，宿主这份 Clip 序列与它同序同长
+        if (_snap is null || moved.Index < 0
+            || moved.Index >= _snap.Lyrics.Count || moved.Index >= _lyricClips.Count)
+        {
+            TblStatus.Text = "歌词条未生效：这一句已经不在歌词轨上了";
+            return;
+        }
+
+        var range = new ClipRange(moved.Start, moved.End);
+        if (TimelineMath.ClipFault(_snap.Lyrics, moved.Index, range) is { } fault)
+        {
+            TblStatus.Text = "歌词条未生效：" + fault;
+            return;
+        }
+
+        // 克隆 → 改 → 归一化顺序 → 换引用：发布出去的那份此后不再改（动效歌词层按引用持有它，与信号图同一条约定）。
+        // 归一化那一步不是洁癖：拖动可以把一句整条挪到邻句之后（ClipFault 只挡重叠、不挡跨位），
+        // 而查找侧（LrcParser.FindSample）是二分「最后一个 StartMs ≤ t」——非升序会让挪过的那段
+        // 连同被跨过的句子一起查不到，屏幕上就是歌词整段消失。
+        var clips = TimelineMath.WithClipRange(_lyricClips, moved.Index, ToMs(range.Start), ToMs(range.End));
+        _lyricClips = clips;
+        _pipe?.Renderer.Lyric?.SetClips(clips);
+        // 工程里歌词的落盘形态就是 LrcText（LyricClip[] 进文档属 DirectorProject 那条线，还没到）：
+        // 不回写它，这次编辑在保存重开后就没了
+        _lrcText = LrcTextOf(clips);
+
+        PushUndo();
+        _saveError = SaveProjectNow();
+        RefreshTimeline();
+        TblStatus.Text = $"歌词条已调整：{range.Start:F3}s – {range.End:F3}s";
+    }
+
+    private static long ToMs(double seconds) => (long)Math.Round(seconds * 1000.0);
+
+    /// <summary>
+    /// Clip 序列 → LRC 原文。每句写一个时间戳；句尾用**空标签**单独写一行——导入侧的规则是
+    /// 「相邻边界 = 下一个时间戳」，不写这条边界，拖过的句尾会被下一句的起点顶掉。
+    /// 多行文本按同刻多标签逐行写出，重解析时又合并回同一条（往返不丢结构）。
+    /// 已知缺口：末句的终点由解析器按音频尾取（LrcParser.TailEnd），写出去的边界压不住它。
+    /// </summary>
+    private static string LrcTextOf(IReadOnlyList<LyricClip> clips)
+    {
+        var sb = new StringBuilder();
+        foreach (var clip in clips)
+        {
+            var start = Stamp(clip.StartMs);
+            foreach (var line in clip.Text.Split('\n'))
+                sb.Append(start).Append(line).Append('\n');
+            sb.Append(Stamp(clip.EndMs)).Append('\n');   // 清屏边界：这句的终点
+        }
+
+        return sb.ToString();
+
+        static string Stamp(long ms) => $"[{ms / 60000:D2}:{ms / 1000 % 60:D2}.{ms % 1000:D3}]";
     }
 
     private static CurveInterp ParseInterp(string interp) =>

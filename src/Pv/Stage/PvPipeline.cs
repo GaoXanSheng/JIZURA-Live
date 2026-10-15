@@ -209,16 +209,18 @@ public sealed class PvPipeline : IDisposable
         if (!_stopPumping)
             foreach (var p in _spoutProviders) p.PumpFrame();
 
-        ApplyTracking(time);
-
-        // 帧状态（契约 §3.3 的三步）：常量/曲线先落进 _scene.Frame，信号 Resolved 再覆盖它。
+        // 帧状态（契约 §3.3 的三步）：本帧建一份**新的**草稿，常量/曲线先落进去，信号 Resolved 再覆盖它，
+        // 全部填完才整份发布——读者（UI 徽标）永远只看得到完整快照，看不到写了一半的字典。
         // 顺序不能反：信号在追踪之后（能量源 Stage.Energy 是 ApplyTracking 写的），
         // 在 _renderer.Prepare 之前（效果参数就是在那一句里被打包成常量缓冲的）。
-        ApplyLayerFrame(time);
-        ApplySignals(time);
+        var frame = new PvFrameState();
+        ApplyTracking(time, frame);
+        ApplyLayerFrame(time, frame);
+        ApplySignals(time, frame);
+        _scene.PublishFrame(frame);
 
         // 帧状态 → 舞台：预览与广播都从同一个 Stage 合成本帧，镜头只从这里取
-        _renderer.Stage.Camera = _scene.Frame.Camera;
+        _renderer.Stage.Camera = frame.Camera;
 
         // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
@@ -552,23 +554,20 @@ public sealed class PvPipeline : IDisposable
         new(ParamAddressKind.Layer, layerId, param);
 
     /// <summary>
-    /// 图层帧状态（§3.3 步骤 1/2）：每层「文档常量 → 曲线 base(t)」，信号 Resolved 由 <see cref="ApplySignals"/> 覆盖。
-    /// 先清空：帧状态只描述本帧，删掉的图层不留残影。
+    /// 图层帧状态（§3.3 步骤 1/2）：每层「文档常量 → 曲线 base(t)」写进本帧草稿，
+    /// 信号 Resolved 由 <see cref="ApplySignals"/> 覆盖。草稿每帧新建，所以删掉的图层不会留残影。
     /// </summary>
-    private void ApplyLayerFrame(double time)
+    private void ApplyLayerFrame(double time, PvFrameState frame)
     {
-        var frame = _scene.Frame;
-        frame.ClearLayers();
         foreach (var layer in _scene.Layers)
             frame.SetLayer(layer.Id, BaseLayer(layer, _director, time));
     }
 
-    private void ApplyTracking(double time)
+    private void ApplyTracking(double time, PvFrameState frame)
     {
         // 基础态来自场景文档 + 曲线（不是 Identity）：追踪失效时镜头落在工程量好的取景上，
         // 而不是每次都弹回 (0,0,1)。Camera 被手改成 null 同理：回落默认。
         var cam = _scene.Camera ?? new PvCameraConfig();
-        var frame = _scene.Frame;
 
         if (_tracking is null || !_tracking.TryRead(250, out var st))
         {
@@ -595,18 +594,18 @@ public sealed class PvPipeline : IDisposable
     }
 
     /// <summary>
-    /// 每帧求值信号图，并把每个绑定的最终值写回它的目标：相机/图层域写帧状态槽，
+    /// 每帧求值信号图，并把每个绑定的最终值写回它的目标：相机/图层域写本帧草稿的帧状态槽，
     /// 效果域写目标效果实例的参数。
     ///
-    /// 帧内状态（<see cref="_signalPlan"/>、帧状态槽、写回的效果参数值）全在渲染线程上：本方法在 Prepare 里调用，
+    /// 帧内状态（<see cref="_signalPlan"/>、本帧草稿、写回的效果参数值）全在渲染线程上：本方法在 Prepare 里调用，
     /// 读取这些值的 BuildRenderGraph 紧接着也在同一线程、同一帧顺序里跑——同帧读写同线程同顺序，
-    /// 所以既不需要锁，也不存在"读到半更新的帧"。
+    /// 所以既不需要锁，也不存在"读到半更新的帧"（草稿要到 Prepare 末尾才发布）。
     ///
     /// 编译只在发布的文档换了引用时发生（面板确认 = 换引用）；同一份文档内的参数改动走
     /// TryApplyParams 复用已编译拓扑。NaN / 失效值不进这条路径：求值器已经把每个输出夹进目标范围
     /// 并回落到基础值（SignalEvaluator 的三条不变量），这里拿到的每个值都是有限的。
     /// </summary>
-    private void ApplySignals(double time)
+    private void ApplySignals(double time, PvFrameState frame)
     {
         var graph = _signalGraph;
         if (graph is null)
@@ -639,11 +638,11 @@ public sealed class PvPipeline : IDisposable
         // 判龄用 LiveTime，所以暂停音乐也照常过期——这里必须与 LiveTime 传**同一个读数**，不能各读一次时钟。
         var liveSeconds = Monotonic.Elapsed.TotalSeconds;
         plan.Evaluate(new SignalFrameInputs(time, liveSeconds, audio, _director,
-            VtsPoseSnapshot.Read(_tracking, liveSeconds)));
+            VtsPoseSnapshot.Read(_tracking, liveSeconds), frame));
 
-        // 相机/图层域（S06 消费表）：Resolved 写帧状态槽。必须在 Evaluate 之后——Evaluate 读的
-        // 正是同一份帧状态的 base 值（常量/曲线），先写会把本帧的 base 覆盖掉。
-        plan.ApplyFrameState();
+        // 相机/图层域（S06 消费表）：Resolved 写本帧草稿的槽。必须在 Evaluate 之后——Evaluate 读的
+        // 正是同一份草稿的 base 值（常量/曲线），先写会把本帧的 base 覆盖掉。
+        plan.ApplyFrameState(frame);
 
         foreach (var resolved in plan.Resolved)
         {

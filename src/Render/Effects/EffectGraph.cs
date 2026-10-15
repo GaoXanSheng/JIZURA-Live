@@ -40,6 +40,24 @@ public sealed class EffectGraph
     public EffectNode? Find(string defId) => Nodes.FirstOrDefault(n => n.DefId == defId);
 
     /// <summary>
+    /// 把节点搬到 <paramref name="toIndex"/>（列表顺序 = 执行顺序，效果架拖拽重排的写入口）。
+    /// 搬的是节点对象本身，实例 Id 与参数值都跟着走——曲线与信号绑定按实例 Id 寻址，重排不该动它们。
+    /// <paramref name="toIndex"/> 越界夹进合法区间；返回 false = 位置没变（找不到节点 / 本来就在那儿）。
+    /// </summary>
+    public bool Move(EffectNode node, int toIndex)
+    {
+        var from = Nodes.IndexOf(node);
+        if (from < 0) return false;
+
+        toIndex = Math.Clamp(toIndex, 0, Nodes.Count - 1);
+        if (from == toIndex) return false;
+
+        Nodes.RemoveAt(from);
+        Nodes.Insert(toIndex, node);
+        return true;
+    }
+
+    /// <summary>
     /// 求值成渲染图（多输入 / 多尺寸 / 任意拓扑）。
     /// <paramref name="time"/> 秒级、<paramref name="width"/>/<paramref name="height"/> 是外部输入的像素尺寸
     /// （像素单位的参数在着色器里靠它归一化）。

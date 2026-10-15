@@ -1,12 +1,14 @@
+using JizuraLive.Engine;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
+using JizuraLive.Render.Text;
 
 namespace JizuraLive.Pv;
 
 /// <summary>
 /// 离线导出：离屏 D3D 设备 + <see cref="PvPipeline"/> 逐帧 Prepare/Composite 到离屏面 → 读回 → BGRA 转 NV12 → <see cref="MfSink"/> 编码。
-/// 画面内容就是场景文档里的图层栈（歌词文本与字幕要调用方自己接提供者，本方法没接）。
+/// 画面内容就是场景文档里的图层栈；歌词、字幕与镜头动画由 <see cref="PvExportInputs"/> 按与舞台同一条帧状态链喂进来（不传 = 该项不参与）。
 /// 失败一律返回可读原因（不抛），与 <c>ProjectStore.Save</c> 同约定。
 /// </summary>
 public static class PvExporter
@@ -15,7 +17,7 @@ public static class PvExporter
     /// 把场景按 <paramref name="durationSec"/> 的时长逐帧渲染并编码成 MP4。进度按帧汇报，最后一帧报 1.0。
     /// </summary>
     public static string? Export(PvScene scene, EffectGraph effects, double durationSec, int fps, string outPath,
-        IProgress<double>? progress)
+        IProgress<double>? progress, PvExportInputs? inputs = null)
     {
         if (string.IsNullOrWhiteSpace(outPath)) return "导出路径为空";
         if (Validate(scene, effects, durationSec, fps, out _) is { } reason) return reason;
@@ -23,7 +25,7 @@ public static class PvExporter
         try
         {
             using var sink = MfSink.Open(outPath, scene.Width, scene.Height, fps);
-            var fault = RenderFrames(scene, effects, durationSec, fps, progress, sink.WriteFrame);
+            var fault = RenderFrames(scene, effects, durationSec, fps, progress, sink.WriteFrame, inputs);
             // 中途失败也照样收尾：留一个能播的半成品，好过留一个没有索引的坏文件
             sink.Close();
             return fault;
@@ -40,7 +42,7 @@ public static class PvExporter
     /// 同一个数组每帧复用，<paramref name="writeFrame"/> 必须在返回前把数据消化掉。
     /// </summary>
     public static string? RenderFrames(PvScene scene, EffectGraph effects, double durationSec, int fps,
-        IProgress<double>? progress, Action<byte[]> writeFrame)
+        IProgress<double>? progress, Action<byte[]> writeFrame, PvExportInputs? inputs = null)
     {
         if (Validate(scene, effects, durationSec, fps, out var frameCount) is { } reason) return reason;
 
@@ -54,9 +56,19 @@ public static class PvExporter
             if (gpu is null) return $"建立离屏 D3D 设备失败：{gpuError}";
 
             using (gpu)
-            using (var pipe = new PvPipeline(gpu, scene, effects))
+            using (var pipe = new PvPipeline(gpu, scene, effects, SubtitleSourceOf(inputs)))
             using (var target = OffscreenTarget.Create(gpu, pipe.D2DContext, width, height))
             {
+                // 与舞台 BuildPipeline 同一条链：曲线 / 信号 / 频带 / 歌词各发布一次，之后逐帧 Prepare 求值。
+                // 不发布的话这一帧链上就只剩文档常量，导出的画面与预览对不上。
+                pipe.SetDirector(inputs?.Curves);
+                pipe.SetSignalGraph(inputs?.Signals);
+                pipe.SetAudioAnalysis(inputs?.Bands);
+                // 歌词给冻结的 Clip 序列（SetLyrics 那条路只认导入时的 KrcLine，会丢掉歌词轨上拖过的区间）
+                pipe.Renderer.Lyric?.SetClips(inputs?.Clips);
+                // 歌词样式是场景文档的一部分（与舞台 ProjectLyricStyle 同一规则）：不设就是 Classic，与预览不一致
+                pipe.Renderer.Lyric?.SetStyle(scene.LyricStyle ?? LyricStyle.FromName(scene.LyricStyleName));
+
                 for (var i = 0; i < frameCount; i++)
                 {
                     pipe.Prepare(i / (double)fps);
@@ -75,6 +87,33 @@ public static class PvExporter
         catch (Exception ex)
         {
             return "导出失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// 字幕源：配置来自设置、歌词行来自工程的冻结 Clip 序列。与舞台同一个 <see cref="IPvSubtitleSource"/> 契约——
+    /// 导出这一路只是把它接到离屏管线上。没有配置就整层不建（与"没接字幕源"等价）。
+    /// </summary>
+    private static IPvSubtitleSource? SubtitleSourceOf(PvExportInputs? inputs) =>
+        inputs?.Subtitles is { } config ? new ExportSubtitleSource(inputs.Clips, config) : null;
+
+    /// <summary>一次导出内歌词与配置都不变，所以版本号固定（提供者只在版本或配置变化时重建字幕面）。</summary>
+    private sealed class ExportSubtitleSource(IReadOnlyList<LyricClip>? clips, SubtitleConfig config)
+        : IPvSubtitleSource
+    {
+        /// <summary>契约的 Lines 收 KrcLine：按区间原样换算，不做任何时长修正（字幕只认文本与区间）。</summary>
+        public IReadOnlyList<KrcLine>? Lines { get; } = LinesOf(clips);
+        public SubtitleConfig? Config { get; } = config;
+        public long Version => 1;
+
+        private static IReadOnlyList<KrcLine>? LinesOf(IReadOnlyList<LyricClip>? clips)
+        {
+            if (clips is null) return null;
+
+            var lines = new List<KrcLine>(clips.Count);
+            foreach (var clip in clips)
+                lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text));
+            return lines;
         }
     }
 
@@ -134,3 +173,16 @@ public static class PvExporter
         return null;
     }
 }
+
+/// <summary>
+/// 导出要消费的帧状态链（与舞台同一批来源）。每个字段为 null = 该项不参与本次导出。
+///
+/// <see cref="Curves"/> 与 <see cref="Signals"/> 交给管线的必须是**此后不再改**的对象
+/// （调用方给快照副本）：导出线程逐帧读它们，与舞台的"发布不可变快照"是同一条约定。
+/// </summary>
+public sealed record PvExportInputs(
+    DirectorEvaluator? Curves = null,
+    SignalGraph? Signals = null,
+    AudioBandSeries? Bands = null,
+    IReadOnlyList<LyricClip>? Clips = null,
+    SubtitleConfig? Subtitles = null);

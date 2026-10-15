@@ -22,6 +22,7 @@ public sealed partial class TimelineView
     private static readonly Brush DimBrush = Solid(0x9A, 0x9A, 0xA8);
     private static readonly Brush FaintBrush = Solid(0x5E, 0x5E, 0x6C);
     private static readonly Brush PlayheadBrush = Solid(0xFF, 0x5F, 0x6E);
+    private static readonly Brush ConflictBrush = Solid(0xFF, 0x5F, 0x6E);
     private static readonly Brush TipBrush = Solid(0xE6, 0x17, 0x17, 0x1E);
     private static readonly Pen LinePen = FrozenPen(Solid(0x23, 0x23, 0x2C), 1);
     private static readonly Pen SoftPen = FrozenPen(Solid(0x19, 0x19, 0x20), 1);
@@ -145,17 +146,19 @@ public sealed partial class TimelineView
         if (_snap is null) return;
 
         double end = _viewStart + w / _pixelsPerSecond;
-        foreach (var clip in _snap.Lyrics)
+        for (int i = 0; i < _snap.Lyrics.Count; i++)
         {
+            var clip = _snap.Lyrics[i];
             if (clip.End < _viewStart || clip.Start > end) continue;
             double x0 = HeaderWidth + TimelineMath.TimeToX(clip.Start, _viewStart, _pixelsPerSecond);
             double x1 = HeaderWidth + TimelineMath.TimeToX(clip.End, _viewStart, _pixelsPerSecond);
             var rect = new Rect(x0, row.Top + 3, Math.Max(2, x1 - x0 - 2), row.Height - 6);
             bool current = _snap.PlayheadSeconds >= clip.Start && _snap.PlayheadSeconds < clip.End;
-            dc.DrawRoundedRectangle(current ? AccentBrush : AccentSoftBrush, null, rect, 3, 3);
+            bool conflict = _clipConflict && i == _clipIndex;
+            dc.DrawRoundedRectangle(conflict ? ConflictBrush : current ? AccentBrush : AccentSoftBrush, null, rect, 3, 3);
             if (rect.Width < 24) continue;
             dc.PushClip(new RectangleGeometry(rect));
-            dc.DrawText(Text(FirstLine(clip.Text), 11, current ? BgBrush : FgBrush),
+            dc.DrawText(Text(FirstLine(clip.Text), 11, current && !conflict ? BgBrush : FgBrush),
                 new Point(rect.X + 5, rect.Y + 4));
             dc.Pop();
         }

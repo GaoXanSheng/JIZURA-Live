@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using JizuraLive.Engine;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
 
@@ -128,6 +129,80 @@ public class PvExporterTests
         Assert.Equal(6, written);                            // round(0.1 × 60)
         Assert.Equal(6, progress.Reports.Count);
         Assert.Equal(1.0, progress.Reports[^1], 6);
+    }
+
+    // ---------------- 帧状态链：曲线 / 歌词 / 字幕 ----------------
+
+    /// <summary>
+    /// 导出要画动效歌词，场景里就得有 <c>lyrics_pv</c> 这一层：舞台按层 Id 找提供者，
+    /// 没有这一层，歌词提供者建了也不进合成。
+    /// </summary>
+    private static PvScene LyricScene()
+    {
+        var scene = SmallScene();
+        scene.Layers.Add(new PvLayerConfig
+        {
+            Id = "lyrics_pv",
+            Name = "Lyrics",
+            Kind = PvLayerKind.LyricPv,
+            // 必须显式清掉：PvLayerConfig 的默认值会让这层被当成 Spout 源图层
+            SpoutSenderName = null,
+        });
+        return scene;
+    }
+
+    /// <summary>逐帧收 NV12：导出复用同一个数组，每帧必须自己拷一份。</summary>
+    private static List<byte[]> CaptureFrames(PvScene scene, PvExportInputs? inputs, double durationSec, int fps)
+    {
+        var frames = new List<byte[]>();
+        var reason = PvExporter.RenderFrames(scene, new EffectGraph(), durationSec, fps, null,
+            nv12 => frames.Add((byte[])nv12.Clone()), inputs);
+        Assert.Null(reason);
+        return frames;
+    }
+
+    /// <summary>一句 1 秒的歌词：t=0.25 / 0.75 时进度落在 0.15–0.85 之间，正文完全显现（不受进出场渐变影响）。</summary>
+    private static List<LyricClip> OneLyricClip() => [new LyricClip("c0", 0, 1000, "动效歌词", false)];
+
+    /// <summary>相机曲线进导出帧：同一句歌词、两个时刻的镜头缩放分别是 1.25 与 1.75，两帧像素必须不同。</summary>
+    [GpuFact]
+    public void FramesFollowCameraCurve()
+    {
+        var curves = new DirectorEvaluator();
+        var curve = new FloatCurve();
+        curve.Keys.Add(new CurveKey(0, 1.0, CurveInterp.Linear));
+        curve.Keys.Add(new CurveKey(1, 2.0, CurveInterp.Linear));
+        curves.SetCurve(new ParamAddress(ParamAddressKind.Camera, "", "scale"), curve);
+
+        var frames = CaptureFrames(LyricScene(), new PvExportInputs(Curves: curves, Clips: OneLyricClip()), 1.0, 4);
+
+        Assert.Equal(4, frames.Count);   // round(1.0 × 4)
+        Assert.False(frames[1].SequenceEqual(frames[3]),
+            "t=0.25 与 t=0.75 的镜头缩放不同（1.25 / 1.75），导出帧一样就说明曲线没进管线");
+    }
+
+    /// <summary>歌词样本进导出帧：同一时刻轴上「有歌词」与「没喂歌词」两帧必须不同。</summary>
+    [GpuFact]
+    public void FramesFollowLyricSamples()
+    {
+        var withLyrics = CaptureFrames(LyricScene(), new PvExportInputs(Clips: OneLyricClip()), 1.0, 4);
+        var withoutLyrics = CaptureFrames(LyricScene(), null, 1.0, 4);
+
+        Assert.False(withLyrics[1].SequenceEqual(withoutLyrics[1]),
+            "t=0.25 该句进度 0.25、正文已显现，导出帧应当带上歌词");
+    }
+
+    /// <summary>字幕设置进导出帧：给了配置就多一层压顶字幕（挂在全局后期之后，不进图层栈）。</summary>
+    [GpuFact]
+    public void FramesBurnInSubtitles()
+    {
+        var withSubtitle = CaptureFrames(LyricScene(),
+            new PvExportInputs(Clips: OneLyricClip(), Subtitles: new SubtitleConfig { Content = SubContent.Both }),
+            1.0, 4);
+        var withoutSubtitle = CaptureFrames(LyricScene(), new PvExportInputs(Clips: OneLyricClip()), 1.0, 4);
+
+        Assert.False(withSubtitle[1].SequenceEqual(withoutSubtitle[1]),
+            "字幕配置给了却没画上去，说明离屏管线没接字幕源");
     }
 
     // ---------------- 互操作声明形状 ----------------

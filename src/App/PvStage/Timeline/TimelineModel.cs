@@ -44,13 +44,22 @@ public sealed class TSnapshot
     public WaveformPeaks? Waveform;
 }
 
-/// <summary>一次编辑事务（对应一次撤销）。Before/After 是该轨**完整** key 列表。</summary>
+/// <summary>歌词轨拖动后的落点。定位用<b>下标</b>：宿主填的 <see cref="TClip.Id"/> 目前是空串。</summary>
+public readonly record struct TClipEdit(int Index, double Start, double End);
+
+/// <summary>
+/// 一次编辑事务（对应一次撤销）。<see cref="Reason"/> = "clip" 时是歌词轨（带 <see cref="Clip"/>），
+/// 否则是自动化轨，Before/After 是该轨**完整** key 列表。
+/// </summary>
 public sealed class TEdit
 {
     public ParamAddress Address;
     public List<TKey> Before = new();
     public List<TKey> After = new();
 
-    /// <summary>"add" | "move" | "delete" | "interp" | "value"。</summary>
+    /// <summary>"add" | "move" | "delete" | "interp" | "value" | "clip"。</summary>
     public string Reason = "";
+
+    /// <summary>Reason = "clip"：拖动的歌词句，区间规则见 <see cref="TimelineMath.ClipFault"/>。</summary>
+    public TClipEdit? Clip;
 }

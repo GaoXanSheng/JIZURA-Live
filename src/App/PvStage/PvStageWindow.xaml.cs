@@ -2,12 +2,14 @@ using System.Diagnostics;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using JizuraLive.App.Controls;
+using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -52,6 +54,10 @@ public partial class PvStageWindow : Window
     // 歌词（UI 侧）：与交给管线的同一份 KrcLine 列表，时间轴的歌词轨由它转成 TClip。
     private IReadOnlyList<KrcLine>? _lyrics;
 
+    // 歌词条的编辑真相：_lyrics 是导入产物（KrcLine 只有时长），这里冻结成 Clip 序列——
+    // 歌词轨的条与动效歌词层都从这一份来，拖动改的就是它。下标与轨上的条一一对应（控件按下标报编辑）。
+    private List<LyricClip> _lyricClips = new();
+
     // 末句是不是"待校准的临时区间"（导入那一刻既没有下一个时间戳、也没有音频时长）。
     // 与 _lyrics 同一次导入产生、同一次导入更新：分开存是因为 KrcLine 里只有时长，装不下这个判定。
     private bool _tailUncalibrated;
@@ -64,6 +70,7 @@ public partial class PvStageWindow : Window
     private string[] _uiLayerIds = Array.Empty<string>();
     private System.Windows.Point _dragStart;
     private PvLayerConfig? _dragLayer;
+    private EffectNode? _dragEffect;
 
     private EffectNode? _colorNode;
     private EffectParam? _colorParam;
@@ -389,6 +396,7 @@ public partial class PvStageWindow : Window
                 Dispatcher.BeginInvoke(() =>
                 {
                     _lyrics = lines;
+                    _lyricClips = LrcParser.ToClips(lines);
                     _tailUncalibrated = tailUncalibrated;
                     BuildInspector();
                     RefreshTimeline();
@@ -650,7 +658,18 @@ public partial class PvStageWindow : Window
             var def = EffectCatalog.Get(node.DefId);
             if (def is null) continue;
 
-            var card = new Border { Style = (Style)FindResource("PvCard") };
+            var card = new Border
+            {
+                Style = (Style)FindResource("PvCard"),
+                AllowDrop = true,
+                Cursor = Cursors.SizeAll,
+            };
+            card.Tag = node;
+            card.PreviewMouseLeftButtonDown += EffectCard_MouseDown;
+            card.PreviewMouseMove += EffectCard_MouseMove;
+            card.DragOver += EffectCard_DragOver;
+            card.Drop += EffectCard_Drop;
+            card.DragLeave += (s2, _) => ((Border)s2!).BorderBrush = null;
             var stack = new StackPanel();
             card.Child = stack;
 
@@ -660,7 +679,7 @@ public partial class PvStageWindow : Window
 
             var name = new TextBlock
             {
-                Text = def.Id,
+                Text = EffectName(def),
                 FontSize = (double)FindResource("PvTextBase"),
                 Foreground = (System.Windows.Media.Brush)FindResource("PvFg"),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -722,7 +741,7 @@ public partial class PvStageWindow : Window
                     {
                         var nodeRef = node;
                         var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
-                        stack.Children.Add(AnimParamRow(_rackRows, addr, p.Key, p.Min, p.Max, p.Step,
+                        stack.Children.Add(AnimParamRow(_rackRows, addr, ParamLabel(p), p.Min, p.Max, p.Step,
                             () => nodeRef.Value(p), v => nodeRef.Set(p, (float)v)));
                         break;
                     }
@@ -731,7 +750,7 @@ public partial class PvStageWindow : Window
                         var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                        var lab = new TextBlock { Text = p.Key, Style = (Style)FindResource("PvRowLabel") };
+                        var lab = new TextBlock { Text = ParamLabel(p), Style = (Style)FindResource("PvRowLabel") };
                         Grid.SetColumn(lab, 0);
                         row.Children.Add(lab);
                         var sw = new System.Windows.Controls.Primitives.ToggleButton
@@ -752,7 +771,7 @@ public partial class PvStageWindow : Window
                         var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                        var lab = new TextBlock { Text = p.Key, Style = (Style)FindResource("PvRowLabel") };
+                        var lab = new TextBlock { Text = ParamLabel(p), Style = (Style)FindResource("PvRowLabel") };
                         Grid.SetColumn(lab, 0);
                         row.Children.Add(lab);
 
@@ -798,7 +817,7 @@ public partial class PvStageWindow : Window
         _colorParam = param;
         _colorSwatch = swatch;
 
-        TblColorTarget.Text = $"{node.DefId} · {param.Key}";
+        TblColorTarget.Text = $"{EffectName(node)} · {ParamLabel(param)}";
         TxtHex.Text = node.ColorValue(param);
 
         SwatchGrid.Items.Clear();
@@ -874,18 +893,111 @@ public partial class PvStageWindow : Window
         _ => c.ToString(),
     };
 
+    /// <summary>效果显示名：<see cref="EffectDef.NameKey"/> 走词库（界面上一律用它，不显示裸 Id）。</summary>
+    private static string EffectName(EffectDef def) => LocName(def.NameKey, def.Id);
+
+    /// <summary>节点显示名；定义已不在目录里（旧存档）时回落到 DefId 本身。</summary>
+    private static string EffectName(EffectNode node) =>
+        EffectCatalog.Get(node.DefId) is { } def ? EffectName(def) : node.DefId;
+
+    /// <summary>参数标签：<see cref="EffectParam.LabelKey"/> 同理走词库。</summary>
+    private static string ParamLabel(EffectParam p) => LocName(p.LabelKey, p.Key);
+
+    /// <summary>
+    /// 词库查名。<c>L.T</c> 缺键时原样返回键名（并记一条 Warn），这时退回「去掉域前缀 + 拆驼峰」
+    /// 的形态：<c>Fx.GlassShatter</c> → 「Glass Shatter」。缺词库条目（补词库是 i18n 那边的事）时，
+    /// 界面至少还是人看得懂的名字，而不是机器键或裸 Id。
+    /// </summary>
+    private static string LocName(string key, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return Humanize(fallback);
+
+        var text = L.T(key);
+        if (!string.Equals(text, key, StringComparison.Ordinal)) return text;
+        return Humanize(key[(key.LastIndexOf('.') + 1)..]);
+    }
+
+    /// <summary>chromatic → Chromatic；BlockSize → Block Size。</summary>
+    private static string Humanize(string name)
+    {
+        var sb = new StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (i > 0 && char.IsUpper(c) && !char.IsUpper(name[i - 1])) sb.Append(' ');
+            sb.Append(i == 0 ? char.ToUpperInvariant(c) : c);
+        }
+        return sb.ToString();
+    }
+
+    private void EffectCard_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // 卡片里铺着滑杆与开关：在它们身上按下是改参数，不是拖卡片
+        if (e.OriginalSource is DependencyObject d && FindAncestor<System.Windows.Controls.Primitives.RangeBase>(d) is not null) return;
+        _dragStart = e.GetPosition(this);
+        _dragEffect = ((Border)sender).Tag as EffectNode;
+    }
+
+    private void EffectCard_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _dragEffect is null) return;
+        var p = e.GetPosition(this);
+        if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
+
+        DragDrop.DoDragDrop((DependencyObject)sender, _dragEffect, DragDropEffects.Move);
+        _dragEffect = null;
+    }
+
+    private void EffectCard_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(typeof(EffectNode)))
+        {
+            e.Effects = DragDropEffects.None;
+            return;
+        }
+
+        e.Effects = DragDropEffects.Move;
+        ((Border)sender).BorderBrush = (System.Windows.Media.Brush)FindResource("PvAccent");
+    }
+
+    /// <summary>落到哪张卡就搬到它的位置（与图层卡同一口径）。顺序 = 执行顺序，改的是效果图本身。</summary>
+    private void EffectCard_Drop(object sender, DragEventArgs e)
+    {
+        var targetCard = (Border)sender;
+        targetCard.BorderBrush = null;
+        if (!e.Data.GetDataPresent(typeof(EffectNode))) return;
+        if (e.Data.GetData(typeof(EffectNode)) is not EffectNode source) return;
+        if (targetCard.Tag is not EffectNode target) return;
+
+        // 没动位置就不入撤销栈：一次拖动要么一条历史，要么一条都没有
+        if (!_effects.Move(source, _effects.Nodes.IndexOf(target))) return;
+
+        PushUndo();
+        _saveError = SaveProjectNow();
+        BuildEffectRack();
+        TblStatus.Text = $"效果顺序已调整：{EffectName(source)}";
+    }
+
     private void BuildPickers()
     {
         foreach (var def in EffectCatalog.All)
-            CmbAddFx.Items.Add($"{def.Id}  ·  {CategoryLabel(def.Category)}");
+            CmbAddFx.Items.Add($"{EffectName(def)}  ·  {CategoryLabel(def.Category)}");
 
         // 预设下拉框首项是占位项（不是任何预设）。必须有这么一项：程序化选中是构造期唯一能做的
         // "当前状态"回填，若只能落在某个预设上，那一选就会清空工程里已存的效果图并立刻存盘——
         // 用户上次存的效果图直接消失（EffectPresets.PickerInitialIndex 是同一约定）。
+        //
+        // 下标映射只认 EffectPresets.PickerLabels/PickerItemAt 这一对（差一个占位项的偏移写在那边），
+        // 这里只把显示文本换成解析后的名字——自己再拼一份项列表就等于把偏移规则写了两遍。
+        var index = 0;
         foreach (var label in EffectPresets.PickerLabels())
-            CmbPreset.Items.Add(label);
-        CmbPreset.SelectedIndex = EffectPresets.PickerInitialIndex;
+        {
+            var preset = EffectPresets.PickerItemAt(index++);
+            CmbPreset.Items.Add(preset is null ? label : LocName(preset.LabelKey, preset.Id));
+        }
 
+        CmbPreset.SelectedIndex = EffectPresets.PickerInitialIndex;
     }
 
     private void CmbAddFx_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1255,6 +1367,7 @@ public partial class PvStageWindow : Window
 
         // UI 侧先清干净：留着旧工程的歌词行/图层卡/画布投影，等于两套工程同时显示在屏幕上
         _lyrics = null;
+        _lyricClips = new List<LyricClip>();
         _tailUncalibrated = false;
         _uiLayerIds = Array.Empty<string>();
         _selectedLayer = null;
@@ -1345,6 +1458,7 @@ public partial class PvStageWindow : Window
         var (lines, tailUncalibrated) = ParseLyrics(text);
         _lrcText = text;                    // 绑定进工程：下次打开自动恢复
         _lyrics = lines;
+        _lyricClips = LrcParser.ToClips(lines);
         _tailUncalibrated = tailUncalibrated;
         _pipe?.SetLyrics(lines);
         BuildInspector();
@@ -1483,7 +1597,8 @@ public partial class PvStageWindow : Window
         extra.Children.Add(ExportRow("时长(秒)", seconds));
 
         MessageDialog.Confirm(this, "导出 MP4",
-            "逐帧离屏渲染当前工程，导出期间界面照常用。导出的是图层与效果：不含歌词、字幕与镜头动画。",
+            "逐帧离屏渲染当前工程，导出期间界面照常用。含图层与效果、曲线/信号驱动的镜头与图层动画、"
+            + "动效歌词与字幕（按字幕设置）；VTS 姿态追踪不参与导出。",
             "开始导出",
             () =>
             {
@@ -1510,6 +1625,7 @@ public partial class PvStageWindow : Window
 
         // 快照交给后台：导出要跑几分钟，活动文档不能让导出线程去枚举（这期间 UI 照样能改图层）
         var copy = ProjectFromSnapshot(ProjectSnapshot(), "导出");
+        var inputs = copy is null ? null : ExportInputs(copy);
         var progress = new Progress<double>(p =>
         {
             _exportPercent = p;
@@ -1518,11 +1634,34 @@ public partial class PvStageWindow : Window
 
         var fault = copy is null
             ? "导出失败：工程快照读不出来"
-            : await Task.Run(() => PvExporter.Export(copy.Scene, copy.Effects, seconds, fps, outPath, progress));
+            : await Task.Run(() => PvExporter.Export(copy.Scene, copy.Effects, seconds, fps, outPath, progress, inputs));
 
         _exporting = false;
         BtnExport.IsEnabled = true;
         TblStatus.Text = fault ?? $"导出完成：{outPath}";
+    }
+
+    /// <summary>
+    /// 导出要消费的帧状态链：与舞台同一批来源——快照里的曲线/信号图（导出线程独占，不必再拷）、
+    /// 本会话的歌词条与频带序列（换引用发布后不再改，跨线程只读）、以及设置里的字幕配置。
+    /// 快照读不出来（<paramref name="copy"/> 为 null）时调用方不会走到这里。
+    /// </summary>
+    private PvExportInputs ExportInputs(DirectorProject copy)
+    {
+        var curves = new DirectorEvaluator();
+        foreach (var save in copy.Curves)
+        {
+            if (save?.Curve is null) continue;
+            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
+            curves.SetCurve(addr, save.Curve);
+        }
+
+        return new PvExportInputs(
+            Curves: curves,
+            Signals: copy.SignalGraph,
+            Bands: _audioBands,
+            Clips: _lyricClips,
+            Subtitles: App.SettingsOf()?.Subtitle);
     }
 
     private string ExportText() => $"导出中… {_exportPercent * 100:F0}%";

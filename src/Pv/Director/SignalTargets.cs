@@ -29,8 +29,11 @@ public enum PvFrameSlot
 /// <see cref="Node"/>/<see cref="Param"/> 是**引用**：编译期解析一次之后，求值路径只按引用读基础值，
 /// 不再解析地址文本（契约 §3.2：字符串只供显示和序列化，不在每帧解析）。
 /// <see cref="Slot"/> 非 None 时（相机/图层域）没有效果实例可写，<see cref="Node"/>/<see cref="Param"/>
-/// 无意义（恒为 null），写入方是本帧的 <see cref="Frame"/> 帧状态槽；效果域则 <see cref="Slot"/> 为 None、
-/// <see cref="Frame"/> 为 null。
+/// 无意义（恒为 null），写入方是所有者场景**本帧**的帧状态槽；效果域则 <see cref="Slot"/> 为 None、
+/// <see cref="Scene"/> 为 null。
+///
+/// <see cref="Scene"/> 存的是**所有者**而不是帧状态实例：帧状态每帧整份换新（copy-on-write），
+/// 编译期捕获实例的话下一帧就永远是陈旧的那一份。
 /// </summary>
 public readonly record struct SignalTarget(
     ParamAddress Address,
@@ -41,7 +44,7 @@ public readonly record struct SignalTarget(
     EffectNode Node,
     EffectParam Param,
     PvFrameSlot Slot,
-    PvFrameState? Frame);
+    PvScene? Scene);
 
 /// <summary>
 /// 目标键解析：注册表（S06）定单位/范围/默认值，本类补上效果实例的写入引用。
@@ -70,7 +73,8 @@ public static class SignalTargets
 
     /// <summary>
     /// 解析**任意域**的绑定/基础值目标（契约 §8.1：绑定的 Address 三种形态都是合法地址）。
-    /// <paramref name="scene"/> 只影响相机的位移范围与图层目标的存在性，传 null 按默认画布解析、不查图层。
+    /// <paramref name="scene"/> 给相机的位移范围与图层目标的存在性；相机/图层域**必须**有场景
+    /// （它们的写入方是本帧帧状态），传 null 一律拒绝——效果域不需要场景。
     ///
     /// 三个域都解析到真正的写入方：效果域写实例参数（<see cref="SignalTarget.Node"/>），
     /// 相机/图层域写本帧 <see cref="PvFrameState"/> 的槽（<see cref="SignalTarget.Slot"/>，见 S06 消费表）。
@@ -88,9 +92,17 @@ public static class SignalTargets
         // 不能一律报成"没接线"——两种拒绝的原因必须分得开
         if (!ParamRegistry.TryResolve(addr, effects, scene, out var spec, out error)) return false;
 
+        // 相机/图层的写入方是本帧帧状态，而帧状态只挂在场景上：没有场景就没有写入方，
+        // 编译通过也只会把值静默丢掉（"显示连线、画面不动"比报错更难查），所以 fail-closed。
+        if (scene is null)
+        {
+            error = $"{ParamRegistry.CodeDomainUnwired}: {addr} 的写入方是本帧帧状态，解析需要场景（scene 为 null 时编译通过、值被静默丢掉）";
+            return false;
+        }
+
         // 图层目标必须真的在场景里：绑到一个不存在的图层 Id 上，帧状态槽写进去也没人看（静默无效），
-        // 与效果域"实例必须存在"同一条 fail-closed。scene 为 null（计划复用期的身份核验）不查存在性。
-        if (addr.Kind == ParamAddressKind.Layer && scene is not null && !HasLayer(scene, addr.Target))
+        // 与效果域"实例必须存在"同一条 fail-closed
+        if (addr.Kind == ParamAddressKind.Layer && !HasLayer(scene, addr.Target))
         {
             error = $"{ParamRegistry.CodeMissingInstance}: 场景里没有 Id 为「{addr.Target}」的图层（地址 {addr}）";
             return false;
@@ -104,7 +116,7 @@ public static class SignalTargets
             return false;
         }
 
-        target = new SignalTarget(addr, spec.Unit, spec.Min, spec.Max, spec.Default, null!, null!, slot, scene?.Frame);
+        target = new SignalTarget(addr, spec.Unit, spec.Min, spec.Max, spec.Default, null!, null!, slot, scene);
         error = null;
         return true;
     }
@@ -152,18 +164,24 @@ public static class SignalTargets
     }
 
     /// <summary>
-    /// 目标的基础值（契约 §3.3 步骤 2）：相机/图层域取本帧帧状态里的 base——那是"文档常量 → 曲线"的产物，
+    /// 目标的基础值（契约 §3.3 步骤 2）：相机/图层域取帧状态里的 base——那是"文档常量 → 曲线"的产物，
     /// 曲线只有渲染侧那一处采样；效果域命中曲线取曲线值，否则取实例常量
     /// （<see cref="EffectNode.Value"/> 已回落 schema 默认）。
     ///
+    /// <paramref name="frame"/> 是调用方本帧的**草稿**帧状态（渲染线程）；传 null 时读所有者场景当前
+    /// **已发布**的快照——UI 徽标求值走这条，拿到的永远是某一帧的完整快照，不会是写了一半的对象。
+    ///
     /// 纯函数、只读：曲线 Key、实例常量与帧状态在求值前后一字不改——动画值绝不写回文档。
     /// </summary>
-    public static double BaseValue(in SignalTarget target, DirectorEvaluator? curves, double transportTime)
+    public static double BaseValue(in SignalTarget target, DirectorEvaluator? curves, double transportTime,
+        PvFrameState? frame = null)
     {
-        if (target.Slot != PvFrameSlot.None
-            && target.Frame is not null
-            && target.Frame.TryGetBase(target.Slot, target.Address.Target, out var frameBase))
-            return frameBase;
+        if (target.Slot != PvFrameSlot.None)
+        {
+            var state = frame ?? target.Scene?.Frame;
+            if (state is not null && state.TryGetBase(target.Slot, target.Address.Target, out var frameBase))
+                return frameBase;
+        }
 
         if (curves is not null && curves.TryEvaluate(target.Address, transportTime, out var animated))
             return animated;

@@ -1,6 +1,22 @@
+using JizuraLive.Engine;
+
 namespace JizuraLive.App.PvStage.Timeline;
 
-/// <summary>时间轴的纯换算（时间/值 ↔ 像素、网格吸附、缩放锚点、命中测试），无 WPF 依赖。</summary>
+/// <summary>歌词条上拖的是哪一端；<see cref="None"/> = 整条平移。</summary>
+public enum ClipEdge
+{
+    None,
+    Start,
+    End,
+}
+
+/// <summary>歌词条的一个落点（半开区间 [Start,End)）。</summary>
+public readonly record struct ClipRange(double Start, double End);
+
+/// <summary>命中的歌词条与部位（<see cref="ClipEdge.None"/> = 命中条体）。</summary>
+public readonly record struct ClipHit(int Index, ClipEdge Edge);
+
+/// <summary>时间轴的纯换算（时间/值 ↔ 像素、网格吸附、缩放锚点、命中测试、歌词条区间规则），无 WPF 依赖。</summary>
 public static class TimelineMath
 {
     /// <summary>判定「同一时刻」的窗口，与 <see cref="JizuraLive.Pv.FloatCurve"/> 同口径（1µs）。</summary>
@@ -8,6 +24,12 @@ public static class TimelineMath
 
     /// <summary>key 命中半径（像素）。</summary>
     public const double KeyHitRadiusPx = 5.0;
+
+    /// <summary>歌词条边缘的命中半径（像素）。</summary>
+    public const double ClipEdgeHitPx = 6.0;
+
+    /// <summary>歌词条最短时长：1ms，比任何缩放下的一个像素都短（只用来挡住空条，不参与吸附）。</summary>
+    public const double MinClipSeconds = 1e-3;
 
     /// <summary>缩放上限：最窄一屏 2 秒。</summary>
     public const double MinSecondsPerScreen = 2.0;
@@ -116,6 +138,88 @@ public static class TimelineMath
             }
         }
         return sameTick >= 0 ? sameTick : nearest;
+    }
+
+    // ---- 歌词条（半开区间 [Start,End)）----
+
+    /// <summary>命中哪一句：边缘（起/止）优先于条体——边缘就画在句首句尾，点它就是要拖它。</summary>
+    public static ClipHit? HitClip(IReadOnlyList<TClip> clips, double time, double edgeToleranceSeconds)
+    {
+        if (HitClipEdge(clips, time, edgeToleranceSeconds) is { } edge) return edge;
+        for (int i = 0; i < clips.Count; i++)
+            if (time >= clips[i].Start && time < clips[i].End) return new ClipHit(i, ClipEdge.None);
+        return null;
+    }
+
+    /// <summary>最近的边缘（容差内，同距取靠前那句）；没命中返回 null。</summary>
+    private static ClipHit? HitClipEdge(IReadOnlyList<TClip> clips, double time, double tolerance)
+    {
+        ClipHit? best = null;
+        double bestDistance = tolerance;
+        for (int i = 0; i < clips.Count; i++)
+        {
+            double toStart = Math.Abs(time - clips[i].Start);
+            double toEnd = Math.Abs(time - clips[i].End);
+            double distance = Math.Min(toStart, toEnd);
+            if (distance > tolerance || (best is not null && distance >= bestDistance)) continue;
+            best = new ClipHit(i, toStart <= toEnd ? ClipEdge.Start : ClipEdge.End);
+            bestDistance = distance;
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// 拖动落点：整条平移保持时长（起点跟 <paramref name="deltaSeconds"/> 走），拖一端只动那一端。
+    /// 同关键帧吸附网格（<paramref name="snap"/> = false 即 Alt 关吸附），并夹到 ≥0（时间轴没有负时刻）。
+    /// 区间是否可用交给 <see cref="ClipFault"/> 判，这里不算时长。
+    /// </summary>
+    public static ClipRange DragClip(in ClipRange origin, ClipEdge edge, double deltaSeconds, double grid, bool snap)
+    {
+        if (edge == ClipEdge.None)
+        {
+            double start = Math.Max(0, Snap(origin.Start + deltaSeconds, grid, snap));
+            return new(start, start + (origin.End - origin.Start));
+        }
+
+        double moved = Math.Max(0, Snap((edge == ClipEdge.Start ? origin.Start : origin.End) + deltaSeconds, grid, snap));
+        return edge == ClipEdge.Start ? new(moved, origin.End) : new(origin.Start, moved);
+    }
+
+    /// <summary>
+    /// 落点能不能提交：end&gt;start 且与别的句不重叠（半开区间，端点相接合法；空档允许）。
+    /// <paramref name="index"/> 是被拖的那句（自己不算敌人）。返回非空 = 拒绝原因（拖动中就是那条提示）。
+    /// </summary>
+    public static string? ClipFault(IReadOnlyList<TClip> clips, int index, in ClipRange range)
+    {
+        if (range.End - range.Start <= MinClipSeconds) return "歌词条太短：结束必须晚于开始";
+
+        for (int i = 0; i < clips.Count; i++)
+        {
+            if (i == index) continue;
+            if (range.Start < clips[i].End && clips[i].Start < range.End) return "歌词条重叠：不能盖住相邻的句子";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 一次歌词条编辑的落点 → 新的 Clip 序列：把 <paramref name="index"/> 那句换成 [startMs, endMs)，
+    /// 再按 StartMs 归一化顺序。区间能不能用仍由 <see cref="ClipFault"/> 先判，这里不重复判定。
+    ///
+    /// 为什么必须归一化：<see cref="ClipFault"/> 只挡重叠、不挡跨位，把一句整条拖到邻句之后是合法编辑，
+    /// 而唯一的查找入口（<see cref="LrcParser.FindSample"/> 与 <see cref="LrcParser.FindLastBefore"/>）
+    /// 是二分「最后一个 StartMs ≤ t」——序列一旦非升序，挪过去的那句与被跨过的那句在各自区间内
+    /// 都命中不了，动效歌词与字幕排版同时整段消失。
+    /// 归一化后的下标就是新快照的下标，控件按新快照继续按下标报编辑，不会错位。
+    ///
+    /// 返回新列表、不改 <paramref name="clips"/>：发布出去的那份此后不再改（与信号图同一条约定）。
+    /// </summary>
+    public static List<LyricClip> WithClipRange(IReadOnlyList<LyricClip> clips, int index, long startMs, long endMs)
+    {
+        var next = new List<LyricClip>(clips);
+        next[index] = clips[index] with { StartMs = startMs, EndMs = endMs };
+        // OrderBy 是稳定排序：同 StartMs 保持原相对次序（与 LrcParser.ParseClips 同一条规则）
+        return next.OrderBy(static c => c.StartMs).ToList();
     }
 
     /// <summary>曲线在 time 处的显示值（左 key 的 Interp 决定区间；空轨取 fallback）。</summary>

@@ -1,5 +1,6 @@
 ﻿using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
+using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
 
@@ -181,8 +182,10 @@ public class CompositeTests
                 ["l"] = PvLayerImage.FromSolid(new Color4(1f, 1f, 1f, 1f), S, S),
             };
 
-            // 文档常量是 0；帧状态里 offsetX = 0.5 ⇒ 整层右移半幅
-            scene.Frame.SetLayer("l", PvLayerState.From(layer) with { OffsetX = 0.5 });
+            // 文档常量是 0；本帧草稿里 offsetX = 0.5 ⇒ 整层右移半幅，填完整份发布（同渲染侧的顺序）
+            var frame = new PvFrameState();
+            frame.SetLayer("l", PvLayerState.From(layer) with { OffsetX = 0.5 });
+            scene.PublishFrame(frame);
 
             host.Draw.Begin();
             host.Draw.Clear(new Color4(0f, 0f, 0f, 1f));
@@ -195,6 +198,72 @@ public class CompositeTests
 
             // 帧状态不写回文档
             Assert.Equal(0.0, layer.OffsetX, 12);
+        }
+    }
+
+    /// <summary>
+    /// 图层曲线 → 帧状态 → 像素的**整腿**：真 <see cref="PvPipeline"/>（曲线是在 Prepare 的
+    /// ApplyLayerFrame/BaseLayer 里被铺进帧状态的）加一层实心层，只把 layer:l.offsetX 从 0 推到 1.0，
+    /// 红块必须整层右移半幅。纯合成器用例（<see cref="CompositorFollowsLayerFrameState"/>）直接写帧状态，
+    /// 删掉 ApplyLayerFrame/BaseLayer 也照绿——这一条钉的正是那一段。
+    /// </summary>
+    [GpuFact]
+    public void PipelineLayerCurveShiftsPixelsEndToEnd()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        {
+            // 关掉视差、防露底与环境光面：让位移成为画面里唯一的变化量
+            var scene = new PvScene
+            {
+                Width = S,
+                Height = S,
+                GlobalParallaxEnabled = false,
+                AntiBleedGuardEnabled = false,
+                AmbientBlendEnabled = false,
+            };
+            // SpoutSenderName 必须显式清掉：默认值会让管线去建一层永远收不到帧的 Spout 提供者
+            scene.Layers.Add(new PvLayerConfig
+            {
+                Id = "l",
+                SpoutSenderName = null,
+                Parallax = new PvParallaxConfig { Depth = 1.0 },
+            });
+
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph());
+            // 实心层：管线只按场景建源提供者，纯色层由用例自己注册
+            pipe.Renderer.Stage.Register(new ColorProvider("l", new Color4(1f, 0f, 0f, 1f)));
+
+            // 曲线 0s→0、10s→1.0：5s 的 base = 0.5（半个画布宽）
+            var curves = new DirectorEvaluator();
+            var curve = new FloatCurve();
+            Assert.True(curve.TryAdd(0.0, 0.0));
+            Assert.True(curve.TryAdd(10.0, 1.0));
+            curves.SetCurve(new ParamAddress(ParamAddressKind.Layer, "l", "offsetX"), curve);
+            pipe.SetDirector(curves);
+
+            using var target = OffscreenTarget.Create(gpu, pipe.D2DContext, S, S);
+
+            pipe.Prepare(0.0);
+            pipe.Composite(target.Bitmap, S, S);
+            using (var bmp = target.Readback())
+            {
+                Assert.True(bmp.GetPixel(S / 4, S / 2).Red > 200, "曲线为 0：左半幅应有红块");
+                Assert.True(bmp.GetPixel(S * 3 / 4, S / 2).Red > 200, "曲线为 0：右半幅应有红块");
+            }
+
+            pipe.Prepare(5.0);
+            pipe.Composite(target.Bitmap, S, S);
+            using (var bmp = target.Readback())
+            {
+                Assert.True(bmp.GetPixel(S / 4, S / 2).Red < 40, "曲线推到 0.5：左半幅应已空出");
+                Assert.True(bmp.GetPixel(S * 3 / 4, S / 2).Red > 200, "曲线推到 0.5：右半幅仍被红块盖住");
+            }
+
+            // 曲线不写回文档：图层的文档常量仍是 0
+            Assert.Equal(0.0, scene.Layers[0].OffsetX, 12);
         }
     }
 

@@ -44,7 +44,8 @@ public sealed partial class BlueprintView
         }
 
         // 参数行优先于节点拖动：点参数行=编辑，点节点其余部位=拖动
-        if (BlueprintMath.HitNode(_snap, canvas) is { } nodeId && ParamRowAt(nodeId, canvas) is { } paramName)
+        if (BlueprintMath.HitNode(_snap, canvas) is { } nodeId &&
+            BlueprintMath.HitParamRow(_snap, nodeId, canvas) is { } paramName)
         {
             OpenParamEditor(nodeId, paramName, screen);
             return;
@@ -81,7 +82,7 @@ public sealed partial class BlueprintView
 
             case DragMode.Node:
                 var canvas = ToCanvas(screen);
-                _dragDelta = BlueprintMath.Snap(new BpPoint(canvas.X - _dragStartCanvas.X, canvas.Y - _dragStartCanvas.Y));
+                _dragDelta = BlueprintMath.DragDelta(_dragStartCanvas, canvas);
                 break;
 
             case DragMode.Marquee:
@@ -216,25 +217,14 @@ public sealed partial class BlueprintView
 
     private void SelectInMarquee()
     {
-        var marquee = MarqueeRect();
         _selection.Clear();
-
-        foreach (var node in _snap.Nodes)
-        {
-            var rect = BlueprintMath.NodeRect(node);
-            var topLeft = ToScreen(new BpPoint(rect.X, rect.Y));
-            var bottomRight = ToScreen(new BpPoint(rect.Right, rect.Bottom));
-            if (marquee.IntersectsWith(new Rect(topLeft.X, topLeft.Y, bottomRight.X - topLeft.X, bottomRight.Y - topLeft.Y)))
-                _selection.Add(node.Id);
-        }
+        foreach (var id in BlueprintMath.MarqueeSelection(_snap, _dragStartScreen, _marqueeEnd, _zoom, _pan))
+            _selection.Add(id);
     }
 
     private void EmitMove()
     {
-        var moves = new List<BpNodeMove>();
-        foreach (var (id, origin) in _dragOrigins)
-            moves.Add(new BpNodeMove(id, origin.X + _dragDelta.X, origin.Y + _dragDelta.Y));
-
+        var moves = BlueprintMath.DragMoves(_dragOrigins, _dragDelta);
         if (moves.Count > 0) Commit(new BpEdit { Kind = BpEditKind.MoveNodes, Moves = moves });
     }
 
@@ -359,26 +349,6 @@ public sealed partial class BlueprintView
     }
 
     // ---- 参数编辑 ----
-
-    /// <summary>命中的参数行名（绑定目标行返回 <see cref="BlueprintMath.TargetRow"/>）；没命中返回 null。</summary>
-    private string? ParamRowAt(string nodeId, BpPoint canvas)
-    {
-        var node = BlueprintMath.FindNode(_snap, nodeId);
-        if (node is null) return null;
-        var def = SignalNodeCatalog.Get(node.Kind);
-        if (def is null) return null;
-
-        var rect = BlueprintMath.NodeRect(node);
-        if (canvas.X < rect.X || canvas.X > rect.Right) return null;
-
-        for (var i = 0; i < BlueprintMath.ParamRowCount(def); i++)
-        {
-            double y = rect.Y + BlueprintMath.ParamRowY(def, i);
-            if (Math.Abs(canvas.Y - y) <= BlueprintMath.ParamRowHeight / 2) return BlueprintMath.ParamNameAt(def, i);
-        }
-
-        return null;
-    }
 
     private void OpenParamEditor(string nodeId, string paramName, BpPoint screen)
     {

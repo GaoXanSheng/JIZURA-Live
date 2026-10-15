@@ -253,8 +253,18 @@ public sealed partial class BlueprintView : Control
         (SignalNodeKind.Constant or SignalNodeKind.Remap, "unit") => ((ParamUnit)(int)value).ToString(),
         (SignalNodeKind.Time, "source") => value == 1 ? "Live" : "Transport",
         (SignalNodeKind.AudioBands, "band") => value switch { 0 => "Rms", 1 => "Bass", 2 => "Mid", _ => "High" },
+        (SignalNodeKind.VtsPose, "channel") => ChannelLabel(value),
         _ => value.ToString("0.###", CultureInfo.InvariantCulture),
     };
+
+    /// <summary>VTS 通道的显示名 = <see cref="VtsChannel"/> 枚举名；非整数值或域外值（手改过的存档）兜底显示数字。</summary>
+    private static string ChannelLabel(double value)
+    {
+        int index = (int)value;
+        return value == index && Enum.IsDefined((VtsChannel)index)
+            ? ((VtsChannel)index).ToString()
+            : value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
 
     /// <summary>引脚单位标签口径（与 ParamUnit 同名口径；Unspecified 不是量纲，不显示）。</summary>
     private static string UnitLabel(ParamUnit unit) => unit switch

@@ -1,4 +1,5 @@
 using System.IO;
+using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Pv;
 
@@ -472,6 +473,100 @@ public class AudioAnalysisTests
         Assert.False(peaks.TryRead(0, 0, 5000, 10, out _, out _));   // 整段在有效范围之外
         Assert.False(peaks.TryRead(0, 0, 0, 0, out _, out _));       // 空段
         Assert.False(peaks.TryRead(0, 5, 0, 100, out _, out _));     // 声道越界
+    }
+
+    /// <summary>
+    /// 流式构建与一次性 <see cref="WaveformPeaks.Build"/> **逐值一致**（每一级的每个窗口）：
+    /// 块边界、跨帧、跨窗口切分都不改变结果，所以装载不必把整曲 PCM 攒下来。
+    /// </summary>
+    [Fact]
+    public void StreamingPeakBuilderMatchesBuildExactly()
+    {
+        const int channels = 2;
+
+        // 三种长度：末窗不满 / 恰好整窗 / 只有一帧
+        foreach (var frames in new[] { 5000, 5120, 1 })
+        {
+            var pcm = new float[frames * channels];
+            var rng = new Random(20261016);
+            for (int i = 0; i < pcm.Length; i++) pcm[i] = (float)(rng.NextDouble() * 2 - 1);
+
+            var whole = WaveformPeaks.Build(pcm, channels);
+
+            var builder = WaveformPeaks.CreateBuilder(channels);
+            for (int at = 0; at < pcm.Length;)
+            {
+                int len = Math.Min(1 + at % 997, pcm.Length - at);   // 块长在变，且不整除帧长/窗口长
+                builder.Feed(pcm.AsSpan(at, len));
+                at += len;
+            }
+            var streamed = builder.Finish();
+
+            Assert.Equal(whole.Channels, streamed.Channels);
+            Assert.Equal(whole.BaseWindow, streamed.BaseWindow);
+            Assert.Equal(whole.SampleCount, streamed.SampleCount);
+            Assert.Equal(whole.LevelCount, streamed.LevelCount);
+            for (int level = 0; level < whole.LevelCount; level++)
+            {
+                Assert.Equal(whole.WindowCount(level), streamed.WindowCount(level));
+                Assert.Equal(whole.Min(level), streamed.Min(level));
+                Assert.Equal(whole.Max(level), streamed.Max(level));
+            }
+        }
+    }
+
+    /// <summary>尾部不足一帧的样本与 <see cref="WaveformPeaks.Build"/> 一样丢弃，并且允许切在半帧上喂。</summary>
+    [Fact]
+    public void StreamingPeakBuilderDropsTrailingPartialFrame()
+    {
+        var pcm = new[] { 0.1f, 0.2f, 0.3f };   // 3 个样本、2 声道：末帧缺右声道
+        var whole = WaveformPeaks.Build(pcm, 2);
+
+        var builder = WaveformPeaks.CreateBuilder(2);
+        builder.Feed(pcm.AsSpan(0, 1));         // 第一帧被切成两半喂
+        builder.Feed(pcm.AsSpan(1));
+        var streamed = builder.Finish();
+
+        Assert.Equal(1, streamed.SampleCount);
+        Assert.Equal(whole.SampleCount, streamed.SampleCount);
+        Assert.Equal(whole.Min(0), streamed.Min(0));
+        Assert.Equal(whole.Max(0), streamed.Max(0));
+    }
+
+    /// <summary>整文件装载走的就是流式路径：与「同一份 PCM 换一种块长喂 Builder」逐值一致。</summary>
+    [Fact]
+    public void WaveformLoaderStreamsTheSamePeaksAsTheBuilder()
+    {
+        string path = Path.Combine(Path.GetTempPath(), "jz-wave-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            WriteSineWav(path, 3000, 0.8, 0.5);
+            var loaded = WaveformLoader.Load(path);
+
+            using var reader = new NAudio.Wave.AudioFileReader(path);
+            var samples = (NAudio.Wave.ISampleProvider)reader;
+            var builder = WaveformPeaks.CreateBuilder(reader.WaveFormat.Channels);
+            var chunk = new float[700];            // 块长刻意不是窗口长/帧长的整数倍
+            while (true)
+            {
+                int read = samples.Read(chunk);
+                if (read <= 0) break;
+                builder.Feed(chunk.AsSpan(0, read));
+            }
+            var expected = builder.Finish();
+
+            Assert.Equal(expected.SampleCount, loaded.SampleCount);
+            Assert.Equal(expected.LevelCount, loaded.LevelCount);
+            for (int level = 0; level < expected.LevelCount; level++)
+            {
+                Assert.Equal(expected.Min(level), loaded.Min(level));
+                Assert.Equal(expected.Max(level), loaded.Max(level));
+            }
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 
     // ---------- 合成辅助 ----------

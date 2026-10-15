@@ -628,10 +628,14 @@ public partial class PvStageWindow
             default:
                 foreach (var node in _effects.Nodes)
                     if (string.Equals(node.InstanceId, addr.Target, StringComparison.Ordinal))
-                        return (EffectCatalog.Get(node.DefId)?.Id ?? node.DefId) + " · " + name;
+                        return EffectName(node) + " · " + EffectParamLabel(node, addr.Param);
                 return addr.Target + " · " + name;
         }
     }
+
+    /// <summary>效果参数的显示名：按 DefId 的 schema 取 LabelKey；schema 里没有这个 key 时原样显示。</summary>
+    private static string EffectParamLabel(EffectNode node, string key) =>
+        EffectCatalog.Get(node.DefId)?.Params.FirstOrDefault(p => p.Key == key) is { } p ? ParamLabel(p) : key;
 }
 
 /// <summary>检查器里的一段。声明顺序即期望的渲染顺序。</summary>

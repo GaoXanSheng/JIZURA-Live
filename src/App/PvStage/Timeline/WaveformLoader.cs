@@ -10,8 +10,8 @@ public static class WaveformLoader
     private const int ChunkFloats = 65536;
 
     /// <summary>
-    /// 解码整段音频为 float interleaved 后 <see cref="WaveformPeaks.Build"/>。
-    /// 只开解码器（AudioFileReader），不碰播放设备；失败抛异常。
+    /// 分块解码音频并建多级 min/max 波形。内存 O(一块 + 输出)：整曲 PCM 不驻留，时长不再有上限。
+    /// 只开解码器（AudioFileReader），不碰播放设备；失败抛带格式/路径原因的异常，由调用方显示。
     /// </summary>
     public static WaveformPeaks Load(string path, CancellationToken ct = default)
     {
@@ -19,24 +19,24 @@ public static class WaveformLoader
 
         using var reader = new AudioFileReader(path);
         var format = reader.WaveFormat;
-        if (format.Channels <= 0) throw new InvalidDataException("音频声道数为 0");
+        if (format.Channels <= 0 || format.SampleRate <= 0)
+            throw new InvalidDataException($"音频格式不可装载：{format.SampleRate}Hz/{format.Channels}ch（{path}）");
 
-        long frames = (long)Math.Ceiling(reader.TotalTime.TotalSeconds * format.SampleRate);
-        if (frames > int.MaxValue / format.Channels)
-            throw new InvalidDataException($"音频过长：{frames} 帧 × {format.Channels} 声道超出单次解码上限");
-
-        var data = new float[(int)(frames * format.Channels)];
+        var builder = WaveformPeaks.CreateBuilder(format.Channels);
         var samples = (ISampleProvider)reader; // float 读取只在 ISampleProvider 上（WaveStream.Read 是 byte[]）
-        int total = 0;
-        while (total < data.Length)
+        var chunk = new float[ChunkFloats];
+        long total = 0;
+
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
-            int read = samples.Read(data.AsSpan(total, Math.Min(ChunkFloats, data.Length - total)));
+            int read = samples.Read(chunk);
             if (read <= 0) break;
+            builder.Feed(chunk.AsSpan(0, read));
             total += read;
         }
         if (total <= 0) throw new InvalidDataException("音频没有可解码的采样：" + path);
 
-        return WaveformPeaks.Build(data.AsSpan(0, total), format.Channels);
+        return builder.Finish();
     }
 }
