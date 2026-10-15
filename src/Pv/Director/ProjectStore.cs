@@ -87,7 +87,42 @@ public static class ProjectStore
             return new ProjectLoadResult(null,
                 $"工程版本过新（{project.SchemaVersion} > {DirectorProject.CurrentSchemaVersion}），本程序不识别，请升级后再打开");
 
+        // 宽松治理：坏曲线只丢它自己，不改 Load 的既有语义（失败分类、绝不写盘）
+        SanitizeCurves(project);
+
         return new ProjectLoadResult(project, null);
+    }
+
+    /// <summary>
+    /// 曲线的宽松治理：地址解析失败（或曲线为 null）的条目从**内存**里丢弃并告警。
+    ///
+    /// 一条坏地址只说明"这条曲线读不出来"，不代表整个工程不可用——场景、效果、歌词都还在，
+    /// 为此把整份工程判成损坏（或抛异常）是不成比例的。
+    /// 只改内存、不写盘：磁盘文件保持原样，用户下次主动保存才真正落盘（与 Load 不写盘的约定一致）。
+    /// </summary>
+    private static void SanitizeCurves(DirectorProject project)
+    {
+        if (project.Curves.Count == 0) return;
+
+        // 就地压缩，保序；先记数再统一 RemoveRange，避免边遍历边删
+        var kept = 0;
+        for (var i = 0; i < project.Curves.Count; i++)
+        {
+            var save = project.Curves[i];
+            if (save is null || save.Curve is null || !ParamAddress.TryParse(save.Address, out _))
+            {
+                Log.Warn("[工程存储] 丢弃不可解析的曲线条目：" + (save is null ? "(null)" : save.Address));
+                continue;
+            }
+
+            project.Curves[kept++] = save;
+        }
+
+        if (kept < project.Curves.Count) project.Curves.RemoveRange(kept, project.Curves.Count - kept);
+
+        // 手改文件可能塞进乱序/重复 key，破坏二分求值的前提（Keys 升序且时刻唯一）；
+        // 恢复不变量，只改内存
+        foreach (var save in project.Curves) save.Curve.NormalizeKeys();
     }
 
     /// <summary>

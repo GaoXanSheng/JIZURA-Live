@@ -35,6 +35,15 @@ public class ProjectStoreTests
                 n.SetColor(colorGrade.Params[4], "#8f6ac0"); // tint
             });
             effects.Add("glow", n => n.Set(glow.Params[1], 2.25f)); // intensity
+            var glowInstanceId = effects.Nodes[1].InstanceId;       // 曲线按实例 Id 寻址，不用 DefId
+
+            // 两条曲线：镜头 scale 三 key（含 SmoothStep），glow 实例的 intensity 单 key
+            var cameraScale = new FloatCurve();
+            Assert.True(cameraScale.TryAdd(0.0, 1.0));
+            Assert.True(cameraScale.TryAdd(2.5, 1.4, CurveInterp.SmoothStep));
+            Assert.True(cameraScale.TryAdd(6.0, 1.0, CurveInterp.SmoothStep));
+            var glowIntensity = new FloatCurve();
+            Assert.True(glowIntensity.TryAdd(1.5, 2.25, CurveInterp.Step));
 
             var project = new DirectorProject
             {
@@ -43,6 +52,11 @@ public class ProjectStoreTests
                 Effects = effects,
                 AudioPath = "assets/audio/song.mp3",
                 LrcText = "[00:01.00]第一行\n[00:03.00]第二行",
+                Curves =
+                {
+                    new CurveSave { Address = "camera.scale", Curve = cameraScale },
+                    new CurveSave { Address = $"effect:{glowInstanceId}.intensity", Curve = glowIntensity },
+                },
             };
 
             Assert.Null(ProjectStore.Save(project, path));
@@ -50,6 +64,7 @@ public class ProjectStoreTests
             // 效果部分必须是嵌套的 JSON 对象，而不是一层转义字符串
             var root = JObject.Parse(File.ReadAllText(path));
             Assert.IsType<JObject>(root["Effects"]);
+            Assert.Equal(2, ((JArray)root["Curves"]!).Count);
 
             var result = ProjectStore.Load(path);
             Assert.Null(result.Fault);
@@ -71,6 +86,111 @@ public class ProjectStoreTests
             Assert.Equal("#8f6ac0", loaded.Effects.Nodes[0].ColorValue(colorGrade.Params[4]));
             Assert.Equal("glow", loaded.Effects.Nodes[1].DefId);
             Assert.Equal(2.25f, loaded.Effects.Nodes[1].Value(glow.Params[1]));
+
+            // 曲线随工程往返：地址集合、key 数、值、插值模式逐一相等
+            Assert.Equal(2, loaded.Curves.Count);
+            var loadedCamera = Assert.Single(loaded.Curves, c => c.Address == "camera.scale").Curve;
+            Assert.Equal(3, loadedCamera.Count);
+            Assert.Equal(CurveInterp.SmoothStep, loadedCamera.Keys[1].Mode);
+            Assert.Equal(cameraScale.Evaluate(0.0), loadedCamera.Evaluate(0.0));
+            Assert.Equal(cameraScale.Evaluate(2.5), loadedCamera.Evaluate(2.5));
+            Assert.Equal(cameraScale.Evaluate(6.0), loadedCamera.Evaluate(6.0));
+
+            var loadedGlow = Assert.Single(loaded.Curves, c => c.Address == $"effect:{glowInstanceId}.intensity").Curve;
+            Assert.Equal(1, loadedGlow.Count);
+            Assert.Equal(CurveInterp.Step, loadedGlow.Keys[0].Mode);
+            Assert.Equal(glowIntensity.Evaluate(1.5), loadedGlow.Evaluate(1.5));
+            Assert.Equal(glowIntensity.Evaluate(9.0), loadedGlow.Evaluate(9.0)); // 单 key 恒值也照旧
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void UnknownCurveAddressIsDroppedOnLoadAndProjectStillLoads()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            // Mode：0=Step 1=Linear 2=SmoothStep。第一条地址不合法，第二条合法——
+            // 手写 JSON 模拟用户改坏 / 旧版本写坏一条地址的存档
+            const string json = """
+            {
+              "SchemaVersion": 1,
+              "Name": "含坏地址的工程",
+              "Curves": [
+                { "Address": "bogus", "Curve": { "Keys": [ { "Time": 0.0, "Value": 1.0, "Mode": 1 } ] } },
+                { "Address": "layer:lyrics_pv.opacity", "Curve": {
+                    "Keys": [ { "Time": 0.0, "Value": 0.5, "Mode": 0 }, { "Time": 1.0, "Value": 1.0, "Mode": 0 } ] } }
+              ]
+            }
+            """;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+
+            var result = ProjectStore.Load(path);
+
+            // 坏一条地址不炸整份工程：工程照常载入，Fault 保持 null（这不是"打不开"）
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+
+            // 坏地址条目被丢弃，合法的原样保留
+            var kept = Assert.Single(loaded.Curves);
+            Assert.Equal("layer:lyrics_pv.opacity", kept.Address);
+            Assert.Equal(2, kept.Curve.Count);
+            Assert.Equal(0.5, kept.Curve.Evaluate(0.0));
+            Assert.Equal(1.0, kept.Curve.Evaluate(1.0));
+            Assert.Equal(CurveInterp.Step, kept.Curve.Keys[1].Mode);
+
+            // 治理只发生在内存：磁盘文件一字未动，下次用户主动保存才落盘
+            Assert.Equal(json, File.ReadAllText(path));
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    [Fact]
+    public void UnsortedOrDuplicateCurveKeysAreNormalizedOnLoad()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            // 手写乱序 + 1µs 内重复的 key：二分求值的前提（升序、时刻唯一）被破坏。
+            // 载入必须恢复不变量，否则乱序的 key 会让曲线算出错值时有时无的镜头。
+            const string json = """
+            {
+              "SchemaVersion": 1,
+              "Name": "乱序曲线",
+              "Curves": [
+                { "Address": "camera.scale", "Curve": { "Keys": [
+                    { "Time": 2.0, "Value": 1.4, "Mode": 1 },
+                    { "Time": 1.0, "Value": 1.0, "Mode": 1 },
+                    { "Time": 1.0000002, "Value": 9.9, "Mode": 1 },
+                    { "Time": 3.0, "Value": 1.8, "Mode": 1 } ] } }
+              ]
+            }
+            """;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+
+            var result = ProjectStore.Load(path);
+
+            Assert.Null(result.Fault);
+            var curve = Assert.Single(Assert.IsType<DirectorProject>(result.Project).Curves).Curve;
+
+            // 升序 + 1µs 重复被合并（保留先出现的）：4 → 3 个 key
+            Assert.Equal(3, curve.Count);
+            Assert.Equal(new[] { 1.0, 2.0, 3.0 }, curve.Keys.Select(k => k.Time).ToArray());
+            Assert.Equal(1.0, curve.Evaluate(1.0));
+            Assert.Equal(1.4, curve.Evaluate(2.0));
+            Assert.Equal(1.8, curve.Evaluate(3.0));
+
+            // 治理只发生在内存：磁盘文件一字未动
+            Assert.Equal(json, File.ReadAllText(path));
         }
         finally
         {

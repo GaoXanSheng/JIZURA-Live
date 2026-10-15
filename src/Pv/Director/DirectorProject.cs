@@ -39,6 +39,29 @@ public sealed class DirectorProject
 
     /// <summary>已导入的 LRC 原文（null = 未导入歌词）。</summary>
     public string? LrcText { get; set; }
+
+    /// <summary>
+    /// 关键帧曲线（按参数地址索引）。空列表 = 没有任何动画，所有参数取基础值。
+    ///
+    /// 加这个字段属于纯增量扩展，所以**不**抬 <see cref="SchemaVersion"/>：旧读方忽略未知字段照样能读
+    /// （与 EffectGraphJson 加 InstanceId 同一个理由）。
+    /// </summary>
+    public List<CurveSave> Curves { get; set; } = new();
+}
+
+/// <summary>
+/// 一条曲线的存档形态：地址文本 + 曲线本体。
+///
+/// 地址存字符串而不是结构体字段：JSON 里保持"一行看得懂"，也让加载时能对单条坏地址做治理
+/// （解析失败只丢这一条，不炸整份工程——见 <see cref="ProjectStore"/>）。
+/// </summary>
+public sealed class CurveSave
+{
+    /// <summary>参数地址文本，形如 <c>camera.scale</c> / <c>effect:fx_glow_ab12.intensity</c>。</summary>
+    public string Address { get; set; } = "";
+
+    /// <summary>曲线本体。</summary>
+    public FloatCurve Curve { get; set; } = new();
 }
 
 /// <summary>
