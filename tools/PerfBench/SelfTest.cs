@@ -10,7 +10,9 @@ namespace PerfBench;
 ///   3. [1,2] 的 p50=1、p99=2；[5,5,5,5] 三者全为 5；
 ///   4. B/帧 的除零保护；
 ///   5. Format() 输出必须含 p95、GC 行、工作集行与固定一行 [WARP] 标记；
-///   6. CSV 表头与数据行数一致。
+///   6. CSV 表头与数据行数一致；
+///   7. 长跑的内存曲线：最小二乘斜率（正/负/持平/带噪声）与按 |斜率| 的分档结论，
+///      以及「算不出趋势给 NaN 而不是 0」的退化路径。
 ///
 /// 退出码：0 = 全部通过；3 = 有断言失败（打印首条不一致的期望/实际）。
 /// </summary>
@@ -27,6 +29,7 @@ internal static class SelfTest
         ValidateAllocPerFrame();
         ValidateFormat();
         ValidateCsv();
+        ValidateMemCurve();
 
         Console.WriteLine($"[SelfTest] 通过 {_passed} 项，失败 {Failures.Count} 项");
         if (Failures.Count == 0)
@@ -125,6 +128,62 @@ internal static class SelfTest
             vramUsage: -1, vramBudget: -1).Format();
         Check("空样本报告含帧数 0", empty.Contains("帧数   ：0 帧", StringComparison.Ordinal));
         Check("不可得显存记 -1（不冒充 0 字节）", empty.Contains("不可得（-1）", StringComparison.Ordinal));
+
+        // 长跑：有采样点时报告才多出曲线行；短跑（无 30s 采样）的形状与加长跑之前一致
+        var curved = SampleSnapshot(software: false,
+            workingSetCurve: new MemCurveResult("工作集曲线", 2.5, 20),
+            vramCurve: new MemCurveResult("显存曲线", -0.5, 20)).Format();
+        Check("Format 含工作集曲线行", curved.Contains("工作集曲线：", StringComparison.Ordinal));
+        Check("Format 含显存曲线行", curved.Contains("显存曲线：", StringComparison.Ordinal));
+        Check("Format 含曲线斜率结论行（下游只取最后一条含「斜率」的行）",
+            curved.Contains("[Bench] 曲线斜率结论：", StringComparison.Ordinal));
+        Check("短跑报告不含曲线行（形状不变）", !hw.Contains("曲线", StringComparison.Ordinal));
+    }
+
+    private static void ValidateMemCurve()
+    {
+        // 斜率值：正 / 负 / 持平（手算：三点等距时最小二乘 = (y2-y0)/2）
+        Check("斜率：+10 MB/分钟", MemCurve.SlopeMbPerMinute(Points((0, 100), (1, 110), (2, 120))), 10);
+        Check("斜率：-10 MB/分钟", MemCurve.SlopeMbPerMinute(Points((0, 120), (1, 110), (2, 100))), -10);
+        Check("斜率：持平 = 0", MemCurve.SlopeMbPerMinute(Points((0, 100), (1, 100), (2, 100))), 0);
+        // 中间点被顶起来（一次 GC/显存回收的抖动）时仍取趋势，而不是把抖动当整段
+        Check("斜率：带噪声仍为 +5 MB/分钟", MemCurve.SlopeMbPerMinute(Points((0, 100), (1, 120), (2, 110))), 5);
+
+        // 分档阈值：|斜率| < 1 平稳；1-10 缓增需观察；> 10 疑似泄漏（1 与 10 归中间档）
+        Check("结论：0.99 → 平稳", MemCurve.Verdict(0.99), "平稳（|斜率| < 1 MB/分钟）");
+        Check("结论：1 → 缓增需观察", MemCurve.Verdict(1.0), "缓增需观察（1-10 MB/分钟）");
+        Check("结论：10 → 缓增需观察", MemCurve.Verdict(10.0), "缓增需观察（1-10 MB/分钟）");
+        Check("结论：10.1 → 疑似泄漏", MemCurve.Verdict(10.1), "疑似泄漏（> 10 MB/分钟）");
+        Check("结论：-3 → 缓降（不写成缓增）", MemCurve.Verdict(-3.0), "缓降需观察（1-10 MB/分钟）");
+        Check("结论：NaN → 不可判定", MemCurve.Verdict(double.NaN), "不可判定（采样点不足或读数不可得）");
+
+        // 退化路径：算不出趋势给 NaN，不给 0（0 会被读成「测出来是平的」）
+        Check("斜率：单点 → NaN", double.IsNaN(MemCurve.SlopeMbPerMinute(Points((0, 100)))));
+        Check("斜率：空集 → NaN", double.IsNaN(MemCurve.SlopeMbPerMinute(new List<MemPoint>())));
+        Check("斜率：所有点同一分钟 → NaN（分母为 0）",
+            double.IsNaN(MemCurve.SlopeMbPerMinute(Points((2, 100), (2, 130)))));
+        Check("斜率文本：NaN 印「不可得」不印 0",
+            MemCurve.FormatSlope(double.NaN), "不可得（采样点不足 2 点或读数不可得）");
+        Check("斜率文本：+2.5 带正号（增长方向一眼可见）", MemCurve.FormatSlope(2.5), "+2.50 MB/分钟");
+
+        // 采样行形状：下游按这个形状取值，改了就是破坏接口
+        var line = new MemSample(Minute: 1.5, FramesInInterval: 1798, WorkingSetBytes: 537L * 1024 * 1024,
+            VramUsageBytes: 268L * 1024 * 1024, Gc0: 12, Gc1: 1, Gc2: 0).Line();
+        Check("采样行形状固定（[sample] Nmin ws=…MB vram=…MB gc=…/…/… frames=…）",
+            line, "[sample] 1min ws=537.0MB vram=268.0MB gc=12/1/0 frames=1798");
+
+        // 显存不可得的采样不参与显存曲线回归（-1 不是一次测量），工作集那条不受影响
+        var samples = new List<MemSample>
+        {
+            new(0.5, 10, 100L * 1024 * 1024, -1, 0, 0, 0),
+            new(1.5, 10, 200L * 1024 * 1024, -1, 0, 0, 0),
+        };
+        Check("显存曲线：全是 -1 → 0 个点（不拿 -1 当读数）", MemCurve.VramPoints(samples).Count, 0);
+        Check("显存曲线：0 点 → 斜率 NaN", double.IsNaN(
+            MemCurve.Summarize("显存曲线", MemCurve.VramPoints(samples)).SlopeMbPerMinute));
+        Check("工作集曲线：不受显存不可得影响（2 点）", MemCurve.WorkingSetPoints(samples).Count, 2);
+        Check("工作集曲线：0.5→1.5 分钟 +100MB = +100 MB/分钟",
+            MemCurve.Summarize("工作集曲线", MemCurve.WorkingSetPoints(samples)).SlopeMbPerMinute, 100);
     }
 
     private static void ValidateCsv()
@@ -151,7 +210,8 @@ internal static class SelfTest
 
     /// <summary>字面值构造一份快照——自检不碰 GC/Process/设备，只校验纯渲染逻辑。</summary>
     private static FrameSnapshot SampleSnapshot(bool software, int frames = 240, double allocPerFrame = 12.5,
-        long vramUsage = 256L * 1024 * 1024, long vramBudget = 1024L * 1024 * 1024) =>
+        long vramUsage = 256L * 1024 * 1024, long vramBudget = 1024L * 1024 * 1024,
+        MemCurveResult? workingSetCurve = null, MemCurveResult? vramCurve = null) =>
         new(
             new BenchEnv(
                 AdapterName: "基准测试适配器",
@@ -180,7 +240,13 @@ internal static class SelfTest
             WorkingSetBytes: 512L * 1024 * 1024,
             PrivateBytes: 400L * 1024 * 1024,
             VramUsageBytes: vramUsage,
-            VramBudgetBytes: vramBudget);
+            VramBudgetBytes: vramBudget,
+            WorkingSetCurve: workingSetCurve,
+            VramCurve: vramCurve);
+
+    /// <summary>把 (分钟, MB) 字面值拼成回归点。</summary>
+    private static MemPoint[] Points(params (double Minute, double Mb)[] points) =>
+        points.Select(p => new MemPoint(p.Minute, p.Mb)).ToArray();
 
     private static FrameStats Stats(params double[] values)
     {

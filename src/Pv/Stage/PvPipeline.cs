@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.IO;
 using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -25,6 +26,7 @@ public sealed class PvPipeline : IDisposable
 
     // 跨线程交接只有这一条命令通道：UI 投递，渲染线程在帧首消费（图层提供者的 COM 对象必须在渲染线程建）。
     private readonly ConcurrentQueue<string> _pendingAdds = new();
+    private readonly ConcurrentQueue<string> _pendingImageAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
@@ -154,8 +156,16 @@ public sealed class PvPipeline : IDisposable
     /// <summary>
     /// 换信号图（任意线程）。UI 线程在信号面板里确认后把整份文档发布过来，渲染线程下一帧编译并采用；
     /// 引用交换原子，无锁。传 null = 关掉信号（效果参数回常量/曲线）。
+    ///
+    /// 发布前先给每条绑定要写的参数**铺键**（见 <see cref="SeedBoundParamKeys"/>）：这条是"发布"的一部分，
+    /// 不能留给调用方——工程恢复（OnStageReady）与效果实例级联删除两条路径不发这一步的话，
+    /// 第一条被帧内写入的新键就会在渲染线程上扩容字典。
     /// </summary>
-    public void SetSignalGraph(SignalGraph? graph) => _signalGraph = graph;
+    public void SetSignalGraph(SignalGraph? graph)
+    {
+        SeedBoundParamKeys(graph);
+        _signalGraph = graph;
+    }
 
     public void Prepare(double time)
     {
@@ -186,6 +196,17 @@ public sealed class PvPipeline : IDisposable
     public ID2D1DeviceContext D2DContext => _renderer.D2DContext;
 
     public void RequestAdd(string sender) => _pendingAdds.Enqueue(sender);
+
+    /// <summary>
+    /// 新增一层磁盘图片图层（任意线程）：只投递路径，解码与位图建立留给渲染线程
+    /// （D2D 位图必须与绘制同线程建）。空路径当场丢弃——建出一层永远没有内容的图层不如不建。
+    /// </summary>
+    public void RequestAddImage(string imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath)) return;
+        _pendingImageAdds.Enqueue(imagePath);
+    }
+
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
     public void RequestOrder(IReadOnlyList<string> idsTopFirst) =>
         _pendingOrder = [.. idsTopFirst];
@@ -214,7 +235,13 @@ public sealed class PvPipeline : IDisposable
 
     public static bool WantsSpout(PvLayerConfig layer) =>
         layer.Kind == PvLayerKind.VisualAsset
+        && string.IsNullOrWhiteSpace(layer.ImagePath) // 有图就是图片层：两层源互斥（同名注册会让先建的那个被覆盖且永不释放）
         && !string.IsNullOrWhiteSpace(layer.SpoutSenderName);
+
+    /// <summary>该层是否由磁盘图片驱动（仅视觉素材层；有 ImagePath 即图片层，与 Spout 源互斥）。</summary>
+    public static bool WantsImage(PvLayerConfig layer) =>
+        layer.Kind == PvLayerKind.VisualAsset
+        && !string.IsNullOrWhiteSpace(layer.ImagePath);
 
     public static PvLayerConfig NewSourceLayer(string id, string sender) => new()
     {
@@ -227,27 +254,60 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
+    /// <summary>新建一层图片图层：名字取文件名（不含扩展名）；取景默认铺满（Cover），与 Spout 层同档。</summary>
+    public static PvLayerConfig NewImageLayer(string id, string imagePath) => new()
+    {
+        Id = id,
+        Name = Path.GetFileNameWithoutExtension(imagePath),
+        Kind = PvLayerKind.VisualAsset,
+        ImagePath = imagePath,
+        // 必须显式清掉：PvLayerConfig 的 SpoutSenderName 默认值是 "VTubeStudio"，
+        // 留着它会让这层在界面里显示成 VTubeStudio，还会把真正的 VTubeStudio 源挡在"已在图层里"之外
+        SpoutSenderName = null,
+        Cover = true,
+        Parallax = new PvParallaxConfig { Depth = 0.9 },
+        VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
+    };
+
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
         var tint = PvScene.ParseHex(_scene.AmbientTint);
         _renderer.Stage.Register(new ColorProvider("bg",
             new Color4(tint.R * 0.16f, tint.G * 0.16f, tint.B * 0.22f, 1f)));
 
-        foreach (var layer in _scene.Layers)
-        {
-            if (!WantsSpout(layer)) continue;
-            var provider = new SpoutSourceProvider(layer.Id, gpu, _d2d.Ctx, layer.SpoutSenderName!,
-                layer.Premultiplied);
-            _renderer.Stage.Register(provider);
-            _spoutProviders.Add(provider);
-            if (layer.Id == PvScene.CharacterLayerId) _character = provider;
-        }
+        foreach (var layer in _scene.Layers) RegisterLayerProvider(layer);
 
         if (subtitleSource is not null)
         {
             _subtitle = new SubtitleProvider("subtitle_top", gpu, _d2d.Ctx, subtitleSource);
-            _renderer.Stage.Register(_subtitle);
+            // 清晰字幕挂在全局后期**之后**的叠加槽上，不注册进 Stage：进了图层栈就会被视差与场景模糊带走，
+            // 同一帧还会被泵两次（按层一次 + Overlay 一次）。净效果就是"按层泵图跳过字幕"——
+            // 场景里那层 subtitle_top 在本帧按"没有提供者"缺席（PvStage.RenderFrame 的取提供者那一步）。
+            // 所有权随之转移给本类：注册在 Stage 上的提供者都归 Stage 释放，字幕是唯一不在其中的那个。
+            // 契约 PV-DIRECTOR-SYSTEM.md:399「字幕不经过视差/场景模糊」。
+            _renderer.Overlay = _subtitle;
         }
+    }
+
+    /// <summary>
+    /// 建某层的提供者并注册进舞台（只在渲染线程调）。场景装载与运行期新增共用这一条路径：
+    /// "两条源互斥、以图片为先"只写一次，不会分叉成装载一套、新增另一套。
+    /// </summary>
+    private void RegisterLayerProvider(PvLayerConfig layer)
+    {
+        if (WantsImage(layer))
+        {
+            _renderer.Stage.Register(new FileImageProvider(layer.Id, _d2d.Ctx, layer.ImagePath!));
+            return;
+        }
+
+        if (!WantsSpout(layer)) return;
+
+        var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
+            layer.Premultiplied);
+        _renderer.Stage.Register(provider);
+        _spoutProviders.Add(provider);
+        if (layer.Id == PvScene.CharacterLayerId) _character = provider;
     }
 
     private void ApplyLayerOps()
@@ -259,13 +319,19 @@ public sealed class PvPipeline : IDisposable
             var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
             var layer = NewSourceLayer(id, sender);
             _scene.Layers.Add(layer);
-
-            var provider = new SpoutSourceProvider(id, _renderer.Device, _d2d.Ctx, sender,
-                layer.Premultiplied);
-            _renderer.Stage.Register(provider);
-            _spoutProviders.Add(provider);
+            RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建图层 '{id}' <- '{sender}'");
+        }
+
+        while (_pendingImageAdds.TryDequeue(out var imagePath))
+        {
+            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
+            var layer = NewImageLayer(id, imagePath);
+            _scene.Layers.Add(layer);
+            RegisterLayerProvider(layer);
+            changed = true;
+            Log.Info($"[PV 管线] 新建图片图层 '{id}' <- '{imagePath}'");
         }
 
         while (_pendingRemoves.TryDequeue(out var id))
@@ -449,6 +515,34 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
+    /// <summary>
+    /// 发布前铺键：把每条绑定要写的效果参数键先建成"已存在"。
+    ///
+    /// 为什么必须在发布前：渲染线程每帧写的是 <c>EffectNode.Set</c> → <c>Values[key] = v</c>，
+    /// 键不存在时这一次写入会扩容字典；而 UI 线程的存盘（EffectGraphJson 遍历 Values）可能与它同时发生——
+    /// 扩容换掉桶结构，正在跑的枚举随之失效。铺键之后帧内写入全是覆盖已有键，不再有结构变化。
+    ///
+    /// 只在"投递新文档"这条线程上做，且必须与枚举字典的那条线程错开：现在的调用点全在 UI 线程
+    /// （面板确认 / 工程恢复 / 实例级联删除），存盘也在 UI 线程——同一条线程上先后发生，不重叠。
+    /// 将来若有别的线程调 <see cref="SetSignalGraph"/>，铺键与帧内写入就落到两条线程上，那时得另找同步点。
+    /// </summary>
+    private void SeedBoundParamKeys(SignalGraph? graph)
+    {
+        if (graph?.Bindings is null) return;
+
+        foreach (var binding in graph.Bindings)
+        {
+            if (binding is null) continue;
+
+            // 解析不了的绑定留给编译器报 target-*/address-*：这里再做一套判定，两处结论迟早分叉
+            if (!ParamAddress.TryParse(binding.Address, out var addr)) continue;
+            if (!SignalTargets.TryResolve(addr, _effects, out var target, out _)) continue;
+
+            // 值取实例现状：已存在的键一字不动（铺键只保证"键在"，绝不改用户设好的参数值）
+            target.Node.Values.TryAdd(target.Param.Key, target.Node.Value(target.Param));
+        }
+    }
+
     /// <summary>编译并采用一份新发布的信号图；编译结论在这里各报一次（静态错误不会自己消失，每帧刷日志没有意义）。</summary>
     private void AdoptSignalGraph(SignalGraph graph)
     {
@@ -485,11 +579,14 @@ public sealed class PvPipeline : IDisposable
         // 先让帧回调看见"没准备好"：守卫只查 Ready，不查 _disposed
         Ready = false;
 
-        // 所有提供者都注册在 Stage 上，释放权归 Stage（经 _renderer.Dispose()）。
-        // 这里只摘掉本类的索引，绝不第二次 Dispose 同一个对象。
+        // 图层提供者都注册在 Stage 上，释放权归 Stage（经 _renderer.Dispose()）；这里只摘掉本类的索引，
+        // 绝不第二次 Dispose 同一个对象。字幕是唯一例外：它挂在渲染器的 Overlay 槽上、不进 Stage，
+        // 所以由本类释放——先把槽摘空再释放，免得 Composite 摸到已释放的位图。
         _spoutProviders.Clear();
-        _subtitle = null;
         _character = null;
+        _renderer.Overlay = null;
+        _subtitle?.Dispose();
+        _subtitle = null;
 
         // 广播发送端（渲染线程）：先摘掉渲染器的引用再释放，避免 Composite 摸到已释放的位图
         _renderer.SetBroadcast(null);

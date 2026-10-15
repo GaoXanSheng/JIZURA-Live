@@ -24,11 +24,21 @@ namespace JizuraLive.App.PvStage;
 /// </summary>
 public partial class PvStageWindow : Window
 {
-    private readonly DirectorProject _project;
-    private readonly PvScene _scene;
-    private readonly EffectGraph _effects;
-    private readonly AudioClockDriver _audio = new();
+    // 工程文档三件套 + 传输时钟：**不是** readonly——工程新建/打开要整份换掉它们。
+    // 场景与效果图是按引用吃进管线与渲染器的（设计画布还在管线构造期定死），所以换工程是
+    // "换字段 + 让渲染线程重建管线"，而不是就地改旧对象的列表（就地改会与渲染线程每帧的枚举撞上）。
+    private DirectorProject _project;
+    private PvScene _scene;
+    private EffectGraph _effects;
+
+    // 传输时钟：UI 线程换（换工程时整份换掉），渲染线程每帧读 _audio.Time/Prepare 用——所以是 volatile。
+    // 换掉旧实例的那一帧，渲染线程最多多读到一次旧位置；已释放的驱动 Time/Duration 返回零值，不会炸。
+    private volatile AudioClockDriver _audio = new();
     private volatile PvPipeline? _pipe;
+
+    // 工程切换请求：UI 线程换完文档对象后置位，渲染线程在下一帧 Prepare 里重建管线。
+    // volatile：它同时是那批文档字段的发布栅栏（写入先于置位，渲染线程读到 true 就一定读得到新对象）。
+    private volatile bool _rebuildPipe;
 
     // 音频与歌词的绑定：回写进 _project 后随工程一起落盘，下次打开自动恢复
     private string? _audioPath;
@@ -37,6 +47,10 @@ public partial class PvStageWindow : Window
     // 歌词轨（UI 侧）：与交给管线的同一份 KrcLine 列表，定位只走 LrcParser.FindLineIndex 的二分——
     // 这里再自己算一遍"当前第几句"，迟早与管线的清屏判定给出不同结果。
     private IReadOnlyList<KrcLine>? _lyrics;
+
+    // 末句是不是"待校准的临时区间"（导入那一刻既没有下一个时间戳、也没有音频时长）。
+    // 与 _lyrics 同一次导入产生、同一次导入更新：分开存是因为 KrcLine 里只有时长，装不下这个判定。
+    private bool _tailUncalibrated;
     private Border[] _lyricRows = Array.Empty<Border>();
     private int _lyricCursor = -1; // 当前高亮行的下标；-1 = 此刻没有歌词（空档/句尾/越界）
 
@@ -55,7 +69,8 @@ public partial class PvStageWindow : Window
 
     // 关键帧曲线：编辑只发生在这一份（UI 线程）上，渲染线程拿到的是 PublishDirector 发布的不可变快照。
     // 地址解析一次存字段：它是值相等类型，每帧/每次编辑现拼字符串没有意义。
-    private readonly DirectorEvaluator _evaluator = new();
+    // 换工程时整份重来（旧工程的曲线留在里面，会按同 Id 的新实例地址继续生效）。
+    private DirectorEvaluator _evaluator = new();
     private readonly ParamAddress _camScaleAddr = new(ParamAddressKind.Camera, "", "scale");
 
     // 缩放的值域（与 XAML 里滑杆的 Minimum / Maximum 是同一对数）：曲线条的纵向映射也用它，两处必须同域
@@ -255,73 +270,7 @@ public partial class PvStageWindow : Window
     {
         try
         {
-            _pipe?.Dispose();
-            _pipe = null;
-
-            _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
-            // 建完管线就把工程里已有的曲线与信号图带上，否则要等第一次编辑才生效。
-            // 绕一下 UI 线程：本回调跑在渲染线程上，而曲线字典与工程文档归 UI 线程所有——
-            // 在这里直接读会与用户编辑撞上（枚举中改 = 抛异常）。
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                PublishDirector();
-                PublishSignalGraph();
-            }));
-
-            // 万一 VTS 会话在管线之前就开着（不太可能，但保持自洽）：把它的探针接上
-            if (_vts is not null) _pipe.SetTracking(_vts.Tracking);
-
-            UpdateBroadcastButton();
-            // 沿用设置：上次开着广播的这次开窗自动接上（发送端由管线在渲染线程建）
-            if (_broadcastOn) _pipe.RequestBroadcast(true, _spoutName);
-
-            _pipe.LayersChanged += () => Dispatcher.BeginInvoke(() =>
-            {
-                BuildLayerList();
-                _saveError = SaveProjectNow();
-            });
-
-            // 恢复工程里绑定的歌词与音频。放在这里而不是 OnLoaded：OnLoaded 会 _audio.Play()，
-            // 而恢复要停在暂停态，等用户自己点播放。
-            if (!string.IsNullOrWhiteSpace(_lrcText))
-            {
-                try
-                {
-                    var lines = LrcParser.Parse(_lrcText);
-                    _pipe.SetLyrics(lines);
-                    // 解析是纯函数，在哪条线程跑都一样；但歌词轨控件归 UI 线程，赋值与建行必须绕回去
-                    // （本回调也在渲染线程上，与上面 PublishDirector 同理）。
-                    Dispatcher.BeginInvoke(() =>
-                    {
-                        _lyrics = lines;
-                        BuildLyricList();
-                    });
-                    Log.Info($"[PV 工作台] 已恢复工程歌词：{lines.Count} 行");
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("[PV 工作台] 工程歌词解析失败：" + ex.Message);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(_audioPath))
-            {
-                if (!File.Exists(_audioPath))
-                {
-                    Log.Warn($"[PV 工作台] 工程音频文件不存在：{_audioPath}");
-                    Dispatcher.BeginInvoke(() => TblStatus.Text = $"找不到工程音频：{_audioPath}");
-                }
-                else if (!_audio.LoadAudio(_audioPath))
-                {
-                    Dispatcher.BeginInvoke(() => TblStatus.Text = "工程音频加载失败：" + _audioPath);
-                }
-            }
-
-            var msg = $"[PV 舞台] 渲染就绪：{host.Gpu!.AdapterName}";
-            Log.Info(msg);
-            Console.WriteLine(msg);
-
-            Dispatcher.BeginInvoke(() => TblStageHint.Visibility = Visibility.Collapsed);
+            BuildPipeline(host);
         }
         catch (Exception ex)
         {
@@ -335,8 +284,109 @@ public partial class PvStageWindow : Window
         }
     }
 
+    /// <summary>
+    /// 建管线并把工程恢复上去。**只在渲染线程调用**（Ready 回调、以及换工程时的 Prepare 回调）：
+    /// 管线的 D2D/DWrite/native 资源只许在渲染线程建，旧管线的释放也必须在同一条线程上。
+    /// </summary>
+    private void BuildPipeline(PresentHost host)
+    {
+        _pipe?.Dispose();
+        _pipe = null;
+
+        _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
+        // 建完管线就把工程里已有的曲线与信号图带上，否则要等第一次编辑才生效。
+        // 绕一下 UI 线程：本回调跑在渲染线程上，而曲线字典与工程文档归 UI 线程所有——
+        // 在这里直接读会与用户编辑撞上（枚举中改 = 抛异常）。
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            PublishDirector();
+            PublishSignalGraph();
+        }));
+
+        // 万一 VTS 会话在管线之前就开着（不太可能，但保持自洽）：把它的探针接上
+        if (_vts is not null) _pipe.SetTracking(_vts.Tracking);
+
+        UpdateBroadcastButton();
+        // 沿用设置：上次开着广播的这次开窗自动接上（发送端由管线在渲染线程建）
+        if (_broadcastOn) _pipe.RequestBroadcast(true, _spoutName);
+
+        _pipe.LayersChanged += () => Dispatcher.BeginInvoke(() =>
+        {
+            BuildLayerList();
+            _saveError = SaveProjectNow();
+        });
+
+        // 恢复工程里绑定的音频与歌词。放在这里而不是 OnLoaded：OnLoaded 会 _audio.Play()，
+        // 而恢复要停在暂停态，等用户自己点播放。
+        //
+        // 顺序是硬的：**音频先、歌词后**。末句区间要用音频总长才能收在音频尾，
+        // 反过来的话歌词只能拿一个 +3 秒的临时值（并标成待校准）。
+        if (!string.IsNullOrWhiteSpace(_audioPath))
+        {
+            if (!File.Exists(_audioPath))
+            {
+                Log.Warn($"[PV 工作台] 工程音频文件不存在：{_audioPath}");
+                Dispatcher.BeginInvoke(() => TblStatus.Text = $"找不到工程音频：{_audioPath}");
+            }
+            else if (!_audio.LoadAudio(_audioPath))
+            {
+                Dispatcher.BeginInvoke(() => TblStatus.Text = "工程音频加载失败：" + _audioPath);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_lrcText))
+        {
+            try
+            {
+                // 解析是纯函数，在哪条线程跑都一样；但歌词轨控件归 UI 线程，赋值与建行必须绕回去
+                // （本回调也在渲染线程上，与上面 PublishDirector 同理）。
+                var (lines, tailUncalibrated) = ParseLyrics(_lrcText);
+                _pipe.SetLyrics(lines);
+                Dispatcher.BeginInvoke(() =>
+                {
+                    _lyrics = lines;
+                    _tailUncalibrated = tailUncalibrated;
+                    BuildLyricList();
+                });
+                Log.Info($"[PV 工作台] 已恢复工程歌词：{lines.Count} 行，末句待校准={tailUncalibrated}");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[PV 工作台] 工程歌词解析失败：" + ex.Message);
+            }
+        }
+
+        var msg = $"[PV 舞台] 渲染就绪：{host.Gpu!.AdapterName}";
+        Log.Info(msg);
+        Console.WriteLine(msg);
+
+        Dispatcher.BeginInvoke(() => TblStageHint.Visibility = Visibility.Collapsed);
+    }
+
+    /// <summary>
+    /// 渲染线程上换管线（工程新建/打开）。UI 线程只换文档对象 + 置位请求，
+    /// 资源的建与拆都留在本线程——与 Stage.Ready/Shutdown 同一条规则。
+    /// </summary>
+    private void RebuildPipeline(PresentHost host)
+    {
+        _rebuildPipe = false;
+        try
+        {
+            BuildPipeline(host);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("[PV 舞台] 换工程时重建管线失败：" + ex.Message, ex);
+            Dispatcher.BeginInvoke(() => TblStatus.Text = "换工程失败：" + ex.Message);
+        }
+    }
+
     private void OnStagePrepare(PresentHost host)
     {
+        // 换工程：文档对象已经换好，整条管线（提供者表、设计画布、场景与效果图的引用）都是构造期绑定的，
+        // 只能在本线程重建一次——UI 线程那一侧只置了一个旗标。
+        if (_rebuildPipe) RebuildPipeline(host);
+
         var pipe = _pipe;
         if (pipe is null || !pipe.Ready || host.Target is null) return;
         pipe.Prepare(_audio.Time);
@@ -842,10 +892,31 @@ public partial class PvStageWindow : Window
     {
         if (CmbPreset.SelectedIndex < 0) return;
         var preset = EffectPresets.All[CmbPreset.SelectedIndex];
+
+        // 换实例之前先记下旧实例 Id：换完之后它们一个都不在了，挂在它们身上的曲线与信号绑定必须跟着走。
+        // 删单个效果那条路径（效果架的 ✕）已经这么做了，预设切换是同一件事的批量版——
+        // 漏掉曲线，它们会被下一个同 Id 的新实例继承（还会跟着存盘）；漏掉绑定，
+        // 整张信号图会因目标失效而编译不过，所有信号一起停（EffectGraph.Add 每次发新号，旧 Id 必成孤儿）。
+        var stale = _effects.Nodes
+            .Select(n => n.InstanceId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .ToList();
+
         var g = preset.Build();
         _effects.Nodes.Clear();
         foreach (var n in g.Nodes) _effects.Nodes.Add(n);
+
+        foreach (var id in stale)
+        {
+            _evaluator.RemoveCurvesForTarget(id);
+            // 有牵连才重发布（无改动时同一引用重发是空操作）；发布前铺键在管线侧，这里不必重复
+            CascadeSignalTarget(id);
+        }
+
+        PublishDirector();
+        _saveError = SaveProjectNow();
         BuildEffectRack();
+        TblStatus.Text = SignalStatusText(); // 结论当场可见，不等下一次 500ms 状态刷新
     }
 
     // ---------------- 歌词轨 ----------------
@@ -878,13 +949,36 @@ public partial class PvStageWindow : Window
                     Cursor = Cursors.Hand,
                     ToolTip = "定位到 " + Fmt(startSeconds),
                 };
-                row.Child = new TextBlock
+                var text = new TextBlock
                 {
                     Text = lyrics[i].Text,
                     FontSize = (double)FindResource("PvTextSm"),
                     Foreground = (System.Windows.Media.Brush)FindResource("PvFgDim"),
                     TextWrapping = TextWrapping.Wrap,
                 };
+
+                // 末句区间是"待校准的临时值"（导入时既没有下一个时间戳、也没有音频时长）：标在行上而不是只写日志——
+                // 用户看到的是"最后一句恰好收在 3 秒后"，不标出来只会以为歌词文件本来就是那样。
+                // OutOfRange 只可能落在末句（LrcParser 只在最后一组没有下一个时间戳时才走 TailEnd）。
+                if (_tailUncalibrated && i == lyrics.Count - 1)
+                {
+                    row.ToolTip = $"定位到 {Fmt(startSeconds)} · 末句区间是临时值（导入时没有音频时长）";
+                    var block = new StackPanel();
+                    block.Children.Add(text);
+                    block.Children.Add(new TextBlock
+                    {
+                        Text = "末句待校准",
+                        FontSize = (double)FindResource("PvTextXs"),
+                        Foreground = (System.Windows.Media.Brush)FindResource("PvWarn"),
+                        Margin = new Thickness(0, 2, 0, 0),
+                    });
+                    row.Child = block;
+                }
+                else
+                {
+                    row.Child = text;
+                }
+
                 // 点行 = 定位到该句起点。只改播放位置、不碰工程数据，所以不必回写 _project
                 row.MouseLeftButtonDown += (_, _) => _audio.Seek(startSeconds);
                 LyricsHost.Children.Add(row);
@@ -924,9 +1018,18 @@ public partial class PvStageWindow : Window
         row.Background = active
             ? (System.Windows.Media.Brush)FindResource("PvAccentSoft")
             : System.Windows.Media.Brushes.Transparent;
-        if (row.Child is TextBlock text)
+        if (LyricRowText(row) is { } text)
             text.Foreground = (System.Windows.Media.Brush)FindResource(active ? "PvFg" : "PvFgDim");
     }
+
+    /// <summary>行里的歌词正文。末句行外面套了一层 StackPanel（它还挂着"末句待校准"那一行），
+    /// 高亮改的是正文的笔刷，所以取的是行内第一个 TextBlock 而不是行本身。</summary>
+    private static TextBlock? LyricRowText(Border row) => row.Child switch
+    {
+        TextBlock single => single,
+        Panel panel => panel.Children.OfType<TextBlock>().FirstOrDefault(),
+        _ => null,
+    };
 
     // ---------------- 信号面板（M6） ----------------
 
@@ -996,6 +1099,34 @@ public partial class PvStageWindow : Window
 
         _project.SignalGraph = draft;
         PublishSignalGraph();
+    }
+
+    /// <summary>
+    /// 状态条上的信号编译结论。编辑入口（预设切换、删效果）改完图必须当场给回执——
+    /// 只写日志等于没说：log 不在用户眼前，而"信号是不是全停了"正是他此刻最需要知道的。
+    ///
+    /// 编的是**工程里已发布**的那张图（渲染线程真正在跑的那一份），与面板里草稿的结论分开算：
+    /// 草稿可能只是"改到一半"，而工程那份是当前生效的真相。
+    /// </summary>
+    private string SignalStatusText()
+    {
+        var graph = _project.SignalGraph;
+        if (graph is null || graph.Nodes.Count == 0) return "信号 无";
+
+        var result = SignalCompiler.Compile(graph, _effects);
+        var errors = result.Issues.Where(i => i.Severity == SignalIssueSeverity.Error).ToList();
+
+        if (result.Plan is null)
+        {
+            // 码是稳定契约，文案可以改：状态条只放第一条码，全量清单在信号面板里
+            if (errors.Count == 0) return "信号 未通过";
+            return errors.Count == 1
+                ? $"信号 未通过：{errors[0].Code}"
+                : $"信号 未通过：{errors[0].Code} 等 {errors.Count} 条";
+        }
+
+        var warnings = result.Issues.Count(i => i.Severity == SignalIssueSeverity.Warning);
+        return warnings == 0 ? "信号 正常" : $"信号 正常（注意 {warnings} 条）";
     }
 
     private void BtnSignalTime_Click(object sender, RoutedEventArgs e) => AddSignalNode(SignalNodeKind.Time);
@@ -1458,9 +1589,176 @@ public partial class PvStageWindow : Window
         return parts.Length == 2 ? (parts[0], parts[1]) : ("", "");
     }
 
+    // ---------------- 工程：新建 / 打开 ----------------
+
+    /// <summary>
+    /// 新建工程：把当前工作台重置为默认工程。
+    ///
+    /// 没有"选个路径存默认工程"这一步是有理由的：工作台只会打开固定的会话工程文件
+    /// （<see cref="ProjectPath"/> = AppDirs.ConfigDir/pv_project.jzpv），把默认工程写到别的路径，
+    /// 等于造一个下次启动永远不会被打开的文件。所以这里是"重置内存工程 + 覆盖会话工程文件"。
+    /// </summary>
+    private void BtnNewProject_Click(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this,
+                "新建工程会把当前工作台重置为默认工程（场景 / 效果 / 曲线 / 信号图全部回到默认）。\n\n"
+                + $"当前工程会先备份为 {Path.GetFileName(ProjectPath)}.bak，然后被默认工程覆盖。继续？",
+                "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+
+        AdoptProject(new DirectorProject(), "已新建工程");
+    }
+
+    /// <summary>
+    /// 打开工程：选一个 .jzpv，整份装进当前工作台。
+    ///
+    /// 源文件只读不写：装进来之后本会话的存盘落到会话工程文件（<see cref="ProjectPath"/>），
+    /// 与"打开歌词/音频"同一条约定（工程里的 AudioPath 同样只存路径原文，不搬文件）。
+    /// </summary>
+    private void BtnOpenProject_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "打开工程",
+            Filter = "PV 工程 (*.jzpv)|*.jzpv|所有文件 (*.*)|*.*",
+            InitialDirectory = AppDirs.ConfigDir,
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        var loaded = ProjectStore.Load(dlg.FileName);
+        if (loaded.Project is null)
+        {
+            // 打不开要说清原因（版本过新 / JSON 损坏 / 读不出来）：静默什么都不发生，用户只会以为按钮坏了
+            var fault = loaded.Fault ?? "未知原因";
+            MessageBox.Show(this, "打开工程失败：\n" + fault, "PV 工作台",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            Log.Warn("[PV 工作台] 打开工程失败：" + fault);
+            return;
+        }
+
+        if (MessageBox.Show(this,
+                $"打开工程：{loaded.Project.Name}\n{dlg.FileName}\n\n"
+                + $"当前工作台会被它整份替换（当前工程先备份为 {Path.GetFileName(ProjectPath)}.bak）。继续？",
+                "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+        AdoptProject(loaded.Project, $"已打开工程：{loaded.Project.Name}");
+    }
+
+    /// <summary>
+    /// 把一份工程装进工作台（新建 / 打开共用）。UI 线程专用。
+    ///
+    /// 为什么不是"就地改旧对象的列表"：场景与效果图按引用吃进管线与渲染器，渲染线程每帧都在枚举它们，
+    /// UI 线程就地 Clear/Add 就是与那个枚举撞上（与信号图"克隆 → 换引用"是同一条理由）。
+    /// 所以换的是**整份文档对象**，再请渲染线程重建管线——设计画布尺寸也在管线构造期定死，就地改不到。
+    /// </summary>
+    private void AdoptProject(DirectorProject project, string note)
+    {
+        if (!BackupProjectFile()) return;
+
+        _project = project;
+        _scene = project.Scene;
+        _effects = project.Effects;
+        _audioPath = project.AudioPath;
+        _lrcText = project.LrcText;
+
+        // 曲线求值器整份重来：旧工程的曲线留在里面，会按同 Id 的新实例地址继续生效（还会跟着存盘）
+        _evaluator = new DirectorEvaluator();
+        foreach (var save in project.Curves)
+        {
+            if (save?.Curve is null) continue;
+            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
+            _evaluator.SetCurve(addr, save.Curve);
+        }
+
+        // 传输时钟换一个干净的：新工程没绑音频时，上一个工程的音频不该接着播。
+        // （AudioClockDriver 没有"卸载"接口；它释放后 Time/Duration 返回零值，渲染线程最多多读到一帧旧位置。）
+        _audio.Dispose();
+        _audio = new AudioClockDriver();
+
+        // UI 侧先清干净：留着旧工程的歌词行/图层卡/信号草稿，等于两套工程同时显示在屏幕上
+        _lyrics = null;
+        _tailUncalibrated = false;
+        _lyricCursor = -1;
+        _uiLayerIds = Array.Empty<string>();
+        _signalDraft = null;
+        _colorNode = null;
+        _colorParam = null;
+        _colorSwatch = null;
+        _saveError = null;
+        SignalPop.IsOpen = false; // 面板草稿挂在旧工程的文档上，留着它等于留一个会写错对象的弹窗
+
+        BuildEffectRack();
+        BuildLayerList();
+        BuildLyricList();
+        RedrawCurveStrip();
+
+        // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
+        if (_pipe is not null) _rebuildPipe = true;
+
+        _saveError = SaveProjectNow(); // 会话工程文件立刻与内存一致，避免"界面上是这个、磁盘上是那个"
+        TblStatus.Text = _saveError is null ? note : $"{note}（工程文件写入失败：{_saveError}）";
+        Log.Info($"[PV 工作台] {note}（存盘落到 {ProjectPath}）");
+    }
+
+    /// <summary>
+    /// 覆盖会话工程文件之前留一份 .bak。备份失败要问过用户再继续：
+    /// 紧接着就是不可逆的覆盖，静默跳过备份等于把"还能找回来"这件事悄悄拿走。
+    /// </summary>
+    private bool BackupProjectFile()
+    {
+        if (!File.Exists(ProjectPath)) return true;
+
+        try
+        {
+            File.Copy(ProjectPath, ProjectPath + ".bak", overwrite: true);
+            Log.Info($"[PV 工作台] 已备份当前工程：{ProjectPath}.bak");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[PV 工作台] 备份当前工程失败：" + ex.Message);
+            return MessageBox.Show(this,
+                $"备份当前工程失败：{ex.Message}\n\n没有备份就继续的话，当前工程文件会被直接覆盖且找不回来。继续？",
+                "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+        }
+    }
+
     // ---------------- 传输条 ----------------
 
-    private void BtnOpenProject_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 歌词导入：把音频时长一并交给解析器。
+    ///
+    /// 为什么必须带时长：末句没有"下一个时间戳"可收边，解析器只能用 <c>start + 3s</c> 这个临时值
+    /// （并标 OutOfRange）；只有知道音频总长，末句才能收在音频尾。时长未知（未载入音频）时传 null，
+    /// 行为与旧路径逐字段相同，只是末句会被标成待校准。
+    ///
+    /// 返回的 KrcLine 与 <see cref="LrcParser.Parse"/> 的产物同构（Start + End-Start），
+    /// 所以管线与歌词轨的既有消费路径一字不用改。
+    /// </summary>
+    private (List<KrcLine> Lines, bool TailUncalibrated) ParseLyrics(string text)
+    {
+        var duration = _audio.Duration;
+        var result = LrcParser.ParseClips(text, duration > 0 ? duration : null);
+
+        var lines = new List<KrcLine>(result.Clips.Count);
+        foreach (var clip in result.Clips)
+            lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text));
+
+        // OutOfRange 只可能落在末句：LrcParser 只在最后一组没有下一个时间戳时才走 TailEnd
+        return (lines, result.Clips.Count > 0 && result.Clips[^1].OutOfRange);
+    }
+
+    /// <summary>装载一次歌词：解析 → 屏幕上的歌词轨 → 管线，三处吃同一份，不在别处再解析一遍。</summary>
+    private void LoadLyrics(string text)
+    {
+        var (lines, tailUncalibrated) = ParseLyrics(text);
+        _lrcText = text;                    // 绑定进工程：下次打开自动恢复
+        _lyrics = lines;
+        _tailUncalibrated = tailUncalibrated;
+        _pipe?.SetLyrics(lines);
+        BuildLyricList();
+    }
+
+    private void BtnOpenLyrics_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
@@ -1470,14 +1768,10 @@ public partial class PvStageWindow : Window
         if (dlg.ShowDialog(this) != true) return;
         try
         {
-            var text = File.ReadAllText(dlg.FileName);
-            var lines = LrcParser.Parse(text);
-            _lrcText = text; // 绑定进工程：下次打开自动恢复
-            _lyrics = lines; // 解析一次两处用：管线与歌词轨吃同一份，不各解析一遍
-            _pipe?.SetLyrics(lines);
-            BuildLyricList();
-            TblStatus.Text = $"已装载歌词：{lines.Count} 行";
-            Log.Info($"[工作台] 已装载歌词：{lines.Count} 行 ({dlg.FileName})");
+            LoadLyrics(File.ReadAllText(dlg.FileName));
+            TblStatus.Text = $"已装载歌词：{_lyrics?.Count ?? 0} 行"
+                             + (_tailUncalibrated ? "（末句待校准：未载入音频）" : "");
+            Log.Info($"[工作台] 已装载歌词：{_lyrics?.Count ?? 0} 行 ({dlg.FileName})，末句待校准={_tailUncalibrated}");
         }
         catch (Exception ex)
         {
@@ -1505,15 +1799,18 @@ public partial class PvStageWindow : Window
             {
                 try
                 {
-                    var text = File.ReadAllText(lrcPath);
-                    var lines = LrcParser.Parse(text);
-                    _lrcText = text;
-                    _lyrics = lines;
-                    _pipe?.SetLyrics(lines);
-                    BuildLyricList();
-                    Log.Info($"[工作台] 自动加载同名歌词：{lines.Count} 行");
+                    // 音频先就位再解析歌词：末句要用 Duration 收在音频尾，顺序反了只能拍一个 +3s 的临时区间
+                    LoadLyrics(File.ReadAllText(lrcPath));
+                    Log.Info($"[工作台] 自动加载同名歌词：{_lyrics?.Count ?? 0} 行，末句待校准={_tailUncalibrated}");
                 }
                 catch { }
+            }
+            else if (_tailUncalibrated && !string.IsNullOrWhiteSpace(_lrcText))
+            {
+                // 工程里已有的歌词也重解析一次：时长刚刚才有，末句那个临时区间现在能收准了。
+                // 只补待校准的末句——已对齐的歌词不该因为换了个音源就被重排。
+                LoadLyrics(_lrcText);
+                TblStatus.Text = $"音频已加载 · 末句已对齐音频（{_lyrics?.Count ?? 0} 行歌词）";
             }
         }
     }
@@ -1831,28 +2128,66 @@ public partial class PvStageWindow : Window
         }
 
         var known = senders.Where(n => !_scene.Layers.Any(l => l.SpoutSenderName == n)).ToList();
-        if (known.Count == 0)
-        {
-            TblStatus.Text = senders.Count == 0
-                ? "没有发现活动的 Spout 发送端"
-                : "所有发送端都已在图层里";
-            return;
-        }
 
+        // 图片入口与 Spout 段并列，且**不受**"没有发送端"影响：图片层不需要发送端。
+        // 原来整张菜单在没有 Spout 源时直接不弹，图片层就永远加不进来。
         var menu = new ContextMenu { PlacementTarget = BtnAddLayer };
-        foreach (var name in known)
+
+        var imageItem = new MenuItem { Header = "图片文件…", ToolTip = "png / jpg / webp / bmp" };
+        imageItem.Click += (_, _) => AddImageLayer();
+        menu.Items.Add(imageItem);
+
+        if (known.Count > 0)
         {
-            var item = new MenuItem { Header = name };
-            var n = name;
-            item.Click += (_, _) =>
+            menu.Items.Add(new Separator());
+            foreach (var name in known)
             {
-                _pipe?.RequestAdd(n);
-                TblStatus.Text = $"添加源 {n}…";
-            };
-            menu.Items.Add(item);
+                var item = new MenuItem { Header = name };
+                var n = name;
+                item.Click += (_, _) =>
+                {
+                    _pipe?.RequestAdd(n);
+                    TblStatus.Text = $"添加源 {n}…";
+                };
+                menu.Items.Add(item);
+            }
+        }
+        else
+        {
+            menu.Items.Add(new MenuItem
+            {
+                Header = senders.Count == 0 ? "（没有活动的 Spout 发送端）" : "（发送端都已在图层里）",
+                IsEnabled = false,
+            });
         }
 
         menu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// 加一层磁盘图片：只投递路径，解码与位图建立由管线在渲染线程上做（D2D 位图必须与绘制同线程建）。
+    /// 图层配置由管线按同一条注册路径生成（Id 接着 src_&lt;n&gt; 编号、默认为视觉素材层），
+    /// 这里再造一份配置就是第二个真相；加完由 LayersChanged 回调重列图层并落盘。
+    /// </summary>
+    private void AddImageLayer()
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "添加图片图层",
+            Filter = "图片 (*.png;*.jpg;*.jpeg;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.bmp|所有文件 (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        var pipe = _pipe;
+        if (pipe is null)
+        {
+            TblStatus.Text = "舞台未就绪：图片图层未加入";
+            return;
+        }
+
+        pipe.RequestAddImage(dlg.FileName);
+        TblStatus.Text = $"添加图片图层 {Path.GetFileName(dlg.FileName)}…";
+        Log.Info($"[工作台] 添加图片图层：{dlg.FileName}");
     }
 
     private void BtnPlay_Click(object sender, RoutedEventArgs e)
@@ -1933,7 +2268,9 @@ public partial class PvStageWindow : Window
 
             var (live, total) = pipe.SpoutState;
             var srcTxt = total == 0 ? "无外部源" : $"{live}/{total} 路源已连";
-            TblStatus.Text = $"效果 {pipe.Renderer.EffectCount} 段 · 图层 {_scene.Layers.Count} · {srcTxt}";
+            // 信号结论并进这条常驻状态行：编辑时写一次会被下一次 500ms 刷新抹掉，只有并进来才是"一直看得见"
+            TblStatus.Text = $"效果 {pipe.Renderer.EffectCount} 段 · 图层 {_scene.Layers.Count} · {srcTxt}"
+                             + $" · {SignalStatusText()}";
 
             var b = pipe.BroadcastInfo;
             if (b.Enabled)

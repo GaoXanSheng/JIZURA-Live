@@ -117,6 +117,9 @@ public sealed record BenchEnv(
 /// 显存约定：<see cref="VramUsageBytes"/> / <see cref="VramBudgetBytes"/> 为 -1 表示**不可得**
 /// （WARP、无适配器、接口不可得）。**不记 0**：0 会被读成「用了 0 字节」这种真实测量，
 /// 而 WARP 的 Local 段预算根本没有意义。
+///
+/// 曲线约定：<see cref="WorkingSetCurve"/> / <see cref="VramCurve"/> 只有长跑有 30s 采样时才非 null，
+/// 短跑的这两行不出现（报告形状与加长跑之前一致）。
 /// </summary>
 public sealed record FrameSnapshot(
     BenchEnv Env,
@@ -137,10 +140,12 @@ public sealed record FrameSnapshot(
     long WorkingSetBytes,
     long PrivateBytes,
     long VramUsageBytes,
-    long VramBudgetBytes)
+    long VramBudgetBytes,
+    MemCurveResult? WorkingSetCurve = null,
+    MemCurveResult? VramCurve = null)
 {
     /// <summary>
-    /// 可读报告块：口径声明 → 硬件行 → 固定一行 [WARP] 标记 → 各项读数。
+    /// 可读报告块：口径声明 → 硬件行 → 固定一行 [WARP] 标记 → 各项读数（长跑再加曲线行）。
     /// 口径与 [WARP] 行是**结论的一部分**，不是装饰：任何消费这份数字的人先看到的就是它们。
     /// </summary>
     public string Format()
@@ -150,7 +155,7 @@ public sealed record FrameSnapshot(
             ? "[WARP] 软件光栅（WARP）：本结果不参加硬件性能通过判定，退出码不受其数值影响。"
             : "[WARP] 否（硬件光栅）：数值可作前后对比，但仍不是路线图 §9 的硬件验收结论。";
 
-        return string.Join(Environment.NewLine, new[]
+        var lines = new List<string>
         {
             "==== PerfBench 短跑基准（tools/PerfBench）====",
             "[口径] 出帧间隔 ≠ GPU 耗时：其中含 vsync 等待、DWM 合成与调度抖动。",
@@ -174,6 +179,15 @@ public sealed record FrameSnapshot(
             $"显存   ：Local 段 CurrentUsage={FrameStats.Mb(VramUsageBytes)}（{FrameStats.Bytes(VramUsageBytes)}）｜"
                 + $"Budget={FrameStats.Mb(VramBudgetBytes)}（{FrameStats.Bytes(VramBudgetBytes)}）"
                 + "｜-1 = 不可得（WARP/无适配器/接口不可得），不记 0",
-        });
+        };
+
+        // 曲线行只属于长跑（有 30s 采样才有斜率可算）
+        if (WorkingSetCurve is not null) lines.Add(WorkingSetCurve.Describe());
+        if (VramCurve is not null) lines.Add(VramCurve.Describe());
+        // 再补一行把两条曲线并起来：下游只看最后一条含「斜率」的行，合起来才不至于把工作集那条挤掉
+        if (WorkingSetCurve is not null && VramCurve is not null)
+            lines.Add("[Bench] 曲线斜率结论：" + WorkingSetCurve.Summary() + "；" + VramCurve.Summary());
+
+        return string.Join(Environment.NewLine, lines);
     }
 }

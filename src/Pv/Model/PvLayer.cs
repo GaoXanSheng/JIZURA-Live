@@ -101,6 +101,12 @@ public sealed class PvLayerConfig
     public string? SpoutSenderName { get; set; } = "VTubeStudio";
 
     /// <summary>
+    /// 磁盘图片路径（仅当 Kind == VisualAsset 时有效）。非空即由图片驱动本层，<see cref="SpoutSenderName"/> 随之失效：
+    /// 一层只认一个源，两个源同时挂着只会让"这层到底画的是什么"无从判断（管线也按这条互斥建提供者）。
+    /// </summary>
+    public string? ImagePath { get; set; }
+
+    /// <summary>
     /// 源像素是否已预乘 alpha。默认 true：VTS/Spout 发送端发的是预乘像素，
     /// 且 D2D 的 surface 位图只接受 Premultiplied（声明 Straight 建不出位图 → 该层永不出图）。
     /// </summary>

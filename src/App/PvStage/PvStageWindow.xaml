@@ -88,7 +88,7 @@
                                        Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center"
                                        Margin="0,0,6,0" />
                             <Button x:Name="BtnAddLayer" Style="{StaticResource PvBtnGhost}" Padding="7,1"
-                                    Content="+ 源" ToolTip="添加一路 Spout 源图层"
+                                    Content="+ 源" ToolTip="添加一路 Spout 源图层，或一层磁盘图片（图片入口不需要发送端）"
                                     Click="BtnAddLayer_Click" />
                         </StackPanel>
                     </Grid>
@@ -212,8 +212,17 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 工程级动作放最前：它们换的是整份文档，与后面"打开歌词/音频"不是同一层级的事 -->
+                    <Button x:Name="BtnNewProject" Style="{StaticResource PvBtnGhost}" Padding="9,5"
+                            Margin="0,0,6,0" Content="新建工程"
+                            ToolTip="重置为默认工程（当前工程先备份为 .bak）"
+                            Click="BtnNewProject_Click" />
                     <Button x:Name="BtnOpenProject" Style="{StaticResource PvBtnGhost}" Padding="9,5"
-                            Content="打开歌词" Click="BtnOpenProject_Click" />
+                            Content="打开工程" ToolTip="打开一份 .jzpv（整份替换当前工作台）"
+                            Click="BtnOpenProject_Click" />
+                    <Border Width="1" Height="16" Margin="8,0" Background="{StaticResource PvLine}" />
+                    <Button x:Name="BtnOpenLyrics" Style="{StaticResource PvBtnGhost}" Padding="9,5"
+                            Content="打开歌词" Click="BtnOpenLyrics_Click" />
                     <Button x:Name="BtnOpenAudio" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                             Content="打开音频" Click="BtnOpenAudio_Click" />
                     <Border Width="1" Height="16" Margin="8,0" Background="{StaticResource PvLine}" />

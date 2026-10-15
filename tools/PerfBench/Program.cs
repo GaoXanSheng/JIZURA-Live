@@ -14,19 +14,24 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 namespace PerfBench;
 
 /// <summary>
-/// M7 基准探针（**短跑**）：把「出帧间隔 p50/p95/p99 + GC + 工作集 + 显存采样」的测量管线立起来，
-/// 并给后续改动一个可复核的前后对比基线。宿主形状照 tools/RenderProbe：Application + Window +
-/// PresentHost（子窗口 + D3D11 flip 交换链），帧回调里只画 `Clear` + 一行 `DrawText` 的最小负载。
+/// M7 基准探针（**短跑 + `--minutes` 长跑**）：把「出帧间隔 p50/p95/p99 + GC + 工作集 + 显存采样」的
+/// 测量管线立起来，并给后续改动一个可复核的前后对比基线。长跑在此之上加两样东西：每 30s 一行内存采样，
+/// 以及报告末尾的工作集/显存曲线斜率与结论（口径与算法见 MemCurve.cs）。宿主形状照 tools/RenderProbe：
+/// Application + Window + PresentHost（子窗口 + D3D11 flip 交换链），帧回调里只画 `Clear` + 一行 `DrawText`
+/// 的最小负载。
 ///
 /// 用法（路线图 §10 的命令面）：
 ///   dotnet build tools/PerfBench/PerfBench.csproj -nologo
 ///   dotnet run --project tools/PerfBench/PerfBench.csproj -- --seconds 8 --warmup 2
+///   dotnet run --project tools/PerfBench/PerfBench.csproj -- --minutes 10
 ///   dotnet run --project tools/PerfBench/PerfBench.csproj -- --self-test
 ///   dotnet run --project tools/PerfBench/PerfBench.csproj -- --seconds 5 --warmup 1 --nosync --csv %TEMP%\perfbench.csv
 ///
 /// 参数：
 ///   --seconds N   总跑时秒数（默认 8，短跑）
 ///   --warmup N    预热秒数（默认 2）：窗口内的样本一律丢弃，不计入统计
+///   --minutes N   长跑：预热固定 10s + N 分钟统计窗口，每 30s 打一行 "[sample] …" 内存采样。
+///                 给出即由它定总时长（--seconds/--warmup 让位），免得「总时长」同时有两个说法
 ///   --nosync      关垂直同步（Present(0,0)，测循环上限；与 vsync 开时的数字不可比）
 ///   --csv &lt;path&gt; 逐帧毫秒落盘便于复核（默认不写文件）
 ///   --self-test   只跑纯函数自检后退出（不建设备、不开窗口、不写文件）
@@ -56,6 +61,7 @@ internal static class Program
     {
         var seconds = 8.0;
         var warmup = 2.0;
+        var minutes = 0.0;
         var vsync = true;
         string? csvPath = null;
         var selfTest = false;
@@ -63,9 +69,19 @@ internal static class Program
         {
             if (args[i] == "--seconds" && i + 1 < args.Length) double.TryParse(args[i + 1], out seconds);
             if (args[i] == "--warmup" && i + 1 < args.Length) double.TryParse(args[i + 1], out warmup);
+            if (args[i] == "--minutes" && i + 1 < args.Length) double.TryParse(args[i + 1], out minutes);
             if (args[i] == "--nosync") vsync = false;
             if (args[i] == "--csv" && i + 1 < args.Length) csvPath = args[i + 1];
             if (args[i] == "--self-test") selfTest = true;
+        }
+
+        // 长跑：预热固定 10s，总时长 = 预热 + N 分钟统计窗口。
+        // 由 --minutes 一家定总时长：否则 --seconds 与它同时出现时「跑多久」会有两个互相矛盾的说法
+        var longRun = minutes > 0;
+        if (longRun)
+        {
+            warmup = 10.0;
+            seconds = warmup + minutes * 60.0;
         }
 
         // 自检在最前面：不碰数据目录、不写文件、不建设备（否则「纯数学闸门」就不纯了）
@@ -77,6 +93,17 @@ internal static class Program
         Environment.SetEnvironmentVariable("JIZURA_PV_DATA_DIR", isoDir);
         Log.Init("perfbench.log");
         Console.WriteLine($"[Bench] 数据目录（隔离）：{isoDir}");
+        if (longRun)
+        {
+            Console.WriteLine($"[Bench] 模式：长跑（预热 {warmup:F0}s + 统计 {minutes:F2} 分钟，总 {seconds:F0}s）");
+            // 采样行的口径一次说清：下游按 [sample] 取值，所以这行说明用 [Bench] 开头，别混进采样行里
+            Console.WriteLine("[Bench] 内存采样行：每 30s 一行，形如 "
+                              + "\"[sample] <整分钟>min ws=<工作集 MB>MB vram=<显存 Local CurrentUsage MB>MB "
+                              + "gc=<Gen0>/<Gen1>/<Gen2> frames=<本段帧数>\"；"
+                              + "整分钟 = 距统计起点向下取整；gc 为统计窗口内累计；"
+                              + "vram=-1 表示不可得（WARP/无适配器/接口不可得），不记 0");
+        }
+
         if (warmup >= seconds)
             Console.WriteLine($"[Bench][WARN] 预热 {warmup}s 不小于总跑时 {seconds}s：统计窗口为空，必然以退出码 4 收场");
 
@@ -169,12 +196,18 @@ internal static class Program
 /// </summary>
 internal sealed class Bench : IDisposable
 {
+    /// <summary>内存曲线的采样间隔（秒）：长跑口径就是「每 30s 一行」。</summary>
+    private const double MemSampleIntervalSec = 30.0;
+
     private readonly PresentHost _host;
     private readonly double _totalSeconds;
     private readonly double _warmupSeconds;
     private readonly FrameStats _intervals = new();
     private readonly FrameStats _cpu = new();
     private readonly Stopwatch _sw = new();
+
+    /// <summary>内存曲线的采样点（渲染线程写，报告在渲染线程退出后读，与其余采样同契约）。</summary>
+    private readonly List<MemSample> _memSamples = new();
 
     private D3DDevice? _gpu;
     private D2DHost? _d2d;
@@ -191,6 +224,9 @@ internal sealed class Bench : IDisposable
     private int _totalFrames;
     private bool _warmed;
     private double _sampleStartSec;
+    private double _nextMemSampleSec;
+    private int _framesAtLastMemSample;
+    private bool _vramWarned;
     private int _gc0Base, _gc1Base, _gc2Base;
     private long _allocBase;
     private int _gc0, _gc1, _gc2;
@@ -286,6 +322,32 @@ internal sealed class Bench : IDisposable
         // CPU 提交耗时：Prepare 起（含）到 Frame 回调画完（含）= 一帧的命令入队量
         if (_prepareTs != 0)
             _cpu.Sample((frameEnd - _prepareTs) * 1000.0 / Stopwatch.Frequency);
+
+        // 内存曲线：每 30s 一行 stdout 采样。取数留在渲染线程上做——显存查询必须在设备存活期内
+        // （PresentHost 只在渲染线程放设备），短跑没到 30s 就一行都不会打，行为与从前一致
+        var sinceSample = t - _sampleStartSec;
+        if (sinceSample >= _nextMemSampleSec) TakeMemSample(sinceSample);
+    }
+
+    /// <summary>一次内存曲线采样：读工作集/显存/GC，记进曲线并把这一行打到 stdout（渲染线程内调用）。</summary>
+    private void TakeMemSample(double sinceSampleSec)
+    {
+        // 下一拍按「本次之后 30s」排，而不是「上一拍之后 30s」：一次卡顿不该让随后几帧连着补采样
+        // （补出来的读数属于同一瞬间，会把这 30s 的斜率带歪）
+        _nextMemSampleSec = sinceSampleSec + MemSampleIntervalSec;
+
+        var (vramUsage, _) = QueryVram();
+        var sample = new MemSample(
+            Minute: sinceSampleSec / 60.0,
+            FramesInInterval: _totalFrames - _framesAtLastMemSample,
+            WorkingSetBytes: Process.GetCurrentProcess().WorkingSet64,
+            VramUsageBytes: vramUsage,
+            Gc0: GC.CollectionCount(0) - _gc0Base,
+            Gc1: GC.CollectionCount(1) - _gc1Base,
+            Gc2: GC.CollectionCount(2) - _gc2Base);
+        _framesAtLastMemSample = _totalFrames;
+        _memSamples.Add(sample);
+        Console.WriteLine(sample.Line());
     }
 
     private void OnShutdown(PresentHost host)
@@ -314,20 +376,23 @@ internal sealed class Bench : IDisposable
         _d2d = null;
     }
 
-    /// <summary>取 GC/分配基线（启动与预热结束各取一次）。</summary>
+    /// <summary>取 GC/分配基线（启动与预热结束各取一次），并复位内存曲线的采样节拍。</summary>
     private void Baseline()
     {
         _gc0Base = GC.CollectionCount(0);
         _gc1Base = GC.CollectionCount(1);
         _gc2Base = GC.CollectionCount(2);
         _allocBase = GC.GetTotalAllocatedBytes(precise: false);
+        // 曲线与 GC 基线同源（都从预热结束那一刻起算）；OnReady 那次调用只是把状态归零
+        _nextMemSampleSec = MemSampleIntervalSec;
+        _framesAtLastMemSample = _totalFrames;
     }
 
     /// <summary>
     /// 显存采样：IDXGIAdapter3.QueryVideoMemoryInfo(0, Local) 的 CurrentUsage/Budget。
     /// 适配器为 null（WARP 回退）/接口不可得时记 **-1**——**不记 0**：0 会被读成「用了 0 字节」
     /// 这种真实测量，而 WARP 的 Local 段预算根本没有意义。
-    /// 只允许在 OnShutdown 里调用（设备的存活期之内）。
+    /// 只允许在设备的存活期内调用：OnShutdown，或渲染线程的帧回调（长跑的 30s 采样）。
     /// </summary>
     private (long Usage, long Budget) QueryVram()
     {
@@ -341,7 +406,13 @@ internal sealed class Bench : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Bench][WARN] 显存采样不可得（记 -1）：{ex.Message}");
+            // 长跑每 30s 都会撞上同一条失败：只报一次，读数照旧记 -1（免得 20 行同样的告警埋掉采样行）
+            if (!_vramWarned)
+            {
+                _vramWarned = true;
+                Console.WriteLine($"[Bench][WARN] 显存采样不可得（记 -1）：{ex.Message}");
+            }
+
             return (-1, -1);
         }
     }
@@ -381,7 +452,14 @@ internal sealed class Bench : IDisposable
             _intervals.Percentile(0.50), _intervals.Percentile(0.95), _intervals.Percentile(0.99), _intervals.Max,
             _cpu.Percentile(0.50), _cpu.Percentile(0.95), _cpu.Percentile(0.99), _cpu.Max,
             _gc0, _gc1, _gc2, _allocBytes,
-            _workingSet, _privateBytes, _vramUsage, _vramBudget);
+            _workingSet, _privateBytes, _vramUsage, _vramBudget,
+            // 曲线结论只在有 30s 采样点时给：短跑报告的形状与从前一致（不多出两行「不可得」）
+            _memSamples.Count == 0
+                ? null
+                : MemCurve.Summarize("工作集曲线", MemCurve.WorkingSetPoints(_memSamples)),
+            _memSamples.Count == 0
+                ? null
+                : MemCurve.Summarize("显存曲线", MemCurve.VramPoints(_memSamples)));
     }
 
     /// <summary>
