@@ -75,6 +75,86 @@ public class TypographyTests
     }
 
     /// <summary>
+    /// 空档与 t==EndMs 必须真的清成透明：只查 HasContent 是假绿（目标面一直都在），
+    /// 所以这里回读像素数 alpha——文字离开区间就不能留下上一帧（契约 §13.6 缓存与清屏）。
+    /// </summary>
+    [GpuFact]
+    public void TypographyClearsDuringGapAndAtClipEnd()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        using (var host = D2DHost.Create(gpu))
+        using (var provider = new TypographyLayerProvider("lyric_clear", gpu, host, W, H))
+        {
+            // A=[1.0s,5.0s)、5.0s 的空标签清屏、B=[9.0s,12.0s)（无音频时长 → 末句 start+3s 兜底）
+            provider.SetClips(LrcParser.ParseClips("[00:01]A\n[00:05]\n[00:09]B").Clips);
+
+            provider.Render(2.0); // 句内：进度 1/4，进出场曲线都已走完（alpha=1）
+            using (var lit = ReadbackOrFail(provider, "句内"))
+                Assert.True(CountVisiblePixels(lit) > 0, "句内时刻应当画出文字");
+
+            provider.Render(6.0); // 空档
+            using (var gap = ReadbackOrFail(provider, "空档"))
+                Assert.Equal(0, CountVisiblePixels(gap));
+
+            provider.Render(5.0); // t == EndMs：半开区间终点
+            using (var atEnd = ReadbackOrFail(provider, "t==EndMs"))
+                Assert.Equal(0, CountVisiblePixels(atEnd));
+        }
+    }
+
+    /// <summary>
+    /// 同刻合并出的多行文本要**两行都画**：与同一 provider、其余不变、只留一行的像素数对比，
+    /// 只画第一行（或把 '\n' 当缺字画）都会让这条失败。
+    /// </summary>
+    [GpuFact]
+    public void TypographyDrawsMergedMultiLineText()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        using (var host = D2DHost.Create(gpu))
+        using (var provider = new TypographyLayerProvider("lyric_multiline", gpu, host, W, H))
+        {
+            var merged = Assert.Single(LrcParser.ParseClips("[00:01]上の行\n[00:01]下の行").Clips);
+            Assert.Equal("上の行\n下の行", merged.Text); // 同刻两条先合并成多行
+
+            provider.SetClips([merged]);
+            provider.Render(2.0);
+            int mergedPixels, singlePixels;
+            using (var twoLines = ReadbackOrFail(provider, "合并多行"))
+                mergedPixels = CountVisiblePixels(twoLines);
+
+            provider.SetClips(LrcParser.ParseClips("[00:01]上の行").Clips); // 单行对照
+            provider.Render(2.0);
+            using (var oneLine = ReadbackOrFail(provider, "单行对照"))
+                singlePixels = CountVisiblePixels(oneLine);
+
+            Assert.True(mergedPixels > singlePixels,
+                $"合并的两行都要画出来：多行 {mergedPixels} 像素，单行 {singlePixels} 像素");
+        }
+    }
+
+    /// <summary>回读离屏面；还没 Render 过就没有目标面，要显式失败而不是静默跳过。</summary>
+    private static ReadbackImage ReadbackOrFail(TypographyLayerProvider provider, string when) =>
+        provider.ReadbackTarget()
+        ?? throw new InvalidOperationException($"没有可回读的离屏面（{when}）：Render 之后才有目标面");
+
+    /// <summary>数非透明像素（BGRA8888 预乘，alpha 在每像素第 4 字节）。</summary>
+    private static int CountVisiblePixels(ReadbackImage image)
+    {
+        var pixels = image.BgraPixels;
+        var count = 0;
+        for (var i = 3; i < pixels.Length; i += 4)
+            if (pixels[i] != 0) count++;
+
+        return count;
+    }
+
+    /// <summary>
     /// 无音源时不跑虚拟时钟：时间只认用户定位，Play 不推进（旧实现在这里偷偷跑了一台 180s 墙钟）。
     /// </summary>
     [Fact]

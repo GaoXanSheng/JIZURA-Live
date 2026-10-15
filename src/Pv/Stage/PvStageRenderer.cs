@@ -49,6 +49,13 @@ public sealed class PvStageRenderer : IDisposable
     public PvStage Stage { get; }
     public EffectGraph Effects { get; }
 
+    /// <summary>
+    /// 全局后期**之后**的叠加层（清晰字幕）。所有权在调用方：这里只记引用，绝不 Dispose 它。
+    /// 它不参与 <see cref="Stage"/> 的 RenderFrame，因此不吃视差与场景模糊，也不进图层栈
+    /// （契约 PV-DIRECTOR-SYSTEM.md:399「字幕不经过视差/场景模糊」）。
+    /// </summary>
+    public IPvLayerProvider? Overlay { get; set; }
+
     /// <summary>最近一帧各段耗时（毫秒）。</summary>
     public (double Engine, double Fx, double Composite) LastTiming { get; private set; }
 
@@ -179,8 +186,9 @@ public sealed class PvStageRenderer : IDisposable
         d.SetTarget(target, width, height);
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
-        d.DrawBitmap(fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut),
-            Letterbox(_designW, _designH, width, height));
+        var previewRect = Letterbox(_designW, _designH, width, height);
+        d.DrawBitmap(fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut), previewRect);
+        DrawOverlay(d, frame, previewRect);
         d.End();
 
         // 4) 广播：把同一张完成帧（有效果取效果输出，无效果取舞台面）再贴一次到发送端纹理后发出。
@@ -191,16 +199,33 @@ public sealed class PvStageRenderer : IDisposable
         if (_broadcast is { IsActive: true, Bitmap: { } bbmp } b)
         {
             var src = fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut);
+            var broadcastRect = new Rect(0, 0, b.Width, b.Height);
             d.SetTarget(bbmp, b.Width, b.Height);
             d.Begin();
             d.Clear(new Color4(0f, 0f, 0f, 1f));
-            d.DrawBitmap(src, new Rect(0, 0, b.Width, b.Height));
+            d.DrawBitmap(src, broadcastRect);
+            DrawOverlay(d, frame, broadcastRect);
             d.End();
             b.PresentFrame();
         }
 
         if (!_freezeLast && fxOut is not null) _fx.Pool.Return(fxOut);
         LastTiming = (LastTiming.Engine, Elapsed(t1), Elapsed(t2));
+    }
+
+    /// <summary>
+    /// 把叠加层贴进与底图**同一块**矩形：位图按该矩形缩放（叠加层按设计尺寸排版），
+    /// 纯色层直接铺满该矩形。画在效果输出之后，所以清晰字幕不会被后期改色/糊掉，
+    /// 且预览与广播走同一段代码——两边永远同步。
+    /// </summary>
+    private void DrawOverlay(Immediate2D d, in PvFrameContext frame, Rect rect)
+    {
+        if (Overlay is null) return;
+
+        var image = Overlay.Pump(frame);
+        if (image.Bitmap is { } bmp) d.DrawBitmap(bmp, rect);
+        else if (image.Solid is { } solid)
+            d.FillRect(rect, new Paint2D { Brush = new SolidBrush2D(solid) });
     }
 
     /// <summary>
@@ -256,6 +281,7 @@ public sealed class PvStageRenderer : IDisposable
     {
         // 只摘引用：广播发送端归管线所有，由管线在自己的 Dispose 里释放
         _broadcast = null;
+        Overlay = null;
         ClearFxBitmapCache();
         _stageSrv?.Dispose();
         _stageTarget?.Dispose();

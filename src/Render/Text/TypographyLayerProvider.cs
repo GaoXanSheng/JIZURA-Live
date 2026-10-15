@@ -17,7 +17,10 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     private readonly D3DDevice _gpu;
     private readonly D2DHost _host;
     private OffscreenTarget? _target;
-    private IReadOnlyList<KrcLine> _lines = Array.Empty<KrcLine>();
+    private IReadOnlyList<LyricClip> _clips = Array.Empty<LyricClip>();
+
+    /// <summary>同刻合并后的多行文本按行拆开画：DwFont 的文本格式是单行不换行的，'\n' 得自己分层。</summary>
+    private static readonly string[] LineSeparators = ["\r\n", "\r", "\n"];
 
     private int _w, _h;
     private double _scale = 1.0;
@@ -40,9 +43,17 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         DesignHeight = designHeight;
     }
 
-    public void SetLyrics(IReadOnlyList<KrcLine>? lines)
+    /// <summary>
+    /// 旧入口（PvPipeline.SetLyrics 转发 KrcLine）：转成 Clip 后走同一条查找路径，
+    /// 不再让动效歌词自己算一套「当前句」。
+    /// </summary>
+    public void SetLyrics(IReadOnlyList<KrcLine>? lines) =>
+        SetClips(lines is null ? Array.Empty<LyricClip>() : LrcParser.ToClips(lines));
+
+    /// <summary>直接接收已冻结的 Clip 序列（歌词轨编辑后的产物）。要求按 StartMs 升序。</summary>
+    public void SetClips(IReadOnlyList<LyricClip>? clips)
     {
-        _lines = lines ?? Array.Empty<KrcLine>();
+        _clips = clips ?? Array.Empty<LyricClip>();
         _version++;
     }
 
@@ -73,15 +84,13 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 0f));
 
-        if (_lines.Count > 0)
+        if (_clips.Count > 0)
         {
-            var idx = LrcParser.FindLineIndex(_lines, time);
-            if (idx >= 0)
+            // 唯一真源：命中不了样本（空档 / t == EndMs / 越界）就什么都不画，等清屏
+            var sample = LrcParser.FindSample(_clips, time);
+            if (sample is { } cur)
             {
-                var cur = _lines[idx];
-                var tMs = (long)(time * 1000.0);
-                var elapsed = Math.Max(0, tMs - cur.StartMs);
-                var progress = cur.DurMs > 0 ? Math.Clamp((float)elapsed / cur.DurMs, 0f, 1f) : 1f;
+                var progress = (float)cur.ProgressAt(time);
 
                 // 进出场曲线计算
                 float alpha = 1f;
@@ -105,17 +114,31 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 var cx = w / 2f;
                 var cy = h * 0.75f + offsetY;
 
-                // 1) 柔和外发光底影
-                d.DrawText(cur.Text, cx, cy + 2f, TextAlign2D.Center, font, new Paint2D
-                {
-                    Brush = new SolidBrush2D(new Color4(0f, 0.05f, 0.15f, alpha * 0.6f)),
-                });
+                // 同刻合并的文本是多行的：逐行各自排版，整块以 cy 为中心
+                // （单行时与旧路径完全一致，多行不会被裁掉半截）
+                var blockLines = cur.Text.Split(LineSeparators, StringSplitOptions.None);
+                var lineHeight = font.LineHeight;
+                var firstBaseline = cy - (blockLines.Length - 1) * lineHeight / 2f;
 
-                // 2) 主高亮正文
-                d.DrawText(cur.Text, cx, cy, TextAlign2D.Center, font, new Paint2D
+                for (var i = 0; i < blockLines.Length; i++)
                 {
-                    Brush = new SolidBrush2D(new Color4(1f, 1f, 1f, alpha)),
-                });
+                    var line = blockLines[i];
+                    if (line.Length == 0) continue; // 合并文本里的空行只占排版高度，没有字形
+
+                    var baseline = firstBaseline + i * lineHeight;
+
+                    // 1) 柔和外发光底影
+                    d.DrawText(line, cx, baseline + 2f, TextAlign2D.Center, font, new Paint2D
+                    {
+                        Brush = new SolidBrush2D(new Color4(0f, 0.05f, 0.15f, alpha * 0.6f)),
+                    });
+
+                    // 2) 主高亮正文
+                    d.DrawText(line, cx, baseline, TextAlign2D.Center, font, new Paint2D
+                    {
+                        Brush = new SolidBrush2D(new Color4(1f, 1f, 1f, alpha)),
+                    });
+                }
             }
         }
 
@@ -124,6 +147,12 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
     public PvLayerImage Pump(in PvFrameContext ctx) =>
         _target is null ? PvLayerImage.Empty : new PvLayerImage(_target.Bitmap, null, _w, _h);
+
+    /// <summary>
+    /// 回读本层离屏面的像素（**仅测试/诊断用**：会阻塞到 GPU 完成，逐帧调用会拖垮帧率）。
+    /// 空档清屏这类断言必须看像素——只查 HasContent 只说明「有目标面」，是假绿。
+    /// </summary>
+    public ReadbackImage? ReadbackTarget() => _target?.Readback();
 
     public void Dispose()
     {
