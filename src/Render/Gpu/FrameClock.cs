@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace JizuraLive.Render.Gpu;
 
@@ -15,10 +16,19 @@ namespace JizuraLive.Render.Gpu;
 /// </summary>
 public sealed class FrameClock : IDisposable
 {
+    /// <summary>
+    /// 帧等待切片：停机握手的最坏可见延迟，也是渲染线程空转节拍的粒度下限。
+    /// 取 64ms 是为了压住停机时延又不至于把等待切得太碎（每次切片都有一次内核往返）。
+    /// </summary>
+    private const int StopSliceMs = 64;
+
     private const int WaitTimeoutMs = 1000;
 
     private readonly IntPtr _waitable;
     private readonly Stopwatch _sw = Stopwatch.StartNew();
+
+    // 停机握手用：WaitNext 不能只盯帧等待对象，否则停机会被按在超时上等满一个节拍才被看见
+    private readonly ManualResetEventSlim _stop = new(false);
     private long _lastTicks;
     private double _dtAccum;
     private int _dtCount;
@@ -45,10 +55,18 @@ public sealed class FrameClock : IDisposable
     }
 
     /// <summary>阻塞到下一帧可以开始时返回，并更新 dt/FPS 统计。</summary>
+    /// <remarks>
+    /// 停机握手：<see cref="RequestStop"/> 后本方法最迟在 <see cref="StopSliceMs"/> 内返回，
+    /// 不等帧等待对象的 1s 超时——否则 <see cref="JizuraLive.Render.Gpu.PresentHost.StopRender"/>
+    /// 的 Join 预算会被白等一整段时间。
+    /// </remarks>
     public void WaitNext()
     {
-        if (_waitable != IntPtr.Zero)
-            WaitForSingleObject(_waitable, WaitTimeoutMs);
+        // 两段式等待：先零超时问一次帧信号（停时机它多半早就置位了，省掉一次切片等待），
+        // 没置位再以短切片等，好让停止请求及时插进来说「不用再等这一帧」
+        if (_waitable != IntPtr.Zero
+            && WaitForSingleObject(_waitable, 0) != 0)
+            _stop.Wait(TimeSpan.FromMilliseconds(StopSliceMs));
 
         var now = _sw.ElapsedTicks;
         // 首帧没有「上一帧」：dt 置 0，否则按 dt 积分的动画会在第一帧跳一下
@@ -74,9 +92,16 @@ public sealed class FrameClock : IDisposable
         Frame++;
     }
 
+    /// <summary>
+    /// 请求本时钟立即结束等待（停机握手用，可重复调用）。
+    /// 只影响 <see cref="WaitNext"/> 的阻塞时长，dt/FPS 统计口径不变。
+    /// </summary>
+    public void RequestStop() => _stop.Set();
+
     public void Dispose()
     {
-        // 等待对象句柄归交换链所有，这里不关；本类只做节拍，无需释放资源。
+        // 等待对象句柄归交换链所有，这里不关；只放自己的停止信号
+        _stop.Dispose();
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

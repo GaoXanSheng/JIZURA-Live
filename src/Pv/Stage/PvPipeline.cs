@@ -52,6 +52,12 @@ public sealed class PvPipeline : IDisposable
     public bool Ready { get; private set; }
     public string? Error { get; private set; }
 
+    /// <summary>
+    /// 上一次 <see cref="Dispose"/> 里收尾存盘的失败原因（null = 都成功）。
+    /// 关停路径上的保存失败不能吞：调用方要把它显示给用户，否则用户以为改动落盘了。
+    /// </summary>
+    public string? LastDisposeFault { get; private set; }
+
     public (int Live, int Total) SpoutState =>
         (_spoutProviders.Count(p => p.Connected), _spoutProviders.Count);
 
@@ -144,8 +150,13 @@ public sealed class PvPipeline : IDisposable
     /// <summary>
     /// 停止取帧（停机握手的第一步，可在任意线程调用）。
     /// 原生接收没有超时接口，一旦进去就只能等它自己出来，所以只能保证「不再进去新的」。
+    /// 同时冻结效果链的末帧：合成到此为止，最后一张 fx 输出不还池，留给管线释放时统一收。
     /// </summary>
-    public void StopPumping() => _stopPumping = true;
+    public void StopPumping()
+    {
+        _stopPumping = true;
+        _renderer.FreezeFrames();
+    }
 
     /// <summary>已观察到的最长一次取帧耗时（毫秒）；停机实测用它判断原生接收会不会把收尾卡住。</summary>
     public double MaxReceiveMs
@@ -458,8 +469,8 @@ public sealed class PvPipeline : IDisposable
         // 先让帧回调看见"没准备好"：守卫只查 Ready，不查 _disposed
         Ready = false;
 
-        _ = SaveSceneNow();
-        _ = SaveEffectsNow();
+        // 收尾存盘的失败要留着给调用方显示，不能像 best-effort 那样随手丢掉
+        LastDisposeFault = SaveSceneNow() ?? SaveEffectsNow();
 
         // 所有提供者都注册在 Stage 上，释放权归 Stage（经 _renderer.Dispose()）。
         // 这里只摘掉本类的索引，绝不第二次 Dispose 同一个对象。
@@ -467,6 +478,9 @@ public sealed class PvPipeline : IDisposable
         _subtitle = null;
         _character = null;
 
+        // D2D 位图缓存（fx 临时面→位图）先于渲染器整体释放清掉：
+        // 这些位图按代际绑在 D2D 上下文上，留到进程退出才回收就等于代际泄漏
+        _renderer.ClearFxBitmapCache();
         _renderer.Dispose();
         _d2d.Dispose();
     }

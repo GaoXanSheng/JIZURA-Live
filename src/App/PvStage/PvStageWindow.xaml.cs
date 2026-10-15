@@ -132,6 +132,14 @@ public partial class PvStageWindow : Window
         _pipe = null;
         pipe?.Dispose();
 
+        // 收尾存盘失败不能静默：这里可能随窗口关闭一起来（Dispatcher 已不许同步弹窗），
+        // 所以只把原因落到状态条与日志，和 host.Error 同一套处理
+        if (pipe?.LastDisposeFault is { } fault)
+        {
+            Log.Error($"[PV 工作台] 关闭时保存失败：{fault}");
+            Dispatcher.BeginInvoke(() => TblStatus.Text = $"关闭时保存失败：{fault}");
+        }
+
         if (host.Error is not null)
             Dispatcher.BeginInvoke(() => TblStatus.Text = "预览已停止：" + host.Error);
     }

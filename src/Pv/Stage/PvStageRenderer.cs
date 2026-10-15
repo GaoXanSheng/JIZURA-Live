@@ -29,6 +29,13 @@ public sealed class PvStageRenderer : IDisposable
     private readonly int _designW, _designH;
 
     /// <summary>
+    /// 停机后冻结末帧：Composite 不再把最后一张 fx 输出还回纹理池。
+    /// 池是会复用的——末帧一还回去，下一帧（或别的租用者）就会覆写它正在被贴的那块显存，
+    /// 预览面随之出现撕裂/闪黑。停机时最后一帧必须保持原样直到管线释放。
+    /// </summary>
+    private bool _freezeLast;
+
+    /// <summary>
     /// 本帧时刻：由 <see cref="Prepare"/> 写入，Composite 只读这一份。
     /// 帧内绝不再回头读时钟——否则歌词贴图与着色器相位会拿到两个不同的时刻。
     /// </summary>
@@ -166,8 +173,25 @@ public sealed class PvStageRenderer : IDisposable
             Letterbox(_designW, _designH, width, height));
         d.End();
 
-        if (fxOut is not null) _fx.Pool.Return(fxOut);
+        if (!_freezeLast && fxOut is not null) _fx.Pool.Return(fxOut);
         LastTiming = (LastTiming.Engine, Elapsed(t1), Elapsed(t2));
+    }
+
+    /// <summary>
+    /// 冻结效果链：停机的第二步，让后续 Composite 保留末帧（见 <see cref="_freezeLast"/>）。
+    /// 可在任意线程调用；渲染线程在下一帧 Composite 末尾读到它。
+    /// </summary>
+    public void FreezeFrames() => _freezeLast = true;
+
+    /// <summary>
+    /// 清掉 D2D 位图缓存（临时面句柄→位图）。按代际清理用：设备/上下文重建或画布换代时，
+    /// 旧位图绑的是已作废的 DXGI 面，留着只会持续占 D2D 资源且再也不会被命中。
+    /// 必须在渲染线程上调用（与 <see cref="BitmapFor"/> 同一线程）。
+    /// </summary>
+    public void ClearFxBitmapCache()
+    {
+        foreach (var b in _fxBitmaps.Values) b.Dispose();
+        _fxBitmaps.Clear();
     }
 
     /// <summary>把设计画布等比放进目标矩形，居中，余量留黑。</summary>
@@ -204,8 +228,7 @@ public sealed class PvStageRenderer : IDisposable
 
     public void Dispose()
     {
-        foreach (var b in _fxBitmaps.Values) b.Dispose();
-        _fxBitmaps.Clear();
+        ClearFxBitmapCache();
         _stageSrv?.Dispose();
         _stageTarget?.Dispose();
         // Lyric 已注册在 Stage 的提供者表里，释放权归 Stage，这里不再单独 Dispose 它

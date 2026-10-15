@@ -88,13 +88,16 @@ public sealed class PresentHost : HwndHost
     }
 
     /// <summary>
-    /// 停机握手：请求渲染线程收尾并等它确认。帧等待本身有 1s 上限，所以停止最迟一个节拍后被看见。
+    /// 停机握手：请求渲染线程收尾并等它确认。帧等待被切成 64ms 的切片轮询停止信号，
+    /// 所以停止最迟 64ms 后被看见，不再傻等帧等待对象的 1s 超时。
     /// 返回 false 表示线程没在预算内退出——调用方不能把这种情况当成功，也不能替它释放 GPU 资源。
     /// 可重复调用；<see cref="DestroyWindowCore"/> 兜底再调一次。
     /// </summary>
     public bool StopRender(int joinMs = 3000)
     {
         _running = false;
+        // 先把帧等待从「等 DWM 赏下一帧」里叫醒：GPU 初始化失败时 Clock 还没建起来，此时没有可叫醒的等待
+        Clock?.RequestStop();
         var thread = _thread;
         if (thread is null) return true;
 
