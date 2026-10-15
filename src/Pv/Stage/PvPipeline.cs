@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -56,6 +57,16 @@ public sealed class PvPipeline : IDisposable
     // 关键帧曲线：UI 线程发布不可变快照（DirectorEvaluator.Snapshot），渲染线程下一帧读到；
     // 引用交换原子，无锁。快照发布后永不修改，所以渲染线程读它是安全的。
     private volatile DirectorEvaluator? _director;
+
+    // 信号图（M6）：UI 线程发布整份文档，渲染线程在 Prepare 里编译 + 求值。
+    // 与 _director 同款引用交换（原子、无锁）。约定：发布出去的那份文档此后不许再改——
+    // 面板改的始终是它自己的草稿，确认时才整份换引用，所以渲染线程不会读到半更新的图。
+    private volatile SignalGraph? _signalGraph;
+    private CompiledSignalGraph? _signalPlan;   // 渲染线程私有
+    private SignalGraph? _signalPlanGraph;      // 计划的来源引用（判断是否需要重编），同样渲染线程私有
+
+    // Time 节点的 Live 口径要一个暂停也在走的单调时钟：进程启动即开始，与设备/系统时间无关
+    private static readonly Stopwatch Monotonic = Stopwatch.StartNew();
 
     /// <summary>镜头缩放的参数地址（文本形式 <c>camera.scale</c>）。地址是值相等类型，静态构造一次即可。</summary>
     private static readonly ParamAddress CameraScaleAddr =
@@ -140,6 +151,12 @@ public sealed class PvPipeline : IDisposable
     /// </summary>
     public void SetDirector(DirectorEvaluator? d) => _director = d;
 
+    /// <summary>
+    /// 换信号图（任意线程）。UI 线程在信号面板里确认后把整份文档发布过来，渲染线程下一帧编译并采用；
+    /// 引用交换原子，无锁。传 null = 关掉信号（效果参数回常量/曲线）。
+    /// </summary>
+    public void SetSignalGraph(SignalGraph? graph) => _signalGraph = graph;
+
     public void Prepare(double time)
     {
         ApplyLayerOps();
@@ -149,6 +166,10 @@ public sealed class PvPipeline : IDisposable
             foreach (var p in _spoutProviders) p.PumpFrame();
 
         ApplyTracking(time);
+
+        // 信号在追踪之后（能量源 Stage.Energy 是 ApplyTracking 写的），在 _renderer.Prepare 之前
+        // （效果参数就是在那一句里被打包成常量缓冲的）。顺序反了，本帧读到的要么是上一帧的能量，要么是上一帧的参数。
+        ApplySignals(time);
 
         // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
@@ -372,6 +393,73 @@ public sealed class PvPipeline : IDisposable
             baseScale * Math.Clamp(drive.Zoom, 0.5, 2.0),
             0, 0, null, null);
         _renderer.Stage.Energy = drive.MouthEnergy;
+    }
+
+    /// <summary>
+    /// 每帧求值信号图，并把每个绑定的最终值写回目标效果实例的参数。
+    ///
+    /// 帧内状态（<see cref="_signalPlan"/>、写回的参数值）全在渲染线程上：本方法在 Prepare 里调用，
+    /// 读取这些值的 BuildRenderGraph 紧接着也在同一线程、同一帧顺序里跑——同帧读写同线程同顺序，
+    /// 所以既不需要锁，也不存在"读到半更新的帧"。
+    ///
+    /// 编译只在发布的文档换了引用时发生（面板确认 = 换引用）；同一份文档内的参数改动走
+    /// TryApplyParams 复用已编译拓扑。NaN / 失效值不进这条路径：求值器已经把每个输出夹进目标范围
+    /// 并回落到基础值（SignalEvaluator 的三条不变量），这里拿到的每个值都是有限的。
+    /// </summary>
+    private void ApplySignals(double time)
+    {
+        var graph = _signalGraph;
+        if (graph is null)
+        {
+            // 关掉信号：计划与来源引用一起清掉，下次发布重新编译
+            _signalPlan = null;
+            _signalPlanGraph = null;
+            return;
+        }
+
+        if (!ReferenceEquals(graph, _signalPlanGraph))
+        {
+            AdoptSignalGraph(graph);
+        }
+        else if (_signalPlan is { } live && !live.TryApplyParams(graph, _effects, out _))
+        {
+            // 参数改动自己把计划弄失效了（例如 Remap 区间被改成零长）：重编一次，不拿旧值继续跑
+            AdoptSignalGraph(graph);
+        }
+
+        var plan = _signalPlan;
+        if (plan is null) return;
+
+        // 本线只有一个能量数：Stage.Energy（追踪/VTS 口型能量）。引擎的频带分析器（Engine.AudioAnalysis）
+        // 还没接进管线，所以四个频带取同一个值——不是"没有分析结果"，而是"分析结果只有一路"。
+        // 有效位恒真：0 是"静音"这个合法读数，与"没有数据"是两件事。
+        var energy = _renderer.Stage.Energy;
+        var audio = new AudioBandSnapshot(true, energy, energy, energy, energy);
+
+        plan.Evaluate(new SignalFrameInputs(time, Monotonic.Elapsed.TotalSeconds, audio, _director));
+
+        foreach (var resolved in plan.Resolved)
+        {
+            // 用编译期就解析好的目标引用（TryGetTarget），不再按 InstanceId 拼字符串回查效果图：
+            // 字符串只在显示与序列化时用，这一点是 SignalTargets 的设计前提。
+            if (!plan.TryGetTarget(resolved.Address, out var node, out var param)) continue;
+            node.Set(param, (float)resolved.Value);
+        }
+    }
+
+    /// <summary>编译并采用一份新发布的信号图；编译结论在这里各报一次（静态错误不会自己消失，每帧刷日志没有意义）。</summary>
+    private void AdoptSignalGraph(SignalGraph graph)
+    {
+        var result = SignalCompiler.Compile(graph, _effects);
+        _signalPlan = result.Plan;
+        _signalPlanGraph = graph;
+
+        foreach (var issue in result.Issues)
+        {
+            var line = $"[PV 管线] 信号图 {issue.Code}：{issue.Message}";
+            if (issue.Severity == SignalIssueSeverity.Error) Log.Error(line);
+            else Log.Warn(line);
+        }
     }
 
     /// <summary>

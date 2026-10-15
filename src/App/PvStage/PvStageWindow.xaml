@@ -95,6 +95,27 @@
                     <TextBlock DockPanel.Dock="Top" Margin="14,4,12,8" TextWrapping="Wrap"
                                FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}"
                                Text="从上到下 = 从前往后，拖拽可改顺序。深度决定该层吃多少镜头位移。" />
+
+                    <!-- 歌词轨放左栏底部而不是舞台下方：舞台高度是判断画面的依据，不该被一份常开的
+                         文字列表长期挤占；歌词行也不必与时间轴同宽。声明在图层 ScrollViewer 之前，
+                         否则它会顶掉后者 LastChildFill 的填充位。 -->
+                    <Border DockPanel.Dock="Bottom" Height="208"
+                            BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,1,0,0">
+                        <DockPanel>
+                            <Grid DockPanel.Dock="Top" Margin="14,10,10,6">
+                                <TextBlock Text="歌词" FontSize="{StaticResource PvTextXs}"
+                                           Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
+                                <TextBlock x:Name="TblLyricCount" HorizontalAlignment="Right"
+                                           FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextXs}"
+                                           Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
+                            </Grid>
+                            <ScrollViewer x:Name="LyricScroll" VerticalScrollBarVisibility="Auto"
+                                          Padding="10,0,8,10">
+                                <StackPanel x:Name="LyricsHost" />
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10,0,8,10">
                         <StackPanel x:Name="LayersHost" />
                     </ScrollViewer>
@@ -222,11 +243,76 @@
                             Margin="0,0,8,0" Content="广播 关" Click="BtnBroadcast_Click" />
                     <Button x:Name="BtnVts" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                             Margin="0,0,14,0" Content="VTS 关" Click="BtnVts_Click" />
+                    <Button x:Name="BtnSignal" Style="{StaticResource PvBtnGhost}" Padding="9,5"
+                            Margin="0,0,14,0" Content="信号"
+                            ToolTip="数值信号图：把时间/能量这类信号接到效果参数上（改动确认后才生效）"
+                            Click="BtnSignal_Click" />
                     <TextBlock Text="预设" Style="{StaticResource PvRowLabel}" Margin="0,0,8,0" />
                     <ComboBox x:Name="CmbPreset" Width="140" SelectionChanged="CmbPreset_SelectionChanged" />
                     <TextBlock x:Name="TblFps" Margin="14,0,0,0" Style="{StaticResource PvValue}" MinWidth="64" />
                 </StackPanel>
             </Grid>
         </Border>
+
+        <!-- 信号面板（M6）：改的是一份草稿，确认才发布并落盘——直接改工程文档，会让"关掉弹窗"
+             变成一次不可撤销的编辑（5 秒一次的自动存盘随后就把它写进磁盘）。
+             声明位置在传输条之后：PlacementTarget 指向的按钮必须先存在于名字域里。 -->
+        <Popup x:Name="SignalPop" StaysOpen="False" AllowsTransparency="True"
+               Placement="Top" PlacementTarget="{Binding ElementName=BtnSignal}"
+               HorizontalOffset="-90" VerticalOffset="-6">
+            <Border Background="{StaticResource PvRaised}" BorderBrush="{StaticResource PvLineStrong}"
+                    BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="10">
+                <DockPanel Width="440">
+                    <Grid DockPanel.Dock="Top">
+                        <TextBlock Text="信号图" FontSize="{StaticResource PvTextBase}"
+                                   Foreground="{StaticResource PvFg}" VerticalAlignment="Center" />
+                        <TextBlock x:Name="TblSignalCount" HorizontalAlignment="Right"
+                                   FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextXs}"
+                                   Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
+                    </Grid>
+                    <TextBlock DockPanel.Dock="Top" Margin="0,4,0,6" TextWrapping="Wrap"
+                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}"
+                               Text="按「输出 → 输入」连线，一个输入至多一条连线，一个参数至多一个输出绑定。关闭弹窗 = 放弃未确认的改动。" />
+
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button x:Name="BtnSignalTime" Style="{StaticResource PvBtnGhost}" Padding="7,3"
+                                Content="+ 时间" Click="BtnSignalTime_Click" />
+                        <Button x:Name="BtnSignalEnergy" Style="{StaticResource PvBtnGhost}" Padding="7,3"
+                                Content="+ 能量" Click="BtnSignalEnergy_Click"
+                                ToolTip="音频 / VTS 口型能量：本线只有这一个能量数（Stage.Energy）" />
+                        <Button x:Name="BtnSignalRemap" Style="{StaticResource PvBtnGhost}" Padding="7,3"
+                                Content="+ Remap" Click="BtnSignalRemap_Click" />
+                        <Button x:Name="BtnSignalOutput" Style="{StaticResource PvBtnGhost}" Padding="7,3"
+                                Content="+ 输出" Click="BtnSignalOutput_Click" />
+                        <Border Width="1" Height="16" Margin="6,0" Background="{StaticResource PvLine}" />
+                        <Button x:Name="BtnSignalCommit" Style="{StaticResource PvBtnGhost}" Padding="9,3"
+                                Content="确认并保存" Foreground="{StaticResource PvAccent}"
+                                Click="BtnSignalCommit_Click" />
+                    </StackPanel>
+
+                    <TextBlock x:Name="TblSignalIssue" DockPanel.Dock="Bottom" Margin="0,6,0,0"
+                               TextWrapping="Wrap" MaxHeight="60"
+                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvWarn}" />
+
+                    <!-- 编译结论单独一行：编辑错误（我这次填的数不合法）与全图结论（环/悬空/重复写入）
+                         是两条不同寿命的信息，挤在一行里后写的会抹掉先写的 -->
+                    <TextBlock x:Name="TblSignalCompile" DockPanel.Dock="Bottom" Margin="0,4,0,0"
+                               TextWrapping="Wrap" MaxHeight="60"
+                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}" />
+
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,6,0,0">
+                        <ComboBox x:Name="CmbSignalFrom" Width="164" FontSize="{StaticResource PvTextXs}" />
+                        <TextBlock Text="→" Style="{StaticResource PvRowLabel}" Margin="6,0" />
+                        <ComboBox x:Name="CmbSignalTo" Width="164" FontSize="{StaticResource PvTextXs}" />
+                        <Button x:Name="BtnSignalLink" Style="{StaticResource PvBtnGhost}" Padding="7,3"
+                                Margin="6,0,0,0" Content="连边" Click="BtnSignalLink_Click" />
+                    </StackPanel>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="360" Padding="0,2,2,2">
+                        <StackPanel x:Name="SignalHost" />
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Popup>
     </Grid>
 </Window>
