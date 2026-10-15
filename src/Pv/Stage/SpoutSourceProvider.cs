@@ -60,8 +60,14 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     public double LastReceiveMs { get; private set; }
     public double MaxReceiveMs { get; private set; }
 
+    /// <summary>
+    /// <paramref name="premultiplied"/> 默认 true：D2D 的 surface 位图**只接受 Premultiplied**
+    /// （声明 Straight 必抛 WINCODEC_ERR_UNSUPPORTEDPIXELFORMAT，实测见
+    /// SpoutGpuInputTests.OwnedTexture_WrapsIntoD2DBitmap_AndRenders），而 VTS/Spout 发送端本来就发预乘像素。
+    /// 默认 false 会让默认接线（PvPipeline 不传这个参数时）每帧抛异常、图层永不出图——那是黑屏，不是报错。
+    /// </summary>
     public SpoutSourceProvider(string id, D3DDevice gpu, ID2D1DeviceContext ctx,
-        string sender, bool premultiplied = false)
+        string sender, bool premultiplied = true)
     {
         Id = id;
         _ctx = ctx;

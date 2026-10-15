@@ -1,4 +1,5 @@
 using System.Reflection;
+using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Spout;
@@ -226,7 +227,96 @@ public class SpoutGpuInputTests
         }
     }
 
+    // ================================ 5. SpoutSourceProvider 的 alpha 接线
+
+    /// <summary>
+    /// **生产接线钉子**：<see cref="SpoutSourceProvider"/> 在**默认构造**下必须真的建得出位图，而且画得出来。
+    ///
+    /// 这条用例存在的理由：M7 换成 surface 位图后，构造参数默认值是 <c>premultiplied: false</c>
+    /// → <c>EnsureBitmap</c> 声明 Straight → D2D 抛 UNSUPPORTEDPIXELFORMAT（就是上面第 4 节实测的能力边界）
+    /// → 捕获后返回 null → <c>Pump</c> 交 Empty：默认接线（Character/VTS 层）**永不出图**，
+    /// 症状是「一条 Log.Warn + 黑屏」而不是报错。上面那条只断言「异常可读」，抓不到接线错误，
+    /// 所以这里断言的是**位图非 null 且真能画出源纹理的颜色**。
+    ///
+    /// 用反射调私有 <c>EnsureBitmap</c>：它只收一张纹理，不需要真发送端；而 <c>Pump</c> 要
+    /// <c>SpoutIn</c> 真连上发送端，单测里给不出。所以这是接线检查，不是端到端取帧测试
+    /// （端到端在 tools/SpoutProbe 的 G 段）。
+    /// </summary>
+    [GpuFact]
+    public void SpoutSourceProvider_DefaultAlphaMode_ProducesDrawableBitmap()
+    {
+        var gpu = D3DDevice.TryCreate(out var err);
+        if (gpu is null) GpuRequire.Fail(err);
+
+        using (gpu)
+        using (var host = D2DHost.Create(gpu!))
+        using (var owned = CreateOwned(gpu!, W, H))
+        {
+            var want = new Color4(0.1f, 0.4f, 0.9f, 1f);
+
+            // 先把自有纹理填成已知色：位图真指着这张纹理，才画得出这个颜色
+            using (var surface = owned.QueryInterface<IDXGISurface>())
+            using (var fill = host.Ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
+                       new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
+                       96f, 96f, BitmapOptions.Target)))
+            {
+                host.Draw.SetTarget(fill, W, H);
+                host.Draw.Begin();
+                host.Draw.Clear(want);
+                host.Ctx.Flush(out _, out _);
+                host.Draw.End();
+                host.Draw.SetTarget(null, 1, 1);
+            }
+
+            // ① 默认构造 = 生产接线（PvPipeline 走的就是这个默认值）：必须建得出位图
+            using (var provider = new SpoutSourceProvider("probe_default", gpu!, host.Ctx, NoSuchSender))
+            {
+                var bmp = EnsureBitmap(provider, owned);
+                Assert.NotNull(bmp);
+                AssertDraws(gpu!, host, bmp!, want, "默认构造（premultiplied 默认值）");
+            }
+
+            // ② 显式 premultiplied: true 与默认同一条路
+            using (var provider = new SpoutSourceProvider("probe_premul", gpu!, host.Ctx, NoSuchSender,
+                       premultiplied: true))
+                Assert.NotNull(EnsureBitmap(provider, owned));
+
+            // ③ 显式 straight：surface 位图不接受 → 按设计「一条告警 + 不出图」，不静默改用别的 alpha 模式
+            using (var provider = new SpoutSourceProvider("probe_straight", gpu!, host.Ctx, NoSuchSender,
+                       premultiplied: false))
+                Assert.Null(EnsureBitmap(provider, owned));
+        }
+    }
+
     // ============================================================== 小工具
+
+    /// <summary>本用例不取帧，只要一个名字：<c>EnsureBitmap</c> 只收纹理，不碰 <see cref="SpoutIn"/>。</summary>
+    private const string NoSuchSender = "JizuraLiveNoSuchSender";
+
+    /// <summary>反射调私有 <c>EnsureBitmap(tex, generation, frontIndex)</c>：代次 0 / 槽位 0。</summary>
+    private static ID2D1Bitmap? EnsureBitmap(SpoutSourceProvider provider, ID3D11Texture2D tex)
+    {
+        var method = typeof(SpoutSourceProvider).GetMethod("EnsureBitmap",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        return (ID2D1Bitmap?)method!.Invoke(provider, [tex, 0L, 0]);
+    }
+
+    /// <summary>把位图原样画进离屏面并回读：中心与角点都必须是源纹理的颜色。</summary>
+    private static void AssertDraws(D3DDevice gpu, D2DHost host, ID2D1Bitmap bmp, Color4 want, string why)
+    {
+        using var target = OffscreenTarget.Create(gpu, host.Ctx, W, H);
+        host.Draw.SetTarget(target.Bitmap, W, H);
+        host.Draw.Begin();
+        host.Draw.Clear(new Color4(0f, 0f, 0f, 0f));
+        host.Draw.DrawBitmap(bmp, new Rect(0, 0, W, H));
+        host.Ctx.Flush(out _, out _);
+        host.Draw.End();
+        host.Draw.SetTarget(null, 1, 1); // 摘掉目标：后面 D3D 侧要动同一张纹理
+
+        using var img = target.Readback();
+        AssertNear(img, want, why);
+    }
 
     /// <summary>与 <see cref="SpoutIn"/> 的自有帧纹理同规格（BGRA8 / Default / RT|SR / Mip1 / Array1 / CPU=None / Misc=None）。</summary>
     private static ID3D11Texture2D CreateOwned(D3DDevice gpu, int w, int h) =>
