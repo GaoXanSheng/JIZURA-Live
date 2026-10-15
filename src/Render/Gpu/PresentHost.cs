@@ -48,6 +48,12 @@ public sealed class PresentHost : HwndHost
     /// <summary>后缓冲尺寸变化（渲染线程）：使用方据此重建与尺寸绑定的位图/渲染目标。</summary>
     public event Action<PresentHost>? Resized;
 
+    /// <summary>
+    /// 渲染循环已退出、设备与交换链尚未释放（渲染线程）。使用方在这里释放自己那线程上建的
+    /// D2D/DWrite 资源——换别的线程释放就是 use-after-free 的源头。
+    /// </summary>
+    public event Action<PresentHost>? Shutdown;
+
     /// <summary>初始化失败的原因（非空即 GPU 路不可用）。</summary>
     public string? Error { get; private set; }
 
@@ -81,17 +87,34 @@ public sealed class PresentHost : HwndHost
         return new HandleRef(this, _hwnd);
     }
 
-    protected override void DestroyWindowCore(HandleRef hwnd)
+    /// <summary>
+    /// 停机握手：请求渲染线程收尾并等它确认。帧等待本身有 1s 上限，所以停止最迟一个节拍后被看见。
+    /// 返回 false 表示线程没在预算内退出——调用方不能把这种情况当成功，也不能替它释放 GPU 资源。
+    /// 可重复调用；<see cref="DestroyWindowCore"/> 兜底再调一次。
+    /// </summary>
+    public bool StopRender(int joinMs = 3000)
     {
         _running = false;
+        var thread = _thread;
+        if (thread is null) return true;
+
         try
         {
-            _thread?.Join(2000);
+            if (thread.Join(joinMs)) return true;
+            Log.Error($"[PresentHost] 渲染线程未在 {joinMs} ms 内退出，仍在原生调用里");
+            return false;
         }
         catch (Exception ex)
         {
-            Log.Debug("[PresentHost] 渲染线程退出等待超时：" + ex.Message);
+            Log.Error("[PresentHost] 等待渲染线程退出失败：" + ex.Message, ex);
+            return false;
         }
+    }
+
+    protected override void DestroyWindowCore(HandleRef hwnd)
+    {
+        if (!StopRender())
+            Log.Error("[PresentHost] 停机握手未完成：仍按 WPF 要求销毁 HWND，GPU 资源留给渲染线程或进程退出收尾");
 
         if (hwnd.Handle != IntPtr.Zero) DestroyWindow(hwnd.Handle);
         _hwnd = IntPtr.Zero;
@@ -138,7 +161,8 @@ public sealed class PresentHost : HwndHost
 
                 if (gpu.IsDeviceRemoved)
                 {
-                    Log.Error($"[PresentHost] 设备已移除（{gpu.RemovedReasonText()}），停止出帧");
+                    Error = $"设备已移除（{gpu.RemovedReasonText()}），停止出帧";
+                    Log.Error($"[PresentHost] {Error}");
                     break;
                 }
             }
@@ -150,6 +174,17 @@ public sealed class PresentHost : HwndHost
         }
         finally
         {
+            // 顺序是契约定的：先让使用方在本线程清 provider/缓存，再拆交换链与设备。
+            // 反过来会让使用方碰已经释放的设备。
+            try
+            {
+                Shutdown?.Invoke(this);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[PresentHost] 收尾释放失败：" + ex.Message, ex);
+            }
+
             Target?.Dispose();
             Gpu?.Dispose();
             Target = null;

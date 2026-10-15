@@ -13,7 +13,7 @@
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
         <PublishDir>bin\publish\</PublishDir>
-        <Version>3.2.6</Version>
+        <Version>3.2.7</Version>
         <Product>JIZURA Live PV</Product>
         <Description>JIZURA Live PV（专用于歌词 PV 与 VTS 虚拟角色特效联动工作台）</Description>
         <ApplicationIcon>assets\app.ico</ApplicationIcon>

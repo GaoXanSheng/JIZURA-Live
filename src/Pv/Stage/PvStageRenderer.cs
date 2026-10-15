@@ -24,7 +24,15 @@ public sealed class PvStageRenderer : IDisposable
     private readonly Dictionary<IntPtr, ID2D1Bitmap1> _fxBitmaps = new();
     private OffscreenTarget? _stageTarget;
     private ID3D11ShaderResourceView? _stageSrv;
-    private int _stageW, _stageH;
+
+    /// <summary>设计画布尺寸：本渲染器一生不变，窗口尺寸只影响预览怎么贴上去。</summary>
+    private readonly int _designW, _designH;
+
+    /// <summary>
+    /// 本帧时刻：由 <see cref="Prepare"/> 写入，Composite 只读这一份。
+    /// 帧内绝不再回头读时钟——否则歌词贴图与着色器相位会拿到两个不同的时刻。
+    /// </summary>
+    private double _frameTime;
 
     public TypographyLayerProvider? Lyric { get; }
     public PvStage Stage { get; }
@@ -50,15 +58,23 @@ public sealed class PvStageRenderer : IDisposable
         _fx = new GpuEffectRunner(gpu);
         Effects = effects;
         Stage = new PvStage(scene);
+        // 设计尺寸来自可手改的场景文件，非法值兜到最小可用画布（16 是本仓库各处离屏面的下限）
+        _designW = Math.Max(16, designWidth);
+        _designH = Math.Max(16, designHeight);
 
-        Lyric = new TypographyLayerProvider("lyrics_pv", gpu, d2d, designWidth, designHeight);
+        Lyric = new TypographyLayerProvider("lyrics_pv", gpu, d2d, _designW, _designH);
         Stage.Register(Lyric);
     }
+
+    /// <summary>设计画布尺寸：图层取景、效果半径、镜头位移都以它为单位。</summary>
+    public int DesignWidth => _designW;
+    public int DesignHeight => _designH;
 
     public void SetLyrics(IReadOnlyList<KrcLine>? lines) => Lyric?.SetLyrics(lines);
 
     public void Prepare(double time)
     {
+        _frameTime = time;
         if (Lyric is null) return;
         var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         Lyric.Render(time);
@@ -114,51 +130,60 @@ public sealed class PvStageRenderer : IDisposable
         }
     }
 
-    /// <summary>合成并画到目标。</summary>
+    /// <summary>
+    /// 合成一帧：先在固定设计画布上图层栈、跑效果图，最后等比贴到目标。
+    /// 目标尺寸只决定这块 letterbox 矩形，不参与任何内容坐标计算。
+    /// </summary>
     public void Composite(ID2D1Bitmap1 target, int width, int height)
     {
-        EnsureStageTarget(width, height);
+        EnsureStageTarget();
         var d = _d2d.Draw;
+        var frame = new PvFrameContext(_frameTime, Stage.Beat, Stage.Energy, _designW, _designH);
 
-        // 1) 图层栈合成到可采样面
-        d.SetTarget(_stageTarget!.Bitmap, width, height);
+        // 1) 图层栈合成到可采样面（永远是设计尺寸：窗口缩放不重上面、不重分配）
+        d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
-        Stage.RenderFrame(d, width, height);
+        Stage.RenderFrame(d, frame);
         d.End();
         var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        // 2) 效果图（D3D11 全屏 pass 链）
+        // 2) 效果图（D3D11 全屏 pass 链）：像素半径按设计尺寸标定，与预览分辨率无关
         GpuTexturePool.Entry? fxOut = null;
         var passes = Effects.Nodes.Any(n => n.Enabled)
-            ? Effects.BuildRenderGraph(_fx.Shaders, (float)(Stage.Driver?.Time ?? 0), width, height)
+            ? Effects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH)
             : null;
         if (passes is { Count: > 0 })
-            fxOut = _fx.RunGraph(passes, _stageSrv!, width, height);
+            fxOut = _fx.RunGraph(passes, _stageSrv!, _designW, _designH);
 
         var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
-        // 3) 画到目标
+        // 3) 等比贴到目标，多出来的地方留黑
         d.SetTarget(target, width, height);
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
-        d.DrawBitmap(fxOut is null ? _stageTarget!.Bitmap : BitmapFor(fxOut),
-            new Rect(0, 0, width, height));
+        d.DrawBitmap(fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut),
+            Letterbox(_designW, _designH, width, height));
         d.End();
 
         if (fxOut is not null) _fx.Pool.Return(fxOut);
         LastTiming = (LastTiming.Engine, Elapsed(t1), Elapsed(t2));
     }
 
-    private void EnsureStageTarget(int width, int height)
+    /// <summary>把设计画布等比放进目标矩形，居中，余量留黑。</summary>
+    public static Rect Letterbox(int designW, int designH, int targetW, int targetH)
     {
-        if (_stageTarget is not null && _stageW == width && _stageH == height) return;
-        _stageSrv?.Dispose();
-        _stageTarget?.Dispose();
-        _stageTarget = OffscreenTarget.Create(_gpu, _d2d.Ctx, width, height, sampleable: true);
+        var s = Math.Min(targetW / (float)designW, targetH / (float)designH);
+        var w = designW * s;
+        var h = designH * s;
+        return new Rect((targetW - w) / 2f, (targetH - h) / 2f, w, h);
+    }
+
+    private void EnsureStageTarget()
+    {
+        if (_stageTarget is not null) return;
+        _stageTarget = OffscreenTarget.Create(_gpu, _d2d.Ctx, _designW, _designH, sampleable: true);
         _stageSrv = _gpu.Device.CreateShaderResourceView(_stageTarget.Texture);
-        _stageW = width;
-        _stageH = height;
     }
 
     private ID2D1Bitmap1 BitmapFor(GpuTexturePool.Entry entry)
@@ -183,7 +208,7 @@ public sealed class PvStageRenderer : IDisposable
         _fxBitmaps.Clear();
         _stageSrv?.Dispose();
         _stageTarget?.Dispose();
-        Lyric?.Dispose();
+        // Lyric 已注册在 Stage 的提供者表里，释放权归 Stage，这里不再单独 Dispose 它
         Stage.Dispose();
         _fx.Dispose();
     }

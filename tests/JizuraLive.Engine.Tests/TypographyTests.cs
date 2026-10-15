@@ -1,9 +1,11 @@
+using System.IO;
 using JizuraLive.App.PvStage;
 using JizuraLive.Engine;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Render.Text;
+using NAudio.Wave;
 
 namespace JizuraLive.Engine.Tests;
 
@@ -72,8 +74,11 @@ public class TypographyTests
         }
     }
 
+    /// <summary>
+    /// 无音源时不跑虚拟时钟：时间只认用户定位，Play 不推进（旧实现在这里偷偷跑了一台 180s 墙钟）。
+    /// </summary>
     [Fact]
-    public void AudioClockDriverControlsVirtualTimeline()
+    public void TransportStaysFrozenWithoutAudioSource()
     {
         using var driver = new AudioClockDriver();
         Assert.False(driver.IsPlaying);
@@ -83,9 +88,140 @@ public class TypographyTests
         Assert.Equal(15.5, driver.Time, 1);
 
         driver.Play();
-        Assert.True(driver.IsPlaying);
-
-        driver.Pause();
         Assert.False(driver.IsPlaying);
+        Assert.Equal(15.5, driver.Time, 1);
     }
+
+    // ---- 音频驱动时钟 ----
+    // 这一组只钉「加载 + 时钟读数语义」，绝不 Play()：WaveOut.Play 会真出声，
+    // 且 CI 无音频设备时 waveOutOpen 直接失败。设备相关的行为（播放中 Seek 的停起冲刷、
+    // OnStopped 三路分流）无法在没有真实播放的情况下构造，见文件末尾说明。
+
+    /// <summary>合成测试音频：16bit/44.1kHz/双声道正弦波，独立临时目录，用完即删。</summary>
+    private static string WriteToneWav(double seconds, int rate = 44100, int channels = 2)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "jz-audio-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "tone.wav");
+
+        using var writer = new WaveFileWriter(path, new WaveFormat(rate, 16, channels));
+        var frames = (int)(seconds * rate);
+        var buffer = new float[channels * 4096];
+        var written = 0;
+        while (written < frames)
+        {
+            var n = Math.Min(4096, frames - written);
+            for (var i = 0; i < n; i++)
+            {
+                var v = (float)(0.5 * Math.Sin(2 * Math.PI * 440.0 * (written + i) / rate));
+                for (var c = 0; c < channels; c++) buffer[i * channels + c] = v;
+            }
+            writer.WriteSamples(buffer, 0, n * channels);
+            written += n;
+        }
+        return path;
+    }
+
+    /// <summary>无音源时的 Seek 只改 _position：Time 立即变成定位值，且不随墙钟走。</summary>
+    [Fact]
+    public void SeekWithoutAudioSourceMovesTimeButClockStaysFrozen()
+    {
+        using var driver = new AudioClockDriver();
+
+        driver.Seek(15.5);
+        Assert.Equal(15.5, driver.Time, 1);
+
+        Thread.Sleep(150);
+        Assert.Equal(15.5, driver.Time, 1); // 没有源就不该自己爬
+        Assert.False(driver.IsPlaying);
+
+        // 无源时只做下限保护（项目时长未定），上界不截到 Duration
+        driver.Seek(9999);
+        Assert.Equal(9999, driver.Time, 1);
+    }
+
+    /// <summary>加载失败（文件不存在）时：返回 false、Error 保持 null、Duration 为 0。</summary>
+    [Fact]
+    public void LoadAudioMissingFileFailsQuietly()
+    {
+        using var driver = new AudioClockDriver();
+
+        var ok = driver.LoadAudio(Path.Combine(Path.GetTempPath(), "jz-no-such-audio-" + Guid.NewGuid() + ".wav"));
+
+        Assert.False(ok);
+        // Error 的语义是「播放中设备故障」，加载失败只记日志，不占 Error
+        Assert.Null(driver.Error);
+        Assert.Equal(0, driver.Duration);
+        Assert.Equal(0, driver.Time, 1);
+    }
+
+    /// <summary>加载合法音频后：Time 归零、Duration 与文件时长吻合、仍未播放。</summary>
+    [Fact]
+    public void LoadAudioResetsClockToZero()
+    {
+        if (WaveOut.DeviceCount == 0) return; // 无输出设备：Init 会失败，语义无意义
+
+        var wav = WriteToneWav(2.0);
+        try
+        {
+            using var driver = new AudioClockDriver();
+
+            Assert.True(driver.LoadAudio(wav));
+            Assert.Null(driver.Error);
+            Assert.Equal(2.0, driver.Duration, 3);
+            Assert.Equal(0, driver.Time, 3); // 加载成功必须归零，不是接着上次的位置
+            Assert.False(driver.IsPlaying);
+
+            // 有源后 Time 仍不自己爬（只有 Play 才起设备钟）
+            Thread.Sleep(120);
+            Assert.Equal(0, driver.Time, 3);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(wav)!, true);
+        }
+    }
+
+    /// <summary>
+    /// 加载后 Seek 落到解码器上：Time 与定位值一致、且停在未播放态（缓冲冲刷只有播放中才做）。
+    /// 播放中 Seek 会把 _playBase 也搬过去并停起一次，那条路径需要真实设备播放，见末尾说明。
+    /// </summary>
+    [Fact]
+    public void SeekAfterLoadPositionsReaderWithoutPlaying()
+    {
+        if (WaveOut.DeviceCount == 0) return;
+
+        var wav = WriteToneWav(2.0);
+        try
+        {
+            using var driver = new AudioClockDriver();
+            Assert.True(driver.LoadAudio(wav));
+
+            driver.Seek(0.7);
+            Assert.Equal(0.7, driver.Time, 3);
+            Assert.False(driver.IsPlaying);
+
+            // 越界截到 [0, Duration]，不会把 _position 甩到文件外
+            driver.Seek(99);
+            Assert.Equal(driver.Duration, driver.Time, 3);
+            driver.Seek(-5);
+            Assert.Equal(0, driver.Time, 3);
+
+            Thread.Sleep(120);
+            Assert.Equal(0, driver.Time, 3); // 定位后依然不自己爬
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(wav)!, true);
+        }
+    }
+
+    // 未覆盖的行为（不是漏测，是无法在不真实播放的前提下构造）：
+    // 1. Play()/Pause()/播放中 Seek：WaveOut.Play 会启动播放线程并向真实设备出声，
+    //    waveOutOpen 在没有输出设备的环境（CI）直接抛 MmException，Play 连起来跑会挂也会扰民。
+    // 2. Time 在播放中的单调性、GetPosition 按 IEEE Float 格式换算（实测坑：按源 16bit 换算会快一倍）：
+    //    两者都要等设备真的吐字节才有读数，造不出稳定的确定性断言。
+    // 3. OnStopped 三路分流（fault / _stopRequested / 播完归位）：靠的是播放线程回调用例，
+    //    同样需要真实播放，且天然带时序抖动。
+    // 这些行为目前只由实机手验保证。
 }

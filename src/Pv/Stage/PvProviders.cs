@@ -4,7 +4,10 @@ using Vortice.Mathematics;
 
 namespace JizuraLive.Pv;
 
-/// <summary>PV 舞台一帧的上下文（设计像素 + 时间 + 音频能量/节拍）。</summary>
+/// <summary>
+/// 一帧的输入快照（设计像素 + 时间 + 音频能量/节拍）。
+/// 由帧入口在边界处读一次时钟后构造，整帧复用同一份；任何环节都不许回头再读。
+/// </summary>
 public readonly record struct PvFrameContext(
     double Time,
     double Beat,
@@ -13,7 +16,9 @@ public readonly record struct PvFrameContext(
     int Height);
 
 /// <summary>
-/// 图层提供者：PV 舞台只认「给我这一帧要画的图 + 它自己的时钟」。
+/// 图层提供者：PV 舞台只认「给我这一帧要画的图」。
+/// 时钟不归它管——帧入口在边界处读一次，随 <see cref="PvFrameContext"/> 整帧传进来，
+/// 图层自己再读钟就会出现同一帧里前后不一的时间口径。
 /// 它不知道也不该知道图是从哪来的（引擎歌词 / Spout 角色 / 字幕 / 纯色）。
 /// </summary>
 public interface IPvLayerProvider : IDisposable
@@ -26,25 +31,6 @@ public interface IPvLayerProvider : IDisposable
 
     /// <summary>取本帧内容（没有内容返回 <see cref="PvLayerImage.Empty"/>）。</summary>
     PvLayerImage Pump(in PvFrameContext ctx);
-}
-
-/// <summary>
-/// 驱动器：把 PV 舞台与「音乐从哪来」解耦（云歌单 / 本地文件 / 编辑器实拍 / 手动）。
-/// PV 舞台只管展示与切换，不依赖任何具体音乐来源。
-/// </summary>
-public interface IPvDriver : IDisposable
-{
-    string Name { get; }
-    double Time { get; }
-    double Duration { get; }
-    bool IsPlaying { get; }
-
-    void Play();
-    void Pause();
-    void Seek(double time);
-
-    /// <summary>换歌/时钟来源变化。</summary>
-    event Action? Changed;
 }
 
 /// <summary>纯色/底色层（背景衬底用）。</summary>
@@ -106,59 +92,6 @@ public sealed class TextureProvider : IPvLayerProvider
     {
         _bitmap = bitmap;
         Version++;
-    }
-
-    public void Dispose()
-    {
-    }
-}
-
-/// <summary>
-/// 手动驱动器：时间由外部推（编辑器实拍 / 测试 / 手动拖时间轴）。
-/// 这是最"笨"的驱动器，但正因为笨，它让 PV 舞台可以完全脱离云歌单与音频跑起来。
-/// </summary>
-public sealed class ManualDriver : IPvDriver
-{
-    private double _time;
-    private double _duration = 180;
-    private bool _playing;
-
-    public string Name => "手动";
-    public double Time => _time;
-    public double Duration => _duration;
-    public bool IsPlaying => _playing;
-
-    public event Action? Changed;
-
-    public void SetDuration(double seconds)
-    {
-        _duration = Math.Max(0.01, seconds);
-        Changed?.Invoke();
-    }
-
-    public void Play()
-    {
-        _playing = true;
-        Changed?.Invoke();
-    }
-
-    public void Pause()
-    {
-        _playing = false;
-        Changed?.Invoke();
-    }
-
-    public void Seek(double time)
-    {
-        _time = Math.Clamp(time, 0, _duration);
-        Changed?.Invoke();
-    }
-
-    /// <summary>按墙钟推进（宿主每帧调用）。</summary>
-    public void Advance(double seconds)
-    {
-        if (!_playing) return;
-        _time = Math.Clamp(_time + seconds, 0, _duration);
     }
 
     public void Dispose()

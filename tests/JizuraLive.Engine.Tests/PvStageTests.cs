@@ -96,6 +96,40 @@ public class PvStageTests
     }
 
     /// <summary>
+    /// 重开工程后新增图层不许复用量标：序号必须从场景里已有的 src_&lt;n&gt; 接着往下编。
+    /// 撞名后两层共用一个提供者，删一层会把另一层也变成空层。
+    /// </summary>
+    [Fact]
+    public void NewLayerIdsContinueAfterReloadedScene()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) return;
+
+        var dir = Path.Combine(Path.GetTempPath(), "jizura-seq-" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            using (gpu)
+            {
+                var scene = PvScene.CreateDefault();
+                scene.Layers.Add(PvPipeline.NewSourceLayer("src_7", "OldCam"));
+
+                using var pipe = new PvPipeline(gpu, Path.Combine(dir, "scene.json"), scene, new EffectGraph());
+                pipe.RequestAdd("NewCam");
+                pipe.Prepare(0.0);
+
+                var ids = pipe.Scene.Layers.Select(l => l.Id).ToArray();
+                Assert.Equal(ids.Length, ids.Distinct().Count());
+                Assert.Contains("src_8", ids);
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    /// <summary>
     /// 舞台能把合成直接写进外部分享纹理（纯 D3D11 共享纹理）。
     /// </summary>
     [Fact]
@@ -241,7 +275,7 @@ public class PvStageTests
         {
             var probe = new VtsTrackingProbe();
             using var pipe = new PvPipeline(gpu, "unused.json", PvScene.CreateDefault(),
-                new EffectGraph(), W, H, null, false, probe);
+                new EffectGraph(), null, false, probe);
 
             probe.Set(VtsTrackingState.Empty with
             {
@@ -254,7 +288,7 @@ public class PvStageTests
                 AtMs = Environment.TickCount64,
             });
 
-            pipe.Prepare(0.0, W, H);
+            pipe.Prepare(0.0);
             var cam = pipe.Renderer.Stage.Camera;
 
             Assert.True(Math.Abs(cam.X) > 1, $"头右移镜位移应显著，实际 {cam.X}");
@@ -383,7 +417,7 @@ public class PvStageTests
                 bind(host, stage, keep);
                 host.Draw.Begin();
                 host.Draw.Clear(new Color4(0, 0, 0, 1));
-                stage.RenderFrame(host.Draw, W, H);
+                stage.RenderFrame(host.Draw, new PvFrameContext(0, 0, 0, W, H));
                 host.Draw.End();
                 return target.Readback();
             }

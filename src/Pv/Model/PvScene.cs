@@ -10,6 +10,12 @@ public sealed class PvScene
 {
     public const string DefaultFileName = "config/pv_scene.json";
 
+    /// <summary>
+    /// 默认角色层的 Id。场景模板与管线找角色层必须认同一个名字——
+    /// 曾经一边写 <c>character</c>、一边写 <c>actor</c>，角色摘要路径因此永远是空的。
+    /// </summary>
+    public const string CharacterLayerId = "character";
+
     /// <summary>场景版本号</summary>
     public int SchemaVersion { get; set; } = 1;
 
@@ -90,7 +96,7 @@ public sealed class PvScene
         // 2. 视觉主体/角色层（VTS / 插画 / 3D）
         scene.Layers.Add(new PvLayerConfig
         {
-            Id = "character",
+            Id = CharacterLayerId,
             Name = "Character Asset",
             Kind = PvLayerKind.VisualAsset,
             SpoutSenderName = "VTubeStudio",

@@ -38,9 +38,10 @@ public sealed class SwapChainTarget : IDisposable
     public Format BackBufferFormat { get; }
 
     private readonly ID3D11Device _device;
+    private readonly SwapChainFlags _createFlags;
 
     private SwapChainTarget(ID3D11Device device, IDXGISwapChain1 swapChain, int w, int h,
-        bool vsync, bool allowTearing, IntPtr waitable, Format format)
+        bool vsync, bool allowTearing, IntPtr waitable, Format format, SwapChainFlags createFlags)
     {
         _device = device;
         SwapChain = swapChain;
@@ -50,6 +51,7 @@ public sealed class SwapChainTarget : IDisposable
         AllowTearing = allowTearing;
         FrameLatencyWaitable = waitable;
         BackBufferFormat = format;
+        _createFlags = createFlags;
         RenderTargetView = CreateRtv();
     }
 
@@ -88,7 +90,7 @@ public sealed class SwapChainTarget : IDisposable
         swapChain2.Dispose();
 
         var target = new SwapChainTarget(gpu.Device, swapChain, width, height, vsync, tearing,
-            waitable, desc.Format);
+            waitable, desc.Format, flags);
         Log.Info($"[SwapChain] {width}x{height} flip-discard，vsync={(vsync ? "开" : "关")}"
                  + $"，撕裂允许={(tearing ? "是" : "否")}，帧延迟等待对象={(waitable != IntPtr.Zero ? "有" : "无")}");
         return target;
@@ -113,7 +115,10 @@ public sealed class SwapChainTarget : IDisposable
 
         RenderTargetView.Dispose();
         // ResizeBuffers 要求所有后缓冲引用已释放（GetBuffer 的临时引用由调用方 using 管好）
-        SwapChain.ResizeBuffers(0, (uint)width, (uint)height, Format.Unknown, SwapChainFlags.None);
+        // 标志必须原样带上。MSDN：ResizeBuffers 可以重置或更改全部 DXGI_SWAP_CHAIN_FLAG，
+        // 所以传 None 会把 FRAME_LATENCY_WAITABLE_OBJECT 摘掉——手里的等待对象从此不再置信号，
+        // 每帧只能等满超时（拖窗口时表现为帧率突然掉到 1）。
+        SwapChain.ResizeBuffers(0, (uint)width, (uint)height, Format.Unknown, _createFlags);
         Width = width;
         Height = height;
         RenderTargetView = CreateRtv();

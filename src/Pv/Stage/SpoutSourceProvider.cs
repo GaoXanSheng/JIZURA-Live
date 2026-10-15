@@ -34,6 +34,10 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     public int SourceHeight => _in.SourceHeight;
     public string LastError => _in.LastError;
 
+    /// <summary>取帧耗时（毫秒）。停机握手要用实测判断原生接收会不会把渲染线程关在门外。</summary>
+    public double LastReceiveMs { get; private set; }
+    public double MaxReceiveMs { get; private set; }
+
     public SpoutSourceProvider(string id, D3DDevice gpu, ID2D1DeviceContext ctx,
         string sender, bool premultiplied = false)
     {
@@ -47,6 +51,7 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     /// <summary>收一帧（在渲染线程上调用）。</summary>
     public void PumpFrame()
     {
+        var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             if (_in.Pump(true, _sender, _premultiplied)) _version++;
@@ -54,6 +59,13 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
         catch (Exception ex)
         {
             Log.Warn("[PV/Spout] 收帧失败：" + ex.Message);
+        }
+        finally
+        {
+            var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0
+                     / System.Diagnostics.Stopwatch.Frequency;
+            LastReceiveMs = ms;
+            if (ms > MaxReceiveMs) MaxReceiveMs = ms;
         }
     }
 

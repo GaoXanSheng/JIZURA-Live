@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -27,7 +28,10 @@ public partial class PvStageWindow : Window
     private volatile PvPipeline? _pipe;
 
     private int _saveTick;
+    private string? _saveError;
+    private System.Windows.Threading.DispatcherTimer? _uiTimer;
     private readonly List<PvLayerConfig> _uiLayers = new();
+    private string[] _uiLayerIds = Array.Empty<string>();
     private System.Windows.Point _dragStart;
     private PvLayerConfig? _dragLayer;
 
@@ -47,29 +51,31 @@ public partial class PvStageWindow : Window
         _effects = new EffectGraph();
 
         Loaded += OnLoaded;
-        Closed += OnClosed;
+        Closing += OnClosing;
         Stage.Ready += OnStageReady;
         Stage.Prepare += OnStagePrepare;
         Stage.Frame += OnStageFrame;
+        Stage.Shutdown += OnStageShutdown;
 
         BuildLayerList();
         BuildEffectRack();
         BuildPickers();
 
-        var timer = new System.Windows.Threading.DispatcherTimer
+        _uiTimer = new System.Windows.Threading.DispatcherTimer
         {
             Interval = TimeSpan.FromMilliseconds(500),
         };
-        timer.Tick += (_, _) =>
+        _uiTimer.Tick += (_, _) =>
         {
             RefreshStatus();
             if (++_saveTick >= 10)
             {
                 _saveTick = 0;
-                _pipe?.RequestSave();
+                // 存盘留在 UI 线程做：渲染帧路径不碰磁盘。失败留在状态条上，不静默吞掉。
+                _saveError = _pipe?.SaveSceneNow();
             }
         };
-        timer.Start();
+        _uiTimer.Start();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -80,13 +86,54 @@ public partial class PvStageWindow : Window
 
     private static string ScenePath => Path.Combine(AppDirs.ConfigDir, "pv_scene.json");
 
-    private void OnClosed(object? sender, EventArgs e)
+    /// <summary>
+    /// 停机顺序按执行契约走：先完成保存/放弃决策，再停止发布（取帧、音频），
+    /// 最后等渲染线程在自己的线程上释放 GPU 资源并确认退出。反过来做就是 use-after-dispose。
+    /// </summary>
+    private void OnClosing(object? sender, CancelEventArgs e)
     {
-        _pipe?.SaveSceneNow();
-        Log.Info($"[PV 舞台] 场景已保存：{_scene.Layers.Count} 层（{ScenePath}）");
+        var fault = _pipe?.SaveSceneNow() ?? _pipe?.SaveEffectsNow();
+        if (fault is not null)
+        {
+            Log.Error($"[PV 工作台] 关闭前保存失败：{fault}");
+            if (MessageBox.Show(this,
+                    $"工程没能保存：{fault}\n\n放弃这次改动并关闭？",
+                    "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            {
+                // 取消或没救回来都不许停活动会话：留着窗口，让用户自己处理
+                e.Cancel = true;
+                return;
+            }
+        }
 
+        // 定时器一停，写盘的人就只剩关闭流程与渲染线程收尾，不会有两个 File.WriteAllText 撞同一文件
+        _uiTimer?.Stop();
+
+        var pipe = _pipe;
+        pipe?.StopPumping();
+        var maxRecv = pipe?.MaxReceiveMs ?? 0;
         _audio.Dispose();
-        _pipe?.Dispose();
+
+        if (!Stage.StopRender())
+        {
+            // 线程还没出来：不能由 UI 线程替它释放，否则正在用的设备上下文会被拆掉
+            Log.Error("[PV 工作台] 停机握手未完成，管线留给渲染线程收尾");
+            return;
+        }
+
+        if (pipe is not null)
+            Log.Info($"[PV 工作台] 已按握手关闭（{_scene.Layers.Count} 层，Spout 取帧最长 {maxRecv:F1} ms）");
+    }
+
+    /// <summary>渲染线程确认退出后、设备尚未释放前，在本线程回收管线资源。</summary>
+    private void OnStageShutdown(PresentHost host)
+    {
+        var pipe = _pipe;
+        _pipe = null;
+        pipe?.Dispose();
+
+        if (host.Error is not null)
+            Dispatcher.BeginInvoke(() => TblStatus.Text = "预览已停止：" + host.Error);
     }
 
     private void OnStageReady(PresentHost host)
@@ -96,10 +143,13 @@ public partial class PvStageWindow : Window
             _pipe?.Dispose();
             _pipe = null;
 
-            _pipe = new PvPipeline(host.Gpu!, ScenePath, _scene, _effects, 1920, 1080);
-            _pipe.Renderer.Stage.Driver = _audio;
+            _pipe = new PvPipeline(host.Gpu!, ScenePath, _scene, _effects);
 
-            _pipe.LayersChanged += () => Dispatcher.BeginInvoke(new Action(BuildLayerList));
+            _pipe.LayersChanged += () => Dispatcher.BeginInvoke(() =>
+            {
+                BuildLayerList();
+                _saveError = _pipe?.SaveSceneNow();
+            });
             _pipe.EffectsChanged += () => Dispatcher.BeginInvoke(new Action(BuildEffectRack));
 
             var msg = $"[PV 舞台] 渲染就绪：{host.Gpu!.AdapterName}";
@@ -124,7 +174,7 @@ public partial class PvStageWindow : Window
     {
         var pipe = _pipe;
         if (pipe is null || !pipe.Ready || host.Target is null) return;
-        pipe.Prepare(_audio.Time, host.Target.Width, host.Target.Height);
+        pipe.Prepare(_audio.Time);
     }
 
     private void OnStageFrame(PresentHost host, double dt)
@@ -149,8 +199,12 @@ public partial class PvStageWindow : Window
 
     private void BuildLayerList()
     {
-        if (_uiLayers.Count != _scene.Layers.Count)
+        // 按 Id 序列判断是否需要重建：层数相同但换了序/换了层（重载、上移下移、增删成对）时，
+        // 只比 Count 会留着旧对象继续显示。
+        var ids = _scene.Layers.Select(l => l.Id).ToArray();
+        if (!_uiLayerIds.SequenceEqual(ids))
         {
+            _uiLayerIds = ids;
             _uiLayers.Clear();
             for (var i = _scene.Layers.Count - 1; i >= 0; i--) _uiLayers.Add(_scene.Layers[i]);
         }
@@ -752,7 +806,8 @@ public partial class PvStageWindow : Window
         if (pipe is not null)
         {
             var (eng, fx, comp) = pipe.Renderer.LastTiming;
-            TblStageInfo.Text = $"{Stage.Target?.Width ?? 0}×{Stage.Target?.Height ?? 0}"
+            TblStageInfo.Text = $"设计 {pipe.Renderer.DesignWidth}×{pipe.Renderer.DesignHeight}"
+                                + $"  预览 {Stage.Target?.Width ?? 0}×{Stage.Target?.Height ?? 0}"
                                 + $"  {Stage.Fps:F1} fps"
                                 + $"  歌词 {eng:F1} + 特效 {fx:F1} + 合成 {comp:F1} ms";
             TblFps.Text = $"{Stage.Fps:F1} fps";
@@ -761,6 +816,9 @@ public partial class PvStageWindow : Window
             var srcTxt = total == 0 ? "无外部源" : $"{live}/{total} 路源已连";
             TblStatus.Text = $"效果 {pipe.Renderer.EffectCount} 段 · 图层 {_scene.Layers.Count} · {srcTxt}";
         }
+
+        if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
+        if (_saveError is { } saveFault) TblStatus.Text = $"场景未保存：{saveFault}";
 
         UpdatePlayIcon();
     }

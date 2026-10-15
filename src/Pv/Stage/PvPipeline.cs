@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
@@ -20,12 +21,13 @@ public sealed class PvPipeline : IDisposable
     private readonly PvScene _scene;
     private readonly EffectGraph _effects;
 
-    private readonly Queue<string> _pendingAdds = new();
-    private readonly Queue<string> _pendingRemoves = new();
+    // 跨线程交接只有这一条命令通道：UI 投递，渲染线程在帧首消费（图层提供者的 COM 对象必须在渲染线程建）。
+    private readonly ConcurrentQueue<string> _pendingAdds = new();
+    private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
-    private volatile bool _saveRequested;
 
     private readonly List<SpoutSourceProvider> _spoutProviders = new();
+    private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
     private SpoutSourceProvider? _character;
     private int _layerSeq;
@@ -67,7 +69,6 @@ public sealed class PvPipeline : IDisposable
     public event Action? EffectsChanged;
 
     public PvPipeline(D3DDevice gpu, string scenePath, PvScene scene, EffectGraph effects,
-        int designWidth = 1920, int designHeight = 1080,
         IPvSubtitleSource? subtitleSource = null, bool watchSceneFile = false,
         VtsTrackingProbe? tracking = null)
     {
@@ -77,6 +78,7 @@ public sealed class PvPipeline : IDisposable
         _watchSceneFile = watchSceneFile;
         _tracking = tracking;
         _lastWriteUtc = CurrentWriteUtc();
+        SeedLayerSeq();
 
         EffectsPath = Path.Combine(Path.GetDirectoryName(scenePath) ?? ".", "pv_effects.json");
         _effectsWriteUtc = EffectsWriteUtc();
@@ -85,7 +87,7 @@ public sealed class PvPipeline : IDisposable
         try
         {
             _d2d = D2DHost.Create(gpu);
-            _renderer = new PvStageRenderer(gpu, _d2d, scene, effects, designWidth, designHeight);
+            _renderer = new PvStageRenderer(gpu, _d2d, scene, effects, scene.Width, scene.Height);
             RegisterProviders(gpu, subtitleSource);
             Ready = true;
         }
@@ -100,17 +102,9 @@ public sealed class PvPipeline : IDisposable
     public void SetLyrics(IReadOnlyList<JizuraLive.Engine.KrcLine>? lines) =>
         _renderer.SetLyrics(lines);
 
-    private int _frameW, _frameH;
-
-    public void Prepare(double time, int width, int height)
+    public void Prepare(double time)
     {
         ApplyLayerOps();
-
-        if (_saveRequested)
-        {
-            _saveRequested = false;
-            SaveSceneNow();
-        }
 
         if (_watchSceneFile)
         {
@@ -123,13 +117,13 @@ public sealed class PvPipeline : IDisposable
             }
         }
 
-        foreach (var p in _spoutProviders) p.PumpFrame();
+        if (!_stopPumping)
+            foreach (var p in _spoutProviders) p.PumpFrame();
 
-        _frameW = width;
-        _frameH = height;
         ApplyTracking();
 
-        _subtitle?.Render(time, width, height);
+        // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
+        _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
         _renderer.Lyric?.SetScale(1.0);
         _renderer.Prepare(time);
     }
@@ -146,7 +140,23 @@ public sealed class PvPipeline : IDisposable
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
     public void RequestOrder(IReadOnlyList<string> idsTopFirst) =>
         _pendingOrder = [.. idsTopFirst];
-    public void RequestSave() => _saveRequested = true;
+
+    /// <summary>
+    /// 停止取帧（停机握手的第一步，可在任意线程调用）。
+    /// 原生接收没有超时接口，一旦进去就只能等它自己出来，所以只能保证「不再进去新的」。
+    /// </summary>
+    public void StopPumping() => _stopPumping = true;
+
+    /// <summary>已观察到的最长一次取帧耗时（毫秒）；停机实测用它判断原生接收会不会把收尾卡住。</summary>
+    public double MaxReceiveMs
+    {
+        get
+        {
+            var max = 0.0;
+            foreach (var p in _spoutProviders) max = Math.Max(max, p.MaxReceiveMs);
+            return max;
+        }
+    }
 
     public static bool WantsSpout(PvLayerConfig layer) =>
         layer.Kind == PvLayerKind.VisualAsset
@@ -175,7 +185,7 @@ public sealed class PvPipeline : IDisposable
             var provider = new SpoutSourceProvider(layer.Id, gpu, _d2d.Ctx, layer.SpoutSenderName!);
             _renderer.Stage.Register(provider);
             _spoutProviders.Add(provider);
-            if (layer.Id == CharacterLayerId) _character = provider;
+            if (layer.Id == PvScene.CharacterLayerId) _character = provider;
         }
 
         if (subtitleSource is not null)
@@ -208,13 +218,10 @@ public sealed class PvPipeline : IDisposable
             if (idx >= 0)
             {
                 _scene.Layers.RemoveAt(idx);
+                // 提供者归 Stage 拥有：Remove 已经释放它，这里只摘索引，不再二次 Dispose
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
-                if (p is not null)
-                {
-                    _spoutProviders.Remove(p);
-                    p.Dispose();
-                }
+                if (p is not null) _spoutProviders.Remove(p);
                 if (_character?.Id == id) _character = null;
                 changed = true;
                 Log.Info($"[PV 管线] 移除图层 '{id}'");
@@ -243,7 +250,7 @@ public sealed class PvPipeline : IDisposable
 
         if (changed)
         {
-            RequestSave();
+            // 图层集合变了：只通知 UI，存盘由 UI 线程自己做（渲染帧路径不碰磁盘）
             LayersChanged?.Invoke();
         }
     }
@@ -263,33 +270,38 @@ public sealed class PvPipeline : IDisposable
         var drive = VtsTrackingMap.Compute(st, _trackOptions, _prevBlink);
         _prevBlink = drive.Blink;
 
+        // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度
         _renderer.Stage.Camera = new PvCamState(
-            drive.CameraX * _frameW * TrackingCameraFrac,
-            drive.CameraY * _frameH * TrackingCameraFrac,
+            drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
+            drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
             Math.Clamp(drive.Zoom, 0.5, 2.0),
             0, 0, null, null);
         _renderer.Stage.Energy = drive.MouthEnergy;
     }
 
-    public void SaveSceneNow()
+    /// <summary>把当前场景写成 JSON。成功返回 null，失败返回原因（调用方必须让用户看见）。</summary>
+    public string? SaveSceneNow()
     {
         try
         {
             var json = _scene.ToJson();
-            if (string.Equals(json, _lastSaved, StringComparison.Ordinal)) return;
+            if (string.Equals(json, _lastSaved, StringComparison.Ordinal)) return null;
             var dir = Path.GetDirectoryName(ScenePath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(ScenePath, json);
             _lastSaved = json;
             _lastWriteUtc = CurrentWriteUtc();
+            return null;
         }
         catch (Exception ex)
         {
             Log.Warn("[PV 管线] 保存场景失败：" + ex.Message);
+            return ex.Message;
         }
     }
 
-    public void SaveEffectsNow()
+    /// <summary>把效果图写成 JSON。成功返回 null，失败返回原因。</summary>
+    public string? SaveEffectsNow()
     {
         try
         {
@@ -298,10 +310,12 @@ public sealed class PvPipeline : IDisposable
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(EffectsPath, json);
             _effectsWriteUtc = EffectsWriteUtc();
+            return null;
         }
         catch (Exception ex)
         {
             Log.Warn("[PV 管线] 保存效果图失败：" + ex.Message);
+            return ex.Message;
         }
     }
 
@@ -322,7 +336,19 @@ public sealed class PvPipeline : IDisposable
     }
 
     private const int SceneWatchMs = 1000;
-    private const string CharacterLayerId = "actor";
+
+    /// <summary>
+    /// 从已载入场景里把 <c>src_&lt;n&gt;</c> 的最大序号找出来接着编号。
+    /// 不播种的话重开工程后 _layerSeq 从 0 重来，新增图层会撞上磁盘上已有的 Id。
+    /// </summary>
+    private void SeedLayerSeq()
+    {
+        foreach (var id in _scene.Layers.Select(l => l.Id))
+        {
+            if (id.StartsWith("src_", StringComparison.Ordinal)
+                && int.TryParse(id.AsSpan(4), out var n) && n > _layerSeq) _layerSeq = n;
+        }
+    }
 
     private DateTime CurrentWriteUtc()
     {
@@ -345,8 +371,8 @@ public sealed class PvPipeline : IDisposable
         try
         {
             var disk = PvPipeline.LoadScene(ScenePath);
-            _scene.Width = disk.Width;
-            _scene.Height = disk.Height;
+            // 画布尺寸不参与热重载：它是渲染资源的代际边界，改它必须重建管线（见执行契约的停机/重建），
+            // 在这里悄悄赋进内存场景只会让内存与 GPU 面尺寸各说一套。
             _scene.AmbientTint = disk.AmbientTint;
             _scene.AmbientBlendEnabled = disk.AmbientBlendEnabled;
 
@@ -429,13 +455,18 @@ public sealed class PvPipeline : IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        SaveSceneNow();
-        SaveEffectsNow();
+        // 先让帧回调看见"没准备好"：守卫只查 Ready，不查 _disposed
+        Ready = false;
 
-        foreach (var p in _spoutProviders) p.Dispose();
+        _ = SaveSceneNow();
+        _ = SaveEffectsNow();
+
+        // 所有提供者都注册在 Stage 上，释放权归 Stage（经 _renderer.Dispose()）。
+        // 这里只摘掉本类的索引，绝不第二次 Dispose 同一个对象。
         _spoutProviders.Clear();
+        _subtitle = null;
+        _character = null;
 
-        _subtitle?.Dispose();
         _renderer.Dispose();
         _d2d.Dispose();
     }
