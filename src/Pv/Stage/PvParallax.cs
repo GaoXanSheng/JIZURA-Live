@@ -23,6 +23,88 @@ public readonly record struct PvCamState(
 public readonly record struct PvLayerTransform(Matrix3x2 Matrix, double EffectiveScale, double Overscan);
 
 /// <summary>
+/// 一层本帧的动画参数（契约 §3.3 的产物）：offsetX/Y 是画布宽/高的比例、scale 倍率、opacity 0..1、rotation 度。
+/// 渲染线程每帧按「文档常量 → 曲线 base(t) → 信号 Resolved」算出它，合成链只读它，
+/// 不再回读 <see cref="PvLayerConfig"/> 上同名的这几个字段。
+/// </summary>
+public readonly record struct PvLayerState(
+    double OffsetX,
+    double OffsetY,
+    double Scale,
+    double Opacity,
+    double Rotation)
+{
+    /// <summary>文档常量的帧副本：还没有曲线/信号覆盖时的 base（§3.3 步骤 1）。</summary>
+    public static PvLayerState From(PvLayerConfig layer) =>
+        new(layer.OffsetX, layer.OffsetY, layer.Scale, layer.Opacity, layer.Rotation);
+
+    /// <summary>按帧状态槽读一个参数（信号写帧状态与信号读 base 共用同一套槽映射）。</summary>
+    public bool TryGet(PvFrameSlot slot, out double value)
+    {
+        switch (slot)
+        {
+            case PvFrameSlot.LayerOffsetX: value = OffsetX; return true;
+            case PvFrameSlot.LayerOffsetY: value = OffsetY; return true;
+            case PvFrameSlot.LayerScale: value = Scale; return true;
+            case PvFrameSlot.LayerOpacity: value = Opacity; return true;
+            case PvFrameSlot.LayerRotation: value = Rotation; return true;
+            default: value = 0; return false;
+        }
+    }
+
+    /// <summary>按帧状态槽写一个参数；不是图层槽则原样返回（调用方按编译期解析好的槽调用）。</summary>
+    public PvLayerState With(PvFrameSlot slot, double value) => slot switch
+    {
+        PvFrameSlot.LayerOffsetX => this with { OffsetX = value },
+        PvFrameSlot.LayerOffsetY => this with { OffsetY = value },
+        PvFrameSlot.LayerScale => this with { Scale = value },
+        PvFrameSlot.LayerOpacity => this with { Opacity = value },
+        PvFrameSlot.LayerRotation => this with { Rotation = value },
+        _ => this,
+    };
+}
+
+/// <summary>
+/// 本帧的解析帧状态（契约 §3.3 的产物）：相机四槽 + 每层五参的本帧值。
+/// 渲染线程每帧重算（<see cref="PvPipeline.Prepare"/>），合成链与信号求值只读它；运行态，不进工程文件。
+/// </summary>
+public sealed class PvFrameState
+{
+    private readonly Dictionary<string, PvLayerState> _layers = new(StringComparer.Ordinal);
+
+    /// <summary>本帧相机：相机域的常量、曲线与信号都落在这一份上。</summary>
+    public PvCamState Camera { get; set; } = PvCamState.Identity;
+
+    /// <summary>清空图层帧状态：帧状态只描述**本帧**，删掉的图层不留残影。</summary>
+    public void ClearLayers() => _layers.Clear();
+
+    public void SetLayer(string id, in PvLayerState state) => _layers[id] = state;
+
+    public bool TryGetLayer(string id, out PvLayerState state) => _layers.TryGetValue(id, out state);
+
+    /// <summary>取某槽的本帧值（步骤 1/2 的结果，即 base(t)）；该槽不在帧状态里返回 false。</summary>
+    public bool TryGetBase(PvFrameSlot slot, string layerId, out double value)
+    {
+        switch (slot)
+        {
+            case PvFrameSlot.CameraOffsetX: value = Camera.X; return true;
+            case PvFrameSlot.CameraOffsetY: value = Camera.Y; return true;
+            case PvFrameSlot.CameraScale: value = Camera.Scale; return true;
+            case PvFrameSlot.CameraRotation: value = Camera.Rotation; return true;
+            case PvFrameSlot.None: value = 0; return false;
+            default:
+                if (!_layers.TryGetValue(layerId, out var state))
+                {
+                    value = 0;
+                    return false;
+                }
+
+                return state.TryGet(slot, out value);
+        }
+    }
+}
+
+/// <summary>
 /// 视差运镜与防露底数学（<see cref="System.Numerics.Matrix3x2"/> 版）。
 ///
 /// 与旧的 Skia 版（<c>PvParallaxEngine</c>）是同一套公式，换成新渲染核心的矩阵类型——
@@ -35,19 +117,26 @@ public static class PvParallax
 {
     private const double DegToRad = Math.PI / 180.0;
 
+    /// <summary>按**文档常量**算投影（不含本帧曲线/信号）：只关心视差与防露底的调用方用它。</summary>
+    public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, PvCamState cam,
+        double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true) =>
+        Compute(cw, ch, layer, PvLayerState.From(layer), cam, shakeX, shakeY, globalParallax, antiBleed);
+
     /// <summary>
-    /// 计算一层的完整投影矩阵。
+    /// 计算一层的完整投影矩阵。<paramref name="state"/> 是本帧的动画参数（offset/scale/rotation），
+    /// <paramref name="layer"/> 只提供视差深度、镜像与防露底系数这些非动画字段。
     /// </summary>
     /// <param name="cw">画布宽（设计像素）</param>
     /// <param name="ch">画布高（设计像素）</param>
     /// <param name="layer">图层配置</param>
+    /// <param name="state">本帧图层参数（offset 比例在此换算成设计像素）</param>
     /// <param name="cam">镜头状态</param>
     /// <param name="shakeX">镜头抖动偏移 X（像素）</param>
     /// <param name="shakeY">镜头抖动偏移 Y（像素）</param>
     /// <param name="globalParallax">false = 所有层按深度 1 处理（关掉视差）</param>
     /// <param name="antiBleed">是否启用防露底超取景</param>
-    public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, PvCamState cam,
-        double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true)
+    public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, in PvLayerState state,
+        PvCamState cam, double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true)
     {
         var cx = cw / 2f;
         var cy = ch / 2f;
@@ -79,23 +168,23 @@ public static class PvParallax
 
         // 顺序：中心平移 → 镜头位移 + 图层偏移 → 旋转 → 斜切 → 缩放 → 原点复位
         var m = Matrix3x2.CreateTranslation(
-            (float)(cx + camX + layer.OffsetX * cw),
-            (float)(cy + camY + layer.OffsetY * ch));
+            (float)(cx + camX + state.OffsetX * cw),
+            (float)(cy + camY + state.OffsetY * ch));
 
-        var totalRot = (float)(camRot + layer.Rotation);
+        var totalRot = (float)(camRot + state.Rotation);
         if (Math.Abs(totalRot) > 0.01f)
             m = Matrix3x2.Multiply(m, Matrix3x2.CreateRotation(totalRot * (float)DegToRad));
 
         if (Math.Abs(camSkx) > 0.01)
             m = Matrix3x2.Multiply(m, Matrix3x2.CreateSkew((float)Math.Tan(camSkx * DegToRad), 0));
 
-        var sx = (float)(camS * camSx * layer.Scale * overscan);
-        var sy = (float)(camS * camSy * layer.Scale * overscan);
+        var sx = (float)(camS * camSx * state.Scale * overscan);
+        var sy = (float)(camS * camSy * state.Scale * overscan);
         if (layer.MirrorX) sx = -sx;
 
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(sx, sy));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(-cx, -cy));
 
-        return new PvLayerTransform(m, camS * layer.Scale, overscan);
+        return new PvLayerTransform(m, camS * state.Scale, overscan);
     }
 }

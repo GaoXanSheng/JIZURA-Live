@@ -25,6 +25,7 @@ public class ProjectStoreTests
             scene.Height = 720;
             scene.Camera.X = -40;  // 镜头基础值必须落盘：重启后静息取景不能变回 (0,0,1)
             scene.Camera.Scale = 1.2;
+            scene.Camera.Rotation = 7.5;   // 旋转常量同属镜头基础值（帧状态 Rotation 槽的来源）
 
             var colorGrade = EffectCatalog.Get("colorGrade")!;
             var glow = EffectCatalog.Get("glow")!;
@@ -37,11 +38,14 @@ public class ProjectStoreTests
             effects.Add("glow", n => n.Set(glow.Params[1], 2.25f)); // intensity
             var glowInstanceId = effects.Nodes[1].InstanceId;       // 曲线按实例 Id 寻址，不用 DefId
 
-            // 两条曲线：镜头 scale 三 key（含 SmoothStep），glow 实例的 intensity 单 key
+            // 三条曲线：镜头 scale 三 key（含 SmoothStep）、镜头 rotation 两 key、glow 实例的 intensity 单 key
             var cameraScale = new FloatCurve();
             Assert.True(cameraScale.TryAdd(0.0, 1.0));
             Assert.True(cameraScale.TryAdd(2.5, 1.4, CurveInterp.SmoothStep));
             Assert.True(cameraScale.TryAdd(6.0, 1.0, CurveInterp.SmoothStep));
+            var cameraRotation = new FloatCurve();
+            Assert.True(cameraRotation.TryAdd(0.0, 0.0));
+            Assert.True(cameraRotation.TryAdd(4.0, 15.0));
             var glowIntensity = new FloatCurve();
             Assert.True(glowIntensity.TryAdd(1.5, 2.25, CurveInterp.Step));
 
@@ -55,6 +59,7 @@ public class ProjectStoreTests
                 Curves =
                 {
                     new CurveSave { Address = "camera.scale", Curve = cameraScale },
+                    new CurveSave { Address = "camera.rotation", Curve = cameraRotation },
                     new CurveSave { Address = $"effect:{glowInstanceId}.intensity", Curve = glowIntensity },
                 },
             };
@@ -64,7 +69,7 @@ public class ProjectStoreTests
             // 效果部分必须是嵌套的 JSON 对象，而不是一层转义字符串
             var root = JObject.Parse(File.ReadAllText(path));
             Assert.IsType<JObject>(root["Effects"]);
-            Assert.Equal(2, ((JArray)root["Curves"]!).Count);
+            Assert.Equal(3, ((JArray)root["Curves"]!).Count);
 
             var result = ProjectStore.Load(path);
             Assert.Null(result.Fault);
@@ -77,6 +82,7 @@ public class ProjectStoreTests
             Assert.Equal(scene.Fps, loaded.Scene.Fps);
             Assert.Equal(-40, loaded.Scene.Camera.X, 3);
             Assert.Equal(1.2, loaded.Scene.Camera.Scale, 3);
+            Assert.Equal(7.5, loaded.Scene.Camera.Rotation, 3);
             Assert.Equal("assets/audio/song.mp3", loaded.AudioPath);
             Assert.Equal(project.LrcText, loaded.LrcText);
 
@@ -88,7 +94,7 @@ public class ProjectStoreTests
             Assert.Equal(2.25f, loaded.Effects.Nodes[1].Value(glow.Params[1]));
 
             // 曲线随工程往返：地址集合、key 数、值、插值模式逐一相等
-            Assert.Equal(2, loaded.Curves.Count);
+            Assert.Equal(3, loaded.Curves.Count);
             var loadedCamera = Assert.Single(loaded.Curves, c => c.Address == "camera.scale").Curve;
             Assert.Equal(3, loadedCamera.Count);
             Assert.Equal(CurveInterp.SmoothStep, loadedCamera.Keys[1].Mode);
@@ -96,11 +102,55 @@ public class ProjectStoreTests
             Assert.Equal(cameraScale.Evaluate(2.5), loadedCamera.Evaluate(2.5));
             Assert.Equal(cameraScale.Evaluate(6.0), loadedCamera.Evaluate(6.0));
 
+            // 镜头 rotation 曲线同样往返（帧状态 Rotation 槽的曲线来源）
+            var loadedRotation = Assert.Single(loaded.Curves, c => c.Address == "camera.rotation").Curve;
+            Assert.Equal(2, loadedRotation.Count);
+            Assert.Equal(cameraRotation.Evaluate(4.0), loadedRotation.Evaluate(4.0));
+
             var loadedGlow = Assert.Single(loaded.Curves, c => c.Address == $"effect:{glowInstanceId}.intensity").Curve;
             Assert.Equal(1, loadedGlow.Count);
             Assert.Equal(CurveInterp.Step, loadedGlow.Keys[0].Mode);
             Assert.Equal(glowIntensity.Evaluate(1.5), loadedGlow.Evaluate(1.5));
             Assert.Equal(glowIntensity.Evaluate(9.0), loadedGlow.Evaluate(9.0)); // 单 key 恒值也照旧
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>
+    /// 旧工程 JSON 的镜头段没有 <c>Rotation</c> 字段（W2 之前存的工程）：读回来必须是 0，
+    /// 既不报错也不把镜头歪掉——新字段只能加，不能成为旧文件的打开门槛。
+    /// </summary>
+    [Fact]
+    public void LegacyCameraWithoutRotationLoadsAsZero()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            const string json = """
+            {
+              "SchemaVersion": 1,
+              "Name": "旧工程",
+              "Scene": {
+                "Width": 1280,
+                "Height": 720,
+                "Camera": { "X": -40.0, "Y": 12.0, "Scale": 1.2 }
+              }
+            }
+            """;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+
+            var result = ProjectStore.Load(path);
+
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+            Assert.Equal(-40, loaded.Scene.Camera.X, 3);
+            Assert.Equal(12, loaded.Scene.Camera.Y, 3);
+            Assert.Equal(1.2, loaded.Scene.Camera.Scale, 3);
+            Assert.Equal(0, loaded.Scene.Camera.Rotation, 3);
         }
         finally
         {

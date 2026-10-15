@@ -134,6 +134,45 @@ public static class AudioAnalyzer
     /// </summary>
     public static AudioBandSeries Analyze(ReadOnlySpan<float> interleaved, int channels, int sampleRate, AudioAnalysisConfig config = default)
     {
+        // 分块入口与整文件入口共用这一份滑窗分析器：同一段窗口数学，两条路的结果才可能逐位相同
+        var analyzer = new SlidingWindowAnalyzer(channels, sampleRate, config);
+        analyzer.Feed(interleaved);
+        return analyzer.Finish();
+    }
+}
+
+/// <summary>
+/// 滑窗分析器：PCM 分块进、窗口序列出。内存 O(窗口 + 输出)，不整曲驻留（§15.2）。
+///
+/// 出窗时机 = 该窗右端样本到齐的那一刻：此刻环形缓冲里恰好还是这整窗（w 帧），
+/// 读它不会被后续写入覆盖。尾部右端超出数据的窗口在 <see cref="Finish"/> 按实际帧数补 0 出窗。
+/// </summary>
+internal sealed class SlidingWindowAnalyzer
+{
+    private readonly int _channels;
+    private readonly int _sampleRate;
+    private readonly AudioAnalysisConfig _config;
+    private readonly int _hop;
+    private readonly int _w;
+    private readonly int _half;
+    private readonly int _m;
+    private readonly float _highCap;
+    private readonly float[] _hann;
+    private readonly double _windowEnergy;
+    private readonly NAudio.Dsp.Complex[] _fft;    // 与 FastFourierTransform.FFT 同一类型，逐窗复用
+    private readonly float[] _ring;               // 最近 w 帧的交错样本，按 frame % w 落位
+    private readonly float[] _carry;              // 上一次 Feed 结尾不足一帧的样本
+    private readonly List<float> _rms = new();
+    private readonly List<float> _bass = new();
+    private readonly List<float> _mid = new();
+    private readonly List<float> _high = new();
+
+    private int _carryCount;
+    private long _framesSeen;
+    private int _nextWindow;
+
+    internal SlidingWindowAnalyzer(int channels, int sampleRate, AudioAnalysisConfig config)
+    {
         // 默认参数是零值结构体（Hop=0 会除零）：省略 config 时按首版固定配置
         if (config.WindowSize <= 0 || config.Hop <= 0) config = AudioAnalysisConfig.Default;
         if (!IsPowerOfTwo(config.WindowSize))
@@ -141,86 +180,125 @@ public static class AudioAnalyzer
         if (channels <= 0) throw new ArgumentOutOfRangeException(nameof(channels));
         if (sampleRate <= 0) throw new ArgumentOutOfRangeException(nameof(sampleRate));
 
-        int frames = interleaved.Length / channels;   // 交错数据尾部不足一帧的样本忽略
-        if (frames == 0)
-            return new AudioBandSeries([], [], [], [], config.Hop, sampleRate, config.Version, true);
+        _channels = channels;
+        _sampleRate = sampleRate;
+        _config = config;
+        _hop = config.Hop;
+        _w = config.WindowSize;
+        _half = _w / 2;
+        _m = Log2Exact(_w);
+        _highCap = Math.Min(config.HighCapHz, sampleRate * 0.5f);   // 空频带（cap<=lo）是有效 0
+        _hann = new float[_w];
+        _fft = new NAudio.Dsp.Complex[_w];
+        _ring = new float[_w * channels];
+        _carry = new float[channels];
 
-        int w = config.WindowSize;
-        int half = w / 2;
-        int hop = config.Hop;
-
-        // 末窗下标：最小满足 last×hop + half >= frames，保证最后一个样本也落在某个窗口内
-        int last = frames <= half ? 0 : (frames - half + hop - 1) / hop;
-        int count = last + 1;
-
-        var hann = new float[w];
         double windowEnergy = 0;
-        for (int i = 0; i < w; i++)
+        for (int i = 0; i < _w; i++)
         {
-            double v = FastFourierTransform.HannWindow(i, w);
-            hann[i] = (float)v;
+            double v = FastFourierTransform.HannWindow(i, _w);
+            _hann[i] = (float)v;
             windowEnergy += v * v;                    // Σw²：单边谱功率按窗能量归一，常数才与窗长无关
         }
 
-        int m = Log2Exact(w);
-        var buffer = new NAudio.Dsp.Complex[w];        // 与 FastFourierTransform.FFT 同一类型，逐窗复用
-        float highCap = Math.Min(config.HighCapHz, sampleRate * 0.5f);   // 空频带（cap<=lo）是有效 0
+        _windowEnergy = windowEnergy;
+    }
 
-        var rms = new float[count];
-        var bass = new float[count];
-        var mid = new float[count];
-        var high = new float[count];
+    /// <summary>喂一段交错 PCM。任意长度；尾部不足一帧的样本留到下一次（整段结束时丢弃，与整批口径一致）。</summary>
+    internal void Feed(ReadOnlySpan<float> interleaved)
+    {
+        var i = 0;
 
-        for (int j = 0; j < count; j++)
+        if (_carryCount > 0)
         {
-            int start = j * hop - half;               // 窗口左端样本下标，可为负 → 前段补 0
-            double rmsPower = 0, bassPower = 0, midPower = 0, highPower = 0;
+            while (_carryCount < _channels && i < interleaved.Length) _carry[_carryCount++] = interleaved[i++];
+            if (_carryCount < _channels) return;
 
-            for (int c = 0; c < channels; c++)
-            {
-                double timePower = 0;
-                for (int i = 0; i < w; i++)
-                {
-                    long idx = (long)start + i;
-                    float x = idx >= 0 && idx < frames ? interleaved[(int)(idx * channels + c)] : 0f;
-                    float y = x * hann[i];
-                    timePower += (double)y * y;
-                    // NAudio.Dsp.Complex 只有 X/Y 两个公开字段（3.1.0 无 (float,float) 构造函数）
-                    buffer[i].X = y;
-                    buffer[i].Y = 0f;
-                }
-
-                // 每声道各自算功率再平均：先相加会让反相立体声相消（§13.4）
-                rmsPower += timePower / windowEnergy;
-
-                // 任务书/契约固定 FFT(false,…)：NAudio 只在 forward=true 时做 1/N 缩放（已核对 NAudio.Core 3.1.0 反编译），
-                // false 是同一内核的无缩放逆变换；实输入下与无缩放正变换共轭对称、幅度谱相同，
-                // 所以功率常数按无缩放单边谱 2|V|²/(W·Σw²) 定标，并由已知幅值正弦测试钉住。
-                FastFourierTransform.FFT(false, m, buffer);
-
-                for (int k = 1; k < w / 2; k++)       // 只扫单边中间 bin：DC 与 Nyquist 不在任何频带内，也不该乘 2
-                {
-                    float freq = (float)(k * (double)sampleRate / w);
-                    if (freq < config.BassLowHz || freq >= highCap) continue;
-                    double re = buffer[k].X, im = buffer[k].Y;
-                    double p = 2.0 * (re * re + im * im) / (w * windowEnergy);
-                    if (freq < config.BassHighHz) bassPower += p;       // 边界 bin 只计入一侧
-                    else if (freq < config.MidHighHz) midPower += p;
-                    else highPower += p;
-                }
-            }
-
-            // 累加出来的是**均方**（功率），而 −60..0 dBFS 是**幅值**口径：0 dBFS 是满幅正弦的峰值，
-            // 该正弦的 RMS = 1/√2、因此读 −3.01dBFS（20log10(0.7071)）。进 dB 映射前必须先开方，
-            // 否则满幅正弦会落到 −6.02dBFS（映射成 0.90），整条参数链偏低 3dB。
-            double inv = 1.0 / channels;
-            rms[j] = ToLevel(Math.Sqrt(rmsPower * inv), config.DbFloor);
-            bass[j] = ToLevel(Math.Sqrt(bassPower * inv), config.DbFloor);
-            mid[j] = ToLevel(Math.Sqrt(midPower * inv), config.DbFloor);
-            high[j] = ToLevel(Math.Sqrt(highPower * inv), config.DbFloor);
+            WriteFrame(_carry);
+            _carryCount = 0;
         }
 
-        return new AudioBandSeries(rms, bass, mid, high, hop, sampleRate, config.Version, true);
+        while (interleaved.Length - i >= _channels)
+        {
+            WriteFrame(interleaved.Slice(i, _channels));
+            i += _channels;
+        }
+
+        _carryCount = interleaved.Length - i;
+        for (var k = 0; k < _carryCount; k++) _carry[k] = interleaved[i + k];
+    }
+
+    /// <summary>出完尾部窗口，交出序列。之后本实例不再可用。</summary>
+    internal AudioBandSeries Finish()
+    {
+        if (_framesSeen > 0)
+        {
+            // 末窗下标：最小满足 last×hop + half >= frames（与整批入口同一条规则）
+            long last = _framesSeen <= _half ? 0 : (_framesSeen - _half + _hop - 1) / _hop;
+            while (_nextWindow <= last) EmitWindow(_nextWindow++);
+        }
+
+        return new AudioBandSeries(_rms.ToArray(), _bass.ToArray(), _mid.ToArray(), _high.ToArray(),
+            _hop, _sampleRate, _config.Version, true);
+    }
+
+    private void WriteFrame(ReadOnlySpan<float> frame)
+    {
+        var at = (int)(_framesSeen % _w) * _channels;
+        for (var c = 0; c < _channels; c++) _ring[at + c] = frame[c];
+        _framesSeen++;
+
+        // 右端到齐即出窗（此刻环形里还剩整窗样本，读它安全）
+        while ((long)_nextWindow * _hop + _half <= _framesSeen) EmitWindow(_nextWindow++);
+    }
+
+    private void EmitWindow(int j)
+    {
+        var start = (long)j * _hop - _half;          // 窗口左端样本下标，可为负 → 前段补 0
+        double rmsPower = 0, bassPower = 0, midPower = 0, highPower = 0;
+
+        for (var c = 0; c < _channels; c++)
+        {
+            double timePower = 0;
+            for (var i = 0; i < _w; i++)
+            {
+                var frame = start + i;
+                float x = frame >= 0 && frame < _framesSeen ? _ring[(int)(frame % _w) * _channels + c] : 0f;
+                float y = x * _hann[i];
+                timePower += (double)y * y;
+                // NAudio.Dsp.Complex 只有 X/Y 两个公开字段（3.1.0 无 (float,float) 构造函数）
+                _fft[i].X = y;
+                _fft[i].Y = 0f;
+            }
+
+            // 每声道各自算功率再平均：先相加会让反相立体声相消（§13.4）
+            rmsPower += timePower / _windowEnergy;
+
+            // 任务书/契约固定 FFT(false,…)：NAudio 只在 forward=true 时做 1/N 缩放（已核对 NAudio.Core 3.1.0 反编译），
+            // false 是同一内核的无缩放逆变换；实输入下与无缩放正变换共轭对称、幅度谱相同，
+            // 所以功率常数按无缩放单边谱 2|V|²/(W·Σw²) 定标，并由已知幅值正弦测试钉住。
+            FastFourierTransform.FFT(false, _m, _fft);
+
+            for (var k = 1; k < _w / 2; k++)          // 只扫单边中间 bin：DC 与 Nyquist 不在任何频带内，也不该乘 2
+            {
+                float freq = (float)(k * (double)_sampleRate / _w);
+                if (freq < _config.BassLowHz || freq >= _highCap) continue;
+                double re = _fft[k].X, im = _fft[k].Y;
+                double p = 2.0 * (re * re + im * im) / (_w * _windowEnergy);
+                if (freq < _config.BassHighHz) bassPower += p;       // 边界 bin 只计入一侧
+                else if (freq < _config.MidHighHz) midPower += p;
+                else highPower += p;
+            }
+        }
+
+        // 累加出来的是**均方**（功率），而 −60..0 dBFS 是**幅值**口径：0 dBFS 是满幅正弦的峰值，
+        // 该正弦的 RMS = 1/√2、因此读 −3.01dBFS（20log10(0.7071)）。进 dB 映射前必须先开方，
+        // 否则满幅正弦会落到 −6.02dBFS（映射成 0.90），整条参数链偏低 3dB。
+        double inv = 1.0 / _channels;
+        _rms.Add(ToLevel(Math.Sqrt(rmsPower * inv)));
+        _bass.Add(ToLevel(Math.Sqrt(bassPower * inv)));
+        _mid.Add(ToLevel(Math.Sqrt(midPower * inv)));
+        _high.Add(ToLevel(Math.Sqrt(highPower * inv)));
     }
 
     /// <summary>
@@ -229,9 +307,9 @@ public static class AudioAnalyzer
     /// 均方要在调用点先开方（满幅正弦 → −3.01dBFS，而不是 −6.02dBFS）。
     /// 非有限值按底噪处理：NaN 一旦进入渲染会污染整条参数链。
     /// </summary>
-    private static float ToLevel(double power, float dbFloor)
+    private float ToLevel(double power)
     {
-        double x = double.IsFinite(power) && power > dbFloor ? power : dbFloor;
+        double x = double.IsFinite(power) && power > _config.DbFloor ? power : _config.DbFloor;
         return (float)Math.Clamp((20.0 * Math.Log10(x) + 60.0) / 60.0, 0.0, 1.0);
     }
 
@@ -246,11 +324,13 @@ public static class AudioAnalyzer
 }
 
 /// <summary>
-/// 整文件离线分析入口（S04）：解码整个音频文件，一次算完 rms/bass/mid/high 序列。
+/// 整文件离线分析入口（S04）：分块解码整个音频文件，边解码边出窗。
 ///
 /// 文件 IO 只在这一层——<see cref="AudioAnalyzer"/> 保持"PCM 进、序列出"的纯函数形态。
 /// 只用解码器（AudioFileReader），不碰播放设备、不移动播放 reader 的位置（§13.4）；
-/// 调用方在后台线程跑，失败（IO/解码）抛异常由调用方兜住。
+/// 调用方在后台线程跑，失败（IO/解码/格式）抛异常由调用方兜住。
+///
+/// 内存 O(一块 + 一个窗口 + 输出序列)：整曲 PCM 不驻留（§15.2），所以时长不再有上限。
 /// </summary>
 public static class AudioFileAnalyzer
 {
@@ -259,6 +339,7 @@ public static class AudioFileAnalyzer
     /// <summary>
     /// 解码 + 分析整段音频。窗口/步长/频带与归一化规则取 <see cref="AudioAnalyzer.Analyze"/> 的同一份配置，
     /// 所以这里产出的序列与逐块喂 PCM 的结果逐位相同。
+    /// <paramref name="ct"/> 在每个解码块之前检查：取消即刻生效，不会先解完整曲再返回。
     /// </summary>
     public static AudioBandSeries Analyze(string path, CancellationToken ct = default)
     {
@@ -266,24 +347,22 @@ public static class AudioFileAnalyzer
 
         using var reader = new AudioFileReader(path);
         var format = reader.WaveFormat;
-        if (format.Channels <= 0) throw new InvalidDataException("音频声道数为 0");
+        if (format.Channels <= 0 || format.SampleRate <= 0)
+            throw new InvalidDataException(
+                $"音频格式不可分析：{format.SampleRate}Hz/{format.Channels}ch（{path}）");
 
-        long frames = (long)Math.Ceiling(reader.TotalTime.TotalSeconds * format.SampleRate);
-        if (frames > int.MaxValue / format.Channels)
-            throw new InvalidDataException($"音频过长：{frames} 帧 × {format.Channels} 声道超出单次解码上限");
-
-        var data = new float[(int)(frames * format.Channels)];
+        var analyzer = new SlidingWindowAnalyzer(format.Channels, format.SampleRate, AudioAnalysisConfig.Default);
         var samples = (ISampleProvider)reader;   // float 读取只在 ISampleProvider 上（WaveStream.Read 是 byte[]）
-        var total = 0;
-        while (total < data.Length)
+        var chunk = new float[ChunkFloats];
+
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var read = samples.Read(data.AsSpan(total, Math.Min(ChunkFloats, data.Length - total)));
+            var read = samples.Read(chunk.AsSpan());
             if (read <= 0) break;
-            total += read;
+            analyzer.Feed(chunk.AsSpan(0, read));
         }
 
-        // 尾部不足一帧的样本由 Analyze 忽略（interleaved.Length / channels），不在这里凑整
-        return AudioAnalyzer.Analyze(data.AsSpan(0, total), format.Channels, format.SampleRate);
+        return analyzer.Finish();
     }
 }

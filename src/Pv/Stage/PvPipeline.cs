@@ -79,6 +79,15 @@ public sealed class PvPipeline : IDisposable
     private static readonly ParamAddress CameraScaleAddr =
         new(ParamAddressKind.Camera, "", "scale");
 
+    private static readonly ParamAddress CameraOffsetXAddr =
+        new(ParamAddressKind.Camera, "", "offsetX");
+
+    private static readonly ParamAddress CameraOffsetYAddr =
+        new(ParamAddressKind.Camera, "", "offsetY");
+
+    private static readonly ParamAddress CameraRotationAddr =
+        new(ParamAddressKind.Camera, "", "rotation");
+
     public PvScene Scene => _scene;
     public EffectGraph Effects => _effects;
     public PvStageRenderer Renderer => _renderer;
@@ -202,9 +211,14 @@ public sealed class PvPipeline : IDisposable
 
         ApplyTracking(time);
 
-        // 信号在追踪之后（能量源 Stage.Energy 是 ApplyTracking 写的），在 _renderer.Prepare 之前
-        // （效果参数就是在那一句里被打包成常量缓冲的）。顺序反了，本帧读到的要么是上一帧的能量，要么是上一帧的参数。
+        // 帧状态（契约 §3.3 的三步）：常量/曲线先落进 _scene.Frame，信号 Resolved 再覆盖它。
+        // 顺序不能反：信号在追踪之后（能量源 Stage.Energy 是 ApplyTracking 写的），
+        // 在 _renderer.Prepare 之前（效果参数就是在那一句里被打包成常量缓冲的）。
+        ApplyLayerFrame(time);
         ApplySignals(time);
+
+        // 帧状态 → 舞台：预览与广播都从同一个 Stage 合成本帧，镜头只从这里取
+        _renderer.Stage.Camera = _scene.Frame.Camera;
 
         // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
@@ -497,25 +511,70 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
+    /// <summary>
+    /// 相机基础帧状态（契约 §3.3 步骤 1/2）：文档常量 → 曲线 base(t)（有曲线就用曲线值）。
+    /// 纯函数、只读：不写回 <see cref="PvScene.Camera"/>——那是工程文件里的静息取景，不能被播放过程篡改。
+    /// </summary>
+    public static PvCamState BaseCamera(PvCameraConfig cam, DirectorEvaluator? curves, double time)
+    {
+        var x = cam.X;
+        var y = cam.Y;
+        var rotation = cam.Rotation;
+        // 夹 Math.Max：Scale=0 会让每层缩放塌成 0、整幅空白，手改文件也不能把画面改没
+        var scale = Math.Max(0.01, cam.Scale);
+
+        if (curves is not null)
+        {
+            if (curves.TryEvaluate(CameraOffsetXAddr, time, out var v)) x = v;
+            if (curves.TryEvaluate(CameraOffsetYAddr, time, out v)) y = v;
+            if (curves.TryEvaluate(CameraScaleAddr, time, out v)) scale = Math.Max(0.01, v);
+            if (curves.TryEvaluate(CameraRotationAddr, time, out v)) rotation = v;
+        }
+
+        return new PvCamState(x, y, scale, rotation, 0, null, null);
+    }
+
+    /// <summary>图层基础帧状态（契约 §3.3 步骤 1/2）：文档常量 → 曲线 base(t)。</summary>
+    public static PvLayerState BaseLayer(PvLayerConfig layer, DirectorEvaluator? curves, double time)
+    {
+        var state = PvLayerState.From(layer);
+        if (curves is null) return state;
+
+        if (curves.TryEvaluate(LayerAddr(layer.Id, "offsetX"), time, out var v)) state = state with { OffsetX = v };
+        if (curves.TryEvaluate(LayerAddr(layer.Id, "offsetY"), time, out v)) state = state with { OffsetY = v };
+        if (curves.TryEvaluate(LayerAddr(layer.Id, "scale"), time, out v)) state = state with { Scale = v };
+        if (curves.TryEvaluate(LayerAddr(layer.Id, "opacity"), time, out v)) state = state with { Opacity = v };
+        if (curves.TryEvaluate(LayerAddr(layer.Id, "rotation"), time, out v)) state = state with { Rotation = v };
+        return state;
+    }
+
+    private static ParamAddress LayerAddr(string layerId, string param) =>
+        new(ParamAddressKind.Layer, layerId, param);
+
+    /// <summary>
+    /// 图层帧状态（§3.3 步骤 1/2）：每层「文档常量 → 曲线 base(t)」，信号 Resolved 由 <see cref="ApplySignals"/> 覆盖。
+    /// 先清空：帧状态只描述本帧，删掉的图层不留残影。
+    /// </summary>
+    private void ApplyLayerFrame(double time)
+    {
+        var frame = _scene.Frame;
+        frame.ClearLayers();
+        foreach (var layer in _scene.Layers)
+            frame.SetLayer(layer.Id, BaseLayer(layer, _director, time));
+    }
+
     private void ApplyTracking(double time)
     {
-        // 基础态来自场景文档，不是 Identity：追踪失效时镜头落在工程量好的取景上，
+        // 基础态来自场景文档 + 曲线（不是 Identity）：追踪失效时镜头落在工程量好的取景上，
         // 而不是每次都弹回 (0,0,1)。Camera 被手改成 null 同理：回落默认。
         var cam = _scene.Camera ?? new PvCameraConfig();
-
-        // 缩放取值曲线优先：有 scale 曲线时它**替换**基础 Scale（曲线值即绝对取景），追踪缩放仍在它之上相乘；
-        // 曲线与信号图（追踪通道）的统一仲裁是 M6 的事，这里不做混合。无曲线回落场景常量。
-        // 两条路都夹 Math.Max：Scale=0 会让每层缩放塌成 0、整幅空白，手改文件也不能把画面改没。
-        var baseScale = Math.Max(0.01, cam.Scale);
-        var director = _director;
-        if (director is not null && director.TryEvaluate(CameraScaleAddr, time, out var curveScale))
-            baseScale = Math.Max(0.01, curveScale);
+        var frame = _scene.Frame;
 
         if (_tracking is null || !_tracking.TryRead(250, out var st))
         {
             // 每帧都写回基础态（不是"什么都不做"）：否则最后一帧的追踪姿态会一直留在镜头上，
             // 断连后画面冻在歪着的取景里。
-            _renderer.Stage.Camera = new PvCamState(cam.X, cam.Y, baseScale, 0, 0, null, null);
+            frame.Camera = BaseCamera(cam, _director, time);
             _renderer.Stage.Energy = 0;
             _prevBlink = false;
             return;
@@ -524,21 +583,22 @@ public sealed class PvPipeline : IDisposable
         var drive = VtsTrackingMap.Compute(st, _trackOptions, _prevBlink);
         _prevBlink = drive.Blink;
 
-        // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度。
-        // Zoom 的夹持是追踪通道自身的上下界；基础值自由相乘。
-        // 曲线在这里就进了 Stage.Camera，而预览与广播都从同一个 Stage 合成本帧，天然同步反映。
-        _renderer.Stage.Camera = new PvCamState(
-            cam.X + drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
-            cam.Y + drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
-            baseScale * Math.Clamp(drive.Zoom, 0.5, 2.0),
-            0, 0, null, null);
+        // 追踪位移/缩放叠在基础帧状态之上（信号图随后按绑定覆盖）。
+        // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度；Zoom 的夹持是追踪通道自身的上下界。
+        var baseCam = BaseCamera(cam, _director, time);
+        frame.Camera = new PvCamState(
+            baseCam.X + drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
+            baseCam.Y + drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
+            baseCam.Scale * Math.Clamp(drive.Zoom, 0.5, 2.0),
+            baseCam.Rotation, 0, null, null);
         _renderer.Stage.Energy = drive.MouthEnergy;
     }
 
     /// <summary>
-    /// 每帧求值信号图，并把每个绑定的最终值写回目标效果实例的参数。
+    /// 每帧求值信号图，并把每个绑定的最终值写回它的目标：相机/图层域写帧状态槽，
+    /// 效果域写目标效果实例的参数。
     ///
-    /// 帧内状态（<see cref="_signalPlan"/>、写回的参数值）全在渲染线程上：本方法在 Prepare 里调用，
+    /// 帧内状态（<see cref="_signalPlan"/>、帧状态槽、写回的效果参数值）全在渲染线程上：本方法在 Prepare 里调用，
     /// 读取这些值的 BuildRenderGraph 紧接着也在同一线程、同一帧顺序里跑——同帧读写同线程同顺序，
     /// 所以既不需要锁，也不存在"读到半更新的帧"。
     ///
@@ -576,13 +636,15 @@ public sealed class PvPipeline : IDisposable
 
         plan.Evaluate(new SignalFrameInputs(time, Monotonic.Elapsed.TotalSeconds, audio, _director));
 
+        // 相机/图层域（S06 消费表）：Resolved 写帧状态槽。必须在 Evaluate 之后——Evaluate 读的
+        // 正是同一份帧状态的 base 值（常量/曲线），先写会把本帧的 base 覆盖掉。
+        plan.ApplyFrameState();
+
         foreach (var resolved in plan.Resolved)
         {
             // 用编译期就解析好的目标引用（TryGetTarget），不再按 InstanceId 拼字符串回查效果图：
             // 字符串只在显示与序列化时用，这一点是 SignalTargets 的设计前提。
-            // 本线只写效果实例参数：相机/图层域没有效果实例可写，它们在编译期就被
-            // SignalTargets.TryResolveBinding 以 target-domain-unwired 拒掉了（解析值没人消费 = 静默无效），
-            // 所以计划里不会有 Node 为 null 的目标；这个 continue 只是防御性兜底。
+            // node 为 null 的是相机/图层目标：它们上面已经写进帧状态，这里没有效果参数可写。
             if (!plan.TryGetTarget(resolved.Address, out var node, out var param) || node is null) continue;
             node.Set(param, (float)resolved.Value);
         }

@@ -281,11 +281,25 @@ public sealed class Immediate2D : IDisposable
     private void PopAllClips() => PopClipsTo(0);
 
     // ---------------- 绘制 ----------------
+    //
+    // 每个原语都是「BeginDraw → 画 → EndDraw」而不是把绘制收进一个回调：
+    // 回调写法（`DrawCore(p, b => …)`）每笔都要分配一个闭包 + 委托（实测 104 字节/笔，
+    // 一帧几十笔就是每帧几 KB 托管垃圾，见 tests 的 Immediate2DAllocationTests）。
+    // BeginDraw 返回 null = 本笔完全透明，调用方直接返回。
 
-    public void FillRect(Rect r, Paint2D p) => DrawCore(p, b => Rt.FillRectangle(r, b));
+    public void FillRect(Rect r, Paint2D p)
+    {
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.FillRectangle(r, b); }
+        finally { EndDraw(); }
+    }
 
-    public void StrokeRect(Rect r, Paint2D p) =>
-        DrawCore(p, b => Rt.DrawRectangle(r, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)));
+    public void StrokeRect(Rect r, Paint2D p)
+    {
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.DrawRectangle(r, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)); }
+        finally { EndDraw(); }
+    }
 
     /// <summary>按 paint 的 IsStroke 自动分派（对位 SKCanvas.DrawRect）。</summary>
     public void DrawRect(Rect r, Paint2D p)
@@ -297,7 +311,9 @@ public sealed class Immediate2D : IDisposable
     public void FillRoundRect(Rect r, float rx, float ry, Paint2D p)
     {
         var rr = new RoundedRectangle(new Vortice.RawRectF(r.Left, r.Top, r.Right, r.Bottom), rx, ry);
-        DrawCore(p, b => Rt.FillRoundedRectangle(rr, b));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.FillRoundedRectangle(rr, b); }
+        finally { EndDraw(); }
     }
 
     public void StrokeRoundRect(Rect r, float rx, float ry, Paint2D p)
@@ -310,19 +326,21 @@ public sealed class Immediate2D : IDisposable
         // 是**非空**引用类型（CS8604 的成因，编译器报错串里点名的就是这个签名），而 3 参重载等价于
         // 传 null。StrokeStyle(p) 返回 null 的条件（无虚线 && Miter && Flat && MiterLimit≈10）正好就是
         // D2D 的内建默认样式，所以走 3 参重载语义等价。
-        // 收窄成局部 s：把「此处 style 一定非空」这个事实落在 lambda 的捕获点上，而不是依赖外层变量的
-        // 流分析状态（本会话最小编译实测：直接捕获已收窄的 style 同样 0 警告——收窄是为了让非空事实
+        // 收窄成局部 s：把「此处 style 一定非空」这个事实落在调用点上，而不是依赖外层变量的
+        // 流分析状态（本会话最小编译实测：直接用已收窄的 style 同样 0 警告——收窄是为了让非空事实
         // 显式可见，不是 suppress）。
         var style = StrokeStyle(p);
-        if (style is null)
+        if (BeginDraw(p) is not { } b) return;
+        try
         {
-            DrawCore(p, b => Rt.DrawRoundedRectangle(rr, b, w));
+            if (style is null) Rt.DrawRoundedRectangle(rr, b, w);
+            else
+            {
+                var s = style;
+                Rt.DrawRoundedRectangle(rr, b, w, s);
+            }
         }
-        else
-        {
-            var s = style;
-            DrawCore(p, b => Rt.DrawRoundedRectangle(rr, b, w, s));
-        }
+        finally { EndDraw(); }
     }
 
     public void DrawRoundRect(Rect r, float rx, float ry, Paint2D p)
@@ -335,7 +353,9 @@ public sealed class Immediate2D : IDisposable
     {
         var a = new Vector2(x0, y0);
         var b2 = new Vector2(x1, y1);
-        DrawCore(p, b => Rt.DrawLine(a, b2, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.DrawLine(a, b2, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)); }
+        finally { EndDraw(); }
     }
 
     /// <summary>
@@ -352,13 +372,17 @@ public sealed class Immediate2D : IDisposable
     public void FillCircle(float cx, float cy, float radius, Paint2D p)
     {
         var e = new Ellipse(new Vector2(cx, cy), radius, radius);
-        DrawCore(p, b => Rt.FillEllipse(e, b));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.FillEllipse(e, b); }
+        finally { EndDraw(); }
     }
 
     public void StrokeCircle(float cx, float cy, float radius, Paint2D p)
     {
         var e = new Ellipse(new Vector2(cx, cy), radius, radius);
-        DrawCore(p, b => Rt.DrawEllipse(e, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.DrawEllipse(e, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)); }
+        finally { EndDraw(); }
     }
 
     public void DrawCircle(float cx, float cy, float radius, Paint2D p)
@@ -371,22 +395,31 @@ public sealed class Immediate2D : IDisposable
     {
         var e = new Ellipse(new Vector2((r.Left + r.Right) / 2f, (r.Top + r.Bottom) / 2f),
             (r.Right - r.Left) / 2f, (r.Bottom - r.Top) / 2f);
-        if (p.IsStroke) DrawCore(p, b => Rt.DrawEllipse(e, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)));
-        else DrawCore(p, b => Rt.FillEllipse(e, b));
+        if (BeginDraw(p) is not { } b) return;
+        try
+        {
+            if (p.IsStroke) Rt.DrawEllipse(e, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p));
+            else Rt.FillEllipse(e, b);
+        }
+        finally { EndDraw(); }
     }
 
     public void FillPath(Path2D path, Paint2D p)
     {
         var geo = path.Geometry;
         if (geo is null) return;
-        DrawCore(p, b => Rt.FillGeometry(geo, b));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.FillGeometry(geo, b); }
+        finally { EndDraw(); }
     }
 
     public void StrokePath(Path2D path, Paint2D p)
     {
         var geo = path.Geometry;
         if (geo is null) return;
-        DrawCore(p, b => Rt.DrawGeometry(geo, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.DrawGeometry(geo, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)); }
+        finally { EndDraw(); }
     }
 
     /// <summary>按 paint 的 IsStroke 自动分派（对位 SKCanvas.DrawPath）。</summary>
@@ -401,8 +434,9 @@ public sealed class Immediate2D : IDisposable
         BitmapInterpolationMode interp = BitmapInterpolationMode.Linear)
     {
         if (alpha <= 0.001f) return;
-        DrawCore(new Paint2D { Alpha = alpha }, _ =>
-            Rt.DrawBitmap(img.Bitmap, dest, Math.Clamp(alpha, 0f, 1f), interp, null));
+        if (BeginDraw(new Paint2D { Alpha = alpha }) is null) return;
+        try { Rt.DrawBitmap(img.Bitmap, dest, Math.Clamp(alpha, 0f, 1f), interp, null); }
+        finally { EndDraw(); }
     }
 
     /// <summary>
@@ -413,8 +447,9 @@ public sealed class Immediate2D : IDisposable
         BitmapInterpolationMode interp = BitmapInterpolationMode.Linear)
     {
         if (alpha <= 0.001f) return;
-        DrawCore(new Paint2D { Alpha = alpha }, _ =>
-            Rt.DrawBitmap(bitmap, dest, Math.Clamp(alpha, 0f, 1f), interp, null));
+        if (BeginDraw(new Paint2D { Alpha = alpha }) is null) return;
+        try { Rt.DrawBitmap(bitmap, dest, Math.Clamp(alpha, 0f, 1f), interp, null); }
+        finally { EndDraw(); }
     }
 
     /// <summary>
@@ -438,7 +473,9 @@ public sealed class Immediate2D : IDisposable
             TextAlign2D.Right => font.Trailing,
             _ => font.Leading,
         };
-        DrawCore(p, b => Rt.DrawText(text, fmt, rect, b, DrawTextOptions.None, MeasuringMode.Natural));
+        if (BeginDraw(p) is not { } b) return;
+        try { Rt.DrawText(text, fmt, rect, b, DrawTextOptions.None, MeasuringMode.Natural); }
+        finally { EndDraw(); }
     }
 
     // ---------------- 离屏中间面（对位 Renderer 的 scratch/small/tiny/trans/morph 复用面） ----------------
@@ -596,23 +633,26 @@ public sealed class Immediate2D : IDisposable
 
     // ---------------- 内部：paint → 画刷 + 混合 ----------------
 
-    private void DrawCore(Paint2D p, Action<ID2D1Brush> draw)
+    /// <summary>
+    /// 起一笔绘制：解析画刷并设好混合/抗锯齿。返回 null = 本笔完全透明，调用方直接跳过。
+    /// 与 <see cref="EndDraw"/> 必须成对（EndDraw 放 finally）。
+    /// </summary>
+    private ID2D1Brush? BeginDraw(Paint2D p)
     {
         var alpha = Math.Clamp(p.Alpha, 0f, 1f);
-        if (alpha <= 0.002f) return;
+        if (alpha <= 0.002f) return null;
 
         var brush = ResolveBrush(p.Brush, alpha);
         ApplyBlend(p.Blend);
         ApplyAntialias(p.IsAntialias);
-        try
-        {
-            draw(brush);
-        }
-        finally
-        {
-            Ctx.PrimitiveBlend = PrimitiveBlend.SourceOver;
-            ApplyAntialias(true);
-        }
+        return brush;
+    }
+
+    /// <summary>收一笔绘制：混合与抗锯齿复位（原 DrawCore 的 finally 段）。</summary>
+    private void EndDraw()
+    {
+        Ctx.PrimitiveBlend = PrimitiveBlend.SourceOver;
+        ApplyAntialias(true);
     }
 
     private void ApplyBlend(Blend2D blend)

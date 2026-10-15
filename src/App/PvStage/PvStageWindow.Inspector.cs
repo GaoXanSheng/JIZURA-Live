@@ -11,8 +11,8 @@ using JizuraLive.Render.Effects;
 namespace JizuraLive.App.PvStage;
 
 /// <summary>
-/// 属性检查器：相机四参 + 选中图层五参 + 工程级信息。每行可动画参数都带 ◆K 与值来源徽标；
-/// 效果架里的 Number 参数行走同一套（只把行登记进 <see cref="_rackRows"/>）。
+/// 属性检查器：相机四参 + 选中图层八参（五个可动画 + 深度/环境光/边缘光三个常量）+ 工程级信息。
+/// 每行可动画参数都带 ◆K 与值来源徽标；效果架里的 Number 参数行走同一套（只把行登记进 <see cref="_rackRows"/>）。
 /// </summary>
 public partial class PvStageWindow
 {
@@ -110,10 +110,7 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(CameraRow("rotation", "旋转", 1));
     }
 
-    /// <summary>
-    /// 相机一行。<c>rotation</c> 在文档里没有常量字段（<see cref="PvCameraConfig"/> 只有 X/Y/Scale），
-    /// 唯一的落点是曲线——所以它"没有曲线时"的滑杆编辑直接变成在播放头打帧。
-    /// </summary>
+    /// <summary>相机一行：没有曲线时读写文档常量（与 PvPipeline.BaseCamera 的回落是同一份事实）。</summary>
     private FrameworkElement CameraRow(string param, string label, double step)
     {
         var addr = new ParamAddress(ParamAddressKind.Camera, "", param);
@@ -124,6 +121,7 @@ public partial class PvStageWindow
             "offsetX" => () => _scene.Camera?.X ?? 0,
             "offsetY" => () => _scene.Camera?.Y ?? 0,
             "scale" => () => _scene.Camera?.Scale ?? 1,
+            "rotation" => () => _scene.Camera?.Rotation ?? 0,
             _ => () => spec.Default,
         };
         Action<double> write = param switch
@@ -131,6 +129,7 @@ public partial class PvStageWindow
             "offsetX" => v => Camera().X = v,
             "offsetY" => v => Camera().Y = v,
             "scale" => v => Camera().Scale = v,
+            "rotation" => v => Camera().Rotation = v,
             _ => v => WriteCurveKeyAtPlayhead(addr, v),
         };
         return AnimParamRow(_inspectorRows, addr, label, spec.Min, spec.Max, step, read, write);
@@ -138,7 +137,7 @@ public partial class PvStageWindow
 
     private PvCameraConfig Camera() => _scene.Camera ??= new PvCameraConfig();
 
-    /// <summary>选中图层的五参（地址 <c>layer:&lt;id&gt;.&lt;param&gt;</c>）。</summary>
+    /// <summary>选中图层的参数：五个可动画的变换行（地址 <c>layer:&lt;id&gt;.&lt;param&gt;</c>）+ 三个观感常量行。</summary>
     private void BuildLayerSection(PvLayerConfig layer)
     {
         InspectorHost.Children.Add(SectionTitle($"图层 · {LayerKindLabel(layer.Kind)}"));
@@ -147,6 +146,67 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(LayerRow(layer, "scale", "缩放", 0.01));
         InspectorHost.Children.Add(LayerRow(layer, "opacity", "不透明", 0.02));
         InspectorHost.Children.Add(LayerRow(layer, "rotation", "旋转", 1));
+        // 深度上限 3 与 PvParallax 的夹取范围一致；环境光/边缘光在合成里按 0~1 用
+        InspectorHost.Children.Add(ConstRow("深度", 0, 3, 0.01,
+            () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
+        InspectorHost.Children.Add(ConstRow("环境光", 0, 1, 0.02,
+            () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
+        InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
+            () => layer.VisualBlend.RimGlow, v => layer.VisualBlend.RimGlow = v));
+    }
+
+    /// <summary>
+    /// 只有常量的编辑行：这三个参数不在参数注册表里，帧内没有曲线/绑定通道，
+    /// 所以没有 ◆K 也没有值来源徽标——滑杆写的就是文档字段。
+    /// </summary>
+    private FrameworkElement ConstRow(string label, double min, double max, double step,
+        Func<double> read, Action<double> write)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+
+        var lab = new TextBlock
+        {
+            Text = label,
+            Style = (Style)FindResource("PvRowLabel"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+
+        var value = new TextBlock
+        {
+            Style = (Style)FindResource("PvValue"),
+            Text = read().ToString("0.###", CultureInfo.InvariantCulture),
+            TextAlignment = TextAlignment.Right,
+        };
+        Grid.SetColumn(value, 2);
+        row.Children.Add(value);
+
+        var slider = new Slider
+        {
+            Style = (Style)FindResource("PvSlider"),
+            Minimum = min,
+            Maximum = max,
+            SmallChange = step,
+            Value = Math.Clamp(read(), min, max),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            write(e.NewValue);
+            value.Text = e.NewValue.ToString("0.###", CultureInfo.InvariantCulture);
+            // 拖动中不落盘：存盘是整份工程 JSON 的原子写，一次拖动能触发上百次（与动画行同一条约定）
+            if (slider.IsMouseCaptureWithin) return;
+            PushUndo();
+            _saveError = SaveProjectNow();
+        };
+        Grid.SetColumn(slider, 1);
+        row.Children.Add(slider);
+
+        return row;
     }
 
     private FrameworkElement LayerRow(PvLayerConfig layer, string param, string label, double step)
@@ -419,7 +479,7 @@ public partial class PvStageWindow
 
         ResolvedParam resolved = default;
         var bound = plan is not null && plan.TryGetResolved(row.Address, out resolved);
-        // 文档里有这条绑定、但本帧的计划里没有它：绑定没有生效（编译被拒 / 目标域还没有消费方）
+        // 文档里有这条绑定、但本帧的计划里没有它：绑定没有生效（编译被拒 / 计划已过期）
         var unwired = !bound && _badgeAddresses.Contains(row.Address);
         var source = ValueSourceBadge.Label(bound, resolved.Source, unwired, hasCurve);
         var effective = bound ? resolved.Value : baseValue;
@@ -583,9 +643,9 @@ public enum InspectorSectionKind
 /// 值来源徽标的文字判定（纯函数，与 <see cref="InspectorLayout"/> 同款：拎出来是为了可断言）。
 ///
 /// 关键的一条：文档里有绑定、当前信号计划里却没有这个地址时，徽标必须说「未接线」，
-/// 绝不能把绑定说成生效。相机/图层域现在正是这种情形——<c>SignalTargets.TryResolveBinding</c>
-/// 以 <c>target-domain-unwired</c> fail-closed 拒绝，计划里根本没有这条目标，
-/// 而渲染侧也确实不会写它的值。
+/// 绝不能把绑定说成生效（编译被拒、地址写错、计划已过期都归这一条）。
+/// 判定只看本帧的计划里有没有这条目标，与域无关：相机/图层/效果三个域都走同一条
+/// <c>CompiledSignalGraph.TryGetResolved</c>，谁被接上了就显示「连线」。
 /// </summary>
 public static class ValueSourceBadge
 {

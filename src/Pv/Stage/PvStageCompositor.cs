@@ -72,6 +72,8 @@ public sealed class PvStageCompositor
 
     /// <summary>
     /// 合成一帧。图层栈顺序 = 绘制顺序（先画在下）；相机按每层深度加权。
+    /// 每层的 offset/scale/rotation/opacity 取自 <see cref="PvScene.Frame"/> 的帧状态；
+    /// 没算过帧状态的层（直接调合成器的用例）按文档常量画。
     /// </summary>
     public void Composite(PvScene scene, PvCamState cam,
         IReadOnlyDictionary<string, PvLayerImage> images, int width, int height)
@@ -80,20 +82,22 @@ public sealed class PvStageCompositor
         {
             if (!layer.Enabled) continue;
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
-            DrawLayer(scene, layer, image, cam, width, height);
+
+            var state = scene.Frame.TryGetLayer(layer.Id, out var frame) ? frame : PvLayerState.From(layer);
+            DrawLayer(scene, layer, state, image, cam, width, height);
         }
     }
 
-    private void DrawLayer(PvScene scene, PvLayerConfig layer, PvLayerImage image,
+    private void DrawLayer(PvScene scene, PvLayerConfig layer, in PvLayerState state, PvLayerImage image,
         PvCamState cam, int width, int height)
     {
-        var tf = PvParallax.Compute(width, height, layer, cam,
+        var tf = PvParallax.Compute(width, height, layer, state, cam,
             globalParallax: scene.GlobalParallaxEnabled,
             antiBleed: scene.AntiBleedGuardEnabled);
 
         if (!PvAmbient.NeedsSurface(layer, scene.AmbientBlendEnabled))
         {
-            DrawContent(layer, image, tf, width, height, layer.Opacity);
+            DrawContent(layer, image, tf, width, height, state.Opacity);
             return;
         }
 
@@ -117,7 +121,7 @@ public sealed class PvStageCompositor
 
         _draw.PopSurface(new Paint2D
         {
-            Alpha = (float)Math.Clamp(layer.Opacity, 0, 1),
+            Alpha = (float)Math.Clamp(state.Opacity, 0, 1),
             ColorMatrix = blend.AmbientTintIntensity > 0.001
                 ? PvAmbient.TintMatrix(scene.AmbientTintColor, blend.AmbientTintIntensity)
                 : null,

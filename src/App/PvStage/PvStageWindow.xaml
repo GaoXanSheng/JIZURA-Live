@@ -261,7 +261,7 @@
                                 Margin="0,0,14,0" Content="VTS 关" Click="BtnVts_Click" />
                         <Button x:Name="BtnSignal" Style="{StaticResource PvBtnGhost}" Padding="9,5"
                                 Margin="0,0,14,0" Content="信号"
-                                ToolTip="数值信号图：把时间/能量这类信号接到效果参数上（改动确认后才生效）"
+                                ToolTip="数值信号图：把时间/能量这类信号接到镜头、图层或效果参数上（改动确认后才生效）"
                                 Click="BtnSignal_Click" />
                         <TextBlock Text="预设" Style="{StaticResource PvRowLabel}" Margin="0,0,8,0" />
                         <ComboBox x:Name="CmbPreset" Width="140" SelectionChanged="CmbPreset_SelectionChanged" />

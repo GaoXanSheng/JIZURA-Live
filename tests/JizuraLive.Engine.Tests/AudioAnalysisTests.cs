@@ -234,6 +234,102 @@ public class AudioAnalysisTests
         }
     }
 
+    /// <summary>
+    /// 流式整文件入口：分块解码（内存 O(窗口)，不整曲驻留）后，数值必须与"把同一份 PCM 整批喂进去"
+    /// 逐位相同——窗口/步长/频带/归一化规则是同一条链，分块边界不该改变任何一窗。
+    /// 取消在每个解码块之前检查：预先取消的令牌当场抛出，不先解完整曲。
+    /// </summary>
+    [Fact]
+    public void WholeFileStreamingMatchesBatchAnalysisAndHonoursCancellation()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "jizura-audio-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            WriteSineWav(path, 700, 0.4, seconds: 1.5);
+
+            var streamed = AudioFileAnalyzer.Analyze(path);
+
+            // 整批对照：同一个解码器把 PCM 一次读出来喂纯函数入口（16bit 量化后的同一份样本）
+            var pcm = DecodeAll(path, out var channels, out var rate);
+            var batch = AudioAnalyzer.Analyze(pcm, channels, rate);
+
+            Assert.True(streamed.IsComplete);
+            Assert.Equal(batch.Count, streamed.Count);
+            Assert.Equal(batch.SampleRate, streamed.SampleRate);
+            Assert.Equal(batch.StepSeconds, streamed.StepSeconds);
+            for (int j = 0; j < batch.Count; j++)
+            {
+                Assert.Equal(batch.Rms[j], streamed.Rms[j]);
+                Assert.Equal(batch.Bass[j], streamed.Bass[j]);
+                Assert.Equal(batch.Mid[j], streamed.Mid[j]);
+                Assert.Equal(batch.High[j], streamed.High[j]);
+            }
+
+            // 取消：令牌已取消时不得先解完整曲再返回
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.Throws<OperationCanceledException>(() => AudioFileAnalyzer.Analyze(path, cts.Token));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// 取消在运行中途也要生效：令牌是在分析过程中被取消的（进入时并未取消），
+    /// 长文件必须在跑完之前抛 <see cref="OperationCanceledException"/>。
+    /// </summary>
+    [Fact]
+    public void WholeFileStreamingCancelsMidRun()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "jizura-audio-" + Guid.NewGuid().ToString("N") + ".wav");
+        try
+        {
+            // 60s：解码 + 数千窗 FFT 远不止 50ms，取消点必然落在分析中途
+            WriteSineWav(path, 700, 0.4, seconds: 60.0);
+
+            using var cts = new CancellationTokenSource();
+            cts.CancelAfter(50);
+            // 前提：进入分析时令牌还没取消，否则下面的抛出只证明了"入口检查"而不是"中途生效"
+            Assert.False(cts.IsCancellationRequested);
+            Assert.Throws<OperationCanceledException>(() => AudioFileAnalyzer.Analyze(path, cts.Token));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    /// <summary>整文件入口的失败带原因：空路径当场抛出，不是"分析出一份空序列"。</summary>
+    [Fact]
+    public void WholeFileAnalysisRejectsEmptyPath()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => AudioFileAnalyzer.Analyze(""));
+        Assert.Contains("音频路径为空", ex.Message);
+    }
+
+    /// <summary>把文件整段解码成交错 PCM（整批入口的输入）：与流式入口共用同一个解码器。</summary>
+    private static float[] DecodeAll(string path, out int channels, out int sampleRate)
+    {
+        using var reader = new NAudio.Wave.AudioFileReader(path);
+        var format = reader.WaveFormat;
+        channels = format.Channels;
+        sampleRate = format.SampleRate;
+
+        var samples = (NAudio.Wave.ISampleProvider)reader;
+        var all = new List<float>();
+        var chunk = new float[16384];
+        while (true)
+        {
+            var read = samples.Read(chunk.AsSpan());
+            if (read <= 0) break;
+            for (int i = 0; i < read; i++) all.Add(chunk[i]);
+        }
+
+        return all.ToArray();
+    }
+
     [Fact]
     public void PipelineSnapshotQueriesTheTransportTimeAndReportsNotReadyAsInvalid()
     {

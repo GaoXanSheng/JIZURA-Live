@@ -246,17 +246,15 @@ public class SignalGraphTests
     }
 
     /// <summary>
-    /// 相机/图层的地址是**合法地址**（注册表给单位/范围/默认值），但渲染侧没有写入方：
-    /// <c>PvPipeline.ApplySignals</c> 只写效果实例参数，node 为 null 的解析值被直接丢掉；
-    /// 图层参数又是文档常量、帧内没有覆盖通道。编译通过而值被丢掉 = 静默无效，
-    /// 所以绑定必须 fail-closed 拒绝，并用一个与"地址写错"分开的稳定码，
-    /// 让界面与日志说的是"没接上"而不是"已连线"。
+    /// 相机/图层的地址是**合法地址**（注册表给单位/范围/默认值），而且现在解析得到**帧状态槽**（S06 消费表）：
+    /// 编译通过、求值结果写进本帧帧状态——这就是 M4 解锁路径「layer.offsetX 打帧屏幕上可见」的接线。
+    /// 仍然 fail-closed 的只有"地址写错"与"目标不存在"（与效果域同一条），不再是"没有消费方"。
     /// </summary>
     [Fact]
-    public void CameraAndLayerBindingsAreRefusedUntilTheRenderSideConsumesThem()
+    public void CameraAndLayerBindingsResolveToFrameStateSlots()
     {
         var effects = new EffectGraph();
-        var scene = new PvScene { Width = 1280, Height = 720 };
+        var scene = SceneWithLayers(1280, 720, "character");
 
         // 注册表这一侧仍然认得相机/图层：检查器行与时间轴轨读的就是这份单位/范围/默认值
         Assert.True(ParamRegistry.TryResolve(Addr("camera.scale"), effects, scene, out var camScale, out var camError), camError);
@@ -264,34 +262,39 @@ public class SignalGraphTests
         Assert.True(ParamRegistry.TryResolve(Addr("layer:character.opacity"), effects, scene, out var layerOpacity, out var layerError), layerError);
         Assert.Equal(ParamUnit.Ratio, layerOpacity.Unit);
 
-        // 绑定这一侧一律拒绝：拒的是"没有消费方"，与信号单位对不对无关
-        foreach (var address in new[] { "camera.scale", "camera.offsetX", "layer:character.opacity", "layer:character.rotation" })
-        {
-            var result = SignalCompiler.Compile(ConstantChain(address, 0.5, ParamUnit.Ratio), effects, scene);
-            Assert.Null(result.Plan);
-            var issue = Assert.Single(result.Issues, i => i.Code == "target-domain-unwired");
-            Assert.Equal("n_out", issue.NodeId);
-            Assert.Equal(SignalIssueSeverity.Error, issue.Severity);
-            Assert.Contains("相机/图层", issue.Message);
-        }
+        // 相机绑定：解析成帧状态槽，求值后写进帧相机
+        var scalePlan = CompileOk(ConstantChain("camera.scale", 0.5, ParamUnit.Dimensionless), effects, scene);
+        scalePlan.Evaluate(Frame(0.0, 0.0));
+        scalePlan.ApplyFrameState();
+        Assert.Equal(0.5, scene.Frame.Camera.Scale, 12);
 
-        // TimelineBaseValue 与绑定走同一个解析入口：地址合法但没有消费方，同样 fail-closed
+        // 图层绑定：写该层的帧副本；没绑定的槽保持 base 不被写坏
+        scene.Frame.SetLayer("character", PvLayerState.From(scene.Layers[0]));
+        var opacityPlan = CompileOk(ConstantChain("layer:character.opacity", 0.5, ParamUnit.Ratio), effects, scene);
+        opacityPlan.Evaluate(Frame(0.0, 0.0));
+        opacityPlan.ApplyFrameState();
+        Assert.True(scene.Frame.TryGetLayer("character", out var layerState));
+        Assert.Equal(0.5, layerState.Opacity, 12);
+        Assert.Equal(1.0, layerState.Scale, 12);
+
+        // TimelineBaseValue 与绑定走同一个解析入口：地址同样解析得到槽
         var baseOnly = new SignalGraph();
         var baseNode = Node(baseOnly, "n_base", SignalNodeKind.TimelineBaseValue);
         SetAddress(baseOnly, baseNode, "camera.scale");
         var output = Node(baseOnly, "n_out", SignalNodeKind.ParameterOutput);
         Connect(baseOnly, baseNode, output, "in");
         Bind(baseOnly, output, "camera.scale");
-
-        var baseResult = SignalCompiler.Compile(baseOnly, effects, scene);
-        Assert.Null(baseResult.Plan);
-        Assert.Contains(baseResult.Issues, i => i.Code == "target-domain-unwired" && i.NodeId == "n_base");
+        CompileOk(baseOnly, effects, scene);
 
         // 两种拒绝的码必须分得开：注册表里没有的键仍是 target-missing-key
         var unknown = SignalCompiler.Compile(ConstantChain("layer:character.alpha", 0.5, ParamUnit.Ratio), effects, scene);
         Assert.Null(unknown.Plan);
         Assert.Contains(unknown.Issues, i => i.Code == "target-missing-key");
-        Assert.DoesNotContain(unknown.Issues, i => i.Code == "target-domain-unwired");
+
+        // 绑到场景里不存在的图层：地址合法但目标不存在，与效果域"实例必须存在"同一条 fail-closed
+        var ghost = SignalCompiler.Compile(ConstantChain("layer:ghost.opacity", 0.5, ParamUnit.Ratio), effects, scene);
+        Assert.Null(ghost.Plan);
+        Assert.Contains(ghost.Issues, i => i.Code == "target-missing-instance");
 
         // 对照：效果域不受影响，单位不匹配照旧是 unit-mismatch
         effects.Add("bloom");
@@ -299,16 +302,16 @@ public class SignalGraphTests
     }
 
     /// <summary>
-    /// 相机/图层的范围仍由注册表给（限幅是将来那个消费方的职责），但"能绑上"这件事现在是 fail-closed。
-    /// 一条用例同时钉住两侧：范围照旧随画布解析，绑定照样被拒。
+    /// 相机/图层的范围由注册表给，并且真的在**写入帧状态时**限幅（§3.3 步骤 4）：
+    /// 越界值夹进范围并打 Clamped 标，帧状态拿到的是夹过的值——不是越界值，也不是拒绝绑定。
     /// </summary>
     [Fact]
-    public void CameraAndLayerRangesStayRegisteredWhileTheirBindingsAreRefused()
+    public void CameraAndLayerRangesClampFrameStateWrites()
     {
         var effects = new EffectGraph();
 
         // 画布 1280×720：相机位移范围 ±1280/±720
-        var scene = new PvScene { Width = 1280, Height = 720 };
+        var scene = SceneWithLayers(1280, 720, "bg");
         Assert.True(ParamRegistry.TryResolve(Addr("camera.offsetX"), effects, scene, out var offset, out var offsetError), offsetError);
         Assert.Equal(-1280, offset.Min, 6);
         Assert.Equal(1280, offset.Max, 6);
@@ -328,35 +331,121 @@ public class SignalGraphTests
         Assert.Equal(0, opacity.Min, 6);
         Assert.Equal(1, opacity.Max, 6);
 
-        // 但绑定一律被拒：没有消费方时"限幅"只是纸面承诺，接上线就等于"显示连线、画面不动"
-        var refused = SignalCompiler.Compile(ConstantChain("camera.offsetX", 3000, ParamUnit.Pixels), effects, scene);
-        Assert.Null(refused.Plan);
-        Assert.Contains(refused.Issues, i => i.Code == "target-domain-unwired");
+        // 越界信号：夹进范围、打标，帧状态拿到夹过的值
+        var plan = CompileOk(ConstantChain("camera.offsetX", 3000, ParamUnit.Pixels), effects, scene);
+        plan.Evaluate(Frame(0.0, 0.0));
+
+        Assert.True(plan.TryGetResolved(Addr("camera.offsetX"), out var resolved));
+        Assert.True(resolved.Clamped);
+        Assert.Equal(1280, resolved.Value, 6);
+
+        plan.ApplyFrameState();
+        Assert.Equal(1280, scene.Frame.Camera.X, 6);
     }
 
     /// <summary>
-    /// 契约 §3.3 的算例（base(t) + Remap(audio.bass)）在效果域由 <see cref="UnlockPathMatchesDocumentedArithmetic"/> 钉住。
-    /// 相机域现在没有消费方：同一张图必须整张被拒，而不是"编译通过、值被 ApplySignals 丢掉"。
+    /// 契约 §3.3 的算例（base(t) + Remap(audio.bass)）在**相机域**跑完整个应用链：
+    /// 5s 的帧状态 camera.scale = 1.132（曲线 base 1.1 + 0.032），输入失效回落 1.1 而不是 0。
     /// </summary>
     [Fact]
-    public void CameraScaleModulationIsRefusedInsteadOfSilentlyDropped()
+    public void CameraScaleModulationLandsInFrameState()
     {
         var effects = new EffectGraph();
-        var result = SignalCompiler.Compile(UnlockPath(effects, "camera.scale"), effects, new PvScene());
+        var scene = new PvScene { Width = 1920, Height = 1080 };
 
-        Assert.Null(result.Plan);
-        // 图里有两条相机地址（TimelineBaseValue 的地址文本 + 绑定），两条都要点名
-        var issues = result.Issues.Where(i => i.Code == "target-domain-unwired").ToList();
-        Assert.Equal(2, issues.Count);
-        Assert.Equal(
-            new[] { "n_base", "n_out" },
-            issues.Select(i => i.NodeId!).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        // 契约 §3.3 算例：0s/10s 两个 Linear Key 为 1.0/1.2
+        var curves = new DirectorEvaluator();
+        var curve = new FloatCurve();
+        Assert.True(curve.TryAdd(0.0, 1.0));
+        Assert.True(curve.TryAdd(10.0, 1.2));
+        curves.SetCurve(Addr("camera.scale"), curve);
+
+        var plan = CompileOk(UnlockPath(effects, "camera.scale"), effects, scene);
+
+        // 步骤 1/2：文档常量 → 曲线 base(t)；5s 的 base = 1.1
+        scene.Frame.Camera = PvPipeline.BaseCamera(scene.Camera, curves, 5.0);
+        Assert.Equal(1.1, scene.Frame.Camera.Scale, 12);
+
+        // 步骤 3/4：有效 bass 0.8 经 Remap(0..1 → 0..0.04) 得 0.032，帧状态 = 1.132
+        plan.Evaluate(Frame(5.0, 0.8, curves: curves));
+        plan.ApplyFrameState();
+        Assert.Equal(1.132, scene.Frame.Camera.Scale, 12);
+
+        // 同一张图输入失效：本帧重新算 base（渲染侧每帧都重铺），帧状态回到 1.1 而不是 0
+        scene.Frame.Camera = PvPipeline.BaseCamera(scene.Camera, curves, 5.0);
+        plan.Evaluate(Frame(5.0, 0.8, audioValid: false, curves: curves));
+        plan.ApplyFrameState();
+        Assert.Equal(1.1, scene.Frame.Camera.Scale, 12);
+
+        // 文档一字未改：常量与两个 Key 都不动
+        Assert.Equal(1.0, scene.Camera.Scale, 12);
+        Assert.Equal(2, curve.Count);
+    }
+
+    /// <summary>
+    /// 帧状态取值顺序逐档（契约 §3.3）：文档常量 → 曲线 base(t) → 信号 Resolved 覆盖 → 目标范围限幅；
+    /// 输出无效回落 base(t)。相机域在上一类里钉住，这里逐档钉图层域。
+    /// </summary>
+    [Fact]
+    public void LayerFrameStateFollowsTheDocumentedResolutionOrder()
+    {
+        var effects = new EffectGraph();
+        var scene = SceneWithLayers(1920, 1080, "character");
+        var layer = scene.Layers[0];
+        layer.OffsetX = 0.1;
+
+        var curves = new DirectorEvaluator();
+        var curve = new FloatCurve();
+        Assert.True(curve.TryAdd(0.0, 0.2));
+        Assert.True(curve.TryAdd(10.0, 0.4));
+        curves.SetCurve(Addr("layer:character.offsetX"), curve);
+
+        double OffsetX()
+        {
+            Assert.True(scene.Frame.TryGetLayer("character", out var s));
+            return s.OffsetX;
+        }
+
+        // ① 常量：没有曲线就是文档常量 0.1
+        scene.Frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, null, 5.0));
+        Assert.Equal(0.1, OffsetX(), 12);
+
+        // ② 曲线 base(t)：5s 落在两个 Key 中点 = 0.3
+        scene.Frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, curves, 5.0));
+        Assert.Equal(0.3, OffsetX(), 12);
+
+        // ③ 信号有效：覆盖 base（Constant 0.8 在 -1..1 内，不限幅）
+        var plan = CompileOk(UnlockPath(effects, "layer:character.offsetX", outUnit: ParamUnit.Ratio), effects, scene);
+        plan.Evaluate(Frame(5.0, 1.0, curves: curves));
+        Assert.Equal(ParamValueSource.Signal, Resolve(plan, "layer:character.offsetX").Source);
+        plan.ApplyFrameState();
+        Assert.Equal(0.34, OffsetX(), 12);   // 0.3 + Remap(1.0 → 0..0.04)
+
+        // ④ 输出无效：回落 base(t)；每帧重新铺 base 正是渲染侧的顺序（否则会读到上一帧的解析值 = 自反馈）
+        scene.Frame.SetLayer(layer.Id, PvPipeline.BaseLayer(layer, curves, 5.0));
+        plan.Evaluate(Frame(5.0, 0.0, audioValid: false, curves: curves));
+        Assert.Equal(ParamValueSource.Base, Resolve(plan, "layer:character.offsetX").Source);
+        plan.ApplyFrameState();
+        Assert.Equal(0.3, OffsetX(), 12);
+
+        // ⑤ 限幅：opacity 范围 0..1，信号 2 夹到 1 并打标
+        scene.Frame.SetLayer(layer.Id, PvLayerState.From(layer));
+        var clampPlan = CompileOk(ConstantChain("layer:character.opacity", 2.0, ParamUnit.Ratio), effects, scene);
+        clampPlan.Evaluate(Frame(0.0, 0.0));
+        Assert.True(clampPlan.TryGetResolved(Addr("layer:character.opacity"), out var clamped));
+        Assert.True(clamped.Clamped);
+        clampPlan.ApplyFrameState();
+        Assert.True(scene.Frame.TryGetLayer("character", out var afterClamp));
+        Assert.Equal(1.0, afterClamp.Opacity, 12);
+
+        // 文档常量与曲线 Key 全程一字未改
+        Assert.Equal(0.1, layer.OffsetX, 12);
+        Assert.Equal(2, curve.Count);
     }
 
     /// <summary>
     /// 值来源徽标：文档里有绑定、当前计划里却没有这个地址时，徽标必须说「未接线」，
-    /// 绝不能说「连线」。相机/图层域现在正是这种情形——编译被 <c>target-domain-unwired</c> 拒掉，
-    /// 渲染侧也确实不会写它的值。
+    /// 绝不能说「连线」。编译被拒（目标不存在 / 单位不匹配）或计划过期都会落进这一档。
     /// </summary>
     [Fact]
     public void ValueSourceBadgeNeverClaimsAnUnwiredBindingIsLive()
@@ -958,6 +1047,64 @@ public class SignalGraphTests
         Assert.Contains(result.Issues, i => i.Code == "required-input-unconnected" && i.NodeId == "n_add");
     }
 
+    /// <summary>
+    /// 删图层同样要级联信号绑定，与删效果实例对称：本批给 layer 域开了绑定入口，而图层存在性只在
+    /// **编译期**查一次（<see cref="SignalTargets.TryResolveBinding"/> 的 HasLayer）。
+    /// 图层从 <see cref="PvScene.Layers"/> 摘除后残留的 <c>layer:&lt;id&gt;.*</c> 绑定会让**整张图**编译失败
+    /// （target-missing-instance）——不只那条图层绑定，所有域的信号一起停。
+    /// 这条用例先钉死"悬空绑定 = 整图失败"的机制，再钉死 <see cref="SignalGraph.RemoveTargetCascade"/>
+    /// 对 layer 地址成立（它按地址 Target 字符串匹配，与效果实例同一条路）。
+    /// </summary>
+    [Fact]
+    public void RemovingLayerCascadesItsBindingsSoGraphStillCompiles()
+    {
+        var effects = new EffectGraph();
+        var scene = SceneWithLayers(1920, 1080, "l");
+
+        const string layerAddress = "layer:l.opacity";
+
+        var graph = new SignalGraph();
+
+        // 图层域：TimelineBaseValue 读 layer:l.opacity，绑定也写它
+        var baseNode = Node(graph, "n_base", SignalNodeKind.TimelineBaseValue);
+        SetAddress(graph, baseNode, layerAddress);
+
+        var layerConstant = Constant(graph, "n_c_layer", 0.5, ParamUnit.Ratio);
+        var layerOut = Node(graph, "n_out_layer", SignalNodeKind.ParameterOutput);
+        Connect(graph, layerConstant, layerOut, "in");
+        Bind(graph, layerOut, layerAddress, "b_layer");
+
+        // 另一个域：级联只删指向被删图层的条目，别的域不该被连坐
+        var cameraConstant = Constant(graph, "n_c_cam", 1.2, ParamUnit.Dimensionless);
+        var cameraOut = Node(graph, "n_out_cam", SignalNodeKind.ParameterOutput);
+        Connect(graph, cameraConstant, cameraOut, "in");
+        Bind(graph, cameraOut, "camera.scale", "b_camera");
+
+        CompileOk(graph, effects, scene);   // 图层还在场景里，这张图本来是合法的
+
+        // 图层被删（渲染线程从 scene.Layers 摘除），绑定还留着：整张图编译失败，Plan 为 null
+        scene.Layers.Clear();
+        var dangling = SignalCompiler.Compile(graph, effects, scene);
+        Assert.Null(dangling.Plan);
+        Assert.Contains(dangling.Issues,
+            i => i.Code == "target-missing-instance" && i.BindingId == "b_layer");
+
+        // 级联（删图层处理器必须调的那一步）：绑定与读取该地址的 base 节点一起消失
+        var removed = graph.RemoveTargetCascade("l");
+        Assert.True(removed >= 2);
+        Assert.DoesNotContain(graph.Bindings, b => b.Address == layerAddress);
+        Assert.DoesNotContain(graph.Nodes, n => n.Id == "n_base");
+
+        // 别的域保留：删一个图层不等于删整张图
+        Assert.Contains(graph.Bindings, b => b.Id == "b_camera");
+        Assert.Contains(graph.Nodes, n => n.Id == "n_out_cam");
+
+        // 级联之后恢复可编译：Plan 非 null 且没有 Error
+        var after = SignalCompiler.Compile(graph, effects, scene);
+        Assert.NotNull(after.Plan);
+        Assert.DoesNotContain(after.Issues, i => i.Severity == SignalIssueSeverity.Error);
+    }
+
     [Fact]
     public void CompileWarnsOnUnconnectedRequiredInputButStillCompiles()
     {
@@ -1018,7 +1165,8 @@ public class SignalGraphTests
     // ---------------- 构造与断言的小工具（刻意保持直白，让每个用例自己说明想表达什么）----------------
 
     /// <summary>契约 §3.3 的解锁路径算例：TimelineBaseValue(address) + Remap(AudioBands.Bass, 0..1 → 0..outMax) → Add → ParameterOutput。</summary>
-    private static SignalGraph UnlockPath(EffectGraph effects, string address, double outMax = 0.04)
+    private static SignalGraph UnlockPath(EffectGraph effects, string address, double outMax = 0.04,
+        ParamUnit outUnit = ParamUnit.Dimensionless)
     {
         var graph = new SignalGraph();
 
@@ -1031,7 +1179,7 @@ public class SignalGraphTests
         Set(graph, remap, "inMax", 1);
         Set(graph, remap, "outMin", 0);
         Set(graph, remap, "outMax", outMax);
-        Set(graph, remap, "outUnit", (double)ParamUnit.Dimensionless);
+        Set(graph, remap, "outUnit", (double)outUnit);
 
         var add = Node(graph, "n_add", SignalNodeKind.Add);
         var output = Node(graph, "n_out", SignalNodeKind.ParameterOutput);
@@ -1151,6 +1299,14 @@ public class SignalGraphTests
     {
         Assert.True(ParamAddress.TryParse(text, out var addr), $"地址不可解析：{text}");
         return addr;
+    }
+
+    /// <summary>带图层的场景：图层域绑定要求目标真的在场景里（帧状态槽按图层 Id 定位）。</summary>
+    private static PvScene SceneWithLayers(int width, int height, params string[] layerIds)
+    {
+        var scene = new PvScene { Width = width, Height = height };
+        foreach (var id in layerIds) scene.Layers.Add(new PvLayerConfig { Id = id });
+        return scene;
     }
 
     private static SignalFrameInputs Frame(double transportTime, double bass, bool audioValid = true, DirectorEvaluator? curves = null) =>

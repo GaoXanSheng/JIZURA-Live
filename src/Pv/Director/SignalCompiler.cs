@@ -918,6 +918,53 @@ public sealed partial class CompiledSignalGraph
     }
 
     /// <summary>
+    /// 把本帧 Resolved 写进帧状态（契约 §3.3 步骤 3/4）：相机四槽写帧相机、图层五参写该层帧副本；
+    /// 效果域不在这里写（调用方写实例参数）。只改帧状态，不回写文档、曲线与实例常量。
+    /// 必须在 <see cref="Evaluate"/> 之后调用：Evaluate 读的正是同一份帧状态的 base 值。
+    /// </summary>
+    public void ApplyFrameState()
+    {
+        var frame = FrameState;
+        if (frame is null) return;
+
+        var camera = frame.Camera;
+        for (var b = 0; b < _bindingAddress.Length; b++)
+        {
+            var target = _targets[_bindingTarget[b]];
+            if (target.Slot == PvFrameSlot.None) continue;
+
+            // _resolved 与绑定同序（Evaluate 里每个绑定恰好产出一项），所以下标直接对齐
+            var value = _resolved[b].Value;
+            switch (target.Slot)
+            {
+                case PvFrameSlot.CameraOffsetX: camera = camera with { X = value }; break;
+                case PvFrameSlot.CameraOffsetY: camera = camera with { Y = value }; break;
+                case PvFrameSlot.CameraScale: camera = camera with { Scale = value }; break;
+                case PvFrameSlot.CameraRotation: camera = camera with { Rotation = value }; break;
+                default:
+                    if (frame.TryGetLayer(target.Address.Target, out var layer))
+                        frame.SetLayer(target.Address.Target, layer.With(target.Slot, value));
+                    break;
+            }
+        }
+
+        frame.Camera = camera;
+    }
+
+    /// <summary>本计划的帧状态（编译时从场景捕获；纯效果域的计划为 null）。</summary>
+    private PvFrameState? FrameState
+    {
+        get
+        {
+            foreach (var target in _targets)
+                if (target.Frame is not null)
+                    return target.Frame;
+
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 把 schema 声明的参数按名字抄进求值器认的固定下标：帧内不再按名字查表，也不依赖 schema 的书写顺序。
     /// </summary>
     internal static void FillParams(SignalNode node, double[] dest, int offset)

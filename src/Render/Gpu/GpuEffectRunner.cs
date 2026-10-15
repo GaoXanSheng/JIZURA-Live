@@ -61,6 +61,14 @@ public sealed class GpuEffectRunner : IDisposable
 {
     private readonly ID3D11Device _device;
 
+    /// <summary>
+    /// 渲染图的输出槽暂存（按需增长，之后逐帧复用）：过去每帧 new 一个 Entry?[] 是**本方法内**唯一的
+    /// 逐帧托管分配（实测约 112 字节/帧，见 tests 的 GpuTexturePoolAllocationTests）。
+    /// 渲染图本身的重建在 EffectGraph.BuildRenderGraph，不在本方法内。
+    /// 每次用前按本帧的 pass 数清零——图的形状会变，留着上一帧的条目会把已归还的面当输入。
+    /// </summary>
+    private GpuTexturePool.Entry?[] _outputs = Array.Empty<GpuTexturePool.Entry?>();
+
     public ShaderLibrary Shaders { get; }
     public GpuTexturePool Pool { get; }
     public FullScreenPass Pass { get; }
@@ -106,7 +114,10 @@ public sealed class GpuEffectRunner : IDisposable
         if (graph.Count == 0)
             throw new ArgumentException("渲染图不能为空（至少一个 pass）", nameof(graph));
 
-        var outputs = new GpuTexturePool.Entry?[graph.Count];
+        var outputs = _outputs;
+        if (outputs.Length < graph.Count) outputs = _outputs = new GpuTexturePool.Entry?[graph.Count];
+        Array.Clear(outputs, 0, graph.Count);
+
         for (var i = 0; i < graph.Count; i++)
         {
             var p = graph.Passes[i];
@@ -114,8 +125,8 @@ public sealed class GpuEffectRunner : IDisposable
             var th = Math.Max(1, (int)Math.Round(height * p.Scale));
             var target = Pool.Rent(tw, th);
 
-            var srv0 = Resolve(p.Input0, external, outputs);
-            var srv1 = Resolve(p.Input1, external, outputs);
+            var srv0 = Resolve(p.Input0, external, outputs, graph.Count);
+            var srv1 = Resolve(p.Input1, external, outputs, graph.Count);
             if (srv0 is null)
                 throw new InvalidOperationException($"pass {i} 的输入 0 为空（槽位 {p.Input0}）");
 
@@ -123,18 +134,19 @@ public sealed class GpuEffectRunner : IDisposable
             outputs[i] = target;
         }
 
-        var last = outputs[^1]!;
-        for (var i = 0; i < outputs.Length - 1; i++)
+        var last = outputs[graph.Count - 1]!;
+        for (var i = 0; i < graph.Count - 1; i++)
             if (outputs[i] is not null) Pool.Return(outputs[i]!);
         return last;
     }
 
+    /// <summary><paramref name="count"/> 是本帧的 pass 数（暂存数组可能比它长，槽位越界判定必须按它）。</summary>
     private static ID3D11ShaderResourceView? Resolve(int slot, ID3D11ShaderResourceView external,
-        GpuTexturePool.Entry?[] outputs)
+        GpuTexturePool.Entry?[] outputs, int count)
     {
         if (slot == GpuRenderGraph.None) return null;
         if (slot == GpuRenderGraph.External) return external;
-        if (slot < 0 || slot >= outputs.Length)
+        if (slot < 0 || slot >= count)
             throw new InvalidOperationException($"渲染图引用了非法输入槽位 {slot}");
         return outputs[slot]?.Srv
                ?? throw new InvalidOperationException($"渲染图引用了尚未产出的 pass {slot}");

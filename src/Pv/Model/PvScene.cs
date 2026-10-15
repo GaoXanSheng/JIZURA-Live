@@ -38,6 +38,14 @@ public sealed class PvScene
     /// <summary>镜头基础值（持久化到工程）：追踪失效/未连接时的静息取景，也是追踪位移的基准。</summary>
     public PvCameraConfig Camera { get; set; } = new();
 
+    /// <summary>
+    /// 本帧的解析帧状态（契约 §3.3）：相机四槽 + 每层五参。渲染线程每帧在 Prepare 里重算，
+    /// 合成链与信号求值只消费它——文档常量与曲线/信号的仲裁结果都落在这份运行态上。
+    /// 运行态不进工程文件，所以存盘（UI 线程遍历文档）不会碰到它。
+    /// </summary>
+    [JsonIgnore]
+    public PvFrameState Frame { get; } = new();
+
     /// <summary>全局自适应环境光调色与光影融合开关（杜绝生硬贴片感）</summary>
     public bool AmbientBlendEnabled { get; set; } = true;
 
@@ -202,4 +210,7 @@ public sealed class PvCameraConfig
     public double X { get; set; }
     public double Y { get; set; }
     public double Scale { get; set; } = 1.0;
+
+    /// <summary>镜头旋转（度）。旧工程 JSON 里没有这个字段，读回来就是 0——与静息镜头的 Rotation 一致。</summary>
+    public double Rotation { get; set; }
 }

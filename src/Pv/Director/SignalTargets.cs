@@ -3,13 +3,34 @@ using JizuraLive.Render.Effects;
 namespace JizuraLive.Pv;
 
 /// <summary>
-/// 一个已解析的信号绑定目标：把地址文本翻译成"写哪个实例的哪个参数、什么单位、什么范围、默认值多少"。
+/// 帧状态里的写入槽（契约 §13.6 S06 消费表）：相机四槽 + 图层五参。
+/// 编译期从地址解析一次（<see cref="SignalTargets.TryResolveBinding"/>），帧内只按槽 switch，不再比对参数字符串。
+/// <see cref="None"/> = 效果域：它写实例参数，不经帧状态。
+/// </summary>
+public enum PvFrameSlot
+{
+    None,
+
+    CameraOffsetX,
+    CameraOffsetY,
+    CameraScale,
+    CameraRotation,
+
+    LayerOffsetX,
+    LayerOffsetY,
+    LayerScale,
+    LayerOpacity,
+    LayerRotation,
+}
+
+/// <summary>
+/// 一个已解析的信号绑定目标：把地址文本翻译成"写哪里、什么单位、什么范围、默认值多少"。
 ///
 /// <see cref="Node"/>/<see cref="Param"/> 是**引用**：编译期解析一次之后，求值路径只按引用读基础值，
 /// 不再解析地址文本（契约 §3.2：字符串只供显示和序列化，不在每帧解析）。
-/// 相机与图层域当前解析不出目标（没有写入方，见 <see cref="SignalTargets.TryResolveBinding"/>），
-/// 所以经 <see cref="SignalTargets"/> 拿到的目标恒来自效果实例：<see cref="Node"/>/<see cref="Param"/>
-/// 非 null，单位/范围/默认值取自该实例的 schema。
+/// <see cref="Slot"/> 非 None 时（相机/图层域）没有效果实例可写，<see cref="Node"/>/<see cref="Param"/>
+/// 无意义（恒为 null），写入方是本帧的 <see cref="Frame"/> 帧状态槽；效果域则 <see cref="Slot"/> 为 None、
+/// <see cref="Frame"/> 为 null。
 /// </summary>
 public readonly record struct SignalTarget(
     ParamAddress Address,
@@ -18,7 +39,9 @@ public readonly record struct SignalTarget(
     double Max,
     double Default,
     EffectNode Node,
-    EffectParam Param);
+    EffectParam Param,
+    PvFrameSlot Slot,
+    PvFrameState? Frame);
 
 /// <summary>
 /// 目标键解析：注册表（S06）定单位/范围/默认值，本类补上效果实例的写入引用。
@@ -30,8 +53,7 @@ public static class SignalTargets
 {
     /// <summary>
     /// 解析到**效果实例**参数。只认 effect 域：调用方（铺参数键、面板预检）要的是"哪个实例的哪个键"，
-    /// 相机/图层没有效果参数可铺。相机与图层的地址走 <see cref="TryResolveBinding"/>——那里同样解析不到
-    /// 写入方，当前一律以 <c>target-domain-unwired</c> fail-closed 拒绝。
+    /// 相机/图层没有效果参数可铺。相机与图层的地址走 <see cref="TryResolveBinding"/>。
     /// </summary>
     public static bool TryResolve(in ParamAddress addr, EffectGraph effects, out SignalTarget target, out string? error)
     {
@@ -48,13 +70,11 @@ public static class SignalTargets
 
     /// <summary>
     /// 解析**任意域**的绑定/基础值目标（契约 §8.1：绑定的 Address 三种形态都是合法地址）。
-    /// <paramref name="scene"/> 只影响相机的位移范围，传 null 按默认画布解析。
+    /// <paramref name="scene"/> 只影响相机的位移范围与图层目标的存在性，传 null 按默认画布解析、不查图层。
     ///
-    /// 相机/图层域 fail-closed 拒绝（<see cref="ParamRegistry.CodeDomainUnwired"/>）：地址合法，
-    /// 但渲染侧没有写入方——<c>PvPipeline.ApplySignals</c> 只写效果实例参数（这些目标的
-    /// <see cref="SignalTarget.Node"/> 是 null，解析值会被直接丢掉），而图层参数是文档常量、
-    /// 帧内没有覆盖通道。编译通过而值被丢掉就是"显示连线、画面不动"，比报错更难查，所以宁可拒绝。
-    /// 等渲染侧真接上（相机写本帧 <c>Stage.Camera</c>、图层写该层的合成输入）再放开这一条。
+    /// 三个域都解析到真正的写入方：效果域写实例参数（<see cref="SignalTarget.Node"/>），
+    /// 相机/图层域写本帧 <see cref="PvFrameState"/> 的槽（<see cref="SignalTarget.Slot"/>，见 S06 消费表）。
+    /// 解析不出槽的目标一律 fail-closed 拒绝——编译通过而值被丢掉就是"显示连线、画面不动"，比报错更难查。
     /// </summary>
     public static bool TryResolveBinding(in ParamAddress addr, EffectGraph effects, PvScene? scene,
         out SignalTarget target, out string? error)
@@ -66,11 +86,57 @@ public static class SignalTargets
 
         // 先走注册表：地址本身写错了（未知参数名 / 缺图层 Id / 镜头带了 Target）要报它自己的码，
         // 不能一律报成"没接线"——两种拒绝的原因必须分得开
-        if (!ParamRegistry.TryResolve(addr, effects, scene, out _, out error)) return false;
+        if (!ParamRegistry.TryResolve(addr, effects, scene, out var spec, out error)) return false;
 
-        error = $"{ParamRegistry.CodeDomainUnwired}: {addr} 是相机/图层参数；注册表认得它，"
-            + "但渲染侧还没有写入方（信号只写效果实例参数，图层参数是文档常量、帧内没有覆盖通道）。"
-            + "接线完成前拒绝绑定：编译通过而值被丢掉等于静默无效";
+        // 图层目标必须真的在场景里：绑到一个不存在的图层 Id 上，帧状态槽写进去也没人看（静默无效），
+        // 与效果域"实例必须存在"同一条 fail-closed。scene 为 null（计划复用期的身份核验）不查存在性。
+        if (addr.Kind == ParamAddressKind.Layer && scene is not null && !HasLayer(scene, addr.Target))
+        {
+            error = $"{ParamRegistry.CodeMissingInstance}: 场景里没有 Id 为「{addr.Target}」的图层（地址 {addr}）";
+            return false;
+        }
+
+        var slot = SlotOf(addr);
+        if (slot == PvFrameSlot.None)
+        {
+            // 注册表认得这个参数、消费表却不认：两张表漂了。宁可拒绝，也不要接一条写不到任何地方的值
+            error = $"{ParamRegistry.CodeMissingKey}: {addr} 解析不出帧状态槽（参数注册表与 S06 消费表不一致）";
+            return false;
+        }
+
+        target = new SignalTarget(addr, spec.Unit, spec.Min, spec.Max, spec.Default, null!, null!, slot, scene?.Frame);
+        error = null;
+        return true;
+    }
+
+    /// <summary>地址 → 帧状态槽。注册表先过了一遍参数名，所以这里只可能拿到它认得的名字。</summary>
+    private static PvFrameSlot SlotOf(in ParamAddress addr) => addr.Kind switch
+    {
+        ParamAddressKind.Camera => addr.Param switch
+        {
+            "offsetX" => PvFrameSlot.CameraOffsetX,
+            "offsetY" => PvFrameSlot.CameraOffsetY,
+            "scale" => PvFrameSlot.CameraScale,
+            "rotation" => PvFrameSlot.CameraRotation,
+            _ => PvFrameSlot.None,
+        },
+        ParamAddressKind.Layer => addr.Param switch
+        {
+            "offsetX" => PvFrameSlot.LayerOffsetX,
+            "offsetY" => PvFrameSlot.LayerOffsetY,
+            "scale" => PvFrameSlot.LayerScale,
+            "opacity" => PvFrameSlot.LayerOpacity,
+            "rotation" => PvFrameSlot.LayerRotation,
+            _ => PvFrameSlot.None,
+        },
+        _ => PvFrameSlot.None,
+    };
+
+    private static bool HasLayer(PvScene scene, string id)
+    {
+        foreach (var layer in scene.Layers)
+            if (layer is not null && string.Equals(layer.Id, id, StringComparison.Ordinal))
+                return true;
         return false;
     }
 
@@ -80,21 +146,25 @@ public static class SignalTargets
 
         if (!ParamRegistry.TryFindEffectParam(addr, effects, out var node, out var param, out error)) return false;
 
-        target = new SignalTarget(addr, param!.Unit, param.Min, param.Max, param.Default, node!, param);
+        target = new SignalTarget(addr, param!.Unit, param.Min, param.Max, param.Default, node!, param, PvFrameSlot.None, null);
         error = null;
         return true;
     }
 
     /// <summary>
-    /// 目标的基础值（契约 §3.3 步骤 2）：命中曲线取曲线值，否则取实例常量
+    /// 目标的基础值（契约 §3.3 步骤 2）：相机/图层域取本帧帧状态里的 base——那是"文档常量 → 曲线"的产物，
+    /// 曲线只有渲染侧那一处采样；效果域命中曲线取曲线值，否则取实例常量
     /// （<see cref="EffectNode.Value"/> 已回落 schema 默认）。
     ///
-    /// 纯函数、只读：曲线 Key 与实例常量在求值前后一字不改——动画值绝不写回文档。
-    /// 相机/图层的目标到不了这里（<see cref="TryResolveBinding"/> 在编译期就拒了它们），
-    /// 所以这条路径上的 <see cref="SignalTarget.Node"/> 恒非 null：基础值就是实例常量。
+    /// 纯函数、只读：曲线 Key、实例常量与帧状态在求值前后一字不改——动画值绝不写回文档。
     /// </summary>
     public static double BaseValue(in SignalTarget target, DirectorEvaluator? curves, double transportTime)
     {
+        if (target.Slot != PvFrameSlot.None
+            && target.Frame is not null
+            && target.Frame.TryGetBase(target.Slot, target.Address.Target, out var frameBase))
+            return frameBase;
+
         if (curves is not null && curves.TryEvaluate(target.Address, transportTime, out var animated))
             return animated;
 

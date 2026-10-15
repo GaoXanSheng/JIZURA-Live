@@ -1,4 +1,5 @@
-﻿using JizuraLive.Render.Draw;
+﻿using JizuraLive.Pv;
+using JizuraLive.Render.Draw;
 using JizuraLive.Render.Gpu;
 using Vortice.Mathematics;
 
@@ -107,6 +108,93 @@ public class CompositeTests
             var c = bmp.GetPixel(S / 2, S / 2);
             Assert.True(Math.Abs(c.Red - 128) <= 4 && Math.Abs(c.Green - 128) <= 4 && Math.Abs(c.Blue - 128) <= 4,
                 $"半透明合成应为中灰，实际 ({c.Red},{c.Green},{c.Blue})");
+        }
+    }
+
+    /// <summary>
+    /// 合成链消费**帧状态**（S06 消费表）：layer.offsetX 是画布宽/高的比例，在设计尺寸处换算成像素。
+    /// 帧状态里 0.25 / −0.5、画布 1920×1080 ⇒ 位移 (480, −540)px；文档常量（0）不再参与。
+    /// </summary>
+    [Fact]
+    public void LayerFrameStateOffsetIsConvertedToDesignPixels()
+    {
+        const float W = 1920f, H = 1080f;
+        var layer = new PvLayerConfig { Id = "character", Parallax = new PvParallaxConfig { Depth = 1.0 } };
+
+        // 文档常量是 0；本帧值来自帧状态（曲线/信号算出来的）
+        var state = PvLayerState.From(layer) with { OffsetX = 0.25, OffsetY = -0.5 };
+        var tf = PvParallax.Compute(W, H, layer, state, PvCamState.Identity,
+            globalParallax: false, antiBleed: false);
+
+        // 单位缩放下矩阵的平移分量就是「图层偏移（比例×画布尺寸）」
+        Assert.Equal(0.25f * W, tf.Matrix.M31, 3);
+        Assert.Equal(-0.5f * H, tf.Matrix.M32, 3);
+
+        // 对照：不带帧状态的重载只认文档常量（0 ⇒ 不动）
+        var docOnly = PvParallax.Compute(W, H, layer, PvCamState.Identity, globalParallax: false, antiBleed: false);
+        Assert.Equal(0f, docOnly.Matrix.M31, 3);
+        Assert.Equal(0f, docOnly.Matrix.M32, 3);
+
+        // 整条腿：曲线 → base(t)（帧状态）→ 设计像素。0.25 在 1920 画布上是 480px
+        var curves = new DirectorEvaluator();
+        var curve = new FloatCurve();
+        Assert.True(curve.TryAdd(0.0, 0.0));
+        Assert.True(curve.TryAdd(10.0, 0.5));
+        curves.SetCurve(new ParamAddress(ParamAddressKind.Layer, "character", "offsetX"), curve);
+
+        var fromCurve = PvPipeline.BaseLayer(layer, curves, 5.0);
+        var tfFromCurve = PvParallax.Compute(W, H, layer, fromCurve, PvCamState.Identity,
+            globalParallax: false, antiBleed: false);
+        Assert.Equal(0.25f * W, tfFromCurve.Matrix.M31, 3);
+    }
+
+    /// <summary>
+    /// 合成器读的是帧状态而不是文档常量：同一层、同一文档，只改帧状态里的 offsetX，
+    /// 画面跟着挪——「layer.offsetX 打帧屏幕上可见」在合成链上的那条断言。
+    /// </summary>
+    [GpuFact]
+    public void CompositorFollowsLayerFrameState()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        using (var host = D2DHost.Create(gpu))
+        using (var target = OffscreenTarget.Create(gpu, host.Ctx, S, S))
+        {
+            host.Draw.SetTarget(target.Bitmap, S, S);
+
+            // 关掉视差、防露底与环境光面：让位移成为画面里唯一的变化量
+            var scene = new PvScene
+            {
+                Width = S,
+                Height = S,
+                GlobalParallaxEnabled = false,
+                AntiBleedGuardEnabled = false,
+                AmbientBlendEnabled = false,
+            };
+            var layer = new PvLayerConfig { Id = "l", Parallax = new PvParallaxConfig { Depth = 1.0 } };
+            scene.Layers.Add(layer);
+
+            var images = new Dictionary<string, PvLayerImage>
+            {
+                ["l"] = PvLayerImage.FromSolid(new Color4(1f, 1f, 1f, 1f), S, S),
+            };
+
+            // 文档常量是 0；帧状态里 offsetX = 0.5 ⇒ 整层右移半幅
+            scene.Frame.SetLayer("l", PvLayerState.From(layer) with { OffsetX = 0.5 });
+
+            host.Draw.Begin();
+            host.Draw.Clear(new Color4(0f, 0f, 0f, 1f));
+            new PvStageCompositor(host.Draw).Composite(scene, PvCamState.Identity, images, S, S);
+            host.Draw.End();
+
+            using var bmp = target.Readback();
+            Assert.True(bmp.GetPixel(S / 4, S / 2).Red < 40, "左半幅应已空出（层被帧状态移走）");
+            Assert.True(bmp.GetPixel(S * 3 / 4, S / 2).Red > 200, "右半幅应被层盖住");
+
+            // 帧状态不写回文档
+            Assert.Equal(0.0, layer.OffsetX, 12);
         }
     }
 

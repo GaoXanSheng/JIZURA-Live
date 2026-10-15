@@ -530,6 +530,11 @@ public partial class PvStageWindow : Window
                     // src_N，遗留的 layer:src_N.* 曲线会被下一个同名新层继承（与效果实例串味同理）。
                     // 现在还没有图层曲线的编辑入口，但级联语义先钉死，别等 UI 造得出来才补。
                     _evaluator.RemoveCurvesForTarget(idRef);
+                    // 信号绑定同理，与效果实例那条（效果架 ✕）对称：layer 域的存在性只在编译期查一次
+                    // （SignalTargets 的 HasLayer），图层被摘除后残留的 layer:<id>.* 绑定会让**整张图**
+                    // 编译失败（target-missing-instance），所有域的信号一起停，还会跟着存盘变成悬空绑定。
+                    // RemoveTargetCascade 按地址 Target 字符串匹配，对 layer 地址同样成立。
+                    CascadeSignalTarget(idRef);
                     PublishDirector();
                     _pipe?.RequestRemove(idRef);
                 };
@@ -1043,7 +1048,7 @@ public partial class PvStageWindow : Window
         var graph = _project.SignalGraph;
         if (graph is null || graph.Nodes.Count == 0) return "信号 无";
 
-        var result = SignalCompiler.Compile(graph, _effects);
+        var result = SignalCompiler.Compile(graph, _effects, _scene);
         var errors = result.Issues.Where(i => i.Severity == SignalIssueSeverity.Error).ToList();
 
         if (result.Plan is null)
@@ -1128,7 +1133,7 @@ public partial class PvStageWindow : Window
     /// </summary>
     private void RefreshSignalCompile(SignalGraph draft)
     {
-        var result = SignalCompiler.Compile(draft, _effects);
+        var result = SignalCompiler.Compile(draft, _effects, _scene);
         var lines = new List<string>();
 
         foreach (var issue in result.Issues)
@@ -1286,11 +1291,23 @@ public partial class PvStageWindow : Window
     }
 
     /// <summary>
-    /// 可绑定的参数：效果实例 × 数值参数。地址用**实例** Id 拼（<c>effect:fx_glow_ab12.intensity</c>）：
-    /// 同一种效果可以有多个实例，DefId 指不到"哪一个"。Bool/Color 不在列，与 SignalTargets 的注册范围一致。
+    /// 可绑定的参数：镜头已注册地址 + 每个图层的已注册地址 + 效果实例的 Number 参数。
+    /// 地址文本按 <see cref="ParamAddress"/> 的往返形态拼（镜头 <c>camera.scale</c>、图层 <c>layer:&lt;id&gt;.opacity</c>、
+    /// 效果用**实例** Id：同一种效果可以有多个实例，DefId 指不到"哪一个"），
+    /// 可选性一律由 <see cref="ParamRegistry"/> 判定——注册表不认的地址不进下拉，免得"选得到、编译不过"。
     /// </summary>
-    private IEnumerable<(string Label, string Address)> SignalTargetChoices()
+    private List<(string Label, string Address)> SignalTargetChoices()
     {
+        var choices = new List<(string Label, string Address)>();
+
+        foreach (var name in CameraParamNames)
+            AddTargetChoice(choices, new ParamAddress(ParamAddressKind.Camera, "", name), "镜头 · " + ParamDisplayName(name));
+
+        foreach (var layer in _scene.Layers)
+            foreach (var name in LayerParamNames)
+                AddTargetChoice(choices, new ParamAddress(ParamAddressKind.Layer, layer.Id, name),
+                    LayerTitle(layer) + " · " + ParamDisplayName(name));
+
         foreach (var node in _effects.Nodes)
         {
             if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
@@ -1298,11 +1315,23 @@ public partial class PvStageWindow : Window
             if (def is null) continue;
 
             foreach (var p in def.Params)
-            {
-                if (p.Kind != EffectParamKind.Number) continue;
-                yield return ($"{node.DefId} · {p.Key}  [{p.Min:0.##}–{p.Max:0.##}]", $"effect:{node.InstanceId}.{p.Key}");
-            }
+                if (p.Kind == EffectParamKind.Number)
+                    AddTargetChoice(choices, new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key),
+                        $"{node.DefId} · {p.Key}");
         }
+
+        return choices;
+    }
+
+    // 注册表的静态参数表（ParamRegistry 认不认由 AddTargetChoice 当场判，这里只负责给候选）
+    private static readonly string[] CameraParamNames = ["offsetX", "offsetY", "scale", "rotation"];
+    private static readonly string[] LayerParamNames = ["offsetX", "offsetY", "scale", "opacity", "rotation"];
+
+    /// <summary>注册表认过的地址才进下拉；范围也取自注册项——与限幅用的是同一份范围。</summary>
+    private void AddTargetChoice(List<(string Label, string Address)> choices, in ParamAddress addr, string label)
+    {
+        if (!ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _)) return;
+        choices.Add(($"{label}  [{spec.Min:0.##}–{spec.Max:0.##}]", addr.ToString()));
     }
 
     /// <summary>一个输出节点至多一条绑定：先摘旧的再按新地址加一条（重复目标由 TryAddBinding 拒掉并说明原因）。</summary>
@@ -1356,7 +1385,8 @@ public partial class PvStageWindow : Window
         var draft = _signalDraft;
         if (draft is null) return;
 
-        var result = SignalCompiler.Compile(draft, _effects);
+        // 带场景编译：相机位移的范围是 ±1 个设计画布，与徽标、发布给管线的那两份同一口径
+        var result = SignalCompiler.Compile(draft, _effects, _scene);
         if (result.Plan is null)
         {
             var errors = result.Issues

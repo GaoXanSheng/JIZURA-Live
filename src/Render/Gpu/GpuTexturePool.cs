@@ -121,8 +121,15 @@ public sealed class GpuTexturePool : IDisposable
     private readonly long _freeCacheBudgetBytes;
     private readonly int _maxFreePerSize;
 
-    /// <summary>空闲缓存：每尺寸一个链表，尾 = 最近归还（优先被租出），头 = 最久未用（优先被淘汰）。</summary>
-    private readonly Dictionary<(int W, int H), LinkedList<Entry>> _free = new();
+    /// <summary>
+    /// 空闲缓存：每尺寸一个列表，尾 = 最近归还（优先被租出），头 = 最久未用（优先被淘汰）。
+    ///
+    /// 为什么是 <see cref="List{T}"/> 而不是 <see cref="LinkedList{T}"/>：后者每次 AddLast 都要
+    /// 新分配一个节点对象——稳态下每帧 Rent/Return 十几个面就是十几个节点（实测每帧约 440 字节托管垃圾，
+    /// 见 tests 的 GpuTexturePoolAllocationTests）。List 的尾部增删不分配，桶内张数有上限（8），
+    /// 从头部淘汰的 O(n) 位移可以忽略。
+    /// </summary>
+    private readonly Dictionary<(int W, int H), List<Entry>> _free = new();
 
     /// <summary>池仍然持有（含租出中）的全部 entry——Dispose 时逐个释放，淘汰时摘除。</summary>
     private readonly List<Entry> _all = new();
@@ -166,8 +173,8 @@ public sealed class GpuTexturePool : IDisposable
 
         if (_free.TryGetValue((width, height), out var free) && free.Count > 0)
         {
-            var reused = free.Last!.Value;
-            free.RemoveLast();
+            var reused = free[^1];
+            free.RemoveAt(free.Count - 1);
             _freeCount--;
             _freeBytes -= Bytes(reused);
             if (free.Count == 0) _free.Remove((width, height));
@@ -219,11 +226,11 @@ public sealed class GpuTexturePool : IDisposable
         entry.ReturnSeq = ++_returnSeq;
         if (!_free.TryGetValue((entry.Width, entry.Height), out var free))
         {
-            free = new LinkedList<Entry>();
+            free = new List<Entry>();
             _free[(entry.Width, entry.Height)] = free;
         }
 
-        free.AddLast(entry);
+        free.Add(entry);
         _freeCount++;
         _freeBytes += Bytes(entry);
 
@@ -252,8 +259,8 @@ public sealed class GpuTexturePool : IDisposable
         {
             while (bucket.Count > _maxFreePerSize)
             {
-                var oldest = bucket.First!.Value;
-                bucket.RemoveFirst();
+                var oldest = bucket[0];
+                bucket.RemoveAt(0);
                 DisposeFree(oldest);
             }
 
@@ -266,8 +273,8 @@ public sealed class GpuTexturePool : IDisposable
             var oldestKey = OldestFreeBucket();
             if (oldestKey is null) break; // 没有可淘汰的空闲面（预算为负不可能出现，防御性收口）
             var free = _free[oldestKey.Value];
-            var oldest = free.First!.Value;
-            free.RemoveFirst();
+            var oldest = free[0];
+            free.RemoveAt(0);
             DisposeFree(oldest);
             if (free.Count == 0) _free.Remove(oldestKey.Value);
         }
@@ -280,7 +287,7 @@ public sealed class GpuTexturePool : IDisposable
         var bestSeq = long.MaxValue;
         foreach (var (key, free) in _free)
         {
-            var head = free.First!.Value;
+            var head = free[0];
             if (head.ReturnSeq < bestSeq)
             {
                 bestSeq = head.ReturnSeq;
