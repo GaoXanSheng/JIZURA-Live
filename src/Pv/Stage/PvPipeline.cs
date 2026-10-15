@@ -634,7 +634,12 @@ public sealed class PvPipeline : IDisposable
         // Stage.Energy 是另一路（VTS 口型能量），由 ApplyTracking 写、给渲染器消费，不冒充频带。
         var audio = SampleAudioBands(_audioBands, time);
 
-        plan.Evaluate(new SignalFrameInputs(time, Monotonic.Elapsed.TotalSeconds, audio, _director));
+        // VTS 姿态走与 ApplyTracking 同一个探针、同一个新鲜度口径（Read 内部就是 TryRead(250ms)）：
+        // 探针为空或快照过期都传无效姿态，VtsPose 节点因此按通道失效，而不是沿用上一帧的姿态偏移。
+        // 判龄用 LiveTime，所以暂停音乐也照常过期——这里必须与 LiveTime 传**同一个读数**，不能各读一次时钟。
+        var liveSeconds = Monotonic.Elapsed.TotalSeconds;
+        plan.Evaluate(new SignalFrameInputs(time, liveSeconds, audio, _director,
+            VtsPoseSnapshot.Read(_tracking, liveSeconds)));
 
         // 相机/图层域（S06 消费表）：Resolved 写帧状态槽。必须在 Evaluate 之后——Evaluate 读的
         // 正是同一份帧状态的 base 值（常量/曲线），先写会把本帧的 base 覆盖掉。
