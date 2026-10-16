@@ -156,7 +156,8 @@
                                         </ui:Button>
                                         <TextBlock x:Name="TblAudioName" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="未导入音乐" />
-                                        <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" Style="{StaticResource PanelHint}"
+                                        <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                   Style="{StaticResource PanelHint}"
                                                    Text="拖入音频文件即可开始" />
                                     </StackPanel>
                                 </ui:Card>
@@ -261,7 +262,9 @@
                                         </ui:Button>
                                         <TextBlock x:Name="TblAutoHint" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
                                                    Text="先导入音乐，生成才会解锁。" />
-                                        <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                        <!-- 段落序列（前奏→主歌→副歌→…）比一行长：换行显示，别被面板宽度截断 -->
+                                        <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" TextWrapping="Wrap"
+                                                   Style="{StaticResource PanelHint}"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
                                     </StackPanel>
                                 </ui:Card>

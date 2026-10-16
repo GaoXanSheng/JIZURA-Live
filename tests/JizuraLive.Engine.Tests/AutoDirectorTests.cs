@@ -13,7 +13,7 @@ public class AutoDirectorTests
         {
             Bpm = 120,
             Beats = new List<double> { 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 },
-            Peaks = new List<double> { 1.5, 2.5 },
+            Downbeats = new List<double> { 1.5, 2.5 },
             Sections = new List<Section>
             {
                 new Section { Start = 0.0, End = 1.5, Kind = "verse" },
@@ -249,9 +249,9 @@ public class AutoDirectorTests
         Assert.NotNull(projectDyn.Curves.FirstOrDefault(c => c.Address == glitchAddr));
 
         var dynCurves = CurvesOf(projectDyn);
-        // 非 peak 节拍点 0.0s 取基准 0.0，而不是停在最大强度
+        // 非下拍节拍点 0.0s 取基准 0.0，而不是停在最大强度
         Assert.Equal(0.0, Evaluate(dynCurves, glitchAddr, 0.0), precision: 3);
-        // peak 点 1.5s 脉冲到 48.0 * 0.6
+        // 下拍 1.5s 脉冲到 48.0 * 0.6
         Assert.Equal(48.0 * 0.6, Evaluate(dynCurves, glitchAddr, 1.5), precision: 3);
 
         // 2. epic：zoomPunch.scale 节拍脉冲曲线
@@ -265,6 +265,40 @@ public class AutoDirectorTests
         var epicCurves = CurvesOf(projectEpic);
         Assert.Equal(1.0, Evaluate(epicCurves, zoomAddr, 0.0), precision: 3);
         Assert.Equal(1.0 + 0.35 * 0.8, Evaluate(epicCurves, zoomAddr, 1.5), precision: 3);
+    }
+
+    /// <summary>有下拍信息时 punch 关键帧只落在下拍上：非下拍的拍点保持基准值。</summary>
+    [Fact]
+    public void Generate_PunchKeysLandOnlyOnDownbeats()
+    {
+        var project = new DirectorProject();
+        var map = CreateSampleBeatMap();
+        AutoDirector.Generate(project, map, new AutoOptions { Style = "dynamic", Intensity = 1.0 });
+
+        var scale = project.Curves.First(c => c.Address == "camera.scale");
+        // intensity=1 → punch 值 = 1.0 + 0.14；只有下拍该出现这个值
+        var punched = scale.Curve.Keys.Where(k => Math.Abs(k.Value - 1.14) < 1e-6).Select(k => k.Time).ToList();
+        Assert.NotEmpty(punched);
+        Assert.All(punched, t => Assert.Contains(t, map.Downbeats));
+    }
+
+    /// <summary>没有下拍信息时回退到每拍都打，不会因为缺下拍而丢掉节拍脉冲。</summary>
+    [Fact]
+    public void Generate_WithoutDownbeats_PunchesEveryBeat()
+    {
+        var project = new DirectorProject();
+        var map = new BeatMap
+        {
+            Bpm = 120,
+            Beats = new List<double> { 0.0, 0.5, 1.0, 1.5 },
+            Sections = new List<Section> { new Section { Start = 0.0, End = 1.5, Kind = "verse" } }
+        };
+
+        AutoDirector.Generate(project, map, new AutoOptions { Style = "dynamic", Intensity = 1.0 });
+
+        var curves = CurvesOf(project);
+        foreach (var b in map.Beats)
+            Assert.Equal(1.14, Evaluate(curves, "camera.scale", b), precision: 3);
     }
 
     private static DirectorEvaluator CurvesOf(DirectorProject project)

@@ -11,6 +11,7 @@ using System.Windows.Input;
 using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
+using JizuraLive.Engine.Music;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
@@ -133,8 +134,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private string _mediaMetaCache = "";
     private string _mediaLyricCache = "";
 
-    // 最近一次一键成片分析出的 BPM（0 = 还没分析过）
-    private double _lastBpm;
+    // 整曲音乐分析（BPM / 下拍 / 段落）：导入或恢复音源时后台跑一次，结果缓存给素材卡与一键生成
+    private BeatMap? _beatMap;
+    private CancellationTokenSource? _musicCts;
 
     // 撤销/重做：栈里放的是工程 JSON 串（与 ProjectStore.Save 同一序列化），深度上限由 UndoLog 管
     private readonly UndoLog _undo = new();
@@ -414,12 +416,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             }
             else
             {
-                // 波形与频带分析都在后台线程做，这里只发起（本回调跑在渲染线程上，不在这里碰 UI）
+                // 波形、频带与整曲音乐分析都在后台线程做，这里只发起（本回调跑在渲染线程上，不在这里碰 UI）
                 var path = _audioPath;
                 Dispatcher.BeginInvoke(() =>
                 {
                     BuildInspector(); // 检查器音频/时长行是静态内容，恢复音源后重建（否则挂着上一首的读数）
                     StartAudioLoad(path);
+                    StartMusicAnalysis(path);
                 });
             }
         }
@@ -1282,14 +1285,19 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
             _peaks = null;
             _audioLoadCts?.Cancel();
+            _musicCts?.Cancel();
             // 频带序列属于旧音频：立刻作废并发布 null，别让渲染线程拿旧频带去配新时钟
             _audioBands = null;
+            _beatMap = null;
             PublishAudioBands();
 
             if (!string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath))
             {
                 if (_audio.LoadAudio(_audioPath))
+                {
                     StartAudioLoad(_audioPath);
+                    StartMusicAnalysis(_audioPath);
+                }
             }
         }
 
@@ -1441,7 +1449,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         LoadAudioFile(dlg.FileName);
     }
 
-    /// <summary>导入音频（按钮与窗口拖放共用）：装音源 → 后台波形/频带分析 → 同名 .lrc 一起装载。</summary>
+    /// <summary>导入音频（按钮与窗口拖放共用）：装音源 → 后台波形/频带/音乐分析 → 同名 .lrc 一起装载。</summary>
     private void LoadAudioFile(string path)
     {
         TblStatus.Text = "正在加载音频…";
@@ -1452,6 +1460,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblStatus.Text = "音频已加载";
             BuildInspector(); // 检查器的音频/时长行是静态内容，换音源后必须重建（否则挂着上一首的读数）
             StartAudioLoad(path); // 波形轨 + 频带分析：后台解码，到位后自己刷新
+            StartMusicAnalysis(path); // 整曲音乐分析（BPM/下拍/段落）：后台解码，结果缓存给素材卡与一键生成
             _exportFormEdited = false; // 换了音源：导出表单的默认时长跟着新音频走
             var lrcPath = Path.ChangeExtension(path, ".lrc");
             if (File.Exists(lrcPath))
@@ -1478,6 +1487,60 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblStatus.Text = $"音频加载失败：{Path.GetFileName(path)}（格式不支持或文件损坏；当前支持 wav/mp3/m4a/aac/wma）";
         }
     }
+
+    /// <summary>
+    /// 后台跑一次整曲音乐分析（<see cref="SongAnalyzer.AnalyzeFile"/>）：结果缓存到 _beatMap，供素材卡读数与一键成片复用。
+    /// 换成另一首时取消上一次——两份结果同时回来，素材卡会挂着上一首的 BPM 与段落。
+    /// </summary>
+    private void StartMusicAnalysis(string path)
+    {
+        _musicCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _musicCts = cts;
+        _beatMap = null;
+
+        Task.Run(() =>
+        {
+            BeatMap? map = null;
+            try
+            {
+                map = SongAnalyzer.AnalyzeFile(path, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                if (!cts.IsCancellationRequested) Log.Warn("[工作台] 音乐分析失败：" + ex.Message);
+            }
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_musicCts, cts)) return; // 期间又换过音频：这一份作废
+                if (map is null) return;
+
+                _beatMap = map;
+                TblAutoReport.Text =
+                    $"BPM {map.Bpm:F1} · 段落 {map.Sections.Count} 段 · 下拍 {map.Downbeats.Count} 个\n"
+                    + $"段落序列 {SectionSequence(map)}";
+            });
+        });
+    }
+
+    /// <summary>段落序列文本（前奏→主歌→副歌→…）：素材卡与导演报告共用的同一份写法。</summary>
+    private static string SectionSequence(BeatMap map) =>
+        string.Join("→", map.Sections.Where(s => s is not null).Select(s => SectionKindLabel(s.Kind)));
+
+    private static string SectionKindLabel(string? kind) => (kind ?? "").Trim().ToLowerInvariant() switch
+    {
+        "intro" => "前奏",
+        "verse" => "主歌",
+        "chorus" => "副歌",
+        "bridge" => "桥段",
+        "outro" => "尾奏",
+        "break" => "间奏",
+        var other => other,
+    };
+
+    private static int ChorusCount(BeatMap map) =>
+        map.Sections.Count(s => s is not null && s.Kind.Equals("chorus", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>广播开关：开关只表达用户意图，发没发出去、下游接没接住看状态条的回执。</summary>
     private void TglBroadcast_Changed(object sender, RoutedEventArgs e)
@@ -2036,10 +2099,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (_autoGenerating) return;
 
         var audioPath = _audioPath;
-        var duration = _audio.Duration;
+        var cachedMap = _beatMap;
         var existingAnalysis = _audioBands;
 
-        if (string.IsNullOrWhiteSpace(audioPath) && existingAnalysis == null)
+        if (string.IsNullOrWhiteSpace(audioPath) && cachedMap is null && existingAnalysis is null)
         {
             ShowStatus("一键成片失败：请先导入音频");
             return;
@@ -2058,29 +2121,24 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         try
         {
-            var (beatMap, analysisResult, error) = await Task.Run<(BeatMap? BeatMap, AudioAnalysis? Analysis, string? Error)>(() =>
+            // 导入时已分析过的就用缓存，不再解一遍整曲；缺哪一份（图/频带）才补哪一份
+            var (beatMap, analysisResult, error) = await Task.Run<(BeatMap? BeatMap, AudioBandSeries? Bands, string? Error)>(() =>
             {
                 try
                 {
-                    AudioAnalysis? analysis = existingAnalysis;
-                    if (analysis is null)
+                    var map = cachedMap;
+                    var bands = existingAnalysis;
+                    if ((map is null || bands is null) && (string.IsNullOrWhiteSpace(audioPath) || !File.Exists(audioPath)))
+                        return (map, bands, "音频文件不存在，无法分析");
+
+                    if (bands is null)
                     {
-                        if (string.IsNullOrWhiteSpace(audioPath) || !File.Exists(audioPath))
-                            return (null, null, "音频文件不存在，无法分析");
-                        analysis = AudioFileAnalyzer.Analyze(audioPath, CancellationToken.None);
-                        if (analysis is null)
-                            return (null, null, "音频频带分析失败");
+                        bands = AudioFileAnalyzer.Analyze(audioPath!, CancellationToken.None);
+                        if (bands is null) return (map, null, "音频频带分析失败");
                     }
 
-                    double d = duration;
-                    if (d <= 0 && analysis.Count > 0 && analysis.StepSeconds > 0)
-                        d = analysis.Count * analysis.StepSeconds;
-
-                    if (d <= 0)
-                        return (null, analysis, "音频时长为 0，无法分析节拍");
-
-                    var map = BeatAnalysis.Analyze(analysis, d);
-                    return (map, analysis, null);
+                    map ??= SongAnalyzer.AnalyzeFile(audioPath!, CancellationToken.None);
+                    return (map, bands, null);
                 }
                 catch (Exception ex)
                 {
@@ -2093,6 +2151,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 ShowStatus($"一键成片失败：{error ?? "未知错误"}");
                 return;
             }
+
+            _beatMap = beatMap;
 
             if (_audioBands is null && analysisResult is AudioBandSeries abs)
             {
@@ -2126,9 +2186,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             PushUndo();
 
             // 分析结果与生成摘要留在「导演」面板上
-            _lastBpm = beatMap.Bpm;
             TblAutoReport.Text =
                 $"BPM {beatMap.Bpm:F1} · 段落 {beatMap.Sections.Count} 段 · 节拍 {beatMap.Beats.Count} 个\n"
+                + $"段落序列 {SectionSequence(beatMap)}\n"
                 + $"曲线 {report.CurveKeys} 键（相机 {report.CameraKeys}）· 效果实例 {report.EffectInstances} 个";
             var note = $"一键成片完成：相机 {report.CameraKeys} 键 · 特效 {report.EffectInstances} 个 · 曲线 {report.CurveKeys} 键";
             ShowStatus(note);
@@ -2216,7 +2276,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         var name = string.IsNullOrWhiteSpace(_audioPath) ? "未导入音乐" : Path.GetFileName(_audioPath);
         var meta = _audio.Duration > 0 ? $"时长 {Fmt(_audio.Duration)}" : "拖入音频文件即可开始";
-        if (_lastBpm > 0) meta += $" · BPM {_lastBpm:F1}";
+        if (_beatMap is { Bpm: > 0 } map)
+            meta += $" · BPM {map.Bpm:F0} · 段落 {map.Sections.Count}（副歌 ×{ChorusCount(map)}）";
         var lyric = _lyrics is null
             ? "未装载歌词"
             : $"{_lyrics.Count} 句" + (_tailUncalibrated ? "（末句待校准）" : "");

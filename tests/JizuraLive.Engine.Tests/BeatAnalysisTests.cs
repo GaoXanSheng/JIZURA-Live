@@ -1,190 +1,154 @@
 using JizuraLive.Engine;
-using Xunit;
+using JizuraLive.Engine.Music;
 
 namespace JizuraLive.Engine.Tests;
 
+/// <summary>
+/// <see cref="SongAnalyzer"/> 在合成音轨上的端到端结果（BPM / 下拍 / 段落连续）：
+/// 特征、拍点、结构三条链一起验，输入只有 PCM。
+/// </summary>
 public class BeatAnalysisTests
 {
-    private const double Step = 512.0 / 48000.0; // ~0.010667s
+    private const int Rate = 44100;
 
     [Fact]
-    public void SilenceReturnsEmptyBeatsAndSectionsCoversFullDuration()
+    public void SilenceYieldsNoBeatsAndOneSectionCoveringWholeTrack()
     {
         const double duration = 12.0;
-        int frames = (int)Math.Ceiling(duration / Step);
-        var analysis = new AudioAnalysis(new float[frames], new float[frames], new float[frames], new float[frames], Step);
+        var map = SongAnalyzer.Analyze(new float[(int)(duration * Rate)], 1, Rate);
 
-        var map = BeatAnalysis.Analyze(analysis, duration);
-
-        Assert.Equal(0, map.Bpm);
+        Assert.Equal(0.0, map.Bpm);
         Assert.Empty(map.Beats);
+        Assert.Empty(map.Downbeats);
         Assert.Empty(map.Peaks);
-        Assert.NotEmpty(map.Sections);
+        Assert.Single(map.Sections);
         Assert.Equal(0.0, map.Sections[0].Start);
-        Assert.Equal(duration, map.Sections[^1].End);
-        for (int i = 0; i < map.Sections.Count - 1; i++)
-            Assert.Equal(map.Sections[i].End, map.Sections[i + 1].Start);
-    }
-
-    [Fact]
-    public void PureNoiseReturnsEmptyBeatsAndSectionsCoversFullDuration()
-    {
-        const double duration = 15.0;
-        int frames = (int)Math.Ceiling(duration / Step);
-        var rng = new Random(42);
-        var rms = new float[frames];
-        for (int i = 0; i < frames; i++)
-            rms[i] = (float)(0.35 + rng.NextDouble() * 0.1);
-
-        var analysis = new AudioAnalysis(rms, new float[frames], new float[frames], new float[frames], Step);
-        var map = BeatAnalysis.Analyze(analysis, duration);
-
-        Assert.Equal(0, map.Bpm);
-        Assert.Empty(map.Beats);
-        Assert.NotEmpty(map.Sections);
-        Assert.Equal(0.0, map.Sections[0].Start);
-        Assert.Equal(duration, map.Sections[^1].End);
+        Assert.Equal(duration, map.Sections[^1].End, 6);
     }
 
     [Theory]
-    [InlineData(120.0, 0.15)]
-    [InlineData(100.0, 0.05)]
-    [InlineData(144.0, 0.20)]
-    public void SyntheticPulseTrainDetectsExactBpmAndPhaseAlignment(double expectedBpm, double phase)
-    {
-        const double duration = 12.0;
-        int frames = (int)Math.Ceiling(duration / Step);
-        var rms = new float[frames];
-        var bass = new float[frames];
-
-        double beatPeriod = 60.0 / expectedBpm;
-        for (double t = phase; t < duration; t += beatPeriod)
-        {
-            int f = (int)Math.Round(t / Step);
-            if (f < frames)
-            {
-                rms[f] = 0.95f;
-                bass[f] = 0.8f;
-            }
-        }
-
-        var analysis = new AudioAnalysis(rms, bass, new float[frames], new float[frames], Step);
-        var map = BeatAnalysis.Analyze(analysis, duration);
-
-        double bpmError = Math.Abs(map.Bpm - expectedBpm) / expectedBpm;
-        Assert.True(bpmError < 0.01, $"BPM error {bpmError:P2} exceeds 1% (expected {expectedBpm}, got {map.Bpm})");
-
-        Assert.NotEmpty(map.Beats);
-        for (int i = 0; i < map.Beats.Count - 1; i++)
-            Assert.True(map.Beats[i] < map.Beats[i + 1], "Beats must be strictly ascending");
-
-        foreach (var beat in map.Beats)
-        {
-            Assert.InRange(beat, 0.0, duration);
-            double k = Math.Round((beat - phase) / beatPeriod);
-            double expectedBeatTime = phase + k * beatPeriod;
-            if (expectedBeatTime >= 0 && expectedBeatTime < duration)
-                Assert.True(Math.Abs(beat - expectedBeatTime) < 0.03, $"Beat {beat} misaligned from expected {expectedBeatTime}");
-        }
-    }
-
-    [Fact]
-    public void StepSignalDetectsSectionBoundary()
-    {
-        const double duration = 20.0;
-        int frames = (int)Math.Ceiling(duration / Step);
-        var rms = new float[frames];
-        for (int i = 0; i < frames; i++)
-        {
-            double t = i * Step;
-            rms[i] = t < 10.0 ? 0.2f : 0.85f;
-        }
-
-        var analysis = new AudioAnalysis(rms, new float[frames], new float[frames], new float[frames], Step);
-        var map = BeatAnalysis.Analyze(analysis, duration);
-
-        Assert.True(map.Sections.Count >= 2, "Expected at least 2 sections across step");
-        Assert.Equal(0.0, map.Sections[0].Start);
-        Assert.Equal(duration, map.Sections[^1].End);
-        for (int i = 0; i < map.Sections.Count - 1; i++)
-            Assert.Equal(map.Sections[i].End, map.Sections[i + 1].Start);
-
-        bool foundStepBoundary = map.Sections.Any(s => Math.Abs(s.Start - 10.0) < 0.5 || Math.Abs(s.End - 10.0) < 0.5);
-        Assert.True(foundStepBoundary, "Expected section boundary near 10.0s");
-
-        var chorusSection = map.Sections.FirstOrDefault(s => s.Kind == "chorus");
-        Assert.NotNull(chorusSection);
-        Assert.True(chorusSection.Start >= 9.5);
-
-        Assert.NotEmpty(map.Peaks);
-        Assert.All(map.Peaks, p => Assert.True(p >= 9.5));
-    }
-
-    [Fact]
-    public void DurationMismatchClampsToShorter()
-    {
-        const int frames = 600;
-        double seriesDuration = frames * Step;
-        var rms = new float[frames];
-        Array.Fill(rms, 0.3f);
-        var analysis = new AudioAnalysis(rms, new float[frames], new float[frames], new float[frames], Step);
-
-        var mapA = BeatAnalysis.Analyze(analysis, 12.0);
-        Assert.Equal(seriesDuration, mapA.Sections[^1].End, 4);
-
-        var mapB = BeatAnalysis.Analyze(analysis, 4.0);
-        Assert.Equal(4.0, mapB.Sections[^1].End, 4);
-    }
-
-    [Fact]
-    public void BoundarySnapsToNearestBeat()
+    [InlineData(120.0)]
+    [InlineData(100.0)]
+    [InlineData(150.0)]
+    public void ClickTrackDetectsBpmBeatsAndDownbeats(double bpm)
     {
         const double duration = 16.0;
-        int frames = (int)Math.Ceiling(duration / Step);
-        var rms = new float[frames];
-        var bass = new float[frames];
+        var pcm = RenderTrack(bpm, duration, [(0.0, duration, 261.63, 0.1)]);
 
-        const double beatPeriod = 0.5;
-        for (double t = 0.0; t < duration; t += beatPeriod)
+        var map = SongAnalyzer.Analyze(pcm, 1, Rate);
+
+        var bpmError = Math.Abs(map.Bpm - bpm) / bpm;
+        Assert.True(bpmError < 0.03, $"BPM 误差 {bpmError:P2} 超过 3%（期望 {bpm}，实得 {map.Bpm}）");
+
+        var beatPeriod = 60.0 / bpm;
+        Assert.True(map.Beats.Count > 0);
+        for (var i = 0; i < map.Beats.Count - 1; i++)
         {
-            int f = (int)Math.Round(t / Step);
-            if (f < frames)
-            {
-                rms[f] = t < 8.1 ? 0.35f : 0.95f;
-                bass[f] = 0.8f;
-            }
-        }
-        for (int i = 0; i < frames; i++)
-        {
-            double t = i * Step;
-            if (rms[i] < 0.1f) rms[i] = t < 8.1 ? 0.15f : 0.75f;
+            var gap = map.Beats[i + 1] - map.Beats[i];
+            Assert.True(map.Beats[i] < map.Beats[i + 1], "拍点必须严格递增");
+            // 拍点落在帧网格上（hop 512），相邻间隔与拍周期的偏差不超过一帧
+            Assert.True(Math.Abs(gap - beatPeriod) < 0.02, $"拍间隔 {gap:F4}s 偏离拍周期 {beatPeriod:F4}s");
         }
 
-        var analysis = new AudioAnalysis(rms, bass, new float[frames], new float[frames], Step);
-        var map = BeatAnalysis.Analyze(analysis, duration);
+        double expectedBeats = duration / beatPeriod;
+        Assert.True(Math.Abs(map.Beats.Count - expectedBeats) / expectedBeats < 0.1,
+            $"拍数 {map.Beats.Count} 与时长×BPM/60={expectedBeats:F1} 相差超过 10%");
 
-        Assert.NotEmpty(map.Beats);
-        Assert.True(map.Sections.Count >= 2);
-
-        double cut = map.Sections[0].End;
-        bool snappedToBeat = map.Beats.Any(b => Math.Abs(b - cut) < 1e-4);
-        Assert.True(snappedToBeat, $"Section boundary {cut} should snap to a beat in Beats");
+        // 下拍：4 拍一小节，间隔应约等于 4 个拍周期，且都落在拍点上
+        Assert.NotEmpty(map.Downbeats);
+        Assert.All(map.Downbeats, d => Assert.Contains(d, map.Beats));
+        for (var i = 0; i < map.Downbeats.Count - 1; i++)
+        {
+            var gap = map.Downbeats[i + 1] - map.Downbeats[i];
+            Assert.True(Math.Abs(gap - 4 * beatPeriod) < 0.15 * 4 * beatPeriod,
+                $"下拍间隔 {gap:F3}s 偏离 4 拍（{4 * beatPeriod:F3}s）");
+        }
     }
 
     [Fact]
-    public void EmptyOrInvalidInputHandledSafely()
+    public void SectionsAreContiguousAndCoverTheWholeTrack()
     {
-        var mapNull = BeatAnalysis.Analyze(null!, 10.0);
-        Assert.Equal(0, mapNull.Bpm);
-        Assert.Single(mapNull.Sections);
-        Assert.Equal(10.0, mapNull.Sections[0].End);
+        const double duration = 36.0;
+        var pcm = RenderTrack(120.0, duration,
+        [
+            (0.0, 12.0, 261.63, 0.10),
+            (12.0, 24.0, 369.99, 0.30),
+            (24.0, duration, 261.63, 0.10),
+        ]);
 
-        var mapZeroDur = BeatAnalysis.Analyze(new AudioAnalysis([], [], [], [], Step), 0.0);
-        Assert.Equal(0, mapZeroDur.Bpm);
-        Assert.Empty(mapZeroDur.Sections);
+        var map = SongAnalyzer.Analyze(pcm, 1, Rate);
 
-        var mapNegative = BeatAnalysis.Analyze(new AudioAnalysis([], [], [], [], Step), -5.0);
-        Assert.Equal(0, mapNegative.Bpm);
-        Assert.Empty(mapNegative.Sections);
+        Assert.True(map.Sections.Count >= 3, $"段落数 {map.Sections.Count} 少于 3");
+        Assert.Equal(0.0, map.Sections[0].Start);
+        Assert.Equal(duration, map.Sections[^1].End, 6);
+        for (var i = 0; i < map.Sections.Count - 1; i++)
+            Assert.Equal(map.Sections[i].End, map.Sections[i + 1].Start, 6);
+
+        foreach (var section in map.Sections)
+        {
+            Assert.InRange(section.Energy, 0.0, 1.0);
+            Assert.InRange(section.Start, 0.0, duration);
+            Assert.InRange(section.End, section.Start, duration);
+            Assert.False(string.IsNullOrWhiteSpace(section.Label));
+        }
+
+        // 段平均能量按全曲归一：最响的一段必到 1.0
+        Assert.Equal(1.0, map.Sections.Max(s => s.Energy), 6);
+    }
+
+    [Fact]
+    public void EmptyTrackAnalyzesSafely()
+    {
+        var map = SongAnalyzer.Analyze([], 1, Rate);
+
+        Assert.Equal(0.0, map.Bpm);
+        Assert.Empty(map.Beats);
+        Assert.Empty(map.Peaks);
+        Assert.Single(map.Sections);
+        Assert.Equal(0.0, map.Sections[0].End);
+    }
+
+    /// <summary>
+    /// 合成音轨：段落块决定持续和弦与音量（给 chroma / 段落能量），每拍叠一个 kick、每 4 拍加重（给 onset / 下拍）。
+    /// </summary>
+    private static float[] RenderTrack(double bpm, double seconds, IReadOnlyList<(double From, double To, double RootHz, double Gain)> blocks)
+    {
+        var frames = (int)Math.Round(seconds * Rate);
+        var pcm = new float[frames];
+
+        for (var n = 0; n < frames; n++)
+        {
+            var t = (double)n / Rate;
+            double v = 0;
+            foreach (var (from, to, root, gain) in blocks)
+            {
+                if (t < from || t >= to) continue;
+                v += gain * (Math.Sin(2 * Math.PI * root * t)
+                             + 0.6 * Math.Sin(2 * Math.PI * root * 1.5 * t)
+                             + 0.4 * Math.Sin(2 * Math.PI * root * 2.0 * t));
+            }
+            pcm[n] = (float)v;
+        }
+
+        var rng = new Random(7);
+        var beat = 60.0 / bpm;
+        for (var k = 0; ; k++)
+        {
+            var start = k * beat;
+            if (start >= seconds) break;
+
+            var amp = k % 4 == 0 ? 0.9 : 0.5;
+            var offset = (int)Math.Round(start * Rate);
+            var len = (int)Math.Round(0.12 * Rate);
+            for (var i = 0; i < len && offset + i < frames; i++)
+            {
+                var tt = (double)i / Rate;
+                var body = Math.Exp(-tt / 0.025) * Math.Sin(2 * Math.PI * 55 * tt);
+                var click = (rng.NextDouble() * 2 - 1) * Math.Exp(-tt / 0.006) * 0.6;
+                pcm[offset + i] += (float)(amp * (body + click));
+            }
+        }
+
+        return pcm;
     }
 }

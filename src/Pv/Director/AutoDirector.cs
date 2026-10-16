@@ -67,14 +67,14 @@ public static class AutoDirector
         CleanupPreviousGeneration(project);
 
         var beats = map.Beats.Where(double.IsFinite).OrderBy(b => b).ToList();
-        var peaks = map.Peaks.Where(double.IsFinite).OrderBy(p => p).ToList();
+        var downbeats = map.Downbeats.Where(double.IsFinite).OrderBy(b => b).ToList();
         var sections = map.Sections.Where(s => s != null && double.IsFinite(s.Start) && double.IsFinite(s.End)).ToList();
 
         // 自动运镜曲线
-        GenerateCameraCurves(project, beats, peaks, sections, intensity, report);
+        GenerateCameraCurves(project, beats, downbeats, sections, intensity, report);
 
         // 自动特效实例与节拍脉冲曲线
-        GenerateEffects(project, beats, peaks, style, intensity, report);
+        GenerateEffects(project, beats, downbeats, style, intensity, report);
 
         // 自动歌词样式段落切换
         ApplyLyricStyle(project, sections, report);
@@ -103,7 +103,7 @@ public static class AutoDirector
             autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)));
     }
 
-    private static void GenerateCameraCurves(DirectorProject project, List<double> beats, List<double> peaks,
+    private static void GenerateCameraCurves(DirectorProject project, List<double> beats, List<double> downbeats,
         List<Section> sections, double intensity, AutoReport report)
     {
         var scaleCurve = new FloatCurve();
@@ -170,15 +170,15 @@ public static class AutoDirector
             }
         }
 
-        // 2. 节拍 scale punch：beat 时刻打 1.0→1.02→1.0 的快键
+        // 2. 下拍 scale punch：下拍时刻打快键；没有下拍信息时才退回每拍都打
         var punchBeats = new HashSet<double>();
-        if (peaks.Count > 0)
+        if (downbeats.Count > 0)
         {
-            foreach (var p in peaks) punchBeats.Add(SnapToNearestBeat(p, beats));
+            foreach (var d in downbeats) punchBeats.Add(SnapToNearestBeat(d, beats));
         }
         else
         {
-            for (int i = 0; i < beats.Count; i += 2) punchBeats.Add(beats[i]);
+            foreach (var b in beats) punchBeats.Add(b);
         }
 
         double punchVal = 1.0 + 0.14 * intensity;
@@ -228,7 +228,7 @@ public static class AutoDirector
         report.CurveKeys += cameraKeys;
     }
 
-    private static void GenerateEffects(DirectorProject project, List<double> beats, List<double> peaks,
+    private static void GenerateEffects(DirectorProject project, List<double> beats, List<double> downbeats,
         string style, double intensity, AutoReport report)
     {
         switch (style)
@@ -251,11 +251,11 @@ public static class AutoDirector
                 var zoomNode = AddEffect(project, "zoomPunch", n => SetParam(n, "scale", 1.0f));
                 report.EffectInstances = 3;
 
-                // zoomPunch 节拍脉冲
+                // zoomPunch 下拍脉冲
                 if (beats.Count > 0)
                 {
                     var zoomCurve = new FloatCurve();
-                    AddPulseKeys(zoomCurve, beats, peaks, 1.0, 1.0 + 0.35 * intensity);
+                    AddPulseKeys(zoomCurve, beats, downbeats, 1.0, 1.0 + 0.35 * intensity);
                     if (zoomCurve.Count > 0)
                     {
                         project.Curves.Add(new CurveSave { Address = $"effect:{zoomNode.InstanceId}.scale", Curve = zoomCurve });
@@ -274,11 +274,11 @@ public static class AutoDirector
                 var glitchNode = AddEffect(project, "glitch", n => SetParam(n, "amount", 0.0f));
                 report.EffectInstances = 3;
 
-                // glitch 节拍脉冲：强度 0→峰值→回落
+                // glitch 下拍脉冲：强度 0→峰值→回落
                 if (beats.Count > 0)
                 {
                     var glitchCurve = new FloatCurve();
-                    AddPulseKeys(glitchCurve, beats, peaks, 0.0, 48.0 * intensity);
+                    AddPulseKeys(glitchCurve, beats, downbeats, 0.0, 48.0 * intensity);
                     if (glitchCurve.Count > 0)
                     {
                         project.Curves.Add(new CurveSave { Address = $"effect:{glitchNode.InstanceId}.amount", Curve = glitchCurve });
@@ -289,16 +289,16 @@ public static class AutoDirector
         }
     }
 
-    private static void AddPulseKeys(FloatCurve curve, List<double> beats, List<double> peaks, double baseVal, double peakVal)
+    private static void AddPulseKeys(FloatCurve curve, List<double> beats, List<double> downbeats, double baseVal, double peakVal)
     {
         var targetBeats = new HashSet<double>();
-        if (peaks.Count > 0)
+        if (downbeats.Count > 0)
         {
-            foreach (var p in peaks) targetBeats.Add(SnapToNearestBeat(p, beats));
+            foreach (var d in downbeats) targetBeats.Add(SnapToNearestBeat(d, beats));
         }
         else
         {
-            for (int i = 0; i < beats.Count; i += 2) targetBeats.Add(beats[i]);
+            foreach (var b in beats) targetBeats.Add(b);
         }
 
         for (int i = 0; i < beats.Count; i++)
