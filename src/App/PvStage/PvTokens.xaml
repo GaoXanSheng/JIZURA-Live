@@ -299,4 +299,125 @@
         </Setter>
     </Style>
 
+    <!-- ================= 右键菜单 / 工具提示 =================
+         全部是隐式样式：右键菜单在弹出时脱离窗口视觉树，只认应用级资源；
+         不在这里定死前景/背景，WPF 默认模板用系统色，深色面板上就是「字与底同色」。
+         菜单都是 ContextMenu 用法（本应用没有 Menu 菜单栏），MenuItem 模板只按弹出子菜单形态做。 -->
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{StaticResource PvRaised}" />
+        <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PvLineStrong}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="FontFamily" Value="{StaticResource PvFont}" />
+        <Setter Property="FontSize" Value="{StaticResource PvTextSm}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContextMenu">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource PvRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.4" />
+                        </Border.Effect>
+                        <ItemsPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Icon" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Grid>
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="{StaticResource PvRadiusSm}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="22" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="16" />
+                                </Grid.ColumnDefinitions>
+                                <Path x:Name="check" Grid.Column="0" Data="M0,4 L3,7 L9,1"
+                                      Stroke="{StaticResource PvAccent}" StrokeThickness="1.6"
+                                      Visibility="Collapsed" Margin="5,0,0,0" VerticalAlignment="Center" />
+                                <ContentPresenter Grid.Column="1" ContentSource="Header"
+                                                  Margin="8,5" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{TemplateBinding InputGestureText}"
+                                           Foreground="{StaticResource PvFgFaint}" FontSize="{StaticResource PvTextXs}"
+                                           Margin="14,5,8,5" VerticalAlignment="Center" />
+                                <Path x:Name="arrow" Grid.Column="3" Data="M0,0 L4,4 L0,8"
+                                      Stroke="{StaticResource PvFgDim}" StrokeThickness="1.2"
+                                      Visibility="Collapsed" Margin="0,0,5,0" VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="-4"
+                               IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}"
+                               AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
+                            <Border Background="{StaticResource PvRaised}" BorderBrush="{StaticResource PvLineStrong}"
+                                    BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="4">
+                                <ItemsPresenter />
+                            </Border>
+                        </Popup>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource PvHover}" />
+                            <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="check" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="HasItems" Value="True">
+                            <Setter TargetName="arrow" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="Separator">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Separator">
+                    <Border Height="1" Background="{StaticResource PvLine}" Margin="8,4" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{StaticResource PvRaised}" />
+        <Setter Property="Foreground" Value="{StaticResource PvFg}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PvLineStrong}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="FontFamily" Value="{StaticResource PvFont}" />
+        <Setter Property="FontSize" Value="{StaticResource PvTextXs}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{StaticResource PvRadiusSm}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>
