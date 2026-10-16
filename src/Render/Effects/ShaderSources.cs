@@ -469,4 +469,191 @@ public static class ShaderSources
             return lerp(Tex.Sample(Smp, i.uv), acc, PARAM(0, z));
         }
         """;
+
+    // ------------------------------------------------------------------
+    // 漫画 / 二次元语汇（集中线、色块转场、分格、双色调、电影黑边）
+    // ------------------------------------------------------------------
+
+    /// <summary>集中线（径向/横向速度线）。P0 = 强度, 线数, 留空半径, 线宽；P1 = 每秒重随机次数, 横向；P2 = 线色 rgb</summary>
+    public const string SpeedLines = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 c = Tex.Sample(Smp, i.uv);
+            float amount = saturate(PARAM(0, x));
+            if (amount <= 0.0) return c;
+
+            float lines = max(PARAM(0, y), 4.0);
+            float inner = max(PARAM(0, z), 0.0);
+            float thick = max(PARAM(0, w), 0.05);
+            float aspect = max(PARAM(15, w), 0.01);
+
+            // working space: y-units (short side half = 0.5), so 'inner' is a share of the short side
+            float2 p = (i.uv - 0.5) * float2(aspect, 1.0);
+            float2 he = float2(0.5 * aspect, 0.5);
+            float dist = length(p);
+            float innerR = inner * 0.5;
+            // seed = line index + floor(time * speed): the lines re-roll their length in steps,
+            // which is what makes the pattern read as hand-drawn on threes rather than as noise
+            float tick = floor(PARAM(15, x) * max(PARAM(1, x), 0.0));
+
+            float m;
+            if (PARAM(1, y) > 0.5)
+            {
+                // horizontal: streaks run in from the left / right edge, one pair per band
+                float bands = max(lines * 0.5, 2.0);
+                float band = (p.y + he.y) / (2.0 * he.y) * bands;
+                float bidx = floor(band);
+                float rk = Hash21(float2(bidx, tick + (p.x < 0.0 ? 0.0 : 0.37)));
+                float startX = he.x * (1.0 - lerp(0.45, 1.0, rk));
+                float halfW = 0.22 * thick;
+                m = smoothstep(startX, startX + 0.05, abs(p.x));
+                m *= 1.0 - smoothstep(halfW * 0.5, halfW, abs(band - bidx - 0.5));
+            }
+            else
+            {
+                // radial: wedges from the frame edge pointing at the centre
+                float ang = atan2(p.y, p.x);
+                float2 dirv = float2(cos(ang), sin(ang));
+                float edge = min(he.x / max(abs(dirv.x), 1e-4), he.y / max(abs(dirv.y), 1e-4));
+
+                float sector = (ang + 3.14159265) / 6.2831853 * lines;
+                float idx = floor(sector);
+                float rk = Hash21(float2(idx, idx + tick));
+                float startR = max(innerR, edge * (1.0 - lerp(0.45, 1.0, rk)));
+
+                float halfA = 0.125 * thick;
+                m = smoothstep(startR, startR + 0.05, dist);
+                m *= 1.0 - smoothstep(halfA * 0.5, halfA, abs(sector - idx - 0.5));
+            }
+
+            m *= smoothstep(innerR, innerR + 0.08, dist);
+
+            float3 src = c.rgb / max(c.a, 1e-4);
+            float3 rgb = lerp(src, PARAM(2, xyz), saturate(m * amount));
+            return float4(saturate(rgb) * c.a, c.a);
+        }
+        """;
+
+    /// <summary>色块转场 / 圆形光圈。P0 = 进度, 角度(度), 柔边, 光圈(0/1)；P1 = 色块 rgb, 前沿带宽；P2 = 前沿色 rgb</summary>
+    public const string Wipe = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float p = saturate(PARAM(0, x));
+            float4 c = Tex.Sample(Smp, i.uv);
+            if (p <= 0.0 || p >= 1.0) return c;
+
+            float soft = max(PARAM(0, z), 1e-4);
+            float band = max(PARAM(1, w), 0.0);
+            // u ramps 0 -> 1 inside each half; only the mask direction flips at the midpoint,
+            // so the cover sweeps in from one side and back out to the other
+            float u = p <= 0.5 ? p * 2.0 : (p - 0.5) * 2.0;
+
+            float m;
+            float edgeDist;
+            if (PARAM(0, w) > 0.5)
+            {
+                float rMax = 0.7071068 + soft + band + 1e-3;
+                // the disc radius is the mask axis here, so it has to turn round at the midpoint
+                // exactly like the linear front below; otherwise the second half closes in again.
+                // r: edge -> -2soft (the cover sweeps in), then -2soft -> edge (it opens from the centre)
+                float r = p <= 0.5 ? lerp(rMax, -2.0 * soft, u) : lerp(-2.0 * soft, rMax, u);
+                float d = length(i.uv - 0.5);
+                m = smoothstep(r - soft, r + soft, d);
+                edgeDist = abs(d - r);
+            }
+            else
+            {
+                float a = radians(PARAM(0, y));
+                float2 dir = float2(cos(a), sin(a));
+                float reach = 0.5 * (abs(dir.x) + abs(dir.y));
+                float front = lerp(-(reach + soft + band + 1e-3), reach + soft + band + 1e-3, u);
+                float axis = dot(i.uv - 0.5, dir);
+                float s = smoothstep(front - soft, front + soft, axis);
+                m = p <= 0.5 ? 1.0 - s : s;
+                edgeDist = abs(axis - front);
+            }
+
+            float edge = 1.0 - smoothstep(0.0, max(band, 1e-4), edgeDist);
+            float3 cover = lerp(PARAM(1, xyz), PARAM(2, xyz), edge);
+            float3 src = c.rgb / max(c.a, 1e-4);
+            float3 rgb = lerp(src, cover, m);
+            return float4(saturate(rgb) * c.a, c.a);
+        }
+        """;
+
+    /// <summary>漫画分格。P0 = 强度, 格数, 分隔线倾角(度), 边框宽；P1 = 边框色 rgb, 放大；P2 = 焦点 y</summary>
+    public const string MangaPanels = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float amount = saturate(PARAM(0, x));
+            float4 orig = Tex.Sample(Smp, i.uv);
+            if (amount <= 0.0) return orig;
+
+            float2 res = max(PARAM(15, yz), 1.0);
+            float n = clamp(floor(PARAM(0, y) + 0.5), 2.0, 3.0);
+            float zoom = max(PARAM(1, w), 1.0);
+            float focusY = saturate(PARAM(2, x));
+            float borderPx = max(PARAM(0, w), 0.0) * min(res.x, res.y);
+
+            float2 px = i.uv * res;
+            float pw = res.x / n;
+            // shear in pixel space: separators stay straight but tilt with the frame height
+            float xs = px.x - (px.y - res.y * 0.5) * tan(radians(PARAM(0, z)));
+            float slide = (1.0 - amount) * res.x;
+
+            // panels arrive from the sides: odd ones from the right, the rest from the left.
+            // Overlapping in-transit panels are painted in order, so a later panel wins.
+            float4 outC = orig;
+            for (int j = 0; j < 3; j++)
+            {
+                float k = float(j);
+                if (k < n)
+                {
+                    float dx = ((j == 1) ? slide : -slide);
+                    float lx = xs - (k * pw + dx);
+                    if (lx >= 0.0 && lx < pw)
+                    {
+                        float z = k < 0.5 ? 1.05 : (k < 1.5 ? zoom : zoom * 1.6);
+                        float2 ctr = k < 0.5
+                            ? float2(0.5, 0.5)
+                            : (k < 1.5 ? float2(0.5, focusY) : float2(0.58, focusY));
+                        float2 sp = ctr * res + (float2(lx, px.y) - float2(pw, res.y) * 0.5) / z;
+                        float4 panel = Tex.Sample(Smp, sp / res);
+
+                        float inBorder = (lx < borderPx || lx > pw - borderPx
+                                       || px.y < borderPx || px.y > res.y - borderPx) ? 1.0 : 0.0;
+                        float3 rgb = lerp(panel.rgb / max(panel.a, 1e-4), PARAM(1, xyz), inBorder);
+                        float alpha = lerp(panel.a, 1.0, inBorder);
+                        outC = float4(saturate(rgb) * alpha, alpha);
+                    }
+                }
+            }
+            return outC;
+        }
+        """;
+
+    /// <summary>双色调。P0 = 强度；P1 = 暗部色 rgb；P2 = 亮部色 rgb</summary>
+    public const string Duotone = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 c = Tex.Sample(Smp, i.uv);
+            float3 src = c.rgb / max(c.a, 1e-4);
+            float luma = dot(src, float3(0.2126, 0.7152, 0.0722));
+            float3 duo = lerp(PARAM(1, xyz), PARAM(2, xyz), saturate(luma));
+            float3 rgb = lerp(src, duo, saturate(PARAM(0, x)));
+            return float4(saturate(rgb) * c.a, c.a);
+        }
+        """;
+
+    /// <summary>电影黑边。P0 = 强度（条高 = 强度 x 0.12 x 高）；P1 = 条色 rgb</summary>
+    public const string Letterbox = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 c = Tex.Sample(Smp, i.uv);
+            float bar = saturate(PARAM(0, x)) * 0.12;
+            if (bar <= 0.0) return c;
+            if (i.uv.y < bar || i.uv.y > 1.0 - bar) return float4(PARAM(1, xyz), 1.0);
+            return c;
+        }
+        """;
 }

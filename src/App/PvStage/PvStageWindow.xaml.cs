@@ -669,7 +669,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             head.Children.Add(headRight);
             stack.Children.Add(head);
 
-            var meta = ThemeText(LayerKindLabel(layer.Kind), TextTertiaryKey, 11);
+            var meta = ThemeText(LayerMetaLabel(layer), TextTertiaryKey, 11);
             meta.Margin = new Thickness(0, 2, 0, 0);
             stack.Children.Add(meta);
 

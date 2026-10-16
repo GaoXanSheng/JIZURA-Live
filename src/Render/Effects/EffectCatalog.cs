@@ -229,6 +229,64 @@ public static class EffectCatalog
                 EffectParam.Num("strength", "Fx.MotionBlur.Strength", 0, 2, 0f, 1f, 0.8f),
             ],
             ["cinematic", "impact", "speed"]),
+
+        // ---- 漫画 / 二次元语汇 ----
+
+        new("speedLines", "Fx.SpeedLines", EffectStage.GlobalPost, EffectCategory.Geometry,
+            ShaderSources.SpeedLines,
+            [
+                EffectParam.Num("amount", "Fx.SpeedLines.Amount", 0, 0, 0f, 1f, 0.8f),
+                EffectParam.Num("density", "Fx.SpeedLines.Density", 0, 1, 8f, 160f, 64f, 1f),
+                EffectParam.Num("inner", "Fx.SpeedLines.Inner", 0, 2, 0f, 0.9f, 0.35f),
+                EffectParam.Num("thickness", "Fx.SpeedLines.Thickness", 0, 3, 0.2f, 3f, 1f, 0.05f),
+                EffectParam.Num("speed", "Fx.SpeedLines.Speed", 1, 0, 0f, 12f, 4f, 0.1f),
+                EffectParam.Flag("horizontal", "Fx.SpeedLines.Horizontal", 1, 1, false),
+                EffectParam.Color3("color", "Fx.SpeedLines.Color", 2, 0, "#ffffff"),
+            ],
+            ["anime", "impact", "speed"]),
+
+        new("wipe", "Fx.Wipe", EffectStage.GlobalPost, EffectCategory.Geometry,
+            ShaderSources.Wipe,
+            [
+                EffectParam.Num("progress", "Fx.Wipe.Progress", 0, 0, 0f, 1f, 0f),
+                EffectParam.Num("angle", "Fx.Wipe.Angle", 0, 1, -180f, 180f, 30f, 1f),
+                EffectParam.Num("softness", "Fx.Wipe.Softness", 0, 2, 0f, 0.2f, 0.01f, 0.001f),
+                EffectParam.Flag("iris", "Fx.Wipe.Iris", 0, 3, false),
+                EffectParam.Color3("color", "Fx.Wipe.Color", 1, 0, "#ffffff"),
+                EffectParam.Num("band", "Fx.Wipe.Band", 1, 3, 0f, 0.25f, 0.06f, 0.005f),
+                EffectParam.Color3("accent", "Fx.Wipe.Accent", 2, 0, "#ff5fa2"),
+            ],
+            ["anime", "transition", "impact"]),
+
+        new("mangaPanels", "Fx.MangaPanels", EffectStage.GlobalPost, EffectCategory.Geometry,
+            ShaderSources.MangaPanels,
+            [
+                EffectParam.Num("amount", "Fx.MangaPanels.Amount", 0, 0, 0f, 1f, 1f),
+                EffectParam.Num("count", "Fx.MangaPanels.Count", 0, 1, 2f, 3f, 3f, 1f),
+                EffectParam.Num("tilt", "Fx.MangaPanels.Tilt", 0, 2, -30f, 30f, 10f, 1f),
+                EffectParam.Num("border", "Fx.MangaPanels.Border", 0, 3, 0f, 0.03f, 0.008f, 0.001f),
+                EffectParam.Color3("borderColor", "Fx.MangaPanels.BorderColor", 1, 0, "#ffffff"),
+                EffectParam.Num("zoom", "Fx.MangaPanels.Zoom", 1, 3, 1f, 3f, 1.8f, 0.05f),
+                EffectParam.Num("focusY", "Fx.MangaPanels.FocusY", 2, 0, 0f, 1f, 0.32f),
+            ],
+            ["anime", "graphic", "impact"]),
+
+        new("duotone", "Fx.Duotone", EffectStage.GlobalPost, EffectCategory.ColorGrade,
+            ShaderSources.Duotone,
+            [
+                EffectParam.Num("amount", "Fx.Duotone.Amount", 0, 0, 0f, 1f, 0.6f),
+                EffectParam.Color3("shadow", "Fx.Duotone.Shadow", 1, 0, "#2b1b5a"),
+                EffectParam.Color3("highlight", "Fx.Duotone.Highlight", 2, 0, "#ffb3d9"),
+            ],
+            ["anime", "grade", "emotional"]),
+
+        new("letterbox", "Fx.Letterbox", EffectStage.GlobalPost, EffectCategory.Camera,
+            ShaderSources.Letterbox,
+            [
+                EffectParam.Num("amount", "Fx.Letterbox.Amount", 0, 0, 0f, 1f, 1f),
+                EffectParam.Color3("color", "Fx.Letterbox.Color", 1, 0, "#000000"),
+            ],
+            ["cinematic", "anime", "calm"]),
     ];
 
     /// <summary>

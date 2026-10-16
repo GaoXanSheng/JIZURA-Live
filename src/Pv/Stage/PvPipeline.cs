@@ -32,10 +32,15 @@ public sealed class PvPipeline : IDisposable
     private readonly ConcurrentQueue<string> _pendingAdds = new();
     private readonly ConcurrentQueue<string> _pendingImageAdds = new();
     private readonly ConcurrentQueue<string> _pendingVideoAdds = new();
+    private readonly ConcurrentQueue<string> _pendingParticleAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
     private readonly List<SpoutSourceProvider> _spoutProviders = new();
+
+    // 粒子层要在合成之外先画好（它用共享的 Immediate2D 切自己的离屏面，见 ParticleLayerProvider.Render）：
+    // 引用与 _spoutProviders 同档——提供者本身归 Stage 释放，这里只留索引。
+    private readonly List<ParticleLayerProvider> _particles = new();
     private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
     private SpoutSourceProvider? _character;
@@ -223,6 +228,10 @@ public sealed class PvPipeline : IDisposable
         // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
         _renderer.Lyric?.SetScale(1.0);
+
+        // 粒子层同样在合成之前画好：它们要切自己的离屏面，进了合成器的绘制批次会把那一批打断
+        foreach (var p in _particles) p.Render(time);
+
         _renderer.Prepare(time, effects);
     }
 
@@ -254,6 +263,16 @@ public sealed class PvPipeline : IDisposable
     {
         if (string.IsNullOrWhiteSpace(videoPath)) return;
         _pendingVideoAdds.Enqueue(videoPath);
+    }
+
+    /// <summary>
+    /// 新增一层粒子图层（任意线程）：只投递种类名，提供者与精灵的建立在渲染线程上做
+    /// （D2D 几何必须与绘制同线程建）。空种类当场丢弃——同 RequestAddImage。
+    /// </summary>
+    public void RequestAddParticles(string kind)
+    {
+        if (string.IsNullOrWhiteSpace(kind)) return;
+        _pendingParticleAdds.Enqueue(kind);
     }
 
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
@@ -338,6 +357,36 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
+    /// <summary>
+    /// 新建一层前景粒子图层：名字与默认色按种类取（樱花 #ffc0d8 / 星光 #fff4c2 / 光斑 #bfe3ff）。
+    /// 同样必须显式清掉 SpoutSenderName（默认值是 "VTubeStudio"，留着会在界面上显示成角色层）。
+    /// </summary>
+    public static PvLayerConfig NewParticleLayer(string id, string kind) => new()
+    {
+        Id = id,
+        Name = ParticleName(kind),
+        Kind = PvLayerKind.ForegroundFx,
+        SpoutSenderName = null,
+        Particles = new PvParticleConfig { Kind = kind, Color = ParticleColor(kind) },
+        // 前景层：视差比焦点平面更快更近（PvParallaxConfig.Depth 的前景档）
+        Parallax = new PvParallaxConfig { Depth = 1.25 },
+    };
+
+    private static string ParticleName(string kind) => kind switch
+    {
+        "sparkle" => "星光",
+        "bokeh" => "光斑",
+        "sakura" => "樱花",
+        _ => kind,
+    };
+
+    private static string ParticleColor(string kind) => kind switch
+    {
+        "sparkle" => "#fff4c2",
+        "bokeh" => "#bfe3ff",
+        _ => "#ffc0d8",
+    };
+
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
         var tint = PvScene.ParseHex(_scene.AmbientTint);
@@ -364,6 +413,15 @@ public sealed class PvPipeline : IDisposable
     /// </summary>
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
+        if (layer.Particles is not null)
+        {
+            var provider = new ParticleLayerProvider(layer.Id, _renderer.Device, _d2d,
+                layer.Particles, _renderer.DesignWidth, _renderer.DesignHeight);
+            _renderer.Stage.Register(provider);
+            _particles.Add(provider);
+            return;
+        }
+
         if (WantsSpout(layer))
         {
             var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
@@ -425,6 +483,16 @@ public sealed class PvPipeline : IDisposable
             Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
         }
 
+        while (_pendingParticleAdds.TryDequeue(out var kind))
+        {
+            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
+            var layer = NewParticleLayer(id, kind);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
+            RegisterLayerProvider(layer);
+            changed = true;
+            Log.Info($"[PV 管线] 新建粒子图层 '{id}' <- '{kind}'");
+        }
+
         while (_pendingRemoves.TryDequeue(out var id))
         {
             var idx = _scene.Layers.FindIndex(l => l.Id == id);
@@ -435,6 +503,8 @@ public sealed class PvPipeline : IDisposable
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
                 if (p is not null) _spoutProviders.Remove(p);
+                var fx = _particles.FirstOrDefault(x => x.Id == id);
+                if (fx is not null) _particles.Remove(fx);
                 if (_character?.Id == id) _character = null;
                 changed = true;
                 Log.Info($"[PV 管线] 移除图层 '{id}'");
@@ -679,6 +749,7 @@ public sealed class PvPipeline : IDisposable
         // 绝不第二次 Dispose 同一个对象。字幕是唯一例外：它挂在渲染器的 Overlay 槽上、不进 Stage，
         // 所以由本类释放——先把槽摘空再释放，免得 Composite 摸到已释放的位图。
         _spoutProviders.Clear();
+        _particles.Clear();
         _character = null;
         _renderer.Overlay = null;
         _subtitle?.Dispose();
