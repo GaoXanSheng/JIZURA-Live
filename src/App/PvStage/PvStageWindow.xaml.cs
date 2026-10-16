@@ -34,6 +34,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     // 工程文档三件套 + 传输时钟：**不是** readonly——工程新建/打开要整份换掉它们。
     // 场景与效果图是按引用吃进管线与渲染器的（设计画布还在管线构造期定死），所以换工程是
     // "换字段 + 让渲染线程重建管线"，而不是就地改旧对象的列表（就地改会与渲染线程每帧的枚举撞上）。
+    // _effects 是**只归 UI 线程**的文档图：渲染线程拿到的永远是 EffectsChanged() 发布的克隆。
     private DirectorProject _project;
     private PvScene _scene;
     private EffectGraph _effects;
@@ -286,6 +287,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// 每次编辑之后都必须调：渲染线程只看快照，漏掉这一句 = 这次编辑屏幕上不生效。
     /// </summary>
     private void PublishDirector() => _pipe?.SetDirector(_evaluator.Snapshot());
+
+    /// <summary>
+    /// 效果图改完必须调：克隆一份发布给渲染线程（引用交换，渲染线程下一帧读到）。
+    /// 增删节点、拖拽排序、启用/停用、改参数、换预设、撤销重做、一键生成——**每一处**改动之后都要调这一句：
+    /// 渲染线程只看自己那份快照（它会把曲线值写进去），漏掉就等于这次改动屏幕上不生效。
+    /// </summary>
+    private void EffectsChanged() => _pipe?.PublishEffects(_effects.Clone());
 
     /// <summary>
     /// 把离线频带序列整份发布给管线（引用交换，渲染线程下一帧读到）。传 null = 分析未就绪：
@@ -559,14 +567,18 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void BuildLayerList()
     {
+        // 图层栈只读一份：渲染线程改结构是换列表（PvPipeline.ApplyLayerOps），
+        // 逐次读属性可能两次读到不同的列表，按下标取值就会越界。
+        var layers = _scene.Layers;
+
         // 按 Id 序列判断是否需要重建：层数相同但换了序/换了层（重载、上移下移、增删成对）时，
         // 只比 Count 会留着旧对象继续显示。
-        var ids = _scene.Layers.Select(l => l.Id).ToArray();
+        var ids = layers.Select(l => l.Id).ToArray();
         if (!_uiLayerIds.SequenceEqual(ids))
         {
             _uiLayerIds = ids;
             _uiLayers.Clear();
-            for (var i = _scene.Layers.Count - 1; i >= 0; i--) _uiLayers.Add(_scene.Layers[i]);
+            for (var i = layers.Count - 1; i >= 0; i--) _uiLayers.Add(layers[i]);
         }
 
         // 选中的图层可能已经不在（删除 / 换工程）：检查器不能继续指着一个不存在的对象
@@ -764,8 +776,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 ToolTip = "启用 / 停用本效果",
             };
             var nRef = node;
-            toggle.Checked += (_, _) => nRef.Enabled = true;
-            toggle.Unchecked += (_, _) => nRef.Enabled = false;
+            toggle.Checked += (_, _) =>
+            {
+                nRef.Enabled = true;
+                EffectsChanged();
+            };
+            toggle.Unchecked += (_, _) =>
+            {
+                nRef.Enabled = false;
+                EffectsChanged();
+            };
             headRight.Children.Add(toggle);
 
             var del = new Wpf.Ui.Controls.Button
@@ -781,6 +801,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 _effects.Nodes.Remove(nRef);
                 // 删实例连带删它的曲线：按实例 Id 挂的动画不能留给同 DefId 的下一个实例去继承
                 _evaluator.RemoveCurvesForTarget(nRef.InstanceId);
+                EffectsChanged();
                 PublishDirector();
                 PushUndo();
                 _saveError = SaveProjectNow();
@@ -805,7 +826,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                         var nodeRef = node;
                         var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
                         stack.Children.Add(AnimParamRow(_rackRows, addr, ParamLabel(p), p.Min, p.Max, p.Step,
-                            () => nodeRef.Value(p), v => nodeRef.Set(p, (float)v)));
+                            () => nodeRef.Value(p), v =>
+                            {
+                                nodeRef.Set(p, (float)v);
+                                EffectsChanged();
+                            }));
                         break;
                     }
                     case EffectParamKind.Bool:
@@ -821,8 +846,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                             IsChecked = node.Value(p) > 0.5f,
                         };
                         var nodeRef = node;
-                        sw.Checked += (_, _) => nodeRef.Set(p, 1f);
-                        sw.Unchecked += (_, _) => nodeRef.Set(p, 0f);
+                        sw.Checked += (_, _) =>
+                        {
+                            nodeRef.Set(p, 1f);
+                            EffectsChanged();
+                        };
+                        sw.Unchecked += (_, _) =>
+                        {
+                            nodeRef.Set(p, 0f);
+                            EffectsChanged();
+                        };
                         Grid.SetColumn(sw, 1);
                         row.Children.Add(sw);
                         stack.Children.Add(row);
@@ -911,6 +944,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             if (!Uri.IsHexDigit(c)) return;
 
         _colorNode.SetColor(_colorParam, hex);
+        EffectsChanged();
         if (_colorSwatch is not null) _colorSwatch.Background = BrushFromHex(hex);
     }
 
@@ -1031,6 +1065,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         // 没动位置就不入撤销栈：一次拖动要么一条历史，要么一条都没有
         if (!_effects.Move(source, _effects.Nodes.IndexOf(target))) return;
 
+        EffectsChanged();
         PushUndo();
         _saveError = SaveProjectNow();
         BuildEffectRack();
@@ -1064,6 +1099,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var def = EffectCatalog.All[CmbAddFx.SelectedIndex];
         CmbAddFx.SelectedIndex = -1;
         _effects.Add(def.Id);
+        EffectsChanged();
         PushUndo();
         BuildEffectRack();
     }
@@ -1088,6 +1124,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         foreach (var id in stale) _evaluator.RemoveCurvesForTarget(id);
 
+        EffectsChanged();
         PublishDirector();
         PushUndo();
         _saveError = SaveProjectNow();
@@ -2172,6 +2209,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
                 _evaluator.SetCurve(addr, save.Curve);
             }
+            // 生成整份重写了效果实例（AutoDirector 原地改的是 _project.Effects == _effects），
+            // 所以效果图与曲线两样都要发布
+            EffectsChanged();
             PublishDirector();
 
             // 刷新效果架、图层、时间轴与检查器
