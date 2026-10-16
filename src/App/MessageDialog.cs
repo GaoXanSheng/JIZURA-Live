@@ -7,12 +7,23 @@ using JizuraLive.App.I18n;
 namespace JizuraLive.App;
 
 /// <summary>
-/// 暗色模态弹窗（对位旧 UI Dialogs.vue：rgba(6,6,8,.6) 全窗遮罩 + bg-panel 圆角 14 卡片）。
+/// 暗色模态弹窗（对位旧 UI Dialogs.vue：全窗遮罩 + 圆角卡片）。
 /// 用代码搭视觉树：内容是程序化拼的（标题 + 正文 + 可选要点列表），XAML 反而更啰嗦。
+/// 配色与按钮全部取 WPF-UI 主题（<c>ui:Button</c> 的 Appearance），不再引用自研令牌。
 /// 静态工具类（非控件）：按钮默认文案在方法内经 L.T 解析，不订阅 LanguageChanged。
 /// </summary>
 public static class MessageDialog
 {
+    private const string TextPrimaryKey = "TextFillColorPrimaryBrush";
+    private const string TextSecondaryKey = "TextFillColorSecondaryBrush";
+    private const string DialogFillKey = "SolidBackgroundFillColorSecondaryBrush";
+    private const string DialogStrokeKey = "CardStrokeColorDefaultBrush";
+    private const string DividerKey = "DividerStrokeColorDefaultBrush";
+
+    private static readonly FontFamily UiFont = new("Microsoft YaHei UI, Microsoft YaHei, Segoe UI");
+
+    private static Brush Theme(string key) => (Brush)Application.Current.FindResource(key);
+
     /// <summary>说明型弹窗（一个「关闭」）。</summary>
     public static void Info(Window owner, string title, string body, string? closeText = null) =>
         Show(owner, title, BuildBody(body), null, closeText ?? L.T("Dialog.Close"), primaryClose: true);
@@ -48,8 +59,7 @@ public static class MessageDialog
             list.Children.Add(row);
         }
         body.Children.Add(list);
-        body.Children.Add(Text(L.T("Dialog.ResetKeep"), 12,
-            (Brush)Application.Current.FindResource("Mut"), wrap: true));
+        body.Children.Add(Text(L.T("Dialog.ResetKeep"), 12, Theme(TextSecondaryKey), wrap: true));
         Show(owner, L.T("Dialog.ResetTitle"), body, null, L.T("Dialog.ResetTitle"), onOk: onOk, dangerOk: true);
     }
 
@@ -59,7 +69,7 @@ public static class MessageDialog
     {
         Text = s,
         FontSize = size,
-        Foreground = brush ?? (Brush)Application.Current.FindResource("Fg"),
+        Foreground = brush ?? Theme(TextPrimaryKey),
         TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap,
         LineHeight = size * 1.5,
         LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
@@ -72,11 +82,9 @@ public static class MessageDialog
     private static void ShowCore(Window owner, string title, UIElement body, UIElement? extra, string okText,
         Action? onOk, bool primaryClose, bool dangerOk, string cancelText)
     {
-        var res = Application.Current;
-        Brush panel = (Brush)res.FindResource("Panel");
-        Brush line2 = (Brush)res.FindResource("Line2");
-        Brush line = (Brush)res.FindResource("LineBrush");
-        Brush mut = (Brush)res.FindResource("Mut");
+        Brush panel = Theme(DialogFillKey);
+        Brush line2 = Theme(DialogStrokeKey);
+        Brush line = Theme(DividerKey);
 
         // 阴影单独一层，卡片本身不带 Effect：Effect 会把整个子树先光栅成中间面，卡片里的文字
         // 跟着一起糊（而且 Effect 子树内 WPF 不用 ClearType，小字更糊）。两层同格即同尺寸。
@@ -103,7 +111,7 @@ public static class MessageDialog
             Text = title,
             FontSize = 15,
             FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)res.FindResource("Fg"),
+            Foreground = Theme(TextPrimaryKey),
             Margin = new Thickness(0, 0, 0, 14),
         });
         stack.Children.Add(body);
@@ -132,7 +140,7 @@ public static class MessageDialog
             Owner = owner,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Background = new SolidColorBrush(Color.FromArgb(0x99, 6, 6, 8)),
-            FontFamily = (FontFamily)res.FindResource("UiFont"),
+            FontFamily = UiFont,
             // 卡片贴内容、居中：两层包在一个按内容定尺寸的居中格里（默认 Stretch 会让卡片撑满
             // 整个 owner，一小段文字下面拖出几百像素空白黑框）
             Content = new Grid
@@ -158,15 +166,24 @@ public static class MessageDialog
 
         if (!primaryClose)
         {
-            var cancel = new Button { Content = cancelText, Margin = new Thickness(8, 0, 0, 0) };
-            cancel.Style = (Style)res.FindResource("BtnGhost");
+            var cancel = new Wpf.Ui.Controls.Button
+            {
+                Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+                Content = cancelText,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
             cancel.Click += (_, _) => Close();
             btnRow.Children.Add(cancel);
         }
 
-        var ok = new Button { Content = okText, Margin = new Thickness(0, 0, 0, 0) };
-        ok.Style = (Style)res.FindResource(primaryClose ? "BtnPrimary" : dangerOk ? "BtnDanger" : "BtnPrimary");
-        ok.MinWidth = 76;
+        var ok = new Wpf.Ui.Controls.Button
+        {
+            Appearance = dangerOk ? Wpf.Ui.Controls.ControlAppearance.Danger
+                : primaryClose ? Wpf.Ui.Controls.ControlAppearance.Secondary
+                : Wpf.Ui.Controls.ControlAppearance.Primary,
+            Content = okText,
+            MinWidth = 76,
+        };
         ok.Click += (_, _) =>
         {
             Close();

@@ -1,225 +1,459 @@
-<Window x:Class="JizuraLive.App.PvStage.PvStageWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:gpu="clr-namespace:JizuraLive.Render.Gpu"
-        xmlns:tl="clr-namespace:JizuraLive.App.PvStage.Timeline"
-        Title="JIZURA PV 舞台"
-        Width="1440" Height="880" MinWidth="1200" MinHeight="720"
-        WindowStyle="None" WindowStartupLocation="CenterScreen"
-        Background="{StaticResource PvBg}"
-        FontFamily="{StaticResource PvFont}"
-        TextOptions.TextFormattingMode="Ideal"
-        UseLayoutRounding="True"
-        StateChanged="Window_StateChanged">
+<ui:FluentWindow x:Class="JizuraLive.App.PvStage.PvStageWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:gpu="clr-namespace:JizuraLive.Render.Gpu"
+                 xmlns:tl="clr-namespace:JizuraLive.App.PvStage.Timeline"
+                 Title="JIZURA Live PV"
+                 Width="1440" Height="880" MinWidth="1200" MinHeight="720"
+                 WindowStartupLocation="CenterScreen"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica"
+                 WindowCornerPreference="Round"
+                 FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
+                 TextOptions.TextFormattingMode="Ideal"
+                 UseLayoutRounding="True"
+                 AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
 
-    <Window.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="PvTokens.xaml" />
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
-    </Window.Resources>
+    <ui:FluentWindow.Resources>
+        <!-- 分组卡与图层/效果卡都用 ui:Card（同一控件、同一套主题画刷）；这里只补文字类的少量样式。 -->
+        <Style x:Key="PanelCardTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style x:Key="PanelHint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="PanelRowLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="PanelValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Microsoft YaHei UI" />
+        </Style>
+    </ui:FluentWindow.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="40" />
-            <RowDefinition Height="*" />
-            <!-- 时间轴：展开 220 / 折叠 40（折叠时只剩传输条） -->
-            <RowDefinition x:Name="TimelineRow" Height="220" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" MinHeight="240" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition x:Name="TimelineRow" Height="200" MinHeight="80" />
         </Grid.RowDefinitions>
 
-        <!-- ============ 标题 / 工具栏 ============ -->
-        <Border Grid.Row="0" Background="{StaticResource PvPanel}"
-                BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,0,0,1"
-                MouseLeftButtonDown="TitleBar_Drag">
-            <Grid Margin="14,0,0,0">
+        <!-- ============ 标题栏 ============ -->
+        <ui:TitleBar Grid.Row="0" Title="JIZURA Live PV">
+            <ui:TitleBar.Icon>
+                <ui:SymbolIcon Symbol="Filmstrip24" />
+            </ui:TitleBar.Icon>
+            <ui:TitleBar.TrailingContent>
+                <TextBlock x:Name="TblProjectName" Margin="0,0,8,0" VerticalAlignment="Center"
+                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                           TextTrimming="CharacterEllipsis" Text="默认工程" />
+            </ui:TitleBar.TrailingContent>
+        </ui:TitleBar>
+
+        <!-- ============ 命令条 ============ -->
+        <Border Grid.Row="1" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <Grid Margin="10,6">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 品牌块：一个小方块 + 名字，不用图标字体（与旧界面一致的做法） -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="12" Height="12" CornerRadius="{StaticResource PvRadiusSm}"
-                            Background="{StaticResource PvAccent}" />
-                    <TextBlock Text="JIZURA" Margin="8,0,0,0" FontSize="{StaticResource PvTextBase}"
-                               Foreground="{StaticResource PvFg}" FontWeight="SemiBold"
-                               VerticalAlignment="Center" />
-                    <TextBlock Text="PV 舞台" Margin="6,0,0,0" FontSize="{StaticResource PvTextBase}"
-                               Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <ui:Button x:Name="BtnNew" Appearance="Transparent" Click="BtnNewProject_Click" Content="新建"
+                               ToolTip="新建工程：重置为默认工程（当前工程先备份为 .bak）">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="DocumentAdd24" />
+                        </ui:Button.Icon>
+                    </ui:Button>
+                    <ui:Button x:Name="BtnOpen" Appearance="Transparent" Click="BtnOpenProject_Click" Content="打开"
+                               ToolTip="打开工程：装入一份 .jzpv（整份替换当前工作台）">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="FolderOpen24" />
+                        </ui:Button.Icon>
+                    </ui:Button>
+                    <ui:Button x:Name="BtnSave" Appearance="Transparent" Click="BtnSave_Click" Content="保存"
+                               ToolTip="保存工程 (Ctrl+S)">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="Save24" />
+                        </ui:Button.Icon>
+                    </ui:Button>
+                    <Border Width="1" Margin="6,4" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                    <ui:Button x:Name="BtnUndo" Appearance="Transparent" Click="BtnUndo_Click" Content="撤销"
+                               ToolTip="撤销 (Ctrl+Z)">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="ArrowUndo24" />
+                        </ui:Button.Icon>
+                    </ui:Button>
+                    <ui:Button x:Name="BtnRedo" Appearance="Transparent" Click="BtnRedo_Click" Content="重做"
+                               ToolTip="重做 (Ctrl+Y)">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="ArrowRedo24" />
+                        </ui:Button.Icon>
+                    </ui:Button>
                 </StackPanel>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
-                            Margin="16,0,0,0">
-                    <!-- 工程组 -->
-                    <Button x:Name="BtnNew" Style="{StaticResource PvBtnIcon}" Click="BtnNewProject_Click"
-                            ToolTip="新建工程：重置为默认工程（当前工程先备份为 .bak）">
-                        <Path Data="M3.8 2 H8.8 L11.6 4.8 V14 H3.8 Z M8.8 2 V4.8 H11.6"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-                    <Button x:Name="BtnOpen" Style="{StaticResource PvBtnIcon}" Click="BtnOpenProject_Click"
-                            ToolTip="打开工程：装入一份 .jzpv（整份替换当前工作台）">
-                        <Path Data="M2 5.6 H6 L7.4 7.4 H14 V12.8 H2 Z M2 5.6 V3.6 H5.4 L6.6 5.2"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-                    <Button x:Name="BtnSave" Style="{StaticResource PvBtnIcon}" Click="BtnSave_Click"
-                            ToolTip="保存工程 (Ctrl+S)">
-                        <Path Data="M3.2 2.8 H10.6 L13.2 5.4 V13.2 H3.2 Z M5.6 2.8 V6.4 H10 V2.8 M5.6 13.2 V9.6 H10.8 V13.2"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-                    <Border Width="1" Height="16" Margin="6,0" Background="{StaticResource PvLine}" />
-                    <Button x:Name="BtnOpenLyrics" Style="{StaticResource PvBtnIcon}" Click="BtnOpenLyrics_Click"
-                            ToolTip="打开歌词 (.lrc)">
-                        <Path Data="M3 3.6 H13 V12.4 H3 Z M5.4 6.4 H10.6 M5.4 8.6 H9"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-                    <Button x:Name="BtnOpenAudio" Style="{StaticResource PvBtnIcon}" Click="BtnOpenAudio_Click"
-                            ToolTip="打开音频（同名 .lrc 会自动一起装载）">
-                        <Path Data="{StaticResource IconVolume}" Fill="{StaticResource PvFgDim}" />
-                    </Button>
-                    <Button x:Name="BtnAuto" Style="{StaticResource PvBtnIcon}" Click="BtnAuto_Click"
-                            ToolTip="一键成片：分析节拍与能量自动生成运镜与特效">
-                        <Path Data="M7.5 2 L9 5.5 L12.5 7 L9 8.5 L7.5 12 L6 8.5 L2.5 7 L6 5.5 Z M12 10.5 L12.8 12 L14.5 12.5 L12.8 13 L12 14.5 L11.2 13 L9.5 12.5 L11.2 12 Z"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.2" />
-                    </Button>
-                    <Button x:Name="BtnExport" Style="{StaticResource PvBtnIcon}" Click="BtnExport_Click"
-                            ToolTip="导出 MP4：逐帧离屏渲染成片（另建一条管线，不动舞台）">
-                        <Path Data="M8 2.6 V10 M5.2 7.2 L8 10 L10.8 7.2 M3.2 12.8 H12.8"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
+                <TextBlock x:Name="TblStatus" Grid.Column="1" Margin="16,0" VerticalAlignment="Center"
+                           FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="11"
+                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                           TextTrimming="CharacterEllipsis" Text="初始化…" />
 
-                    <!-- 编辑组 -->
-                    <Border Width="1" Height="16" Margin="6,0" Background="{StaticResource PvLine}" />
-                    <Button x:Name="BtnUndo" Style="{StaticResource PvBtnIcon}" Click="BtnUndo_Click"
-                            ToolTip="撤销 (Ctrl+Z)">
-                        <Path Data="M5.4 5 H9.2 A3.2 3.2 0 0 1 9.2 11.4 H4.4 M7.6 2.8 L5.4 5 L7.6 7.2"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-                    <Button x:Name="BtnRedo" Style="{StaticResource PvBtnIcon}" Click="BtnRedo_Click"
-                            ToolTip="重做 (Ctrl+Y)">
-                        <Path Data="M10.6 5 H6.8 A3.2 3.2 0 0 0 6.8 11.4 H11.6 M8.4 2.8 L10.6 5 L8.4 7.2"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-
-                    <Button x:Name="BtnFold" Style="{StaticResource PvBtnIcon}" Click="BtnFold_Click"
-                            ToolTip="折叠时间轴">
-                        <Path x:Name="FoldIcon" Data="M3.6 6.4 L8 10.8 L12.4 6.4"
-                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
-                    </Button>
-                </StackPanel>
-
-                <TextBlock x:Name="TblStatus" Grid.Column="2" Margin="16,0" VerticalAlignment="Center"
-                           FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextXs}"
-                           Foreground="{StaticResource PvFgFaint}" TextTrimming="CharacterEllipsis"
-                           Text="初始化…" />
-
-                <StackPanel Grid.Column="3" Orientation="Horizontal">
-                    <Button x:Name="BtnMin" Style="{StaticResource PvBtnIcon}" Click="BtnMin_Click"
-                            ToolTip="最小化">
-                        <Path Data="M0,0 H10" Stroke="{StaticResource PvFgDim}" StrokeThickness="1" />
-                    </Button>
-                    <Button x:Name="BtnMax" Style="{StaticResource PvBtnIcon}" Click="BtnMax_Click"
-                            ToolTip="最大化 / 还原">
-                        <Path Data="M0,0 H10 V10 H0 Z" Stroke="{StaticResource PvFgDim}" StrokeThickness="1" />
-                    </Button>
-                    <Button x:Name="BtnClose" Style="{StaticResource PvBtnIcon}" Click="BtnClose_Click"
-                            ToolTip="关闭">
-                        <Path Data="M0,0 L10,10 M10,0 L0,10" Stroke="{StaticResource PvFgDim}" StrokeThickness="1" />
-                    </Button>
-                </StackPanel>
+                <ui:Button x:Name="BtnInspector" Grid.Column="2" Appearance="Transparent" Content="属性栏"
+                           Click="BtnInspector_Click" ToolTip="显示 / 隐藏右侧属性检查器">
+                    <ui:Button.Icon>
+                        <ui:SymbolIcon Symbol="Options24" />
+                    </ui:Button.Icon>
+                </ui:Button>
             </Grid>
         </Border>
 
         <!-- ============ 主体三栏 ============ -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="248" MinWidth="200" />
+                <ColumnDefinition Width="320" MinWidth="260" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="320" MinWidth="280" />
+                <ColumnDefinition x:Name="InspectorColumn" Width="320" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左：图层栈 + 效果架 -->
-            <Border Grid.Column="0" Background="{StaticResource PvPanel}"
-                    BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,0,1,0">
+            <!-- 左：四步导航 + 步骤面板 -->
+            <Border Grid.Column="0" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="260" />
                     </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Margin="14,12,10,0">
-                        <TextBlock Text="图层" FontSize="{StaticResource PvTextXs}"
-                                   Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
-                        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
-                            <TextBlock x:Name="TblLayerCount"
-                                       FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextXs}"
-                                       Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center"
-                                       Margin="0,0,6,0" />
-                            <Button x:Name="BtnAddLayer" Style="{StaticResource PvBtnGhost}" Padding="7,1"
-                                    Content="+ 源" ToolTip="添加一路 Spout 源图层，或一层磁盘图片/视频（图片与视频不需要发送端）"
-                                    Click="BtnAddLayer_Click" />
-                        </StackPanel>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
+                        <ui:Button x:Name="NavMedia" Content="素材" Appearance="Primary" Margin="0,0,6,0" Click="Nav_Click" />
+                        <ui:Button x:Name="NavDirector" Content="导演" Appearance="Transparent" Margin="0,0,6,0" Click="Nav_Click" />
+                        <ui:Button x:Name="NavEffects" Content="特效" Appearance="Transparent" Margin="0,0,6,0" Click="Nav_Click" />
+                        <ui:Button x:Name="NavOutput" Content="输出" Appearance="Transparent" Click="Nav_Click" />
+                    </StackPanel>
+
+                    <Grid Grid.Row="1">
+                        <!-- ===== 步骤 1：素材 ===== -->
+                        <ScrollViewer x:Name="PanelMedia" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12">
+                            <StackPanel>
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="音乐" Style="{StaticResource PanelCardTitle}" />
+                                        <ui:Button x:Name="BtnOpenAudio" Content="导入音乐" Appearance="Primary"
+                                                   HorizontalAlignment="Stretch" Click="BtnOpenAudio_Click"
+                                                   ToolTip="同名 .lrc 会自动一起装载；也可以把文件直接拖进窗口">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="MusicNote224" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+                                        <TextBlock x:Name="TblAudioName" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="未导入音乐" />
+                                        <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="拖入音频文件即可开始" />
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="歌词" Style="{StaticResource PanelCardTitle}" />
+                                        <ui:Button x:Name="BtnOpenLyrics" Content="导入歌词 (.lrc)"
+                                                   HorizontalAlignment="Stretch" Click="BtnOpenLyrics_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="TextFont24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+                                        <TextBlock x:Name="TblLyricInfo" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="未装载歌词" />
+                                        <TextBlock Text="歌词样式" Margin="0,10,0,4" Style="{StaticResource PanelRowLabel}" />
+                                        <ComboBox x:Name="CmbLyricStyle" HorizontalAlignment="Stretch" />
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="VTS 姿态追踪" Style="{StaticResource PanelCardTitle}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="连接 VTube Studio" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglVts" Grid.Column="1" HorizontalAlignment="Right"
+                                                             Checked="TglVts_Changed" Unchecked="TglVts_Changed" />
+                                        </Grid>
+                                        <TextBlock x:Name="TblVtsState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="VTS 关" />
+                                        <ui:Button x:Name="BtnVtsAuth" Content="重新授权" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Stretch" Click="BtnVtsAuth_Click"
+                                                   ToolTip="仅在 VTS 待授权 / 等待授权时有效（在 VTube Studio 里点「允许」）" />
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="图层" Style="{StaticResource PanelCardTitle}" Margin="0" />
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock x:Name="TblLayerCount" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                <ui:Button x:Name="BtnAddLayer" Content="+ 源" Click="BtnAddLayer_Click"
+                                                           ToolTip="添加一路 Spout 源图层，或一层磁盘图片/视频（图片与视频不需要发送端）" />
+                                            </StackPanel>
+                                        </Grid>
+                                        <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="从上到下 = 从前往后，拖拽可改顺序；点卡片在右侧编辑它。" />
+                                        <StackPanel x:Name="LayersHost" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </ui:Card>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- ===== 步骤 2：导演 ===== -->
+                        <ScrollViewer x:Name="PanelDirector" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      Visibility="Collapsed">
+                            <StackPanel>
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="一键成片" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}"
+                                                   Text="自动分析节拍与能量，一次生成运镜、特效脉冲与歌词样式段落；整次生成是一条撤销。" />
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="风格" Style="{StaticResource PanelRowLabel}" />
+                                            <ComboBox x:Name="CmbAutoStyle" Grid.Column="1" Width="130"
+                                                      HorizontalAlignment="Right" SelectedIndex="1">
+                                                <ComboBoxItem Tag="soft" Content="柔和" />
+                                                <ComboBoxItem Tag="dynamic" Content="动感" />
+                                                <ComboBoxItem Tag="epic" Content="史诗" />
+                                            </ComboBox>
+                                        </Grid>
+                                        <Grid Margin="0,10,2,0">
+                                            <TextBlock Text="强度" HorizontalAlignment="Left"
+                                                       Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock x:Name="TblAutoIntensity" Text="0.60" HorizontalAlignment="Right"
+                                                       Style="{StaticResource PanelValue}" />
+                                        </Grid>
+                                        <Slider x:Name="SldAutoIntensity" Margin="0,4,0,0" IsMoveToPointEnabled="True"
+                                                Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
+                                                ValueChanged="SldAutoIntensity_ValueChanged" />
+                                        <ui:Button x:Name="BtnGenerateAuto" Content="一键生成" Appearance="Primary"
+                                                   HorizontalAlignment="Stretch" Margin="0,14,0,0"
+                                                   Click="BtnGenerateAuto_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="Wand24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+                                        <TextBlock x:Name="TblAutoHint" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="先导入音乐，生成才会解锁。" />
+                                        <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
+                                    </StackPanel>
+                                </ui:Card>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- ===== 步骤 3：特效 ===== -->
+                        <ScrollViewer x:Name="PanelEffects" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      Visibility="Collapsed">
+                            <StackPanel>
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="效果架" Style="{StaticResource PanelCardTitle}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="添加效果" Style="{StaticResource PanelRowLabel}" />
+                                            <ComboBox x:Name="CmbAddFx" Grid.Column="1" Width="160"
+                                                      HorizontalAlignment="Right"
+                                                      SelectionChanged="CmbAddFx_SelectionChanged" />
+                                        </Grid>
+                                        <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="按顺序自上而下叠加，拖拽可改序；控件由效果参数 schema 自动生成。" />
+                                        <StackPanel x:Name="EffectsHost" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="效果预设" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}"
+                                                   Text="选一份预设会整份替换当前效果架（含参数与自动生成的曲线）。" />
+                                        <ComboBox x:Name="CmbPreset" Margin="0,8,0,0" HorizontalAlignment="Stretch"
+                                                  SelectionChanged="CmbPreset_SelectionChanged" />
+                                    </StackPanel>
+                                </ui:Card>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- ===== 步骤 4：输出 ===== -->
+                        <ScrollViewer x:Name="PanelOutput" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      Visibility="Collapsed">
+                            <StackPanel>
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="推流（Spout）" Style="{StaticResource PanelCardTitle}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="广播到 Spout 发送端" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglBroadcast" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglBroadcast_Changed"
+                                                             Unchecked="TglBroadcast_Changed" />
+                                        </Grid>
+                                        <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="广播 关" />
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="导出视频" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}"
+                                                   Text="逐帧离屏渲染成片，导出期间界面照常用；含图层与效果、曲线驱动的镜头与图层动画、动效歌词。VTS 姿态追踪不参与导出。" />
+
+                                        <TextBlock Text="输出路径" Margin="0,10,0,4" Style="{StaticResource PanelRowLabel}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:TextBox x:Name="TxtExportPath" TextChanged="ExportField_TextChanged" />
+                                            <ui:Button x:Name="BtnExportBrowse" Grid.Column="1" Margin="6,0,0,0"
+                                                       Content="浏览…" Click="BtnExportBrowse_Click" />
+                                        </Grid>
+
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="帧率" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:TextBox x:Name="TxtExportFps" Grid.Column="1" Width="70" Margin="8,0,0,0"
+                                                        Text="60" />
+                                            <TextBlock Grid.Column="2" Text="时长(秒)" Margin="12,0,8,0"
+                                                       Style="{StaticResource PanelRowLabel}" />
+                                            <ui:TextBox x:Name="TxtExportSeconds" Grid.Column="3" Width="90"
+                                                        TextChanged="ExportField_TextChanged" />
+                                        </Grid>
+
+                                        <CheckBox x:Name="ChkBurnSubtitles" Margin="0,12,0,0"
+                                                  Content="烧入清晰字幕（预览不显示字幕层）" />
+
+                                        <ui:Button x:Name="BtnExport" Content="开始导出" Appearance="Primary"
+                                                   HorizontalAlignment="Stretch" Margin="0,14,0,0"
+                                                   Click="BtnExport_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="ArrowExport24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:ProgressRing x:Name="PrgExport" Width="22" Height="22" Visibility="Collapsed" />
+                                            <TextBlock x:Name="TblExportState" Grid.Column="1" Margin="8,0,0,0"
+                                                       Style="{StaticResource PanelHint}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ui:Card>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Grid>
-
-                    <TextBlock Grid.Row="1" Margin="14,4,12,8" TextWrapping="Wrap"
-                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}"
-                               Text="从上到下 = 从前往后，拖拽可改顺序。点卡片在右侧编辑它。" />
-
-                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="10,0,8,10">
-                        <StackPanel x:Name="LayersHost" />
-                    </ScrollViewer>
-
-                    <Border Grid.Row="3" BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,1,0,0" />
-
-                    <Grid Grid.Row="4" Margin="14,10,10,6">
-                        <TextBlock Text="效果" FontSize="{StaticResource PvTextXs}"
-                                   Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
-                        <ComboBox x:Name="CmbAddFx" Width="150" HorizontalAlignment="Right"
-                                  SelectionChanged="CmbAddFx_SelectionChanged" />
-                    </Grid>
-
-                    <TextBlock Grid.Row="5" Margin="14,0,12,8" TextWrapping="Wrap"
-                               FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgFaint}"
-                               Text="按顺序自上而下叠加。控件由效果参数 schema 自动生成。" />
-
-                    <ScrollViewer Grid.Row="6" VerticalScrollBarVisibility="Auto" Padding="10,0,8,10">
-                        <StackPanel x:Name="EffectsHost" />
-                    </ScrollViewer>
                 </Grid>
             </Border>
 
             <!-- 中：舞台工作区。PresentHost 是 HwndHost 子窗口，WPF 元素盖不住它（airspace）。 -->
-            <Grid Grid.Column="1" Background="{StaticResource PvStageVoid}">
-                <Grid x:Name="StageWorkspace">
-                    <gpu:PresentHost x:Name="Stage" Margin="0" />
-                    <TextBlock x:Name="TblStageHint" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               FontSize="{StaticResource PvTextSm}" Foreground="{StaticResource PvFgFaint}"
-                               IsHitTestVisible="False" Text="舞台初始化中…" />
-                    <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12"
-                            Background="#99000000" CornerRadius="{StaticResource PvRadiusSm}" Padding="8,4"
-                            IsHitTestVisible="False">
-                        <TextBlock x:Name="TblStageInfo" FontFamily="{StaticResource PvMono}"
-                                   FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgDim}" />
-                    </Border>
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Background="Black">
+                    <Grid x:Name="StageWorkspace">
+                        <gpu:PresentHost x:Name="Stage" Margin="0" />
+                        <TextBlock x:Name="TblStageHint" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   FontSize="13" Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                   IsHitTestVisible="False" Text="舞台初始化中…" />
+                        <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12"
+                                Background="#99000000" CornerRadius="4" Padding="8,4" IsHitTestVisible="False">
+                            <TextBlock x:Name="TblStageInfo"
+                                       FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="11"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </Border>
+                    </Grid>
                 </Grid>
+
+                <!-- 传输条 -->
+                <Border Grid.Row="1" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+                    <Grid Margin="12,7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:Button x:Name="BtnPlay" Appearance="Transparent" Click="BtnPlay_Click"
+                                       ToolTip="播放 / 暂停 (Space)">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon x:Name="PlayIcon" Symbol="Play24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                            <TextBlock x:Name="TblTime" Margin="10,0,0,0" VerticalAlignment="Center"
+                                       FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                       Text="00:00.0 / 00:00.0" />
+                        </StackPanel>
+
+                        <Slider x:Name="SldTime" Grid.Column="1" Margin="16,0" IsMoveToPointEnabled="True"
+                                Minimum="0" Maximum="1" ValueChanged="SldTime_ValueChanged" />
+
+                        <TextBlock x:Name="TblFps" Grid.Column="2" Margin="14,0,0,0" MinWidth="64"
+                                   VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                    </Grid>
+                </Border>
             </Grid>
 
             <!-- 右：属性检查器 -->
-            <Border Grid.Column="2" Background="{StaticResource PvPanel}"
-                    BorderBrush="{StaticResource PvLineSoft}" BorderThickness="1,0,0,0">
+            <Border x:Name="InspectorPane" Grid.Column="2" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="14,12,12,4">
-                        <TextBlock Text="属性" FontSize="{StaticResource PvTextXs}"
-                                   Foreground="{StaticResource PvFgFaint}" VerticalAlignment="Center" />
-                        <TextBlock x:Name="TblInspectorTitle" HorizontalAlignment="Right"
-                                   FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgDim}"
+                        <TextBlock Text="属性" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontSize="11" />
+                        <TextBlock x:Name="TblInspectorTitle" HorizontalAlignment="Right" FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </Grid>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,4,0,10">
@@ -229,63 +463,25 @@
             </Border>
         </Grid>
 
-        <!-- ============ 底部：传输条 + 时间轴 ============ -->
-        <Grid Grid.Row="2">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="40" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+        <!-- ============ 底部：时间轴（拖分隔条可调高度） ============ -->
+        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                      Background="{DynamicResource DividerStrokeColorDefaultBrush}"
+                      ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Cursor="SizeNS" />
 
-            <Border Grid.Row="0" Background="{StaticResource PvPanel}"
-                    BorderBrush="{StaticResource PvLineSoft}" BorderThickness="0,1,0,0">
-                <Grid Margin="14,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="BtnPlay" Style="{StaticResource PvBtnIcon}" Click="BtnPlay_Click"
-                                ToolTip="播放 / 暂停 (Space)">
-                            <Path x:Name="PlayIcon" Data="{StaticResource IconPlay}"
-                                  Fill="{StaticResource PvFg}" />
-                        </Button>
-                        <TextBlock x:Name="TblTime" Margin="10,0,0,0" VerticalAlignment="Center"
-                                   FontFamily="{StaticResource PvMono}" FontSize="{StaticResource PvTextSm}"
-                                   Foreground="{StaticResource PvFgDim}" Text="00:00.0 / 00:00.0" />
-                    </StackPanel>
-
-                    <Slider x:Name="SldTime" Grid.Column="1" Style="{StaticResource PvSlider}" Margin="16,0"
-                            Minimum="0" Maximum="1" ValueChanged="SldTime_ValueChanged" />
-
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="BtnBroadcast" Style="{StaticResource PvBtnGhost}" Padding="9,5"
-                                Margin="0,0,8,0" Content="广播 关" Click="BtnBroadcast_Click" />
-                        <Button x:Name="BtnVts" Style="{StaticResource PvBtnGhost}" Padding="9,5"
-                                Margin="0,0,14,0" Content="VTS 关" Click="BtnVts_Click"
-                                ToolTip="VTS 姿态追踪：点一下开（连接中 → 授权中 → 追踪中），开着时再点一下关" />
-                        <TextBlock Text="预设" Style="{StaticResource PvRowLabel}" Margin="0,0,8,0" />
-                        <ComboBox x:Name="CmbPreset" Width="140" SelectionChanged="CmbPreset_SelectionChanged" />
-                        <TextBlock x:Name="TblFps" Margin="14,0,0,0" VerticalAlignment="Center"
-                                   Style="{StaticResource PvValue}" MinWidth="64" />
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <tl:TimelineView x:Name="TheTimeline" Grid.Row="1" />
-        </Grid>
+        <tl:TimelineView x:Name="TheTimeline" Grid.Row="4" />
 
         <!-- 取色弹窗：共享一个实例，点色块时定位过去（每个色块各建一个太浪费） -->
         <Popup x:Name="ColorPop" StaysOpen="False" AllowsTransparency="True" Placement="Mouse"
                HorizontalOffset="6" VerticalOffset="6">
-            <Border Background="{StaticResource PvRaised}" BorderBrush="{StaticResource PvLineStrong}"
-                    BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="10">
+            <Border Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="6" Padding="10">
                 <StackPanel Width="196">
-                    <TextBlock x:Name="TblColorTarget" FontSize="{StaticResource PvTextXs}"
-                               Foreground="{StaticResource PvFgFaint}" />
-                    <TextBox x:Name="TxtHex" Margin="0,7,0,0" FontFamily="{StaticResource PvMono}"
-                             FontSize="{StaticResource PvTextSm}" TextChanged="TxtHex_TextChanged" />
+                    <TextBlock x:Name="TblColorTarget" FontSize="11"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                    <TextBox x:Name="TxtHex" Margin="0,7,0,0"
+                             FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="12"
+                             TextChanged="TxtHex_TextChanged" />
                     <ItemsControl x:Name="SwatchGrid" Margin="0,9,0,0">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -296,43 +492,5 @@
                 </StackPanel>
             </Border>
         </Popup>
-
-        <!-- 一键成片面板 -->
-        <Popup x:Name="AutoDirectorPop" StaysOpen="False" AllowsTransparency="True"
-               PlacementTarget="{Binding ElementName=BtnAuto}" Placement="Bottom"
-               HorizontalOffset="-80" VerticalOffset="6">
-            <Border Background="{StaticResource PvRaised}" BorderBrush="{StaticResource PvLineStrong}"
-                    BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="14,12" Width="240">
-                <StackPanel>
-                    <TextBlock Text="一键成片" FontWeight="SemiBold" FontSize="{StaticResource PvTextSm}"
-                               Foreground="{StaticResource PvFg}" Margin="0,0,0,10" />
-
-                    <!-- 风格 -->
-                    <Grid Margin="0,0,0,10">
-                        <TextBlock Text="风格" Style="{StaticResource PvRowLabel}" HorizontalAlignment="Left" />
-                        <ComboBox x:Name="CmbAutoStyle" Width="130" Height="26" HorizontalAlignment="Right"
-                                  SelectedIndex="1">
-                            <ComboBoxItem Tag="soft" Content="柔和" />
-                            <ComboBoxItem Tag="dynamic" Content="动感" />
-                            <ComboBoxItem Tag="epic" Content="史诗" />
-                        </ComboBox>
-                    </Grid>
-
-                    <!-- 强度 -->
-                    <Grid Margin="0,0,0,4">
-                        <TextBlock Text="强度" Style="{StaticResource PvRowLabel}" HorizontalAlignment="Left" />
-                        <TextBlock x:Name="TblAutoIntensity" Style="{StaticResource PvValue}" Text="0.60"
-                                   HorizontalAlignment="Right" />
-                    </Grid>
-                    <Slider x:Name="SldAutoIntensity" Style="{StaticResource PvSlider}" Margin="0,0,0,14"
-                            Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
-                            ValueChanged="SldAutoIntensity_ValueChanged" />
-
-                    <!-- 生成按钮 -->
-                    <Button x:Name="BtnGenerateAuto" Style="{StaticResource PvBtnPrimary}"
-                            Content="生成" Click="BtnGenerateAuto_Click" />
-                </StackPanel>
-            </Border>
-        </Popup>
     </Grid>
-</Window>
+</ui:FluentWindow>

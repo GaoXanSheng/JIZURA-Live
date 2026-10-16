@@ -15,12 +15,12 @@ namespace JizuraLive.App;
 ///      （面板隐藏仍即时 Collapsed，保住 TechTab 之类以 IsVisibleChanged 为信号的逻辑）；
 ///   3) 动画一律 FillBehavior.Stop —— 播完自动回到基值，不留 HoldEnd 时钟
 ///      （基值本身就是终值，所以既不会闪一下，也不会出现「清掉动画后停在中间态」）；
-///   4) XAML 模板内的微交互（≤130ms，见 Theme.xaml）常开；位移/弹窗类由 Enabled 统一跟随
+///   4) 弹窗与程序化构建的界面元素用它做入场；位移/弹窗类由 Enabled 统一跟随
 ///      系统「在 Windows 中显示动画」开关。
 /// </summary>
 public static class JzAnim
 {
-    // ---------------- token（Theme.xaml 用 {x:Static app:JzAnim.Fast} 引用同一份值） ----------------
+    // ---------------- token（界面层唯一一份时长/缓动） ----------------
 
     /// <summary>hover 进入 / 勾选弹入（110ms）。</summary>
     public static readonly Duration Fast = new(TimeSpan.FromMilliseconds(110));

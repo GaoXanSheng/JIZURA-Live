@@ -8,7 +8,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using JizuraLive.App.Controls;
 using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
@@ -26,10 +25,10 @@ using Vortice.Mathematics;
 namespace JizuraLive.App.PvStage;
 
 /// <summary>
-/// PV 工作台主窗口：舞台直呈 + 图层栈 + 效果架 + 传输条。
-/// 纯 Vortice D3D11 现代管线驱动，零旧引擎包袱。
+/// PV 工作台主窗口：四步导航（素材 / 导演 / 特效 / 输出）+ 舞台直呈 + 传输条 + 属性检查器 + 时间轴。
+/// 外壳用 WPF-UI 的 FluentWindow（Mica 背景 + 库自带标题栏），内容仍是纯 Vortice D3D11 管线驱动。
 /// </summary>
-public partial class PvStageWindow : Window
+public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 {
     // 工程文档三件套 + 传输时钟：**不是** readonly——工程新建/打开要整份换掉它们。
     // 场景与效果图是按引用吃进管线与渲染器的（设计画布还在管线构造期定死），所以换工程是
@@ -118,15 +117,32 @@ public partial class PvStageWindow : Window
     // 属性检查器：null = 没有选中对象，显示工程级信息
     private PvLayerConfig? _selectedLayer;
 
-    private const double TimelineExpandedHeight = 220;
-    private const double TimelineCollapsedHeight = 40;
-    private bool TimelineExpanded => TimelineRow.Height.Value >= TimelineExpandedHeight;
+    private const double InspectorWidth = 320;
+    private bool _inspectorCollapsed;
+
+    // 左侧四步导航：0 素材 / 1 导演 / 2 特效 / 3 输出
+    private int _step = -1;
+
+    // 程序化回填开关/表单时为 true：那一次事件不是用户操作，不能当输入写回去
+    private bool _syncingToggles;
+    private bool _syncingExportForm;
+    private bool _exportFormEdited;
+
+    // 素材面板的展示缓存：只在读数真的变了时才写 TextBlock（刷新走 500ms 定时器）
+    private string _mediaAudioCache = "";
+    private string _mediaMetaCache = "";
+    private string _mediaLyricCache = "";
+
+    // 最近一次一键成片分析出的 BPM（0 = 还没分析过）
+    private double _lastBpm;
 
     // 撤销/重做：栈里放的是工程 JSON 串（与 ProjectStore.Save 同一序列化），深度上限由 UndoLog 管
     private readonly UndoLog _undo = new();
 
-    // 歌词样式下拉的固定项：与 LyricStyle 的四个预设同名（FromName 按名大小写不敏感地取）
+    // 歌词样式下拉的固定项：与 LyricStyle 的四个预设同名（FromName 按名大小写不敏感地取）。
+    // 显示名与预设名分开：列表里给中文，工程里存的仍是预设名（存档兼容）。
     private static readonly string[] LyricStyleNames = ["Classic", "Neon", "Outline", "Minimal"];
+    private static readonly string[] LyricStyleLabels = ["经典", "霓虹", "描边", "极简"];
     private bool _syncingLyricStyle;  // 程序化回填下拉时为 true：那次 SelectionChanged 不是用户选择
 
     // 广播开关：UI 只持有"用户意图"，native 发送端由管线在渲染线程建/拆
@@ -174,6 +190,11 @@ public partial class PvStageWindow : Window
         TheTimeline.SeekRequested += Timeline_SeekRequested;
         TheTimeline.EditCommitted += Timeline_EditCommitted;
         TheTimeline.Fps = _scene.Fps;
+
+        BuildLyricStylePicker();
+        UpdateBroadcastButton();
+        UpdateVtsSwitch();
+        SetStep(0);
 
         BuildLayerList();
         BuildEffectRack();
@@ -481,6 +502,56 @@ public partial class PvStageWindow : Window
         pipe.Composite(target, w, h);
     }
 
+    // ---------------- 主题资源（代码建的界面一律取 WPF-UI 主题字典） ----------------
+
+    private const string TextPrimaryKey = "TextFillColorPrimaryBrush";
+    private const string TextSecondaryKey = "TextFillColorSecondaryBrush";
+    private const string TextTertiaryKey = "TextFillColorTertiaryBrush";
+    private const string TextAccentKey = "AccentTextFillColorPrimaryBrush";
+    private const string CardFillKey = "CardBackgroundFillColorDefaultBrush";
+    private const string CardStrokeKey = "CardStrokeColorDefaultBrush";
+    private const string SelectFillKey = "ControlFillColorSecondaryBrush";
+    private const string SelectStrokeKey = "AccentFillColorSecondaryBrush";
+    private const string CautionKey = "SystemFillColorCautionBrush";
+
+    private static readonly System.Windows.Media.FontFamily MonoFontFamily =
+        new("Consolas, Cascadia Mono, Microsoft YaHei UI");
+
+    /// <summary>把主题画刷接成动态资源引用（随主题切换重刷），而不是固化一份画刷实例。</summary>
+    private static T Themed<T>(T element, DependencyProperty property, string themeKey)
+        where T : FrameworkElement
+    {
+        element.SetResourceReference(property, themeKey);
+        return element;
+    }
+
+    private static TextBlock ThemeText(string text, string themeKey, double size, bool wrap = false) =>
+        Themed(new TextBlock
+        {
+            Text = text,
+            FontSize = size,
+            TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        }, TextBlock.ForegroundProperty, themeKey);
+
+    private static TextBlock ThemeValue(string text) =>
+        Themed(new TextBlock
+        {
+            Text = text,
+            FontFamily = MonoFontFamily,
+            FontSize = 11,
+            TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        }, TextBlock.ForegroundProperty, TextPrimaryKey);
+
+    /// <summary>卡片外框回到常态（拖拽高亮用完要还回去，直接置 null 会把主题描边一起丢掉）。</summary>
+    private static void RestoreCardStroke(Wpf.Ui.Controls.Card card) =>
+        card.SetResourceReference(Control.BorderBrushProperty, CardStrokeKey);
+
+    /// <summary>卡片描边高亮成强调色（拖拽落点提示、选中态）。</summary>
+    private static void MarkCardStroke(Wpf.Ui.Controls.Card card, string themeKey) =>
+        card.SetResourceReference(Control.BorderBrushProperty, themeKey);
+
     // ---------------- 图层栈 ----------------
 
     private void BuildLayerList()
@@ -501,9 +572,10 @@ public partial class PvStageWindow : Window
         LayersHost.Children.Clear();
         foreach (var layer in _uiLayers)
         {
-            var card = new Border
+            var card = new Wpf.Ui.Controls.Card
             {
-                Style = (Style)FindResource("PvCard"),
+                Padding = new Thickness(10, 9, 10, 9),
+                Margin = new Thickness(0, 0, 0, 6),
                 AllowDrop = true,
                 Cursor = Cursors.SizeAll,
             };
@@ -512,29 +584,26 @@ public partial class PvStageWindow : Window
             card.PreviewMouseMove += LayerCard_MouseMove;
             card.DragOver += LayerCard_DragOver;
             card.Drop += LayerCard_Drop;
-            card.DragLeave += (s2, _) => ((Border)s2!).BorderBrush = null;
+            card.DragLeave += (_, _) => RestoreCardStroke(card);
+
             var stack = new StackPanel();
-            card.Child = stack;
+            card.Content = stack;
 
             var head = new Grid();
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var name = new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(layer.SpoutSenderName) ? layer.Name : layer.SpoutSenderName!,
-                FontSize = (double)FindResource("PvTextBase"),
-                Foreground = (System.Windows.Media.Brush)FindResource("PvFg"),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            var name = ThemeText(
+                string.IsNullOrWhiteSpace(layer.SpoutSenderName) ? layer.Name : layer.SpoutSenderName!,
+                TextPrimaryKey, 13);
             Grid.SetColumn(name, 0);
             head.Children.Add(name);
 
             var headRight = new StackPanel { Orientation = Orientation.Horizontal };
-            var toggle = new System.Windows.Controls.Primitives.ToggleButton
+            var toggle = new Wpf.Ui.Controls.ToggleSwitch
             {
-                Style = (Style)FindResource("PvSwitch"),
                 IsChecked = layer.Enabled,
+                ToolTip = "显示 / 隐藏本图层",
             };
             toggle.Checked += (_, _) => layer.Enabled = true;
             toggle.Unchecked += (_, _) => layer.Enabled = false;
@@ -542,9 +611,9 @@ public partial class PvStageWindow : Window
 
             // 所有图层都给删除入口：旧的「仅 src* 编号才有 ✕」门槛会把模板/旧工程导入的图层
             // （bg/character/lyrics_pv 等固定 id）变成永远删不掉的孤儿，用户明确要能删。
-            var del = new Button
+            var del = new Wpf.Ui.Controls.Button
             {
-                Style = (Style)FindResource("PvBtnGhost"),
+                Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
                 Padding = new Thickness(6, 1, 6, 1),
                 Margin = new Thickness(6, 0, 0, 0),
                 Content = "✕",
@@ -565,13 +634,8 @@ public partial class PvStageWindow : Window
             head.Children.Add(headRight);
             stack.Children.Add(head);
 
-            var meta = new TextBlock
-            {
-                Text = LayerKindLabel(layer.Kind),
-                FontSize = (double)FindResource("PvTextXs"),
-                Foreground = (System.Windows.Media.Brush)FindResource("PvFgFaint"),
-                Margin = new Thickness(0, 2, 0, 0),
-            };
+            var meta = ThemeText(LayerKindLabel(layer.Kind), TextTertiaryKey, 11);
+            meta.Margin = new Thickness(0, 2, 0, 0);
             stack.Children.Add(meta);
 
             LayersHost.Children.Add(card);
@@ -595,7 +659,7 @@ public partial class PvStageWindow : Window
     private void LayerCard_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is DependencyObject d && FindAncestor<System.Windows.Controls.Primitives.RangeBase>(d) is not null) return;
-        var layer = ((Border)sender).Tag as PvLayerConfig;
+        var layer = ((Wpf.Ui.Controls.Card)sender).Tag as PvLayerConfig;
         if (!ReferenceEquals(layer, _selectedLayer)) SelectLayer(layer);
         _dragStart = e.GetPosition(this);
         _dragLayer = layer;
@@ -621,13 +685,13 @@ public partial class PvStageWindow : Window
         }
 
         e.Effects = DragDropEffects.Move;
-        ((Border)sender).BorderBrush = (System.Windows.Media.Brush)FindResource("PvAccent");
+        MarkCardStroke((Wpf.Ui.Controls.Card)sender, SelectStrokeKey);
     }
 
     private void LayerCard_Drop(object sender, DragEventArgs e)
     {
-        var targetCard = (Border)sender;
-        targetCard.BorderBrush = null;
+        var targetCard = (Wpf.Ui.Controls.Card)sender;
+        RestoreCardStroke(targetCard);
         if (!e.Data.GetDataPresent(typeof(PvLayerConfig))) return;
         var source = (PvLayerConfig)e.Data.GetData(typeof(PvLayerConfig));
         var target = (PvLayerConfig)targetCard.Tag;
@@ -665,9 +729,10 @@ public partial class PvStageWindow : Window
             var def = EffectCatalog.Get(node.DefId);
             if (def is null) continue;
 
-            var card = new Border
+            var card = new Wpf.Ui.Controls.Card
             {
-                Style = (Style)FindResource("PvCard"),
+                Padding = new Thickness(10, 9, 10, 9),
+                Margin = new Thickness(0, 0, 0, 6),
                 AllowDrop = true,
                 Cursor = Cursors.SizeAll,
             };
@@ -676,38 +741,33 @@ public partial class PvStageWindow : Window
             card.PreviewMouseMove += EffectCard_MouseMove;
             card.DragOver += EffectCard_DragOver;
             card.Drop += EffectCard_Drop;
-            card.DragLeave += (s2, _) => ((Border)s2!).BorderBrush = null;
+            card.DragLeave += (_, _) => RestoreCardStroke(card);
+
             var stack = new StackPanel();
-            card.Child = stack;
+            card.Content = stack;
 
             var head = new Grid();
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var name = new TextBlock
-            {
-                Text = EffectName(def),
-                FontSize = (double)FindResource("PvTextBase"),
-                Foreground = (System.Windows.Media.Brush)FindResource("PvFg"),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            var name = ThemeText(EffectName(def), TextPrimaryKey, 13);
             Grid.SetColumn(name, 0);
             head.Children.Add(name);
 
             var headRight = new StackPanel { Orientation = Orientation.Horizontal };
-            var toggle = new System.Windows.Controls.Primitives.ToggleButton
+            var toggle = new Wpf.Ui.Controls.ToggleSwitch
             {
-                Style = (Style)FindResource("PvSwitch"),
                 IsChecked = node.Enabled,
+                ToolTip = "启用 / 停用本效果",
             };
             var nRef = node;
             toggle.Checked += (_, _) => nRef.Enabled = true;
             toggle.Unchecked += (_, _) => nRef.Enabled = false;
             headRight.Children.Add(toggle);
 
-            var del = new Button
+            var del = new Wpf.Ui.Controls.Button
             {
-                Style = (Style)FindResource("PvBtnGhost"),
+                Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
                 Padding = new Thickness(6, 1, 6, 1),
                 Margin = new Thickness(6, 0, 0, 0),
                 Content = "✕",
@@ -729,13 +789,8 @@ public partial class PvStageWindow : Window
             head.Children.Add(headRight);
             stack.Children.Add(head);
 
-            var meta = new TextBlock
-            {
-                Text = $"{StageLabel(def.Stage)} · {CategoryLabel(def.Category)}",
-                FontSize = (double)FindResource("PvTextXs"),
-                Foreground = (System.Windows.Media.Brush)FindResource("PvFgFaint"),
-                Margin = new Thickness(0, 2, 0, 6),
-            };
+            var meta = ThemeText($"{StageLabel(def.Stage)} · {CategoryLabel(def.Category)}", TextTertiaryKey, 11);
+            meta.Margin = new Thickness(0, 2, 0, 6);
             stack.Children.Add(meta);
 
             foreach (var p in def.Params)
@@ -755,12 +810,11 @@ public partial class PvStageWindow : Window
                         var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                        var lab = new TextBlock { Text = ParamLabel(p), Style = (Style)FindResource("PvRowLabel") };
+                        var lab = ThemeText(ParamLabel(p), TextSecondaryKey, 12);
                         Grid.SetColumn(lab, 0);
                         row.Children.Add(lab);
-                        var sw = new System.Windows.Controls.Primitives.ToggleButton
+                        var sw = new Wpf.Ui.Controls.ToggleSwitch
                         {
-                            Style = (Style)FindResource("PvSwitch"),
                             IsChecked = node.Value(p) > 0.5f,
                         };
                         var nodeRef = node;
@@ -776,21 +830,11 @@ public partial class PvStageWindow : Window
                         var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                        var lab = new TextBlock { Text = ParamLabel(p), Style = (Style)FindResource("PvRowLabel") };
+                        var lab = ThemeText(ParamLabel(p), TextSecondaryKey, 12);
                         Grid.SetColumn(lab, 0);
                         row.Children.Add(lab);
 
-                        var hex = node.ColorValue(p);
-                        var swatch = new Border
-                        {
-                            Width = 34,
-                            Height = 16,
-                            CornerRadius = (CornerRadius)FindResource("PvRadiusSm"),
-                            Background = BrushFromHex(hex),
-                            BorderBrush = (System.Windows.Media.Brush)FindResource("PvLine"),
-                            BorderThickness = new Thickness(1),
-                            Cursor = Cursors.Hand,
-                        };
+                        var swatch = Swatch(34, 16, node.ColorValue(p));
                         var nodeRef = node;
                         var paramRef = p;
                         var swatchRef = swatch;
@@ -815,6 +859,22 @@ public partial class PvStageWindow : Window
     private static readonly string[] Swatches =
         ["#ffffff", "#8ad4ff", "#ffd24a", "#ff2080", "#38e1c4", "#ff7a45"];
 
+    /// <summary>一枚色块（效果颜色参数与取色弹窗的色板共用）。</summary>
+    private static Border Swatch(double width, double height, string hex)
+    {
+        var border = new Border
+        {
+            Width = width,
+            Height = height,
+            CornerRadius = new CornerRadius(4),
+            Background = BrushFromHex(hex),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+        };
+        border.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+        return border;
+    }
+
     private void OpenColorPicker(EffectNode node, EffectParam param, Border swatch)
     {
         _colorNode = node;
@@ -827,17 +887,8 @@ public partial class PvStageWindow : Window
         SwatchGrid.Items.Clear();
         foreach (var hex in Swatches)
         {
-            var b = new Border
-            {
-                Width = 26,
-                Height = 20,
-                Margin = new Thickness(0, 0, 3, 3),
-                CornerRadius = (CornerRadius)FindResource("PvRadiusSm"),
-                Background = BrushFromHex(hex),
-                BorderBrush = (System.Windows.Media.Brush)FindResource("PvLine"),
-                BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand,
-            };
+            var b = Swatch(26, 20, hex);
+            b.Margin = new Thickness(0, 0, 3, 3);
             var hexRef = hex;
             b.MouseLeftButtonDown += (_, _) => TxtHex.Text = hexRef;
             SwatchGrid.Items.Add(b);
@@ -939,7 +990,7 @@ public partial class PvStageWindow : Window
         // 卡片里铺着滑杆与开关：在它们身上按下是改参数，不是拖卡片
         if (e.OriginalSource is DependencyObject d && FindAncestor<System.Windows.Controls.Primitives.RangeBase>(d) is not null) return;
         _dragStart = e.GetPosition(this);
-        _dragEffect = ((Border)sender).Tag as EffectNode;
+        _dragEffect = ((Wpf.Ui.Controls.Card)sender).Tag as EffectNode;
     }
 
     private void EffectCard_MouseMove(object sender, MouseEventArgs e)
@@ -962,14 +1013,14 @@ public partial class PvStageWindow : Window
         }
 
         e.Effects = DragDropEffects.Move;
-        ((Border)sender).BorderBrush = (System.Windows.Media.Brush)FindResource("PvAccent");
+        MarkCardStroke((Wpf.Ui.Controls.Card)sender, SelectStrokeKey);
     }
 
     /// <summary>落到哪张卡就搬到它的位置（与图层卡同一口径）。顺序 = 执行顺序，改的是效果图本身。</summary>
     private void EffectCard_Drop(object sender, DragEventArgs e)
     {
-        var targetCard = (Border)sender;
-        targetCard.BorderBrush = null;
+        var targetCard = (Wpf.Ui.Controls.Card)sender;
+        RestoreCardStroke(targetCard);
         if (!e.Data.GetDataPresent(typeof(EffectNode))) return;
         if (e.Data.GetData(typeof(EffectNode)) is not EffectNode source) return;
         if (targetCard.Tag is not EffectNode target) return;
@@ -1075,7 +1126,7 @@ public partial class PvStageWindow : Window
 
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"歌词样式：{_scene.LyricStyleName}";
+        TblStatus.Text = $"歌词样式：{LyricStyleLabels[picker.SelectedIndex]}（{_scene.LyricStyleName}）";
     }
 
     // ---------------- 撤销 / 重做 ----------------
@@ -1271,13 +1322,7 @@ public partial class PvStageWindow : Window
         TheTimeline.Fps = _scene.Fps;
         RefreshTimeline();
         BuildInspector();
-
-        if (_cmbLyricStyle is not null)
-        {
-            _syncingLyricStyle = true;
-            _cmbLyricStyle.SelectedItem = _scene.LyricStyleName;
-            _syncingLyricStyle = false;
-        }
+        SyncLyricStylePicker();
 
         // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
         if (_pipe is not null) _rebuildPipe = true;
@@ -1291,6 +1336,7 @@ public partial class PvStageWindow : Window
 
         _saveError = SaveProjectNow(); // 会话工程文件立刻与内存一致，避免"界面上是这个、磁盘上是那个"
         TblStatus.Text = _saveError is null ? note : $"{note}（工程文件写入失败：{_saveError}）";
+        _exportFormEdited = false; // 换了工程：导出表单的默认值跟着新工程的音源走
         Log.Info($"[PV 工作台] {note}（存盘落到 {ProjectPath}）");
     }
 
@@ -1355,6 +1401,23 @@ public partial class PvStageWindow : Window
         RefreshTimeline();
     }
 
+    /// <summary>导入歌词文件（按钮与窗口拖放共用）：解析失败把原因说出来，不静默吞掉。</summary>
+    private void LoadLyricsFile(string path)
+    {
+        try
+        {
+            LoadLyrics(File.ReadAllText(path));
+            TblStatus.Text = $"已装载歌词：{_lyrics?.Count ?? 0} 行"
+                             + (_tailUncalibrated ? "（末句待校准：未载入音频）" : "");
+            Log.Info($"[工作台] 已装载歌词：{_lyrics?.Count ?? 0} 行 ({path})，末句待校准={_tailUncalibrated}");
+        }
+        catch (Exception ex)
+        {
+            TblStatus.Text = $"打开歌词失败：{ex.Message}";
+            MessageBox.Show(this, "打开歌词失败：" + ex.Message, "PV 舞台", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private void BtnOpenLyrics_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
@@ -1363,17 +1426,7 @@ public partial class PvStageWindow : Window
             Filter = "歌词文件 (*.lrc)|*.lrc|所有文件 (*.*)|*.*",
         };
         if (dlg.ShowDialog(this) != true) return;
-        try
-        {
-            LoadLyrics(File.ReadAllText(dlg.FileName));
-            TblStatus.Text = $"已装载歌词：{_lyrics?.Count ?? 0} 行"
-                             + (_tailUncalibrated ? "（末句待校准：未载入音频）" : "");
-            Log.Info($"[工作台] 已装载歌词：{_lyrics?.Count ?? 0} 行 ({dlg.FileName})，末句待校准={_tailUncalibrated}");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, "打开歌词失败：" + ex.Message, "PV 舞台", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        LoadLyricsFile(dlg.FileName);
     }
 
     private void BtnOpenAudio_Click(object sender, RoutedEventArgs e)
@@ -1385,15 +1438,22 @@ public partial class PvStageWindow : Window
                      + "|所有文件 (*.*)|*.*",
         };
         if (dlg.ShowDialog(this) != true) return;
+        LoadAudioFile(dlg.FileName);
+    }
+
+    /// <summary>导入音频（按钮与窗口拖放共用）：装音源 → 后台波形/频带分析 → 同名 .lrc 一起装载。</summary>
+    private void LoadAudioFile(string path)
+    {
         TblStatus.Text = "正在加载音频…";
 
-        if (_audio.LoadAudio(dlg.FileName))
+        if (_audio.LoadAudio(path))
         {
-            _audioPath = dlg.FileName; // 绑定进工程：下次打开自动恢复（停在暂停态）
+            _audioPath = path; // 绑定进工程：下次打开自动恢复（停在暂停态）
             TblStatus.Text = "音频已加载";
             BuildInspector(); // 检查器的音频/时长行是静态内容，换音源后必须重建（否则挂着上一首的读数）
-            StartAudioLoad(dlg.FileName); // 波形轨 + 频带分析：后台解码，到位后自己刷新
-            var lrcPath = Path.ChangeExtension(dlg.FileName, ".lrc");
+            StartAudioLoad(path); // 波形轨 + 频带分析：后台解码，到位后自己刷新
+            _exportFormEdited = false; // 换了音源：导出表单的默认时长跟着新音频走
+            var lrcPath = Path.ChangeExtension(path, ".lrc");
             if (File.Exists(lrcPath))
             {
                 try
@@ -1415,13 +1475,16 @@ public partial class PvStageWindow : Window
         else
         {
             // 失败必须可见：此前无 else，界面永远停在"正在加载音频…"，用户只看到「不能播放」
-            TblStatus.Text = $"音频加载失败：{Path.GetFileName(dlg.FileName)}（格式不支持或文件损坏；当前支持 wav/mp3/m4a/aac/wma）";
+            TblStatus.Text = $"音频加载失败：{Path.GetFileName(path)}（格式不支持或文件损坏；当前支持 wav/mp3/m4a/aac/wma）";
         }
     }
 
-    private void BtnBroadcast_Click(object sender, RoutedEventArgs e)
+    /// <summary>广播开关：开关只表达用户意图，发没发出去、下游接没接住看状态条的回执。</summary>
+    private void TglBroadcast_Changed(object sender, RoutedEventArgs e)
     {
-        _broadcastOn = !_broadcastOn;
+        if (_syncingToggles) return;
+
+        _broadcastOn = TglBroadcast.IsChecked == true;
         _pipe?.RequestBroadcast(_broadcastOn, _spoutName);
 
         var s = App.SettingsOf();
@@ -1431,11 +1494,10 @@ public partial class PvStageWindow : Window
             s.Save();
         }
 
-        // 按钮只说开关状态；发没发出去、下游接没接住，看状态条的广播回执
         UpdateBroadcastButton();
     }
 
-    // BuildPipeline 在渲染线程建管线时也会调到这里：按钮归 UI 线程，跨线程 SetValue 直接抛，
+    // BuildPipeline 在渲染线程建管线时也会调到这里：开关归 UI 线程，跨线程 SetValue 直接抛，
     // 曾让整个 PV 舞台初始化失败——统一在入口编组，调用方不必各自记得绕。
     private void UpdateBroadcastButton()
     {
@@ -1444,88 +1506,87 @@ public partial class PvStageWindow : Window
             Dispatcher.BeginInvoke(UpdateBroadcastButton);
             return;
         }
-        BtnBroadcast.Content = _broadcastOn ? "广播 开" : "广播 关";
+
+        _syncingToggles = true;
+        try { TglBroadcast.IsChecked = _broadcastOn; }
+        finally { _syncingToggles = false; }
+
+        TblBroadcastState.Text = _broadcastOn ? $"广播 开（发送端 {_spoutName}）" : "广播 关";
     }
 
     // ---------------- 导出 MP4 ----------------
 
-    /// <summary>导出对话框：路径 + 帧率 + 时长都在这一个弹窗里定。确认后交后台线程逐帧渲染。</summary>
-    private void BtnExport_Click(object sender, RoutedEventArgs e)
+    /// <summary>导出表单的默认值：跟着工程音源走；用户动过任何一个字段之后就不再回填。</summary>
+    private void SyncExportForm()
     {
-        if (_exporting) return;
+        if (_exportFormEdited) return;
 
         var audioPath = _audioPath;
         var dir = string.IsNullOrWhiteSpace(audioPath) ? null : Path.GetDirectoryName(audioPath);
         var defaultDir = string.IsNullOrEmpty(dir) ? AppDirs.ConfigDir : dir;
-        var path = new TextBox
+        var name = (string.IsNullOrWhiteSpace(audioPath) ? "pv_export" : Path.GetFileNameWithoutExtension(audioPath)) + ".mp4";
+        var path = Path.Combine(defaultDir, name);
+        var seconds = _audio.Duration > 0 ? _audio.Duration.ToString("F2", CultureInfo.InvariantCulture) : "";
+
+        _syncingExportForm = true;
+        try
         {
-            Text = Path.Combine(defaultDir,
-                (string.IsNullOrWhiteSpace(audioPath) ? "pv_export" : Path.GetFileNameWithoutExtension(audioPath)) + ".mp4"),
-            Margin = new Thickness(0, 0, 6, 0),
-        };
-
-        var browse = new Button { Content = "浏览…", Padding = new Thickness(10, 2, 10, 2) };
-        browse.Click += (_, _) =>
+            if (!string.Equals(TxtExportPath.Text, path, StringComparison.Ordinal)) TxtExportPath.Text = path;
+            if (!string.Equals(TxtExportSeconds.Text, seconds, StringComparison.Ordinal)) TxtExportSeconds.Text = seconds;
+        }
+        finally
         {
-            var dlg = new Microsoft.Win32.SaveFileDialog
-            {
-                Title = "导出 MP4",
-                Filter = "MP4 视频 (*.mp4)|*.mp4",
-                DefaultExt = ".mp4",
-                AddExtension = true,
-                FileName = Path.GetFileName(path.Text),
-                InitialDirectory = Path.GetDirectoryName(path.Text) ?? defaultDir,
-            };
-            if (dlg.ShowDialog(this) == true) path.Text = dlg.FileName;
-        };
+            _syncingExportForm = false;
+        }
+    }
 
-        // 无音源时时长为空：那一路要用户自己填秒（帧率同理，默认 60）
-        var fps = new TextBox { Text = "60", Width = 72 };
-        var seconds = new TextBox
+    private void ExportField_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_syncingExportForm) return;
+        _exportFormEdited = true;
+    }
+
+    private void BtnExportBrowse_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
         {
-            Text = _audio.Duration > 0 ? _audio.Duration.ToString("F2", CultureInfo.InvariantCulture) : "",
-            Width = 72,
+            Title = "导出 MP4",
+            Filter = "MP4 视频 (*.mp4)|*.mp4",
+            DefaultExt = ".mp4",
+            AddExtension = true,
+            FileName = Path.GetFileName(TxtExportPath.Text),
+            InitialDirectory = Path.GetDirectoryName(TxtExportPath.Text) ?? AppDirs.ConfigDir,
         };
+        if (dlg.ShowDialog(this) == true) TxtExportPath.Text = dlg.FileName;
+    }
 
-        var extra = new StackPanel();
-        extra.Children.Add(ExportRow("输出", path, browse));
-        extra.Children.Add(ExportRow("帧率", fps));
-        extra.Children.Add(ExportRow("时长(秒)", seconds));
+    /// <summary>
+    /// 导出：路径 / 帧率 / 时长 / 是否烧字幕都在「输出」步骤的表单里填（原先是一个弹窗），
+    /// 校验不过就把原因留在面板的状态行上，随后交后台线程逐帧渲染。
+    /// </summary>
+    private void BtnExport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_exporting) return;
 
-        // 默认不勾：预览侧没有字幕源（舞台的图层栈与广播里都没有这一层），勾上就多出一层预览里看不到的东西。
-        // 「预览 = 成片」是这个工作台的前提，所以烧入必须是显式的一次选择，而不是默认塞进去。
-        var burnSubtitles = new CheckBox
+        if (string.IsNullOrWhiteSpace(TxtExportPath.Text)
+            || !int.TryParse(TxtExportFps.Text.Trim(), out var fps)
+            || !double.TryParse(TxtExportSeconds.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var sec))
         {
-            Content = "烧入清晰字幕（预览不显示字幕层）",
-            IsChecked = false,
-        };
-        extra.Children.Add(burnSubtitles);
+            TblExportState.Text = "导出未开始：输出路径不能为空，帧率与时长都必须是数字";
+            return;
+        }
 
-        MessageDialog.Confirm(this, "导出 MP4",
-            "逐帧离屏渲染当前工程，导出期间界面照常用。含图层与效果、曲线驱动的镜头与图层动画、"
-            + "动效歌词；字幕默认不烧入（预览里也没有字幕层，见下方开关）；VTS 姿态追踪不参与导出。",
-            "开始导出",
-            () =>
-            {
-                // 弹窗是先关再回调，所以这里校验不出结果就没法把错误留在框里：交状态条说
-                if (string.IsNullOrWhiteSpace(path.Text)
-                    || !int.TryParse(fps.Text.Trim(), out var framesPerSecond)
-                    || !double.TryParse(seconds.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var sec))
-                {
-                    TblStatus.Text = "导出未开始：输出路径不能为空，帧率与时长都必须是数字";
-                    return;
-                }
-
-                StartExport(path.Text.Trim(), framesPerSecond, sec, burnSubtitles.IsChecked == true);
-            },
-            extra);
+        StartExport(TxtExportPath.Text.Trim(), fps, sec, ChkBurnSubtitles.IsChecked == true);
     }
 
     private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles)
     {
         _exporting = true;
         BtnExport.IsEnabled = false;
+        PrgExport.Progress = 0;
+        PrgExport.Visibility = Visibility.Visible;
         _exportPercent = 0;
+        TblExportState.Text = ExportText();
         TblStatus.Text = ExportText();
 
         // 快照交给后台：导出要跑几分钟，活动文档不能让导出线程去枚举（这期间 UI 照样能改图层）
@@ -1534,7 +1595,12 @@ public partial class PvStageWindow : Window
         var progress = new Progress<double>(p =>
         {
             _exportPercent = p;
-            if (_exporting) TblStatus.Text = ExportText();
+            PrgExport.Progress = p * 100;
+            if (_exporting)
+            {
+                TblExportState.Text = ExportText();
+                TblStatus.Text = ExportText();
+            }
         });
 
         var fault = copy is null
@@ -1543,7 +1609,9 @@ public partial class PvStageWindow : Window
 
         _exporting = false;
         BtnExport.IsEnabled = true;
-        TblStatus.Text = fault ?? $"导出完成：{outPath}";
+        PrgExport.Visibility = Visibility.Collapsed;
+        TblExportState.Text = fault ?? $"导出完成：{outPath}";
+        ShowStatus(fault ?? $"导出完成：{outPath}");
     }
 
     /// <summary>
@@ -1570,36 +1638,6 @@ public partial class PvStageWindow : Window
     }
 
     private string ExportText() => $"导出中… {_exportPercent * 100:F0}%";
-
-    /// <summary>导出一行：标签 + 输入控件（+ 可选尾按钮）。</summary>
-    private FrameworkElement ExportRow(string label, FrameworkElement input, FrameworkElement? tail = null)
-    {
-        var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var text = new TextBlock
-        {
-            Text = label,
-            Style = (Style)FindResource("PvRowLabel"),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(text, 0);
-        row.Children.Add(text);
-
-        Grid.SetColumn(input, 1);
-        row.Children.Add(input);
-
-        if (tail is not null)
-        {
-            tail.Margin = new Thickness(6, 0, 0, 0);
-            Grid.SetColumn(tail, 2);
-            row.Children.Add(tail);
-        }
-
-        return row;
-    }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
@@ -1647,28 +1685,27 @@ public partial class PvStageWindow : Window
     // ---------------- VTS 会话 ----------------
 
     /// <summary>
-    /// 一个按钮包办会话全周期：关 → 连接中 → 授权中 → 追踪中；任意状态下再点一次都是关。
-    /// 只有授权中那两态例外——那里「再点一次」是重发授权请求（VTS 侧弹框，用户点「允许」才继续）。
+    /// VTS 开关包办会话全周期：关 → 连接中 → 授权中 → 追踪中；开着时再关一次就断开。
+    /// 只有授权中那两态例外——「重新授权」按钮会重发授权请求（VTS 侧弹框，用户点「允许」才继续）。
     /// 连接失败不占一个状态：会话开着就一直在退避重连（VtsApi.RetryMs），失败原因由状态条说出来，
     /// 用户不用为了重试先关一次。
     /// 断开为什么是"销毁"而不是"挂起"：VtsApi.Stop/Dispose 单向不可逆（工作线程与命令队列
     /// 不会复活），要用只能 new 新实例——探针随之新建，靠 SetTracking 换给管线。
     /// 不做二次确认弹窗：这是本机的可逆操作（再点一下就回来），状态条会说清楚结果。
     /// </summary>
-    private void BtnVts_Click(object sender, RoutedEventArgs e)
+    private void TglVts_Changed(object sender, RoutedEventArgs e)
     {
+        if (_syncingToggles) return;
+
+        var want = TglVts.IsChecked == true;
         var vts = _vts;
-        if (vts is null)
+        if (want && vts is null)
         {
             _vts = vts = new VtsApi();
             vts.Start();
             _pipe?.SetTracking(vts.Tracking);
         }
-        else if (vts.State is VtsState.NeedAuth or VtsState.AwaitApproval)
-        {
-            vts.RequestAuth();
-        }
-        else
+        else if (!want && vts is not null)
         {
             _pipe?.SetTracking(null); // 先摘探针：渲染线程立刻回场景基础值
             vts.Stop();
@@ -1677,6 +1714,29 @@ public partial class PvStageWindow : Window
         }
 
         RefreshStatus();
+    }
+
+    private void BtnVtsAuth_Click(object sender, RoutedEventArgs e)
+    {
+        if (_vts is { State: VtsState.NeedAuth or VtsState.AwaitApproval } vts) vts.RequestAuth();
+        RefreshStatus();
+    }
+
+    /// <summary>把会话状态回填到开关、状态文本与授权按钮上（开关开启 = 会话存在）。</summary>
+    private void UpdateVtsSwitch()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(UpdateVtsSwitch);
+            return;
+        }
+
+        _syncingToggles = true;
+        try { TglVts.IsChecked = _vts is not null; }
+        finally { _syncingToggles = false; }
+
+        TblVtsState.Text = VtsStatusText();
+        BtnVtsAuth.IsEnabled = _vts is { State: VtsState.NeedAuth or VtsState.AwaitApproval };
     }
 
     /// <summary>追踪是否正在出姿态：探针新鲜（≤ StaleMs）且认出人脸。判龄口径与渲染帧同源。</summary>
@@ -1708,18 +1768,6 @@ public partial class PvStageWindow : Window
             default:
                 return "VTS 未连接";
         }
-    }
-
-    private string VtsButtonText()
-    {
-        var vts = _vts;
-        if (vts is null) return "VTS 关";
-        return vts.State switch
-        {
-            VtsState.NeedAuth or VtsState.AwaitApproval => "VTS 授权中",
-            VtsState.Ready => PoseLive(vts) ? "VTS 追踪中" : "VTS 已连接",
-            _ => "VTS 连接中",
-        };
     }
 
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e)
@@ -1834,7 +1882,9 @@ public partial class PvStageWindow : Window
     }
 
     private void UpdatePlayIcon() =>
-        PlayIcon.Data = (System.Windows.Media.Geometry)FindResource(_audio.IsPlaying ? "IconPause" : "IconPlay");
+        PlayIcon.Symbol = _audio.IsPlaying
+            ? Wpf.Ui.Controls.SymbolRegular.Pause24
+            : Wpf.Ui.Controls.SymbolRegular.Play24;
 
     private void SldTime_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -1858,7 +1908,7 @@ public partial class PvStageWindow : Window
         if (SldTime.IsMouseOver)
         {
             _draggingTime = true;
-            // 点轨道=直接跳到该位置：PvSlider 模板把轨道做成 RepeatButton，点击会被吃成 LargeChange 步进（一次只挪一小步）
+            // 点轨道=直接跳到该位置：库的滑杆模板把轨道做成 RepeatButton，点击会被吃成 LargeChange 步进（一次只挪一小步）
             if (SldTime.Template?.FindName("PART_Track", SldTime) is System.Windows.Controls.Primitives.Track track
                 && track.ActualWidth > 0 && !IsThumbSource(e.OriginalSource as DependencyObject))
             {
@@ -1921,7 +1971,7 @@ public partial class PvStageWindow : Window
         }
 
         // VTS 与 Spout 源状态分开两段：一个说输入（追踪姿态有没有），一个说输出（广播发没发出去）
-        BtnVts.Content = VtsButtonText();
+        UpdateVtsSwitch();
         TblStatus.Text += $" · {VtsStatusText()}";
 
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
@@ -1939,6 +1989,10 @@ public partial class PvStageWindow : Window
         // 导出进度写在这条链的最后：上面每 500ms 一次的状态行刷新会把刚显示的百分比抹掉
         if (_exporting) TblStatus.Text = ExportText();
 
+        TblProjectName.Text = string.IsNullOrWhiteSpace(_project.Name) ? "默认工程" : _project.Name;
+        if (_step == 0) RefreshMediaPanel(); // 素材面板不可见时不白算那几行读数
+        SyncExportForm();
+        UpdateAutoButton();
         UpdatePlayIcon();
     }
 
@@ -1968,21 +2022,6 @@ public partial class PvStageWindow : Window
     {
         BtnUndo.IsEnabled = _undo.CanUndo;
         BtnRedo.IsEnabled = _undo.CanRedo;
-    }
-
-    private void BtnFold_Click(object sender, RoutedEventArgs e)
-    {
-        var expanded = !TimelineExpanded;
-        TimelineRow.Height = new GridLength(expanded ? TimelineExpandedHeight : TimelineCollapsedHeight);
-        FoldIcon.Data = System.Windows.Media.Geometry.Parse(expanded
-            ? "M3.6 6.4 L8 10.8 L12.4 6.4"
-            : "M3.6 9.6 L8 5.2 L12.4 9.6");
-        BtnFold.ToolTip = expanded ? "折叠时间轴" : "展开时间轴";
-    }
-
-    private void BtnAuto_Click(object sender, RoutedEventArgs e)
-    {
-        AutoDirectorPop.IsOpen = !AutoDirectorPop.IsOpen;
     }
 
     private void SldAutoIntensity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -2081,60 +2120,171 @@ public partial class PvStageWindow : Window
             TheTimeline.Fps = _scene.Fps;
             RefreshTimeline();
             BuildInspector();
-
-            if (_cmbLyricStyle is not null)
-            {
-                _syncingLyricStyle = true;
-                _cmbLyricStyle.SelectedItem = _scene.LyricStyleName;
-                _syncingLyricStyle = false;
-            }
+            SyncLyricStylePicker();
 
             // 一次 PushUndo（整次生成一条撤销）
             PushUndo();
 
-            // 关闭小面板并给出状态条回执
-            AutoDirectorPop.IsOpen = false;
+            // 分析结果与生成摘要留在「导演」面板上
+            _lastBpm = beatMap.Bpm;
+            TblAutoReport.Text =
+                $"BPM {beatMap.Bpm:F1} · 段落 {beatMap.Sections.Count} 段 · 节拍 {beatMap.Beats.Count} 个\n"
+                + $"曲线 {report.CurveKeys} 键（相机 {report.CameraKeys}）· 效果实例 {report.EffectInstances} 个";
             var note = $"一键成片完成：相机 {report.CameraKeys} 键 · 特效 {report.EffectInstances} 个 · 曲线 {report.CurveKeys} 键";
             ShowStatus(note);
             Log.Info($"[PV 工作台] {note}");
         }
         catch (Exception ex)
         {
+            TblAutoReport.Text = "生成失败：" + ex.Message;
             ShowStatus($"一键成片失败：{ex.Message}");
             Log.Warn("[PV 工作台] 一键成片异常：" + ex);
         }
         finally
         {
             _autoGenerating = false;
-            BtnGenerateAuto.IsEnabled = true;
-            BtnGenerateAuto.Content = "生成";
+            BtnGenerateAuto.Content = "一键生成";
+            UpdateAutoButton();
         }
+    }
+
+    /// <summary>一键生成按钮的可用态：没有音源（也没有频带分析结果）时禁用，并在面板上说明原因。</summary>
+    private void UpdateAutoButton()
+    {
+        var ready = !string.IsNullOrWhiteSpace(_audioPath) || _audioBands is not null;
+        BtnGenerateAuto.IsEnabled = !_autoGenerating && ready;
+        TblAutoHint.Text = ready
+            ? "生成会整份重写自动生成的曲线与效果实例，一次生成压一条撤销。"
+            : "先导入音乐，生成才会解锁。";
     }
 
     // ---------------- 窗口外壳 ----------------
 
-    private void TitleBar_Drag(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2)
-        {
-            ToggleMaximize();
-            return;
-        }
+    // ---------------- 窗口外壳：四步导航 / 条目刷新 / 拖放 ----------------
 
-        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    /// <summary>左侧四步导航：面板整块换显示，导航项按选中态换 Appearance。</summary>
+    private void Nav_Click(object sender, RoutedEventArgs e)
+    {
+        var index = ReferenceEquals(sender, NavDirector) ? 1
+            : ReferenceEquals(sender, NavEffects) ? 2
+            : ReferenceEquals(sender, NavOutput) ? 3
+            : 0;
+        SetStep(index);
     }
 
-    private void BtnMin_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-
-    private void BtnMax_Click(object sender, RoutedEventArgs e) => ToggleMaximize();
-
-    private void ToggleMaximize() =>
-        WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-
-    private void BtnClose_Click(object sender, RoutedEventArgs e) => Close();
-
-    private void Window_StateChanged(object? sender, EventArgs e)
+    private void SetStep(int index)
     {
-        BorderThickness = WindowState == WindowState.Maximized ? new Thickness(6) : new Thickness(0);
+        _step = index;
+
+        PanelMedia.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
+        PanelDirector.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
+        PanelEffects.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+        PanelOutput.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+
+        NavMedia.Appearance = AppearanceOf(index == 0);
+        NavDirector.Appearance = AppearanceOf(index == 1);
+        NavEffects.Appearance = AppearanceOf(index == 2);
+        NavOutput.Appearance = AppearanceOf(index == 3);
+
+        if (index == 0) RefreshMediaPanel();
+
+        static Wpf.Ui.Controls.ControlAppearance AppearanceOf(bool selected) =>
+            selected ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Transparent;
+    }
+
+    /// <summary>右侧属性栏的显示 / 隐藏（列宽与面板一起收，免得留一条空边框）。</summary>
+    private void BtnInspector_Click(object sender, RoutedEventArgs e)
+    {
+        _inspectorCollapsed = !_inspectorCollapsed;
+        InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 280;
+        InspectorColumn.Width = new GridLength(_inspectorCollapsed ? 0 : InspectorWidth);
+        InspectorPane.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>歌词样式下拉：项是固定四个预设名，回填与用户选择走同一条 LyricStyle_SelectionChanged。</summary>
+    private void BuildLyricStylePicker()
+    {
+        for (var i = 0; i < LyricStyleNames.Length; i++)
+            CmbLyricStyle.Items.Add(LyricStyleLabels[i]);
+        CmbLyricStyle.SelectionChanged += LyricStyle_SelectionChanged;
+        _cmbLyricStyle = CmbLyricStyle;
+        SyncLyricStylePicker();
+    }
+
+    /// <summary>素材面板的读数（文件名 / 时长 / BPM / 歌词行数）：只在真的变了时写控件，刷新走 500ms 定时器。</summary>
+    private void RefreshMediaPanel()
+    {
+        var name = string.IsNullOrWhiteSpace(_audioPath) ? "未导入音乐" : Path.GetFileName(_audioPath);
+        var meta = _audio.Duration > 0 ? $"时长 {Fmt(_audio.Duration)}" : "拖入音频文件即可开始";
+        if (_lastBpm > 0) meta += $" · BPM {_lastBpm:F1}";
+        var lyric = _lyrics is null
+            ? "未装载歌词"
+            : $"{_lyrics.Count} 句" + (_tailUncalibrated ? "（末句待校准）" : "");
+
+        if (name != _mediaAudioCache)
+        {
+            _mediaAudioCache = name;
+            TblAudioName.Text = name;
+        }
+
+        if (meta != _mediaMetaCache)
+        {
+            _mediaMetaCache = meta;
+            TblAudioMeta.Text = meta;
+        }
+
+        if (lyric != _mediaLyricCache)
+        {
+            _mediaLyricCache = lyric;
+            TblLyricInfo.Text = lyric;
+        }
+    }
+
+    private static readonly string[] AudioExtensions =
+        [".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".wma"];
+
+    /// <summary>拖放按扩展名分派：音频走导入音源那条路，.lrc 走装载歌词那条路。</summary>
+    private static bool IsDroppable(DragEventArgs e) => DroppedFiles(e).Length > 0;
+
+    private static string[] DroppedFiles(DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return [];
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return [];
+
+        return files.Where(f =>
+        {
+            var ext = Path.GetExtension(f);
+            return AudioExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase)
+                   || string.Equals(ext, ".lrc", StringComparison.OrdinalIgnoreCase);
+        }).ToArray();
+    }
+
+    private void Window_DragOver(object sender, DragEventArgs e)
+    {
+        // DragOver 是冒泡路由事件：图层卡/效果卡的 DragOver 先把 e.Effects 置 Move，事件随后冒泡到这里。
+        // 卡片拖拽的数据（PvLayerConfig / EffectNode）不满足 IsDroppable（只认 FileDrop），若无差别覆盖成
+        // None + Handled，返回 OLE 的就是 DROPEFFECT_NONE——鼠标显示禁止符，Drop 根本不会触发，
+        // 图层重排与效果重排整体失效。这里遇到卡片自己的拖拽数据就放手，让卡片继续协商。
+        if (e.Data.GetDataPresent(typeof(PvLayerConfig)) || e.Data.GetDataPresent(typeof(EffectNode))) return;
+
+        e.Effects = IsDroppable(e) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        var files = DroppedFiles(e);
+        if (files.Length == 0) return;
+
+        SetStep(0); // 音频与歌词都落在「素材」步骤上：拖进来的结果必须看得见
+        foreach (var file in files)
+        {
+            if (string.Equals(Path.GetExtension(file), ".lrc", StringComparison.OrdinalIgnoreCase))
+                LoadLyricsFile(file);
+            else
+                LoadAudioFile(file);
+        }
+
+        e.Handled = true;
     }
 }

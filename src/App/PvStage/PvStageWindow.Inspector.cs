@@ -3,7 +3,6 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using JizuraLive.App.Controls;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
 
@@ -25,7 +24,7 @@ public partial class PvStageWindow
         public Action<double> WriteBase = null!;
         public Slider Slider = null!;
         public TextBlock ValueText = null!;
-        public JzBadge Badge = null!;
+        public Wpf.Ui.Controls.Badge Badge = null!;
         public TextBlock ClampMark = null!;
         public double EditTime;                 // 滑杆编辑时刻：按下滑杆那一刻冻结（同刻替换一条 key）
     }
@@ -41,13 +40,14 @@ public partial class PvStageWindow
         BuildInspector();
     }
 
-    /// <summary>图层卡的选中底（PvAccentSoft）与检查器标题。</summary>
+    /// <summary>图层卡的选中态（主题选中底色 + 强调描边）与检查器标题。</summary>
     private void HighlightLayerCards()
     {
-        foreach (var card in LayersHost.Children.OfType<Border>())
+        foreach (var card in LayersHost.Children.OfType<Wpf.Ui.Controls.Card>())
         {
             var active = ReferenceEquals(card.Tag, _selectedLayer);
-            card.Background = (System.Windows.Media.Brush)FindResource(active ? "PvAccentSoft" : "PvRaised");
+            card.SetResourceReference(Control.BackgroundProperty, active ? SelectFillKey : CardFillKey);
+            card.SetResourceReference(Control.BorderBrushProperty, active ? SelectStrokeKey : CardStrokeKey);
         }
 
         TblInspectorTitle.Text = _selectedLayer is null ? "工程" : LayerTitle(_selectedLayer);
@@ -60,7 +60,6 @@ public partial class PvStageWindow
     {
         // 重建前先丢引用：旧的滑杆与徽标不能再被刷新路径写到
         _inspectorRows.Clear();
-        _cmbLyricStyle = null;
         InspectorHost.Children.Clear();
 
         // 段落计划由 InspectorLayout 给：工程段（歌词样式下拉的唯一入口）与选中无关，始终在。
@@ -153,31 +152,22 @@ public partial class PvStageWindow
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
 
-        var lab = new TextBlock
-        {
-            Text = label,
-            Style = (Style)FindResource("PvRowLabel"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
+        var lab = ThemeText(label, TextSecondaryKey, 12);
+        lab.TextTrimming = TextTrimming.CharacterEllipsis;
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
-        var value = new TextBlock
-        {
-            Style = (Style)FindResource("PvValue"),
-            Text = read().ToString("0.###", CultureInfo.InvariantCulture),
-            TextAlignment = TextAlignment.Right,
-        };
+        var value = ThemeValue(read().ToString("0.###", CultureInfo.InvariantCulture));
         Grid.SetColumn(value, 2);
         row.Children.Add(value);
 
         var slider = new Slider
         {
-            Style = (Style)FindResource("PvSlider"),
             Minimum = min,
             Maximum = max,
             SmallChange = step,
             Value = Math.Clamp(read(), min, max),
+            IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
         };
         slider.ValueChanged += (_, e) =>
@@ -242,23 +232,18 @@ public partial class PvStageWindow
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var lab = new TextBlock
-        {
-            Text = label,
-            Style = (Style)FindResource("PvRowLabel"),
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
+        var lab = ThemeText(label, TextSecondaryKey, 12);
+        lab.TextTrimming = TextTrimming.CharacterEllipsis;
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
         var slider = new Slider
         {
-            Style = (Style)FindResource("PvSlider"),
             Minimum = min,
             Maximum = max,
             SmallChange = step,
             Value = Math.Clamp(readBase(), min, max),
+            IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
         };
         slider.ValueChanged += (_, e) => OnRowValueChanged(state, e.NewValue);
@@ -266,42 +251,42 @@ public partial class PvStageWindow
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
 
-        var value = new TextBlock
-        {
-            Style = (Style)FindResource("PvValue"),
-            TextAlignment = TextAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        var value = ThemeValue("");
         state.ValueText = value;
         Grid.SetColumn(value, 2);
         row.Children.Add(value);
 
-        var clamp = new TextBlock
+        var clamp = Themed(new TextBlock
         {
             Text = "↦",
-            FontSize = (double)FindResource("PvTextSm"),
-            Foreground = (System.Windows.Media.Brush)FindResource("PvWarn"),
+            FontSize = 12,
             TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
             Visibility = Visibility.Collapsed,
-        };
+        }, TextBlock.ForegroundProperty, CautionKey);
         state.ClampMark = clamp;
         Grid.SetColumn(clamp, 3);
         row.Children.Add(clamp);
 
-        var key = new Button
+        var key = new Wpf.Ui.Controls.Button
         {
-            Style = (Style)FindResource("PvBtnGhost"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
             Content = "◆K",
-            FontSize = (double)FindResource("PvTextXs"),
-            Padding = new Thickness(1, 1, 1, 1),
+            FontSize = 11,
+            Padding = new Thickness(2, 1, 2, 1),
             ToolTip = "在当前时刻打一个关键帧（该时刻已有则替换）",
         };
         key.Click += (_, _) => KeyRowAtPlayhead(state);
         Grid.SetColumn(key, 4);
         row.Children.Add(key);
 
-        var badge = new JzBadge { Cursor = Cursors.Hand };
+        var badge = new Wpf.Ui.Controls.Badge
+        {
+            Cursor = Cursors.Hand,
+            FontSize = 10,
+            Padding = new Thickness(4, 0, 4, 0),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+        };
         badge.MouseLeftButtonDown += (_, _) => JumpToRowTrack(state);
         state.Badge = badge;
         Grid.SetColumn(badge, 5);
@@ -433,11 +418,11 @@ public partial class PvStageWindow
         var clamped = value < row.Min || value > row.Max;
 
         var source = ValueSourceBadge.Label(hasCurve);
-        var brush = (System.Windows.Media.Brush)FindResource(
-            source == ValueSourceBadge.Curve ? "PvAccent" : "PvFgFaint");
-        row.Badge.Text = source;
-        row.Badge.Foreground = brush;
-        row.Badge.BorderBrush = brush;
+        row.Badge.Content = source;
+        row.Badge.SetResourceReference(Control.ForegroundProperty,
+            hasCurve ? TextAccentKey : TextTertiaryKey);
+        row.Badge.SetResourceReference(Control.BorderBrushProperty,
+            hasCurve ? TextAccentKey : TextTertiaryKey);
         row.Badge.ToolTip = hasCurve ? "由曲线驱动 base(t)（点徽标跳到时间轴该轨）" : "文档里的常量";
 
         var range = $"[{row.Min.ToString("0.###", CultureInfo.InvariantCulture)}, {row.Max.ToString("0.###", CultureInfo.InvariantCulture)}]";
@@ -459,6 +444,7 @@ public partial class PvStageWindow
 
     // ---------------- 工程段 ----------------
 
+    /// <summary>工程段：画布 / 帧率 / 时长 / 音源 / 歌词。歌词样式的唯一入口在「素材」步骤，不在这里再放一份。</summary>
     private void BuildProjectSection()
     {
         InspectorHost.Children.Add(SectionTitle("工程"));
@@ -469,40 +455,15 @@ public partial class PvStageWindow
             string.IsNullOrWhiteSpace(_audioPath) ? "未绑定" : Path.GetFileName(_audioPath), _audioPath));
         var lyrics = _lyrics is null ? "未装载" : $"{_lyrics.Count} 句";
         InspectorHost.Children.Add(InfoRow("歌词", _tailUncalibrated ? lyrics + " · 末句待校准" : lyrics));
-        InspectorHost.Children.Add(LyricStyleRow());
     }
 
-    /// <summary>歌词样式（场景级设置）：整份重建检查器时会连它一起换，所以事件在这里挂。</summary>
-    private FrameworkElement LyricStyleRow()
+    private TextBlock SectionTitle(string text)
     {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-        var label = new TextBlock { Text = "歌词样式", Style = (Style)FindResource("PvRowLabel") };
-        Grid.SetColumn(label, 0);
-        row.Children.Add(label);
-
-        var picker = new ComboBox
-        {
-            Style = (Style)FindResource("SelSm"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        foreach (var name in LyricStyleNames) picker.Items.Add(name);
-        picker.SelectionChanged += LyricStyle_SelectionChanged;
-        Grid.SetColumn(picker, 1);
-        row.Children.Add(picker);
-
-        _cmbLyricStyle = picker;
-        SyncLyricStylePicker();
-        return row;
+        var title = ThemeText(text, TextTertiaryKey, 11);
+        title.FontWeight = FontWeights.SemiBold;
+        title.Margin = new Thickness(2, 10, 0, 6);
+        return title;
     }
-
-    private TextBlock SectionTitle(string text) => new()
-    {
-        Text = text,
-        Style = (Style)FindResource("PvSectionTitle"),
-    };
 
     private FrameworkElement InfoRow(string label, string value, string? tip = null)
     {
@@ -510,19 +471,13 @@ public partial class PvStageWindow
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var lab = new TextBlock { Text = label, Style = (Style)FindResource("PvRowLabel") };
+        var lab = ThemeText(label, TextSecondaryKey, 12);
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
-        var val = new TextBlock
-        {
-            Text = value,
-            FontSize = (double)FindResource("PvTextSm"),
-            Foreground = (System.Windows.Media.Brush)FindResource("PvFg"),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-            ToolTip = tip,
-        };
+        var val = ThemeText(value, TextPrimaryKey, 12);
+        val.TextTrimming = TextTrimming.CharacterEllipsis;
+        val.ToolTip = tip;
         Grid.SetColumn(val, 1);
         row.Children.Add(val);
         return row;
@@ -591,9 +546,8 @@ public static class ValueSourceBadge
 /// <summary>
 /// 检查器渲染哪些段（PvStageWindow.BuildInspector 实际消费的就是它）。
 ///
-/// 工程段承载歌词样式下拉，而那是改歌词样式的唯一入口，所以它**不能**挂在"有没有选中图层"上：
-/// 一旦按选中与否二选一，点过任意图层卡之后本次会话就再也回不到工程段。
-/// 这个纯函数存在就是为了让这条可达性有回归测试可钉（见 InspectorLayoutTests）。
+/// 工程段（画布 / 帧率 / 时长 / 音源 / 歌词）与选中无关，**始终在**：若按"有没有选中图层"二选一，
+/// 点过任意图层卡之后本次会话就再也回不到工程级读数。
 /// </summary>
 public static class InspectorLayout
 {

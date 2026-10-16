@@ -6,47 +6,18 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- WPF-UI（Fluent）标准件底座：ComboBox 弹层 / TextBox / ScrollBar / ToolTip / MenuItem
-                     等标准控件的模板与暗色主题由库提供。必须排在自研字典之前——应用级隐式样式同名时
-                     后合并者胜，库在前 = 库作基底，自研样式仍是脸面。
-                     本窗口自绘部件（PvBtn*/PvSlider/PvSwitch/PvSegBtn）与自绘画布不换库。 -->
+                <!-- WPF-UI（Fluent）底座：全套控件的模板、暗色主题与画刷都由库提供
+                     （窗口用 ui:FluentWindow，标准件、卡片、徽标、滑杆、开关也各有库样式）。
+                     界面里不再有自研样式字典。 -->
                 <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
-                <!-- 设计 token 与全局控件样式（从 frontend/src/styles/main.css 搬运） -->
-                <ResourceDictionary Source="Theme.xaml" />
-                <!-- PV 工作台的新设计语言（P5）：冷调近黑 + 靛蓝主色，与旧主题刻意区分。
-                     放在 App 级是因为窗口自身的 Background/FontFamily 属性要在 Window.Resources
-                     之前解析——StaticResource 找不到同一元素里后声明的资源。 -->
-                <ResourceDictionary Source="PvStage/PvTokens.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 窗口 chrome 专用（无边框标题栏）；面板级样式统一走 Theme.xaml -->
-            <SolidColorBrush x:Key="FgMain" Color="#FFE6E6EC" />
-            <Style x:Key="ChromeBtn" TargetType="Button">
-                <Setter Property="Width" Value="46" />
-                <Setter Property="Height" Value="34" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="Foreground" Value="{StaticResource FgMain}" />
-                <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="FontSize" Value="14" />
-                <Setter Property="FontFamily" Value="Segoe UI Symbol" />
-                <Setter Property="Focusable" Value="False" />
-                <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#44FFFFFF" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
+            <!-- 库的隐式 Window 样式带 WindowStyle / AllowsTransparency 等 setter，且在句柄创建后套用：
+                 任何普通 Window.Show() 都可能抛「无法更改 AllowsTransparency」。MessageDialog 的遮罩弹窗
+                 就是这种窗口（自己按需设 WindowStyle=None + AllowsTransparency）。这里用一条空样式顶掉
+                 库的隐式样式（空样式仍走系统默认窗口模板）；主窗口是 ui:FluentWindow，不受影响。 -->
+            <Style TargetType="Window" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>
