@@ -81,6 +81,11 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
     private const int RequestMs = 8_000;    // 普通请求超时
     private const int ApprovalMs = 90_000;  // 等用户在 VTS 里点允许的超时
 
+    // 追踪轮询间隔（~15Hz）：够驱动视觉联动，又不至于把 WebSocket 占满。
+    // 它同时是命令队列的等待上限：没事干时 Idle 就按这个节拍跑。写成 500ms 的话追踪被拖到 2Hz 一次，
+    // 快照年龄超过新鲜度上限（VtsTrackingProbe.StaleMs），镜头会有一半时间在回落基础取景。
+    private const int TrackIntervalMs = 66;
+
     private readonly BlockingCollection<Action<Worker>> _commands = new();
     private Thread? _worker;
     private volatile bool _stopping;
@@ -243,7 +248,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
 
         // 角度是度数（实测 FaceAngleX≈7.9），标称 ±30 → 归一化到 ±1。
         // 映射侧的 HeadRange 就是按归一化单位写的。
-        static double Angle(double deg) => Math.Clamp(deg / 30.0, -1, 1);
+        static double Angle(double deg) => Math.Clamp(deg / VtsTrackingMap.AngleRangeDeg, -1, 1);
 
         return new VtsTrackingState(
             FaceFound: recognised > 0,
@@ -417,8 +422,9 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
         {
             try
             {
-                // 带超时地取命令，好让「该重连了」这类周期性动作有机会跑
-                if (_commands.TryTake(out var cmd, 500)) cmd(w);
+                // 带超时地取命令，好让「该重连了」这类周期性动作有机会跑。
+                // 超时值 = 追踪轮询间隔：追踪的节拍不能被「队列里没命令」拖慢（见 TrackIntervalMs）。
+                if (_commands.TryTake(out var cmd, TrackIntervalMs)) cmd(w);
                 // 连接维护与合并补发**每轮都做**：表演驱动会持续投递命令（每拍都有），
                 // 只在「队列空」时才 Idle 的话，连接永远建不起来（有命令就一直不进这条分支）。
                 w.Idle();
@@ -441,9 +447,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
 
         /// <summary>参数注入合并窗口（口型/表情不需要比这更密）。</summary>
         private const int ParamIntervalMs = 100;
-
-        /// <summary>追踪轮询间隔（~15Hz）：够驱动视觉联动，又不至于把 WebSocket 占满。</summary>
-        private const int TrackIntervalMs = 66;
 
         private bool _trackOk;
         private long _trackMisses;

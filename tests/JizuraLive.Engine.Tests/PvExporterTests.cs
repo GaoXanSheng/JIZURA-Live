@@ -2,7 +2,10 @@ using System.IO;
 using System.Reflection;
 using JizuraLive.Engine;
 using JizuraLive.Pv;
+using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
+using JizuraLive.Render.Gpu;
+using JizuraLive.Render.Text;
 
 namespace JizuraLive.Engine.Tests;
 
@@ -203,6 +206,54 @@ public class PvExporterTests
 
         Assert.False(withSubtitle[1].SequenceEqual(withoutSubtitle[1]),
             "字幕配置给了却没画上去，说明离屏管线没接字幕源");
+    }
+
+    /// <summary>
+    /// 三输出一致（本线的选择：**导出默认不烧字幕**，要烧只能在导出弹窗里显式勾）。
+    ///
+    /// 预览那条路（<c>PvStageWindow.BuildPipeline</c>）从来不接字幕源，舞台图层栈与 Spout 广播里都没有这一层，
+    /// 所以导出默认帧必须与预览逐字节相同；而勾上之后必须真的多出一层——否则这个开关是假的。
+    /// 反过来做（预览侧补一个字幕源）得给渲染线程喂一份 UI 线程正在改的歌词条快照，
+    /// 那是另一条线程契约的事，不塞进这次收口。
+    /// </summary>
+    [GpuFact]
+    public void DefaultExportMatchesPreviewAndOnlyExplicitChoiceBurnsSubtitles()
+    {
+        var scene = LyricScene();
+        var clips = OneLyricClip();
+
+        var exportDefault = CaptureFrames(scene, new PvExportInputs(Clips: clips), 1.0, 4)[1];
+        var exportBurned = CaptureFrames(scene,
+            new PvExportInputs(Clips: clips, Subtitles: new SubtitleConfig { Content = SubContent.Trans }),
+            1.0, 4)[1];
+        var preview = PreviewFrame(scene, clips, 0.25); // 第 1 帧 = 0.25s，与导出取同一时刻
+
+        Assert.True(preview.SequenceEqual(exportDefault), "导出默认（不烧字幕）应当与预览逐字节相同");
+        Assert.False(preview.SequenceEqual(exportBurned), "勾上烧字幕必须真的多出一层，否则这个开关是假的");
+    }
+
+    /// <summary>预览那条路：与 <c>PvStageWindow.BuildPipeline</c> 同一套接线（不传字幕源，只喂歌词条与样式）。</summary>
+    private static byte[] PreviewFrame(PvScene scene, IReadOnlyList<LyricClip> clips, double time)
+    {
+        var gpu = D3DDevice.TryCreate(out var error);
+        if (gpu is null) GpuRequire.Fail(error);
+
+        var nv12 = new byte[MfSink.Nv12Size(scene.Width, scene.Height)];
+        using (gpu)
+        using (var pipe = new PvPipeline(gpu, scene, new EffectGraph()))
+        using (var target = OffscreenTarget.Create(gpu, pipe.D2DContext, scene.Width, scene.Height))
+        {
+            pipe.Renderer.Lyric?.SetClips(clips);
+            pipe.Renderer.Lyric?.SetStyle(scene.LyricStyle ?? LyricStyle.FromName(scene.LyricStyleName));
+            pipe.Prepare(time);
+            pipe.Composite(target.Bitmap, scene.Width, scene.Height);
+            gpu.Context.Flush();
+
+            using var read = target.Readback();
+            PvExporter.BgraToNv12(read.BgraPixels, scene.Width, scene.Height, nv12);
+        }
+
+        return nv12;
     }
 
     // ---------------- 互操作声明形状 ----------------

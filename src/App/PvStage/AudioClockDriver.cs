@@ -15,14 +15,14 @@ namespace JizuraLive.App.PvStage;
 public sealed class AudioClockDriver : IDisposable
 {
     private WaveOut? _output;
-    private AudioFileReader? _reader;
+    private WaveStream? _reader;
 
     private double _position;
     private double _playBase;
     private volatile bool _playing;
     private volatile bool _stopRequested;
 
-    /// <summary>设备错误原因（null = 正常）。播放因故障停下时保留位置。</summary>
+    /// <summary>最近一次失败原因（设备故障 / 定位失败；null = 正常）。播放因故障停下时保留位置。</summary>
     public string? Error { get; private set; }
 
     public bool IsPlaying => _playing;
@@ -37,7 +37,7 @@ public sealed class AudioClockDriver : IDisposable
             if (!_playing || _output is null || _reader is null) return _position;
 
             // GetPosition() 给的是字节数。必须用解码器自己的 WaveFormat 换算——
-            // AudioFileReader 即使源是 16bit PCM，输出格式也是 IeeeFloat 32bit，按源格式换算会整整快一倍。
+            // 解码器输出的都是 IeeeFloat 32bit（源是 16bit PCM 也一样），按源格式换算会整整快一倍。
             var abps = _reader.WaveFormat.AverageBytesPerSecond;
             if (abps <= 0) return _position;
 
@@ -52,7 +52,7 @@ public sealed class AudioClockDriver : IDisposable
         {
             ReleaseOutput();
 
-            var reader = new AudioFileReader(filePath);
+            var reader = AudioDecoding.Open(filePath);
             var output = new WaveOut();
             output.Init(reader);
             output.PlaybackStopped += (_, e) => OnStopped(e.Exception);
@@ -68,6 +68,8 @@ public sealed class AudioClockDriver : IDisposable
         }
         catch (Exception ex)
         {
+            // 装载失败不占 Error（Error 是「播放中设备故障」的语义，TypographyTests 钉住了这一点），
+            // 原因由异常消息带出，这里只落日志
             Log.Error($"[音频驱动] 加载音频失败：{filePath}：{ex.Message}", ex);
             return false;
         }
@@ -95,10 +97,27 @@ public sealed class AudioClockDriver : IDisposable
     public void Seek(double time)
     {
         // 无音源时项目时长还没有归属（M2/M5 才由歌词扩展），只做下限保护
-        _position = _reader is null ? Math.Max(0, time) : Math.Clamp(time, 0, Duration);
-        if (_reader is null || _output is null) return;
+        var target = _reader is null ? Math.Max(0, time) : Math.Clamp(time, 0, Duration);
+        if (_reader is null || _output is null)
+        {
+            _position = target;
+            return;
+        }
 
-        _reader.CurrentTime = TimeSpan.FromSeconds(_position);
+        try
+        {
+            _reader.CurrentTime = TimeSpan.FromSeconds(target);
+        }
+        catch (Exception ex)
+        {
+            // ogg（NVorbis 0.10.5）定位进最后一页会抛，页边界随文件不同（实测距尾 0.75–0.97s），
+            // 而滑杆拖到末尾就是定位到 Duration。停在原位置，别把解码器的限制甩成 UI 线程上的未捕获异常。
+            Error = "定位失败：" + ex.Message;
+            return;
+        }
+
+        _position = target;
+        Error = null;
         // 播放中定位：已排队缓冲里仍是定位前的样本（实测约 0.25s 还能听见），先停再起倒掉
         if (_playing) StartAt(_position);
         else _playBase = _position;

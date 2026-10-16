@@ -1599,9 +1599,18 @@ public partial class PvStageWindow : Window
         extra.Children.Add(ExportRow("帧率", fps));
         extra.Children.Add(ExportRow("时长(秒)", seconds));
 
+        // 默认不勾：预览侧没有字幕源（舞台的图层栈与广播里都没有这一层），勾上就多出一层预览里看不到的东西。
+        // 「预览 = 成片」是这个工作台的前提，所以烧入必须是显式的一次选择，而不是默认塞进去。
+        var burnSubtitles = new CheckBox
+        {
+            Content = "烧入清晰字幕（预览不显示字幕层）",
+            IsChecked = false,
+        };
+        extra.Children.Add(burnSubtitles);
+
         MessageDialog.Confirm(this, "导出 MP4",
             "逐帧离屏渲染当前工程，导出期间界面照常用。含图层与效果、曲线/信号驱动的镜头与图层动画、"
-            + "动效歌词与字幕（按字幕设置）；VTS 姿态追踪不参与导出。",
+            + "动效歌词；字幕默认不烧入（预览里也没有字幕层，见下方开关）；VTS 姿态追踪不参与导出。",
             "开始导出",
             () =>
             {
@@ -1614,12 +1623,12 @@ public partial class PvStageWindow : Window
                     return;
                 }
 
-                StartExport(path.Text.Trim(), framesPerSecond, sec);
+                StartExport(path.Text.Trim(), framesPerSecond, sec, burnSubtitles.IsChecked == true);
             },
             extra);
     }
 
-    private async void StartExport(string outPath, int fps, double seconds)
+    private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles)
     {
         _exporting = true;
         BtnExport.IsEnabled = false;
@@ -1628,7 +1637,7 @@ public partial class PvStageWindow : Window
 
         // 快照交给后台：导出要跑几分钟，活动文档不能让导出线程去枚举（这期间 UI 照样能改图层）
         var copy = ProjectFromSnapshot(ProjectSnapshot(), "导出");
-        var inputs = copy is null ? null : ExportInputs(copy);
+        var inputs = copy is null ? null : ExportInputs(copy, burnSubtitles);
         var progress = new Progress<double>(p =>
         {
             _exportPercent = p;
@@ -1648,8 +1657,9 @@ public partial class PvStageWindow : Window
     /// 导出要消费的帧状态链：与舞台同一批来源——快照里的曲线/信号图（导出线程独占，不必再拷）、
     /// 本会话的歌词条与频带序列（换引用发布后不再改，跨线程只读）、以及设置里的字幕配置。
     /// 快照读不出来（<paramref name="copy"/> 为 null）时调用方不会走到这里。
+    /// <paramref name="burnSubtitles"/> = false 时整层不建（字幕不是默认内容，见导出弹窗的开关）。
     /// </summary>
-    private PvExportInputs ExportInputs(DirectorProject copy)
+    private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles)
     {
         var curves = new DirectorEvaluator();
         foreach (var save in copy.Curves)
@@ -1664,7 +1674,7 @@ public partial class PvStageWindow : Window
             Signals: copy.SignalGraph,
             Bands: _audioBands,
             Clips: _lyricClips,
-            Subtitles: App.SettingsOf()?.Subtitle);
+            Subtitles: burnSubtitles ? App.SettingsOf()?.Subtitle : null);
     }
 
     private string ExportText() => $"导出中… {_exportPercent * 100:F0}%";
@@ -1745,7 +1755,10 @@ public partial class PvStageWindow : Window
     // ---------------- VTS 会话 ----------------
 
     /// <summary>
-    /// 一个按钮包办会话全周期：关→开；待授权→再请求一次授权；其余状态→断开。
+    /// 一个按钮包办会话全周期：关 → 连接中 → 授权中 → 追踪中；任意状态下再点一次都是关。
+    /// 只有授权中那两态例外——那里「再点一次」是重发授权请求（VTS 侧弹框，用户点「允许」才继续）。
+    /// 连接失败不占一个状态：会话开着就一直在退避重连（VtsApi.RetryMs），失败原因由状态条说出来，
+    /// 用户不用为了重试先关一次。
     /// 断开为什么是"销毁"而不是"挂起"：VtsApi.Stop/Dispose 单向不可逆（工作线程与命令队列
     /// 不会复活），要用只能 new 新实例——探针随之新建，靠 SetTracking 换给管线。
     /// 不做二次确认弹窗：这是本机的可逆操作（再点一下就回来），状态条会说清楚结果。
@@ -1759,9 +1772,9 @@ public partial class PvStageWindow : Window
             vts.Start();
             _pipe?.SetTracking(vts.Tracking);
         }
-        else if (vts.State == VtsState.NeedAuth)
+        else if (vts.State is VtsState.NeedAuth or VtsState.AwaitApproval)
         {
-            vts.RequestAuth(); // VTS 侧会弹出插件授权框，用户点「允许」后才继续
+            vts.RequestAuth();
         }
         else
         {
@@ -1774,6 +1787,10 @@ public partial class PvStageWindow : Window
         RefreshStatus();
     }
 
+    /// <summary>追踪是否正在出姿态：探针新鲜（≤ StaleMs）且认出人脸。判龄口径与渲染帧同源。</summary>
+    private static bool PoseLive(VtsApi vts) =>
+        vts.Tracking.TryRead(VtsTrackingProbe.StaleMs, out var st) && st.FaceFound;
+
     /// <summary>VTS 段的状态条文案（独立于 Spout 源状态：一个说输入，一个说输出）。</summary>
     private string VtsStatusText()
     {
@@ -1785,29 +1802,33 @@ public partial class PvStageWindow : Window
             case VtsState.Disconnected:
             {
                 var err = vts.LastError;
-                if (string.IsNullOrWhiteSpace(err)) return "VTS 未连接";
-                return $"VTS 未连接：{(err.Length > 60 ? err[..60] : err)}";
+                if (string.IsNullOrWhiteSpace(err)) return "VTS 连接中…";
+                return $"VTS 连接失败（自动重试）：{(err.Length > 60 ? err[..60] : err)}";
             }
             case VtsState.NeedAuth:
-                return "VTS 待授权（再点 VTS 按钮）";
+                return "VTS 待授权：点 VTS 按钮，再在 VTube Studio 里点「允许」";
             case VtsState.AwaitApproval:
-                return "VTS 等待授权…";
+                return "VTS 等待授权…（在 VTube Studio 里点「允许」）";
             case VtsState.Ready:
-                var posed = vts.Tracking.TryRead(500, out var st) && st.FaceFound;
-                return posed ? "VTS 已连接 · 姿态有效" : "VTS 已连接 · 无姿态";
+                return PoseLive(vts)
+                    ? "VTS 追踪中"
+                    : $"VTS 追踪失效（丢脸或停更 >{VtsTrackingProbe.StaleMs}ms）· 镜头回基础取景";
             default:
                 return "VTS 未连接";
         }
     }
 
-    private string VtsButtonText() => _vts?.State switch
+    private string VtsButtonText()
     {
-        null => "VTS 关",
-        VtsState.NeedAuth => "VTS 待授权",
-        VtsState.AwaitApproval => "VTS 等待授权",
-        VtsState.Ready => "VTS 已连接",
-        _ => "VTS 未连接",
-    };
+        var vts = _vts;
+        if (vts is null) return "VTS 关";
+        return vts.State switch
+        {
+            VtsState.NeedAuth or VtsState.AwaitApproval => "VTS 授权中",
+            VtsState.Ready => PoseLive(vts) ? "VTS 追踪中" : "VTS 已连接",
+            _ => "VTS 连接中",
+        };
+    }
 
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e)
     {
@@ -1932,6 +1953,11 @@ public partial class PvStageWindow : Window
     protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         _draggingTime = false;
+        // 松手即结束拖动手势。不清的话，一次「按下卡片就松开」会把待拖对象留在字段里，
+        // 之后在卡片内的滑杆上按下（MouseDown 被滑杆挡掉、字段没被改写）再一移动就够到拖动阈值，
+        // 于是改参数变成重排卡片。
+        _dragEffect = null;
+        _dragLayer = null;
         base.OnPreviewMouseLeftButtonUp(e);
     }
 

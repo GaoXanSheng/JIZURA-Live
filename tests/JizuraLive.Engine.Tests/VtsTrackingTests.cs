@@ -1,3 +1,7 @@
+using JizuraLive.Engine;
+using JizuraLive.Pv;
+using JizuraLive.Render.Effects;
+using JizuraLive.Render.Gpu;
 using JizuraLive.Vts;
 using Newtonsoft.Json.Linq;
 using Xunit.Abstractions;
@@ -103,8 +107,9 @@ public class VtsTrackingTests
     // ---------------- 映射 ----------------
 
     private static VtsTrackingState Face(double x = 0, double y = 0, double z = 0,
-        double mouth = 0, double eye = 1, double handX = 0, double handY = 0, bool hand = false) =>
-        new(true, x, y, z, 0, 0, 0, 0, 0, eye, eye, mouth, 0, hand, hand, handX, handY, handX, handY,
+        double mouth = 0, double eye = 1, double handX = 0, double handY = 0, bool hand = false,
+        double tilt = 0) =>
+        new(true, x, y, z, 0, 0, tilt, 0, 0, eye, eye, mouth, 0, hand, hand, handX, handY, handX, handY,
             Environment.TickCount64);
 
     [Fact]
@@ -141,6 +146,55 @@ public class VtsTrackingTests
         var opt = new VtsTrackingOptions { HeadRange = 0.35, ZoomGain = 0.25 };
         Assert.True(VtsTrackingMap.Compute(Face(z: 0.35), opt, false).Zoom > 1.0);
         Assert.True(VtsTrackingMap.Compute(Face(z: -0.35), opt, false).Zoom < 1.0);
+    }
+
+    /// <summary>
+    /// 头倾（FaceAngleZ，度）驱动镜头滚转：满量程 = TiltDegrees，方向同号，
+    /// 死区与位移两路同一口径，TiltDegrees=0 就是完全不跟随。
+    /// </summary>
+    [Fact]
+    public void HeadTiltDrivesCameraRoll()
+    {
+        var opt = new VtsTrackingOptions { TiltDegrees = 10.0 };
+        // 标称满量程 ±30° → 满滚转；半量程按「死区外重新归一化」给（与位移同口径：(0.5-0.06)/0.94）
+        Assert.Equal(10.0, VtsTrackingMap.Compute(Face(tilt: 30), opt, false).Rotation, 3);
+        Assert.Equal(4.68, VtsTrackingMap.Compute(Face(tilt: 15), opt, false).Rotation, 2);
+        Assert.Equal(-4.68, VtsTrackingMap.Compute(Face(tilt: -15), opt, false).Rotation, 2);
+        // 死区（6% × 30° = 1.8°）内不动镜头
+        Assert.Equal(0, VtsTrackingMap.Compute(Face(tilt: 1.5), opt, false).Rotation, 4);
+        // 关掉 = 镜头不跟着倾
+        Assert.Equal(0,
+            VtsTrackingMap.Compute(Face(tilt: 30), new VtsTrackingOptions { TiltDegrees = 0 }, false).Rotation, 4);
+    }
+
+    /// <summary>
+    /// 探针判龄与映射的失效口径：新鲜快照给得出姿态（含滚转），超过 <see cref="VtsTrackingProbe.StaleMs"/>
+    /// 的快照被拒（调用方只能回基础取景）；没人脸时映射给静息量，不留上一帧的姿态偏移。
+    /// </summary>
+    [Fact]
+    public void StaleSnapshotIsRejectedAndNoFaceYieldsNoPose()
+    {
+        var probe = new VtsTrackingProbe();
+        var pose = Face(x: 0.35, tilt: 30);
+
+        probe.Set(pose);
+        Assert.True(probe.TryRead(VtsTrackingProbe.StaleMs, out var read));
+        var fresh = VtsTrackingMap.Compute(read, new VtsTrackingOptions(), false);
+        Assert.True(fresh.Active);
+        Assert.True(fresh.CameraX > 0.3);
+        Assert.NotEqual(0.0, fresh.Rotation);
+
+        // 停更超过上限：判失效，镜头只能回 CameraConfig 基础值（没有「沿用上一帧」这条路）
+        probe.Set(pose with { AtMs = Environment.TickCount64 - VtsTrackingProbe.StaleMs - 1 });
+        Assert.False(probe.TryRead(VtsTrackingProbe.StaleMs, out _));
+
+        // 丢脸：映射侧给静息量（Active=false、零偏移、Zoom=1），不残留任何姿态
+        var lost = VtsTrackingMap.Compute(pose with { FaceFound = false }, new VtsTrackingOptions(), false);
+        Assert.False(lost.Active);
+        Assert.Equal(0, lost.CameraX, 4);
+        Assert.Equal(0, lost.CameraY, 4);
+        Assert.Equal(0, lost.Rotation, 4);
+        Assert.Equal(1.0, lost.Zoom, 4);
     }
 
     [Fact]
@@ -228,5 +282,97 @@ public class VtsTrackingTests
 
         Assert.False(target.LastOrDefault().Active, "追踪停更后没有归位");
         _out.WriteLine($"[vts] 驱动跑了 {driver.Ticks} 拍，收到 {target.Received.Count} 次 Apply");
+    }
+
+    // ---------------- 镜头链路（真管线） ----------------
+
+    /// <summary>
+    /// 可控假姿态快照 → 探针 → <see cref="PvPipeline.Prepare"/> → 舞台镜头：
+    /// ① 新鲜姿态叠在 CameraConfig 基础取景之上（位移/缩放/滚转都得动，滚转不能再是恒 0）；
+    /// ② 快照过期（&gt; <see cref="VtsTrackingProbe.StaleMs"/>）：逐分量回基础取景（rotation 回 7 而不是 0），能量归零。
+    /// </summary>
+    [GpuFact]
+    public void TrackingPoseDrivesStageCameraAndStalePoseFallsBackToBase()
+    {
+        var gpu = D3DDevice.TryCreate(out var error);
+        if (gpu is null) GpuRequire.Fail(error);
+
+        using (gpu)
+        {
+            var scene = PvScene.CreateDefault();
+            scene.Width = 1920;
+            scene.Height = 1080;
+            scene.Camera = new PvCameraConfig { X = -40, Y = 25, Scale = 1.2, Rotation = 7 };
+
+            var probe = new VtsTrackingProbe();
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph(), null, probe);
+
+            var pose = VtsTrackingState.Empty with
+            {
+                FaceFound = true,
+                HeadX = 0.8,
+                HeadY = -0.5,
+                HeadAngleZ = 30,
+                MouthOpen = 0.9,
+                EyeOpenLeft = 1,
+                EyeOpenRight = 1,
+                AtMs = Environment.TickCount64,
+            };
+            probe.Set(pose);
+            pipe.Prepare(0.0);
+
+            var drive = VtsTrackingMap.Compute(pose, new VtsTrackingOptions(), false);
+            Assert.True(Math.Abs(drive.Rotation) > 0.5, "头倾应当产生可见的镜头滚转");
+            var cam = pipe.Renderer.Stage.Camera;
+            Assert.Equal(-40 + drive.CameraX * scene.Width * 0.10, cam.X, 3);
+            Assert.Equal(25 + drive.CameraY * scene.Height * 0.10, cam.Y, 3);
+            Assert.Equal(1.2, cam.Scale, 3);
+            Assert.Equal(7 + drive.Rotation, cam.Rotation, 3);
+            Assert.Equal(0.9, pipe.Renderer.Stage.Energy, 3);
+
+            probe.Set(pose with { AtMs = Environment.TickCount64 - VtsTrackingProbe.StaleMs - 1 });
+            pipe.Prepare(1.0 / 60);
+
+            var stale = pipe.Renderer.Stage.Camera;
+            Assert.Equal(-40, stale.X, 3);
+            Assert.Equal(25, stale.Y, 3);
+            Assert.Equal(1.2, stale.Scale, 3);
+            Assert.Equal(7, stale.Rotation, 3);
+            Assert.Equal(0, pipe.Renderer.Stage.Energy, 3);
+        }
+    }
+
+    /// <summary>
+    /// camera.rotation 的关键帧曲线进舞台镜头（追踪通道全静默）：曲线值是绝对取景而不是叠加，
+    /// 撤掉曲线回 CameraConfig 常量。这一环曾经可能是「rotation 恒 0」的旧写法残留，逐环钉住。
+    /// </summary>
+    [GpuFact]
+    public void CameraRotationCurveReachesStageCamera()
+    {
+        var gpu = D3DDevice.TryCreate(out var error);
+        if (gpu is null) GpuRequire.Fail(error);
+
+        using (gpu)
+        {
+            var scene = PvScene.CreateDefault();
+            scene.Camera = new PvCameraConfig { Rotation = 7 };
+
+            using var pipe = new PvPipeline(gpu, scene, new EffectGraph());
+
+            Assert.True(ParamAddress.TryParse("camera.rotation", out var addr), "camera.rotation 应能解析为镜头参数地址");
+            var eval = new DirectorEvaluator();
+            var curve = new FloatCurve();
+            curve.Keys.Add(new CurveKey(0, 0, CurveInterp.Linear));
+            curve.Keys.Add(new CurveKey(1, -12.5, CurveInterp.Linear));
+            eval.SetCurve(addr, curve);
+
+            pipe.SetDirector(eval);
+            pipe.Prepare(0.5);
+            Assert.Equal(-6.25, pipe.Renderer.Stage.Camera.Rotation, 3); // 区间中点：曲线值即绝对取景
+
+            pipe.SetDirector(null);
+            pipe.Prepare(0.5);
+            Assert.Equal(7, pipe.Renderer.Stage.Camera.Rotation, 3);    // 撤掉曲线回常量
+        }
     }
 }

@@ -717,7 +717,8 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <Style TargetType="TextBox" BasedOn="{StaticResource TbBase}" />
+    <!-- 隐式 TextBox 样式已移交 WPF-UI 底座（App.xaml 里库字典在前，隐式样式后合并者胜）；
+         TbBase/TbNum/TbSm 保留，旧界面按需显式引用。 -->
     <!-- 数字框（.mono） -->
     <Style x:Key="TbNum" TargetType="TextBox" BasedOn="{StaticResource TbBase}">
         <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
@@ -947,7 +948,7 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <Style TargetType="ComboBox" BasedOn="{StaticResource SelBase}" />
+    <!-- 隐式 ComboBox 样式已移交 WPF-UI 底座（同 TextBox）；SelBase/SelSm/SelXs 保留给显式引用处。 -->
     <!-- !h-7：歌词语言等 -->
     <Style x:Key="SelSm" TargetType="ComboBox" BasedOn="{StaticResource SelBase}">
         <Setter Property="Height" Value="28" />
@@ -1178,56 +1179,9 @@
             </Setter.Value>
         </Setter>
     </Style>
-    <Style TargetType="ScrollBar">
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Width" Value="10" />
-        <Setter Property="MinWidth" Value="10" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ScrollBar">
-                    <Grid Background="Transparent">
-                        <Track x:Name="PART_Track" IsDirectionReversed="True">
-                            <Track.DecreaseRepeatButton>
-                                <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0" Focusable="False" />
-                            </Track.DecreaseRepeatButton>
-                            <Track.Thumb>
-                                <Thumb Style="{StaticResource ScrollThumb}" />
-                            </Track.Thumb>
-                            <Track.IncreaseRepeatButton>
-                                <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0" Focusable="False" />
-                            </Track.IncreaseRepeatButton>
-                        </Track>
-                    </Grid>
-                    <ControlTemplate.Triggers>
-                        <Trigger Property="Orientation" Value="Horizontal">
-                            <Setter Property="Height" Value="10" />
-                            <Setter Property="MinHeight" Value="10" />
-                            <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
-                        </Trigger>
-                    </ControlTemplate.Triggers>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
+    <!-- 隐式 ScrollBar 样式已移交 WPF-UI 底座（同 TextBox）；ScrollThumb 保留给显式引用处。 -->
 
-    <!-- ToolTip：暗色气泡 -->
-    <Style TargetType="ToolTip">
-        <Setter Property="Foreground" Value="{StaticResource Fg}" />
-        <Setter Property="FontSize" Value="{StaticResource PvTextSm}" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ToolTip">
-                    <Border Background="{StaticResource Raised}" BorderBrush="{StaticResource Line2}"
-                            BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="8,5" MaxWidth="420">
-                        <Border.Effect>
-                            <DropShadowEffect Color="Black" BlurRadius="18" ShadowDepth="2" Opacity="0.5" />
-                        </Border.Effect>
-                        <ContentPresenter />
-                    </Border>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
-    </Style>
+    <!-- 隐式 ToolTip 样式已移交 WPF-UI 底座（同 TextBox），关键色由 PvTokens 覆盖。 -->
 
     <!-- 参数滑块（暗色轨道 + Amber 进度/拇指，对位旧版 range 观感）：
          界面里两处用（特效面板的 fx 参数行、音频效果弹窗的参数行/变速行），放主题级共用 -->

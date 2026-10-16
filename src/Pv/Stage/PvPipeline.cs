@@ -569,7 +569,7 @@ public sealed class PvPipeline : IDisposable
         // 而不是每次都弹回 (0,0,1)。Camera 被手改成 null 同理：回落默认。
         var cam = _scene.Camera ?? new PvCameraConfig();
 
-        if (_tracking is null || !_tracking.TryRead(250, out var st))
+        if (_tracking is null || !_tracking.TryRead(VtsTrackingProbe.StaleMs, out var st))
         {
             // 每帧都写回基础态（不是"什么都不做"）：否则最后一帧的追踪姿态会一直留在镜头上，
             // 断连后画面冻在歪着的取景里。
@@ -582,14 +582,15 @@ public sealed class PvPipeline : IDisposable
         var drive = VtsTrackingMap.Compute(st, _trackOptions, _prevBlink);
         _prevBlink = drive.Blink;
 
-        // 追踪位移/缩放叠在基础帧状态之上（信号图随后按绑定覆盖）。
+        // 追踪位移/滚转/缩放叠在基础帧状态之上（信号图随后按绑定覆盖）。
         // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度；Zoom 的夹持是追踪通道自身的上下界。
+        // 滚转是度数、与 baseCam.Rotation 同量纲，直接相加（PvParallax 再按每层 RotationFactor/深度加权）。
         var baseCam = BaseCamera(cam, _director, time);
         frame.Camera = new PvCamState(
             baseCam.X + drive.CameraX * _renderer.DesignWidth * TrackingCameraFrac,
             baseCam.Y + drive.CameraY * _renderer.DesignHeight * TrackingCameraFrac,
             baseCam.Scale * Math.Clamp(drive.Zoom, 0.5, 2.0),
-            baseCam.Rotation, 0, null, null);
+            baseCam.Rotation + drive.Rotation, 0, null, null);
         _renderer.Stage.Energy = drive.MouthEnergy;
     }
 
@@ -633,7 +634,7 @@ public sealed class PvPipeline : IDisposable
         // Stage.Energy 是另一路（VTS 口型能量），由 ApplyTracking 写、给渲染器消费，不冒充频带。
         var audio = SampleAudioBands(_audioBands, time);
 
-        // VTS 姿态走与 ApplyTracking 同一个探针、同一个新鲜度口径（Read 内部就是 TryRead(250ms)）：
+        // VTS 姿态走与 ApplyTracking 同一个探针、同一个新鲜度口径（Read 内部就是 TryRead(StaleMs)）：
         // 探针为空或快照过期都传无效姿态，VtsPose 节点因此按通道失效，而不是沿用上一帧的姿态偏移。
         // 判龄用 LiveTime，所以暂停音乐也照常过期——这里必须与 LiveTime 传**同一个读数**，不能各读一次时钟。
         var liveSeconds = Monotonic.Elapsed.TotalSeconds;

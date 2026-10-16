@@ -1,10 +1,17 @@
 <Application x:Class="JizuraLive.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- WPF-UI（Fluent）标准件底座：ComboBox 弹层 / TextBox / ScrollBar / ToolTip / MenuItem
+                     等标准控件的模板与暗色主题由库提供。必须排在自研字典之前——应用级隐式样式同名时
+                     后合并者胜，库在前 = 库作基底，自研样式仍是脸面。
+                     本窗口自绘部件（PvBtn*/PvSlider/PvSwitch/PvSegBtn）与自绘画布不换库。 -->
+                <ui:ThemesDictionary Theme="Dark" />
+                <ui:ControlsDictionary />
                 <!-- 设计 token 与全局控件样式（从 frontend/src/styles/main.css 搬运） -->
                 <ResourceDictionary Source="Theme.xaml" />
                 <!-- PV 工作台的新设计语言（P5）：冷调近黑 + 靛蓝主色，与旧主题刻意区分。

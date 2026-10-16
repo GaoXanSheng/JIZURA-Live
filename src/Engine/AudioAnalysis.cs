@@ -1,4 +1,5 @@
 using System.IO;
+using JizuraLive.App.PvStage;
 using NAudio.Dsp;
 using NAudio.Wave;
 
@@ -327,7 +328,7 @@ internal sealed class SlidingWindowAnalyzer
 /// 整文件离线分析入口（S04）：分块解码整个音频文件，边解码边出窗。
 ///
 /// 文件 IO 只在这一层——<see cref="AudioAnalyzer"/> 保持"PCM 进、序列出"的纯函数形态。
-/// 只用解码器（AudioFileReader），不碰播放设备、不移动播放 reader 的位置（§13.4）；
+/// 只用解码器（<see cref="AudioDecoding.Open"/>），不碰播放设备、不移动播放 reader 的位置（§13.4）；
 /// 调用方在后台线程跑，失败（IO/解码/格式）抛异常由调用方兜住。
 ///
 /// 内存 O(一块 + 一个窗口 + 输出序列)：整曲 PCM 不驻留（§15.2），所以时长不再有上限。
@@ -343,9 +344,7 @@ public static class AudioFileAnalyzer
     /// </summary>
     public static AudioBandSeries Analyze(string path, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(path)) throw new ArgumentException("音频路径为空", nameof(path));
-
-        using var reader = new AudioFileReader(path);
+        using var reader = AudioDecoding.Open(path);
         var format = reader.WaveFormat;
         if (format.Channels <= 0 || format.SampleRate <= 0)
             throw new InvalidDataException(

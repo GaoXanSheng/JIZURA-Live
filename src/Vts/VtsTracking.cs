@@ -39,6 +39,14 @@ public readonly record struct VtsTrackingState(
 /// </summary>
 public sealed class VtsTrackingProbe
 {
+    /// <summary>
+    /// 快照的新鲜度上限（毫秒，契约 §8.3）：超过就按「没有脸」处理。
+    /// 判龄的口径只此一处——驱动线程（<see cref="VtsTrackingOptions.FreshMs"/>）、渲染帧
+    /// （<c>PvPipeline.ApplyTracking</c>）与界面状态条各写一个数就会互相矛盾：
+    /// 状态条说「姿态有效」，画面却在回落基础取景。
+    /// </summary>
+    public const int StaleMs = 250;
+
     private VtsTrackingState _state;
     private long _seq;
 
@@ -71,6 +79,11 @@ public sealed class VtsTrackingOptions
     /// <summary>头部前后位移驱动缩放（0 = 不跟随）。</summary>
     public double ZoomGain { get; set; } = 0.25;
 
+    /// <summary>
+    /// 头部左右倾（FaceAngleZ，度；实测标称 ±30）驱动镜头滚转的最大角度（0 = 不跟随）。
+    /// </summary>
+    public double TiltDegrees { get; set; } = 6.0;
+
     /// <summary>口型驱动「能量」的增益。</summary>
     public double MouthGain { get; set; } = 1.0;
 
@@ -81,8 +94,8 @@ public sealed class VtsTrackingOptions
     /// <summary>手位驱动光条/粒子原点的增益。</summary>
     public double HandGain { get; set; } = 1.0;
 
-    /// <summary>追踪数据的新鲜度上限（毫秒）：超过就当作「没有脸」。</summary>
-    public int FreshMs { get; set; } = 500;
+    /// <summary>追踪数据的新鲜度上限（毫秒）：超过就当作「没有脸」。默认与探针同一口径。</summary>
+    public int FreshMs { get; set; } = VtsTrackingProbe.StaleMs;
 }
 
 /// <summary>
@@ -93,6 +106,7 @@ public readonly record struct VtsEffectDrive(
     double CameraX,
     double CameraY,
     double Zoom,
+    double Rotation,
     double MouthEnergy,
     double Flash,
     double HandX,
@@ -100,7 +114,7 @@ public readonly record struct VtsEffectDrive(
     bool Blink,
     long AtMs)
 {
-    public static VtsEffectDrive Idle => new(false, 0, 0, 1, 0, 0, 0, 0, false, 0);
+    public static VtsEffectDrive Idle => new(false, 0, 0, 1, 0, 0, 0, 0, 0, false, 0);
 }
 
 /// <summary>效果驱动的输出口：<see cref="VtsTrackingDriver"/> 把结果推给它（真实现刷新渲染侧状态，测试用替身）。</summary>
@@ -117,6 +131,9 @@ public interface IVtsEffectTarget
 /// </summary>
 public static class VtsTrackingMap
 {
+    /// <summary>VTS 头角的标称满量程（度）：<see cref="VtsApi.ParseTracking"/> 用它把 FaceAngleX/Y/Z 归一化到 ±1。</summary>
+    public const double AngleRangeDeg = 30.0;
+
     /// <summary>把 -range..range 的位移映射到 -1..1 并带死区（手抖不该让镜头一直飘）。</summary>
     private static double Normalize(double v, double range, double deadZone)
     {
@@ -144,6 +161,10 @@ public static class VtsTrackingMap
         var camY = -Normalize(s.HeadY, opt.HeadRange, deadZone) * opt.CameraGain;
         var zoom = 1.0 + Math.Clamp(s.HeadZ / Math.Max(opt.HeadRange, 1e-6), -1, 1) * opt.ZoomGain;
 
+        // 头部左右倾 → 镜头滚转。HeadAngleZ 是**度数**（实测标称 ±30），先按 ParseTracking 的同一除数
+        // 归一化再乘最大滚转角；死区与位移两路同单位（归一化），免得倾斜的起步比位移更黏。
+        var tilt = Normalize(s.HeadAngleZ / AngleRangeDeg, 1.0, deadZone) * opt.TiltDegrees;
+
         var mouth = Math.Clamp(s.MouthOpen * opt.MouthGain, 0, 1);
 
         var eyeOpen = Math.Min(s.EyeOpenLeft, s.EyeOpenRight);
@@ -160,6 +181,6 @@ public static class VtsTrackingMap
             handY = Math.Clamp(hy * opt.HandGain, -1, 1);
         }
 
-        return new VtsEffectDrive(true, camX, camY, zoom, mouth, flash, handX, handY, blink, s.AtMs);
+        return new VtsEffectDrive(true, camX, camY, zoom, tilt, mouth, flash, handX, handY, blink, s.AtMs);
     }
 }
