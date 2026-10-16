@@ -381,7 +381,11 @@ public partial class PvStageWindow : Window
             {
                 // 波形与频带分析都在后台线程做，这里只发起（本回调跑在渲染线程上，不在这里碰 UI）
                 var path = _audioPath;
-                Dispatcher.BeginInvoke(() => StartAudioLoad(path));
+                Dispatcher.BeginInvoke(() =>
+                {
+                    BuildInspector(); // 检查器音频/时长行是静态内容，恢复音源后重建（否则挂着上一首的读数）
+                    StartAudioLoad(path);
+                });
             }
         }
 
@@ -1499,6 +1503,7 @@ public partial class PvStageWindow : Window
         {
             _audioPath = dlg.FileName; // 绑定进工程：下次打开自动恢复（停在暂停态）
             TblStatus.Text = "音频已加载";
+            BuildInspector(); // 检查器的音频/时长行是静态内容，换音源后必须重建（否则挂着上一首的读数）
             StartAudioLoad(dlg.FileName); // 波形轨 + 频带分析：后台解码，到位后自己刷新
             var lrcPath = Path.ChangeExtension(dlg.FileName, ".lrc");
             if (File.Exists(lrcPath))
@@ -1963,8 +1968,26 @@ public partial class PvStageWindow : Window
 
     protected override void OnPreviewMouseLeftButtonDown(MouseButtonEventArgs e)
     {
-        if (SldTime.IsMouseOver) _draggingTime = true;
+        if (SldTime.IsMouseOver)
+        {
+            _draggingTime = true;
+            // 点轨道=直接跳到该位置：PvSlider 模板把轨道做成 RepeatButton，点击会被吃成 LargeChange 步进（一次只挪一小步）
+            if (SldTime.Template?.FindName("PART_Track", SldTime) is System.Windows.Controls.Primitives.Track track
+                && track.ActualWidth > 0 && !IsThumbSource(e.OriginalSource as DependencyObject))
+            {
+                double ratio = Math.Clamp(e.GetPosition(track).X / track.ActualWidth, 0, 1);
+                SldTime.Value = SldTime.Minimum + ratio * (SldTime.Maximum - SldTime.Minimum);
+                e.Handled = true;
+            }
+        }
         base.OnPreviewMouseLeftButtonDown(e);
+    }
+
+    private static bool IsThumbSource(DependencyObject? src)
+    {
+        for (var d = src; d is not null; d = (d as FrameworkElement)?.TemplatedParent as DependencyObject)
+            if (d is System.Windows.Controls.Primitives.Thumb) return true;
+        return false;
     }
 
     private void RefreshStatus()
@@ -1975,6 +1998,8 @@ public partial class PvStageWindow : Window
         if (!_draggingTime)
         {
             SldTime.Maximum = Math.Max(0.01, d);
+            SldTime.LargeChange = Math.Max(0.5, d / 20);
+            SldTime.SmallChange = Math.Max(0.1, d / 200);
             SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
         }
 

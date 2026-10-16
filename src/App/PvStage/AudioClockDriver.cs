@@ -55,7 +55,7 @@ public sealed class AudioClockDriver : IDisposable
             var reader = AudioDecoding.Open(filePath);
             var output = new WaveOut();
             output.Init(reader);
-            output.PlaybackStopped += (_, e) => OnStopped(e.Exception);
+            output.PlaybackStopped += OnPlaybackStopped;
 
             _reader = reader;
             _output = output;
@@ -132,13 +132,33 @@ public sealed class AudioClockDriver : IDisposable
 
         _reader.CurrentTime = TimeSpan.FromSeconds(seconds);
         _stopRequested = true;
-        _output.Stop();
+        try { _output.Stop(); } catch { }
+        // Stop 与 Play 紧挨着会撞出 waveOutWrite/WaveStillPlaying，WaveOut 缓冲线程当场死掉 = 概率性无声。
+        // 停—起一律换一台输出设备（同一个 reader），让旧设备的 Reset 与新设备的 Write 不共存。
+        _output.PlaybackStopped -= OnPlaybackStopped;
+        try { _output.Dispose(); } catch { }
+        _output = CreateOutput();
         _stopRequested = false;
 
         _playBase = seconds;
         _position = seconds;
         _output.Play();
         _playing = true;
+    }
+
+    private WaveOut CreateOutput()
+    {
+        var output = new WaveOut();
+        output.Init(_reader!);
+        output.PlaybackStopped += OnPlaybackStopped;
+        return output;
+    }
+
+    private void OnPlaybackStopped(object? sender, StoppedEventArgs e)
+    {
+        // 换设备后旧设备的迟到回调一律忽略：只认当前这台
+        if (!ReferenceEquals(sender, _output)) return;
+        OnStopped(e.Exception);
     }
 
     private void OnStopped(Exception? fault)
