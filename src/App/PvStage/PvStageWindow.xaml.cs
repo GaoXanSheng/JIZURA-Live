@@ -522,33 +522,31 @@ public partial class PvStageWindow : Window
             toggle.Unchecked += (_, _) => layer.Enabled = false;
             headRight.Children.Add(toggle);
 
-            if (layer.Id.StartsWith("src", StringComparison.Ordinal))
+            // 所有图层都给删除入口：旧的「仅 src* 编号才有 ✕」门槛会把模板/旧工程导入的图层
+            // （bg/character/lyrics_pv 等固定 id）变成永远删不掉的孤儿，用户明确要能删。
+            var del = new Button
             {
-                var del = new Button
-                {
-                    Style = (Style)FindResource("PvBtnGhost"),
-                    Padding = new Thickness(6, 1, 6, 1),
-                    Margin = new Thickness(6, 0, 0, 0),
-                    Content = "✕",
-                    ToolTip = "删除本图层",
-                };
-                var idRef = layer.Id;
-                del.Click += (_, _) =>
-                {
-                    // 曲线跟着图层走：SeedLayerSeq 会在"删最高号 src_N + 重启"后重新发出同一个
-                    // src_N，遗留的 layer:src_N.* 曲线会被下一个同名新层继承（与效果实例串味同理）。
-                    // 现在还没有图层曲线的编辑入口，但级联语义先钉死，别等 UI 造得出来才补。
-                    _evaluator.RemoveCurvesForTarget(idRef);
-                    // 信号绑定同理，与效果实例那条（效果架 ✕）对称：layer 域的存在性只在编译期查一次
-                    // （SignalTargets 的 HasLayer），图层被摘除后残留的 layer:<id>.* 绑定会让**整张图**
-                    // 编译失败（target-missing-instance），所有域的信号一起停，还会跟着存盘变成悬空绑定。
-                    // RemoveTargetCascade 按地址 Target 字符串匹配，对 layer 地址同样成立。
-                    CascadeSignalTarget(idRef);
-                    PublishDirector();
-                    _pipe?.RequestRemove(idRef);
-                };
-                headRight.Children.Add(del);
-            }
+                Style = (Style)FindResource("PvBtnGhost"),
+                Padding = new Thickness(6, 1, 6, 1),
+                Margin = new Thickness(6, 0, 0, 0),
+                Content = "✕",
+                ToolTip = "删除本图层",
+            };
+            var idRef = layer.Id;
+            del.Click += (_, _) =>
+            {
+                // 曲线跟着图层走：SeedLayerSeq 会在"删最高号 src_N + 重启"后重新发出同一个
+                // src_N，遗留的 layer:src_N.* 曲线会被下一个同名新层继承（与效果实例串味同理）。
+                _evaluator.RemoveCurvesForTarget(idRef);
+                // 信号绑定同理，与效果实例那条（效果架 ✕）对称：layer 域的存在性只在编译期查一次
+                // （SignalTargets 的 HasLayer），图层被摘除后残留的 layer:<id>.* 绑定会让**整张图**
+                // 编译失败（target-missing-instance），所有域的信号一起停，还会跟着存盘变成悬空绑定。
+                // RemoveTargetCascade 按地址 Target 字符串匹配，对 layer 地址同样成立。
+                CascadeSignalTarget(idRef);
+                PublishDirector();
+                _pipe?.RequestRemove(idRef);
+            };
+            headRight.Children.Add(del);
 
             Grid.SetColumn(headRight, 1);
             head.Children.Add(headRight);
