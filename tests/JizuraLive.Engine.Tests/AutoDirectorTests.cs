@@ -1,323 +1,306 @@
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Pv;
+using JizuraLive.Render.Effects;
+using Newtonsoft.Json;
 using Xunit;
 
 namespace JizuraLive.Engine.Tests;
 
 public class AutoDirectorTests
 {
-    private static BeatMap CreateSampleBeatMap()
+    private const double Beat = 0.5;
+
+    /// <summary>
+    /// 120 BPM、32 秒的一首"歌"：前奏 0–4、主歌 4–12、副歌 12–20、桥段 20–24、副歌 24–30、尾奏 30–32。
+    /// 每拍 0.5s、每 4 拍一个下拍（小节 2s），主歌里有 4 句歌词。
+    /// </summary>
+    private static BeatMap Song()
     {
+        var beats = Enumerable.Range(0, 64).Select(i => i * Beat).ToList();
         return new BeatMap
         {
             Bpm = 120,
-            Beats = new List<double> { 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 },
-            Downbeats = new List<double> { 1.5, 2.5 },
-            Sections = new List<Section>
-            {
-                new Section { Start = 0.0, End = 1.5, Kind = "verse" },
-                new Section { Start = 1.5, End = 3.0, Kind = "chorus" },
-                new Section { Start = 3.0, End = 3.5, Kind = "break" },
-                new Section { Start = 3.5, End = 4.0, Kind = "outro" },
-            }
+            Beats = beats,
+            Downbeats = beats.Where((_, i) => i % 4 == 0).ToList(),
+            Sections =
+            [
+                new Section { Start = 0, End = 4, Kind = "intro", Energy = 0.1 },
+                new Section { Start = 4, End = 12, Kind = "verse", Label = "A", Energy = 0.4 },
+                new Section { Start = 12, End = 20, Kind = "chorus", Label = "B", Energy = 0.9 },
+                new Section { Start = 20, End = 24, Kind = "bridge", Label = "C", Energy = 0.3 },
+                new Section { Start = 24, End = 30, Kind = "chorus", Label = "B", Energy = 1.0 },
+                new Section { Start = 30, End = 32, Kind = "outro", Energy = 0.2 },
+            ],
         };
     }
 
-    private static string TempProjectPath() =>
-        Path.Combine(Path.GetTempPath(), $"jzpv_autodir_{Guid.NewGuid():N}.jzpv");
+    private const string Lyrics = "[00:04.50]第一句\n[00:06.20]第二句\n[00:08.40]第三句\n[00:10.30]第四句\n[00:12.00]副歌";
+
+    private static DirectorProject Generate(string style = "dynamic", double intensity = 1.0, int seed = 1,
+        BeatMap? map = null, string? lrc = Lyrics)
+    {
+        var project = new DirectorProject { LrcText = lrc };
+        AutoDirector.Generate(project, map ?? Song(), new AutoOptions { Style = style, Intensity = intensity, Seed = seed });
+        return project;
+    }
+
+    private static ParamAddress Addr(string text)
+    {
+        Assert.True(ParamAddress.TryParse(text, out var a), text);
+        return a;
+    }
+
+    private static double BaseScale(DirectorEvaluator e, double t) =>
+        e.TryEvaluate(Addr("camera.scale"), t, out var v) ? v : 1.0;
+
+    private static double Scale(DirectorEvaluator e, double t) => e.Resolve(Addr("camera.scale"), t, 1.0);
+
+    private static EffectNode Node(DirectorProject p, string defId) =>
+        p.Effects.Nodes.Single(n => n.DefId == defId && n.InstanceId.StartsWith(AutoDirector.AutoPrefix));
 
     [Fact]
-    public void Generate_SoftStyle_AssertStructure_Snapping_Effects_RoundTrip()
+    public void VersePush_SurvivesDownbeatPunch()
     {
-        var project = new DirectorProject();
-        var map = CreateSampleBeatMap();
-        var options = new AutoOptions { Style = "soft", Intensity = 0.6 };
+        var eval = DirectorEvaluator.FromSaves(Generate().Curves);
 
-        var report = AutoDirector.Generate(project, map, options);
+        // 主歌段内基础镜头在缓推（旧版的下拍冲击会在每个下拍两侧插 1.0，把这段推近打平）
+        Assert.True(BaseScale(eval, 11.5) > BaseScale(eval, 4.0) + 0.02);
 
-        // 结构断言
-        Assert.True(report.CameraKeys > 0);
-        Assert.Equal(3, report.EffectInstances);
-        Assert.Equal(3, project.Effects.Nodes.Count);
+        // 11.5s 离上一个下拍（10s）已过冲击衰减期：画面值就是基础值，冲击没有残留
+        Assert.Equal(BaseScale(eval, 11.5), Scale(eval, 11.5), precision: 6);
+    }
 
-        var defIds = project.Effects.Nodes.Select(n => n.DefId).ToList();
-        Assert.Contains("bloom", defIds);
-        Assert.Contains("colorGrade", defIds);
-        Assert.Contains("vignette", defIds);
+    [Fact]
+    public void ChorusDownbeat_PunchMultipliesOnTopOfBase()
+    {
+        var eval = DirectorEvaluator.FromSaves(Generate().Curves);
 
-        // 吸附断言：时间全部吸附在 Beats 上
-        var scaleCurveSave = project.Curves.FirstOrDefault(c => c.Address == "camera.scale");
-        Assert.NotNull(scaleCurveSave);
-        Assert.True(scaleCurveSave.Curve.Count > 0);
-        Assert.All(scaleCurveSave.Curve.Keys, k => Assert.Contains(k.Time, map.Beats));
+        Assert.True(Scale(eval, 14.0) > BaseScale(eval, 14.0) * 1.03);
+        Assert.Contains(eval.LayersOf(Addr("camera.scale")), l => l.Name == AutoDirector.BeatLayer && l.Blend == CurveBlend.Multiply);
+    }
 
-        var rotCurveSave = project.Curves.FirstOrDefault(c => c.Address == "camera.rotation");
-        if (rotCurveSave != null)
-        {
-            Assert.All(rotCurveSave.Curve.Keys, k => Assert.Contains(k.Time, map.Beats));
-        }
+    [Fact]
+    public void ChorusEntry_CutsCloserThanVerseStart()
+    {
+        var eval = DirectorEvaluator.FromSaves(Generate().Curves);
+        Assert.True(BaseScale(eval, 12.0) > BaseScale(eval, 4.0) + 0.05);
+        Assert.True(BaseScale(eval, 19.5) > BaseScale(eval, 12.0));
+    }
 
-        // 歌词样式断言：有 chorus 段落切换到 Neon
-        Assert.Equal("Neon", project.Scene.LyricStyleName);
+    [Fact]
+    public void TransientEffects_OnlyAppearInsideWindows()
+    {
+        var p = Generate();
 
-        // 往返断言：序列化与反序列化
-        string tempFile = TempProjectPath();
+        var flash = Node(p, "flash");
+        Assert.Equal(1.0, flash.WindowWeight(12.0), precision: 6);  // 进副歌那一刻满闪
+        Assert.Equal(0.0, flash.WindowWeight(8.0), precision: 6);   // 主歌中间没有
+
+        foreach (var defId in new[] { "glitch", "chromatic", "shake", "zoomPunch", "scanline" })
+            Assert.NotEmpty(Node(p, defId).Windows);
+
+        // 常驻的只有画面质感
+        foreach (var defId in new[] { "colorGrade", "bloom", "vignette" })
+            Assert.Empty(Node(p, defId).Windows);
+
+        // 桥段专属的扫描线不会出现在副歌里
+        var scan = Node(p, "scanline");
+        Assert.True(scan.WindowWeight(22.0) > 0);
+        Assert.Equal(0.0, scan.WindowWeight(14.0), precision: 6);
+    }
+
+    [Fact]
+    public void Riser_BuildsUpDuringLastBarBeforeChorus()
+    {
+        var zoom = Node(Generate(), "zoomPunch");
+        Assert.Equal(0.0, zoom.WindowWeight(9.9), precision: 6);
+        Assert.True(zoom.WindowWeight(11.0) > 0.3);
+        Assert.True(zoom.WindowWeight(11.9) > zoom.WindowWeight(11.0));
+        Assert.Equal(0.0, zoom.WindowWeight(12.1), precision: 6);  // 落点瞬间弹回
+    }
+
+    [Fact]
+    public void Pipeline_AppliesWindowsAndFades()
+    {
+        var p = Generate();
+        var eval = DirectorEvaluator.FromSaves(p.Curves);
+        var graph = p.Effects.Clone();
+
+        var flash = graph.Nodes.Single(n => n.DefId == "flash");
+        var amount = EffectCatalog.Get("flash")!.Params.First(x => x.Key == "amount");
+        var full = flash.Value(amount);
+
+        PvPipeline.ApplyEffectCurves(graph, eval, 8.0);
+        Assert.False(flash.FrameActive);
+
+        PvPipeline.ApplyEffectCurves(graph, eval, 12.0);
+        Assert.True(flash.FrameActive);
+        Assert.Equal(full, flash.Value(amount), precision: 4);
+
+        PvPipeline.ApplyEffectCurves(graph, eval, 12.3);
+        Assert.True(flash.Value(amount) < full * 0.7);   // 闪白在衰减
+
+        // 回到满闪时刻：从文档原值重新算，不受上一帧写回值影响
+        PvPipeline.ApplyEffectCurves(graph, eval, 12.0);
+        Assert.Equal(full, flash.Value(amount), precision: 4);
+    }
+
+    [Fact]
+    public void CameraDrift_MovesOnLyricLines()
+    {
+        var eval = DirectorEvaluator.FromSaves(Generate().Curves);
+        Assert.True(eval.Curves.TryGetValue(Addr("camera.offsetX"), out var offX));
+        foreach (var t in new[] { 4.5, 6.2, 8.4, 10.3 })
+            Assert.Contains(offX!.Keys, k => Math.Abs(k.Time - t) < 1e-6);
+
+        // 相邻两句不落在同一点
+        Assert.NotEqual(offX!.Evaluate(4.5), offX.Evaluate(6.2));
+        // 副歌开头回中
+        Assert.Equal(0.0, offX.Evaluate(12.0), precision: 6);
+    }
+
+    [Fact]
+    public void WithoutLyrics_DriftFallsBackToBars()
+    {
+        var eval = DirectorEvaluator.FromSaves(Generate(lrc: null).Curves);
+        Assert.True(eval.Curves.TryGetValue(Addr("camera.offsetX"), out var offX));
+        Assert.True(offX!.Count > 4);
+    }
+
+    [Fact]
+    public void RepeatedGeneration_IsIdempotentAndDeterministic()
+    {
+        var project = new DirectorProject { LrcText = Lyrics };
+        var r1 = AutoDirector.Generate(project, Song(), new AutoOptions { Seed = 7 });
+        var json1 = JsonConvert.SerializeObject(project.Curves) + EffectGraphJson.Serialize(project.Effects);
+
+        var r2 = AutoDirector.Generate(project, Song(), new AutoOptions { Seed = 7 });
+        var json2 = JsonConvert.SerializeObject(project.Curves) + EffectGraphJson.Serialize(project.Effects);
+
+        Assert.Equal(json1, json2);
+        Assert.Equal(r1.CurveKeys, r2.CurveKeys);
+        Assert.Equal(r1.EffectWindows, r2.EffectWindows);
+    }
+
+    [Fact]
+    public void Regeneration_KeepsUserEffectsAndTheirCurves()
+    {
+        var project = new DirectorProject { LrcText = Lyrics };
+        project.Effects.Add("halftone");
+        var userId = project.Effects.Nodes[0].InstanceId;
+        var curve = new FloatCurve();
+        curve.TryAdd(0, 0.5);
+        project.Curves.Add(new CurveSave { Address = $"effect:{userId}.strength", Curve = curve });
+
+        AutoDirector.Generate(project, Song(), new AutoOptions());
+        AutoDirector.Generate(project, Song(), new AutoOptions { Style = "epic" });
+
+        Assert.Contains(project.Effects.Nodes, n => n.InstanceId == userId);
+        Assert.Contains(project.Curves, c => c.Address == $"effect:{userId}.strength");
+        Assert.DoesNotContain(project.Effects.Nodes, n => n.DefId == "glitch");  // 换风格后上一版的点缀清干净
+    }
+
+    [Fact]
+    public void SaveAndLoad_PreservesLayersAndWindows()
+    {
+        var project = Generate("epic");
+        var path = Path.Combine(Path.GetTempPath(), $"jzpv_autodir_{Guid.NewGuid():N}.jzpv");
         try
         {
-            Assert.Null(ProjectStore.Save(project, tempFile));
-            var loadRes = ProjectStore.Load(tempFile);
-            Assert.Null(loadRes.Fault);
-            Assert.NotNull(loadRes.Project);
-            Assert.Equal(project.Effects.Nodes.Count, loadRes.Project.Effects.Nodes.Count);
-            Assert.Equal(project.Curves.Count, loadRes.Project.Curves.Count);
-            Assert.Equal("Neon", loadRes.Project.Scene.LyricStyleName);
+            Assert.Null(ProjectStore.Save(project, path));
+            var loaded = ProjectStore.Load(path);
+            Assert.Null(loaded.Fault);
+            var back = loaded.Project!;
+
+            Assert.Equal(project.Curves.Count, back.Curves.Count);
+            Assert.Contains(back.Curves, c => c.Layer == AutoDirector.BeatLayer && c.Blend == CurveBlend.Multiply);
+            Assert.Equal(
+                project.Effects.Nodes.Sum(n => n.Windows.Count),
+                back.Effects.Nodes.Sum(n => n.Windows.Count));
+
+            var before = DirectorEvaluator.FromSaves(project.Curves);
+            var after = DirectorEvaluator.FromSaves(back.Curves);
+            foreach (var t in new[] { 3.0, 12.0, 14.0, 21.0, 25.5 })
+                Assert.Equal(Scale(before, t), Scale(after, t), precision: 9);
         }
         finally
         {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("soft")]
+    [InlineData("dynamic")]
+    [InlineData("epic")]
+    public void EveryStyle_HasLookAndDistinctAccents(string style)
+    {
+        var p = Generate(style);
+        var ids = p.Effects.Nodes.Select(n => n.DefId).ToHashSet();
+        Assert.Contains("colorGrade", ids);
+        Assert.Contains("bloom", ids);
+        Assert.Contains("flash", ids);
+
+        switch (style)
+        {
+            case "soft":
+                Assert.DoesNotContain("glitch", ids);
+                Assert.DoesNotContain("shake", ids);
+                Assert.Contains("lightRays", ids);
+                Assert.Contains("liquid", ids);
+                break;
+            case "epic":
+                Assert.Contains("lightRays", ids);
+                Assert.Contains("glassShatter", ids);
+                Assert.DoesNotContain("glitch", ids);
+                break;
+            default:
+                Assert.Contains("glitch", ids);
+                Assert.Contains("chromatic", ids);
+                break;
         }
     }
 
     [Fact]
-    public void Generate_DynamicStyle_AssertStructure_Snapping_Effects_RoundTrip()
+    public void ZeroIntensity_LeavesCameraStill()
+    {
+        var eval = DirectorEvaluator.FromSaves(Generate(intensity: 0).Curves);
+        for (double t = 0; t < 32; t += 0.25)
+            Assert.Equal(1.0, Scale(eval, t), precision: 9);
+    }
+
+    [Fact]
+    public void WithoutChorusLabel_HighEnergySectionIsTreatedAsChorus()
+    {
+        var map = Song();
+        foreach (var s in map.Sections.Where(s => s.Kind == "chorus")) s.Kind = "verse";
+        var p = Generate("epic", map: map);
+
+        Assert.Contains(p.Effects.Nodes, n => n.DefId == "lightRays");
+        Assert.Equal("Neon", p.Scene.LyricStyleName);
+    }
+
+    [Fact]
+    public void EmptyAnalysis_DoesNotThrow()
     {
         var project = new DirectorProject();
-        var map = CreateSampleBeatMap();
-        var options = new AutoOptions { Style = "dynamic", Intensity = 0.7 };
-
-        var report = AutoDirector.Generate(project, map, options);
-
-        Assert.True(report.CameraKeys > 0);
-        Assert.Equal(3, report.EffectInstances);
-
-        var defIds = project.Effects.Nodes.Select(n => n.DefId).ToList();
-        Assert.Contains("bloom", defIds);
-        Assert.Contains("motionBlur", defIds);
-        Assert.Contains("glitch", defIds);
-
-        // 节拍脉冲曲线：glitch.amount
-        var glitchNode = project.Effects.Nodes.First(n => n.DefId == "glitch");
-        var glitchCurve = project.Curves.FirstOrDefault(c => c.Address == $"effect:{glitchNode.InstanceId}.amount");
-        Assert.NotNull(glitchCurve);
-        Assert.True(glitchCurve.Curve.Count > 0);
-        Assert.Contains(glitchCurve.Curve.Keys, k => k.Value > 0);
-
-        var scaleCurve = project.Curves.First(c => c.Address == "camera.scale");
-        Assert.All(scaleCurve.Curve.Keys, k => Assert.Contains(k.Time, map.Beats));
-
-        string tempFile = TempProjectPath();
-        try
-        {
-            Assert.Null(ProjectStore.Save(project, tempFile));
-            var loadRes = ProjectStore.Load(tempFile);
-            Assert.Null(loadRes.Fault);
-            Assert.NotNull(loadRes.Project);
-            Assert.Equal(3, loadRes.Project.Effects.Nodes.Count);
-            Assert.Equal(project.Curves.Count, loadRes.Project.Curves.Count);
-        }
-        finally
-        {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
-        }
+        var report = AutoDirector.Generate(project, new BeatMap(), new AutoOptions());
+        Assert.Contains(project.Effects.Nodes, n => n.DefId == "colorGrade");
+        Assert.DoesNotContain(project.Effects.Nodes, n => n.DefId == "glitch");
+        Assert.True(report.EffectInstances > 0);
     }
 
     [Fact]
-    public void Generate_EpicStyle_AssertStructure_Snapping_Effects_RoundTrip()
+    public void VerseOnly_UsesMinimalLyricStyle()
     {
-        var project = new DirectorProject();
-        var map = CreateSampleBeatMap();
-        var options = new AutoOptions { Style = "epic", Intensity = 0.8 };
-
-        var report = AutoDirector.Generate(project, map, options);
-
-        Assert.True(report.CameraKeys > 0);
-        Assert.Equal(3, report.EffectInstances);
-
-        var defIds = project.Effects.Nodes.Select(n => n.DefId).ToList();
-        Assert.Contains("bloom", defIds);
-        Assert.Contains("lightRays", defIds);
-        Assert.Contains("zoomPunch", defIds);
-
-        // zoomPunch.scale 节拍脉冲曲线
-        var zoomNode = project.Effects.Nodes.First(n => n.DefId == "zoomPunch");
-        var zoomCurve = project.Curves.FirstOrDefault(c => c.Address == $"effect:{zoomNode.InstanceId}.scale");
-        Assert.NotNull(zoomCurve);
-        Assert.True(zoomCurve.Curve.Count > 0);
-
-        var scaleCurve = project.Curves.First(c => c.Address == "camera.scale");
-        Assert.All(scaleCurve.Curve.Keys, k => Assert.Contains(k.Time, map.Beats));
-
-        string tempFile = TempProjectPath();
-        try
-        {
-            Assert.Null(ProjectStore.Save(project, tempFile));
-            var loadRes = ProjectStore.Load(tempFile);
-            Assert.Null(loadRes.Fault);
-            Assert.NotNull(loadRes.Project);
-            Assert.Equal(3, loadRes.Project.Effects.Nodes.Count);
-            Assert.Equal(project.Curves.Count, loadRes.Project.Curves.Count);
-        }
-        finally
-        {
-            if (File.Exists(tempFile)) File.Delete(tempFile);
-        }
-    }
-
-    [Fact]
-    public void Generate_IntensityBoundaries_ZeroAndOne()
-    {
-        var map = CreateSampleBeatMap();
-
-        // 边界 0
-        var p0 = new DirectorProject();
-        var rep0 = AutoDirector.Generate(p0, map, new AutoOptions { Style = "dynamic", Intensity = 0.0 });
-        Assert.True(rep0.CameraKeys > 0);
-        var scale0 = p0.Curves.First(c => c.Address == "camera.scale");
-        Assert.All(scale0.Curve.Keys, k => Assert.True(k.Value <= 1.0 + 1e-9));
-
-        // 边界 1
-        var p1 = new DirectorProject();
-        var rep1 = AutoDirector.Generate(p1, map, new AutoOptions { Style = "dynamic", Intensity = 1.0 });
-        Assert.True(rep1.CameraKeys > 0);
-        var scale1 = p1.Curves.First(c => c.Address == "camera.scale");
-        Assert.Contains(scale1.Curve.Keys, k => Math.Abs(k.Value - 1.14) < 1e-6);
-    }
-
-    [Fact]
-    public void Generate_RepeatedCalls_IsIdempotent()
-    {
-        var project = new DirectorProject();
-        var map = CreateSampleBeatMap();
-        var options = new AutoOptions { Style = "dynamic", Intensity = 0.6 };
-
-        var rep1 = AutoDirector.Generate(project, map, options);
-        int camKeys1 = rep1.CameraKeys;
-        int fxInst1 = rep1.EffectInstances;
-        int curveKeys1 = rep1.CurveKeys;
-        int nodeCount1 = project.Effects.Nodes.Count;
-        int curvesCount1 = project.Curves.Count;
-
-        // 第二次重复生成
-        var rep2 = AutoDirector.Generate(project, map, options);
-        Assert.Equal(camKeys1, rep2.CameraKeys);
-        Assert.Equal(fxInst1, rep2.EffectInstances);
-        Assert.Equal(curveKeys1, rep2.CurveKeys);
-        Assert.Equal(nodeCount1, project.Effects.Nodes.Count);
-        Assert.Equal(curvesCount1, project.Curves.Count);
-
-        // 第三次重复生成
-        var rep3 = AutoDirector.Generate(project, map, options);
-        Assert.Equal(camKeys1, rep3.CameraKeys);
-        Assert.Equal(nodeCount1, project.Effects.Nodes.Count);
-        Assert.Equal(curvesCount1, project.Curves.Count);
-    }
-
-    [Fact]
-    public void Generate_VerseOnly_UsesMinimalLyricStyle()
-    {
-        var project = new DirectorProject();
-        var map = new BeatMap
-        {
-            Bpm = 100,
-            Beats = new List<double> { 0.0, 1.0, 2.0 },
-            Sections = new List<Section>
-            {
-                new Section { Start = 0.0, End = 2.0, Kind = "verse" }
-            }
-        };
-
-        AutoDirector.Generate(project, map, new AutoOptions());
-        Assert.Equal("Minimal", project.Scene.LyricStyleName);
-    }
-
-    /// <summary>
-    /// 效果脉冲只落在两条曲线上（glitch.amount / zoomPunch.scale），没有别的产物；
-    /// 曲线值就是画面实际取到的值——管线对效果参数直接按曲线求值（PvPipeline.ApplyEffectCurves）。
-    /// </summary>
-    [Fact]
-    public void Generate_EffectPulseCurves_LiveInProjectCurves_AndEvaluateCorrectly()
-    {
-        var map = CreateSampleBeatMap();
-
-        // 1. dynamic：glitch.amount 节拍脉冲曲线
-        var projectDyn = new DirectorProject();
-        AutoDirector.Generate(projectDyn, map, new AutoOptions { Style = "dynamic", Intensity = 0.6 });
-
-        var glitchNode = projectDyn.Effects.Nodes.First(n => n.DefId == "glitch");
-        string glitchAddr = $"effect:{glitchNode.InstanceId}.amount";
-        Assert.NotNull(projectDyn.Curves.FirstOrDefault(c => c.Address == glitchAddr));
-
-        var dynCurves = CurvesOf(projectDyn);
-        // 非下拍节拍点 0.0s 取基准 0.0，而不是停在最大强度
-        Assert.Equal(0.0, Evaluate(dynCurves, glitchAddr, 0.0), precision: 3);
-        // 下拍 1.5s 脉冲到 48.0 * 0.6
-        Assert.Equal(48.0 * 0.6, Evaluate(dynCurves, glitchAddr, 1.5), precision: 3);
-
-        // 2. epic：zoomPunch.scale 节拍脉冲曲线
-        var projectEpic = new DirectorProject();
-        AutoDirector.Generate(projectEpic, map, new AutoOptions { Style = "epic", Intensity = 0.8 });
-
-        var zoomNode = projectEpic.Effects.Nodes.First(n => n.DefId == "zoomPunch");
-        string zoomAddr = $"effect:{zoomNode.InstanceId}.scale";
-        Assert.NotNull(projectEpic.Curves.FirstOrDefault(c => c.Address == zoomAddr));
-
-        var epicCurves = CurvesOf(projectEpic);
-        Assert.Equal(1.0, Evaluate(epicCurves, zoomAddr, 0.0), precision: 3);
-        Assert.Equal(1.0 + 0.35 * 0.8, Evaluate(epicCurves, zoomAddr, 1.5), precision: 3);
-    }
-
-    /// <summary>有下拍信息时 punch 关键帧只落在下拍上：非下拍的拍点保持基准值。</summary>
-    [Fact]
-    public void Generate_PunchKeysLandOnlyOnDownbeats()
-    {
-        var project = new DirectorProject();
-        var map = CreateSampleBeatMap();
-        AutoDirector.Generate(project, map, new AutoOptions { Style = "dynamic", Intensity = 1.0 });
-
-        var scale = project.Curves.First(c => c.Address == "camera.scale");
-        // intensity=1 → punch 值 = 1.0 + 0.14；只有下拍该出现这个值
-        var punched = scale.Curve.Keys.Where(k => Math.Abs(k.Value - 1.14) < 1e-6).Select(k => k.Time).ToList();
-        Assert.NotEmpty(punched);
-        Assert.All(punched, t => Assert.Contains(t, map.Downbeats));
-    }
-
-    /// <summary>没有下拍信息时回退到每拍都打，不会因为缺下拍而丢掉节拍脉冲。</summary>
-    [Fact]
-    public void Generate_WithoutDownbeats_PunchesEveryBeat()
-    {
-        var project = new DirectorProject();
         var map = new BeatMap
         {
             Bpm = 120,
-            Beats = new List<double> { 0.0, 0.5, 1.0, 1.5 },
-            Sections = new List<Section> { new Section { Start = 0.0, End = 1.5, Kind = "verse" } }
+            Beats = Enumerable.Range(0, 16).Select(i => i * Beat).ToList(),
+            Sections = [new Section { Start = 0, End = 8, Kind = "verse", Energy = 0.5 }],
         };
-
-        AutoDirector.Generate(project, map, new AutoOptions { Style = "dynamic", Intensity = 1.0 });
-
-        var curves = CurvesOf(project);
-        foreach (var b in map.Beats)
-            Assert.Equal(1.14, Evaluate(curves, "camera.scale", b), precision: 3);
-    }
-
-    private static DirectorEvaluator CurvesOf(DirectorProject project)
-    {
-        var curves = new DirectorEvaluator();
-        foreach (var save in project.Curves)
-        {
-            if (save?.Curve is null) continue;
-            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
-            curves.SetCurve(addr, save.Curve);
-        }
-
-        return curves;
-    }
-
-    private static double Evaluate(DirectorEvaluator curves, string address, double time)
-    {
-        Assert.True(ParamAddress.TryParse(address, out var addr), $"测试前置地址应能解析：{address}");
-        Assert.True(curves.TryEvaluate(addr, time, out var value), $"地址没有曲线：{address}");
-        return value;
+        var p = Generate(map: map);
+        Assert.Equal("Minimal", p.Scene.LyricStyleName);
     }
 }

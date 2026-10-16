@@ -146,6 +146,36 @@ public sealed record EffectDef(
 }
 
 /// <summary>
+/// 效果的一段出现区间 [Start, End)（歌曲秒）：开头 <see cref="FadeIn"/> 秒线性淡入，结尾 <see cref="FadeOut"/> 秒线性淡出。
+/// 淡入淡出之和超过区间长时按比例压缩，保证权重在区间内连续。
+/// </summary>
+public readonly record struct EffectWindow(double Start, double End, double FadeIn = 0, double FadeOut = 0)
+{
+    [Newtonsoft.Json.JsonIgnore]
+    public bool IsValid => double.IsFinite(Start) && double.IsFinite(End) && End > Start
+                           && double.IsFinite(FadeIn) && double.IsFinite(FadeOut) && FadeIn >= 0 && FadeOut >= 0;
+
+    public double WeightAt(double t)
+    {
+        if (!(t >= Start && t < End)) return 0;
+        var len = End - Start;
+        var fi = FadeIn;
+        var fo = FadeOut;
+        if (fi + fo > len)
+        {
+            var k = len / (fi + fo);
+            fi *= k;
+            fo *= k;
+        }
+
+        var w = 1.0;
+        if (fi > 0) w = Math.Min(w, (t - Start) / fi);
+        if (fo > 0) w = Math.Min(w, (End - t) / fo);
+        return Math.Clamp(w, 0, 1);
+    }
+}
+
+/// <summary>
 /// 效果图上的一个节点：引用某个 <see cref="EffectDef"/>，带开关与参数值。
 /// 参数值按 key 存（不按槽位），所以改 HLSL 的槽位不会污染已保存的参数。
 /// </summary>
@@ -162,6 +192,46 @@ public sealed class EffectNode
     public string InstanceId { get; init; } = "";
 
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// 出现区间（歌曲时间）。空 = 全程生效；非空 = 只在区间内生效，区间外整个节点不进渲染图。
+    /// 淡入淡出靠把效果的混合参数（<see cref="EffectCatalog.TryGetMix"/>）向"无效果值"插值实现。
+    /// </summary>
+    public List<EffectWindow> Windows { get; } = new();
+
+    /// <summary>
+    /// 本帧是否在出现区间内。只由渲染线程的帧求值（PvPipeline.ApplyEffectCurves）写，不持久化；
+    /// 没走帧求值的图（单测、缩略图）恒为 true，等于忽略区间。
+    /// </summary>
+    public bool FrameActive { get; set; } = true;
+
+    // 帧求值前的参数原值：帧求值把曲线结果写回 Values，下一帧要从原值重新算，否则 Multiply 层会逐帧累乘。
+    // 只在渲染线程那份快照上惰性建立；Clone 不复制，新发布的快照从新的文档值重新开始。
+    private Dictionary<string, float>? _rest;
+
+    /// <summary>参数的文档原值（首次调用时从 <see cref="Values"/> 记下，此后不随帧求值改变）。</summary>
+    public float RestValue(EffectParam p)
+    {
+        _rest ??= new Dictionary<string, float>();
+        if (!_rest.TryGetValue(p.Key, out var v)) _rest[p.Key] = v = Value(p);
+        return v;
+    }
+
+    /// <summary>
+    /// <paramref name="time"/> 时刻的出现权重 0..1：没有区间恒为 1；多个区间重叠取最大。
+    /// </summary>
+    public double WindowWeight(double time)
+    {
+        if (Windows.Count == 0) return 1;
+        double best = 0;
+        foreach (var w in Windows)
+        {
+            var v = w.WeightAt(time);
+            if (v > best) best = v;
+        }
+
+        return best;
+    }
 
     /// <summary>数值/开关参数值。</summary>
     public Dictionary<string, float> Values { get; } = new();

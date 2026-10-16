@@ -31,6 +31,10 @@ public static class EffectGraphJson
 
         public Dictionary<string, float>? Values { get; set; }
         public Dictionary<string, string>? Colors { get; set; }
+
+        /// <summary>出现区间；全程生效的节点不写（旧读方视野里不变）。</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public List<EffectWindow>? Windows { get; set; }
     }
 
     private sealed class GraphDto
@@ -51,6 +55,7 @@ public static class EffectGraphJson
                 InstanceId = string.IsNullOrEmpty(n.InstanceId) ? null : n.InstanceId,
                 Values = n.Values.Count > 0 ? new Dictionary<string, float>(n.Values) : null,
                 Colors = n.Colors.Count > 0 ? new Dictionary<string, string>(n.Colors) : null,
+                Windows = n.Windows.Count > 0 ? new List<EffectWindow>(n.Windows) : null,
             }).ToList(),
         };
         return JsonConvert.SerializeObject(dto, indented ? Formatting.Indented : Formatting.None);
@@ -122,6 +127,18 @@ public static class EffectGraphJson
                     var p = def.Params.FirstOrDefault(x => x.Key == key && x.Kind == EffectParamKind.Color);
                     if (p is not null) node.SetColor(p, hex);
                 }
+            }
+
+            if (nd.Windows is not null)
+            {
+                foreach (var w in nd.Windows)
+                {
+                    // 坏区间（非有限 / 长度非正）只丢这一段：留着会让节点在任何时刻都不出现，比"没有这段"更难查
+                    if (w.IsValid) node.Windows.Add(w);
+                    else Log.Warn($"[EffectGraph] 效果「{nd.DefId}」含非法出现区间 {w}，已丢弃");
+                }
+
+                node.Windows.Sort((a, b) => a.Start.CompareTo(b.Start));
             }
 
             graph.Nodes.Add(node);
