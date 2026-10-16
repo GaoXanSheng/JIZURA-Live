@@ -56,10 +56,17 @@ public static class LyricTiming
         var tokens = new List<string>();
         var current = new StringBuilder();
         var open = false; // 当前词还在收字符（空白已把它收尾）
+        var lead = "";    // 行首空白：并入第一个词，拼回去才与原文逐字符相等
+
+        void Add(string token)
+        {
+            tokens.Add(lead + token);
+            lead = "";
+        }
 
         void Flush()
         {
-            if (current.Length > 0) tokens.Add(current.ToString());
+            if (current.Length > 0) Add(current.ToString());
             current.Clear();
             open = false;
         }
@@ -68,8 +75,10 @@ public static class LyricTiming
         {
             if (char.IsWhiteSpace(ch))
             {
-                if (open) { current.Append(ch); open = false; }
-                continue; // 行首/连续空白不生成空词
+                if (current.Length > 0) { current.Append(ch); open = false; }
+                else if (tokens.Count > 0) tokens[^1] += ch;
+                else lead += ch;
+                continue;
             }
 
             if (char.IsPunctuation(ch) || char.IsSymbol(ch))
@@ -84,7 +93,7 @@ public static class LyricTiming
             if (IsCjk(ch))
             {
                 Flush();
-                tokens.Add(ch.ToString());
+                Add(ch.ToString());
                 continue;
             }
 
