@@ -38,35 +38,48 @@ public readonly record struct AudioAnalysisKey(string ContentHash, int AnalysisV
 public readonly record struct AudioBands(float Rms, float Bass, float Mid, float High, bool Valid);
 
 /// <summary>
+/// 离线频带分析序列基类/只读视图（rms/bass/mid/high 时间序列，§13.4）。
+/// 纯函数算法（如节拍与段落分析）只依赖本契约，也便于单测注入合成数据。
+/// </summary>
+public class AudioAnalysis
+{
+    public float[] Rms { get; init; } = Array.Empty<float>();
+    public float[] Bass { get; init; } = Array.Empty<float>();
+    public float[] Mid { get; init; } = Array.Empty<float>();
+    public float[] High { get; init; } = Array.Empty<float>();
+    public double StepSeconds { get; init; }
+    public int SampleRate { get; init; } = 48000;
+    public int Count => Rms?.Length ?? 0;
+
+    public AudioAnalysis() { }
+
+    public AudioAnalysis(float[] rms, float[] bass, float[] mid, float[] high, double stepSeconds, int sampleRate = 48000)
+    {
+        Rms = rms;
+        Bass = bass;
+        Mid = mid;
+        High = high;
+        StepSeconds = stepSeconds;
+        SampleRate = sampleRate;
+    }
+}
+
+/// <summary>
 /// 固定窗口的 rms/bass/mid/high 序列（契约 §13.4）：窗口 j 的中心时刻 = j×hop/sampleRate。
 /// 查询是纯函数——同一 t 在任何预览帧率下逐位相同，不读播放位置、不依赖上一帧游标。
 /// 只保存降采样结果，不保留整首 PCM（§15.2）。
 /// </summary>
-public sealed class AudioBandSeries
+public sealed class AudioBandSeries : AudioAnalysis
 {
-    private readonly float[] _rms;
-    private readonly float[] _bass;
-    private readonly float[] _mid;
-    private readonly float[] _high;
     private readonly int _hop;
 
     internal AudioBandSeries(float[] rms, float[] bass, float[] mid, float[] high, int hop, int sampleRate, int configVersion, bool isComplete)
+        : base(rms, bass, mid, high, (double)hop / sampleRate, sampleRate)
     {
-        _rms = rms;
-        _bass = bass;
-        _mid = mid;
-        _high = high;
         _hop = hop;
-        SampleRate = sampleRate;
         ConfigVersion = configVersion;
         IsComplete = isComplete;
-        StepSeconds = (double)hop / sampleRate;
     }
-
-    /// <summary>窗口步长的秒数，== Hop / sampleRate。</summary>
-    public double StepSeconds { get; }
-
-    public int SampleRate { get; }
 
     /// <summary>产生本序列的分析规则版本：规则改变后旧序列不得与新序列混用。</summary>
     public int ConfigVersion { get; }
@@ -74,21 +87,13 @@ public sealed class AudioBandSeries
     /// <summary>整首是否分析完成；未完成时尾部窗口缺失，查询按现有窗口钳位（留给 reader 阶段表达"未完成"）。</summary>
     public bool IsComplete { get; }
 
-    /// <summary>窗口数。</summary>
-    public int Count => _rms.Length;
-
-    public float[] Rms => _rms;
-    public float[] Bass => _bass;
-    public float[] Mid => _mid;
-    public float[] High => _high;
-
     /// <summary>
     /// 按时刻查询：j = round(t×sampleRate/hop) 是离 t 最近的窗口中心，再在相邻两窗之间线性插值。
     /// t 早于首窗取首窗值、晚于末窗取末窗值（越界钳位）；空序列返回 Valid=false。
     /// </summary>
     public bool Sample(double timeSeconds, out AudioBands bands)
     {
-        int n = _rms.Length;
+        int n = Rms.Length;
         if (n == 0)
         {
             // 没有窗口时给 Valid=false，让上层回落到 base(t)，而不是把 0 当成真实静音
@@ -113,10 +118,10 @@ public sealed class AudioBandSeries
 
         float t = (float)Math.Abs(frac);
         bands = new AudioBands(
-            Lerp(_rms[j], _rms[k], t),
-            Lerp(_bass[j], _bass[k], t),
-            Lerp(_mid[j], _mid[k], t),
-            Lerp(_high[j], _high[k], t),
+            Lerp(Rms[j], Rms[k], t),
+            Lerp(Bass[j], Bass[k], t),
+            Lerp(Mid[j], Mid[k], t),
+            Lerp(High[j], High[k], t),
             true);
         return true;
     }

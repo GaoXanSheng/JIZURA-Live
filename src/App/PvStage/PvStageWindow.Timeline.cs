@@ -256,6 +256,7 @@ public partial class PvStageWindow
                     _audioBands = bands;
                     PublishAudioBands();
                     RefreshParamRows(); // 频带到位后「失效回落」的那些行当场变成「连线」
+                    ShowStatus("音频分析完成，可一键成片");
                 }
             });
         });

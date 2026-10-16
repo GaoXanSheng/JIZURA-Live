@@ -97,6 +97,23 @@ public partial class PvStageWindow : Window
     // 离线频带序列：分析算完发布给管线（蓝图画布的「能量」节点读它）。null = 分析未就绪
     private AudioBandSeries? _audioBands;
 
+    // 一键成片运行态与临时状态条回执
+    private bool _autoGenerating;
+    private string? _transientStatus;
+    private int _transientStatusTicks;
+
+    private void ShowStatus(string message, int durationSeconds = 5)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => ShowStatus(message, durationSeconds));
+            return;
+        }
+        _transientStatus = message;
+        _transientStatusTicks = Math.Max(1, durationSeconds * 2);
+        TblStatus.Text = message;
+    }
+
     // 属性检查器：null = 没有选中对象，显示工程级信息
     private PvLayerConfig? _selectedLayer;
 
@@ -1347,6 +1364,7 @@ public partial class PvStageWindow : Window
     {
         if (!BackupProjectFile()) return;
 
+        var prevAudio = _audioPath;
         _project = project;
         _scene = project.Scene;
         _effects = project.Effects;
@@ -1362,22 +1380,50 @@ public partial class PvStageWindow : Window
             _evaluator.SetCurve(addr, save.Curve);
         }
 
-        // 传输时钟换一个干净的：新工程没绑音频时，上一个工程的音频不该接着播。
-        // （AudioClockDriver 没有"卸载"接口；它释放后 Time/Duration 返回零值，渲染线程最多多读到一帧旧位置。）
-        _audio.Dispose();
-        _audio = new AudioClockDriver();
+        // 撤销/重做同一音源时不重建时钟，避免 Ctrl+Z 把正在播的音频与已就绪的频带打掉
+        bool sameAudio = !resetUndo && !string.IsNullOrWhiteSpace(_audioPath)
+                         && string.Equals(prevAudio, _audioPath, StringComparison.OrdinalIgnoreCase)
+                         && _audio.Duration > 0;
+
+        if (!sameAudio)
+        {
+            // 传输时钟换一个干净的：新工程没绑音频时，上一个工程的音频不该接着播。
+            // （AudioClockDriver 没有"卸载"接口；它释放后 Time/Duration 返回零值，渲染线程最多多读到一帧旧位置。）
+            _audio.Dispose();
+            _audio = new AudioClockDriver();
+
+            _peaks = null;
+            _audioLoadCts?.Cancel();
+            // 频带序列属于旧音频：立刻作废并发布 null，别让渲染线程拿旧频带去配新时钟
+            _audioBands = null;
+            PublishAudioBands();
+
+            if (!string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath))
+            {
+                if (_audio.LoadAudio(_audioPath))
+                    StartAudioLoad(_audioPath);
+            }
+        }
 
         // UI 侧先清干净：留着旧工程的歌词行/图层卡/画布投影，等于两套工程同时显示在屏幕上
         _lyrics = null;
         _lyricClips = new List<LyricClip>();
         _tailUncalibrated = false;
+        if (!string.IsNullOrWhiteSpace(_lrcText))
+        {
+            try
+            {
+                var (lines, tailUncalibrated) = ParseLyrics(_lrcText);
+                _lyrics = lines;
+                _lyricClips = LrcParser.ToClips(lines);
+                _tailUncalibrated = tailUncalibrated;
+                _pipe?.SetLyrics(lines);
+            }
+            catch { }
+        }
+
         _uiLayerIds = Array.Empty<string>();
         _selectedLayer = null;
-        _peaks = null;
-        _audioLoadCts?.Cancel();
-        // 频带序列属于旧音频：立刻作废并发布 null，别让渲染线程拿旧频带去配新时钟
-        _audioBands = null;
-        PublishAudioBands();
         _colorNode = null;
         _colorParam = null;
         _colorSwatch = null;
@@ -1388,6 +1434,14 @@ public partial class PvStageWindow : Window
         RefreshBlueprint(); // 画布上的节点/连线/绑定与选中集都属于旧工程，必须整份重投影
         TheTimeline.Fps = _scene.Fps;
         RefreshTimeline();
+        BuildInspector();
+
+        if (_cmbLyricStyle is not null)
+        {
+            _syncingLyricStyle = true;
+            _cmbLyricStyle.SelectedItem = _scene.LyricStyleName;
+            _syncingLyricStyle = false;
+        }
 
         // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
         if (_pipe is not null) _rebuildPipe = true;
@@ -2042,6 +2096,15 @@ public partial class PvStageWindow : Window
         if (_audio.Error is { } fault) TblStatus.Text = $"音频已暂停：{fault}";
         if (_saveError is { } saveFault) TblStatus.Text = $"工程未保存：{saveFault}";
 
+        // 临时状态（如「可一键成片」、「一键成片完成」等回执）：倒计时内优先展示
+        if (_transientStatus is not null)
+        {
+            if (--_transientStatusTicks <= 0)
+                _transientStatus = null;
+            else
+                TblStatus.Text = _transientStatus;
+        }
+
         // 导出进度写在这条链的最后：上面每 500ms 一次的状态行刷新会把刚显示的百分比抹掉
         if (_exporting) TblStatus.Text = ExportText();
 
@@ -2084,6 +2147,139 @@ public partial class PvStageWindow : Window
             ? "M3.6 6.4 L8 10.8 L12.4 6.4"
             : "M3.6 9.6 L8 5.2 L12.4 9.6");
         BtnFold.ToolTip = expanded ? "折叠时间轴" : "展开时间轴";
+    }
+
+    private void BtnAuto_Click(object sender, RoutedEventArgs e)
+    {
+        AutoDirectorPop.IsOpen = !AutoDirectorPop.IsOpen;
+    }
+
+    private void SldAutoIntensity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (TblAutoIntensity is not null)
+            TblAutoIntensity.Text = e.NewValue.ToString("F2", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>一键成片：后台节拍与能量分析 → 自动导演生成 → 单次可撤销事务 → 刷新时间轴与检查器。</summary>
+    private async void BtnGenerateAuto_Click(object sender, RoutedEventArgs e)
+    {
+        if (_autoGenerating) return;
+
+        var audioPath = _audioPath;
+        var duration = _audio.Duration;
+        var existingAnalysis = _audioBands;
+
+        if (string.IsNullOrWhiteSpace(audioPath) && existingAnalysis == null)
+        {
+            ShowStatus("一键成片失败：请先导入音频");
+            return;
+        }
+
+        _autoGenerating = true;
+        BtnGenerateAuto.IsEnabled = false;
+        BtnGenerateAuto.Content = "生成中…";
+        ShowStatus("一键成片：正在分析音频节拍与能量…");
+
+        string style = "dynamic";
+        if (CmbAutoStyle.SelectedItem is ComboBoxItem item && item.Tag is string s)
+            style = s;
+        double intensity = SldAutoIntensity.Value;
+        var options = new AutoOptions { Style = style, Intensity = intensity };
+
+        try
+        {
+            var (beatMap, analysisResult, error) = await Task.Run<(BeatMap? BeatMap, AudioAnalysis? Analysis, string? Error)>(() =>
+            {
+                try
+                {
+                    AudioAnalysis? analysis = existingAnalysis;
+                    if (analysis is null)
+                    {
+                        if (string.IsNullOrWhiteSpace(audioPath) || !File.Exists(audioPath))
+                            return (null, null, "音频文件不存在，无法分析");
+                        analysis = AudioFileAnalyzer.Analyze(audioPath, CancellationToken.None);
+                        if (analysis is null)
+                            return (null, null, "音频频带分析失败");
+                    }
+
+                    double d = duration;
+                    if (d <= 0 && analysis.Count > 0 && analysis.StepSeconds > 0)
+                        d = analysis.Count * analysis.StepSeconds;
+
+                    if (d <= 0)
+                        return (null, analysis, "音频时长为 0，无法分析节拍");
+
+                    var map = BeatAnalysis.Analyze(analysis, d);
+                    return (map, analysis, null);
+                }
+                catch (Exception ex)
+                {
+                    return (null, null, ex.Message);
+                }
+            });
+
+            if (beatMap is null)
+            {
+                ShowStatus($"一键成片失败：{error ?? "未知错误"}");
+                return;
+            }
+
+            if (_audioBands is null && analysisResult is AudioBandSeries abs)
+            {
+                _audioBands = abs;
+                PublishAudioBands();
+                RefreshParamRows();
+            }
+
+            // UI 线程调 AutoDirector.Generate 写进工程
+            var report = AutoDirector.Generate(_project, beatMap, options);
+
+            // 同步工程曲线至 _evaluator 并发布给管线
+            _evaluator = new DirectorEvaluator();
+            foreach (var save in _project.Curves)
+            {
+                if (save?.Curve is null) continue;
+                if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
+                _evaluator.SetCurve(addr, save.Curve);
+            }
+            PublishDirector();
+            PublishSignalGraph();
+
+            // 刷新效果架、图层、蓝图画布、时间轴与检查器
+            BuildEffectRack();
+            BuildLayerList();
+            RefreshBlueprint();
+            TheTimeline.Fps = _scene.Fps;
+            RefreshTimeline();
+            BuildInspector();
+
+            if (_cmbLyricStyle is not null)
+            {
+                _syncingLyricStyle = true;
+                _cmbLyricStyle.SelectedItem = _scene.LyricStyleName;
+                _syncingLyricStyle = false;
+            }
+
+            // 一次 PushUndo（整次生成一条撤销）
+            PushUndo();
+
+            // 关闭小面板并给出状态条回执
+            AutoDirectorPop.IsOpen = false;
+            var note = $"一键成片完成：相机 {report.CameraKeys} 键 · 特效 {report.EffectInstances} 个 · 曲线 {report.CurveKeys} 键";
+            ShowStatus(note);
+            Log.Info($"[PV 工作台] {note}");
+        }
+        catch (Exception ex)
+        {
+            ShowStatus($"一键成片失败：{ex.Message}");
+            Log.Warn("[PV 工作台] 一键成片异常：" + ex);
+        }
+        finally
+        {
+            _autoGenerating = false;
+            BtnGenerateAuto.IsEnabled = true;
+            BtnGenerateAuto.Content = "生成";
+        }
     }
 
     // ---------------- 窗口外壳 ----------------

@@ -206,6 +206,19 @@ public class AudioAnalysisTests
         Assert.Equal(7, series.ConfigVersion);
     }
 
+    [Fact]
+    public void AudioBandSeriesIsAudioAnalysisAndViewExposesProperties()
+    {
+        var series = AudioAnalyzer.Analyze(SineMono(Rate, 1500, 0.5), 1, Rate);
+        AudioAnalysis analysis = series;
+        Assert.Equal(series.Count, analysis.Count);
+        Assert.Equal(series.StepSeconds, analysis.StepSeconds);
+        Assert.Same(series.Rms, analysis.Rms);
+        Assert.Same(series.Bass, analysis.Bass);
+        Assert.Same(series.Mid, analysis.Mid);
+        Assert.Same(series.High, analysis.High);
+    }
+
     // ---------- 整文件入口与管线快照 ----------
 
     [Fact]

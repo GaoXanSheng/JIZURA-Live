@@ -80,6 +80,11 @@
                             ToolTip="打开音频（同名 .lrc 会自动一起装载）">
                         <Path Data="{StaticResource IconVolume}" Fill="{StaticResource PvFgDim}" />
                     </Button>
+                    <Button x:Name="BtnAuto" Style="{StaticResource PvBtnIcon}" Click="BtnAuto_Click"
+                            ToolTip="一键成片：分析节拍与能量自动生成运镜与特效">
+                        <Path Data="M7.5 2 L9 5.5 L12.5 7 L9 8.5 L7.5 12 L6 8.5 L2.5 7 L6 5.5 Z M12 10.5 L12.8 12 L14.5 12.5 L12.8 13 L12 14.5 L11.2 13 L9.5 12.5 L11.2 12 Z"
+                              Stroke="{StaticResource PvFgDim}" StrokeThickness="1.2" />
+                    </Button>
                     <Button x:Name="BtnExport" Style="{StaticResource PvBtnIcon}" Click="BtnExport_Click"
                             ToolTip="导出 MP4：逐帧离屏渲染成片（另建一条管线，不动舞台）">
                         <Path Data="M8 2.6 V10 M5.2 7.2 L8 10 L10.8 7.2 M3.2 12.8 H12.8"
@@ -304,6 +309,44 @@
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
                     </ItemsControl>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <!-- 一键成片面板 -->
+        <Popup x:Name="AutoDirectorPop" StaysOpen="False" AllowsTransparency="True"
+               PlacementTarget="{Binding ElementName=BtnAuto}" Placement="Bottom"
+               HorizontalOffset="-80" VerticalOffset="6">
+            <Border Background="{StaticResource PvRaised}" BorderBrush="{StaticResource PvLineStrong}"
+                    BorderThickness="1" CornerRadius="{StaticResource PvRadius}" Padding="14,12" Width="240">
+                <StackPanel>
+                    <TextBlock Text="一键成片" FontWeight="SemiBold" FontSize="{StaticResource PvTextSm}"
+                               Foreground="{StaticResource PvFg}" Margin="0,0,0,10" />
+
+                    <!-- 风格 -->
+                    <Grid Margin="0,0,0,10">
+                        <TextBlock Text="风格" Style="{StaticResource PvRowLabel}" HorizontalAlignment="Left" />
+                        <ComboBox x:Name="CmbAutoStyle" Width="130" Height="26" HorizontalAlignment="Right"
+                                  SelectedIndex="1">
+                            <ComboBoxItem Tag="soft" Content="柔和" />
+                            <ComboBoxItem Tag="dynamic" Content="动感" />
+                            <ComboBoxItem Tag="epic" Content="史诗" />
+                        </ComboBox>
+                    </Grid>
+
+                    <!-- 强度 -->
+                    <Grid Margin="0,0,0,4">
+                        <TextBlock Text="强度" Style="{StaticResource PvRowLabel}" HorizontalAlignment="Left" />
+                        <TextBlock x:Name="TblAutoIntensity" Style="{StaticResource PvValue}" Text="0.60"
+                                   HorizontalAlignment="Right" />
+                    </Grid>
+                    <Slider x:Name="SldAutoIntensity" Style="{StaticResource PvSlider}" Margin="0,0,0,14"
+                            Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
+                            ValueChanged="SldAutoIntensity_ValueChanged" />
+
+                    <!-- 生成按钮 -->
+                    <Button x:Name="BtnGenerateAuto" Style="{StaticResource PvBtnPrimary}"
+                            Content="生成" Click="BtnGenerateAuto_Click" />
                 </StackPanel>
             </Border>
         </Popup>

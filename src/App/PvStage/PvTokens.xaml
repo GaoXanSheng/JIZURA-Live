@@ -184,6 +184,45 @@
         <Setter Property="Padding" Value="0" />
     </Style>
 
+    <!-- 主操作按钮：实心靛蓝背景 + 深底反白高对比度文字 -->
+    <Style x:Key="PvBtnPrimary" TargetType="Button">
+        <Setter Property="Foreground" Value="#08101F" />
+        <Setter Property="Background" Value="{StaticResource PvAccent}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="{StaticResource PvTextSm}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="14,6" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Grid>
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                CornerRadius="{StaticResource PvRadiusSm}" />
+                        <Border x:Name="hx" Background="#FFFFFF" Opacity="0"
+                                CornerRadius="{StaticResource PvRadiusSm}" IsHitTestVisible="False" />
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          Margin="{TemplateBinding Padding}" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="hx" Property="Opacity" Value="0.15" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="hx" Property="Opacity" Value="0.25" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.45" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ================= 滑杆（效果参数的主力控件） =================
          已填充段用 Track 的 DecreaseRepeatButton 实现：它天然只占「滑块左侧」那块，
          所以不需要任何转换器去算宽度——这是 WPF 里做填充轨道最省事的办法。 -->
