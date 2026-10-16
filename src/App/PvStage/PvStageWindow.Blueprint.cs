@@ -244,6 +244,8 @@ public partial class PvStageWindow
                     moved.Y = move.Y;
                 }
 
+            // 写回后必须重建画布快照：快照是只读投影，不刷新的话松手节点跳回原位（拖了白拖）
+            RefreshBlueprint();
             PushUndo();
             _saveError = SaveProjectNow();
             return;

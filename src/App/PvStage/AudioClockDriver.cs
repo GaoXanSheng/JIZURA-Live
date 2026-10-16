@@ -68,7 +68,7 @@ public sealed class AudioClockDriver : IDisposable
         }
         catch (Exception ex)
         {
-            Log.Error("[音频驱动] 加载音频失败：" + ex.Message, ex);
+            Log.Error($"[音频驱动] 加载音频失败：{filePath}：{ex.Message}", ex);
             return false;
         }
     }

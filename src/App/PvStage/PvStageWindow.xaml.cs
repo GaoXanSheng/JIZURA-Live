@@ -1519,6 +1519,11 @@ public partial class PvStageWindow : Window
                 TblStatus.Text = $"音频已加载 · 末句已对齐音频（{_lyrics?.Count ?? 0} 行歌词）";
             }
         }
+        else
+        {
+            // 失败必须可见：此前无 else，界面永远停在"正在加载音频…"，用户只看到「不能播放」
+            TblStatus.Text = $"音频加载失败：{Path.GetFileName(dlg.FileName)}（格式不支持或文件损坏；当前支持 wav/mp3/m4a/aac/wma）";
+        }
     }
 
     private void BtnBroadcast_Click(object sender, RoutedEventArgs e)

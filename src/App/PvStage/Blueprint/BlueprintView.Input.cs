@@ -9,6 +9,9 @@ namespace JizuraLive.App.PvStage.Blueprint;
 
 public sealed partial class BlueprintView
 {
+    // 参数行按压的候选编辑：拖出位移则转节点移动丢弃它，原地松手才真正打开
+    private (string NodeId, string Param)? _pendingEdit;
+
     protected override void OnMouseDown(MouseButtonEventArgs e)
     {
         base.OnMouseDown(e);
@@ -43,11 +46,13 @@ public sealed partial class BlueprintView
             return;
         }
 
-        // 参数行优先于节点拖动：点参数行=编辑，点节点其余部位=拖动
+        // 参数行：按下先当拖动候选（拖出位移=挪节点），原地松手才开编辑器——
+        // 否则节点主体的每次按压都被编辑吃掉，拖动只剩标题栏一条缝
         if (BlueprintMath.HitNode(_snap, canvas) is { } nodeId &&
             BlueprintMath.HitParamRow(_snap, nodeId, canvas) is { } paramName)
         {
-            OpenParamEditor(nodeId, paramName, screen);
+            _pendingEdit = (nodeId, paramName);
+            StartNodeDrag(nodeId, screen, canvas);
             return;
         }
 
@@ -106,7 +111,13 @@ public sealed partial class BlueprintView
         if (e.ChangedButton != MouseButton.Left && e.ChangedButton != MouseButton.Middle) return;
 
         if (_drag == DragMode.Node && (_dragDelta.X != 0 || _dragDelta.Y != 0)) EmitMove();
+        else if (_drag == DragMode.Node && _pendingEdit is { } pe)
+        {
+            var up = e.GetPosition(this);
+            OpenParamEditor(pe.NodeId, pe.Param, new BpPoint(up.X, up.Y));
+        }
         else if (_drag == DragMode.Link) FinishLink();
+        _pendingEdit = null;
 
         _drag = DragMode.None;
         _dragOrigins.Clear();
