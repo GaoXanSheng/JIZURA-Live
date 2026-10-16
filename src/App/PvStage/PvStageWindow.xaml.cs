@@ -1758,7 +1758,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 return $"VTS 连接失败（自动重试）：{(err.Length > 60 ? err[..60] : err)}";
             }
             case VtsState.NeedAuth:
-                return "VTS 待授权：点 VTS 按钮，再在 VTube Studio 里点「允许」";
+                return "VTS 待授权：在 VTube Studio 里点「允许」，或点「重新授权」重发请求";
             case VtsState.AwaitApproval:
                 return "VTS 等待授权…（在 VTube Studio 里点「允许」）";
             case VtsState.Ready:
