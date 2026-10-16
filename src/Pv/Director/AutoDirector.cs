@@ -141,18 +141,18 @@ public static class AutoDirector
                     scaleCurve.Remove(tStart);
                     scaleCurve.TryAdd(tStart, 1.0, CurveInterp.Linear);
                     scaleCurve.Remove(tEnd);
-                    scaleCurve.TryAdd(tEnd, 1.0 + 0.05 * intensity, CurveInterp.Linear);
+                    scaleCurve.TryAdd(tEnd, 1.0 + 0.18 * intensity, CurveInterp.Linear);
                     break;
 
                 case "chorus":
                     // chorus 拉开 / 俯仰
                     scaleCurve.Remove(tStart);
-                    scaleCurve.TryAdd(tStart, 1.10 + 0.05 * intensity, CurveInterp.SmoothStep);
+                    scaleCurve.TryAdd(tStart, 1.12 + 0.22 * intensity, CurveInterp.SmoothStep);
                     scaleCurve.Remove(tEnd);
                     scaleCurve.TryAdd(tEnd, 1.0, CurveInterp.SmoothStep);
 
                     rotationCurve.Remove(tStart);
-                    rotationCurve.TryAdd(tStart, 2.0 * intensity, CurveInterp.SmoothStep);
+                    rotationCurve.TryAdd(tStart, 6.0 * intensity, CurveInterp.SmoothStep);
                     rotationCurve.Remove(tEnd);
                     rotationCurve.TryAdd(tEnd, 0.0, CurveInterp.SmoothStep);
                     break;
@@ -190,7 +190,7 @@ public static class AutoDirector
             for (int i = 0; i < beats.Count; i += 2) punchBeats.Add(beats[i]);
         }
 
-        double punchVal = 1.0 + 0.02 * intensity;
+        double punchVal = 1.0 + 0.14 * intensity;
         for (int i = 0; i < beats.Count; i++)
         {
             double b = beats[i];
@@ -264,7 +264,7 @@ public static class AutoDirector
                 if (beats.Count > 0)
                 {
                     var zoomCurve = new FloatCurve();
-                    AddPulseKeys(zoomCurve, beats, peaks, 1.0, 1.0 + 0.12 * intensity);
+                    AddPulseKeys(zoomCurve, beats, peaks, 1.0, 1.0 + 0.35 * intensity);
                     if (zoomCurve.Count > 0)
                     {
                         project.Curves.Add(new CurveSave { Address = $"effect:{zoomNode.InstanceId}.scale", Curve = zoomCurve });
@@ -288,7 +288,7 @@ public static class AutoDirector
                 if (beats.Count > 0)
                 {
                     var glitchCurve = new FloatCurve();
-                    AddPulseKeys(glitchCurve, beats, peaks, 0.0, 24.0 * intensity);
+                    AddPulseKeys(glitchCurve, beats, peaks, 0.0, 48.0 * intensity);
                     if (glitchCurve.Count > 0)
                     {
                         project.Curves.Add(new CurveSave { Address = $"effect:{glitchNode.InstanceId}.amount", Curve = glitchCurve });

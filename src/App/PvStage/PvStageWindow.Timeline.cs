@@ -87,10 +87,9 @@ public partial class PvStageWindow
     /// <summary>播放头原位刷（不重建快照）：拖动中的 key 归时间轴自己改，重建会把它顶掉。</summary>
     private void TickTimeline()
     {
-        var snap = _snap;
-        if (snap is null) return;
-        snap.PlayheadSeconds = _audio.Time;
-        TheTimeline.SetSnapshot(snap);
+        if (_snap is null) return;
+        // SetPlayhead 只挪线；SetSnapshot 全量重建留给模型变化，播放中走全量就是"时间条卡顿"
+        TheTimeline.SetPlayhead(_audio.Time);
     }
 
     private void Timeline_SeekRequested(double seconds)

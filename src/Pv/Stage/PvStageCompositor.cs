@@ -75,6 +75,9 @@ public sealed class PvStageCompositor
     /// 每层的 offset/scale/rotation/opacity 取自 <see cref="PvScene.Frame"/> 的帧状态；
     /// 没算过帧状态的层（直接调合成器的用例）按文档常量画。
     /// </summary>
+    /// <summary>置顶固定分区的 provider Id：动效歌词、清晰字幕（不进场景层序，压在所有场景层之上）。</summary>
+    public static readonly string[] FixedZones = { "lyrics_pv", "subtitle_top" };
+
     public void Composite(PvScene scene, PvCamState cam,
         IReadOnlyDictionary<string, PvLayerImage> images, int width, int height)
     {
@@ -85,6 +88,14 @@ public sealed class PvStageCompositor
 
             var state = scene.Frame.TryGetLayer(layer.Id, out var frame) ? frame : PvLayerState.From(layer);
             DrawLayer(scene, layer, state, image, cam, width, height);
+        }
+
+        // 置顶分区最后画：歌词/字幕必须盖在角色等场景层之上（它们自己已在设计画布坐标里排好版）
+        foreach (var id in FixedZones)
+        {
+            if (!images.TryGetValue(id, out var zone) || !zone.HasContent) continue;
+            var dest = FitRect(zone, false, width, height);
+            if (zone.Bitmap is not null) _draw.DrawBitmap(zone.Bitmap, dest, 1f);
         }
     }
 

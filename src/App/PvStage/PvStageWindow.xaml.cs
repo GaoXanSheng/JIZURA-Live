@@ -66,6 +66,7 @@ public partial class PvStageWindow : Window
     private int _saveTick;
     private string? _saveError;
     private System.Windows.Threading.DispatcherTimer? _uiTimer;
+    private System.Windows.Threading.DispatcherTimer? _playheadTimer;
     private readonly List<PvLayerConfig> _uiLayers = new();
     private string[] _uiLayerIds = Array.Empty<string>();
     private System.Windows.Point _dragStart;
@@ -188,6 +189,13 @@ public partial class PvStageWindow : Window
         {
             Interval = TimeSpan.FromMilliseconds(500),
         };
+        // 播放头单独 30fps 刷：状态条 500ms 够用，播放头 2Hz 跳就是"时间条卡顿"
+        _playheadTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(33),
+        };
+        _playheadTimer.Tick += (_, _) => TickTimeline();
+        _playheadTimer.Start();
         _uiTimer.Tick += (_, _) =>
         {
             RefreshStatus();
@@ -295,6 +303,7 @@ public partial class PvStageWindow : Window
 
         // 定时器一停，写盘的人就只剩关闭流程与渲染线程收尾，不会有两个 File.WriteAllText 撞同一文件
         _uiTimer?.Stop();
+        _playheadTimer?.Stop();
 
         var pipe = _pipe;
         pipe?.StopPumping();

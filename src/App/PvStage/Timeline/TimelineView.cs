@@ -74,6 +74,14 @@ public sealed partial class TimelineView : Control
     /// <summary>帧网格的帧率。画布 fps 的唯一真相在 PvScene，由宿主拷进来。</summary>
     public double Fps { get; set; } = 30;
 
+    /// <summary>播放头轻量刷新：只挪线不动快照（SetSnapshot 全量重建，播放中用它会 2Hz 卡跳）。</summary>
+    public void SetPlayhead(double seconds)
+    {
+        if (_snap is null) return;
+        _snap.PlayheadSeconds = seconds;
+        InvalidateVisual();
+    }
+
     /// <summary>UI 线程全量刷新显示。</summary>
     public void SetSnapshot(TSnapshot snap)
     {

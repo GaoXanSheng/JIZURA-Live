@@ -181,7 +181,7 @@ public class AutoDirectorTests
         var rep1 = AutoDirector.Generate(p1, map, new AutoOptions { Style = "dynamic", Intensity = 1.0 });
         Assert.True(rep1.CameraKeys > 0);
         var scale1 = p1.Curves.First(c => c.Address == "camera.scale");
-        Assert.Contains(scale1.Curve.Keys, k => Math.Abs(k.Value - 1.02) < 1e-6);
+        Assert.Contains(scale1.Curve.Keys, k => Math.Abs(k.Value - 1.14) < 1e-6);
     }
 
     [Fact]
@@ -287,10 +287,10 @@ public class AutoDirectorTests
         Assert.Equal(ParamValueSource.Signal, res0.Source);
         Assert.Equal(0.0, res0.Value, precision: 3);
 
-        // 在 peak 点 1.5s，glitch 应脉冲为 24.0 * 0.6 = 14.4
+        // 在 peak 点 1.5s，glitch 应脉冲为 48.0 * 0.6 = 28.8
         planDyn.Evaluate(new SignalFrameInputs(1.5, 1.5, default, evaluatorDyn, default));
         var resPeak = planDyn.Resolved.FirstOrDefault(r => r.Address.ToString() == glitchAddr);
-        Assert.Equal(24.0 * 0.6, resPeak.Value, precision: 3);
+        Assert.Equal(48.0 * 0.6, resPeak.Value, precision: 3);
 
         // 2. epic style: zoomPunch.scale 节拍脉冲曲线与信号图绑定
         var projectEpic = new DirectorProject();
@@ -321,9 +321,9 @@ public class AutoDirectorTests
         Assert.Equal(ParamValueSource.Signal, zoomRes0.Source);
         Assert.Equal(1.0, zoomRes0.Value, precision: 3);
 
-        // 在 peak 点 1.5s，zoom 应脉冲为 1.0 + 0.12 * 0.8 = 1.096
+        // 在 peak 点 1.5s，zoom 应脉冲为 1.0 + 0.35 * 0.8 = 1.28
         planEpic.Evaluate(new SignalFrameInputs(1.5, 1.5, default, evaluatorEpic, default));
         var zoomResPeak = planEpic.Resolved.FirstOrDefault(r => r.Address.ToString() == zoomAddr);
-        Assert.Equal(1.0 + 0.12 * 0.8, zoomResPeak.Value, precision: 3);
+        Assert.Equal(1.0 + 0.35 * 0.8, zoomResPeak.Value, precision: 3);
     }
 }

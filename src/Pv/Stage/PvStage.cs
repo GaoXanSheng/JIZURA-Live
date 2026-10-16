@@ -61,6 +61,16 @@ public sealed class PvStage : IDisposable
             if (image.HasContent) _images[layer.Id] = image;
         }
 
+        // 固定分区（动效歌词/清晰字幕）无条件泵出：它们不在用户图层列表里，
+        // 只认 Scene.Layers 的话 provider 注册了也永远不上屏（歌词一次都没显示过的根因）
+        foreach (var id in PvStageCompositor.FixedZones)
+        {
+            if (_images.ContainsKey(id)) continue;
+            if (!_providers.TryGetValue(id, out var zone)) continue;
+            var zi = zone.Pump(ctx);
+            if (zi.HasContent) _images[id] = zi;
+        }
+
         compositor.Composite(Scene, Camera, _images, ctx.Width, ctx.Height);
     }
 
