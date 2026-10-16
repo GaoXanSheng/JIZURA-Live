@@ -212,7 +212,7 @@ public static class TimelineMath
     /// 都命中不了，动效歌词与字幕排版同时整段消失。
     /// 归一化后的下标就是新快照的下标，控件按新快照继续按下标报编辑，不会错位。
     ///
-    /// 返回新列表、不改 <paramref name="clips"/>：发布出去的那份此后不再改（与信号图同一条约定）。
+    /// 返回新列表、不改 <paramref name="clips"/>：发布出去的那份此后不再改。
     /// </summary>
     public static List<LyricClip> WithClipRange(IReadOnlyList<LyricClip> clips, int index, long startMs, long endMs)
     {

@@ -17,7 +17,7 @@ public enum ParamAddressKind
 }
 
 /// <summary>
-/// 参数地址：动画曲线、信号绑定的键。三种文本形式：
+/// 参数地址：动画曲线的键。三种文本形式：
 /// <list type="bullet">
 /// <item><c>camera.scale</c> → 镜头参数（Target 为空）</item>
 /// <item><c>layer:lyrics_pv.parallax.depth</c> → 图层参数（Param 可含点）</item>

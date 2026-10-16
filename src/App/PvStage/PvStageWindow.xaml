@@ -3,7 +3,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:gpu="clr-namespace:JizuraLive.Render.Gpu"
         xmlns:tl="clr-namespace:JizuraLive.App.PvStage.Timeline"
-        xmlns:bp="clr-namespace:JizuraLive.App.PvStage.Blueprint"
         Title="JIZURA PV 舞台"
         Width="1440" Height="880" MinWidth="1200" MinHeight="720"
         WindowStyle="None" WindowStartupLocation="CenterScreen"
@@ -104,18 +103,6 @@
                               Stroke="{StaticResource PvFgDim}" StrokeThickness="1.4" />
                     </Button>
 
-                    <!-- 视图组：舞台 / 蓝图 切换 -->
-                    <Border Width="1" Height="16" Margin="6,0" Background="{StaticResource PvLine}" />
-                    <Border Background="{StaticResource PvSunken}" CornerRadius="{StaticResource PvRadiusSm}"
-                            Padding="2" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
-                            <Button x:Name="BtnViewStage" Style="{StaticResource PvSegBtn}" Tag="on"
-                                    Content="舞台" ToolTip="中央工作区：GPU 预览" Click="BtnViewStage_Click" />
-                            <Button x:Name="BtnViewBlueprint" Style="{StaticResource PvSegBtn}"
-                                    Content="蓝图" ToolTip="中央工作区：信号图节点画布"
-                                    Click="BtnViewBlueprint_Click" />
-                        </StackPanel>
-                    </Border>
                     <Button x:Name="BtnFold" Style="{StaticResource PvBtnIcon}" Click="BtnFold_Click"
                             ToolTip="折叠时间轴">
                         <Path x:Name="FoldIcon" Data="M3.6 6.4 L8 10.8 L12.4 6.4"
@@ -208,8 +195,7 @@
                 </Grid>
             </Border>
 
-            <!-- 中：舞台 / 蓝图两个工作区。两块都留在树上，只切可见性——切回来时交换链、画布的缩放与选中都还在。
-                 舞台必须先收起：它是 HwndHost 子窗口，WPF 元素盖不住它（airspace）。 -->
+            <!-- 中：舞台工作区。PresentHost 是 HwndHost 子窗口，WPF 元素盖不住它（airspace）。 -->
             <Grid Grid.Column="1" Background="{StaticResource PvStageVoid}">
                 <Grid x:Name="StageWorkspace">
                     <gpu:PresentHost x:Name="Stage" Margin="0" />
@@ -223,8 +209,6 @@
                                    FontSize="{StaticResource PvTextXs}" Foreground="{StaticResource PvFgDim}" />
                     </Border>
                 </Grid>
-
-                <bp:BlueprintView x:Name="BlueprintCanvas" Visibility="Collapsed" />
             </Grid>
 
             <!-- 右：属性检查器 -->

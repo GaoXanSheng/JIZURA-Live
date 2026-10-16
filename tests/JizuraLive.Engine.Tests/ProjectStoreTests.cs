@@ -379,30 +379,18 @@ public class ProjectStoreTests
     }
 
     /// <summary>
-    /// 布局/坐标的读入治理：非有限数值（NaN/Infinity）会让画布变换整片失效，按"这个字段没有"回落；
-    /// 缺布局段按默认视图。它们都不是内容，绝不因此拒绝打开工程，也不顺手回写磁盘。
+    /// 布局的读入治理：非有限数值（NaN/Infinity）会让画布变换整片失效，按"这个字段没有"回落；
+    /// 缺布局段按默认视图。布局不是内容，绝不因此拒绝打开工程，也不顺手回写磁盘。
     /// </summary>
     [Fact]
-    public void NonFiniteLayoutAndCoordinatesFallBackToDefaults()
+    public void NonFiniteLayoutFallsBackToDefaults()
     {
         var path = NewProjectPath();
         try
         {
-            var graph = new SignalGraph();
-            var node = new SignalNode
-            {
-                Id = "n_c",
-                Kind = SignalNodeKind.Constant,
-                Params = new Dictionary<string, double> { ["value"] = 1, ["unit"] = 1 },
-                X = double.PositiveInfinity,
-                Y = 48,
-            };
-            graph.Nodes.Add(node);
-
             var project = new DirectorProject
             {
                 Name = "坏布局",
-                SignalGraph = graph,
                 EditorLayout =
                 {
                     CanvasZoom = double.NaN,
@@ -421,18 +409,53 @@ public class ProjectStoreTests
             Assert.Null(result.Fault);
             var loaded = Assert.IsType<DirectorProject>(result.Project);
 
-            // 非有限坐标 ⇒ 按"还没布局"处理（画布会用 (0,0) 参与布局并标记待布局）
-            var loadedNode = Assert.Single(loaded.SignalGraph.Nodes);
-            Assert.Null(loadedNode.X);
-            Assert.Equal(48.0, loadedNode.Y!.Value);
-            Assert.False(loadedNode.HasPosition);
-
             // 非有限视图参数 ⇒ 默认视图；null 列表 ⇒ 空
             Assert.Equal(1.0, loaded.EditorLayout.CanvasZoom);
             Assert.Equal(0.0, loaded.EditorLayout.CanvasPanX);
             Assert.Equal(12.0, loaded.EditorLayout.CanvasPanY);
             Assert.Equal(1.0, loaded.EditorLayout.TimelineZoom);
             Assert.Empty(loaded.EditorLayout.SelectedNodeIds);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>
+    /// 旧工程里残留的信号图段：信号图已从本程序删除，那一段加载时被整段忽略（Json.NET 忽略未知字段），
+    /// 既不报错也不影响其余字段——旧工程照常打得开，其余内容一字不少。
+    /// </summary>
+    [Fact]
+    public void LegacySignalGraphSectionIsIgnoredOnLoad()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            var project = new DirectorProject { Name = "带信号图的旧工程" };
+            project.Scene.Layers.Add(new PvLayerConfig { Id = "bg" });
+            project.Effects.Add("bloom");
+            var curve = new FloatCurve();
+            curve.TryAdd(0.0, 1.2);
+            project.Curves.Add(new CurveSave { Address = "camera.scale", Curve = curve });
+            Assert.Null(ProjectStore.Save(project, path));
+
+            // 把信号图段塞进存档（旧版本写下的字段形态）
+            var root = JObject.Parse(File.ReadAllText(path));
+            root["SignalGraph"] = JObject.Parse(
+                "{\"Nodes\":[{\"Id\":\"n_a\",\"Kind\":2,\"Params\":{\"value\":1},\"Texts\":{}}],"
+                + "\"Edges\":[],"
+                + "\"Bindings\":[{\"Id\":\"b_a\",\"NodeId\":\"n_a\",\"Address\":\"camera.scale\"}]}");
+            File.WriteAllText(path, root.ToString());
+
+            var result = ProjectStore.Load(path);
+
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+            Assert.Equal("带信号图的旧工程", loaded.Name);
+            Assert.Single(loaded.Scene.Layers);
+            Assert.Single(loaded.Effects.Nodes);
+            Assert.Equal("camera.scale", Assert.Single(loaded.Curves).Address);
         }
         finally
         {

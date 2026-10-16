@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -64,16 +63,6 @@ public sealed class PvPipeline : IDisposable
 
     // 音频频带序列：与 _director 同款引用交换（UI 线程发布、渲染线程每帧查询，原子无锁）。
     private volatile AudioBandSeries? _audioBands;
-
-    // 信号图（M6）：UI 线程发布整份文档，渲染线程在 Prepare 里编译 + 求值。
-    // 与 _director 同款引用交换（原子、无锁）。约定：发布出去的那份文档此后不许再改——
-    // 面板改的始终是它自己的草稿，确认时才整份换引用，所以渲染线程不会读到半更新的图。
-    private volatile SignalGraph? _signalGraph;
-    private CompiledSignalGraph? _signalPlan;   // 渲染线程私有
-    private SignalGraph? _signalPlanGraph;      // 计划的来源引用（判断是否需要重编），同样渲染线程私有
-
-    // Time 节点的 Live 口径要一个暂停也在走的单调时钟：进程启动即开始，与设备/系统时间无关
-    private static readonly Stopwatch Monotonic = Stopwatch.StartNew();
 
     /// <summary>镜头缩放的参数地址（文本形式 <c>camera.scale</c>）。地址是值相等类型，静态构造一次即可。</summary>
     private static readonly ParamAddress CameraScaleAddr =
@@ -164,13 +153,21 @@ public sealed class PvPipeline : IDisposable
     /// <summary>
     /// 换导演求值器快照（任意线程）。UI 线程在曲线上改完打一份不可变快照发布过来，渲染线程下一帧读到；
     /// 引用交换原子，无锁。传 null = 关掉曲线驱动，镜头回场景基础值。
+    ///
+    /// 发布前先给每条效果曲线要写的参数**铺键**（见 <see cref="SeedCurveParamKeys"/>）：这条是"发布"的一部分，
+    /// 不能留给调用方——工程恢复与效果实例级联删除两条路径漏了这一步，第一条被帧内写入的新键
+    /// 就会在渲染线程上扩容字典。
     /// </summary>
-    public void SetDirector(DirectorEvaluator? d) => _director = d;
+    public void SetDirector(DirectorEvaluator? d)
+    {
+        SeedCurveParamKeys(d);
+        _director = d;
+    }
 
     /// <summary>
     /// 换音频频带分析序列（任意线程）。后台把整段音频算完（见 <see cref="AudioFileAnalyzer.Analyze"/>）
-    /// 再发布过来，渲染线程每帧按 transport 时刻查询；引用交换原子，无锁。
-    /// 传 null = 还没有分析结果，频带输入失效（Valid=false ⇒ 绑定的目标回落到基础值），不是"静音"。
+    /// 再发布过来；引用交换原子，无锁。传 null = 还没有分析结果。
+    /// 取值走 <see cref="SampleAudioBands"/>（按 transport 时刻查询，未就绪返回 Valid=false，不是"静音"）。
     /// </summary>
     public void SetAudioAnalysis(AudioBandSeries? series) => _audioBands = series;
 
@@ -187,20 +184,6 @@ public sealed class PvPipeline : IDisposable
         return new AudioBandSnapshot(bands.Valid, bands.Rms, bands.Bass, bands.Mid, bands.High);
     }
 
-    /// <summary>
-    /// 换信号图（任意线程）。UI 线程在信号面板里确认后把整份文档发布过来，渲染线程下一帧编译并采用；
-    /// 引用交换原子，无锁。传 null = 关掉信号（效果参数回常量/曲线）。
-    ///
-    /// 发布前先给每条绑定要写的参数**铺键**（见 <see cref="SeedBoundParamKeys"/>）：这条是"发布"的一部分，
-    /// 不能留给调用方——工程恢复（OnStageReady）与效果实例级联删除两条路径不发这一步的话，
-    /// 第一条被帧内写入的新键就会在渲染线程上扩容字典。
-    /// </summary>
-    public void SetSignalGraph(SignalGraph? graph)
-    {
-        SeedBoundParamKeys(graph);
-        _signalGraph = graph;
-    }
-
     public void Prepare(double time)
     {
         ApplyLayerOps();
@@ -209,14 +192,14 @@ public sealed class PvPipeline : IDisposable
         if (!_stopPumping)
             foreach (var p in _spoutProviders) p.PumpFrame();
 
-        // 帧状态（契约 §3.3 的三步）：本帧建一份**新的**草稿，常量/曲线先落进去，信号 Resolved 再覆盖它，
-        // 全部填完才整份发布——读者（UI 徽标）永远只看得到完整快照，看不到写了一半的字典。
-        // 顺序不能反：信号在追踪之后（能量源 Stage.Energy 是 ApplyTracking 写的），
-        // 在 _renderer.Prepare 之前（效果参数就是在那一句里被打包成常量缓冲的）。
+        // 帧状态（契约 §3.3 的步骤 1/2）：本帧建一份**新的**草稿，常量与曲线先落进去，全部填完才整份发布——
+        // 读者永远只看得到完整快照，看不到写了一半的字典。
+        // 效果参数不走帧状态：曲线值直接写进效果实例，必须在 _renderer.Prepare 之前
+        // （效果参数就是在那一句里被打包成常量缓冲的）。
         var frame = new PvFrameState();
         ApplyTracking(time, frame);
         ApplyLayerFrame(time, frame);
-        ApplySignals(time, frame);
+        ApplyEffectCurves(_effects, _director, time);
         _scene.PublishFrame(frame);
 
         // 帧状态 → 舞台：预览与广播都从同一个 Stage 合成本帧，镜头只从这里取
@@ -554,8 +537,8 @@ public sealed class PvPipeline : IDisposable
         new(ParamAddressKind.Layer, layerId, param);
 
     /// <summary>
-    /// 图层帧状态（§3.3 步骤 1/2）：每层「文档常量 → 曲线 base(t)」写进本帧草稿，
-    /// 信号 Resolved 由 <see cref="ApplySignals"/> 覆盖。草稿每帧新建，所以删掉的图层不会留残影。
+    /// 图层帧状态（§3.3 步骤 1/2）：每层「文档常量 → 曲线 base(t)」写进本帧草稿。
+    /// 草稿每帧新建，所以删掉的图层不会留残影。
     /// </summary>
     private void ApplyLayerFrame(double time, PvFrameState frame)
     {
@@ -582,7 +565,7 @@ public sealed class PvPipeline : IDisposable
         var drive = VtsTrackingMap.Compute(st, _trackOptions, _prevBlink);
         _prevBlink = drive.Blink;
 
-        // 追踪位移/滚转/缩放叠在基础帧状态之上（信号图随后按绑定覆盖）。
+        // 追踪位移/滚转/缩放叠在基础帧状态之上。
         // 镜头位移以设计像素为单位，缩放预览窗口不改变运镜幅度；Zoom 的夹持是追踪通道自身的上下界。
         // 滚转是度数、与 baseCam.Rotation 同量纲，直接相加（PvParallax 再按每层 RotationFactor/深度加权）。
         var baseCam = BaseCamera(cam, _director, time);
@@ -595,107 +578,72 @@ public sealed class PvPipeline : IDisposable
     }
 
     /// <summary>
-    /// 每帧求值信号图，并把每个绑定的最终值写回它的目标：相机/图层域写本帧草稿的帧状态槽，
-    /// 效果域写目标效果实例的参数。
+    /// 效果参数曲线求值（契约 §3.3 步骤 4）：每个效果实例的每个参数，只要地址
+    /// <c>effect:&lt;InstanceId&gt;.&lt;paramKey&gt;</c> 上有曲线，就把该时刻的值写进实例参数。
     ///
-    /// 帧内状态（<see cref="_signalPlan"/>、本帧草稿、写回的效果参数值）全在渲染线程上：本方法在 Prepare 里调用，
-    /// 读取这些值的 BuildRenderGraph 紧接着也在同一线程、同一帧顺序里跑——同帧读写同线程同顺序，
-    /// 所以既不需要锁，也不存在"读到半更新的帧"（草稿要到 Prepare 末尾才发布）。
+    /// 相机/图层的曲线不走这里——它们在 <see cref="BaseCamera"/> / <see cref="BaseLayer"/> 里求值，
+    /// 落到本帧草稿的帧状态槽。
     ///
-    /// 编译只在发布的文档换了引用时发生（面板确认 = 换引用）；同一份文档内的参数改动走
-    /// TryApplyParams 复用已编译拓扑。NaN / 失效值不进这条路径：求值器已经把每个输出夹进目标范围
-    /// 并回落到基础值（SignalEvaluator 的三条不变量），这里拿到的每个值都是有限的。
+    /// 只在渲染线程的 Prepare 里调：与随后读这些参数的 <c>BuildRenderGraph</c> 同线程同顺序。
+    /// 每帧不分配集合——地址是值相等结构体（只引用既有的实例 Id 与参数 Key 字符串），
+    /// 参数表来自效果目录的静态 schema。
+    ///
+    /// 值按参数 schema 的 min/max 夹取；非有限值（手改工程文件可以把 NaN/Infinity 写进曲线 key）
+    /// 整条跳过，不能让它经 <c>EffectNode.Set</c> 的 Math.Clamp 漏进常量缓冲（NaN 会污染整帧）。
+    ///
+    /// public static 与 <see cref="BaseCamera"/> / <see cref="SampleAudioBands"/> 同档：纯函数，可直接单测
+    /// （本程序的管线本体要 GPU，构造不出来）。
     /// </summary>
-    private void ApplySignals(double time, PvFrameState frame)
+    public static void ApplyEffectCurves(EffectGraph effects, DirectorEvaluator? curves, double time)
     {
-        var graph = _signalGraph;
-        if (graph is null)
+        if (curves is null) return;
+
+        foreach (var node in effects.Nodes)
         {
-            // 关掉信号：计划与来源引用一起清掉，下次发布重新编译
-            _signalPlan = null;
-            _signalPlanGraph = null;
-            return;
-        }
+            if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
+            var def = EffectCatalog.Get(node.DefId);
+            if (def is null) continue;
 
-        if (!ReferenceEquals(graph, _signalPlanGraph))
-        {
-            AdoptSignalGraph(graph);
-        }
-        else if (_signalPlan is { } live && !live.TryApplyParams(graph, _effects, out _))
-        {
-            // 参数改动自己把计划弄失效了（例如 Remap 区间被改成零长）：重编一次，不拿旧值继续跑
-            AdoptSignalGraph(graph);
-        }
+            foreach (var param in def.Params)
+            {
+                var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key);
+                if (!curves.TryEvaluate(addr, time, out var value)) continue;
+                if (!double.IsFinite(value)) continue;
 
-        var plan = _signalPlan;
-        if (plan is null) return;
-
-        // 音频频带来自离线分析序列（按 transport 时刻查询），分析未就绪 ⇒ Valid=false ⇒ 绑定回落基础值。
-        // Stage.Energy 是另一路（VTS 口型能量），由 ApplyTracking 写、给渲染器消费，不冒充频带。
-        var audio = SampleAudioBands(_audioBands, time);
-
-        // VTS 姿态走与 ApplyTracking 同一个探针、同一个新鲜度口径（Read 内部就是 TryRead(StaleMs)）：
-        // 探针为空或快照过期都传无效姿态，VtsPose 节点因此按通道失效，而不是沿用上一帧的姿态偏移。
-        // 判龄用 LiveTime，所以暂停音乐也照常过期——这里必须与 LiveTime 传**同一个读数**，不能各读一次时钟。
-        var liveSeconds = Monotonic.Elapsed.TotalSeconds;
-        plan.Evaluate(new SignalFrameInputs(time, liveSeconds, audio, _director,
-            VtsPoseSnapshot.Read(_tracking, liveSeconds), frame));
-
-        // 相机/图层域（S06 消费表）：Resolved 写本帧草稿的槽。必须在 Evaluate 之后——Evaluate 读的
-        // 正是同一份草稿的 base 值（常量/曲线），先写会把本帧的 base 覆盖掉。
-        plan.ApplyFrameState(frame);
-
-        foreach (var resolved in plan.Resolved)
-        {
-            // 用编译期就解析好的目标引用（TryGetTarget），不再按 InstanceId 拼字符串回查效果图：
-            // 字符串只在显示与序列化时用，这一点是 SignalTargets 的设计前提。
-            // node 为 null 的是相机/图层目标：它们上面已经写进帧状态，这里没有效果参数可写。
-            if (!plan.TryGetTarget(resolved.Address, out var node, out var param) || node is null) continue;
-            node.Set(param, (float)resolved.Value);
+                node.Set(param, (float)Math.Clamp(value, param.Min, param.Max));
+            }
         }
     }
 
     /// <summary>
-    /// 发布前铺键：把每条绑定要写的效果参数键先建成"已存在"。
+    /// 发布前铺键：把每条效果曲线要写的参数键先建成"已存在"。
     ///
     /// 为什么必须在发布前：渲染线程每帧写的是 <c>EffectNode.Set</c> → <c>Values[key] = v</c>，
     /// 键不存在时这一次写入会扩容字典；而 UI 线程的存盘（EffectGraphJson 遍历 Values）可能与它同时发生——
     /// 扩容换掉桶结构，正在跑的枚举随之失效。铺键之后帧内写入全是覆盖已有键，不再有结构变化。
     ///
-    /// 只在"投递新文档"这条线程上做，且必须与枚举字典的那条线程错开：现在的调用点全在 UI 线程
-    /// （面板确认 / 工程恢复 / 实例级联删除），存盘也在 UI 线程——同一条线程上先后发生，不重叠。
-    /// 将来若有别的线程调 <see cref="SetSignalGraph"/>，铺键与帧内写入就落到两条线程上，那时得另找同步点。
+    /// 只在"投递新快照"这条线程上做，且必须早于 <c>_director</c> 换引用：本轮帧内写入用的一定是
+    /// 已铺过键的那份快照。值取实例现状：已存在的键一字不动（铺键只保证"键在"，绝不改用户设好的参数值）。
     /// </summary>
-    private void SeedBoundParamKeys(SignalGraph? graph)
+    private void SeedCurveParamKeys(DirectorEvaluator? curves)
     {
-        if (graph?.Bindings is null) return;
+        if (curves is null) return;
 
-        foreach (var binding in graph.Bindings)
+        foreach (var node in _effects.Nodes)
         {
-            if (binding is null) continue;
+            if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
+            var def = EffectCatalog.Get(node.DefId);
+            if (def is null) continue;
 
-            // 解析不了的绑定留给编译器报 target-*/address-*：这里再做一套判定，两处结论迟早分叉
-            if (!ParamAddress.TryParse(binding.Address, out var addr)) continue;
-            if (!SignalTargets.TryResolve(addr, _effects, out var target, out _)) continue;
+            foreach (var param in def.Params)
+            {
+                if (node.Values.ContainsKey(param.Key)) continue;
 
-            // 值取实例现状：已存在的键一字不动（铺键只保证"键在"，绝不改用户设好的参数值）
-            target.Node.Values.TryAdd(target.Param.Key, target.Node.Value(target.Param));
-        }
-    }
+                var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key);
+                if (!curves.Curves.ContainsKey(addr)) continue;
 
-    /// <summary>编译并采用一份新发布的信号图；编译结论在这里各报一次（静态错误不会自己消失，每帧刷日志没有意义）。</summary>
-    private void AdoptSignalGraph(SignalGraph graph)
-    {
-        // 带场景编译：相机的位移范围是 ±1 个设计画布，编译期要按本工程的画布解析注册范围
-        var result = SignalCompiler.Compile(graph, _effects, _scene);
-        _signalPlan = result.Plan;
-        _signalPlanGraph = graph;
-
-        foreach (var issue in result.Issues)
-        {
-            var line = $"[PV 管线] 信号图 {issue.Code}：{issue.Message}";
-            if (issue.Severity == SignalIssueSeverity.Error) Log.Error(line);
-            else Log.Warn(line);
+                node.Values.TryAdd(param.Key, node.Value(param));
+            }
         }
     }
 
@@ -741,3 +689,10 @@ public sealed class PvPipeline : IDisposable
         _d2d.Dispose();
     }
 }
+
+/// <summary>
+/// 音频分析在某时刻的快照：有效位与值一起传。<see cref="Valid"/> = false 表示"没有数据"，
+/// 与"数据是 0"是两件事——静音段的有效 0 照常传播，失效才回落到基础值。
+/// 值从 <see cref="AudioBands"/> 的 float 加宽而来（帧内用 double 算，避免多次加宽累积）。
+/// </summary>
+public readonly record struct AudioBandSnapshot(bool Valid, double Rms, double Bass, double Mid, double High);

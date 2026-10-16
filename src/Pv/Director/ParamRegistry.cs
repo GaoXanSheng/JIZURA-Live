@@ -4,7 +4,7 @@ namespace JizuraLive.Pv;
 
 /// <summary>
 /// 一个可寻址参数的注册项（S06）：单位、范围、默认值与显示标签。
-/// 单位是 Add/Multiply/绑定校验的依据；范围只在**写入目标时**用来限幅，不是文档的合法性边界。
+/// 单位是量纲标注（供界面与诊断读）；范围是**写入目标时**用来限幅的那一对，不是文档的合法性边界。
 /// </summary>
 public readonly record struct ParamSpec(ParamUnit Unit, double Min, double Max, double Default, string Label);
 
@@ -14,12 +14,12 @@ public readonly record struct ParamSpec(ParamUnit Unit, double Min, double Max, 
 /// 三个域各有来源，但对外只有这一份答案：
 /// <list type="bullet">
 /// <item>相机与图层是**静态表**——参数集合不随工程变化，只有相机的位移范围随画布尺寸（±1 个画布宽/高）。</item>
-/// <item>效果按该**实例**的 <see cref="EffectParam"/> schema 解析，未标注单位的键保持 Unspecified，
-/// 由绑定校验 fail-closed 拒绝（缺口可见，而不是按错单位接上线）。</item>
+/// <item>效果按该**实例**的 <see cref="EffectParam"/> schema 解析，未标注单位的键保持 Unspecified
+/// （缺口留在明处，而不是被当成某个默认量纲）。</item>
 /// </list>
 ///
 /// 这里不夹取值：越界由调用方按 <see cref="ParamSpec.Min"/>/<see cref="ParamSpec.Max"/> 夹并打 clamp 标
-/// （契约 §3.3 步骤 4），所以同一份注册表既能服务限幅、也能服务"只显示不修改"的诊断。
+/// （契约 §3.3 步骤 4），所以同一份注册表既服务限幅、也服务"只显示不修改"的诊断。
 /// </summary>
 public static class ParamRegistry
 {
@@ -27,15 +27,6 @@ public static class ParamRegistry
     internal const string CodeMissingInstance = "target-missing-instance";
     internal const string CodeMissingKey = "target-missing-key";
     internal const string CodeNotNumber = "target-not-number";
-
-    /// <summary>
-    /// 地址**合法**（注册表认得这个域、这个参数名），但渲染侧还没有写入方：编译通过而值被丢掉
-    /// 等于静默无效，所以 <see cref="SignalTargets.TryResolveBinding"/> 对这类目标 fail-closed 拒绝。
-    /// 与上面三个码分开：那三个说的是"地址写错了"，这个说的是"地址没错，但没人消费"。
-    /// </summary>
-    internal const string CodeDomainUnwired = "target-domain-unwired";
-
-    private const char CodeSeparator = ':';
 
     private const double DegreeRange = 180;
 
@@ -64,9 +55,9 @@ public static class ParamRegistry
 
     /// <summary>
     /// 效果域：按**实例** Id 找到实例与其 schema 参数。
-    /// 注册表要它的单位/范围，<see cref="SignalTargets"/> 要它的引用（帧内写参数用），两边共用这一份查找。
+    /// <see cref="TryResolve"/> 靠它取单位/范围/默认值。
     /// </summary>
-    internal static bool TryFindEffectParam(in ParamAddress addr, EffectGraph? effects,
+    private static bool TryFindEffectParam(in ParamAddress addr, EffectGraph? effects,
         out EffectNode? node, out EffectParam? param, out string? error)
     {
         node = null;
@@ -103,7 +94,7 @@ public static class ParamRegistry
 
             if (p.Kind != EffectParamKind.Number)
             {
-                error = $"{CodeNotNumber}: {addr} 是 {p.Kind} 参数；信号绑定首版只开放 Number";
+                error = $"{CodeNotNumber}: {addr} 是 {p.Kind} 参数；可动画通道只支持 Number";
                 return false;
             }
 
@@ -201,22 +192,6 @@ public static class ParamRegistry
                 error = $"{CodeMissingKey}: 图层没有参数「{addr.Param}」（首版注册 offsetX/offsetY/scale/opacity/rotation）";
                 return false;
         }
-    }
-
-    /// <summary>从 <c>&lt;code&gt;: &lt;消息&gt;</c> 里取码（编译期把它转成 <c>SignalCompileIssue.Code</c>）。</summary>
-    internal static string CodeOf(string? error)
-    {
-        if (string.IsNullOrEmpty(error)) return "";
-        var i = error.IndexOf(CodeSeparator);
-        return i > 0 ? error[..i] : error;
-    }
-
-    /// <summary>从 <c>&lt;code&gt;: &lt;消息&gt;</c> 里取消息部分。</summary>
-    internal static string MessageOf(string? error)
-    {
-        if (string.IsNullOrEmpty(error)) return "";
-        var i = error.IndexOf(CodeSeparator);
-        return i >= 0 && i + 1 < error.Length ? error[(i + 1)..].Trim() : error;
     }
 
     /// <summary>按**实例** Id 找（绝不用 DefId 匹配：那是"哪种效果"而不是"哪一个"）。</summary>

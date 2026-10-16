@@ -14,8 +14,10 @@ public sealed class DirectorProject
 {
     /// <summary>
     /// 当前工程架构版本。读取时高于此值的文档直接拒绝打开（未来版本可能含当前代码不认识的语义）。
-    /// 2 = 信号图新增 VtsPose 节点种类：旧读方只会把它当未知节点连边一起丢掉，
-    /// 那种"看起来能跑"比整份拒绝打开危险得多（理由见 <see cref="SignalGraph"/> 注释第 2 条）。
+    ///
+    /// 2 是信号图时代的版本号（曾为 VtsPose 节点种类抬过一次）。信号图已从本程序里删除：
+    /// 旧文档里残留的 <c>signalGraph</c> 字段加载时被忽略（Json.NET 忽略未知字段），照常打开。
+    /// 版本号**不回退到 1**——回退会让所有已存的 v2 工程被判成"版本过新"而打不开。
     /// </summary>
     public const int CurrentSchemaVersion = 2;
 
@@ -54,27 +56,10 @@ public sealed class DirectorProject
     public List<CurveSave> Curves { get; set; } = new();
 
     /// <summary>
-    /// 数值信号图（节点 / 边 / 绑定）。
-    ///
-    /// 两条规则写在这里，免得下次有人凭直觉改错其一：
-    /// <list type="number">
-    /// <item>加这个字段是**纯增量扩展**，不抬 <see cref="SchemaVersion"/>（同 <see cref="Curves"/> 的理由）：
-    /// 旧读方不认识它，照样读得到场景、效果与曲线。</item>
-    /// <item>但**新增节点种类**或**改属性名**属结构变化，必须抬 <see cref="CurrentSchemaVersion"/>：
-    /// 旧版本对着一张语义不同的图"看起来能跑"（把新种类当未知、把改名的属性当默认）比整份拒绝打开危险得多。</item>
-    /// </list>
-    ///
-    /// 必须 Replace：Json.NET 默认的 ObjectCreationHandling.Auto 会复用属性上已有的实例，
-    /// 再把存档条目**追加**进同一个列表（同 <see cref="Scene"/> 的理由）。
-    /// </summary>
-    [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
-    public SignalGraph SignalGraph { get; set; } = new();
-
-    /// <summary>
     /// 编辑器布局（画布视图与选择、时间轴视图）。
     ///
     /// 布局不是内容：改它不触发编译、不计 dirty，只在保存时附带落盘（契约 §3.1）。
-    /// 它不引用 Scene/Effects/SignalGraph 里的任何对象，所以读入缺字段、或字段坏了，都只回落默认视图。
+    /// 它不引用 Scene/Effects 里的任何对象，所以读入缺字段、或字段坏了，都只回落默认视图。
     ///
     /// 必须 Replace：同 <see cref="Scene"/> 的理由（Auto 会把存档条目追加进已有实例）。
     /// </summary>

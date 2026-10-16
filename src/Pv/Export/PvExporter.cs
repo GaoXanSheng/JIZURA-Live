@@ -59,10 +59,10 @@ public static class PvExporter
             using (var pipe = new PvPipeline(gpu, scene, effects, SubtitleSourceOf(inputs)))
             using (var target = OffscreenTarget.Create(gpu, pipe.D2DContext, width, height))
             {
-                // 与舞台 BuildPipeline 同一条链：曲线 / 信号 / 频带 / 歌词各发布一次，之后逐帧 Prepare 求值。
+                // 与舞台 BuildPipeline 同一条链：曲线 / 频带 / 歌词各发布一次，之后逐帧 Prepare 求值。
                 // 不发布的话这一帧链上就只剩文档常量，导出的画面与预览对不上。
+                // 镜头/图层曲线与效果参数曲线都由 Prepare 直连求值（后者见 PvPipeline.ApplyEffectCurves）。
                 pipe.SetDirector(inputs?.Curves);
-                pipe.SetSignalGraph(inputs?.Signals);
                 pipe.SetAudioAnalysis(inputs?.Bands);
                 // 歌词给冻结的 Clip 序列（SetLyrics 那条路只认导入时的 KrcLine，会丢掉歌词轨上拖过的区间）
                 pipe.Renderer.Lyric?.SetClips(inputs?.Clips);
@@ -177,12 +177,11 @@ public static class PvExporter
 /// <summary>
 /// 导出要消费的帧状态链（与舞台同一批来源）。每个字段为 null = 该项不参与本次导出。
 ///
-/// <see cref="Curves"/> 与 <see cref="Signals"/> 交给管线的必须是**此后不再改**的对象
-/// （调用方给快照副本）：导出线程逐帧读它们，与舞台的"发布不可变快照"是同一条约定。
+/// <see cref="Curves"/> 交给管线的必须是**此后不再改**的对象（调用方给快照副本）：
+/// 导出线程逐帧读它，与舞台的"发布不可变快照"是同一条约定。
 /// </summary>
 public sealed record PvExportInputs(
     DirectorEvaluator? Curves = null,
-    SignalGraph? Signals = null,
     AudioBandSeries? Bands = null,
     IReadOnlyList<LyricClip>? Clips = null,
     SubtitleConfig? Subtitles = null);

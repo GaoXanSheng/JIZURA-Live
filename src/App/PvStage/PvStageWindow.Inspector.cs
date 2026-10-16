@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -34,19 +33,6 @@ public partial class PvStageWindow
     private readonly List<AnimRow> _inspectorRows = new();
     private readonly List<AnimRow> _rackRows = new();
     private bool _syncingRows;  // 程序化回写滑杆时为 true：那条 ValueChanged 不是用户输入，不能当编辑写回去
-
-    // 徽标判定用的编译缓存：信号图的编辑一律"克隆 → 换引用"，所以只按引用失效（效果图变了在 BuildEffectRack 里清）
-    private SignalGraph? _badgeGraph;
-    private CompiledSignalGraph? _badgePlan;
-
-    /// <summary>
-    /// 文档里**有绑定**的地址（与 <see cref="_badgeGraph"/> 同批重建）。
-    /// 徽标靠它把"没接上线"与"根本没绑过"分开：前者要显示「未接线」，不能装作是曲线/常量。
-    /// </summary>
-    private readonly HashSet<ParamAddress> _badgeAddresses = new();
-
-    // Time 节点 Live 源的口径：与 PvPipeline 的 Monotonic 同为进程内单调时钟（同一进程内两者起点只差毫秒）
-    private static readonly Stopwatch Monotonic = Stopwatch.StartNew();
 
     private void SelectLayer(PvLayerConfig? layer)
     {
@@ -432,95 +418,37 @@ public partial class PvStageWindow
         if (_inspectorRows.Count == 0 && _rackRows.Count == 0) return;
 
         var t = _audio.Time;
-        var plan = BadgePlan();
-        // 徽标复用渲染线程那条编译/求值路径：同一份图、同一套输入，结论才不会与屏幕上不一致。
-        // VTS 姿态同样照 PvPipeline.ApplySignals 的口径取（同一个探针、同一个 250ms 新鲜度），
-        // 否则 VtsPose 的行会显示"实机没有、预览有"的假值。
-        var live = Monotonic.Elapsed.TotalSeconds;
-        plan?.Evaluate(new SignalFrameInputs(t, live,
-            PvPipeline.SampleAudioBands(_audioBands, t), _evaluator, VtsPoseSnapshot.Read(_vts?.Tracking, live)));
-
-        foreach (var row in _inspectorRows) RefreshRow(row, t, plan);
-        foreach (var row in _rackRows) RefreshRow(row, t, plan);
+        foreach (var row in _inspectorRows) RefreshRow(row, t);
+        foreach (var row in _rackRows) RefreshRow(row, t);
     }
 
-    /// <summary>按引用失效的信号计划：图没换引用就不用重编（面板确认与工程装载都是"克隆 → 换引用"）。</summary>
-    private CompiledSignalGraph? BadgePlan()
-    {
-        var graph = _project.SignalGraph;
-        if (graph is null || graph.Nodes.Count == 0)
-        {
-            _badgeGraph = null;
-            _badgePlan = null;
-            _badgeAddresses.Clear();
-            return null;
-        }
-
-        if (!ReferenceEquals(graph, _badgeGraph) || _badgePlan is null)
-        {
-            _badgeGraph = graph;
-            _badgePlan = SignalCompiler.Compile(graph, _effects, _scene).Plan;
-
-            // 文档里有绑定、当前计划却解析不出来的地址 = 没接上线（编译被拒，或该域还没有写入方）。
-            // 这份集合与计划同批重建：徽标据此显示「未接线」，不把"没接上"说成"曲线/常量"。
-            _badgeAddresses.Clear();
-            foreach (var binding in graph.Bindings)
-            {
-                if (binding is null) continue;
-                if (ParamAddress.TryParse(binding.Address, out var addr)) _badgeAddresses.Add(addr);
-            }
-        }
-
-        return _badgePlan;
-    }
-
-    /// <summary>合成顺序：文档常量 → 曲线 base(t) → 信号图输出；输出无效回落 base(t)，即「失效回落」。</summary>
-    private void RefreshRow(AnimRow row, double time, CompiledSignalGraph? plan)
+    /// <summary>
+    /// 合成顺序只有两级：文档常量 → 曲线 base(t)。
+    /// 显示的是曲线原值（不夹），越界由 ↦ 标出来——目标侧写入时才按注册范围限幅。
+    /// </summary>
+    private void RefreshRow(AnimRow row, double time)
     {
         var hasCurve = _evaluator.Curves.TryGetValue(row.Address, out var curve) && curve.Count > 0;
-        var baseValue = hasCurve ? curve!.Evaluate(time) : row.ReadBase();
+        var value = hasCurve ? curve!.Evaluate(time) : row.ReadBase();
+        var clamped = value < row.Min || value > row.Max;
 
-        ResolvedParam resolved = default;
-        var bound = plan is not null && plan.TryGetResolved(row.Address, out resolved);
-        // 文档里有这条绑定、但本帧的计划里没有它：绑定没有生效（编译被拒 / 计划已过期）
-        var unwired = !bound && _badgeAddresses.Contains(row.Address);
-        var source = ValueSourceBadge.Label(bound, resolved.Source, unwired, hasCurve);
-        var effective = bound ? resolved.Value : baseValue;
-        // 限幅只有两条来源：信号输出被求值器夹过，或基础值本身越出注册表范围
-        var clamped = bound ? resolved.Clamped : baseValue < row.Min || baseValue > row.Max;
-
-        var brush = (System.Windows.Media.Brush)FindResource(source switch
-        {
-            ValueSourceBadge.Wired => "PvAccent2",
-            ValueSourceBadge.Curve => "PvAccent",
-            ValueSourceBadge.Fallback => "PvWarn",
-            ValueSourceBadge.Unwired => "PvWarn",
-            _ => "PvFgFaint",
-        });
+        var source = ValueSourceBadge.Label(hasCurve);
+        var brush = (System.Windows.Media.Brush)FindResource(
+            source == ValueSourceBadge.Curve ? "PvAccent" : "PvFgFaint");
         row.Badge.Text = source;
         row.Badge.Foreground = brush;
         row.Badge.BorderBrush = brush;
-        row.Badge.ToolTip = source switch
-        {
-            ValueSourceBadge.Wired => "生效值来自信号图输出" + (hasCurve ? "（点徽标跳到时间轴该轨）" : ""),
-            ValueSourceBadge.Fallback => "信号图输出无效，已回落到基础值（曲线 / 文档常量）",
-            ValueSourceBadge.Unwired => "这条地址在信号图里有绑定，但当前信号计划里没有它（编译被拒，或该域还没有写入方）："
-                + "画面没有接上，显示值来自曲线 / 文档常量",
-            ValueSourceBadge.Curve => "由曲线驱动 base(t)（点徽标跳到时间轴该轨）",
-            _ => "文档里的常量",
-        };
+        row.Badge.ToolTip = hasCurve ? "由曲线驱动 base(t)（点徽标跳到时间轴该轨）" : "文档里的常量";
 
         var range = $"[{row.Min.ToString("0.###", CultureInfo.InvariantCulture)}, {row.Max.ToString("0.###", CultureInfo.InvariantCulture)}]";
         row.ClampMark.Visibility = clamped ? Visibility.Visible : Visibility.Collapsed;
         row.ClampMark.ToolTip = clamped
-            ? bound
-                ? $"信号输出越界，已按 {range} 限幅"
-                : $"原值 {baseValue.ToString("0.###", CultureInfo.InvariantCulture)} 越界，写入目标时按 {range} 限幅"
+            ? $"原值 {value.ToString("0.###", CultureInfo.InvariantCulture)} 越界，写入目标时按 {range} 限幅"
             : null;
 
-        row.ValueText.Text = effective.ToString("0.###", CultureInfo.InvariantCulture);
+        row.ValueText.Text = value.ToString("0.###", CultureInfo.InvariantCulture);
 
-        var shown = Math.Clamp(effective, row.Min, row.Max);
+        var shown = Math.Clamp(value, row.Min, row.Max);
         if (!row.Slider.IsMouseCaptureWithin && Math.Abs(row.Slider.Value - shown) > 1e-4)
         {
             _syncingRows = true;
@@ -649,29 +577,15 @@ public enum InspectorSectionKind
 /// <summary>
 /// 值来源徽标的文字判定（纯函数，与 <see cref="InspectorLayout"/> 同款：拎出来是为了可断言）。
 ///
-/// 关键的一条：文档里有绑定、当前信号计划里却没有这个地址时，徽标必须说「未接线」，
-/// 绝不能把绑定说成生效（编译被拒、地址写错、计划已过期都归这一条）。
-/// 判定只看本帧的计划里有没有这条目标，与域无关：相机/图层/效果三个域都走同一条
-/// <c>CompiledSignalGraph.TryGetResolved</c>，谁被接上了就显示「连线」。
+/// 只有两级来源：该地址有曲线就是「曲线」，否则是文档里的「常量」。
 /// </summary>
 public static class ValueSourceBadge
 {
-    public const string Wired = "连线";
-    public const string Fallback = "失效回落";
-    public const string Unwired = "未接线";
     public const string Curve = "曲线";
     public const string Constant = "常量";
 
-    /// <param name="bound">本帧的计划里解析出了这个地址（值真的来自信号）。</param>
-    /// <param name="resolvedSource">绑定生效时的来源：Signal = 连线，Base/TargetDefault = 失效回落。</param>
-    /// <param name="boundInDocument">文档的信号图里有这条地址的绑定（不论是否生效）。</param>
     /// <param name="hasCurve">该地址有曲线。</param>
-    public static string Label(bool bound, ParamValueSource resolvedSource, bool boundInDocument, bool hasCurve)
-    {
-        if (bound) return resolvedSource == ParamValueSource.Signal ? Wired : Fallback;
-        if (boundInDocument) return Unwired;
-        return hasCurve ? Curve : Constant;
-    }
+    public static string Label(bool hasCurve) => hasCurve ? Curve : Constant;
 }
 
 /// <summary>

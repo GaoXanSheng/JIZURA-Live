@@ -57,7 +57,6 @@ public static class AutoDirector
         project.Scene ??= PvScene.CreateBlank();
         project.Effects ??= new EffectGraph();
         project.Curves ??= new List<CurveSave>();
-        project.SignalGraph ??= new SignalGraph();
 
         var report = new AutoReport();
         double intensity = double.IsFinite(options.Intensity) ? Math.Clamp(options.Intensity, 0.0, 1.0) : 0.6;
@@ -102,14 +101,6 @@ public static class AutoDirector
             c.Address == CameraRotationAddress ||
             c.Address.StartsWith($"effect:{AutoPrefix}", StringComparison.Ordinal) ||
             autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)));
-
-        project.SignalGraph.Bindings.RemoveAll(b =>
-            b.Id.StartsWith("bind_autodir_", StringComparison.Ordinal) ||
-            b.NodeId.StartsWith("node_autodir_", StringComparison.Ordinal) ||
-            autoInstanceIds.Any(id => b.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)));
-
-        project.SignalGraph.Nodes.RemoveAll(n => n.Id.StartsWith("node_autodir_", StringComparison.Ordinal));
-        project.SignalGraph.Edges.RemoveAll(e => e.Id.StartsWith("edge_autodir_", StringComparison.Ordinal));
     }
 
     private static void GenerateCameraCurves(DirectorProject project, List<double> beats, List<double> peaks,
@@ -269,7 +260,6 @@ public static class AutoDirector
                     {
                         project.Curves.Add(new CurveSave { Address = $"effect:{zoomNode.InstanceId}.scale", Curve = zoomCurve });
                         report.CurveKeys += zoomCurve.Count;
-                        BindEffectPulseCurve(project, zoomNode, "scale");
                     }
                 }
                 break;
@@ -293,52 +283,10 @@ public static class AutoDirector
                     {
                         project.Curves.Add(new CurveSave { Address = $"effect:{glitchNode.InstanceId}.amount", Curve = glitchCurve });
                         report.CurveKeys += glitchCurve.Count;
-                        BindEffectPulseCurve(project, glitchNode, "amount");
                     }
                 }
                 break;
         }
-    }
-
-    private static void BindEffectPulseCurve(DirectorProject project, EffectNode node, string paramKey)
-    {
-        EnsureParamUnits();
-
-        string address = $"effect:{node.InstanceId}.{paramKey}";
-
-        var baseNode = new SignalNode
-        {
-            Id = $"node_autodir_base_{node.InstanceId}_{paramKey}",
-            Kind = SignalNodeKind.TimelineBaseValue,
-            Texts = new Dictionary<string, string> { ["address"] = address },
-        };
-
-        var outNode = new SignalNode
-        {
-            Id = $"node_autodir_out_{node.InstanceId}_{paramKey}",
-            Kind = SignalNodeKind.ParameterOutput,
-        };
-
-        var edge = new SignalEdge
-        {
-            Id = $"edge_autodir_{node.InstanceId}_{paramKey}",
-            FromNode = baseNode.Id,
-            FromPort = "out",
-            ToNode = outNode.Id,
-            ToPort = "in",
-        };
-
-        var binding = new SignalBinding
-        {
-            Id = $"bind_autodir_{node.InstanceId}_{paramKey}",
-            NodeId = outNode.Id,
-            Address = address,
-        };
-
-        project.SignalGraph.TryAddNode(baseNode, out _);
-        project.SignalGraph.TryAddNode(outNode, out _);
-        project.SignalGraph.TryAddEdge(edge, out _);
-        project.SignalGraph.TryAddBinding(binding, out _);
     }
 
     private static void AddPulseKeys(FloatCurve curve, List<double> beats, List<double> peaks, double baseVal, double peakVal)

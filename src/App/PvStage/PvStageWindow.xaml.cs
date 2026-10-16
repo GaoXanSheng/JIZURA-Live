@@ -95,7 +95,7 @@ public partial class PvStageWindow : Window
     // 离线音频装载（波形 + 频带分析）：换音频 / 换工程时取消上一次，两份结果一起作废
     private CancellationTokenSource? _audioLoadCts;
 
-    // 离线频带序列：分析算完发布给管线（蓝图画布的「能量」节点读它）。null = 分析未就绪
+    // 离线频带序列：分析算完发布给管线。null = 分析未就绪
     private AudioBandSeries? _audioBands;
 
     // 一键成片运行态与临时状态条回执
@@ -175,15 +175,11 @@ public partial class PvStageWindow : Window
         TheTimeline.EditCommitted += Timeline_EditCommitted;
         TheTimeline.Fps = _scene.Fps;
 
-        BlueprintCanvas.EditCommitted += Blueprint_EditCommitted;
-
         BuildLayerList();
         BuildEffectRack();
         BuildPickers();
         BuildInspector();
         RefreshTimeline();
-        RefreshBlueprint();
-        ApplyBlueprintLayout(); // 上次退出时的画布缩放/平移/选中集
 
         _uiTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -245,7 +241,6 @@ public partial class PvStageWindow : Window
         _project.AudioPath = _audioPath;
         _project.LrcText = _lrcText;
         SyncCurvesToProject();
-        SaveBlueprintLayout(); // 画布缩放/平移/选中集顺带落盘（布局不计 dirty、不触发编译）
         return ProjectStore.Save(_project, ProjectPath);
     }
 
@@ -268,12 +263,6 @@ public partial class PvStageWindow : Window
     /// 每次编辑之后都必须调：渲染线程只看快照，漏掉这一句 = 这次编辑屏幕上不生效。
     /// </summary>
     private void PublishDirector() => _pipe?.SetDirector(_evaluator.Snapshot());
-
-    /// <summary>
-    /// 把工程的信号图整份发布给管线（引用交换，渲染线程下一帧编译）。调用点全在 UI 线程：
-    /// 发布出去的那份文档此后谁也不许再改，后续编辑一律"克隆 → 改 → 换引用"。
-    /// </summary>
-    private void PublishSignalGraph() => _pipe?.SetSignalGraph(_project.SignalGraph);
 
     /// <summary>
     /// 把离线频带序列整份发布给管线（引用交换，渲染线程下一帧读到）。传 null = 分析未就绪：
@@ -363,13 +352,12 @@ public partial class PvStageWindow : Window
         _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
         // 工程里存的歌词样式在这里落到提供者上：换工程与撤销走的都是重建管线这条路
         _pipe.Renderer.Lyric?.SetStyle(ProjectLyricStyle());
-        // 建完管线就把工程里已有的曲线与信号图带上，否则要等第一次编辑才生效。
+        // 建完管线就把工程里已有的曲线带上，否则要等第一次编辑才生效。
         // 绕一下 UI 线程：本回调跑在渲染线程上，而曲线字典与工程文档归 UI 线程所有——
         // 在这里直接读会与用户编辑撞上（枚举中改 = 抛异常）。
         Dispatcher.BeginInvoke(new Action(() =>
         {
             PublishDirector();
-            PublishSignalGraph();
             PublishAudioBands();
         }));
 
@@ -568,11 +556,6 @@ public partial class PvStageWindow : Window
                 // 曲线跟着图层走：SeedLayerSeq 会在"删最高号 src_N + 重启"后重新发出同一个
                 // src_N，遗留的 layer:src_N.* 曲线会被下一个同名新层继承（与效果实例串味同理）。
                 _evaluator.RemoveCurvesForTarget(idRef);
-                // 信号绑定同理，与效果实例那条（效果架 ✕）对称：layer 域的存在性只在编译期查一次
-                // （SignalTargets 的 HasLayer），图层被摘除后残留的 layer:<id>.* 绑定会让**整张图**
-                // 编译失败（target-missing-instance），所有域的信号一起停，还会跟着存盘变成悬空绑定。
-                // RemoveTargetCascade 按地址 Target 字符串匹配，对 layer 地址同样成立。
-                CascadeSignalTarget(idRef);
                 PublishDirector();
                 _pipe?.RequestRemove(idRef);
             };
@@ -597,7 +580,6 @@ public partial class PvStageWindow : Window
         TblLayerCount.Text = $"{_scene.Layers.Count} 层";
         HighlightLayerCards();
         BuildInspector();
-        RefreshBlueprint(); // 图层域的地址候选跟着图层集合走（层增删 = 绑定目标清单变了）
     }
 
     private static string LayerKindLabel(PvLayerKind k) => k switch
@@ -678,9 +660,6 @@ public partial class PvStageWindow : Window
     {
         EffectsHost.Children.Clear();
         _rackRows.Clear();
-        // 效果图变了（增删实例 / 换预设）：徽标判定用的编译计划按引用缓存，这里必须整份作废
-        _badgeGraph = null;
-        _badgePlan = null;
         foreach (var node in _effects.Nodes)
         {
             var def = EffectCatalog.Get(node.DefId);
@@ -739,8 +718,6 @@ public partial class PvStageWindow : Window
                 _effects.Nodes.Remove(nRef);
                 // 删实例连带删它的曲线：按实例 Id 挂的动画不能留给同 DefId 的下一个实例去继承
                 _evaluator.RemoveCurvesForTarget(nRef.InstanceId);
-                // 信号绑定同理：留着指向已删实例的绑定，整张图会因目标失效而编译不过，所有信号一起停
-                CascadeSignalTarget(nRef.InstanceId);
                 PublishDirector();
                 PushUndo();
                 _saveError = SaveProjectNow();
@@ -831,7 +808,6 @@ public partial class PvStageWindow : Window
         }
 
         RefreshParamRows();
-        RefreshBlueprint(); // 地址下拉的候选来自效果实例：效果架变了，画布的绑定目标清单就得跟着变
         var count = _effects.Nodes.Count(n => n.Enabled);
         TblStatus.Text = $"效果 {count} 段";
     }
@@ -1044,10 +1020,9 @@ public partial class PvStageWindow : Window
         var preset = EffectPresets.PickerItemAt(CmbPreset.SelectedIndex);
         if (preset is null) return;
 
-        // 换实例之前先记下旧实例 Id：换完之后它们一个都不在了，挂在它们身上的曲线与信号绑定必须跟着走。
+        // 换实例之前先记下旧实例 Id：换完之后它们一个都不在了，挂在它们身上的曲线必须跟着走。
         // 删单个效果那条路径（效果架的 ✕）已经这么做了，预设切换是同一件事的批量版——
-        // 漏掉曲线，它们会被下一个同 Id 的新实例继承（还会跟着存盘）；漏掉绑定，
-        // 整张信号图会因目标失效而编译不过，所有信号一起停（EffectGraph.Add 每次发新号，旧 Id 必成孤儿）。
+        // 漏掉曲线，它们会被下一个同 Id 的新实例继承（还会跟着存盘）。
         var stale = _effects.Nodes
             .Select(n => n.InstanceId)
             .Where(id => !string.IsNullOrEmpty(id))
@@ -1057,18 +1032,12 @@ public partial class PvStageWindow : Window
         _effects.Nodes.Clear();
         foreach (var n in g.Nodes) _effects.Nodes.Add(n);
 
-        foreach (var id in stale)
-        {
-            _evaluator.RemoveCurvesForTarget(id);
-            // 有牵连才重发布（无改动时同一引用重发是空操作）；发布前铺键在管线侧，这里不必重复
-            CascadeSignalTarget(id);
-        }
+        foreach (var id in stale) _evaluator.RemoveCurvesForTarget(id);
 
         PublishDirector();
         PushUndo();
         _saveError = SaveProjectNow();
         BuildEffectRack();
-        TblStatus.Text = SignalStatusText(); // 结论当场可见，不等下一次 500ms 状态刷新
     }
 
     // ---------------- 歌词样式 ----------------
@@ -1108,147 +1077,6 @@ public partial class PvStageWindow : Window
         _saveError = SaveProjectNow();
         TblStatus.Text = $"歌词样式：{_scene.LyricStyleName}";
     }
-
-    // ---------------- 信号图（蓝图工作区与状态条共用） ----------------
-
-    /// <summary>
-    /// 工程的信号图 → 可改副本。逐条走公开的 TryAddXxx 重建（源图已被 ProjectStore 治理过），
-    /// 于是副本自带一份自己的结构版本，而工程的文档对象在采用之前一字不改。
-    /// 坐标一并带上：它是布局不是内容，但漏一次就整张图的节点叠到原点。
-    /// </summary>
-    private static SignalGraph CloneSignalGraph(SignalGraph source)
-    {
-        var draft = new SignalGraph();
-
-        foreach (var node in source.Nodes)
-        {
-            if (node is null) continue;
-            var copy = new SignalNode
-            {
-                Id = node.Id,
-                Kind = node.Kind,
-                Enabled = node.Enabled,
-                X = node.X,
-                Y = node.Y,
-            };
-            foreach (var (key, value) in node.Params) copy.Params[key] = value;
-            foreach (var (key, text) in node.Texts) copy.Texts[key] = text;
-            draft.TryAddNode(copy, out _);
-        }
-
-        foreach (var edge in source.Edges)
-        {
-            if (edge is null) continue;
-            draft.TryAddEdge(new SignalEdge
-            {
-                Id = edge.Id,
-                FromNode = edge.FromNode,
-                FromPort = edge.FromPort,
-                ToNode = edge.ToNode,
-                ToPort = edge.ToPort,
-            }, out _);
-        }
-
-        foreach (var binding in source.Bindings)
-        {
-            if (binding is null) continue;
-            draft.TryAddBinding(new SignalBinding
-            {
-                Id = binding.Id,
-                NodeId = binding.NodeId,
-                Address = binding.Address,
-            }, out _);
-        }
-
-        return draft;
-    }
-
-    /// <summary>
-    /// 效果实例被删时的信号级联（引擎的 RemoveTargetCascade，对齐效果架里那条 RemoveCurvesForTarget）。
-    /// 走"克隆 → 改 → 换引用"而不是就地改：就地改会与渲染线程的编译枚举同一批 List 撞上。
-    /// </summary>
-    private void CascadeSignalTarget(string instanceId)
-    {
-        var graph = _project.SignalGraph;
-        if (graph is null) return;
-
-        var draft = CloneSignalGraph(graph);
-        if (draft.RemoveTargetCascade(instanceId) == 0) return; // 没牵连就不动引用，省掉一次重编
-
-        _project.SignalGraph = draft;
-        PublishSignalGraph();
-    }
-
-    /// <summary>
-    /// 状态条上的信号编译结论。编辑入口（蓝图编辑、预设切换、删效果）改完图必须当场给回执——
-    /// 只写日志等于没说：log 不在用户眼前，而"信号是不是全停了"正是他此刻最需要知道的。
-    ///
-    /// 编的是**工程里已发布**的那张图（渲染线程真正在跑的那一份），与画布上正在编辑的那份分开算。
-    /// </summary>
-    private string SignalStatusText()
-    {
-        var graph = _project.SignalGraph;
-        if (graph is null || graph.Nodes.Count == 0) return "信号 无";
-
-        var result = SignalCompiler.Compile(graph, _effects, _scene);
-        var errors = result.Issues.Where(i => i.Severity == SignalIssueSeverity.Error).ToList();
-
-        if (result.Plan is null)
-        {
-            // 码是稳定契约，文案可以改：状态条只放第一条码，全量清单在画布的状态条与日志里
-            if (errors.Count == 0) return "信号 未通过";
-            return errors.Count == 1
-                ? $"信号 未通过：{errors[0].Code}"
-                : $"信号 未通过：{errors[0].Code} 等 {errors.Count} 条";
-        }
-
-        var warnings = result.Issues.Count(i => i.Severity == SignalIssueSeverity.Warning);
-        return warnings == 0 ? "信号 正常" : $"信号 正常（注意 {warnings} 条）";
-    }
-
-    /// <summary>
-    /// 可绑定的参数地址：镜头已注册地址 + 每个图层的已注册地址 + 效果实例的 Number 参数。
-    /// 地址文本按 <see cref="ParamAddress"/> 的往返形态拼（镜头 <c>camera.scale</c>、图层 <c>layer:&lt;id&gt;.opacity</c>、
-    /// 效果用**实例** Id：同一种效果可以有多个实例，DefId 指不到"哪一个"）。
-    /// 只给裸地址：画布把选项文本原样写进绑定，带任何后缀都会变成一个解析不了的地址。
-    /// </summary>
-    private List<string> SignalAddressOptions()
-    {
-        var addresses = new List<string>();
-
-        foreach (var name in CameraParamNames)
-            AddTargetChoice(addresses, new ParamAddress(ParamAddressKind.Camera, "", name));
-
-        foreach (var layer in _scene.Layers)
-            foreach (var name in LayerParamNames)
-                AddTargetChoice(addresses, new ParamAddress(ParamAddressKind.Layer, layer.Id, name));
-
-        foreach (var node in _effects.Nodes)
-        {
-            if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
-            var def = EffectCatalog.Get(node.DefId);
-            if (def is null) continue;
-
-            foreach (var p in def.Params)
-                if (p.Kind == EffectParamKind.Number)
-                    AddTargetChoice(addresses, new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key));
-        }
-
-        return addresses;
-    }
-
-    // 注册表的静态参数表（ParamRegistry 认不认由 AddTargetChoice 当场判，这里只负责给候选）
-    private static readonly string[] CameraParamNames = ["offsetX", "offsetY", "scale", "rotation"];
-    private static readonly string[] LayerParamNames = ["offsetX", "offsetY", "scale", "opacity", "rotation"];
-
-    /// <summary>注册表认过的地址才进下拉——免得"选得到、编译不过"。</summary>
-    private void AddTargetChoice(List<string> addresses, in ParamAddress addr)
-    {
-        if (!ParamRegistry.TryResolve(addr, _effects, _scene, out _, out _)) return;
-        addresses.Add(addr.ToString());
-    }
-
-    private static string NewSignalId(string prefix) => $"{prefix}_{Guid.NewGuid().ToString("N")[..6]}";
 
     // ---------------- 撤销 / 重做 ----------------
 
@@ -1320,7 +1148,7 @@ public partial class PvStageWindow : Window
     private void BtnNewProject_Click(object sender, RoutedEventArgs e)
     {
         if (MessageBox.Show(this,
-                "新建工程会把当前工作台重置为默认工程（场景 / 效果 / 曲线 / 信号图全部回到默认）。\n\n"
+                "新建工程会把当前工作台重置为默认工程（场景 / 效果 / 曲线全部回到默认）。\n\n"
                 + $"当前工程会先备份为 {Path.GetFileName(ProjectPath)}.bak，然后被默认工程覆盖。继续？",
                 "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
 
@@ -1366,7 +1194,7 @@ public partial class PvStageWindow : Window
     /// 把一份工程装进工作台（新建 / 打开共用；撤销重做也走这条路）。UI 线程专用。
     ///
     /// 为什么不是"就地改旧对象的列表"：场景与效果图按引用吃进管线与渲染器，渲染线程每帧都在枚举它们，
-    /// UI 线程就地 Clear/Add 就是与那个枚举撞上（与信号图"克隆 → 换引用"是同一条理由）。
+    /// UI 线程就地 Clear/Add 就是与那个枚举撞上。
     /// 所以换的是**整份文档对象**，再请渲染线程重建管线——设计画布尺寸也在管线构造期定死，就地改不到。
     /// </summary>
     private void AdoptProject(DirectorProject project, string note, bool resetUndo = true)
@@ -1440,7 +1268,6 @@ public partial class PvStageWindow : Window
 
         BuildEffectRack();
         BuildLayerList();
-        RefreshBlueprint(); // 画布上的节点/连线/绑定与选中集都属于旧工程，必须整份重投影
         TheTimeline.Fps = _scene.Fps;
         RefreshTimeline();
         BuildInspector();
@@ -1459,8 +1286,6 @@ public partial class PvStageWindow : Window
         if (resetUndo)
         {
             _undo.Clear();
-            // 只有"新建/打开"恢复画布视图态：布局不参与撤销语义，撤销重做时画布不该跟着跳视图
-            ApplyBlueprintLayout();
             PushUndo();
         }
 
@@ -1677,7 +1502,7 @@ public partial class PvStageWindow : Window
         extra.Children.Add(burnSubtitles);
 
         MessageDialog.Confirm(this, "导出 MP4",
-            "逐帧离屏渲染当前工程，导出期间界面照常用。含图层与效果、曲线/信号驱动的镜头与图层动画、"
+            "逐帧离屏渲染当前工程，导出期间界面照常用。含图层与效果、曲线驱动的镜头与图层动画、"
             + "动效歌词；字幕默认不烧入（预览里也没有字幕层，见下方开关）；VTS 姿态追踪不参与导出。",
             "开始导出",
             () =>
@@ -1722,7 +1547,7 @@ public partial class PvStageWindow : Window
     }
 
     /// <summary>
-    /// 导出要消费的帧状态链：与舞台同一批来源——快照里的曲线/信号图（导出线程独占，不必再拷）、
+    /// 导出要消费的帧状态链：与舞台同一批来源——快照里的曲线（导出线程独占，不必再拷）、
     /// 本会话的歌词条与频带序列（换引用发布后不再改，跨线程只读）、以及设置里的字幕配置。
     /// 快照读不出来（<paramref name="copy"/> 为 null）时调用方不会走到这里。
     /// <paramref name="burnSubtitles"/> = false 时整层不建（字幕不是默认内容，见导出弹窗的开关）。
@@ -1739,7 +1564,6 @@ public partial class PvStageWindow : Window
 
         return new PvExportInputs(
             Curves: curves,
-            Signals: copy.SignalGraph,
             Bands: _audioBands,
             Clips: _lyricClips,
             Subtitles: burnSubtitles ? App.SettingsOf()?.Subtitle : null);
@@ -2066,7 +1890,7 @@ public partial class PvStageWindow : Window
             SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
         }
 
-        // 检查器每行都显示"当前生效值"：曲线/信号随播放头走，没有的显示文档常量。
+        // 检查器每行都显示"当前生效值"：有曲线就随播放头走，没有的显示文档常量。
         // 用户正按着滑杆时不同步（否则刚拖到一半就被拉回去）。
         RefreshParamRows();
         TickTimeline();
@@ -2083,9 +1907,7 @@ public partial class PvStageWindow : Window
 
             var (live, total) = pipe.SpoutState;
             var srcTxt = total == 0 ? "无外部源" : $"{live}/{total} 路源已连";
-            // 信号结论并进这条常驻状态行：编辑时写一次会被下一次 500ms 刷新抹掉，只有并进来才是"一直看得见"
-            TblStatus.Text = $"效果 {pipe.Renderer.EffectCount} 段 · 图层 {_scene.Layers.Count} · {srcTxt}"
-                             + $" · {SignalStatusText()}";
+            TblStatus.Text = $"效果 {pipe.Renderer.EffectCount} 段 · 图层 {_scene.Layers.Count} · {srcTxt}";
 
             var b = pipe.BroadcastInfo;
             if (b.Enabled)
@@ -2252,12 +2074,10 @@ public partial class PvStageWindow : Window
                 _evaluator.SetCurve(addr, save.Curve);
             }
             PublishDirector();
-            PublishSignalGraph();
 
-            // 刷新效果架、图层、蓝图画布、时间轴与检查器
+            // 刷新效果架、图层、时间轴与检查器
             BuildEffectRack();
             BuildLayerList();
-            RefreshBlueprint();
             TheTimeline.Fps = _scene.Fps;
             RefreshTimeline();
             BuildInspector();

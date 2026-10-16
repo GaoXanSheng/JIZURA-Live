@@ -114,7 +114,7 @@ public class AutoDirectorTests
             Assert.Null(loadRes.Fault);
             Assert.NotNull(loadRes.Project);
             Assert.Equal(3, loadRes.Project.Effects.Nodes.Count);
-            Assert.Equal(project.SignalGraph.Bindings.Count, loadRes.Project.SignalGraph.Bindings.Count);
+            Assert.Equal(project.Curves.Count, loadRes.Project.Curves.Count);
         }
         finally
         {
@@ -156,7 +156,7 @@ public class AutoDirectorTests
             Assert.Null(loadRes.Fault);
             Assert.NotNull(loadRes.Project);
             Assert.Equal(3, loadRes.Project.Effects.Nodes.Count);
-            Assert.Equal(project.SignalGraph.Bindings.Count, loadRes.Project.SignalGraph.Bindings.Count);
+            Assert.Equal(project.Curves.Count, loadRes.Project.Curves.Count);
         }
         finally
         {
@@ -197,9 +197,6 @@ public class AutoDirectorTests
         int curveKeys1 = rep1.CurveKeys;
         int nodeCount1 = project.Effects.Nodes.Count;
         int curvesCount1 = project.Curves.Count;
-        int sigNodes1 = project.SignalGraph.Nodes.Count;
-        int sigEdges1 = project.SignalGraph.Edges.Count;
-        int sigBindings1 = project.SignalGraph.Bindings.Count;
 
         // 第二次重复生成
         var rep2 = AutoDirector.Generate(project, map, options);
@@ -208,18 +205,12 @@ public class AutoDirectorTests
         Assert.Equal(curveKeys1, rep2.CurveKeys);
         Assert.Equal(nodeCount1, project.Effects.Nodes.Count);
         Assert.Equal(curvesCount1, project.Curves.Count);
-        Assert.Equal(sigNodes1, project.SignalGraph.Nodes.Count);
-        Assert.Equal(sigEdges1, project.SignalGraph.Edges.Count);
-        Assert.Equal(sigBindings1, project.SignalGraph.Bindings.Count);
 
         // 第三次重复生成
         var rep3 = AutoDirector.Generate(project, map, options);
         Assert.Equal(camKeys1, rep3.CameraKeys);
         Assert.Equal(nodeCount1, project.Effects.Nodes.Count);
         Assert.Equal(curvesCount1, project.Curves.Count);
-        Assert.Equal(sigNodes1, project.SignalGraph.Nodes.Count);
-        Assert.Equal(sigEdges1, project.SignalGraph.Edges.Count);
-        Assert.Equal(sigBindings1, project.SignalGraph.Bindings.Count);
     }
 
     [Fact]
@@ -240,90 +231,59 @@ public class AutoDirectorTests
         Assert.Equal("Minimal", project.Scene.LyricStyleName);
     }
 
+    /// <summary>
+    /// 效果脉冲只落在两条曲线上（glitch.amount / zoomPunch.scale），没有别的产物；
+    /// 曲线值就是画面实际取到的值——管线对效果参数直接按曲线求值（PvPipeline.ApplyEffectCurves）。
+    /// </summary>
     [Fact]
-    public void Generate_SignalCompilerPassesWithoutErrors()
-    {
-        var project = new DirectorProject();
-        var map = CreateSampleBeatMap();
-        AutoDirector.Generate(project, map, new AutoOptions());
-
-        var result = SignalCompiler.Compile(project.SignalGraph, project.Effects, project.Scene);
-        Assert.DoesNotContain(result.Issues, i => i.Severity == SignalIssueSeverity.Error);
-    }
-
-    [Fact]
-    public void Generate_EffectPulseCurves_AreBoundInSignalGraph_AndEvaluatedCorrectly()
+    public void Generate_EffectPulseCurves_LiveInProjectCurves_AndEvaluateCorrectly()
     {
         var map = CreateSampleBeatMap();
 
-        // 1. dynamic style: glitch.amount 节拍脉冲曲线与信号图绑定
+        // 1. dynamic：glitch.amount 节拍脉冲曲线
         var projectDyn = new DirectorProject();
         AutoDirector.Generate(projectDyn, map, new AutoOptions { Style = "dynamic", Intensity = 0.6 });
 
         var glitchNode = projectDyn.Effects.Nodes.First(n => n.DefId == "glitch");
         string glitchAddr = $"effect:{glitchNode.InstanceId}.amount";
+        Assert.NotNull(projectDyn.Curves.FirstOrDefault(c => c.Address == glitchAddr));
 
-        // 断言存在对应的 SignalBinding
-        var glitchBinding = projectDyn.SignalGraph.Bindings.FirstOrDefault(b => b.Address == glitchAddr);
-        Assert.NotNull(glitchBinding);
+        var dynCurves = CurvesOf(projectDyn);
+        // 非 peak 节拍点 0.0s 取基准 0.0，而不是停在最大强度
+        Assert.Equal(0.0, Evaluate(dynCurves, glitchAddr, 0.0), precision: 3);
+        // peak 点 1.5s 脉冲到 48.0 * 0.6
+        Assert.Equal(48.0 * 0.6, Evaluate(dynCurves, glitchAddr, 1.5), precision: 3);
 
-        // 断言信号图编译成功且产出可执行 Plan
-        var compileDyn = SignalCompiler.Compile(projectDyn.SignalGraph, projectDyn.Effects, projectDyn.Scene);
-        Assert.NotNull(compileDyn.Plan);
-        Assert.DoesNotContain(compileDyn.Issues, i => i.Severity == SignalIssueSeverity.Error);
-
-        var evaluatorDyn = new DirectorEvaluator();
-        foreach (var save in projectDyn.Curves)
-        {
-            if (ParamAddress.TryParse(save.Address, out var addr))
-                evaluatorDyn.SetCurve(addr, save.Curve);
-        }
-
-        var planDyn = compileDyn.Plan!;
-        // 在非 peak 节拍点 (0.0s)，glitch 应为基准 0.0，而非停在最大强度
-        planDyn.Evaluate(new SignalFrameInputs(0.0, 0.0, default, evaluatorDyn, default));
-        var res0 = planDyn.Resolved.FirstOrDefault(r => r.Address.ToString() == glitchAddr);
-        Assert.Equal(glitchAddr, res0.Address.ToString());
-        Assert.Equal(ParamValueSource.Signal, res0.Source);
-        Assert.Equal(0.0, res0.Value, precision: 3);
-
-        // 在 peak 点 1.5s，glitch 应脉冲为 48.0 * 0.6 = 28.8
-        planDyn.Evaluate(new SignalFrameInputs(1.5, 1.5, default, evaluatorDyn, default));
-        var resPeak = planDyn.Resolved.FirstOrDefault(r => r.Address.ToString() == glitchAddr);
-        Assert.Equal(48.0 * 0.6, resPeak.Value, precision: 3);
-
-        // 2. epic style: zoomPunch.scale 节拍脉冲曲线与信号图绑定
+        // 2. epic：zoomPunch.scale 节拍脉冲曲线
         var projectEpic = new DirectorProject();
         AutoDirector.Generate(projectEpic, map, new AutoOptions { Style = "epic", Intensity = 0.8 });
 
         var zoomNode = projectEpic.Effects.Nodes.First(n => n.DefId == "zoomPunch");
         string zoomAddr = $"effect:{zoomNode.InstanceId}.scale";
+        Assert.NotNull(projectEpic.Curves.FirstOrDefault(c => c.Address == zoomAddr));
 
-        var zoomBinding = projectEpic.SignalGraph.Bindings.FirstOrDefault(b => b.Address == zoomAddr);
-        Assert.NotNull(zoomBinding);
+        var epicCurves = CurvesOf(projectEpic);
+        Assert.Equal(1.0, Evaluate(epicCurves, zoomAddr, 0.0), precision: 3);
+        Assert.Equal(1.0 + 0.35 * 0.8, Evaluate(epicCurves, zoomAddr, 1.5), precision: 3);
+    }
 
-        var compileEpic = SignalCompiler.Compile(projectEpic.SignalGraph, projectEpic.Effects, projectEpic.Scene);
-        Assert.NotNull(compileEpic.Plan);
-        Assert.DoesNotContain(compileEpic.Issues, i => i.Severity == SignalIssueSeverity.Error);
-
-        var evaluatorEpic = new DirectorEvaluator();
-        foreach (var save in projectEpic.Curves)
+    private static DirectorEvaluator CurvesOf(DirectorProject project)
+    {
+        var curves = new DirectorEvaluator();
+        foreach (var save in project.Curves)
         {
-            if (ParamAddress.TryParse(save.Address, out var addr))
-                evaluatorEpic.SetCurve(addr, save.Curve);
+            if (save?.Curve is null) continue;
+            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
+            curves.SetCurve(addr, save.Curve);
         }
 
-        var planEpic = compileEpic.Plan!;
-        // 在非 peak 节拍点 (0.0s)，zoom 应为基准 1.0，而非放大态
-        planEpic.Evaluate(new SignalFrameInputs(0.0, 0.0, default, evaluatorEpic, default));
-        var zoomRes0 = planEpic.Resolved.FirstOrDefault(r => r.Address.ToString() == zoomAddr);
-        Assert.Equal(zoomAddr, zoomRes0.Address.ToString());
-        Assert.Equal(ParamValueSource.Signal, zoomRes0.Source);
-        Assert.Equal(1.0, zoomRes0.Value, precision: 3);
+        return curves;
+    }
 
-        // 在 peak 点 1.5s，zoom 应脉冲为 1.0 + 0.35 * 0.8 = 1.28
-        planEpic.Evaluate(new SignalFrameInputs(1.5, 1.5, default, evaluatorEpic, default));
-        var zoomResPeak = planEpic.Resolved.FirstOrDefault(r => r.Address.ToString() == zoomAddr);
-        Assert.Equal(1.0 + 0.35 * 0.8, zoomResPeak.Value, precision: 3);
+    private static double Evaluate(DirectorEvaluator curves, string address, double time)
+    {
+        Assert.True(ParamAddress.TryParse(address, out var addr), $"测试前置地址应能解析：{address}");
+        Assert.True(curves.TryEvaluate(addr, time, out var value), $"地址没有曲线：{address}");
+        return value;
     }
 }
