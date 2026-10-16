@@ -59,6 +59,7 @@ public sealed class EffectGraph
             };
             foreach (var (key, value) in node.Values) clone.Values[key] = value;
             foreach (var (key, color) in node.Colors) clone.Colors[key] = color;
+            clone.Windows.AddRange(node.Windows);
             copy.Nodes.Add(clone);
         }
 
@@ -95,7 +96,7 @@ public sealed class EffectGraph
 
         foreach (var node in Nodes)
         {
-            if (!node.Enabled) continue;
+            if (!node.Enabled || !node.FrameActive) continue;
             var def = EffectCatalog.Get(node.DefId);
             if (def is null) continue;
 

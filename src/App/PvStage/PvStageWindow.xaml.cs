@@ -183,12 +183,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         // 恢复工程里的关键帧曲线。ProjectStore.Load 已经治理过坏地址，这里再挡一次：
         // 解析失败的条目一旦进了求值器，就是一条谁也取不到、UI 上也看不见的孤儿曲线，会一直跟着存回磁盘。
-        foreach (var save in _project.Curves)
-        {
-            if (save?.Curve is null) continue;
-            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
-            _evaluator.SetCurve(addr, save.Curve);
-        }
+        _evaluator = DirectorEvaluator.FromSaves(_project.Curves);
 
         // 演出 cue 轨：换工程/撤销都从 _project 重新装（面板与调度器一起对齐）
         SyncVtsCuePanel();
@@ -292,9 +287,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// </summary>
     private void SyncCurvesToProject()
     {
-        _project.Curves.Clear();
-        foreach (var (addr, curve) in _evaluator.Curves)
-            _project.Curves.Add(new CurveSave { Address = addr.ToString(), Curve = curve });
+        _project.Curves = _evaluator.ToSaves();
     }
 
     /// <summary>
@@ -1321,13 +1314,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _lrcText = project.LrcText;
 
         // 曲线求值器整份重来：旧工程的曲线留在里面，会按同 Id 的新实例地址继续生效（还会跟着存盘）
-        _evaluator = new DirectorEvaluator();
-        foreach (var save in project.Curves)
-        {
-            if (save?.Curve is null) continue;
-            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
-            _evaluator.SetCurve(addr, save.Curve);
-        }
+        _evaluator = DirectorEvaluator.FromSaves(project.Curves);
 
         // 撤销/重做同一音源时不重建时钟，避免 Ctrl+Z 把正在播的音频与已就绪的频带打掉
         bool sameAudio = !resetUndo && !string.IsNullOrWhiteSpace(_audioPath)
@@ -1748,13 +1735,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// </summary>
     private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles, bool includeAudio)
     {
-        var curves = new DirectorEvaluator();
-        foreach (var save in copy.Curves)
-        {
-            if (save?.Curve is null) continue;
-            if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
-            curves.SetCurve(addr, save.Curve);
-        }
+        var curves = DirectorEvaluator.FromSaves(copy.Curves);
 
         return new PvExportInputs(
             Curves: curves,
@@ -2233,13 +2214,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             var report = AutoDirector.Generate(_project, beatMap, options);
 
             // 同步工程曲线至 _evaluator 并发布给管线
-            _evaluator = new DirectorEvaluator();
-            foreach (var save in _project.Curves)
-            {
-                if (save?.Curve is null) continue;
-                if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
-                _evaluator.SetCurve(addr, save.Curve);
-            }
+            _evaluator = DirectorEvaluator.FromSaves(_project.Curves);
             // 生成整份重写了效果实例（AutoDirector 原地改的是 _project.Effects == _effects），
             // 所以效果图与曲线两样都要发布
             EffectsChanged();
@@ -2260,8 +2235,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblAutoReport.Text =
                 $"BPM {beatMap.Bpm:F1} · 段落 {beatMap.Sections.Count} 段 · 节拍 {beatMap.Beats.Count} 个\n"
                 + $"段落序列 {SectionSequence(beatMap)}\n"
-                + $"曲线 {report.CurveKeys} 键（相机 {report.CameraKeys}）· 效果实例 {report.EffectInstances} 个";
-            var note = $"一键成片完成：相机 {report.CameraKeys} 键 · 特效 {report.EffectInstances} 个 · 曲线 {report.CurveKeys} 键";
+                + $"曲线 {report.CurveKeys} 键（相机 {report.CameraKeys}）· 效果实例 {report.EffectInstances} 个 · 出场 {report.EffectWindows} 段";
+            var note = $"一键成片完成：相机 {report.CameraKeys} 键 · 特效 {report.EffectInstances} 个（出场 {report.EffectWindows} 段）· 曲线 {report.CurveKeys} 键";
             ShowStatus(note);
             Log.Info($"[PV 工作台] {note}");
         }

@@ -549,10 +549,10 @@ public sealed class PvPipeline : IDisposable
 
         if (curves is not null)
         {
-            if (curves.TryEvaluate(CameraOffsetXAddr, time, out var v)) x = v;
-            if (curves.TryEvaluate(CameraOffsetYAddr, time, out v)) y = v;
-            if (curves.TryEvaluate(CameraScaleAddr, time, out v)) scale = Math.Max(0.01, v);
-            if (curves.TryEvaluate(CameraRotationAddr, time, out v)) rotation = v;
+            x = Finite(curves.Resolve(CameraOffsetXAddr, time, x), x);
+            y = Finite(curves.Resolve(CameraOffsetYAddr, time, y), y);
+            scale = Math.Max(0.01, Finite(curves.Resolve(CameraScaleAddr, time, scale), scale));
+            rotation = Finite(curves.Resolve(CameraRotationAddr, time, rotation), rotation);
         }
 
         return new PvCamState(x, y, scale, rotation, 0, null, null);
@@ -564,13 +564,18 @@ public sealed class PvPipeline : IDisposable
         var state = PvLayerState.From(layer);
         if (curves is null) return state;
 
-        if (curves.TryEvaluate(LayerAddr(layer.Id, "offsetX"), time, out var v)) state = state with { OffsetX = v };
-        if (curves.TryEvaluate(LayerAddr(layer.Id, "offsetY"), time, out v)) state = state with { OffsetY = v };
-        if (curves.TryEvaluate(LayerAddr(layer.Id, "scale"), time, out v)) state = state with { Scale = v };
-        if (curves.TryEvaluate(LayerAddr(layer.Id, "opacity"), time, out v)) state = state with { Opacity = v };
-        if (curves.TryEvaluate(LayerAddr(layer.Id, "rotation"), time, out v)) state = state with { Rotation = v };
-        return state;
+        return state with
+        {
+            OffsetX = Finite(curves.Resolve(LayerAddr(layer.Id, "offsetX"), time, state.OffsetX), state.OffsetX),
+            OffsetY = Finite(curves.Resolve(LayerAddr(layer.Id, "offsetY"), time, state.OffsetY), state.OffsetY),
+            Scale = Finite(curves.Resolve(LayerAddr(layer.Id, "scale"), time, state.Scale), state.Scale),
+            Opacity = Finite(curves.Resolve(LayerAddr(layer.Id, "opacity"), time, state.Opacity), state.Opacity),
+            Rotation = Finite(curves.Resolve(LayerAddr(layer.Id, "rotation"), time, state.Rotation), state.Rotation),
+        };
     }
+
+    // 手改工程能把 NaN 写进曲线 key；镜头/图层取到非有限值就退回下层值，不让它污染整帧
+    private static double Finite(double v, double fallback) => double.IsFinite(v) ? v : fallback;
 
     private static ParamAddress LayerAddr(string layerId, string param) =>
         new(ParamAddressKind.Layer, layerId, param);
@@ -635,19 +640,31 @@ public sealed class PvPipeline : IDisposable
     /// </summary>
     public static void ApplyEffectCurves(EffectGraph effects, DirectorEvaluator? curves, double time)
     {
-        if (curves is null) return;
-
         foreach (var node in effects.Nodes)
         {
             if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
             var def = EffectCatalog.Get(node.DefId);
             if (def is null) continue;
 
+            // 出现区间：权重 0 整个节点本帧不进渲染图；介于 0..1 时把混合参数向无效果值插值（淡入淡出）
+            var weight = node.WindowWeight(time);
+            node.FrameActive = weight > 0;
+            if (!node.FrameActive) continue;
+            var hasMix = EffectCatalog.TryGetMix(def.Id, out var mixKey, out var identity) && node.Windows.Count > 0;
+
             foreach (var param in def.Params)
             {
+                if (param.Kind != EffectParamKind.Number) continue;
                 var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key);
-                if (!curves.TryEvaluate(addr, time, out var value)) continue;
+                var isMix = hasMix && string.Equals(param.Key, mixKey, StringComparison.Ordinal);
+                var animated = curves is not null && curves.Affects(addr);
+                if (!animated && !isMix) continue;
+
+                // 每帧从文档原值重新算：Values 里是上一帧写回的结果，拿它当底会让调制层逐帧累积
+                double rest = node.RestValue(param);
+                var value = animated ? curves!.Resolve(addr, time, rest) : rest;
                 if (!double.IsFinite(value)) continue;
+                if (isMix) value = identity + (value - identity) * weight;
 
                 node.Set(param, (float)Math.Clamp(value, param.Min, param.Max));
             }

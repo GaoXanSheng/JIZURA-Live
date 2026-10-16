@@ -266,6 +266,49 @@ public static class EffectCatalog
         return c;
     }
 
+    /// <summary>
+    /// 各效果的"混合参数"与它的无效果值：出现区间淡入淡出时把该参数从无效果值插到当前值。
+    /// 不在表里的效果（mosaic / vhs：没有能退化成原图的单个参数）在区间边界硬切。
+    /// </summary>
+    private static readonly Dictionary<string, (string Key, float Identity)> Mix = new(StringComparer.Ordinal)
+    {
+        ["chromatic"] = ("amount", 0f),
+        ["glitch"] = ("amount", 0f),
+        ["scanline"] = ("strength", 0f),
+        ["grain"] = ("amount", 0f),
+        ["vignette"] = ("intensity", 0f),
+        ["colorGrade"] = ("strength", 0f),
+        ["halftone"] = ("strength", 0f),
+        ["liquid"] = ("amount", 0f),
+        ["glow"] = ("intensity", 0f),
+        ["posterize"] = ("strength", 0f),
+        ["invert"] = ("amount", 0f),
+        ["flash"] = ("amount", 0f),
+        ["zoomPunch"] = ("scale", 1f),
+        ["slice"] = ("amount", 0f),
+        ["block"] = ("amount", 0f),
+        ["shake"] = ("amount", 0f),
+        ["lightRays"] = ("intensity", 0f),
+        ["glassShatter"] = ("amount", 0f),
+        ["wave"] = ("amount", 0f),
+        ["bloom"] = ("intensity", 0f),
+        ["motionBlur"] = ("strength", 0f),
+    };
+
+    /// <summary>取效果的混合参数 Key 与无效果值；没有则返回 false。</summary>
+    public static bool TryGetMix(string defId, out string key, out float identity)
+    {
+        if (Mix.TryGetValue(defId, out var m))
+        {
+            (key, identity) = m;
+            return true;
+        }
+
+        key = "";
+        identity = 0;
+        return false;
+    }
+
     private static readonly Dictionary<string, EffectDef> ById =
         All.ToDictionary(d => d.Id, StringComparer.Ordinal);
 

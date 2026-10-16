@@ -115,6 +115,19 @@ public sealed class CurveSave
 
     /// <summary>曲线本体。</summary>
     public FloatCurve Curve { get; set; } = new();
+
+    /// <summary>
+    /// 调制层名。null / 空 = 基础曲线（同一地址至多一条）；非空 = 叠在基础值之上的调制层，
+    /// 同一地址可以有多层（段落运镜是基础，节拍冲击是调制层，两者互不覆盖）。
+    /// 空值不写进 JSON：基础曲线的存档形态与加字段之前完全一样。
+    /// </summary>
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public string? Layer { get; set; }
+
+    /// <summary>调制层与下层的合成方式（基础曲线忽略此字段）。默认 Add 不写进 JSON。</summary>
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]
+    [JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+    public CurveBlend Blend { get; set; } = CurveBlend.Add;
 }
 
 /// <summary>
