@@ -388,6 +388,8 @@
 
                                         <CheckBox x:Name="ChkBurnSubtitles" Margin="0,12,0,0"
                                                   Content="烧入清晰字幕（预览不显示字幕层）" />
+                                        <CheckBox x:Name="ChkIncludeAudio" Margin="0,8,0,0" IsEnabled="False"
+                                                  Content="包含音轨" Click="ChkIncludeAudio_Click" />
 
                                         <ui:Button x:Name="BtnExport" Content="开始导出" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Margin="0,14,0,0"

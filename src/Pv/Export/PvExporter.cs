@@ -1,14 +1,19 @@
+using JizuraLive.App.PvStage;
 using JizuraLive.Engine;
+using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Render.Text;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace JizuraLive.Pv;
 
 /// <summary>
 /// 离线导出：离屏 D3D 设备 + <see cref="PvPipeline"/> 逐帧 Prepare/Composite 到离屏面 → 读回 → BGRA 转 NV12 → <see cref="MfSink"/> 编码。
 /// 画面内容就是场景文档里的图层栈；歌词、字幕与镜头动画由 <see cref="PvExportInputs"/> 按与舞台同一条帧状态链喂进来（不传 = 该项不参与）。
+/// 给了 <see cref="PvExportInputs.AudioPath"/> 就多一条 AAC 音轨（解码失败只记日志，音轨退化为静音，视频照导）。
 /// 失败一律返回可读原因（不抛），与 <c>ProjectStore.Save</c> 同约定。
 /// </summary>
 public static class PvExporter
@@ -24,8 +29,15 @@ public static class PvExporter
 
         try
         {
-            using var sink = MfSink.Open(outPath, scene.Width, scene.Height, fps);
-            var fault = RenderFrames(scene, effects, durationSec, fps, progress, sink.WriteFrame, inputs);
+            using var audio = AudioTrackOf(inputs);
+            using var sink = MfSink.Open(outPath, scene.Width, scene.Height, fps, audio is not null);
+            var frame = 0;
+            var fault = RenderFrames(scene, effects, durationSec, fps, progress, nv12 =>
+            {
+                sink.WriteFrame(nv12);
+                // 每帧补到「第 frame 帧结束」应有的累计样本数：音频时间轴跟着视频帧序号走
+                audio?.WriteThrough(++frame, fps, sink);
+            }, inputs);
             // 中途失败也照样收尾：留一个能播的半成品，好过留一个没有索引的坏文件
             sink.Close();
             return fault;
@@ -34,6 +46,13 @@ public static class PvExporter
         {
             return "导出失败：" + ex.Message;
         }
+    }
+
+    /// <summary>音轨按需打开：路径为空整条不建（导出只剩视频），解码失败退化为静音轨。</summary>
+    private static AudioTrack? AudioTrackOf(PvExportInputs? inputs)
+    {
+        var path = inputs?.AudioPath;
+        return string.IsNullOrWhiteSpace(path) ? null : AudioTrack.Open(path!, inputs!.AudioOffsetSec);
     }
 
     /// <summary>
@@ -118,6 +137,115 @@ public static class PvExporter
     }
 
     /// <summary>
+    /// 导出音轨：解码（<see cref="AudioDecoding.Open"/> 的统一 float 口径）→ 必要时重采样到 48k → 双声道 16bit 交错。
+    /// 时间戳一律由累计样本数算出，不按帧序号推算：按帧取整在长片上会累积漂移。
+    /// </summary>
+    private sealed class AudioTrack : IDisposable
+    {
+        private const int SampleRate = 48000;
+        private const int Channels = 2;
+        private const int ChunkFrames = 2048;
+        private const long HnsPerSecond = 10_000_000;
+
+        private readonly WaveStream? _reader;          // null = 解码失败：整条音轨只有静音
+        private readonly ISampleProvider? _samples;
+        private readonly int _sourceChannels;
+        private readonly float[] _readBuffer = new float[ChunkFrames * 2];
+        private readonly short[] _interleaved = new short[ChunkFrames * Channels];
+        private long _written;      // 已写出的样本帧数
+        private bool _exhausted;    // 解码器已到头：之后的补写一律静音
+
+        private AudioTrack(WaveStream? reader, ISampleProvider? samples, int sourceChannels)
+        {
+            _reader = reader;
+            _samples = samples;
+            _sourceChannels = sourceChannels;
+        }
+
+        /// <summary>
+        /// 打开并定位到 <paramref name="offsetSec"/>（导出时间轴 0 对应歌曲的第几秒）。
+        /// 解码失败不抛：记日志后退化成整轨静音。音轨本身留着不撤，因为只有视频流的 MP4 会让
+        /// 按音轨读回的工具（MediaFoundationReader 只认第一条音轨）直接报"流号无效"。
+        /// </summary>
+        public static AudioTrack Open(string path, double offsetSec)
+        {
+            WaveStream? reader = null;
+            try
+            {
+                reader = AudioDecoding.Open(path);
+                if (double.IsFinite(offsetSec) && offsetSec > 0)
+                    reader.CurrentTime = TimeSpan.FromSeconds(offsetSec);
+
+                var samples = reader.ToSampleProvider();
+                var channels = samples.WaveFormat.Channels;
+                if (samples.WaveFormat.SampleRate != SampleRate)
+                    samples = new WdlResamplingSampleProvider(samples, SampleRate);
+
+                return new AudioTrack(reader, samples, channels);
+            }
+            catch (Exception ex)
+            {
+                reader?.Dispose();
+                Log.Warn($"[导出] 音轨解码失败，本次导出的音轨为静音：{path}：{ex.Message}");
+                return new AudioTrack(null, null, 1);
+            }
+        }
+
+        /// <summary>补写到第 <paramref name="frames"/> 帧视频结束时应有的累计样本数；音频提前到头就补静音。</summary>
+        public void WriteThrough(long frames, int fps, MfSink sink)
+        {
+            var target = (long)Math.Round(frames * SampleRate / (double)fps);
+            while (_written < target)
+            {
+                var want = (int)Math.Min(target - _written, ChunkFrames);
+                var got = _exhausted ? 0 : ReadFrames(want);
+                if (got < want)
+                {
+                    _exhausted = true;
+                    Array.Clear(_interleaved, got * Channels, (want - got) * Channels);
+                }
+
+                sink.WriteAudio(_interleaved.AsSpan(0, want * Channels), Timestamp(_written), Timestamp(want));
+                _written += want;
+            }
+        }
+
+        /// <summary>读满 <paramref name="want"/> 个样本帧（单声道复制成双声道）；解码器到头时返回实际读到的帧数。</summary>
+        private int ReadFrames(int want)
+        {
+            if (_samples is null) return 0;
+
+            var got = 0;
+            while (got < want)
+            {
+                var read = _samples.Read(_readBuffer.AsSpan(0, Math.Min(_readBuffer.Length, (want - got) * _sourceChannels)));
+                if (read <= 0) break;
+
+                var frames = read / _sourceChannels;
+                for (var i = 0; i < frames; i++)
+                {
+                    var left = _readBuffer[i * _sourceChannels];
+                    _interleaved[(got + i) * Channels] = ToPcm16(left);
+                    _interleaved[(got + i) * Channels + 1] =
+                        ToPcm16(_sourceChannels == 1 ? left : _readBuffer[i * _sourceChannels + 1]);
+                }
+
+                got += frames;
+            }
+
+            return got;
+        }
+
+        /// <summary>样本数 → 100ns，由绝对样本数一次算出，不叠加每块的取整误差。</summary>
+        private static long Timestamp(long sampleFrames) => sampleFrames * HnsPerSecond / SampleRate;
+
+        private static short ToPcm16(float sample) =>
+            (short)Math.Clamp((int)MathF.Round(sample * 32767f), short.MinValue, short.MaxValue);
+
+        public void Dispose() => _reader?.Dispose();
+    }
+
+    /// <summary>
     /// BGRA（GPU 回读，逐行自上而下）→ NV12：Y 平面 + 交错 UV，BT.709 有限范围。
     /// <paramref name="nv12"/> 必须正好有 <see cref="MfSink.Nv12Size"/> 那么大。
     /// </summary>
@@ -179,9 +307,14 @@ public static class PvExporter
 ///
 /// <see cref="Curves"/> 交给管线的必须是**此后不再改**的对象（调用方给快照副本）：
 /// 导出线程逐帧读它，与舞台的"发布不可变快照"是同一条约定。
+///
+/// <see cref="AudioPath"/> 非空即带音轨（48kHz 2ch AAC），<see cref="AudioOffsetSec"/> 是导出时间轴 0
+/// 对应歌曲的第几秒；解码失败只记日志，音轨退化为静音，视频照常导出。
 /// </summary>
 public sealed record PvExportInputs(
     DirectorEvaluator? Curves = null,
     AudioBandSeries? Bands = null,
     IReadOnlyList<LyricClip>? Clips = null,
-    SubtitleConfig? Subtitles = null);
+    SubtitleConfig? Subtitles = null,
+    string? AudioPath = null,
+    double AudioOffsetSec = 0);

@@ -1641,6 +1641,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// <summary>导出表单的默认值：跟着工程音源走；用户动过任何一个字段之后就不再回填。</summary>
     private void SyncExportForm()
     {
+        // 音轨开关的可用性跟用户填过什么无关（没有音源就没得选），所以放在提前返回之前
+        SyncExportAudioToggle();
         if (_exportFormEdited) return;
 
         var audioPath = _audioPath;
@@ -1698,10 +1700,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             return;
         }
 
-        StartExport(TxtExportPath.Text.Trim(), fps, sec, ChkBurnSubtitles.IsChecked == true);
+        StartExport(TxtExportPath.Text.Trim(), fps, sec, ChkBurnSubtitles.IsChecked == true,
+            ChkIncludeAudio.IsChecked == true);
     }
 
-    private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles)
+    private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles, bool includeAudio)
     {
         _exporting = true;
         BtnExport.IsEnabled = false;
@@ -1713,7 +1716,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         // 快照交给后台：导出要跑几分钟，活动文档不能让导出线程去枚举（这期间 UI 照样能改图层）
         var copy = ProjectFromSnapshot(ProjectSnapshot(), "导出");
-        var inputs = copy is null ? null : ExportInputs(copy, burnSubtitles);
+        var inputs = copy is null ? null : ExportInputs(copy, burnSubtitles, includeAudio);
         var progress = new Progress<double>(p =>
         {
             _exportPercent = p;
@@ -1740,9 +1743,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// 导出要消费的帧状态链：与舞台同一批来源——快照里的曲线（导出线程独占，不必再拷）、
     /// 本会话的歌词条与频带序列（换引用发布后不再改，跨线程只读）、以及设置里的字幕配置。
     /// 快照读不出来（<paramref name="copy"/> 为 null）时调用方不会走到这里。
-    /// <paramref name="burnSubtitles"/> = false 时整层不建（字幕不是默认内容，见导出弹窗的开关）。
+    /// <paramref name="burnSubtitles"/> = false 时整层不建（字幕不是默认内容，见导出弹窗的开关）；
+    /// <paramref name="includeAudio"/> = true 时带上工程音源，起点固定 0 秒。
     /// </summary>
-    private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles)
+    private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles, bool includeAudio)
     {
         var curves = new DirectorEvaluator();
         foreach (var save in copy.Curves)
@@ -1756,7 +1760,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             Curves: curves,
             Bands: _audioBands,
             Clips: _lyricClips,
-            Subtitles: burnSubtitles ? App.SettingsOf()?.Subtitle : null);
+            Subtitles: burnSubtitles ? App.SettingsOf()?.Subtitle : null,
+            AudioPath: includeAudio ? _audioPath : null,
+            AudioOffsetSec: ExportAudioOffsetSec);
     }
 
     private string ExportText() => $"导出中… {_exportPercent * 100:F0}%";
