@@ -67,6 +67,34 @@ public sealed class PvVisualBlendConfig
 }
 
 /// <summary>
+/// 前景粒子层配置。非 null 即由粒子驱动本层（<see cref="PvLayerConfig.Particles"/>），
+/// 参数是**逐帧读**的：改这里下一帧就生效，不需要重建提供者。
+/// </summary>
+public sealed class PvParticleConfig
+{
+    /// <summary>粒子种类：<c>sakura</c>（飘落花瓣）/ <c>sparkle</c>（原地闪烁星光）/ <c>bokeh</c>（大而淡的光斑）。</summary>
+    public string Kind { get; set; } = "sakura";
+
+    /// <summary>屏上同时存在的环境粒子数 0..400（上界见 <see cref="ParticleField.MaxAmbient"/>）。</summary>
+    public double Density { get; set; } = 120;
+
+    /// <summary>运动速度倍率 0.2..3。</summary>
+    public double Speed { get; set; } = 1;
+
+    /// <summary>粒子尺寸倍率 0.3..3。</summary>
+    public double Size { get; set; } = 1;
+
+    /// <summary>粒子颜色 <c>#rrggbb</c>。</summary>
+    public string Color { get; set; } = "#ffc0d8";
+
+    /// <summary>随机种子：换一个种子就是另一套完全不同的粒子分布。</summary>
+    public int Seed { get; set; } = 1;
+
+    /// <summary>爆发时刻（秒）：每次从画面中心向外喷一簇星光，寿命约 1.2s。</summary>
+    public List<double> Bursts { get; set; } = new();
+}
+
+/// <summary>
 /// 图层配置（独立场景文档中的每一层定义，可独立序列化与加载）
 /// </summary>
 public sealed class PvLayerConfig
@@ -111,6 +139,13 @@ public sealed class PvLayerConfig
     /// 三者互斥，同挂多个时优先级 Spout &gt; Video &gt; Image（判据见 PvPipeline.WantsSpout/WantsVideo/WantsImage）。
     /// </summary>
     public string? VideoPath { get; set; }
+
+    /// <summary>
+    /// 粒子配置（Kind 用 <see cref="PvLayerKind.ForegroundFx"/>）。非空即由粒子驱动本层：
+    /// 管线按它建 <c>ParticleLayerProvider</c>，此时 <see cref="ImagePath"/>/<see cref="VideoPath"/>/
+    /// <see cref="SpoutSenderName"/> 都不再参与判定。
+    /// </summary>
+    public PvParticleConfig? Particles { get; set; }
 
     /// <summary>
     /// 源像素是否已预乘 alpha。默认 true：VTS/Spout 发送端发的是预乘像素，
