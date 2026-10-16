@@ -39,4 +39,4 @@ wwwroot/dist/
 # 性能仿真夹具：含真实歌曲的逐字歌词（版权内容），只留本地，capture-fixture.ps1 随时重抓
 frontend/public/perf-fixtures/
 
-.agents/
+.agents/tools/real-song.txt
