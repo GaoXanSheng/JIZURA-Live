@@ -16,6 +16,26 @@ public class ParticleLayerProviderTests
     private const int H = 360;
 
     [GpuFact]
+    public void SteadyStateRenderDoesNotAllocate()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+
+        using (gpu)
+        using (var host = D2DHost.Create(gpu))
+        using (var provider = new ParticleLayerProvider("fx_sakura", gpu, host, new PvParticleConfig(), W, H))
+        {
+            for (var i = 0; i < 5; i++) provider.Render(1.0 + i / 60.0);
+
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 60; i++) provider.Render(2.0 + i / 60.0);
+            var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            Assert.True(allocated == 0, $"稳态 60 帧分配了 {allocated} 字节");
+        }
+    }
+
+    [GpuFact]
     public void ParticlesRenderVisiblePixels()
     {
         var gpu = D3DDevice.TryCreate(out _);

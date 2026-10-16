@@ -547,17 +547,20 @@ public static class ShaderSources
             // u ramps 0 -> 1 inside each half; only the mask direction flips at the midpoint,
             // so the cover sweeps in from one side and back out to the other
             float u = p <= 0.5 ? p * 2.0 : (p - 0.5) * 2.0;
+            // screen space (height 1, width = aspect): the iris stays round and the angle is the on-screen angle
+            float aspect = max(PARAM(15, w), 0.01);
+            float2 q = (i.uv - 0.5) * float2(aspect, 1.0);
 
             float m;
             float edgeDist;
             if (PARAM(0, w) > 0.5)
             {
-                float rMax = 0.7071068 + soft + band + 1e-3;
+                float rMax = 0.5 * sqrt(aspect * aspect + 1.0) + soft + band + 1e-3;
                 // the disc radius is the mask axis here, so it has to turn round at the midpoint
                 // exactly like the linear front below; otherwise the second half closes in again.
                 // r: edge -> -2soft (the cover sweeps in), then -2soft -> edge (it opens from the centre)
                 float r = p <= 0.5 ? lerp(rMax, -2.0 * soft, u) : lerp(-2.0 * soft, rMax, u);
-                float d = length(i.uv - 0.5);
+                float d = length(q);
                 m = smoothstep(r - soft, r + soft, d);
                 edgeDist = abs(d - r);
             }
@@ -565,9 +568,9 @@ public static class ShaderSources
             {
                 float a = radians(PARAM(0, y));
                 float2 dir = float2(cos(a), sin(a));
-                float reach = 0.5 * (abs(dir.x) + abs(dir.y));
+                float reach = 0.5 * (abs(dir.x) * aspect + abs(dir.y));
                 float front = lerp(-(reach + soft + band + 1e-3), reach + soft + band + 1e-3, u);
-                float axis = dot(i.uv - 0.5, dir);
+                float axis = dot(q, dir);
                 float s = smoothstep(front - soft, front + soft, axis);
                 m = p <= 0.5 ? 1.0 - s : s;
                 edgeDist = abs(axis - front);

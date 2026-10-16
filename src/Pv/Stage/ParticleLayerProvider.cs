@@ -28,6 +28,8 @@ public sealed class ParticleLayerProvider : IPvLayerProvider, IDisposable
 
     private OffscreenTarget? _target;
     private Color4 _brushColor;
+    private string? _brushHex;
+    private bool _brushReady;
     private double _renderedTime = double.NaN;
     private int _w, _h;
     private long _version = 1;
@@ -79,11 +81,17 @@ public sealed class ParticleLayerProvider : IPvLayerProvider, IDisposable
         var count = ParticleField.Compute(_cfg, time, w, h, _buffer);
         var ambient = Math.Min(ParticleField.AmbientCount(_cfg), count);
 
-        var color = PvScene.ParseHex(_cfg.Color);
-        if (!SameColor(color, _brushColor))
+        // ParseHex 每次都会分配字符串：颜色串没换就不重新解析
+        if (!_brushReady || !ReferenceEquals(_cfg.Color, _brushHex))
         {
-            _brushColor = color;
-            _paint.Brush = new SolidBrush2D(color);
+            _brushReady = true;
+            _brushHex = _cfg.Color;
+            var color = PvScene.ParseHex(_cfg.Color);
+            if (!SameColor(color, _brushColor))
+            {
+                _brushColor = color;
+                _paint.Brush = new SolidBrush2D(color);
+            }
         }
 
         var kind = _cfg.Kind;
