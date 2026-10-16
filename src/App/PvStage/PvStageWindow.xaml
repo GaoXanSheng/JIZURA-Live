@@ -285,6 +285,13 @@
                                                 <ui:SymbolIcon Symbol="Wand24" />
                                             </ui:Button.Icon>
                                         </ui:Button>
+                                        <ui:Button x:Name="BtnRegenerateAuto" Content="换一版"
+                                                   HorizontalAlignment="Stretch" Margin="0,8,0,0"
+                                                   Click="BtnRegenerateAuto_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="ArrowSync24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
                                         <TextBlock x:Name="TblAutoHint" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
                                                    Text="先导入音乐，生成才会解锁。" />
                                         <!-- 段落序列（前奏→主歌→副歌→…）比一行长：换行显示，别被面板宽度截断 -->

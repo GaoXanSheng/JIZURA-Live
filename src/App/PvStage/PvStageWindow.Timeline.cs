@@ -155,8 +155,7 @@ public partial class PvStageWindow
         // 而查找侧（LrcParser.FindSample）是二分「最后一个 StartMs ≤ t」——非升序会让挪过的那段
         // 连同被跨过的句子一起查不到，屏幕上就是歌词整段消失。
         var clips = TimelineMath.WithClipRange(_lyricClips, moved.Index, ToMs(range.Start), ToMs(range.End));
-        _lyricClips = clips;
-        _pipe?.Renderer.Lyric?.SetClips(clips);
+        PublishLyricClips(clips);
         // 工程里歌词的落盘形态就是 LrcText（LyricClip[] 进文档属 DirectorProject 那条线，还没到）：
         // 不回写它，这次编辑在保存重开后就没了
         _lrcText = LrcTextOf(clips);
