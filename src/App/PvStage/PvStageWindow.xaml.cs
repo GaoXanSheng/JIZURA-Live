@@ -141,10 +141,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     // 撤销/重做：栈里放的是工程 JSON 串（与 ProjectStore.Save 同一序列化），深度上限由 UndoLog 管
     private readonly UndoLog _undo = new();
 
-    // 歌词样式下拉的固定项：与 LyricStyle 的四个预设同名（FromName 按名大小写不敏感地取）。
-    // 显示名与预设名分开：列表里给中文，工程里存的仍是预设名（存档兼容）。
-    private static readonly string[] LyricStyleNames = ["Classic", "Neon", "Outline", "Minimal"];
-    private static readonly string[] LyricStyleLabels = ["经典", "霓虹", "描边", "极简"];
     private bool _syncingLyricStyle;  // 程序化回填下拉时为 true：那次 SelectionChanged 不是用户选择
 
     // 广播开关：UI 只持有"用户意图"，native 发送端由管线在渲染线程建/拆
@@ -1390,7 +1386,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         var lines = new List<KrcLine>(result.Clips.Count);
         foreach (var clip in result.Clips)
-            lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text));
+            lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text, clip.Words));
 
         // OutOfRange 只可能落在末句：LrcParser 只在最后一组没有下一个时间戳时才走 TailEnd
         return (lines, result.Clips.Count > 0 && result.Clips[^1].OutOfRange);
@@ -1409,12 +1405,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         RefreshTimeline();
     }
 
-    /// <summary>导入歌词文件（按钮与窗口拖放共用）：解析失败把原因说出来，不静默吞掉。</summary>
+    /// <summary>导入歌词文件（按钮与窗口拖放共用）：.krc 先解密再解析；失败把原因说出来，不静默吞掉。</summary>
     private void LoadLyricsFile(string path)
     {
         try
         {
-            LoadLyrics(File.ReadAllText(path));
+            LoadLyrics(ReadLyricFileText(path));
             TblStatus.Text = $"已装载歌词：{_lyrics?.Count ?? 0} 行"
                              + (_tailUncalibrated ? "（末句待校准：未载入音频）" : "");
             Log.Info($"[工作台] 已装载歌词：{_lyrics?.Count ?? 0} 行 ({path})，末句待校准={_tailUncalibrated}");
@@ -1431,7 +1427,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "打开歌词文件",
-            Filter = "歌词文件 (*.lrc)|*.lrc|所有文件 (*.*)|*.*",
+            Filter = "歌词 (*.lrc;*.krc)|*.lrc;*.krc",
         };
         if (dlg.ShowDialog(this) != true) return;
         LoadLyricsFile(dlg.FileName);
@@ -2280,7 +2276,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             meta += $" · BPM {map.Bpm:F0} · 段落 {map.Sections.Count}（副歌 ×{ChorusCount(map)}）";
         var lyric = _lyrics is null
             ? "未装载歌词"
-            : $"{_lyrics.Count} 句" + (_tailUncalibrated ? "（末句待校准）" : "");
+            : $"{_lyrics.Count} 句" + (_tailUncalibrated ? "（末句待校准）" : "")
+              + $" · 逐字：{(HasBuiltinWords() ? "文件自带" : "按字均分")}";
 
         if (name != _mediaAudioCache)
         {
@@ -2304,8 +2301,15 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private static readonly string[] AudioExtensions =
         [".mp3", ".flac", ".wav", ".m4a", ".aac", ".ogg", ".wma"];
 
-    /// <summary>拖放按扩展名分派：音频走导入音源那条路，.lrc 走装载歌词那条路。</summary>
+    /// <summary>拖放按扩展名分派：音频走导入音源那条路，.lrc/.krc 走装载歌词那条路。</summary>
     private static bool IsDroppable(DragEventArgs e) => DroppedFiles(e).Length > 0;
+
+    private static bool IsLyricExtension(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return string.Equals(ext, ".lrc", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(ext, ".krc", StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string[] DroppedFiles(DragEventArgs e)
     {
@@ -2316,7 +2320,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         {
             var ext = Path.GetExtension(f);
             return AudioExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase)
-                   || string.Equals(ext, ".lrc", StringComparison.OrdinalIgnoreCase);
+                   || IsLyricExtension(f);
         }).ToArray();
     }
 
@@ -2340,7 +2344,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SetStep(0); // 音频与歌词都落在「素材」步骤上：拖进来的结果必须看得见
         foreach (var file in files)
         {
-            if (string.Equals(Path.GetExtension(file), ".lrc", StringComparison.OrdinalIgnoreCase))
+            if (IsLyricExtension(file))
                 LoadLyricsFile(file);
             else
                 LoadAudioFile(file);

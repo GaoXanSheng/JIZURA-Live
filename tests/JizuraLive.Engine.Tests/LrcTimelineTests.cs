@@ -229,4 +229,124 @@ public class LrcTimelineTests
             }
         }
     }
+
+    [Fact]
+    public void PlainLrcLeavesWordsNull()
+    {
+        const string lrc = """
+            [00:01.00]普通一句
+            [00:05.00]下一句
+            """;
+
+        var result = LrcParser.ParseClips(lrc);
+
+        Assert.Equal(2, result.Clips.Count);
+        Assert.All(result.Clips, c => Assert.Null(c.Words));
+        Assert.All(LrcParser.Parse(lrc), l => Assert.Null(l.Words));
+    }
+
+    [Fact]
+    public void KrcTextParsesAbsoluteWordTimesAndIgnoresTagLines()
+    {
+        const string krc = """
+            [ti:测试曲]
+            [ar:某歌手]
+            [language:eyJsfQ==]
+            [offset:0]
+            [hash:0123456789abcdef]
+            [id:$00000000]
+            [1000,5000]<0,400,0>あ<400,600,0>い<1000,900,0>う
+            [3000,600]<0,300,0>次<300,300,0>句
+            """;
+
+        var result = LrcParser.ParseClips(krc);
+
+        Assert.Equal(2, result.Clips.Count); // 标签行不产生 Clip，也不报问题
+        Assert.Empty(result.Issues);
+
+        var first = result.Clips[0];
+        Assert.Equal(1000, first.StartMs);
+        Assert.Equal(3000, first.EndMs); // 行自带 dur=5000，仍被下一行起点截断（半开区间）
+        Assert.Equal("あいう", first.Text);
+
+        var words = first.Words!;
+        Assert.Equal(3, words.Count);
+        Assert.Equal(1000, words[0].StartMs); // off 相对行首 → 绝对毫秒
+        Assert.Equal(400, words[0].DurMs);
+        Assert.Equal(1400, words[1].StartMs);
+        Assert.Equal(600, words[1].DurMs);
+        Assert.Equal(2000, words[2].StartMs);
+        Assert.Equal(900, words[2].DurMs); // KRC 的词时长来自文件：区间被截断也不改词时长
+        Assert.Equal("あいう", string.Concat(words.Select(w => w.Text))); // 拼接 = 整句
+
+        var last = result.Clips[1];
+        Assert.Equal(3000, last.StartMs);
+        Assert.Equal(3600, last.EndMs); // 无后继行：用行自带 dur，不走 3s 兜底
+        Assert.False(last.OutOfRange);
+        Assert.Equal("次句", last.Text);
+        Assert.Equal(3000, last.Words![0].StartMs);
+    }
+
+    [Fact]
+    public void KrcWordsSurviveTheKrcLineEntry()
+    {
+        var clip = LrcParser.ParseClips("[1000,500]<0,250,0>你<250,250,0>好").Clips[0];
+        var line = Assert.Single(LrcParser.Parse("[1000,500]<0,250,0>你<250,250,0>好"));
+
+        Assert.Equal(1000, line.StartMs);
+        Assert.Equal(500, line.DurMs);
+        Assert.Equal(clip.Words, line.Words);
+        Assert.Equal(clip.Words, Assert.Single(LrcParser.ToClips([line])).Words);
+    }
+
+    [Fact]
+    public void EnhancedLrcParsesWordTimesAndJoinsBackToTheWholeLine()
+    {
+        const string lrc = """
+            [00:12.00]<00:12.00>Hello <00:12.50>brave <00:13.00>world<00:13.50>
+            [00:20.00]<00:20.00>次句
+            """;
+
+        var result = LrcParser.ParseClips(lrc);
+
+        Assert.Equal(2, result.Clips.Count);
+        Assert.Empty(result.Issues);
+
+        var first = result.Clips[0];
+        Assert.Equal(12000, first.StartMs);
+        Assert.Equal(20000, first.EndMs); // 区间照旧收到下一行起点
+        Assert.Equal("Hello brave world", first.Text);
+
+        var words = first.Words!;
+        Assert.Equal(3, words.Count);
+        Assert.Equal(12000, words[0].StartMs);
+        Assert.Equal(500, words[0].DurMs); // 词时长 = 到下一标记
+        Assert.Equal(12500, words[1].StartMs);
+        Assert.Equal(500, words[1].DurMs);
+        Assert.Equal(13000, words[2].StartMs);
+        Assert.Equal(500, words[2].DurMs); // 末词收到行尾结束标记 <00:13.50>
+        Assert.Equal(first.Text, string.Concat(words.Select(w => w.Text)));
+
+        // 无行尾结束标记：末词收到本句 EndMs（这里是 3s 兜底区间的末端）
+        var tail = result.Clips[1];
+        Assert.Equal(23000, tail.EndMs);
+        var tailWord = Assert.Single(tail.Words!);
+        Assert.Equal(20000, tailWord.StartMs);
+        Assert.Equal(3000, tailWord.DurMs);
+    }
+
+    [Fact]
+    public void EnhancedLrcMergedLineKeepsWordsComplete()
+    {
+        const string lrc = """
+            [00:01.00]<00:01.00>上<00:01.50>句
+            [00:01.00]普通同刻句
+            [00:03.00]收尾
+            """;
+
+        var clip = LrcParser.ParseClips(lrc).Clips[0];
+
+        Assert.Equal("上句\n普通同刻句", clip.Text);
+        Assert.Null(clip.Words); // 一半有词一半没有：不拼出与整句对不上的词表
+    }
 }
