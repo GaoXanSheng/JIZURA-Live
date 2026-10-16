@@ -39,7 +39,7 @@ public sealed class AutoReport
 /// </list>
 /// 生成物靠 <c>fx_autodir_</c> 实例前缀与 <c>auto.</c> 层名识别，重复生成先清掉上一版（幂等）。
 /// </summary>
-public static class AutoDirector
+public static partial class AutoDirector
 {
     static AutoDirector()
     {
@@ -97,6 +97,11 @@ public static class AutoDirector
         BuildEffects(project, song, look, intensity, rng, report);
         ApplyLyricStyle(project, song);
 
+        // 各自独立的随机源：一条轨多抽一次随机数不改变别的轨，同种子整份工程逐字节相同
+        BuildAnimeFx(project, song, look, style, intensity, new Random(unchecked(options.Seed * 7919 + 1)), report);
+        BuildParticles(project, song, style, intensity, new Random(unchecked(options.Seed * 7919 + 2)), report);
+        BuildPerformance(project, song, style, intensity, report);
+
         foreach (var sec in song.Sections)
             report.Notes.Add($"[{sec.Start:F2}s–{sec.End:F2}s] {sec.Kind}（能量 {sec.Energy:F2}）{(song.IsHigh(sec) ? " · 高潮段" : "")}");
         report.Notes.Add($"AutoDirector: Style={style}, Intensity={intensity:F2}, Seed={options.Seed}, "
@@ -122,8 +127,20 @@ public static class AutoDirector
             (c.Layer?.StartsWith(LayerPrefix, StringComparison.Ordinal) ?? false) ||
             (string.IsNullOrEmpty(c.Layer) && CameraParams.Any(p => c.Address == "camera." + p)) ||
             c.Address.StartsWith($"effect:{AutoPrefix}", StringComparison.Ordinal) ||
-            autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)));
+            autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)) ||
+            c.Address.StartsWith($"layer:{AutoLayerPrefix}", StringComparison.Ordinal));
+
+        // 换引用而不是原地删：渲染线程可能正在遍历这份图层列表
+        if (project.Scene.Layers.Any(l => l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)))
+            project.Scene.Layers = project.Scene.Layers
+                .Where(l => !l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)).ToList();
+
+        project.LyricStyles.Clear();
+        project.VtsCues.Cues.Clear();
     }
+
+    /// <summary>导演生成的图层（粒子层）Id 前缀。</summary>
+    public const string AutoLayerPrefix = "autodir_";
 
     // ---------------------------------------------------------------- 运镜
 

@@ -63,6 +63,12 @@ public sealed class DirectorProject
     public VtsCueTrack VtsCues { get; set; } = new();
 
     /// <summary>
+    /// 逐段歌词样式（导演按段落写）。歌词 clip 本身不落盘（落盘的是 LrcText），
+    /// 所以样式以时间区间保存，窗口每次建出 clip 后用 <see cref="LyricStyleSpans.Apply"/> 套上去。
+    /// </summary>
+    public List<LyricStyleSpan> LyricStyles { get; set; } = new();
+
+    /// <summary>
     /// 编辑器布局（画布视图与选择、时间轴视图）。
     ///
     /// 布局不是内容：改它不触发编译、不计 dirty，只在保存时附带落盘（契约 §3.1）。

@@ -351,6 +351,10 @@ public static class EffectCatalog
         ["wave"] = ("amount", 0f),
         ["bloom"] = ("intensity", 0f),
         ["motionBlur"] = ("strength", 0f),
+        ["speedLines"] = ("amount", 0f),
+        ["mangaPanels"] = ("amount", 0f),
+        ["duotone"] = ("amount", 0f),
+        ["letterbox"] = ("amount", 0f),
     };
 
     /// <summary>取效果的混合参数 Key 与无效果值；没有则返回 false。</summary>
