@@ -49,6 +49,18 @@ public class LyricTimingTests
         AssertWordInvariants(clip);
     }
 
+    [Theory]
+    [InlineData("a  b")]
+    [InlineData(" 你好")]
+    [InlineData("你 好 world")]
+    [InlineData("  lead and  double  ")]
+    public void WordsConcatenateBackToTheExactText(string text)
+    {
+        var clip = LyricTiming.EnsureWords([Clip(text)])[0];
+
+        Assert.Equal(text, string.Concat(Texts(clip)));
+    }
+
     [Fact]
     public void PunctuationJoinsThePreviousWord()
     {

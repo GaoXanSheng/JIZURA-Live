@@ -219,6 +219,38 @@ public class AnimeEffectsTests
         Math.Abs(a.Red - b.Red) <= tol && Math.Abs(a.Green - b.Green) <= tol &&
         Math.Abs(a.Blue - b.Blue) <= tol && Math.Abs(a.Alpha - b.Alpha) <= tol;
 
+    [GpuFact]
+    public void WipeIrisIsRoundOnWideFrames()
+    {
+        var gpu = D3DDevice.TryCreate(out _);
+        if (gpu is null) GpuRequire.Fail();
+        using (gpu)
+        using (var host = D2DHost.Create(gpu))
+        using (var target = OffscreenTarget.Create(gpu, host.Ctx, W, H))
+        using (var runner = new GpuEffectRunner(gpu))
+        {
+            using var baseBmp = RenderBase(host, target);
+            using var f = WipeIris(gpu, runner, baseBmp, 0.62f);
+
+            int Reach(int dx, int dy)
+            {
+                int x = W / 2, y = H / 2, n = 0;
+                while (x >= 0 && x < W && y >= 0 && y < H && Near(baseBmp.GetPixel(x, y), f.GetPixel(x, y), 1))
+                {
+                    x += dx;
+                    y += dy;
+                    n++;
+                }
+                return n;
+            }
+
+            var rx = Reach(1, 0);
+            var ry = Reach(0, 1);
+            Assert.True(ry > 10 && ry < H / 2 - 5, $"竖向半径 {ry}px 不在可量范围");
+            Assert.True(Math.Abs(rx - ry) <= 3, $"光圈在 {W}x{H} 上不圆：横向半径 {rx}px、竖向半径 {ry}px");
+        }
+    }
+
     /// <summary>「没被色块盖住」的像素数：回读结果与原画面逐通道相同（≤1 灰阶）。</summary>
     private static int RevealedPixels(ReadbackImage baseBmp, ReadbackImage frame)
     {
@@ -284,20 +316,21 @@ public class AnimeEffectsTests
                 prevFirst = area;
             }
 
-            // ④ 第二半程的形态：圆盘已经越过画面四边中点（那里露出原画面），四角仍被盖住
-            using (var f = WipeIris(gpu, runner, baseBmp, 0.9f))
+            // ④ 第二半程的形态：圆盘已经越过画面四边中点（那里露出原画面），四角仍被盖住。
+            // 光圈在屏幕空间是正圆，16:9 下左右边中点比上下远，前沿色带又不能扫到角上，所以取 0.92
+            using (var f = WipeIris(gpu, runner, baseBmp, 0.92f))
             {
                 (int X, int Y)[] revealed = [(W / 2, H / 2), (1, H / 2), (W - 2, H / 2), (W / 2, 1), (W / 2, H - 2)];
                 foreach (var (x, y) in revealed)
                     Assert.True(Near(baseBmp.GetPixel(x, y), f.GetPixel(x, y), 1),
-                        $"wipe(iris) progress=0.9 时 ({x},{y}) 该已从中心张开露出原画面，实际 {f.GetPixel(x, y)}（原图 {baseBmp.GetPixel(x, y)}）");
+                        $"wipe(iris) progress=0.92 时 ({x},{y}) 该已从中心张开露出原画面，实际 {f.GetPixel(x, y)}（原图 {baseBmp.GetPixel(x, y)}）");
 
                 (int X, int Y)[] covered = [(2, 2), (W - 3, 2), (2, H - 3), (W - 3, H - 3)];
                 foreach (var (x, y) in covered)
                 {
                     var c = f.GetPixel(x, y);
                     Assert.True(Math.Abs(c.Red - 255) <= 2 && Math.Abs(c.Green - 95) <= 2 && Math.Abs(c.Blue - 162) <= 2,
-                        $"wipe(iris) progress=0.9 时四角 ({x},{y}) 该仍被色块盖住，实际 #{c.Red:x2}{c.Green:x2}{c.Blue:x2}");
+                        $"wipe(iris) progress=0.92 时四角 ({x},{y}) 该仍被色块盖住，实际 #{c.Red:x2}{c.Green:x2}{c.Blue:x2}");
                 }
             }
 
