@@ -48,6 +48,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     // volatile：它同时是那批文档字段的发布栅栏（写入先于置位，渲染线程读到 true 就一定读得到新对象）。
     private volatile bool _rebuildPipe;
 
+    // 管线重建在渲染线程克隆效果图：只许克隆这份 UI 线程做好、之后不再原地改的快照，不能碰 _effects
+    private volatile EffectGraph _pipeEffects = new();
+
     // 音频与歌词的绑定：回写进 _project 后随工程一起落盘，下次打开自动恢复
     private string? _audioPath;
     private string? _lrcText;
@@ -177,6 +180,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _project = boot.Project;
         _scene = _project.Scene;
         _effects = _project.Effects;
+        _pipeEffects = _effects.Clone();
         _audioPath = _project.AudioPath;
         _lrcText = _project.LrcText;
         if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
@@ -308,7 +312,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// 增删节点、拖拽排序、启用/停用、改参数、换预设、撤销重做、一键生成——**每一处**改动之后都要调这一句：
     /// 渲染线程只看自己那份快照（它会把曲线值写进去），漏掉就等于这次改动屏幕上不生效。
     /// </summary>
-    private void EffectsChanged() => _pipe?.PublishEffects(_effects.Clone());
+    private void EffectsChanged()
+    {
+        var snapshot = _effects.Clone();
+        _pipeEffects = snapshot;
+        _pipe?.PublishEffects(snapshot);
+    }
 
     /// <summary>
     /// 把离线频带序列整份发布给管线（引用交换，渲染线程下一帧读到）。传 null = 分析未就绪：
@@ -395,7 +404,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _pipe?.Dispose();
         _pipe = null;
 
-        _pipe = new PvPipeline(host.Gpu!, _scene, _effects);
+        _pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects);
         // 工程里存的歌词样式在这里落到提供者上：换工程与撤销走的都是重建管线这条路
         _pipe.Renderer.Lyric?.SetStyle(ProjectLyricStyle());
         // 建完管线就把工程里已有的曲线带上，否则要等第一次编辑才生效。
@@ -1311,6 +1320,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _project = project;
         _scene = project.Scene;
         _effects = project.Effects;
+        _pipeEffects = _effects.Clone();
         _audioPath = project.AudioPath;
         _lrcText = project.LrcText;
 
