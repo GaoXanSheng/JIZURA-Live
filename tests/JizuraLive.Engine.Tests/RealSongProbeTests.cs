@@ -41,7 +41,8 @@ public class RealSongProbeTests
         double beatError = Math.Abs(map.Beats.Count - expectedBeats) / expectedBeats;
         Assert.True(beatError < 0.15, $"拍数 {map.Beats.Count} 与 时长×BPM/60={expectedBeats:F1} 相差 {beatError:P2}");
 
-        Assert.InRange(map.Sections.Count, 3, 15);
+        // StructureAnalyzer 每 64 拍至少切一刀，长歌的段数上限随拍数放宽
+        Assert.InRange(map.Sections.Count, 3, Math.Max(15, map.Beats.Count / 64 + 4));
 
         var chorus = map.Sections.Where(s => s.Kind == "chorus").ToList();
         Assert.NotEmpty(chorus);

@@ -94,6 +94,21 @@ public class StructureAnalyzerTests
     }
 
     [Fact]
+    public void BeatAtDurationKeepsSectionEnergyFinite()
+    {
+        var (features, beats, downbeats) = Build(new[]
+        {
+            (16, new[] { C, Am }, 0.3),
+            (16, new[] { F, G }, 0.9),
+        });
+        beats.Add(features.Duration - features.FrameStep * 0.4);
+
+        var sections = StructureAnalyzer.Analyze(features, beats, downbeats);
+
+        Assert.All(sections, s => Assert.InRange(s.Energy, 0.0, 1.0));
+    }
+
+    [Fact]
     public void EmptyFeaturesYieldSingleIntroSection()
     {
         var empty = new MusicFeatures

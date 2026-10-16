@@ -146,7 +146,7 @@ public static class StructureAnalyzer
 
             double sum = 0;
             for (int i = i0; i < i1; i++) sum += levels[i];
-            cells[c] = sum / (i1 - i0);
+            cells[c] = i1 > i0 ? sum / (i1 - i0) : (c > 0 ? cells[c - 1] : 0);
         }
         return cells;
     }
