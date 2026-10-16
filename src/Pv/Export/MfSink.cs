@@ -3,11 +3,12 @@ using System.Runtime.InteropServices;
 namespace JizuraLive.Pv;
 
 /// <summary>
-/// Media Foundation SinkWriter 的最小封装：H.264 编码写 MP4。
+/// Media Foundation SinkWriter 的最小封装：H.264 编码写 MP4，可选一条 AAC 音轨。
 ///
 /// 输入帧是 NV12（Y 平面 + 交错 UV，逐行自上而下）：NV12 是 H.264 编码器明确接受的输入类型之一，
 /// 而系统内存里的 RGB 按惯例是 bottom-up，送 RGB32 得靠媒体类型声明朝向才不会上下颠倒——所以不走那条路。
 /// 时间戳由内部帧序号推出：第 n 帧 = n × (10^7 / fps) 个 100ns 单位；每帧字节数必须等于 <see cref="Nv12Size"/>。
+/// 音频的输入是 16bit 交错 PCM，时间戳由调用方按样本计数给出（<see cref="WriteAudio"/>）。
 /// 不调用 <see cref="Close"/> 就没有能播的文件：MP4 的索引在 IMFSinkWriter::Finalize 里才写。
 /// </summary>
 public sealed class MfSink : IDisposable
@@ -17,18 +18,24 @@ public sealed class MfSink : IDisposable
     private const long HnsPerSecond = 10_000_000; // MF 的时间基是 100ns
     private const int Progressive = 2;            // MFVideoInterlace_Progressive
     private const int Bt709 = 1;                  // MFVideoTransferMatrix_BT709
+    private const int AudioBits = 16;             // AAC 编码器的输入 PCM 位深（编码器输出同为 16）
+    private const int AudioAvgBytesPerSecond = 24_000; // 192 kbps
+    private const uint AacPayloadRaw = 0;         // MF_MT_AAC_PAYLOAD_TYPE：0 = 裸 AAC（MP4 封装要的值）
 
     private IMFSinkWriter? _writer;
     private readonly int _stream;
+    private readonly int _audioStream;
     private readonly long _frameDuration;
     private readonly int _frameBytes;
     private long _nextTimestamp;
     private bool _comInitialized;
 
-    private MfSink(IMFSinkWriter writer, int stream, int width, int height, int fps, bool comInitialized)
+    private MfSink(IMFSinkWriter writer, int stream, int audioStream, int width, int height, int fps,
+        bool comInitialized)
     {
         _writer = writer;
         _stream = stream;
+        _audioStream = audioStream;
         _frameDuration = HnsPerSecond / fps;
         _frameBytes = Nv12Size(width, height);
         _comInitialized = comInitialized;
@@ -38,15 +45,20 @@ public sealed class MfSink : IDisposable
     public static int Nv12Size(int width, int height) => width * height * 3 / 2;
 
     /// <summary>
-    /// 建输出文件并接上 H.264 编码器。失败抛 <see cref="InvalidOperationException"/>（带步骤名与 HRESULT），
-    /// 不返回半成品。参数校验归调用方（<see cref="PvExporter"/> 已经查过一遍）。
+    /// 建输出文件并接上 H.264 编码器；<paramref name="withAudio"/> = true 时再接一条 AAC 音轨（48kHz 2ch 16bit）。
+    /// 失败抛 <see cref="InvalidOperationException"/>（带步骤名与 HRESULT），不返回半成品。
+    /// 参数校验归调用方（<see cref="PvExporter"/> 已经查过一遍）。
     /// </summary>
-    public static MfSink Open(string path, int width, int height, int fps)
+    public static MfSink Open(string path, int width, int height, int fps, bool withAudio = false,
+        int audioSampleRate = 48000, int audioChannels = 2)
     {
         if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("导出路径为空", nameof(path));
         if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0)
             throw new ArgumentOutOfRangeException(nameof(width), $"NV12 要求宽高为正偶数（当前 {width}×{height}）");
         if (fps <= 0) throw new ArgumentOutOfRangeException(nameof(fps), $"帧率必须为正数（当前 {fps}）");
+        if (withAudio && (audioSampleRate <= 0 || audioChannels is < 1 or > 2))
+            throw new ArgumentOutOfRangeException(nameof(audioSampleRate),
+                $"音轨只支持 1..2 声道的正整数采样率（当前 {audioSampleRate}Hz {audioChannels}ch）");
 
         // 只有 S_OK 才是这次调用完成了初始化，也才有配对的 CoUninitialize；
         // S_FALSE（已初始化）/ RPC_E_CHANGED_MODE（别的套间模式）都不接手释放。
@@ -61,8 +73,9 @@ public sealed class MfSink : IDisposable
             Check(MFCreateSinkWriterFromURL(path, IntPtr.Zero, IntPtr.Zero, out var writer), "打开输出文件");
             pending = writer;
 
-            BuildStreams(writer, width, height, fps, out var stream);
-            return new MfSink(writer, stream, width, height, fps, comInitialized);
+            BuildStreams(writer, width, height, fps, withAudio, audioSampleRate, audioChannels,
+                out var stream, out var audioStream);
+            return new MfSink(writer, stream, audioStream, width, height, fps, comInitialized);
         }
         catch
         {
@@ -75,42 +88,65 @@ public sealed class MfSink : IDisposable
 
     /// <summary>
     /// 送一帧 NV12。数据拷进 MF 缓冲，调用方可以复用同一个数组。
-    /// 每帧新建缓冲与样本：SinkWriter 不承诺在本调用返回前消化掉样本，复用同一块会让编码器读到下一帧的数据。
     /// </summary>
     public void WriteFrame(byte[] nv12)
     {
-        var writer = _writer ?? throw new ObjectDisposedException(nameof(MfSink));
+        if (_writer is null) throw new ObjectDisposedException(nameof(MfSink));
         if (nv12.Length != _frameBytes)
             throw new ArgumentException($"NV12 帧应为 {_frameBytes} 字节，实际 {nv12.Length}", nameof(nv12));
 
-        Check(MFCreateMemoryBuffer((uint)nv12.Length, out var buffer), "建立媒体缓冲");
+        WriteSample(_stream, nv12, _nextTimestamp, _frameDuration, "帧");
+        _nextTimestamp += _frameDuration;
+    }
+
+    /// <summary>
+    /// 送一段 16bit 交错 PCM。时间戳由调用方按累计样本数给出：SinkWriter 只认 100ns 单位，
+    /// 逐块取整会在长片上累积漂移，所以这里不做任何时间推算。
+    /// </summary>
+    public void WriteAudio(ReadOnlySpan<short> interleaved, long sampleTime100ns, long duration100ns)
+    {
+        if (_writer is null) throw new ObjectDisposedException(nameof(MfSink));
+        if (_audioStream < 0) throw new InvalidOperationException("本次导出没有音轨（Open 时 withAudio = false）");
+        if (interleaved.Length == 0) return;
+
+        WriteSample(_audioStream, MemoryMarshal.AsBytes(interleaved), sampleTime100ns, duration100ns, "音频");
+    }
+
+    /// <summary>
+    /// 把一段字节送进指定流。每帧新建缓冲与样本：SinkWriter 不承诺在本调用返回前消化掉样本，
+    /// 复用同一块缓冲会让编码器读到下一份数据。
+    /// </summary>
+    private void WriteSample(int stream, ReadOnlySpan<byte> data, long time, long duration, string what)
+    {
+        Check(MFCreateMemoryBuffer((uint)data.Length, out var buffer), $"建立{what}缓冲");
         IMFSample? sample = null;
         try
         {
-            Check(buffer.Lock(out var data, IntPtr.Zero, IntPtr.Zero), "锁定媒体缓冲");
+            Check(buffer.Lock(out var target, IntPtr.Zero, IntPtr.Zero), $"锁定{what}缓冲");
             try
             {
-                Marshal.Copy(nv12, 0, data, nv12.Length);
+                unsafe
+                {
+                    data.CopyTo(new Span<byte>((void*)target, data.Length));
+                }
             }
             finally
             {
                 buffer.Unlock();
             }
 
-            Check(buffer.SetCurrentLength(nv12.Length), "设置缓冲长度");
+            Check(buffer.SetCurrentLength(data.Length), $"设置{what}缓冲长度");
             Check(MFCreateSample(out sample), "建立媒体样本");
             Check(sample.AddBuffer(buffer), "装载缓冲");
-            Check(sample.SetSampleTime(_nextTimestamp), "设置时间戳");
-            Check(sample.SetSampleDuration(_frameDuration), "设置帧时长");
-            Check(writer.WriteSample(_stream, sample), "写入帧");
+            Check(sample.SetSampleTime(time), "设置时间戳");
+            Check(sample.SetSampleDuration(duration), $"设置{what}时长");
+            Check(_writer!.WriteSample(stream, sample), $"写入{what}");
         }
         finally
         {
             Release(sample);
             Release(buffer);
         }
-
-        _nextTimestamp += _frameDuration;
     }
 
     /// <summary>收尾：写 MP4 索引、关闭文件。幂等。</summary>
@@ -138,7 +174,8 @@ public sealed class MfSink : IDisposable
 
     public void Dispose() => Close();
 
-    private static void BuildStreams(IMFSinkWriter writer, int width, int height, int fps, out int stream)
+    private static void BuildStreams(IMFSinkWriter writer, int width, int height, int fps, bool withAudio,
+        int audioSampleRate, int audioChannels, out int stream, out int audioStream)
     {
         Check(MFCreateMediaType(out var outType), "建立输出媒体类型");
         SetVideoType(outType, MfVideoFormatH264, width, height, fps);
@@ -152,8 +189,26 @@ public sealed class MfSink : IDisposable
         Check(inType.SetUINT32(MfMtYuvMatrix, Bt709), "声明色度矩阵");
         Check(writer.SetInputMediaType(stream, inType, IntPtr.Zero), "设置输入格式（NV12）");
 
+        audioStream = -1;
+        if (withAudio)
+        {
+            Check(MFCreateMediaType(out var audioOut), "建立音轨输出媒体类型");
+            SetAudioType(audioOut, MfAudioFormatAac, audioSampleRate, audioChannels);
+            Check(audioOut.SetUINT32(MfMtAudioAvgBytesPerSecond, AudioAvgBytesPerSecond), "设置音轨码率");
+            Check(audioOut.SetUINT32(MfMtAacPayloadType, AacPayloadRaw), "声明裸 AAC 载荷");
+            Check(writer.AddStream(audioOut, out audioStream), "添加音轨");
+
+            Check(MFCreateMediaType(out var audioIn), "建立音轨输入媒体类型");
+            SetAudioType(audioIn, MfAudioFormatPcm, audioSampleRate, audioChannels);
+            Check(audioIn.SetUINT32(MfMtAudioBlockAlignment, (uint)(audioChannels * AudioBits / 8)), "设置音轨块对齐");
+            Check(audioIn.SetUINT32(MfMtAudioAvgBytesPerSecond,
+                (uint)(audioSampleRate * audioChannels * AudioBits / 8)), "设置音轨字节率");
+            Check(audioIn.SetUINT32(MfMtAllSamplesIndependent, 1), "声明音轨样本独立");
+            Check(writer.SetInputMediaType(audioStream, audioIn, IntPtr.Zero), "设置输入格式（PCM）");
+        }
+
         Check(writer.BeginWriting(), "开始写入");
-        // 两个媒体类型到此为止：SinkWriter 已经拷走它要的属性，剩下的引用交给 GC
+        // 各媒体类型到此为止：SinkWriter 已经拷走它要的属性，剩下的引用交给 GC
     }
 
     private static void SetVideoType(IMFMediaType type, in Guid subtype, int width, int height, int fps)
@@ -164,6 +219,15 @@ public sealed class MfSink : IDisposable
         Check(type.SetUINT64(in MfMtFrameSize, Pack(width, height)), "设置帧尺寸");
         Check(type.SetUINT64(in MfMtFrameRate, Pack(fps, 1)), "设置帧率");
         Check(type.SetUINT64(in MfMtPixelAspectRatio, Pack(1, 1)), "设置像素宽高比");
+    }
+
+    private static void SetAudioType(IMFMediaType type, in Guid subtype, int sampleRate, int channels)
+    {
+        Check(type.SetGUID(in MfMtMajorType, in MediaTypeAudio), "设置主类型");
+        Check(type.SetGUID(in MfMtSubtype, in subtype), "设置子类型");
+        Check(type.SetUINT32(in MfMtAudioSamplesPerSecond, (uint)sampleRate), "设置采样率");
+        Check(type.SetUINT32(in MfMtAudioNumChannels, (uint)channels), "设置声道数");
+        Check(type.SetUINT32(in MfMtAudioBitsPerSample, AudioBits), "设置位深");
     }
 
     /// <summary>码率档：0.1 bit/像素/帧，夹在 2..60 Mbps（码率 UI 不在本次范围内）。</summary>
@@ -210,10 +274,20 @@ public sealed class MfSink : IDisposable
     private static readonly Guid MfMtPixelAspectRatio = new("c6376a1e-8d0a-4027-be45-6d9a0ad39bb6");
     private static readonly Guid MfMtYuvMatrix = new("3e23d450-2c75-4d25-a00e-b91670d12327");
     private static readonly Guid MfMtMpeg2Profile = new("ad76a80b-2d5c-4e0b-b375-64e520137036");
+    private static readonly Guid MfMtAudioNumChannels = new("37e48bf5-645e-4c5b-89de-ada9e29b696a");
+    private static readonly Guid MfMtAudioSamplesPerSecond = new("5faeeae7-0290-4c31-9e8a-c534f68d9dba");
+    private static readonly Guid MfMtAudioBlockAlignment = new("322de230-9eeb-43bd-ab7a-ff412251541d");
+    private static readonly Guid MfMtAudioAvgBytesPerSecond = new("1aab75c8-cfef-451c-ab95-ac034b8e1731");
+    private static readonly Guid MfMtAudioBitsPerSample = new("f2deb57f-40fa-4764-aa33-ed4f2d1ff669");
+    private static readonly Guid MfMtAllSamplesIndependent = new("c9173739-5e56-461c-b713-46fb995cb95f");
+    private static readonly Guid MfMtAacPayloadType = new("bfbabe79-7434-4d1c-94f0-72a3b9e17188");
 
     private static readonly Guid MediaTypeVideo = new("73646976-0000-0010-8000-00aa00389b71");
+    private static readonly Guid MediaTypeAudio = new("73647561-0000-0010-8000-00aa00389b71");
     private static readonly Guid MfVideoFormatH264 = new("34363248-0000-0010-8000-00aa00389b71");
     private static readonly Guid MfVideoFormatNv12 = new("3231564e-0000-0010-8000-00aa00389b71");
+    private static readonly Guid MfAudioFormatAac = new("00001610-0000-0010-8000-00aa00389b71");
+    private static readonly Guid MfAudioFormatPcm = new("00000001-0000-0010-8000-00aa00389b71");
 
     [DllImport("mfplat.dll", ExactSpelling = true)]
     private static extern int MFStartup(uint version, uint flags);
