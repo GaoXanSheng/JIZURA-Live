@@ -193,6 +193,20 @@ public static class EffectPresets
             });
             return g;
         }),
+
+        new("anime", "Preset.Anime", "Preset.Anime.Desc", () =>
+        {
+            var g = new EffectGraph();
+            g.Add("bloom", n =>
+            {
+                Set(n, "threshold", 0.7f);
+                Set(n, "intensity", 0.75f);
+                Set(n, "radius", 24f);
+            });
+            g.Add("duotone", n => Set(n, "amount", 0.35f));
+            g.Add("vignette", n => Set(n, "intensity", 0.22f));
+            return g;
+        }),
     ];
 
     /// <summary>按 id 建一份预设图（不存在返回 null）。</summary>

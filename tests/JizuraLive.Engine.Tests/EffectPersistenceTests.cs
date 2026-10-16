@@ -208,6 +208,46 @@ public class EffectPersistenceTests
         return new ReadbackImage(totalW, totalH, totalPixels);
     }
 
+    /// <summary>把联表图里第 (col,row) 格裁出来，用于把整图差异定位到具体预设。</summary>
+    private static ReadbackImage CropTile(ReadbackImage sheet, int col, int row)
+    {
+        var px = new byte[W * H * 4];
+        for (var y = 0; y < H; y++)
+            Buffer.BlockCopy(sheet.BgraPixels, ((row * H + y) * sheet.Width + col * W) * 4,
+                px, y * W * 4, W * 4);
+        return new ReadbackImage(W, H, px);
+    }
+
+    /// <summary>
+    /// 整图差异只给一个 mean，12 格里是哪一格变了完全看不出来（这次就是这样：新增预设让整图 mean=11.985，
+    /// 排查得另写探针）。这里逐格点名，差异格按 mean 从大到小列出来。
+    /// </summary>
+    private static string DescribeSheetDiff(ReadbackImage golden, ReadbackImage sheet,
+        IReadOnlyList<(string Id, ReadbackImage Bmp)> frames)
+    {
+        const int cols = 4;
+        var rows = (frames.Count + cols - 1) / cols;
+        var changed = new List<(string Id, double Mean, int Max, double Over8)>();
+
+        for (var r = 0; r < rows; r++)
+        for (var c = 0; c < cols; c++)
+        {
+            var idx = r * cols + c;
+            using var tile = CropTile(sheet, c, r);
+            using var goldTile = CropTile(golden, c, r);
+            var d = GoldenImage.Compare(goldTile, tile);
+            if (d.MeanAbs <= 3.0) continue;
+
+            var id = idx < frames.Count ? frames[idx].Id : $"第 {idx + 1} 格空位";
+            changed.Add((id, d.MeanAbs, d.MaxAbs, d.PctOver8));
+        }
+
+        if (changed.Count == 0) return "（逐格都在容差内——差异来自全图性的细微偏移）";
+
+        return string.Join("；", changed.OrderByDescending(x => x.Mean)
+            .Select(x => $"{x.Id} mean={x.Mean:F3} max={x.Max} over8={x.Over8 * 100:F2}%"));
+    }
+
     [Fact]
     public void EveryPresetIsWellFormed()
     {
@@ -278,7 +318,7 @@ public class EffectPersistenceTests
 
                 _out.WriteLine($"[preset] {frames.Count} 个预设两两可区分");
 
-                // 联表图：8 个预设拼成 4x2 一张，既是肉眼验收材料，也是视觉回归基准
+                // 联表图：全部预设拼成 4 列一张，既是肉眼验收材料，也是视觉回归基准
                 using var sheet = BuildContactSheet(frames);
                 if (GoldenImage.UpdateRequested)
                 {
@@ -288,10 +328,11 @@ public class EffectPersistenceTests
                 {
                     // 缺基准 = 失败（LoadOrFail 会抛出并说明如何显式更新）；
                     // 之前这里是「TryLoad 到 null 就什么都不断言」，等于把这条回归闸拆了。
-                    using var golden = GoldenImage.LoadOrFail("render-core-presets", "预设联表图 4x2");
+                    using var golden = GoldenImage.LoadOrFail("render-core-presets", "预设联表图 4 列");
 
                     var d = GoldenImage.Compare(golden, sheet);
-                    Assert.True(d.MeanAbs <= 3.0, "预设联表图与基准差异过大：" + d);
+                    Assert.True(d.MeanAbs <= 3.0,
+                        $"预设联表图与基准差异过大：{d}。变化集中在——{DescribeSheetDiff(golden, sheet, frames)}");
                 }
             }
             finally
