@@ -40,6 +40,32 @@ public sealed class EffectGraph
     public EffectNode? Find(string defId) => Nodes.FirstOrDefault(n => n.DefId == defId);
 
     /// <summary>
+    /// 深拷贝：节点（连实例 Id）、启用状态、全部参数值与颜色都是新的，与原名下一份不共享。
+    ///
+    /// 这是跨线程发布的唯一入口：UI 线程改完文档图后克隆一份交给渲染线程（<c>PvPipeline.PublishEffects</c>），
+    /// 渲染线程此后只碰这份克隆。两边不再同时摸同一个节点列表，界面里的增删/排序也就不会与渲染线程
+    /// 每帧的 <c>foreach Nodes</c> 撞出「集合已修改」。
+    /// </summary>
+    public EffectGraph Clone()
+    {
+        var copy = new EffectGraph();
+        foreach (var node in Nodes)
+        {
+            var clone = new EffectNode
+            {
+                DefId = node.DefId,
+                InstanceId = node.InstanceId,
+                Enabled = node.Enabled,
+            };
+            foreach (var (key, value) in node.Values) clone.Values[key] = value;
+            foreach (var (key, color) in node.Colors) clone.Colors[key] = color;
+            copy.Nodes.Add(clone);
+        }
+
+        return copy;
+    }
+
+    /// <summary>
     /// 把节点搬到 <paramref name="toIndex"/>（列表顺序 = 执行顺序，效果架拖拽重排的写入口）。
     /// 搬的是节点对象本身，实例 Id 与参数值都跟着走——曲线与信号绑定按实例 Id 寻址，重排不该动它们。
     /// <paramref name="toIndex"/> 越界夹进合法区间；返回 false = 位置没变（找不到节点 / 本来就在那儿）。

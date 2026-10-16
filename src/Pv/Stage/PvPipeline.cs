@@ -22,7 +22,11 @@ public sealed class PvPipeline : IDisposable
     private readonly D2DHost _d2d;
     private readonly PvStageRenderer _renderer;
     private readonly PvScene _scene;
-    private readonly EffectGraph _effects;
+
+    // 效果图：UI 线程改完文档图后克隆发布（PublishEffects），渲染线程在 Prepare 帧首取用本帧快照。
+    // 发布出去的那份此后归渲染线程独占——ApplyEffectCurves 会往节点参数里写曲线值，
+    // 所以那个对象上不能再有第二个写者（文档图的增删留在 UI 线程）。
+    private readonly SnapshotSlot<EffectGraph> _effects;
 
     // 跨线程交接只有这一条命令通道：UI 投递，渲染线程在帧首消费（图层提供者的 COM 对象必须在渲染线程建）。
     private readonly ConcurrentQueue<string> _pendingAdds = new();
@@ -78,7 +82,7 @@ public sealed class PvPipeline : IDisposable
         new(ParamAddressKind.Camera, "", "rotation");
 
     public PvScene Scene => _scene;
-    public EffectGraph Effects => _effects;
+    public EffectGraph Effects => _effects.Snapshot;
     public PvStageRenderer Renderer => _renderer;
 
     public bool Ready { get; private set; }
@@ -122,14 +126,16 @@ public sealed class PvPipeline : IDisposable
         IPvSubtitleSource? subtitleSource = null, VtsTrackingProbe? tracking = null)
     {
         _scene = scene;
-        _effects = effects;
+        // 渲染侧从第一帧起就用自己的克隆：文档图（UI 线程手里的 _project.Effects）永不进渲染线程，
+        // 否则一次界面编辑就是在与渲染线程每帧的 foreach Nodes 抢同一个列表。
+        _effects = new SnapshotSlot<EffectGraph>(effects.Clone());
         _tracking = tracking;
         SeedLayerSeq();
 
         try
         {
             _d2d = D2DHost.Create(gpu);
-            _renderer = new PvStageRenderer(gpu, _d2d, scene, effects, scene.Width, scene.Height);
+            _renderer = new PvStageRenderer(gpu, _d2d, scene, _effects.Snapshot, scene.Width, scene.Height);
             RegisterProviders(gpu, subtitleSource);
             Ready = true;
         }
@@ -154,15 +160,20 @@ public sealed class PvPipeline : IDisposable
     /// 换导演求值器快照（任意线程）。UI 线程在曲线上改完打一份不可变快照发布过来，渲染线程下一帧读到；
     /// 引用交换原子，无锁。传 null = 关掉曲线驱动，镜头回场景基础值。
     ///
-    /// 发布前先给每条效果曲线要写的参数**铺键**（见 <see cref="SeedCurveParamKeys"/>）：这条是"发布"的一部分，
-    /// 不能留给调用方——工程恢复与效果实例级联删除两条路径漏了这一步，第一条被帧内写入的新键
-    /// 就会在渲染线程上扩容字典。
+    /// 不再需要"发布前铺键"（旧 SeedCurveParamKeys）：曲线值现在写进的是渲染侧自己那份发布快照
+    /// （<see cref="PublishEffects"/> 的克隆），帧内首次插键（<c>EffectNode.Set</c>）只动那个对象，
+    /// 它上面没有第二个写者，也就不会再与谁的枚举撞上。
     /// </summary>
-    public void SetDirector(DirectorEvaluator? d)
-    {
-        SeedCurveParamKeys(d);
-        _director = d;
-    }
+    public void SetDirector(DirectorEvaluator? d) => _director = d;
+
+    /// <summary>
+    /// 发布一份效果图快照（任意线程，UI 线程调用）。界面改完文档图后必须调：增删节点、拖拽排序、
+    /// 启用/停用、改参数、换预设、撤销重做、一键生成——漏掉这一句这次改动屏幕上就不生效。
+    ///
+    /// 传进来的这份此后**归渲染线程独占**（曲线值写进节点参数），所以调用方只能传克隆
+    /// （<see cref="EffectGraph.Clone"/>），不许把文档图直接发过来。
+    /// </summary>
+    public void PublishEffects(EffectGraph snapshot) => _effects.Publish(snapshot);
 
     /// <summary>
     /// 换音频频带分析序列（任意线程）。后台把整段音频算完（见 <see cref="AudioFileAnalyzer.Analyze"/>）
@@ -186,6 +197,10 @@ public sealed class PvPipeline : IDisposable
 
     public void Prepare(double time)
     {
+        // 帧首取本帧的效果图快照：曲线求值、随后的效果图构建与 Composite 只认这一份；
+        // 帧中途的发布留到下一帧（换引用原子，无锁）。
+        var effects = _effects.Snapshot;
+
         ApplyLayerOps();
         ApplyBroadcast();
 
@@ -194,12 +209,12 @@ public sealed class PvPipeline : IDisposable
 
         // 帧状态（契约 §3.3 的步骤 1/2）：本帧建一份**新的**草稿，常量与曲线先落进去，全部填完才整份发布——
         // 读者永远只看得到完整快照，看不到写了一半的字典。
-        // 效果参数不走帧状态：曲线值直接写进效果实例，必须在 _renderer.Prepare 之前
+        // 效果参数不走帧状态：曲线值直接写进本帧那份效果图快照，必须在 _renderer.Prepare 之前
         // （效果参数就是在那一句里被打包成常量缓冲的）。
         var frame = new PvFrameState();
         ApplyTracking(time, frame);
         ApplyLayerFrame(time, frame);
-        ApplyEffectCurves(_effects, _director, time);
+        ApplyEffectCurves(effects, _director, time);
         _scene.PublishFrame(frame);
 
         // 帧状态 → 舞台：预览与广播都从同一个 Stage 合成本帧，镜头只从这里取
@@ -208,7 +223,7 @@ public sealed class PvPipeline : IDisposable
         // 字幕与歌词都在设计画布上求值，窗口尺寸不参与排版
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
         _renderer.Lyric?.SetScale(1.0);
-        _renderer.Prepare(time);
+        _renderer.Prepare(time, effects);
     }
 
     public void Composite(ID2D1Bitmap1 target, int width, int height) =>
@@ -371,6 +386,11 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
+    /// <summary>
+    /// 消费图层的增 / 删 / 重排请求（渲染线程，帧首）。改结构一律换一份新列表（见
+    /// <see cref="WithLayerAdded"/> 一族）：界面线程（图层卡、状态条）与存盘都在读 <see cref="PvScene.Layers"/>，
+    /// 原地 Clear/Add/RemoveAt 会与那个枚举撞出「集合已修改」。
+    /// </summary>
     private void ApplyLayerOps()
     {
         var changed = false;
@@ -379,7 +399,7 @@ public sealed class PvPipeline : IDisposable
         {
             var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
             var layer = NewSourceLayer(id, sender);
-            _scene.Layers.Add(layer);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
             RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建图层 '{id}' <- '{sender}'");
@@ -389,7 +409,7 @@ public sealed class PvPipeline : IDisposable
         {
             var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
             var layer = NewImageLayer(id, imagePath);
-            _scene.Layers.Add(layer);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
             RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建图片图层 '{id}' <- '{imagePath}'");
@@ -399,7 +419,7 @@ public sealed class PvPipeline : IDisposable
         {
             var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
             var layer = NewVideoLayer(id, videoPath);
-            _scene.Layers.Add(layer);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
             RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
@@ -410,7 +430,7 @@ public sealed class PvPipeline : IDisposable
             var idx = _scene.Layers.FindIndex(l => l.Id == id);
             if (idx >= 0)
             {
-                _scene.Layers.RemoveAt(idx);
+                _scene.Layers = WithLayerRemovedAt(_scene.Layers, idx);
                 // 提供者归 Stage 拥有：Remove 已经释放它，这里只摘索引，不再二次 Dispose
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
@@ -425,19 +445,7 @@ public sealed class PvPipeline : IDisposable
         if (order is not null)
         {
             _pendingOrder = null;
-            var byId = _scene.Layers.ToDictionary(l => l.Id);
-            var reordered = new List<PvLayerConfig>();
-            for (var i = order.Length - 1; i >= 0; i--)
-            {
-                if (byId.TryGetValue(order[i], out var l)) reordered.Add(l);
-            }
-            foreach (var l in _scene.Layers)
-            {
-                if (!reordered.Contains(l)) reordered.Add(l);
-            }
-
-            _scene.Layers.Clear();
-            _scene.Layers.AddRange(reordered);
+            _scene.Layers = WithLayerOrder(_scene.Layers, order);
             changed = true;
         }
 
@@ -446,6 +454,37 @@ public sealed class PvPipeline : IDisposable
             // 图层集合变了：只通知 UI，存盘由 UI 线程自己做（渲染帧路径不碰磁盘）
             LayersChanged?.Invoke();
         }
+    }
+
+    /// <summary>在图层栈末尾加一层（返回新列表；<see cref="PvScene.Layers"/> 的写入口之一）。</summary>
+    public static List<PvLayerConfig> WithLayerAdded(IReadOnlyList<PvLayerConfig> layers, PvLayerConfig layer) =>
+        [.. layers, layer];
+
+    /// <summary>摘掉某一层（按位置；调用方先 FindIndex 判存在）。</summary>
+    public static List<PvLayerConfig> WithLayerRemovedAt(IReadOnlyList<PvLayerConfig> layers, int index)
+    {
+        var next = new List<PvLayerConfig>(layers);
+        next.RemoveAt(index);
+        return next;
+    }
+
+    /// <summary>按「从上到下」的 Id 序列重排：列表顺序 = 绘制顺序，所以这里要把序列反过来。</summary>
+    public static List<PvLayerConfig> WithLayerOrder(IReadOnlyList<PvLayerConfig> layers,
+        IReadOnlyList<string> idsTopFirst)
+    {
+        var byId = layers.ToDictionary(l => l.Id);
+        var next = new List<PvLayerConfig>(layers.Count);
+        for (var i = idsTopFirst.Count - 1; i >= 0; i--)
+        {
+            if (byId.TryGetValue(idsTopFirst[i], out var l)) next.Add(l);
+        }
+
+        foreach (var l in layers)
+        {
+            if (!next.Contains(l)) next.Add(l);
+        }
+
+        return next;
     }
 
     /// <summary>
@@ -616,38 +655,6 @@ public sealed class PvPipeline : IDisposable
     }
 
     /// <summary>
-    /// 发布前铺键：把每条效果曲线要写的参数键先建成"已存在"。
-    ///
-    /// 为什么必须在发布前：渲染线程每帧写的是 <c>EffectNode.Set</c> → <c>Values[key] = v</c>，
-    /// 键不存在时这一次写入会扩容字典；而 UI 线程的存盘（EffectGraphJson 遍历 Values）可能与它同时发生——
-    /// 扩容换掉桶结构，正在跑的枚举随之失效。铺键之后帧内写入全是覆盖已有键，不再有结构变化。
-    ///
-    /// 只在"投递新快照"这条线程上做，且必须早于 <c>_director</c> 换引用：本轮帧内写入用的一定是
-    /// 已铺过键的那份快照。值取实例现状：已存在的键一字不动（铺键只保证"键在"，绝不改用户设好的参数值）。
-    /// </summary>
-    private void SeedCurveParamKeys(DirectorEvaluator? curves)
-    {
-        if (curves is null) return;
-
-        foreach (var node in _effects.Nodes)
-        {
-            if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
-            var def = EffectCatalog.Get(node.DefId);
-            if (def is null) continue;
-
-            foreach (var param in def.Params)
-            {
-                if (node.Values.ContainsKey(param.Key)) continue;
-
-                var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key);
-                if (!curves.Curves.ContainsKey(addr)) continue;
-
-                node.Values.TryAdd(param.Key, node.Value(param));
-            }
-        }
-    }
-
-    /// <summary>
     /// 从已载入场景里把 <c>src_&lt;n&gt;</c> 的最大序号找出来接着编号。
     /// 不播种的话重开工程后 _layerSeq 从 0 重来，新增图层会撞上磁盘上已有的 Id。
     /// </summary>
@@ -696,3 +703,22 @@ public sealed class PvPipeline : IDisposable
 /// 值从 <see cref="AudioBands"/> 的 float 加宽而来（帧内用 double 算，避免多次加宽累积）。
 /// </summary>
 public readonly record struct AudioBandSnapshot(bool Valid, double Rms, double Bass, double Mid, double High);
+
+/// <summary>
+/// 一份跨线程发布的不可变快照：UI 线程写、渲染线程读。换引用，原子、无锁；
+/// 发布出去的那份此后不许再改——它就是读者正在读的快照。
+///
+/// 抽成一个类型是为了让「发布 → 取用」这条通道本身能被单测直接驱动：管线本体要 D3D 设备，
+/// 测试里构造不出来（见 tests/JizuraLive.Engine.Tests/RenderThreadSafetyTests.cs）。
+/// </summary>
+public sealed class SnapshotSlot<T> where T : class
+{
+    private volatile T _snapshot;
+
+    public SnapshotSlot(T initial) => _snapshot = initial;
+
+    /// <summary>当前快照（任意线程可读）。</summary>
+    public T Snapshot => _snapshot;
+
+    public void Publish(T snapshot) => _snapshot = snapshot;
+}

@@ -46,7 +46,22 @@ public sealed class PvStageRenderer : IDisposable
 
     public TypographyLayerProvider? Lyric { get; }
     public PvStage Stage { get; }
-    public EffectGraph Effects { get; }
+
+    /// <summary>
+    /// 效果图快照：构造期是管线给的初始快照，此后每帧由 <see cref="Prepare"/> 换成管线当帧那一份。
+    /// 渲染器不长期持有文档图——文档图归 UI 线程，渲染线程每帧只看一份冻结的克隆
+    /// （曲线值会写进它，所以那个对象上不能有第二个写者）。volatile 是因为别的线程（状态条）读它。
+    /// </summary>
+    private volatile EffectGraph _effects;
+
+    /// <summary>
+    /// 本帧 Prepare 传进来的那一份：帧内构建效果链只认它。
+    /// 为什么不直接读 <see cref="_effects"/>：帧中途 UI 线程可能又发布了一份，那样曲线求值算的是上一份、
+    /// 建的链却是新一份，同一帧的常量会对不上。
+    /// </summary>
+    private EffectGraph _frameEffects;
+
+    public EffectGraph Effects => _effects;
 
     /// <summary>
     /// 全局后期**之后**的叠加层（清晰字幕）。所有权在调用方：这里只记引用，绝不 Dispose 它。
@@ -83,7 +98,8 @@ public sealed class PvStageRenderer : IDisposable
         _gpu = gpu;
         _d2d = d2d;
         _fx = new GpuEffectRunner(gpu);
-        Effects = effects;
+        _effects = effects;
+        _frameEffects = effects;
         Stage = new PvStage(scene);
         // 设计尺寸来自可手改的场景文件，非法值兜到最小可用画布（16 是本仓库各处离屏面的下限）
         _designW = Math.Max(16, designWidth);
@@ -105,8 +121,15 @@ public sealed class PvStageRenderer : IDisposable
     /// </summary>
     public void SetBroadcast(SpoutOut? outlet) => _broadcast = outlet;
 
-    public void Prepare(double time)
+    /// <summary>
+    /// 本帧准备：记下本帧时刻与效果图快照（都是帧内只读的一份），再驱动歌词排版。
+    /// <paramref name="effects"/> 由管线在帧首取到的发布快照传入——渲染器不自己回头读发布槽，
+    /// 否则同一帧的曲线求值与效果链可能落在两份不同的图上。
+    /// </summary>
+    public void Prepare(double time, EffectGraph effects)
     {
+        _effects = effects;
+        _frameEffects = effects;
         _frameTime = time;
         if (Lyric is null) return;
         var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -183,8 +206,8 @@ public sealed class PvStageRenderer : IDisposable
 
         // 2) 效果图（D3D11 全屏 pass 链）：像素半径按设计尺寸标定，与预览分辨率无关
         GpuTexturePool.Entry? fxOut = null;
-        var passes = Effects.Nodes.Any(n => n.Enabled)
-            ? Effects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH)
+        var passes = _frameEffects.Nodes.Any(n => n.Enabled)
+            ? _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH)
             : null;
         if (passes is { Count: > 0 })
             fxOut = _fx.RunGraph(passes, _stageSrv!, _designW, _designH);
