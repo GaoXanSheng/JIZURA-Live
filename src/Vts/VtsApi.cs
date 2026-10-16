@@ -72,7 +72,7 @@ public sealed record VtsHotkey(string HotkeyId, string Name, string Type, string
 public sealed record VtsFraming(double Size, double X, double Y, double Rotation);
 
 /// <summary>VTube Studio 插件 API 客户端。线程安全：外部随便调，命令排队在工作线程上执行。</summary>
-public sealed class VtsApi : IDisposable, IVtsDriveTarget
+public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 {
     private const string Url = "ws://127.0.0.1:8001";
     private const string PluginName = "JIZURA Live PV";
@@ -127,7 +127,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
     /// <summary>实时追踪快照（脸部/手部姿态与 Live2D 参数）。</summary>
     public VtsTrackingProbe Tracking => _tracking;
 
-    /// <summary>模型自带的表情名列表（ExpressionStateRequest 拉取）。</summary>
+    /// <summary>模型自带的表情**文件名**列表（ExpressionStateRequest 的 file；SetExpression 用的就是它）。</summary>
     public IReadOnlyList<string> Expressions => _expressions;
 
     /// <summary>已由我们创建的自定义参数名（ParameterCreationRequest 的结果）。</summary>
@@ -142,19 +142,32 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
 
     public event Action? Changed;
     /// <summary>
-    /// 注入负载（纯函数，形状与量纲映射可单测）：
-    /// 归一化 0~1 → 参数自身范围（MouthOpen 0~1、FaceAngleZ -90~90 度…）；
+    /// 注入负载（纯函数，形状与量纲映射可单测）。
+    ///
+    /// mode = "set"：归一化 0~1 → 参数自身范围（MouthOpen 0~1、FaceAngleZ -90~90 度…）；
     /// 表里没有的参数直接跳过（别发过去换一条 APIError 回来刷日志）；
     /// weight≈0 = 收手：把 <paramref name="injected"/> 里记过的参数按 weight 0 放回追踪源。
+    ///
+    /// mode = "add"：值**原样**叠加（不映射量纲——调用方给的就是参数自身单位的增量，
+    /// 拿 0~1 归一化去映射会把增量压成范围的两端），也不动 <paramref name="injected"/> 的账
+    /// （释放由调用方显式发一条全 0）。
     /// 返回 null = 无事可做。
     /// </summary>
     public static JObject? BuildInjectPayload(
         IReadOnlyDictionary<string, double> values, double weight,
         IReadOnlyDictionary<string, (double Min, double Max)> ranges,
-        HashSet<string> injected)
+        HashSet<string> injected, string mode = "set")
     {
         var arr = new JArray();
-        if (weight > 0.0005)
+        if (mode == "add")
+        {
+            foreach (var kv in values)
+            {
+                if (ranges.Count > 0 && !ranges.ContainsKey(kv.Key)) continue;
+                arr.Add(new JObject { ["id"] = kv.Key, ["value"] = kv.Value, ["weight"] = 1.0 });
+            }
+        }
+        else if (weight > 0.0005)
         {
             foreach (var kv in values)
             {
@@ -185,10 +198,23 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
         return new JObject
         {
             ["faceFound"] = false,
-            ["mode"] = "set",
+            ["mode"] = mode,
             ["parameterValues"] = arr,
         };
     }
+
+    /// <summary>
+    /// 表情开关的负载。请求类型是 <c>ExpressionActivationRequest</c>，data 三个字段：
+    /// <c>expressionFile</c>（表情**文件名**，如 xxx.exp3.json，不是显示名）、<c>active</c>、
+    /// <c>fadeTime</c>（VTS 只接受 0~2 秒，超出直接夹住）。
+    /// </summary>
+    public static JObject BuildExpressionPayload(string file, bool active, double fadeSec) =>
+        new()
+        {
+            ["expressionFile"] = file,
+            ["active"] = active,
+            ["fadeTime"] = Math.Clamp(fadeSec, 0, 2),
+        };
 
 
     /// <summary>
@@ -366,13 +392,34 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
     public void RefreshExpressions() => Post(w => w.FetchExpressions());
 
     /// <summary>
-    /// 开关一个表情（按段落/节拍驱动情绪用）。<paramref name="fadeSec"/> = VTS 侧的过渡时长。
+    /// 开关一个表情（按段落/节拍驱动情绪用）。<paramref name="name"/> 是表情**文件名**
+    /// （<see cref="Expressions"/> 里的那些），<paramref name="fadeSec"/> = VTS 侧的过渡时长。
     /// </summary>
     public void SetExpression(string name, bool active, double fadeSec = 0.4)
     {
         if (string.IsNullOrEmpty(name)) return;
-        PostLossy(w => w.SetExpression(name, active, fadeSec));
+        // 用 Post 不用 PostLossy：这是状态开关而不是每帧的持续量，丢了会让表情停在错误的状态上
+        Post(w => w.SetExpression(name, active, fadeSec));
     }
+
+    /// <summary>
+    /// 相对模型**当前位置**移动（演出 cue 的动作）。<paramref name="size"/> 是大小增量，
+    /// <paramref name="seconds"/> 是动画时长（0~2 秒，超出夹住）。
+    /// 注意参数顺序与 <see cref="MoveModel"/> / <see cref="SetDriveOffset"/> 不同（那个是 size 在前）——
+    /// 这里跟 <see cref="IVtsCueSink"/> 的签名一致。
+    /// </summary>
+    public void MoveModelRelative(double x, double y, double rotation, double size, double seconds)
+    {
+        var delta = new VtsFraming(size, x, y, rotation);
+        Post(w => w.MoveModelRelative(delta, seconds));
+    }
+
+    /// <summary>
+    /// 叠加注入（演出 cue 的 pulse 包络）：值直接加在参数上（不做量纲映射），全 0 = 释放。
+    /// 与 <see cref="InjectParameters"/> 是两条路：那条是"混合追踪值"的持续量，这条是叠加量。
+    /// </summary>
+    public void InjectAdd(IReadOnlyDictionary<string, double> values)
+        => Post(w => w.InjectAdd(values));
 
     /// <summary>
     /// 确保这些自定义参数存在（不存在就建）。用途：不再挤占 MouthOpen / FaceAngleZ 这类
@@ -736,7 +783,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
 
 
 
-        /// <summary>拉取表情列表（换模型后名字会变，所以每次连接都刷）。</summary>
+        /// <summary>拉取表情列表（换模型后名字会变，所以每次连接都刷）。记录的是表情**文件名**。</summary>
         public void FetchExpressions()
         {
             var resp = Send("ExpressionStateRequest", new JObject());
@@ -747,24 +794,45 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget
                 return;
             }
 
-            var names = arr.Select(e => (string?)e["name"])
+            var files = arr.Select(e => (string?)e["file"])
                 .Where(n => !string.IsNullOrEmpty(n))
                 .Select(n => n!)
                 .ToArray();
-            _api._expressions = names;
+            _api._expressions = files;
             _api.Notify();
-            Log.Info($"[VTS] 表情：{names.Length} 个");
+            Log.Info($"[VTS] 表情：{files.Length} 个");
         }
 
-        public void SetExpression(string name, bool active, double fadeSec)
+        public void SetExpression(string file, bool active, double fadeSec)
         {
-            var resp = Send("SetExpressionStateRequest", new JObject
+            var resp = Send("ExpressionActivationRequest", BuildExpressionPayload(file, active, fadeSec));
+            if (resp == null) Log.Warn($"[VTS] 表情「{file}」设置失败：{_api._lastError}");
+        }
+
+        /// <summary>相对移动（演出 cue）：独立发一条 MoveModelRequest，不碰手动基准/驱动偏移那两层。</summary>
+        public void MoveModelRelative(VtsFraming delta, double seconds)
+        {
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+            Send("MoveModelRequest", new JObject
             {
-                ["expression"] = name,
-                ["active"] = active,
-                ["fadeTime"] = fadeSec,
+                ["timeInSeconds"] = Math.Clamp(seconds, 0, 2),
+                ["valuesAreRelativeToModel"] = true,
+                ["positionX"] = delta.X,
+                ["positionY"] = delta.Y,
+                ["rotation"] = delta.Rotation,
+                ["size"] = delta.Size,
             });
-            if (resp == null) Log.Warn($"[VTS] 表情「{name}」设置失败：{_api._lastError}");
+        }
+
+        /// <summary>
+        /// 叠加注入（pulse 包络）：不走 <see cref="FlushParams"/> 的合并窗口——包络起音只有几十毫秒，
+        /// 按 ParamIntervalMs 合并会把峰值削掉。
+        /// </summary>
+        public void InjectAdd(IReadOnlyDictionary<string, double> values)
+        {
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+            var payload = BuildInjectPayload(values, 1, _api._params, _injected, "add");
+            if (payload != null) Send("InjectParameterDataRequest", payload);
         }
 
         /// <summary>创建缺失的自定义参数（已存在的跳过，避免每次连接都刷一串 APIError）。</summary>

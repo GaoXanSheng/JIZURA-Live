@@ -1,4 +1,5 @@
 using JizuraLive.Render.Effects;
+using JizuraLive.Vts;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -54,6 +55,12 @@ public sealed class DirectorProject
     /// （与 EffectGraphJson 加 InstanceId 同一个理由）。
     /// </summary>
     public List<CurveSave> Curves { get; set; } = new();
+
+    /// <summary>
+    /// VTS 演出 cue 轨（导演模块生成、播出时按歌曲时间触发）。加这个字段属于纯增量扩展，
+    /// 旧工程没有它就加载为空轨（属性初始化器兜住缺字段），所以**不**抬 <see cref="SchemaVersion"/>。
+    /// </summary>
+    public VtsCueTrack VtsCues { get; set; } = new();
 
     /// <summary>
     /// 编辑器布局（画布视图与选择、时间轴视图）。

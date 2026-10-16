@@ -1,6 +1,7 @@
 using System.IO;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
+using JizuraLive.Vts;
 using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Engine.Tests;
@@ -478,6 +479,109 @@ public class ProjectStoreTests
             var root = JObject.Parse(File.ReadAllText(path));
             Assert.Equal(DirectorProject.CurrentSchemaVersion, (int)root["SchemaVersion"]!);
             Assert.Equal(DirectorProject.CurrentSchemaVersion, Assert.IsType<DirectorProject>(ProjectStore.Load(path).Project).SchemaVersion);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>
+    /// VTS 演出 cue 轨随工程往返：每个字段（含角色映射与提前量）都要一字不差地存回来——
+    /// 丢一条 role 映射或一个 Duration，播出时就少一段动作、或者表情一直挂在那儿不关。
+    /// </summary>
+    [Fact]
+    public void VtsCueTrackRoundTripsWithRolesAndLead()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            var project = new DirectorProject { Name = "带演出轨" };
+            project.VtsCues.LeadMs = 120;
+            project.VtsCues.Roles[VtsRoles.Chorus] = "chorus.exp3.json";
+            project.VtsCues.Roles[VtsRoles.Hit] = "spin";
+            project.VtsCues.Cues.Add(new VtsCue
+            {
+                Time = 12.5, Kind = VtsCueKind.Expression, Target = "role:chorus", Value = 1, Duration = 8,
+            });
+            project.VtsCues.Cues.Add(new VtsCue
+            {
+                Time = 20.25, Kind = VtsCueKind.Move, X = 4, Y = -2, Rotation = 6, Value = 0.3, Duration = 0.5,
+            });
+            project.VtsCues.Cues.Add(new VtsCue
+            {
+                Time = 21, Kind = VtsCueKind.Pulse, Target = "FaceAngleZ", Value = 12, Duration = 0.4,
+            });
+            project.VtsCues.Cues.Add(new VtsCue
+            {
+                Time = 30, Kind = VtsCueKind.Hotkey, Target = "role:hit",
+            });
+
+            Assert.Null(ProjectStore.Save(project, path));
+
+            var result = ProjectStore.Load(path);
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+
+            Assert.Equal(120.0, loaded.VtsCues.LeadMs);
+            Assert.Equal("chorus.exp3.json", loaded.VtsCues.Roles[VtsRoles.Chorus]);
+            Assert.Equal("spin", loaded.VtsCues.Roles[VtsRoles.Hit]);
+            Assert.Equal(4, loaded.VtsCues.Cues.Count);
+
+            var expression = Assert.Single(loaded.VtsCues.Cues, c => c.Kind == VtsCueKind.Expression);
+            Assert.Equal(12.5, expression.Time, 6);
+            Assert.Equal("role:chorus", expression.Target);
+            Assert.Equal(1.0, expression.Value);
+            Assert.Equal(8.0, expression.Duration);
+
+            var move = Assert.Single(loaded.VtsCues.Cues, c => c.Kind == VtsCueKind.Move);
+            Assert.Equal(20.25, move.Time, 6);
+            Assert.Equal(4.0, move.X);
+            Assert.Equal(-2.0, move.Y);
+            Assert.Equal(6.0, move.Rotation);
+            Assert.Equal(0.3, move.Value);
+            Assert.Equal(0.5, move.Duration);
+
+            var pulse = Assert.Single(loaded.VtsCues.Cues, c => c.Kind == VtsCueKind.Pulse);
+            Assert.Equal("FaceAngleZ", pulse.Target);
+            Assert.Equal(12.0, pulse.Value);
+            Assert.Equal(0.4, pulse.Duration);
+
+            Assert.Equal("role:hit", Assert.Single(loaded.VtsCues.Cues, c => c.Kind == VtsCueKind.Hotkey).Target);
+        }
+        finally
+        {
+            Cleanup(path);
+        }
+    }
+
+    /// <summary>
+    /// 这个字段之前存的工程里没有 VtsCues：加载后必须是**空轨**而不是 null——
+    /// 播出侧直接读 track.Cues，null 会在第一次演出时炸掉。
+    /// </summary>
+    [Fact]
+    public void LegacyProjectWithoutVtsCuesLoadsEmptyTrack()
+    {
+        var path = NewProjectPath();
+        try
+        {
+            const string json = """
+            {
+              "SchemaVersion": 1,
+              "Name": "没有演出轨的旧工程",
+              "Scene": { "Width": 1280, "Height": 720 }
+            }
+            """;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, json);
+
+            var result = ProjectStore.Load(path);
+
+            Assert.Null(result.Fault);
+            var loaded = Assert.IsType<DirectorProject>(result.Project);
+            Assert.NotNull(loaded.VtsCues);
+            Assert.Empty(loaded.VtsCues.Cues);
+            Assert.Empty(loaded.VtsCues.Roles);
         }
         finally
         {
