@@ -63,6 +63,73 @@ public class LyricStyleTests
         Assert.Equal(LyricStyle.Minimal, LyricStyle.FromName("Minimal"));
     }
 
+    /// <summary>三个逐字动画预设：FromName 必须认得（大小写/空格不敏感），且动画名各自对得上。</summary>
+    [Theory]
+    [InlineData("Karaoke", "karaoke")]
+    [InlineData("KARAOKE", "karaoke")]
+    [InlineData(" pop ", "pop")]
+    [InlineData("TypeWriter", "typewriter")]
+    public void FromNameResolvesAnimatedPresets(string name, string anim)
+    {
+        var style = LyricStyle.FromName(name);
+
+        Assert.NotEqual(LyricStyle.Classic, style);
+        Assert.Equal(anim, style.Anim);
+    }
+
+    /// <summary>PresetNames 是界面的取值域：每一项都必须被 FromName 认回一份自己的预设，不回落 Classic。</summary>
+    [Fact]
+    public void PresetNamesAllResolveToTheirOwnPreset()
+    {
+        Assert.Equal(
+            new[] { "Classic", "Neon", "Outline", "Minimal", "Karaoke", "Pop", "Typewriter" },
+            LyricStyle.PresetNames);
+
+        var resolved = new List<LyricStyle>();
+        foreach (var name in LyricStyle.PresetNames)
+        {
+            var style = LyricStyle.FromName(name);
+            if (name != LyricStyle.ClassicName) Assert.NotEqual(LyricStyle.Classic, style);
+            // 两个名字撞同一份预设 = 有一个名字其实没被认（回落到了 Classic 的那份）
+            Assert.DoesNotContain(style, resolved);
+            resolved.Add(style);
+        }
+    }
+
+    /// <summary>新预设的排版输入照任务书钉住，免得日后被「顺手调一下」。</summary>
+    [Fact]
+    public void AnimatedPresetsKeepTheirSpecifiedAppearance()
+    {
+        var karaoke = LyricStyle.Karaoke;
+        Assert.Equal(54f, karaoke.FontSize);
+        Assert.Equal(1f, karaoke.ColorValue.A);
+        Assert.Equal(255f / 255f, karaoke.HighlightColorValue.R);
+        Assert.Equal(111f / 255f, karaoke.HighlightColorValue.G);
+        Assert.Equal(174f / 255f, karaoke.HighlightColorValue.B);
+        Assert.Equal(5f, karaoke.StrokeWidth);
+        Assert.Equal(0f, karaoke.GlowSize);
+
+        var pop = LyricStyle.Pop;
+        Assert.Equal(64f, pop.FontSize);
+        Assert.Equal(8f, pop.GlowSize);
+        Assert.Equal(229f / 255f, pop.GlowColorValue.G);
+        Assert.Equal(1f, pop.GlowColorValue.B);
+        Assert.Equal(0.75f, pop.GlowColorValue.A);
+        Assert.Equal(4f, pop.StrokeWidth);
+
+        var typewriter = LyricStyle.Typewriter;
+        Assert.Equal(46f, typewriter.FontSize);
+        Assert.Equal(0f, typewriter.GlowSize);
+        Assert.Equal(3f, typewriter.StrokeWidth);
+    }
+
+    /// <summary>加了逐字动画属性不能顺手改老预设的外观：四个老预设一律 Anim=none。</summary>
+    [Fact]
+    public void ExistingPresetsStayStatic()
+    {
+        foreach (var style in Presets) Assert.Equal("none", style.Anim);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

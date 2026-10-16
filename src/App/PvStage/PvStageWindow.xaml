@@ -149,7 +149,7 @@
                                         <TextBlock Text="音乐" Style="{StaticResource PanelCardTitle}" />
                                         <ui:Button x:Name="BtnOpenAudio" Content="导入音乐" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Click="BtnOpenAudio_Click"
-                                                   ToolTip="同名 .lrc 会自动一起装载；也可以把文件直接拖进窗口">
+                                                   ToolTip="同名 .lrc 会自动一起装载；也可以把 .lrc/.krc 文件直接拖进窗口">
                                             <ui:Button.Icon>
                                                 <ui:SymbolIcon Symbol="MusicNote224" />
                                             </ui:Button.Icon>
@@ -165,7 +165,7 @@
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
                                         <TextBlock Text="歌词" Style="{StaticResource PanelCardTitle}" />
-                                        <ui:Button x:Name="BtnOpenLyrics" Content="导入歌词 (.lrc)"
+                                        <ui:Button x:Name="BtnOpenLyrics" Content="导入歌词 (.lrc/.krc)"
                                                    HorizontalAlignment="Stretch" Click="BtnOpenLyrics_Click">
                                             <ui:Button.Icon>
                                                 <ui:SymbolIcon Symbol="TextFont24" />

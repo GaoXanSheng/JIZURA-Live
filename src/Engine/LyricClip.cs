@@ -12,7 +12,12 @@ namespace JizuraLive.Engine;
 /// <param name="EndMs">本句终点（毫秒，不含）：这一刻即清屏。</param>
 /// <param name="Text">整句文本；同刻多条已合并，用 '\n' 连接。</param>
 /// <param name="OutOfRange">末句起点已在音频尾外（或没有音频时长）：区间是待校准的临时值。</param>
-public sealed record LyricClip(string Id, long StartMs, long EndMs, string Text, bool OutOfRange);
+/// <param name="Words">逐字/逐词时间（KRC 或增强 LRC 的产物）；null = 没有逐字时间，由 <see cref="LyricTiming.EnsureWords"/> 按字合成。
+/// 各词 <see cref="KrcWord.StartMs"/> 是**绝对**歌曲毫秒，按时间升序，依次拼接等于 <paramref name="Text"/> 去掉 '\n' 后的结果。</param>
+/// <param name="Style">本句歌词样式预设名；null = 用全局样式（导演按段落设置）。</param>
+public sealed record LyricClip(
+    string Id, long StartMs, long EndMs, string Text, bool OutOfRange,
+    IReadOnlyList<KrcWord>? Words = null, string? Style = null);
 
 /// <summary>
 /// 某一时刻命中的歌词样本：动效歌词与清晰字幕消费**同一个**样本，
