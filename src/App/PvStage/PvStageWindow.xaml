@@ -198,6 +198,28 @@
                                     </StackPanel>
                                 </ui:Card>
 
+                                <!-- 演出 cue：角色 → 热键/表情的映射，播出时按歌曲时间触发（cue 由导演模块生成） -->
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="VTS 演出" Style="{StaticResource PanelCardTitle}" />
+                                        <Grid Margin="0,0,2,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="提前量" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock x:Name="TblCueLead" Grid.Column="1" Text="80 ms"
+                                                       VerticalAlignment="Center"
+                                                       Style="{StaticResource PanelValue}" />
+                                        </Grid>
+                                        <Slider x:Name="SldCueLead" Margin="0,4,0,0" IsMoveToPointEnabled="True"
+                                                Minimum="0" Maximum="300" Value="80" SmallChange="10" LargeChange="20"
+                                                ValueChanged="SldCueLead_ValueChanged"
+                                                ToolTip="cue 提前多少毫秒触发，让 VTS 侧的动作贴在拍上" />
+                                        <StackPanel x:Name="VtsCueRoles" />
+                                    </StackPanel>
+                                </ui:Card>
+
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
                                         <Grid>

@@ -156,11 +156,18 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     // volatile 是因为 OnStageReady（渲染线程）要把它接给新管线。
     private volatile VtsApi? _vts;
 
+    // 演出 cue 调度器（VtsCues.cs）：sink 隔一层转接到会话上，因为会话会整份换掉
+    private readonly VtsCueScheduler _cues;
+
     private bool _ready => _pipe is { Ready: true };
 
     public PvStageWindow()
     {
         InitializeComponent();
+
+        // 演出 cue 的 sink 与调度器：sink 隔一层转接，因为 VTS 会话会被整体换掉
+        _cueSink = new VtsCueSinkRouter(this);
+        _cues = new VtsCueScheduler(_cueSink);
 
         var settings = App.SettingsOf();
         _broadcastOn = settings?.SpoutEnabled ?? false;
@@ -183,6 +190,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             _evaluator.SetCurve(addr, save.Curve);
         }
 
+        // 演出 cue 轨：换工程/撤销都从 _project 重新装（面板与调度器一起对齐）
+        SyncVtsCuePanel();
+
         Loaded += OnLoaded;
         Closing += OnClosing;
         Stage.Ready += OnStageReady;
@@ -195,6 +205,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.Fps = _scene.Fps;
 
         BuildLyricStylePicker();
+        BuildVtsCuePanel();
         UpdateBroadcastButton();
         UpdateVtsSwitch();
         SetStep(0);
@@ -214,7 +225,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         {
             Interval = TimeSpan.FromMilliseconds(33),
         };
-        _playheadTimer.Tick += (_, _) => TickTimeline();
+        _playheadTimer.Tick += (_, _) =>
+        {
+            TickTimeline();
+            TickVtsCues(); // 演出 cue 与播放头同一节拍（用户拖动进度时由调度器的跳转判定处理）
+        };
         _playheadTimer.Start();
         _uiTimer.Tick += (_, _) =>
         {
@@ -1368,6 +1383,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         RefreshTimeline();
         BuildInspector();
         SyncLyricStylePicker();
+        SyncVtsCuePanel();
 
         // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
         if (_pipe is not null) _rebuildPipe = true;
@@ -1837,6 +1853,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         TblVtsState.Text = VtsStatusText();
         BtnVtsAuth.IsEnabled = _vts is { State: VtsState.NeedAuth or VtsState.AwaitApproval };
+
+        // 热键/表情列表是连上以后才到位的：这里顺手把角色下拉补上（列表签名没变就不动）
+        RefreshVtsCuePickers();
     }
 
     /// <summary>追踪是否正在出姿态：探针新鲜（≤ StaleMs）且认出人脸。判龄口径与渲染帧同源。</summary>
