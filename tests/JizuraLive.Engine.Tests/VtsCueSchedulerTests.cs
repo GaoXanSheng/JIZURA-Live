@@ -106,6 +106,22 @@ public class VtsCueSchedulerTests
     }
 
     [Fact]
+    public void FirstPlayingTickMidSongDoesNotReplayEarlierCues()
+    {
+        var sink = new FakeSink();
+        var s = new VtsCueScheduler(sink);
+        s.Load(Track(0,
+            new VtsCue { Time = 1, Kind = VtsCueKind.Hotkey, Target = "h1" },
+            new VtsCue { Time = 2, Kind = VtsCueKind.Hotkey, Target = "h2" },
+            new VtsCue { Time = 11, Kind = VtsCueKind.Hotkey, Target = "h3" }));
+
+        s.Tick(0, false);                // 暂停在开头，随后拖到中段再播放
+        Play(s, 10, 11.05, 21);
+
+        Assert.Equal(new[] { "h3" }, sink.Hotkeys);
+    }
+
+    [Fact]
     public void BackwardJumpMakesLaterCuesTriggerableAgain()
     {
         var sink = new FakeSink();

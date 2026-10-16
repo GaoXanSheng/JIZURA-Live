@@ -240,7 +240,8 @@ public partial class PvStageWindow
         if (GuessKind(target) == CueTargetKind.Expression)
         {
             // 连按是开关：不会把表情留在模型上（直播画面看得见）
-            var on = _trialExpressions.Add(target);
+            var on = !_trialExpressions.Remove(target);
+            if (on) _trialExpressions.Add(target);
             _cueSink.SetExpression(target, on, 0.4);
             ShowStatus($"试一下 {CueRoleLabel(role)}：表情 {target}（{(on ? "开" : "关")}）");
         }

@@ -86,8 +86,10 @@ public sealed class VtsCueScheduler
         // 暂停期间不推进游标也不记时间：暂停中拖了进度，恢复时那次 Tick 会被当成跳转，正好重新对齐
         if (!playing) return;
 
+        // 第一次播放就在中段（暂停时拖过进度）也算跳转，否则会把前面所有 cue 一口气补发
         var jumped = _hasLastTime
-                     && (songTime < _lastSongTime - BackJumpSec || songTime > _lastSongTime + ForwardJumpSec);
+            ? songTime < _lastSongTime - BackJumpSec || songTime > _lastSongTime + ForwardJumpSec
+            : songTime > ForwardJumpSec;
         _lastSongTime = songTime;
         _hasLastTime = true;
 
