@@ -1,5 +1,6 @@
 using System.IO;
 using JizuraLive.Engine;
+using JizuraLive.Pv;
 using JizuraLive.Render.Text;
 
 namespace JizuraLive.App.PvStage;
@@ -10,6 +11,17 @@ namespace JizuraLive.App.PvStage;
 /// </summary>
 public partial class PvStageWindow
 {
+    /// <summary>
+    /// 歌词 clip 的唯一下发口：先按工程的逐段样式区间（<see cref="LyricStyleSpans"/>）给每句定样式，
+    /// 再把结果作为 clip 序列发布给歌词层。**每一处**建出/替换 <c>_lyricClips</c> 的地方都要走这里——
+    /// 样式只存在工程的区间里（clip 落盘的是 LrcText，装不下样式），漏一处就是「存盘重开后样式没了」。
+    /// </summary>
+    private void PublishLyricClips(IReadOnlyList<LyricClip> clips)
+    {
+        _lyricClips = [.. LyricStyleSpans.Apply(clips, _project.LyricStyles)];
+        _pipe?.Renderer.Lyric?.SetClips(_lyricClips);
+    }
+
     // 歌词样式下拉的固定项：取值域就是 LyricStyle.PresetNames；显示中文名，工程里存的仍是英文预设名。
     private static readonly string[] LyricStyleNames = [.. LyricStyle.PresetNames];
     private static readonly string[] LyricStyleLabels = [.. LyricStyle.PresetNames.Select(LyricStyleDisplayName)];

@@ -48,6 +48,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     // volatile：它同时是那批文档字段的发布栅栏（写入先于置位，渲染线程读到 true 就一定读得到新对象）。
     private volatile bool _rebuildPipe;
 
+    // 重建只为补图层提供者（导演生成后新增/删除了粒子层），音源与离线分析一切照旧：
+    // BuildPipeline 的音频恢复段会重载音源（播放头归零、频带与波形作废重算），那对"换一版"是纯损失。
+    // 必须在 _rebuildPipe 之前置位（同一条发布栅栏）。
+    private volatile bool _rebuildPipeKeepTransport;
+
     // 管线重建在渲染线程克隆效果图：只许克隆这份 UI 线程做好、之后不再原地改的快照，不能碰 _effects
     private volatile EffectGraph _pipeEffects = new();
 
@@ -387,8 +392,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     /// <summary>
     /// 建管线并把工程恢复上去。**只在渲染线程调用**（Ready 回调、以及换工程时的 Prepare 回调）：
     /// 管线的 D2D/DWrite/native 资源只许在渲染线程建，旧管线的释放也必须在同一条线程上。
+    /// <paramref name="keepTransport"/> = 重建只为补图层提供者（见 <see cref="_rebuildPipeKeepTransport"/>）：
+    /// 音源与离线分析都不动，工程曲线与歌词仍按下面那两段恢复。
     /// </summary>
-    private void BuildPipeline(PresentHost host)
+    private void BuildPipeline(PresentHost host, bool keepTransport = false)
     {
         _pipe?.Dispose();
         _pipe = null;
@@ -424,7 +431,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         //
         // 顺序是硬的：**音频先、歌词后**。末句区间要用音频总长才能收在音频尾，
         // 反过来的话歌词只能拿一个 +3 秒的临时值（并标成待校准）。
-        if (!string.IsNullOrWhiteSpace(_audioPath))
+        if (!keepTransport && !string.IsNullOrWhiteSpace(_audioPath))
         {
             if (!File.Exists(_audioPath))
             {
@@ -459,7 +466,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 Dispatcher.BeginInvoke(() =>
                 {
                     _lyrics = lines;
-                    _lyricClips = LrcParser.ToClips(lines);
+                    PublishLyricClips(LrcParser.ToClips(lines));
                     _tailUncalibrated = tailUncalibrated;
                     BuildInspector();
                     RefreshTimeline();
@@ -480,15 +487,17 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     }
 
     /// <summary>
-    /// 渲染线程上换管线（工程新建/打开）。UI 线程只换文档对象 + 置位请求，
+    /// 渲染线程上换管线（工程新建/打开，或导演生成后补图层提供者）。UI 线程只换文档对象 + 置位请求，
     /// 资源的建与拆都留在本线程——与 Stage.Ready/Shutdown 同一条规则。
     /// </summary>
     private void RebuildPipeline(PresentHost host)
     {
         _rebuildPipe = false;
+        var keepTransport = _rebuildPipeKeepTransport;
+        _rebuildPipeKeepTransport = false;
         try
         {
-            BuildPipeline(host);
+            BuildPipeline(host, keepTransport);
         }
         catch (Exception ex)
         {
@@ -1356,9 +1365,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             {
                 var (lines, tailUncalibrated) = ParseLyrics(_lrcText);
                 _lyrics = lines;
-                _lyricClips = LrcParser.ToClips(lines);
                 _tailUncalibrated = tailUncalibrated;
-                _pipe?.SetLyrics(lines);
+                PublishLyricClips(LrcParser.ToClips(lines));
             }
             catch { }
         }
@@ -1379,7 +1387,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SyncVtsCuePanel();
 
         // 管线在跑就请渲染线程重建；还没建起来（Ready 未到）的话它本来就会拿新文档建，不必重复一次
-        if (_pipe is not null) _rebuildPipe = true;
+        if (_pipe is not null)
+        {
+            // 导演生成留下的"只补图层提供者"会与换工程撞同一次重建（旗标还没被渲染线程消费）：
+            // 换工程必须是完整重建，音源也得跟着重载，先把这个开关撤掉。
+            _rebuildPipeKeepTransport = false;
+            _rebuildPipe = true;
+        }
 
         // 换工程不跨工程撤销：栈里那些快照属于上一份文档，留着它们会让 Ctrl+Z 把旧工程整份搬回来
         if (resetUndo)
@@ -1448,9 +1462,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var (lines, tailUncalibrated) = ParseLyrics(text);
         _lrcText = text;                    // 绑定进工程：下次打开自动恢复
         _lyrics = lines;
-        _lyricClips = LrcParser.ToClips(lines);
         _tailUncalibrated = tailUncalibrated;
-        _pipe?.SetLyrics(lines);
+        PublishLyricClips(LrcParser.ToClips(lines));
         BuildInspector();
         RefreshTimeline();
     }
@@ -2142,123 +2155,14 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblAutoIntensity.Text = e.NewValue.ToString("F2", CultureInfo.InvariantCulture);
     }
 
-    /// <summary>一键成片：后台节拍与能量分析 → 自动导演生成 → 单次可撤销事务 → 刷新时间轴与检查器。</summary>
-    private async void BtnGenerateAuto_Click(object sender, RoutedEventArgs e)
-    {
-        if (_autoGenerating) return;
-
-        var audioPath = _audioPath;
-        var cachedMap = _beatMap;
-        var existingAnalysis = _audioBands;
-
-        if (string.IsNullOrWhiteSpace(audioPath) && cachedMap is null && existingAnalysis is null)
-        {
-            ShowStatus("一键成片失败：请先导入音频");
-            return;
-        }
-
-        _autoGenerating = true;
-        BtnGenerateAuto.IsEnabled = false;
-        BtnGenerateAuto.Content = "生成中…";
-        ShowStatus("一键成片：正在分析音频节拍与能量…");
-
-        string style = "dynamic";
-        if (CmbAutoStyle.SelectedItem is ComboBoxItem item && item.Tag is string s)
-            style = s;
-        double intensity = SldAutoIntensity.Value;
-        var options = new AutoOptions { Style = style, Intensity = intensity };
-
-        try
-        {
-            // 导入时已分析过的就用缓存，不再解一遍整曲；缺哪一份（图/频带）才补哪一份
-            var (beatMap, analysisResult, error) = await Task.Run<(BeatMap? BeatMap, AudioBandSeries? Bands, string? Error)>(() =>
-            {
-                try
-                {
-                    var map = cachedMap;
-                    var bands = existingAnalysis;
-                    if ((map is null || bands is null) && (string.IsNullOrWhiteSpace(audioPath) || !File.Exists(audioPath)))
-                        return (map, bands, "音频文件不存在，无法分析");
-
-                    if (bands is null)
-                    {
-                        bands = AudioFileAnalyzer.Analyze(audioPath!, CancellationToken.None);
-                        if (bands is null) return (map, null, "音频频带分析失败");
-                    }
-
-                    map ??= SongAnalyzer.AnalyzeFile(audioPath!, CancellationToken.None);
-                    return (map, bands, null);
-                }
-                catch (Exception ex)
-                {
-                    return (null, null, ex.Message);
-                }
-            });
-
-            if (beatMap is null)
-            {
-                ShowStatus($"一键成片失败：{error ?? "未知错误"}");
-                return;
-            }
-
-            _beatMap = beatMap;
-
-            if (_audioBands is null && analysisResult is AudioBandSeries abs)
-            {
-                _audioBands = abs;
-                PublishAudioBands();
-                RefreshParamRows();
-            }
-
-            // UI 线程调 AutoDirector.Generate 写进工程
-            var report = AutoDirector.Generate(_project, beatMap, options);
-
-            // 同步工程曲线至 _evaluator 并发布给管线
-            _evaluator = DirectorEvaluator.FromSaves(_project.Curves);
-            // 生成整份重写了效果实例（AutoDirector 原地改的是 _project.Effects == _effects），
-            // 所以效果图与曲线两样都要发布
-            EffectsChanged();
-            PublishDirector();
-
-            // 刷新效果架、图层、时间轴与检查器
-            BuildEffectRack();
-            BuildLayerList();
-            TheTimeline.Fps = _scene.Fps;
-            RefreshTimeline();
-            BuildInspector();
-            SyncLyricStylePicker();
-
-            // 一次 PushUndo（整次生成一条撤销）
-            PushUndo();
-
-            // 分析结果与生成摘要留在「导演」面板上
-            TblAutoReport.Text =
-                $"BPM {beatMap.Bpm:F1} · 段落 {beatMap.Sections.Count} 段 · 节拍 {beatMap.Beats.Count} 个\n"
-                + $"段落序列 {SectionSequence(beatMap)}\n"
-                + $"曲线 {report.CurveKeys} 键（相机 {report.CameraKeys}）· 效果实例 {report.EffectInstances} 个 · 出场 {report.EffectWindows} 段";
-            var note = $"一键成片完成：相机 {report.CameraKeys} 键 · 特效 {report.EffectInstances} 个（出场 {report.EffectWindows} 段）· 曲线 {report.CurveKeys} 键";
-            ShowStatus(note);
-            Log.Info($"[PV 工作台] {note}");
-        }
-        catch (Exception ex)
-        {
-            TblAutoReport.Text = "生成失败：" + ex.Message;
-            ShowStatus($"一键成片失败：{ex.Message}");
-            Log.Warn("[PV 工作台] 一键成片异常：" + ex);
-        }
-        finally
-        {
-            _autoGenerating = false;
-            BtnGenerateAuto.Content = "一键生成";
-            UpdateAutoButton();
-        }
-    }
+    // 一键生成 / 换一版的生成路径在建 PvStageWindow.Director.cs 里（两条按钮共用同一份实现）。
 
     /// <summary>一键生成按钮的可用态：没有音源（也没有频带分析结果）时禁用，并在面板上说明原因。</summary>
     private void UpdateAutoButton()
     {
         var ready = !string.IsNullOrWhiteSpace(_audioPath) || _audioBands is not null;
         BtnGenerateAuto.IsEnabled = !_autoGenerating && ready;
+        BtnRegenerateAuto.IsEnabled = !_autoGenerating && ready;
         TblAutoHint.Text = ready
             ? "生成会整份重写自动生成的曲线与效果实例，一次生成压一条撤销。"
             : "先导入音乐，生成才会解锁。";
