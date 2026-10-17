@@ -2,38 +2,16 @@ using JizuraLive.Render.Effects;
 
 namespace JizuraLive.Pv;
 
-/// <summary>
-/// 一个可寻址参数的注册项（S06）：单位、范围、默认值与显示标签。
-/// 单位是量纲标注（供界面与诊断读）；范围是**写入目标时**用来限幅的那一对，不是文档的合法性边界。
-/// </summary>
 public readonly record struct ParamSpec(ParamUnit Unit, double Min, double Max, double Default, string Label);
 
-/// <summary>
-/// 参数注册表（S06）：地址 → (单位, 范围, 默认值, 标签)。
-///
-/// 三个域各有来源，但对外只有这一份答案：
-/// <list type="bullet">
-/// <item>相机与图层是**静态表**——参数集合不随工程变化，只有相机的位移范围随画布尺寸（±1 个画布宽/高）。</item>
-/// <item>效果按该**实例**的 <see cref="EffectParam"/> schema 解析，未标注单位的键保持 Unspecified
-/// （缺口留在明处，而不是被当成某个默认量纲）。</item>
-/// </list>
-///
-/// 这里不夹取值：越界由调用方按 <see cref="ParamSpec.Min"/>/<see cref="ParamSpec.Max"/> 夹并打 clamp 标
-/// （契约 §3.3 步骤 4），所以同一份注册表既服务限幅、也服务"只显示不修改"的诊断。
-/// </summary>
 public static class ParamRegistry
 {
-    // 稳定错误码：面板与测试断言码，文案可以改、码不行。解析失败一律是 <code>: <消息>。
     internal const string CodeMissingInstance = "target-missing-instance";
     internal const string CodeMissingKey = "target-missing-key";
     internal const string CodeNotNumber = "target-not-number";
 
     private const double DegreeRange = 180;
 
-    /// <summary>
-    /// 解析一个地址到注册项。失败返回 false 并给出 <c>&lt;code&gt;: &lt;消息&gt;</c>。
-    /// <paramref name="scene"/> 只用于相机的位移范围；传 null 按默认画布（1920×1080）解析。
-    /// </summary>
     public static bool TryResolve(in ParamAddress addr, EffectGraph? effects, PvScene? scene,
         out ParamSpec spec, out string? error)
     {
@@ -53,10 +31,6 @@ public static class ParamRegistry
         }
     }
 
-    /// <summary>
-    /// 效果域：按**实例** Id 找到实例与其 schema 参数。
-    /// <see cref="TryResolve"/> 靠它取单位/范围/默认值。
-    /// </summary>
     private static bool TryFindEffectParam(in ParamAddress addr, EffectGraph? effects,
         out EffectNode? node, out EffectParam? param, out string? error)
     {
@@ -72,8 +46,6 @@ public static class ParamRegistry
         node = FindByInstanceId(effects, addr.Target);
         if (node is null)
         {
-            // 用 DefId 当地址是最常见的手滑：同一种效果可以有多个实例，DefId 指不到"哪一个"。
-            // 这条路径必须点名，否则用户看到的是"找不到实例"却明明有那个效果。
             var defIdHit = FindByDefId(effects, addr.Target) is not null;
             error = defIdHit
                 ? $"{CodeMissingInstance}: 地址里的「{addr.Target}」是效果**定义** Id；DefId 不能代替实例 Id（同一种效果可以有多个实例，各自独立寻址）"
@@ -107,10 +79,6 @@ public static class ParamRegistry
         return false;
     }
 
-    /// <summary>
-    /// 镜头参数。唯一主镜头用保留目标 main，但地址文本的现有形态是 <c>camera.scale</c>（Target 为空），
-    /// 所以 Target 非空一律拒绝——否则 ToString 吐不回原文本，地址往返就断了。
-    /// </summary>
     private static bool TryResolveCamera(in ParamAddress addr, PvScene? scene, out ParamSpec spec, out string? error)
     {
         spec = default;
@@ -120,7 +88,6 @@ public static class ParamRegistry
             return false;
         }
 
-        // 位移是"设计像素"，范围 ±1 个画布：没有场景时按默认画布解析（范围随画布变，单位不变）
         var canvas = scene ?? new PvScene();
 
         switch (addr.Param)
@@ -145,13 +112,22 @@ public static class ParamRegistry
                 error = null;
                 return true;
 
+            case "blur":
+                spec = new ParamSpec(ParamUnit.Pixels, 0, 40, 0, "Param.Camera.Blur");
+                error = null;
+                return true;
+
+            case "brighten":
+                spec = new ParamSpec(ParamUnit.Ratio, 0, 1, 0, "Param.Camera.Brighten");
+                error = null;
+                return true;
+
             default:
-                error = $"{CodeMissingKey}: 镜头没有参数「{addr.Param}」（首版注册 offsetX/offsetY/scale/rotation）";
+                error = $"{CodeMissingKey}: 镜头没有参数「{addr.Param}」（首版注册 offsetX/offsetY/scale/rotation/blur/brighten）";
                 return false;
         }
     }
 
-    /// <summary>图层参数：静态表，任意图层 Id 共用同一组参数（几何/透明度是每层都有的那几项）。</summary>
     private static bool TryResolveLayer(in ParamAddress addr, out ParamSpec spec, out string? error)
     {
         spec = default;
@@ -194,7 +170,6 @@ public static class ParamRegistry
         }
     }
 
-    /// <summary>按**实例** Id 找（绝不用 DefId 匹配：那是"哪种效果"而不是"哪一个"）。</summary>
     private static EffectNode? FindByInstanceId(EffectGraph effects, string instanceId)
     {
         foreach (var n in effects.Nodes)

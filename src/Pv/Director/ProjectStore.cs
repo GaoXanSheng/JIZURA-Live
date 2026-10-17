@@ -6,34 +6,14 @@ using Newtonsoft.Json;
 
 namespace JizuraLive.Pv;
 
-/// <summary>
-/// <see cref="ProjectStore.Load"/> 的结果：Project 非空即成功；
-/// 失败时 Project 为 null，Fault 以稳定前缀区分原因（不存在 / 读取失败 / JSON 损坏 / 版本过新）。
-/// </summary>
 public sealed record ProjectLoadResult(DirectorProject? Project, string? Fault);
 
-/// <summary>
-/// 工作台启动装载的结果：Project 恒非空（载入失败时是内存里的默认工程，磁盘文件保持原样）；
-/// Fault 非空说明有需要告诉用户的原因；ImportedFromLegacy 标记这次是否走了旧版双文件导入。
-/// </summary>
 public sealed record ProjectBootstrap(DirectorProject Project, string? Fault, bool ImportedFromLegacy);
 
-/// <summary>
-/// 工程文件（.jzpv）的读写边界。
-///
-/// Pv 层复用 App 层原子写（<see cref="AtomicFile"/>，同一程序集内直接引用，不复制第二套临时文件逻辑）：
-/// 写入先落 <c>.tmp</c> 再覆盖改名，进程被杀不会留下截断的工程文件。
-///
-/// 写盘约定沿用旧存盘路径：返回 null = 成功，非 null = 失败原因（调用方负责显示）。
-/// <see cref="Load"/> 只读：文件不存在 / 损坏 / 版本过新一律只报告 Fault，绝不写盘——
-/// 尤其不沿用「读失败就写回默认」的旧策略，那是覆盖用户数据的入口。
-/// </summary>
 public static class ProjectStore
 {
-    /// <summary>写入串行闸：Save 可能被 UI / 恢复任务等多处调用，先到先写，避免竞争同一个 .tmp。</summary>
     private static readonly object WriteGate = new();
 
-    /// <summary>保存工程。成功返回 null，失败返回原因（不抛异常）。</summary>
     public static string? Save(DirectorProject project, string path)
     {
         try
@@ -53,7 +33,6 @@ public static class ProjectStore
         }
     }
 
-    /// <summary>读取工程。任何失败都不写盘：磁盘上的原文件保持一字未动。</summary>
     public static ProjectLoadResult Load(string path)
     {
         if (!File.Exists(path))
@@ -66,7 +45,6 @@ public static class ProjectStore
         }
         catch (Exception ex)
         {
-            // 存在但读不出来（占用 / 权限）：同样是"这份内容这次拿不到"，不写盘
             return new ProjectLoadResult(null, $"工程文件读取失败：{ex.Message}");
         }
 
@@ -87,23 +65,17 @@ public static class ProjectStore
             return new ProjectLoadResult(null,
                 $"工程版本过新（{project.SchemaVersion} > {DirectorProject.CurrentSchemaVersion}），本程序不识别，请升级后再打开");
 
-        // 宽松治理：坏曲线只丢它自己，不改 Load 的既有语义（失败分类、绝不写盘）
         SanitizeCurves(project);
 
-        // 布局不是内容：坏了就当"还没有布局"，绝不因它拒绝打开一份工程
+        SanitizeCameraTrack(project);
+
         SanitizeLayout(project);
 
         return new ProjectLoadResult(project, null);
     }
 
-    /// <summary>
-    /// 编辑器布局的兜底：非有限数值（手改 JSON / 坏写盘的 NaN、Infinity）会让画布变换整片失效，
-    /// 按"这个字段没有"回落默认；null 列表按空处理。
-    /// 只改内存：布局不是内容，不值得为它拒绝一份工程，也不该顺手回写用户的文件。
-    /// </summary>
     private static void SanitizeLayout(DirectorProject project)
     {
-        // 存档里写 null 与缺字段同义：默认视图（1× 无平移、无选中），不是"打不开"
         var layout = project.EditorLayout ??= new EditorLayout();
 
         layout.CanvasZoom = Finite(layout.CanvasZoom, 1);
@@ -117,18 +89,49 @@ public static class ProjectStore
 
     private static double Finite(double value, double fallback) => double.IsFinite(value) ? value : fallback;
 
-    /// <summary>
-    /// 曲线的宽松治理：地址解析失败（或曲线为 null）的条目从**内存**里丢弃并告警。
-    ///
-    /// 一条坏地址只说明"这条曲线读不出来"，不代表整个工程不可用——场景、效果、歌词都还在，
-    /// 为此把整份工程判成损坏（或抛异常）是不成比例的。
-    /// 只改内存、不写盘：磁盘文件保持原样，用户下次主动保存才真正落盘（与 Load 不写盘的约定一致）。
-    /// </summary>
+    private static void SanitizeCameraTrack(DirectorProject project)
+    {
+        var track = project.CameraTrack ??= new CameraTrack();
+        track.Shots ??= new List<CameraShot>();
+        track.Beats ??= new List<double>();
+
+        track.Width = Finite(track.Width, 1280);
+        track.Height = Finite(track.Height, 720);
+        if (track.Width <= 0) track.Width = 1280;
+        if (track.Height <= 0) track.Height = 720;
+        track.BeatLen = Finite(track.BeatLen, 0.5);
+        if (track.BeatLen <= 0.05) track.BeatLen = 0.5;
+
+        track.Beats = track.Beats
+            .Where(double.IsFinite).Where(b => b >= 0)
+            .Distinct().OrderBy(b => b).ToList();
+
+        int kept = 0;
+        for (int i = 0; i < track.Shots.Count; i++)
+        {
+            var shot = track.Shots[i];
+            if (shot is null || !double.IsFinite(shot.Start) || !double.IsFinite(shot.End) || shot.End <= shot.Start)
+            {
+                Log.Warn("[工程存储] 丢弃非法镜头：" + (shot is null ? "(null)" : $"{shot.Start:F3}–{shot.End:F3}"));
+                continue;
+            }
+
+            shot.Params ??= new Dictionary<string, double>(StringComparer.Ordinal);
+            if (string.IsNullOrWhiteSpace(shot.Preset)) shot.Preset = "push";
+            foreach (var key in shot.Params.Keys.Where(k => !double.IsFinite(shot.Params[k])).ToList())
+                shot.Params.Remove(key);
+
+            track.Shots[kept++] = shot;
+        }
+
+        if (kept < track.Shots.Count) track.Shots.RemoveRange(kept, track.Shots.Count - kept);
+        track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+    }
+
     private static void SanitizeCurves(DirectorProject project)
     {
         if (project.Curves.Count == 0) return;
 
-        // 就地压缩，保序；先记数再统一 RemoveRange，避免边遍历边删
         var kept = 0;
         for (var i = 0; i < project.Curves.Count; i++)
         {
@@ -144,18 +147,9 @@ public static class ProjectStore
 
         if (kept < project.Curves.Count) project.Curves.RemoveRange(kept, project.Curves.Count - kept);
 
-        // 手改文件可能塞进乱序/重复 key，破坏二分求值的前提（Keys 升序且时刻唯一）；
-        // 恢复不变量，只改内存
         foreach (var save in project.Curves) save.Curve.NormalizeKeys();
     }
 
-    /// <summary>
-    /// 工作台启动入口：工程文件存在就只走 <see cref="Load"/>；不存在才把旧版
-    /// <c>pv_scene.json</c> / <c>pv_effects.json</c> 导入成新工程。
-    ///
-    /// 只有「工程文件不存在」这一条路径允许写盘。工程存在但坏了/被占用时，只把默认工程放进内存，
-    /// 绝不借导入之名把用户的工程文件用旧文件内容覆盖掉——那是覆盖数据的入口，比打不开更糟。
-    /// </summary>
     public static ProjectBootstrap LoadOrImport(string projectPath, string legacyScenePath, string legacyEffectsPath)
     {
         if (File.Exists(projectPath))
@@ -168,8 +162,6 @@ public static class ProjectStore
             return new ProjectBootstrap(new DirectorProject(), loaded.Fault, false);
         }
 
-        // 工程文件不存在 = 首次升级到工程格式：只读解析两个旧文件，一个字节都不改
-        // （用户可能还要用旧版程序打开它们）。解析问题只记进 Fault，继续用能拿到的部分。
         var faults = new List<string>();
         var project = new DirectorProject
         {
@@ -177,16 +169,12 @@ public static class ProjectStore
             Effects = ReadLegacyEffects(legacyEffectsPath, faults),
         };
 
-        // 导入结果立即落成工程文件：下次启动就走 Load，导入只发生一次。
-        // 写失败不致命——本次会话照常用内存里的导入结果，只把原因交给调用方显示。
         var saveFault = Save(project, projectPath);
         if (saveFault is not null) faults.Add($"工程文件写入失败：{saveFault}");
 
         return new ProjectBootstrap(project, faults.Count > 0 ? string.Join("；", faults) : null, true);
     }
 
-    /// <summary>只读导入旧版场景：文件不存在/解析失败都回落**空白场景**并在 Fault 里记原因
-    /// （没有旧数据不等于该送用户一套模板图层）。</summary>
     private static PvScene ReadLegacyScene(string path, List<string> faults)
     {
         if (!File.Exists(path)) return PvScene.CreateBlank();
@@ -205,10 +193,6 @@ public static class ProjectStore
         return PvScene.CreateBlank();
     }
 
-    /// <summary>
-    /// 只读导入旧版效果图：文件不存在用空图；<see cref="EffectGraphJson.Deserialize"/> 自带
-    /// 「损坏按空图处理」的回落与告警，这里只需兜住读取失败（占用 / 权限）。
-    /// </summary>
     private static EffectGraph ReadLegacyEffects(string path, List<string> faults)
     {
         if (!File.Exists(path)) return new EffectGraph();

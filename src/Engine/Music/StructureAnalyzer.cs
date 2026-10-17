@@ -1,29 +1,20 @@
 namespace JizuraLive.Engine.Music;
 
-/// <summary>
-/// 结构分析：拍级 chroma+能量 → 自相似矩阵 → 边界打分（块内一致 − 块间相似）→ 段聚类与命名。
-/// 纯函数：只读 <see cref="MusicFeatures"/>，不碰音频、播放位置与渲染状态。
-///
-/// 真实混音上 chroma 被鼓组与共有的调性抹平（实测同一首歌任意两拍余弦相似度均值 0.945），
-/// 段间差别只剩几个百分点，所以这里对拍级特征做白化（对数压缩 + 去全曲均值）并把能量单独成项，
-/// 阈值也按当首曲子自身的分布自适应，不写死"相似度 > 0.75"这类常数。
-/// </summary>
 public static class StructureAnalyzer
 {
-    private const int Half = 8;                 // 边界核半宽 → 16 拍
-    private const int MinCells = 8;             // 段长下限（拍）
-    private const int MaxCells = 64;            // 段长上限（拍）：过长就在间隔里按打分强制补刀，免得整曲只剩两段
-    private const int AlignTol = 2;             // 段间对齐允许 ±2 拍抖动
-    private const int SnapCells = 2;            // 边界吸附到下拍的最大格距
-    private const double LogBeta = 20.0;        // chroma 对数压缩系数：压掉主和弦对背景音级的碾压
-    private const double EnergyTolerance = 2.0; // 能量 z 差的尺度：差 2 个标准差相似度折到 e^-1
-    private const double CoherenceMin = 0.30;   // 块内一致度下限：两侧各自一致才算"这里是段边界"，噪声场判不掉的那种就靠它挡住
-    private const double ScoreZ = 0.8;          // 打分阈值：内部均值 + 0.8 个标准差
-    private const double NoiseZ = 3.5;          // 打分阈值下限：无结构噪声的 3.5σ
-    private const double ClusterZ = 0.6;        // 聚类阈值：段间相似度均值 + 0.6 个标准差
+    private const int Half = 8;
+    private const int MinCells = 8;
+    private const int MaxCells = 64;
+    private const int AlignTol = 2;
+    private const int SnapCells = 2;
+    private const double LogBeta = 20.0;
+    private const double EnergyTolerance = 2.0;
+    private const double CoherenceMin = 0.30;
+    private const double ScoreZ = 0.8;
+    private const double NoiseZ = 3.5;
+    private const double ClusterZ = 0.6;
     private const double FallbackCellSeconds = 0.5;
 
-    /// <summary>A−B 的噪声折算系数：块内/块间两个加权均值的权重平方和各自按权重和归一后相加开方。</summary>
     private static readonly double NoiseFactor = NoiseScaleFactor();
 
     public static List<Section> Analyze(MusicFeatures f, IReadOnlyList<double> beats, IReadOnlyList<double> downbeats)
@@ -52,7 +43,6 @@ public static class StructureAnalyzer
     private static List<Section> Single(double duration)
         => new() { new Section { Start = 0, End = duration > 0 ? duration : 0, Kind = "intro", Label = "A", Energy = 0 } };
 
-    /// <summary>边界核权重（中心在块接口上，两侧各 Half 拍）。</summary>
     private static double Weight(int offset)
     {
         var sigma = Half / 2.0;
@@ -73,7 +63,6 @@ public static class StructureAnalyzer
         return Math.Sqrt(withinSq / (withinW * withinW) + crossSq / (crossW * crossW));
     }
 
-    /// <summary>拍网格：0、各拍时刻、Duration。拍不足 2 个时退化为每 0.5 秒一格。</summary>
     private static List<double> BuildGrid(IReadOnlyList<double> beats, double duration)
     {
         var mid = new List<double>();
@@ -96,7 +85,6 @@ public static class StructureAnalyzer
         return cuts;
     }
 
-    /// <summary>每拍区间的 chroma 均值再 L2 归一化；区间内无帧或全静音时给零向量。</summary>
     private static float[][] CellChroma(MusicFeatures f, List<double> grid)
     {
         int n = grid.Count - 1;
@@ -107,7 +95,6 @@ public static class StructureAnalyzer
             int i0 = FrameAt(grid[c], f.FrameStep, frames);
             int i1 = FrameAt(grid[c + 1], f.FrameStep, frames);
             if (i1 <= i0) i1 = Math.Min(i0 + 1, frames);
-
 
             var acc = new double[12];
             for (int i = i0; i < i1; i++)
@@ -154,11 +141,6 @@ public static class StructureAnalyzer
     private static int FrameAt(double t, double step, int frames)
         => Math.Clamp((int)Math.Round(t / step), 0, frames);
 
-    /// <summary>
-    /// 白化后的拍级相似度：chroma 取对数再减去全曲均值（共有的调性、鼓组造成的弥散分量被剔掉，
-    /// 留下各段自己的音级差别），L2 归一化后取余弦；能量另走一条 z-score 通道并用乘积折减——
-    /// 同和弦不同能量的段落（主歌/副歌）不能靠 chroma 就并成一段。相同内容 = 1，无关联 ≈ 0。
-    /// </summary>
     private static float[][] Similarity(float[][] chroma, double[] energy)
     {
         int n = chroma.Length;
@@ -222,11 +204,6 @@ public static class StructureAnalyzer
         return z;
     }
 
-    /// <summary>
-    /// 每个格子的边界打分：两侧各自内部的加权相似 A（块内一致度）减跨两侧的加权相似 B，
-    /// 以及 A 本身。A 高说明两侧各自是"同一种东西"，B 低说明两侧不是同一种东西——两条都满足才是段边界。
-    /// 只看核完整的内部下标：c=0 与 c=n 处核只有单象限、A/B 都只取到一半邻域，值不可比。
-    /// </summary>
     private static (double[] Score, double[] Coherence) BoundaryScore(float[][] sim)
     {
         int n = sim.Length;
@@ -260,11 +237,6 @@ public static class StructureAnalyzer
         return (score, coherence);
     }
 
-    /// <summary>
-    /// 峰值拣选：块内一致度 A ≥ 0.30、打分 ≥ max(内部均值 + 0.8σ, 3.5×噪声尺度) 的局部极大，
-    /// 互相至少隔 8 拍（按打分贪心），段长超过 64 拍的间隔再按打分强制补一刀。
-    /// 噪声尺度由远距离相似度对（|i−j| ≥ 2×核宽）的标准差按核权重折算：无结构的曲子里那就是全部信息。
-    /// </summary>
     private static List<int> PickBoundaries(double[] score, double[] coherence, List<double> grid,
         IReadOnlyList<double> downbeats, float[][] sim)
     {
@@ -336,7 +308,7 @@ public static class StructureAnalyzer
                 foreach (var d in downbeats)
                 {
                     int gi = NearestGridIndex(grid, d);
-                    if (Math.Abs(grid[gi] - d) > 1e-3) continue;   // 下拍不在拍网格上（异常输入）不吸附
+                    if (Math.Abs(grid[gi] - d) > 1e-3) continue;
                     int delta = Math.Abs(gi - cuts[i]);
                     if (delta < bestDelta) { bestDelta = delta; best = gi; }
                 }
@@ -352,7 +324,6 @@ public static class StructureAnalyzer
         return result;
     }
 
-    /// <summary>远距离相似度对（|i−j| ≥ 2×核宽）的标准差：无结构时相似度的噪声尺度。</summary>
     private static double FarPairStd(float[][] sim)
     {
         int n = sim.Length;
@@ -404,7 +375,6 @@ public static class StructureAnalyzer
         return segs;
     }
 
-    /// <summary>贪心聚类：与已有标签的首段比较，对角线条带均值超阈值即归入该标签，否则开新标签。</summary>
     private static void Cluster(List<Seg> segs, float[][] sim)
     {
         var thr = ClusterThreshold(segs, sim);
@@ -419,7 +389,6 @@ public static class StructureAnalyzer
         }
     }
 
-    /// <summary>聚类阈值按当首曲子的段间相似度分布自适应（均值 + 0.6σ）：白化后相似度整体会偏低，写死的常数两头不讨好。</summary>
     private static double ClusterThreshold(List<Seg> segs, float[][] sim)
     {
         if (segs.Count < 2) return double.MaxValue;
@@ -440,7 +409,6 @@ public static class StructureAnalyzer
         return Math.Clamp(mean + ClusterZ * std, 0.15, 0.95);
     }
 
-    /// <summary>对齐长度后逐拍比较，取 ±AlignTol 内最优的对角线条带均值。</summary>
     private static double BandSimilarity(Seg a, Seg b, float[][] sim)
     {
         int la = a.C1 - a.C0, lb = b.C1 - b.C0;

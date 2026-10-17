@@ -6,12 +6,6 @@ using JizuraLive.App.I18n;
 
 namespace JizuraLive.App;
 
-/// <summary>
-/// 暗色模态弹窗（对位旧 UI Dialogs.vue：全窗遮罩 + 圆角卡片）。
-/// 用代码搭视觉树：内容是程序化拼的（标题 + 正文 + 可选要点列表），XAML 反而更啰嗦。
-/// 配色与按钮全部取 WPF-UI 主题（<c>ui:Button</c> 的 Appearance），不再引用自研令牌。
-/// 静态工具类（非控件）：按钮默认文案在方法内经 L.T 解析，不订阅 LanguageChanged。
-/// </summary>
 public static class MessageDialog
 {
     private const string TextPrimaryKey = "TextFillColorPrimaryBrush";
@@ -24,24 +18,19 @@ public static class MessageDialog
 
     private static Brush Theme(string key) => (Brush)Application.Current.FindResource(key);
 
-    /// <summary>说明型弹窗（一个「关闭」）。</summary>
     public static void Info(Window owner, string title, string body, string? closeText = null) =>
         Show(owner, title, BuildBody(body), null, closeText ?? L.T("Dialog.Close"), primaryClose: true);
 
-    /// <summary>说明型弹窗（一个「关闭」），正文是自绘视觉树（使用说明那种分节内容）。</summary>
     public static void Info(Window owner, string title, UIElement body, string? closeText = null) =>
         Show(owner, title, body, null, closeText ?? L.T("Dialog.Close"), primaryClose: true);
 
-    /// <summary>警示型弹窗（一个「关闭」）。</summary>
     public static void Warn(Window owner, string title, string body) =>
         Show(owner, title, BuildBody(body), null, L.T("Dialog.Close"), primaryClose: true);
 
-    /// <summary>确认型弹窗（取消 + 确认）。</summary>
     public static void Confirm(Window owner, string title, string body, string okText, Action onOk,
         UIElement? extra = null) =>
         Show(owner, title, BuildBody(body), extra, okText, onOk: onOk);
 
-    /// <summary>清空/初始化确认（带要点列表，对位 Dialogs.vue 的 reset 弹窗）。</summary>
     public static void ConfirmReset(Window owner, Action onOk)
     {
         var body = new StackPanel();
@@ -86,8 +75,6 @@ public static class MessageDialog
         Brush line2 = Theme(DialogStrokeKey);
         Brush line = Theme(DividerKey);
 
-        // 阴影单独一层，卡片本身不带 Effect：Effect 会把整个子树先光栅成中间面，卡片里的文字
-        // 跟着一起糊（而且 Effect 子树内 WPF 不用 ClearType，小字更糊）。两层同格即同尺寸。
         var shadowLayer = new Border
         {
             Background = panel,
@@ -132,8 +119,6 @@ public static class MessageDialog
         var dialog = new Window
         {
             WindowStyle = WindowStyle.None,
-            // 必须分层：本窗按 owner 尺寸铺满，底色是半透明遮罩。非分层窗口的客户区被 DWM
-            // 当作不透明面，遮罩会叠在窗口自身的黑底上 —— 主界面被整块涂黑而不是透出来变暗。
             AllowsTransparency = true,
             ResizeMode = ResizeMode.NoResize,
             ShowInTaskbar = false,
@@ -141,8 +126,6 @@ public static class MessageDialog
             WindowStartupLocation = WindowStartupLocation.Manual,
             Background = new SolidColorBrush(Color.FromArgb(0x99, 6, 6, 8)),
             FontFamily = UiFont,
-            // 卡片贴内容、居中：两层包在一个按内容定尺寸的居中格里（默认 Stretch 会让卡片撑满
-            // 整个 owner，一小段文字下面拖出几百像素空白黑框）
             Content = new Grid
             {
                 Margin = new Thickness(24),
@@ -158,8 +141,6 @@ public static class MessageDialog
             },
         };
         card.Child = stack;
-        // 分层窗口用不了 ClearType（只能灰度抗锯齿），再配 Ideal 排版模式小字会明显发虚；
-        // 弹窗里改用 Display（笔画吸附像素网格）才不糊。只改这个弹窗，不动全应用排版模式。
         TextOptions.SetTextFormattingMode(dialog, TextFormattingMode.Display);
 
         void Close() => dialog.Close();
@@ -193,12 +174,10 @@ public static class MessageDialog
         footer.Child = btnRow;
         stack.Children.Add(footer);
 
-        // 遮罩铺满 owner（对位 fixed inset-0）；先摆位再弹：否则先出现在系统默认位置、Loaded 才跳到位
         WindowFit.TryCover(dialog, owner);
         dialog.Loaded += (_, _) =>
         {
-            WindowFit.TryCover(dialog, owner); // 复核一次（宿主 Show 前尺寸未定时以这里为准）
-            // 打开动效：只动卡片 —— 淡入 + 微缩放上浮（遮罩是窗口自身的底色、铺满 owner，不做动效）
+            WindowFit.TryCover(dialog, owner);
             JzAnim.FadeIn(card, JzAnim.Dialog);
             JzAnim.PopIn(card, 0.985, 6);
         };

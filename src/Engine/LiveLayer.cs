@@ -2,9 +2,6 @@ using System.Text.Json.Serialization;
 
 namespace JizuraLive.Engine;
 
-/// <summary>
-/// 外部实时层参数（VTS 等 Spout 输入的合成方式）。
-/// </summary>
 public sealed class LiveLayerOptions
 {
     public bool Enabled { get; set; }
@@ -25,9 +22,6 @@ public sealed class LiveLayerOptions
     public int Revision { get; set; }
 }
 
-/// <summary>
-/// PV 模式参数配置。
-/// </summary>
 public sealed class PvOptions
 {
     public const int MaxSources = 4;
@@ -57,9 +51,6 @@ public sealed class PvOptions
     }
 }
 
-/// <summary>
-/// VTS 直接驱动参数。
-/// </summary>
 public sealed class VtsDriveOptions
 {
     public bool Enabled { get; set; } = true;

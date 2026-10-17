@@ -11,10 +11,6 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Spout;
 
-/// <summary>
-/// 纯 Vortice D3D11 实现的现代 Spout 广播发送端。
-/// 把舞台渲染画面以原生 GPU 共享纹理零拷贝广播给 OBS / Shoost 等下游接收端。
-/// </summary>
 public sealed class SpoutOut : IDisposable
 {
     private readonly D3DDevice _gpu;
@@ -33,15 +29,11 @@ public sealed class SpoutOut : IDisposable
     public int Height => _height;
     public bool IsActive => _initialized && _sender is not null;
 
-    // 发送回执（工作台状态条用）。只统计本对象上的发送调用：
-    // 成功发送 ≠ OBS 已收到——回执只到 native 发送返回这一层，收端是否接住无法在这里知道。
     public long SentCount { get; private set; }
     public long FailedCount { get; private set; }
-    /// <summary>最近一次成功发送的耗时（毫秒，含 Flush + SendTexture）。</summary>
     public double LastSendMs { get; private set; }
     public string? LastError { get; private set; }
 
-    /// <summary>D2D 可绘制的目标位图（管线可直接在此位图上合成出图）。</summary>
     public ID2D1Bitmap1? Bitmap => _bitmap;
 
     public SpoutOut(D3DDevice gpu, string senderName = "JIZURA-live-PV", int width = 1920, int height = 1080)
@@ -95,7 +87,6 @@ public sealed class SpoutOut : IDisposable
         }
     }
 
-    /// <summary>把一个 Direct2D 设备上下文绑定到 Spout 纹理目标。</summary>
     public ID2D1Bitmap1 EnsureD2DBitmap(ID2D1DeviceContext ctx)
     {
         if (_bitmap is not null) return _bitmap;
@@ -107,7 +98,6 @@ public sealed class SpoutOut : IDisposable
         return _bitmap;
     }
 
-    /// <summary>提交并广播当前纹理帧给下游。返回是否真的发出去了（未初始化 = 没发，不算失败）。</summary>
     public bool PresentFrame()
     {
         if (!_initialized || _sender is null || _texture is null) return false;
@@ -130,7 +120,6 @@ public sealed class SpoutOut : IDisposable
         }
     }
 
-    /// <summary>重设尺寸或名称。</summary>
     public void Resize(int width, int height, string? newSenderName = null)
     {
         width = Math.Max(16, width);

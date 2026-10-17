@@ -4,12 +4,6 @@ using System.Text;
 
 namespace JizuraLive.Engine;
 
-/// <summary>
-/// 酷狗 KRC 文件 → 歌词文本。格式：4 字节 ASCII 头 <c>krc1</c>，其后整段与 16 字节密钥循环异或，
-/// 得到 zlib 流，解压后是 UTF-8（可能带 BOM）的文本，正文由 <see cref="LrcParser"/> 识别。
-///
-/// 坏数据一律抛 <see cref="InvalidDataException"/> 并带上原因：解析器不该猜「这算不算 KRC」。
-/// </summary>
 public static class KrcDecoder
 {
     private static readonly byte[] Key =
@@ -41,7 +35,6 @@ public static class KrcDecoder
         {
             using var input = new MemoryStream(payload, writable: false);
             using var zlib = new ZLibStream(input, CompressionMode.Decompress);
-            // detectEncodingFromByteOrderMarks 顺手吃掉 UTF-8 BOM
             using var reader = new StreamReader(zlib, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
             return reader.ReadToEnd();
         }

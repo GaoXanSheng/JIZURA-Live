@@ -4,15 +4,10 @@ using NAudio.Wave;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
-/// <summary>后台线程用的音频 → 多级 min/max 波形装载。</summary>
 public static class WaveformLoader
 {
     private const int ChunkFloats = 65536;
 
-    /// <summary>
-    /// 分块解码音频并建多级 min/max 波形。内存 O(一块 + 输出)：整曲 PCM 不驻留，时长不再有上限。
-    /// 只开解码器（<see cref="AudioDecoding.Open"/>），不碰播放设备；失败抛带格式/路径原因的异常，由调用方显示。
-    /// </summary>
     public static WaveformPeaks Load(string path, CancellationToken ct = default)
     {
         using var reader = AudioDecoding.Open(path);
@@ -21,7 +16,7 @@ public static class WaveformLoader
             throw new InvalidDataException($"音频格式不可装载：{format.SampleRate}Hz/{format.Channels}ch（{path}）");
 
         var builder = WaveformPeaks.CreateBuilder(format.Channels);
-        var samples = (ISampleProvider)reader; // float 读取只在 ISampleProvider 上（WaveStream.Read 是 byte[]）
+        var samples = (ISampleProvider)reader;
         var chunk = new float[ChunkFloats];
         long total = 0;
 

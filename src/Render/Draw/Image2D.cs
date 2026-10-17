@@ -12,17 +12,12 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Render.Draw;
 
-/// <summary>
-/// 一张可被绘制的位图（包住 D2D 的 <see cref="ID2D1Bitmap"/>）。
-/// 解码基于 Windows 内置 WIC（BitmapDecoder），完全独立于外部渲染引擎。
-/// </summary>
 public sealed class Image2D : IDisposable
 {
     public ID2D1Bitmap Bitmap { get; }
     public int Width { get; }
     public int Height { get; }
 
-    /// <summary>随位图一起释放的附属资源（共享纹理与其 DXGI 表面——D2D 位图引用着它们）。</summary>
     private readonly IDisposable?[] _owned;
 
     internal Image2D(ID2D1Bitmap bitmap, int width, int height, params IDisposable?[] owned)
@@ -33,7 +28,6 @@ public sealed class Image2D : IDisposable
         _owned = owned;
     }
 
-    /// <summary>从原始 BGRA8888 像素创建 D2D 位图。</summary>
     public static Image2D FromBgraPixels(ID2D1DeviceContext ctx, byte[] bgraPixels, int width, int height)
     {
         var format = new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied);
@@ -48,9 +42,6 @@ public sealed class Image2D : IDisposable
         }
     }
 
-    /// <summary>
-    /// 在**另一台 D3D11 设备**（新渲染核心的 Vortice 设备）上打开一块共享纹理，包成可绘制位图。
-    /// </summary>
     public static Image2D FromSharedHandle(D3DDevice gpu, ID2D1DeviceContext ctx,
         IntPtr shareHandle, int width, int height)
     {
@@ -62,7 +53,6 @@ public sealed class Image2D : IDisposable
         return new Image2D(bitmap, width, height, surface, texture);
     }
 
-    /// <summary>从 PNG/JPEG/BMP/WebP 等编码字节解码并上传至 D2D。</summary>
     public static Image2D FromEncodedBytes(ID2D1DeviceContext ctx, byte[] data)
     {
         using var ms = new MemoryStream(data);

@@ -17,7 +17,6 @@
         <Product>JIZURA Live PV</Product>
         <Description>JIZURA Live PV（专用于歌词 PV 与 VTS 虚拟角色特效联动工作台）</Description>
         <ApplicationIcon>assets\app.ico</ApplicationIcon>
-        <!-- 自包含发布只带简中卫星资源：默认会把运行时全部语言目录（cs/de/es/...）打进去 -->
         <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
     </PropertyGroup>
 
@@ -40,12 +39,9 @@
         <Reference Include="SpoutDXWrapper">
             <HintPath>native\SpoutDXWrapper.dll</HintPath>
         </Reference>
-        <!-- SpoutDX 原生依赖：拷贝到输出根目录（与 SpoutDXWrapper.dll 同级），绝不生成 native\ 冗余子目录 -->
         <None Remove="native\SpoutDX.dll" />
         <None Include="native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
-
-    <!-- 确保 publish 目录也包含根目录的 SpoutDX.dll，并清理掉任何误生的 native\ 冗余目录 -->
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish">
         <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll') And Exists('native\SpoutDX.dll')" />
         <Delete Files="$(OutDir)native\SpoutDX.dll" Condition="Exists('$(OutDir)native\SpoutDX.dll')" />
@@ -53,8 +49,6 @@
         <RemoveDir Directories="$(OutDir)native" Condition="Exists('$(OutDir)native')" />
         <RemoveDir Directories="$(PublishDir)native" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)native')" />
     </Target>
-
-    <!-- 剪除无关平台的 runtimes（仅保留 win-x64） -->
     <Target Name="PruneUnusedRuntimes" AfterTargets="Build;Publish">
         <RemoveDir Directories="$(OutDir)runtimes\linux-x64;$(OutDir)runtimes\osx-x64;$(OutDir)runtimes\win-arm64;$(OutDir)runtimes\win-x86" Condition="Exists('$(OutDir)runtimes')" />
         <RemoveDir Directories="$(PublishDir)runtimes\linux-x64;$(PublishDir)runtimes\osx-x64;$(PublishDir)runtimes\win-arm64;$(PublishDir)runtimes\win-x86" Condition="'$(PublishDir)' != '' And Exists('$(PublishDir)runtimes')" />
@@ -64,8 +58,6 @@
     <Target Name="WriteIssVersion" AfterTargets="Build;Publish">
         <WriteLinesToFile File="bin\build.version.iss" Lines="#define AppVersion &quot;$(Version)&quot;" Overwrite="true" />
     </Target>
-
-    <!-- 发布产物不携带引用程序的 pdb/xml -->
     <PropertyGroup>
         <AllowedReferenceRelatedFileExtensions Condition="'$(Configuration)' == 'Release'">none</AllowedReferenceRelatedFileExtensions>
     </PropertyGroup>
@@ -73,16 +65,18 @@
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />
-      <!-- App.xaml 移入 src/App 后，SDK 只在项目根目录找 App.xaml 的隐式匹配不再命中，需显式声明入口定义 -->
       <ApplicationDefinition Include="src\App\App.xaml" />
-      <!-- i18n 词库：按语言目录嵌入（src/App/I18n/Locales/{lang}/{panel}.json），L 启动时全量装载 -->
       <EmbeddedResource Include="src\App\I18n\Locales\**\*.json" />
-      <!-- 测试工程单独一层目录，主程序不编译它 -->
       <Compile Remove="tests\**" />
       <None Remove="tests\**" />
       <Content Remove="tests\**" />
       <Compile Remove="tools\**" />
       <None Remove="tools\**" />
       <Content Remove="tools\**" />
+    </ItemGroup>
+
+
+    <ItemGroup>
+      <Folder Include="DOC\" />
     </ItemGroup>
 </Project>

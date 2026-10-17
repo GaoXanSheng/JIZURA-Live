@@ -1,33 +1,21 @@
 namespace JizuraLive.Pv;
 
-/// <summary>一颗粒子在本帧的形态（设计像素坐标，Rotation 为角度制）。</summary>
 public readonly record struct ParticleState(float X, float Y, float Rotation, float Scale, float Alpha);
 
-/// <summary>
-/// 粒子场求值：**纯函数、无状态、零分配**。每颗粒子的随机参数由 <c>hash(Seed, 序号)</c> 决定，
-/// 位置是时间的解析函数——可以任意跳转/导出，同一时刻永远给出同一结果（导出对拍与 seek 都靠这条）。
-///
-/// 输出顺序：先环境粒子（索引 <c>[0, <see cref="AmbientCount"/>)</c>），再爆发星光；
-/// 绘制方按这个分界选精灵（环境粒子按 Kind，爆发粒子一律星光）。
-/// </summary>
 public static class ParticleField
 {
     public const int MaxParticles = 600;
 
-    /// <summary>环境粒子数上界，即 <see cref="PvParticleConfig.Density"/> 的有效区间上端。</summary>
     public const int MaxAmbient = 400;
 
-    /// <summary>每次爆发喷出的星光数。</summary>
     private const int BurstParticles = 40;
 
-    /// <summary>爆发寿命（秒）：[b, b+1.2) 之外没有爆发粒子。</summary>
     private const double BurstLife = 1.2;
 
     private const int Sakura = 0;
     private const int Sparkle = 1;
     private const int Bokeh = 2;
 
-    /// <summary>本帧的环境粒子数（0..<see cref="MaxAmbient"/>；非有限 Density 按 0 处理）。</summary>
     public static int AmbientCount(PvParticleConfig cfg)
     {
         if (cfg is null) return 0;
@@ -35,10 +23,6 @@ public static class ParticleField
         return double.IsFinite(density) ? (int)Math.Clamp(Math.Round(density), 0, MaxAmbient) : 0;
     }
 
-    /// <summary>
-    /// 把 <paramref name="cfg"/> 在 <paramref name="time"/> 时刻的粒子写进 <paramref name="output"/>，
-    /// 返回写入数量（≤ min(output.Length, <see cref="MaxParticles"/>)）。不分配、不改 <paramref name="cfg"/>。
-    /// </summary>
     public static int Compute(PvParticleConfig cfg, double time, int width, int height,
         Span<ParticleState> output)
     {
@@ -71,7 +55,6 @@ public static class ParticleField
             for (var b = 0; b < bursts.Count && count < limit; b++)
             {
                 var age = time - bursts[b];
-                // 取反写法顺带把 NaN 的爆发时刻也挡在窗口外
                 if (!(age >= 0) || age >= BurstLife) continue;
                 for (var k = 0; k < BurstParticles && count < limit; k++)
                     output[count++] = BurstAt(seed, b, k, age, w, h, size);
@@ -81,11 +64,10 @@ public static class ParticleField
         return count;
     }
 
-    /// <summary>花瓣：自上而下飘落、正弦横摆 + 斜向漂移、自转，纵向与横向都循环。</summary>
     private static ParticleState SakuraAt(int seed, int i, double time, float w, float h,
         double speed, double size)
     {
-        var fall = (0.05 + 0.07 * Unit(seed, i, 1)) * speed;          // 屏高/秒
+        var fall = (0.05 + 0.07 * Unit(seed, i, 1)) * speed;
         var progress = Frac(Unit(seed, i, 2) + time * fall / 1.2);
         var y = -0.1f * h + (float)progress * 1.2f * h;
 
@@ -100,7 +82,6 @@ public static class ParticleField
         return new ParticleState(x, y, rotation, scale, alpha);
     }
 
-    /// <summary>星光：原地闪烁（相位随机的 alpha 脉动）并缓慢上升。</summary>
     private static ParticleState SparkleAt(int seed, int i, double time, float w, float h,
         double speed, double size)
     {
@@ -118,7 +99,6 @@ public static class ParticleField
         return new ParticleState(x, y, rotation, scale, (float)alpha);
     }
 
-    /// <summary>光斑：大而淡的圆，缓慢斜向漂移并循环。</summary>
     private static ParticleState BokehAt(int seed, int i, double time, float w, float h,
         double speed, double size)
     {
@@ -130,7 +110,6 @@ public static class ParticleField
         return new ParticleState(x, y, 0f, scale, alpha);
     }
 
-    /// <summary>爆发星光：从画面中心按缓出速度向外辐射并淡出。</summary>
     private static ParticleState BurstAt(int seed, int b, int k, double age, float w, float h, double size)
     {
         var progress = age / BurstLife;
@@ -161,7 +140,6 @@ public static class ParticleField
 
     private static float Wrap(float v, float span) => v - MathF.Floor(v / span) * span;
 
-    /// <summary>按 <c>(Seed, 序号, 用途)</c> 取一个 [0,1) 的确定性随机数（同一入参永远同一值）。</summary>
     private static float Unit(int seed, int index, uint salt) => (Hash(seed, index, salt) >> 8) * (1f / 16777216f);
 
     private static uint Hash(int seed, int index, uint salt)

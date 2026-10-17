@@ -2,25 +2,16 @@ using System.Runtime.InteropServices;
 
 namespace JizuraLive.Pv;
 
-/// <summary>
-/// Media Foundation SinkWriter 的最小封装：H.264 编码写 MP4，可选一条 AAC 音轨。
-///
-/// 输入帧是 NV12（Y 平面 + 交错 UV，逐行自上而下）：NV12 是 H.264 编码器明确接受的输入类型之一，
-/// 而系统内存里的 RGB 按惯例是 bottom-up，送 RGB32 得靠媒体类型声明朝向才不会上下颠倒——所以不走那条路。
-/// 时间戳由内部帧序号推出：第 n 帧 = n × (10^7 / fps) 个 100ns 单位；每帧字节数必须等于 <see cref="Nv12Size"/>。
-/// 音频的输入是 16bit 交错 PCM，时间戳由调用方按样本计数给出（<see cref="WriteAudio"/>）。
-/// 不调用 <see cref="Close"/> 就没有能播的文件：MP4 的索引在 IMFSinkWriter::Finalize 里才写。
-/// </summary>
 public sealed class MfSink : IDisposable
 {
-    private const uint MfVersion = 0x00020070;    // MF_VERSION = (SDK 2 << 16) | API 0x70
-    private const int H264ProfileMain = 77;       // eAVEncH264VProfile_Main：Baseline 无 B 帧/CABAC，成片压不干净
-    private const long HnsPerSecond = 10_000_000; // MF 的时间基是 100ns
-    private const int Progressive = 2;            // MFVideoInterlace_Progressive
-    private const int Bt709 = 1;                  // MFVideoTransferMatrix_BT709
-    private const int AudioBits = 16;             // AAC 编码器的输入 PCM 位深（编码器输出同为 16）
-    private const int AudioAvgBytesPerSecond = 24_000; // 192 kbps
-    private const uint AacPayloadRaw = 0;         // MF_MT_AAC_PAYLOAD_TYPE：0 = 裸 AAC（MP4 封装要的值）
+    private const uint MfVersion = 0x00020070;
+    private const int H264ProfileMain = 77;
+    private const long HnsPerSecond = 10_000_000;
+    private const int Progressive = 2;
+    private const int Bt709 = 1;
+    private const int AudioBits = 16;
+    private const int AudioAvgBytesPerSecond = 24_000;
+    private const uint AacPayloadRaw = 0;
 
     private IMFSinkWriter? _writer;
     private readonly int _stream;
@@ -41,14 +32,8 @@ public sealed class MfSink : IDisposable
         _comInitialized = comInitialized;
     }
 
-    /// <summary>NV12 帧的字节数：Y 全分辨率 + UV 各半分辨率交错。</summary>
     public static int Nv12Size(int width, int height) => width * height * 3 / 2;
 
-    /// <summary>
-    /// 建输出文件并接上 H.264 编码器；<paramref name="withAudio"/> = true 时再接一条 AAC 音轨（48kHz 2ch 16bit）。
-    /// 失败抛 <see cref="InvalidOperationException"/>（带步骤名与 HRESULT），不返回半成品。
-    /// 参数校验归调用方（<see cref="PvExporter"/> 已经查过一遍）。
-    /// </summary>
     public static MfSink Open(string path, int width, int height, int fps, bool withAudio = false,
         int audioSampleRate = 48000, int audioChannels = 2)
     {
@@ -60,8 +45,6 @@ public sealed class MfSink : IDisposable
             throw new ArgumentOutOfRangeException(nameof(audioSampleRate),
                 $"音轨只支持 1..2 声道的正整数采样率（当前 {audioSampleRate}Hz {audioChannels}ch）");
 
-        // 只有 S_OK 才是这次调用完成了初始化，也才有配对的 CoUninitialize；
-        // S_FALSE（已初始化）/ RPC_E_CHANGED_MODE（别的套间模式）都不接手释放。
         var comInitialized = CoInitializeEx(IntPtr.Zero, 0x2) == 0;
         var mfStarted = false;
         IMFSinkWriter? pending = null;
@@ -86,9 +69,6 @@ public sealed class MfSink : IDisposable
         }
     }
 
-    /// <summary>
-    /// 送一帧 NV12。数据拷进 MF 缓冲，调用方可以复用同一个数组。
-    /// </summary>
     public void WriteFrame(byte[] nv12)
     {
         if (_writer is null) throw new ObjectDisposedException(nameof(MfSink));
@@ -99,10 +79,6 @@ public sealed class MfSink : IDisposable
         _nextTimestamp += _frameDuration;
     }
 
-    /// <summary>
-    /// 送一段 16bit 交错 PCM。时间戳由调用方按累计样本数给出：SinkWriter 只认 100ns 单位，
-    /// 逐块取整会在长片上累积漂移，所以这里不做任何时间推算。
-    /// </summary>
     public void WriteAudio(ReadOnlySpan<short> interleaved, long sampleTime100ns, long duration100ns)
     {
         if (_writer is null) throw new ObjectDisposedException(nameof(MfSink));
@@ -112,10 +88,6 @@ public sealed class MfSink : IDisposable
         WriteSample(_audioStream, MemoryMarshal.AsBytes(interleaved), sampleTime100ns, duration100ns, "音频");
     }
 
-    /// <summary>
-    /// 把一段字节送进指定流。每帧新建缓冲与样本：SinkWriter 不承诺在本调用返回前消化掉样本，
-    /// 复用同一块缓冲会让编码器读到下一份数据。
-    /// </summary>
     private void WriteSample(int stream, ReadOnlySpan<byte> data, long time, long duration, string what)
     {
         Check(MFCreateMemoryBuffer((uint)data.Length, out var buffer), $"建立{what}缓冲");
@@ -149,7 +121,6 @@ public sealed class MfSink : IDisposable
         }
     }
 
-    /// <summary>收尾：写 MP4 索引、关闭文件。幂等。</summary>
     public void Close()
     {
         var writer = _writer;
@@ -185,7 +156,6 @@ public sealed class MfSink : IDisposable
 
         Check(MFCreateMediaType(out var inType), "建立输入媒体类型");
         SetVideoType(inType, MfVideoFormatNv12, width, height, fps);
-        // 我们的转换按 BT.709 有限范围算；不声明的话 VUI 里是 unspecified，各播放器自己猜
         Check(inType.SetUINT32(MfMtYuvMatrix, Bt709), "声明色度矩阵");
         Check(writer.SetInputMediaType(stream, inType, IntPtr.Zero), "设置输入格式（NV12）");
 
@@ -208,7 +178,6 @@ public sealed class MfSink : IDisposable
         }
 
         Check(writer.BeginWriting(), "开始写入");
-        // 各媒体类型到此为止：SinkWriter 已经拷走它要的属性，剩下的引用交给 GC
     }
 
     private static void SetVideoType(IMFMediaType type, in Guid subtype, int width, int height, int fps)
@@ -230,11 +199,9 @@ public sealed class MfSink : IDisposable
         Check(type.SetUINT32(in MfMtAudioBitsPerSample, AudioBits), "设置位深");
     }
 
-    /// <summary>码率档：0.1 bit/像素/帧，夹在 2..60 Mbps（码率 UI 不在本次范围内）。</summary>
     private static int BitrateFor(int width, int height, int fps) =>
         (int)Math.Clamp((long)width * height * fps / 10, 2_000_000, 60_000_000);
 
-    /// <summary>MF 的「两个 32 位打包进 64 位」属性：高位在前（尺寸=宽/高，比例=分子/分母）。</summary>
     private static ulong Pack(long high, long low) => ((ulong)high << 32) | (uint)low;
 
     private static void Check(int hr, string step)
@@ -252,7 +219,6 @@ public sealed class MfSink : IDisposable
     private static void Release(object? com)
     {
         if (com is null) return;
-        // 对象已被断开时 ReleaseComObject 会抛：收尾路径上不值得让它盖住真正的失败原因
         try
         {
             Marshal.ReleaseComObject(com);
@@ -261,9 +227,6 @@ public sealed class MfSink : IDisposable
         {
         }
     }
-
-    // ---------------- 互操作 ----------------
-    // 只声明用到的槽位；IUnknown 派生的 ComImport 接口按声明顺序对 vtable，名称不参与解析。
 
     private static readonly Guid MfMtMajorType = new("48eba18e-f8c9-4687-bf11-0a74c9f96a8f");
     private static readonly Guid MfMtSubtype = new("f7e34c9a-42e8-4714-b74b-cb29d72c35e5");
@@ -315,10 +278,6 @@ public sealed class MfSink : IDisposable
     [DllImport("ole32.dll", ExactSpelling = true)]
     private static extern void CoUninitialize();
 
-    /// <summary>
-    /// 媒体类型：本接口自己不声明方法，调用的一律是基类的属性槽位。少声明一个都不行——
-    /// 派生接口的方法槽**不会**自动跳过基类的 30 个（见 <see cref="IMFSample"/>），所以这里必须保持空体。
-    /// </summary>
     [ComImport, Guid("2cd2d921-c447-44a7-a13c-4adabfc247e3"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMFMediaType : IMFAttributes
@@ -361,16 +320,10 @@ public sealed class MfSink : IDisposable
         [PreserveSig] int CopyAllItems(IntPtr dest);
     }
 
-    /// <summary>
-    /// 样本。**必须把 IMFAttributes 的 30 个槽位一起铺开**：ComImport 接口按声明顺序对 vtable，
-    /// 派生接口自己声明的方法不会自动加到基类槽位之后（实测：只声明下面 30 行以外的部分，
-    /// AddBuffer 会落到 IMFAttributes::GetString 上，返回 MF_E_ATTRIBUTENOTFOUND，编码器一帧都收不到）。
-    /// </summary>
     [ComImport, Guid("c40a00f2-b93a-4d80-ae8c-5a1c634f58e4"),
      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     internal interface IMFSample
     {
-        // IMFAttributes 的 30 个槽位（本类不使用，只为占位）
         [PreserveSig] int GetItem(in Guid key, IntPtr value);
         [PreserveSig] int GetItemType(in Guid key, out int type);
         [PreserveSig] int CompareItem(in Guid key, IntPtr value, out int result);

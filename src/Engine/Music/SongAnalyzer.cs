@@ -4,10 +4,6 @@ using NAudio.Wave;
 
 namespace JizuraLive.Engine.Music;
 
-/// <summary>
-/// 整曲音乐分析入口：PCM → 特征 → 拍点 → 段落，产出 <see cref="BeatMap"/>。
-/// 文件版走 <see cref="AudioDecoding.Open"/> 解码（分块读、可取消），PCM 进出的一次性版本不碰 IO。
-/// </summary>
 public static class SongAnalyzer
 {
     private const int ChunkFloats = 65536;
@@ -19,10 +15,6 @@ public static class SongAnalyzer
         return Build(features);
     }
 
-    /// <summary>
-    /// 解码整个音频文件后分析。<paramref name="ct"/> 在每个解码块前检查，取消即刻生效。
-    /// 失败（IO/解码/格式）抛异常由调用方兜住；空路径抛 <see cref="ArgumentException"/>。
-    /// </summary>
     public static BeatMap AnalyzeFile(string path, CancellationToken ct = default)
     {
         using var reader = AudioDecoding.Open(path);
@@ -52,10 +44,9 @@ public static class SongAnalyzer
         };
     }
 
-    /// <summary>整曲交错样本驻留内存：特征提取需要全曲 chroma 才能算自相似矩阵，不能像频带分析那样流式出窗。</summary>
     private static float[] DecodeAll(WaveStream reader, CancellationToken ct)
     {
-        var samples = (ISampleProvider)reader;   // float 读取只挂在 ISampleProvider 上（WaveStream.Read 是 byte[]）
+        var samples = (ISampleProvider)reader;
         var chunk = new float[ChunkFloats];
         var buffer = new float[ChunkFloats];
         var length = 0;

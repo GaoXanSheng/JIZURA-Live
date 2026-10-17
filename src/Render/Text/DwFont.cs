@@ -3,17 +3,6 @@ using Vortice.DirectWrite;
 
 namespace JizuraLive.Render.Text;
 
-/// <summary>
-/// 一个 (字族, 字号) 的文本格式：DirectWrite 的 <see cref="IDWriteTextFormat"/> 三种水平对齐各一份，
-/// 外加字形度量（ascent / 行高）与**带缓存的逐字宽度测量**。
-///
-/// 为什么宽度要缓存：旧引擎是逐字排版 + 逐字绘制，每字都要量一次宽；DirectWrite 量宽要建
-/// <c>IDWriteTextLayout</c>，每字新建一次会把排版成本抬一个量级。这里按码点缓存宽度，
-/// 命中后是纯字典查找。
-///
-/// 缺字回退交给 DirectWrite 自己做（文本布局阶段逐字回退到系统字体），与旧引擎
-/// <c>JFonts.FaceFontFor</c> 的「缺字换脸」语义一致。
-/// </summary>
 public sealed class DwFont : IDisposable
 {
     private readonly IDWriteFactory _dw;
@@ -43,7 +32,6 @@ public sealed class DwFont : IDisposable
         Centered.TextAlignment = TextAlignment.Center;
         Trailing.TextAlignment = TextAlignment.Trailing;
 
-        // 单行、不换行、不裁剪：旧引擎的排版由自己算，DirectWrite 只负责出字形
         foreach (var f in new[] { Leading, Centered, Trailing })
         {
             f.WordWrapping = WordWrapping.NoWrap;
@@ -53,23 +41,18 @@ public sealed class DwFont : IDisposable
         }
     }
 
-    /// <summary>基线到行顶的距离（像素）。</summary>
     public float Ascent => EnsureMetrics(ref _ascent, m => m.Baseline);
 
-    /// <summary>行高（像素）。</summary>
     public float LineHeight => EnsureMetrics(ref _lineHeight, m => m.Height);
 
-    /// <summary>测一行文本宽度（缓存）。</summary>
     public float MeasureWidth(string text)
     {
         if (string.IsNullOrEmpty(text)) return 0;
-        // 单码点走码点缓存（逐字排版是主路径）
         if (text.Length == 1) return MeasureWidth(text[0]);
         using var layout = _dw.CreateTextLayout(text, Leading, float.MaxValue, float.MaxValue);
         return layout.Metrics.Width;
     }
 
-    /// <summary>测单个码点宽度（缓存）。</summary>
     public float MeasureWidth(int codepoint)
     {
         if (_widthCache.TryGetValue(codepoint, out var w)) return w;
@@ -92,7 +75,7 @@ public sealed class DwFont : IDisposable
         catch (Exception ex)
         {
             Log.Warn($"[DwFont] 取字体度量失败（{Family} {Size}）：{ex.Message}");
-            slot = Size * 1.2f; // 兜底：按字号估一个行高
+            slot = Size * 1.2f;
         }
 
         return slot;
@@ -106,7 +89,6 @@ public sealed class DwFont : IDisposable
     }
 }
 
-/// <summary>(字族, 字号) → <see cref="DwFont"/> 的缓存（渲染线程内使用，无需加锁）。</summary>
 public sealed class DwFontCache : IDisposable
 {
     private readonly IDWriteFactory _dw;

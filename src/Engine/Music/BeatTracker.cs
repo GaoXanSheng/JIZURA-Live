@@ -47,11 +47,6 @@ public static class BeatTracker
         return result;
     }
 
-    /// <summary>
-    /// Onset 自相关 × 以 120BPM 为心、对数域 1 个八度标准差的高斯先验，峰上抛物线插值。
-    /// 相关值取前 4 个谐波滞后之和：非整数周期（如 150BPM→34.45 帧）下单个滞后会被量化到
-    /// 相邻整数帧上、令 2× 周期反超，谐波求和能把基周期重新顶上来。
-    /// </summary>
     private static double EstimateBpm(float[] onset, double dt)
     {
         var n = onset.Length;
@@ -68,7 +63,6 @@ public static class BeatTracker
         var d = new double[n];
         for (var i = 0; i < n; i++) d[i] = onset[i] - mean;
 
-        // 分数滞后 + 线性插值：整数滞后在非整数周期上会错拿 2× 周期当峰
         const double step = 0.1;
         var count = (int)Math.Floor((maxLag - minLag) / step) + 1;
         var score = new double[count];
@@ -116,7 +110,6 @@ public static class BeatTracker
 
     private static double Prior(double bpm) => Math.Exp(-0.5 * Math.Pow(Math.Log2(bpm / PriorCenterBpm), 2));
 
-    /// <summary>Ellis 动态规划：score[t]=onset[t]+max(score[p]−α·ln((t−p)/τ)²)，回溯出拍点帧下标。</summary>
     private static List<int> TrackBeats(float[] onset, double tau)
     {
         var n = onset.Length;
@@ -162,7 +155,6 @@ public static class BeatTracker
         while (frames.Count > 0 && onset[frames[^1]] <= 0f) frames.RemoveAt(frames.Count - 1);
     }
 
-    /// <summary>4 拍一小节：取（拍点上归一化 Onset + 归一化 LowEnergy）之和最大的相位。</summary>
     private static List<double> DetectDownbeats(MusicFeatures f, List<int> beatFrames)
     {
         var result = new List<double>();
@@ -193,7 +185,6 @@ public static class BeatTracker
         return result;
     }
 
-    /// <summary>Onset 包络自适应阈值（局部中位数+δ）拣峰，峰间隔 ≥100ms，强度归一到 0..1。</summary>
     private static void PickOnsets(float[] onset, double dt, BeatResult result)
     {
         var n = onset.Length;

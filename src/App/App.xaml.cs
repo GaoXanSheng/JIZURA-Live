@@ -66,7 +66,6 @@ public partial class App : Application
 
             L.Initialize(settings.UiLang);
 
-            // 启动现代 PV 舞台主工作台窗口
             var pvWindow = new PvStage.PvStageWindow();
             MainInstance = pvWindow;
             MainWindow = pvWindow;

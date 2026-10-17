@@ -8,30 +8,25 @@ using JizuraLive.Render.Effects;
 
 namespace JizuraLive.App.PvStage;
 
-/// <summary>
-/// 属性检查器：相机四参 + 选中图层八参（五个可动画 + 深度/环境光/边缘光三个常量）+ 工程级信息。
-/// 每行可动画参数都带 ◆K 与值来源徽标；效果架里的 Number 参数行走同一套（只把行登记进 <see cref="_rackRows"/>）。
-/// </summary>
 public partial class PvStageWindow
 {
-    /// <summary>一行可动画参数。重建时整批换掉，刷新路径只认这一份引用。</summary>
     private sealed class AnimRow
     {
         public ParamAddress Address;
         public string Label = "";
         public double Min, Max;
-        public Func<double> ReadBase = null!;   // 没有曲线时的文档常量
+        public Func<double> ReadBase = null!;
         public Action<double> WriteBase = null!;
         public Slider Slider = null!;
         public TextBlock ValueText = null!;
         public Wpf.Ui.Controls.Badge Badge = null!;
         public TextBlock ClampMark = null!;
-        public double EditTime;                 // 滑杆编辑时刻：按下滑杆那一刻冻结（同刻替换一条 key）
+        public double EditTime;
     }
 
     private readonly List<AnimRow> _inspectorRows = new();
     private readonly List<AnimRow> _rackRows = new();
-    private bool _syncingRows;  // 程序化回写滑杆时为 true：那条 ValueChanged 不是用户输入，不能当编辑写回去
+    private bool _syncingRows;
 
     private void SelectLayer(PvLayerConfig? layer)
     {
@@ -40,7 +35,6 @@ public partial class PvStageWindow
         BuildInspector();
     }
 
-    /// <summary>图层卡的选中态（主题选中底色 + 强调描边）与检查器标题。</summary>
     private void HighlightLayerCards()
     {
         foreach (var card in LayersHost.Children.OfType<Wpf.Ui.Controls.Card>())
@@ -58,12 +52,9 @@ public partial class PvStageWindow
 
     private void BuildInspector()
     {
-        // 重建前先丢引用：旧的滑杆与徽标不能再被刷新路径写到
         _inspectorRows.Clear();
         InspectorHost.Children.Clear();
 
-        // 段落计划由 InspectorLayout 给：工程段（歌词样式下拉的唯一入口）与选中无关，始终在。
-        // 这里不再按"有没有选中图层"二选一——那样点过图层卡之后本次会话就回不到工程段。
         foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
         {
             switch (section)
@@ -83,9 +74,6 @@ public partial class PvStageWindow
         RefreshParamRows();
     }
 
-    // ---------------- 可动画参数行 ----------------
-
-    /// <summary>相机四参（地址 <c>camera.&lt;param&gt;</c>）。</summary>
     private void BuildCameraSection()
     {
         InspectorHost.Children.Add(SectionTitle("相机"));
@@ -95,7 +83,6 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(CameraRow("rotation", "旋转", 1));
     }
 
-    /// <summary>相机一行：没有曲线时读写文档常量（与 PvPipeline.BaseCamera 的回落是同一份事实）。</summary>
     private FrameworkElement CameraRow(string param, string label, double step)
     {
         var addr = new ParamAddress(ParamAddressKind.Camera, "", param);
@@ -122,7 +109,6 @@ public partial class PvStageWindow
 
     private PvCameraConfig Camera() => _scene.Camera ??= new PvCameraConfig();
 
-    /// <summary>选中图层的参数：五个可动画的变换行（地址 <c>layer:&lt;id&gt;.&lt;param&gt;</c>）+ 三个观感常量行。</summary>
     private void BuildLayerSection(PvLayerConfig layer)
     {
         InspectorHost.Children.Add(SectionTitle($"图层 · {LayerKindLabel(layer.Kind)}"));
@@ -131,7 +117,6 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(LayerRow(layer, "scale", "缩放", 0.01));
         InspectorHost.Children.Add(LayerRow(layer, "opacity", "不透明", 0.02));
         InspectorHost.Children.Add(LayerRow(layer, "rotation", "旋转", 1));
-        // 深度上限 3 与 PvParallax 的夹取范围一致；环境光/边缘光在合成里按 0~1 用
         InspectorHost.Children.Add(ConstRow("深度", 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
         InspectorHost.Children.Add(ConstRow("环境光", 0, 1, 0.02,
@@ -140,10 +125,6 @@ public partial class PvStageWindow
             () => layer.VisualBlend.RimGlow, v => layer.VisualBlend.RimGlow = v));
     }
 
-    /// <summary>
-    /// 只有常量的编辑行：这三个参数不在参数注册表里，帧内没有曲线/绑定通道，
-    /// 所以没有 ◆K 也没有值来源徽标——滑杆写的就是文档字段。
-    /// </summary>
     private FrameworkElement ConstRow(string label, double min, double max, double step,
         Func<double> read, Action<double> write)
     {
@@ -174,7 +155,6 @@ public partial class PvStageWindow
         {
             write(e.NewValue);
             value.Text = e.NewValue.ToString("0.###", CultureInfo.InvariantCulture);
-            // 拖动中不落盘：存盘是整份工程 JSON 的原子写，一次拖动能触发上百次（与动画行同一条约定）
             if (slider.IsMouseCaptureWithin) return;
             PushUndo();
             _saveError = SaveProjectNow();
@@ -209,7 +189,6 @@ public partial class PvStageWindow
         return AnimParamRow(_inspectorRows, addr, label, spec.Min, spec.Max, step, read, write);
     }
 
-    /// <summary>名称 | 值控件 | ↦ | ◆K | 值来源徽标。<paramref name="readBase"/>/<paramref name="writeBase"/> 是"没有曲线时"的文档常量读写。</summary>
     private FrameworkElement AnimParamRow(List<AnimRow> owner, ParamAddress address, string label,
         double min, double max, double step, Func<double> readBase, Action<double> writeBase)
     {
@@ -295,12 +274,9 @@ public partial class PvStageWindow
         return row;
     }
 
-    /// <summary>在播放头时刻给这一行打帧：同刻替换，一次 PushUndo。</summary>
     private void KeyRowAtPlayhead(AnimRow row)
     {
         var t = _audio.Time;
-        // 值不能拿滑杆显示值：滑杆只在 500ms 定时器上跟播放头同步，seek 之后立刻打帧会把上一位置的值钉到新时刻。
-        // 曲线存在就取"这一刻本来该是什么"（也是管线实际生效的值，不夹显示域——夹过再写回会把取景静默改动）
         var v = _evaluator.TryEvaluate(row.Address, t, out var eval) ? eval : row.Slider.Value;
 
         if (!_evaluator.Curves.TryGetValue(row.Address, out var curve))
@@ -309,7 +285,6 @@ public partial class PvStageWindow
             _evaluator.SetCurve(row.Address, curve);
         }
 
-        // 同一时刻只许有一个 key，所以"替换"用 Remove + TryAdd 表达；替换沿用原 key 的插值模式（模式是用户的选择）
         var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
         curve.Remove(t);
         curve.TryAdd(t, v, mode);
@@ -322,7 +297,6 @@ public partial class PvStageWindow
         TblStatus.Text = $"已打关键帧 t={t:F2}s · {row.Label} {v:F2}";
     }
 
-    /// <summary>把值写进该地址的曲线：时刻取播放头，同刻替换。给"文档里没有常量字段"的参数用。</summary>
     private void WriteCurveKeyAtPlayhead(in ParamAddress addr, double value)
     {
         var t = _audio.Time;
@@ -338,7 +312,6 @@ public partial class PvStageWindow
         PublishDirector();
     }
 
-    /// <summary>同刻窗口（1µs，与 FloatCurve 一致）内已有 key 的插值模式；没有返回 null。</summary>
     private static CurveInterp? ModeOfKeyAt(FloatCurve curve, double time)
     {
         foreach (var k in curve.Keys)
@@ -348,15 +321,11 @@ public partial class PvStageWindow
 
     private void OnRowValueChanged(AnimRow row, double value)
     {
-        // 挡程序化回写那一次（RefreshRow 把"当前生效值"写回滑杆）
         if (_syncingRows) return;
 
         var t = _audio.Time;
         if (_evaluator.Curves.TryGetValue(row.Address, out var curve))
         {
-            // 有曲线时滑杆改的是"这一刻的曲线值"。编辑时刻在按下滑杆那一刻冻结：
-            // 播放中设备钟每帧推进，相邻 ValueChanged 的时刻差远大于 1µs 的同刻窗口，
-            // 不冻结的话 Remove 找不到上一条 key、TryAdd 每次都插新的，一次拖动堆出上百条 key。
             if (!row.Slider.IsMouseCaptureWithin) row.EditTime = t;
             var at = row.EditTime;
             var mode = ModeOfKeyAt(curve, at) ?? CurveInterp.SmoothStep;
@@ -366,7 +335,6 @@ public partial class PvStageWindow
         }
         else
         {
-            // 还没有曲线：滑杆改的是文档里的常量（与求值器回落的那一份是同一份事实）
             row.WriteBase(value);
             row.EditTime = t;
         }
@@ -374,8 +342,6 @@ public partial class PvStageWindow
         RefreshTimeline();
         RefreshParamRows();
 
-        // 存盘不在每个 ValueChanged 里做：这是整份工程 JSON 的序列化 + 原子写，拖动一次能触发上百次。
-        // 拖动中只更新内存模型，松手时压一份撤销并落盘。
         if (!row.Slider.IsMouseCaptureWithin)
         {
             PushUndo();
@@ -383,7 +349,6 @@ public partial class PvStageWindow
         }
     }
 
-    /// <summary>点徽标：把时间轴上该轨最接近播放头的 key 选中（时间轴没有纵向滚动，"跳轨"能做的就是落选区）。</summary>
     private void JumpToRowTrack(AnimRow row)
     {
         if (!_evaluator.Curves.TryGetValue(row.Address, out var curve) || curve.Count == 0) return;
@@ -395,9 +360,6 @@ public partial class PvStageWindow
         TheTimeline.SelectKey(row.Address, best);
     }
 
-    // ---------------- 值来源徽标 ----------------
-
-    /// <summary>所有参数行跟着播放头刷新：值取当前生效值，徽标取当前生效来源。</summary>
     private void RefreshParamRows()
     {
         if (_inspectorRows.Count == 0 && _rackRows.Count == 0) return;
@@ -407,10 +369,6 @@ public partial class PvStageWindow
         foreach (var row in _rackRows) RefreshRow(row, t);
     }
 
-    /// <summary>
-    /// 合成顺序只有两级：文档常量 → 曲线 base(t)。
-    /// 显示的是曲线原值（不夹），越界由 ↦ 标出来——目标侧写入时才按注册范围限幅。
-    /// </summary>
     private void RefreshRow(AnimRow row, double time)
     {
         var hasCurve = _evaluator.Curves.TryGetValue(row.Address, out var curve) && curve.Count > 0;
@@ -442,9 +400,6 @@ public partial class PvStageWindow
         }
     }
 
-    // ---------------- 工程段 ----------------
-
-    /// <summary>工程段：画布 / 帧率 / 时长 / 音源 / 歌词。歌词样式的唯一入口在「素材」步骤，不在这里再放一份。</summary>
     private void BuildProjectSection()
     {
         InspectorHost.Children.Add(SectionTitle("工程"));
@@ -483,8 +438,6 @@ public partial class PvStageWindow
         return row;
     }
 
-    // ---------------- 参数命名（检查器行与时间轴轨共用） ----------------
-
     private static string ParamDisplayName(string param) => param switch
     {
         "offsetX" => "位移X",
@@ -495,7 +448,6 @@ public partial class PvStageWindow
         _ => param,
     };
 
-    /// <summary>时间轴轨的标签：「对象名 · 参数名」。</summary>
     private string TrackLabel(in ParamAddress addr)
     {
         var name = ParamDisplayName(addr.Param);
@@ -516,12 +468,10 @@ public partial class PvStageWindow
         }
     }
 
-    /// <summary>效果参数的显示名：按 DefId 的 schema 取 LabelKey；schema 里没有这个 key 时原样显示。</summary>
     private static string EffectParamLabel(EffectNode node, string key) =>
         EffectCatalog.Get(node.DefId)?.Params.FirstOrDefault(p => p.Key == key) is { } p ? ParamLabel(p) : key;
 }
 
-/// <summary>检查器里的一段。声明顺序即期望的渲染顺序。</summary>
 public enum InspectorSectionKind
 {
     Camera,
@@ -529,26 +479,14 @@ public enum InspectorSectionKind
     Layer,
 }
 
-/// <summary>
-/// 值来源徽标的文字判定（纯函数，与 <see cref="InspectorLayout"/> 同款：拎出来是为了可断言）。
-///
-/// 只有两级来源：该地址有曲线就是「曲线」，否则是文档里的「常量」。
-/// </summary>
 public static class ValueSourceBadge
 {
     public const string Curve = "曲线";
     public const string Constant = "常量";
 
-    /// <param name="hasCurve">该地址有曲线。</param>
     public static string Label(bool hasCurve) => hasCurve ? Curve : Constant;
 }
 
-/// <summary>
-/// 检查器渲染哪些段（PvStageWindow.BuildInspector 实际消费的就是它）。
-///
-/// 工程段（画布 / 帧率 / 时长 / 音源 / 歌词）与选中无关，**始终在**：若按"有没有选中图层"二选一，
-/// 点过任意图层卡之后本次会话就再也回不到工程级读数。
-/// </summary>
 public static class InspectorLayout
 {
     public static IReadOnlyList<InspectorSectionKind> Sections(bool hasLayerSelection) =>

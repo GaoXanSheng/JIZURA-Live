@@ -2,7 +2,6 @@ using NAudio.Dsp;
 
 namespace JizuraLive.Engine.Music;
 
-/// <summary>逐帧音乐特征：窗 2048 / hop 512 / Hann，帧 j 的中心时刻 = j×hop/sr（与 <see cref="JizuraLive.Engine.AudioBandSeries"/> 同一约定）。</summary>
 public sealed class MusicFeatures
 {
     public double FrameStep;

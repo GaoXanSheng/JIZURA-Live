@@ -4,17 +4,8 @@ using Vortice.Mathematics;
 
 namespace JizuraLive.Render.Draw;
 
-/// <summary>
-/// 路径构造器（对位 SKPath 的常用面）。底层是 D2D 的 <see cref="ID2D1PathGeometry"/> + sink。
-///
-/// 生命周期约定：**填完即冻结**。第一次取 <see cref="Geometry"/>（也就是第一次被绘制）时收尾
-/// （EndFigure + sink.Close），之后不允许再追加线段——要继续用就 <see cref="Reset"/>。
-/// 之所以不自动重开：D2D 的 ID2D1PathGeometry::Open 不能对同一几何反复调用，静默重开会丢掉
-/// 已画内容，宁可明确抛错也不要出「画出来的和想的不一样」。
-/// </summary>
 public sealed class Path2D : IDisposable
 {
-    /// <summary>贝塞尔逼近四分之一圆的魔数（kappa）。</summary>
     private const float Kappa = 0.5522847f;
 
     private readonly ID2D1Factory _factory;
@@ -26,10 +17,8 @@ public sealed class Path2D : IDisposable
 
     public Path2D(ID2D1Factory factory) => _factory = factory;
 
-    /// <summary>是否还没有任何线段（空路径不应被绘制）。</summary>
     public bool IsEmpty => _geo is null;
 
-    /// <summary>填充规则（默认 Winding，对位 Skia 默认的非零环绕）。</summary>
     public FillMode FillMode { get; set; } = FillMode.Winding;
 
     public Path2D MoveTo(float x, float y)
@@ -77,10 +66,6 @@ public sealed class Path2D : IDisposable
         return this;
     }
 
-    /// <summary>
-    /// 追加一段椭圆弧（从当前点沿椭圆到 <paramref name="endAngle"/> 对应的端点）。
-    /// 对位 SKPath.ArcTo(oval, startAngle, sweepAngle)：角度制、顺时针为正。
-    /// </summary>
     public Path2D ArcToEllipse(float cx, float cy, float rx, float ry, float endAngleDeg, bool clockwise)
     {
         var s = EnsureSink();
@@ -92,7 +77,6 @@ public sealed class Path2D : IDisposable
         var startAngle = MathF.Atan2((start.Y - cy) / MathF.Max(ry, 1e-6f), (start.X - cx) / MathF.Max(rx, 1e-6f));
         var sweep = NormalizeSweep(endAngleDeg * MathF.PI / 180f - startAngle, clockwise);
 
-        // D2D 的 AddArc 单段限 < 180°（大弧用 ArcSize 表达）；这里按 ≤90° 切片，逼近更稳
         var steps = Math.Max(1, (int)MathF.Ceiling(MathF.Abs(sweep) / (MathF.PI / 2)));
         for (var i = 1; i <= steps; i++)
         {
@@ -100,7 +84,6 @@ public sealed class Path2D : IDisposable
             var a0 = startAngle + sweep * (i - 1) / steps;
             var p0 = new Vector2(cx + rx * MathF.Cos(a0), cy + ry * MathF.Sin(a0));
             var p3 = new Vector2(cx + rx * MathF.Cos(a1), cy + ry * MathF.Sin(a1));
-            // 圆弧的三次贝塞尔逼近（切线长度 = kappa * 半径 * 角度）
             var k = 4f / 3f * MathF.Tan((a1 - a0) / 4f);
             var t0 = new Vector2(-rx * MathF.Sin(a0), ry * MathF.Cos(a0)) * k;
             var t1 = new Vector2(-rx * MathF.Sin(a1), ry * MathF.Cos(a1)) * k;
@@ -166,7 +149,6 @@ public sealed class Path2D : IDisposable
         return Close();
     }
 
-    /// <summary>清空并允许重新构造（复用同一个 Path2D 对象，避免每帧新建几何）。</summary>
     public Path2D Reset()
     {
         DisposeGeometry();
@@ -176,7 +158,6 @@ public sealed class Path2D : IDisposable
         return this;
     }
 
-    /// <summary>收尾后的几何（可交给 DrawGeometry / FillGeometry）。空路径返回 null。</summary>
     internal ID2D1PathGeometry? Geometry
     {
         get
@@ -186,7 +167,6 @@ public sealed class Path2D : IDisposable
         }
     }
 
-    /// <summary>收尾：结束未闭合的图元并关闭 sink（关闭后几何才可用）。</summary>
     public void Finish()
     {
         if (_finished) return;

@@ -5,13 +5,8 @@ using JizuraLive.Pv;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
-/// <summary>
-/// 多轨时间轴（自绘）：标尺 / 波形 / 歌词 / 自动化。
-/// 只认 <see cref="TSnapshot"/> / <see cref="TEdit"/>，不引用 DirectorProject / UndoLog / 渲染管线。
-/// </summary>
 public sealed partial class TimelineView : Control
 {
-    /// <summary>轨道头宽度。</summary>
     public const double HeaderWidth = 180;
 
     public const double RulerHeight = 26;
@@ -71,10 +66,8 @@ public sealed partial class TimelineView : Control
         ClipToBounds = true;
     }
 
-    /// <summary>帧网格的帧率。画布 fps 的唯一真相在 PvScene，由宿主拷进来。</summary>
     public double Fps { get; set; } = 30;
 
-    /// <summary>播放头轻量刷新：只挪线不动快照（SetSnapshot 全量重建，播放中用它会 2Hz 卡跳）。</summary>
     public void SetPlayhead(double seconds)
     {
         if (_snap is null) return;
@@ -82,7 +75,6 @@ public sealed partial class TimelineView : Control
         InvalidateVisual();
     }
 
-    /// <summary>UI 线程全量刷新显示。</summary>
     public void SetSnapshot(TSnapshot snap)
     {
         _snap = snap ?? throw new ArgumentNullException(nameof(snap));
@@ -95,10 +87,8 @@ public sealed partial class TimelineView : Control
         InvalidateVisual();
     }
 
-    /// <summary>秒。</summary>
     public event Action<double>? SeekRequested;
 
-    /// <summary>手势结束发一次（对应一次撤销事务）；拖动过程不发。</summary>
     public event Action<TEdit>? EditCommitted;
 
     protected override Size MeasureOverride(Size availableSize)
@@ -165,7 +155,6 @@ public sealed partial class TimelineView : Control
         SeekRequested?.Invoke(Math.Clamp(seconds, 0, max));
     }
 
-    /// <summary>首次拿到快照且已知宽度时按整曲一屏。</summary>
     private void FitOnce(double contentWidth)
     {
         if (_fitted || _snap is null || contentWidth <= 0) return;
@@ -211,7 +200,6 @@ public sealed partial class TimelineView : Control
         InvalidateVisual();
     }
 
-    /// <summary>还原到手势起点（Esc / 拖动中丢捕获）。</summary>
     private void RestoreGesture()
     {
         RestoreClip();
@@ -227,7 +215,6 @@ public sealed partial class TimelineView : Control
         _drag = DragMode.None;
     }
 
-    /// <summary>歌词条拖动改的是快照里那句（就地改），手势作废时按起点还原。</summary>
     private void RestoreClip()
     {
         _clipConflict = false;
@@ -251,10 +238,8 @@ public sealed partial class TimelineView : Control
         return true;
     }
 
-    /// <summary>Bezier 段的 Interp 名（段由左 key 的 Interp 决定）。</summary>
     private const string BezierInterp = "Bezier";
 
-    /// <summary>选中某轨某刻的 key（同刻窗口 1µs）；该处没有 key 时清空选区。宿主与检查器的入口。</summary>
     public void SelectKey(ParamAddress address, double time)
     {
         _selection.Clear();
@@ -269,7 +254,6 @@ public sealed partial class TimelineView : Control
     private bool IsSelected(ParamAddress address, double time) =>
         _selection.Exists(s => s.Address == address && Math.Abs(s.Time - time) <= TimelineMath.TimeEpsilon);
 
-    /// <summary>拖动中 key 已离开原时刻，选区按拖动项判定。</summary>
     private bool IsKeySelected(ParamAddress address, int index, double time)
     {
         if (_drag == DragMode.Key)
@@ -277,7 +261,6 @@ public sealed partial class TimelineView : Control
         return IsSelected(address, time);
     }
 
-    /// <summary>可拖的控制柄 = 两端至少一个被选中的 Bezier 段的两个柄（段左 key 决定是不是 Bezier 段）。</summary>
     private IEnumerable<(int KeyIndex, bool Out)> HandleTargets(TCurve curve)
     {
         for (int i = 0; i + 1 < curve.Keys.Count; i++)
@@ -290,7 +273,6 @@ public sealed partial class TimelineView : Control
         }
     }
 
-    /// <summary>控制柄的时间/值 → 像素（出柄取段的左 key，入柄取右 key）。</summary>
     private Point HandlePixel(TCurve curve, Row row, int index, bool outSide)
     {
         var a = outSide ? curve.Keys[index] : curve.Keys[index - 1];

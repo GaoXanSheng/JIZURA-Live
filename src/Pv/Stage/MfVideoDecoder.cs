@@ -3,22 +3,8 @@ using System.Runtime.InteropServices;
 
 namespace JizuraLive.Pv;
 
-/// <summary>
-/// 视频文件解码器：Media Foundation SourceReader 的最小 P/Invoke 封装，解出 RGB32 内存帧。
-/// COM 接口按 vtable 槽位手写（槽位序照 Windows SDK 的 mfreadwrite.h / mfobjects.h），
-/// 与 src/Spout/SpoutIn.cs 的原生互作同一种风格，不引入第三方 MF 包装库。
-///
-/// 只做同步「取某一时刻的帧」：不接异步回调、不开音频轨、不走硬件解码（MF 默认软件解码）。
-/// 非线程安全：调用方串行用（渲染线程），与 <see cref="FileVideoProvider"/> 的用法一致。
-/// </summary>
 public sealed class MfVideoDecoder : IDisposable
 {
-    // ---- vtable 槽位 ----
-    // IUnknown: 0..2。IMFAttributes: 3 GetItem … 7 GetUINT32, 8 GetUINT64, 21 SetUINT32, 22 SetUINT64, 24 SetGUID。
-    // IMFSourceReader: 5 GetNativeMediaType, 6 GetCurrentMediaType, 7 SetCurrentMediaType,
-    //                  8 SetCurrentPosition, 9 ReadSample, 12 GetPresentationAttribute。
-    // IMFMediaBuffer: 3 Lock, 4 Unlock。
-    // IMFSample（继 IMFAttributes）: 35 GetSampleTime, 37 GetSampleDuration, 41 ConvertToContiguousBuffer。
     private const int SlotRelease = 2;
     private const int SlotGetUInt32 = 7;
     private const int SlotGetUInt64 = 8;
@@ -37,19 +23,15 @@ public sealed class MfVideoDecoder : IDisposable
     private const int SlotSampleGetDuration = 37;
     private const int SlotSampleContiguous = 41;
 
-    private const int FirstVideoStream = -4;      // MF_SOURCE_READER_FIRST_VIDEO_STREAM
-    private const int MediaSource = -1;           // MF_SOURCE_READER_MEDIASOURCE（时长挂在它身上）
-    private const uint FlagError = 0x1;           // MF_SOURCE_READERF_ERROR
-    private const uint MfVersion = 0x0002_0070;   // MF_VERSION = MF_SDK_VERSION << 16 | MF_API_VERSION
+    private const int FirstVideoStream = -4;
+    private const int MediaSource = -1;
+    private const uint FlagError = 0x1;
+    private const uint MfVersion = 0x0002_0070;
     private const ushort VtI8 = 20;
     private const ushort VtUi8 = 21;
     private const long HnsPerSecond = 10_000_000;
-    private const uint CoInitMultithreaded = 0x0; // COINIT_MULTITHREADED
+    private const uint CoInitMultithreaded = 0x0;
 
-    /// <summary>
-    /// 向前跳进超过这个秒数就重新定位，不走顺序解：顺序解的代价随跳进线性涨（暂停十分钟再恢复会把整段片子顺序解一遍）。
-    /// 量级取自实测——x264 默认 keyint=250，60fps 下关键帧间隔约 4.2s，seek 的额外回退代价与之同量级。
-    /// </summary>
     private const double ForwardSeekThreshold = 2.0;
 
     private static readonly Guid EnableVideoProcessing = new("fb394f3d-ccf1-42ee-bbb3-f9b845d5681d");
@@ -60,7 +42,7 @@ public sealed class MfVideoDecoder : IDisposable
     private static readonly Guid DefaultStrideKey = new("644b4e48-1e02-4516-b0eb-c01ca9d49ac6");
     private static readonly Guid DurationKey = new("6c990d33-bb8e-477a-8598-0d5d96fcd88a");
     private static readonly Guid MediaTypeVideo = new("73646976-0000-0010-8000-00aa00389b71");
-    private static readonly Guid VideoFormatRgb32 = new("00000016-0000-0010-8000-00aa00389b71"); // D3DFMT_X8R8G8B8
+    private static readonly Guid VideoFormatRgb32 = new("00000016-0000-0010-8000-00aa00389b71");
 
     private static readonly object PlatformGate = new();
     private static int _platformRefs;
@@ -81,30 +63,18 @@ public sealed class MfVideoDecoder : IDisposable
     public int Width { get; }
     public int Height { get; }
 
-    /// <summary>时长（秒）；取不到时为 0。</summary>
     public double Duration { get; }
 
-    /// <summary>帧率（帧/秒）；取不到时为 0。</summary>
     public double FrameRate { get; }
 
-    /// <summary>帧数估值（时长 × 帧率，四舍五入）；时长或帧率缺失时为 0。</summary>
     public int FrameCount { get; }
 
-    /// <summary>输出帧的字节数（恒 w×4×h，上传纹理按它分配缓冲）。</summary>
     public int FrameBytes => Width * 4 * Height;
 
-    /// <summary>
-    /// 输出行的字节跨度：负值表示画面自下而上（MF 的 RGB32 输出常见如此，照 GDI DIB 的约定），拷帧时按它翻行。
-    /// </summary>
     public int Stride { get; }
 
-    /// <summary>最近一次失败的读数（null = 正常）。</summary>
     public string? LastError { get; private set; }
 
-    /// <summary>
-    /// 最近一次成功取到的帧的时刻（秒）；还没取到过为 NaN。
-    /// 调用方拿它判断"这一帧是不是上一帧" —— 同值时 buffer 里的内容与上次完全一样。
-    /// </summary>
     public double LastFramePts => _lastPts;
 
     private MfVideoDecoder(IntPtr reader, int width, int height, double duration, double frameRate, int stride)
@@ -119,10 +89,6 @@ public sealed class MfVideoDecoder : IDisposable
         Stride = stride != 0 ? stride : width * 4;
     }
 
-    /// <summary>
-    /// 打开一个视频文件；失败返回 null 并给出可读原因（不抛）。
-    /// 输出格式固定为 RGB32（字节序 BGRA，同 DXGI_FORMAT_B8G8R8A8_UNorm）。
-    /// </summary>
     public static MfVideoDecoder? TryOpen(string path, out string error)
     {
         error = "";
@@ -149,8 +115,6 @@ public sealed class MfVideoDecoder : IDisposable
             if (!TryRetainPlatform(out error)) return null;
 
             Ensure(MFCreateAttributes(out attributes, 1), "MFCreateAttributes");
-            // 这一条才是"能索要 RGB32"的前提：它启用的视频处理（软件色彩转换）负责 NV12/YUY2 → RGB32，
-            // 不加则 SetCurrentMediaType 直接拒掉非 RGB32 的源。
             var enableKey = EnableVideoProcessing;
             Ensure(Slot<SetUInt32Fn>(attributes, SlotSetUInt32)(attributes, ref enableKey, 1),
                 "设置 MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING");
@@ -168,7 +132,6 @@ public sealed class MfVideoDecoder : IDisposable
 
             if (width <= 0 || height <= 0) throw new InvalidOperationException($"读不到视频尺寸：{path}");
 
-            // 索要 RGB32：只给主类型 + 子类型 + 尺寸，步长/交错交给 SourceReader 自己谈（谈完再从输出类型读回步长）。
             Ensure(MFCreateMediaType(out outputType), "MFCreateMediaType");
             var majorKey = MajorTypeKey;
             var subtypeKey = SubtypeKey;
@@ -196,13 +159,12 @@ public sealed class MfVideoDecoder : IDisposable
                 && currentType != IntPtr.Zero)
             {
                 var strideKey = DefaultStrideKey;
-                // MF_MT_DEFAULT_STRIDE 里存的是 INT32（步长可为负），按 UINT32 读回来只是原样搬运
                 if (Slot<GetUInt32Fn>(currentType, SlotGetUInt32)(currentType, ref strideKey, out var raw) >= 0)
                     stride = unchecked((int)raw);
             }
 
             decoder = new MfVideoDecoder(reader, width, height, duration, frameRate, stride);
-            reader = IntPtr.Zero; // 所有权转给 decoder
+            reader = IntPtr.Zero;
         }
         catch (Exception ex)
         {
@@ -224,13 +186,6 @@ public sealed class MfVideoDecoder : IDisposable
         return decoder;
     }
 
-    /// <summary>
-    /// 把 <paramref name="seconds"/> 处的帧解到 <paramref name="buffer"/>（长度须 ≥ <see cref="FrameBytes"/>）。
-    /// 播放（时间前进一点）走顺序读，每次一帧；回退、回绕、跳远才重新定位。
-    /// 定位是**关键帧粒度**的：实测 seek 到 5.0s 后第一帧是 4.2s，所以定位后要一直读到覆盖目标时刻的那一帧。
-    /// 目标仍落在上一帧的展示区间内时直接返回 true、buffer 不动 —— 少了这一条，60fps 的取帧节奏
-    /// 会把 30fps 的源每次读两帧，整段播成 2 倍速（调用方因此必须始终传同一个缓冲）。
-    /// </summary>
     public bool CopyFrameAt(double seconds, byte[] buffer)
     {
         if (_reader == IntPtr.Zero) return false;
@@ -252,7 +207,6 @@ public sealed class MfVideoDecoder : IDisposable
         }
 
         _readSample ??= Slot<ReadSampleFn>(_reader, SlotReaderReadSample);
-        // 解到目标时刻为止：seek 可能落在目标之前（关键帧），得继续往前读；读到流尾自然结束。
         while (true)
         {
             var hr = _readSample(_reader, FirstVideoStream, 0, out _, out var flags, out _, out var sample);
@@ -264,7 +218,6 @@ public sealed class MfVideoDecoder : IDisposable
 
             if (sample == IntPtr.Zero)
             {
-                // 流尾 / 无样本：本帧没有内容（有错误标志时留一条可读原因）
                 if ((flags & FlagError) != 0) LastError = "源在读帧时报错（流损坏或解码失败）";
                 return false;
             }
@@ -275,7 +228,6 @@ public sealed class MfVideoDecoder : IDisposable
                 _lastPts = pts;
                 _lastDuration = duration;
                 LastError = null;
-                // pts + duration > seconds：这一帧就是 target 时刻该显示的那一帧
                 if (pts >= seconds || pts + duration > seconds) return true;
             }
             finally
@@ -289,7 +241,7 @@ public sealed class MfVideoDecoder : IDisposable
     {
         _setPosition ??= Slot<SetPositionFn>(_reader, SlotReaderSetPosition);
         var position = new PropVariant { Vt = VtI8, Value = (long)(seconds * HnsPerSecond) };
-        var timeFormat = Guid.Empty; // GUID_NULL = 以 100ns 为单位、相对文件开头
+        var timeFormat = Guid.Empty;
         var hr = _setPosition(_reader, ref timeFormat, ref position);
         if (hr < 0)
         {
@@ -309,7 +261,7 @@ public sealed class MfVideoDecoder : IDisposable
         pts = ptsHns / (double)HnsPerSecond;
         duration = durationHns > 0
             ? durationHns / (double)HnsPerSecond
-            : FrameRate > 0 ? 1.0 / FrameRate : 0.0; // 样本不带时长就用帧率补，否则上面那个复用区间恒为空
+            : FrameRate > 0 ? 1.0 / FrameRate : 0.0;
 
         _toContiguous ??= Slot<ContiguousBufferFn>(sample, SlotSampleContiguous);
         if (_toContiguous(sample, out var mediaBuffer) < 0 || mediaBuffer == IntPtr.Zero) return false;
@@ -334,16 +286,12 @@ public sealed class MfVideoDecoder : IDisposable
         }
     }
 
-    /// <summary>
-    /// 整行按步长拷贝，并把每像素第 4 字节钉成 255：MFVideoFormat_RGB32 的第 4 字节是 X（未定义，
-    /// 常见为 0），而 D2D 位图按预乘解释 —— A=0 会让整层全透明（是黑屏，不是报错）。
-    /// </summary>
     private bool CopyRows(IntPtr source, int length, byte[] destination)
     {
         var rowBytes = Width * 4;
         var pitch = Math.Abs(Stride);
         var bottomUp = Stride < 0;
-        if (length < pitch * Height) return false; // 数据不完整，不按整帧读
+        if (length < pitch * Height) return false;
 
         for (var y = 0; y < Height; y++)
         {
@@ -362,7 +310,7 @@ public sealed class MfVideoDecoder : IDisposable
         height = 0;
         var key = FrameSizeKey;
         if (Slot<GetUInt64Fn>(mediaType, SlotGetUInt64)(mediaType, ref key, out var packed) < 0) return;
-        width = (int)(packed >> 32);                 // MF_MT_FRAME_SIZE = HI32(宽) : LO32(高)
+        width = (int)(packed >> 32);
         height = (int)(packed & 0xFFFF_FFFF);
     }
 
@@ -371,7 +319,7 @@ public sealed class MfVideoDecoder : IDisposable
         frameRate = 0;
         var key = FrameRateKey;
         if (Slot<GetUInt64Fn>(mediaType, SlotGetUInt64)(mediaType, ref key, out var packed) < 0) return;
-        var numerator = (uint)(packed >> 32);        // MF_MT_FRAME_RATE = HI32(分子) : LO32(分母)
+        var numerator = (uint)(packed >> 32);
         var denominator = (uint)(packed & 0xFFFF_FFFF);
         if (denominator != 0 && numerator != 0) frameRate = numerator / (double)denominator;
     }
@@ -408,11 +356,9 @@ public sealed class MfVideoDecoder : IDisposable
                 return true;
             }
 
-            // MF 的调用线程要进过 COM；没进过的线程在这里并入 MTA。已经是别的套间（UI 线程是 STA）就沿用，
-            // 所以返回值一律不管——RPC_E_CHANGED_MODE 只说明"这线程已经是别的套间"，不是失败。
             CoInitializeEx(IntPtr.Zero, CoInitMultithreaded);
 
-            var hr = MFStartup(MfVersion, 0); // MFSTARTUP_FULL
+            var hr = MFStartup(MfVersion, 0);
             if (hr < 0)
             {
                 error = $"MFStartup 失败：{Describe(hr)}";
@@ -452,7 +398,6 @@ public sealed class MfVideoDecoder : IDisposable
         }
     }
 
-    // ---- COM 委托 ----
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int ReleaseFn(IntPtr self);
 
@@ -505,7 +450,6 @@ public sealed class MfVideoDecoder : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int UnlockFn(IntPtr self);
 
-    /// <summary>PROPVARIANT 的 x64 布局（8 字节头 + 16 字节联合）；本仓库只出 x64，够用。</summary>
     [StructLayout(LayoutKind.Explicit, Size = 24)]
     private struct PropVariant
     {
@@ -513,7 +457,6 @@ public sealed class MfVideoDecoder : IDisposable
         [FieldOffset(8)] public long Value;
     }
 
-    // ---- P/Invoke ----
     [DllImport("mfplat.dll", ExactSpelling = true)]
     private static extern int MFStartup(uint version, uint flags);
 

@@ -3,7 +3,6 @@ using Vortice.DXGI;
 
 namespace JizuraLive.Render.Gpu;
 
-/// <summary>一张上传进来的只读纹理（效果机的输入）。</summary>
 public sealed class GpuInputTexture : IDisposable
 {
     public ID3D11Texture2D Texture { get; }
@@ -26,12 +25,8 @@ public sealed class GpuInputTexture : IDisposable
     }
 }
 
-/// <summary>一次效果 pass：像素着色器 + 参数（float 平铺，见 <see cref="FullScreenPass"/>）。</summary>
 public readonly record struct GpuPass(ID3D11PixelShader Shader, float[] Constants);
 
-/// <summary>
-/// 在**本设备**上打开的一块共享纹理 + 它的 SRV：效果链的输入入口。
-/// </summary>
 public sealed class GpuSharedSource : IDisposable
 {
     public ID3D11Texture2D Texture { get; }
@@ -54,19 +49,10 @@ public sealed class GpuSharedSource : IDisposable
     }
 }
 
-/// <summary>
-/// 效果链执行器：把一串 <see cref="GpuPass"/> 依次跑在一张输入纹理上（ping-pong），返回最终面。
-/// </summary>
 public sealed class GpuEffectRunner : IDisposable
 {
     private readonly ID3D11Device _device;
 
-    /// <summary>
-    /// 渲染图的输出槽暂存（按需增长，之后逐帧复用）：过去每帧 new 一个 Entry?[] 是**本方法内**唯一的
-    /// 逐帧托管分配（实测约 112 字节/帧，见 tests 的 GpuTexturePoolAllocationTests）。
-    /// 渲染图本身的重建在 EffectGraph.BuildRenderGraph，不在本方法内。
-    /// 每次用前按本帧的 pass 数清零——图的形状会变，留着上一帧的条目会把已归还的面当输入。
-    /// </summary>
     private GpuTexturePool.Entry?[] _outputs = Array.Empty<GpuTexturePool.Entry?>();
 
     public ShaderLibrary Shaders { get; }
@@ -81,10 +67,6 @@ public sealed class GpuEffectRunner : IDisposable
         Pass = new FullScreenPass(gpu.Device, gpu.Context, Shaders);
     }
 
-    /// <summary>
-    /// 跑完一整条链。返回的 <see cref="GpuTexturePool.Entry"/> 归调用方所有，用完要
-    /// <see cref="GpuTexturePool.Return"/>。中间面自动归还。
-    /// </summary>
     public GpuTexturePool.Entry Run(ID3D11ShaderResourceView input, int width, int height,
         IReadOnlyList<GpuPass> passes)
     {
@@ -105,9 +87,6 @@ public sealed class GpuEffectRunner : IDisposable
         return held!;
     }
 
-    /// <summary>
-    /// 跑一张渲染图（多输入 / 多尺寸 / 任意拓扑）。
-    /// </summary>
     public GpuTexturePool.Entry RunGraph(GpuRenderGraph graph, ID3D11ShaderResourceView external,
         int width, int height)
     {
@@ -140,7 +119,6 @@ public sealed class GpuEffectRunner : IDisposable
         return last;
     }
 
-    /// <summary><paramref name="count"/> 是本帧的 pass 数（暂存数组可能比它长，槽位越界判定必须按它）。</summary>
     private static ID3D11ShaderResourceView? Resolve(int slot, ID3D11ShaderResourceView external,
         GpuTexturePool.Entry?[] outputs, int count)
     {
@@ -152,9 +130,6 @@ public sealed class GpuEffectRunner : IDisposable
                ?? throw new InvalidOperationException($"渲染图引用了尚未产出的 pass {slot}");
     }
 
-    /// <summary>
-    /// 在共享纹理句柄上开一块 SRV 输入。用完 Dispose。
-    /// </summary>
     public GpuSharedSource OpenShared(IntPtr shareHandle, int width, int height)
     {
         var texture = _device.OpenSharedResource<ID3D11Texture2D>(shareHandle);
@@ -162,15 +137,9 @@ public sealed class GpuEffectRunner : IDisposable
         return new GpuSharedSource(texture, srv, width, height);
     }
 
-    /// <summary>
-    /// 把 BGRA 图像数据上传成 GPU 纹理输入面。
-    /// </summary>
     public GpuInputTexture Upload(ReadbackImage image) =>
         UploadBgra(image.BgraPixels, image.Width, image.Height);
 
-    /// <summary>
-    /// 把原始 BGRA8888 像素上传成只读纹理。
-    /// </summary>
     public GpuInputTexture UploadBgra(byte[] bgraPixels, int width, int height)
     {
         unsafe

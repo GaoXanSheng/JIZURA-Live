@@ -6,39 +6,23 @@ namespace JizuraLive.Pv;
 
 public sealed class AutoOptions
 {
-    public string Style = "dynamic"; /* soft|dynamic|epic */
-    public double Intensity = 0.6; /* 0..1 */
+    public string Style = "dynamic";
+    public double Intensity = 0.6;
 
-    /// <summary>随机种子：同一首歌、同一种子，生成结果逐字节相同；换种子换一版点缀（故障/闪切的取舍）。</summary>
     public int Seed = 1;
 }
 
 public sealed class AutoReport
 {
-    public int CameraKeys;
+    public int CameraShots;
     public int EffectInstances;
 
-    /// <summary>全部效果出场区间数（一次闪白、一段副歌光束各算一段）。</summary>
     public int EffectWindows;
 
     public int CurveKeys;
     public List<string> Notes = new();
 }
 
-/// <summary>
-/// 一键成片：音乐分析（节拍 / 下拍 / 段落 / 能量）+ 歌词行 → 运镜曲线、调制层与分段出场的特效。
-///
-/// 分三层写，彼此不覆盖：
-/// <list type="bullet">
-/// <item>基础曲线：每个段落一种镜头（主歌缓推、副歌切近后慢推加摇摆、桥段拉远回摆……），
-/// 镜头位移跟着歌词行换落点，每句歌词镜头换一个位置。</item>
-/// <item>调制层（<c>auto.*</c>）：下拍冲击、副歌每拍的轻脉冲，乘 / 加在基础曲线上，
-/// 所以段落级的推拉不会被冲击打平。</item>
-/// <item>效果出场区间：常驻的只有调色 / 柔光 / 暗角 / 颗粒这类"画面质感"；
-/// 闪白、震屏、色散、故障、光束都只在转场与副歌里按区间出现，进副歌前有一小节蓄力。</item>
-/// </list>
-/// 生成物靠 <c>fx_autodir_</c> 实例前缀与 <c>auto.</c> 层名识别，重复生成先清掉上一版（幂等）。
-/// </summary>
 public static partial class AutoDirector
 {
     static AutoDirector()
@@ -69,8 +53,10 @@ public static partial class AutoDirector
     public const string LayerPrefix = "auto.";
     public const string BeatLayer = "auto.beat";
     public const string PulseLayer = "auto.pulse";
+    public const string SnapLayer = "auto.snap";
+    public const string WhipLayer = "auto.whip";
 
-    private static readonly string[] CameraParams = ["scale", "rotation", "offsetX", "offsetY"];
+    private static readonly string[] CameraParams = ["scale", "rotation", "offsetX", "offsetY", "blur", "brighten"];
 
     public static AutoReport Generate(DirectorProject project, BeatMap map, AutoOptions options)
     {
@@ -91,21 +77,23 @@ public static partial class AutoDirector
 
         var song = Song.Build(map, project.LrcText);
         var look = Look.For(style);
+
+        project.Scene.Atmosphere = look.Atmosphere;
+        project.Scene.LyricMotionSeed = options.Seed;
         var rng = new Random(options.Seed);
 
-        BuildCamera(project, song, look, intensity, report);
+        BuildCamera(project, song, look, intensity, options.Seed, report);
         BuildEffects(project, song, look, intensity, rng, report);
         ApplyLyricStyle(project, song);
 
-        // 各自独立的随机源：一条轨多抽一次随机数不改变别的轨，同种子整份工程逐字节相同
         BuildAnimeFx(project, song, look, style, intensity, new Random(unchecked(options.Seed * 7919 + 1)), report);
         BuildParticles(project, song, style, intensity, new Random(unchecked(options.Seed * 7919 + 2)), report);
-        BuildPerformance(project, song, style, intensity, report);
+        BuildPerformance(project, song, style);
 
         foreach (var sec in song.Sections)
             report.Notes.Add($"[{sec.Start:F2}s–{sec.End:F2}s] {sec.Kind}（能量 {sec.Energy:F2}）{(song.IsHigh(sec) ? " · 高潮段" : "")}");
         report.Notes.Add($"AutoDirector: Style={style}, Intensity={intensity:F2}, Seed={options.Seed}, "
-                         + $"CameraKeys={report.CameraKeys}, EffectInstances={report.EffectInstances}, "
+                         + $"CameraShots={report.CameraShots}, EffectInstances={report.EffectInstances}, "
                          + $"EffectWindows={report.EffectWindows}, CurveKeys={report.CurveKeys}");
         return report;
     }
@@ -130,182 +118,77 @@ public static partial class AutoDirector
             autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)) ||
             c.Address.StartsWith($"layer:{AutoLayerPrefix}", StringComparison.Ordinal));
 
-        // 换引用而不是原地删：渲染线程可能正在遍历这份图层列表
         if (project.Scene.Layers.Any(l => l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)))
             project.Scene.Layers = project.Scene.Layers
                 .Where(l => !l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)).ToList();
 
         project.LyricStyles.Clear();
-        project.VtsCues.Cues.Clear();
     }
 
-    /// <summary>导演生成的图层（粒子层）Id 前缀。</summary>
     public const string AutoLayerPrefix = "autodir_";
 
-    // ---------------------------------------------------------------- 运镜
-
-    private static void BuildCamera(DirectorProject project, Song song, Look look, double k, AutoReport report)
+    private static void BuildWhips(Song song, Look look, double k, FloatCurve whip)
     {
-        var scale = new FloatCurve();
-        var rotation = new FloatCurve();
-        var offX = new FloatCurve();
-        var offY = new FloatCurve();
-
         foreach (var sec in song.Sections)
         {
-            double s = sec.Start, e = sec.End, len = e - s;
-            if (len <= 0.05) continue;
-            // 段尾留一小段给下一段的切入：段内用 SmoothStep 走完，段间 ~80ms 线性切换，读起来像剪辑点
-            double hold = e - Math.Min(0.08, len * 0.1);
-            double en = sec.Energy;
-
-            switch (sec.Kind)
-            {
-                case "intro":
-                    // 由近拉开，像开场揭幕
-                    Key(scale, s, 1.0 + 0.07 * k, CurveInterp.SmoothStep);
-                    Key(scale, hold, 1.0, CurveInterp.Linear);
-                    Key(rotation, s, 0, CurveInterp.SmoothStep);
-                    break;
-
-                case "bridge":
-                    // 拉远 + 慢慢回摆，给副歌留反差
-                    Key(scale, s, 1.0 + 0.08 * k, CurveInterp.SmoothStep);
-                    Key(scale, hold, 1.0, CurveInterp.Linear);
-                    Key(rotation, s, -1.6 * k * look.Sway, CurveInterp.SmoothStep);
-                    Key(rotation, hold, 1.6 * k * look.Sway, CurveInterp.Linear);
-                    break;
-
-                case "outro":
-                    Key(scale, s, 1.0 + 0.05 * k, CurveInterp.SmoothStep);
-                    Key(scale, hold, 1.0, CurveInterp.Linear);
-                    Key(rotation, s, 0, CurveInterp.SmoothStep);
-                    break;
-
-                default:
-                    if (song.IsHigh(sec))
-                    {
-                        // 副歌：一刀切近，段内继续慢推；每小节左右摇一次
-                        Key(scale, s, 1.0 + 0.10 * k, CurveInterp.SmoothStep);
-                        Key(scale, hold, 1.0 + 0.17 * k, CurveInterp.Linear);
-                        Key(rotation, s, 0, CurveInterp.SmoothStep);
-                        int bar = 0;
-                        foreach (var d in song.DownbeatsIn(s, hold))
-                        {
-                            if (d - s < 0.05) continue;
-                            Key(rotation, d, (bar++ % 2 == 0 ? 1 : -1) * 1.3 * k * look.Sway, CurveInterp.SmoothStep);
-                        }
-                        Key(rotation, hold, 0, CurveInterp.Linear);
-                    }
-                    else
-                    {
-                        // 主歌：缓推，能量越高推得越多
-                        Key(scale, s, 1.0, CurveInterp.SmoothStep);
-                        Key(scale, hold, 1.0 + 0.06 * k * (0.5 + en), CurveInterp.Linear);
-                        Key(rotation, s, 0, CurveInterp.SmoothStep);
-                    }
-                    break;
-            }
-        }
-
-        BuildDrift(song, look, k, offX, offY);
-
-        int camKeys = 0;
-        camKeys += Save(project, "camera.scale", null, CurveBlend.Add, scale);
-        camKeys += Save(project, "camera.rotation", null, CurveBlend.Add, rotation);
-        camKeys += Save(project, "camera.offsetX", null, CurveBlend.Add, offX);
-        camKeys += Save(project, "camera.offsetY", null, CurveBlend.Add, offY);
-
-        // 调制层：下拍冲击（乘在缩放上）+ 副歌下拍的转角踢（加在旋转上）+ 副歌每拍轻脉冲
-        var punch = new FloatCurve();
-        var kick = new FloatCurve();
-        var pulse = new FloatCurve();
-        Key(punch, 0, 1, CurveInterp.Linear);
-        Key(pulse, 0, 1, CurveInterp.Linear);
-        Key(kick, 0, 0, CurveInterp.Linear);
-        double decay = Math.Min(song.BeatLen * 0.9, 0.42);
-
-        foreach (var sec in song.Sections)
-        {
-            bool high = song.IsHigh(sec);
-            double amp = high ? look.ChorusPunch : sec.Kind == "verse" ? look.VersePunch : 0;
-            if (amp <= 0) continue;
-            amp *= k;
-
+            if (!song.IsHigh(sec)) continue;
             int bar = 0;
             foreach (var d in song.DownbeatsIn(sec.Start, sec.End))
             {
-                bool accent = high || bar % 2 == 0;
-                bar++;
-                if (!accent) continue;
-                Spike(punch, d, 1.0, 1.0 + amp, decay);
-                if (high && look.Kick > 0)
-                    Spike(kick, d, 0.0, (bar % 2 == 0 ? -1 : 1) * look.Kick * k, decay);
-            }
-
-            if (high && look.BeatPulse > 0)
-            {
-                var downs = song.DownbeatsIn(sec.Start, sec.End).ToHashSet();
-                foreach (var b in song.BeatsIn(sec.Start, sec.End))
-                    if (!downs.Contains(b))
-                        Spike(pulse, b, 1.0, 1.0 + look.BeatPulse * k, Math.Min(song.BeatLen * 0.6, 0.25));
+                if (d - sec.Start < 0.05) continue;
+                double w = (bar++ % 2 == 0 ? 1 : -1) * look.Whip * k;
+                Key(whip, d, w, CurveInterp.SmoothStep);
+                Key(whip, d + song.BarLen * 0.5, -w * 0.55, CurveInterp.SmoothStep);
             }
         }
 
-        camKeys += Save(project, "camera.scale", BeatLayer, CurveBlend.Multiply, punch, minKeys: 2);
-        camKeys += Save(project, "camera.rotation", BeatLayer, CurveBlend.Add, kick, minKeys: 2);
-        camKeys += Save(project, "camera.scale", PulseLayer, CurveBlend.Multiply, pulse, minKeys: 2);
-
-        report.CameraKeys = camKeys;
-        report.CurveKeys += camKeys;
+        foreach (var sec in song.Sections)
+        {
+            if (sec.Start <= 0.01) continue;
+            double w = look.Whip * 1.15 * k;
+            Key(whip, Math.Max(0, sec.Start - 0.12), w, CurveInterp.SmoothStep);
+            Key(whip, sec.Start + 0.02, -w * 0.6, CurveInterp.SmoothStep);
+            Key(whip, sec.Start + 0.35, 0, CurveInterp.Linear);
+        }
     }
 
-    /// <summary>
-    /// 镜头落点：每句歌词换一个位置（没有歌词就每两小节换一次），按黄金角绕圈，相邻两句不会落在同一侧。
-    /// 副歌开头回中，配合那一刀切近。
-    /// </summary>
-    private static void BuildDrift(Song song, Look look, double k, FloatCurve offX, FloatCurve offY)
+    private static void BuildDefocus(Song song, Look look, double k, FloatCurve blur, FloatCurve brighten)
     {
-        var anchors = song.Lines.Count >= 2
-            ? song.Lines.Select(l => l.Start).ToList()
-            : song.Downbeats.Where((_, i) => i % 2 == 0).ToList();
+        Key(blur, 0, 0.4 * k, CurveInterp.Linear);
+        Key(brighten, 0, 0, CurveInterp.Linear);
 
-        double amp = 42 * k * look.Drift;
-        Key(offX, 0, 0, CurveInterp.SmoothStep);
-        Key(offY, 0, 0, CurveInterp.SmoothStep);
-
-        var chorusStarts = song.Sections.Where(song.IsHigh).Select(s => s.Start).ToList();
-        double last = double.NegativeInfinity;
-        int n = 0;
-        foreach (var t in anchors.Where(double.IsFinite).OrderBy(t => t))
+        foreach (var d in Drops(song))
         {
-            if (t - last < 0.6) continue;
-            if (chorusStarts.Any(c => Math.Abs(c - t) < 0.4)) continue;
-            last = t;
+            double rs = RiseStart(song, d);
+            Key(blur, rs, 0.6 * k, CurveInterp.SmoothStep);
+            Key(blur, Math.Max(rs, d - 0.06), look.DropBlur * k, CurveInterp.SmoothStep);
+            Key(blur, d + 0.3, 0.8 * k, CurveInterp.Linear);
+            Key(brighten, rs, 0, CurveInterp.SmoothStep);
+            Key(brighten, d, look.DropBright * k, CurveInterp.SmoothStep);
+            Key(brighten, d + 0.7, 0.02 * k, CurveInterp.Linear);
+        }
 
-            var sec = song.SectionAt(t);
-            double factor = sec is null ? 0.5 : song.IsHigh(sec) ? 0.55 : sec.Kind switch
+        foreach (var sec in song.Sections)
+        {
+            if (!song.IsHigh(sec)) continue;
+            foreach (var d in song.DownbeatsIn(sec.Start, sec.End))
             {
-                "verse" => 1.0,
-                "bridge" => 0.8,
-                _ => 0.4,
-            };
-            double ang = n++ * 2.39996;
-            Key(offX, t, Math.Cos(ang) * amp * factor, CurveInterp.SmoothStep);
-            Key(offY, t, Math.Sin(ang) * amp * factor * 0.45, CurveInterp.SmoothStep);
+                if (d - sec.Start < 0.05) continue;
+                Spike(blur, d, 0.8 * k, 2.4 * k, Math.Min(song.BarLen * 0.35, 0.5));
+                Spike(brighten, d, 0.02 * k, 0.04 * k, Math.Min(song.BeatLen * 0.8, 0.35));
+            }
         }
 
-        foreach (var c in chorusStarts)
+        foreach (var sec in song.Sections)
         {
-            Key(offX, c, 0, CurveInterp.SmoothStep);
-            Key(offY, c, 0, CurveInterp.SmoothStep);
+            if (sec.Kind != "bridge") continue;
+            double len = sec.End - sec.Start;
+            Key(blur, sec.Start, 1.2 * k, CurveInterp.SmoothStep);
+            Key(blur, sec.Start + len * 0.5, 3.2 * k, CurveInterp.SmoothStep);
+            Key(blur, sec.End - Math.Min(0.08, len * 0.1), 1.2 * k, CurveInterp.Linear);
         }
-
-        Key(offX, song.Duration, 0, CurveInterp.Linear);
-        Key(offY, song.Duration, 0, CurveInterp.Linear);
     }
 
-    /// <summary>瞬时冲击：t 前 30ms 起势，t 时刻到峰，<paramref name="decay"/> 秒内缓落回基线。</summary>
     private static void Spike(FloatCurve c, double t, double baseVal, double peak, double decay)
     {
         Key(c, t - 0.03, baseVal, CurveInterp.Linear);
@@ -313,15 +196,8 @@ public static partial class AutoDirector
         Key(c, t + decay, baseVal, CurveInterp.Linear);
     }
 
-    // ---------------------------------------------------------------- 特效
-
-    private static void BuildEffects(DirectorProject project, Song song, Look look, double k, Random rng, AutoReport report)
+    private static List<double> Drops(Song song)
     {
-        var highs = song.Sections.Where(song.IsHigh).ToList();
-        var bridges = song.Sections.Where(s => s.Kind == "bridge").ToList();
-        double beat = song.BeatLen, bar = song.BarLen;
-
-        // 进高潮段的那一刻（前一段不是高潮）：蓄力 + 落点冲击都挂在这里
         var drops = new List<double>();
         for (int i = 0; i < song.Sections.Count; i++)
         {
@@ -331,22 +207,32 @@ public static partial class AutoDirector
             drops.Add(sec.Start);
         }
 
-        // 蓄力长度：一小节，但不超过前一段的一半，也不早于 0
-        double RiseStart(double drop)
-        {
-            var prev = song.Sections.LastOrDefault(s => s.End <= drop + 1e-6 && s.Start < drop);
-            double room = prev is null ? drop : (drop - prev.Start) * 0.5;
-            return Math.Max(0, drop - Math.Min(bar, room));
-        }
+        return drops;
+    }
 
-        // 列表顺序 = 执行顺序：几何变形在前，调色 / 光效居中，闪白、暗角、颗粒最后压在整帧上
+    private static double RiseStart(Song song, double drop)
+    {
+        var prev = song.Sections.LastOrDefault(s => s.End <= drop + 1e-6 && s.Start < drop);
+        double room = prev is null ? drop : (drop - prev.Start) * 0.5;
+        return Math.Max(0, drop - Math.Min(song.BarLen, room));
+    }
+
+    private static void BuildEffects(DirectorProject project, Song song, Look look, double k, Random rng, AutoReport report)
+    {
+        var highs = song.Sections.Where(song.IsHigh).ToList();
+        var bridges = song.Sections.Where(s => s.Kind == "bridge").ToList();
+        double beat = song.BeatLen, bar = song.BarLen;
+
+        var drops = Drops(song);
+
+        string lyricFxTarget = song.Lines.Count > 0 ? PvStageCompositor.FixedZones[0] : "";
 
         if (look.Riser && drops.Count > 0)
         {
-            var zoom = AddEffect(project, "zoomPunch", "riser", n => Set(n, "scale", 1.0f + 0.10f * (float)k));
+            var zoom = AddEffect(project, "zoomPunch", "riser", n => Set(n, "scale", 1.0f + 0.12f * (float)k));
             foreach (var d in drops)
             {
-                double rs = RiseStart(d);
+                double rs = RiseStart(song, d);
                 if (d - rs > 0.2) Window(zoom, rs, d, fadeIn: d - rs, fadeOut: 0.03);
             }
         }
@@ -361,9 +247,36 @@ public static partial class AutoDirector
             foreach (var d in drops) Window(shake, d, d + 0.5, fadeOut: 0.45);
         }
 
+        if (look.GlowBurst > 0 && drops.Count > 0)
+        {
+            var burst = AddEffect(project, "glow", "burst", n =>
+            {
+                Set(n, "threshold", 0.75f);
+                Set(n, "intensity", look.GlowBurst * (float)k);
+                Set(n, "radius", 40f);
+            });
+            foreach (var d in drops)
+                Window(burst, d, d + Math.Min(0.8, beat * 2), fadeOut: Math.Min(0.7, beat * 1.6));
+        }
+
+        if (look.WhipBlur && highs.Count > 0)
+        {
+            var drag = AddEffect(project, "motionBlur", "whip", n =>
+            {
+                Set(n, "length", 52f * (float)k);
+                Set(n, "angle", 0f);
+            });
+            foreach (var sec in highs)
+                foreach (var d in song.DownbeatsIn(sec.Start, sec.End))
+                {
+                    if (d - sec.Start < 0.05) continue;
+                    Window(drag, d, d + Math.Min(0.22, beat * 0.45), fadeOut: Math.Min(0.2, beat * 0.4));
+                }
+            foreach (var d in drops) Window(drag, d - 0.12, d + 0.1, fadeOut: 0.1);
+        }
+
         if (look.Shatter && highs.Count > 0)
         {
-            // 只砸一次：最后一个副歌入口（只有一段副歌时就是它）
             var target = drops.Count > 0 ? drops[^1] : highs[^1].Start;
             var glass = AddEffect(project, "glassShatter", "finale", n =>
             {
@@ -381,7 +294,7 @@ public static partial class AutoDirector
                 Set(n, "amount", 30f * (float)k);
                 Set(n, "blockSize", 40f);
                 Set(n, "seed", rng.Next(0, 999));
-            });
+            }, lyricFxTarget);
             foreach (var d in drops)
                 if (d > 0.15) Window(glitch, d - 0.12, d);
             foreach (var sec in highs)
@@ -389,7 +302,6 @@ public static partial class AutoDirector
                 int i = 0;
                 foreach (var d in song.DownbeatsIn(sec.Start, sec.End))
                 {
-                    // 隔小节、按种子取一半：故障是点缀，次次都来就成了噪音
                     if (i++ % 2 == 1 && rng.NextDouble() < 0.6) Window(glitch, d, d + 0.1);
                 }
             }
@@ -399,12 +311,12 @@ public static partial class AutoDirector
         {
             var chroma = AddEffect(project, "chromatic", "accent", n =>
             {
-                Set(n, "amount", 14f * (float)k);
+                Set(n, "amount", 18f * (float)k);
                 Set(n, "radial", 1f);
-            });
+            }, lyricFxTarget);
             foreach (var d in drops)
             {
-                double rs = RiseStart(d);
+                double rs = RiseStart(song, d);
                 if (d - rs > 0.2) Window(chroma, rs, d, fadeIn: d - rs);
             }
             foreach (var sec in highs)
@@ -429,7 +341,7 @@ public static partial class AutoDirector
             foreach (var b in bridges) Window(node, b.Start, b.End, fadeIn: bar, fadeOut: beat);
         }
 
-        AddEffect(project, "colorGrade", "look", n =>
+        var grade = AddEffect(project, "colorGrade", "look", n =>
         {
             Set(n, "saturation", look.Saturation);
             Set(n, "contrast", look.Contrast);
@@ -439,17 +351,24 @@ public static partial class AutoDirector
             Set(n, "tintStrength", look.TintStrength);
         });
 
+        if (drops.Count > 0)
+        {
+            var sat = new FloatCurve();
+            Key(sat, 0, look.Saturation, CurveInterp.Linear);
+            foreach (var d in drops) Spike(sat, d, look.Saturation, Math.Min(2f, look.Saturation + 0.4f * (float)k), 1.1);
+            report.CurveKeys += Save(project, $"effect:{grade.InstanceId}.saturation", null, CurveBlend.Add, sat);
+        }
+
         var bloom = AddEffect(project, "bloom", "glow", n =>
         {
             Set(n, "threshold", look.BloomThreshold);
             Set(n, "radius", look.BloomRadius);
             Set(n, "intensity", (float)look.BloomLo);
         });
-        // 柔光强度跟着段落能量走：高潮段更亮，段间用一拍缓过去
         var bloomCurve = new FloatCurve();
         foreach (var sec in song.Sections)
         {
-            double v = (look.BloomLo + (look.BloomHi - look.BloomLo) * sec.Energy) * (song.IsHigh(sec) ? 1.25 : 1.0);
+            double v = (look.BloomLo + (look.BloomHi - look.BloomLo) * sec.Energy) * (song.IsHigh(sec) ? 1.15 : 1.0);
             v *= 0.5 + 0.5 * k;
             double len = sec.End - sec.Start;
             Key(bloomCurve, sec.Start + Math.Min(beat, len / 3), v, CurveInterp.Linear);
@@ -462,13 +381,20 @@ public static partial class AutoDirector
             var rays = AddEffect(project, "lightRays", "chorus", n =>
             {
                 Set(n, "intensity", look.Rays * (float)k);
-                Set(n, "length", 0.18f);
+                Set(n, "length", 0.22f);
                 Set(n, "cy", 0.3f);
             });
             foreach (var sec in highs) Window(rays, sec.Start, sec.End, fadeIn: bar, fadeOut: beat * 2);
+
+            var raysCurve = new FloatCurve();
+            Key(raysCurve, 0, look.Rays * k, CurveInterp.Linear);
+            foreach (var d in drops) Spike(raysCurve, d, look.Rays * k, look.Rays * k * 2.4, beat * 2);
+            foreach (var sec in highs)
+                foreach (var d in song.DownbeatsIn(sec.Start, sec.End))
+                    if (d - sec.Start >= 0.5) Spike(raysCurve, d, look.Rays * k, look.Rays * k * 1.5, beat);
+            report.CurveKeys += Save(project, $"effect:{rays.InstanceId}.intensity", null, CurveBlend.Add, raysCurve);
         }
 
-        // 转场闪白：进高潮段重闪，其余段落切换轻闪（窗口越短，衰减越快，观感越轻）
         var flash = AddEffect(project, "flash", "cut", n =>
         {
             Set(n, "amount", look.Flash * (float)(0.4 + 0.6 * k));
@@ -478,8 +404,18 @@ public static partial class AutoDirector
         {
             var sec = song.Sections[i];
             double t = sec.Start;
-            if (drops.Contains(t)) Window(flash, t, t + Math.Min(0.55, beat * 1.5), fadeOut: Math.Min(0.55, beat * 1.5));
+            if (drops.Contains(t)) Window(flash, t, t + Math.Min(0.35, beat * 1.0), fadeOut: Math.Min(0.35, beat * 1.0));
             else if (look.SoftCuts) Window(flash, t, t + 0.22, fadeOut: 0.22);
+        }
+
+        if (look.BeatFlash && highs.Count > 0)
+        {
+            foreach (var sec in highs)
+                foreach (var d in song.DownbeatsIn(sec.Start, sec.End))
+                {
+                    if (d - sec.Start < 0.5) continue;
+                    Window(flash, d, d + 0.09, fadeOut: 0.09);
+                }
         }
 
         AddEffect(project, "vignette", "look", n =>
@@ -495,7 +431,6 @@ public static partial class AutoDirector
                 Set(n, "size", 1.4f);
             });
 
-        // 一段区间都没拿到的点缀效果没有意义：留着就是全程常驻，正是要避免的
         project.Effects.Nodes.RemoveAll(n =>
             n.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal)
             && Transient.Contains(n.DefId) && n.Windows.Count == 0);
@@ -512,13 +447,15 @@ public static partial class AutoDirector
     private static readonly HashSet<string> Transient =
         ["zoomPunch", "shake", "glassShatter", "glitch", "chromatic", "liquid", "scanline", "lightRays", "flash"];
 
-    private static EffectNode AddEffect(DirectorProject project, string defId, string role, Action<EffectNode>? configure = null)
+    private static EffectNode AddEffect(DirectorProject project, string defId, string role,
+        Action<EffectNode>? configure = null, string target = "")
     {
         var node = new EffectNode
         {
             DefId = defId,
             InstanceId = $"{AutoPrefix}{defId}_{role}",
             Enabled = true,
+            Target = target,
         };
         configure?.Invoke(node);
         project.Effects.Nodes.Add(node);
@@ -545,16 +482,12 @@ public static partial class AutoDirector
         if (p != null) node.SetColor(p, hex);
     }
 
-    // ---------------------------------------------------------------- 歌词
-
     private static void ApplyLyricStyle(DirectorProject project, Song song)
     {
         bool hasHigh = song.Sections.Any(song.IsHigh);
         bool hasVerse = song.Sections.Any(s => s.Kind == "verse");
         project.Scene.LyricStyleName = hasHigh ? "Neon" : (hasVerse ? "Minimal" : LyricStyle.ClassicName);
     }
-
-    // ---------------------------------------------------------------- 工具
 
     private static void Key(FloatCurve c, double t, double v, CurveInterp mode)
     {
@@ -570,41 +503,48 @@ public static partial class AutoDirector
         return curve.Count;
     }
 
-    /// <summary>一种风格的全部取值：镜头幅度、常驻质感、点缀开关。数值是 Intensity = 1 时的幅度。</summary>
     private sealed record Look(
-        double Sway, double Drift, double ChorusPunch, double VersePunch, double Kick, double BeatPulse,
+        double ChorusPunch, double VersePunch, double Kick, double BeatPulse,
+        double Snap, double Whip, double Dutch,
+        double DropBlur, double DropBright, float GlowBurst, bool WhipBlur, bool BeatFlash, double Atmosphere,
         float Saturation, float Contrast, float Brightness, string Tint, float TintStrength,
         float BloomThreshold, float BloomRadius, double BloomLo, double BloomHi,
         float Vignette, float Grain, float Flash, string FlashColor, bool SoftCuts,
-        bool Riser, bool Shake, bool Shatter, bool Glitch, bool Chromatic, float Rays, string? BridgeFx)
+        bool Riser, bool Shake, bool Shatter, bool Glitch, bool Chromatic, float Rays, string? BridgeFx,
+        string Style, double CamGain, double CamCutBars)
     {
         public static Look For(string style) => style switch
         {
             "soft" => new Look(
-                Sway: 0.7, Drift: 1.0, ChorusPunch: 0.025, VersePunch: 0, Kick: 0, BeatPulse: 0,
+                ChorusPunch: 0.025, VersePunch: 0, Kick: 0, BeatPulse: 0,
+                Snap: 0.02, Whip: 24, Dutch: 0.8,
+                DropBlur: 1.5, DropBright: 0.05, GlowBurst: 0.3f, WhipBlur: false, BeatFlash: false, Atmosphere: 0.45,
                 Saturation: 1.05f, Contrast: 1.0f, Brightness: 0f, Tint: "#ffe6d0", TintStrength: 0.12f,
-                BloomThreshold: 0.85f, BloomRadius: 30f, BloomLo: 0.12, BloomHi: 0.3,
-                Vignette: 0.35f, Grain: 0.04f, Flash: 0.3f, FlashColor: "#fff4e0", SoftCuts: false,
-                Riser: false, Shake: false, Shatter: false, Glitch: false, Chromatic: false, Rays: 0.18f, BridgeFx: "liquid"),
+                BloomThreshold: 0.95f, BloomRadius: 30f, BloomLo: 0.08, BloomHi: 0.16,
+                Vignette: 0.32f, Grain: 0.04f, Flash: 0.28f, FlashColor: "#fff4e0", SoftCuts: false,
+                Riser: false, Shake: false, Shatter: false, Glitch: false, Chromatic: false, Rays: 0.18f, BridgeFx: "liquid",
+                Style: "soft", CamGain: 0.55, CamCutBars: 4.0),
             "epic" => new Look(
-                Sway: 1.0, Drift: 0.8, ChorusPunch: 0.06, VersePunch: 0.015, Kick: 0.6, BeatPulse: 0,
-                Saturation: 0.92f, Contrast: 1.18f, Brightness: -0.02f, Tint: "#cfe8ff", TintStrength: 0.18f,
-                BloomThreshold: 0.82f, BloomRadius: 36f, BloomLo: 0.15, BloomHi: 0.4,
-                Vignette: 0.5f, Grain: 0.05f, Flash: 0.6f, FlashColor: "#fff8ee", SoftCuts: true,
-                Riser: true, Shake: true, Shatter: true, Glitch: false, Chromatic: false, Rays: 0.28f, BridgeFx: null),
+                ChorusPunch: 0.10, VersePunch: 0.03, Kick: 0.6, BeatPulse: 0,
+                Snap: 0.07, Whip: 140, Dutch: 4.2,
+                DropBlur: 5, DropBright: 0.09, GlowBurst: 0.5f, WhipBlur: true, BeatFlash: true, Atmosphere: 0.7,
+                Saturation: 0.95f, Contrast: 1.12f, Brightness: -0.02f, Tint: "#cfe8ff", TintStrength: 0.18f,
+                BloomThreshold: 0.95f, BloomRadius: 36f, BloomLo: 0.08, BloomHi: 0.16,
+                Vignette: 0.52f, Grain: 0.05f, Flash: 0.6f, FlashColor: "#ffe9f4", SoftCuts: true,
+                Riser: true, Shake: true, Shatter: true, Glitch: false, Chromatic: false, Rays: 0.28f, BridgeFx: null,
+                Style: "epic", CamGain: 1.15, CamCutBars: 1.25),
             _ => new Look(
-                Sway: 1.0, Drift: 1.0, ChorusPunch: 0.05, VersePunch: 0.02, Kick: 0.8, BeatPulse: 0.012,
-                Saturation: 1.15f, Contrast: 1.08f, Brightness: -0.02f, Tint: "#d8e4ff", TintStrength: 0.08f,
-                BloomThreshold: 0.85f, BloomRadius: 24f, BloomLo: 0.1, BloomHi: 0.3,
-                Vignette: 0.3f, Grain: 0f, Flash: 0.55f, FlashColor: "#ffffff", SoftCuts: true,
-                Riser: true, Shake: true, Shatter: false, Glitch: true, Chromatic: true, Rays: 0f, BridgeFx: "scanline"),
+                ChorusPunch: 0.08, VersePunch: 0.02, Kick: 0.8, BeatPulse: 0.012,
+                Snap: 0.055, Whip: 110, Dutch: 3.2,
+                DropBlur: 4, DropBright: 0.07, GlowBurst: 0.35f, WhipBlur: true, BeatFlash: true, Atmosphere: 0.6,
+                Saturation: 1.12f, Contrast: 1.12f, Brightness: -0.02f, Tint: "#d8e4ff", TintStrength: 0.08f,
+                BloomThreshold: 0.95f, BloomRadius: 24f, BloomLo: 0.08, BloomHi: 0.18,
+                Vignette: 0.40f, Grain: 0f, Flash: 0.5f, FlashColor: "#ffd9ec", SoftCuts: true,
+                Riser: true, Shake: true, Shatter: false, Glitch: true, Chromatic: true, Rays: 0f, BridgeFx: "scanline",
+                Style: "dynamic", CamGain: 1.0, CamCutBars: 2.0),
         };
     }
 
-    /// <summary>
-    /// 生成用的歌曲视图：清洗过的节拍 / 下拍 / 段落（能量归一到 0..1）与歌词行。
-    /// 分析结果缺什么就补什么——没有下拍按每 4 拍一小节，没有段落按整首一段主歌。
-    /// </summary>
     private sealed class Song
     {
         public List<double> Beats = new();
@@ -616,11 +556,6 @@ public static partial class AutoDirector
         public double Duration;
         private bool _hasChorus;
 
-        /// <summary>
-        /// 高潮段：标成副歌的段，或能量处在全曲前列（归一化 ≥ 0.8）的段。只信标签不够——
-        /// 重复聚类常把 DJ 曲最炸的那一大段判成"主歌"，而真正的"副歌"只剩几秒的短段。
-        /// 没有任何副歌标签时阈值放宽到 0.66。前奏 / 尾奏不算。
-        /// </summary>
         public bool IsHigh(Section s) =>
             s.Kind is not ("intro" or "outro")
             && (s.Kind == "chorus" || s.Energy >= (_hasChorus ? 0.8 : 0.66));
@@ -658,7 +593,6 @@ public static partial class AutoDirector
             }
             catch (Exception)
             {
-                // 歌词坏了只是少了落点依据，按小节落点照样能生成
             }
 
             var raw = map.Sections

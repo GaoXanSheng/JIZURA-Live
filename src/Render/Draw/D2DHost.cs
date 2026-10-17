@@ -8,12 +8,6 @@ using DWFactoryType = Vortice.DirectWrite.FactoryType;
 
 namespace JizuraLive.Render.Draw;
 
-/// <summary>
-/// Direct2D 运行环境的一次性组装：工厂 → 设备 → 设备上下文 → 字体缓存 → 即时绘制面。
-///
-/// 单独抽出来是因为它要被三处复用：验证程序（RenderProbe）、离屏对拍测试、以及后续接入主程序。
-/// 组装顺序是硬性的（D2D 设备必须从 D3D11 设备的 IDXGIDevice 创建），集中在一处避免各处抄错。
-/// </summary>
 public sealed class D2DHost : IDisposable
 {
     public ID2D1Factory1 Factory { get; }
@@ -50,7 +44,7 @@ public sealed class D2DHost : IDisposable
 
     public void Dispose()
     {
-        Draw.Dispose(); // 内含 Fonts.Dispose
+        Draw.Dispose();
         Dw.Dispose();
         Ctx.Dispose();
         Device.Dispose();

@@ -16,7 +16,6 @@
                  AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
 
     <ui:FluentWindow.Resources>
-        <!-- 分组卡与图层/效果卡都用 ui:Card（同一控件、同一套主题画刷）；这里只补文字类的少量样式。 -->
         <Style x:Key="PanelCardTitle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
             <Setter Property="FontWeight" Value="SemiBold" />
@@ -45,7 +44,6 @@
             <RowDefinition x:Name="TimelineRow" Height="200" MinHeight="80" />
         </Grid.RowDefinitions>
 
-        <!-- ============ 标题栏 ============ -->
         <ui:TitleBar Grid.Row="0" Title="JIZURA Live PV">
             <ui:TitleBar.Icon>
                 <ui:SymbolIcon Symbol="Filmstrip24" />
@@ -57,7 +55,6 @@
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
 
-        <!-- ============ 命令条 ============ -->
         <Border Grid.Row="1" Background="{DynamicResource LayerFillColorDefaultBrush}"
                 BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
             <Grid Margin="10,6">
@@ -115,7 +112,6 @@
             </Grid>
         </Border>
 
-        <!-- ============ 主体三栏 ============ -->
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="320" MinWidth="260" />
@@ -123,7 +119,6 @@
                 <ColumnDefinition x:Name="InspectorColumn" Width="320" MinWidth="280" />
             </Grid.ColumnDefinitions>
 
-            <!-- 左：四步导航 + 步骤面板 -->
             <Border Grid.Column="0" Background="{DynamicResource LayerFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <Grid>
@@ -140,7 +135,6 @@
                     </StackPanel>
 
                     <Grid Grid.Row="1">
-                        <!-- ===== 步骤 1：素材 ===== -->
                         <ScrollViewer x:Name="PanelMedia" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12">
                             <StackPanel>
@@ -180,48 +174,6 @@
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="VTS 姿态追踪" Style="{StaticResource PanelCardTitle}" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="连接 VTube Studio" Style="{StaticResource PanelRowLabel}" />
-                                            <ui:ToggleSwitch x:Name="TglVts" Grid.Column="1" HorizontalAlignment="Right"
-                                                             Checked="TglVts_Changed" Unchecked="TglVts_Changed" />
-                                        </Grid>
-                                        <TextBlock x:Name="TblVtsState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="VTS 关" />
-                                        <ui:Button x:Name="BtnVtsAuth" Content="重新授权" Margin="0,8,0,0"
-                                                   HorizontalAlignment="Stretch" Click="BtnVtsAuth_Click"
-                                                   ToolTip="仅在 VTS 待授权 / 等待授权时有效（在 VTube Studio 里点「允许」）" />
-                                    </StackPanel>
-                                </ui:Card>
-
-                                <!-- 演出 cue：角色 → 热键/表情的映射，播出时按歌曲时间触发（cue 由导演模块生成） -->
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <TextBlock Text="VTS 演出" Style="{StaticResource PanelCardTitle}" />
-                                        <Grid Margin="0,0,2,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="提前量" Style="{StaticResource PanelRowLabel}" />
-                                            <TextBlock x:Name="TblCueLead" Grid.Column="1" Text="80 ms"
-                                                       VerticalAlignment="Center"
-                                                       Style="{StaticResource PanelValue}" />
-                                        </Grid>
-                                        <Slider x:Name="SldCueLead" Margin="0,4,0,0" IsMoveToPointEnabled="True"
-                                                Minimum="0" Maximum="300" Value="80" SmallChange="10" LargeChange="20"
-                                                ValueChanged="SldCueLead_ValueChanged"
-                                                ToolTip="cue 提前多少毫秒触发，让 VTS 侧的动作贴在拍上" />
-                                        <StackPanel x:Name="VtsCueRoles" />
-                                    </StackPanel>
-                                </ui:Card>
-
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
-                                    <StackPanel>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -246,7 +198,6 @@
                             </StackPanel>
                         </ScrollViewer>
 
-                        <!-- ===== 步骤 2：导演 ===== -->
                         <ScrollViewer x:Name="PanelDirector" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
                                       Visibility="Collapsed">
@@ -294,7 +245,6 @@
                                         </ui:Button>
                                         <TextBlock x:Name="TblAutoHint" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
                                                    Text="先导入音乐，生成才会解锁。" />
-                                        <!-- 段落序列（前奏→主歌→副歌→…）比一行长：换行显示，别被面板宽度截断 -->
                                         <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
@@ -303,7 +253,6 @@
                             </StackPanel>
                         </ScrollViewer>
 
-                        <!-- ===== 步骤 3：特效 ===== -->
                         <ScrollViewer x:Name="PanelEffects" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
                                       Visibility="Collapsed">
@@ -339,7 +288,6 @@
                             </StackPanel>
                         </ScrollViewer>
 
-                        <!-- ===== 步骤 4：输出 ===== -->
                         <ScrollViewer x:Name="PanelOutput" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
                                       Visibility="Collapsed">
@@ -367,7 +315,7 @@
                                     <StackPanel>
                                         <TextBlock Text="导出视频" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="逐帧离屏渲染成片，导出期间界面照常用；含图层与效果、曲线驱动的镜头与图层动画、动效歌词。VTS 姿态追踪不参与导出。" />
+                                                   Text="逐帧离屏渲染成片，导出期间界面照常用；含图层与效果、分镜与曲线驱动的镜头动画、动效歌词。" />
 
                                         <TextBlock Text="输出路径" Margin="0,10,0,4" Style="{StaticResource PanelRowLabel}" />
                                         <Grid>
@@ -426,7 +374,6 @@
                 </Grid>
             </Border>
 
-            <!-- 中：舞台工作区。PresentHost 是 HwndHost 子窗口，WPF 元素盖不住它（airspace）。 -->
             <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
@@ -448,7 +395,6 @@
                     </Grid>
                 </Grid>
 
-                <!-- 传输条 -->
                 <Border Grid.Row="1" Background="{DynamicResource LayerFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
                     <Grid Margin="12,7">
@@ -482,7 +428,6 @@
                 </Border>
             </Grid>
 
-            <!-- 右：属性检查器 -->
             <Border x:Name="InspectorPane" Grid.Column="2" Background="{DynamicResource LayerFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
                 <DockPanel>
@@ -500,14 +445,12 @@
             </Border>
         </Grid>
 
-        <!-- ============ 底部：时间轴（拖分隔条可调高度） ============ -->
         <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                       Background="{DynamicResource DividerStrokeColorDefaultBrush}"
                       ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Cursor="SizeNS" />
 
         <tl:TimelineView x:Name="TheTimeline" Grid.Row="4" />
 
-        <!-- 取色弹窗：共享一个实例，点色块时定位过去（每个色块各建一个太浪费） -->
         <Popup x:Name="ColorPop" StaysOpen="False" AllowsTransparency="True" Placement="Mouse"
                HorizontalOffset="6" VerticalOffset="6">
             <Border Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"

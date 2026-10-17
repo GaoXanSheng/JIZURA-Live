@@ -5,7 +5,6 @@ using Vortice.Mathematics;
 
 namespace JizuraLive.Pv;
 
-/// <summary>一层本帧要画的内容：位图或纯色（两者都不存在 = 本帧该层缺席）。</summary>
 public readonly record struct PvLayerImage(ID2D1Bitmap? Bitmap, Color4? Solid, int Width, int Height)
 {
     public bool HasContent => Bitmap is not null || Solid is not null;
@@ -16,33 +15,37 @@ public readonly record struct PvLayerImage(ID2D1Bitmap? Bitmap, Color4? Solid, i
     public static PvLayerImage Empty => new(null, null, 0, 0);
 }
 
-/// <summary>
-/// 环境光融合（解决「角色/素材像粗制滥造的贴片」）。
-///
-/// 三件事：**环境光染色**（让素材吃场景主色调，而不是白惨惨地贴上去）、
-/// **边缘光**（深色背景下从背后透出一层模糊亮拷贝，把主体从背景里"分"出来）、
-/// **接触阴影**（浅色背景下给主体立足感）。
-/// </summary>
 public static class PvAmbient
 {
-    /// <summary>
-    /// 环境光染色的 5×4 颜色矩阵：<c>out.rgb = rgb * lerp(1, tint.rgb * 2, k)</c>。
-    /// 与效果库的 <c>colorGrade.tint</c> 同一套语义（乘 2 让中性色不受影响）。
-    /// </summary>
-    public static Matrix5x4 TintMatrix(Color4 tint, double strength)
+    public static Matrix5x4 TintMatrix(Color4 tint, double strength) => BlendMatrix(tint, strength, 0);
+
+    public static double AtmosphereFar(PvParallaxConfig parallax, bool globalParallax) =>
+        globalParallax ? Math.Clamp((0.9 - parallax.Depth) / 0.9, 0.0, 1.0) : 0.0;
+
+    public static Matrix5x4 BlendMatrix(Color4 tint, double tintStrength, double atmos)
     {
-        var k = (float)Math.Clamp(strength, 0, 1);
-        float L(float c) => 1f + (c * 2f - 1f) * k;
+        var far = Math.Clamp(atmos, 0, 1);
+        var sat = (float)(1.0 - 0.35 * far);
+        var mix = 1f - sat;
+        var bright = (float)(1.0 - 0.12 * far);
+        var pull = (float)(0.28 * far);
+        var keep = 1f - pull;
+
+        float Gain(float c) => bright * (1f + (c * 2f - 1f) * (float)Math.Clamp(tintStrength, 0, 1));
+
+        const float Wr = 0.299f, Wg = 0.587f, Wb = 0.114f;
+        var gr = Gain(tint.R);
+        var gg = Gain(tint.G);
+        var gb = Gain(tint.B);
 
         return new Matrix5x4(
-            L(tint.R), 0, 0, 0,
-            0, L(tint.G), 0, 0,
-            0, 0, L(tint.B), 0,
+            keep * gr * (sat + mix * Wr), keep * gr * mix * Wg, keep * gr * mix * Wb, 0,
+            keep * gg * mix * Wr, keep * gg * (sat + mix * Wg), keep * gg * mix * Wb, 0,
+            keep * gb * mix * Wr, keep * gb * mix * Wg, keep * gb * (sat + mix * Wb), 0,
             0, 0, 0, 1,
-            0, 0, 0, 0);
+            pull * tint.R, pull * tint.G, pull * tint.B, 0);
     }
 
-    /// <summary>该层是否需要走离屏面（有染色/边缘光/阴影才需要；否则可以直接画，省一次面切换）。</summary>
     public static bool NeedsSurface(PvLayerConfig layer, bool ambientEnabled)
     {
         if (!ambientEnabled) return false;
@@ -51,31 +54,16 @@ public static class PvAmbient
     }
 }
 
-/// <summary>
-/// PV 舞台合成器：按图层栈顺序把各层的图合到当前目标上。
-///
-/// 与旧 Skia 版合成器的区别：跑在新渲染核心（D2D/D3D11）上，所以每层的
-/// 环境光染色/边缘光/阴影直接用 <see cref="Immediate2D.PushSurface"/> 的中间面 + 效果链，
-/// 与用户手搭的效果走同一条路径，不再有一套独立的 Skia 滤镜代码。
-/// </summary>
 public sealed class PvStageCompositor
 {
-    /// <summary>边缘光模糊半径（像素，按 1080p 设计）。</summary>
     private const float RimBlurSigma = 26f;
 
-    /// <summary>接触阴影模糊半径（像素）。</summary>
     private const float ShadowBlurSigma = 14f;
 
     private readonly Immediate2D _draw;
 
     public PvStageCompositor(Immediate2D draw) => _draw = draw;
 
-    /// <summary>
-    /// 合成一帧。图层栈顺序 = 绘制顺序（先画在下）；相机按每层深度加权。
-    /// 每层的 offset/scale/rotation/opacity 取自 <see cref="PvScene.Frame"/> 的帧状态；
-    /// 没算过帧状态的层（直接调合成器的用例）按文档常量画。
-    /// </summary>
-    /// <summary>置顶固定分区的 provider Id：动效歌词、清晰字幕（不进场景层序，压在所有场景层之上）。</summary>
     public static readonly string[] FixedZones = { "lyrics_pv", "subtitle_top" };
 
     public void Composite(PvScene scene, PvCamState cam,
@@ -87,26 +75,28 @@ public sealed class PvStageCompositor
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
             var state = scene.Frame.TryGetLayer(layer.Id, out var frame) ? frame : PvLayerState.From(layer);
-            DrawLayer(scene, layer, state, image, cam, width, height);
+            CompositeLayer(scene, layer, state, image, cam, width, height);
         }
 
-        // 置顶分区最后画：歌词/字幕必须盖在角色等场景层之上（它们自己已在设计画布坐标里排好版）
+        DrawBrighten(cam, width, height);
+
         foreach (var id in FixedZones)
-        {
-            if (!images.TryGetValue(id, out var zone) || !zone.HasContent) continue;
-            var dest = FitRect(zone, false, width, height);
-            if (zone.Bitmap is not null) _draw.DrawBitmap(zone.Bitmap, dest, 1f);
-        }
+            CompositeFixedZone(id, images, width, height);
     }
 
-    private void DrawLayer(PvScene scene, PvLayerConfig layer, in PvLayerState state, PvLayerImage image,
+    public void CompositeLayer(PvScene scene, PvLayerConfig layer, in PvLayerState state, PvLayerImage image,
         PvCamState cam, int width, int height)
     {
         var tf = PvParallax.Compute(width, height, layer, state, cam,
             globalParallax: scene.GlobalParallaxEnabled,
             antiBleed: scene.AntiBleedGuardEnabled);
 
-        if (!PvAmbient.NeedsSurface(layer, scene.AmbientBlendEnabled))
+        var atmos = scene.AmbientBlendEnabled
+            ? Math.Clamp(scene.Atmosphere, 0, 1) * PvAmbient.AtmosphereFar(layer.Parallax, scene.GlobalParallaxEnabled)
+            : 0;
+
+        if (!PvAmbient.NeedsSurface(layer, scene.AmbientBlendEnabled)
+            && tf.BlurSigma <= 0.05 && atmos <= 0.001)
         {
             DrawContent(layer, image, tf, width, height, state.Opacity);
             return;
@@ -117,7 +107,6 @@ public sealed class PvStageCompositor
 
         if (blend.RimGlow > 0.001)
         {
-            // 边缘光：同一内容先模糊加色画在底下，主体画在上面 → 轮廓外透出一圈光
             _draw.PushSurface(width, height, clear: true);
             DrawContent(layer, image, tf, width, height, 1.0);
             _draw.PopSurface(new Paint2D
@@ -133,8 +122,9 @@ public sealed class PvStageCompositor
         _draw.PopSurface(new Paint2D
         {
             Alpha = (float)Math.Clamp(state.Opacity, 0, 1),
-            ColorMatrix = blend.AmbientTintIntensity > 0.001
-                ? PvAmbient.TintMatrix(scene.AmbientTintColor, blend.AmbientTintIntensity)
+            BlurSigma = (float)tf.BlurSigma,
+            ColorMatrix = blend.AmbientTintIntensity > 0.001 || atmos > 0.001
+                ? PvAmbient.BlendMatrix(scene.AmbientTintColor, blend.AmbientTintIntensity, atmos)
                 : null,
             Shadow = blend.DropShadow > 0.001
                 ? new Shadow2D(0f, (float)blend.ShadowOffsetY, ShadowBlurSigma,
@@ -143,13 +133,36 @@ public sealed class PvStageCompositor
         });
     }
 
+    public void DrawBrighten(PvCamState cam, int width, int height)
+    {
+        var lift = Math.Clamp(cam.Brighten, 0, 1);
+        if (lift <= 0.002) return;
+
+        _draw.Save();
+        _draw.SetMatrix(Matrix3x2.Identity);
+        _draw.FillRect(new Rect(0, 0, width, height), new Paint2D
+        {
+            Brush = new SolidBrush2D(new Color4(1f, 1f, 1f, 1f)),
+            Alpha = (float)lift,
+            Blend = Blend2D.Plus,
+        });
+        _draw.Restore();
+    }
+
+    public void CompositeFixedZone(string id, IReadOnlyDictionary<string, PvLayerImage> images,
+        int width, int height)
+    {
+        if (!images.TryGetValue(id, out var zone) || !zone.HasContent) return;
+        var dest = FitRect(zone, false, width, height);
+        if (zone.Bitmap is not null) _draw.DrawBitmap(zone.Bitmap, dest, 1f);
+    }
+
     private void DrawContent(PvLayerConfig layer, PvLayerImage image, PvLayerTransform tf,
         int width, int height, double alpha)
     {
         _draw.Save();
         _draw.SetMatrix(tf.Matrix);
 
-        // 取景：Cover 铺满裁切 / Contain 完整可见；源尺寸未知时按整幅拉伸
         var dest = FitRect(image, layer.Cover, width, height);
         if (image.Bitmap is not null)
             _draw.DrawBitmap(image.Bitmap, dest, (float)Math.Clamp(alpha, 0, 1));

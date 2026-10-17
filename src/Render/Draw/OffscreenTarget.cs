@@ -9,12 +9,6 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Render.Draw;
 
-/// <summary>
-/// 离屏绘制目标：D3D11 纹理 + 它的 D2D 目标位图，外加**CPU 像素回读**。
-///
-/// <paramref name="sampleable"/> = true 时位图不带 CANNOT_DRAW，可作为 <see cref="Image2D"/> 的
-/// 输入被再次绘制（合成中间面用）；false 时按 D2D 推荐给纯渲染目标加 CANNOT_DRAW，省显存带宽。
-/// </summary>
 public sealed class OffscreenTarget : IDisposable
 {
     public int Width { get; }
@@ -64,10 +58,6 @@ public sealed class OffscreenTarget : IDisposable
         return new OffscreenTarget(gpu, width, height, texture, surface, bitmap);
     }
 
-    /// <summary>
-    /// 把当前内容读回 CPU 图像（Bgra8888 预乘）。
-    /// 会阻塞到 GPU 完成——只在测试/对拍/导出这类非实时路径用。
-    /// </summary>
     public ReadbackImage Readback() => GpuReadback.ToImage(_gpu, Texture, Width, Height);
 
     public void Dispose()

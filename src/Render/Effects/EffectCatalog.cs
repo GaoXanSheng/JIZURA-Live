@@ -2,14 +2,6 @@ using JizuraLive.Render.Gpu;
 
 namespace JizuraLive.Render.Effects;
 
-/// <summary>
-/// 效果目录：所有效果的登记处（两轴分类 + 参数 schema + HLSL）。
-///
-/// 与旧引擎的「手法注册表」的关系：旧表是**每种视觉手法一个条目**（约 300 条，各画各的）；
-/// 这里是**每种可复用的 GPU 效果一个条目**（颗粒、色差、扫描线…），视觉手法将改为
-/// 「效果图 + 参数预设」的组合（P2 后续）。两者不是替代关系：手法回答「画什么」，
-/// 效果图回答「怎么滤」。
-/// </summary>
 public static class EffectCatalog
 {
     public static readonly IReadOnlyList<EffectDef> All =
@@ -110,8 +102,6 @@ public static class EffectCatalog
             ],
             ["graphic", "retro", "pop"]),
 
-        // ---- 旧引擎 8 个内置 FX 的 GPU 对位（原来硬编码在 Renderer 的 switch 里）----
-
         new("invert", "Fx.Invert", EffectStage.GlobalPost, EffectCategory.ColorGrade,
             ShaderSources.Invert,
             [EffectParam.Num("amount", "Fx.Invert.Amount", 0, 0, 0f, 1f, 1f)],
@@ -165,8 +155,6 @@ public static class EffectCatalog
             ],
             ["impact", "beat", "horror"]),
 
-        // ---- 追加：研究里点名的热门 PV 风格 ----
-
         new("vhs", "Fx.Vhs", EffectStage.GlobalPost, EffectCategory.Texture,
             ShaderSources.Vhs,
             [
@@ -206,10 +194,8 @@ public static class EffectCatalog
             ],
             ["calm", "water", "emotional"]),
 
-        // ---- 多 pass 重型效果 ----
-
         new("bloom", "Fx.Bloom", EffectStage.GlobalPost, EffectCategory.LightGlow,
-            ShaderSources.BloomComposite,   // 文档用：真正绘制由 GraphBuild 编排
+            ShaderSources.BloomComposite,
             [
                 EffectParam.Num("threshold", "Fx.Bloom.Threshold", 0, 0, 0f, 1f, 0.62f, unit: ParamUnit.Ratio),
                 EffectParam.Num("intensity", "Fx.Bloom.Intensity", 0, 1, 0f, 3f, 1.1f, 0.05f, unit: ParamUnit.Dimensionless),
@@ -217,7 +203,6 @@ public static class EffectCatalog
             ],
             ["pop", "emotional", "neon", "cinematic"], CostHint: 3f)
         {
-            // 真正的 mip 链 bloom：亮部提取(1/2) → 三级可分离模糊(1/2→1/4→1/8) → 与原图相加
             GraphBuild = BuildBloom,
         },
 
@@ -229,8 +214,6 @@ public static class EffectCatalog
                 EffectParam.Num("strength", "Fx.MotionBlur.Strength", 0, 2, 0f, 1f, 0.8f),
             ],
             ["cinematic", "impact", "speed"]),
-
-        // ---- 漫画 / 二次元语汇 ----
 
         new("speedLines", "Fx.SpeedLines", EffectStage.GlobalPost, EffectCategory.Geometry,
             ShaderSources.SpeedLines,
@@ -289,10 +272,6 @@ public static class EffectCatalog
             ["cinematic", "anime", "calm"]),
     ];
 
-    /// <summary>
-    /// mip 链 bloom：亮部提取 → 逐级降采样 + 可分离模糊 → 与原图相加。
-    /// 尺寸靠每个 pass 的 Scale 递减（1/2 → 1/4 → 1/8），既是质量的来源也是省算力的手段。
-    /// </summary>
     private static int BuildBloom(EffectNode node, GpuRenderGraph graph, ShaderLibrary lib,
         int input, int width, int height)
     {
@@ -316,7 +295,6 @@ public static class EffectCatalog
         return graph.Add(composite, One(intensity), input, g2, 1.0);
     }
 
-    /// <summary>只填第 0 个分量的常量数组（全局槽由 EffectGraph 统一补）。</summary>
     private static float[] One(float v)
     {
         var c = new float[Gpu.FullScreenPass.ParamSlots * 4];
@@ -324,10 +302,6 @@ public static class EffectCatalog
         return c;
     }
 
-    /// <summary>
-    /// 各效果的"混合参数"与它的无效果值：出现区间淡入淡出时把该参数从无效果值插到当前值。
-    /// 不在表里的效果（mosaic / vhs：没有能退化成原图的单个参数）在区间边界硬切。
-    /// </summary>
     private static readonly Dictionary<string, (string Key, float Identity)> Mix = new(StringComparer.Ordinal)
     {
         ["chromatic"] = ("amount", 0f),
@@ -357,7 +331,6 @@ public static class EffectCatalog
         ["letterbox"] = ("amount", 0f),
     };
 
-    /// <summary>取效果的混合参数 Key 与无效果值；没有则返回 false。</summary>
     public static bool TryGetMix(string defId, out string key, out float identity)
     {
         if (Mix.TryGetValue(defId, out var m))
@@ -376,15 +349,12 @@ public static class EffectCatalog
 
     public static EffectDef? Get(string id) => ById.GetValueOrDefault(id);
 
-    /// <summary>按类别取（UI 的分类树按这个分组）。</summary>
     public static IEnumerable<EffectDef> ByCategory(EffectCategory c) =>
         All.Where(d => d.Category == c);
 
-    /// <summary>按挂载阶段取。</summary>
     public static IEnumerable<EffectDef> ByStage(EffectStage s) =>
         All.Where(d => d.Stage == s);
 
-    /// <summary>按标签检索（"glitch"/"calm"/"cyber"…，用于按情绪自动选效果）。</summary>
     public static IEnumerable<EffectDef> TaggedWith(string tag) =>
         All.Where(d => d.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
 }

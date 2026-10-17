@@ -90,7 +90,7 @@ public sealed partial class TimelineView
 
         if (_drag == DragMode.Key)
         {
-            RebuildSelectionFromDrag(); // 必须在 CommitGesture 排序之前取时刻
+            RebuildSelectionFromDrag();
             _dragKeys.Clear();
             _dragTip = null;
             _drag = DragMode.None;
@@ -174,10 +174,6 @@ public sealed partial class TimelineView
         RaiseSeek(TimeAt(x));
     }
 
-    /// <summary>
-    /// 歌词轨上按下：点句首仍 seek 到 start（W1 行为），按住句首/句尾/条体则起拖；空档点击只 seek。
-    /// 拖动中就地改那句的区间（渲染跟着走），松手才决定提交还是还原。
-    /// </summary>
     private void StartClipGesture(double x)
     {
         _dragTip = null;
@@ -201,7 +197,6 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
-    /// <summary>落点冲突时置高亮与提示，但快照照旧跟着指针走（拖动中的样子就是提交后的样子）。</summary>
     private void MoveClip(Point p)
     {
         if (_snap is null || _clipIndex < 0 || _clipIndex >= _snap.Lyrics.Count) return;
@@ -220,7 +215,6 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
-    /// <summary>冲突则还原并把原因留在提示条（不提交、不入撤销栈）；否则一次 EditCommitted（Reason = "clip"）。</summary>
     private void CommitClip()
     {
         if (_snap is null || _clipIndex < 0 || _clipIndex >= _snap.Lyrics.Count)
@@ -296,7 +290,6 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
-    /// <summary>命中控制柄则起拖（先于 key 拖动判定：柄就画在 key 旁边）。</summary>
     private bool StartHandleDrag(Row row, TCurve curve, Point p)
     {
         foreach (var (index, outSide) in HandleTargets(curve))
@@ -354,7 +347,6 @@ public sealed partial class TimelineView
             var curve = FindCurve(address);
             if (curve is null || index >= curve.Keys.Count) continue;
             double time = Math.Max(0, TimelineMath.Snap(origin.TimeSeconds + dt, grid, snap));
-            // 值域非法（Max ≤ Min）时不钳制：Math.Clamp 的 min > max 会抛
             double value = curve.Max > curve.Min ? Math.Clamp(origin.Value + dv, curve.Min, curve.Max) : origin.Value + dv;
             curve.Keys[index] = origin with { TimeSeconds = time, Value = value };
         }
@@ -406,7 +398,6 @@ public sealed partial class TimelineView
         AddKeyAt(curve, x);
     }
 
-    /// <summary>空白区双击打帧：取该时刻的显示值；同刻已有 key 则只是选中它（同刻 = 替换）。</summary>
     private void AddKeyAt(TCurve curve, double x)
     {
         bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
@@ -462,7 +453,6 @@ public sealed partial class TimelineView
         menu.IsOpen = true;
     }
 
-    /// <summary>把当前选区的插值改成 <paramref name="interp"/>（右键五档菜单的入口）。一次 EditCommitted。</summary>
     public void SetInterp(string interp)
     {
         if (_selection.Count == 0) return;
@@ -499,7 +489,7 @@ public sealed partial class TimelineView
         _clipboard.Clear();
         if (_selection.Count == 0) return;
 
-        _clipboardAddress = _selection[0].Address; // 同轨粘贴：只复制首个选中 key 所在轨
+        _clipboardAddress = _selection[0].Address;
         foreach (var selected in _selection)
         {
             if (selected.Address != _clipboardAddress) continue;

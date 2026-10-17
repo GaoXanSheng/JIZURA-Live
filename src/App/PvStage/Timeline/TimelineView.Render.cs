@@ -175,23 +175,25 @@ public sealed partial class TimelineView
         double height = row.Height - 2 * ValuePad;
         double fallback = (curve.Min + curve.Max) / 2;
 
-        // 曲线画在本轨矩形内：Spring/Bezier 的超调越出 Min/Max 显示域时裁掉，而不是钳回显示域
         dc.PushClip(new RectangleGeometry(new Rect(HeaderWidth, row.Top, w, row.Height)));
 
         var geometry = new StreamGeometry();
         using (var g = geometry.Open())
         {
             bool started = false;
-            for (double x = 0; x <= w; x += 1)
+            const double Step = 2.0;
+            for (double x = 0; x <= w + Step * 0.5; x += Step)
             {
-                double v = TimelineMath.Evaluate(curve.Keys, TimeAt(x), fallback);
-                var point = new Point(HeaderWidth + x, TimelineMath.ValueToY(v, curve.Min, curve.Max, top, height));
+                var curX = Math.Min(x, w);
+                double v = TimelineMath.Evaluate(curve.Keys, TimeAt(curX), fallback);
+                var point = new Point(HeaderWidth + curX, TimelineMath.ValueToY(v, curve.Min, curve.Max, top, height));
                 if (!started)
                 {
                     g.BeginFigure(point, false, false);
                     started = true;
                 }
                 else g.LineTo(point, true, false);
+                if (curX >= w) break;
             }
         }
         geometry.Freeze();

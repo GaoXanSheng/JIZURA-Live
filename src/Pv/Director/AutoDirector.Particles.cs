@@ -4,7 +4,6 @@ namespace JizuraLive.Pv;
 
 public static partial class AutoDirector
 {
-    /// <summary>粒子层编排：樱花、星光（含爆发）、光斑。</summary>
     private static void BuildParticles(DirectorProject project, Song song, string style, double k, Random rng, AutoReport report)
     {
         bool soft = style == "soft";
@@ -14,14 +13,13 @@ public static partial class AutoDirector
         var sparkle = PvPipeline.NewParticleLayer(AutoLayerPrefix + "sparkle", "sparkle");
         var bokeh = PvPipeline.NewParticleLayer(AutoLayerPrefix + "bokeh", "bokeh");
 
-        sakura.Particles!.Density = 90 * (0.6 + 0.4 * k) * densityScale;
-        sparkle.Particles!.Density = 45 * densityScale;
-        bokeh.Particles!.Density = 22 * densityScale;
+        sakura.Particles!.Density = 105 * (0.6 + 0.4 * k) * densityScale;
+        sparkle.Particles!.Density = 65 * densityScale;
+        bokeh.Particles!.Density = 18 * densityScale;
 
         foreach (var layer in new[] { sakura, sparkle, bokeh })
             layer.Particles!.Seed = rng.Next(1, 1 << 20);
 
-        // 星光爆发：每个高潮段的落点；dynamic/epic 再加段内每第 4 个下拍，soft 只有落点
         var bursts = new List<double>();
         foreach (var sec in song.Sections)
         {
@@ -30,7 +28,7 @@ public static partial class AutoDirector
             if (soft) continue;
 
             var downs = song.DownbeatsIn(sec.Start, sec.End).ToList();
-            for (int i = 3; i < downs.Count; i += 4) bursts.Add(downs[i]);
+            for (int i = 1; i < downs.Count; i += 2) bursts.Add(downs[i]);
         }
         bursts.Sort();
         for (int i = bursts.Count - 1; i > 0; i--)
@@ -43,11 +41,9 @@ public static partial class AutoDirector
             SectionOpacity(song, halfBar, sec => SakuraOpacity(song, sec)));
         keys += Save(project, $"layer:{sparkle.Id}.opacity", null, CurveBlend.Add, ConstantOpacity(0.9));
         keys += Save(project, $"layer:{bokeh.Id}.opacity", null, CurveBlend.Add,
-            SectionOpacity(song, halfBar, sec => sec.Kind is "intro" or "bridge" or "outro" ? 0.7 : 0.2));
+            SectionOpacity(song, halfBar, sec => sec.Kind is "intro" or "bridge" or "outro" ? 0.45 : 0.12));
         report.CurveKeys += keys;
 
-        // 图层栈 index 0 在最底（PvStageCompositor.Composite 按顺序画，先画在下）：
-        // 光斑落在角色层之下（背景侧），樱花与星光落在角色层之上（前景侧）。
         var layers = new List<PvLayerConfig>(project.Scene.Layers);
         int chr = layers.FindIndex(l => l.Id == PvScene.CharacterLayerId);
         if (chr < 0) chr = layers.FindIndex(l => l.Kind == PvLayerKind.VisualAsset);
@@ -69,7 +65,6 @@ public static partial class AutoDirector
                          + $" · 光斑 {bokeh.Particles.Density:F0}");
     }
 
-    /// <summary>高潮段更亮，其余按段落种类取基准；intro/outro 收着，bridge 最淡。</summary>
     private static double SakuraOpacity(Song song, Section sec) =>
         song.IsHigh(sec) ? 0.85
         : sec.Kind switch
@@ -80,7 +75,6 @@ public static partial class AutoDirector
             _ => 0.5,
         };
 
-    /// <summary>整曲常量不透明度。</summary>
     private static FloatCurve ConstantOpacity(double v)
     {
         var c = new FloatCurve();
@@ -88,7 +82,6 @@ public static partial class AutoDirector
         return c;
     }
 
-    /// <summary>逐段不透明度：段边界起半小节 SmoothStep 过渡到本段值，段内保持。</summary>
     private static FloatCurve SectionOpacity(Song song, double halfBar, Func<Section, double> value)
     {
         var c = new FloatCurve();

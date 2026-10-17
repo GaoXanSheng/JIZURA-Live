@@ -16,12 +16,10 @@ public static class Log
     public static string? LogDir { get; private set; }
     public static string? LogFile { get; private set; }
 
-
     public static void Init(string? fileName = null)
     {
         LogDir = AppDirs.LogsDir;
         Directory.CreateDirectory(LogDir);
-        // 镜像宿主进程写独立日志：双进程并发追加同一文件会互相穿插
         LogFile = Path.Combine(LogDir, fileName ?? "jizura.log");
 
         var fileLayout = new PatternLayout("%date [%2thread] %-5level %logger - %message%newline");
@@ -77,7 +75,6 @@ public static class Log
     public static void Error(string message, Exception ex)
     {
         Console.WriteLine(message);
-        // 异常日志不带堆栈等于没日志，排查单文件发布问题时吃过亏
         L.Error(message + "\n" + ex);
     }
 
@@ -86,7 +83,6 @@ public static class Log
         Console.WriteLine(message);
         L.Fatal(message);
     }
-
 
     public static void Shutdown()
     {

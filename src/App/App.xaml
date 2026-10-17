@@ -6,17 +6,10 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- WPF-UI（Fluent）底座：全套控件的模板、暗色主题与画刷都由库提供
-                     （窗口用 ui:FluentWindow，标准件、卡片、徽标、滑杆、开关也各有库样式）。
-                     界面里不再有自研样式字典。 -->
                 <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
 
-            <!-- 库的隐式 Window 样式带 WindowStyle / AllowsTransparency 等 setter，且在句柄创建后套用：
-                 任何普通 Window.Show() 都可能抛「无法更改 AllowsTransparency」。MessageDialog 的遮罩弹窗
-                 就是这种窗口（自己按需设 WindowStyle=None + AllowsTransparency）。这里用一条空样式顶掉
-                 库的隐式样式（空样式仍走系统默认窗口模板）；主窗口是 ui:FluentWindow，不受影响。 -->
             <Style TargetType="Window" />
         </ResourceDictionary>
     </Application.Resources>

@@ -5,7 +5,6 @@ using Newtonsoft.Json.Converters;
 
 namespace JizuraLive.Engine;
 
-/// <summary>字幕内容模式：对位 SubConfig.content（Off = 整层不画）。</summary>
 [JsonConverter(typeof(StringEnumConverter))]
 public enum SubContent
 {
@@ -15,7 +14,6 @@ public enum SubContent
     Both
 }
 
-/// <summary>字幕位置：对位 SubConfig.pos。</summary>
 [JsonConverter(typeof(StringEnumConverter))]
 public enum SubPos
 {
@@ -23,9 +21,6 @@ public enum SubPos
     Top
 }
 
-/// <summary>
-/// 字幕配置：纯 POCO。
-/// </summary>
 public sealed class SubtitleConfig
 {
     public SubContent Content { get; set; } = SubContent.Off;
@@ -40,9 +35,6 @@ public sealed class SubtitleConfig
     public bool HoldLastLine { get; set; }
 }
 
-/// <summary>
-/// 字幕分词与时间轴纯逻辑辅助。
-/// </summary>
 public static class SubtitleHelper
 {
     public static (string Roma, string Trans) NoteParts(string note)
