@@ -184,6 +184,9 @@
                                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                                 <ui:Button x:Name="BtnAddLayer" Content="+ 源" Click="BtnAddLayer_Click"
                                                            ToolTip="添加一路 Spout 源图层，或一层磁盘图片/视频（图片与视频不需要发送端）" />
+                                                <ui:Button x:Name="BtnAddDecor" Content="+ 装饰" Margin="6,0,0,0"
+                                                           Click="BtnAddDecor_Click"
+                                                           ToolTip="添加一层氛围装饰：花瓣 / 紙吹雪 / 烟火 / 萤火 / 星空等，参数在右侧属性栏调" />
                                             </StackPanel>
                                         </Grid>
                                         <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"

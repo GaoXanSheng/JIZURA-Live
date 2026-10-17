@@ -544,7 +544,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             head.Children.Add(headRight);
             stack.Children.Add(head);
 
-            var meta = ThemeText(LayerKindLabel(layer.Kind), TextTertiaryKey, 11);
+            var meta = ThemeText(LayerMetaLabel(layer), TextTertiaryKey, 11);
             meta.Margin = new Thickness(0, 2, 0, 0);
             stack.Children.Add(meta);
 
@@ -562,9 +562,15 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         PvLayerKind.VisualAsset => "素材/角色",
         PvLayerKind.LyricPv => "歌词动效",
         PvLayerKind.ForegroundFx => "前景特效",
+        PvLayerKind.Decor => "装饰",
         PvLayerKind.Subtitle => "字幕",
         _ => k.ToString(),
     };
+
+    private static string LayerMetaLabel(PvLayerConfig layer) =>
+        layer.Decor is { Kinds.Count: > 0 }
+            ? "装饰 · " + string.Join(" / ", layer.Decor.Kinds.Select(DecorCatalog.Label))
+            : LayerKindLabel(layer.Kind);
 
     private void LayerCard_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -1251,6 +1257,35 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         menu.IsOpen = true;
+    }
+
+    private void BtnAddDecor_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = BtnAddDecor };
+
+        foreach (var kind in DecorCatalog.All)
+        {
+            var k = kind;
+            var item = new MenuItem { Header = DecorCatalog.Label(k) };
+            item.Click += (_, _) => AddDecorLayer(k);
+            menu.Items.Add(item);
+        }
+
+        menu.IsOpen = true;
+    }
+
+    private void AddDecorLayer(string kind)
+    {
+        var pipe = _pipe;
+        if (pipe is null)
+        {
+            TblStatus.Text = "舞台未就绪：装饰图层未加入";
+            return;
+        }
+
+        pipe.RequestAddDecor(kind);
+        TblStatus.Text = $"添加装饰图层 {DecorCatalog.Label(kind)}…";
+        Log.Info($"[工作台] 添加装饰图层：{kind}");
     }
 
     private void AddImageLayer()

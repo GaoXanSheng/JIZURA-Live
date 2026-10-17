@@ -22,10 +22,12 @@ public sealed class PvPipeline : IDisposable
     private readonly ConcurrentQueue<string> _pendingAdds = new();
     private readonly ConcurrentQueue<string> _pendingImageAdds = new();
     private readonly ConcurrentQueue<string> _pendingVideoAdds = new();
+    private readonly ConcurrentQueue<string> _pendingDecorAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
     private readonly List<SpoutSourceProvider> _spoutProviders = new();
+    private readonly List<DecorLayerProvider> _decor = new();
 
     private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
@@ -159,6 +161,8 @@ public sealed class PvPipeline : IDisposable
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
         _renderer.Lyric?.SetScale(1.0);
 
+        foreach (var p in _decor) p.Render(time);
+
         _renderer.Prepare(time, effects);
     }
 
@@ -182,6 +186,12 @@ public sealed class PvPipeline : IDisposable
     {
         if (string.IsNullOrWhiteSpace(videoPath)) return;
         _pendingVideoAdds.Enqueue(videoPath);
+    }
+
+    public void RequestAddDecor(string kind)
+    {
+        if (string.IsNullOrWhiteSpace(kind)) return;
+        _pendingDecorAdds.Enqueue(kind);
     }
 
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
@@ -219,6 +229,9 @@ public sealed class PvPipeline : IDisposable
         && string.IsNullOrWhiteSpace(layer.VideoPath)
         && !string.IsNullOrWhiteSpace(layer.ImagePath);
 
+    public static bool WantsDecor(PvLayerConfig layer) =>
+        layer.Decor is { Kinds.Count: > 0 };
+
     public static PvLayerConfig NewSourceLayer(string id, string sender) => new()
     {
         Id = id,
@@ -254,6 +267,15 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
+    public static PvLayerConfig NewDecorLayer(string id, string kind) => new()
+    {
+        Id = id,
+        Name = DecorCatalog.Label(kind),
+        Kind = PvLayerKind.Decor,
+        Decor = DecorCatalog.CreateConfig(kind),
+        Parallax = new PvParallaxConfig { Depth = 1.25 },
+    };
+
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
         var tint = PvScene.ParseHex(_scene.AmbientTint);
@@ -271,6 +293,15 @@ public sealed class PvPipeline : IDisposable
 
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
+        if (WantsDecor(layer))
+        {
+            var provider = new DecorLayerProvider(layer.Id, _renderer.Device, _d2d, layer.Decor!,
+                _renderer.DesignWidth, _renderer.DesignHeight);
+            _renderer.Stage.Register(provider);
+            _decor.Add(provider);
+            return;
+        }
+
         if (WantsSpout(layer))
         {
             var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
@@ -327,6 +358,16 @@ public sealed class PvPipeline : IDisposable
             Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
         }
 
+        while (_pendingDecorAdds.TryDequeue(out var kind))
+        {
+            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
+            var layer = NewDecorLayer(id, kind);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
+            RegisterLayerProvider(layer);
+            changed = true;
+            Log.Info($"[PV 管线] 新建装饰图层 '{id}' <- '{kind}'");
+        }
+
         while (_pendingRemoves.TryDequeue(out var id))
         {
             var idx = _scene.Layers.FindIndex(l => l.Id == id);
@@ -336,6 +377,8 @@ public sealed class PvPipeline : IDisposable
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
                 if (p is not null) _spoutProviders.Remove(p);
+                var fx = _decor.FirstOrDefault(x => x.Id == id);
+                if (fx is not null) _decor.Remove(fx);
                 if (_character?.Id == id) _character = null;
                 changed = true;
                 Log.Info($"[PV 管线] 移除图层 '{id}'");
@@ -536,6 +579,7 @@ public sealed class PvPipeline : IDisposable
         Ready = false;
 
         _spoutProviders.Clear();
+        _decor.Clear();
         _character = null;
         _renderer.Overlay = null;
         _subtitle?.Dispose();

@@ -12,6 +12,8 @@ public enum PvLayerKind
 
     ForegroundFx,
 
+    Decor,
+
     Subtitle,
 }
 
@@ -37,6 +39,25 @@ public sealed class PvVisualBlendConfig
     public double ShadowOffsetY { get; set; } = 16.0;
 
     public double AntiBleedMargin { get; set; } = 0.06;
+}
+
+public sealed class DecorConfig
+{
+    public List<string> Kinds { get; set; } = new();
+
+    public double Density { get; set; } = 90;
+
+    public double Speed { get; set; } = 1.0;
+
+    public double Size { get; set; } = 1.0;
+
+    public string Color { get; set; } = "#ffc0d8";
+
+    public string AccentColor { get; set; } = "#8ad4ff";
+
+    public int Seed { get; set; } = 1;
+
+    public List<double> Bursts { get; set; } = new();
 }
 
 public sealed class PvLayerConfig
@@ -65,6 +86,8 @@ public sealed class PvLayerConfig
     public string? ImagePath { get; set; }
 
     public string? VideoPath { get; set; }
+
+    public DecorConfig? Decor { get; set; }
 
     public bool Premultiplied { get; set; } = true;
 
