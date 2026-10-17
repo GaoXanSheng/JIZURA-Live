@@ -429,17 +429,17 @@ public sealed class PvPipeline : IDisposable
     public static PvCamState BaseCamera(PvCameraConfig cam, DirectorEvaluator? curves, double time)
     {
         var plan = PvCamState.Identity;
-        bool hasPlan = curves is not null && curves.TryCameraAt(time, out plan);
+        if (curves is not null) curves.TryCameraAt(time, out plan);
 
-        var x = hasPlan ? plan.X : cam.X;
-        var y = hasPlan ? plan.Y : cam.Y;
-        var rotation = hasPlan ? plan.Rotation : cam.Rotation;
-        var scale = Math.Max(0.01, hasPlan ? plan.Scale : cam.Scale);
-        double blur = hasPlan ? plan.BlurSigma : 0;
-        double brighten = hasPlan ? plan.Brighten : 0;
-        double skewX = hasPlan ? plan.SkewX : 0;
-        double? scaleX = hasPlan ? plan.ScaleX : null;
-        double? scaleY = hasPlan ? plan.ScaleY : null;
+        var x = plan.X + cam.X;
+        var y = plan.Y + cam.Y;
+        var rotation = plan.Rotation + cam.Rotation;
+        var scale = Math.Max(0.01, plan.Scale * cam.Scale);
+        double blur = plan.BlurSigma;
+        double brighten = plan.Brighten;
+        double skewX = plan.SkewX;
+        double? scaleX = plan.ScaleX;
+        double? scaleY = plan.ScaleY;
 
         if (curves is not null)
         {
