@@ -169,6 +169,17 @@ public sealed class TransitionTrack
 
     public void Clear() => Segments.Clear();
 
+    public void LoadFrom(IEnumerable<DesignSegment>? segments)
+    {
+        Segments.Clear();
+        if (segments is null) return;
+        foreach (var seg in segments)
+        {
+            if (seg is null || seg.Track != DesignTrackKind.Trans) continue;
+            Add(seg.Technique, seg.Start, seg.End - seg.Start, seg.Params);
+        }
+    }
+
     public DesignSegment? At(double time)
     {
         if (!double.IsFinite(time)) return null;

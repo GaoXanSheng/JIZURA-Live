@@ -216,6 +216,8 @@ public static class TransitionCatalog
 
     public static void Register(TransitionTechnique technique) => ById[technique.Id] = technique;
 
+    public static IReadOnlyList<string> Ids => [.. ById.Keys];
+
     public static TransitionTechnique? Get(string? id) =>
         id is not null && ById.TryGetValue(id, out var technique) ? technique : null;
 

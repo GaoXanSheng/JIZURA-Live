@@ -49,6 +49,10 @@ public readonly record struct TreatGlyphXf(
     float Alpha,
     Color4? Color)
 {
+    public TreatGlyphXf() : this(1f, 0f, 0f, 0f, 1f, null)
+    {
+    }
+
     public static TreatGlyphXf Identity { get; } = new(1f, 0f, 0f, 0f, 1f, null);
 }
 

@@ -134,17 +134,24 @@ public sealed record LyricStyle
 
     public LyricStyle? Alternate { get; init; }
 
-    public static LyricStyle FromName(string? name) => name?.Trim().ToLowerInvariant() switch
+    [JsonIgnore]
+    public IReadOnlyList<LyricStyle> Schemes => Alternate is null ? new[] { this } : new[] { this, Alternate! };
+
+    public static LyricStyle FromName(string? name)
     {
-        "classic" => Classic,
-        "neon" => Neon,
-        "outline" => Outline,
-        "minimal" => Minimal,
-        "karaoke" => Karaoke,
-        "pop" => Pop,
-        "typewriter" => Typewriter,
-        _ => Classic,
-    };
+        var n = name?.Trim().ToLowerInvariant();
+        return n switch
+        {
+            "classic" => Classic,
+            "neon" => Neon,
+            "outline" => Outline,
+            "minimal" => Minimal,
+            "karaoke" => Karaoke,
+            "pop" => Pop,
+            "typewriter" => Typewriter,
+            _ => Packs.FirstOrDefault(p => p.Name == n) ?? Classic,
+        };
+    }
 
     public static LyricStyle? FromAnyName(string? name)
     {

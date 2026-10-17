@@ -281,8 +281,33 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
     public ReadbackImage? ReadbackTarget() => _target?.Readback();
 
-    private LyricStyle ResolveStyle(LyricClip? clip) =>
-        string.IsNullOrWhiteSpace(clip?.Style) ? EffectiveStyle : LyricStyle.FromAnyName(clip!.Style) ?? EffectiveStyle;
+    private LyricStyle ResolveStyle(LyricClip? clip)
+    {
+        var style = string.IsNullOrWhiteSpace(clip?.Style) ? EffectiveStyle : LyricStyle.FromAnyName(clip!.Style) ?? EffectiveStyle;
+        return SchemeFor(clip, style);
+    }
+
+    private LyricStyle SchemeFor(LyricClip? clip, LyricStyle style)
+    {
+        var schemes = style.Schemes;
+        var n = schemes.Count;
+        if (clip is null || n <= 1) return style;
+        var index = ClipIndex(clip);
+        if (index < 0) return style;
+        var scheme = 0;
+        var rng = new CameraRng(unchecked((uint)CameraHash.H(MotionSeed, 103)));
+        for (var i = 0; i < index; i++)
+            scheme = (scheme + 1 + (n > 2 ? (int)(rng.Next() * (n - 2)) : 0)) % n;
+        return schemes[scheme];
+    }
+
+    private int ClipIndex(LyricClip clip)
+    {
+        for (var i = 0; i < _clips.Count; i++)
+            if (ReferenceEquals(_clips[i], clip) || string.Equals(_clips[i].Id, clip.Id, StringComparison.Ordinal))
+                return i;
+        return -1;
+    }
 
     private static TreatDef? ResolveTreat(LyricClip clip, LyricStyle style)
     {
@@ -522,7 +547,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 foreach (var fn in tc.GlyphFns)
                 {
                     if (fn(line.GlobalStart + t, lineIndex, t, line.Tokens.Length, line.Tokens[t]) is not { } g) continue;
-                    if (g.Scale != 1f || g.RotDeg != 0f || g.Dx != 0f || g.Dy != 0f)
+                    if (g.Scale != 1f || g.RotDeg != 0f || g.Dx != 0f || g.Dy != 0f || g.Alpha != 1f)
                     {
                         var rot = g.RotDeg * MathF.PI / 180f;
                         xfNow = new GlyphTransform
@@ -554,7 +579,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     private static GlyphTransform TypesetScale(float f)
     {
         if (MathF.Abs(f - 1f) < 1e-3f) return GlyphTransform.Identity;
-        return new GlyphTransform { ScaleX = f, ScaleY = f };
+        return new GlyphTransform { ScaleX = f, ScaleY = f, AlphaScale = 1f };
     }
 
     private static GlyphTransform ComposeTypeset(float f, in GlyphTransform xf)

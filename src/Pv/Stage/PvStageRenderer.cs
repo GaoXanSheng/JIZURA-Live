@@ -44,6 +44,8 @@ public sealed class PvStageRenderer : IDisposable
 
     public TransitionTrack Transitions { get; } = new();
 
+    public void SetDesignSegments(IEnumerable<DesignSegment>? segments) => Transitions.LoadFrom(segments);
+
     private volatile EffectGraph _effects;
 
     private EffectGraph _frameEffects;
