@@ -9,6 +9,38 @@ using Vortice.Mathematics;
 
 namespace JizuraLive.Render.Text;
 
+public readonly record struct GlyphRef(
+    string Text,
+    string Line,
+    int LineIndex,
+    int TokenIndex,
+    int TokenCount,
+    float LocalX,
+    float GlyphWidth,
+    float ScaleFactor,
+    long ClipStartMs,
+    long ClipEndMs);
+
+public readonly record struct GlyphTransform
+{
+    public float ScaleX { get; init; }
+    public float ScaleY { get; init; }
+    public float RotationRad { get; init; }
+    public float OffsetX { get; init; }
+    public float OffsetY { get; init; }
+    public float AlphaScale { get; init; }
+
+    public static GlyphTransform Identity { get; } = new()
+    {
+        ScaleX = 1f,
+        ScaleY = 1f,
+        RotationRad = 0f,
+        OffsetX = 0f,
+        OffsetY = 0f,
+        AlphaScale = 1f,
+    };
+}
+
 public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 {
     private readonly D3DDevice _gpu;
@@ -30,6 +62,9 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     private SentenceLayout? _layout;
     private string? _layoutClipId;
     private float _layoutFontSize = -1f;
+
+    private long _clipStartMs;
+    private long _clipEndMs;
 
     private readonly HashSet<string> _wordsMismatch = new();
 
@@ -92,6 +127,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         _version++;
     }
 
+    public Func<GlyphRef, GlyphTransform>? GlyphTransformFor { get; set; }
+
     public LyricStyle EffectiveStyle => _style ?? LyricStyle.Classic;
 
     public void Render(double time)
@@ -121,6 +158,12 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 var clip = FindClip(cur.ClipId);
                 var style = ResolveStyle(clip);
                 var font = d.Fonts.Get("Microsoft YaHei UI", style.FontSizePx(_scale), weight: Vortice.DirectWrite.FontWeight.Bold);
+
+                if (clip is not null)
+                {
+                    _clipStartMs = clip.StartMs;
+                    _clipEndMs = clip.EndMs;
+                }
 
                 var motion = clip is null ? null : LyricMotion.For(clip, MotionSeed);
                 var mf = clip is null
@@ -283,27 +326,94 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
                     d.Save();
                     d.SetMatrix(new Matrix3x2(scale, 0f, 0f, scale, mcx * (1f - scale), yc * (1f - scale)));
-                    DrawTokens(d, line, span, cx, yc, font, fill, glow, glowDy, stroke, strokeOffsets, a, scratch);
+                    DrawTokens(d, line, span, cx, yc, font, fill, glow, glowDy, stroke, strokeOffsets, a, scratch, i);
                     d.Restore();
                 }
                 else
                 {
-                    DrawTokens(d, line, span, cx, baseline, font, fill, glow, glowDy, stroke, strokeOffsets, a, scratch);
+                    DrawTokens(d, line, span, cx, baseline, font, fill, glow, glowDy, stroke, strokeOffsets, a, scratch, i);
                 }
             }
         }
     }
 
-    private static void DrawTokens(Immediate2D d, LineLayout line, WordSpan span, float cx, float baseline,
+    private void DrawTokens(Immediate2D d, LineLayout line, WordSpan span, float cx, float baseline,
         DwFont font, in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets,
-        float alpha, Paint2D scratch)
+        float alpha, Paint2D scratch, int lineIndex)
     {
+        var xf = GlyphTransformFor;
         for (var t = span.First; t <= span.Last; t++)
-            DrawRun(d, line.Tokens[t], cx + line.X[t], baseline, TextAlign2D.Left, font,
-                fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+        {
+            var gx = cx + line.X[t];
+            var gw = t < line.W.Length ? line.W[t] : 0f;
+            var f = t < line.F.Length ? line.F[t] : 1f;
+            var xfNow = xf is null
+                ? TypesetScale(f)
+                : ComposeTypeset(f, xf(new GlyphRef(
+                    line.Tokens[t], line.Text, lineIndex, t, line.Tokens.Length, line.X[t], gw, f,
+                    _clipStartMs, _clipEndMs)));
+            DrawRun(d, line.Tokens[t], gx, baseline, TextAlign2D.Left, font,
+                fill, glow, glowDy, stroke, strokeOffsets, alpha * xfNow.AlphaScale, scratch,
+                gw * 0.5f, baseline, xfNow);
+        }
+    }
+
+    private static GlyphTransform TypesetScale(float f)
+    {
+        if (MathF.Abs(f - 1f) < 1e-3f) return GlyphTransform.Identity;
+        return new GlyphTransform { ScaleX = f, ScaleY = f };
+    }
+
+    private static GlyphTransform ComposeTypeset(float f, in GlyphTransform xf)
+    {
+        if (MathF.Abs(f - 1f) < 1e-3f) return xf;
+        return new GlyphTransform
+        {
+            ScaleX = xf.ScaleX * f,
+            ScaleY = xf.ScaleY * f,
+            RotationRad = xf.RotationRad,
+            OffsetX = xf.OffsetX,
+            OffsetY = xf.OffsetY,
+            AlphaScale = xf.AlphaScale,
+        };
+    }
+
+    private readonly record struct GlyphXf(float ScaleX, float ScaleY, float Rot, float Ox, float Oy,
+        float CenterOffsetX, float CenterY)
+    {
+        public bool IsIdentity =>
+            MathF.Abs(ScaleX - 1f) < 1e-4f && MathF.Abs(ScaleY - 1f) < 1e-4f &&
+            MathF.Abs(Rot) < 1e-4f && MathF.Abs(Ox) < 1e-4f && MathF.Abs(Oy) < 1e-4f;
     }
 
     private static void DrawRun(Immediate2D d, string text, float x, float baseline, TextAlign2D align, DwFont font,
+        in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets, float alpha,
+        Paint2D scratch, float centerOffsetX = 0f, float centerY = 0f, in GlyphTransform xf = default)
+    {
+        if (text.Length == 0 || alpha <= 0.002f) return;
+
+        var g = new GlyphXf(xf.ScaleX, xf.ScaleY, xf.RotationRad, xf.OffsetX, xf.OffsetY, centerOffsetX, centerY);
+        if (g.IsIdentity || centerOffsetX == 0f)
+        {
+            DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+            return;
+        }
+
+        var ax = x + g.CenterOffsetX;
+        var ay = g.CenterY;
+        var local = x - ax;
+        d.Save();
+        var m = Matrix3x2.CreateTranslation(-ax, -ay);
+        if (MathF.Abs(g.Rot) > 1e-5f)
+            m = Matrix3x2.Multiply(m, Matrix3x2.CreateRotation(g.Rot));
+        m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(g.ScaleX, g.ScaleY));
+        m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(ax + g.Ox, ay + g.Oy));
+        d.SetMatrix(Matrix3x2.Multiply(d.Matrix, m));
+        DrawRunInner(d, text, local, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+        d.Restore();
+    }
+
+    private static void DrawRunInner(Immediate2D d, string text, float x, float baseline, TextAlign2D align, DwFont font,
         in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets, float alpha,
         Paint2D scratch)
     {
@@ -376,31 +486,33 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         for (var li = 0; li < source.Length; li++)
         {
             var text = source[li];
-            var tokens = new List<string>(text.Length);
-            var xs = new List<float>(text.Length);
-            var ws = new List<float>(text.Length);
+            var tokens = TextTypeset.SplitGlyphs(text);
+            var cells = TextTypeset.Line(tokens);
+            var xs = new List<float>(tokens.Count);
+            var ws = new List<float>(tokens.Count);
+            var fs = new List<float>(tokens.Count);
             var spans = new List<WordSpan>();
             var x = 0f;
 
-            for (var c = 0; c < text.Length;)
+            for (var c = 0; c < tokens.Count; c++)
             {
-                var len = char.IsHighSurrogate(text[c]) && c + 1 < text.Length && char.IsLowSurrogate(text[c + 1])
-                    ? 2 : 1;
-                var token = text.Substring(c, len);
+                var token = tokens[c];
+                var cell = cells[c];
+                var glyphW = font.MeasureWidth(token) * (float)cell.F;
 
                 while (w < words.Count && g >= wordOffset[w] + words[w].Text.Length) w++;
                 if (w < words.Count && g >= wordOffset[w])
                 {
-                    if (spans.Count > 0 && spans[^1].Word == w) spans[^1] = spans[^1] with { Last = tokens.Count };
-                    else spans.Add(new WordSpan(w, tokens.Count, tokens.Count));
+                    if (spans.Count > 0 && spans[^1].Word == w) spans[^1] = spans[^1] with { Last = c };
+                    else spans.Add(new WordSpan(w, c, c));
                 }
 
-                tokens.Add(token);
+                fs.Add((float)cell.F);
+                ws.Add(glyphW);
+                x += (float)cell.Gap * font.Size;
                 xs.Add(x);
-                ws.Add(font.MeasureWidth(token));
-                x += ws[^1];
-                g += len;
-                c += len;
+                x += glyphW * (float)cell.Adv;
+                g += token.Length;
             }
 
             var halfLine = x / 2f;
@@ -409,10 +521,11 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
             lines[li] = new LineLayout
             {
                 Text = text,
-                Tokens = [.. tokens],
-                X = [.. xs],
-                W = [.. ws],
-                Spans = [.. spans],
+                Tokens = tokens.ToArray(),
+                X = xs.ToArray(),
+                W = ws.ToArray(),
+                F = fs.ToArray(),
+                Spans = spans.ToArray(),
             };
         }
 
@@ -439,6 +552,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         public string[] Tokens = [];
         public float[] X = [];
         public float[] W = [];
+        public float[] F = [];
         public WordSpan[] Spans = [];
     }
 
