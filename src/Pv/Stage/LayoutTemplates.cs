@@ -63,7 +63,7 @@ public sealed class LayoutTemplate
         if (Blocks.Length == 0) return LayoutBlock.Default;
         if (Blocks.Length == 1) return Blocks[0];
 
-        var lo = Math.Min(MinGlyphs, 0);
+        var lo = Math.Max(MinGlyphs, 0);
         var span = Math.Max(1, MaxGlyphs - lo + 1);
         var band = (glyphCount - lo) * Blocks.Length / span;
         return Blocks[Math.Clamp(band, 0, Blocks.Length - 1)];

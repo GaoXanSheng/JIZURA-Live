@@ -131,6 +131,115 @@ public partial class PvStageWindow
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
         InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
             () => layer.VisualBlend.RimGlow, v => layer.VisualBlend.RimGlow = v));
+
+        if (layer.Decor is { } decor) BuildDecorSection(decor);
+    }
+
+    private void BuildDecorSection(DecorConfig decor)
+    {
+        InspectorHost.Children.Add(SectionTitle("装饰参数"));
+
+        InspectorHost.Children.Add(ConstRow("密度", 0, 300, 1,
+            () => decor.Density, v => decor.Density = v));
+        InspectorHost.Children.Add(ConstRow("速度", 0.2, 3, 0.05,
+            () => decor.Speed, v => decor.Speed = v));
+        InspectorHost.Children.Add(ConstRow("尺寸", 0.3, 3, 0.05,
+            () => decor.Size, v => decor.Size = v));
+        InspectorHost.Children.Add(ConstRow("种子", 1, 9999, 1,
+            () => decor.Seed, v => decor.Seed = (int)Math.Round(v)));
+
+        InspectorHost.Children.Add(DecorColorRow("主色", decor.Color, v => decor.Color = v));
+        InspectorHost.Children.Add(DecorColorRow("辅色", decor.AccentColor, v => decor.AccentColor = v));
+    }
+
+    private FrameworkElement DecorColorRow(string label, string hex, Action<string> write)
+    {
+        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var lab = ThemeText(label, TextSecondaryKey, 12);
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+
+        var host = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(host, 1);
+        row.Children.Add(host);
+
+        var swatch = new Border
+        {
+            Width = 26,
+            Height = 18,
+            CornerRadius = new CornerRadius(4),
+            Background = BrushFromHex(hex),
+            BorderThickness = new Thickness(1),
+            Cursor = Cursors.Hand,
+            ToolTip = "当前颜色",
+        };
+        swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+        host.Children.Add(swatch);
+
+        var box = new TextBox
+        {
+            Text = hex,
+            Width = 78,
+            FontSize = 11,
+            Margin = new Thickness(8, 0, 0, 0),
+            ToolTip = "十六进制颜色 #rrggbb",
+        };
+        box.TextChanged += (_, _) =>
+        {
+            var text = box.Text.Trim();
+            if (!IsHexColor(text)) return;
+            write(text);
+            swatch.Background = BrushFromHex(text);
+        };
+        host.Children.Add(box);
+
+        foreach (var preset in DecorSwatches)
+        {
+            var b = new Border
+            {
+                Width = 18,
+                Height = 18,
+                CornerRadius = new CornerRadius(3),
+                Background = BrushFromHex(preset),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                Margin = new Thickness(4, 0, 0, 0),
+                ToolTip = preset,
+            };
+            b.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+            var value = preset;
+            b.MouseLeftButtonDown += (_, _) => box.Text = value;
+            host.Children.Add(b);
+        }
+
+        return row;
+    }
+
+    private static readonly string[] DecorSwatches =
+        ["#ffffff", "#ffc0d8", "#ffd24a", "#ff8a4a", "#8ad4ff", "#38e1c4"];
+
+    private static bool IsHexColor(string text)
+    {
+        if (text.Length is not (4 or 7) || text[0] != '#') return false;
+        foreach (var c in text.AsSpan(1))
+            if (!Uri.IsHexDigit(c)) return false;
+        return true;
+    }
+
+    private static System.Windows.Media.Brush BrushFromHex(string hex)
+    {
+        try
+        {
+            return new System.Windows.Media.SolidColorBrush(
+                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex)!);
+        }
+        catch
+        {
+            return System.Windows.Media.Brushes.White;
+        }
     }
 
     private FrameworkElement ConstRow(string label, double min, double max, double step,
