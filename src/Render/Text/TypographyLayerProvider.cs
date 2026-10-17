@@ -401,7 +401,6 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
         var ax = x + g.CenterOffsetX;
         var ay = g.CenterY;
-        var local = x - ax;
         d.Save();
         var m = Matrix3x2.CreateTranslation(-ax, -ay);
         if (MathF.Abs(g.Rot) > 1e-5f)
@@ -409,7 +408,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(g.ScaleX, g.ScaleY));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(ax + g.Ox, ay + g.Oy));
         d.SetMatrix(Matrix3x2.Multiply(d.Matrix, m));
-        DrawRunInner(d, text, local, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+        DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
         d.Restore();
     }
 
