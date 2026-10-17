@@ -66,6 +66,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         _wordsMismatch.Clear();
         foreach (var clip in _clips)
         {
+            // 没有词表（空文本 / 零时长句）本来就整句绘制，谈不上「不一致」
             if (clip.Words is not { Count: > 0 } || WordsMatchText(clip)) continue;
             _wordsMismatch.Add(clip.Id);
             if (_mismatchWarned.Add(clip.Id))
