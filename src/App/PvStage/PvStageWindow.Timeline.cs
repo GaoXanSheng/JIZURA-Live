@@ -264,6 +264,7 @@ public partial class PvStageWindow
             case { Span: { } span }:
                 span.Start = start;
                 span.End = end;
+                PublishLyricClips(_lyricClips);
                 break;
             default:
                 return;

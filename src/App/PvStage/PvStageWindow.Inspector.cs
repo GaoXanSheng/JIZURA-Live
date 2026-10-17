@@ -529,7 +529,9 @@ public partial class PvStageWindow
             max = p.Max;
         }
 
-        var addr = new ParamAddress(ParamAddressKind.Layer, _segmentTarget?.Effect?.InstanceId ?? "segment", key);
+        var addr = new ParamAddress(
+            _segmentTarget?.Effect is { } fx ? ParamAddressKind.Effect : ParamAddressKind.Layer,
+            _segmentTarget?.Effect?.InstanceId ?? "segment", key);
         return AnimParamRow(_inspectorRows, addr, key, min, max, Math.Max(0.001, (max - min) / 100),
             () => _segmentTarget?.Effect is { } eff && eff.Values.TryGetValue(key, out var v) ? v
                 : _segmentTarget?.Shot is { } s && s.Params.TryGetValue(key, out var sv) ? sv : value,

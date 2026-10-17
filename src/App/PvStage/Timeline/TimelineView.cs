@@ -16,6 +16,7 @@ public sealed partial class TimelineView : Control
     public const double DesignMaxHeight = 24;
     public const double AutomationHeight = 24;
     public const double ScrollbarHeight = 10;
+    public const double ScrollbarWidth = 6;
 
     internal enum RowKind
     {
@@ -84,6 +85,7 @@ public sealed partial class TimelineView : Control
     public void SetSnapshot(TSnapshot snap)
     {
         _snap = snap ?? throw new ArgumentNullException(nameof(snap));
+        _scrollOffset = 0;
         _viewStart = TimelineMath.ClampViewStart(_viewStart, _pixelsPerSecond, ContentWidth, snap.DurationSeconds);
         _selection.RemoveAll(s =>
         {
@@ -134,6 +136,7 @@ public sealed partial class TimelineView : Control
     protected override void OnRenderSizeChanged(SizeChangedInfo info)
     {
         base.OnRenderSizeChanged(info);
+        ClampScrollOffset();
         InvalidateVisual();
     }
 
@@ -157,22 +160,63 @@ public sealed partial class TimelineView : Control
             rows.Add(new Row(RowKind.Lyrics, 0, top, LyricHeight));
             top += LyricHeight;
         }
-        if (_snap is not null && _snap.DesignTracks.Count > 0)
+
+        double trackTop = top;
+        double viewH = Math.Max(0, contentHeight - trackTop);
+
+        int automationCount = _snap?.Curves.Count ?? 0;
+
+        var populated = new List<int>();
+        if (_snap is not null)
         {
-            double designH = Math.Clamp((contentHeight - top) / _snap.DesignTracks.Count, DesignMinHeight, DesignMaxHeight);
             for (int i = 0; i < _snap.DesignTracks.Count; i++)
-            {
-                rows.Add(new Row(RowKind.Design, i, top, designH));
-                top += designH;
-            }
+                if (_snap.DesignTracks[i].Segments.Count > 0)
+                    populated.Add(i);
         }
+
+        double designH = DesignMaxHeight;
+        if (populated.Count > 0) designH = Math.Clamp(viewH / populated.Count, DesignMinHeight, DesignMaxHeight);
+        double designBlock = populated.Count * designH;
+
+        _trackViewHeight = viewH;
+        _trackTotalHeight = designBlock + automationCount * AutomationHeight;
+        ClampScrollOffset();
+
+        double y = trackTop - _scrollOffset;
+
+        for (int i = 0; i < populated.Count; i++)
+        {
+            rows.Add(new Row(RowKind.Design, populated[i], y, designH));
+            y += designH;
+        }
+
         if (_snap is not null)
             for (int i = 0; i < _snap.Curves.Count; i++)
             {
-                rows.Add(new Row(RowKind.Automation, i, top, AutomationHeight));
-                top += AutomationHeight;
+                rows.Add(new Row(RowKind.Automation, i, y, AutomationHeight));
+                y += AutomationHeight;
             }
+
         return rows;
+    }
+
+    private double _scrollOffset;
+    private double _trackViewHeight;
+    private double _trackTotalHeight;
+
+    private void ClampScrollOffset()
+    {
+        double max = Math.Max(0, _trackTotalHeight - _trackViewHeight);
+        if (_scrollOffset > max) _scrollOffset = max;
+        if (_scrollOffset < 0) _scrollOffset = 0;
+    }
+
+    private void ScrollTracks(double delta)
+    {
+        ClampScrollOffset();
+        double max = Math.Max(0, _trackTotalHeight - _trackViewHeight);
+        _scrollOffset = Math.Clamp(_scrollOffset + delta, 0, max);
+        InvalidateVisual();
     }
 
     private Row? RowAt(double y)

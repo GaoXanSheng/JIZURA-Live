@@ -75,7 +75,7 @@ public static partial class AutoDirector
         string style = (options.Style ?? "dynamic").Trim().ToLowerInvariant();
         if (style is not ("soft" or "dynamic" or "epic")) style = "dynamic";
 
-        CleanupPreviousGeneration(project);
+        var preservedShots = CleanupPreviousGeneration(project);
 
         var song = Song.Build(map, project.LrcText);
         var look = Look.For(style);
@@ -84,7 +84,7 @@ public static partial class AutoDirector
         project.Scene.LyricMotionSeed = options.Seed;
         var rng = new Random(options.Seed);
 
-        BuildCamera(project, song, look, intensity, options.Seed, report);
+        BuildCamera(project, song, look, intensity, options.Seed, report, preservedShots);
         BuildEffects(project, song, look, intensity, rng, report);
         ApplyLyricStyle(project, song);
 
@@ -99,15 +99,19 @@ public static partial class AutoDirector
         return report;
     }
 
-    private static void CleanupPreviousGeneration(DirectorProject project)
+    private static List<CameraShot> CleanupPreviousGeneration(DirectorProject project)
     {
         var autoInstanceIds = new HashSet<string>(StringComparer.Ordinal);
+        var keptInstanceIds = new HashSet<string>(StringComparer.Ordinal);
         for (int i = project.Effects.Nodes.Count - 1; i >= 0; i--)
         {
             var node = project.Effects.Nodes[i];
-            bool legacyAuto = node.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal);
-            if (legacyAuto) node.Source = "auto";
-            if (IsUser(node.Source) || node.Locked) continue;
+            if (string.IsNullOrEmpty(node.Source)) node.Source = "auto";
+            if (IsUser(node.Source) || node.Locked)
+            {
+                keptInstanceIds.Add(node.InstanceId);
+                continue;
+            }
 
             autoInstanceIds.Add(node.InstanceId);
             project.Effects.Nodes.RemoveAt(i);
@@ -116,24 +120,30 @@ public static partial class AutoDirector
         project.Curves.RemoveAll(c =>
         {
             if (c is null) return true;
+            if (IsUser(c.Source) || c.Locked) return false;
+            if (string.IsNullOrEmpty(c.Source)) c.Source = "auto";
             bool legacyAuto =
                 (c.Layer?.StartsWith(LayerPrefix, StringComparison.Ordinal) ?? false) ||
                 (string.IsNullOrEmpty(c.Layer) && CameraParams.Any(p => c.Address == "camera." + p)) ||
                 c.Address.StartsWith($"effect:{AutoPrefix}", StringComparison.Ordinal) ||
                 c.Address.StartsWith($"layer:{AutoLayerPrefix}", StringComparison.Ordinal);
-            if (legacyAuto) c.Source = "auto";
-            if (IsUser(c.Source) || c.Locked) return false;
+            if (keptInstanceIds.Count > 0 && c.Address.StartsWith("effect:", StringComparison.Ordinal))
+                foreach (var id in keptInstanceIds)
+                    if (c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal))
+                        return false;
             return legacyAuto
                 || autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal));
         });
 
         var cameraTrack = project.CameraTrack;
+        var keptShots = new List<CameraShot>();
         if (cameraTrack is not null)
         {
+            keptShots = cameraTrack.Shots.Where(shot => shot is not null
+                                                        && (IsUser(shot.Source) || shot.Locked)).ToList();
             cameraTrack.Shots.RemoveAll(shot =>
             {
                 if (shot is null) return true;
-                if (string.IsNullOrWhiteSpace(shot.Source)) shot.Source = "auto";
                 if (IsUser(shot.Source) || shot.Locked) return false;
                 return true;
             });
@@ -144,6 +154,8 @@ public static partial class AutoDirector
                 .Where(l => !l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)).ToList();
 
         project.LyricStyles.RemoveAll(span => span is null || !(IsUser(span.Source) || span.Locked));
+
+        return keptShots;
     }
 
     public const string AutoLayerPrefix = "autodir_";
@@ -453,7 +465,8 @@ public static partial class AutoDirector
             });
 
         project.Effects.Nodes.RemoveAll(n =>
-            n.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal)
+            !n.Locked && !IsUser(n.Source)
+            && n.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal)
             && Transient.Contains(n.DefId) && n.Windows.Count == 0);
 
         foreach (var n in project.Effects.Nodes)
@@ -471,10 +484,22 @@ public static partial class AutoDirector
     private static EffectNode AddEffect(DirectorProject project, string defId, string role,
         Action<EffectNode>? configure = null, string target = "")
     {
+        string baseId = $"{AutoPrefix}{defId}_{role}";
+        var existing = project.Effects.Nodes.FirstOrDefault(n =>
+            string.Equals(n.InstanceId, baseId, StringComparison.Ordinal));
+        if (existing is not null && (existing.Locked || IsUser(existing.Source)))
+        {
+            existing.Target = target;
+            existing.Enabled = true;
+            existing.Windows.Clear();
+            configure?.Invoke(existing);
+            return existing;
+        }
+
         var node = new EffectNode
         {
             DefId = defId,
-            InstanceId = $"{AutoPrefix}{defId}_{role}",
+            InstanceId = baseId,
             Enabled = true,
             Target = target,
             Source = "auto",
@@ -521,6 +546,9 @@ public static partial class AutoDirector
     {
         curve.NormalizeKeys();
         if (curve.Count < minKeys) return 0;
+        if (project.Curves.Any(c => string.Equals(c.Address, address, StringComparison.Ordinal)
+                                    && string.Equals(c.Layer, layer, StringComparison.Ordinal)))
+            return 0;
         project.Curves.Add(new CurveSave { Address = address, Curve = curve, Layer = layer, Blend = blend, Source = "auto" });
         return curve.Count;
     }

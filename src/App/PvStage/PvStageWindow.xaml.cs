@@ -144,6 +144,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         TheTimeline.SeekRequested += Timeline_SeekRequested;
         TheTimeline.EditCommitted += Timeline_EditCommitted;
+        TheTimeline.SegmentSelected += Timeline_SegmentSelected;
+        TheTimeline.SegmentDeselected += Timeline_SegmentDeselected;
         TheTimeline.Fps = _scene.Fps;
 
         BuildLyricStylePicker();

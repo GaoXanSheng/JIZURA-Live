@@ -53,6 +53,7 @@ public sealed partial class TimelineView
         dc.PushClip(new RectangleGeometry(contentRect));
         foreach (var row in rows)
         {
+            if (row.Top + row.Height <= 0) continue;
             if (row.Top >= contentH) break;
             switch (row.Kind)
             {
@@ -68,6 +69,7 @@ public sealed partial class TimelineView
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, HeaderWidth, h)));
         foreach (var row in rows)
         {
+            if (row.Top + row.Height <= 0) continue;
             if (row.Top >= contentH) break;
             RenderHeader(dc, row);
         }
@@ -79,6 +81,22 @@ public sealed partial class TimelineView
 
         dc.DrawLine(LinePen, new Point(HeaderWidth, 0), new Point(HeaderWidth, h));
         RenderScrollbar(dc, w, h);
+        RenderVerticalScrollbar(dc, w, h);
+    }
+
+    private void RenderVerticalScrollbar(DrawingContext dc, double w, double h)
+    {
+        ClampScrollOffset();
+        double trackTop = ContentHeight - _trackViewHeight;
+        if (_trackTotalHeight <= _trackViewHeight + 1e-9) return;
+        double trackH = _trackViewHeight;
+        double thumbH = Math.Max(20, trackH * _trackViewHeight / _trackTotalHeight);
+        double usable = Math.Max(1, trackH - thumbH);
+        double thumbY = trackTop + usable * _scrollOffset / Math.Max(1, _trackTotalHeight - _trackViewHeight);
+
+        dc.DrawRectangle(RowBrush, null, new Rect(w - ScrollbarWidth, trackTop, ScrollbarWidth, trackH));
+        dc.DrawRoundedRectangle(AccentSoftBrush, null,
+            new Rect(w - ScrollbarWidth + 1, thumbY, ScrollbarWidth - 2, thumbH), 3, 3);
     }
 
     private void RenderRuler(DrawingContext dc, Row row)
@@ -151,11 +169,14 @@ public sealed partial class TimelineView
     private void RenderDesignTrack(DrawingContext dc, Row row)
     {
         double w = ContentWidth;
-        var track = _snap!.DesignTracks[row.Index];
-        bool hasSegments = track.Segments.Count > 0;
-        dc.DrawRectangle(hasSegments ? (row.Index % 2 == 0 ? RowBrush : RowAltBrush) : DesignEmptyBrush,
-            null, new Rect(HeaderWidth, row.Top, w, row.Height));
+        dc.DrawRectangle(DesignEmptyBrush, null, new Rect(HeaderWidth, row.Top, w, row.Height));
         dc.DrawLine(SoftPen, new Point(HeaderWidth, row.Top), new Point(HeaderWidth + w, row.Top));
+        if (row.Index < 0 || _snap is null || row.Index >= _snap.DesignTracks.Count) return;
+
+        var track = _snap.DesignTracks[row.Index];
+        bool hasSegments = track.Segments.Count > 0;
+        if (hasSegments)
+            dc.DrawRectangle(row.Index % 2 == 0 ? RowBrush : RowAltBrush, null, new Rect(HeaderWidth, row.Top, w, row.Height));
         if (!hasSegments) return;
 
         var pen = FrozenPen(SegLockedPenBrush, 1);
@@ -318,7 +339,7 @@ public sealed partial class TimelineView
                 dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(8, row.Top + 5));
                 break;
             case RowKind.Design:
-                if (_snap is not null && row.Index < _snap.DesignTracks.Count)
+                if (_snap is not null && row.Index >= 0 && row.Index < _snap.DesignTracks.Count)
                 {
                     var track = _snap.DesignTracks[row.Index];
                     bool empty = track.Segments.Count == 0;

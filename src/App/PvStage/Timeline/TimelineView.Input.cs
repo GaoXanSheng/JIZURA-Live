@@ -129,6 +129,12 @@ public sealed partial class TimelineView
         if (_snap is null) return;
         e.Handled = true;
 
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+        {
+            ScrollTracks(-e.Delta / 120.0 * AutomationHeight * 3);
+            return;
+        }
+
         double x = Math.Max(0, e.GetPosition(this).X - HeaderWidth);
         if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
@@ -171,7 +177,7 @@ public sealed partial class TimelineView
 
     private void HitDesignSegment(Row row, double time)
     {
-        if (_snap is null || row.Index >= _snap.DesignTracks.Count) return;
+        if (_snap is null || row.Index < 0 || row.Index >= _snap.DesignTracks.Count) return;
         var track = _snap.DesignTracks[row.Index];
 
         TDesignSegment? hit = null;
