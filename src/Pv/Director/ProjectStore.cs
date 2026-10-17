@@ -71,6 +71,8 @@ public static class ProjectStore
 
         SanitizeCameraTrack(project);
 
+        SanitizeDesignSegments(project);
+
         SanitizeLayout(project);
 
         return new ProjectLoadResult(project, null);
@@ -128,6 +130,42 @@ public static class ProjectStore
 
         if (kept < track.Shots.Count) track.Shots.RemoveRange(kept, track.Shots.Count - kept);
         track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+    }
+
+    private static void SanitizeDesignSegments(DirectorProject project)
+    {
+        if (project.DesignSegments.Count == 0) return;
+
+        var kept = 0;
+        for (var i = 0; i < project.DesignSegments.Count; i++)
+        {
+            var seg = project.DesignSegments[i];
+            if (seg is null || !double.IsFinite(seg.Start) || !double.IsFinite(seg.End) || seg.End <= seg.Start)
+            {
+                Log.Warn("[工程存储] 丢弃非法设计段：" + (seg is null ? "(null)" : $"{seg.Start:F3}–{seg.End:F3}"));
+                continue;
+            }
+
+            if (!Enum.IsDefined(seg.Track))
+            {
+                Log.Warn($"[工程存储] 丢弃未知轨种的设计段：{seg.Track}（{seg.Start:F3}–{seg.End:F3}）");
+                continue;
+            }
+
+            seg.Params ??= new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var key in seg.Params.Keys.Where(k => !double.IsFinite(seg.Params[k])).ToList())
+                seg.Params.Remove(key);
+
+            project.DesignSegments[kept++] = seg;
+        }
+
+        if (kept < project.DesignSegments.Count)
+            project.DesignSegments.RemoveRange(kept, project.DesignSegments.Count - kept);
+        project.DesignSegments.Sort((a, b) =>
+        {
+            var c = a.Start.CompareTo(b.Start);
+            return c != 0 ? c : string.CompareOrdinal(a.Id, b.Id);
+        });
     }
 
     private static void SanitizeCurves(DirectorProject project)

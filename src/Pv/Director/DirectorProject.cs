@@ -33,6 +33,8 @@ public sealed class DirectorProject
 
     public List<LyricStyleSpan> LyricStyles { get; set; } = new();
 
+    public List<DesignSegment> DesignSegments { get; set; } = new();
+
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public EditorLayout EditorLayout { get; set; } = new();
 }

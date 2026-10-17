@@ -57,6 +57,17 @@ public sealed class LayoutTemplate
     public LayoutBlock[] Blocks { get; init; } = [LayoutBlock.Default];
 
     public bool Fits(int glyphCount) => glyphCount >= MinGlyphs && glyphCount <= MaxGlyphs;
+
+    public LayoutBlock BlockFor(int glyphCount)
+    {
+        if (Blocks.Length == 0) return LayoutBlock.Default;
+        if (Blocks.Length == 1) return Blocks[0];
+
+        var lo = Math.Min(MinGlyphs, 0);
+        var span = Math.Max(1, MaxGlyphs - lo + 1);
+        var band = (glyphCount - lo) * Blocks.Length / span;
+        return Blocks[Math.Clamp(band, 0, Blocks.Length - 1)];
+    }
 }
 
 public static class LayoutTemplates
@@ -107,6 +118,26 @@ public static class LayoutTemplates
             if (_all[i].Fits(glyphCount))
                 list.Add(_all[i]);
         return list;
+    }
+
+    public static LayoutTemplate Pick(int glyphCount)
+    {
+        LayoutTemplate? best = null;
+        var bestSpan = int.MaxValue;
+        for (var i = 0; i < _all.Length; i++)
+        {
+            if (!_all[i].Fits(glyphCount)) continue;
+            var span = _all[i].MaxGlyphs == int.MaxValue
+                ? int.MaxValue
+                : _all[i].MaxGlyphs - Math.Max(0, _all[i].MinGlyphs);
+            if (span < bestSpan)
+            {
+                best = _all[i];
+                bestSpan = span;
+            }
+        }
+
+        return best ?? Default;
     }
 
     private static LayoutBlock Block(LayoutBlockKind kind, LayoutAlign align, float scale,

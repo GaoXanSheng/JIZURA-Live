@@ -29,6 +29,7 @@ public readonly record struct GlyphTransform
     public float OffsetX { get; init; }
     public float OffsetY { get; init; }
     public float AlphaScale { get; init; }
+    public float SkewRad { get; init; }
 
     public static GlyphTransform Identity { get; } = new()
     {
@@ -38,6 +39,7 @@ public readonly record struct GlyphTransform
         OffsetX = 0f,
         OffsetY = 0f,
         AlphaScale = 1f,
+        SkewRad = 0f,
     };
 }
 
@@ -129,6 +131,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
     public Func<GlyphRef, GlyphTransform>? GlyphTransformFor { get; set; }
 
+    public Func<GlyphRef, GlyphTransform>? OverrideGlyphTransformFor { get; set; }
+
     public LyricStyle EffectiveStyle => _style ?? LyricStyle.Classic;
 
     public void Render(double time)
@@ -166,11 +170,24 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 }
 
                 var motion = clip is null ? null : LyricMotion.For(clip, MotionSeed);
+                var glyphCount = cur.Text.Replace("\r", "").Replace("\n", "").Length;
+                var tpl = LayoutTemplates.Pick(glyphCount);
+                var block = tpl.BlockFor(glyphCount);
+                var blockCx = tpl.Anchor.X * w + block.OffsetX * w;
+                var blockCy = tpl.Anchor.Y * h + block.OffsetY * h;
                 var mf = clip is null
-                    ? new LyricMotion.Frame(1f, System.Numerics.Matrix3x2.Identity, null, w / 2f, h * 0.75f)
-                    : motion!.Evaluate(time, clip, w, h, (float)_scale);
+                    ? new LyricMotion.Frame(1f, System.Numerics.Matrix3x2.Identity, null, blockCx, blockCy)
+                    : motion!.Evaluate(time, clip, w, h, (float)_scale, blockCx / w, blockCy / h);
 
-                var alpha = mf.Alpha;
+                if (motion is not null && clip is not null)
+                    GlyphTransformFor = g =>
+                        GlyphAnim.ToGlyphTransform(
+                            motion.GlyphAt(time, clip, g.TokenIndex, g.TokenCount, w, h, (float)_scale),
+                            block.Scale);
+                else if (OverrideGlyphTransformFor is null)
+                    GlyphTransformFor = null;
+
+                var alpha = mf.Alpha * block.AlphaScale;
                 var cx = mf.Cx;
                 var cy = mf.Cy;
                 var glow = style.GlowColorValue;
@@ -341,7 +358,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         DwFont font, in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets,
         float alpha, Paint2D scratch, int lineIndex)
     {
-        var xf = GlyphTransformFor;
+        var xf = OverrideGlyphTransformFor ?? GlyphTransformFor;
         for (var t = span.First; t <= span.Last; t++)
         {
             var gx = cx + line.X[t];
@@ -375,15 +392,17 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
             OffsetX = xf.OffsetX,
             OffsetY = xf.OffsetY,
             AlphaScale = xf.AlphaScale,
+            SkewRad = xf.SkewRad,
         };
     }
 
     private readonly record struct GlyphXf(float ScaleX, float ScaleY, float Rot, float Ox, float Oy,
-        float CenterOffsetX, float CenterY)
+        float CenterOffsetX, float CenterY, float Skew)
     {
         public bool IsIdentity =>
             MathF.Abs(ScaleX - 1f) < 1e-4f && MathF.Abs(ScaleY - 1f) < 1e-4f &&
-            MathF.Abs(Rot) < 1e-4f && MathF.Abs(Ox) < 1e-4f && MathF.Abs(Oy) < 1e-4f;
+            MathF.Abs(Rot) < 1e-4f && MathF.Abs(Ox) < 1e-4f && MathF.Abs(Oy) < 1e-4f &&
+            MathF.Abs(Skew) < 1e-4f;
     }
 
     private static void DrawRun(Immediate2D d, string text, float x, float baseline, TextAlign2D align, DwFont font,
@@ -392,7 +411,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     {
         if (text.Length == 0 || alpha <= 0.002f) return;
 
-        var g = new GlyphXf(xf.ScaleX, xf.ScaleY, xf.RotationRad, xf.OffsetX, xf.OffsetY, centerOffsetX, centerY);
+        var g = new GlyphXf(xf.ScaleX, xf.ScaleY, xf.RotationRad, xf.OffsetX, xf.OffsetY, centerOffsetX, centerY,
+            xf.SkewRad);
         if (g.IsIdentity || centerOffsetX == 0f)
         {
             DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
@@ -403,6 +423,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         var ay = g.CenterY;
         d.Save();
         var m = Matrix3x2.CreateTranslation(-ax, -ay);
+        if (MathF.Abs(g.Skew) > 1e-5f)
+            m = Matrix3x2.Multiply(m, Matrix3x2.CreateSkew(MathF.Tan(g.Skew), 0f));
         if (MathF.Abs(g.Rot) > 1e-5f)
             m = Matrix3x2.Multiply(m, Matrix3x2.CreateRotation(g.Rot));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(g.ScaleX, g.ScaleY));
