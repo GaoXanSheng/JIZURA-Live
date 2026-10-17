@@ -39,8 +39,10 @@ public sealed class PvStage : IDisposable
     public void PumpImages(in PvFrameContext ctx)
     {
         _images.Clear();
-        foreach (var layer in Scene.Layers)
+        var layers = Scene.Layers;
+        for (var i = 0; i < layers.Count; i++)
         {
+            var layer = layers[i];
             if (!layer.Enabled) continue;
             if (!_providers.TryGetValue(layer.Id, out var provider)) continue;
             var image = provider.Pump(ctx);

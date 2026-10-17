@@ -69,8 +69,10 @@ public sealed class PvStageCompositor
     public void Composite(PvScene scene, PvCamState cam,
         IReadOnlyDictionary<string, PvLayerImage> images, int width, int height)
     {
-        foreach (var layer in scene.Layers)
+        var layers = scene.Layers;
+        for (var i = 0; i < layers.Count; i++)
         {
+            var layer = layers[i];
             if (!layer.Enabled) continue;
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 

@@ -520,8 +520,9 @@ public sealed class PvPipeline : IDisposable
 
     private void ApplyLayerFrame(double time, PvFrameState frame)
     {
-        foreach (var layer in _scene.Layers)
-            frame.SetLayer(layer.Id, BaseLayer(layer, _director, time));
+        var layers = _scene.Layers;
+        for (var i = 0; i < layers.Count; i++)
+            frame.SetLayer(layers[i].Id, BaseLayer(layers[i], _director, time));
     }
 
     private void ApplyCamera(double time, PvFrameState frame)
@@ -533,8 +534,10 @@ public sealed class PvPipeline : IDisposable
 
     public static void ApplyEffectCurves(EffectGraph effects, DirectorEvaluator? curves, double time)
     {
-        foreach (var node in effects.Nodes)
+        var nodes = effects.Nodes;
+        for (var ni = 0; ni < nodes.Count; ni++)
         {
+            var node = nodes[ni];
             if (node is null || string.IsNullOrEmpty(node.InstanceId)) continue;
             var def = EffectCatalog.Get(node.DefId);
             if (def is null) continue;

@@ -9,6 +9,7 @@ public sealed class DwFont : IDisposable
     private readonly Dictionary<int, float> _widthCache = new(256);
     private float _ascent = float.NaN;
     private float _lineHeight = float.NaN;
+    private float _spaceWidth = float.NaN;
 
     public string Family { get; }
     public float Size { get; }
@@ -55,12 +56,34 @@ public sealed class DwFont : IDisposable
 
     public float MeasureWidth(int codepoint)
     {
-        if (_widthCache.TryGetValue(codepoint, out var w)) return w;
         var s = char.ConvertFromUtf32(codepoint);
+        if (string.IsNullOrWhiteSpace(s)) return SpaceWidth;
+        if (_widthCache.TryGetValue(codepoint, out var w)) return w;
         using var layout = _dw.CreateTextLayout(s, Leading, float.MaxValue, float.MaxValue);
         w = layout.Metrics.Width;
         _widthCache[codepoint] = w;
         return w;
+    }
+
+    private float SpaceWidth
+    {
+        get
+        {
+            if (!float.IsNaN(_spaceWidth)) return _spaceWidth;
+            try
+            {
+                var n = MeasureWidth('n');
+                using var layout = _dw.CreateTextLayout("n n", Leading, float.MaxValue, float.MaxValue);
+                var w = layout.Metrics.Width - 2f * n;
+                _spaceWidth = w > 0.01f ? w : Size * 0.3f;
+            }
+            catch
+            {
+                _spaceWidth = Size * 0.3f;
+            }
+
+            return _spaceWidth;
+        }
     }
 
     private float EnsureMetrics(ref float slot, Func<LineMetrics, float> pick)

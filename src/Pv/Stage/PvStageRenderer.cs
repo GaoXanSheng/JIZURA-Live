@@ -148,6 +148,21 @@ public sealed class PvStageRenderer : IDisposable
         }
     }
 
+    private static readonly PvLayerConfig LyricsFallbackLayer = new()
+    {
+        Id = "lyrics_pv",
+        Name = "动效歌词",
+        Kind = PvLayerKind.LyricPv,
+    };
+
+    private PvLayerConfig? FindLayer(string id)
+    {
+        var layers = Stage.Scene.Layers;
+        for (var i = 0; i < layers.Count; i++)
+            if (string.Equals(layers[i].Id, id, StringComparison.Ordinal)) return layers[i];
+        return null;
+    }
+
     public void Composite(ID2D1Bitmap1 target, int width, int height)
     {
         EnsureStageTarget();
@@ -174,8 +189,10 @@ public sealed class PvStageRenderer : IDisposable
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
 
-        foreach (var layer in Stage.Scene.Layers)
+        var frameLayers = Stage.Scene.Layers;
+        for (var li = 0; li < frameLayers.Count; li++)
         {
+            var layer = frameLayers[li];
             if (!layer.Enabled) continue;
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
@@ -198,6 +215,15 @@ public sealed class PvStageRenderer : IDisposable
         foreach (var id in PvStageCompositor.FixedZones)
         {
             if (!images.TryGetValue(id, out var zone) || !zone.HasContent) continue;
+
+            if (string.Equals(id, "lyrics_pv", StringComparison.Ordinal) && FindLayer(id) is null)
+            {
+                var fallback = LyricsFallbackLayer;
+                compositor.CompositeLayer(Stage.Scene, fallback, PvLayerState.From(fallback), zone,
+                    Stage.Camera, _designW, _designH);
+                continue;
+            }
+
             if (!_frameEffects.HasEffectsFor(id))
             {
                 compositor.CompositeFixedZone(id, images, _designW, _designH);
