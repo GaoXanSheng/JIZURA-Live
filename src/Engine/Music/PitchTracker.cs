@@ -22,9 +22,16 @@ public static class PitchTracker
         var wbuf = new float[win];
         var cc = new double[maxLag + 2];
 
+        var gate = EnergyGate;
+        var sorted = new float[n];
+        energy.CopyTo(sorted);
+        Array.Sort(sorted);
+        var p95 = sorted[Math.Min(n - 1, (int)(0.95 * (n - 1)))];
+        if (p95 > 0) gate = p95 * EnergyGate;
+
         for (var f = 0; f < n; f++)
         {
-            if (energy[f] < EnergyGate) continue;
+            if (energy[f] < gate) continue;
             var start = f * hop;
             if (start + win > mono.Length) start = mono.Length - win;
             if (start < 0) break;

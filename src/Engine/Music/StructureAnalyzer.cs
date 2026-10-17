@@ -452,13 +452,14 @@ public static class StructureAnalyzer
             lengthSum[lab] = (lengthSum.TryGetValue(lab, out var l) ? l : 0) + segs[i].C1 - segs[i].C0;
         }
 
+        var totalCells = m > 0 ? segs[m - 1].C1 : 0;
         string? chorus = null;
         double best = double.MinValue;
         foreach (var kv in count)
             if (kv.Value >= 2)
             {
                 var mean = energySum[kv.Key] / kv.Value;
-                var repeatScore = kv.Value * (lengthSum[kv.Key] / kv.Value);
+                var repeatScore = totalCells > 0 ? lengthSum[kv.Key] / totalCells : 0;
                 var joint = 0.6 * repeatScore + 0.4 * mean;
                 if (joint > best) { best = joint; chorus = kv.Key; }
             }

@@ -82,9 +82,8 @@ public static class SongAnalyzer
     private static float[] DecodeAll(WaveStream reader, CancellationToken ct)
     {
         var format = reader.WaveFormat;
-        var bytesPerFrame = format.Channels * 4;
-        var totalFrames = (long)(reader.Length / bytesPerFrame);
-        var buffer = totalFrames > 0 ? new float[Math.Min(totalFrames, int.MaxValue)] : new float[ChunkFloats];
+        var totalSamples = format.Channels > 0 ? (long)(reader.Length / 4) : 0;
+        var buffer = totalSamples > 0 ? new float[Math.Min(totalSamples, int.MaxValue)] : new float[ChunkFloats];
         var samples = (ISampleProvider)reader;
         var chunk = new float[ChunkFloats];
         var length = 0;
@@ -96,7 +95,8 @@ public static class SongAnalyzer
             if (read <= 0) break;
 
             if (length + read > buffer.Length)
-                Array.Resize(ref buffer, length + read);
+                Array.Resize(ref buffer,
+                    (int)Math.Min(int.MaxValue, Math.Max(buffer.Length * 2L, (long)length + read)));
             chunk.AsSpan(0, read).CopyTo(buffer.AsSpan(length));
             length += read;
         }
