@@ -13,8 +13,9 @@ public partial class PvStageWindow
         _pipe?.Renderer.Lyric?.SetClips(_lyricClips);
     }
 
-    private static readonly string[] LyricStyleNames = [.. LyricStyle.PresetNames];
-    private static readonly string[] LyricStyleLabels = [.. LyricStyle.PresetNames.Select(LyricStyleDisplayName)];
+    private static readonly string[] LyricStyleNames = [.. LyricStyle.PresetNames, .. LyricStyle.PackNames];
+    private static readonly string[] LyricStyleLabels =
+        [.. LyricStyle.PresetNames.Select(LyricStyleDisplayName), .. LyricStyle.PackNames.Select(LyricStyleDisplayName)];
 
     private static string LyricStyleDisplayName(string presetName) => presetName switch
     {
@@ -25,6 +26,18 @@ public partial class PvStageWindow
         "Karaoke" => "卡拉OK",
         "Pop" => "弹跳",
         "Typewriter" => "打字机",
+        "Noir" => "黑色电影",
+        "Crimson" => "绯红信号",
+        "Caution" => "警示",
+        "Magenta" => "品红流行",
+        "Paper" => "纸墨",
+        "Hud" => "暗色HUD",
+        "Mint" => "薄荷终端",
+        "Specimen" => "标本",
+        "Transit" => "转运",
+        "Blueprint" => "蓝图",
+        "Rouge" => "胭脂",
+        "Mono" => "单色RGB",
         _ => presetName,
     };
 

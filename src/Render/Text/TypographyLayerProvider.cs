@@ -59,7 +59,16 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
     private LyricStyle? _style;
 
+    private sealed class TreatState
+    {
+        public required TreatDef Def;
+        public required Dictionary<string, object> P = new();
+        public required TreatContext Ctx = null!;
+    }
+
     public int MotionSeed { get; set; } = 1;
+
+    private int _motionSeed => MotionSeed;
 
     private SentenceLayout? _layout;
     private string? _layoutClipId;
@@ -190,40 +199,76 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 var alpha = mf.Alpha * block.AlphaScale;
                 var cx = mf.Cx;
                 var cy = mf.Cy;
-                var glow = style.GlowColorValue;
-                var fill = style.ColorValue;
-                var stroke = style.StrokeColorValue;
-                var strokeOffsets = style.StrokeWidth > 0f ? BuildStrokeOffsets(style.StrokeWidth) : null;
 
                 var anim = NormalizeAnim(style.Anim);
                 var layout = clip is null ? null : GetLayout(clip, font);
+
+                var treatDef = layout is null || clip is null ? null : ResolveTreat(clip, style);
+                var ts = treatDef is null || layout is null || clip is null
+                    ? null
+                    : BeginTreat(treatDef, d, layout, font, cx, cy, alpha, time, clip, style, MotionSeed);
+                var tc = ts?.Ctx;
+
+                var glow = tc?.GlowColor ?? style.GlowColorValue;
+                var glowDy = tc?.GlowSize ?? style.GlowSize;
+                var fill = style.ColorValue;
+                var fillBrush = tc?.Gradient is { Length: > 0 } stops
+                    ? new LinearGradient2D(
+                        new Vector2(tc.Cx - tc.Size * 24f, tc.Top), new Vector2(tc.Cx + tc.Size * 24f, tc.Bottom),
+                        stops.Select(s => new GradientStop2D(s.Pos, s.Color)).ToArray())
+                    : null;
+                var stroke = tc?.StrokeColor ?? style.StrokeColorValue;
+                var strokeOffsets = tc?.StrokeWEm is { } swEm
+                    ? BuildStrokeOffsets(font.Size * swEm)
+                    : style.StrokeWidth > 0f ? BuildStrokeOffsets(style.StrokeWidth) : null;
 
                 d.Save();
                 d.SetMatrix(mf.Matrix);
                 if (mf.Clip is { } clipRect) d.ClipRect(clipRect);
 
-                if (anim is not null && layout is not null)
+                var animEff = anim ?? (tc is { UseKaraokeAnim: true } ? "karaoke" : null);
+                if (animEff is not null && layout is not null)
                 {
-                    DrawAnimated(d, layout, anim, time, cx, cy, alpha, font, fill, glow, style.GlowSize,
-                        stroke, strokeOffsets, style.HighlightColorValue);
+                    RunTreatPass(ts, TreatPass.Pre);
+                    DrawAnimated(d, layout, animEff, time, cx, cy, alpha, font, fill, fillBrush, glow, glowDy,
+                        stroke, strokeOffsets, style.HighlightColorValue, tc);
                 }
                 else
                 {
-                    var blockLines = cur.Text.Split(LineSeparators, StringSplitOptions.None);
-                    var lineHeight = font.LineHeight;
-                    var firstBaseline = cy - (blockLines.Length - 1) * lineHeight / 2f;
-                    var scratch = new Paint2D();
-
-                    for (var i = 0; i < blockLines.Length; i++)
+                    RunTreatPass(ts, TreatPass.Pre);
+                    if (tc is not null && layout is not null && layout.Lines.Length > 0)
                     {
-                        var line = blockLines[i];
-                        if (line.Length == 0) continue;
+                        var lh = layout.LineHeight;
+                        var firstBaseline = cy - (layout.Lines.Length - 1) * lh / 2f;
+                        var scratchT = new Paint2D();
+                        for (var i = 0; i < layout.Lines.Length; i++)
+                        {
+                            var line = layout.Lines[i];
+                            if (line.Tokens.Length == 0) continue;
+                            DrawTokens(d, line, new WordSpan(0, 0, line.Tokens.Length - 1), cx, firstBaseline + i * lh,
+                                font, fill, null, glow, glowDy, stroke, strokeOffsets, alpha, scratchT, i, tc,
+                                applyXf: false);
+                        }
+                    }
+                    else
+                    {
+                        var blockLines = cur.Text.Split(LineSeparators, StringSplitOptions.None);
+                        var lineHeight = font.LineHeight;
+                        var firstBaseline = cy - (blockLines.Length - 1) * lineHeight / 2f;
+                        var scratch = new Paint2D();
 
-                        DrawRun(d, line, cx, firstBaseline + i * lineHeight, TextAlign2D.Center, font,
-                            fill, glow, style.GlowSize, stroke, strokeOffsets, alpha, scratch);
+                        for (var i = 0; i < blockLines.Length; i++)
+                        {
+                            var line = blockLines[i];
+                            if (line.Length == 0) continue;
+
+                            DrawRun(d, line, cx, firstBaseline + i * lineHeight, TextAlign2D.Center, font,
+                                fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+                        }
                     }
                 }
 
+                RunTreatPass(ts, TreatPass.Post);
                 d.Restore();
             }
         }
@@ -237,7 +282,95 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     public ReadbackImage? ReadbackTarget() => _target?.Readback();
 
     private LyricStyle ResolveStyle(LyricClip? clip) =>
-        string.IsNullOrWhiteSpace(clip?.Style) ? EffectiveStyle : LyricStyle.FromName(clip!.Style);
+        string.IsNullOrWhiteSpace(clip?.Style) ? EffectiveStyle : LyricStyle.FromAnyName(clip!.Style) ?? EffectiveStyle;
+
+    private static TreatDef? ResolveTreat(LyricClip clip, LyricStyle style)
+    {
+        var id = clip.Style;
+        if (string.IsNullOrWhiteSpace(id) || id.Trim() is "none" ||
+            LyricStyle.PresetNames.Contains(id.Trim(), StringComparer.OrdinalIgnoreCase)) return null;
+        return TreatPresets.Get(id) ?? TreatPackTreat(id);
+    }
+
+    private static TreatDef? TreatPackTreat(string id) => id.Trim().ToLowerInvariant() switch
+    {
+        "magenta" or "transit" or "caution" => TreatPresets.Get("toneShadow"),
+        "paper" or "specimen" => TreatPresets.Get("fadeChars"),
+        _ => null,
+    };
+
+    private static TreatState? BeginTreat(TreatDef def, Immediate2D d, SentenceLayout layout, DwFont font,
+        float cx, float cy, float alpha, double time, LyricClip clip, LyricStyle style, int motionSeed)
+    {
+        var seed = unchecked((int)CameraHash.H((int)CameraHash.H(clip.Id.GetHashCode()), motionSeed, 7));
+        var rng = new CameraRng((uint)seed);
+        var palette = new TreatPalette
+        {
+            Bg = "#000000",
+            Fg = ToHex(style.ColorValue),
+            Accent = ToHex(style.HighlightColorValue),
+            Sub = "#9A9A9A",
+        };
+        var p = def.Plan(rng, palette);
+        var lines = new List<TreatLine>(layout.Lines.Length);
+        var gStart = 0;
+        var firstBaseline = cy - (layout.Lines.Length - 1) * layout.LineHeight / 2f;
+        for (var i = 0; i < layout.Lines.Length; i++)
+        {
+            var line = layout.Lines[i];
+            lines.Add(new TreatLine
+            {
+                Tokens = line.Tokens,
+                X = line.X,
+                W = line.W,
+                F = line.F,
+                Baseline = firstBaseline + i * layout.LineHeight,
+                GlobalStart = gStart,
+            });
+            gStart += line.Tokens.Length;
+        }
+        var ctx = new TreatContext
+        {
+            Pass = TreatPass.Plan,
+            D = d,
+            Lines = lines,
+            Font = font,
+            Size = font.Size,
+            Cx = cx,
+            LineHeight = layout.LineHeight,
+            Sc = palette,
+            P = p,
+            Lt = LocalSec(time, clip),
+            Ltb = LocalSec(time, clip),
+            Dur = Math.Max(0.01, (clip.EndMs - clip.StartMs) / 1000.0),
+            InDur = 0.35,
+            OutDur = 0.35,
+            PIn = 1.0,
+            POut = 0.0,
+            Alpha = alpha,
+            Seed = seed,
+            Step = 0,
+        };
+        var st = new TreatState { Def = def, P = p, Ctx = ctx };
+        try { def.Draw(ctx); }
+        catch { return null; }
+        return st;
+    }
+
+    private static void RunTreatPass(TreatState? st, TreatPass pass)
+    {
+        if (st is null) return;
+        st.Ctx.Pass = pass;
+        try { st.Def.Draw(st.Ctx); }
+        catch { }
+    }
+
+    private static double LocalSec(double time, LyricClip clip) => time - clip.StartMs / 1000.0;
+
+    private static string ToHex(in Color4 c) =>
+        "#" + ((int)MathF.Round(c.R * 255)).ToString("x2") +
+        ((int)MathF.Round(c.G * 255)).ToString("x2") +
+        ((int)MathF.Round(c.B * 255)).ToString("x2");
 
     private LyricClip? FindClip(string id)
     {
@@ -269,8 +402,9 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
     };
 
     private void DrawAnimated(Immediate2D d, SentenceLayout layout, string anim, double time,
-        float cx, float cy, float alpha, DwFont font, in Color4 fill, in Color4 glow, float glowDy,
-        in Color4 stroke, Vector2[]? strokeOffsets, in Color4 highlight)
+        float cx, float cy, float alpha, DwFont font, in Color4 fill, Brush2D? fillBrush,
+        in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets, in Color4 highlight,
+        TreatContext? tc)
     {
         var tMs = (long)(time * 1000.0);
         var lineHeight = layout.LineHeight;
@@ -283,9 +417,9 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
             for (var i = 0; i < layout.Lines.Length; i++)
             {
                 var line = layout.Lines[i];
-                if (line.Text.Length == 0) continue;
-                DrawRun(d, line.Text, cx, firstBaseline + i * lineHeight, TextAlign2D.Center, font,
-                    fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+                if (line.Tokens.Length == 0) continue;
+                DrawTokens(d, line, new WordSpan(0, 0, line.Tokens.Length - 1), cx, firstBaseline + i * lineHeight, font,
+                    fill, null, glow, glowDy, stroke, strokeOffsets, alpha, scratch, i, tc, applyXf: false);
             }
 
             for (var i = 0; i < layout.Lines.Length; i++)
@@ -308,9 +442,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
                     d.Save();
                     if (left < x1) d.ClipRect(SweepBand(x0, left, baseline, font, pad));
-                    scratch.Brush = new SolidBrush2D(WithAlpha(highlight, alpha));
-                    for (var t = span.First; t <= span.Last; t++)
-                        d.DrawText(line.Tokens[t], cx + line.X[t], baseline, TextAlign2D.Left, font, scratch);
+                    DrawTokens(d, line, span, cx, baseline, font, highlight, null, glow, glowDy, stroke,
+                        strokeOffsets, alpha, scratch, i, tc, applyXf: false);
                     d.Restore();
                 }
             }
@@ -343,12 +476,14 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
                     d.Save();
                     d.SetMatrix(new Matrix3x2(scale, 0f, 0f, scale, mcx * (1f - scale), yc * (1f - scale)));
-                    DrawTokens(d, line, span, cx, yc, font, fill, glow, glowDy, stroke, strokeOffsets, a, scratch, i);
+                    DrawTokens(d, line, span, cx, yc, font, fill, fillBrush, glow, glowDy, stroke, strokeOffsets, a,
+                        scratch, i, tc);
                     d.Restore();
                 }
                 else
                 {
-                    DrawTokens(d, line, span, cx, baseline, font, fill, glow, glowDy, stroke, strokeOffsets, a, scratch, i);
+                    DrawTokens(d, line, span, cx, baseline, font, fill, fillBrush, glow, glowDy, stroke,
+                        strokeOffsets, a, scratch, i, tc);
                 }
             }
         }
@@ -358,20 +493,61 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         DwFont font, in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets,
         float alpha, Paint2D scratch, int lineIndex)
     {
+        DrawTokens(d, line, span, cx, baseline, font, fill, null, glow, glowDy, stroke, strokeOffsets, alpha,
+            scratch, lineIndex, null);
+    }
+
+    private void DrawTokens(Immediate2D d, LineLayout line, WordSpan span, float cx, float baseline,
+        DwFont font, Color4 fill, Brush2D? fillBrush, in Color4 glow, float glowDy, in Color4 stroke,
+        Vector2[]? strokeOffsets, float alpha, Paint2D scratch, int lineIndex, TreatContext? tc,
+        bool applyXf = true)
+    {
         var xf = OverrideGlyphTransformFor ?? GlyphTransformFor;
         for (var t = span.First; t <= span.Last; t++)
         {
             var gx = cx + line.X[t];
             var gw = t < line.W.Length ? line.W[t] : 0f;
             var f = t < line.F.Length ? line.F[t] : 1f;
-            var xfNow = xf is null
+            var xfNow = !applyXf
                 ? TypesetScale(f)
-                : ComposeTypeset(f, xf(new GlyphRef(
-                    line.Tokens[t], line.Text, lineIndex, t, line.Tokens.Length, line.X[t], gw, f,
-                    _clipStartMs, _clipEndMs)));
-            DrawRun(d, line.Tokens[t], gx, baseline, TextAlign2D.Left, font,
+                : xf is null
+                    ? TypesetScale(f)
+                    : ComposeTypeset(f, xf(new GlyphRef(
+                        line.Tokens[t], line.Text, lineIndex, t, line.Tokens.Length, line.X[t], gw, f,
+                        _clipStartMs, _clipEndMs)));
+
+            var gx2 = gx;
+            if (tc is not null)
+            {
+                foreach (var fn in tc.GlyphFns)
+                {
+                    if (fn(line.GlobalStart + t, lineIndex, t, line.Tokens.Length, line.Tokens[t]) is not { } g) continue;
+                    if (g.Scale != 1f || g.RotDeg != 0f || g.Dx != 0f || g.Dy != 0f)
+                    {
+                        var rot = g.RotDeg * MathF.PI / 180f;
+                        xfNow = new GlyphTransform
+                        {
+                            ScaleX = xfNow.ScaleX * g.Scale,
+                            ScaleY = xfNow.ScaleY * g.Scale,
+                            RotationRad = xfNow.RotationRad + rot,
+                            OffsetX = xfNow.OffsetX + g.Dx + (applyXf ? 0f : g.Dx),
+                            OffsetY = xfNow.OffsetY + g.Dy,
+                            AlphaScale = xfNow.AlphaScale * g.Alpha,
+                            SkewRad = xfNow.SkewRad,
+                        };
+                    }
+
+                    if (g.Color is { } gc)
+                    {
+                        fill = gc;
+                        fillBrush = null;
+                    }
+                }
+            }
+
+            DrawRun(d, line.Tokens[t], gx2, baseline, TextAlign2D.Left, font,
                 fill, glow, glowDy, stroke, strokeOffsets, alpha * xfNow.AlphaScale, scratch,
-                gw * 0.5f, baseline, xfNow);
+                gw * 0.5f, baseline, xfNow, fillBrush);
         }
     }
 
@@ -407,15 +583,17 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
     private static void DrawRun(Immediate2D d, string text, float x, float baseline, TextAlign2D align, DwFont font,
         in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets, float alpha,
-        Paint2D scratch, float centerOffsetX = 0f, float centerY = 0f, in GlyphTransform xf = default)
+        Paint2D scratch, float centerOffsetX = 0f, float centerY = 0f, in GlyphTransform xf = default,
+        Brush2D? fillBrush = null, float treatDx = 0f)
     {
         if (text.Length == 0 || alpha <= 0.002f) return;
 
         var g = new GlyphXf(xf.ScaleX, xf.ScaleY, xf.RotationRad, xf.OffsetX, xf.OffsetY, centerOffsetX, centerY,
             xf.SkewRad);
-        if (g.IsIdentity || centerOffsetX == 0f)
+        if ((g.IsIdentity || centerOffsetX == 0f) && MathF.Abs(treatDx) < 1e-3f)
         {
-            DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+            DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha,
+                scratch, fillBrush);
             return;
         }
 
@@ -428,15 +606,16 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         if (MathF.Abs(g.Rot) > 1e-5f)
             m = Matrix3x2.Multiply(m, Matrix3x2.CreateRotation(g.Rot));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(g.ScaleX, g.ScaleY));
-        m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(ax + g.Ox, ay + g.Oy));
+        m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(ax + g.Ox + treatDx, ay + g.Oy));
         d.SetMatrix(Matrix3x2.Multiply(d.Matrix, m));
-        DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha, scratch);
+        DrawRunInner(d, text, x, baseline, align, font, fill, glow, glowDy, stroke, strokeOffsets, alpha,
+            scratch, fillBrush);
         d.Restore();
     }
 
     private static void DrawRunInner(Immediate2D d, string text, float x, float baseline, TextAlign2D align, DwFont font,
         in Color4 fill, in Color4 glow, float glowDy, in Color4 stroke, Vector2[]? strokeOffsets, float alpha,
-        Paint2D scratch)
+        Paint2D scratch, Brush2D? fillBrush = null)
     {
         if (text.Length == 0 || alpha <= 0.002f) return;
 
@@ -453,8 +632,18 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 d.DrawText(text, x + offset.X, baseline + offset.Y, align, font, scratch);
         }
 
-        scratch.Brush = new SolidBrush2D(new Color4(fill.R, fill.G, fill.B, fill.A * alpha));
-        d.DrawText(text, x, baseline, align, font, scratch);
+        if (fillBrush is { } fb)
+        {
+            scratch.Brush = fb;
+            scratch.Alpha = alpha;
+            d.DrawText(text, x, baseline, align, font, scratch);
+            scratch.Alpha = 1f;
+        }
+        else
+        {
+            scratch.Brush = new SolidBrush2D(new Color4(fill.R, fill.G, fill.B, fill.A * alpha));
+            d.DrawText(text, x, baseline, align, font, scratch);
+        }
     }
 
     private static Rect SweepBand(float x0, float x1, float baseline, DwFont font, float pad) =>
@@ -503,6 +692,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         var lines = new LineLayout[source.Length];
         var w = 0;
         var g = 0;
+        var tokenOffset = 0;
 
         for (var li = 0; li < source.Length; li++)
         {
@@ -547,7 +737,9 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 W = ws.ToArray(),
                 F = fs.ToArray(),
                 Spans = spans.ToArray(),
+                GlobalStart = tokenOffset,
             };
+            tokenOffset += tokens.Count;
         }
 
         return new SentenceLayout
@@ -575,6 +767,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         public float[] W = [];
         public float[] F = [];
         public WordSpan[] Spans = [];
+        public int GlobalStart;
     }
 
     private readonly record struct WordSpan(int Word, int First, int Last);
