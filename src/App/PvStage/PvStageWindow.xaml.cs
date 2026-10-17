@@ -57,11 +57,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private string[] _uiLayerIds = Array.Empty<string>();
     private System.Windows.Point _dragStart;
     private PvLayerConfig? _dragLayer;
-    private EffectNode? _dragEffect;
-
-    private EffectNode? _colorNode;
-    private EffectParam? _colorParam;
-    private Border? _colorSwatch;
     private bool _draggingTime;
 
     private bool _exporting;
@@ -156,8 +151,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SetStep(0);
 
         BuildLayerList();
-        BuildEffectRack();
-        BuildPickers();
         BuildInspector();
         RefreshTimeline();
 
@@ -549,7 +542,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             head.Children.Add(headRight);
             stack.Children.Add(head);
 
-            var meta = ThemeText(LayerMetaLabel(layer), TextTertiaryKey, 11);
+            var meta = ThemeText(LayerKindLabel(layer.Kind), TextTertiaryKey, 11);
             meta.Margin = new Thickness(0, 2, 0, 0);
             stack.Children.Add(meta);
 
@@ -633,305 +626,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         return null;
     }
 
-    private void BuildEffectRack()
-    {
-        EffectsHost.Children.Clear();
-        _rackRows.Clear();
-        foreach (var node in _effects.Nodes)
-        {
-            var def = EffectCatalog.Get(node.DefId);
-            if (def is null) continue;
-
-            var card = new Wpf.Ui.Controls.Card
-            {
-                Padding = new Thickness(10, 9, 10, 9),
-                Margin = new Thickness(0, 0, 0, 6),
-                AllowDrop = true,
-                Cursor = Cursors.SizeAll,
-            };
-            card.Tag = node;
-            card.PreviewMouseLeftButtonDown += EffectCard_MouseDown;
-            card.PreviewMouseMove += EffectCard_MouseMove;
-            card.DragOver += EffectCard_DragOver;
-            card.Drop += EffectCard_Drop;
-            card.DragLeave += (_, _) => RestoreCardStroke(card);
-
-            var stack = new StackPanel();
-            card.Content = stack;
-
-            var head = new Grid();
-            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var name = ThemeText(EffectName(def), TextPrimaryKey, 13);
-            Grid.SetColumn(name, 0);
-            head.Children.Add(name);
-
-            var headRight = new StackPanel { Orientation = Orientation.Horizontal };
-            var toggle = new Wpf.Ui.Controls.ToggleSwitch
-            {
-                IsChecked = node.Enabled,
-                ToolTip = "启用 / 停用本效果",
-            };
-            var nRef = node;
-            toggle.Checked += (_, _) =>
-            {
-                nRef.Enabled = true;
-                EffectsChanged();
-            };
-            toggle.Unchecked += (_, _) =>
-            {
-                nRef.Enabled = false;
-                EffectsChanged();
-            };
-            headRight.Children.Add(toggle);
-
-            var del = new Wpf.Ui.Controls.Button
-            {
-                Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
-                Padding = new Thickness(6, 1, 6, 1),
-                Margin = new Thickness(6, 0, 0, 0),
-                Content = "✕",
-                ToolTip = "删除该效果",
-            };
-            del.Click += (_, _) =>
-            {
-                _effects.Nodes.Remove(nRef);
-                _evaluator.RemoveCurvesForTarget(nRef.InstanceId);
-                EffectsChanged();
-                PublishDirector();
-                PushUndo();
-                _saveError = SaveProjectNow();
-                BuildEffectRack();
-            };
-            headRight.Children.Add(del);
-
-            Grid.SetColumn(headRight, 1);
-            head.Children.Add(headRight);
-            stack.Children.Add(head);
-
-            var scopeLabel = string.IsNullOrEmpty(node.Target) ? StageLabel(def.Stage) : "图层效果";
-            var meta = ThemeText($"{scopeLabel} · {CategoryLabel(def.Category)}", TextTertiaryKey, 11);
-            meta.Margin = new Thickness(0, 2, 0, 6);
-            stack.Children.Add(meta);
-
-            var targetRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-            targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var targetLabel = ThemeText("作用范围", TextSecondaryKey, 11);
-            targetLabel.Margin = new Thickness(0, 0, 6, 0);
-            targetLabel.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(targetLabel, 0);
-            targetRow.Children.Add(targetLabel);
-
-            var targetCombo = new ComboBox { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Stretch };
-            var options = EffectTargetOptions();
-            if (!string.IsNullOrEmpty(node.Target) && options.All(o => o.Id != node.Target))
-                options.Add((node.Target, $"（已删除）{node.Target}"));
-
-            int selected = 0;
-            for (int i = 0; i < options.Count; i++)
-            {
-                targetCombo.Items.Add(new ComboBoxItem { Content = options[i].Label, Tag = options[i].Id });
-                if (string.Equals(options[i].Id, node.Target, StringComparison.Ordinal)) selected = i;
-            }
-            targetCombo.SelectedIndex = selected;
-
-            var targetNode = node;
-            targetCombo.SelectionChanged += (_, _) =>
-            {
-                if (targetCombo.SelectedItem is ComboBoxItem item && item.Tag is string id)
-                {
-                    targetNode.Target = id;
-                    EffectsChanged();
-                }
-            };
-            Grid.SetColumn(targetCombo, 1);
-            targetRow.Children.Add(targetCombo);
-            stack.Children.Add(targetRow);
-
-            foreach (var p in def.Params)
-            {
-                switch (p.Kind)
-                {
-                    case EffectParamKind.Number:
-                    {
-                        var nodeRef = node;
-                        var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
-                        stack.Children.Add(AnimParamRow(_rackRows, addr, ParamLabel(p), p.Min, p.Max, p.Step,
-                            () => nodeRef.Value(p), v =>
-                            {
-                                nodeRef.Set(p, (float)v);
-                                EffectsChanged();
-                            }));
-                        break;
-                    }
-                    case EffectParamKind.Bool:
-                    {
-                        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                        var lab = ThemeText(ParamLabel(p), TextSecondaryKey, 12);
-                        Grid.SetColumn(lab, 0);
-                        row.Children.Add(lab);
-                        var sw = new Wpf.Ui.Controls.ToggleSwitch
-                        {
-                            IsChecked = node.Value(p) > 0.5f,
-                        };
-                        var nodeRef = node;
-                        sw.Checked += (_, _) =>
-                        {
-                            nodeRef.Set(p, 1f);
-                            EffectsChanged();
-                        };
-                        sw.Unchecked += (_, _) =>
-                        {
-                            nodeRef.Set(p, 0f);
-                            EffectsChanged();
-                        };
-                        Grid.SetColumn(sw, 1);
-                        row.Children.Add(sw);
-                        stack.Children.Add(row);
-                        break;
-                    }
-                    case EffectParamKind.Color:
-                    {
-                        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                        var lab = ThemeText(ParamLabel(p), TextSecondaryKey, 12);
-                        Grid.SetColumn(lab, 0);
-                        row.Children.Add(lab);
-
-                        var swatch = Swatch(34, 16, node.ColorValue(p));
-                        var nodeRef = node;
-                        var paramRef = p;
-                        var swatchRef = swatch;
-                        swatch.MouseLeftButtonDown += (_, _) =>
-                            OpenColorPicker(nodeRef, paramRef, swatchRef);
-                        Grid.SetColumn(swatch, 1);
-                        row.Children.Add(swatch);
-                        stack.Children.Add(row);
-                        break;
-                    }
-                }
-            }
-
-            EffectsHost.Children.Add(card);
-        }
-
-        RefreshParamRows();
-        var count = _effects.Nodes.Count(n => n.Enabled);
-        TblStatus.Text = $"效果 {count} 段";
-    }
-
-    private List<(string Id, string Label)> EffectTargetOptions()
-    {
-        var list = new List<(string Id, string Label)> { ("", "整帧后期") };
-        foreach (var layer in _scene.Layers)
-            list.Add((layer.Id, $"图层 · {layer.Name}"));
-
-        foreach (var id in PvStageCompositor.FixedZones)
-        {
-            if (_scene.Layers.Any(l => string.Equals(l.Id, id, StringComparison.Ordinal))) continue;
-            list.Add((id, id == "lyrics_pv" ? "图层 · 动效歌词" : "图层 · 清晰字幕"));
-        }
-
-        return list;
-    }
-
-    private static readonly string[] Swatches =
-        ["#ffffff", "#8ad4ff", "#ffd24a", "#ff2080", "#38e1c4", "#ff7a45"];
-
-    private static Border Swatch(double width, double height, string hex)
-    {
-        var border = new Border
-        {
-            Width = width,
-            Height = height,
-            CornerRadius = new CornerRadius(4),
-            Background = BrushFromHex(hex),
-            BorderThickness = new Thickness(1),
-            Cursor = Cursors.Hand,
-        };
-        border.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
-        return border;
-    }
-
-    private void OpenColorPicker(EffectNode node, EffectParam param, Border swatch)
-    {
-        _colorNode = node;
-        _colorParam = param;
-        _colorSwatch = swatch;
-
-        TblColorTarget.Text = $"{EffectName(node)} · {ParamLabel(param)}";
-        TxtHex.Text = node.ColorValue(param);
-
-        SwatchGrid.Items.Clear();
-        foreach (var hex in Swatches)
-        {
-            var b = Swatch(26, 20, hex);
-            b.Margin = new Thickness(0, 0, 3, 3);
-            var hexRef = hex;
-            b.MouseLeftButtonDown += (_, _) => TxtHex.Text = hexRef;
-            SwatchGrid.Items.Add(b);
-        }
-
-        Dispatcher.BeginInvoke(new Action(() => ColorPop.IsOpen = true),
-            System.Windows.Threading.DispatcherPriority.Input);
-    }
-
-    private void TxtHex_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (_colorNode is null || _colorParam is null) return;
-        var hex = TxtHex.Text.Trim();
-        if (hex.Length is not (4 or 7)) return;
-        if (!hex.StartsWith('#')) return;
-        foreach (var c in hex.AsSpan(1))
-            if (!Uri.IsHexDigit(c)) return;
-
-        _colorNode.SetColor(_colorParam, hex);
-        EffectsChanged();
-        if (_colorSwatch is not null) _colorSwatch.Background = BrushFromHex(hex);
-    }
-
-    private static System.Windows.Media.Brush BrushFromHex(string hex)
-    {
-        try
-        {
-            return new System.Windows.Media.SolidColorBrush(
-                (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex)!);
-        }
-        catch
-        {
-            return System.Windows.Media.Brushes.White;
-        }
-    }
-
-    private static string StageLabel(EffectStage stage) => stage switch
-    {
-        EffectStage.Source => "源",
-        EffectStage.Layer => "图层",
-        EffectStage.Composite => "合成",
-        EffectStage.GlobalPost => "整帧后期",
-        EffectStage.Transition => "转场",
-        EffectStage.Output => "输出",
-        _ => stage.ToString(),
-    };
-
-    private static string CategoryLabel(EffectCategory c) => c switch
-    {
-        EffectCategory.ColorGrade => "调色",
-        EffectCategory.LightGlow => "光效",
-        EffectCategory.DistortGlitch => "扭曲故障",
-        EffectCategory.Geometry => "几何",
-        EffectCategory.Texture => "纹理噪点",
-        EffectCategory.Particle => "粒子",
-        EffectCategory.Typography => "文字",
-        EffectCategory.Camera => "镜头",
-        _ => c.ToString(),
-    };
-
     private static string EffectName(EffectDef def) => LocName(def.NameKey, def.Id);
 
     private static string EffectName(EffectNode node) =>
@@ -958,102 +652,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             sb.Append(i == 0 ? char.ToUpperInvariant(c) : c);
         }
         return sb.ToString();
-    }
-
-    private void EffectCard_MouseDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.OriginalSource is DependencyObject d && FindAncestor<System.Windows.Controls.Primitives.RangeBase>(d) is not null) return;
-        _dragStart = e.GetPosition(this);
-        _dragEffect = ((Wpf.Ui.Controls.Card)sender).Tag as EffectNode;
-    }
-
-    private void EffectCard_MouseMove(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed || _dragEffect is null) return;
-        var p = e.GetPosition(this);
-        if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
-            && Math.Abs(p.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance) return;
-
-        DragDrop.DoDragDrop((DependencyObject)sender, _dragEffect, DragDropEffects.Move);
-        _dragEffect = null;
-    }
-
-    private void EffectCard_DragOver(object sender, DragEventArgs e)
-    {
-        if (!e.Data.GetDataPresent(typeof(EffectNode)))
-        {
-            e.Effects = DragDropEffects.None;
-            return;
-        }
-
-        e.Effects = DragDropEffects.Move;
-        MarkCardStroke((Wpf.Ui.Controls.Card)sender, SelectStrokeKey);
-    }
-
-    private void EffectCard_Drop(object sender, DragEventArgs e)
-    {
-        var targetCard = (Wpf.Ui.Controls.Card)sender;
-        RestoreCardStroke(targetCard);
-        if (!e.Data.GetDataPresent(typeof(EffectNode))) return;
-        if (e.Data.GetData(typeof(EffectNode)) is not EffectNode source) return;
-        if (targetCard.Tag is not EffectNode target) return;
-
-        if (!_effects.Move(source, _effects.Nodes.IndexOf(target))) return;
-
-        EffectsChanged();
-        PushUndo();
-        _saveError = SaveProjectNow();
-        BuildEffectRack();
-        TblStatus.Text = $"效果顺序已调整：{EffectName(source)}";
-    }
-
-    private void BuildPickers()
-    {
-        foreach (var def in EffectCatalog.All)
-            CmbAddFx.Items.Add($"{EffectName(def)}  ·  {CategoryLabel(def.Category)}");
-
-        var index = 0;
-        foreach (var label in EffectPresets.PickerLabels())
-        {
-            var preset = EffectPresets.PickerItemAt(index++);
-            CmbPreset.Items.Add(preset is null ? label : LocName(preset.LabelKey, preset.Id));
-        }
-
-        CmbPreset.SelectedIndex = EffectPresets.PickerInitialIndex;
-    }
-
-    private void CmbAddFx_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (CmbAddFx.SelectedIndex < 0) return;
-        var def = EffectCatalog.All[CmbAddFx.SelectedIndex];
-        CmbAddFx.SelectedIndex = -1;
-        _effects.Add(def.Id);
-        EffectsChanged();
-        PushUndo();
-        BuildEffectRack();
-    }
-
-    private void CmbPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        var preset = EffectPresets.PickerItemAt(CmbPreset.SelectedIndex);
-        if (preset is null) return;
-
-        var stale = _effects.Nodes
-            .Select(n => n.InstanceId)
-            .Where(id => !string.IsNullOrEmpty(id))
-            .ToList();
-
-        var g = preset.Build();
-        _effects.Nodes.Clear();
-        foreach (var n in g.Nodes) _effects.Nodes.Add(n);
-
-        foreach (var id in stale) _evaluator.RemoveCurvesForTarget(id);
-
-        EffectsChanged();
-        PublishDirector();
-        PushUndo();
-        _saveError = SaveProjectNow();
-        BuildEffectRack();
     }
 
     private LyricStyle ProjectLyricStyle() => _scene.LyricStyle ?? LyricStyle.FromName(_scene.LyricStyleName);
@@ -1229,12 +827,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         _uiLayerIds = Array.Empty<string>();
         _selectedLayer = null;
-        _colorNode = null;
-        _colorParam = null;
-        _colorSwatch = null;
         _saveError = null;
 
-        BuildEffectRack();
         BuildLayerList();
         TheTimeline.Fps = _scene.Fps;
         RefreshTimeline();
@@ -1722,7 +1316,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         _draggingTime = false;
-        _dragEffect = null;
         _dragLayer = null;
         base.OnPreviewMouseLeftButtonUp(e);
     }
@@ -1863,8 +1456,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private void Nav_Click(object sender, RoutedEventArgs e)
     {
         var index = ReferenceEquals(sender, NavDirector) ? 1
-            : ReferenceEquals(sender, NavEffects) ? 2
-            : ReferenceEquals(sender, NavOutput) ? 3
+            : ReferenceEquals(sender, NavOutput) ? 2
             : 0;
         SetStep(index);
     }
@@ -1875,13 +1467,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         PanelMedia.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
         PanelDirector.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
-        PanelEffects.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
-        PanelOutput.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed;
+        PanelOutput.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
 
         NavMedia.Appearance = AppearanceOf(index == 0);
         NavDirector.Appearance = AppearanceOf(index == 1);
-        NavEffects.Appearance = AppearanceOf(index == 2);
-        NavOutput.Appearance = AppearanceOf(index == 3);
+        NavOutput.Appearance = AppearanceOf(index == 2);
 
         if (index == 0) RefreshMediaPanel();
 
@@ -1963,7 +1553,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void Window_DragOver(object sender, DragEventArgs e)
     {
-        if (e.Data.GetDataPresent(typeof(PvLayerConfig)) || e.Data.GetDataPresent(typeof(EffectNode))) return;
+        if (e.Data.GetDataPresent(typeof(PvLayerConfig))) return;
 
         e.Effects = IsDroppable(e) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;

@@ -29,10 +29,6 @@ public enum EffectCategory
 
     Texture,
 
-    Particle,
-
-    Typography,
-
     Camera,
 }
 

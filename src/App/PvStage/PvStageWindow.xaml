@@ -130,7 +130,6 @@
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
                         <ui:Button x:Name="NavMedia" Content="素材" Appearance="Primary" Margin="0,0,6,0" Click="Nav_Click" />
                         <ui:Button x:Name="NavDirector" Content="导演" Appearance="Transparent" Margin="0,0,6,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavEffects" Content="特效" Appearance="Transparent" Margin="0,0,6,0" Click="Nav_Click" />
                         <ui:Button x:Name="NavOutput" Content="输出" Appearance="Transparent" Click="Nav_Click" />
                     </StackPanel>
 
@@ -185,9 +184,6 @@
                                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                                 <ui:Button x:Name="BtnAddLayer" Content="+ 源" Click="BtnAddLayer_Click"
                                                            ToolTip="添加一路 Spout 源图层，或一层磁盘图片/视频（图片与视频不需要发送端）" />
-                                                <ui:Button x:Name="BtnAddParticles" Content="+ 粒子" Margin="6,0,0,0"
-                                                           Click="BtnAddParticles_Click"
-                                                           ToolTip="添加一层前景粒子：樱花 / 星光 / 光斑" />
                                             </StackPanel>
                                         </Grid>
                                         <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"
@@ -248,41 +244,6 @@
                                         <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
-                                    </StackPanel>
-                                </ui:Card>
-                            </StackPanel>
-                        </ScrollViewer>
-
-                        <ScrollViewer x:Name="PanelEffects" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
-                                      Visibility="Collapsed">
-                            <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <TextBlock Text="效果架" Style="{StaticResource PanelCardTitle}" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="添加效果" Style="{StaticResource PanelRowLabel}" />
-                                            <ComboBox x:Name="CmbAddFx" Grid.Column="1" Width="160"
-                                                      HorizontalAlignment="Right"
-                                                      SelectionChanged="CmbAddFx_SelectionChanged" />
-                                        </Grid>
-                                        <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="按顺序自上而下叠加，拖拽可改序；控件由效果参数 schema 自动生成。" />
-                                        <StackPanel x:Name="EffectsHost" Margin="0,8,0,0" />
-                                    </StackPanel>
-                                </ui:Card>
-
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <TextBlock Text="效果预设" Style="{StaticResource PanelCardTitle}" />
-                                        <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="选一份预设会整份替换当前效果架（含参数与自动生成的曲线）。" />
-                                        <ComboBox x:Name="CmbPreset" Margin="0,8,0,0" HorizontalAlignment="Stretch"
-                                                  SelectionChanged="CmbPreset_SelectionChanged" />
                                     </StackPanel>
                                 </ui:Card>
                             </StackPanel>
@@ -450,27 +411,5 @@
                       ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Cursor="SizeNS" />
 
         <tl:TimelineView x:Name="TheTimeline" Grid.Row="4" />
-
-        <Popup x:Name="ColorPop" StaysOpen="False" AllowsTransparency="True" Placement="Mouse"
-               HorizontalOffset="6" VerticalOffset="6">
-            <Border Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
-                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="6" Padding="10">
-                <StackPanel Width="196">
-                    <TextBlock x:Name="TblColorTarget" FontSize="11"
-                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                    <TextBox x:Name="TxtHex" Margin="0,7,0,0"
-                             FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="12"
-                             TextChanged="TxtHex_TextChanged" />
-                    <ItemsControl x:Name="SwatchGrid" Margin="0,9,0,0">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <UniformGrid Columns="6" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-        </Popup>
     </Grid>
 </ui:FluentWindow>

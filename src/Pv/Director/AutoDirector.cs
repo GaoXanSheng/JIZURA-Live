@@ -87,7 +87,6 @@ public static partial class AutoDirector
         ApplyLyricStyle(project, song);
 
         BuildAnimeFx(project, song, look, style, intensity, new Random(unchecked(options.Seed * 7919 + 1)), report);
-        BuildParticles(project, song, style, intensity, new Random(unchecked(options.Seed * 7919 + 2)), report);
         BuildPerformance(project, song, style);
 
         foreach (var sec in song.Sections)

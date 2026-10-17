@@ -3,6 +3,7 @@ using JizuraLive.App;
 using JizuraLive.Logging;
 using JizuraLive.Render.Effects;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Pv;
 
@@ -51,7 +52,7 @@ public static class ProjectStore
         DirectorProject? project;
         try
         {
-            project = JsonConvert.DeserializeObject<DirectorProject>(json);
+            project = JsonConvert.DeserializeObject<DirectorProject>(StripLegacyParticles(json));
         }
         catch (Exception ex)
         {
@@ -148,6 +149,28 @@ public static class ProjectStore
         if (kept < project.Curves.Count) project.Curves.RemoveRange(kept, project.Curves.Count - kept);
 
         foreach (var save in project.Curves) save.Curve.NormalizeKeys();
+    }
+
+    private static string StripLegacyParticles(string json)
+    {
+        if (!json.Contains("Particles", StringComparison.Ordinal)) return json;
+
+        try
+        {
+            var root = JObject.Parse(json);
+            var scene = root["Scene"];
+            if (scene is null) return json;
+
+            foreach (var layer in scene["Layers"] ?? Enumerable.Empty<JToken>())
+                (layer as JObject)?.Remove("Particles");
+
+            return root.ToString(Formatting.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[工程存储] 剥离旧粒子配置失败，按原文解析：" + ex.Message);
+            return json;
+        }
     }
 
     public static ProjectBootstrap LoadOrImport(string projectPath, string legacyScenePath, string legacyEffectsPath)

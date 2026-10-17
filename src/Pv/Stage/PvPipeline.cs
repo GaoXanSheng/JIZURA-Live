@@ -22,13 +22,11 @@ public sealed class PvPipeline : IDisposable
     private readonly ConcurrentQueue<string> _pendingAdds = new();
     private readonly ConcurrentQueue<string> _pendingImageAdds = new();
     private readonly ConcurrentQueue<string> _pendingVideoAdds = new();
-    private readonly ConcurrentQueue<string> _pendingParticleAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
     private readonly List<SpoutSourceProvider> _spoutProviders = new();
 
-    private readonly List<ParticleLayerProvider> _particles = new();
     private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
     private SpoutSourceProvider? _character;
@@ -161,8 +159,6 @@ public sealed class PvPipeline : IDisposable
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
         _renderer.Lyric?.SetScale(1.0);
 
-        foreach (var p in _particles) p.Render(time);
-
         _renderer.Prepare(time, effects);
     }
 
@@ -186,12 +182,6 @@ public sealed class PvPipeline : IDisposable
     {
         if (string.IsNullOrWhiteSpace(videoPath)) return;
         _pendingVideoAdds.Enqueue(videoPath);
-    }
-
-    public void RequestAddParticles(string kind)
-    {
-        if (string.IsNullOrWhiteSpace(kind)) return;
-        _pendingParticleAdds.Enqueue(kind);
     }
 
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
@@ -264,31 +254,6 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
-    public static PvLayerConfig NewParticleLayer(string id, string kind) => new()
-    {
-        Id = id,
-        Name = ParticleName(kind),
-        Kind = PvLayerKind.ForegroundFx,
-        SpoutSenderName = null,
-        Particles = new PvParticleConfig { Kind = kind, Color = ParticleColor(kind) },
-        Parallax = new PvParallaxConfig { Depth = 1.25 },
-    };
-
-    private static string ParticleName(string kind) => kind switch
-    {
-        "sparkle" => "星光",
-        "bokeh" => "光斑",
-        "sakura" => "樱花",
-        _ => kind,
-    };
-
-    private static string ParticleColor(string kind) => kind switch
-    {
-        "sparkle" => "#fff4c2",
-        "bokeh" => "#bfe3ff",
-        _ => "#ffc0d8",
-    };
-
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
         var tint = PvScene.ParseHex(_scene.AmbientTint);
@@ -306,15 +271,6 @@ public sealed class PvPipeline : IDisposable
 
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
-        if (layer.Particles is not null)
-        {
-            var provider = new ParticleLayerProvider(layer.Id, _renderer.Device, _d2d,
-                layer.Particles, _renderer.DesignWidth, _renderer.DesignHeight);
-            _renderer.Stage.Register(provider);
-            _particles.Add(provider);
-            return;
-        }
-
         if (WantsSpout(layer))
         {
             var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
@@ -371,16 +327,6 @@ public sealed class PvPipeline : IDisposable
             Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
         }
 
-        while (_pendingParticleAdds.TryDequeue(out var kind))
-        {
-            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
-            var layer = NewParticleLayer(id, kind);
-            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
-            RegisterLayerProvider(layer);
-            changed = true;
-            Log.Info($"[PV 管线] 新建粒子图层 '{id}' <- '{kind}'");
-        }
-
         while (_pendingRemoves.TryDequeue(out var id))
         {
             var idx = _scene.Layers.FindIndex(l => l.Id == id);
@@ -390,8 +336,6 @@ public sealed class PvPipeline : IDisposable
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
                 if (p is not null) _spoutProviders.Remove(p);
-                var fx = _particles.FirstOrDefault(x => x.Id == id);
-                if (fx is not null) _particles.Remove(fx);
                 if (_character?.Id == id) _character = null;
                 changed = true;
                 Log.Info($"[PV 管线] 移除图层 '{id}'");
@@ -592,7 +536,6 @@ public sealed class PvPipeline : IDisposable
         Ready = false;
 
         _spoutProviders.Clear();
-        _particles.Clear();
         _character = null;
         _renderer.Overlay = null;
         _subtitle?.Dispose();

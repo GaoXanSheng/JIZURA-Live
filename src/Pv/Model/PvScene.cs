@@ -104,7 +104,7 @@ public sealed class PvScene
         scene.Layers.Add(new PvLayerConfig
         {
             Id = "foreground_fx",
-            Name = "Foreground FX & Particles",
+            Name = "Foreground FX",
             Kind = PvLayerKind.ForegroundFx,
             Enabled = false,
             Parallax = new PvParallaxConfig { Depth = 1.35, RotationFactor = 1.2 },

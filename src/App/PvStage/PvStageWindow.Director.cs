@@ -107,7 +107,6 @@ public partial class PvStageWindow
 
             PublishLyricClips(_lyricClips);
 
-            BuildEffectRack();
             BuildLayerList();
             TheTimeline.Fps = _scene.Fps;
             RefreshTimeline();
@@ -116,7 +115,6 @@ public partial class PvStageWindow
 
             PushUndo();
 
-            int particleLayers = _project.Scene.Layers.Count(l => l.Particles is not null);
             int styleSpans = _project.LyricStyles.Count;
 
             TblAutoReport.Text =
@@ -124,9 +122,9 @@ public partial class PvStageWindow
                 + $"BPM {beatMap.Bpm:F1} · 段落 {beatMap.Sections.Count} 段 · 节拍 {beatMap.Beats.Count} 个\n"
                 + $"段落序列 {SectionSequence(beatMap)}\n"
                 + $"分镜 {report.CameraShots} 个 · 曲线 {report.CurveKeys} 键 · 效果实例 {report.EffectInstances} 个 · 出场 {report.EffectWindows} 段\n"
-                + $"粒子层 {particleLayers} 层 · 歌词样式 {styleSpans} 段";
+                + $"歌词样式 {styleSpans} 段";
             var note = $"{what}完成：第 {_autoSeed} 版 · 分镜 {report.CameraShots} 个 · 特效 {report.EffectInstances} 个（出场 {report.EffectWindows} 段）"
-                       + $" · 粒子层 {particleLayers} · 歌词样式 {styleSpans} 段";
+                       + $" · 歌词样式 {styleSpans} 段";
             ShowStatus(note);
             Log.Info($"[PV 工作台] {note}");
         }

@@ -39,23 +39,6 @@ public sealed class PvVisualBlendConfig
     public double AntiBleedMargin { get; set; } = 0.06;
 }
 
-public sealed class PvParticleConfig
-{
-    public string Kind { get; set; } = "sakura";
-
-    public double Density { get; set; } = 120;
-
-    public double Speed { get; set; } = 1;
-
-    public double Size { get; set; } = 1;
-
-    public string Color { get; set; } = "#ffc0d8";
-
-    public int Seed { get; set; } = 1;
-
-    public List<double> Bursts { get; set; } = new();
-}
-
 public sealed class PvLayerConfig
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
@@ -82,8 +65,6 @@ public sealed class PvLayerConfig
     public string? ImagePath { get; set; }
 
     public string? VideoPath { get; set; }
-
-    public PvParticleConfig? Particles { get; set; }
 
     public bool Premultiplied { get; set; } = true;
 

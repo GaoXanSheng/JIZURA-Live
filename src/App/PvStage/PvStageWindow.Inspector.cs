@@ -25,7 +25,6 @@ public partial class PvStageWindow
     }
 
     private readonly List<AnimRow> _inspectorRows = new();
-    private readonly List<AnimRow> _rackRows = new();
     private bool _syncingRows;
 
     private void SelectLayer(PvLayerConfig? layer)
@@ -362,11 +361,10 @@ public partial class PvStageWindow
 
     private void RefreshParamRows()
     {
-        if (_inspectorRows.Count == 0 && _rackRows.Count == 0) return;
+        if (_inspectorRows.Count == 0) return;
 
         var t = _audio.Time;
         foreach (var row in _inspectorRows) RefreshRow(row, t);
-        foreach (var row in _rackRows) RefreshRow(row, t);
     }
 
     private void RefreshRow(AnimRow row, double time)

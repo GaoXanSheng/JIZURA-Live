@@ -102,11 +102,6 @@ public static class EffectCatalog
             ],
             ["graphic", "retro", "pop"]),
 
-        new("invert", "Fx.Invert", EffectStage.GlobalPost, EffectCategory.ColorGrade,
-            ShaderSources.Invert,
-            [EffectParam.Num("amount", "Fx.Invert.Amount", 0, 0, 0f, 1f, 1f)],
-            ["glitch", "pop", "impact"]),
-
         new("flash", "Fx.Flash", EffectStage.GlobalPost, EffectCategory.LightGlow,
             ShaderSources.Flash,
             [
@@ -124,11 +119,6 @@ public static class EffectCatalog
             ],
             ["impact", "beat", "pop"]),
 
-        new("mosaic", "Fx.Mosaic", EffectStage.GlobalPost, EffectCategory.Geometry,
-            ShaderSources.Mosaic,
-            [EffectParam.Num("block", "Fx.Mosaic.Block", 0, 0, 2f, 96f, 16f, 1f)],
-            ["glitch", "cyber"]),
-
         new("slice", "Fx.Slice", EffectStage.GlobalPost, EffectCategory.Geometry,
             ShaderSources.Slice,
             [
@@ -138,15 +128,6 @@ public static class EffectCatalog
             ],
             ["glitch", "impact", "cyber"]),
 
-        new("block", "Fx.Block", EffectStage.GlobalPost, EffectCategory.DistortGlitch,
-            ShaderSources.Block,
-            [
-                EffectParam.Num("blockSize", "Fx.Block.BlockSize", 0, 0, 4f, 200f, 48f, 1f),
-                EffectParam.Num("amount", "Fx.Block.Amount", 0, 1, 0f, 160f, 36f, 1f),
-                EffectParam.Num("seed", "Fx.Block.Seed", 0, 2, 0f, 999f, 11f, 1f),
-            ],
-            ["glitch", "cyber"]),
-
         new("shake", "Fx.Shake", EffectStage.GlobalPost, EffectCategory.Camera,
             ShaderSources.Shake,
             [
@@ -154,15 +135,6 @@ public static class EffectCatalog
                 EffectParam.Num("rate", "Fx.Shake.Rate", 0, 1, 0.1f, 4f, 1f, 0.05f),
             ],
             ["impact", "beat", "horror"]),
-
-        new("vhs", "Fx.Vhs", EffectStage.GlobalPost, EffectCategory.Texture,
-            ShaderSources.Vhs,
-            [
-                EffectParam.Num("warble", "Fx.Vhs.Warble", 0, 0, 0f, 8f, 1.4f, 0.1f),
-                EffectParam.Num("chroma", "Fx.Vhs.Chroma", 0, 1, 0f, 12f, 2.6f, 0.1f),
-                EffectParam.Num("tracking", "Fx.Vhs.Tracking", 0, 2, 0f, 1f, 0.5f),
-            ],
-            ["retro", "vhs", "glitch"]),
 
         new("lightRays", "Fx.LightRays", EffectStage.GlobalPost, EffectCategory.LightGlow,
             ShaderSources.LightRays,
@@ -183,16 +155,6 @@ public static class EffectCatalog
                 EffectParam.Num("seed", "Fx.GlassShatter.Seed", 0, 3, 0f, 999f, 5f, 1f),
             ],
             ["impact", "glitch", "dramatic"]),
-
-        new("wave", "Fx.Wave", EffectStage.GlobalPost, EffectCategory.DistortGlitch,
-            ShaderSources.Wave,
-            [
-                EffectParam.Num("amount", "Fx.Wave.Amount", 0, 0, 0f, 80f, 16f, 0.5f),
-                EffectParam.Num("wavelength", "Fx.Wave.Wavelength", 0, 1, 10f, 400f, 120f, 5f),
-                EffectParam.Num("speed", "Fx.Wave.Speed", 0, 2, 0f, 4f, 0.8f, 0.05f),
-                EffectParam.Flag("vertical", "Fx.Wave.Vertical", 0, 3, false),
-            ],
-            ["calm", "water", "emotional"]),
 
         new("bloom", "Fx.Bloom", EffectStage.GlobalPost, EffectCategory.LightGlow,
             ShaderSources.BloomComposite,
@@ -314,15 +276,12 @@ public static class EffectCatalog
         ["liquid"] = ("amount", 0f),
         ["glow"] = ("intensity", 0f),
         ["posterize"] = ("strength", 0f),
-        ["invert"] = ("amount", 0f),
         ["flash"] = ("amount", 0f),
         ["zoomPunch"] = ("scale", 1f),
         ["slice"] = ("amount", 0f),
-        ["block"] = ("amount", 0f),
         ["shake"] = ("amount", 0f),
         ["lightRays"] = ("intensity", 0f),
         ["glassShatter"] = ("amount", 0f),
-        ["wave"] = ("amount", 0f),
         ["bloom"] = ("intensity", 0f),
         ["motionBlur"] = ("strength", 0f),
         ["speedLines"] = ("amount", 0f),
@@ -348,13 +307,4 @@ public static class EffectCatalog
         All.ToDictionary(d => d.Id, StringComparer.Ordinal);
 
     public static EffectDef? Get(string id) => ById.GetValueOrDefault(id);
-
-    public static IEnumerable<EffectDef> ByCategory(EffectCategory c) =>
-        All.Where(d => d.Category == c);
-
-    public static IEnumerable<EffectDef> ByStage(EffectStage s) =>
-        All.Where(d => d.Stage == s);
-
-    public static IEnumerable<EffectDef> TaggedWith(string tag) =>
-        All.Where(d => d.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
 }
