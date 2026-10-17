@@ -24,6 +24,8 @@ public sealed class TransitionParams
 
     public Dictionary<string, string> Colors { get; } = new(StringComparer.Ordinal);
 
+    public int Seed { get; set; }
+
     public double Num(string key, double fallback = 0) =>
         Values.TryGetValue(key, out var v) && double.IsFinite(v) ? v : fallback;
 
@@ -137,13 +139,16 @@ public sealed class TransitionRunner : IDisposable
 
             if (technique is null) return;
 
+            var effective = pars ?? technique.Params;
+            ApplyPlan(technique.Id, effective);
+
             _draw.Save();
             _draw.Translate(dest.Left, dest.Top);
             _draw.Scale(dest.Width / _width, dest.Height / _height);
             _draw.PushSurface(_width, _height, clear: true);
             try
             {
-                technique.Blend(_draw, new TransitionFrame(a, b, _width, _height), p, pars ?? technique.Params);
+                technique.Blend(_draw, new TransitionFrame(a, b, _width, _height), p, effective);
             }
             catch (Exception ex)
             {
@@ -158,6 +163,128 @@ public sealed class TransitionRunner : IDisposable
             _draw.End();
         }
     }
+
+    private static void ApplyPlan(string id, TransitionParams pars)
+    {
+        var rng = new CameraRng(unchecked((uint)pars.Seed));
+        switch (id)
+        {
+            case "wipe":
+                Plan(pars, "dir", DirPick(rng, 3.0, 2.0, 1.4, 0.8));
+                break;
+            case "diagonalWipe":
+                Plan(pars, "k", rng.Range(0.3, 0.55) * (Chance(rng, 0.5) != 0 ? 1 : -1));
+                Plan(pars, "rev", Chance(rng, 0.4));
+                break;
+            case "clockWipe":
+                Plan(pars, "dir", Chance(rng, 0.7) != 0 ? 1 : -1);
+                Plan(pars, "a0", rng.Pick(new[] { -90.0, -90.0, 0.0, 180.0 }));
+                break;
+            case "irisOpen":
+                Plan(pars, "x", 0.5 + rng.Range(-0.12, 0.12));
+                Plan(pars, "y", 0.5 + rng.Range(-0.1, 0.1));
+                break;
+            case "pushSlide":
+                Plan(pars, "dir", DirPick(rng, 3.0, 1.6, 1.4, 0.6));
+                break;
+            case "cover":
+                Plan(pars, "dir", DirPick(rng, 2.0, 2.0, 1.5, 1.0));
+                break;
+            case "uncover":
+                Plan(pars, "dir", DirPick(rng, 2.0, 2.0, 1.6, 1.0));
+                break;
+            case "zoomThrough":
+                Plan(pars, "z", rng.Range(1.5, 2.2));
+                break;
+            case "doorsOpen":
+                Plan(pars, "vert", Chance(rng, 0.3));
+                break;
+            case "blinds":
+                Plan(pars, "n", Int(rng, 7, 12));
+                Plan(pars, "vert", Chance(rng, 0.35));
+                Plan(pars, "rev", Chance(rng, 0.4));
+                break;
+            case "checker":
+                Plan(pars, "n", Int(rng, 4, 6));
+                Plan(pars, "rev", Chance(rng, 0.5));
+                break;
+            case "blockDissolve":
+                Plan(pars, "n", Int(rng, 7, 11));
+                Plan(pars, "side", rng.Pick(new[] { 0.0, 0.0, 1.0, 2.0 }));
+                break;
+            case "whipPan":
+                Plan(pars, "dir", Chance(rng, 0.65) != 0 ? -1 : 1);
+                Plan(pars, "vert", Chance(rng, 0.2));
+                break;
+            case "spinOut":
+                Plan(pars, "rot", rng.Range(100, 200) * (Chance(rng, 0.5) != 0 ? 1 : -1));
+                break;
+            case "inkBlob":
+                Plan(pars, "x", rng.Pick(new[] { 0.5, 0.5, 0.15, 0.85 }) + rng.Range(-0.08, 0.08));
+                Plan(pars, "y", rng.Pick(new[] { 0.5, 0.25, 0.8 }) + rng.Range(-0.06, 0.06));
+                break;
+            case "shatterTiles":
+                Plan(pars, "n", Int(rng, 6, 9));
+                Plan(pars, "x", rng.Range(0.3, 0.7));
+                Plan(pars, "y", rng.Range(0.3, 0.6));
+                break;
+            case "sliceShift":
+                Plan(pars, "n", Int(rng, 5, 9));
+                Plan(pars, "vert", Chance(rng, 0.25));
+                break;
+            case "cubeTurn":
+                Plan(pars, "dir", Chance(rng, 0.6) != 0 ? 1 : -1);
+                break;
+            case "flashCross":
+                Plan(pars, "useAccent", Chance(rng, 0.3));
+                break;
+            case "pixelate":
+                Plan(pars, "k", rng.Range(11, 17));
+                break;
+            case "hrStaticCut":
+                Plan(pars, "roll", Chance(rng, 0.6));
+                break;
+            case "hrBlink":
+                Plan(pars, "half", Chance(rng, 0.3));
+                break;
+            case "tyRuleWipe":
+                Plan(pars, "n", Int(rng, 7, 12));
+                Plan(pars, "rtl", Chance(rng, 0.25));
+                break;
+            case "tyGridCells":
+                Plan(pars, "rows", Int(rng, 4, 6));
+                Plan(pars, "tate", Chance(rng, 0.7));
+                break;
+            case "knCornerSwing":
+                Plan(pars, "c", Int(rng, 0, 3));
+                break;
+            case "knStutterCut":
+                Plan(pars, "z", rng.Range(1.05, 1.1));
+                Plan(pars, "o", rng.Range(0.02, 0.035) * rng.Pick(new[] { 1.0, -1.0 }));
+                break;
+            case "knStripSlam":
+                Plan(pars, "n", Int(rng, 3, 5));
+                Plan(pars, "rev", Chance(rng, 0.5));
+                Plan(pars, "up", Chance(rng, 0.25));
+                break;
+            case "channelSwitch":
+                Plan(pars, "seed", Int(rng, 1, 1000000000));
+                break;
+        }
+    }
+
+    private static void Plan(TransitionParams pars, string key, double value)
+    {
+        if (!pars.Values.ContainsKey(key)) pars.Values[key] = value;
+    }
+
+    private static double Chance(CameraRng rng, double p) => rng.Next() < p ? 1.0 : 0.0;
+
+    private static int Int(CameraRng rng, int lo, int hi) =>
+        lo + Math.Min(hi - lo, (int)Math.Floor(rng.Next() * (hi - lo + 1)));
+
+    private static double DirPick(CameraRng rng, double wl, double wr, double wu, double wd) =>
+        rng.WPick(new (double V, double W)[] { (0, wl), (1, wr), (2, wu), (3, wd) });
 
     public void Dispose()
     {
@@ -608,7 +735,7 @@ public static class TransitionCatalog
             var cell = MinD(f) / n;
             var cols = (int)Math.Ceiling(cw / cell);
             var rows = (int)Math.Ceiling(ch / cell);
-            var seed = (int)pars.Num("seed", 7);
+            var seed = pars.Seed;
             var ac = Accent(pars);
 
             DrawImage(d, f.A, cw, ch, 0, 0);
@@ -761,7 +888,7 @@ public static class TransitionCatalog
             var ch = f.Height;
             var cx = cw * pars.Num("x", 0.5);
             var cy = ch * pars.Num("y", 0.5);
-            var seed = (int)pars.Num("seed", 7);
+            var seed = pars.Seed;
             var r = Math.Sqrt(Math.Pow(Math.Max(cx, cw - cx), 2) + Math.Pow(Math.Max(cy, ch - cy), 2)) * 1.36;
             var e = InOutSine(p);
             var rr = r * e;
@@ -815,7 +942,7 @@ public static class TransitionCatalog
             var cell = Math.Max(cw, ch) / (double)n;
             var cols = (int)Math.Ceiling(cw / cell);
             var rows = (int)Math.Ceiling(ch / cell);
-            var seed = (int)pars.Num("seed", 7);
+            var seed = pars.Seed;
             var cx = cw * pars.Num("x", 0.5);
             var cy = ch * pars.Num("y", 0.45);
             var dAll = Math.Sqrt(cw * cw + ch * ch);
@@ -934,8 +1061,11 @@ public static class TransitionCatalog
             var cs = Math.Cos(phi);
             var sn = Math.Sin(phi);
             var dir = pars.Num("dir", 1);
+            var bg = pars.Col("bg", "#000000");
+            var prevBg = pars.Colors.ContainsKey("bgPrev") ? pars.Col("bgPrev", "#000000") : bg;
+            var curBg = pars.Colors.ContainsKey("bgCur") ? pars.Col("bgCur", "#000000") : bg;
 
-            Fill(d, 0, 0, cw, ch, Lerp(Bg(pars), Black, 0.55), 1);
+            Fill(d, 0, 0, cw, ch, Lerp(Lerp(prevBg, curBg, p), Black, 0.55), 1);
 
             (double X, double Y) Prj(double x, double z)
             {
@@ -1295,7 +1425,7 @@ public static class TransitionCatalog
         {
             var cw = f.Width;
             var ch = f.Height;
-            var seed = (int)pars.Num("seed", 1);
+            var seed = pars.Seed ^ (int)pars.Num("seed", 1);
             var step = (int)pars.Num("step", 3);
             var src = p < 0.5 ? f.A : f.B;
             var kp = p < 0.5 ? p * 2 : (p - 0.5) * 2;

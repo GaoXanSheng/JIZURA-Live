@@ -61,6 +61,10 @@ public sealed class DesignSegment
 
     public Dictionary<string, double> Params { get; set; } = new(StringComparer.Ordinal);
 
+    public int Seed { get; set; }
+
+    public Dictionary<string, string>? Colors { get; set; }
+
     public string Source { get; set; } = "user";
 
     public bool Locked { get; set; }
@@ -139,7 +143,8 @@ public static class DesignTracks
     }
 
     public static DesignSegment FromTransition(string technique, double start, double duration,
-        IReadOnlyDictionary<string, double>? pars = null)
+        IReadOnlyDictionary<string, double>? pars = null, int seed = 0,
+        IReadOnlyDictionary<string, string>? colors = null)
     {
         var seg = new DesignSegment
         {
@@ -147,10 +152,17 @@ public static class DesignTracks
             Start = start,
             End = start + Math.Max(0, duration),
             Technique = technique ?? "",
+            Seed = seed,
         };
 
         if (pars is not null)
             foreach (var (key, value) in pars) seg.Params[key] = value;
+
+        if (colors is not null)
+        {
+            seg.Colors = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (key, value) in colors) seg.Colors[key] = value;
+        }
 
         return seg;
     }
@@ -161,10 +173,11 @@ public sealed class TransitionTrack
     public List<DesignSegment> Segments { get; } = new();
 
     public void Add(string technique, double start, double duration,
-        IReadOnlyDictionary<string, double>? pars = null)
+        IReadOnlyDictionary<string, double>? pars = null, int seed = 0,
+        IReadOnlyDictionary<string, string>? colors = null)
     {
         if (string.IsNullOrWhiteSpace(technique) || !double.IsFinite(start) || !(duration > 0)) return;
-        Segments.Add(DesignTracks.FromTransition(technique, start, duration, pars));
+        Segments.Add(DesignTracks.FromTransition(technique, start, duration, pars, seed, colors));
     }
 
     public void Clear() => Segments.Clear();
@@ -176,7 +189,7 @@ public sealed class TransitionTrack
         foreach (var seg in segments)
         {
             if (seg is null || seg.Track != DesignTrackKind.Trans) continue;
-            Add(seg.Technique, seg.Start, seg.End - seg.Start, seg.Params);
+            Add(seg.Technique, seg.Start, seg.End - seg.Start, seg.Params, seg.Seed, seg.Colors);
         }
     }
 

@@ -564,6 +564,17 @@ public static class TreatPresets
                         ctx.StrokeWEm = (float)Math.Max(1.4, ctx.Size * k) / ctx.Size;
                         ctx.GlowColor = TreatMath.Hex(gc, dk ? 1 : 0.7);
                         ctx.GlowSize = ctx.Size * 0.07f;
+                        if (ctx.Num("fl", 0) != 0)
+                        {
+                            var s0 = unchecked((int)CameraHash.H(ctx.Seed, 3, 41));
+                            ctx.GlyphFns.Add((gi, _, _, _, _) =>
+                            {
+                                var r = CameraHash.R(s0, gi, ctx.Step);
+                                return r < 0.03 ? new TreatGlyphXf { Scale = 1f, Alpha = 0.22f }
+                                    : r < 0.05 ? new TreatGlyphXf { Scale = 1f, Alpha = 0.6f }
+                                    : null;
+                            });
+                        }
                     }
                     else if (ctx.Pass == TreatPass.Pre && ctx.Alpha >= 0.5)
                     {
@@ -575,17 +586,6 @@ public static class TreatPresets
                             StrokeColor = gc,
                             StrokeW = ctx.Size * (float)k * 4.5f,
                             Alpha = (float)(TreatMath.IsDark(ctx.Sc.Bg) ? 0.22 : 0.16) * ctx.Alpha,
-                        });
-                    }
-                    else if (ctx.Pass == TreatPass.Post && ctx.Num("fl", 0) != 0)
-                    {
-                        var s0 = unchecked((int)CameraHash.H(ctx.Seed, 3, 41));
-                        ctx.GlyphFns.Add((gi, _, _, _, _) =>
-                        {
-                            var r = CameraHash.R(s0, gi, ctx.Step);
-                            return r < 0.03 ? new TreatGlyphXf { Scale = 1f, Alpha = 0.22f }
-                                : r < 0.05 ? new TreatGlyphXf { Scale = 1f, Alpha = 0.6f }
-                                : null;
                         });
                     }
                 },

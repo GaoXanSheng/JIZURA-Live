@@ -211,12 +211,16 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
 
                 var glow = tc?.GlowColor ?? style.GlowColorValue;
                 var glowDy = tc?.GlowSize ?? style.GlowSize;
-                var fill = style.ColorValue;
-                var fillBrush = tc?.Gradient is { Length: > 0 } stops
-                    ? new LinearGradient2D(
-                        new Vector2(tc.Cx - tc.Size * 24f, tc.Top), new Vector2(tc.Cx + tc.Size * 24f, tc.Bottom),
-                        stops.Select(s => new GradientStop2D(s.Pos, s.Color)).ToArray())
-                    : null;
+                var fill = tc is { HideFill: true }
+                    ? new Color4(style.ColorValue.R, style.ColorValue.G, style.ColorValue.B, 0f)
+                    : style.ColorValue;
+                var fillBrush = tc is null or { HideFill: true }
+                    ? null
+                    : tc.Gradient is { Length: > 0 } stops
+                        ? new LinearGradient2D(
+                            new Vector2(tc.Cx - tc.Size * 24f, tc.Top), new Vector2(tc.Cx + tc.Size * 24f, tc.Bottom),
+                            stops.Select(s => new GradientStop2D(s.Pos, s.Color)).ToArray())
+                        : null;
                 var stroke = tc?.StrokeColor ?? style.StrokeColorValue;
                 var strokeOffsets = tc?.StrokeWEm is { } swEm
                     ? BuildStrokeOffsets(font.Size * swEm)
@@ -246,7 +250,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                             var line = layout.Lines[i];
                             if (line.Tokens.Length == 0) continue;
                             DrawTokens(d, line, new WordSpan(0, 0, line.Tokens.Length - 1), cx, firstBaseline + i * lh,
-                                font, fill, null, glow, glowDy, stroke, strokeOffsets, alpha, scratchT, i, tc,
+                                font, fill, fillBrush, glow, glowDy, stroke, strokeOffsets, alpha, scratchT, i, tc,
                                 applyXf: false);
                         }
                     }
@@ -346,7 +350,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
             lines.Add(new TreatLine
             {
                 Tokens = line.Tokens,
-                X = line.X,
+                X = (float[])line.X.Clone(),
                 W = line.W,
                 F = line.F,
                 Baseline = firstBaseline + i * layout.LineHeight,
@@ -379,6 +383,14 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         var st = new TreatState { Def = def, P = p, Ctx = ctx };
         try { def.Draw(ctx); }
         catch { return null; }
+        var trackPx = ctx.TrackEm * font.Size;
+        if (trackPx != 0f)
+            foreach (var line in lines)
+            {
+                var mid = (line.X.Length - 1) * 0.5f;
+                for (var t = 0; t < line.X.Length; t++)
+                    line.X[t] += (t - mid) * trackPx;
+            }
         return st;
     }
 
@@ -435,6 +447,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         var lineHeight = layout.LineHeight;
         var firstBaseline = cy - (layout.Lines.Length - 1) * lineHeight / 2f;
         var pad = MathF.Max(glowDy, strokeOffsets is null ? 0f : strokeOffsets[0].Length()) + 4f;
+        var trackPx = tc is { TrackEm: not 0f } ? tc.TrackEm * font.Size : 0f;
+        float TrackOf(LineLayout l, int t) => trackPx == 0f ? 0f : (t - (l.Tokens.Length - 1) * 0.5f) * trackPx;
         var scratch = new Paint2D();
 
         if (anim == "karaoke")
@@ -444,7 +458,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                 var line = layout.Lines[i];
                 if (line.Tokens.Length == 0) continue;
                 DrawTokens(d, line, new WordSpan(0, 0, line.Tokens.Length - 1), cx, firstBaseline + i * lineHeight, font,
-                    fill, null, glow, glowDy, stroke, strokeOffsets, alpha, scratch, i, tc, applyXf: false);
+                    fill, fillBrush, glow, glowDy, stroke, strokeOffsets, alpha, scratch, i, tc, applyXf: false);
             }
 
             for (var i = 0; i < layout.Lines.Length; i++)
@@ -459,8 +473,8 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                     if (tMs < wordStart) continue;
 
                     var dur = layout.WordDurMs[span.Word];
-                    var x0 = cx + line.X[span.First];
-                    var x1 = cx + line.X[span.Last] + line.W[span.Last];
+                    var x0 = cx + line.X[span.First] + TrackOf(line, span.First);
+                    var x1 = cx + line.X[span.Last] + line.W[span.Last] + TrackOf(line, span.Last);
                     var left = tMs >= wordStart + dur || dur <= 0
                         ? x1
                         : x0 + (x1 - x0) * ((tMs - wordStart) / (float)dur);
@@ -528,9 +542,10 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
         bool applyXf = true)
     {
         var xf = OverrideGlyphTransformFor ?? GlyphTransformFor;
+        var trackPx = tc is { TrackEm: not 0f } ? tc.TrackEm * font.Size : 0f;
         for (var t = span.First; t <= span.Last; t++)
         {
-            var gx = cx + line.X[t];
+            var gx = cx + line.X[t] + (trackPx == 0f ? 0f : (t - (line.Tokens.Length - 1) * 0.5f) * trackPx);
             var gw = t < line.W.Length ? line.W[t] : 0f;
             var f = t < line.F.Length ? line.F[t] : 1f;
             var xfNow = !applyXf
@@ -555,7 +570,7 @@ public sealed class TypographyLayerProvider : IPvLayerProvider, IDisposable
                             ScaleX = xfNow.ScaleX * g.Scale,
                             ScaleY = xfNow.ScaleY * g.Scale,
                             RotationRad = xfNow.RotationRad + rot,
-                            OffsetX = xfNow.OffsetX + g.Dx + (applyXf ? 0f : g.Dx),
+                            OffsetX = xfNow.OffsetX + g.Dx,
                             OffsetY = xfNow.OffsetY + g.Dy,
                             AlphaScale = xfNow.AlphaScale * g.Alpha,
                             SkewRad = xfNow.SkewRad,
