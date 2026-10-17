@@ -137,4 +137,45 @@ public static class DesignTracks
             Locked = span.Locked,
         };
     }
+
+    public static DesignSegment FromTransition(string technique, double start, double duration,
+        IReadOnlyDictionary<string, double>? pars = null)
+    {
+        var seg = new DesignSegment
+        {
+            Track = DesignTrackKind.Trans,
+            Start = start,
+            End = start + Math.Max(0, duration),
+            Technique = technique ?? "",
+        };
+
+        if (pars is not null)
+            foreach (var (key, value) in pars) seg.Params[key] = value;
+
+        return seg;
+    }
+}
+
+public sealed class TransitionTrack
+{
+    public List<DesignSegment> Segments { get; } = new();
+
+    public void Add(string technique, double start, double duration,
+        IReadOnlyDictionary<string, double>? pars = null)
+    {
+        if (string.IsNullOrWhiteSpace(technique) || !double.IsFinite(start) || !(duration > 0)) return;
+        Segments.Add(DesignTracks.FromTransition(technique, start, duration, pars));
+    }
+
+    public void Clear() => Segments.Clear();
+
+    public DesignSegment? At(double time)
+    {
+        if (!double.IsFinite(time)) return null;
+        foreach (var seg in Segments)
+            if (time >= seg.Start && time < seg.End) return seg;
+        return null;
+    }
+
+    public bool Covers(double time) => At(time) is not null;
 }

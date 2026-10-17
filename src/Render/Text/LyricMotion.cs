@@ -14,6 +14,8 @@ public sealed record LyricMotion(string Enter, string Hold, string Exit, double 
 
     public Dictionary<string, double>? ExitParams { get; init; }
 
+    public static TransitionTrack? Transitions { get; set; }
+
     public readonly record struct Frame(float Alpha, Matrix3x2 Matrix, Rect? Clip, float Cx, float Cy);
 
     public static LyricMotion For(LyricClip clip, int motionSeed)
@@ -44,6 +46,12 @@ public sealed record LyricMotion(string Enter, string Hold, string Exit, double 
         enter = Resolve(MotionPhase.Enter, enter);
         hold = Resolve(MotionPhase.Hold, hold);
         exit = Resolve(MotionPhase.Exit, exit);
+
+        if (Transitions is { } windows)
+        {
+            if (windows.Covers(clip.StartMs / 1000.0)) enter = "cut";
+            if (windows.Covers(clip.EndMs / 1000.0)) exit = "cut";
+        }
 
         double dur = Math.Max(0.1, (clip.EndMs - clip.StartMs) / 1000.0);
         double enterDur = Math.Min(dur * 0.45, 0.45 + rng.Range(0, 0.35));

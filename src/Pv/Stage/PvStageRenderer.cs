@@ -27,12 +27,22 @@ public sealed class PvStageRenderer : IDisposable
 
     private readonly int _designW, _designH;
 
+    private readonly TransitionRunner _transitionRunner;
+
+    private readonly TransitionParams _transParams = new();
+
+    private DesignSegment? _transSeg;
+
+    private bool _transPrimed;
+
     private bool _freezeLast;
 
     private double _frameTime;
 
     public TypographyLayerProvider? Lyric { get; }
     public PvStage Stage { get; }
+
+    public TransitionTrack Transitions { get; } = new();
 
     private volatile EffectGraph _effects;
 
@@ -65,6 +75,8 @@ public sealed class PvStageRenderer : IDisposable
         Stage = new PvStage(scene);
         _designW = Math.Max(16, designWidth);
         _designH = Math.Max(16, designHeight);
+        _transitionRunner = new TransitionRunner(d2d.Draw, _fx.Pool, _designW, _designH);
+        LyricMotion.Transitions = Transitions;
 
         Lyric = new TypographyLayerProvider("lyrics_pv", gpu, d2d, _designW, _designH);
         Stage.Register(Lyric);
@@ -146,6 +158,16 @@ public sealed class PvStageRenderer : IDisposable
         var returns = new List<GpuTexturePool.Entry>();
         var full = new Rect(0, 0, _designW, _designH);
 
+        var transSeg = Transitions.At(_frameTime);
+        var transTech = transSeg is null ? null : TransitionCatalog.Get(transSeg.Technique);
+        if (transTech is not null && (!_transPrimed || !ReferenceEquals(_transSeg, transSeg)))
+        {
+            _transitionRunner.Acquire();
+            BlitInto(_transitionRunner.SurfaceA, _stageTarget!.Bitmap);
+            _transPrimed = true;
+            _transSeg = transSeg;
+        }
+
         d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
@@ -185,6 +207,20 @@ public sealed class PvStageRenderer : IDisposable
         }
 
         d.End();
+        if (transTech is not null && transSeg is not null)
+        {
+            BlitInto(_transitionRunner.SurfaceB, _stageTarget.Bitmap);
+            ApplyTransitionParams(transSeg);
+            _transitionRunner.Composite(_stageTarget.Bitmap, full, transTech,
+                new TransitionWindow(transSeg.Start, transSeg.End).Progress(_frameTime), _transParams);
+        }
+        else if (_transPrimed)
+        {
+            _transitionRunner.Release();
+            _transPrimed = false;
+            _transSeg = null;
+        }
+
         foreach (var entry in returns) _fx.Pool.Return(entry);
         var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -352,6 +388,30 @@ public sealed class PvStageRenderer : IDisposable
         return bmp;
     }
 
+    private void BlitInto(ID2D1Bitmap1? dst, ID2D1Bitmap1 src)
+    {
+        if (dst is null) return;
+        var d = _d2d.Draw;
+        d.SetTarget(dst, _designW, _designH);
+        d.Begin();
+        try
+        {
+            d.Clear(new Color4(0f, 0f, 0f, 0f));
+            d.DrawBitmap(src, new Rect(0, 0, _designW, _designH));
+        }
+        finally
+        {
+            d.End();
+        }
+    }
+
+    private void ApplyTransitionParams(DesignSegment seg)
+    {
+        var values = _transParams.Values;
+        values.Clear();
+        foreach (var (key, value) in seg.Params) values[key] = value;
+    }
+
     private static double Elapsed(long from) =>
         (System.Diagnostics.Stopwatch.GetTimestamp() - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
@@ -359,6 +419,8 @@ public sealed class PvStageRenderer : IDisposable
     {
         _broadcast = null;
         Overlay = null;
+        if (ReferenceEquals(LyricMotion.Transitions, Transitions)) LyricMotion.Transitions = null;
+        _transitionRunner.Dispose();
         ClearFxBitmapCache();
         foreach (var target in _layerTargets.Values) target.Dispose();
         _layerTargets.Clear();
