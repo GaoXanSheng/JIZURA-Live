@@ -412,6 +412,37 @@ public sealed class PvStageRenderer : IDisposable
         var values = _transParams.Values;
         values.Clear();
         foreach (var (key, value) in seg.Params) values[key] = value;
+
+        _transParams.Seed = seg.Seed != 0
+            ? seg.Seed
+            : DeterministicSeed(seg.Start);
+
+        var colors = _transParams.Colors;
+        colors.Clear();
+        if (seg.Colors is not null)
+        {
+            foreach (var (key, value) in seg.Colors) colors[key] = value;
+            return;
+        }
+
+        var scene = Stage.Scene;
+        var style = LyricStyle.FromAnyName(scene.LyricStyleName) ?? LyricStyle.Classic;
+        colors["accent"] = style.HighlightColor;
+        colors["accent2"] = style.Color;
+        colors["bg"] = scene.AmbientTint;
+        colors["bgPrev"] = DarkenedHex(scene.AmbientTint, 0.45);
+        colors["bgCur"] = DarkenedHex(scene.AmbientTint, 0.3);
+    }
+
+    private static int DeterministicSeed(double start) =>
+        unchecked((int)(Math.Round(start * 1000.0) * 2654435761) ^ 0x5f3759df);
+
+    private static string DarkenedHex(string hex, double factor)
+    {
+        var c = PvScene.ParseHex(hex);
+        return $"#{Math.Clamp((int)(c.R * 255 * factor), 0, 255):x2}"
+               + $"{Math.Clamp((int)(c.G * 255 * factor), 0, 255):x2}"
+               + $"{Math.Clamp((int)(c.B * 255 * factor), 0, 255):x2}";
     }
 
     private static double Elapsed(long from) =>

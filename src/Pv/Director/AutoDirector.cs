@@ -20,6 +20,8 @@ public sealed class AutoReport
     public int EffectWindows;
 
     public int CurveKeys;
+    public int DecorLayers;
+    public int TransSegments;
     public List<string> Notes = new();
 }
 
@@ -90,12 +92,15 @@ public static partial class AutoDirector
 
         BuildAnimeFx(project, song, look, style, intensity, new Random(unchecked(options.Seed * 7919 + 1)), report);
         BuildPerformance(project, song, style);
+        BuildDecorLayers(project, song, look, intensity, new Random(unchecked(options.Seed * 104729 + 7)), report);
+        BuildTransitions(project, song, look, intensity, new Random(unchecked(options.Seed * 15485863 + 3)), report);
 
         foreach (var sec in song.Sections)
             report.Notes.Add($"[{sec.Start:F2}s–{sec.End:F2}s] {sec.Kind}（能量 {sec.Energy:F2}）{(song.IsHigh(sec) ? " · 高潮段" : "")}");
         report.Notes.Add($"AutoDirector: Style={style}, Intensity={intensity:F2}, Seed={options.Seed}, "
                          + $"CameraShots={report.CameraShots}, EffectInstances={report.EffectInstances}, "
-                         + $"EffectWindows={report.EffectWindows}, CurveKeys={report.CurveKeys}");
+                         + $"EffectWindows={report.EffectWindows}, CurveKeys={report.CurveKeys}, "
+                         + $"DecorLayers={report.DecorLayers}, TransSegments={report.TransSegments}");
         return report;
     }
 
@@ -154,6 +159,9 @@ public static partial class AutoDirector
                 .Where(l => !l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)).ToList();
 
         project.LyricStyles.RemoveAll(span => span is null || !(IsUser(span.Source) || span.Locked));
+
+        project.DesignSegments.RemoveAll(seg => seg is null
+            || (seg.Track == DesignTrackKind.Trans && !(IsUser(seg.Source) || seg.Locked)));
 
         return keptShots;
     }
@@ -527,6 +535,121 @@ public static partial class AutoDirector
     {
         var p = EffectCatalog.Get(node.DefId)?.Params.FirstOrDefault(x => x.Key == key && x.Kind == EffectParamKind.Color);
         if (p != null) node.SetColor(p, hex);
+    }
+
+    private static void BuildDecorLayers(DirectorProject project, Song song, Look look, double k, Random rng,
+        AutoReport report)
+    {
+        if (!(song.Duration > 0.01) || song.Sections.Count == 0) return;
+
+        string KindFor(Section sec, Look lk)
+        {
+            if (sec.Kind is "intro" or "outro") return lk.Style == "soft" ? DecorCatalog.Snow : DecorCatalog.Fireflies;
+            if (song.IsHigh(sec)) return lk.Style == "epic" ? DecorCatalog.Hanabi : DecorCatalog.Confetti;
+            return lk.Style == "soft" ? DecorCatalog.Petals : DecorCatalog.Fireflies;
+        }
+
+        var spanned = new List<(double Start, double End, string Kind, Section Sec)>();
+        foreach (var sec in song.Sections)
+        {
+            if (sec.End - sec.Start < Math.Max(1.5, song.BarLen)) continue;
+            spanned.Add((sec.Start, sec.End, KindFor(sec, look), sec));
+        }
+        if (spanned.Count == 0) return;
+
+        int i = 0;
+        foreach (var (start, end, kind, sec) in spanned)
+        {
+            bool merged = false;
+            if (start > 0 && rng.NextDouble() > 0.25 + 0.5 * sec.Energy * k) continue;
+            if (i > 0 && spanned[i - 1].Kind == kind && Math.Abs(spanned[i - 1].End - start) < 1e-6)
+            {
+                spanned[i - 1] = (spanned[i - 1].Start, end, kind, spanned[i - 1].Sec);
+                merged = true;
+            }
+            i++;
+            if (merged) continue;
+
+            string id = $"{AutoLayerPrefix}decor_{kind}_{start:F2}";
+            if (project.Scene.Layers.Any(l => string.Equals(l.Id, id, StringComparison.Ordinal))) continue;
+
+            double density = Math.Round(Math.Clamp(20 + 110 * sec.Energy * k, 0, 400) / 5.0) * 5;
+            project.Scene.Layers.Add(new PvLayerConfig
+            {
+                Id = id,
+                Name = $"{DecorCatalog.Label(kind)}（自动）",
+                Kind = PvLayerKind.Decor,
+                Opacity = Math.Clamp(0.45 + 0.4 * sec.Energy * k, 0, 1),
+                Decor = new DecorConfig
+                {
+                    Kinds = { kind },
+                    Density = density,
+                    Speed = Math.Clamp(0.6 + 0.7 * sec.Energy * k, 0.4, 1.8),
+                    Size = Math.Clamp(0.8 + 0.35 * (1 - sec.Energy) * k, 0.6, 1.4),
+                    Color = DecorCatalog.DefaultColor(kind),
+                    AccentColor = DecorCatalog.DefaultAccent(kind),
+                    Seed = 1 + (rng.Next() % 9999),
+                    Bursts = song.IsHigh(sec) && look.Style != "soft"
+                        ? song.DownbeatsIn(start + song.BarLen, end).Where(d => (int)Math.Round((d - start) / song.BarLen) % 4 == 0).ToList()
+                        : new List<double>(),
+                },
+            });
+            report.DecorLayers++;
+        }
+    }
+
+    private static void BuildTransitions(DirectorProject project, Song song, Look look, double k, Random rng,
+        AutoReport report)
+    {
+        if (!(song.Duration > 0.01)) return;
+        if (look.Style == "soft" && !look.SoftCuts) return;
+
+        double rate = Math.Clamp(0.2 + 0.55 * k, 0, 0.9);
+        double transDur = Math.Clamp(song.BeatLen * 1.5, 0.22, 0.6);
+
+        string PickFor(Section sec)
+        {
+            if (song.IsHigh(sec)) return rng.NextDouble() < 0.35 ? "whipPan" : "flashCross";
+            if (sec.Kind is "intro" or "outro") return "hrBlink";
+            return rng.NextDouble() < 0.3 ? "zoomThrough" : "diagonalWipe";
+        }
+
+        for (int s = 1; s < song.Sections.Count; s++)
+        {
+            var prev = song.Sections[s - 1];
+            var sec = song.Sections[s];
+            if (sec.Start <= 0.01 || sec.Start >= song.Duration - 0.01) continue;
+            if (prev.Kind is "intro" && song.IsHigh(sec)) continue;
+            double chance = rate * (song.IsHigh(sec) ? 1.5 : 1.0) * (0.4 + 0.6 * sec.Energy);
+            if (rng.NextDouble() > chance) continue;
+            if (TransitionsLockedNear(project, sec.Start, transDur)) continue;
+            string tech = PickFor(sec);
+            var pars = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (tech is "diagonalWipe" or "whipPan") pars["dir"] = rng.NextDouble() < 0.5 ? 1 : 3;
+            project.DesignSegments.Add(new DesignSegment
+            {
+                Track = DesignTrackKind.Trans,
+                Start = Math.Max(0, sec.Start - transDur * 0.35),
+                End = sec.Start + transDur * 0.65,
+                Technique = tech,
+                Params = pars,
+                Source = "auto",
+                RefId = $"{AutoPrefix}trans_{sec.Start:F2}",
+            });
+            report.TransSegments++;
+        }
+
+        project.DesignSegments.Sort((a, b) => a.Start.CompareTo(b.Start));
+    }
+
+    private static bool TransitionsLockedNear(DirectorProject project, double time, double dur)
+    {
+        foreach (var seg in project.DesignSegments)
+        {
+            if (seg is null || seg.Track != DesignTrackKind.Trans || !seg.Locked) continue;
+            if (time >= seg.Start - dur * 0.5 && time <= seg.End + dur * 0.5) return true;
+        }
+        return false;
     }
 
     private static void ApplyLyricStyle(DirectorProject project, Song song)
