@@ -154,7 +154,6 @@ public sealed class PvStageCompositor
     public void CompositeFixedZone(string id, IReadOnlyDictionary<string, PvLayerImage> images,
         int width, int height)
     {
-        if (string.Equals(id, "lyrics_pv", StringComparison.Ordinal)) return;
         if (!images.TryGetValue(id, out var zone) || !zone.HasContent) return;
         var dest = FitRect(zone, false, width, height);
         if (zone.Bitmap is not null) _draw.DrawBitmap(zone.Bitmap, dest, 1f);
