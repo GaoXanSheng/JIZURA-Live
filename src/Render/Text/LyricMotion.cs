@@ -91,7 +91,7 @@ public sealed record LyricMotion(string Enter, string Hold, string Exit, double 
 
         var m = Matrix3x2.CreateTranslation(-cx, -cy);
         if (Math.Abs(rot) > 0.01)
-            m = Matrix3x2.Multiply(m, Matrix3x2.CreateRotation((float)(rot * Math.PI / 180.0)));
+            m = Matrix3x2.Multiply(m, Matrix3x2.CreateRotation((float)rot));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale((float)(sx * HomeScale), (float)(sy * HomeScale)));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation((float)(cx + dx), (float)(cy + dy)));
 
