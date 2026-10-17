@@ -51,7 +51,8 @@ public partial class PvStageWindow
 
         var fx = new TDesignTrack { Kind = DesignTrackKind.Fx };
         foreach (var node in _effects.Nodes)
-            fx.Segments.Add(ToTSegment(DesignTracks.FromEffectNode(node, duration)));
+            foreach (var seg in DesignTracks.FromEffectNode(node, duration))
+                fx.Segments.Add(ToTSegment(seg));
 
         var cam = new TDesignTrack { Kind = DesignTrackKind.Cam };
         var shots = _project.CameraTrack?.Shots ?? new List<CameraShot>();
@@ -193,8 +194,15 @@ public partial class PvStageWindow
 
     private static long ToMs(double seconds) => (long)Math.Round(seconds * 1000.0);
 
-    private EffectNode? FindEffectNode(string refId) =>
-        _effects.Nodes.FirstOrDefault(n => string.Equals(n.InstanceId, refId, StringComparison.Ordinal));
+    private (EffectNode?, int) ResolveEffectRef(string refId)
+    {
+        int hash = refId.IndexOf('#');
+        string instanceId = hash < 0 ? refId : refId[..hash];
+        int window = hash < 0 ? -1
+            : int.TryParse(refId[(hash + 1)..], NumberStyles.Integer, CultureInfo.InvariantCulture, out int w) ? w : -1;
+        var node = _effects.Nodes.FirstOrDefault(n => string.Equals(n.InstanceId, instanceId, StringComparison.Ordinal));
+        return (node, window);
+    }
 
     private CameraShot? FindCameraShot(string refId)
     {
@@ -212,9 +220,12 @@ public partial class PvStageWindow
     private void Timeline_SegmentSelected(TDesignSegment seg)
     {
         if (seg.Track == (int)DesignTrackKind.Fx)
-            _segmentTarget = FindEffectNode(seg.RefId) is { } node
-                ? SegmentTarget.Of(node)
-                : null;
+        {
+            var (node, window) = ResolveEffectRef(seg.RefId);
+            _segmentTarget = node is null
+                ? null
+                : window >= 0 ? SegmentTarget.OfEffectWindow(node, window) : SegmentTarget.Of(node);
+        }
         else if (seg.Track == (int)DesignTrackKind.Cam)
             _segmentTarget = FindCameraShot(seg.RefId) is { } shot
                 ? SegmentTarget.Of(shot)
@@ -242,19 +253,58 @@ public partial class PvStageWindow
         public EffectNode? Effect;
         public CameraShot? Shot;
         public LyricStyleSpan? Span;
+        public int WindowIndex = -1;
 
         public static SegmentTarget Of(EffectNode node) => new() { Effect = node };
+        public static SegmentTarget OfEffectWindow(EffectNode node, int windowIndex) => new() { Effect = node, WindowIndex = windowIndex };
         public static SegmentTarget Of(CameraShot shot) => new() { Shot = shot };
         public static SegmentTarget Of(LyricStyleSpan span) => new() { Span = span };
     }
 
     private void WriteSegmentTime(double start, double end, double fadeIn, double fadeOut)
     {
+        if (double.IsNaN(start) || double.IsNaN(end) || double.IsNaN(fadeIn) || double.IsNaN(fadeOut)
+            || double.IsInfinity(start) || double.IsInfinity(end) || double.IsInfinity(fadeIn) || double.IsInfinity(fadeOut))
+        {
+            TblStatus.Text = "段时间未生效：时间值必须是有限数";
+            return;
+        }
+
+        if (end <= start)
+        {
+            TblStatus.Text = $"段时间未生效：结束 {end:F3}s 必须大于开始 {start:F3}s";
+            return;
+        }
+
+        start = Math.Max(0, start);
+        fadeIn = Math.Max(0, fadeIn);
+        fadeOut = Math.Max(0, fadeOut);
+        double length = end - start;
+        if (fadeIn + fadeOut > length)
+        {
+            double overflow = fadeIn + fadeOut - length;
+            if (fadeIn >= fadeOut) fadeIn = Math.Max(0, fadeIn - overflow);
+            else fadeOut = Math.Max(0, fadeOut - overflow);
+            TblStatus.Text = $"淡入淡出之和已收敛到段长内（{start:F3}s – {end:F3}s）";
+        }
+
         switch (_segmentTarget)
         {
+            case { Effect: { } node, WindowIndex: >= 0 } target:
+                if (target.WindowIndex < node.Windows.Count && node.Windows[target.WindowIndex].IsValid)
+                    node.Windows[target.WindowIndex] = new EffectWindow(start, end, fadeIn, fadeOut);
+                else
+                {
+                    TblStatus.Text = "效果段未生效：对应窗口已不存在";
+                    return;
+                }
+                EffectsChanged();
+                break;
             case { Effect: { } node }:
                 if (node.Windows.Count > 0)
                     node.Windows[0] = new EffectWindow(start, end, fadeIn, fadeOut);
+                else if (new EffectWindow(start, end, fadeIn, fadeOut).IsValid)
+                    node.Windows.Add(new EffectWindow(start, end, fadeIn, fadeOut));
                 EffectsChanged();
                 break;
             case { Shot: { } shot }:

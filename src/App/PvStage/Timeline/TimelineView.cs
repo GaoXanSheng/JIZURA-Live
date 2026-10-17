@@ -122,6 +122,12 @@ public sealed partial class TimelineView : Control
         SegmentDeselected?.Invoke();
     }
 
+    public void ClearDesignSelection()
+    {
+        ClearSegmentSelection();
+        InvalidateVisual();
+    }
+
     public event Action? SegmentDeselected;
 
     protected override Size MeasureOverride(Size availableSize)

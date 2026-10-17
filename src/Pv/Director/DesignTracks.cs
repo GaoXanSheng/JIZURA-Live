@@ -70,24 +70,41 @@ public sealed class DesignSegment
 
 public static class DesignTracks
 {
-    public static DesignSegment FromEffectNode(EffectNode node, double duration = 0)
+    public static List<DesignSegment> FromEffectNode(EffectNode node, double duration = 0)
     {
-        var w = node.Windows.Count > 0 ? node.Windows[0] : default;
+        var segments = new List<DesignSegment>();
+        for (int i = 0; i < node.Windows.Count; i++)
+        {
+            var w = node.Windows[i];
+            if (!w.IsValid) continue;
+            segments.Add(new DesignSegment
+            {
+                Track = DesignTrackKind.Fx,
+                Start = w.Start,
+                End = w.End,
+                FadeIn = w.FadeIn,
+                FadeOut = w.FadeOut,
+                Technique = node.DefId,
+                Source = node.Source,
+                Locked = node.Locked,
+                RefId = $"{node.InstanceId}#{i}",
+            });
+        }
 
-        var seg = new DesignSegment
+        if (segments.Count > 0) return segments;
+
+        segments.Add(new DesignSegment
         {
             Track = DesignTrackKind.Fx,
-            Start = w.IsValid ? w.Start : 0,
-            End = w.IsValid ? w.End : Math.Max(0, duration),
-            FadeIn = w.IsValid ? w.FadeIn : 0,
-            FadeOut = w.IsValid ? w.FadeOut : 0,
+            Start = 0,
+            End = Math.Max(0, duration),
             Technique = node.DefId,
             Source = node.Source,
             Locked = node.Locked,
             RefId = node.InstanceId,
-        };
+        });
 
-        return seg;
+        return segments;
     }
 
     public static DesignSegment FromCameraShot(CameraShot shot)

@@ -31,6 +31,7 @@ public partial class PvStageWindow
     {
         _selectedLayer = layer;
         HighlightLayerCards();
+        TheTimeline.ClearDesignSelection();
         BuildInspector();
     }
 
@@ -199,12 +200,18 @@ public partial class PvStageWindow
     private FrameworkElement AnimParamRow(List<AnimRow> owner, ParamAddress address, string label,
         double min, double max, double step, Func<double> readBase, Action<double> writeBase)
     {
+        double current = readBase();
+        double span = Math.Max(max - min, 0);
+        double margin = span > 1e-9 ? span * 0.5 : Math.Max(Math.Abs(current) * 0.5, 0.5);
+        double lo = double.IsFinite(current) ? Math.Min(min, current - margin) : min;
+        double hi = double.IsFinite(current) ? Math.Max(max, current + margin) : max;
+
         var state = new AnimRow
         {
             Address = address,
             Label = label,
-            Min = min,
-            Max = max,
+            Min = lo,
+            Max = hi,
             ReadBase = readBase,
             WriteBase = writeBase,
         };
@@ -225,10 +232,10 @@ public partial class PvStageWindow
 
         var slider = new Slider
         {
-            Minimum = min,
-            Maximum = max,
+            Minimum = lo,
+            Maximum = hi,
             SmallChange = step,
-            Value = Math.Clamp(readBase(), min, max),
+            Value = Math.Clamp(readBase(), lo, hi),
             IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -421,18 +428,31 @@ public partial class PvStageWindow
         bool locked;
         string title;
         double[] times;
+        bool showFades;
         Dictionary<string, double> segParams;
 
         switch (target)
         {
-            case { Effect: { } node }:
-                var win = node.Windows.Count > 0 ? node.Windows[0] : default;
+            case { Effect: { } node, WindowIndex: >= 0 } windowTarget:
+                var win = windowTarget.WindowIndex < node.Windows.Count && node.Windows[windowTarget.WindowIndex].IsValid
+                    ? node.Windows[windowTarget.WindowIndex]
+                    : default;
                 technique = node.DefId;
                 times = [win.IsValid ? win.Start : 0, win.IsValid ? win.End : 0, win.IsValid ? win.FadeIn : 0, win.IsValid ? win.FadeOut : 0];
                 source = node.Source;
                 locked = node.Locked;
                 segParams = new Dictionary<string, double>(node.Values.ToDictionary(p => p.Key, p => (double)p.Value), StringComparer.Ordinal);
+                title = EffectName(node) + $" · 窗口 {windowTarget.WindowIndex + 1}";
+                showFades = true;
+                break;
+            case { Effect: { } node }:
+                technique = node.DefId;
+                times = [0, Math.Max(0, _audio.Duration), 0, 0];
+                source = node.Source;
+                locked = node.Locked;
+                segParams = new Dictionary<string, double>(node.Values.ToDictionary(p => p.Key, p => (double)p.Value), StringComparer.Ordinal);
                 title = EffectName(node);
+                showFades = false;
                 break;
             case { Shot: { } shot }:
                 technique = shot.Preset;
@@ -441,6 +461,7 @@ public partial class PvStageWindow
                 locked = shot.Locked;
                 segParams = new Dictionary<string, double>(shot.Params ?? new Dictionary<string, double>(), StringComparer.Ordinal);
                 title = "运镜 · " + shot.Preset;
+                showFades = false;
                 break;
             case { Span: { } span }:
                 technique = span.Style;
@@ -449,6 +470,7 @@ public partial class PvStageWindow
                 locked = span.Locked;
                 segParams = new Dictionary<string, double>(StringComparer.Ordinal);
                 title = "文字处理 · " + span.Style;
+                showFades = false;
                 break;
             default:
                 return;
@@ -460,9 +482,12 @@ public partial class PvStageWindow
 
         InspectorHost.Children.Add(SegmentTimeRow("开始", () => times[0], v => times[0] = v));
         InspectorHost.Children.Add(SegmentTimeRow("结束", () => times[1], v => times[1] = v));
-        InspectorHost.Children.Add(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
-        InspectorHost.Children.Add(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
-        InspectorHost.Children.Add(SegmentApplyRow(times));
+        if (showFades)
+        {
+            InspectorHost.Children.Add(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
+            InspectorHost.Children.Add(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
+        }
+        InspectorHost.Children.Add(SegmentApplyRow(times, showFades));
 
         if (segParams.Count > 0)
         {
@@ -507,7 +532,7 @@ public partial class PvStageWindow
         return row;
     }
 
-    private FrameworkElement SegmentApplyRow(double[] times)
+    private FrameworkElement SegmentApplyRow(double[] times, bool showFades)
     {
         var apply = new Wpf.Ui.Controls.Button
         {
@@ -515,7 +540,7 @@ public partial class PvStageWindow
             Margin = new Thickness(0, 6, 0, 2),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        apply.Click += (_, _) => WriteSegmentTime(times[0], times[1], times[2], times[3]);
+        apply.Click += (_, _) => WriteSegmentTime(times[0], times[1], showFades ? times[2] : 0, showFades ? times[3] : 0);
         return apply;
     }
 

@@ -181,8 +181,11 @@ public sealed partial class TimelineView
         var track = _snap.DesignTracks[row.Index];
 
         TDesignSegment? hit = null;
-        foreach (var seg in track.Segments)
+        for (int i = track.Segments.Count - 1; i >= 0; i--)
+        {
+            var seg = track.Segments[i];
             if (time >= seg.Start && time < seg.End) { hit = seg; break; }
+        }
 
         if (hit is null)
         {
@@ -208,6 +211,7 @@ public sealed partial class TimelineView
 
     private void StartClipGesture(double x)
     {
+        ClearSegmentSelection();
         _dragTip = null;
         double time = TimeAt(x);
         double tolerance = TimelineMath.ClipEdgeHitPx / Math.Max(1, _pixelsPerSecond);
@@ -288,6 +292,7 @@ public sealed partial class TimelineView
         }
 
         var key = curve.Keys[hit];
+        ClearSegmentSelection();
         if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
         {
             int at = _selection.FindIndex(s => s.Address == curve.Address && Math.Abs(s.Time - key.TimeSeconds) <= TimelineMath.TimeEpsilon);

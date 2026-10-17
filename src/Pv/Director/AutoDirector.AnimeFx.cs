@@ -91,7 +91,8 @@ public static partial class AutoDirector
         }
 
         project.Effects.Nodes.RemoveAll(n =>
-            n.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal)
+            !n.Locked && !IsUser(n.Source)
+            && n.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal)
             && AnimeFxDefIds.Contains(n.DefId) && n.Windows.Count == 0);
 
         foreach (var n in project.Effects.Nodes)
