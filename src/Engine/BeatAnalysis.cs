@@ -18,4 +18,6 @@ public sealed class BeatMap
     public List<double> Downbeats = new();
     public List<Section> Sections = new();
     public List<double> Peaks = new();
+    public float[] Pitch = [];
+    public float PitchRate;
 }

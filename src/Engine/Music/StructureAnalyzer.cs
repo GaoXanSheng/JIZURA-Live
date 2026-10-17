@@ -443,11 +443,13 @@ public static class StructureAnalyzer
 
         var count = new Dictionary<string, int>();
         var energySum = new Dictionary<string, double>();
+        var lengthSum = new Dictionary<string, double>();
         for (int i = 0; i < m; i++)
         {
             var lab = segs[i].Label;
             count[lab] = count.TryGetValue(lab, out var c) ? c + 1 : 1;
             energySum[lab] = (energySum.TryGetValue(lab, out var e) ? e : 0) + norm[i];
+            lengthSum[lab] = (lengthSum.TryGetValue(lab, out var l) ? l : 0) + segs[i].C1 - segs[i].C0;
         }
 
         string? chorus = null;
@@ -455,8 +457,10 @@ public static class StructureAnalyzer
         foreach (var kv in count)
             if (kv.Value >= 2)
             {
-                double mean = energySum[kv.Key] / kv.Value;
-                if (mean > best) { best = mean; chorus = kv.Key; }
+                var mean = energySum[kv.Key] / kv.Value;
+                var repeatScore = kv.Value * (lengthSum[kv.Key] / kv.Value);
+                var joint = 0.6 * repeatScore + 0.4 * mean;
+                if (joint > best) { best = joint; chorus = kv.Key; }
             }
 
         var sorted = (double[])norm.Clone();

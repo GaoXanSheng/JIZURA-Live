@@ -9,6 +9,8 @@ public sealed class MusicFeatures
     public float[] Energy = [];
     public float[] LowEnergy = [];
     public float[][] Chroma = [];
+    public float[] Mono = [];
+    public int SampleRate;
     public double Duration;
 }
 
@@ -45,7 +47,7 @@ public static class MusicFeatureExtractor
 
         var frameStep = (double)Hop / sampleRate;
         var duration = (double)mono.Length / sampleRate;
-        var features = new MusicFeatures { FrameStep = frameStep, Duration = duration };
+        var features = new MusicFeatures { FrameStep = frameStep, Duration = duration, SampleRate = sampleRate };
         if (mono.Length == 0) return features;
 
         var frameCount = (mono.Length + Hop - 1) / Hop;
@@ -152,6 +154,7 @@ public static class MusicFeatureExtractor
         features.Energy = energy;
         features.LowEnergy = lowEnergy;
         features.Chroma = chroma;
+        features.Mono = mono.ToArray();
         return features;
     }
 
