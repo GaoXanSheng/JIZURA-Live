@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Text;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
+using JizuraLive.Render.Effects;
 
 namespace JizuraLive.App.PvStage;
 
@@ -37,9 +39,61 @@ public partial class PvStageWindow
                 Text = clip.Text,
             });
 
+        ExportDesignTracks(snap);
+
         _snap = snap;
         TheTimeline.SetSnapshot(snap);
     }
+
+    private void ExportDesignTracks(TSnapshot snap)
+    {
+        double duration = snap.DurationSeconds;
+
+        var fx = new TDesignTrack { Kind = DesignTrackKind.Fx };
+        foreach (var node in _effects.Nodes)
+            fx.Segments.Add(ToTSegment(DesignTracks.FromEffectNode(node, duration)));
+
+        var cam = new TDesignTrack { Kind = DesignTrackKind.Cam };
+        var shots = _project.CameraTrack?.Shots ?? new List<CameraShot>();
+        for (int i = 0; i < shots.Count; i++)
+        {
+            var seg = ToTSegment(DesignTracks.FromCameraShot(shots[i]));
+            seg.RefId = i.ToString(CultureInfo.InvariantCulture);
+            cam.Segments.Add(seg);
+        }
+
+        var treat = new TDesignTrack { Kind = DesignTrackKind.Treat };
+        for (int i = 0; i < _project.LyricStyles.Count; i++)
+        {
+            var seg = ToTSegment(DesignTracks.FromLyricStyleSpan(_project.LyricStyles[i]));
+            seg.RefId = i.ToString(CultureInfo.InvariantCulture);
+            treat.Segments.Add(seg);
+        }
+
+        snap.DesignTracks.Add(fx);
+        snap.DesignTracks.Add(cam);
+        snap.DesignTracks.Add(treat);
+        foreach (DesignTrackKind kind in new[]
+                 {
+                     DesignTrackKind.Layout, DesignTrackKind.Enter, DesignTrackKind.Hold,
+                     DesignTrackKind.Exit, DesignTrackKind.Decor, DesignTrackKind.Bg, DesignTrackKind.Trans,
+                 })
+            snap.DesignTracks.Add(new TDesignTrack { Kind = kind });
+    }
+
+    private static TDesignSegment ToTSegment(DesignSegment seg) => new()
+    {
+        RefId = seg.RefId ?? "",
+        Track = (int)seg.Track,
+        Start = seg.Start,
+        End = seg.End,
+        FadeIn = seg.FadeIn,
+        FadeOut = seg.FadeOut,
+        Technique = seg.Technique,
+        Source = seg.Source,
+        Locked = seg.Locked,
+        Params = new Dictionary<string, double>(seg.Params, StringComparer.Ordinal),
+    };
 
     private TCurve TrackFor(in ParamAddress addr, FloatCurve? curve)
     {
@@ -138,6 +192,131 @@ public partial class PvStageWindow
     }
 
     private static long ToMs(double seconds) => (long)Math.Round(seconds * 1000.0);
+
+    private EffectNode? FindEffectNode(string refId) =>
+        _effects.Nodes.FirstOrDefault(n => string.Equals(n.InstanceId, refId, StringComparison.Ordinal));
+
+    private CameraShot? FindCameraShot(string refId)
+    {
+        if (!int.TryParse(refId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)) return null;
+        var shots = _project.CameraTrack?.Shots;
+        return shots is not null && index >= 0 && index < shots.Count ? shots[index] : null;
+    }
+
+    private LyricStyleSpan? FindLyricStyleSpan(string refId)
+    {
+        if (!int.TryParse(refId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)) return null;
+        return index >= 0 && index < _project.LyricStyles.Count ? _project.LyricStyles[index] : null;
+    }
+
+    private void Timeline_SegmentSelected(TDesignSegment seg)
+    {
+        if (seg.Track == (int)DesignTrackKind.Fx)
+            _segmentTarget = FindEffectNode(seg.RefId) is { } node
+                ? SegmentTarget.Of(node)
+                : null;
+        else if (seg.Track == (int)DesignTrackKind.Cam)
+            _segmentTarget = FindCameraShot(seg.RefId) is { } shot
+                ? SegmentTarget.Of(shot)
+                : null;
+        else if (seg.Track == (int)DesignTrackKind.Treat)
+            _segmentTarget = FindLyricStyleSpan(seg.RefId) is { } span
+                ? SegmentTarget.Of(span)
+                : null;
+        else _segmentTarget = null;
+
+        BuildInspector();
+    }
+
+    private void Timeline_SegmentDeselected()
+    {
+        if (_segmentTarget is null) return;
+        _segmentTarget = null;
+        BuildInspector();
+    }
+
+    private SegmentTarget? _segmentTarget;
+
+    private sealed class SegmentTarget
+    {
+        public EffectNode? Effect;
+        public CameraShot? Shot;
+        public LyricStyleSpan? Span;
+
+        public static SegmentTarget Of(EffectNode node) => new() { Effect = node };
+        public static SegmentTarget Of(CameraShot shot) => new() { Shot = shot };
+        public static SegmentTarget Of(LyricStyleSpan span) => new() { Span = span };
+    }
+
+    private void WriteSegmentTime(double start, double end, double fadeIn, double fadeOut)
+    {
+        switch (_segmentTarget)
+        {
+            case { Effect: { } node }:
+                if (node.Windows.Count > 0)
+                    node.Windows[0] = new EffectWindow(start, end, fadeIn, fadeOut);
+                EffectsChanged();
+                break;
+            case { Shot: { } shot }:
+                shot.Start = start;
+                shot.End = end;
+                break;
+            case { Span: { } span }:
+                span.Start = start;
+                span.End = end;
+                break;
+            default:
+                return;
+        }
+
+        AfterSegmentEdit();
+    }
+
+    private void WriteSegmentParam(string key, double value)
+    {
+        switch (_segmentTarget)
+        {
+            case { Effect: { } node }:
+                node.Values[key] = (float)value;
+                EffectsChanged();
+                break;
+            case { Shot: { } shot }:
+                shot.Params[key] = value;
+                break;
+            default:
+                return;
+        }
+
+        AfterSegmentEdit();
+    }
+
+    private void WriteSegmentLocked(bool locked)
+    {
+        switch (_segmentTarget)
+        {
+            case { Effect: { } node }:
+                node.Locked = locked;
+                break;
+            case { Shot: { } shot }:
+                shot.Locked = locked;
+                break;
+            case { Span: { } span }:
+                span.Locked = locked;
+                break;
+            default:
+                return;
+        }
+
+        AfterSegmentEdit();
+    }
+
+    private void AfterSegmentEdit()
+    {
+        PublishDirector();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
+    }
 
     private static string LrcTextOf(IReadOnlyList<LyricClip> clips)
     {

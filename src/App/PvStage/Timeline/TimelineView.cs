@@ -12,6 +12,8 @@ public sealed partial class TimelineView : Control
     public const double RulerHeight = 26;
     public const double WaveformHeight = 60;
     public const double LyricHeight = 30;
+    public const double DesignMinHeight = 14;
+    public const double DesignMaxHeight = 24;
     public const double AutomationHeight = 24;
     public const double ScrollbarHeight = 10;
 
@@ -20,6 +22,7 @@ public sealed partial class TimelineView : Control
         Ruler,
         Waveform,
         Lyrics,
+        Design,
         Automation,
     }
 
@@ -37,7 +40,10 @@ public sealed partial class TimelineView : Control
         Clip,
     }
 
+    internal readonly record struct SelSegment(int Track, string RefId);
+
     private readonly List<SelKey> _selection = new();
+    private SelSegment? _selSegment;
     private readonly Dictionary<ParamAddress, List<TKey>> _gestureBefore = new();
     private readonly List<(ParamAddress Address, int KeyIndex, TKey Orig)> _dragKeys = new();
     private readonly List<TKey> _clipboard = new();
@@ -84,12 +90,37 @@ public sealed partial class TimelineView : Control
             var curve = FindCurve(s.Address);
             return curve is null || TimelineMath.IndexAtTime(curve.Keys, s.Time) < 0;
         });
+        if (_selSegment is { } sel && FindSegment(sel.Track, sel.RefId) is null)
+        {
+            _selSegment = null;
+            SegmentDeselected?.Invoke();
+        }
         InvalidateVisual();
     }
 
     public event Action<double>? SeekRequested;
 
     public event Action<TEdit>? EditCommitted;
+
+    public event Action<TDesignSegment>? SegmentSelected;
+
+    private TDesignSegment? FindSegment(int track, string refId)
+    {
+        if (_snap is null || refId.Length == 0) return null;
+        if (track < 0 || track >= _snap.DesignTracks.Count) return null;
+        foreach (var seg in _snap.DesignTracks[track].Segments)
+            if (string.Equals(seg.RefId, refId, StringComparison.Ordinal)) return seg;
+        return null;
+    }
+
+    private void ClearSegmentSelection()
+    {
+        if (_selSegment is null) return;
+        _selSegment = null;
+        SegmentDeselected?.Invoke();
+    }
+
+    public event Action? SegmentDeselected;
 
     protected override Size MeasureOverride(Size availableSize)
     {
@@ -116,6 +147,7 @@ public sealed partial class TimelineView : Control
     {
         var rows = new List<Row>();
         double top = 0;
+        double contentHeight = ContentHeight;
         rows.Add(new Row(RowKind.Ruler, 0, top, RulerHeight));
         top += RulerHeight;
         rows.Add(new Row(RowKind.Waveform, 0, top, WaveformHeight));
@@ -124,6 +156,15 @@ public sealed partial class TimelineView : Control
         {
             rows.Add(new Row(RowKind.Lyrics, 0, top, LyricHeight));
             top += LyricHeight;
+        }
+        if (_snap is not null && _snap.DesignTracks.Count > 0)
+        {
+            double designH = Math.Clamp((contentHeight - top) / _snap.DesignTracks.Count, DesignMinHeight, DesignMaxHeight);
+            for (int i = 0; i < _snap.DesignTracks.Count; i++)
+            {
+                rows.Add(new Row(RowKind.Design, i, top, designH));
+                top += designH;
+            }
         }
         if (_snap is not null)
             for (int i = 0; i < _snap.Curves.Count; i++)

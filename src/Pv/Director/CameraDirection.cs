@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using System.ComponentModel;
 
 namespace JizuraLive.Pv;
 
@@ -10,6 +11,14 @@ public sealed class CameraShot
     public double End { get; set; }
 
     public int Seed { get; set; }
+
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    [DefaultValue("auto")]
+    public string Source { get; set; } = "auto";
+
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    [DefaultValue(false)]
+    public bool Locked { get; set; }
 
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public Dictionary<string, double> Params { get; set; } = new(StringComparer.Ordinal);
@@ -50,6 +59,8 @@ public sealed class CameraTrack
                 Start = shot.Start,
                 End = shot.End,
                 Seed = shot.Seed,
+                Source = shot.Source,
+                Locked = shot.Locked,
                 Params = new Dictionary<string, double>(shot.Params ?? new Dictionary<string, double>(), StringComparer.Ordinal),
             });
         }

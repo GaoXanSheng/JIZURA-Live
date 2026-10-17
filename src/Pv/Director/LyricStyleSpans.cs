@@ -1,4 +1,6 @@
 using JizuraLive.Engine;
+using Newtonsoft.Json;
+using System.ComponentModel;
 
 namespace JizuraLive.Pv;
 
@@ -8,6 +10,14 @@ public sealed class LyricStyleSpan
     public double Start { get; set; }
     public double End { get; set; }
     public string Style { get; set; } = "";
+
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    [DefaultValue("auto")]
+    public string Source { get; set; } = "auto";
+
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    [DefaultValue(false)]
+    public bool Locked { get; set; }
 }
 
 public static class LyricStyleSpans

@@ -54,6 +54,14 @@ public partial class PvStageWindow
         _inspectorRows.Clear();
         InspectorHost.Children.Clear();
 
+        if (_segmentTarget is { } target && SegmentTargetAlive(target))
+        {
+            BuildSegmentSection(target);
+            RefreshParamRows();
+            return;
+        }
+        _segmentTarget = null;
+
         foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
         {
             switch (section)
@@ -396,6 +404,136 @@ public partial class PvStageWindow
             try { row.Slider.Value = shown; }
             finally { _syncingRows = false; }
         }
+    }
+
+    private bool SegmentTargetAlive(SegmentTarget target)
+    {
+        if (target.Effect is { } node) return _effects.Nodes.Contains(node);
+        if (target.Shot is { } shot) return _project.CameraTrack?.Shots.Contains(shot) == true;
+        if (target.Span is { } span) return _project.LyricStyles.Contains(span);
+        return false;
+    }
+
+    private void BuildSegmentSection(SegmentTarget target)
+    {
+        string technique;
+        string source;
+        bool locked;
+        string title;
+        double[] times;
+        Dictionary<string, double> segParams;
+
+        switch (target)
+        {
+            case { Effect: { } node }:
+                var win = node.Windows.Count > 0 ? node.Windows[0] : default;
+                technique = node.DefId;
+                times = [win.IsValid ? win.Start : 0, win.IsValid ? win.End : 0, win.IsValid ? win.FadeIn : 0, win.IsValid ? win.FadeOut : 0];
+                source = node.Source;
+                locked = node.Locked;
+                segParams = new Dictionary<string, double>(node.Values.ToDictionary(p => p.Key, p => (double)p.Value), StringComparer.Ordinal);
+                title = EffectName(node);
+                break;
+            case { Shot: { } shot }:
+                technique = shot.Preset;
+                times = [shot.Start, shot.End, 0, 0];
+                source = shot.Source;
+                locked = shot.Locked;
+                segParams = new Dictionary<string, double>(shot.Params ?? new Dictionary<string, double>(), StringComparer.Ordinal);
+                title = "运镜 · " + shot.Preset;
+                break;
+            case { Span: { } span }:
+                technique = span.Style;
+                times = [span.Start, span.End, 0, 0];
+                source = span.Source;
+                locked = span.Locked;
+                segParams = new Dictionary<string, double>(StringComparer.Ordinal);
+                title = "文字处理 · " + span.Style;
+                break;
+            default:
+                return;
+        }
+
+        InspectorHost.Children.Add(SectionTitle(title));
+        InspectorHost.Children.Add(InfoRow("手法", technique));
+        InspectorHost.Children.Add(InfoRow("来源", string.Equals(source, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "auto"));
+
+        InspectorHost.Children.Add(SegmentTimeRow("开始", () => times[0], v => times[0] = v));
+        InspectorHost.Children.Add(SegmentTimeRow("结束", () => times[1], v => times[1] = v));
+        InspectorHost.Children.Add(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
+        InspectorHost.Children.Add(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
+        InspectorHost.Children.Add(SegmentApplyRow(times));
+
+        if (segParams.Count > 0)
+        {
+            InspectorHost.Children.Add(SectionTitle("参数"));
+            foreach (var (key, value) in segParams.OrderBy(p => p.Key, StringComparer.Ordinal))
+                InspectorHost.Children.Add(SegmentParamRow(key, value));
+        }
+
+        var lockRow = new Grid { Margin = new Thickness(0, 6, 0, 2) };
+        lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var lockLab = ThemeText("锁定（防自动清理）", TextSecondaryKey, 12);
+        Grid.SetColumn(lockLab, 0);
+        lockRow.Children.Add(lockLab);
+        var lockToggle = new Wpf.Ui.Controls.ToggleSwitch { IsChecked = locked };
+        lockToggle.Checked += (_, _) => WriteSegmentLocked(true);
+        lockToggle.Unchecked += (_, _) => WriteSegmentLocked(false);
+        lockRow.Children.Add(lockToggle);
+        InspectorHost.Children.Add(lockRow);
+    }
+
+    private FrameworkElement SegmentTimeRow(string label, Func<double> read, Action<double> capture)
+    {
+        var box = new TextBox
+        {
+            Text = read().ToString("0.###", CultureInfo.InvariantCulture),
+            FontSize = 11,
+        };
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var lab = ThemeText(label, TextSecondaryKey, 12);
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+        Grid.SetColumn(box, 1);
+        row.Children.Add(box);
+        box.LostFocus += (_, _) =>
+        {
+            if (double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
+                && Math.Abs(v - read()) > 1e-9)
+                capture(v);
+        };
+        return row;
+    }
+
+    private FrameworkElement SegmentApplyRow(double[] times)
+    {
+        var apply = new Wpf.Ui.Controls.Button
+        {
+            Content = "应用时间",
+            Margin = new Thickness(0, 6, 0, 2),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        apply.Click += (_, _) => WriteSegmentTime(times[0], times[1], times[2], times[3]);
+        return apply;
+    }
+
+    private FrameworkElement SegmentParamRow(string key, double value)
+    {
+        double min = -4, max = 4;
+        if (_segmentTarget?.Effect is { } en
+            && EffectCatalog.Get(en.DefId)?.Params.FirstOrDefault(p => p.Key == key) is { } p)
+        {
+            min = p.Min;
+            max = p.Max;
+        }
+
+        var addr = new ParamAddress(ParamAddressKind.Layer, _segmentTarget?.Effect?.InstanceId ?? "segment", key);
+        return AnimParamRow(_inspectorRows, addr, key, min, max, Math.Max(0.001, (max - min) / 100),
+            () => _segmentTarget?.Effect is { } eff && eff.Values.TryGetValue(key, out var v) ? v
+                : _segmentTarget?.Shot is { } s && s.Params.TryGetValue(key, out var sv) ? sv : value,
+            v => WriteSegmentParam(key, v));
     }
 
     private void BuildProjectSection()

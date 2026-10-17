@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using JizuraLive.Pv;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
@@ -58,6 +59,7 @@ public sealed partial class TimelineView
                 case RowKind.Ruler: RenderRuler(dc, row); break;
                 case RowKind.Waveform: RenderWaveform(dc, row); break;
                 case RowKind.Lyrics: RenderLyrics(dc, row); break;
+                case RowKind.Design: RenderDesignTrack(dc, row); break;
                 case RowKind.Automation: RenderAutomation(dc, row); break;
             }
         }
@@ -137,6 +139,83 @@ public sealed partial class TimelineView
         }
         geometry.Freeze();
         dc.DrawGeometry(null, WavePen, geometry);
+    }
+
+    private static readonly Brush SegUserBrush = Solid(0x3D, 0x55, 0x9E);
+    private static readonly Brush SegAutoBrush = Solid(0x27, 0x34, 0x5C);
+    private static readonly Brush SegUserSelectedBrush = Solid(0x5B, 0x8C, 0xFF);
+    private static readonly Brush SegAutoSelectedBrush = Solid(0x3A, 0x50, 0x8F);
+    private static readonly Brush SegLockedPenBrush = Solid(0xE8, 0xB4, 0x4A);
+    private static readonly Brush DesignEmptyBrush = Solid(0x0F, 0x0F, 0x14);
+
+    private void RenderDesignTrack(DrawingContext dc, Row row)
+    {
+        double w = ContentWidth;
+        var track = _snap!.DesignTracks[row.Index];
+        bool hasSegments = track.Segments.Count > 0;
+        dc.DrawRectangle(hasSegments ? (row.Index % 2 == 0 ? RowBrush : RowAltBrush) : DesignEmptyBrush,
+            null, new Rect(HeaderWidth, row.Top, w, row.Height));
+        dc.DrawLine(SoftPen, new Point(HeaderWidth, row.Top), new Point(HeaderWidth + w, row.Top));
+        if (!hasSegments) return;
+
+        var pen = FrozenPen(SegLockedPenBrush, 1);
+        double viewEnd = _viewStart + w / _pixelsPerSecond;
+        foreach (var seg in track.Segments)
+        {
+            if (seg.End < _viewStart || seg.Start > viewEnd) continue;
+            double x0 = HeaderWidth + TimelineMath.TimeToX(seg.Start, _viewStart, _pixelsPerSecond);
+            double x1 = HeaderWidth + TimelineMath.TimeToX(seg.End, _viewStart, _pixelsPerSecond);
+            double width = Math.Max(2, x1 - x0 - 2);
+            var rect = new Rect(x0, row.Top + 3, width, row.Height - 6);
+
+            bool selected = _selSegment is { } sel && sel.Track == row.Index
+                            && string.Equals(sel.RefId, seg.RefId, StringComparison.Ordinal);
+            bool auto = !string.Equals(seg.Source, "user", StringComparison.OrdinalIgnoreCase);
+            var fill = auto
+                ? (selected ? SegAutoSelectedBrush : SegAutoBrush)
+                : (selected ? SegUserSelectedBrush : SegUserBrush);
+            dc.DrawRoundedRectangle(fill, null, rect, 3, 3);
+
+            if (seg.FadeIn > 0 || seg.FadeOut > 0)
+            {
+                var fade = new StreamGeometry();
+                using (var g = fade.Open())
+                {
+                    g.BeginFigure(new Point(rect.X, rect.Y + rect.Height), true, true);
+                    if (seg.FadeIn > 0)
+                    {
+                        double fx = Math.Min(rect.Width, TimelineMath.TimeToX(seg.FadeIn, 0, _pixelsPerSecond));
+                        g.LineTo(new Point(rect.X + fx, rect.Y), true, false);
+                    }
+                    else g.LineTo(new Point(rect.X, rect.Y), true, false);
+
+                    if (seg.FadeOut > 0)
+                    {
+                        double fx = Math.Min(rect.Width, TimelineMath.TimeToX(seg.FadeOut, 0, _pixelsPerSecond));
+                        g.LineTo(new Point(rect.Right - fx, rect.Y), true, false);
+                    }
+                    else g.LineTo(new Point(rect.Right, rect.Y), true, false);
+                }
+                fade.Freeze();
+                dc.DrawGeometry(SegAutoBrush, null, fade);
+            }
+
+            if (seg.Locked)
+            {
+                const double lockH = 5;
+                var lockRect = new Rect(rect.X + 3, rect.Y + 2, 4, lockH);
+                dc.DrawRectangle(null, pen, lockRect);
+                dc.DrawRectangle(pen.Brush, null, new Rect(rect.X + 4.5, rect.Y + lockH + 1, 1, lockH - 1));
+            }
+
+            if (rect.Width >= 24)
+            {
+                dc.PushClip(new RectangleGeometry(rect));
+                dc.DrawText(Text(seg.Technique, 9, selected ? BgBrush : DimBrush),
+                    new Point(rect.X + 4, rect.Y + (rect.Height - 12) / 2));
+                dc.Pop();
+            }
+        }
     }
 
     private void RenderLyrics(DrawingContext dc, Row row)
@@ -237,6 +316,15 @@ public sealed partial class TimelineView
                 break;
             case RowKind.Automation:
                 dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(8, row.Top + 5));
+                break;
+            case RowKind.Design:
+                if (_snap is not null && row.Index < _snap.DesignTracks.Count)
+                {
+                    var track = _snap.DesignTracks[row.Index];
+                    bool empty = track.Segments.Count == 0;
+                    dc.DrawText(Text(DesignTrackNames.Label(track.Kind), 11, empty ? FaintBrush : DimBrush),
+                        new Point(8, row.Top + (row.Height - 14) / 2));
+                }
                 break;
         }
         dc.DrawLine(SoftPen, new Point(0, row.Top + row.Height), new Point(HeaderWidth, row.Top + row.Height));

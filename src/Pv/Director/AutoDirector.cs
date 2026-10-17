@@ -58,6 +58,8 @@ public static partial class AutoDirector
 
     private static readonly string[] CameraParams = ["scale", "rotation", "offsetX", "offsetY", "blur", "brighten"];
 
+    private static bool IsUser(string? source) => string.Equals(source, "user", StringComparison.OrdinalIgnoreCase);
+
     public static AutoReport Generate(DirectorProject project, BeatMap map, AutoOptions options)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -103,25 +105,45 @@ public static partial class AutoDirector
         for (int i = project.Effects.Nodes.Count - 1; i >= 0; i--)
         {
             var node = project.Effects.Nodes[i];
-            if (node.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal))
-            {
-                autoInstanceIds.Add(node.InstanceId);
-                project.Effects.Nodes.RemoveAt(i);
-            }
+            bool legacyAuto = node.InstanceId.StartsWith(AutoPrefix, StringComparison.Ordinal);
+            if (legacyAuto) node.Source = "auto";
+            if (IsUser(node.Source) || node.Locked) continue;
+
+            autoInstanceIds.Add(node.InstanceId);
+            project.Effects.Nodes.RemoveAt(i);
         }
 
         project.Curves.RemoveAll(c =>
-            (c.Layer?.StartsWith(LayerPrefix, StringComparison.Ordinal) ?? false) ||
-            (string.IsNullOrEmpty(c.Layer) && CameraParams.Any(p => c.Address == "camera." + p)) ||
-            c.Address.StartsWith($"effect:{AutoPrefix}", StringComparison.Ordinal) ||
-            autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal)) ||
-            c.Address.StartsWith($"layer:{AutoLayerPrefix}", StringComparison.Ordinal));
+        {
+            if (c is null) return true;
+            bool legacyAuto =
+                (c.Layer?.StartsWith(LayerPrefix, StringComparison.Ordinal) ?? false) ||
+                (string.IsNullOrEmpty(c.Layer) && CameraParams.Any(p => c.Address == "camera." + p)) ||
+                c.Address.StartsWith($"effect:{AutoPrefix}", StringComparison.Ordinal) ||
+                c.Address.StartsWith($"layer:{AutoLayerPrefix}", StringComparison.Ordinal);
+            if (legacyAuto) c.Source = "auto";
+            if (IsUser(c.Source) || c.Locked) return false;
+            return legacyAuto
+                || autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal));
+        });
+
+        var cameraTrack = project.CameraTrack;
+        if (cameraTrack is not null)
+        {
+            cameraTrack.Shots.RemoveAll(shot =>
+            {
+                if (shot is null) return true;
+                if (string.IsNullOrWhiteSpace(shot.Source)) shot.Source = "auto";
+                if (IsUser(shot.Source) || shot.Locked) return false;
+                return true;
+            });
+        }
 
         if (project.Scene.Layers.Any(l => l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)))
             project.Scene.Layers = project.Scene.Layers
                 .Where(l => !l.Id.StartsWith(AutoLayerPrefix, StringComparison.Ordinal)).ToList();
 
-        project.LyricStyles.Clear();
+        project.LyricStyles.RemoveAll(span => span is null || !(IsUser(span.Source) || span.Locked));
     }
 
     public const string AutoLayerPrefix = "autodir_";
@@ -455,6 +477,7 @@ public static partial class AutoDirector
             InstanceId = $"{AutoPrefix}{defId}_{role}",
             Enabled = true,
             Target = target,
+            Source = "auto",
         };
         configure?.Invoke(node);
         project.Effects.Nodes.Add(node);
@@ -498,7 +521,7 @@ public static partial class AutoDirector
     {
         curve.NormalizeKeys();
         if (curve.Count < minKeys) return 0;
-        project.Curves.Add(new CurveSave { Address = address, Curve = curve, Layer = layer, Blend = blend });
+        project.Curves.Add(new CurveSave { Address = address, Curve = curve, Layer = layer, Blend = blend, Source = "auto" });
         return curve.Count;
     }
 

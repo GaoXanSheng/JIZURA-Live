@@ -129,6 +129,10 @@ public sealed class EffectNode
 
     public string InstanceId { get; init; } = "";
 
+    public string Source { get; set; } = "user";
+
+    public bool Locked { get; set; }
+
     public bool Enabled { get; set; } = true;
 
     public List<EffectWindow> Windows { get; } = new();

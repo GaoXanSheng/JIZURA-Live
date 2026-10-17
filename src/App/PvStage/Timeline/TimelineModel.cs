@@ -24,12 +24,30 @@ public sealed class TClip
     public string Text = "";
 }
 
+public sealed class TDesignSegment
+{
+    public string RefId = "";
+    public int Track;
+    public double Start, End, FadeIn, FadeOut;
+    public string Technique = "";
+    public string Source = "user";
+    public bool Locked;
+    public Dictionary<string, double> Params = new(StringComparer.Ordinal);
+}
+
+public sealed class TDesignTrack
+{
+    public DesignTrackKind Kind;
+    public List<TDesignSegment> Segments = new();
+}
+
 public sealed class TSnapshot
 {
     public double DurationSeconds;
     public double PlayheadSeconds;
     public List<TCurve> Curves = new();
     public List<TClip> Lyrics = new();
+    public List<TDesignTrack> DesignTracks = new();
 
     public WaveformPeaks? Waveform;
 }

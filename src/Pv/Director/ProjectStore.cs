@@ -3,7 +3,6 @@ using JizuraLive.App;
 using JizuraLive.Logging;
 using JizuraLive.Render.Effects;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Pv;
 
@@ -52,7 +51,7 @@ public static class ProjectStore
         DirectorProject? project;
         try
         {
-            project = JsonConvert.DeserializeObject<DirectorProject>(StripLegacyParticles(json));
+            project = JsonConvert.DeserializeObject<DirectorProject>(json);
         }
         catch (Exception ex)
         {
@@ -65,6 +64,8 @@ public static class ProjectStore
         if (project.SchemaVersion > DirectorProject.CurrentSchemaVersion)
             return new ProjectLoadResult(null,
                 $"工程版本过新（{project.SchemaVersion} > {DirectorProject.CurrentSchemaVersion}），本程序不识别，请升级后再打开");
+
+        NormalizeScene(project, project.Scene);
 
         SanitizeCurves(project);
 
@@ -151,25 +152,31 @@ public static class ProjectStore
         foreach (var save in project.Curves) save.Curve.NormalizeKeys();
     }
 
-    private static string StripLegacyParticles(string json)
+    private static void NormalizeScene(DirectorProject project, PvScene scene)
     {
-        if (!json.Contains("Particles", StringComparison.Ordinal)) return json;
+        if (scene is null) return;
 
-        try
+        var hollowLayerIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var layer in scene.Layers)
         {
-            var root = JObject.Parse(json);
-            var scene = root["Scene"];
-            if (scene is null) return json;
-
-            foreach (var layer in scene["Layers"] ?? Enumerable.Empty<JToken>())
-                (layer as JObject)?.Remove("Particles");
-
-            return root.ToString(Formatting.None);
+            if (layer is null) continue;
+            bool hollow = layer.Kind is PvLayerKind.VisualAsset or PvLayerKind.ForegroundFx
+                          && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+                          && string.IsNullOrWhiteSpace(layer.VideoPath)
+                          && string.IsNullOrWhiteSpace(layer.ImagePath);
+            if (hollow) hollowLayerIds.Add(layer.Id);
         }
-        catch (Exception ex)
+
+        if (hollowLayerIds.Count > 0)
         {
-            Log.Warn("[工程存储] 剥离旧粒子配置失败，按原文解析：" + ex.Message);
-            return json;
+            scene.Layers = scene.Layers.Where(l => l is null || !hollowLayerIds.Contains(l.Id)).ToList();
+            int removed = project.Curves.RemoveAll(c =>
+                c is not null && c.Address.StartsWith("layer:", StringComparison.Ordinal)
+                && ParamAddress.TryParse(c.Address, out var addr)
+                && addr.Kind == ParamAddressKind.Layer
+                && hollowLayerIds.Contains(addr.Target));
+            if (removed > 0)
+                Log.Warn($"[工程存储] 规范化：移除 {hollowLayerIds.Count} 个空壳图层及 {removed} 条关联曲线");
         }
     }
 
@@ -191,6 +198,8 @@ public static class ProjectStore
             Scene = ReadLegacyScene(legacyScenePath, faults),
             Effects = ReadLegacyEffects(legacyEffectsPath, faults),
         };
+
+        NormalizeScene(project, project.Scene);
 
         var saveFault = Save(project, projectPath);
         if (saveFault is not null) faults.Add($"工程文件写入失败：{saveFault}");

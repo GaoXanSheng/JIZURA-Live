@@ -7,12 +7,14 @@ public enum CurveBlend
     Multiply,
 }
 
-public sealed record CurveLayer(string Name, CurveBlend Blend, FloatCurve Curve);
+public sealed record CurveLayer(string Name, CurveBlend Blend, FloatCurve Curve,
+    string Source = "user", bool Locked = false);
 
 public sealed class DirectorEvaluator
 {
     private readonly Dictionary<ParamAddress, FloatCurve> _curves = new();
     private readonly Dictionary<ParamAddress, List<CurveLayer>> _layers = new();
+    private readonly Dictionary<ParamAddress, (string Source, bool Locked)> _curveProvenance = new();
     private CameraTrack? _cameraTrack;
 
     public CameraTrack? CameraTrack => _cameraTrack;
@@ -30,16 +32,25 @@ public sealed class DirectorEvaluator
 
     public IReadOnlyDictionary<ParamAddress, FloatCurve> Curves => _curves;
 
-    public void SetCurve(in ParamAddress addr, FloatCurve curve) => _curves[addr] = curve;
+    public void SetCurve(in ParamAddress addr, FloatCurve curve, string source = "user", bool locked = false)
+    {
+        _curves[addr] = curve;
+        _curveProvenance[addr] = (source, locked);
+    }
 
-    public bool RemoveCurve(in ParamAddress addr) => _curves.Remove(addr);
+    public bool RemoveCurve(in ParamAddress addr)
+    {
+        _curveProvenance.Remove(addr);
+        return _curves.Remove(addr);
+    }
 
-    public void SetLayer(in ParamAddress addr, string name, CurveBlend blend, FloatCurve curve)
+    public void SetLayer(in ParamAddress addr, string name, CurveBlend blend, FloatCurve curve,
+        string source = "user", bool locked = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (!_layers.TryGetValue(addr, out var list)) _layers[addr] = list = new List<CurveLayer>();
         list.RemoveAll(l => string.Equals(l.Name, name, StringComparison.Ordinal));
-        list.Add(new CurveLayer(name, blend, curve));
+        list.Add(new CurveLayer(name, blend, curve, source, locked));
     }
 
     public IReadOnlyList<CurveLayer> LayersOf(in ParamAddress addr) =>
@@ -84,6 +95,7 @@ public sealed class DirectorEvaluator
     {
         var copy = new DirectorEvaluator();
         foreach (var (addr, curve) in _curves) copy._curves[addr] = CloneCurve(curve);
+        foreach (var (addr, prov) in _curveProvenance) copy._curveProvenance[addr] = prov;
         foreach (var (addr, list) in _layers)
             copy._layers[addr] = list.Select(l => l with { Curve = CloneCurve(l.Curve) }).ToList();
         copy._cameraTrack = _cameraTrack?.Clone();
@@ -103,7 +115,10 @@ public sealed class DirectorEvaluator
         if (string.IsNullOrEmpty(targetId)) return;
 
         foreach (var addr in _curves.Keys.Where(a => string.Equals(a.Target, targetId, StringComparison.Ordinal)).ToList())
+        {
             _curves.Remove(addr);
+            _curveProvenance.Remove(addr);
+        }
         foreach (var addr in _layers.Keys.Where(a => string.Equals(a.Target, targetId, StringComparison.Ordinal)).ToList())
             _layers.Remove(addr);
     }
@@ -117,8 +132,8 @@ public sealed class DirectorEvaluator
         {
             if (save?.Curve is null) continue;
             if (!ParamAddress.TryParse(save.Address, out var addr)) continue;
-            if (string.IsNullOrEmpty(save.Layer)) eval.SetCurve(addr, save.Curve);
-            else eval.SetLayer(addr, save.Layer, save.Blend, save.Curve);
+            if (string.IsNullOrEmpty(save.Layer)) eval.SetCurve(addr, save.Curve, save.Source, save.Locked);
+            else eval.SetLayer(addr, save.Layer, save.Blend, save.Curve, save.Source, save.Locked);
         }
 
         return eval;
@@ -128,11 +143,22 @@ public sealed class DirectorEvaluator
     {
         var saves = new List<CurveSave>();
         foreach (var (addr, curve) in _curves.OrderBy(p => p.Key.ToString(), StringComparer.Ordinal))
-            saves.Add(new CurveSave { Address = addr.ToString(), Curve = curve });
+        {
+            var (source, locked) = _curveProvenance.TryGetValue(addr, out var prov) ? prov : ("user", false);
+            saves.Add(new CurveSave { Address = addr.ToString(), Curve = curve, Source = source, Locked = locked });
+        }
 
         foreach (var (addr, list) in _layers.OrderBy(p => p.Key.ToString(), StringComparer.Ordinal))
         foreach (var l in list.OrderBy(l => l.Name, StringComparer.Ordinal))
-            saves.Add(new CurveSave { Address = addr.ToString(), Curve = l.Curve, Layer = l.Name, Blend = l.Blend });
+            saves.Add(new CurveSave
+            {
+                Address = addr.ToString(),
+                Curve = l.Curve,
+                Layer = l.Name,
+                Blend = l.Blend,
+                Source = l.Source,
+                Locked = l.Locked,
+            });
 
         return saves;
     }

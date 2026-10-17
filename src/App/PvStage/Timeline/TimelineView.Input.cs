@@ -52,6 +52,9 @@ public sealed partial class TimelineView
             case RowKind.Lyrics:
                 StartClipGesture(x);
                 break;
+            case RowKind.Design:
+                HitDesignSegment(row, TimeAt(x));
+                break;
             case RowKind.Automation:
                 StartAutomationDrag(row, p, x);
                 break;
@@ -166,8 +169,31 @@ public sealed partial class TimelineView
         }
     }
 
+    private void HitDesignSegment(Row row, double time)
+    {
+        if (_snap is null || row.Index >= _snap.DesignTracks.Count) return;
+        var track = _snap.DesignTracks[row.Index];
+
+        TDesignSegment? hit = null;
+        foreach (var seg in track.Segments)
+            if (time >= seg.Start && time < seg.End) { hit = seg; break; }
+
+        if (hit is null)
+        {
+            ClearSegmentSelection();
+            InvalidateVisual();
+            return;
+        }
+
+        _selection.Clear();
+        _selSegment = new SelSegment(row.Index, hit.RefId);
+        SegmentSelected?.Invoke(hit);
+        InvalidateVisual();
+    }
+
     private void StartScrub(double x)
     {
+        ClearSegmentSelection();
         _selection.Clear();
         _drag = DragMode.Scrub;
         CaptureMouse();

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
@@ -18,6 +19,14 @@ public static class EffectGraphJson
 
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string? Target { get; set; }
+
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        [DefaultValue("auto")]
+        public string Source { get; set; } = "auto";
+
+        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+        [DefaultValue(false)]
+        public bool Locked { get; set; }
 
         public Dictionary<string, float>? Values { get; set; }
         public Dictionary<string, string>? Colors { get; set; }
@@ -43,6 +52,8 @@ public static class EffectGraphJson
                 Enabled = n.Enabled,
                 InstanceId = string.IsNullOrEmpty(n.InstanceId) ? null : n.InstanceId,
                 Target = string.IsNullOrEmpty(n.Target) ? null : n.Target,
+                Source = string.IsNullOrEmpty(n.Source) ? "auto" : n.Source,
+                Locked = n.Locked,
                 Values = n.Values.Count > 0 ? new Dictionary<string, float>(n.Values) : null,
                 Colors = n.Colors.Count > 0 ? new Dictionary<string, string>(n.Colors) : null,
                 Windows = n.Windows.Count > 0 ? new List<EffectWindow>(n.Windows) : null,
@@ -86,6 +97,8 @@ public static class EffectGraphJson
                     ? EffectGraph.NewInstanceId(nd.DefId)
                     : nd.InstanceId,
                 Target = nd.Target ?? "",
+                Source = string.IsNullOrEmpty(nd.Source) ? "auto" : nd.Source,
+                Locked = nd.Locked,
             };
             if (nd.Values is not null)
             {
