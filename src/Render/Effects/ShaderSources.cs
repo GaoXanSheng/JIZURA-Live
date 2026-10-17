@@ -176,16 +176,6 @@ public static class ShaderSources
         }
         """;
 
-    public const string Invert = """
-        float4 PSMain(VSOut i) : SV_Target
-        {
-            float4 c = Tex.Sample(Smp, i.uv);
-            float3 src = c.rgb / max(c.a, 1e-4);
-            float3 rgb = lerp(src, 1.0 - src, PARAM(0, x));
-            return float4(saturate(rgb) * c.a, c.a);
-        }
-        """;
-
     public const string Flash = """
         float4 PSMain(VSOut i) : SV_Target
         {
@@ -205,16 +195,6 @@ public static class ShaderSources
         }
         """;
 
-    public const string Mosaic = """
-        float4 PSMain(VSOut i) : SV_Target
-        {
-            float2 res = max(PARAM(15, yz), 1.0);
-            float block = max(PARAM(0, x), 1.0);
-            float2 px = floor(i.uv * res / block) * block + block * 0.5;
-            return Tex.Sample(Smp, px / res);
-        }
-        """;
-
     public const string Slice = """
         float4 PSMain(VSOut i) : SV_Target
         {
@@ -226,17 +206,6 @@ public static class ShaderSources
         }
         """;
 
-    public const string Block = """
-        float4 PSMain(VSOut i) : SV_Target
-        {
-            float2 res = max(PARAM(15, yz), 1.0);
-            float2 cell = floor(i.uv * res / max(PARAM(0, x), 1.0));
-            float2 r = Hash22(cell + PARAM(0, z));
-            float2 sh = (r - 0.5) * 2.0 * PARAM(0, y) / res;
-            return Tex.Sample(Smp, i.uv + sh);
-        }
-        """;
-
     public const string Shake = """
         float4 PSMain(VSOut i) : SV_Target
         {
@@ -245,25 +214,6 @@ public static class ShaderSources
             float2 sh = float2(Hash11(t) - 0.5, Hash11(t + 17.0) - 0.5)
                       * 2.0 * PARAM(0, x) / res;
             return Tex.Sample(Smp, i.uv + sh);
-        }
-        """;
-
-    public const string Vhs = """
-        float4 PSMain(VSOut i) : SV_Target
-        {
-            float t = PARAM(15, x);
-            float2 res = max(PARAM(15, yz), 1.0);
-            float2 uv = i.uv;
-            float row = floor(uv.y * res.y);
-            float tick = floor(t * 12.0);
-            uv.x += (Hash21(float2(row, tick)) - 0.5) * 2.0 * PARAM(0, x) / res.x;
-            float band = 1.0 - smoothstep(0.0, 0.05, abs(frac(uv.y - t * 0.07) - 0.5) * 2.0);
-            uv.x += band * PARAM(0, z) * (Hash21(float2(row, 7.0)) - 0.5) * 2.0 * 20.0 / res.x;
-            float2 cs = float2(PARAM(0, y) / res.x, 0);
-            float4 c = Tex.Sample(Smp, uv);
-            float r = Tex.Sample(Smp, uv + cs).r;
-            float b = Tex.Sample(Smp, uv - cs).b;
-            return float4(r, c.g, b, c.a);
         }
         """;
 
@@ -323,22 +273,6 @@ public static class ShaderSources
             float3 rgb = c.rgb / max(c.a, 1e-4);
             rgb *= lerp(1.0, smoothstep(0.0, 0.07, edge), PARAM(0, z));
             return float4(rgb * c.a, c.a);
-        }
-        """;
-
-    public const string Wave = """
-        float4 PSMain(VSOut i) : SV_Target
-        {
-            float2 res = max(PARAM(15, yz), 1.0);
-            float t = PARAM(15, x) * PARAM(0, z);
-            float amp = PARAM(0, x) / res.y;
-            float wl = max(PARAM(0, y), 1.0) / res.y;
-            float2 uv = i.uv;
-            if (PARAM(0, w) > 0.5)
-                uv.x += sin((uv.y / wl) * 6.2831853 + t) * amp;
-            else
-                uv.y += sin((uv.x * max(PARAM(15, w), 1.0) / wl) * 6.2831853 + t) * amp;
-            return Tex.Sample(Smp, uv);
         }
         """;
 
