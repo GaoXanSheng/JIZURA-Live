@@ -1019,6 +1019,9 @@ public static class CameraHash
 
     public static double Rs(int a, int b = 0, int c = 0, int d = 0, int e = 0) => R(a, b, c, d, e) * 2 - 1;
 
+    public static double Rr(double lo, double hi, int a, int b = 0, int c = 0, int d = 0, int e = 0) =>
+        lo + (hi - lo) * R(a, b, c, d, e);
+
     public static double Noise1(double x, int seed = 0)
     {
         var i = Math.Floor(x);

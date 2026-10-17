@@ -216,7 +216,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _project.Curves = _evaluator.ToSaves();
     }
 
-    private void PublishDirector() => _pipe?.SetDirector(_evaluator.Snapshot());
+    private void PublishDirector()
+    {
+        _pipe?.SetDirector(_evaluator.Snapshot());
+        _pipe?.Renderer.SetDesignSegments(_project.DesignSegments);
+    }
 
     private void EffectsChanged()
     {
