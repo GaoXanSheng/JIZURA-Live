@@ -4,9 +4,10 @@ namespace JizuraLive.Pv;
 
 public static partial class AutoDirector
 {
-    private static void BuildCamera(DirectorProject project, Song song, Look look, double k, int seed, AutoReport report)
+    private static void BuildCamera(DirectorProject project, Song song, Look look, double k, int seed,
+        AutoReport report, List<CameraShot> preservedShots)
     {
-        project.CameraTrack = BuildCameraTrack(project, song, look, k, seed);
+        project.CameraTrack = BuildCameraTrack(project, song, look, k, seed, preservedShots);
         report.CameraShots = project.CameraTrack.Shots.Count;
 
         var punch = new FloatCurve();
@@ -86,7 +87,8 @@ public static partial class AutoDirector
     public const string FocusLayer = "auto.focus";
     public const string BloomLayer = "auto.bloom";
 
-    private static CameraTrack BuildCameraTrack(DirectorProject project, Song song, Look look, double k, int seed)
+    private static CameraTrack BuildCameraTrack(DirectorProject project, Song song, Look look, double k, int seed,
+        List<CameraShot> preserved)
     {
         var track = new CameraTrack
         {
@@ -96,7 +98,11 @@ public static partial class AutoDirector
             Beats = song.Beats.Where(double.IsFinite).Where(b => b >= 0).Distinct().OrderBy(b => b).ToList(),
         };
 
-        if (!(song.Duration > 0.01)) return track;
+        if (!(song.Duration > 0.01))
+        {
+            if (preserved.Count > 0) track.Shots.AddRange(preserved);
+            return track;
+        }
 
         var cuts = CameraCutTimes(song, look);
         var recent = new List<string>(3);
@@ -105,6 +111,7 @@ public static partial class AutoDirector
         {
             double start = cuts[i], end = cuts[i + 1];
             if (end - start < 0.05) continue;
+            if (CoversPreserved(preserved, start, end)) continue;
 
             var sec = song.SectionAt(start + 1e-6);
             bool high = sec is not null && song.IsHigh(sec);
@@ -135,7 +142,24 @@ public static partial class AutoDirector
             if (recent.Count > 3) recent.RemoveAt(0);
         }
 
+        if (preserved.Count > 0)
+        {
+            track.Shots.AddRange(preserved);
+            track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+        }
+
         return track;
+    }
+
+    private static bool CoversPreserved(List<CameraShot> preserved, double start, double end)
+    {
+        foreach (var shot in preserved)
+        {
+            if (shot is null) continue;
+            if (Math.Min(shot.End, end) - Math.Max(shot.Start, start) > 0.05) return true;
+        }
+
+        return false;
     }
 
     private static void AddRandomPanZoom(Dictionary<string, double> p, CameraRng rng)
