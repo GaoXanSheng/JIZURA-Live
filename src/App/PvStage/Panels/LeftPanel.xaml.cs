@@ -50,6 +50,9 @@ public partial class LeftPanel : UserControl
 
     private void TglCenterFree_Changed(object sender, RoutedEventArgs e) => Owner?.TglCenterFree_Changed(sender, e);
 
+    private void CmbCenterZone_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        Owner?.CmbCenterZone_SelectionChanged(sender, e);
+
     private void SldCenterGap_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
         Owner?.SldCenterGap_ValueChanged(sender, e);
 

@@ -179,12 +179,6 @@ public sealed class PvPipeline : IDisposable
 
     public void SetSpoutTransparent(bool on) => _renderer.SpoutTransparent = on;
 
-    public void SetLyricsAvoid(bool on, double minScale)
-    {
-        _renderer.LyricsAvoid = on;
-        _renderer.LyricsAvoidMinScale = minScale;
-    }
-
     public void SetDesignSegments(IEnumerable<DesignSegment>? segments)
     {
         _designSegments = segments?.Where(s => s is not null).ToList();
@@ -311,8 +305,15 @@ public sealed class PvPipeline : IDisposable
         ImagePath = imagePath,
         SpoutSenderName = null,
         Cover = true,
-        Parallax = new PvParallaxConfig { Depth = 0.9 },
-        VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
+        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0 },
+        VisualBlend = new PvVisualBlendConfig
+        {
+            AmbientTintIntensity = 0,
+            RimGlow = 0,
+            DropShadow = 0,
+            ShadowOffsetY = 0,
+            AntiBleedMargin = 0,
+        },
     };
 
     public static PvLayerConfig NewVideoLayer(string id, string videoPath) => new()
@@ -323,8 +324,15 @@ public sealed class PvPipeline : IDisposable
         VideoPath = videoPath,
         SpoutSenderName = null,
         Cover = true,
-        Parallax = new PvParallaxConfig { Depth = 0.9 },
-        VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
+        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0 },
+        VisualBlend = new PvVisualBlendConfig
+        {
+            AmbientTintIntensity = 0,
+            RimGlow = 0,
+            DropShadow = 0,
+            ShadowOffsetY = 0,
+            AntiBleedMargin = 0,
+        },
     };
 
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
@@ -425,6 +433,30 @@ public sealed class PvPipeline : IDisposable
 
     private static void MigrateVisualDefaults(PvLayerConfig layer)
     {
+        if (layer.Kind == PvLayerKind.VisualAsset
+            && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+            && layer.Parallax.Follow is null
+            && Math.Abs(layer.Parallax.Depth - 0.9) < 0.001)
+        {
+            layer.Parallax.Depth = 0;
+            layer.Parallax.RotationFactor = 0;
+            layer.Parallax.ScaleFactor = 0;
+
+            var media = layer.VisualBlend;
+            if (Math.Abs(media.AmbientTintIntensity - 0.18) < 0.001
+                && Math.Abs(media.RimGlow - 0.12) < 0.001
+                && Math.Abs(media.DropShadow - 0.3) < 0.001
+                && Math.Abs(media.ShadowOffsetY - 16) < 0.001
+                && Math.Abs(media.AntiBleedMargin - 0.06) < 0.001)
+            {
+                media.AmbientTintIntensity = 0;
+                media.RimGlow = 0;
+                media.DropShadow = 0;
+                media.ShadowOffsetY = 0;
+                media.AntiBleedMargin = 0;
+            }
+        }
+
         if (layer.Id != PvScene.CharacterLayerId || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) return;
 
         var blend = layer.VisualBlend;

@@ -1,4 +1,3 @@
-using System.Numerics;
 using JizuraLive.Engine;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -31,22 +30,6 @@ public sealed class PvStageRenderer : IDisposable
     private SpoutOut? _broadcast;
 
     public bool SpoutTransparent { get; set; }
-
-    public bool LyricsAvoid { get; set; }
-
-    public double LyricsAvoidPadding { get; set; } = 0.03;
-
-    public double LyricsAvoidMinScale { get; set; } = 0.5;
-
-    private OffscreenTarget? _probeTarget;
-    private int _avoidFrame;
-    private Rect _charBounds;
-    private Rect _lyricsBounds;
-    private bool _charBoundsValid;
-    private bool _lyricsBoundsValid;
-    private int _frameIndex;
-    private int _avoidStateFrame = -1;
-    private PvLayerState _avoidState;
 
     private readonly int _designW, _designH;
 
@@ -167,13 +150,11 @@ public sealed class PvStageRenderer : IDisposable
     public void Composite(ID2D1Bitmap1 target, int width, int height)
     {
         EnsureStageTarget();
-        _frameIndex++;
         var d = _d2d.Draw;
         var frame = new PvFrameContext(_frameTime, Stage.Beat, Stage.Energy, _designW, _designH);
 
         Stage.PumpImages(frame);
         var images = Stage.LastImages;
-        UpdateAvoidBounds(images);
         var compositor = _compositor;
         var returns = _returns;
         returns.Clear();
@@ -452,275 +433,10 @@ public sealed class PvStageRenderer : IDisposable
         }
     }
 
-    private PvLayerState LayerState(PvLayerConfig layer)
-    {
-        var state = Stage.Scene.Frame.TryGetLayer(layer.Id, out var frameState)
+    private PvLayerState LayerState(PvLayerConfig layer) =>
+        Stage.Scene.Frame.TryGetLayer(layer.Id, out var frameState)
             ? frameState
             : PvLayerState.From(layer);
-
-        if (!LyricsAvoid
-            || layer.Id != LegacyPvProvider.FrontId
-            || !_lyricsBoundsValid
-            || !_charBoundsValid)
-        {
-            if (layer.Id == LegacyPvProvider.FrontId) _avoidStateFrame = -1;
-            return state;
-        }
-
-        if (_avoidStateFrame == _frameIndex) return _avoidState;
-
-        var target = ApplyLyricsAvoidance(state, _lyricsBounds, _charBounds);
-        if (_avoidStateFrame == _frameIndex - 1)
-        {
-            target = new PvLayerState(
-                Lerp(_avoidState.OffsetX, target.OffsetX, 0.45),
-                Lerp(_avoidState.OffsetY, target.OffsetY, 0.45),
-                Lerp(_avoidState.Scale, target.Scale, 0.45),
-                target.Opacity,
-                target.Rotation);
-        }
-
-        _avoidState = target;
-        _avoidStateFrame = _frameIndex;
-        return target;
-    }
-
-    private void UpdateAvoidBounds(IReadOnlyDictionary<string, PvLayerImage> images)
-    {
-        if (!LyricsAvoid) return;
-        if (++_avoidFrame % 3 != 0) return;
-
-        var character = Stage.Scene.CharacterLayer;
-        _charBoundsValid = character is not null && TryGetLayerBounds(character.Id, images, out _charBounds);
-        _lyricsBoundsValid = TryGetLayerBounds(LegacyPvProvider.FrontId, images, out _lyricsBounds);
-    }
-
-    private bool TryGetLayerBounds(string layerId, IReadOnlyDictionary<string, PvLayerImage> images, out Rect bounds)
-    {
-        bounds = default;
-
-        var scene = Stage.Scene;
-        var layer = scene.Layers.FirstOrDefault(l => l.Id == layerId);
-        if (layer is null || !layer.Enabled) return false;
-        if (!images.TryGetValue(layerId, out var image) || image.Bitmap is null) return false;
-        if (!TryProbeAlpha(image, ReferenceEquals(layer, scene.CharacterLayer), out var norm)) return false;
-
-        var state = scene.Frame.TryGetLayer(layerId, out var frameState)
-            ? frameState
-            : PvLayerState.From(layer);
-        var tf = PvParallax.Compute(_designW, _designH, layer, state, Stage.Camera,
-            globalParallax: scene.GlobalParallaxEnabled,
-            antiBleed: scene.AntiBleedGuardEnabled);
-
-        var dest = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
-        var x0 = (float)(dest.X + norm.X * dest.Width);
-        var y0 = (float)(dest.Y + norm.Y * dest.Height);
-        var x1 = (float)(dest.X + (norm.X + norm.Width) * dest.Width);
-        var y1 = (float)(dest.Y + (norm.Y + norm.Height) * dest.Height);
-
-        var p1 = Vector2.Transform(new Vector2(x0, y0), tf.Matrix);
-        var p2 = Vector2.Transform(new Vector2(x1, y0), tf.Matrix);
-        var p3 = Vector2.Transform(new Vector2(x1, y1), tf.Matrix);
-        var p4 = Vector2.Transform(new Vector2(x0, y1), tf.Matrix);
-
-        var minX = Math.Min(Math.Min(p1.X, p2.X), Math.Min(p3.X, p4.X));
-        var minY = Math.Min(Math.Min(p1.Y, p2.Y), Math.Min(p3.Y, p4.Y));
-        var maxX = Math.Max(Math.Max(p1.X, p2.X), Math.Max(p3.X, p4.X));
-        var maxY = Math.Max(Math.Max(p1.Y, p2.Y), Math.Max(p3.Y, p4.Y));
-
-        bounds = new Rect(minX, minY, maxX - minX, maxY - minY);
-        return bounds.Width > 1 && bounds.Height > 1;
-    }
-
-    private bool TryProbeAlpha(PvLayerImage image, bool allowColorKey, out Rect norm)
-    {
-        norm = default;
-        EnsureProbeTarget();
-        var probe = _probeTarget!;
-        var d = _d2d.Draw;
-
-        d.SetTarget(probe.Bitmap, probe.Width, probe.Height);
-        d.Begin();
-        try
-        {
-            d.Clear(new Color4(0f, 0f, 0f, 0f));
-            d.DrawBitmap(image.Bitmap!, new Rect(0, 0, probe.Width, probe.Height), 1f);
-        }
-        finally
-        {
-            d.End();
-        }
-
-        using var read = probe.Readback();
-        var pixels = read.BgraPixels;
-        int minX = probe.Width, minY = probe.Height, maxX = -1, maxY = -1;
-        for (var y = 0; y < probe.Height; y++)
-        {
-            var row = y * probe.Width * 4;
-            for (var x = 0; x < probe.Width; x++)
-            {
-                if (pixels[row + x * 4 + 3] <= 8) continue;
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-            }
-        }
-
-        var alphaFull = maxX - minX + 1 >= probe.Width * 0.9f
-                        && maxY - minY + 1 >= probe.Height * 0.9f;
-        if (allowColorKey && alphaFull && TryColorKeyBounds(pixels, probe.Width, probe.Height, out norm))
-            return true;
-
-        if (maxX < minX || maxY < minY) return false;
-
-        norm = new Rect(
-            minX / (float)probe.Width,
-            minY / (float)probe.Height,
-            (maxX - minX + 1) / (float)probe.Width,
-            (maxY - minY + 1) / (float)probe.Height);
-        return true;
-    }
-
-    private static bool TryColorKeyBounds(byte[] pixels, int w, int h, out Rect norm)
-    {
-        norm = default;
-
-        // 用边框出现最多的量化颜色当底色键；VTS 不透明输出时 alpha 全满，只能靠色差找角色。
-        var hist = new Dictionary<int, int>();
-        void Sample(int x, int y)
-        {
-            var i = (y * w + x) * 4;
-            var key = ((pixels[i + 2] >> 3) << 10) | ((pixels[i + 1] >> 3) << 5) | (pixels[i] >> 3);
-            hist[key] = hist.TryGetValue(key, out var count) ? count + 1 : 1;
-        }
-
-        for (var x = 0; x < w; x++)
-        {
-            Sample(x, 0);
-            Sample(x, h - 1);
-        }
-
-        for (var y = 1; y < h - 1; y++)
-        {
-            Sample(0, y);
-            Sample(w - 1, y);
-        }
-
-        if (hist.Count == 0) return false;
-
-        var best = hist.MaxBy(p => p.Value).Key;
-        int br = ((best >> 10) & 31) << 3;
-        int bg = ((best >> 5) & 31) << 3;
-        int bb = (best & 31) << 3;
-
-        int minX = w, minY = h, maxX = -1, maxY = -1;
-        for (var y = 0; y < h; y++)
-        {
-            var row = y * w * 4;
-            for (var x = 0; x < w; x++)
-            {
-                var i = row + x * 4;
-                var dist = Math.Abs(pixels[i + 2] - br) + Math.Abs(pixels[i + 1] - bg) + Math.Abs(pixels[i] - bb);
-                if (dist <= 48) continue;
-
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                if (y > maxY) maxY = y;
-            }
-        }
-
-        if (maxX < minX || maxY < minY) return false;
-        if (maxX - minX + 1 >= w && maxY - minY + 1 >= h) return false;
-
-        norm = new Rect(
-            minX / (float)w,
-            minY / (float)h,
-            (maxX - minX + 1) / (float)w,
-            (maxY - minY + 1) / (float)h);
-        return true;
-    }
-
-    private void EnsureProbeTarget()
-    {
-        _probeTarget ??= OffscreenTarget.Create(_gpu, _d2d.Ctx, 96, 54, sampleable: true);
-    }
-
-    private PvLayerState ApplyLyricsAvoidance(PvLayerState state, Rect text, Rect character)
-    {
-        var pad = (float)(Math.Clamp(LyricsAvoidPadding, 0, 0.2) * Math.Min(_designW, _designH));
-        var cb = Inflate(character, pad);
-        if (cb.Width >= _designW * 0.92f && cb.Height >= _designH * 0.92f) return state;
-        if (text.Width >= _designW * 0.9f && text.Height >= _designH * 0.9f) return state;
-        if (!Intersects(text, cb)) return state;
-
-        var left = Math.Clamp(cb.X, 0, _designW);
-        var right = Math.Clamp(cb.Right, 0, _designW);
-        var top = Math.Clamp(cb.Y, 0, _designH);
-        var bottom = Math.Clamp(cb.Bottom, 0, _designH);
-
-        var candidates = new[]
-        {
-            new Rect(0, 0, left, _designH),
-            new Rect(right, 0, _designW - right, _designH),
-            new Rect(0, 0, _designW, top),
-            new Rect(0, bottom, _designW, _designH - bottom),
-            new Rect(0, 0, left, top),
-            new Rect(right, 0, _designW - right, top),
-            new Rect(0, bottom, left, _designH - bottom),
-            new Rect(right, bottom, _designW - right, _designH - bottom),
-        };
-
-        var best = state;
-        var bestFit = 0.0;
-        foreach (var free in candidates)
-        {
-            if (free.Width < 40 || free.Height < 40) continue;
-
-            var fit = Math.Min(
-                free.Width / Math.Max(1.0, text.Width),
-                free.Height / Math.Max(1.0, text.Height));
-            if (fit <= bestFit) continue;
-
-            bestFit = fit;
-            best = FitInto(state, text, free, fit);
-        }
-
-        return bestFit > 0 ? best : state;
-    }
-
-    private PvLayerState FitInto(PvLayerState state, Rect text, Rect free, double fit)
-    {
-        var minScale = Math.Clamp(LyricsAvoidMinScale, 0.1, 1.0);
-        var scale = Math.Clamp(fit, minScale, 1.0);
-
-        var baseScale = Math.Max(0.01, state.Scale);
-        var newScale = baseScale * scale;
-        var cx = _designW / 2.0;
-        var cy = _designH / 2.0;
-
-        var textCx = text.X + text.Width / 2.0;
-        var textCy = text.Y + text.Height / 2.0;
-        var targetCx = free.X + free.Width / 2.0;
-        var targetCy = free.Y + free.Height / 2.0;
-
-        var p0x = cx + (textCx - cx - state.OffsetX * _designW) / baseScale;
-        var p0y = cy + (textCy - cy - state.OffsetY * _designH) / baseScale;
-
-        var offX = (targetCx - cx - newScale * (p0x - cx)) / _designW;
-        var offY = (targetCy - cy - newScale * (p0y - cy)) / _designH;
-
-        return state with { Scale = newScale, OffsetX = offX, OffsetY = offY };
-    }
-
-    private static Rect Inflate(Rect r, float pad) =>
-        new(r.X - pad, r.Y - pad, r.Width + pad * 2, r.Height + pad * 2);
-
-    private static bool Intersects(Rect a, Rect b) =>
-        a.X < b.Right && a.Right > b.X && a.Y < b.Bottom && a.Bottom > b.Y;
-
-    private static double Lerp(double a, double b, double t) => a + (b - a) * t;
 
     private ID2D1Bitmap1 BitmapFor(GpuTexturePool.Entry entry)
     {
@@ -805,7 +521,6 @@ public sealed class PvStageRenderer : IDisposable
         _stageTarget?.Dispose();
         _transparentStageSrv?.Dispose();
         _transparentStageTarget?.Dispose();
-        _probeTarget?.Dispose();
         Stage.Dispose();
         _fx.Dispose();
     }

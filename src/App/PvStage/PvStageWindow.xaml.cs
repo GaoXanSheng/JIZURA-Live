@@ -115,8 +115,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private bool _broadcastOn;
     private bool _spoutTransparent;
-    private bool _lyricsAvoid;
-    private double _lyricsAvoidMinScale = 0.5;
     private readonly string _spoutName;
 
     private bool _ready => _pipe is { Ready: true };
@@ -129,8 +127,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var settings = App.SettingsOf();
         _broadcastOn = settings?.SpoutEnabled ?? false;
         _spoutTransparent = settings?.SpoutTransparent ?? false;
-        _lyricsAvoid = settings?.LyricsAvoid ?? true;
-        _lyricsAvoidMinScale = Math.Clamp(settings?.LyricsAvoidMinScale ?? 0.5, 0.3, 1.0);
         _spoutName = settings?.SpoutName ?? "JIZURA-live-PV";
         Stage.VSync = settings?.VSync ?? true;
         InitVolume();
@@ -145,7 +141,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         _project = boot.Project;
-        if (_lyricsAvoid) _project.Preset.CenterFree = false;
         _scene = _project.Scene;
         _effects = _project.Effects;
         _pipeEffects = _effects.Clone();
@@ -441,7 +436,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects, null, LegacyOptions());
         _pipe = pipe;
         pipe.SetSpoutTransparent(_spoutTransparent);
-        pipe.SetLyricsAvoid(_lyricsAvoid, _lyricsAvoidMinScale);
         pipe.StageCameraEnabled = _project.LegacyStageCamera;
         pipe.StageTransitionsEnabled = _project.LegacyStageTransitions;
         int epoch = _projectEpoch;
@@ -1796,10 +1790,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblVideoDecode.ToolTip = "D3D11 硬解优先，失败自动回退";
             TglVSync.IsChecked = Stage.VSync;
 
-            TglCenterFree.IsChecked = _lyricsAvoid;
-            var minScalePct = Math.Clamp(_lyricsAvoidMinScale * 100, 30, 100);
-            SldCenterGap.Value = minScalePct;
-            TblCenterGap.Text = $"{minScalePct:0}%";
+            TglCenterFree.IsChecked = _project.Preset.CenterFree;
+            SldCenterGap.Value = Math.Clamp(_project.Preset.CenterGap ?? 30, 10, 70);
+            TblCenterGap.Text = $"{Math.Round(SldCenterGap.Value):0}%";
+            SelectCenterZone(_project.Preset.CenterZone);
 
             SelectCanvasPreset(_scene.Width, _scene.Height);
             SyncPvRenderOption();

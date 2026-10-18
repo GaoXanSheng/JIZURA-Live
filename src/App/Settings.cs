@@ -16,10 +16,6 @@ public sealed class Settings
 
     public bool SpoutTransparent { get; set; } = false;
 
-    public bool LyricsAvoid { get; set; } = true;
-
-    public double LyricsAvoidMinScale { get; set; } = 0.5;
-
     public PvOptions Pv { get; set; } = new();
 
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]

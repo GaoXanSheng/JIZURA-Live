@@ -484,27 +484,43 @@
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="歌词避让" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="区域留白" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="从 VTS 输出的 alpha 计算角色边界，自动把歌词缩放到剩余最大空白区。VTS 需输出透明背景。" />
+                                                   Text="在画面里留出一条空白带，歌词只排进其余条带；不再探测角色轮廓。" />
                                         <Grid Margin="0,10,2,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="智能避让皮套" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="启用留白" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglCenterFree" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglCenterFree_Changed"
                                                              Unchecked="TglCenterFree_Changed" />
                                         </Grid>
                                         <Grid Margin="0,8,0,0">
-                                            <TextBlock Text="最小歌词缩放" Style="{StaticResource PanelRowLabel}" />
-                                            <TextBlock x:Name="TblCenterGap" HorizontalAlignment="Right"
-                                                       Style="{StaticResource PanelValue}" Text="50%" />
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="留白位置" Style="{StaticResource PanelRowLabel}" />
+                                            <ComboBox x:Name="CmbCenterZone" Grid.Column="1" Width="110"
+                                                      HorizontalAlignment="Right" SelectedIndex="0"
+                                                      SelectionChanged="CmbCenterZone_SelectionChanged">
+                                                <ComboBoxItem Content="居中" Tag="center" />
+                                                <ComboBoxItem Content="左侧" Tag="left" />
+                                                <ComboBoxItem Content="右侧" Tag="right" />
+                                                <ComboBoxItem Content="上方" Tag="top" />
+                                                <ComboBoxItem Content="下方" Tag="bottom" />
+                                            </ComboBox>
                                         </Grid>
-                                        <Slider x:Name="SldCenterGap" Margin="0,4,0,0" Minimum="30" Maximum="100"
-                                                Value="50" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5"
+                                        <Grid Margin="0,8,0,0">
+                                            <TextBlock Text="留白比例" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock x:Name="TblCenterGap" HorizontalAlignment="Right"
+                                                       Style="{StaticResource PanelValue}" Text="30%" />
+                                        </Grid>
+                                        <Slider x:Name="SldCenterGap" Margin="0,4,0,0" Minimum="10" Maximum="70"
+                                                Value="30" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5"
                                                 ValueChanged="SldCenterGap_ValueChanged" />
                                     </StackPanel>
                                 </ui:Card>

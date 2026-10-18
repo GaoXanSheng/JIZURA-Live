@@ -49,6 +49,7 @@ public partial class PvStageWindow
     private ComboBox CmbAutoStyle => Left.CmbAutoStyle;
     private ComboBox CmbCanvasPreset => Left.CmbCanvasPreset;
     private ComboBox CmbPvRender => Left.CmbPvRender;
+    private ComboBox CmbCenterZone => Left.CmbCenterZone;
 
     private Wpf.Ui.Controls.ToggleSwitch TglStageCamera => Left.TglStageCamera;
     private Wpf.Ui.Controls.ToggleSwitch TglStageTransitions => Left.TglStageTransitions;

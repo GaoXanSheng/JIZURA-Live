@@ -33,6 +33,8 @@ internal sealed class VideoDevice : IDisposable
             }
 
             Log.Info($"[PV/视频] 独立视频设备就绪：feature level={level}");
+            using (var multithread = device.QueryInterface<ID3D11Multithread>())
+                multithread.SetMultithreadProtected(true);
             return new VideoDevice(device, context);
         }
         catch (Exception ex)
