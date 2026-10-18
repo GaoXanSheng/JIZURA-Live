@@ -8,6 +8,7 @@
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <UseWPF>true</UseWPF>
+        <UseWindowsForms>true</UseWindowsForms>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <PlatformTarget>x64</PlatformTarget>
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -21,13 +22,18 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Using Remove="System.Windows.Forms" />
+        <Using Remove="System.Drawing" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="log4net" Version="3.5.0" />
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.12" />
-        <PackageReference Include="NAudio" Version="3.1.0" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.13" />
+        <PackageReference Include="NAudio" Version="3.2.0" />
         <PackageReference Include="NAudio.Flac" Version="1.0.5702.29018" />
         <PackageReference Include="NAudio.Vorbis" Version="3.0.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-        <PackageReference Include="QRCoder" Version="1.8.0" />
+        <PackageReference Include="QRCoder" Version="1.8.1" />
         <PackageReference Include="SkiaSharp" Version="4.153.1" />
         <PackageReference Include="VirtualizingWrapPanel" Version="2.5.4" />
         <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
@@ -42,6 +48,27 @@
         </Reference>
         <None Remove="native\SpoutDX.dll" />
         <None Include="native\SpoutDX.dll" Link="SpoutDX.dll" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="native\angle\*" CopyToOutputDirectory="PreserveNewest" Link="angle\%(Filename)%(Extension)" Condition="Exists('native\angle')" />
+        <None Remove="objcheck3 2\**" />
+        <None Remove="objcheck4 2\**" />
+        <None Remove="objcheck5 2\**" />
+        <None Remove="objcheck6 2\**" />
+        <None Remove="objcheck7 2\**" />
+        <None Remove="objcheck8 2\**" />
+        <None Remove="objcheck9 2\**" />
+        <None Remove="objcheck10 2\**" />
+        <None Remove="objcheck11 2\**" />
+        <None Remove="objcheck12 2\**" />
+        <None Remove="objcheck13 2\**" />
+        <None Remove="objcheck14 2\**" />
+        <None Remove="objcheck15 2\**" />
+        <None Remove="objcheck16 2\**" />
+        <None Remove="objcheck17 2\**" />
+        <None Remove="objcheck18 2\**" />
+        <None Remove="objcheck19 2\**" />
+        <None Remove="objcheck20 2\**" />
+        <None Remove="objcheck21 2\**" />
+        <None Remove="objcheck22 2\**" />
     </ItemGroup>
     <Target Name="CopySpoutDx" AfterTargets="Build;Publish">
         <Copy SourceFiles="native\SpoutDX.dll" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="'$(PublishDir)' != '' And !Exists('$(PublishDir)SpoutDX.dll') And Exists('native\SpoutDX.dll')" />
@@ -69,17 +96,79 @@
       <ApplicationDefinition Include="src\App\App.xaml" />
       <EmbeddedResource Include="src\App\I18n\Locales\**\*.json" />
       <Compile Remove="tests\**" />
-      <Compile Remove="src\LegacyEngine\GpuRasterHost.cs" />
-      <Compile Remove="src\LegacyEngine\AngleEgl.cs" />
       <None Remove="tests\**" />
       <Content Remove="tests\**" />
       <Compile Remove="tools\**" />
       <None Remove="tools\**" />
       <Content Remove="tools\**" />
+      <Compile Remove="objcheck3 2\**" />
+      <EmbeddedResource Remove="objcheck3 2\**" />
+      <Compile Remove="objcheck4 2\**" />
+      <EmbeddedResource Remove="objcheck4 2\**" />
+      <Compile Remove="objcheck5 2\**" />
+      <EmbeddedResource Remove="objcheck5 2\**" />
+      <Compile Remove="objcheck6 2\**" />
+      <EmbeddedResource Remove="objcheck6 2\**" />
+      <Compile Remove="objcheck7 2\**" />
+      <EmbeddedResource Remove="objcheck7 2\**" />
+      <Compile Remove="objcheck8 2\**" />
+      <EmbeddedResource Remove="objcheck8 2\**" />
+      <Compile Remove="objcheck9 2\**" />
+      <EmbeddedResource Remove="objcheck9 2\**" />
+      <Compile Remove="objcheck10 2\**" />
+      <EmbeddedResource Remove="objcheck10 2\**" />
+      <Compile Remove="objcheck11 2\**" />
+      <EmbeddedResource Remove="objcheck11 2\**" />
+      <Compile Remove="objcheck12 2\**" />
+      <EmbeddedResource Remove="objcheck12 2\**" />
+      <Compile Remove="objcheck13 2\**" />
+      <EmbeddedResource Remove="objcheck13 2\**" />
+      <Compile Remove="objcheck14 2\**" />
+      <EmbeddedResource Remove="objcheck14 2\**" />
+      <Compile Remove="objcheck15 2\**" />
+      <EmbeddedResource Remove="objcheck15 2\**" />
+      <Compile Remove="objcheck16 2\**" />
+      <EmbeddedResource Remove="objcheck16 2\**" />
+      <Compile Remove="objcheck17 2\**" />
+      <EmbeddedResource Remove="objcheck17 2\**" />
+      <Compile Remove="objcheck18 2\**" />
+      <EmbeddedResource Remove="objcheck18 2\**" />
+      <Compile Remove="objcheck19 2\**" />
+      <EmbeddedResource Remove="objcheck19 2\**" />
+      <Compile Remove="objcheck20 2\**" />
+      <EmbeddedResource Remove="objcheck20 2\**" />
+      <Compile Remove="objcheck21 2\**" />
+      <EmbeddedResource Remove="objcheck21 2\**" />
+      <Compile Remove="objcheck22 2\**" />
+      <EmbeddedResource Remove="objcheck22 2\**" />
     </ItemGroup>
 
 
     <ItemGroup>
       <Folder Include="DOC\" />
+    </ItemGroup>
+
+
+    <ItemGroup>
+      <Page Remove="objcheck3 2\**" />
+      <Page Remove="objcheck4 2\**" />
+      <Page Remove="objcheck5 2\**" />
+      <Page Remove="objcheck6 2\**" />
+      <Page Remove="objcheck7 2\**" />
+      <Page Remove="objcheck8 2\**" />
+      <Page Remove="objcheck9 2\**" />
+      <Page Remove="objcheck10 2\**" />
+      <Page Remove="objcheck11 2\**" />
+      <Page Remove="objcheck12 2\**" />
+      <Page Remove="objcheck13 2\**" />
+      <Page Remove="objcheck14 2\**" />
+      <Page Remove="objcheck15 2\**" />
+      <Page Remove="objcheck16 2\**" />
+      <Page Remove="objcheck17 2\**" />
+      <Page Remove="objcheck18 2\**" />
+      <Page Remove="objcheck19 2\**" />
+      <Page Remove="objcheck20 2\**" />
+      <Page Remove="objcheck21 2\**" />
+      <Page Remove="objcheck22 2\**" />
     </ItemGroup>
 </Project>

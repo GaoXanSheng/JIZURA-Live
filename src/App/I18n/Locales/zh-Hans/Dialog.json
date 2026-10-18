@@ -8,5 +8,6 @@
   "Dialog.ResetItem4": "风格・演出・配色・字体等设置",
   "Dialog.ResetItem5": "方案历史（◀ ▶）与撤销历史",
   "Dialog.ResetKeep": "预览音量会保留。",
-  "Dialog.ResetTitle": "初始化"
+  "Dialog.ResetTitle": "初始化",
+  "Dialog.Value": "数值"
 }

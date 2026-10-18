@@ -19,6 +19,7 @@ public sealed partial class TimelineView
         var p = e.GetPosition(this);
         if (e.ChangedButton == MouseButton.Right)
         {
+            if (TryOpenDesignMenu(p)) return;
             OpenKeyMenu(p);
             return;
         }
@@ -53,7 +54,7 @@ public sealed partial class TimelineView
                 StartClipGesture(x);
                 break;
             case RowKind.Design:
-                HitDesignSegment(row, TimeAt(x));
+                StartDesignGesture(row, p, x);
                 break;
             case RowKind.Automation:
                 StartAutomationDrag(row, p, x);
@@ -64,7 +65,11 @@ public sealed partial class TimelineView
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (_drag == DragMode.None) return;
+        if (_drag == DragMode.None)
+        {
+            UpdateDesignCursor(e.GetPosition(this));
+            return;
+        }
         var p = e.GetPosition(this);
         switch (_drag)
         {
@@ -82,6 +87,9 @@ public sealed partial class TimelineView
                 break;
             case DragMode.Clip:
                 MoveClip(p);
+                break;
+            case DragMode.Design:
+                MoveDesignSegment(p);
                 break;
         }
     }
@@ -109,6 +117,11 @@ public sealed partial class TimelineView
             _drag = DragMode.None;
             CommitClip();
         }
+        else if (_drag == DragMode.Design)
+        {
+            _drag = DragMode.None;
+            CommitDesignGesture();
+        }
         else _drag = DragMode.None;
 
         if (IsMouseCaptured) ReleaseMouseCapture();
@@ -119,6 +132,13 @@ public sealed partial class TimelineView
     {
         base.OnLostMouseCapture(e);
         if (_drag == DragMode.None) return;
+        if (_drag == DragMode.Design && _dragSegment is { } seg)
+        {
+            seg.Start = _segOriginStart;
+            seg.End = _segOriginEnd;
+            _dragSegment = null;
+            _dragTip = null;
+        }
         RestoreGesture();
         InvalidateVisual();
     }
@@ -161,7 +181,10 @@ public sealed partial class TimelineView
                 e.Handled = true;
                 break;
             case Key.Delete:
-                DeleteSelected();
+                if (_selSegment is { } sel && FindSegment(sel.Track, sel.RefId) is { } segment)
+                    SegmentDeleteRequested?.Invoke(segment);
+                else
+                    DeleteSelected();
                 e.Handled = true;
                 break;
             case Key.C when ctrl:
@@ -198,6 +221,183 @@ public sealed partial class TimelineView
         _selSegment = new SelSegment(row.Index, hit.RefId);
         SegmentSelected?.Invoke(hit);
         InvalidateVisual();
+    }
+
+    private TDesignSegment? DesignSegmentAt(Row row, double time)
+    {
+        if (_snap is null || row.Index < 0 || row.Index >= _snap.DesignTracks.Count) return null;
+        var track = _snap.DesignTracks[row.Index];
+        for (int i = track.Segments.Count - 1; i >= 0; i--)
+        {
+            var seg = track.Segments[i];
+            if (time >= seg.Start && time <= seg.End) return seg;
+        }
+        return null;
+    }
+
+    private void StartDesignGesture(Row row, Point p, double x)
+    {
+        if (_snap is null) return;
+
+        double time = TimeAt(x);
+        var hit = DesignSegmentAt(row, time);
+        if (hit is null)
+        {
+            ClearSegmentSelection();
+            RaiseSeek(time);
+            InvalidateVisual();
+            return;
+        }
+
+        _selection.Clear();
+        _selSegment = new SelSegment(row.Index, hit.RefId);
+        SegmentSelected?.Invoke(hit);
+
+        _dragSegment = hit;
+        _segOriginStart = hit.Start;
+        _segOriginEnd = hit.End;
+        _segAnchorTime = time;
+
+        double x0 = HeaderWidth + TimelineMath.TimeToX(hit.Start, _viewStart, _pixelsPerSecond);
+        double x1 = HeaderWidth + TimelineMath.TimeToX(hit.End, _viewStart, _pixelsPerSecond);
+        const double edgePx = 6;
+        _segResizeStart = Math.Abs(p.X - x0) <= edgePx;
+        _segResizeEnd = !_segResizeStart && Math.Abs(p.X - x1) <= edgePx;
+
+        _drag = DragMode.Design;
+        CaptureMouse();
+        InvalidateVisual();
+    }
+
+    private void MoveDesignSegment(Point p)
+    {
+        if (_dragSegment is not { } seg || _snap is null) return;
+
+        double delta = TimeAt(p.X - HeaderWidth) - _segAnchorTime;
+        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        double step = TimelineMath.GridStep(_pixelsPerSecond, Fps);
+        if (snap) delta = Math.Round(delta / step) * step;
+
+        double duration = Math.Max(0, _snap.DurationSeconds);
+        double minDur = Math.Max(0.05, step);
+
+        if (_segResizeStart)
+        {
+            seg.Start = Math.Clamp(_segOriginStart + delta, 0, _segOriginEnd - minDur);
+        }
+        else if (_segResizeEnd)
+        {
+            seg.End = Math.Clamp(_segOriginEnd + delta, _segOriginStart + minDur, duration);
+        }
+        else
+        {
+            double length = _segOriginEnd - _segOriginStart;
+            double start = Math.Clamp(_segOriginStart + delta, 0, Math.Max(0, duration - length));
+            seg.Start = start;
+            seg.End = start + length;
+        }
+
+        _dragTip = $"{FormatTime(seg.Start)} – {FormatTime(seg.End)}";
+        InvalidateVisual();
+    }
+
+    private void CommitDesignGesture()
+    {
+        var seg = _dragSegment;
+        _dragSegment = null;
+        _dragTip = null;
+        if (seg is null) return;
+        SegmentTimeEdited?.Invoke(seg, seg.Start, seg.End);
+        InvalidateVisual();
+    }
+
+    private bool TryOpenDesignMenu(Point p)
+    {
+        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.Design } row) return false;
+        var seg = DesignSegmentAt(row, TimeAt(p.X - HeaderWidth));
+        if (seg is null) return false;
+
+        _selection.Clear();
+        _selSegment = new SelSegment(row.Index, seg.RefId);
+        SegmentSelected?.Invoke(seg);
+        InvalidateVisual();
+
+        var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
+        if (IsLegacy(seg))
+        {
+            menu.Items.Add(new MenuItem { Header = "原版切分由歌词与 Plan 生成，只读", IsEnabled = false });
+            menu.IsOpen = true;
+            return true;
+        }
+
+        var start = new MenuItem { Header = $"开始时间：{FormatTime(seg.Start)}…" };
+        start.Click += async (_, _) =>
+        {
+            var value = await PromptValueAsync(seg.Start);
+            if (value is null) return;
+            seg.Start = Math.Clamp(value.Value, 0, Math.Max(0, seg.End - 0.01));
+            SegmentTimeEdited?.Invoke(seg, seg.Start, seg.End);
+            InvalidateVisual();
+        };
+        menu.Items.Add(start);
+
+        var end = new MenuItem { Header = $"结束时间：{FormatTime(seg.End)}…" };
+        end.Click += async (_, _) =>
+        {
+            var value = await PromptValueAsync(seg.End);
+            if (value is null) return;
+            seg.End = Math.Max(seg.Start + 0.01, value.Value);
+            SegmentTimeEdited?.Invoke(seg, seg.Start, seg.End);
+            InvalidateVisual();
+        };
+        menu.Items.Add(end);
+
+        menu.Items.Add(new Separator());
+        var fit = new MenuItem { Header = "从播放头开始" };
+        fit.Click += (_, _) =>
+        {
+            double length = seg.End - seg.Start;
+            seg.Start = Math.Max(0, _snap.PlayheadSeconds);
+            seg.End = seg.Start + length;
+            SegmentTimeEdited?.Invoke(seg, seg.Start, seg.End);
+            InvalidateVisual();
+        };
+        menu.Items.Add(fit);
+
+        menu.Items.Add(new Separator());
+        var remove = new MenuItem { Header = "删除段" };
+        remove.Click += (_, _) => SegmentDeleteRequested?.Invoke(seg);
+        menu.Items.Add(remove);
+
+        menu.IsOpen = true;
+        return true;
+    }
+
+    private static bool IsLegacy(TDesignSegment seg) =>
+        string.Equals(seg.Source, "legacy", StringComparison.Ordinal)
+        && seg.RefId.StartsWith("legacy_", StringComparison.Ordinal);
+
+    private void UpdateDesignCursor(Point p)
+    {
+        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.Design } row)
+        {
+            Cursor = Cursors.Arrow;
+            return;
+        }
+
+        var seg = DesignSegmentAt(row, TimeAt(p.X - HeaderWidth));
+        if (seg is null)
+        {
+            Cursor = Cursors.Arrow;
+            return;
+        }
+
+        double x0 = HeaderWidth + TimelineMath.TimeToX(seg.Start, _viewStart, _pixelsPerSecond);
+        double x1 = HeaderWidth + TimelineMath.TimeToX(seg.End, _viewStart, _pixelsPerSecond);
+        const double edgePx = 6;
+        Cursor = Math.Abs(p.X - x0) <= edgePx || Math.Abs(p.X - x1) <= edgePx
+            ? Cursors.SizeWE
+            : Cursors.SizeAll;
     }
 
     private void StartScrub(double x)
@@ -457,11 +657,12 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
-    private void EditKeyValue(TCurve curve, int index)
+    private async void EditKeyValue(TCurve curve, int index)
     {
-        if (!PromptValue(curve.Keys[index].Value, out double value)) return;
+        var value = await PromptValueAsync(curve.Keys[index].Value);
+        if (value is null) return;
         BeginGesture([curve.Address]);
-        curve.Keys[index] = curve.Keys[index] with { Value = value };
+        curve.Keys[index] = curve.Keys[index] with { Value = value.Value };
         CommitGesture("value");
         InvalidateVisual();
     }
@@ -557,53 +758,9 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
-    private bool PromptValue(double current, out double value)
+    private async Task<double?> PromptValueAsync(double current)
     {
-        value = current;
-        var box = new TextBox
-        {
-            Text = current.ToString("0.###", CultureInfo.InvariantCulture),
-            MinWidth = 140,
-            Padding = new Thickness(4, 2, 4, 2),
-        };
-        box.SelectAll();
-
-        var accept = new Button { Content = "OK", MinWidth = 64, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
-        var cancel = new Button { Content = L.T("Dialog.Cancel"), MinWidth = 64, IsCancel = true };
-        var dialog = new Window
-        {
-            Owner = Window.GetWindow(this),
-            Title = "Value",
-            SizeToContent = SizeToContent.WidthAndHeight,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ResizeMode = ResizeMode.NoResize,
-            ShowInTaskbar = false,
-            Content = new StackPanel
-            {
-                Margin = new Thickness(14),
-                Children =
-                {
-                    box,
-                    new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        Margin = new Thickness(0, 12, 0, 0),
-                        Children = { accept, cancel },
-                    },
-                },
-            },
-        };
-
-        bool accepted = false;
-        accept.Click += (_, _) =>
-        {
-            accepted = true;
-            dialog.Close();
-        };
-        cancel.Click += (_, _) => dialog.Close();
-        dialog.ShowDialog();
-
-        return accepted && double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        if (ValuePrompt is null) return null;
+        return await ValuePrompt(current);
     }
 }

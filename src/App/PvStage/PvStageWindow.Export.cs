@@ -15,5 +15,5 @@ public partial class PvStageWindow
         else if (!_exportFormEdited) ChkIncludeAudio.IsChecked = true;
     }
 
-    private void ChkIncludeAudio_Click(object sender, RoutedEventArgs e) => _exportFormEdited = true;
+    internal void ChkIncludeAudio_Click(object sender, RoutedEventArgs e) => _exportFormEdited = true;
 }

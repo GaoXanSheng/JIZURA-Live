@@ -197,6 +197,12 @@ public sealed partial class TimelineView
                 : (selected ? SegUserSelectedBrush : SegUserBrush);
             dc.DrawRoundedRectangle(fill, null, rect, 3, 3);
 
+            if (selected)
+            {
+                dc.DrawRectangle(AccentBrush, null, new Rect(rect.X, rect.Y, 2, rect.Height));
+                dc.DrawRectangle(AccentBrush, null, new Rect(rect.Right - 2, rect.Y, 2, rect.Height));
+            }
+
             if (seg.FadeIn > 0 || seg.FadeOut > 0)
             {
                 var fade = new StreamGeometry();
@@ -232,7 +238,8 @@ public sealed partial class TimelineView
             if (rect.Width >= 24)
             {
                 dc.PushClip(new RectangleGeometry(rect));
-                dc.DrawText(Text(seg.Technique, 9, selected ? BgBrush : DimBrush),
+                dc.DrawText(Text(string.IsNullOrWhiteSpace(seg.Label) ? seg.Technique : seg.Label, 9,
+                        selected ? BgBrush : DimBrush),
                     new Point(rect.X + 4, rect.Y + (rect.Height - 12) / 2));
                 dc.Pop();
             }

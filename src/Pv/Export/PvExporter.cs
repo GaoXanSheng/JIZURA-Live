@@ -70,6 +70,7 @@ public static class PvExporter
                     NoCutTrans = legacy.NoCutTrans,
                     StageCamera = legacy.StageCamera,
                     StageTransitions = legacy.StageTransitions,
+                    Preset = legacy.Preset,
                     Synchronous = true,
                 };
 

@@ -39,6 +39,7 @@ public sealed partial class TimelineView : Control
         Handle,
         Pan,
         Clip,
+        Design,
     }
 
     internal readonly record struct SelSegment(int Track, string RefId);
@@ -65,6 +66,13 @@ public sealed partial class TimelineView : Control
     private ClipRange _clipOrigin;
     private double _clipAnchorTime;
     private bool _clipConflict;
+
+    private TDesignSegment? _dragSegment;
+    private double _segOriginStart;
+    private double _segOriginEnd;
+    private double _segAnchorTime;
+    private bool _segResizeStart;
+    private bool _segResizeEnd;
 
     public TimelineView()
     {
@@ -105,6 +113,12 @@ public sealed partial class TimelineView : Control
     public event Action<TEdit>? EditCommitted;
 
     public event Action<TDesignSegment>? SegmentSelected;
+
+    public event Action<TDesignSegment, double, double>? SegmentTimeEdited;
+
+    public event Action<TDesignSegment>? SegmentDeleteRequested;
+
+    public Func<double, Task<double?>>? ValuePrompt { get; set; }
 
     private TDesignSegment? FindSegment(int track, string refId)
     {

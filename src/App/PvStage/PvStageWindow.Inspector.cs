@@ -2,7 +2,9 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using JizuraLive.LegacyEngine;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
@@ -19,10 +21,117 @@ public partial class PvStageWindow
         public Func<double> ReadBase = null!;
         public Action<double> WriteBase = null!;
         public Slider Slider = null!;
-        public TextBlock ValueText = null!;
+        public NumericValue Value = null!;
         public Wpf.Ui.Controls.Badge Badge = null!;
         public TextBlock ClampMark = null!;
         public double EditTime;
+    }
+
+    private sealed class NumericValue
+    {
+        public Grid Root { get; }
+        public TextBlock Display { get; }
+        public TextBox Editor { get; }
+        public Action<double>? Commit { get; set; }
+        public double Min { get; set; } = double.NegativeInfinity;
+        public double Max { get; set; } = double.PositiveInfinity;
+
+        private double _value;
+        private bool _editing;
+
+        public NumericValue()
+        {
+            Display = new TextBlock
+            {
+                FontFamily = MonoFontFamily,
+                FontSize = 11,
+                TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand,
+                ToolTip = "点击输入精确数值",
+            };
+            Display.SetResourceReference(TextBlock.ForegroundProperty, TextPrimaryKey);
+            Display.MouseLeftButtonDown += (_, e) =>
+            {
+                e.Handled = true;
+                BeginEdit();
+            };
+
+            Editor = new TextBox
+            {
+                FontFamily = MonoFontFamily,
+                FontSize = 11,
+                TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Height = 22,
+                Width = 42,
+                MinWidth = 0,
+                MinHeight = 0,
+                Padding = new Thickness(2, 0, 2, 0),
+                Visibility = Visibility.Collapsed,
+            };
+            if (Application.Current.TryFindResource("InlineValueBox") is Style inlineStyle)
+                Editor.Style = inlineStyle;
+            Editor.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    EndEdit(true);
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    EndEdit(false);
+                    e.Handled = true;
+                }
+            };
+            Editor.LostFocus += (_, _) => EndEdit(true);
+
+            Root = new Grid();
+            Root.Children.Add(Display);
+            Root.Children.Add(Editor);
+        }
+
+        public void SetValue(double value)
+        {
+            _value = value;
+            if (!_editing) Display.Text = value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        private void BeginEdit()
+        {
+            if (_editing) return;
+            _editing = true;
+            Editor.Text = _value.ToString("0.###", CultureInfo.InvariantCulture);
+            Display.Visibility = Visibility.Collapsed;
+            Editor.Visibility = Visibility.Visible;
+            Editor.Focus();
+            Editor.SelectAll();
+        }
+
+        private void EndEdit(bool commit)
+        {
+            if (!_editing) return;
+            _editing = false;
+            Editor.Visibility = Visibility.Collapsed;
+            Display.Visibility = Visibility.Visible;
+
+            if (commit
+                && double.TryParse(Editor.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                && double.IsFinite(value))
+            {
+                if (double.IsFinite(Min)) value = Math.Max(Min, value);
+                if (double.IsFinite(Max)) value = Math.Min(Max, value);
+                _value = value;
+                Display.Text = value.ToString("0.###", CultureInfo.InvariantCulture);
+                Commit?.Invoke(value);
+                return;
+            }
+
+            Display.Text = _value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
     }
 
     private readonly List<AnimRow> _inspectorRows = new();
@@ -85,7 +194,7 @@ public partial class PvStageWindow
 
     private void BuildCameraSection()
     {
-        InspectorHost.Children.Add(SectionTitle("相机"));
+        InspectorHost.Children.Add(SectionTitle("整体相机（全部图层）"));
         InspectorHost.Children.Add(CameraRow("offsetX", "位移X", 1));
         InspectorHost.Children.Add(CameraRow("offsetY", "位移Y", 1));
         InspectorHost.Children.Add(CameraRow("scale", "缩放", 0.01));
@@ -120,7 +229,7 @@ public partial class PvStageWindow
 
     private void BuildLayerSection(PvLayerConfig layer)
     {
-        InspectorHost.Children.Add(SectionTitle($"图层 · {LayerKindLabel(layer.Kind)}"));
+        InspectorHost.Children.Add(SectionTitle($"图层 · {LayerKindLabel(layer)}"));
         InspectorHost.Children.Add(LayerRow(layer, "offsetX", "位移X", 0.01));
         InspectorHost.Children.Add(LayerRow(layer, "offsetY", "位移Y", 0.01));
         InspectorHost.Children.Add(LayerRow(layer, "scale", "缩放", 0.01));
@@ -128,6 +237,9 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(LayerRow(layer, "rotation", "旋转", 1));
         InspectorHost.Children.Add(ConstRow("深度", 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
+        InspectorHost.Children.Add(ConstRow("跟随运镜", 0, 2, 0.01,
+            () => layer.Parallax.Follow ?? layer.Parallax.Depth,
+            v => layer.Parallax.Follow = v));
         InspectorHost.Children.Add(ConstRow("环境光", 0, 1, 0.02,
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
         InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
@@ -143,6 +255,88 @@ public partial class PvStageWindow
             }));
 
         if (layer.Decor is { } decor) BuildDecorSection(decor);
+
+        if (layer.Id == PvScene.CharacterLayerId)
+            BuildLayerCameraSection(layer);
+    }
+
+    private void BuildLayerCameraSection(PvLayerConfig layer)
+    {
+        InspectorHost.Children.Add(SectionTitle("角色运镜（独立于全局运镜）"));
+        InspectorHost.Children.Add(ThemeText(
+            "添加后会自动把该层的“跟随运镜”设为 0，避免和全局运镜叠加。",
+            TextSecondaryKey, 11, wrap: true));
+
+        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 6, 0, 0) };
+        foreach (var preset in CameraDirection.Presets)
+            combo.Items.Add(new ComboBoxItem { Content = ZhLabel("cam", preset.Key), Tag = preset.Key });
+        combo.SelectedIndex = 0;
+        InspectorHost.Children.Add(combo);
+
+        var add = new Wpf.Ui.Controls.Button
+        {
+            Content = "添加角色运镜",
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Primary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        add.Click += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string key })
+                AddLayerCameraShot(layer, key);
+        };
+        InspectorHost.Children.Add(add);
+
+        if (_project.LayerCameraTracks.TryGetValue(layer.Id, out var track) && track.Shots.Count > 0)
+            InspectorHost.Children.Add(ThemeText(
+                $"已有 {track.Shots.Count} 段，可在时间线“角色运镜”轨选中编辑。",
+                TextSecondaryKey, 11, wrap: true));
+    }
+
+    private void AddLayerCameraShot(PvLayerConfig layer, string preset)
+    {
+        if (!_project.LayerCameraTracks.TryGetValue(layer.Id, out var track))
+        {
+            track = new CameraTrack
+            {
+                Width = _scene.Width,
+                Height = _scene.Height,
+                BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
+                Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
+            };
+            _project.LayerCameraTracks[layer.Id] = track;
+        }
+
+        double start = Math.Max(0, _audio.Time);
+        double end = Math.Min(TimelineSpan(), start + Math.Max(2.0, track.BeatLen * 8));
+        if (end <= start + 0.2) end = start + 2.0;
+
+        var rng = new CameraRng(unchecked((uint)(_project.LegacySeed * 7919 + track.Shots.Count * 104729 + 17)));
+        var pars = CameraDirection.PlanParams(preset, rng);
+        pars["shotScale"] = 1.0;
+        pars["shotX"] = 0;
+        pars["shotY"] = 0;
+        pars["shotRot"] = 0;
+        pars["gain"] = 1.0;
+
+        track.Shots.Add(new CameraShot
+        {
+            Preset = preset,
+            Start = start,
+            End = end,
+            Seed = unchecked((int)(rng.Next() * int.MaxValue)),
+            Params = pars,
+            Source = "user",
+        });
+        track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+        layer.Parallax.Follow = 0;
+        _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        PublishDirector();
+        RefreshTimeline();
+        BuildInspector();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = $"已添加角色运镜：{ZhLabel("cam", preset)}";
     }
 
     private FrameworkElement BoolRow(string label, bool value, Action<bool> write)
@@ -298,9 +492,10 @@ public partial class PvStageWindow
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
-        var value = ThemeValue(read().ToString("0.###", CultureInfo.InvariantCulture));
-        Grid.SetColumn(value, 2);
-        row.Children.Add(value);
+        var value = new NumericValue { Min = min, Max = max };
+        value.SetValue(read());
+        Grid.SetColumn(value.Root, 2);
+        row.Children.Add(value.Root);
 
         var slider = new Slider
         {
@@ -311,10 +506,21 @@ public partial class PvStageWindow
             IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        bool syncing = false;
+        value.Commit = v =>
+        {
+            write(v);
+            syncing = true;
+            try { slider.Value = Math.Clamp(v, min, max); }
+            finally { syncing = false; }
+            PushUndo();
+            _saveError = SaveProjectNow();
+        };
         slider.ValueChanged += (_, e) =>
         {
+            if (syncing) return;
             write(e.NewValue);
-            value.Text = e.NewValue.ToString("0.###", CultureInfo.InvariantCulture);
+            value.SetValue(e.NewValue);
             if (slider.IsMouseCaptureWithin) return;
             PushUndo();
             _saveError = SaveProjectNow();
@@ -396,10 +602,15 @@ public partial class PvStageWindow
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
 
-        var value = ThemeValue("");
-        state.ValueText = value;
-        Grid.SetColumn(value, 2);
-        row.Children.Add(value);
+        var value = new NumericValue
+        {
+            Min = lo,
+            Max = hi,
+            Commit = v => OnRowValueChanged(state, v),
+        };
+        state.Value = value;
+        Grid.SetColumn(value.Root, 2);
+        row.Children.Add(value.Root);
 
         var clamp = Themed(new TextBlock
         {
@@ -554,7 +765,7 @@ public partial class PvStageWindow
             ? $"原值 {value.ToString("0.###", CultureInfo.InvariantCulture)} 越界，写入目标时按 {range} 限幅"
             : null;
 
-        row.ValueText.Text = value.ToString("0.###", CultureInfo.InvariantCulture);
+        row.Value.SetValue(value);
 
         var shown = Math.Clamp(value, row.Min, row.Max);
         if (!row.Slider.IsMouseCaptureWithin && Math.Abs(row.Slider.Value - shown) > 1e-4)
@@ -614,7 +825,7 @@ public partial class PvStageWindow
                 source = shot.Source;
                 locked = shot.Locked;
                 segParams = new Dictionary<string, double>(shot.Params ?? new Dictionary<string, double>(), StringComparer.Ordinal);
-                title = "运镜 · " + shot.Preset;
+                title = "运镜 · " + TechniqueLabel(target, shot.Preset);
                 showFades = false;
                 break;
             case { Design: { } design }:
@@ -623,7 +834,7 @@ public partial class PvStageWindow
                 source = design.Source;
                 locked = design.Locked;
                 segParams = new Dictionary<string, double>(design.Params, StringComparer.Ordinal);
-                title = DesignTrackNames.Label(design.Track) + " · " + technique;
+                title = DesignTrackNames.Label(design.Track) + " · " + TechniqueLabel(target, technique);
                 showFades = design.Track == DesignTrackKind.Fx;
                 break;
             case { LegacyCutIndex: >= 0 } legacyTarget:
@@ -640,7 +851,7 @@ public partial class PvStageWindow
                 source = "auto";
                 locked = false;
                 segParams = new Dictionary<string, double>(StringComparer.Ordinal);
-                title = DesignTrackNames.Label(legacyTarget.LegacyKind) + " · " + technique;
+                title = DesignTrackNames.Label(legacyTarget.LegacyKind) + " · " + TechniqueLabel(target, technique);
                 showFades = false;
                 break;
             default:
@@ -663,6 +874,10 @@ public partial class PvStageWindow
             }
 
             InspectorHost.Children.Add(SegmentApplyRow(times, showFades));
+            var hint = ThemeText("时间单位为秒（0 = 音频开头），改完点「应用时间」生效", TextTertiaryKey, 11);
+            hint.Margin = new Thickness(0, 0, 0, 2);
+            hint.TextWrapping = TextWrapping.Wrap;
+            InspectorHost.Children.Add(hint);
         }
         else
         {
@@ -679,58 +894,285 @@ public partial class PvStageWindow
 
         if (editable)
         {
-            var lockRow = new Grid { Margin = new Thickness(0, 6, 0, 2) };
+            var lockRow = new Grid { Margin = new Thickness(0, 8, 0, 2) };
             lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var lockLab = ThemeText("锁定（防自动清理）", TextSecondaryKey, 12);
             Grid.SetColumn(lockLab, 0);
             lockRow.Children.Add(lockLab);
-            var lockToggle = new Wpf.Ui.Controls.ToggleSwitch { IsChecked = locked };
+            var lockToggle = new Wpf.Ui.Controls.ToggleSwitch
+            {
+                IsChecked = locked,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(12, 0, 0, 0),
+            };
             lockToggle.Checked += (_, _) => WriteSegmentLocked(true);
             lockToggle.Unchecked += (_, _) => WriteSegmentLocked(false);
+            Grid.SetColumn(lockToggle, 1);
             lockRow.Children.Add(lockToggle);
             InspectorHost.Children.Add(lockRow);
         }
     }
 
-    private FrameworkElement TechniqueRow(SegmentTarget target, string current)
+    private sealed record TechniqueOption(string Key, string Label);
+
+    private static string ZhLabel(string group, string key) =>
+        ZhLabels.Tables.TryGetValue(group, out var table)
+        && table.TryGetValue(key, out var label)
+        && !string.IsNullOrWhiteSpace(label.Name)
+            ? label.Name
+            : key;
+
+    private static string TechniqueLabel(SegmentTarget target, string key) => target switch
     {
-        IEnumerable<string>? options = target switch
+        { Shot: not null } => ZhLabel("cam", key),
+        { Effect: not null } => EffectCatalog.Get(key) is { } def ? EffectName(def) : key,
+        { Design: { Track: DesignTrackKind.Trans } } => ZhLabel("trans", key),
+        { LegacyCutIndex: >= 0 } legacy => LegacyTechniqueLabel(legacy.LegacyKind, key),
+        _ => key,
+    };
+
+    private static string LegacyTechniqueLabel(DesignTrackKind kind, string key)
+    {
+        if (string.IsNullOrWhiteSpace(key) || string.Equals(key, "none", StringComparison.Ordinal)) return "关闭";
+        IRegEntry? entry = kind switch
         {
-            { Shot: not null } => CameraDirection.Presets.Select(p => p.Key),
-            { Effect: not null } => EffectCatalog.All.Select(d => d.Id),
-            { Design: { Track: DesignTrackKind.Trans } } => TransitionCatalog.Ids,
-            { LegacyCutIndex: >= 0 } => LegacyTechniques(target.LegacyKind),
+            DesignTrackKind.Layout => Reg.Layouts.GetValueOrDefault(key),
+            DesignTrackKind.Enter => Reg.Enter.GetValueOrDefault(key),
+            DesignTrackKind.Exit => Reg.Exit.GetValueOrDefault(key),
+            DesignTrackKind.Treat => Reg.Treat.GetValueOrDefault(key),
+            _ => null,
+        };
+        return string.IsNullOrWhiteSpace(entry?.Name) ? key : entry.Name!;
+    }
+
+    private static IEnumerable<TechniqueOption>? TechniqueOptions(SegmentTarget target) => target switch
+    {
+        { Shot: not null } => CameraDirection.Presets
+            .Select(p => new TechniqueOption(p.Key, ZhLabel("cam", p.Key))),
+        { Effect: not null } => EffectCatalog.All
+            .Select(d => new TechniqueOption(d.Id, EffectName(d))),
+        { Design: { Track: DesignTrackKind.Trans } } => TransitionCatalog.Ids
+            .Select(id => new TechniqueOption(id, ZhLabel("trans", id)))
+            .OrderBy(o => o.Label, StringComparer.CurrentCulture),
+        { LegacyCutIndex: >= 0 } => LegacyOptions(target.LegacyKind),
+        _ => null,
+    };
+
+    private static string TimelineTechniqueLabel(DesignTrackKind kind, string key) => kind switch
+    {
+        DesignTrackKind.Cam => ZhLabel("cam", key),
+        DesignTrackKind.Trans => ZhLabel("trans", key),
+        DesignTrackKind.Layout or DesignTrackKind.Enter or DesignTrackKind.Exit or DesignTrackKind.Treat =>
+            LegacyTechniqueLabel(kind, key),
+        DesignTrackKind.Fx => EffectCatalog.Get(key) is { } def ? EffectName(def) : key,
+        _ => key,
+    };
+
+    private static IEnumerable<TechniqueOption> LegacyOptions(DesignTrackKind kind)
+    {
+        if (kind == DesignTrackKind.Treat)
+            return new[] { new TechniqueOption("none", "关闭") }
+                .Concat(Reg.Treat
+                    .Where(p => !string.Equals(p.Key, "none", StringComparison.Ordinal))
+                    .Select(p => new TechniqueOption(p.Key, p.Value.Name)))
+                .OrderBy(o => o.Label, StringComparer.CurrentCulture);
+
+        Dictionary<string, IRegEntry>? entries = kind switch
+        {
+            DesignTrackKind.Layout => Reg.Layouts.ToDictionary(p => p.Key, p => (IRegEntry)p.Value),
+            DesignTrackKind.Enter => Reg.Enter.ToDictionary(p => p.Key, p => (IRegEntry)p.Value),
+            DesignTrackKind.Exit => Reg.Exit.ToDictionary(p => p.Key, p => (IRegEntry)p.Value),
             _ => null,
         };
 
-        if (options is null) return InfoRow("手法", current);
+        return entries is null
+            ? Array.Empty<TechniqueOption>()
+            : entries.Values
+                .Select(e => new TechniqueOption(e.Key, string.IsNullOrWhiteSpace(e.Name) ? e.Key : e.Name))
+                .OrderBy(o => o.Label, StringComparer.CurrentCulture);
+    }
 
-        var items = options.ToList();
-        if (!items.Contains(current, StringComparer.Ordinal)) items.Insert(0, current);
+    private FrameworkElement TechniqueRow(SegmentTarget target, string current)
+    {
+        var options = TechniqueOptions(target)?.ToList();
+        if (options is null) return InfoRow("手法", TechniqueLabel(target, current));
 
-        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 2, 0, 2) };
-        foreach (var option in items) combo.Items.Add(option);
-        combo.SelectedItem = current;
-        combo.SelectionChanged += (_, _) =>
+        var selected = options.FirstOrDefault(o => string.Equals(o.Key, current, StringComparison.Ordinal));
+        if (selected is null)
         {
-            if (combo.SelectedItem is not string value || string.Equals(value, current, StringComparison.Ordinal)) return;
-            current = value;
-            Dispatcher.BeginInvoke(new Action(() =>
+            selected = new TechniqueOption(current, TechniqueLabel(target, current));
+            options.Insert(0, selected);
+        }
+
+        var group = PreviewGroup(target);
+        var preview = new Image { Width = 88, Height = 50, Stretch = Stretch.Uniform };
+        var thumb = new Border
+        {
+            Width = 88,
+            Height = 50,
+            CornerRadius = new CornerRadius(4),
+            BorderThickness = new Thickness(1),
+            ClipToBounds = true,
+            Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x1a)),
+            Child = preview,
+        };
+        thumb.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+        if (group is null)
+        {
+            var placeholder = ThemeText("FX", TextTertiaryKey, 11);
+            placeholder.HorizontalAlignment = HorizontalAlignment.Center;
+            placeholder.VerticalAlignment = VerticalAlignment.Center;
+            thumb.Child = placeholder;
+        }
+        else
+        {
+            LoadTechniquePreview(preview, group, selected.Key, 128);
+        }
+
+        var caption = new StackPanel
+        {
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        caption.Children.Add(ThemeText("手法", TextSecondaryKey, 11));
+        caption.Children.Add(ThemeText(selected.Label, TextPrimaryKey, 12));
+
+        var content = new Grid();
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(thumb, 0);
+        Grid.SetColumn(caption, 1);
+        content.Children.Add(thumb);
+        content.Children.Add(caption);
+
+        var chevron = new Wpf.Ui.Controls.SymbolIcon
+        {
+            Symbol = Wpf.Ui.Controls.SymbolRegular.ChevronDown24,
+            FontSize = 12,
+            Margin = new Thickness(8, 0, 2, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        chevron.SetResourceReference(Control.ForegroundProperty, TextSecondaryKey);
+        Grid.SetColumn(chevron, 2);
+        content.Children.Add(chevron);
+
+        var button = new Wpf.Ui.Controls.Button
+        {
+            Content = content,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(6),
+            Margin = new Thickness(0, 4, 0, 2),
+        };
+        button.Click += (_, _) => ShowTechniquePicker(button, target, options, current, group);
+        return button;
+    }
+
+    private static string? PreviewGroup(SegmentTarget target) => target switch
+    {
+        { Shot: not null } => "cam",
+        { Design: { Track: DesignTrackKind.Trans } } => "trans",
+        { LegacyCutIndex: >= 0 } legacy => PreviewGroup(legacy.LegacyKind),
+        _ => null,
+    };
+
+    private void ShowTechniquePicker(FrameworkElement target, SegmentTarget segment,
+        List<TechniqueOption> options, string current, string? group)
+    {
+        Popup? popup = null;
+        var wrap = new WrapPanel { Width = 292 };
+
+        foreach (var option in options)
+        {
+            var thumb = new Border
             {
-                ApplyTechnique(target, value);
-                BuildInspector();
-            }));
+                Width = 128,
+                Height = 72,
+                CornerRadius = new CornerRadius(4),
+                BorderThickness = new Thickness(1),
+                ClipToBounds = true,
+                Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x1a)),
+            };
+            thumb.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+
+            var placeholder = ThemeText(group is null ? "FX" : "预览", TextTertiaryKey, group is null ? 12 : 10);
+            placeholder.HorizontalAlignment = HorizontalAlignment.Center;
+            placeholder.VerticalAlignment = VerticalAlignment.Center;
+            thumb.Child = placeholder;
+
+            var selected = string.Equals(option.Key, current, StringComparison.Ordinal);
+            if (selected) EnsureTechniquePreview(thumb, group, option.Key, 160);
+
+            var label = ThemeText(option.Label, TextPrimaryKey, 11, wrap: true);
+            label.TextAlignment = TextAlignment.Center;
+            label.Margin = new Thickness(2, 4, 2, 2);
+            label.MaxWidth = 128;
+
+            var stack = new StackPanel();
+            stack.Children.Add(thumb);
+            stack.Children.Add(label);
+
+            var card = new Border
+            {
+                Width = 140,
+                Margin = new Thickness(2),
+                Padding = new Thickness(4),
+                CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                Child = stack,
+                ToolTip = option.Label,
+            };
+            card.SetResourceReference(Border.BorderBrushProperty, selected ? TextAccentKey : CardStrokeKey);
+            if (selected) card.SetResourceReference(Border.BackgroundProperty, SelectFillKey);
+
+            var key = option.Key;
+            card.MouseEnter += (_, _) => EnsureTechniquePreview(thumb, group, option.Key, 160);
+            card.MouseLeftButtonDown += (_, _) =>
+            {
+                if (popup is not null) popup.IsOpen = false;
+                if (string.Equals(key, current, StringComparison.Ordinal)) return;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ApplyTechnique(segment, key);
+                    BuildInspector();
+                }));
+            };
+
+            wrap.Children.Add(card);
+        }
+
+        var scroll = new ScrollViewer
+        {
+            MaxHeight = 420,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = wrap,
         };
 
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var label = ThemeText("手法", TextSecondaryKey, 12);
-        Grid.SetColumn(label, 0);
-        row.Children.Add(label);
-        Grid.SetColumn(combo, 1);
-        row.Children.Add(combo);
-        return row;
+        var root = new Border
+        {
+            Width = 304,
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6),
+            Child = scroll,
+        };
+        root.SetResourceReference(Border.BackgroundProperty, CardFillKey);
+        root.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+
+        popup = new Popup
+        {
+            PlacementTarget = target,
+            Placement = PlacementMode.Bottom,
+            VerticalOffset = 4,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            Child = root,
+        };
+        popup.IsOpen = true;
     }
 
     private void ApplyTechnique(SegmentTarget target, string value)
@@ -740,6 +1182,17 @@ public partial class PvStageWindow
             case { Shot: { } shot }:
                 shot.Preset = value;
                 shot.Source = "user";
+                if (target.LayerShot)
+                {
+                    var rng = new CameraRng(unchecked((uint)(shot.Seed == 0 ? _project.LegacySeed : shot.Seed)));
+                    var pars = CameraDirection.PlanParams(value, rng);
+                    pars["shotScale"] = 1.0;
+                    pars["shotX"] = 0;
+                    pars["shotY"] = 0;
+                    pars["shotRot"] = 0;
+                    pars["gain"] = 1.0;
+                    shot.Params = pars;
+                }
                 break;
             case { Effect: { } node }:
                 ReplaceEffectNode(node, value);
@@ -766,23 +1219,12 @@ public partial class PvStageWindow
                         break;
                 }
 
+                cut.Source = "user";
                 _pipe?.ApplyLegacyCutOverrides(_legacyPlanInfo);
                 break;
         }
 
         AfterSegmentEdit();
-    }
-
-    private static IEnumerable<string> LegacyTechniques(DesignTrackKind kind)
-    {
-        return kind switch
-        {
-            DesignTrackKind.Layout => Reg.Layouts.Keys,
-            DesignTrackKind.Enter => Reg.Enter.Keys,
-            DesignTrackKind.Exit => Reg.Exit.Keys,
-            DesignTrackKind.Treat => new[] { "none" }.Concat(Reg.Treat.Keys),
-            _ => Array.Empty<string>(),
-        };
     }
 
     private void ReplaceEffectNode(EffectNode oldNode, string defId)
@@ -821,6 +1263,12 @@ public partial class PvStageWindow
         row.Children.Add(lab);
         Grid.SetColumn(box, 1);
         row.Children.Add(box);
+        box.TextChanged += (_, _) =>
+        {
+            if (double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+                capture(v);
+        };
+        box.GotFocus += (_, _) => box.SelectAll();
         box.LostFocus += (_, _) =>
         {
             if (double.TryParse(box.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
@@ -838,7 +1286,11 @@ public partial class PvStageWindow
             Margin = new Thickness(0, 6, 0, 2),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
-        apply.Click += (_, _) => WriteSegmentTime(times[0], times[1], showFades ? times[2] : 0, showFades ? times[3] : 0);
+        apply.Click += (_, _) =>
+        {
+            WriteSegmentTime(times[0], times[1], showFades ? times[2] : 0, showFades ? times[3] : 0);
+            BuildInspector();
+        };
         return apply;
     }
 
@@ -958,7 +1410,12 @@ public partial class PvStageWindow
             case ParamAddressKind.Layer:
                 foreach (var layer in _scene.Layers)
                     if (string.Equals(layer.Id, addr.Target, StringComparison.Ordinal))
-                        return LayerTitle(layer) + " · " + name;
+                    {
+                        var prefix = string.Equals(layer.Id, PvScene.CharacterLayerId, StringComparison.Ordinal)
+                            ? "角色"
+                            : LayerTitle(layer);
+                        return prefix + " · " + name;
+                    }
                 return addr.Target + " · " + name;
             default:
                 foreach (var node in _effects.Nodes)
@@ -991,6 +1448,6 @@ public static class InspectorLayout
 {
     public static IReadOnlyList<InspectorSectionKind> Sections(bool hasLayerSelection) =>
         hasLayerSelection
-            ? [InspectorSectionKind.Camera, InspectorSectionKind.Project, InspectorSectionKind.Layer]
+            ? [InspectorSectionKind.Layer, InspectorSectionKind.Project]
             : [InspectorSectionKind.Camera, InspectorSectionKind.Project];
 }

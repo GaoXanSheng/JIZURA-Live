@@ -21,6 +21,9 @@ public sealed class PvParallaxConfig
 {
     public double Depth { get; set; } = 1.0;
 
+    /// <summary>全局运镜跟随倍率；null = 沿用 Depth（旧工程兼容）。</summary>
+    public double? Follow { get; set; }
+
     public double RotationFactor { get; set; } = 1.0;
 
     public double ScaleFactor { get; set; } = 1.0;

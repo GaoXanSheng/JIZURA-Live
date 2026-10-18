@@ -20,7 +20,9 @@ public static class PvAmbient
     public static Matrix5x4 TintMatrix(Color4 tint, double strength) => BlendMatrix(tint, strength, 0);
 
     public static double AtmosphereFar(PvParallaxConfig parallax, bool globalParallax) =>
-        globalParallax ? Math.Clamp((0.9 - parallax.Depth) / 0.9, 0.0, 1.0) : 0.0;
+        globalParallax && parallax.Depth > 0.001
+            ? Math.Clamp((0.9 - parallax.Depth) / 0.9, 0.0, 1.0)
+            : 0.0;
 
     public static Matrix5x4 BlendMatrix(Color4 tint, double tintStrength, double atmos)
     {
@@ -174,7 +176,7 @@ public sealed class PvStageCompositor
         _draw.Restore();
     }
 
-    private static Rect FitRect(PvLayerImage image, bool cover, int width, int height)
+    public static Rect FitRect(PvLayerImage image, bool cover, int width, int height)
     {
         if (image.Width <= 0 || image.Height <= 0)
             return new Rect(0, 0, width, height);

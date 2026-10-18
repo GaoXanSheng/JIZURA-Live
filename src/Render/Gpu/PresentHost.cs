@@ -50,6 +50,8 @@ public sealed class PresentHost : HwndHost
 
     public event Action<PresentHost>? Ready;
 
+    public event Action<PresentHost>? BeforeResize;
+
     public event Action<PresentHost>? Prepare;
 
     public event Action<PresentHost, double>? Frame;
@@ -175,6 +177,7 @@ public sealed class PresentHost : HwndHost
                 var (cw, ch) = ClientSize();
                 if (cw != target.Width || ch != target.Height)
                 {
+                    BeforeResize?.Invoke(this);
                     target.Resize(cw, ch);
                     Resized?.Invoke(this);
                 }

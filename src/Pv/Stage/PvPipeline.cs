@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -22,12 +23,10 @@ public sealed class PvPipeline : IDisposable
     private readonly ConcurrentQueue<string> _pendingAdds = new();
     private readonly ConcurrentQueue<string> _pendingImageAdds = new();
     private readonly ConcurrentQueue<string> _pendingVideoAdds = new();
-    private readonly ConcurrentQueue<string> _pendingDecorAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
     private readonly List<SpoutSourceProvider> _spoutProviders = new();
-    private readonly List<DecorLayerProvider> _decor = new();
 
     private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
@@ -40,6 +39,14 @@ public sealed class PvPipeline : IDisposable
     private volatile bool _stageCamera = true;
     private volatile bool _stageTransitions = true;
     private List<DesignSegment>? _designSegments;
+
+    public double LastPrepareMs { get; private set; }
+
+    public double LastCompositeMs { get; private set; }
+
+    public double LegacyRenderMs => _legacy?.LastRenderMs ?? 0;
+
+    public bool LegacyGpu => _legacy?.GpuMode ?? false;
 
     public bool StageCameraEnabled
     {
@@ -170,6 +177,14 @@ public sealed class PvPipeline : IDisposable
         _director = d;
     }
 
+    public void SetSpoutTransparent(bool on) => _renderer.SpoutTransparent = on;
+
+    public void SetLyricsAvoid(bool on, double minScale)
+    {
+        _renderer.LyricsAvoid = on;
+        _renderer.LyricsAvoidMinScale = minScale;
+    }
+
     public void SetDesignSegments(IEnumerable<DesignSegment>? segments)
     {
         _designSegments = segments?.Where(s => s is not null).ToList();
@@ -191,6 +206,7 @@ public sealed class PvPipeline : IDisposable
 
     public void Prepare(double time)
     {
+        var sw = Stopwatch.StartNew();
         var effects = _effects.Snapshot;
 
         ApplyLayerOps();
@@ -210,13 +226,16 @@ public sealed class PvPipeline : IDisposable
 
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
 
-        foreach (var p in _decor) p.Render(time);
-
         _renderer.Prepare(time, effects);
+        LastPrepareMs = sw.Elapsed.TotalMilliseconds;
     }
 
-    public void Composite(ID2D1Bitmap1 target, int width, int height) =>
+    public void Composite(ID2D1Bitmap1 target, int width, int height)
+    {
+        var sw = Stopwatch.StartNew();
         _renderer.Composite(target, width, height);
+        LastCompositeMs = sw.Elapsed.TotalMilliseconds;
+    }
 
     public PvStageRenderer.SharedTarget OpenSharedTarget(IntPtr shareHandle, int w, int h) =>
         _renderer.OpenSharedTarget(shareHandle, w, h);
@@ -235,12 +254,6 @@ public sealed class PvPipeline : IDisposable
     {
         if (string.IsNullOrWhiteSpace(videoPath)) return;
         _pendingVideoAdds.Enqueue(videoPath);
-    }
-
-    public void RequestAddDecor(string kind)
-    {
-        if (string.IsNullOrWhiteSpace(kind)) return;
-        _pendingDecorAdds.Enqueue(kind);
     }
 
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
@@ -278,9 +291,6 @@ public sealed class PvPipeline : IDisposable
         && string.IsNullOrWhiteSpace(layer.VideoPath)
         && !string.IsNullOrWhiteSpace(layer.ImagePath);
 
-    public static bool WantsDecor(PvLayerConfig layer) =>
-        layer.Decor is { Kinds.Count: > 0 };
-
     public static PvLayerConfig NewSourceLayer(string id, string sender) => new()
     {
         Id = id,
@@ -289,7 +299,7 @@ public sealed class PvPipeline : IDisposable
         SpoutSenderName = sender,
         Premultiplied = false,
         Cover = true,
-        Parallax = new PvParallaxConfig { Depth = 0.9 },
+        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0 },
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
@@ -317,24 +327,17 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
-    public static PvLayerConfig NewDecorLayer(string id, string kind) => new()
-    {
-        Id = id,
-        Name = DecorCatalog.Label(kind),
-        Kind = PvLayerKind.Decor,
-        Decor = DecorCatalog.CreateConfig(kind),
-        Parallax = new PvParallaxConfig { Depth = 1.25 },
-    };
-
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
-        _scene.Layers.RemoveAll(l => l.Id is "legacy_pv" or LegacyPvProvider.BackId or LegacyPvProvider.FrontId
+        _scene.Layers.RemoveAll(l => l.Id is "legacy_pv"
                                      || l.Id == "lyrics_pv"
-                                     || l.Kind == PvLayerKind.LyricPv);
-
-        var tint = PvScene.ParseHex(_scene.AmbientTint);
-        _renderer.Stage.Register(new ColorProvider("bg",
-            new Color4(tint.R * 0.16f, tint.G * 0.16f, tint.B * 0.22f, 1f)));
+                                     || l.Id == "foreground_fx"
+                                     || l.Id == "bg"
+                                     || l.Kind == PvLayerKind.LyricPv
+                                     || l.Kind == PvLayerKind.Decor
+                                     || l.Decor is not null
+                                     || (l.Kind == PvLayerKind.Subtitle && subtitleSource is null)
+                                     || (!_legacyMode && l.Id is LegacyPvProvider.BackId or LegacyPvProvider.FrontId));
 
         foreach (var layer in _scene.Layers) MigrateVisualDefaults(layer);
         foreach (var layer in _scene.Layers) RegisterLayerProvider(layer);
@@ -361,28 +364,43 @@ public sealed class PvPipeline : IDisposable
         _renderer.Stage.Register(_legacy.Back);
         _renderer.Stage.Register(_legacy.Front);
 
-        var insert = 0;
-        for (var i = 0; i < _scene.Layers.Count; i++)
+        var existingBack = ExistingLayer(LegacyPvProvider.BackId);
+        var existingFront = ExistingLayer(LegacyPvProvider.FrontId);
+        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, "PV 背景层", PvLayerKind.Background);
+        var front = existingFront ?? LegacyLayer(LegacyPvProvider.FrontId, "歌词文字层", PvLayerKind.ForegroundFx);
+        back.Name = "PV 背景层";
+        back.Kind = PvLayerKind.Background;
+        front.Name = "歌词文字层";
+        front.Kind = PvLayerKind.ForegroundFx;
+
+        if (existingBack is null)
         {
-            var layer = _scene.Layers[i];
-            var backgroundMedia = layer.Id != PvScene.CharacterLayerId
-                                  && (layer.Kind == PvLayerKind.Background
-                                      || (layer.Kind == PvLayerKind.VisualAsset
-                                          && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
-                                          && (!string.IsNullOrWhiteSpace(layer.VideoPath)
-                                              || !string.IsNullOrWhiteSpace(layer.ImagePath))));
-            if (backgroundMedia) insert = i + 1;
+            var insert = 0;
+            for (var i = 0; i < _scene.Layers.Count; i++)
+            {
+                var layer = _scene.Layers[i];
+                var backgroundMedia = layer.Id != PvScene.CharacterLayerId
+                                      && (layer.Kind == PvLayerKind.Background
+                                          || (layer.Kind == PvLayerKind.VisualAsset
+                                              && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+                                              && (!string.IsNullOrWhiteSpace(layer.VideoPath)
+                                                  || !string.IsNullOrWhiteSpace(layer.ImagePath))));
+                if (backgroundMedia) insert = i + 1;
+            }
+
+            _scene.Layers.Insert(insert, back);
         }
 
-        var back = LegacyLayer(LegacyPvProvider.BackId, "原版 PV · 背景", PvLayerKind.Background);
-        var front = LegacyLayer(LegacyPvProvider.FrontId, "原版 PV · 文字", PvLayerKind.ForegroundFx);
-        _scene.Layers.Insert(insert, back);
-        // 文字层固定压在最上面；字幕是 FixedZone，仍在它之上。
-        _scene.Layers.Add(front);
+        // 只在首次创建时置顶；之后保留用户在图层列表里拖出来的顺序。
+        if (existingFront is null)
+            _scene.Layers.Add(front);
 
         Log.Info($"[PV 原版引擎] 图层顺序：{string.Join(" → ", _scene.Layers.Select(l => l.Id))}");
         Log.Info($"[PV 原版引擎] 启动中：{renderWidth}px 渲染（背景/文字分层）");
     }
+
+    private PvLayerConfig? ExistingLayer(string id) =>
+        _scene.Layers.FirstOrDefault(l => string.Equals(l.Id, id, StringComparison.Ordinal));
 
     private static PvLayerConfig LegacyLayer(string id, string name, PvLayerKind kind) => new()
     {
@@ -410,10 +428,6 @@ public sealed class PvPipeline : IDisposable
         if (layer.Id != PvScene.CharacterLayerId || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) return;
 
         var blend = layer.VisualBlend;
-        // 统一机位模式下角色不再独立位移：锁到镜头深度，避免人物相对背景滑动。
-        if (layer.Parallax.Depth < 0.999) layer.Parallax.Depth = 1.0;
-        layer.Parallax.RotationFactor = 1.0;
-        layer.Parallax.ScaleFactor = 1.0;
 
         if (layer.Premultiplied
             && Math.Abs(blend.RimGlow - 0.15) < 0.001
@@ -427,15 +441,6 @@ public sealed class PvPipeline : IDisposable
 
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
-        if (WantsDecor(layer))
-        {
-            var provider = new DecorLayerProvider(layer.Id, _renderer.Device, _d2d, layer.Decor!,
-                _renderer.DesignWidth, _renderer.DesignHeight);
-            _renderer.Stage.Register(provider);
-            _decor.Add(provider);
-            return;
-        }
-
         if (WantsSpout(layer))
         {
             var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
@@ -492,16 +497,6 @@ public sealed class PvPipeline : IDisposable
             Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
         }
 
-        while (_pendingDecorAdds.TryDequeue(out var kind))
-        {
-            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
-            var layer = NewDecorLayer(id, kind);
-            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
-            RegisterLayerProvider(layer);
-            changed = true;
-            Log.Info($"[PV 管线] 新建装饰图层 '{id}' <- '{kind}'");
-        }
-
         while (_pendingRemoves.TryDequeue(out var id))
         {
             var idx = _scene.Layers.FindIndex(l => l.Id == id);
@@ -511,8 +506,6 @@ public sealed class PvPipeline : IDisposable
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
                 if (p is not null) _spoutProviders.Remove(p);
-                var fx = _decor.FirstOrDefault(x => x.Id == id);
-                if (fx is not null) _decor.Remove(fx);
                 if (_character?.Id == id) _character = null;
                 changed = true;
                 Log.Info($"[PV 管线] 移除图层 '{id}'");
@@ -664,9 +657,20 @@ public sealed class PvPipeline : IDisposable
         for (var i = 0; i < layers.Count; i++)
         {
             var layer = layers[i];
-            frame.SetLayer(layer.Id, BaseLayer(layer, _director, time));
+            var state = BaseLayer(layer, _director, time);
+            if (_director is not null && _director.TryLayerCameraAt(layer.Id, time, out var layerCam))
+                state = ApplyLayerCamera(state, layerCam);
+            frame.SetLayer(layer.Id, state);
         }
     }
+
+    private PvLayerState ApplyLayerCamera(PvLayerState state, PvCamState cam) => state with
+    {
+        OffsetX = state.OffsetX + cam.X / Math.Max(1, _scene.Width),
+        OffsetY = state.OffsetY + cam.Y / Math.Max(1, _scene.Height),
+        Scale = state.Scale * Math.Max(0.01, cam.Scale),
+        Rotation = state.Rotation + cam.Rotation,
+    };
 
     private void ApplyCamera(double time, PvFrameState frame)
     {
@@ -725,7 +729,6 @@ public sealed class PvPipeline : IDisposable
         Ready = false;
 
         _spoutProviders.Clear();
-        _decor.Clear();
         _character = null;
         _renderer.Overlay = null;
         _subtitle?.Dispose();
@@ -735,6 +738,8 @@ public sealed class PvPipeline : IDisposable
         _broadcast?.Dispose();
         _broadcast = null;
 
+        _legacy?.Dispose();
+        _legacy = null;
         _renderer.ClearFxBitmapCache();
         _renderer.Dispose();
         _d2d.Dispose();

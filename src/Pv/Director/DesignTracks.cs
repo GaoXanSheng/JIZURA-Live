@@ -23,6 +23,8 @@ public enum DesignTrackKind
     Fx,
 
     Trans,
+
+    LayerCam,
 }
 
 public static class DesignTrackNames
@@ -39,6 +41,7 @@ public static class DesignTrackNames
         DesignTrackKind.Cam => "运镜",
         DesignTrackKind.Fx => "画面效果",
         DesignTrackKind.Trans => "转场",
+        DesignTrackKind.LayerCam => "角色运镜",
         _ => kind.ToString(),
     };
 }

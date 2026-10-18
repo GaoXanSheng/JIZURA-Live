@@ -21,6 +21,8 @@ public sealed class LegacyPvOptions
 
     public bool StageCamera { get; set; } = true;
     public bool StageTransitions { get; set; } = true;
+
+    public LegacyPresetSettings? Preset { get; set; }
 }
 
 /// <summary>原版 Plan 的 cut 摘要：舞台层用同一份运镜/转场数据，避免另生成一套。</summary>
@@ -268,6 +270,7 @@ public sealed class LegacyPvCutInfo
     public string Treat { get; set; } = "none";
     public bool Emph { get; set; }
     public int Seed { get; set; }
+    public string? Source { get; set; }
     public Dictionary<string, double> CamParams { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, double> TransParams { get; set; } = new(StringComparer.Ordinal);
 }
@@ -302,7 +305,7 @@ public sealed class LegacyPvEngine : IDisposable
     public LegacyPvPlanInfo PlanInfo { get; private set; } = new();
 
     public LegacyPvEngine(string lrcText, string audioPath, string? styleName, int seed,
-        int designWidth, int designHeight, int fps)
+        int designWidth, int designHeight, int fps, LegacyPresetSettings? preset = null)
     {
         _designWidth = Math.Max(16, designWidth);
         _designHeight = Math.Max(16, designHeight);
@@ -335,6 +338,7 @@ public sealed class LegacyPvEngine : IDisposable
                 Artist = Meta(lrcText, "ar"),
             };
             project.Enabled = Reg.DefaultEnabled();
+            preset?.ApplyTo(project);
             _plan = Planner.Plan(project, audio);
             PlanInfo = LegacyPvPlanInfo.From(_plan);
         }
@@ -390,6 +394,35 @@ public sealed class LegacyPvEngine : IDisposable
         var bytes = new byte[w * h * 4];
         System.Runtime.InteropServices.Marshal.Copy(_bitmap.GetPixels(), bytes, 0, bytes.Length);
         return new LegacyPvFrame { Bgra = bytes, Width = w, Height = h };
+    }
+
+    public void UseGpu(GpuRasterHost host) => _renderer.SurfaceFactory = host.CreateGpuSurface;
+
+    public void UseCpu()
+    {
+        _renderer.SurfaceFactory = null;
+        _renderer.ClearFrameCache();
+    }
+
+    public void RenderTo(GpuSurface target, double time, bool noCutTrans, string layer, bool transparent,
+        bool noCamera)
+    {
+        if (Error is not null) return;
+        var scale = target.Width / (double)_plan.W;
+        lock (EngineRenderGate.Lock)
+        {
+            _renderer.Frame(target.Skia.Canvas, _plan, Math.Max(0, time),
+                new RenderOpts
+                {
+                    Scale = scale,
+                    Fast = false,
+                    NoGhost = false,
+                    NoCutTrans = noCutTrans,
+                    Layer = layer,
+                    Transparent = transparent,
+                    NoCamera = noCamera,
+                });
+        }
     }
 
     /// <summary>把舞台层编辑过的运镜参数写回原版 Plan，下一帧起原版画面和角色一起按新机位渲染。</summary>
@@ -518,7 +551,7 @@ public sealed class LegacyPvEngine : IDisposable
         };
     }
 
-    private static string AspectOf(int width, int height)
+    public static string AspectOf(int width, int height)
     {
         var ratio = width / (double)Math.Max(1, height);
         if (Math.Abs(ratio - 16 / 9.0) < 0.02) return "16:9";

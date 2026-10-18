@@ -28,9 +28,6 @@ public partial class PvStageWindow
             snap.Curves.Add(TrackFor(addr, curve));
         }
 
-        if (!_evaluator.Curves.ContainsKey(_camScaleAddr))
-            snap.Curves.Add(TrackFor(_camScaleAddr, null));
-
         foreach (var clip in _lyricClips)
             snap.Lyrics.Add(new TClip
             {
@@ -65,8 +62,22 @@ public partial class PvStageWindow
 
         var treat = new TDesignTrack { Kind = DesignTrackKind.Treat };
 
+        var layerCam = new TDesignTrack { Kind = DesignTrackKind.LayerCam };
+        if (_project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+        {
+            for (int i = 0; i < layerTrack.Shots.Count; i++)
+            {
+                var seg = DesignTracks.FromCameraShot(layerTrack.Shots[i]);
+                seg.Track = DesignTrackKind.LayerCam;
+                var tseg = ToTSegment(seg);
+                tseg.RefId = "layer:" + i.ToString(CultureInfo.InvariantCulture);
+                layerCam.Segments.Add(tseg);
+            }
+        }
+
         snap.DesignTracks.Add(fx);
         snap.DesignTracks.Add(cam);
+        snap.DesignTracks.Add(layerCam);
         snap.DesignTracks.Add(treat);
         foreach (DesignTrackKind kind in new[]
                  {
@@ -122,6 +133,7 @@ public partial class PvStageWindow
                 Start = start,
                 End = end,
                 Technique = value,
+                Label = LegacyTechniqueLabel(kind, value),
                 Source = "legacy",
             });
         }
@@ -129,13 +141,14 @@ public partial class PvStageWindow
 
     private static TDesignSegment ToTSegment(DesignSegment seg) => new()
     {
-        RefId = seg.RefId ?? "",
+        RefId = string.IsNullOrWhiteSpace(seg.RefId) ? seg.Id : seg.RefId!,
         Track = (int)seg.Track,
         Start = seg.Start,
         End = seg.End,
         FadeIn = seg.FadeIn,
         FadeOut = seg.FadeOut,
         Technique = seg.Technique,
+        Label = TimelineTechniqueLabel(seg.Track, seg.Technique),
         Source = seg.Source,
         Locked = seg.Locked,
         Params = new Dictionary<string, double>(seg.Params, StringComparer.Ordinal),
@@ -266,11 +279,21 @@ public partial class PvStageWindow
         return shots is not null && index >= 0 && index < shots.Count ? shots[index] : null;
     }
 
+    private CameraShot? FindLayerCameraShot(string refId)
+    {
+        var parts = refId.Split(':');
+        if (parts.Length != 2 || !string.Equals(parts[0], "layer", StringComparison.Ordinal)) return null;
+        if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)) return null;
+        if (!_project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var track)) return null;
+        return index >= 0 && index < track.Shots.Count ? track.Shots[index] : null;
+    }
+
     private DesignSegment? FindDesignSegment(string refId)
     {
         if (string.IsNullOrEmpty(refId)) return null;
         return _project.DesignSegments.FirstOrDefault(d =>
-            string.Equals(d.RefId, refId, StringComparison.Ordinal));
+            string.Equals(d.RefId, refId, StringComparison.Ordinal)
+            || string.Equals(d.Id, refId, StringComparison.Ordinal));
     }
 
     private SegmentTarget? FindLegacyCut(string refId)
@@ -298,6 +321,10 @@ public partial class PvStageWindow
             _segmentTarget = FindCameraShot(seg.RefId) is { } shot
                 ? SegmentTarget.Of(shot)
                 : null;
+        else if (seg.Track == (int)DesignTrackKind.LayerCam)
+            _segmentTarget = FindLayerCameraShot(seg.RefId) is { } layerShot
+                ? SegmentTarget.OfLayerShot(layerShot)
+                : null;
         else if (FindDesignSegment(seg.RefId) is { } design)
             _segmentTarget = SegmentTarget.Of(design);
         else if (FindLegacyCut(seg.RefId) is { } legacy)
@@ -314,12 +341,100 @@ public partial class PvStageWindow
         BuildInspector();
     }
 
+    private void Timeline_SegmentTimeEdited(TDesignSegment seg, double start, double end)
+    {
+        Timeline_SegmentSelected(seg);
+
+        if (_segmentTarget is null)
+        {
+            RefreshTimeline();
+            return;
+        }
+
+        if (_segmentTarget is { LegacyCutIndex: >= 0 })
+        {
+            TblStatus.Text = "原版切分的开始/结束时间由歌词与 Plan 决定，不能直接拖动";
+            RefreshTimeline();
+            return;
+        }
+
+        WriteSegmentTime(start, end, seg.FadeIn, seg.FadeOut);
+        RefreshTimeline();
+    }
+
+    private void Timeline_SegmentDeleteRequested(TDesignSegment seg)
+    {
+        Timeline_SegmentSelected(seg);
+        if (_segmentTarget is null)
+        {
+            RefreshTimeline();
+            return;
+        }
+
+        bool removed = false;
+        bool effectsChanged = false;
+        bool cameraChanged = false;
+
+        switch (_segmentTarget)
+        {
+            case { Effect: { } node, WindowIndex: >= 0 } target:
+                if (target.WindowIndex < node.Windows.Count)
+                {
+                    node.Windows.RemoveAt(target.WindowIndex);
+                    if (node.Windows.Count == 0) _effects.Nodes.Remove(node);
+                    removed = true;
+                    effectsChanged = true;
+                }
+                break;
+            case { Effect: { } node }:
+                removed = _effects.Nodes.Remove(node);
+                effectsChanged = removed;
+                break;
+            case { Shot: { } shot, LayerShot: true }:
+                if (_project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+                {
+                    removed = layerTrack.Shots.Remove(shot);
+                    if (layerTrack.Shots.Count == 0)
+                        _project.LayerCameraTracks.Remove(PvScene.CharacterLayerId);
+                    cameraChanged = removed;
+                }
+                break;
+            case { Shot: { } shot }:
+                removed = _project.CameraTrack?.Shots.Remove(shot) == true;
+                cameraChanged = removed;
+                break;
+            case { Design: { } design }:
+                removed = _project.DesignSegments.Remove(design);
+                break;
+            case { LegacyCutIndex: >= 0 }:
+                TblStatus.Text = "原版切分由歌词与 Plan 生成，不能删除";
+                RefreshTimeline();
+                return;
+        }
+
+        if (!removed)
+        {
+            TblStatus.Text = "段未删除：对应对象已不存在";
+            RefreshTimeline();
+            return;
+        }
+
+        _segmentTarget = null;
+        if (effectsChanged) EffectsChanged();
+        if (cameraChanged)
+            _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        BuildInspector();
+        AfterSegmentEdit();
+        TblStatus.Text = "已删除设计段";
+    }
+
     private SegmentTarget? _segmentTarget;
 
     private sealed class SegmentTarget
     {
         public EffectNode? Effect;
         public CameraShot? Shot;
+        public bool LayerShot;
         public DesignSegment? Design;
         public int LegacyCutIndex = -1;
         public DesignTrackKind LegacyKind;
@@ -328,6 +443,7 @@ public partial class PvStageWindow
         public static SegmentTarget Of(EffectNode node) => new() { Effect = node };
         public static SegmentTarget OfEffectWindow(EffectNode node, int windowIndex) => new() { Effect = node, WindowIndex = windowIndex };
         public static SegmentTarget Of(CameraShot shot) => new() { Shot = shot };
+        public static SegmentTarget OfLayerShot(CameraShot shot) => new() { Shot = shot, LayerShot = true };
         public static SegmentTarget Of(DesignSegment design) => new() { Design = design };
         public static SegmentTarget OfLegacyCut(int index, DesignTrackKind kind) =>
             new() { LegacyCutIndex = index, LegacyKind = kind };
@@ -383,6 +499,11 @@ public partial class PvStageWindow
                 shot.Start = start;
                 shot.End = end;
                 shot.Source = "user";
+                if (_segmentTarget is { LayerShot: true }
+                    && _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+                    layerTrack.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+                else
+                    _project.CameraTrack?.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
                 break;
             case { Design: { } design }:
                 design.Start = start;
@@ -395,6 +516,7 @@ public partial class PvStageWindow
                 return;
         }
 
+        TblStatus.Text = $"段时间已应用：{start:F3}s – {end:F3}s";
         AfterSegmentEdit();
     }
 

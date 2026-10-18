@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using JizuraLive.LegacyEngine;
 using JizuraLive.Logging;
 using JizuraLive.Render.Gpu;
 using Vortice.Direct2D1;
@@ -38,9 +40,20 @@ public sealed class LegacyPvProvider : IDisposable
     private LegacyPvEngine? _syncEngine;
     private volatile LegacyPvEngine? _engine;
     private volatile CameraTrack? _cameraTrack;
+    private LegacyPvPlanInfo? _pendingCutOverrides;
+    private CameraTrack? _pendingCameraTrack;
+    private GpuRasterHost? _gpuHost;
+    private GpuLayer? _gpuBack;
+    private GpuLayer? _gpuFront;
+    private volatile bool _gpuMode;
 
     private double _requestedTime;
     private double _lastRenderedTime = double.NaN;
+
+    /// <summary>最近一帧原版引擎（背景+文字两层）的渲染耗时。</summary>
+    public double LastRenderMs { get; private set; }
+
+    public bool GpuMode => _gpuMode;
 
     public string Id { get; }
     public IPvLayerProvider Back { get; }
@@ -75,7 +88,7 @@ public sealed class LegacyPvProvider : IDisposable
         if (options.Synchronous)
         {
             _syncEngine = new LegacyPvEngine(options.LrcText, options.AudioPath!, options.Style,
-                options.Seed, designWidth, designHeight, fps);
+                options.Seed, designWidth, designHeight, fps, options.Preset);
             _cutCount = _syncEngine.CutCount;
             _error = _syncEngine.Error;
             _planInfo = _syncEngine.PlanInfo;
@@ -97,11 +110,46 @@ public sealed class LegacyPvProvider : IDisposable
     public void ApplyCameraTrack(CameraTrack? track)
     {
         _cameraTrack = track;
-        (_engine ?? _syncEngine)?.ApplyCameraTrack(track);
+        if (_syncEngine is not null)
+        {
+            _syncEngine.ApplyCameraTrack(track);
+            return;
+        }
+
+        Interlocked.Exchange(ref _pendingCameraTrack, track);
+        _wake.Set();
     }
 
-    public void ApplyCutOverrides(LegacyPvPlanInfo info) =>
-        (_engine ?? _syncEngine)?.ApplyCutOverrides(info);
+    public void ApplyCutOverrides(LegacyPvPlanInfo info)
+    {
+        if (_syncEngine is not null)
+        {
+            _syncEngine.ApplyCutOverrides(info);
+            return;
+        }
+
+        Interlocked.Exchange(ref _pendingCutOverrides, SnapshotCutOverrides(info));
+        _wake.Set();
+    }
+
+    private static LegacyPvPlanInfo SnapshotCutOverrides(LegacyPvPlanInfo info)
+    {
+        var copy = new LegacyPvPlanInfo();
+        foreach (var cut in info.Cuts)
+        {
+            if (cut is null) continue;
+            copy.Cuts.Add(new LegacyPvCutInfo
+            {
+                Start = cut.Start,
+                Layout = cut.Layout,
+                Enter = cut.Enter,
+                Exit = cut.Exit,
+                Treat = cut.Treat,
+            });
+        }
+
+        return copy;
+    }
 
     private PvLayerImage PumpLayer(in PvFrameContext ctx, bool front)
     {
@@ -111,8 +159,11 @@ public sealed class LegacyPvProvider : IDisposable
         {
             if (ctx.Time != target.LastTime)
             {
+                var sw = Stopwatch.StartNew();
                 var rendered = _syncEngine.Render(ctx.Time, _renderWidth, false, NoCutTrans,
                     front ? "front" : "back", front, NoCamera);
+                sw.Stop();
+                LastRenderMs = sw.Elapsed.TotalMilliseconds;
                 if (rendered is not null)
                 {
                     Upload(target, rendered);
@@ -126,6 +177,8 @@ public sealed class LegacyPvProvider : IDisposable
         Volatile.Write(ref _requestedTime, ctx.Time);
         _wake.Set();
 
+        if (_gpuMode) return PumpGpu(front);
+
         lock (_frameGate)
         {
             if (target.Frame is not null && target.FrameVersion != target.UploadedVersion)
@@ -138,13 +191,67 @@ public sealed class LegacyPvProvider : IDisposable
         return target.Bitmap is null ? PvLayerImage.Empty : new PvLayerImage(target.Bitmap, null, target.Width, target.Height);
     }
 
+    private PvLayerImage PumpGpu(bool front)
+    {
+        var layer = front ? _gpuFront : _gpuBack;
+        if (layer is null) return PvLayerImage.Empty;
+
+        GpuFrame? frame;
+        lock (_frameGate)
+        {
+            var index = layer.Latest;
+            if (index < 0) return PvLayerImage.Empty;
+            layer.Shown = index;
+            frame = layer.Frames[index];
+        }
+
+        if (frame.BitmapFailed) return PvLayerImage.Empty;
+        var bitmap = frame.Bitmap;
+        if (bitmap is null)
+        {
+            try
+            {
+                using var surface = frame.Surface.Texture.QueryInterface<IDXGISurface>();
+                bitmap = _ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
+                    new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
+                    96f, 96f, BitmapOptions.None));
+                frame.Bitmap = bitmap;
+            }
+            catch (Exception ex)
+            {
+                frame.BitmapFailed = true;
+                Log.Warn("[PV/原版引擎] GPU 帧转 D2D 位图失败：" + ex.Message);
+                return PvLayerImage.Empty;
+            }
+        }
+
+        return new PvLayerImage(bitmap, null, frame.Surface.Width, frame.Surface.Height);
+    }
+
     private void RenderLoop()
     {
         LegacyPvEngine? engine = null;
+        GpuRasterHost? host = null;
+        var entered = false;
         try
         {
+            host = GpuRasterHost.TryGet(_gpu.Device, _gpu.AdapterName, out _);
+            if (host is not null)
+            {
+                try
+                {
+                    host.Enter();
+                    entered = true;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[PV/原版引擎] GPU 上下文绑定失败，回退 CPU：" + ex.Message);
+                    host = null;
+                }
+            }
+
             engine = new LegacyPvEngine(_options.LrcText, _options.AudioPath!, _options.Style,
-                _options.Seed, _designWidth, _designHeight, _fps);
+                _options.Seed, _designWidth, _designHeight, _fps, _options.Preset);
             if (engine.Error is not null)
             {
                 _error = engine.Error;
@@ -155,34 +262,66 @@ public sealed class LegacyPvProvider : IDisposable
             _cutCount = engine.CutCount;
             _planInfo = engine.PlanInfo;
             _engine = engine;
-            if (_cameraTrack is { } track) engine.ApplyCameraTrack(track);
+
+            if (host is not null)
+            {
+                try
+                {
+                    var info = engine.PlanInfo;
+                    var w = _renderWidth;
+                    var h = Math.Max(1, (int)Math.Round(info.Height * (w / (double)Math.Max(1, info.Width))));
+                    var gpuBack = new GpuLayer(host, "legacy_back", w, h);
+                    var gpuFront = new GpuLayer(host, "legacy_front", w, h);
+                    if (gpuBack.Frames[0].Surface.DxgiFormat != (int)Format.B8G8R8A8_UNorm)
+                        throw new InvalidOperationException(
+                            $"ANGLE 表面格式不是 BGRA8：{gpuBack.Frames[0].Surface.DxgiFormat}");
+                    engine.UseGpu(host);
+                    _gpuHost = host;
+                    _gpuBack = gpuBack;
+                    _gpuFront = gpuFront;
+                    _gpuMode = true;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[PV/原版引擎] GPU 光栅初始化失败，回退 CPU：" + ex.Message);
+                    _gpuMode = false;
+                    _gpuBack = null;
+                    _gpuFront = null;
+                    engine.UseCpu();
+                }
+            }
+
+            if (_cameraTrack is { } track)
+            {
+                engine.ApplyCameraTrack(track);
+                Interlocked.Exchange(ref _pendingCameraTrack, null);
+            }
+
+            ApplyPending(engine);
             PlanReady?.Invoke(_planInfo);
-            Log.Info($"[PV/原版引擎] 就绪：{engine.CutCount} 个切分，{_renderWidth}px 渲染（背景/文字分层）");
+            Log.Info($"[PV/原版引擎] 就绪：{engine.CutCount} 个切分，{_renderWidth}px 渲染"
+                     + $"（{(_gpuMode ? "GPU" : "CPU")} 光栅，背景/文字分层）");
 
             while (_running)
             {
                 _wake.WaitOne(4);
                 if (!_running) break;
 
+                var dirty = ApplyPending(engine);
                 var time = Volatile.Read(ref _requestedTime);
-                if (time == _lastRenderedTime) continue;
+                if (!dirty && time == _lastRenderedTime) continue;
 
-                var back = engine.Render(time, _renderWidth, false, NoCutTrans, "back", false, NoCamera);
-                var front = engine.Render(time, _renderWidth, false, NoCutTrans, "front", true, NoCamera);
-                if (back is null || front is null)
+                var sw = Stopwatch.StartNew();
+                var ok = _gpuMode ? RenderGpuFrame(engine, time) : RenderCpuFrame(engine, time);
+                sw.Stop();
+                LastRenderMs = sw.Elapsed.TotalMilliseconds;
+                if (!ok)
                 {
                     _error = engine.Error;
                     continue;
                 }
 
                 _lastRenderedTime = time;
-                lock (_frameGate)
-                {
-                    _back.Frame = back;
-                    _back.FrameVersion++;
-                    _front.Frame = front;
-                    _front.FrameVersion++;
-                }
             }
         }
         catch (Exception ex)
@@ -193,8 +332,78 @@ public sealed class LegacyPvProvider : IDisposable
         finally
         {
             _engine = null;
-            engine?.Dispose();
+            _gpuMode = false;
+            try
+            {
+                engine?.Dispose();
+            }
+            finally
+            {
+                if (entered) host!.Exit();
+            }
         }
+    }
+
+    private bool RenderCpuFrame(LegacyPvEngine engine, double time)
+    {
+        var back = engine.Render(time, _renderWidth, false, NoCutTrans, "back", false, NoCamera);
+        var front = engine.Render(time, _renderWidth, false, NoCutTrans, "front", true, NoCamera);
+        if (back is null || front is null) return false;
+
+        lock (_frameGate)
+        {
+            _back.Frame = back;
+            _back.FrameVersion++;
+            _front.Frame = front;
+            _front.FrameVersion++;
+        }
+
+        return true;
+    }
+
+    private bool RenderGpuFrame(LegacyPvEngine engine, double time)
+    {
+        var backLayer = _gpuBack!;
+        var frontLayer = _gpuFront!;
+        var back = backLayer.Acquire(_frameGate);
+        var front = frontLayer.Acquire(_frameGate);
+
+        _gpuHost!.Activate(back.Surface);
+        engine.RenderTo(back.Surface, time, NoCutTrans, "back", false, NoCamera);
+        _gpuHost!.FlushAndSync();
+        _gpuHost!.Activate(front.Surface);
+        engine.RenderTo(front.Surface, time, NoCutTrans, "front", true, NoCamera);
+        _gpuHost!.FlushAndSync();
+
+        lock (_frameGate)
+        {
+            backLayer.Latest = back.Index;
+            frontLayer.Latest = front.Index;
+            _back.Version++;
+            _front.Version++;
+        }
+
+        return true;
+    }
+
+    private bool ApplyPending(LegacyPvEngine engine)
+    {
+        var dirty = false;
+        var track = Interlocked.Exchange(ref _pendingCameraTrack, null);
+        if (track is not null)
+        {
+            engine.ApplyCameraTrack(track);
+            dirty = true;
+        }
+
+        var cuts = Interlocked.Exchange(ref _pendingCutOverrides, null);
+        if (cuts is not null)
+        {
+            engine.ApplyCutOverrides(cuts);
+            dirty = true;
+        }
+
+        return dirty;
     }
 
     private void Upload(LayerTarget target, LegacyPvFrame frame)
@@ -243,6 +452,12 @@ public sealed class LegacyPvProvider : IDisposable
         }
 
         _engine = null;
+        _gpuMode = false;
+        _gpuHost = null;
+        _gpuBack?.DisposeBitmaps();
+        _gpuFront?.DisposeBitmaps();
+        _gpuBack = null;
+        _gpuFront = null;
         _wake.Dispose();
         _back.Dispose();
         _front.Dispose();
@@ -254,6 +469,57 @@ public sealed class LegacyPvProvider : IDisposable
         public long Version => (front ? host._front : host._back).Version;
         public PvLayerImage Pump(in PvFrameContext ctx) => host.PumpLayer(ctx, front);
         public void Dispose() { }
+    }
+
+    private sealed class GpuLayer
+    {
+        public readonly GpuFrame[] Frames;
+        public int Latest = -1;
+        public int Shown = -1;
+
+        private int _next;
+
+        public GpuLayer(GpuRasterHost host, string key, int width, int height)
+        {
+            Frames = new GpuFrame[3];
+            for (var i = 0; i < Frames.Length; i++)
+                Frames[i] = new GpuFrame(host.Rent($"{key}{i}", width, height), i);
+        }
+
+        public GpuFrame Acquire(object gate)
+        {
+            lock (gate)
+            {
+                for (var i = 0; i < Frames.Length; i++)
+                {
+                    var index = (_next + i) % Frames.Length;
+                    if (index == Latest || index == Shown) continue;
+                    _next = (index + 1) % Frames.Length;
+                    return Frames[index];
+                }
+            }
+
+            var fallback = Frames[_next];
+            _next = (_next + 1) % Frames.Length;
+            return fallback;
+        }
+
+        public void DisposeBitmaps()
+        {
+            foreach (var frame in Frames)
+            {
+                frame.Bitmap?.Dispose();
+                frame.Bitmap = null;
+            }
+        }
+    }
+
+    private sealed class GpuFrame(GpuSurface surface, int index)
+    {
+        public GpuSurface Surface { get; } = surface;
+        public int Index { get; } = index;
+        public ID2D1Bitmap? Bitmap;
+        public bool BitmapFailed;
     }
 
     private sealed class LayerTarget : IDisposable

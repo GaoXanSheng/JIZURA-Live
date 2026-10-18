@@ -1,10 +1,9 @@
 using System.IO;
 using System.Runtime.InteropServices;
 using JizuraLive.Logging;
-using SharpDX.Direct3D;
-using SharpDX.Direct3D11;
 using SkiaSharp;
-using Device = SharpDX.Direct3D11.Device;
+using Vortice.Direct3D11;
+using Vortice.DXGI;
 
 namespace JizuraLive.LegacyEngine;
 
@@ -27,7 +26,7 @@ namespace JizuraLive.LegacyEngine;
 /// 反而比「只 Flush」更快（不等会让命令堆积、Skia 资源被在途 GPU 占用而反复 stall：
 /// 1920×1080 工程 15.5ms/帧 → 6.9ms/帧）。
 ///
-/// 线程约束：EGL 上下文同一时刻只能 current 在一个线程。宿主是进程单例，使用方（Spout 泵线程）
+/// 线程约束：EGL 上下文同一时刻只能 current 在一个线程。宿主是进程单例，使用方（渲染线程）
 /// 进 <see cref="Enter"/> / 出 <see cref="Exit"/>，其间用 <see cref="Activate"/> 切换目标面。
 /// </summary>
 public sealed class GpuRasterHost : IDisposable
@@ -44,12 +43,18 @@ public sealed class GpuRasterHost : IDisposable
     /// 取宿主单例；不可用（缺 ANGLE/初始化失败/环境变量关掉）返回 null 并给出原因。
     /// 初始化只尝试一次——设备/驱动级失败不会因为重试而变好，失败后统一走 CPU 回退。
     /// </summary>
-    public static GpuRasterHost? TryGet(out string error)
+    public static GpuRasterHost? TryGet(ID3D11Device device, string adapterName, out string error)
     {
         lock (Gate)
         {
             if (_instance != null)
             {
+                if (_instance._device.NativePointer != device.NativePointer)
+                {
+                    error = "GpuRasterHost 已绑定到另一块 D3D11 设备";
+                    return null;
+                }
+
                 error = "";
                 return _instance;
             }
@@ -70,7 +75,7 @@ public sealed class GpuRasterHost : IDisposable
 
             try
             {
-                _instance = new GpuRasterHost();
+                _instance = new GpuRasterHost(device, adapterName);
                 Log.Info($"[GpuRaster] 就绪：{_instance.Describe()}");
                 error = "";
                 return _instance;
@@ -91,7 +96,7 @@ public sealed class GpuRasterHost : IDisposable
     private readonly IntPtr _dpy;
     private readonly IntPtr _cfg;
     private readonly IntPtr _ctx;
-    private readonly Device _device;
+    private readonly ID3D11Device _device;
     private readonly GRContext _gr;
     private readonly string _provider;
     private readonly Dictionary<(string Key, int W, int H), GpuSurface> _surfaces = new();
@@ -106,11 +111,10 @@ public sealed class GpuRasterHost : IDisposable
     /// <summary>交给 SpoutDXWrapper.OpenDirectX 的设备指针（共享纹理都开在这块设备上）。</summary>
     public IntPtr DevicePointer => _device.NativePointer;
 
-    /// <summary>宿主设备（Spout 发送端与共享纹理同设备；CPU 回退上传纹理也建在这上面）。</summary>
-    public Device D3DDevice => _device;
-
-    private GpuRasterHost()
+    private GpuRasterHost(ID3D11Device device, string adapterName)
     {
+        _device = device;
+        AdapterName = adapterName;
         _provider = ResolveProvider();
         foreach (var dll in new[] { "libGLESv2.dll", "libEGL.dll" })
         {
@@ -148,9 +152,6 @@ public sealed class GpuRasterHost : IDisposable
         if (AngleEgl.eglMakeCurrent(_dpy, IntPtr.Zero, IntPtr.Zero, _ctx) == 0)
             throw new InvalidOperationException($"eglMakeCurrent(surfaceless) 失败 err=0x{AngleEgl.eglGetError():x}");
 
-        _device = new Device(DriverType.Hardware, DeviceCreationFlags.BgraSupport);
-        AdapterName = QueryAdapterName(_device);
-
         var iface = GRGlInterface.CreateAngle()
                     ?? throw new InvalidOperationException("GRGlInterface.CreateAngle 返回空（libEGL/libGLESv2 不在预期目录？）");
         if (!iface.Validate())
@@ -171,7 +172,10 @@ public sealed class GpuRasterHost : IDisposable
         if (Interlocked.CompareExchange(ref _ownerThread, tid, 0) != 0 && _ownerThread != tid)
             throw new InvalidOperationException("GpuRasterHost 同一时刻只允许一个使用线程");
         if (AngleEgl.eglMakeCurrent(_dpy, IntPtr.Zero, IntPtr.Zero, _ctx) == 0)
+        {
+            Interlocked.Exchange(ref _ownerThread, 0);
             throw new InvalidOperationException($"GpuRasterHost.Enter 失败 err=0x{AngleEgl.eglGetError():x}");
+        }
         _active = null;
     }
 
@@ -221,17 +225,15 @@ public sealed class GpuRasterHost : IDisposable
     }
 
     /// <summary>
-    /// Skia 托管的 GPU 面（自带非零 FBO）：给受控的 GPU 面使用。
-    /// 注意：在 SkiaSharp 中，若中间 GPU 面或其快照被 GC 回收，终结器线程在无 EGL 上下文下
-    /// 调用 sk_surface_unref / sk_image_unref 会与 Flush 产生并发冲突引发 0xC000001D 崩溃。
-    /// 渲染引擎内部中间面（scratch/trans/morph 等）统一使用 CPU 面以确保 GC 安全。
+    /// Skia 托管的 GPU 面（自带非零 FBO）。
+    /// 所有 GPU 面与快照必须在渲染线程、EGL current 时 Dispose。
     /// </summary>
     public SKSurface CreateGpuSurface(int w, int h) =>
         SKSurface.Create(_gr, budgeted: true, new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Premul))
         ?? throw new InvalidOperationException($"Skia GPU 面创建失败 {w}x{h}");
 
     internal IntPtr Dpy => _dpy;
-    internal Device D3D => _device;
+    internal ID3D11Device D3D => _device;
     internal GRContext Gr => _gr;
 
     private static IntPtr CreateDisplay()
@@ -249,22 +251,8 @@ public sealed class GpuRasterHost : IDisposable
         return dpy;
     }
 
-    private static string QueryAdapterName(Device dev)
-    {
-        try
-        {
-            using var dxgiDev = dev.QueryInterface<SharpDX.DXGI.Device>();
-            using var adapter = dxgiDev.Adapter;
-            return $"{adapter.Description.Description.Trim()} (Luid={adapter.Description.Luid})";
-        }
-        catch (Exception ex)
-        {
-            return "(适配器名不可得：" + ex.Message + ")";
-        }
-    }
-
     /// <summary>
-    /// 找 ANGLE 二进制目录。优先随包分发的 <c>angle/</c> 子目录（tools/fetch-angle.ps1 铺），
+    /// 找 ANGLE 二进制目录。优先随包分发的 <c>angle/</c> 子目录（native/angle 拷贝到输出），
     /// 其次环境变量 JIZURA_ANGLE_DIR，再次开发机上的 NuGet 缓存（CEF 官方构建，BSD 许可）。
     /// </summary>
     private static string ResolveProvider()
@@ -303,7 +291,7 @@ public sealed class GpuRasterHost : IDisposable
         }
 
         throw new InvalidOperationException(
-            "未找到 ANGLE（libEGL.dll + libGLESv2.dll）。跑 tools/fetch-angle.ps1 铺到 native/angle/，"
+            "未找到 ANGLE（libEGL.dll + libGLESv2.dll）。把 ANGLE 放到 native/angle/，"
             + "或设 JIZURA_ANGLE_DIR 指向已有 ANGLE 目录；也可 JIZURA_GPU=0 显式走 CPU 光栅");
     }
 
@@ -319,7 +307,6 @@ public sealed class GpuRasterHost : IDisposable
         foreach (var s in _surfaces.Values) s.Dispose();
         _surfaces.Clear();
         _gr.Dispose();
-        _device.Dispose();
         AngleEgl.eglMakeCurrent(_dpy, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (_ctx != IntPtr.Zero) AngleEgl.eglDestroyContext(_dpy, _ctx);
         if (_dpy != IntPtr.Zero) AngleEgl.eglTerminate(_dpy);
@@ -348,13 +335,13 @@ public sealed class GpuSurface : IDisposable
     public IntPtr TexturePointer { get; }
 
     /// <summary>共享纹理本体（已在宿主设备上打开）。预览镜像读回用它做 CopyResource 源。</summary>
-    public Texture2D Texture => _texture;
+    public ID3D11Texture2D Texture => _texture;
 
     /// <summary>DXGI 格式（Spout 发送端格式须与之一致）。</summary>
     public int DxgiFormat { get; }
 
     private readonly GpuRasterHost _host;
-    private readonly Texture2D _texture;
+    private readonly ID3D11Texture2D _texture;
     private readonly GRBackendRenderTarget _rt;
 
     internal GpuSurface(GpuRasterHost host, int w, int h, IntPtr surfaceHandle)
@@ -370,7 +357,7 @@ public sealed class GpuSurface : IDisposable
             throw new InvalidOperationException(
                 $"{w}x{h} eglQuerySurfacePointerANGLE 取共享句柄失败 err=0x{AngleEgl.eglGetError():x}");
 
-        _texture = host.D3D.OpenSharedResource<Texture2D>(shareHandle);
+        _texture = host.D3D.OpenSharedResource<ID3D11Texture2D>(shareHandle);
         var desc = _texture.Description;
         DxgiFormat = (int)desc.Format;
         TexturePointer = _texture.NativePointer;

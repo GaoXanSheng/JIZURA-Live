@@ -30,6 +30,7 @@ public sealed class TDesignSegment
     public int Track;
     public double Start, End, FadeIn, FadeOut;
     public string Technique = "";
+    public string Label = "";
     public string Source = "user";
     public bool Locked;
     public Dictionary<string, double> Params = new(StringComparer.Ordinal);

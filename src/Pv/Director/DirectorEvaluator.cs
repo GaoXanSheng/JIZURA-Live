@@ -16,6 +16,7 @@ public sealed class DirectorEvaluator
     private readonly Dictionary<ParamAddress, List<CurveLayer>> _layers = new();
     private readonly Dictionary<ParamAddress, (string Source, bool Locked)> _curveProvenance = new();
     private CameraTrack? _cameraTrack;
+    private Dictionary<string, CameraTrack> _layerCameraTracks = new(StringComparer.Ordinal);
 
     public CameraTrack? CameraTrack => _cameraTrack;
 
@@ -28,6 +29,18 @@ public sealed class DirectorEvaluator
         }
 
         return CameraDirection.Evaluate(_cameraTrack, time, out camera);
+    }
+
+    public bool TryLayerCameraAt(string layerId, double time, out PvCamState camera)
+    {
+        if (_layerCameraTracks.TryGetValue(layerId, out var track)
+            && CameraDirection.Evaluate(track, time, out camera))
+        {
+            return true;
+        }
+
+        camera = PvCamState.Identity;
+        return false;
     }
 
     public IReadOnlyDictionary<ParamAddress, FloatCurve> Curves => _curves;
@@ -99,6 +112,8 @@ public sealed class DirectorEvaluator
         foreach (var (addr, list) in _layers)
             copy._layers[addr] = list.Select(l => l with { Curve = CloneCurve(l.Curve) }).ToList();
         copy._cameraTrack = _cameraTrack?.Clone();
+        copy._layerCameraTracks = _layerCameraTracks.ToDictionary(
+            p => p.Key, p => p.Value.Clone(), StringComparer.Ordinal);
 
         return copy;
     }
@@ -123,9 +138,16 @@ public sealed class DirectorEvaluator
             _layers.Remove(addr);
     }
 
-    public static DirectorEvaluator FromSaves(IEnumerable<CurveSave>? saves, CameraTrack? cameraTrack = null)
+    public static DirectorEvaluator FromSaves(IEnumerable<CurveSave>? saves, CameraTrack? cameraTrack = null,
+        Dictionary<string, CameraTrack>? layerCameraTracks = null)
     {
-        var eval = new DirectorEvaluator { _cameraTrack = cameraTrack };
+        var eval = new DirectorEvaluator
+        {
+            _cameraTrack = cameraTrack,
+            _layerCameraTracks = layerCameraTracks is null
+                ? new Dictionary<string, CameraTrack>(StringComparer.Ordinal)
+                : new Dictionary<string, CameraTrack>(layerCameraTracks, StringComparer.Ordinal),
+        };
         if (saves is null) return eval;
 
         foreach (var save in saves)

@@ -91,7 +91,14 @@ public sealed class SwapChainTarget : IDisposable
         if (width == Width && height == Height) return;
 
         RenderTargetView.Dispose();
-        SwapChain.ResizeBuffers(0, (uint)width, (uint)height, Format.Unknown, _createFlags);
+        var hr = SwapChain.ResizeBuffers(0, (uint)width, (uint)height, Format.Unknown, _createFlags);
+        if (hr.Failure)
+        {
+            Log.Warn($"[SwapChain] ResizeBuffers 失败 hr=0x{(int)hr.Code:x}（{hr.Description}），继续保持 {Width}x{Height}");
+            RenderTargetView = CreateRtv();
+            return;
+        }
+
         Width = width;
         Height = height;
         RenderTargetView = CreateRtv();

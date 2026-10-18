@@ -8,7 +8,7 @@ namespace JizuraLive.Pv;
 
 public sealed class DirectorProject
 {
-    public const int CurrentSchemaVersion = 2;
+    public const int CurrentSchemaVersion = 3;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -25,6 +25,9 @@ public sealed class DirectorProject
     public double LegacyRenderScale { get; set; } = 0.6667;
 
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+    public LegacyPresetSettings Preset { get; set; } = new();
+
+    [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public PvScene Scene { get; set; } = PvScene.CreateDefault();
 
     [JsonConverter(typeof(EffectGraphJsonConverter))]
@@ -38,6 +41,9 @@ public sealed class DirectorProject
 
     [Newtonsoft.Json.JsonProperty(ObjectCreationHandling = Newtonsoft.Json.ObjectCreationHandling.Replace)]
     public CameraTrack CameraTrack { get; set; } = new();
+
+    [Newtonsoft.Json.JsonProperty(ObjectCreationHandling = Newtonsoft.Json.ObjectCreationHandling.Replace)]
+    public Dictionary<string, CameraTrack> LayerCameraTracks { get; set; } = new(StringComparer.Ordinal);
 
     public VtsCueTrack VtsCues { get; set; } = new();
 

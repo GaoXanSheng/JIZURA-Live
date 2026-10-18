@@ -13,10 +13,49 @@ public sealed class AudioClockDriver : IDisposable
     private double _playBase;
     private volatile bool _playing;
     private volatile bool _stopRequested;
+    private volatile float _volume = 1f;
+    private volatile bool _muted;
 
     public string? Error { get; private set; }
 
     public bool IsPlaying => _playing;
+
+    public float Volume
+    {
+        get => _volume;
+        set
+        {
+            lock (_gate)
+            {
+                _volume = Math.Clamp(value, 0f, 1f);
+                ApplyVolume();
+            }
+        }
+    }
+
+    public bool Muted
+    {
+        get => _muted;
+        set
+        {
+            lock (_gate)
+            {
+                _muted = value;
+                ApplyVolume();
+            }
+        }
+    }
+
+    private void ApplyVolume()
+    {
+        if (_output is not null) ApplyVolumeTo(_output);
+    }
+
+    private void ApplyVolumeTo(WaveOut output)
+    {
+        try { output.Volume = _muted ? 0f : _volume; }
+        catch (Exception ex) { Log.Warn("[音频驱动] 设置音量失败：" + ex.Message); }
+    }
 
     public double Duration
     {
@@ -64,6 +103,7 @@ public sealed class AudioClockDriver : IDisposable
                 var reader = AudioDecoding.Open(filePath);
                 var output = new WaveOut();
                 output.Init(reader);
+                ApplyVolumeTo(output);
                 output.PlaybackStopped += OnPlaybackStopped;
 
                 _reader = reader;
@@ -77,6 +117,7 @@ public sealed class AudioClockDriver : IDisposable
             }
             catch (Exception ex)
             {
+                Error = ex.Message;
                 Log.Error($"[音频驱动] 加载音频失败：{filePath}：{ex.Message}", ex);
                 return false;
             }
@@ -89,7 +130,7 @@ public sealed class AudioClockDriver : IDisposable
         {
             if (_playing || _reader is null || _output is null) return;
 
-            var from = _position >= Duration - 0.02 ? 0 : _position;
+            var from = _position >= Duration - 0.02 ? 0 : ClampSeek(_position);
             StartAt(from);
             Error = null;
         }
@@ -111,10 +152,17 @@ public sealed class AudioClockDriver : IDisposable
     {
         lock (_gate)
         {
-            var target = _reader is null ? Math.Max(0, time) : Math.Clamp(time, 0, Duration);
+            var target = _reader is null ? Math.Max(0, time) : ClampSeek(time);
             if (_reader is null || _output is null)
             {
                 _position = target;
+                return;
+            }
+
+            if (_playing)
+            {
+                StartAt(target);
+                Error = null;
                 return;
             }
 
@@ -129,9 +177,8 @@ public sealed class AudioClockDriver : IDisposable
             }
 
             _position = target;
+            _playBase = target;
             Error = null;
-            if (_playing) StartAt(_position);
-            else _playBase = _position;
         }
     }
 
@@ -143,15 +190,18 @@ public sealed class AudioClockDriver : IDisposable
         }
     }
 
+    private double ClampSeek(double time) => Math.Clamp(time, 0, Math.Max(0, Duration - 0.5));
+
     private void StartAt(double seconds)
     {
         if (_reader is null || _output is null) return;
 
-        try { _reader.CurrentTime = TimeSpan.FromSeconds(seconds); } catch { }
         _stopRequested = true;
         try { _output.Stop(); } catch { }
         _output.PlaybackStopped -= OnPlaybackStopped;
         try { _output.Dispose(); } catch { }
+
+        try { _reader.CurrentTime = TimeSpan.FromSeconds(seconds); } catch { }
         _output = CreateOutput();
         _stopRequested = false;
 
@@ -165,6 +215,7 @@ public sealed class AudioClockDriver : IDisposable
     {
         var output = new WaveOut();
         output.Init(_reader!);
+        ApplyVolumeTo(output);
         output.PlaybackStopped += OnPlaybackStopped;
         return output;
     }
@@ -201,6 +252,7 @@ public sealed class AudioClockDriver : IDisposable
         if (_output is not null)
         {
             try { _output.Stop(); } catch (Exception ex) { Log.Warn("[音频驱动] 停止输出失败：" + ex.Message); }
+            _output.PlaybackStopped -= OnPlaybackStopped;
             try { _output.Dispose(); } catch { }
             _output = null;
         }

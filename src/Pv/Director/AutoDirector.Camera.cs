@@ -56,24 +56,30 @@ public static partial class AutoDirector
             int size = PickSize(rng, emph, ref recentSize);
             double scale = size switch
             {
-                0 => rng.Range(0.96, 1.00),
-                1 => rng.Range(1.00, 1.06),
-                2 => rng.Range(1.08, 1.16),
-                _ => rng.Range(1.16, 1.24),
+                0 => rng.Range(0.98, 1.06),
+                1 => rng.Range(1.06, 1.18),
+                2 => rng.Range(1.18, 1.34),
+                _ => rng.Range(1.34, 1.58),
             };
 
-            double rot = rng.Next() < (emph ? 0.55 : 0.25)
-                ? (rng.Next() < 0.5 ? -1 : 1) * rng.Range(0.8, emph ? 3.0 : 2.0)
+            double rot = rng.Next() < (emph ? 0.7 : 0.35)
+                ? (rng.Next() < 0.5 ? -1 : 1) * rng.Range(2.0, emph ? 9.0 : 6.0)
+                : 0;
+
+            double shiftX = rng.Next() < (emph ? 0.65 : 0.35)
+                ? (rng.Next() < 0.5 ? -1 : 1) * rng.Range(0.03, emph ? 0.16 : 0.10)
+                : 0;
+            double shiftY = rng.Next() < 0.35
+                ? (rng.Next() < 0.5 ? -1 : 1) * rng.Range(0.02, 0.07)
                 : 0;
 
             string preset = PickPreset(rng, size);
             var pars = CameraDirection.PlanParams(preset, rng);
             pars["shotScale"] = scale;
-            // 机位只做景别/旋转，不平移：画布、PV、角色原位都不被推走。
-            pars["shotX"] = 0;
-            pars["shotY"] = 0;
+            pars["shotX"] = shiftX;
+            pars["shotY"] = shiftY;
             pars["shotRot"] = rot;
-            pars["gain"] = 0;
+            pars["gain"] = rng.Range(0.7, emph ? 1.2 : 1.0);
 
             track.Shots.Add(new CameraShot
             {

@@ -65,6 +65,8 @@ public static class ProjectStore
             return new ProjectLoadResult(null,
                 $"工程版本过新（{project.SchemaVersion} > {DirectorProject.CurrentSchemaVersion}），本程序不识别，请升级后再打开");
 
+        Migrate(project);
+
         NormalizeScene(project, project.Scene);
 
         SanitizeCurves(project);
@@ -95,7 +97,14 @@ public static class ProjectStore
 
     private static void SanitizeCameraTrack(DirectorProject project)
     {
-        var track = project.CameraTrack ??= new CameraTrack();
+        SanitizeTrack(project.CameraTrack ??= new CameraTrack());
+        project.LayerCameraTracks ??= new Dictionary<string, CameraTrack>(StringComparer.Ordinal);
+        foreach (var track in project.LayerCameraTracks.Values)
+            if (track is not null) SanitizeTrack(track);
+    }
+
+    private static void SanitizeTrack(CameraTrack track)
+    {
         track.Shots ??= new List<CameraShot>();
         track.Beats ??= new List<double>();
 
@@ -190,6 +199,29 @@ public static class ProjectStore
         foreach (var save in project.Curves) save.Curve.NormalizeKeys();
     }
 
+    private static void Migrate(DirectorProject project)
+    {
+        if (project.SchemaVersion < 3)
+        {
+            var layers = project.Scene?.Layers;
+            if (layers is not null)
+            {
+                foreach (var layer in layers)
+                {
+                    if (layer is null || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) continue;
+
+                    // 直播输入默认不跟随机位，避免 VTS 画面自己漂移。
+                    layer.Parallax ??= new PvParallaxConfig();
+                    layer.Parallax.Depth = 0;
+                    layer.Parallax.RotationFactor = 0;
+                    layer.Parallax.ScaleFactor = 0;
+                }
+            }
+        }
+
+        project.SchemaVersion = DirectorProject.CurrentSchemaVersion;
+    }
+
     private static void NormalizeScene(DirectorProject project, PvScene scene)
     {
         if (scene is null) return;
@@ -215,6 +247,32 @@ public static class ProjectStore
                 && hollowLayerIds.Contains(addr.Target));
             if (removed > 0)
                 Log.Warn($"[工程存储] 规范化：移除 {hollowLayerIds.Count} 个空壳图层及 {removed} 条关联曲线");
+        }
+
+        var decorLayerIds = scene.Layers
+            .Where(l => l is not null && (l.Kind == PvLayerKind.Decor || l.Decor is not null))
+            .Select(l => l.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (decorLayerIds.Count > 0)
+        {
+            scene.Layers = scene.Layers.Where(l => l is null || !decorLayerIds.Contains(l.Id)).ToList();
+            project.Curves.RemoveAll(c =>
+                c is not null
+                && ParamAddress.TryParse(c.Address, out var addr)
+                && addr.Kind == ParamAddressKind.Layer
+                && decorLayerIds.Contains(addr.Target));
+            Log.Warn($"[工程存储] 规范化：移除 {decorLayerIds.Count} 个已停用的装饰图层");
+        }
+
+        if (scene.Layers.RemoveAll(l => l is not null && string.Equals(l.Id, "bg", StringComparison.Ordinal)) > 0)
+        {
+            project.Curves.RemoveAll(c =>
+                c is not null
+                && ParamAddress.TryParse(c.Address, out var addr)
+                && addr.Kind == ParamAddressKind.Layer
+                && string.Equals(addr.Target, "bg", StringComparison.Ordinal));
+            Log.Warn("[工程存储] 规范化：移除多余的 Background Layer（已有 PV 背景层）");
         }
     }
 

@@ -78,9 +78,38 @@ public static partial class AutoDirector
             project.DesignSegments.Add(seg);
         }
 
+        foreach (var start in SwitchTimes(project, plan))
+        {
+            if (start <= 0.02 || !seen.Add(Math.Round(start, 3))) continue;
+            double dur = Math.Clamp(plan.BeatLen * 0.5, 0.2, 0.6);
+            if (TransitionsLockedNear(project, start, dur)) continue;
+
+            var cut = plan.Cuts.FirstOrDefault(c => Math.Abs(c.Start - start) < 0.08);
+            project.DesignSegments.Add(new DesignSegment
+            {
+                Track = DesignTrackKind.Trans,
+                Start = start,
+                End = start + dur,
+                Technique = cut is { Emph: true } ? "whipPan" : "diagonalWipe",
+                Params = cut is null
+                    ? new Dictionary<string, double>(StringComparer.Ordinal)
+                    : new Dictionary<string, double>(cut.TransParams, StringComparer.Ordinal),
+                Seed = cut?.Seed ?? 0,
+                Source = "auto",
+                RefId = $"legacy_switch_{start:F2}",
+            });
+        }
+
         project.DesignSegments.Sort((a, b) => a.Start.CompareTo(b.Start));
         report.TransSegments = project.DesignSegments.Count(seg => seg.Track == DesignTrackKind.Trans
             && !(IsUser(seg.Source) || seg.Locked));
+    }
+
+    private static IEnumerable<double> SwitchTimes(DirectorProject project, LegacyPvPlanInfo plan)
+    {
+        if (project.LegacyStageCamera && project.CameraTrack is { Shots.Count: > 0 } track)
+            return track.Shots.Where(shot => shot is not null && shot.Start > 0.02).Select(shot => shot.Start);
+        return plan.Cuts.Where(cut => cut.Start > 0.02).Select(cut => cut.Start);
     }
 
     private static List<CameraShot> CleanupPreviousGeneration(DirectorProject project)

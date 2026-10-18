@@ -67,20 +67,12 @@ public sealed class PvScene
 
         scene.Layers.Add(new PvLayerConfig
         {
-            Id = "bg",
-            Name = "Background Layer",
-            Kind = PvLayerKind.Background,
-            Parallax = new PvParallaxConfig { Depth = 0.30, RotationFactor = 0.4 },
-        });
-
-        scene.Layers.Add(new PvLayerConfig
-        {
             Id = CharacterLayerId,
             Name = "Character Asset",
             Kind = PvLayerKind.VisualAsset,
             SpoutSenderName = "VTubeStudioSpout",
             Premultiplied = false,
-            Parallax = new PvParallaxConfig { Depth = 1.0, RotationFactor = 1.0 },
+            Parallax = new PvParallaxConfig { Depth = 0.0, RotationFactor = 0.0, ScaleFactor = 0.0 },
             VisualBlend = new PvVisualBlendConfig
             {
                 AmbientTintIntensity = 0.20,
@@ -88,23 +80,6 @@ public sealed class PvScene
                 RimGlow = 0,
                 AntiBleedMargin = 0.08,
             },
-        });
-
-        scene.Layers.Add(new PvLayerConfig
-        {
-            Id = "foreground_fx",
-            Name = "Foreground FX",
-            Kind = PvLayerKind.ForegroundFx,
-            Enabled = false,
-            Parallax = new PvParallaxConfig { Depth = 1.35, RotationFactor = 1.2 },
-        });
-
-        scene.Layers.Add(new PvLayerConfig
-        {
-            Id = "subtitle_top",
-            Name = "Top Subtitle Layer",
-            Kind = PvLayerKind.Subtitle,
-            Parallax = new PvParallaxConfig { Depth = 0.0, RotationFactor = 0.0 },
         });
 
         return scene;
