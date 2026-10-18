@@ -435,8 +435,18 @@ public sealed partial class TimelineView
     private TVtsCue? CueAt(TVtsCueTrack track, double x)
     {
         foreach (var cue in track.Cues)
-            if (Math.Abs(TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond) - x) <= 7)
-                return cue;
+        {
+            double start = TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
+            if (cue.Mode == VtsCueMode.Once)
+            {
+                if (Math.Abs(x - start) <= 7) return cue;
+                continue;
+            }
+
+            double duration = cue.Duration > 0.01 ? cue.Duration : 2.0;
+            double end = TimelineMath.TimeToX(cue.Time + duration, _viewStart, _pixelsPerSecond);
+            if (x >= start - 4 && x <= Math.Max(start + 4, end)) return cue;
+        }
         return null;
     }
 

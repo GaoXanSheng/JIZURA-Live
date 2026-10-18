@@ -29,6 +29,8 @@ public sealed partial class TimelineView
     private static readonly Brush ScrollThumbHotBrush = Solid(0xFF, 0x9B, 0xBE, 0xFF);
     private static readonly Brush HotkeyCueBrush = Solid(0xE8, 0xB4, 0x4A);
     private static readonly Brush ExpressionCueBrush = Solid(0x5E, 0xD6, 0x9A);
+    private static readonly Brush HotkeyCueFill = Solid(0x55, 0xE8, 0xB4, 0x4A);
+    private static readonly Brush ExpressionCueFill = Solid(0x55, 0x5E, 0xD6, 0x9A);
     private static readonly Brush TipBrush = Solid(0xE6, 0x17, 0x17, 0x1E);
     private static readonly Pen LinePen = FrozenPen(Solid(0x23, 0x23, 0x2C), 1);
     private static readonly Pen SoftPen = FrozenPen(Solid(0x19, 0x19, 0x20), 1);
@@ -55,6 +57,15 @@ public sealed partial class TimelineView
         var rows = BuildRows();
         var contentRect = new Rect(HeaderWidth, 0, contentW, contentH);
 
+        dc.PushClip(new RectangleGeometry(new Rect(0, 0, HeaderWidth, h)));
+        foreach (var row in rows)
+        {
+            if (row.Top + row.Height <= 0) continue;
+            if (row.Top >= contentH) break;
+            RenderHeader(dc, row);
+        }
+        dc.Pop();
+
         dc.PushClip(new RectangleGeometry(contentRect));
         foreach (var row in rows)
         {
@@ -69,15 +80,6 @@ public sealed partial class TimelineView
                 case RowKind.Automation: RenderAutomation(dc, row); break;
                 case RowKind.VtsCue: RenderVtsCueTrack(dc, row); break;
             }
-        }
-        dc.Pop();
-
-        dc.PushClip(new RectangleGeometry(new Rect(0, 0, HeaderWidth, h)));
-        foreach (var row in rows)
-        {
-            if (row.Top + row.Height <= 0) continue;
-            if (row.Top >= contentH) break;
-            RenderHeader(dc, row);
         }
         dc.Pop();
 
@@ -341,6 +343,7 @@ public sealed partial class TimelineView
         dc.DrawLine(SoftPen, new Point(HeaderWidth, row.Top), new Point(HeaderWidth + w, row.Top));
 
         var brush = track.Kind == VtsCueKind.Hotkey ? HotkeyCueBrush : ExpressionCueBrush;
+        var fill = track.Kind == VtsCueKind.Hotkey ? HotkeyCueFill : ExpressionCueFill;
         double cy = row.Top + row.Height / 2;
         double viewEnd = _viewStart + w / _pixelsPerSecond;
 
@@ -349,17 +352,30 @@ public sealed partial class TimelineView
             if (cue.Time < _viewStart - 0.5 || cue.Time > viewEnd + 0.5) continue;
             double x = HeaderWidth + TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
 
-            if (cue.Duration > 0.01)
+            if (cue.Mode == VtsCueMode.Once)
             {
-                double endX = HeaderWidth + TimelineMath.TimeToX(
-                    Math.Min(cue.Time + cue.Duration, viewEnd), _viewStart, _pixelsPerSecond);
-                dc.DrawLine(HandlePen, new Point(x, cy), new Point(endX, cy));
+                dc.DrawGeometry(brush, null, Diamond(x, cy, 4.5));
+                var onceLabel = Text(cue.Label, 9, brush);
+                if (x + 8 + onceLabel.Width <= HeaderWidth + w)
+                    dc.DrawText(onceLabel, new Point(x + 8, row.Top + (row.Height - 11) / 2));
+                continue;
             }
 
-            dc.DrawGeometry(brush, null, Diamond(x, cy, 4.5));
-            var label = Text(cue.Label, 9, brush);
-            if (x + 8 + label.Width <= HeaderWidth + w)
-                dc.DrawText(label, new Point(x + 8, row.Top + (row.Height - 11) / 2));
+            double duration = cue.Duration > 0.01 ? cue.Duration : 2.0;
+            double endX = HeaderWidth + TimelineMath.TimeToX(
+                Math.Min(cue.Time + duration, viewEnd), _viewStart, _pixelsPerSecond);
+            var rect = new Rect(x, row.Top + 3, Math.Max(6, endX - x), row.Height - 6);
+
+            dc.DrawRoundedRectangle(fill, null, rect, 3, 3);
+            dc.DrawRectangle(brush, null, new Rect(rect.X, rect.Y, 2, rect.Height));
+            dc.DrawEllipse(brush, null, new Point(rect.X + 5, cy), 2.5, 2.5);
+
+            if (rect.Width >= 22)
+            {
+                dc.PushClip(new RectangleGeometry(rect));
+                dc.DrawText(Text(cue.Label, 9, brush), new Point(rect.X + 10, row.Top + (row.Height - 11) / 2));
+                dc.Pop();
+            }
         }
     }
 
@@ -373,6 +389,14 @@ public sealed partial class TimelineView
                 dc.DrawText(head, new Point(8, row.Top + 4));
                 dc.DrawText(Text("/ " + FormatTime(_snap?.DurationSeconds ?? 0), 10, FaintBrush, MonoFont),
                     new Point(12 + head.Width, row.Top + 7));
+                break;
+            case RowKind.Waveform:
+                dc.DrawText(Text("音频", 11, DimBrush),
+                    new Point(8, row.Top + (row.Height - 14) / 2));
+                break;
+            case RowKind.Lyrics:
+                dc.DrawText(Text("歌词", 11, DimBrush),
+                    new Point(8, row.Top + (row.Height - 14) / 2));
                 break;
             case RowKind.Automation:
                 dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(8, row.Top + 5));

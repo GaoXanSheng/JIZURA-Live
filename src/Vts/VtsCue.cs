@@ -11,11 +11,20 @@ public enum VtsCueKind
     Pulse,
 }
 
+public enum VtsCueMode
+{
+    Toggle,
+
+    Once,
+}
+
 public sealed class VtsCue
 {
     public double Time { get; set; }
 
     public VtsCueKind Kind { get; set; }
+
+    public VtsCueMode Mode { get; set; } = VtsCueMode.Toggle;
 
     public string Target { get; set; } = "";
 

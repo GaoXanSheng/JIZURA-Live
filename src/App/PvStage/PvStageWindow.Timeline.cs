@@ -52,14 +52,16 @@ public partial class PvStageWindow
         foreach (var cue in _project.VtsCues?.Cues ?? new List<VtsCue>())
         {
             if (cue is null) continue;
+            var target = cue.Target ?? "";
             var item = new TVtsCue
             {
                 Time = cue.Time,
-                Duration = cue.Duration,
-                Target = cue.Target,
-                Label = cue.Kind == VtsCueKind.Hotkey
-                    ? _vts.Hotkeys.FirstOrDefault(h => h.HotkeyId == cue.Target)?.Name ?? cue.Target
-                    : Path.GetFileNameWithoutExtension(cue.Target),
+                Duration = cue.Duration > 0.01 ? cue.Duration : 2.0,
+                Target = target,
+                Mode = cue.Mode,
+                Label = (cue.Kind == VtsCueKind.Hotkey
+                    ? _vts.Hotkeys.FirstOrDefault(h => h.HotkeyId == target)?.Name
+                    : Path.GetFileNameWithoutExtension(target)) ?? target,
             };
             if (cue.Kind == VtsCueKind.Hotkey) hotkeys.Cues.Add(item);
             else if (cue.Kind == VtsCueKind.Expression) expressions.Cues.Add(item);

@@ -48,6 +48,7 @@ public sealed class TVtsCue
     public double Duration;
     public string Target = "";
     public string Label = "";
+    public VtsCueMode Mode;
 }
 
 public sealed class TVtsCueTrack

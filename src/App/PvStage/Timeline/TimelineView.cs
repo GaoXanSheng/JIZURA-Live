@@ -93,10 +93,18 @@ public sealed partial class TimelineView : Control
         InvalidateVisual();
     }
 
+    public void RevealCues()
+    {
+        if (_snap is null) return;
+        BuildRows();
+        _scrollOffset = Math.Max(0, _trackTotalHeight - _trackViewHeight);
+        InvalidateVisual();
+    }
+
     public void SetSnapshot(TSnapshot snap)
     {
         _snap = snap ?? throw new ArgumentNullException(nameof(snap));
-        _scrollOffset = 0;
+        ClampScrollOffset();
         _viewStart = TimelineMath.ClampViewStart(_viewStart, _pixelsPerSecond, ContentWidth, snap.DurationSeconds);
         _selection.RemoveAll(s =>
         {

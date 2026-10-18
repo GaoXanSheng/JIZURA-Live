@@ -15,8 +15,10 @@ public partial class PvStageWindow
     private (double X, double Y, double Size) _vtsSent = (double.NaN, double.NaN, double.NaN);
     private bool _vtsWasReady;
     private double _cueTime;
-    private double _vtsExprDuration = 2.0;
-    private readonly List<(double Time, string Target)> _pendingExprOff = new();
+    private double _vtsCueDuration = 2.0;
+    private VtsCueMode _vtsHotkeyMode = VtsCueMode.Toggle;
+    private VtsCueMode _vtsExpressionMode = VtsCueMode.Toggle;
+    private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
 
     private static readonly ParamAddress VtsXAddr = new(ParamAddressKind.Vts, "model", "x");
     private static readonly ParamAddress VtsYAddr = new(ParamAddressKind.Vts, "model", "y");
@@ -113,31 +115,45 @@ public partial class PvStageWindow
         AddInspector(auto);
 
         AddInspector(ThemeText("动作关键帧", TextSecondaryKey, 12));
+        AddInspector(ConstRow("持续", 0.3, 20, 0.1,
+            () => _vtsCueDuration, v => _vtsCueDuration = v));
+        var hotMode = VtsModeCombo(() => _vtsHotkeyMode, v => _vtsHotkeyMode = v);
+        AddInspector(hotMode);
         var hotCombo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var hotkey in _vts.Hotkeys)
             hotCombo.Items.Add(new ComboBoxItem { Content = hotkey.Name, Tag = hotkey.HotkeyId });
         if (hotCombo.Items.Count == 0)
             hotCombo.Items.Add(new ComboBoxItem { Content = "未读取到动作键", IsEnabled = false });
+        hotCombo.SelectionChanged += (_, _) =>
+        {
+            if (hotCombo.SelectedItem is not ComboBoxItem { Tag: string id }) return;
+            var hotkey = _vts.Hotkeys.FirstOrDefault(h => h.HotkeyId == id);
+            if (hotkey is null) return;
+            bool toggle = hotkey.Type.Contains("toggle", StringComparison.OrdinalIgnoreCase);
+            _vtsHotkeyMode = toggle ? VtsCueMode.Toggle : VtsCueMode.Once;
+            hotMode.SelectedIndex = toggle ? 0 : 1;
+        };
         hotCombo.SelectedIndex = 0;
         AddInspector(hotCombo);
 
         var hotAdd = new Wpf.Ui.Controls.Button
         {
-            Content = "在播放头打动作键",
+            Content = "在播放头开启动作",
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
         };
         hotAdd.Click += (_, _) =>
         {
-            if (hotCombo.SelectedItem is ComboBoxItem { Tag: string id }) AddVtsCue(VtsCueKind.Hotkey, id);
+            if (hotCombo.SelectedItem is ComboBoxItem { Tag: string id })
+                AddVtsCue(VtsCueKind.Hotkey, id, _vtsHotkeyMode);
             else TblStatus.Text = "先连上 VTS 读取动作键";
         };
         AddInspector(hotAdd);
 
         AddInspector(ThemeText("表情关键帧", TextSecondaryKey, 12));
-        AddInspector(ConstRow("表情持续", 0.3, 10, 0.1,
-            () => _vtsExprDuration, v => _vtsExprDuration = v));
+        var exprMode = VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v);
+        AddInspector(exprMode);
         var exprCombo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var file in _vts.Expressions)
             exprCombo.Items.Add(new ComboBoxItem
@@ -152,14 +168,15 @@ public partial class PvStageWindow
 
         var exprAdd = new Wpf.Ui.Controls.Button
         {
-            Content = "在播放头打表情",
+            Content = "在播放头开启表情",
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
         };
         exprAdd.Click += (_, _) =>
         {
-            if (exprCombo.SelectedItem is ComboBoxItem { Tag: string file }) AddVtsCue(VtsCueKind.Expression, file);
+            if (exprCombo.SelectedItem is ComboBoxItem { Tag: string file })
+                AddVtsCue(VtsCueKind.Expression, file, _vtsExpressionMode);
             else TblStatus.Text = "先连上 VTS 读取表情";
         };
         AddInspector(exprAdd);
@@ -169,7 +186,20 @@ public partial class PvStageWindow
             TextTertiaryKey, 11, wrap: true));
     }
 
-    private void AddVtsCue(VtsCueKind kind, string target)
+    private ComboBox VtsModeCombo(Func<VtsCueMode> read, Action<VtsCueMode> write)
+    {
+        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        combo.Items.Add(new ComboBoxItem { Content = "开关（开始开，结束关）", Tag = VtsCueMode.Toggle });
+        combo.Items.Add(new ComboBoxItem { Content = "一次性（只触发开始）", Tag = VtsCueMode.Once });
+        combo.SelectedIndex = read() == VtsCueMode.Once ? 1 : 0;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: VtsCueMode mode }) write(mode);
+        };
+        return combo;
+    }
+
+    private void AddVtsCue(VtsCueKind kind, string target, VtsCueMode mode)
     {
         if (string.IsNullOrWhiteSpace(target) || _project is null) return;
         _project.VtsCues ??= new VtsCueTrack();
@@ -181,15 +211,18 @@ public partial class PvStageWindow
         {
             Time = t,
             Kind = kind,
+            Mode = mode,
             Target = target,
-            Duration = kind == VtsCueKind.Expression ? Math.Max(0.2, _vtsExprDuration) : 0,
+            Duration = Math.Max(0.2, _vtsCueDuration),
         });
         _project.VtsCues.Cues.Sort((a, b) => a.Time.CompareTo(b.Time));
 
         PushUndo();
         RefreshTimeline();
+        TheTimeline.RevealCues();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"已在 {t:F2}s 打点：{(kind == VtsCueKind.Hotkey ? "动作键" : "表情")}";
+        TblStatus.Text = $"已在 {t:F2}s 打点：{(kind == VtsCueKind.Hotkey ? "动作键" : "表情")}"
+                         + $"（{(mode == VtsCueMode.Toggle ? "开关" : "一次性")}）";
     }
 
     private void UpdateVtsCues()
@@ -205,8 +238,8 @@ public partial class PvStageWindow
 
         if (t < _cueTime || t - _cueTime > 0.5)
         {
-            foreach (var off in _pendingExprOff) _vts.SetExpression(off.Target, false, 0.15);
-            _pendingExprOff.Clear();
+            foreach (var off in _pendingCueOff) EndCue(off.Kind, off.Target);
+            _pendingCueOff.Clear();
             _cueTime = t;
             return;
         }
@@ -214,24 +247,30 @@ public partial class PvStageWindow
         foreach (var cue in cues)
         {
             if (cue is null || cue.Time <= _cueTime || cue.Time > t) continue;
-            if (cue.Kind == VtsCueKind.Hotkey)
-            {
-                if (!string.IsNullOrWhiteSpace(cue.Target)) _vts.TriggerHotkey(cue.Target);
-            }
-            else if (cue.Kind == VtsCueKind.Expression && !string.IsNullOrWhiteSpace(cue.Target))
-            {
-                _vts.SetExpression(cue.Target, true, 0.15);
-                if (cue.Duration > 0.01) _pendingExprOff.Add((cue.Time + cue.Duration, cue.Target));
-            }
+            if (string.IsNullOrWhiteSpace(cue.Target)) continue;
+
+            if (cue.Kind == VtsCueKind.Hotkey) _vts.TriggerHotkey(cue.Target);
+            else if (cue.Kind == VtsCueKind.Expression) _vts.SetExpression(cue.Target, true, 0.15);
+
+            double duration = cue.Duration > 0.01 ? cue.Duration : 2.0;
+            if (cue.Mode == VtsCueMode.Toggle)
+                _pendingCueOff.Add((cue.Time + duration, cue.Kind, cue.Target));
         }
         _cueTime = t;
 
-        for (int i = _pendingExprOff.Count - 1; i >= 0; i--)
+        for (int i = _pendingCueOff.Count - 1; i >= 0; i--)
         {
-            if (_pendingExprOff[i].Time > t) continue;
-            _vts.SetExpression(_pendingExprOff[i].Target, false, 0.15);
-            _pendingExprOff.RemoveAt(i);
+            if (_pendingCueOff[i].Time > t) continue;
+            EndCue(_pendingCueOff[i].Kind, _pendingCueOff[i].Target);
+            _pendingCueOff.RemoveAt(i);
         }
+    }
+
+    private void EndCue(VtsCueKind kind, string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return;
+        if (kind == VtsCueKind.Expression) _vts.SetExpression(target, false, 0.15);
+        else _vts.TriggerHotkey(target);
     }
 
     private double _vtsAutoIntensity = 0.6;
