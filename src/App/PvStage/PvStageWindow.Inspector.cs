@@ -237,10 +237,9 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(LayerRow(layer, "rotation", "旋转", 1));
         InspectorHost.Children.Add(ConstRow("深度", 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
-        if (layer.Id != PvScene.CharacterLayerId)
-            InspectorHost.Children.Add(ConstRow("跟随运镜", 0, 2, 0.01,
-                () => layer.Parallax.Follow ?? layer.Parallax.Depth,
-                v => layer.Parallax.Follow = v));
+        InspectorHost.Children.Add(ConstRow("跟随运镜", 0, 1, 0.01,
+            () => layer.Parallax.Follow ?? layer.Parallax.Depth,
+            v => layer.Parallax.Follow = v));
         InspectorHost.Children.Add(ConstRow("环境光", 0, 1, 0.02,
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
         InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
@@ -265,7 +264,7 @@ public partial class PvStageWindow
     {
         InspectorHost.Children.Add(SectionTitle("角色运镜（独立于全局运镜）"));
         InspectorHost.Children.Add(ThemeText(
-            "角色默认跟随自己的运镜轨；首次生成时自动拷贝全局运镜轨，可在时间线“角色运镜”轨单独调整。",
+            "角色默认跟随自己的运镜轨；跟随运镜 0 = 完全用角色运镜轨，1 = 完全跟全局运镜。",
             TextSecondaryKey, 11, wrap: true));
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 6, 0, 0) };
@@ -812,7 +811,11 @@ public partial class PvStageWindow
     private bool SegmentTargetAlive(SegmentTarget target)
     {
         if (target.Effect is { } node) return _effects.Nodes.Contains(node);
-        if (target.Shot is { } shot) return _project.CameraTrack?.Shots.Contains(shot) == true;
+        if (target.Shot is { } shot)
+            return target.LayerShot
+                ? _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack)
+                  && layerTrack.Shots.Contains(shot)
+                : _project.CameraTrack?.Shots.Contains(shot) == true;
         if (target.Design is { } design) return _project.DesignSegments.Contains(design);
         if (target.LegacyCutIndex >= 0)
             return _legacyPlanInfo is { } plan && target.LegacyCutIndex < plan.Cuts.Count;
@@ -994,7 +997,7 @@ public partial class PvStageWindow
 
     private static string TimelineTechniqueLabel(DesignTrackKind kind, string key) => kind switch
     {
-        DesignTrackKind.Cam => ZhLabel("cam", key),
+        DesignTrackKind.Cam or DesignTrackKind.LayerCam => ZhLabel("cam", key),
         DesignTrackKind.Trans => ZhLabel("trans", key),
         DesignTrackKind.Layout or DesignTrackKind.Enter or DesignTrackKind.Exit or DesignTrackKind.Treat =>
             LegacyTechniqueLabel(kind, key),

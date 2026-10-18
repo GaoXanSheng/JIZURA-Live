@@ -631,10 +631,11 @@ public static class JText
         new("\\d{1,2}[:：]\\d{2}", RegexOptions.ECMAScript | RegexOptions.Compiled);
 
     private static readonly Regex TimeShape =
-        new("^[A-Za-z]{0,4}[\\s.#]*[\\d:：.;'\"\\s/\\-–—+]+[A-Za-z]{0,3}$", RegexOptions.ECMAScript | RegexOptions.Compiled);
+        new("^[A-Za-z]{0,4}[\\s.#\\-–—―−─━◆◇／·]*[\\d:：.;'\"\\s/\\-–—―−─━◆◇／·]+[A-Za-z]{0,3}$",
+            RegexOptions.ECMAScript | RegexOptions.Compiled);
 
     private static readonly Regex NoShape =
-        new("^[A-Za-z#№.\\s\\d/\\-–—+×x%:,'°]+$", RegexOptions.ECMAScript | RegexOptions.Compiled);
+        new("^[A-Za-z#№.\\s\\d/\\-–—―−─━◆◇／·+×x%:,'°]+$", RegexOptions.ECMAScript | RegexOptions.Compiled);
 
     /// <summary>J.decoTextKind：'time' | 'no' | null。同样组合出现在切分歌词里时算歌词（上层 hideDecoText 判）。</summary>
     public static string? DecoTextKind(string? t)

@@ -490,7 +490,8 @@ public sealed class PvStageRenderer : IDisposable
         if (!LyricsAvoid) return;
         if (++_avoidFrame % 3 != 0) return;
 
-        _charBoundsValid = TryGetLayerBounds(PvScene.CharacterLayerId, images, out _charBounds);
+        var character = Stage.Scene.CharacterLayer;
+        _charBoundsValid = character is not null && TryGetLayerBounds(character.Id, images, out _charBounds);
         _lyricsBoundsValid = TryGetLayerBounds(LegacyPvProvider.FrontId, images, out _lyricsBounds);
     }
 
@@ -502,7 +503,7 @@ public sealed class PvStageRenderer : IDisposable
         var layer = scene.Layers.FirstOrDefault(l => l.Id == layerId);
         if (layer is null || !layer.Enabled) return false;
         if (!images.TryGetValue(layerId, out var image) || image.Bitmap is null) return false;
-        if (!TryProbeAlpha(image, layerId == PvScene.CharacterLayerId, out var norm)) return false;
+        if (!TryProbeAlpha(image, ReferenceEquals(layer, scene.CharacterLayer), out var norm)) return false;
 
         var state = scene.Frame.TryGetLayer(layerId, out var frameState)
             ? frameState

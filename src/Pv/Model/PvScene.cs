@@ -59,6 +59,25 @@ public sealed class PvScene
 
     public List<PvLayerConfig> Layers { get; set; } = new();
 
+    [JsonIgnore]
+    public PvLayerConfig? CharacterLayer
+    {
+        get
+        {
+            PvLayerConfig? fallback = null;
+            foreach (var layer in Layers)
+            {
+                if (layer is null) continue;
+                if (string.Equals(layer.Id, CharacterLayerId, StringComparison.Ordinal)) return layer;
+                if (fallback is null && layer.Kind == PvLayerKind.VisualAsset
+                    && !string.IsNullOrWhiteSpace(layer.SpoutSenderName))
+                    fallback = layer;
+            }
+
+            return fallback;
+        }
+    }
+
     public static PvScene CreateBlank() => new();
 
     public static PvScene CreateDefault()

@@ -654,14 +654,33 @@ public sealed class PvPipeline : IDisposable
     private void ApplyLayerFrame(double time, PvFrameState frame)
     {
         var layers = _scene.Layers;
+        var character = _scene.CharacterLayer;
         for (var i = 0; i < layers.Count; i++)
         {
             var layer = layers[i];
             var state = BaseLayer(layer, _director, time);
-            if (_director is not null && _director.TryLayerCameraAt(layer.Id, time, out var layerCam))
-                state = ApplyLayerCamera(state, layerCam);
+            bool isCharacter = ReferenceEquals(layer, character);
+            var trackId = isCharacter ? PvScene.CharacterLayerId : layer.Id;
+            if (_director is not null && _director.TryLayerCameraAt(trackId, time, out var layerCam))
+                state = isCharacter ? ApplyCharacterCamera(layer, state, layerCam) : ApplyLayerCamera(state, layerCam);
             frame.SetLayer(layer.Id, state);
         }
+    }
+
+    private PvLayerState ApplyCharacterCamera(PvLayerConfig layer, PvLayerState state, PvCamState cam)
+    {
+        var parallax = layer.Parallax;
+        double follow = Math.Clamp(parallax?.Follow ?? parallax?.Depth ?? 0, 0, 1);
+        double own = 1 - follow;
+        double scaleFactor = Math.Clamp(parallax?.ScaleFactor ?? 0, 0, 2);
+        double rotationFactor = Math.Clamp(parallax?.RotationFactor ?? 0, 0, 2);
+        return state with
+        {
+            OffsetX = state.OffsetX + cam.X * own / Math.Max(1, _scene.Width),
+            OffsetY = state.OffsetY + cam.Y * own / Math.Max(1, _scene.Height),
+            Scale = state.Scale * (1 + (cam.Scale - 1) * scaleFactor * own),
+            Rotation = state.Rotation + cam.Rotation * rotationFactor * own,
+        };
     }
 
     private PvLayerState ApplyLayerCamera(PvLayerState state, PvCamState cam) => state with

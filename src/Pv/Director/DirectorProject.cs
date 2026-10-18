@@ -57,12 +57,9 @@ public sealed class DirectorProject
         Scene ??= PvScene.CreateDefault();
         LayerCameraTracks ??= new Dictionary<string, CameraTrack>(StringComparer.Ordinal);
 
-        var character = Scene.Layers.FirstOrDefault(l => l.Id == PvScene.CharacterLayerId);
+        var character = Scene.CharacterLayer;
         if (character is not null)
-        {
             character.Parallax ??= new PvParallaxConfig();
-            character.Parallax.Follow = 0;
-        }
 
         if (CameraTrack is null || CameraTrack.Shots is not { Count: > 0 }) return;
 
