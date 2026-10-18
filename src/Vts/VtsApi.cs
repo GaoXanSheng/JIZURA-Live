@@ -74,6 +74,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     public string ModelName => _modelName;
     public IReadOnlyList<VtsHotkey> Hotkeys => _hotkeys;
 
+    public IReadOnlyList<string> Expressions => _expressions;
+
     public VtsFraming? Framing => _framing;
 
     public bool TrackingEnabled

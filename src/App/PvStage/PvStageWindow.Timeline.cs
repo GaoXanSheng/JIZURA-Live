@@ -228,7 +228,9 @@ public partial class PvStageWindow
 
     private void Timeline_VtsCueDeleteRequested(VtsCueKind kind, double time)
     {
-        int removed = _project.VtsCues.Cues.RemoveAll(c =>
+        if (_project.VtsCues?.Cues is not { } cues) return;
+
+        int removed = cues.RemoveAll(c =>
             c is not null && c.Kind == kind && Math.Abs(c.Time - time) < 1e-3);
         if (removed == 0) return;
 

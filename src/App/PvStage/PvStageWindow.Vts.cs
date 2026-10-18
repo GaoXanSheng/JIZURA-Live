@@ -172,10 +172,11 @@ public partial class PvStageWindow
     private void AddVtsCue(VtsCueKind kind, string target)
     {
         if (string.IsNullOrWhiteSpace(target) || _project is null) return;
+        _project.VtsCues ??= new VtsCueTrack();
 
         double t = _audio.Time;
         _project.VtsCues.Cues.RemoveAll(c =>
-            c is not null && c.Kind == kind && Math.Abs(c.Time - t) < 1e-3);
+            c is not null && c.Kind == kind && c.Target == target && Math.Abs(c.Time - t) < 1e-3);
         _project.VtsCues.Cues.Add(new VtsCue
         {
             Time = t,
@@ -193,7 +194,7 @@ public partial class PvStageWindow
 
     private void UpdateVtsCues()
     {
-        if (_project is null) return;
+        if (_project?.VtsCues?.Cues is not { } cues) return;
 
         double t = _audio.Time;
         if (!_audio.IsPlaying)
@@ -210,7 +211,7 @@ public partial class PvStageWindow
             return;
         }
 
-        foreach (var cue in _project.VtsCues.Cues)
+        foreach (var cue in cues)
         {
             if (cue is null || cue.Time <= _cueTime || cue.Time > t) continue;
             if (cue.Kind == VtsCueKind.Hotkey)
@@ -275,13 +276,12 @@ public partial class PvStageWindow
 
         var y = new FloatCurve();
         y.TryAdd(0, 0, CurveInterp.Bezier);
-        for (int i = 0; i < anchors.Count; i++)
+        int ySign = 1;
+        foreach (var t in anchors)
         {
-            double t = anchors[i];
             double amp = (0.012 + 0.022 * Math.Clamp(Energy(t), 0, 1)) * scale * Vary();
-            y.TryAdd(t, -amp, CurveInterp.Bezier);
-            double back = t + phrase * 0.5;
-            if (back < duration - 0.02) y.TryAdd(back, 0, CurveInterp.Bezier);
+            y.TryAdd(t, ySign * amp, CurveInterp.Bezier);
+            ySign = -ySign;
         }
         y.TryAdd(duration, 0, CurveInterp.Bezier);
 
