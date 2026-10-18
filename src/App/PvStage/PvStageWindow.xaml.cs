@@ -165,6 +165,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.SegmentTimeEdited += Timeline_SegmentTimeEdited;
         TheTimeline.SegmentDeleteRequested += Timeline_SegmentDeleteRequested;
         TheTimeline.VtsCueDeleteRequested += Timeline_VtsCueDeleteRequested;
+        TheTimeline.VtsCueEdited += Timeline_VtsCueEdited;
         TheTimeline.ValuePrompt = PromptTimelineValueAsync;
         TheTimeline.Fps = _scene.Fps;
 

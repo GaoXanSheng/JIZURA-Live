@@ -15,7 +15,8 @@ public partial class PvStageWindow
     private (double X, double Y, double Size) _vtsSent = (double.NaN, double.NaN, double.NaN);
     private bool _vtsWasReady;
     private double _cueTime;
-    private double _vtsCueDuration = 2.0;
+    private double _vtsHotkeyDuration = 2.0;
+    private double _vtsExpressionDuration = 2.0;
     private VtsCueMode _vtsHotkeyMode = VtsCueMode.Toggle;
     private VtsCueMode _vtsExpressionMode = VtsCueMode.Toggle;
     private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
@@ -116,7 +117,7 @@ public partial class PvStageWindow
 
         AddInspector(ThemeText("动作关键帧", TextSecondaryKey, 12));
         AddInspector(ConstRow("持续", 0.3, 20, 0.1,
-            () => _vtsCueDuration, v => _vtsCueDuration = v));
+            () => _vtsHotkeyDuration, v => _vtsHotkeyDuration = v));
         var hotMode = VtsModeCombo(() => _vtsHotkeyMode, v => _vtsHotkeyMode = v);
         AddInspector(hotMode);
         var hotCombo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
@@ -151,39 +152,80 @@ public partial class PvStageWindow
         };
         AddInspector(hotAdd);
 
-        AddInspector(ThemeText("表情关键帧", TextSecondaryKey, 12));
-        var exprMode = VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v);
-        AddInspector(exprMode);
-        var exprCombo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        var clear = new Wpf.Ui.Controls.Button
+        {
+            Content = "清空移动关键帧",
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        clear.Click += (_, _) => ClearVtsMoves();
+        AddInspector(clear);
+
+        AddInspector(ThemeText(
+            "点每行的 ◆K 在播放头打关键帧；关键帧会出现在时间线自动化轨，可直接拖贝塞尔手柄。开关条可拖动、左右拉伸。",
+            TextTertiaryKey, 11, wrap: true));
+    }
+
+    private void BuildCharacterExpressionSection()
+    {
+        AddSectionTitle("角色表情");
+        AddInspector(ThemeText(
+            "开关：到点开启，区间结束关闭；一次性：只在起点触发。",
+            TextSecondaryKey, 11, wrap: true));
+        AddInspector(ConstRow("持续", 0.3, 20, 0.1,
+            () => _vtsExpressionDuration, v => _vtsExpressionDuration = v));
+        AddInspector(VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v));
+
+        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var file in _vts.Expressions)
-            exprCombo.Items.Add(new ComboBoxItem
+            combo.Items.Add(new ComboBoxItem
             {
                 Content = Path.GetFileNameWithoutExtension(file),
                 Tag = file,
             });
-        if (exprCombo.Items.Count == 0)
-            exprCombo.Items.Add(new ComboBoxItem { Content = "未读取到表情", IsEnabled = false });
-        exprCombo.SelectedIndex = 0;
-        AddInspector(exprCombo);
+        if (combo.Items.Count == 0)
+            combo.Items.Add(new ComboBoxItem { Content = "未读取到表情", IsEnabled = false });
+        combo.SelectedIndex = 0;
+        AddInspector(combo);
 
-        var exprAdd = new Wpf.Ui.Controls.Button
+        var add = new Wpf.Ui.Controls.Button
         {
             Content = "在播放头开启表情",
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
         };
-        exprAdd.Click += (_, _) =>
+        add.Click += (_, _) =>
         {
-            if (exprCombo.SelectedItem is ComboBoxItem { Tag: string file })
+            if (combo.SelectedItem is ComboBoxItem { Tag: string file })
                 AddVtsCue(VtsCueKind.Expression, file, _vtsExpressionMode);
             else TblStatus.Text = "先连上 VTS 读取表情";
         };
-        AddInspector(exprAdd);
-
+        AddInspector(add);
         AddInspector(ThemeText(
-            "点每行的 ◆K 在播放头打关键帧；关键帧会出现在时间线自动化轨，可直接拖贝塞尔手柄。",
+            "时间线上的开关条可拖动位置，拖左右边缘改开始/结束；一次性关键帧只可拖动时间。",
             TextTertiaryKey, 11, wrap: true));
+    }
+
+    private void ClearVtsMoves()
+    {
+        bool removed = _evaluator.RemoveCurve(VtsXAddr);
+        removed |= _evaluator.RemoveCurve(VtsYAddr);
+        removed |= _evaluator.RemoveCurve(VtsSizeAddr);
+        if (!removed)
+        {
+            TblStatus.Text = "角色移动没有关键帧";
+            return;
+        }
+
+        ResetVtsMove();
+        PushUndo();
+        PublishDirector();
+        RefreshTimeline();
+        RefreshParamRows();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = "已清空角色移动关键帧";
     }
 
     private ComboBox VtsModeCombo(Func<VtsCueMode> read, Action<VtsCueMode> write)
@@ -213,7 +255,9 @@ public partial class PvStageWindow
             Kind = kind,
             Mode = mode,
             Target = target,
-            Duration = Math.Max(0.2, _vtsCueDuration),
+            Duration = Math.Max(0.2, kind == VtsCueKind.Hotkey
+                ? _vtsHotkeyDuration
+                : _vtsExpressionDuration),
         });
         _project.VtsCues.Cues.Sort((a, b) => a.Time.CompareTo(b.Time));
 
@@ -293,11 +337,18 @@ public partial class PvStageWindow
         }
 
         double k = Math.Clamp(_vtsAutoIntensity, 0.1, 1.5);
-        double scale = 0.6 + 0.7 * k;
+        double scale = 0.85 + 0.85 * k;
         double beat = map.Bpm > 0 ? 60.0 / map.Bpm : 0.5;
-        double phrase = Math.Max(1.0, beat * 8);
-        var anchors = new List<double>();
-        for (double t = phrase; t < duration - 0.1; t += phrase) anchors.Add(t);
+        double bar = Math.Max(0.8, beat * 4);
+        double phrase = Math.Max(1.6, beat * 8);
+
+        var sectionStarts = new HashSet<double>(
+            map.Sections.Select(s => Math.Round(s.Start, 3)));
+        var xTimes = new SortedSet<double>();
+        for (double t = bar; t < duration - 0.1; t += bar) xTimes.Add(Math.Round(t, 4));
+        foreach (var section in map.Sections)
+            if (section.Start > 0.08 && section.Start < duration - 0.08)
+                xTimes.Add(Math.Round(section.Start, 4));
 
         var rng = new Random(_project.LegacySeed);
         double Vary() => 0.85 + rng.NextDouble() * 0.3;
@@ -305,10 +356,14 @@ public partial class PvStageWindow
         var x = new FloatCurve();
         x.TryAdd(0, 0, CurveInterp.Bezier);
         int sign = 1;
-        foreach (var t in anchors)
+        foreach (var t in xTimes)
         {
-            double amp = (0.08 + 0.12 * Math.Clamp(Energy(t), 0, 1)) * scale * Vary();
-            x.TryAdd(t, sign * amp, CurveInterp.Bezier);
+            double e = Math.Clamp(Energy(t), 0, 1);
+            bool accent = sectionStarts.Contains(Math.Round(t, 3));
+            double amp = (accent ? 0.18 + 0.24 * e : 0.10 + 0.18 * e) * scale * Vary();
+            double v = Math.Clamp(sign * amp, -0.9, 0.9);
+            if (accent) x.TryAdd(t - 0.16, -v * 0.35, CurveInterp.Bezier);
+            x.TryAdd(t, v, CurveInterp.Bezier);
             sign = -sign;
         }
         x.TryAdd(duration, 0, CurveInterp.Bezier);
@@ -316,9 +371,9 @@ public partial class PvStageWindow
         var y = new FloatCurve();
         y.TryAdd(0, 0, CurveInterp.Bezier);
         int ySign = 1;
-        foreach (var t in anchors)
+        for (double t = phrase; t < duration - 0.1; t += phrase)
         {
-            double amp = (0.012 + 0.022 * Math.Clamp(Energy(t), 0, 1)) * scale * Vary();
+            double amp = (0.025 + 0.045 * Math.Clamp(Energy(t), 0, 1)) * scale * Vary();
             y.TryAdd(t, ySign * amp, CurveInterp.Bezier);
             ySign = -ySign;
         }
@@ -329,9 +384,12 @@ public partial class PvStageWindow
         foreach (var section in map.Sections)
         {
             if (section.Start <= 0.08 || section.Start >= duration - 0.08) continue;
-            double v = Math.Clamp((section.Energy - 0.5) * 30, -12, 22) * scale;
-            if (Math.Abs(v) < 0.6) continue;
-            size.TryAdd(section.Start, v, CurveInterp.Bezier);
+            double e = Math.Clamp(section.Energy, 0, 1);
+            double baseV = Math.Clamp(Math.Clamp((e - 0.5) * 55, -25, 40) * scale, -60, 60);
+            double punch = Math.Clamp((e > 0.62 ? 10 : 4) * scale, 0, 18);
+            size.TryAdd(section.Start - 0.15, baseV, CurveInterp.Bezier);
+            size.TryAdd(section.Start, Math.Clamp(baseV + punch, -70, 75), CurveInterp.Bezier);
+            size.TryAdd(section.Start + 0.35, baseV, CurveInterp.Bezier);
         }
         size.TryAdd(duration, 0, CurveInterp.Bezier);
 

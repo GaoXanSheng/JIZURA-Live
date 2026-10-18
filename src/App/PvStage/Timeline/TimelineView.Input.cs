@@ -124,6 +124,9 @@ public sealed partial class TimelineView
             case DragMode.Design:
                 MoveDesignSegment(p);
                 break;
+            case DragMode.VtsCue:
+                MoveVtsCue(p.X - HeaderWidth);
+                break;
         }
     }
 
@@ -155,6 +158,10 @@ public sealed partial class TimelineView
             _drag = DragMode.None;
             CommitDesignGesture();
         }
+        else if (_drag == DragMode.VtsCue)
+        {
+            CommitVtsCueDrag();
+        }
         else _drag = DragMode.None;
 
         if (IsMouseCaptured) ReleaseMouseCapture();
@@ -165,6 +172,14 @@ public sealed partial class TimelineView
     {
         base.OnLostMouseCapture(e);
         if (_drag == DragMode.None) return;
+        if (_drag == DragMode.VtsCue)
+        {
+            RestoreVtsCueDrag();
+            _drag = DragMode.None;
+            InvalidateVisual();
+            return;
+        }
+
         if (_drag == DragMode.Design && _dragSegment is { } seg)
         {
             seg.Start = _segOriginStart;
@@ -396,9 +411,29 @@ public sealed partial class TimelineView
             return;
         }
 
-        if (RowAt(p.Y) is { Kind: RowKind.VtsCue })
+        if (RowAt(p.Y) is { Kind: RowKind.VtsCue } cueRow)
         {
-            Cursor = Cursors.Hand;
+            var track = _snap!.VtsCueTracks[cueRow.Index];
+            double x = p.X - HeaderWidth;
+            var cue = CueAt(track, x);
+            if (cue is null)
+            {
+                Cursor = Cursors.Arrow;
+                return;
+            }
+
+            if (cue.Mode == VtsCueMode.Once)
+            {
+                Cursor = Cursors.SizeAll;
+                return;
+            }
+
+            double duration = cue.Duration > 0.01 ? cue.Duration : 2.0;
+            double sx = TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
+            double ex = TimelineMath.TimeToX(cue.Time + duration, _viewStart, _pixelsPerSecond);
+            Cursor = Math.Abs(x - sx) <= 6 || Math.Abs(x - ex) <= 6
+                ? Cursors.SizeWE
+                : Cursors.SizeAll;
             return;
         }
 
@@ -455,8 +490,102 @@ public sealed partial class TimelineView
         if (_snap is null || row.Index < 0 || row.Index >= _snap.VtsCueTracks.Count) return;
         var track = _snap.VtsCueTracks[row.Index];
         var hit = CueAt(track, x);
-        if (hit is not null) x = TimelineMath.TimeToX(hit.Time, _viewStart, _pixelsPerSecond);
-        StartScrub(x);
+        if (hit is null)
+        {
+            StartScrub(x);
+            return;
+        }
+
+        _dragCue = hit;
+        _dragCueKind = track.Kind;
+        _dragCueTarget = hit.Target;
+        _dragCueStart = hit.Time;
+        _dragCueDuration = hit.Duration > 0.01 ? hit.Duration : 2.0;
+        _dragCueAnchor = TimeAt(x);
+
+        double startPx = TimelineMath.TimeToX(hit.Time, _viewStart, _pixelsPerSecond);
+        double endPx = TimelineMath.TimeToX(hit.Time + _dragCueDuration, _viewStart, _pixelsPerSecond);
+        const double edge = 6;
+        _dragCueResizeStart = hit.Mode == VtsCueMode.Toggle && Math.Abs(x - startPx) <= edge;
+        _dragCueResizeEnd = hit.Mode == VtsCueMode.Toggle && !_dragCueResizeStart
+                            && Math.Abs(x - endPx) <= edge;
+
+        _drag = DragMode.VtsCue;
+        CaptureMouse();
+        InvalidateVisual();
+    }
+
+    private void MoveVtsCue(double x)
+    {
+        if (_snap is null || _dragCue is null) return;
+
+        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        double grid = TimelineMath.GridStep(_pixelsPerSecond, Fps);
+        double duration = Math.Max(0, _snap.DurationSeconds);
+        double minDur = Math.Max(0.1, grid);
+        double delta = TimeAt(x) - _dragCueAnchor;
+
+        if (_dragCue.Mode == VtsCueMode.Once)
+        {
+            double t = Math.Clamp(_dragCueStart + delta, 0, Math.Max(0, duration - 0.05));
+            if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, Math.Max(0, duration - 0.05));
+            _dragCue.Time = t;
+            _dragTip = $"{t:F2}s";
+        }
+        else if (_dragCueResizeStart)
+        {
+            double t = Math.Clamp(_dragCueStart + delta, 0, _dragCueStart + _dragCueDuration - minDur);
+            if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, _dragCueStart + _dragCueDuration - minDur);
+            _dragCue.Time = t;
+            _dragCue.Duration = _dragCueStart + _dragCueDuration - t;
+            _dragTip = $"{t:F2}s – {t + _dragCue.Duration:F2}s";
+        }
+        else if (_dragCueResizeEnd)
+        {
+            double end = Math.Clamp(_dragCueStart + _dragCueDuration + delta, _dragCueStart + minDur, duration);
+            if (snap) end = Math.Clamp(TimelineMath.Snap(end, grid, true), _dragCueStart + minDur, duration);
+            _dragCue.Duration = end - _dragCueStart;
+            _dragTip = $"{_dragCueStart:F2}s – {end:F2}s";
+        }
+        else
+        {
+            double t = Math.Clamp(_dragCueStart + delta, 0, Math.Max(0, duration - _dragCueDuration));
+            if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, Math.Max(0, duration - _dragCueDuration));
+            _dragCue.Time = t;
+            _dragTip = $"{t:F2}s – {t + _dragCueDuration:F2}s";
+        }
+
+        InvalidateVisual();
+    }
+
+    private void CommitVtsCueDrag()
+    {
+        var cue = _dragCue;
+        _dragCue = null;
+        _drag = DragMode.None;
+        _dragTip = null;
+
+        if (cue is null) return;
+        if (Math.Abs(cue.Time - _dragCueStart) < 1e-3 && Math.Abs(cue.Duration - _dragCueDuration) < 1e-3)
+        {
+            RaiseSeek(cue.Time);
+            InvalidateVisual();
+            return;
+        }
+
+        VtsCueEdited?.Invoke(_dragCueKind, _dragCueTarget, _dragCueStart, cue.Time, cue.Duration);
+        InvalidateVisual();
+    }
+
+    private void RestoreVtsCueDrag()
+    {
+        if (_dragCue is not null)
+        {
+            _dragCue.Time = _dragCueStart;
+            _dragCue.Duration = _dragCueDuration;
+        }
+        _dragCue = null;
+        _dragTip = null;
     }
 
     private bool TryOpenVtsCueMenu(Point p)

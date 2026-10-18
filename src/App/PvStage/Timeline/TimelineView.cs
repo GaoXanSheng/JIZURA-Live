@@ -43,6 +43,7 @@ public sealed partial class TimelineView : Control
         VPan,
         Clip,
         Design,
+        VtsCue,
     }
 
     internal readonly record struct SelSegment(int Track, string RefId);
@@ -130,6 +131,8 @@ public sealed partial class TimelineView : Control
     public event Action<TDesignSegment>? SegmentDeleteRequested;
 
     public event Action<VtsCueKind, double>? VtsCueDeleteRequested;
+
+    public event Action<VtsCueKind, string, double, double, double>? VtsCueEdited;
 
     public Func<double, Task<double?>>? ValuePrompt { get; set; }
 
@@ -240,6 +243,15 @@ public sealed partial class TimelineView : Control
 
         return rows;
     }
+
+    private TVtsCue? _dragCue;
+    private VtsCueKind _dragCueKind;
+    private string _dragCueTarget = "";
+    private double _dragCueStart;
+    private double _dragCueDuration;
+    private double _dragCueAnchor;
+    private bool _dragCueResizeStart;
+    private bool _dragCueResizeEnd;
 
     private double _scrollOffset;
     private double _trackViewHeight;

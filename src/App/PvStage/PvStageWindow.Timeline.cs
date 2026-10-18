@@ -242,6 +242,25 @@ public partial class PvStageWindow
         TblStatus.Text = "已删除 VTS 关键帧";
     }
 
+    private void Timeline_VtsCueEdited(VtsCueKind kind, string target,
+        double oldStart, double newStart, double newDuration)
+    {
+        if (_project.VtsCues?.Cues is not { } cues) return;
+
+        var cue = cues.FirstOrDefault(c =>
+            c is not null && c.Kind == kind && c.Target == target && Math.Abs(c.Time - oldStart) < 1e-3);
+        if (cue is null) return;
+
+        cue.Time = newStart;
+        cue.Duration = newDuration;
+        cues.Sort((a, b) => a.Time.CompareTo(b.Time));
+
+        PushUndo();
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = "已调整 VTS 关键帧时间";
+    }
+
     private void Timeline_SeekRequested(double seconds)
     {
         _audio.Seek(seconds);

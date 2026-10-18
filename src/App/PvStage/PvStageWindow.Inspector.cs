@@ -353,6 +353,7 @@ public partial class PvStageWindow
                 TextSecondaryKey, 11, wrap: true));
 
         BuildCharacterMoveSection();
+        BuildCharacterExpressionSection();
     }
 
     private void CopyGlobalCameraToLayer(PvLayerConfig layer)
