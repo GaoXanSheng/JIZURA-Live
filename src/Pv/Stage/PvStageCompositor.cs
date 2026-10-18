@@ -64,7 +64,7 @@ public sealed class PvStageCompositor
 
     public PvStageCompositor(Immediate2D draw) => _draw = draw;
 
-    public static readonly string[] FixedZones = { "lyrics_pv", "subtitle_top" };
+    public static readonly string[] FixedZones = { "subtitle_top" };
 
     public void Composite(PvScene scene, PvCamState cam,
         IReadOnlyDictionary<string, PvLayerImage> images, int width, int height)

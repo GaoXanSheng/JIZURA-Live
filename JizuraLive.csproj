@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
         <OutputType>WinExe</OutputType>
@@ -28,6 +28,7 @@
         <PackageReference Include="NAudio.Vorbis" Version="3.0.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
         <PackageReference Include="QRCoder" Version="1.8.0" />
+        <PackageReference Include="SkiaSharp" Version="4.153.1" />
         <PackageReference Include="VirtualizingWrapPanel" Version="2.5.4" />
         <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
         <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
@@ -68,6 +69,8 @@
       <ApplicationDefinition Include="src\App\App.xaml" />
       <EmbeddedResource Include="src\App\I18n\Locales\**\*.json" />
       <Compile Remove="tests\**" />
+      <Compile Remove="src\LegacyEngine\GpuRasterHost.cs" />
+      <Compile Remove="src\LegacyEngine\AngleEgl.cs" />
       <None Remove="tests\**" />
       <Content Remove="tests\**" />
       <Compile Remove="tools\**" />

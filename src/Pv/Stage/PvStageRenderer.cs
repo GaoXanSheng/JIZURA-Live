@@ -18,6 +18,8 @@ public sealed class PvStageRenderer : IDisposable
     private readonly D3DDevice _gpu;
     private readonly D2DHost _d2d;
     private readonly GpuEffectRunner _fx;
+    private readonly PvStageCompositor _compositor;
+    private readonly List<GpuTexturePool.Entry> _returns = new();
     private OffscreenTarget? _stageTarget;
     private ID3D11ShaderResourceView? _stageSrv;
 
@@ -39,12 +41,14 @@ public sealed class PvStageRenderer : IDisposable
 
     private double _frameTime;
 
-    public TypographyLayerProvider? Lyric { get; }
     public PvStage Stage { get; }
 
     public TransitionTrack Transitions { get; } = new();
 
-    public void SetDesignSegments(IEnumerable<DesignSegment>? segments) => Transitions.LoadFrom(segments);
+    public void SetDesignSegments(IEnumerable<DesignSegment>? segments)
+    {
+        Transitions.LoadFrom(segments);
+    }
 
     private volatile EffectGraph _effects;
 
@@ -72,22 +76,17 @@ public sealed class PvStageRenderer : IDisposable
         _gpu = gpu;
         _d2d = d2d;
         _fx = new GpuEffectRunner(gpu);
+        _compositor = new PvStageCompositor(d2d.Draw);
         _effects = effects;
         _frameEffects = effects;
         Stage = new PvStage(scene);
         _designW = Math.Max(16, designWidth);
         _designH = Math.Max(16, designHeight);
         _transitionRunner = new TransitionRunner(d2d.Draw, _fx.Pool, _designW, _designH);
-        LyricMotion.Transitions = Transitions;
-
-        Lyric = new TypographyLayerProvider("lyrics_pv", gpu, d2d, _designW, _designH);
-        Stage.Register(Lyric);
     }
 
     public int DesignWidth => _designW;
     public int DesignHeight => _designH;
-
-    public void SetLyrics(IReadOnlyList<KrcLine>? lines) => Lyric?.SetLyrics(lines);
 
     public void SetBroadcast(SpoutOut? outlet) => _broadcast = outlet;
 
@@ -96,11 +95,7 @@ public sealed class PvStageRenderer : IDisposable
         _effects = effects;
         _frameEffects = effects;
         _frameTime = time;
-        if (Lyric is null) return;
-        Lyric.MotionSeed = Stage.Scene.LyricMotionSeed;
-        var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-        Lyric.Render(time);
-        LastTiming = (Elapsed(t0), LastTiming.Fx, LastTiming.Composite);
+        LastTiming = (0, LastTiming.Fx, LastTiming.Composite);
     }
 
     public SharedTarget OpenSharedTarget(IntPtr shareHandle, int width, int height)
@@ -156,8 +151,9 @@ public sealed class PvStageRenderer : IDisposable
 
         Stage.PumpImages(frame);
         var images = Stage.LastImages;
-        var compositor = new PvStageCompositor(d);
-        var returns = new List<GpuTexturePool.Entry>();
+        var compositor = _compositor;
+        var returns = _returns;
+        returns.Clear();
         var full = new Rect(0, 0, _designW, _designH);
 
         var transSeg = Transitions.At(_frameTime);
@@ -226,6 +222,7 @@ public sealed class PvStageRenderer : IDisposable
         }
 
         foreach (var entry in returns) _fx.Pool.Return(entry);
+        returns.Clear();
         var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         GpuTexturePool.Entry? fxOut = null;
@@ -454,7 +451,6 @@ public sealed class PvStageRenderer : IDisposable
     {
         _broadcast = null;
         Overlay = null;
-        if (ReferenceEquals(LyricMotion.Transitions, Transitions)) LyricMotion.Transitions = null;
         _transitionRunner.Dispose();
         ClearFxBitmapCache();
         foreach (var target in _layerTargets.Values) target.Dispose();

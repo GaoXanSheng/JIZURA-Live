@@ -39,6 +39,5 @@ wwwroot/dist/
 frontend/public/perf-fixtures/
 
 .agents/
-tools/real-song.txt
 .wt/
-tools/probe-out.mp4
+DOC/

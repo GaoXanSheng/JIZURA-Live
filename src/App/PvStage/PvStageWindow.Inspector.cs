@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using JizuraLive.LegacyEngine;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
 
@@ -131,8 +132,50 @@ public partial class PvStageWindow
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
         InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
             () => layer.VisualBlend.RimGlow, v => layer.VisualBlend.RimGlow = v));
+        InspectorHost.Children.Add(ConstRow("阴影", 0, 1, 0.02,
+            () => layer.VisualBlend.DropShadow, v => layer.VisualBlend.DropShadow = v));
+
+        if (!string.IsNullOrWhiteSpace(layer.SpoutSenderName))
+            InspectorHost.Children.Add(BoolRow("预乘 Alpha", layer.Premultiplied, v =>
+            {
+                layer.Premultiplied = v;
+                RebuildStage();
+            }));
 
         if (layer.Decor is { } decor) BuildDecorSection(decor);
+    }
+
+    private FrameworkElement BoolRow(string label, bool value, Action<bool> write)
+    {
+        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var lab = ThemeText(label, TextSecondaryKey, 12);
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+
+        var toggle = new Wpf.Ui.Controls.ToggleSwitch
+        {
+            IsChecked = value,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        toggle.Checked += (_, _) => write(true);
+        toggle.Unchecked += (_, _) => write(false);
+        Grid.SetColumn(toggle, 1);
+        row.Children.Add(toggle);
+        return row;
+    }
+
+    private void RebuildStage()
+    {
+        if (_pipe is not null)
+        {
+            _rebuildPipeKeepTransport = true;
+            _rebuildPipe = true;
+        }
+
+        _saveError = SaveProjectNow();
     }
 
     private void BuildDecorSection(DecorConfig decor)
@@ -248,7 +291,7 @@ public partial class PvStageWindow
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
 
         var lab = ThemeText(label, TextSecondaryKey, 12);
         lab.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -327,11 +370,11 @@ public partial class PvStageWindow
         owner.Add(state);
 
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var lab = ThemeText(label, TextSecondaryKey, 12);
@@ -526,7 +569,9 @@ public partial class PvStageWindow
     {
         if (target.Effect is { } node) return _effects.Nodes.Contains(node);
         if (target.Shot is { } shot) return _project.CameraTrack?.Shots.Contains(shot) == true;
-        if (target.Span is { } span) return _project.LyricStyles.Contains(span);
+        if (target.Design is { } design) return _project.DesignSegments.Contains(design);
+        if (target.LegacyCutIndex >= 0)
+            return _legacyPlanInfo is { } plan && target.LegacyCutIndex < plan.Cuts.Count;
         return false;
     }
 
@@ -572,13 +617,30 @@ public partial class PvStageWindow
                 title = "运镜 · " + shot.Preset;
                 showFades = false;
                 break;
-            case { Span: { } span }:
-                technique = span.Style;
-                times = [span.Start, span.End, 0, 0];
-                source = span.Source;
-                locked = span.Locked;
+            case { Design: { } design }:
+                technique = design.Technique;
+                times = [design.Start, design.End, design.FadeIn, design.FadeOut];
+                source = design.Source;
+                locked = design.Locked;
+                segParams = new Dictionary<string, double>(design.Params, StringComparer.Ordinal);
+                title = DesignTrackNames.Label(design.Track) + " · " + technique;
+                showFades = design.Track == DesignTrackKind.Fx;
+                break;
+            case { LegacyCutIndex: >= 0 } legacyTarget:
+                var cut = _legacyPlanInfo!.Cuts[legacyTarget.LegacyCutIndex];
+                technique = legacyTarget.LegacyKind switch
+                {
+                    DesignTrackKind.Layout => cut.Layout,
+                    DesignTrackKind.Enter => cut.Enter,
+                    DesignTrackKind.Exit => cut.Exit,
+                    DesignTrackKind.Treat => cut.Treat,
+                    _ => "",
+                };
+                times = [cut.Start, cut.End, 0, 0];
+                source = "auto";
+                locked = false;
                 segParams = new Dictionary<string, double>(StringComparer.Ordinal);
-                title = "文字处理 · " + span.Style;
+                title = DesignTrackNames.Label(legacyTarget.LegacyKind) + " · " + technique;
                 showFades = false;
                 break;
             default:
@@ -586,17 +648,27 @@ public partial class PvStageWindow
         }
 
         InspectorHost.Children.Add(SectionTitle(title));
-        InspectorHost.Children.Add(InfoRow("手法", technique));
+        InspectorHost.Children.Add(TechniqueRow(target, technique));
         InspectorHost.Children.Add(InfoRow("来源", string.Equals(source, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "auto"));
 
-        InspectorHost.Children.Add(SegmentTimeRow("开始", () => times[0], v => times[0] = v));
-        InspectorHost.Children.Add(SegmentTimeRow("结束", () => times[1], v => times[1] = v));
-        if (showFades)
+        bool editable = target.LegacyCutIndex < 0;
+        if (editable)
         {
-            InspectorHost.Children.Add(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
-            InspectorHost.Children.Add(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
+            InspectorHost.Children.Add(SegmentTimeRow("开始", () => times[0], v => times[0] = v));
+            InspectorHost.Children.Add(SegmentTimeRow("结束", () => times[1], v => times[1] = v));
+            if (showFades)
+            {
+                InspectorHost.Children.Add(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
+                InspectorHost.Children.Add(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
+            }
+
+            InspectorHost.Children.Add(SegmentApplyRow(times, showFades));
         }
-        InspectorHost.Children.Add(SegmentApplyRow(times, showFades));
+        else
+        {
+            InspectorHost.Children.Add(InfoRow("开始", Fmt(times[0])));
+            InspectorHost.Children.Add(InfoRow("结束", Fmt(times[1])));
+        }
 
         if (segParams.Count > 0)
         {
@@ -605,16 +677,133 @@ public partial class PvStageWindow
                 InspectorHost.Children.Add(SegmentParamRow(key, value));
         }
 
-        var lockRow = new Grid { Margin = new Thickness(0, 6, 0, 2) };
-        lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var lockLab = ThemeText("锁定（防自动清理）", TextSecondaryKey, 12);
-        Grid.SetColumn(lockLab, 0);
-        lockRow.Children.Add(lockLab);
-        var lockToggle = new Wpf.Ui.Controls.ToggleSwitch { IsChecked = locked };
-        lockToggle.Checked += (_, _) => WriteSegmentLocked(true);
-        lockToggle.Unchecked += (_, _) => WriteSegmentLocked(false);
-        lockRow.Children.Add(lockToggle);
-        InspectorHost.Children.Add(lockRow);
+        if (editable)
+        {
+            var lockRow = new Grid { Margin = new Thickness(0, 6, 0, 2) };
+            lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var lockLab = ThemeText("锁定（防自动清理）", TextSecondaryKey, 12);
+            Grid.SetColumn(lockLab, 0);
+            lockRow.Children.Add(lockLab);
+            var lockToggle = new Wpf.Ui.Controls.ToggleSwitch { IsChecked = locked };
+            lockToggle.Checked += (_, _) => WriteSegmentLocked(true);
+            lockToggle.Unchecked += (_, _) => WriteSegmentLocked(false);
+            lockRow.Children.Add(lockToggle);
+            InspectorHost.Children.Add(lockRow);
+        }
+    }
+
+    private FrameworkElement TechniqueRow(SegmentTarget target, string current)
+    {
+        IEnumerable<string>? options = target switch
+        {
+            { Shot: not null } => CameraDirection.Presets.Select(p => p.Key),
+            { Effect: not null } => EffectCatalog.All.Select(d => d.Id),
+            { Design: { Track: DesignTrackKind.Trans } } => TransitionCatalog.Ids,
+            { LegacyCutIndex: >= 0 } => LegacyTechniques(target.LegacyKind),
+            _ => null,
+        };
+
+        if (options is null) return InfoRow("手法", current);
+
+        var items = options.ToList();
+        if (!items.Contains(current, StringComparer.Ordinal)) items.Insert(0, current);
+
+        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 2, 0, 2) };
+        foreach (var option in items) combo.Items.Add(option);
+        combo.SelectedItem = current;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is not string value || string.Equals(value, current, StringComparison.Ordinal)) return;
+            current = value;
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ApplyTechnique(target, value);
+                BuildInspector();
+            }));
+        };
+
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var label = ThemeText("手法", TextSecondaryKey, 12);
+        Grid.SetColumn(label, 0);
+        row.Children.Add(label);
+        Grid.SetColumn(combo, 1);
+        row.Children.Add(combo);
+        return row;
+    }
+
+    private void ApplyTechnique(SegmentTarget target, string value)
+    {
+        switch (target)
+        {
+            case { Shot: { } shot }:
+                shot.Preset = value;
+                shot.Source = "user";
+                break;
+            case { Effect: { } node }:
+                ReplaceEffectNode(node, value);
+                break;
+            case { Design: { } design }:
+                design.Technique = value;
+                design.Source = "user";
+                break;
+            case { LegacyCutIndex: >= 0 } legacy:
+                var cut = _legacyPlanInfo!.Cuts[legacy.LegacyCutIndex];
+                switch (legacy.LegacyKind)
+                {
+                    case DesignTrackKind.Layout:
+                        cut.Layout = value;
+                        break;
+                    case DesignTrackKind.Enter:
+                        cut.Enter = value;
+                        break;
+                    case DesignTrackKind.Exit:
+                        cut.Exit = value;
+                        break;
+                    case DesignTrackKind.Treat:
+                        cut.Treat = value;
+                        break;
+                }
+
+                _pipe?.ApplyLegacyCutOverrides(_legacyPlanInfo);
+                break;
+        }
+
+        AfterSegmentEdit();
+    }
+
+    private static IEnumerable<string> LegacyTechniques(DesignTrackKind kind)
+    {
+        return kind switch
+        {
+            DesignTrackKind.Layout => Reg.Layouts.Keys,
+            DesignTrackKind.Enter => Reg.Enter.Keys,
+            DesignTrackKind.Exit => Reg.Exit.Keys,
+            DesignTrackKind.Treat => new[] { "none" }.Concat(Reg.Treat.Keys),
+            _ => Array.Empty<string>(),
+        };
+    }
+
+    private void ReplaceEffectNode(EffectNode oldNode, string defId)
+    {
+        int index = _effects.Nodes.IndexOf(oldNode);
+        if (index < 0) return;
+
+        var node = new EffectNode
+        {
+            DefId = defId,
+            InstanceId = oldNode.InstanceId,
+            Target = oldNode.Target,
+            Source = "user",
+            Locked = oldNode.Locked,
+            Enabled = oldNode.Enabled,
+        };
+
+        foreach (var window in oldNode.Windows) node.Windows.Add(window);
+        _effects.Nodes[index] = node;
+        _segmentTarget = SegmentTarget.Of(node);
+        EffectsChanged();
     }
 
     private FrameworkElement SegmentTimeRow(string label, Func<double> read, Action<double> capture)
@@ -662,13 +851,28 @@ public partial class PvStageWindow
             min = p.Min;
             max = p.Max;
         }
+        else if (_segmentTarget?.Shot is not null)
+        {
+            if (string.Equals(key, "gain", StringComparison.Ordinal))
+            {
+                min = 0;
+                max = Math.Max(2, Math.Abs(value) * 2);
+            }
+            else
+            {
+                double mag = Math.Max(Math.Abs(value), 0.005);
+                min = -mag * 4;
+                max = mag * 4;
+            }
+        }
 
         var addr = new ParamAddress(
             _segmentTarget?.Effect is { } fx ? ParamAddressKind.Effect : ParamAddressKind.Layer,
             _segmentTarget?.Effect?.InstanceId ?? "segment", key);
-        return AnimParamRow(_inspectorRows, addr, key, min, max, Math.Max(0.001, (max - min) / 100),
+        return AnimParamRow(_inspectorRows, addr, ParamDisplayName(key), min, max, Math.Max(0.0001, (max - min) / 100),
             () => _segmentTarget?.Effect is { } eff && eff.Values.TryGetValue(key, out var v) ? v
-                : _segmentTarget?.Shot is { } s && s.Params.TryGetValue(key, out var sv) ? sv : value,
+                : _segmentTarget?.Shot is { } s && s.Params.TryGetValue(key, out var sv) ? sv
+                : _segmentTarget?.Design is { } d && d.Params.TryGetValue(key, out var dv) ? dv : value,
             v => WriteSegmentParam(key, v));
     }
 
@@ -717,6 +921,30 @@ public partial class PvStageWindow
         "scale" => "缩放",
         "rotation" => "旋转",
         "opacity" => "不透明",
+        "gain" => "强度",
+        "a" => "幅度",
+        "dir" => "方向",
+        "sp" => "速度",
+        "per" => "周期",
+        "d" => "时长",
+        "b" => "模糊",
+        "at" => "触发点",
+        "f" => "频率",
+        "jerk" => "抖动",
+        "z" => "缩放",
+        "r" => "旋转",
+        "s0" => "种子",
+        "vert" => "垂直",
+        "dx" => "X 幅度",
+        "dy" => "Y 幅度",
+        "a0" => "相位",
+        "side" => "方向",
+        "amp" => "幅度",
+        "amount" => "强度",
+        "shotScale" => "景别",
+        "shotX" => "构图X",
+        "shotY" => "构图Y",
+        "shotRot" => "倾斜",
         _ => param,
     };
 

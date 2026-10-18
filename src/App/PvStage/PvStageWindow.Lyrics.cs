@@ -9,13 +9,12 @@ public partial class PvStageWindow
 {
     private void PublishLyricClips(IReadOnlyList<LyricClip> clips)
     {
-        _lyricClips = [.. LyricStyleSpans.Apply(clips, _project.LyricStyles)];
-        _pipe?.Renderer.Lyric?.SetClips(_lyricClips);
+        _lyricClips = [.. clips];
     }
 
-    private static readonly string[] LyricStyleNames = [.. LyricStyle.PresetNames, .. LyricStyle.PackNames];
+    private static readonly string[] LyricStyleNames = [.. LyricStyle.PackNames];
     private static readonly string[] LyricStyleLabels =
-        [.. LyricStyle.PresetNames.Select(LyricStyleDisplayName), .. LyricStyle.PackNames.Select(LyricStyleDisplayName)];
+        [.. LyricStyle.PackNames.Select(LyricStyleDisplayName)];
 
     private static string LyricStyleDisplayName(string presetName) => presetName switch
     {

@@ -36,6 +36,7 @@ public sealed class SubtitleProvider : IPvLayerProvider, IDisposable
 
     private long _sourceVersion = -1;
     private SubtitleConfig? _seenConfig;
+    private IReadOnlyList<LyricClip> _clips = Array.Empty<LyricClip>();
 
     public string Id { get; }
     public long Version => _version;
@@ -71,13 +72,13 @@ public sealed class SubtitleProvider : IPvLayerProvider, IDisposable
         {
             _sourceVersion = _source.Version;
             _seenConfig = Clone(cfg);
+            _clips = LrcParser.ToClips(_source.Lines ?? Array.Empty<KrcLine>());
             _version++;
         }
 
         var font = _draw.Fonts.Get(FontFamily, SubtitleLayout.FontSizeOf(cfg, height),
             weight: FontWeight.Bold);
-        var clips = LrcParser.ToClips(_source.Lines ?? Array.Empty<KrcLine>());
-        var plan = SubtitleLayout.Plan(cfg, clips, time, width, height,
+        var plan = SubtitleLayout.Plan(cfg, _clips, time, width, height,
             font.Ascent, font.LineHeight);
 
         _draw.SetTarget(_target!.Bitmap, width, height);

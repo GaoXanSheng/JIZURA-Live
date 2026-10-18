@@ -129,19 +129,6 @@ public static class DesignTracks
         return seg;
     }
 
-    public static DesignSegment FromLyricStyleSpan(LyricStyleSpan span)
-    {
-        return new DesignSegment
-        {
-            Track = DesignTrackKind.Treat,
-            Start = span.Start,
-            End = span.End,
-            Technique = span.Style,
-            Source = span.Source,
-            Locked = span.Locked,
-        };
-    }
-
     public static DesignSegment FromTransition(string technique, double start, double duration,
         IReadOnlyDictionary<string, double>? pars = null, int seed = 0,
         IReadOnlyDictionary<string, string>? colors = null)
@@ -170,34 +157,56 @@ public static class DesignTracks
 
 public sealed class TransitionTrack
 {
-    public List<DesignSegment> Segments { get; } = new();
+    private readonly object _gate = new();
+    private List<DesignSegment> _segments = new();
+
+    public IReadOnlyList<DesignSegment> Segments
+    {
+        get
+        {
+            lock (_gate) return _segments.ToArray();
+        }
+    }
 
     public void Add(string technique, double start, double duration,
         IReadOnlyDictionary<string, double>? pars = null, int seed = 0,
         IReadOnlyDictionary<string, string>? colors = null)
     {
         if (string.IsNullOrWhiteSpace(technique) || !double.IsFinite(start) || !(duration > 0)) return;
-        Segments.Add(DesignTracks.FromTransition(technique, start, duration, pars, seed, colors));
+        var seg = DesignTracks.FromTransition(technique, start, duration, pars, seed, colors);
+        lock (_gate) _segments.Add(seg);
     }
 
-    public void Clear() => Segments.Clear();
+    public void Clear()
+    {
+        lock (_gate) _segments.Clear();
+    }
 
     public void LoadFrom(IEnumerable<DesignSegment>? segments)
     {
-        Segments.Clear();
-        if (segments is null) return;
-        foreach (var seg in segments)
+        var next = new List<DesignSegment>();
+        if (segments is not null)
         {
-            if (seg is null || seg.Track != DesignTrackKind.Trans) continue;
-            Add(seg.Technique, seg.Start, seg.End - seg.Start, seg.Params, seg.Seed, seg.Colors);
+            foreach (var seg in segments)
+            {
+                if (seg is null || seg.Track != DesignTrackKind.Trans) continue;
+                if (string.IsNullOrWhiteSpace(seg.Technique) || !(seg.End - seg.Start > 0)) continue;
+                next.Add(seg);
+            }
         }
+
+        lock (_gate) _segments = next;
     }
 
     public DesignSegment? At(double time)
     {
         if (!double.IsFinite(time)) return null;
-        foreach (var seg in Segments)
-            if (time >= seg.Start && time < seg.End) return seg;
+        lock (_gate)
+        {
+            foreach (var seg in _segments)
+                if (time >= seg.Start && time < seg.End) return seg;
+        }
+
         return null;
     }
 

@@ -12,7 +12,7 @@ public sealed class SwapChainTarget : IDisposable
     public int Width { get; private set; }
     public int Height { get; private set; }
 
-    public bool VSync { get; }
+    public bool VSync { get; set; }
 
     public bool AllowTearing { get; }
 

@@ -14,8 +14,18 @@ public sealed class DirectorProject
 
     public string Name { get; set; } = "Untitled PV";
 
+    public bool LegacyStageCamera { get; set; } = true;
+
+    public bool LegacyStageTransitions { get; set; } = true;
+
+    public string LegacyStyle { get; set; } = "noir";
+
+    public int LegacySeed { get; set; } = 20260922;
+
+    public double LegacyRenderScale { get; set; } = 0.6667;
+
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
-    public PvScene Scene { get; set; } = PvScene.CreateBlank();
+    public PvScene Scene { get; set; } = PvScene.CreateDefault();
 
     [JsonConverter(typeof(EffectGraphJsonConverter))]
     public EffectGraph Effects { get; set; } = new();
@@ -30,8 +40,6 @@ public sealed class DirectorProject
     public CameraTrack CameraTrack { get; set; } = new();
 
     public VtsCueTrack VtsCues { get; set; } = new();
-
-    public List<LyricStyleSpan> LyricStyles { get; set; } = new();
 
     public List<DesignSegment> DesignSegments { get; set; } = new();
 

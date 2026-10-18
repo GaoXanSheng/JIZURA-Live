@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using JizuraLive.Logging;
 
 namespace JizuraLive.Render.Gpu;
@@ -8,15 +10,42 @@ public sealed class PresentHost : HwndHost
 {
     private const int WsChild = 0x40000000;
     private const int WsVisible = 0x10000000;
+    private const int SwpNoMove = 0x0002;
+    private const int SwpNoZOrder = 0x0004;
+    private const int SwpNoActivate = 0x0010;
 
     private IntPtr _hwnd = IntPtr.Zero;
     private Thread? _thread;
     private volatile bool _running;
+    private readonly DispatcherTimer _sizeTimer;
+
+    public PresentHost()
+    {
+        SizeChanged += (_, _) => ResizeChild();
+        _sizeTimer = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(200),
+        };
+        _sizeTimer.Tick += (_, _) => ResizeChild();
+        Loaded += (_, _) => _sizeTimer.Start();
+        Unloaded += (_, _) => _sizeTimer.Stop();
+    }
 
     public int InitialWidth { get; set; } = 1920;
     public int InitialHeight { get; set; } = 1080;
 
-    public bool VSync { get; set; } = true;
+    private volatile bool _vsync = true;
+
+    public bool VSync
+    {
+        get => _vsync;
+        set
+        {
+            _vsync = value;
+            if (Target is not null) Target.VSync = value;
+        }
+    }
+
     public bool AllowTearing { get; set; }
 
     public event Action<PresentHost>? Ready;
@@ -58,6 +87,8 @@ public sealed class PresentHost : HwndHost
         };
         _thread.Start();
 
+        Dispatcher.BeginInvoke(new Action(ResizeChild));
+
         return new HandleRef(this, _hwnd);
     }
 
@@ -88,6 +119,34 @@ public sealed class PresentHost : HwndHost
 
         if (hwnd.Handle != IntPtr.Zero) DestroyWindow(hwnd.Handle);
         _hwnd = IntPtr.Zero;
+    }
+
+    protected override void OnWindowPositionChanged(System.Windows.Rect rcBoundingBox)
+    {
+        base.OnWindowPositionChanged(rcBoundingBox);
+        ResizeChild();
+    }
+
+    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+    {
+        base.OnRenderSizeChanged(sizeInfo);
+        ResizeChild();
+    }
+
+    private void ResizeChild()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+        int w = Math.Max(1, (int)Math.Round(ActualWidth * dpi.DpiScaleX));
+        int h = Math.Max(1, (int)Math.Round(ActualHeight * dpi.DpiScaleY));
+        if (w <= 1 || h <= 1) return;
+
+        if (GetClientRect(_hwnd, out var current)
+            && current.Right - current.Left == w
+            && current.Bottom - current.Top == h)
+            return;
+
+        SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, w, h, SwpNoMove | SwpNoZOrder | SwpNoActivate);
     }
 
     private void RenderLoop()
@@ -193,6 +252,11 @@ public sealed class PresentHost : HwndHost
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter,
+        int x, int y, int cx, int cy, int flags);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

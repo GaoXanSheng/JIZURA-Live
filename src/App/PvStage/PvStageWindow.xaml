@@ -116,7 +116,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="320" MinWidth="260" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition x:Name="InspectorColumn" Width="320" MinWidth="280" />
+                <ColumnDefinition x:Name="InspectorColumn" Width="360" MinWidth="320" />
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{DynamicResource LayerFillColorDefaultBrush}"
@@ -130,7 +130,8 @@
                     <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,10,12,8">
                         <ui:Button x:Name="NavMedia" Content="素材" Appearance="Primary" Margin="0,0,6,0" Click="Nav_Click" />
                         <ui:Button x:Name="NavDirector" Content="导演" Appearance="Transparent" Margin="0,0,6,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavOutput" Content="输出" Appearance="Transparent" Click="Nav_Click" />
+                        <ui:Button x:Name="NavOutput" Content="输出" Appearance="Transparent" Margin="0,0,6,0" Click="Nav_Click" />
+                        <ui:Button x:Name="NavSettings" Content="设置" Appearance="Transparent" Click="Nav_Click" />
                     </StackPanel>
 
                     <Grid Grid.Row="1">
@@ -205,7 +206,7 @@
                                     <StackPanel>
                                         <TextBlock Text="一键成片" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="自动分析节拍与能量，一次生成运镜、特效脉冲与歌词样式段落；整次生成是一条撤销。" />
+                                                   Text="按原版引擎 Plan 的切点生成角色运动、整体运镜与整体转场；布局、文字处理仍由原版引擎负责。" />
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
@@ -218,6 +219,30 @@
                                                 <ComboBoxItem Tag="dynamic" Content="动感" />
                                                 <ComboBoxItem Tag="epic" Content="史诗" />
                                             </ComboBox>
+                                        </Grid>
+                                        <TextBlock Margin="0,10,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="原版引擎负责布局、入退场、文字处理；整体运镜自动生成多机位切换，角色随画面整体移动，不再单独位移。" />
+                                        <Grid Margin="0,10,2,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="整体运镜" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglStageCamera" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="StageToggles_Changed"
+                                                             Unchecked="StageToggles_Changed" />
+                                        </Grid>
+                                        <Grid Margin="0,8,2,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="整体转场" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglStageTransitions" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="StageToggles_Changed"
+                                                             Unchecked="StageToggles_Changed" />
                                         </Grid>
                                         <Grid Margin="0,10,2,0">
                                             <TextBlock Text="强度" HorizontalAlignment="Left"
@@ -329,6 +354,100 @@
                                             <ui:ProgressRing x:Name="PrgExport" Width="22" Height="22" Visibility="Collapsed" />
                                             <TextBlock x:Name="TblExportState" Grid.Column="1" Margin="8,0,0,0"
                                                        Style="{StaticResource PanelHint}" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ui:Card>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <ScrollViewer x:Name="PanelSettings" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      Visibility="Collapsed">
+                            <StackPanel>
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="画布" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}"
+                                                   Text="画布决定预览、Spout 广播与导出的设计分辨率。宽高必须是 2 的倍数。" />
+                                        <ComboBox x:Name="CmbCanvasPreset" Margin="0,10,0,0"
+                                                  SelectionChanged="CmbCanvasPreset_SelectionChanged">
+                                            <ComboBoxItem Tag="1920x1080" Content="1920 × 1080（16:9）" />
+                                            <ComboBoxItem Tag="2560x1440" Content="2560 × 1440（16:9）" />
+                                            <ComboBoxItem Tag="3840x2160" Content="3840 × 2160（4K）" />
+                                            <ComboBoxItem Tag="1080x1920" Content="1080 × 1920（竖屏 9:16）" />
+                                            <ComboBoxItem Tag="1080x1080" Content="1080 × 1080（方形 1:1）" />
+                                            <ComboBoxItem Tag="custom" Content="自定义" />
+                                        </ComboBox>
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="宽" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:TextBox x:Name="TxtCanvasW" Grid.Column="1" Margin="8,0,0,0"
+                                                        TextChanged="CanvasField_TextChanged" />
+                                            <TextBlock Grid.Column="2" Text="高" Margin="10,0,8,0"
+                                                       Style="{StaticResource PanelRowLabel}" />
+                                            <ui:TextBox x:Name="TxtCanvasH" Grid.Column="3"
+                                                        TextChanged="CanvasField_TextChanged" />
+                                        </Grid>
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="帧率" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:TextBox x:Name="TxtCanvasFps" Grid.Column="1" Width="90"
+                                                        HorizontalAlignment="Left" Margin="8,0,0,0" />
+                                        </Grid>
+                                        <TextBlock x:Name="TblCanvasState" Margin="0,8,0,0"
+                                                   Style="{StaticResource PanelHint}" Text="" />
+                                        <ui:Button x:Name="BtnApplyCanvas" Content="应用画布" Appearance="Primary"
+                                                   HorizontalAlignment="Stretch" Margin="0,12,0,0"
+                                                   Click="BtnApplyCanvas_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="ArrowSync24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="渲染" Style="{StaticResource PanelCardTitle}" />
+                                        <Grid Margin="0,2,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="GPU" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock x:Name="TblGpuName" Grid.Column="1" Margin="12,0,0,0"
+                                                       HorizontalAlignment="Right"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                        </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="视频解码" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock x:Name="TblVideoDecode" Grid.Column="1" Margin="12,0,0,0"
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                        </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="垂直同步" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglVSync" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglVSync_Changed"
+                                                             Unchecked="TglVSync_Changed" />
                                         </Grid>
                                     </StackPanel>
                                 </ui:Card>

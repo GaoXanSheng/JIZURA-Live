@@ -89,7 +89,7 @@ public sealed class PvLayerConfig
 
     public DecorConfig? Decor { get; set; }
 
-    public bool Premultiplied { get; set; } = true;
+    public bool Premultiplied { get; set; }
 
     public PvParallaxConfig Parallax { get; set; } = new();
 

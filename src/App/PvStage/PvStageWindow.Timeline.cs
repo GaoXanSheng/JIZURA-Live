@@ -64,12 +64,6 @@ public partial class PvStageWindow
         }
 
         var treat = new TDesignTrack { Kind = DesignTrackKind.Treat };
-        for (int i = 0; i < _project.LyricStyles.Count; i++)
-        {
-            var seg = ToTSegment(DesignTracks.FromLyricStyleSpan(_project.LyricStyles[i]));
-            seg.RefId = i.ToString(CultureInfo.InvariantCulture);
-            treat.Segments.Add(seg);
-        }
 
         snap.DesignTracks.Add(fx);
         snap.DesignTracks.Add(cam);
@@ -79,7 +73,58 @@ public partial class PvStageWindow
                      DesignTrackKind.Layout, DesignTrackKind.Enter, DesignTrackKind.Hold,
                      DesignTrackKind.Exit, DesignTrackKind.Decor, DesignTrackKind.Bg, DesignTrackKind.Trans,
                  })
-            snap.DesignTracks.Add(new TDesignTrack { Kind = kind });
+        {
+            var track = new TDesignTrack { Kind = kind };
+            foreach (var seg in _project.DesignSegments
+                         .Where(d => d.Track == kind)
+                         .OrderBy(d => d.Start))
+                track.Segments.Add(ToTSegment(seg));
+            snap.DesignTracks.Add(track);
+        }
+
+        ExportLegacyPlanTracks(snap);
+    }
+
+    // 原版 Plan 的布局/入退场/文字处理直接铺到时间线，方便对照它的切点。
+    private void ExportLegacyPlanTracks(TSnapshot snap)
+    {
+        if (_legacyPlanInfo is not { Cuts.Count: > 0 } plan) return;
+
+        var layout = snap.DesignTracks.FirstOrDefault(t => t.Kind == DesignTrackKind.Layout);
+        var enter = snap.DesignTracks.FirstOrDefault(t => t.Kind == DesignTrackKind.Enter);
+        var exit = snap.DesignTracks.FirstOrDefault(t => t.Kind == DesignTrackKind.Exit);
+        var treat = snap.DesignTracks.FirstOrDefault(t => t.Kind == DesignTrackKind.Treat);
+        if (layout is null || enter is null || exit is null || treat is null) return;
+
+        string prevLayout = "", prevEnter = "", prevExit = "", prevTreat = "";
+        for (int i = 0; i < plan.Cuts.Count; i++)
+        {
+            var cut = plan.Cuts[i];
+            double end = cut.End > cut.Start ? cut.End : cut.Start + 0.1;
+            AddIfChanged(layout, DesignTrackKind.Layout, cut.Layout, i, cut.Start, end, ref prevLayout);
+            AddIfChanged(enter, DesignTrackKind.Enter, cut.Enter, i, cut.Start, end, ref prevEnter);
+            AddIfChanged(exit, DesignTrackKind.Exit, cut.Exit, i, cut.Start, end, ref prevExit);
+            if (!string.Equals(cut.Treat, "none", StringComparison.OrdinalIgnoreCase))
+                AddIfChanged(treat, DesignTrackKind.Treat, cut.Treat, i, cut.Start, end, ref prevTreat);
+        }
+
+        void AddIfChanged(TDesignTrack track, DesignTrackKind kind, string? technique, int index,
+            double start, double end, ref string prev)
+        {
+            var value = technique ?? "";
+            if (value.Length == 0) return;
+            if (string.Equals(prev, value, StringComparison.Ordinal)) return;
+            prev = value;
+            track.Segments.Add(new TDesignSegment
+            {
+                RefId = $"legacy_{kind}_{index}",
+                Track = (int)kind,
+                Start = start,
+                End = end,
+                Technique = value,
+                Source = "legacy",
+            });
+        }
     }
 
     private static TDesignSegment ToTSegment(DesignSegment seg) => new()
@@ -129,7 +174,17 @@ public partial class PvStageWindow
     private void TickTimeline()
     {
         if (_snap is null) return;
-        TheTimeline.SetPlayhead(_audio.Time);
+        var t = _audio.Time;
+        var d = _audio.Duration;
+        TheTimeline.SetPlayhead(t);
+        TblTime.Text = $"{Fmt(t)} / {Fmt(d)}";
+        if (!_draggingTime && d > 0)
+        {
+            SldTime.Maximum = Math.Max(0.01, d);
+            SldTime.LargeChange = Math.Max(0.5, d / 20);
+            SldTime.SmallChange = Math.Max(0.1, d / 200);
+            SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
+        }
     }
 
     private void Timeline_SeekRequested(double seconds)
@@ -211,10 +266,23 @@ public partial class PvStageWindow
         return shots is not null && index >= 0 && index < shots.Count ? shots[index] : null;
     }
 
-    private LyricStyleSpan? FindLyricStyleSpan(string refId)
+    private DesignSegment? FindDesignSegment(string refId)
     {
-        if (!int.TryParse(refId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int index)) return null;
-        return index >= 0 && index < _project.LyricStyles.Count ? _project.LyricStyles[index] : null;
+        if (string.IsNullOrEmpty(refId)) return null;
+        return _project.DesignSegments.FirstOrDefault(d =>
+            string.Equals(d.RefId, refId, StringComparison.Ordinal));
+    }
+
+    private SegmentTarget? FindLegacyCut(string refId)
+    {
+        if (_legacyPlanInfo is not { } plan || string.IsNullOrEmpty(refId)) return null;
+        var parts = refId.Split('_');
+        if (parts.Length < 3 || !string.Equals(parts[0], "legacy", StringComparison.Ordinal)) return null;
+        if (!Enum.TryParse<DesignTrackKind>(parts[1], true, out var kind)) return null;
+        if (kind is not (DesignTrackKind.Layout or DesignTrackKind.Enter
+            or DesignTrackKind.Exit or DesignTrackKind.Treat)) return null;
+        if (!int.TryParse(parts[^1], out var index) || index < 0 || index >= plan.Cuts.Count) return null;
+        return SegmentTarget.OfLegacyCut(index, kind);
     }
 
     private void Timeline_SegmentSelected(TDesignSegment seg)
@@ -230,10 +298,10 @@ public partial class PvStageWindow
             _segmentTarget = FindCameraShot(seg.RefId) is { } shot
                 ? SegmentTarget.Of(shot)
                 : null;
-        else if (seg.Track == (int)DesignTrackKind.Treat)
-            _segmentTarget = FindLyricStyleSpan(seg.RefId) is { } span
-                ? SegmentTarget.Of(span)
-                : null;
+        else if (FindDesignSegment(seg.RefId) is { } design)
+            _segmentTarget = SegmentTarget.Of(design);
+        else if (FindLegacyCut(seg.RefId) is { } legacy)
+            _segmentTarget = legacy;
         else _segmentTarget = null;
 
         BuildInspector();
@@ -252,13 +320,17 @@ public partial class PvStageWindow
     {
         public EffectNode? Effect;
         public CameraShot? Shot;
-        public LyricStyleSpan? Span;
+        public DesignSegment? Design;
+        public int LegacyCutIndex = -1;
+        public DesignTrackKind LegacyKind;
         public int WindowIndex = -1;
 
         public static SegmentTarget Of(EffectNode node) => new() { Effect = node };
         public static SegmentTarget OfEffectWindow(EffectNode node, int windowIndex) => new() { Effect = node, WindowIndex = windowIndex };
         public static SegmentTarget Of(CameraShot shot) => new() { Shot = shot };
-        public static SegmentTarget Of(LyricStyleSpan span) => new() { Span = span };
+        public static SegmentTarget Of(DesignSegment design) => new() { Design = design };
+        public static SegmentTarget OfLegacyCut(int index, DesignTrackKind kind) =>
+            new() { LegacyCutIndex = index, LegacyKind = kind };
     }
 
     private void WriteSegmentTime(double start, double end, double fadeIn, double fadeOut)
@@ -310,11 +382,14 @@ public partial class PvStageWindow
             case { Shot: { } shot }:
                 shot.Start = start;
                 shot.End = end;
+                shot.Source = "user";
                 break;
-            case { Span: { } span }:
-                span.Start = start;
-                span.End = end;
-                PublishLyricClips(_lyricClips);
+            case { Design: { } design }:
+                design.Start = start;
+                design.End = end;
+                design.FadeIn = fadeIn;
+                design.FadeOut = fadeOut;
+                design.Source = "user";
                 break;
             default:
                 return;
@@ -333,6 +408,11 @@ public partial class PvStageWindow
                 break;
             case { Shot: { } shot }:
                 shot.Params[key] = value;
+                shot.Source = "user";
+                break;
+            case { Design: { } design }:
+                design.Params[key] = value;
+                design.Source = "user";
                 break;
             default:
                 return;
@@ -351,8 +431,8 @@ public partial class PvStageWindow
             case { Shot: { } shot }:
                 shot.Locked = locked;
                 break;
-            case { Span: { } span }:
-                span.Locked = locked;
+            case { Design: { } design }:
+                design.Locked = locked;
                 break;
             default:
                 return;
@@ -405,13 +485,13 @@ public partial class PvStageWindow
         _audioLoadCts = cts;
         _peaks = null;
         _audioBands = null;
+        _beatMap = null;
         PublishAudioBands();
         RefreshTimeline();
 
         Task.Run(() =>
         {
             WaveformPeaks? peaks = null;
-            AudioBandSeries? bands = null;
             try
             {
                 peaks = WaveformLoader.Load(path, cts.Token);
@@ -421,15 +501,6 @@ public partial class PvStageWindow
                 if (!cts.IsCancellationRequested) Log.Warn("[工作台] 波形装载失败：" + ex.Message);
             }
 
-            try
-            {
-                bands = AudioFileAnalyzer.Analyze(path, cts.Token);
-            }
-            catch (Exception ex)
-            {
-                if (!cts.IsCancellationRequested) Log.Warn("[工作台] 频带分析失败：" + ex.Message);
-            }
-
             Dispatcher.BeginInvoke(() =>
             {
                 if (!ReferenceEquals(_audioLoadCts, cts)) return;
@@ -437,14 +508,6 @@ public partial class PvStageWindow
                 {
                     _peaks = peaks;
                     RefreshTimeline();
-                }
-
-                if (bands is not null)
-                {
-                    _audioBands = bands;
-                    PublishAudioBands();
-                    RefreshParamRows();
-                    ShowStatus("音频分析完成，可一键成片");
                 }
             });
         });

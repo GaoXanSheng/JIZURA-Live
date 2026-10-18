@@ -255,7 +255,29 @@ public static class CameraDirection
             _ => Push(e, K, Cu),
         };
 
+        state = ApplyFraming(state, e, p);
         return ApplyPanZoom(state, e, p, K, Cu);
+    }
+
+    // 分镜机位：景别/构图/角度是镜头本身，不参与动效强度 k 的缩放。
+    private static PvCamState ApplyFraming(PvCamState s, in Env e, IReadOnlyDictionary<string, double> p)
+    {
+        if (!p.ContainsKey("shotScale")) return s;
+
+        double scale = Math.Clamp(D(p, "shotScale", 1), 0.5, 2.0);
+        double x = D(p, "shotX", 0) * e.W;
+        double y = D(p, "shotY", 0) * e.H;
+        double rot = D(p, "shotRot", 0);
+
+        return s with
+        {
+            X = s.X * scale + x,
+            Y = s.Y * scale + y,
+            Scale = s.Scale * scale,
+            Rotation = s.Rotation + rot,
+            ScaleX = s.ScaleX is { } sx ? 1 + (sx - 1) * scale : null,
+            ScaleY = s.ScaleY is { } sy ? 1 + (sy - 1) * scale : null,
+        };
     }
 
     private static PvCamState ApplyPanZoom(PvCamState s, in Env e, IReadOnlyDictionary<string, double> p,

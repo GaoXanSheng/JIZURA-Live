@@ -36,7 +36,12 @@ public sealed class FullScreenPass : IDisposable
         Run(input, null, target, pixelShader, constants);
 
     public void Run(ID3D11ShaderResourceView input0, ID3D11ShaderResourceView? input1,
-        GpuTexturePool.Entry target, ID3D11PixelShader pixelShader, ReadOnlySpan<float> constants)
+        GpuTexturePool.Entry target, ID3D11PixelShader pixelShader, ReadOnlySpan<float> constants) =>
+        Run(input0, input1, target.Rtv, target.Width, target.Height, pixelShader, constants);
+
+    public void Run(ID3D11ShaderResourceView input0, ID3D11ShaderResourceView? input1,
+        ID3D11RenderTargetView target, int width, int height, ID3D11PixelShader pixelShader,
+        ReadOnlySpan<float> constants)
     {
         Array.Clear(_scratch);
         var n = Math.Min(constants.Length, _scratch.Length);
@@ -55,8 +60,8 @@ public sealed class FullScreenPass : IDisposable
         _ctx.PSSetSampler(0, _sampler);
 
         _ctx.PSSetShaderResources(0, 2, NoViews);
-        _ctx.OMSetRenderTargets(target.Rtv, null);
-        _ctx.RSSetViewport(0, 0, target.Width, target.Height, 0f, 1f);
+        _ctx.OMSetRenderTargets(target, null);
+        _ctx.RSSetViewport(0, 0, width, height, 0f, 1f);
         _ctx.PSSetShaderResource(0, input0);
         if (input1 is not null) _ctx.PSSetShaderResource(1, input1);
 

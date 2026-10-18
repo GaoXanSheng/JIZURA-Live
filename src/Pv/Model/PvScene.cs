@@ -37,10 +37,6 @@ public sealed class PvScene
 
     public string? LyricStyleName { get; set; } = JizuraLive.Render.Text.LyricStyle.ClassicName;
 
-    public LyricStyle? LyricStyle { get; set; }
-
-    public int LyricMotionSeed { get; set; } = 1;
-
     public bool AntiBleedGuardEnabled { get; set; } = true;
 
     public string AmbientTint { get; set; } = "#ffffff";
@@ -83,22 +79,15 @@ public sealed class PvScene
             Name = "Character Asset",
             Kind = PvLayerKind.VisualAsset,
             SpoutSenderName = "VTubeStudioSpout",
-            Parallax = new PvParallaxConfig { Depth = 0.85, RotationFactor = 0.6 },
+            Premultiplied = false,
+            Parallax = new PvParallaxConfig { Depth = 1.0, RotationFactor = 1.0 },
             VisualBlend = new PvVisualBlendConfig
             {
                 AmbientTintIntensity = 0.20,
-                DropShadow = 0.35,
-                RimGlow = 0.15,
+                DropShadow = 0,
+                RimGlow = 0,
                 AntiBleedMargin = 0.08,
             },
-        });
-
-        scene.Layers.Add(new PvLayerConfig
-        {
-            Id = "lyrics_pv",
-            Name = "Kinetic Typography PV",
-            Kind = PvLayerKind.LyricPv,
-            Parallax = new PvParallaxConfig { Depth = 1.00, RotationFactor = 1.0 },
         });
 
         scene.Layers.Add(new PvLayerConfig

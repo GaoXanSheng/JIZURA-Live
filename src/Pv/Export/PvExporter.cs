@@ -57,14 +57,29 @@ public static class PvExporter
             var gpu = D3DDevice.TryCreate(out var gpuError);
             if (gpu is null) return $"建立离屏 D3D 设备失败：{gpuError}";
 
+            var legacy = inputs?.Legacy;
+            if (legacy is not null)
+                legacy = new LegacyPvOptions
+                {
+                    Enabled = legacy.Enabled,
+                    LrcText = legacy.LrcText,
+                    AudioPath = legacy.AudioPath,
+                    Style = legacy.Style,
+                    Seed = legacy.Seed,
+                    RenderScale = legacy.RenderScale,
+                    NoCutTrans = legacy.NoCutTrans,
+                    StageCamera = legacy.StageCamera,
+                    StageTransitions = legacy.StageTransitions,
+                    Synchronous = true,
+                };
+
             using (gpu)
-            using (var pipe = new PvPipeline(gpu, scene, effects, SubtitleSourceOf(inputs)))
+            using (var pipe = new PvPipeline(gpu, scene, effects, SubtitleSourceOf(inputs), legacy))
             using (var target = OffscreenTarget.Create(gpu, pipe.D2DContext, width, height))
             {
                 pipe.SetDirector(inputs?.Curves);
+                pipe.SetDesignSegments(inputs?.Segments);
                 pipe.SetAudioAnalysis(inputs?.Bands);
-                pipe.Renderer.Lyric?.SetClips(inputs?.Clips);
-                pipe.Renderer.Lyric?.SetStyle(scene.LyricStyle ?? LyricStyle.FromName(scene.LyricStyleName));
 
                 for (var i = 0; i < frameCount; i++)
                 {
@@ -258,7 +273,9 @@ public static class PvExporter
 public sealed record PvExportInputs(
     DirectorEvaluator? Curves = null,
     AudioBandSeries? Bands = null,
+    IReadOnlyList<DesignSegment>? Segments = null,
     IReadOnlyList<LyricClip>? Clips = null,
     SubtitleConfig? Subtitles = null,
     string? AudioPath = null,
-    double AudioOffsetSec = 0);
+    double AudioOffsetSec = 0,
+    LegacyPvOptions? Legacy = null);

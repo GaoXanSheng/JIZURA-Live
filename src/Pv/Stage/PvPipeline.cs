@@ -32,8 +32,39 @@ public sealed class PvPipeline : IDisposable
     private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
     private SpoutSourceProvider? _character;
+    private readonly bool _legacyMode;
+    private LegacyPvProvider? _legacy;
     private int _layerSeq;
     private bool _disposed;
+
+    private volatile bool _stageCamera = true;
+    private volatile bool _stageTransitions = true;
+    private List<DesignSegment>? _designSegments;
+
+    public bool StageCameraEnabled
+    {
+        get => _stageCamera;
+        set
+        {
+            _stageCamera = value;
+            if (_legacy is not null) _legacy.NoCamera = value;
+        }
+    }
+
+    public bool StageTransitionsEnabled
+    {
+        get => _stageTransitions;
+        set
+        {
+            _stageTransitions = value;
+            if (_legacy is not null) _legacy.NoCutTrans = !value;
+            _renderer.SetDesignSegments(value ? _designSegments : null);
+        }
+    }
+
+    public LegacyPvPlanInfo? LegacyPlan => _legacy?.PlanInfo;
+
+    public event Action<LegacyPvPlanInfo>? LegacyPlanReady;
 
     private SpoutOut? _broadcast;
     private volatile BroadcastRequest? _pendingBroadcast;
@@ -67,6 +98,8 @@ public sealed class PvPipeline : IDisposable
     public PvScene Scene => _scene;
     public EffectGraph Effects => _effects.Snapshot;
     public PvStageRenderer Renderer => _renderer;
+    public bool LegacyMode => _legacyMode;
+    public int LegacyCutCount => _legacy?.CutCount ?? 0;
 
     public bool Ready { get; private set; }
     public string? Error { get; private set; }
@@ -103,17 +136,25 @@ public sealed class PvPipeline : IDisposable
     public event Action? LayersChanged;
 
     public PvPipeline(D3DDevice gpu, PvScene scene, EffectGraph effects,
-        IPvSubtitleSource? subtitleSource = null)
+        IPvSubtitleSource? subtitleSource = null, LegacyPvOptions? legacy = null)
     {
         _scene = scene;
         _effects = new SnapshotSlot<EffectGraph>(effects.Clone());
+        _legacyMode = legacy is { Enabled: true }
+                      && !string.IsNullOrWhiteSpace(legacy.LrcText)
+                      && !string.IsNullOrWhiteSpace(legacy.AudioPath)
+                      && File.Exists(legacy.AudioPath);
+        _stageCamera = legacy?.StageCamera ?? true;
+        _stageTransitions = legacy?.StageTransitions ?? true;
         SeedLayerSeq();
 
         try
         {
             _d2d = D2DHost.Create(gpu);
-            _renderer = new PvStageRenderer(gpu, _d2d, scene, _effects.Snapshot, scene.Width, scene.Height);
+            _renderer = new PvStageRenderer(gpu, _d2d, scene, _effects.Snapshot,
+                scene.Width, scene.Height);
             RegisterProviders(gpu, subtitleSource);
+            if (_legacyMode) RegisterLegacy(gpu, legacy!);
             Ready = true;
         }
         catch (Exception ex)
@@ -124,10 +165,18 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
-    public void SetLyrics(IReadOnlyList<JizuraLive.Engine.KrcLine>? lines) =>
-        _renderer.SetLyrics(lines);
+    public void SetDirector(DirectorEvaluator? d)
+    {
+        _director = d;
+    }
 
-    public void SetDirector(DirectorEvaluator? d) => _director = d;
+    public void SetDesignSegments(IEnumerable<DesignSegment>? segments)
+    {
+        _designSegments = segments?.Where(s => s is not null).ToList();
+        _renderer.SetDesignSegments(_stageTransitions ? _designSegments : null);
+    }
+
+    public void ApplyLegacyCutOverrides(LegacyPvPlanInfo info) => _legacy?.ApplyCutOverrides(info);
 
     public void PublishEffects(EffectGraph snapshot) => _effects.Publish(snapshot);
 
@@ -151,7 +200,8 @@ public sealed class PvPipeline : IDisposable
             foreach (var p in _spoutProviders) p.PumpFrame();
 
         var frame = new PvFrameState();
-        ApplyCamera(time, frame);
+        if (_legacyMode && !_stageCamera) frame.Camera = PvCamState.Identity;
+        else ApplyCamera(time, frame);
         ApplyLayerFrame(time, frame);
         ApplyEffectCurves(effects, _director, time);
         _scene.PublishFrame(frame);
@@ -159,7 +209,6 @@ public sealed class PvPipeline : IDisposable
         _renderer.Stage.Camera = frame.Camera;
 
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
-        _renderer.Lyric?.SetScale(1.0);
 
         foreach (var p in _decor) p.Render(time);
 
@@ -238,6 +287,7 @@ public sealed class PvPipeline : IDisposable
         Name = sender,
         Kind = PvLayerKind.VisualAsset,
         SpoutSenderName = sender,
+        Premultiplied = false,
         Cover = true,
         Parallax = new PvParallaxConfig { Depth = 0.9 },
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
@@ -278,16 +328,100 @@ public sealed class PvPipeline : IDisposable
 
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
+        _scene.Layers.RemoveAll(l => l.Id is "legacy_pv" or LegacyPvProvider.BackId or LegacyPvProvider.FrontId
+                                     || l.Id == "lyrics_pv"
+                                     || l.Kind == PvLayerKind.LyricPv);
+
         var tint = PvScene.ParseHex(_scene.AmbientTint);
         _renderer.Stage.Register(new ColorProvider("bg",
             new Color4(tint.R * 0.16f, tint.G * 0.16f, tint.B * 0.22f, 1f)));
 
+        foreach (var layer in _scene.Layers) MigrateVisualDefaults(layer);
         foreach (var layer in _scene.Layers) RegisterLayerProvider(layer);
 
         if (subtitleSource is not null)
         {
             _subtitle = new SubtitleProvider("subtitle_top", gpu, _d2d.Ctx, subtitleSource);
             _renderer.Overlay = _subtitle;
+        }
+    }
+
+    private void RegisterLegacy(D3DDevice gpu, LegacyPvOptions options)
+    {
+        var renderWidth = options.Synchronous
+            ? _scene.Width
+            : Math.Clamp(
+                (int)Math.Round(_scene.Width * Math.Clamp(options.RenderScale, 0.25, 1.0)),
+                320, _scene.Width);
+        _legacy = new LegacyPvProvider("legacy", gpu, _d2d.Ctx, options,
+            _scene.Width, _scene.Height, _scene.Fps, renderWidth);
+        _legacy.NoCutTrans = _stageTransitions;
+        _legacy.NoCamera = _stageCamera;
+        _legacy.PlanReady += info => LegacyPlanReady?.Invoke(info);
+        _renderer.Stage.Register(_legacy.Back);
+        _renderer.Stage.Register(_legacy.Front);
+
+        var insert = 0;
+        for (var i = 0; i < _scene.Layers.Count; i++)
+        {
+            var layer = _scene.Layers[i];
+            var backgroundMedia = layer.Id != PvScene.CharacterLayerId
+                                  && (layer.Kind == PvLayerKind.Background
+                                      || (layer.Kind == PvLayerKind.VisualAsset
+                                          && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+                                          && (!string.IsNullOrWhiteSpace(layer.VideoPath)
+                                              || !string.IsNullOrWhiteSpace(layer.ImagePath))));
+            if (backgroundMedia) insert = i + 1;
+        }
+
+        var back = LegacyLayer(LegacyPvProvider.BackId, "原版 PV · 背景", PvLayerKind.Background);
+        var front = LegacyLayer(LegacyPvProvider.FrontId, "原版 PV · 文字", PvLayerKind.ForegroundFx);
+        _scene.Layers.Insert(insert, back);
+        // 文字层固定压在最上面；字幕是 FixedZone，仍在它之上。
+        _scene.Layers.Add(front);
+
+        Log.Info($"[PV 原版引擎] 图层顺序：{string.Join(" → ", _scene.Layers.Select(l => l.Id))}");
+        Log.Info($"[PV 原版引擎] 启动中：{renderWidth}px 渲染（背景/文字分层）");
+    }
+
+    private static PvLayerConfig LegacyLayer(string id, string name, PvLayerKind kind) => new()
+    {
+        Id = id,
+        Name = name,
+        Kind = kind,
+        Enabled = true,
+        Cover = true,
+        Opacity = 1,
+        Scale = 1,
+        SpoutSenderName = null,
+        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0, Defocus = 0 },
+        VisualBlend = new PvVisualBlendConfig
+        {
+            AmbientTintIntensity = 0,
+            RimGlow = 0,
+            DropShadow = 0,
+            ShadowOffsetY = 0,
+            AntiBleedMargin = 0,
+        },
+    };
+
+    private static void MigrateVisualDefaults(PvLayerConfig layer)
+    {
+        if (layer.Id != PvScene.CharacterLayerId || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) return;
+
+        var blend = layer.VisualBlend;
+        // 统一机位模式下角色不再独立位移：锁到镜头深度，避免人物相对背景滑动。
+        if (layer.Parallax.Depth < 0.999) layer.Parallax.Depth = 1.0;
+        layer.Parallax.RotationFactor = 1.0;
+        layer.Parallax.ScaleFactor = 1.0;
+
+        if (layer.Premultiplied
+            && Math.Abs(blend.RimGlow - 0.15) < 0.001
+            && Math.Abs(blend.DropShadow - 0.35) < 0.001)
+        {
+            layer.Premultiplied = false;
+            blend.RimGlow = 0;
+            blend.DropShadow = 0;
         }
     }
 
@@ -399,8 +533,14 @@ public sealed class PvPipeline : IDisposable
         }
     }
 
-    public static List<PvLayerConfig> WithLayerAdded(IReadOnlyList<PvLayerConfig> layers, PvLayerConfig layer) =>
-        [.. layers, layer];
+    public static List<PvLayerConfig> WithLayerAdded(IReadOnlyList<PvLayerConfig> layers, PvLayerConfig layer)
+    {
+        var next = new List<PvLayerConfig>(layers);
+        int front = next.FindIndex(l => l.Id == LegacyPvProvider.FrontId);
+        if (front >= 0) next.Insert(front, layer);
+        else next.Add(layer);
+        return next;
+    }
 
     public static List<PvLayerConfig> WithLayerRemovedAt(IReadOnlyList<PvLayerConfig> layers, int index)
     {
@@ -522,7 +662,10 @@ public sealed class PvPipeline : IDisposable
     {
         var layers = _scene.Layers;
         for (var i = 0; i < layers.Count; i++)
-            frame.SetLayer(layers[i].Id, BaseLayer(layers[i], _director, time));
+        {
+            var layer = layers[i];
+            frame.SetLayer(layer.Id, BaseLayer(layer, _director, time));
+        }
     }
 
     private void ApplyCamera(double time, PvFrameState frame)

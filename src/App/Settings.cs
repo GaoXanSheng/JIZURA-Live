@@ -24,6 +24,7 @@ public sealed class Settings
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public int RenderFps { get; set; } = 60;
+    public bool VSync { get; set; } = true;
 
     public bool WantRoma { get; set; } = true;
     public bool WantTrans { get; set; } = true;

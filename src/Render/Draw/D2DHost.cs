@@ -30,7 +30,7 @@ public sealed class D2DHost : IDisposable
 
     public static D2DHost Create(D3DDevice gpu)
     {
-        var factory = D2D1.D2D1CreateFactory<ID2D1Factory1>(D2DFactoryType.SingleThreaded, default(FactoryOptions));
+        var factory = D2D1.D2D1CreateFactory<ID2D1Factory1>(D2DFactoryType.MultiThreaded, default(FactoryOptions));
         ID2D1Device device;
         using (var dxgiDevice = gpu.Device.QueryInterface<IDXGIDevice>())
         {
@@ -38,6 +38,9 @@ public sealed class D2DHost : IDisposable
         }
 
         var ctx = device.CreateDeviceContext(DeviceContextOptions.None);
+        // 渲染器全程按像素坐标画；不能让 D2D 再按系统 DPI 把像素当 DIP 放大。
+        ctx.UnitMode = UnitMode.Pixels;
+        ctx.SetDpi(96f, 96f);
         var dw = DWrite.DWriteCreateFactory<IDWriteFactory>(DWFactoryType.Shared);
         return new D2DHost(factory, device, ctx, dw, new DwFontCache(dw));
     }
