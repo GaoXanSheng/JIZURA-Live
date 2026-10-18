@@ -69,13 +69,13 @@ public sealed class FileVideoProvider : IPvLayerProvider, IDisposable
         if (decoder is null) return Cached();
 
         if (decoder.TryReadFrameAt(LoopTime(ctx.Time, decoder.Duration), _frame,
-                out var gpuTexture, out var pts, out var newFrame))
+                out var gpuTexture, out var subresource, out var pts, out var newFrame))
         {
             try
             {
                 if (newFrame)
                 {
-                    if (gpuTexture is not null) UploadGpu(gpuTexture);
+                    if (gpuTexture is not null) UploadGpu(gpuTexture, subresource);
                     else UploadCpu(decoder);
                     _uploadedPts = pts;
                     _version++;
@@ -174,13 +174,13 @@ public sealed class FileVideoProvider : IPvLayerProvider, IDisposable
         EnsureBitmap();
     }
 
-    private void UploadGpu(ID3D11Texture2D source)
+    private void UploadGpu(ID3D11Texture2D source, uint subresource)
     {
         var desc = source.Description;
         if (_converter is null) EnsureConverter(source);
         if (_converter is not null)
         {
-            var converted = _converter.Convert(source);
+            var converted = _converter.Convert(source, subresource);
             if (converted is null || _sharedTextures is null) return;
 
             EnsureTarget(_converter.OutputWidth, _converter.OutputHeight, Format.B8G8R8A8_UNorm);
@@ -196,7 +196,7 @@ public sealed class FileVideoProvider : IPvLayerProvider, IDisposable
         {
             EnsureTarget((int)desc.Width, (int)desc.Height, desc.Format);
             if (_texture is null) return;
-            _gpu.Context.CopyResource(_texture, source);
+            _gpu.Context.CopySubresourceRegion(_texture, 0, 0, 0, 0, source, subresource, null);
             EnsureBitmap();
             LogGpuOnce(desc.Format, (int)desc.Width, (int)desc.Height);
         }

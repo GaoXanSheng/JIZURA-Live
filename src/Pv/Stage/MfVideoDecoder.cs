@@ -27,6 +27,7 @@ public sealed class MfVideoDecoder : IDisposable
     private const int SlotSampleGetBuffer = 40;
     private const int SlotSampleContiguous = 41;
     private const int SlotDxgiBufferGetResource = 3;
+    private const int SlotDxgiBufferGetSubresource = 5;
 
     private const int FirstVideoStream = -4;
     private const int MediaSource = -1;
@@ -312,9 +313,10 @@ public sealed class MfVideoDecoder : IDisposable
     }
 
     public bool TryReadFrameAt(double seconds, byte[]? buffer,
-        out ID3D11Texture2D? texture, out double framePts, out bool newFrame)
+        out ID3D11Texture2D? texture, out uint subresource, out double framePts, out bool newFrame)
     {
         texture = null;
+        subresource = 0;
         framePts = _lastPts;
         newFrame = false;
         if (_reader == IntPtr.Zero) return false;
@@ -349,7 +351,7 @@ public sealed class MfVideoDecoder : IDisposable
 
             try
             {
-                if (_gpuEnabled && TryGetSampleTexture(sample, out var texturePtr))
+                if (_gpuEnabled && TryGetSampleTexture(sample, out var texturePtr, out var textureIndex))
                 {
                     ID3D11Texture2D gpuTexture;
                     try
@@ -377,6 +379,7 @@ public sealed class MfVideoDecoder : IDisposable
                     newFrame = true;
                     LastError = null;
                     texture = gpuTexture;
+                    subresource = textureIndex;
                     return true;
                 }
 
@@ -401,9 +404,10 @@ public sealed class MfVideoDecoder : IDisposable
         }
     }
 
-    private bool TryGetSampleTexture(IntPtr sample, out IntPtr texturePtr)
+    private bool TryGetSampleTexture(IntPtr sample, out IntPtr texturePtr, out uint subresource)
     {
         texturePtr = IntPtr.Zero;
+        subresource = 0;
         _getBuffer ??= Slot<GetBufferFn>(sample, SlotSampleGetBuffer);
         if (_getBuffer(sample, 0, out var buffer) < 0 || buffer == IntPtr.Zero) return false;
 
@@ -414,6 +418,8 @@ public sealed class MfVideoDecoder : IDisposable
             try
             {
                 var getResource = Slot<GetResourceFn>(dxgiBuffer, SlotDxgiBufferGetResource);
+                var getIndex = Slot<GetSubresourceFn>(dxgiBuffer, SlotDxgiBufferGetSubresource);
+                getIndex(dxgiBuffer, out subresource);
                 var textureIid = IidTexture2D;
                 return getResource(dxgiBuffer, ref textureIid, out texturePtr) >= 0
                        && texturePtr != IntPtr.Zero;
@@ -645,6 +651,9 @@ public sealed class MfVideoDecoder : IDisposable
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GetResourceFn(IntPtr self, ref Guid iid, out IntPtr resource);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+    private delegate int GetSubresourceFn(IntPtr self, out uint subresource);
 
     [UnmanagedFunctionPointer(CallingConvention.StdCall)]
     private delegate int GetNativeTypeFn(IntPtr self, int streamIndex, int typeIndex, out IntPtr mediaType);

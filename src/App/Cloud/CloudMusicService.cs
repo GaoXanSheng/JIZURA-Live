@@ -1,7 +1,9 @@
 using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Windows.Media.Imaging;
 using JizuraLive.App;
 using JizuraLive.Logging;
 using JizuraLive.Server;
@@ -20,6 +22,7 @@ public static class CloudMusicService
 
     private static readonly string[] HostSuffixes = ["kugou.com", "kgimg.com", "kglink.cn", "music.126.net", "126.net"];
     private static readonly HttpClient StreamHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private static readonly HttpClient CoverHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
 
     public static async Task<List<KgSong>> SearchAsync(string source, string keyword, int page,
         CancellationToken ct = default)
@@ -34,14 +37,15 @@ public static class CloudMusicService
         return result.List;
     }
 
-    public static async Task<CloudLoadedSong> LoadAsync(KgSong song, Action<string>? progress = null,
-        CancellationToken ct = default)
+    public static async Task<CloudLoadedSong> LoadAsync(KgSong song, string quality = "320",
+        Action<string>? progress = null, CancellationToken ct = default)
     {
         var source = string.IsNullOrWhiteSpace(song.Source) ? Kugou : song.Source;
         progress?.Invoke("正在获取播放地址…");
         KgUrlResponse urlResponse = source == Netease
-            ? await ServerContext.Netease.GetUrlAsync(song.Id, "320")
-            : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId, 320);
+            ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
+            : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
+                int.TryParse(quality, out var kgQuality) ? kgQuality : 320);
         if (!urlResponse.Ok || string.IsNullOrWhiteSpace(urlResponse.Url))
             throw new CloudMusicException(urlResponse.Error ?? "没有可用的播放地址（可能需要登录或 VIP）");
 
@@ -84,6 +88,37 @@ public static class CloudMusicService
         }
 
         return new CloudLoadedSong(audioPath, fileName, lrc, note);
+    }
+
+    public static async Task<BitmapSource?> LoadCoverAsync(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https")) return null;
+
+        var dir = Path.Combine(AppDirs.CacheDir, "cloud-covers");
+        Directory.CreateDirectory(dir);
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url)))[..16].ToLowerInvariant();
+        var file = Path.Combine(dir, key);
+
+        byte[] data;
+        if (File.Exists(file) && new FileInfo(file).Length > 0)
+        {
+            data = await File.ReadAllBytesAsync(file);
+        }
+        else
+        {
+            data = await CoverHttp.GetByteArrayAsync(uri);
+            if (data.Length > 0) await File.WriteAllBytesAsync(file, data);
+        }
+
+        using var stream = new MemoryStream(data);
+        var bitmap = new BitmapImage();
+        bitmap.BeginInit();
+        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        bitmap.StreamSource = stream;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        return bitmap;
     }
 
     public static string SanitizeFileName(string name)

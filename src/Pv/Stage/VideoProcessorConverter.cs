@@ -115,7 +115,7 @@ internal sealed class VideoProcessorConverter : IDisposable
         }
     }
 
-    public ID3D11Texture2D? Convert(ID3D11Texture2D source)
+    public ID3D11Texture2D? Convert(ID3D11Texture2D source, uint subresource)
     {
         var desc = source.Description;
         EnsureInput((int)desc.Width, (int)desc.Height);
@@ -124,7 +124,7 @@ internal sealed class VideoProcessorConverter : IDisposable
         var index = AcquireOutput();
         if (index < 0) return null;
 
-        _context.CopyResource(_copy, source);
+        _context.CopySubresourceRegion(_copy, 0, 0, 0, 0, source, subresource, null);
         _pass.Run(_yView, _uvView, _outputViews[index], _outputWidth, _outputHeight, _shader,
             ReadOnlySpan<float>.Empty);
         _context.End(_queries[index]);

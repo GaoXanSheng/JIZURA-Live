@@ -674,8 +674,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             card.Drop += LayerCard_Drop;
             card.DragLeave += (_, _) => RestoreCardStroke(card);
 
-            var stack = new StackPanel();
-            card.Content = stack;
+            var body = new Grid();
+            body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            card.Content = body;
 
             var head = new Grid();
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -686,6 +688,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                     ? layer.SpoutSenderName!
                     : layer.Name,
                 TextPrimaryKey, 13);
+            name.TextTrimming = TextTrimming.CharacterEllipsis;
+            name.Margin = new Thickness(0, 0, 6, 0);
             Grid.SetColumn(name, 0);
             head.Children.Add(name);
 
@@ -712,17 +716,28 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             {
                 _evaluator.RemoveCurvesForTarget(idRef);
                 PublishDirector();
-                _pipe?.RequestRemove(idRef);
+                var pipe = _pipe;
+                if (pipe is not null)
+                {
+                    pipe.RequestRemove(idRef);
+                    return;
+                }
+
+                var index = _scene.Layers.FindIndex(l => l.Id == idRef);
+                if (index < 0) return;
+                _scene.Layers = PvPipeline.WithLayerRemovedAt(_scene.Layers, index);
+                BuildLayerList();
             };
             headRight.Children.Add(del);
 
             Grid.SetColumn(headRight, 1);
             head.Children.Add(headRight);
-            stack.Children.Add(head);
+            body.Children.Add(head);
 
             var meta = ThemeText(LayerMetaLabel(layer), TextTertiaryKey, 11);
             meta.Margin = new Thickness(0, 2, 0, 0);
-            stack.Children.Add(meta);
+            Grid.SetRow(meta, 1);
+            body.Children.Add(meta);
 
             LayersHost.Children.Add(card);
         }
@@ -754,7 +769,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void LayerCard_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is DependencyObject d && FindAncestor<System.Windows.Controls.Primitives.RangeBase>(d) is not null) return;
+        if (e.OriginalSource is DependencyObject d
+            && (FindAncestor<RangeBase>(d) is not null
+                || FindAncestor<ButtonBase>(d) is not null
+                || FindAncestor<Wpf.Ui.Controls.ToggleSwitch>(d) is not null)) return;
         var layer = ((Wpf.Ui.Controls.Card)sender).Tag as PvLayerConfig;
         if (!ReferenceEquals(layer, _selectedLayer)) SelectLayer(layer);
         _dragStart = e.GetPosition(this);

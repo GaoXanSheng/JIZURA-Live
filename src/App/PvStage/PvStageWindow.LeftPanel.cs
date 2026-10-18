@@ -19,8 +19,6 @@ public partial class PvStageWindow
     private Wpf.Ui.Controls.Button NavOutput => Left.NavOutput;
     private Wpf.Ui.Controls.Button NavSettings => Left.NavSettings;
 
-    private Wpf.Ui.Controls.Button BtnOpenAudio => Left.BtnOpenAudio;
-    private Wpf.Ui.Controls.Button BtnOpenLyrics => Left.BtnOpenLyrics;
     private Wpf.Ui.Controls.Button BtnAddLayer => Left.BtnAddLayer;
     private Wpf.Ui.Controls.Button BtnGenerateAuto => Left.BtnGenerateAuto;
     private Wpf.Ui.Controls.Button BtnRegenerateAuto => Left.BtnRegenerateAuto;

@@ -23,7 +23,6 @@ public partial class PvStageWindow
         {
             ("导入音频…", () => BtnOpenAudio_Click(this, new RoutedEventArgs())),
             ("导入歌词…", () => BtnOpenLyrics_Click(this, new RoutedEventArgs())),
-            ("云端音乐…", () => _ = ImportCloudMusicAsync()),
         });
 
     private void ShowMenu(FrameworkElement anchor, IReadOnlyList<(string Label, Action Click)> items)
@@ -83,7 +82,8 @@ public partial class PvStageWindow
         TblStatus.Text = $"云端音乐：{song.Singer} - {song.Name} 正在获取…";
         try
         {
-            var loaded = await CloudMusicService.LoadAsync(song, msg => TblStatus.Text = "云端音乐：" + msg);
+            var loaded = await CloudMusicService.LoadAsync(song, dlg.Quality,
+                msg => TblStatus.Text = "云端音乐：" + msg);
             LoadAudioFile(loaded.AudioPath);
 
             if (!string.IsNullOrWhiteSpace(loaded.Lrc))
