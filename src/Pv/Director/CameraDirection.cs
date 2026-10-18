@@ -40,6 +40,8 @@ public sealed class CameraTrack
     public double Width { get; set; } = 1280;
     public double Height { get; set; } = 720;
 
+    public bool UserEdited { get; set; }
+
     public CameraTrack Clone()
     {
         var copy = new CameraTrack
@@ -47,6 +49,7 @@ public sealed class CameraTrack
             BeatLen = BeatLen,
             Width = Width,
             Height = Height,
+            UserEdited = UserEdited,
             Beats = new List<double>(Beats),
             Shots = new List<CameraShot>(Shots.Count),
         };

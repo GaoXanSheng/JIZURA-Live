@@ -204,6 +204,5 @@
                       ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Cursor="SizeNS" />
 
         <tl:TimelineView x:Name="TheTimeline" Grid.Row="4" />
-        <ui:ContentDialogHost x:Name="RootContentDialogHost" Grid.RowSpan="5" />
     </Grid>
 </ui:FluentWindow>

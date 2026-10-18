@@ -73,6 +73,8 @@ public static class ProjectStore
 
         SanitizeCameraTrack(project);
 
+        project.SyncCharacterCameraTrack();
+
         SanitizeDesignSegments(project);
 
         SanitizeLayout(project);
@@ -285,7 +287,9 @@ public static class ProjectStore
                 return new ProjectBootstrap(loaded.Project, null, false);
 
             Log.Warn("[工程存储] 打开工程失败，本次会话使用默认工程（磁盘文件保持原样）：" + loaded.Fault);
-            return new ProjectBootstrap(new DirectorProject(), loaded.Fault, false);
+            var fallback = new DirectorProject();
+            fallback.SyncCharacterCameraTrack();
+            return new ProjectBootstrap(fallback, loaded.Fault, false);
         }
 
         var faults = new List<string>();
@@ -296,6 +300,7 @@ public static class ProjectStore
         };
 
         NormalizeScene(project, project.Scene);
+        project.SyncCharacterCameraTrack();
 
         var saveFault = Save(project, projectPath);
         if (saveFault is not null) faults.Add($"工程文件写入失败：{saveFault}");

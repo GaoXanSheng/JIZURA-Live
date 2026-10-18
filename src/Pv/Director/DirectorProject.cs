@@ -51,6 +51,44 @@ public sealed class DirectorProject
 
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public EditorLayout EditorLayout { get; set; } = new();
+
+    public void SyncCharacterCameraTrack(bool refreshAuto = false)
+    {
+        Scene ??= PvScene.CreateDefault();
+        LayerCameraTracks ??= new Dictionary<string, CameraTrack>(StringComparer.Ordinal);
+
+        var character = Scene.Layers.FirstOrDefault(l => l.Id == PvScene.CharacterLayerId);
+        if (character is not null)
+        {
+            character.Parallax ??= new PvParallaxConfig();
+            character.Parallax.Follow = 0;
+        }
+
+        if (CameraTrack is null || CameraTrack.Shots is not { Count: > 0 }) return;
+
+        if (!LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+        {
+            var copy = CameraTrack.Clone();
+            copy.UserEdited = false;
+            LayerCameraTracks[PvScene.CharacterLayerId] = copy;
+            return;
+        }
+
+        if (!refreshAuto || layerTrack is null || layerTrack.Shots is not { Count: > 0 }) return;
+        if (layerTrack.UserEdited
+            || layerTrack.Shots.Any(shot => shot.Locked
+                                             || string.Equals(shot.Source, "user", StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        var refreshed = CameraTrack.Clone();
+        layerTrack.Shots.Clear();
+        layerTrack.Shots.AddRange(refreshed.Shots);
+        layerTrack.Beats = refreshed.Beats;
+        layerTrack.BeatLen = refreshed.BeatLen;
+        layerTrack.Width = refreshed.Width;
+        layerTrack.Height = refreshed.Height;
+        layerTrack.UserEdited = false;
+    }
 }
 
 public sealed class EditorLayout

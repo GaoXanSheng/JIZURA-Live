@@ -261,6 +261,7 @@ public sealed class PresentHost : HwndHost
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter,
         int x, int y, int cx, int cy, int flags);
 
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);

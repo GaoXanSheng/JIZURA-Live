@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
@@ -1709,33 +1710,111 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SyncPvRenderOption();
     }
 
-    private async Task<double?> PromptTimelineValueAsync(double current)
+    private Task<double?> PromptTimelineValueAsync(double current)
     {
         try
         {
             var box = new Wpf.Ui.Controls.NumberBox
             {
                 Value = current,
-                MinWidth = 180,
+                MinWidth = 220,
                 MaxDecimalPlaces = 3,
                 SmallChange = 0.1,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
             };
-            var dialog = new Wpf.Ui.Controls.ContentDialog(RootContentDialogHost)
+            var title = new TextBlock
             {
-                Title = L.T("Dialog.Value"),
-                Content = box,
-                PrimaryButtonText = "OK",
-                CloseButtonText = L.T("Dialog.Cancel"),
-                DefaultButton = Wpf.Ui.Controls.ContentDialogButton.Primary,
+                Text = L.T("Dialog.Value"),
+                FontSize = 18,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 12),
             };
-            var result = await dialog.ShowAsync(CancellationToken.None);
-            return result == Wpf.Ui.Controls.ContentDialogResult.Primary ? box.Value : null;
+            title.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
+
+            var ok = new Wpf.Ui.Controls.Button
+            {
+                Content = "OK",
+                Appearance = Wpf.Ui.Controls.ControlAppearance.Primary,
+                MinWidth = 88,
+                IsDefault = true,
+            };
+            var cancel = new Wpf.Ui.Controls.Button
+            {
+                Content = L.T("Dialog.Cancel"),
+                MinWidth = 88,
+                IsCancel = true,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 16, 0, 0),
+            };
+            buttons.Children.Add(ok);
+            buttons.Children.Add(cancel);
+
+            var panel = new StackPanel();
+            panel.Children.Add(title);
+            panel.Children.Add(box);
+            panel.Children.Add(buttons);
+
+            var card = new Border
+            {
+                Child = panel,
+                Padding = new Thickness(22),
+                CornerRadius = new CornerRadius(12),
+                BorderThickness = new Thickness(1),
+                Width = 360,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            card.SetResourceReference(Border.BackgroundProperty, "SolidBackgroundFillColorSecondaryBrush");
+            card.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
+
+            var overlay = new Grid
+            {
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(150, 0, 0, 0)),
+            };
+            overlay.Children.Add(card);
+
+            var dialog = new Window
+            {
+                Owner = this,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Width = ActualWidth,
+                Height = ActualHeight,
+                Content = overlay,
+                FontFamily = FontFamily,
+            };
+
+            ok.Click += (_, _) => dialog.DialogResult = true;
+            cancel.Click += (_, _) => dialog.DialogResult = false;
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter)
+                {
+                    dialog.DialogResult = true;
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    dialog.DialogResult = false;
+                    e.Handled = true;
+                }
+            };
+
+            var accepted = dialog.ShowDialog() == true;
+            return Task.FromResult(accepted ? box.Value : (double?)null);
         }
         catch (Exception ex)
         {
             Log.Warn("[PV 工作台] 数值输入失败：" + ex.Message);
-            return null;
+            return Task.FromResult<double?>(null);
         }
     }
 

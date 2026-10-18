@@ -58,6 +58,8 @@ public static partial class AutoDirector
         if (project.LegacyStageCamera)
             BuildAutoCamera(project, plan, options, report, preservedShots);
 
+        project.SyncCharacterCameraTrack(refreshAuto: true);
+
         if (project.LegacyStageTransitions)
             BuildLegacyTransitions(project, plan, report);
 

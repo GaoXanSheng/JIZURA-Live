@@ -237,9 +237,10 @@ public partial class PvStageWindow
         InspectorHost.Children.Add(LayerRow(layer, "rotation", "旋转", 1));
         InspectorHost.Children.Add(ConstRow("深度", 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
-        InspectorHost.Children.Add(ConstRow("跟随运镜", 0, 2, 0.01,
-            () => layer.Parallax.Follow ?? layer.Parallax.Depth,
-            v => layer.Parallax.Follow = v));
+        if (layer.Id != PvScene.CharacterLayerId)
+            InspectorHost.Children.Add(ConstRow("跟随运镜", 0, 2, 0.01,
+                () => layer.Parallax.Follow ?? layer.Parallax.Depth,
+                v => layer.Parallax.Follow = v));
         InspectorHost.Children.Add(ConstRow("环境光", 0, 1, 0.02,
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
         InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
@@ -264,7 +265,7 @@ public partial class PvStageWindow
     {
         InspectorHost.Children.Add(SectionTitle("角色运镜（独立于全局运镜）"));
         InspectorHost.Children.Add(ThemeText(
-            "添加后会自动把该层的“跟随运镜”设为 0，避免和全局运镜叠加。",
+            "角色默认跟随自己的运镜轨；首次生成时自动拷贝全局运镜轨，可在时间线“角色运镜”轨单独调整。",
             TextSecondaryKey, 11, wrap: true));
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 6, 0, 0) };
@@ -287,10 +288,41 @@ public partial class PvStageWindow
         };
         InspectorHost.Children.Add(add);
 
+        var copy = new Wpf.Ui.Controls.Button
+        {
+            Content = "拷贝全局运镜",
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        copy.Click += (_, _) => CopyGlobalCameraToLayer(layer);
+        InspectorHost.Children.Add(copy);
+
         if (_project.LayerCameraTracks.TryGetValue(layer.Id, out var track) && track.Shots.Count > 0)
             InspectorHost.Children.Add(ThemeText(
                 $"已有 {track.Shots.Count} 段，可在时间线“角色运镜”轨选中编辑。",
                 TextSecondaryKey, 11, wrap: true));
+    }
+
+    private void CopyGlobalCameraToLayer(PvLayerConfig layer)
+    {
+        var source = _project.CameraTrack;
+        if (source is null || source.Shots.Count == 0)
+        {
+            TblStatus.Text = "全局运镜轨为空，先一键生成或手动添加运镜";
+            return;
+        }
+
+        var copy = source.Clone();
+        copy.UserEdited = false;
+        _project.LayerCameraTracks[layer.Id] = copy;
+        layer.Parallax.Follow = 0;
+        _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        PublishDirector();
+        RefreshTimeline();
+        BuildInspector();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = $"已拷贝 {copy.Shots.Count} 段全局运镜到角色运镜轨";
     }
 
     private void AddLayerCameraShot(PvLayerConfig layer, string preset)
@@ -329,6 +361,7 @@ public partial class PvStageWindow
             Source = "user",
         });
         track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+        track.UserEdited = true;
 
         layer.Parallax.Follow = 0;
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);

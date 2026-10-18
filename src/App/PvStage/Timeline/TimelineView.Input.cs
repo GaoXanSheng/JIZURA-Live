@@ -375,7 +375,9 @@ public sealed partial class TimelineView
 
     private static bool IsLegacy(TDesignSegment seg) =>
         string.Equals(seg.Source, "legacy", StringComparison.Ordinal)
-        && seg.RefId.StartsWith("legacy_", StringComparison.Ordinal);
+        && seg.RefId.StartsWith("legacy_", StringComparison.Ordinal)
+        && seg.Track is (int)DesignTrackKind.Layout or (int)DesignTrackKind.Enter
+            or (int)DesignTrackKind.Exit or (int)DesignTrackKind.Treat;
 
     private void UpdateDesignCursor(Point p)
     {

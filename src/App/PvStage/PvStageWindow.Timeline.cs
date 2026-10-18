@@ -296,6 +296,25 @@ public partial class PvStageWindow
             || string.Equals(d.Id, refId, StringComparison.Ordinal));
     }
 
+    private CameraShot? FindCameraShotAt(double start)
+    {
+        var shots = _project.CameraTrack?.Shots;
+        return shots?.FirstOrDefault(s => Math.Abs(s.Start - start) < 0.05);
+    }
+
+    private CameraShot? FindLayerCameraShotAt(double start)
+    {
+        if (!_project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var track)) return null;
+        return track.Shots.FirstOrDefault(s => Math.Abs(s.Start - start) < 0.05);
+    }
+
+    private DesignSegment? FindDesignSegmentAt(int track, double start)
+    {
+        var kind = (DesignTrackKind)track;
+        return _project.DesignSegments.FirstOrDefault(d =>
+            d.Track == kind && Math.Abs(d.Start - start) < 0.05);
+    }
+
     private SegmentTarget? FindLegacyCut(string refId)
     {
         if (_legacyPlanInfo is not { } plan || string.IsNullOrEmpty(refId)) return null;
@@ -318,15 +337,17 @@ public partial class PvStageWindow
                 : window >= 0 ? SegmentTarget.OfEffectWindow(node, window) : SegmentTarget.Of(node);
         }
         else if (seg.Track == (int)DesignTrackKind.Cam)
-            _segmentTarget = FindCameraShot(seg.RefId) is { } shot
+            _segmentTarget = (FindCameraShot(seg.RefId) ?? FindCameraShotAt(seg.Start)) is { } shot
                 ? SegmentTarget.Of(shot)
                 : null;
         else if (seg.Track == (int)DesignTrackKind.LayerCam)
-            _segmentTarget = FindLayerCameraShot(seg.RefId) is { } layerShot
+            _segmentTarget = (FindLayerCameraShot(seg.RefId) ?? FindLayerCameraShotAt(seg.Start)) is { } layerShot
                 ? SegmentTarget.OfLayerShot(layerShot)
                 : null;
         else if (FindDesignSegment(seg.RefId) is { } design)
             _segmentTarget = SegmentTarget.Of(design);
+        else if (FindDesignSegmentAt(seg.Track, seg.Start) is { } designAt)
+            _segmentTarget = SegmentTarget.Of(designAt);
         else if (FindLegacyCut(seg.RefId) is { } legacy)
             _segmentTarget = legacy;
         else _segmentTarget = null;
@@ -394,8 +415,7 @@ public partial class PvStageWindow
                 if (_project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
                 {
                     removed = layerTrack.Shots.Remove(shot);
-                    if (layerTrack.Shots.Count == 0)
-                        _project.LayerCameraTracks.Remove(PvScene.CharacterLayerId);
+                    if (removed) layerTrack.UserEdited = true;
                     cameraChanged = removed;
                 }
                 break;
@@ -501,7 +521,10 @@ public partial class PvStageWindow
                 shot.Source = "user";
                 if (_segmentTarget is { LayerShot: true }
                     && _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+                {
+                    layerTrack.UserEdited = true;
                     layerTrack.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+                }
                 else
                     _project.CameraTrack?.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
                 break;
@@ -531,6 +554,9 @@ public partial class PvStageWindow
             case { Shot: { } shot }:
                 shot.Params[key] = value;
                 shot.Source = "user";
+                if (_segmentTarget is { LayerShot: true }
+                    && _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+                    layerTrack.UserEdited = true;
                 break;
             case { Design: { } design }:
                 design.Params[key] = value;
@@ -552,6 +578,9 @@ public partial class PvStageWindow
                 break;
             case { Shot: { } shot }:
                 shot.Locked = locked;
+                if (_segmentTarget is { LayerShot: true }
+                    && _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+                    layerTrack.UserEdited = true;
                 break;
             case { Design: { } design }:
                 design.Locked = locked;
