@@ -19,6 +19,7 @@ public partial class PvStageWindow
     private double _vtsExpressionDuration = 2.0;
     private VtsCueMode _vtsHotkeyMode = VtsCueMode.Toggle;
     private VtsCueMode _vtsExpressionMode = VtsCueMode.Toggle;
+    private readonly HashSet<string> _manualExprOn = new(StringComparer.Ordinal);
     private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
 
     private static readonly ParamAddress VtsXAddr = new(ParamAddressKind.Vts, "model", "x");
@@ -115,6 +116,28 @@ public partial class PvStageWindow
         auto.Click += (_, _) => GenerateVtsMoveFromAudio();
         AddInspector(auto);
 
+        var clear = new Wpf.Ui.Controls.Button
+        {
+            Content = "清空移动关键帧",
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 10, 0, 0),
+        };
+        clear.Click += (_, _) => ClearVtsMoves();
+        AddInspector(clear);
+
+        AddInspector(ThemeText(
+            "点每行的 ◆K 在播放头打关键帧；关键帧会出现在时间线自动化轨，可直接拖贝塞尔手柄。",
+            TextTertiaryKey, 11, wrap: true));
+    }
+
+    private void BuildCharacterExpressionSection()
+    {
+        AddSectionTitle("角色表情");
+        AddInspector(ThemeText(
+            "动作键与表情共用时间线；开关到点开启、结束关闭，一次性只触发开始，手动不自动触发。",
+            TextSecondaryKey, 11, wrap: true));
+
         AddInspector(ThemeText("动作关键帧", TextSecondaryKey, 12));
         AddInspector(ConstRow("持续", 0.3, 20, 0.1,
             () => _vtsHotkeyDuration, v => _vtsHotkeyDuration = v));
@@ -139,43 +162,35 @@ public partial class PvStageWindow
 
         var hotAdd = new Wpf.Ui.Controls.Button
         {
-            Content = "在播放头开启动作",
+            Content = _vtsHotkeyMode == VtsCueMode.Manual ? "手动触发动作" : "在播放头开启动作",
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
         };
         hotAdd.Click += (_, _) =>
         {
-            if (hotCombo.SelectedItem is ComboBoxItem { Tag: string id })
-                AddVtsCue(VtsCueKind.Hotkey, id, _vtsHotkeyMode);
-            else TblStatus.Text = "先连上 VTS 读取动作键";
+            if (hotCombo.SelectedItem is not ComboBoxItem { Tag: string id })
+            {
+                TblStatus.Text = "先连上 VTS 读取动作键";
+                return;
+            }
+
+            if (_vtsHotkeyMode == VtsCueMode.Manual)
+            {
+                _vts.TriggerHotkey(id);
+                TblStatus.Text = "已手动触发动作键";
+            }
+            else AddVtsCue(VtsCueKind.Hotkey, id, _vtsHotkeyMode);
         };
+        hotMode.SelectionChanged += (_, _) =>
+            hotAdd.Content = _vtsHotkeyMode == VtsCueMode.Manual ? "手动触发动作" : "在播放头开启动作";
         AddInspector(hotAdd);
 
-        var clear = new Wpf.Ui.Controls.Button
-        {
-            Content = "清空移动关键帧",
-            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 10, 0, 0),
-        };
-        clear.Click += (_, _) => ClearVtsMoves();
-        AddInspector(clear);
-
-        AddInspector(ThemeText(
-            "点每行的 ◆K 在播放头打关键帧；关键帧会出现在时间线自动化轨，可直接拖贝塞尔手柄。开关条可拖动、左右拉伸。",
-            TextTertiaryKey, 11, wrap: true));
-    }
-
-    private void BuildCharacterExpressionSection()
-    {
-        AddSectionTitle("角色表情");
-        AddInspector(ThemeText(
-            "开关：到点开启，区间结束关闭；一次性：只在起点触发。",
-            TextSecondaryKey, 11, wrap: true));
+        AddInspector(ThemeText("表情关键帧", TextSecondaryKey, 12));
         AddInspector(ConstRow("持续", 0.3, 20, 0.1,
             () => _vtsExpressionDuration, v => _vtsExpressionDuration = v));
-        AddInspector(VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v));
+        var exprMode = VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v);
+        AddInspector(exprMode);
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var file in _vts.Expressions)
@@ -191,18 +206,39 @@ public partial class PvStageWindow
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = "在播放头开启表情",
+            Content = _vtsExpressionMode == VtsCueMode.Manual ? "手动开关表情" : "在播放头开启表情",
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
         };
         add.Click += (_, _) =>
         {
-            if (combo.SelectedItem is ComboBoxItem { Tag: string file })
-                AddVtsCue(VtsCueKind.Expression, file, _vtsExpressionMode);
-            else TblStatus.Text = "先连上 VTS 读取表情";
+            if (combo.SelectedItem is not ComboBoxItem { Tag: string file })
+            {
+                TblStatus.Text = "先连上 VTS 读取表情";
+                return;
+            }
+
+            if (_vtsExpressionMode == VtsCueMode.Manual)
+            {
+                if (_manualExprOn.Remove(file))
+                {
+                    _vts.SetExpression(file, false, 0.1);
+                    TblStatus.Text = "已手动关闭表情";
+                }
+                else
+                {
+                    _vts.SetExpression(file, true, 0.1);
+                    _manualExprOn.Add(file);
+                    TblStatus.Text = "已手动开启表情";
+                }
+            }
+            else AddVtsCue(VtsCueKind.Expression, file, _vtsExpressionMode);
         };
+        exprMode.SelectionChanged += (_, _) =>
+            add.Content = _vtsExpressionMode == VtsCueMode.Manual ? "手动开关表情" : "在播放头开启表情";
         AddInspector(add);
+
         AddInspector(ThemeText(
             "时间线上的开关条可拖动位置，拖左右边缘改开始/结束；一次性关键帧只可拖动时间。",
             TextTertiaryKey, 11, wrap: true));
@@ -233,7 +269,13 @@ public partial class PvStageWindow
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         combo.Items.Add(new ComboBoxItem { Content = "开关（开始开，结束关）", Tag = VtsCueMode.Toggle });
         combo.Items.Add(new ComboBoxItem { Content = "一次性（只触发开始）", Tag = VtsCueMode.Once });
-        combo.SelectedIndex = read() == VtsCueMode.Once ? 1 : 0;
+        combo.Items.Add(new ComboBoxItem { Content = "手动（不自动触发）", Tag = VtsCueMode.Manual });
+        combo.SelectedIndex = read() switch
+        {
+            VtsCueMode.Once => 1,
+            VtsCueMode.Manual => 2,
+            _ => 0,
+        };
         combo.SelectionChanged += (_, _) =>
         {
             if (combo.SelectedItem is ComboBoxItem { Tag: VtsCueMode mode }) write(mode);
@@ -292,6 +334,7 @@ public partial class PvStageWindow
         {
             if (cue is null || cue.Time <= _cueTime || cue.Time > t) continue;
             if (string.IsNullOrWhiteSpace(cue.Target)) continue;
+            if (cue.Mode == VtsCueMode.Manual) continue;
 
             if (cue.Kind == VtsCueKind.Hotkey) _vts.TriggerHotkey(cue.Target);
             else if (cue.Kind == VtsCueKind.Expression) _vts.SetExpression(cue.Target, true, 0.15);

@@ -145,11 +145,6 @@
 
 
     <ItemGroup>
-      <Folder Include="DOC\" />
-    </ItemGroup>
-
-
-    <ItemGroup>
       <Page Remove="objcheck3 2\**" />
       <Page Remove="objcheck4 2\**" />
       <Page Remove="objcheck5 2\**" />

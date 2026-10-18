@@ -16,6 +16,8 @@ public enum VtsCueMode
     Toggle,
 
     Once,
+
+    Manual,
 }
 
 public sealed class VtsCue

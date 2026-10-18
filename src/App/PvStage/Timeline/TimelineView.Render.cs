@@ -352,7 +352,7 @@ public sealed partial class TimelineView
             if (cue.Time < _viewStart - 0.5 || cue.Time > viewEnd + 0.5) continue;
             double x = HeaderWidth + TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
 
-            if (cue.Mode == VtsCueMode.Once)
+            if (cue.Mode != VtsCueMode.Toggle)
             {
                 dc.DrawGeometry(brush, null, Diamond(x, cy, 4.5));
                 var onceLabel = Text(cue.Label, 9, brush);

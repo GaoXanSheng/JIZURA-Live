@@ -422,7 +422,7 @@ public sealed partial class TimelineView
                 return;
             }
 
-            if (cue.Mode == VtsCueMode.Once)
+            if (cue.Mode != VtsCueMode.Toggle)
             {
                 Cursor = Cursors.SizeAll;
                 return;
@@ -472,7 +472,7 @@ public sealed partial class TimelineView
         foreach (var cue in track.Cues)
         {
             double start = TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
-            if (cue.Mode == VtsCueMode.Once)
+            if (cue.Mode != VtsCueMode.Toggle)
             {
                 if (Math.Abs(x - start) <= 7) return cue;
                 continue;
