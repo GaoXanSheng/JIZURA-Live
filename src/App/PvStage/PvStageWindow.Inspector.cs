@@ -1195,7 +1195,8 @@ public partial class PvStageWindow
             Padding = new Thickness(6),
             Child = scroll,
         };
-        root.SetResourceReference(Border.BackgroundProperty, CardFillKey);
+        root.Background = TryFindResource("ApplicationBackgroundBrush") as Brush
+                          ?? new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x24));
         root.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
 
         popup = new Popup

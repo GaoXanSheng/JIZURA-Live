@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using JizuraLive.App;
 using JizuraLive.Logging;
 using JizuraLive.Render.Effects;
@@ -14,7 +16,7 @@ public static class ProjectStore
 {
     private static readonly object WriteGate = new();
 
-    public static string? Save(DirectorProject project, string path)
+    public static string? SaveJson(DirectorProject project, string path)
     {
         try
         {
@@ -33,15 +35,49 @@ public static class ProjectStore
         }
     }
 
+    public static string? Save(DirectorProject project, string path, byte[]? audio)
+    {
+        try
+        {
+            var json = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(project));
+            var bytes = JizuraPackage.Build(json, audio);
+            lock (WriteGate)
+            {
+                JizuraPackage.WriteFile(path, bytes);
+            }
+
+            Log.Info($"[工程存储] 工程包已保存：{path}（{bytes.Length} 字节，音频 {(audio is { Length: > 0 } ? audio.Length : 0)} 字节）");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[工程存储] 保存失败：" + ex.Message);
+            return ex.Message;
+        }
+    }
+
     public static ProjectLoadResult Load(string path)
     {
         if (!File.Exists(path))
             return new ProjectLoadResult(null, $"工程文件不存在：{path}");
 
         string json;
+        byte[]? embeddedAudio = null;
         try
         {
-            json = File.ReadAllText(path);
+            var bytes = File.ReadAllBytes(path);
+            if (JizuraPackage.LooksLikePackage(bytes))
+            {
+                var entries = JizuraPackage.Read(bytes);
+                var projectEntry = entries.FirstOrDefault(e => e.Name == "project.json")
+                                   ?? throw new InvalidDataException("工程包缺少 project.json");
+                json = Encoding.UTF8.GetString(projectEntry.Data);
+                embeddedAudio = entries.FirstOrDefault(e => e.Name == "audio.bin")?.Data;
+            }
+            else
+            {
+                json = Encoding.UTF8.GetString(bytes);
+            }
         }
         catch (Exception ex)
         {
@@ -60,6 +96,22 @@ public static class ProjectStore
 
         if (project is null)
             return new ProjectLoadResult(null, "工程文件 JSON 损坏：解析结果为空");
+
+        if (embeddedAudio is { Length: > 0 })
+            RestoreEmbeddedAudio(project, path, embeddedAudio);
+
+        if (!string.IsNullOrWhiteSpace(project.AudioPath) && !Path.IsPathRooted(project.AudioPath))
+        {
+            try
+            {
+                project.AudioPath = Path.GetFullPath(
+                    Path.Combine(Path.GetDirectoryName(path) ?? "", project.AudioPath));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[工程存储] 相对音频路径解析失败：" + ex.Message);
+            }
+        }
 
         if (project.SchemaVersion > DirectorProject.CurrentSchemaVersion)
             return new ProjectLoadResult(null,
@@ -224,6 +276,29 @@ public static class ProjectStore
         project.SchemaVersion = DirectorProject.CurrentSchemaVersion;
     }
 
+    private static void RestoreEmbeddedAudio(DirectorProject project, string projectPath, byte[] data)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppDirs.AudioCacheDir);
+            var source = string.IsNullOrWhiteSpace(project.AudioPath) ? projectPath : project.AudioPath;
+            var ext = Path.GetExtension(source);
+            if (string.IsNullOrWhiteSpace(ext)) ext = ".mp3";
+            var baseName = Path.GetFileNameWithoutExtension(source);
+            if (string.IsNullOrWhiteSpace(baseName)) baseName = "audio";
+            var hash = Convert.ToHexString(SHA256.HashData(data))[..12].ToLowerInvariant();
+            var cached = Path.Combine(AppDirs.AudioCacheDir, $"{baseName}_{hash}{ext}");
+            if (!File.Exists(cached) || new FileInfo(cached).Length != data.Length)
+                File.WriteAllBytes(cached, data);
+            project.AudioPath = cached;
+            Log.Info($"[工程存储] 工程包音频已解包：{cached}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[工程存储] 工程包音频提取失败：" + ex.Message);
+        }
+    }
+
     private static void NormalizeScene(DirectorProject project, PvScene scene)
     {
         if (scene is null) return;
@@ -302,7 +377,7 @@ public static class ProjectStore
         NormalizeScene(project, project.Scene);
         project.SyncCharacterCameraTrack();
 
-        var saveFault = Save(project, projectPath);
+        var saveFault = SaveJson(project, projectPath);
         if (saveFault is not null) faults.Add($"工程文件写入失败：{saveFault}");
 
         return new ProjectBootstrap(project, faults.Count > 0 ? string.Join("；", faults) : null, true);

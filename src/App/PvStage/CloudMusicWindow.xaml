@@ -1,0 +1,57 @@
+<ui:FluentWindow x:Class="JizuraLive.App.PvStage.CloudMusicWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="云端音乐"
+                 Width="780" Height="540"
+                 MinWidth="640" MinHeight="420"
+                 WindowStartupLocation="CenterOwner"
+                 Background="{DynamicResource ApplicationBackgroundBrush}"
+                 FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
+                 UseLayoutRounding="True">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal">
+            <ComboBox x:Name="CmbSource" Width="110" VerticalAlignment="Center">
+                <ComboBoxItem Content="酷狗音乐" Tag="kugou" IsSelected="True" />
+                <ComboBoxItem Content="网易云音乐" Tag="netease" />
+            </ComboBox>
+            <TextBox x:Name="TxtKeyword" Width="360" Height="32" Margin="10,0,0,0"
+                     Padding="8,0" VerticalContentAlignment="Center"
+                     KeyDown="TxtKeyword_KeyDown" />
+            <ui:Button x:Name="BtnSearch" Content="搜索" Margin="10,0,0,0"
+                       Appearance="Primary" Click="BtnSearch_Click" />
+        </StackPanel>
+
+        <TextBlock x:Name="TblStatus" Grid.Row="1" Margin="0,10,0,6" FontSize="12"
+                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="输入歌名或歌手后搜索" />
+
+        <ListView x:Name="LstSongs" Grid.Row="2" MouseDoubleClick="LstSongs_MouseDoubleClick"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="歌名" Width="300" DisplayMemberBinding="{Binding Name}" />
+                    <GridViewColumn Header="歌手" Width="220" DisplayMemberBinding="{Binding Singer}" />
+                    <GridViewColumn Header="专辑" Width="150" DisplayMemberBinding="{Binding Album}" />
+                    <GridViewColumn Header="时长" Width="60" DisplayMemberBinding="{Binding Length}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock Grid.Row="3" Margin="0,8,0,0" FontSize="11"
+                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                   Text="导入后音频会下载到云端音乐缓存；歌词随歌曲一起写入工程。" />
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <ui:Button x:Name="BtnImport" Content="导入选中" Appearance="Primary" Click="BtnImport_Click" />
+            <ui:Button Content="取消" Margin="8,0,0,0" Click="BtnCancel_Click" />
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

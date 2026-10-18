@@ -136,6 +136,14 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         InitVolume();
 
         var boot = ProjectStore.LoadOrImport(ProjectPath, LegacyScenePath, LegacyEffectsPath);
+        var autosavePath = ProjectPath + ".autosave.json";
+        if (File.Exists(autosavePath)
+            && (!File.Exists(ProjectPath) || File.GetLastWriteTimeUtc(autosavePath) > File.GetLastWriteTimeUtc(ProjectPath)))
+        {
+            var recovered = ProjectStore.Load(autosavePath);
+            if (recovered.Project is not null) boot = new ProjectBootstrap(recovered.Project, null, false);
+        }
+
         _project = boot.Project;
         if (_lyricsAvoid) _project.Preset.CenterFree = false;
         _scene = _project.Scene;
@@ -220,16 +228,132 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _audio.Play();
     }
 
+    private string _projectPath = ProjectPath;
     private static string ProjectPath => Path.Combine(AppDirs.ConfigDir, "pv_project.jzpv");
     private static string LegacyScenePath => Path.Combine(AppDirs.ConfigDir, "pv_scene.json");
     private static string LegacyEffectsPath => Path.Combine(AppDirs.ConfigDir, "pv_effects.json");
+
+    private string AutosavePath => _projectPath + ".autosave.json";
 
     private string? SaveProjectNow()
     {
         _project.AudioPath = _audioPath;
         _project.LrcText = _lrcText;
+        _project.Scene = _scene;
         SyncCurvesToProject();
-        return ProjectStore.Save(_project, ProjectPath);
+        return ProjectStore.SaveJson(_project, AutosavePath);
+    }
+
+    private string? SaveProjectToCurrent()
+    {
+        _project.AudioPath = _audioPath;
+        _project.LrcText = _lrcText;
+        _project.Scene = _scene;
+        SyncCurvesToProject();
+
+        byte[]? audio = null;
+        if (!string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath))
+        {
+            try
+            {
+                audio = File.ReadAllBytes(_audioPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[PV 工作台] 读取音频失败，工程将不内嵌音频：" + ex.Message);
+            }
+        }
+
+        var fault = ProjectStore.Save(_project, _projectPath, audio);
+        if (fault is null) DeleteAutosave();
+        return fault;
+    }
+
+    private void DeleteAutosave()
+    {
+        try
+        {
+            if (File.Exists(AutosavePath)) File.Delete(AutosavePath);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("[PV 工作台] 清理自动保存失败：" + ex.Message);
+        }
+    }
+
+    private void SaveProjectAs()
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "工程另存为",
+            Filter = "PV 工程 (*.jzpv)|*.jzpv|所有文件 (*.*)|*.*",
+            DefaultExt = ".jzpv",
+            AddExtension = true,
+            FileName = string.IsNullOrWhiteSpace(_project.Name) ? "PV工程" : _project.Name,
+            InitialDirectory = AppDirs.ConfigDir,
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        var target = dlg.FileName;
+        var dir = Path.GetDirectoryName(target);
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            TblStatus.Text = "另存为失败：目标目录无效";
+            return;
+        }
+
+        byte[]? audio = null;
+        if (!string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath))
+        {
+            try
+            {
+                audio = File.ReadAllBytes(_audioPath);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[PV 工作台] 另存为读取音频失败：" + ex.Message);
+                TblStatus.Text = "另存为失败：音频读取失败（" + ex.Message + "）";
+                return;
+            }
+        }
+
+        _project.AudioPath = _audioPath;
+        _project.LrcText = _lrcText;
+        _project.Scene = _scene;
+        SyncCurvesToProject();
+
+        DirectorProject copy;
+        try
+        {
+            var json = JsonConvert.SerializeObject(_project, Formatting.Indented);
+            copy = JsonConvert.DeserializeObject<DirectorProject>(json)
+                   ?? throw new InvalidOperationException("工程快照解析为空");
+        }
+        catch (Exception ex)
+        {
+            TblStatus.Text = "另存为失败：" + ex.Message;
+            return;
+        }
+
+        copy.Name = Path.GetFileNameWithoutExtension(target);
+        copy.LrcText = _lrcText ?? "";
+        copy.Scene = _scene;
+        copy.Effects = _effects;
+
+        var fault = ProjectStore.Save(copy, target, audio);
+        if (fault is not null)
+        {
+            TblStatus.Text = "另存为失败：" + fault;
+            return;
+        }
+
+        _projectPath = target;
+        _project.Name = copy.Name;
+        DeleteAutosave();
+
+        string audioNote = audio is { Length: > 0 } ? "，音频已内嵌" : "，工程未关联音频";
+        TblStatus.Text = $"已另存为：{target}{audioNote}";
+        Log.Info($"[PV 工作台] 工程已另存为：{target}{audioNote}");
     }
 
     private void SyncCurvesToProject()
@@ -254,7 +378,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        var fault = SaveProjectNow();
+        var fault = SaveProjectToCurrent();
         if (fault is not null)
         {
             Log.Error($"[PV 工作台] 关闭前保存失败：{fault}");
@@ -799,10 +923,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (MessageBox.Show(this,
                 "新建工程会把当前工作台重置为默认工程（场景 / 效果 / 曲线全部回到默认）。\n\n"
-                + $"当前工程会先备份为 {Path.GetFileName(ProjectPath)}.bak，然后被默认工程覆盖。继续？",
+                + $"当前工程会先备份为 {Path.GetFileName(_projectPath)}.bak，然后被默认工程覆盖。继续？",
                 "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
 
-        AdoptProject(new DirectorProject(), "已新建工程");
+        AdoptProject(new DirectorProject(), "已新建工程", newPath: ProjectPath);
     }
 
     private void BtnOpenProject_Click(object sender, RoutedEventArgs e)
@@ -815,7 +939,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         };
         if (dlg.ShowDialog(this) != true) return;
 
-        var loaded = ProjectStore.Load(dlg.FileName);
+        var loaded = LoadProjectWithAutosave(dlg.FileName);
         if (loaded.Project is null)
         {
             var fault = loaded.Fault ?? "未知原因";
@@ -827,15 +951,30 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         if (MessageBox.Show(this,
                 $"打开工程：{loaded.Project.Name}\n{dlg.FileName}\n\n"
-                + $"当前工作台会被它整份替换（当前工程先备份为 {Path.GetFileName(ProjectPath)}.bak）。继续？",
+                + $"当前工作台会被它整份替换（当前工程先备份为 {Path.GetFileName(_projectPath)}.bak）。继续？",
                 "PV 工作台", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
-        AdoptProject(loaded.Project, $"已打开工程：{loaded.Project.Name}");
+        AdoptProject(loaded.Project, $"已打开工程：{loaded.Project.Name}", newPath: dlg.FileName);
     }
 
-    private void AdoptProject(DirectorProject project, string note, bool resetUndo = true)
+    private static ProjectLoadResult LoadProjectWithAutosave(string path)
+    {
+        var loaded = ProjectStore.Load(path);
+        if (loaded.Project is null) return loaded;
+
+        var autosave = path + ".autosave.json";
+        if (!File.Exists(autosave)) return loaded;
+        if (File.Exists(path) && File.GetLastWriteTimeUtc(autosave) <= File.GetLastWriteTimeUtc(path)) return loaded;
+
+        var recovered = ProjectStore.Load(autosave);
+        return recovered.Project is not null ? recovered : loaded;
+    }
+
+    private void AdoptProject(DirectorProject project, string note, bool resetUndo = true, string? newPath = null)
     {
         if (!BackupProjectFile()) return;
+
+        if (!string.IsNullOrWhiteSpace(newPath)) _projectPath = newPath;
 
         var prevAudio = _audioPath;
         _projectEpoch++;
@@ -922,17 +1061,17 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _saveError = SaveProjectNow();
         TblStatus.Text = _saveError is null ? note : $"{note}（工程文件写入失败：{_saveError}）";
         _exportFormEdited = false;
-        Log.Info($"[PV 工作台] {note}（存盘落到 {ProjectPath}）");
+        Log.Info($"[PV 工作台] {note}（存盘落到 {_projectPath}）");
     }
 
     private bool BackupProjectFile()
     {
-        if (!File.Exists(ProjectPath)) return true;
+        if (!File.Exists(_projectPath)) return true;
 
         try
         {
-            File.Copy(ProjectPath, ProjectPath + ".bak", overwrite: true);
-            Log.Info($"[PV 工作台] 已备份当前工程：{ProjectPath}.bak");
+            File.Copy(_projectPath, _projectPath + ".bak", overwrite: true);
+            Log.Info($"[PV 工作台] 已备份当前工程：{_projectPath}.bak");
             return true;
         }
         catch (Exception ex)
@@ -1544,11 +1683,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void SaveNow()
     {
-        _saveError = SaveProjectNow();
+        _saveError = SaveProjectToCurrent();
         TblStatus.Text = _saveError is null ? "工程已保存" : $"保存失败：{_saveError}";
     }
 
     private void BtnSave_Click(object sender, RoutedEventArgs e) => SaveNow();
+
+    private void BtnSaveAs_Click(object sender, RoutedEventArgs e) => SaveProjectAs();
 
     private void BtnUndo_Click(object sender, RoutedEventArgs e) => UndoRedo(true);
 

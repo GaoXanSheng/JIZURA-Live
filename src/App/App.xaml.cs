@@ -48,6 +48,7 @@ public partial class App : Application
         catch { }
 
         Log.Init();
+        JizuraLive.Server.HttpClientFactorySetup.Initialize();
         HookGlobalExceptions();
 
         try

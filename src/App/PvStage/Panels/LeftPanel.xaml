@@ -33,13 +33,26 @@
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
                                         <TextBlock Text="音乐" Style="{StaticResource PanelCardTitle}" />
-                                        <ui:Button x:Name="BtnOpenAudio" Content="导入音乐" Appearance="Primary"
-                                                   HorizontalAlignment="Stretch" Click="BtnOpenAudio_Click"
-                                                   ToolTip="同名 .lrc 会自动一起装载；也可以把 .lrc/.krc 文件直接拖进窗口">
-                                            <ui:Button.Icon>
-                                                <ui:SymbolIcon Symbol="MusicNote224" />
-                                            </ui:Button.Icon>
-                                        </ui:Button>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:Button x:Name="BtnCloudMusic" Content="云端音乐" Appearance="Primary"
+                                                       HorizontalAlignment="Stretch" Click="BtnCloudMusic_Click"
+                                                       ToolTip="搜索酷狗 / 网易云歌曲，导入音频与歌词">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="Cloud24" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                            <ui:Button x:Name="BtnOpenAudio" Content="本地" Grid.Column="1" Margin="6,0,0,0"
+                                                       Click="BtnOpenAudio_Click"
+                                                       ToolTip="导入本地音频；同名 .lrc 会自动一起装载">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="MusicNote224" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                        </Grid>
                                         <TextBlock x:Name="TblAudioName" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="未导入音乐" />
                                         <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" TextWrapping="Wrap"

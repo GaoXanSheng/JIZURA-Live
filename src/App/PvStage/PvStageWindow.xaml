@@ -63,22 +63,16 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <ui:Button x:Name="BtnNew" Appearance="Transparent" Click="BtnNewProject_Click" Content="新建"
-                               ToolTip="新建工程：重置为默认工程（当前工程先备份为 .bak）">
+                    <ui:Button x:Name="BtnProjectMenu" Appearance="Transparent" Click="BtnProjectMenu_Click" Content="项目 ▾"
+                               ToolTip="新建 / 打开 / 保存 / 另存为">
                         <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="DocumentAdd24" />
+                            <ui:SymbolIcon Symbol="Folder24" />
                         </ui:Button.Icon>
                     </ui:Button>
-                    <ui:Button x:Name="BtnOpen" Appearance="Transparent" Click="BtnOpenProject_Click" Content="打开"
-                               ToolTip="打开工程：装入一份 .jzpv（整份替换当前工作台）">
+                    <ui:Button x:Name="BtnImportMenu" Appearance="Transparent" Click="BtnImportMenu_Click" Content="导入文件 ▾"
+                               ToolTip="导入音频 / 歌词，或从云端音乐导入">
                         <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="FolderOpen24" />
-                        </ui:Button.Icon>
-                    </ui:Button>
-                    <ui:Button x:Name="BtnSave" Appearance="Transparent" Click="BtnSave_Click" Content="保存"
-                               ToolTip="保存工程 (Ctrl+S)">
-                        <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="Save24" />
+                            <ui:SymbolIcon Symbol="ArrowImport24" />
                         </ui:Button.Icon>
                     </ui:Button>
                     <Border Width="1" Margin="6,4" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
