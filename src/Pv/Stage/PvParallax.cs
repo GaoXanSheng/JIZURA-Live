@@ -23,7 +23,8 @@ public readonly record struct PvLayerState(
     double OffsetY,
     double Scale,
     double Opacity,
-    double Rotation)
+    double Rotation,
+    PvCamState? CameraOverride = null)
 {
     public static PvLayerState From(PvLayerConfig layer) =>
         new(layer.OffsetX, layer.OffsetY, layer.Scale, layer.Opacity, layer.Rotation);
@@ -55,21 +56,24 @@ public static class PvParallax
         var cy = ch / 2f;
 
         var depth = globalParallax ? Math.Clamp(layer.Parallax.Depth, 0.0, 3.0) : 1.0;
-        var follow = globalParallax ? Math.Clamp(layer.Parallax.Follow ?? layer.Parallax.Depth, 0.0, 3.0) : 1.0;
+        var follow = state.CameraOverride is not null
+            ? 1.0
+            : globalParallax ? Math.Clamp(layer.Parallax.Follow ?? layer.Parallax.Depth, 0.0, 3.0) : 1.0;
+        var camUse = state.CameraOverride ?? cam;
         var rotFactor = globalParallax ? Math.Clamp(layer.Parallax.RotationFactor, 0.0, 2.0) : 1.0;
         var scaleFactor = globalParallax ? Math.Clamp(layer.Parallax.ScaleFactor, 0.0, 2.0) : 1.0;
 
         var defocus = Math.Clamp(layer.Parallax.Defocus, 0.0, 3.0);
         var depthBlur = depth <= 0.001 ? 1.0 : 1.0 + Math.Max(0.0, 0.7 - depth) * 2.0;
-        var blur = Math.Clamp(cam.BlurSigma, 0.0, 40.0) * follow * depthBlur * defocus;
+        var blur = Math.Clamp(camUse.BlurSigma, 0.0, 40.0) * follow * depthBlur * defocus;
 
-        var camX = (cam.X + shakeX) * follow;
-        var camY = (cam.Y + shakeY) * follow;
-        var camRot = cam.Rotation * rotFactor * follow;
-        var camS = 1.0 + (cam.Scale - 1.0) * scaleFactor * follow;
-        var camSx = 1.0 + ((cam.ScaleX ?? 1.0) - 1.0) * follow;
-        var camSy = 1.0 + ((cam.ScaleY ?? 1.0) - 1.0) * follow;
-        var camSkx = cam.SkewX * follow;
+        var camX = (camUse.X + shakeX) * follow;
+        var camY = (camUse.Y + shakeY) * follow;
+        var camRot = camUse.Rotation * rotFactor * follow;
+        var camS = 1.0 + (camUse.Scale - 1.0) * scaleFactor * follow;
+        var camSx = 1.0 + ((camUse.ScaleX ?? 1.0) - 1.0) * follow;
+        var camSy = 1.0 + ((camUse.ScaleY ?? 1.0) - 1.0) * follow;
+        var camSkx = camUse.SkewX * follow;
 
         var overscan = 1.0;
         var margin = layer.VisualBlend.AntiBleedMargin;
