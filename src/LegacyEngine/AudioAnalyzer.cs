@@ -6,8 +6,6 @@ using NAudio.Wave;
 
 namespace JizuraLive.LegacyEngine;
 
-// 音频节拍/能量分析，与前端引擎 10_audio.js 的 J.analyzeAudio 同一套算法。
-// 前端只负责 decode 与传输，数值计算全在这里跑：同样的循环 C# 快一个量级，且不碰 UI 线程
 internal static class AudioAnalyzer
 {
     public const int AnalyzeRate = 11025;
@@ -16,7 +14,6 @@ internal static class AudioAnalyzer
     {
         var len = mono.Length;
 
-        // 能量与高通能量通量（50Hz hop）
         var rate = 50;
         var hop = Math.Max(1, (int)Math.Round((double)sampleRate / rate));
         var n = len / hop;
@@ -54,7 +51,6 @@ internal static class AudioAnalyzer
                 flux[f] = (float)Math.Sqrt(eh / hop);
             }
 
-            // onset 强度：高通能量对数对局部均值的正增量
             for (var f = 1; f < n; f++)
             {
                 var cur = Math.Log(1e-4 + flux[f]);
@@ -69,7 +65,6 @@ internal static class AudioAnalyzer
                 onset[f] = Math.Max(0, cur - m / Math.Max(1, k));
             }
 
-            // 自相关估 BPM（70..180），高斯先验偏置 125
             double best = 0;
             var bestLag = (int)Math.Round(rate * 0.5);
             for (var lag = minLag; lag <= maxLag; lag++)
@@ -98,7 +93,6 @@ internal static class AudioAnalyzer
 
             var period = lagF / rate;
 
-            // 相位
             var bestPh = 0;
             double bestPS = -1;
             for (double ph = 0; ph < lagF; ph += 0.5)
@@ -121,17 +115,14 @@ internal static class AudioAnalyzer
             for (var t = bestPh / (double)rate; t < duration; t += period)
                 beats.Add(Math.Round(t, 4));
 
-            // 归一化能量（95 分位）
             Array.Copy(energy, sorted, n);
             Array.Sort(sorted, 0, n);
             var p95 = n > 0 ? sorted[Math.Min(n - 1, (int)(n * 0.95))] : 1f;
             if (p95 <= 0) p95 = 1f;
             for (var f = 0; f < n; f++) energy[f] = Math.Min(1f, energy[f] / p95);
 
-            // 音高（F0）：70..1000 Hz，与能量同帧率。静音/无周期帧为 0
             var pitch = EstimatePitch(mono, sampleRate, energy, hop, n, len);
 
-            // 时间轴波形峰
             const int bins = 1600;
             var peaks = new float[bins];
             var per = Math.Max(1, len / bins);
@@ -168,21 +159,6 @@ internal static class AudioAnalyzer
         }
     }
 
-    // 请求体 [int32 sampleRate][int32 sampleCount][float32×count 单声道]。
-    // float 段用 MemoryMarshal.Cast 一次性重解释（x64 本就小端），免去逐样本循环
-    public static bool TryParseRequest(byte[] body, out float[] mono, out int sampleRate)
-    {
-        mono = Array.Empty<float>();
-        sampleRate = 0;
-        if (body.Length < 12) return false;
-        sampleRate = BinaryPrimitives.ReadInt32LittleEndian(body);
-        var count = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(4));
-        if (sampleRate <= 0 || count <= 0 || body.Length < 8 + count * 4) return false;
-        mono = MemoryMarshal.Cast<byte, float>(body.AsSpan(8, count * 4)).ToArray();
-        return true;
-    }
-
-    // F0 检测：窗口归一化互相关（NCCF），70..1000 Hz。
     private static float[] EstimatePitch(float[] mono, int sampleRate, float[] energy, int hop, int n, int len)
     {
         var pitch = new float[n];
@@ -237,7 +213,6 @@ internal static class AudioAnalyzer
 
                 if (bestLag < 0 || bestC < 0.45) continue;
 
-                // 倍频抑制：短周期（高八度）峰接近最高峰时优先取短周期
                 var chosen = bestLag;
                 var thresh = bestC * 0.88;
                 for (var lag = minLag + 1; lag < bestLag; lag++)
@@ -247,7 +222,6 @@ internal static class AudioAnalyzer
                         break;
                     }
 
-                // 抛物线插值细化周期
                 double lagF = chosen;
                 if (chosen > minLag && chosen < maxLag)
                 {
@@ -259,7 +233,6 @@ internal static class AudioAnalyzer
                 pitch[f] = (float)(sampleRate / lagF);
             }
 
-            // 3 帧中值滤波：只对有声帧生效（零帧=无声，不外推假音高）
             var smoothed = new float[n];
             for (var f = 0; f < n; f++)
             {
@@ -289,7 +262,6 @@ internal static class AudioAnalyzer
         }
     }
 
-    // 任意 MediaFoundation 支持的音频文件（mp3/flac/m4a/wav…）→ 单声道 11025Hz float[]，
     public static float[] DecodeMonoAnalyzeRate(string filePath, out double duration)
     {
         using var mf = AudioDecoding.Open(filePath);
@@ -299,14 +271,12 @@ internal static class AudioAnalyzer
         var total = 0;
         while (true)
         {
-            var buf = new float[AnalyzeRate * 10]; // 每次读 10 秒
-            var read = sp.Read(buf);
+            var buf = new float[AnalyzeRate * 10];             var read = sp.Read(buf);
             if (read <= 0) break;
             Array.Resize(ref buf, read);
             chunks.Add(buf);
             total += read;
-            if (total > AnalyzeRate * 60 * 30) break; // 30 分钟上限
-        }
+            if (total > AnalyzeRate * 60 * 30) break;         }
 
         var all = new float[total];
         var off = 0;

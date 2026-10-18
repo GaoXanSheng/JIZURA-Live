@@ -1,27 +1,3 @@
-// 移植自 frontend/src/engine/11p_layoutsB.js（layout 表现包 B，pack = 'layoutsB'，27 条）。
-//
-// 契约与 JLayouts.cs / P11LayoutsA.cs 相同：fits(n) 筛台词；plan(rng, ctx, st) 抽参数存进
-// cut.params（键名是数据契约，planner/锁定行/AE 导出共用，一字不改）；Draw(env) 绘制并写回 env.Body
-// （JS render(env) 的返回值）。RNG 消费顺序逐行对位——rng.pick / rng.chance / rng.range / rng.int
-// 的调用次序就是画面轨迹；JS 里靠 && / ?: 短路的抽取在 C# 里同样短路（rain 的 monos.length &&
-// rng.chance()、cut.n <= 7 && rng.chance()、zoomRepeat 的 rng.chance(0.35) ? range*pick : 0）。
-//
-// 本包私有 helper（JS L6-122 的顶层 const 与各 layout 之间的 function）见「本包 helper」区；
-// Env.cs 已有的助手（rect/line/polyPartial/circle/arc/rrect/poly/blob + drawItem）直接复用。
-// 跨文件符号对位：J.fontsOf→JLayouts.FontsOf、J.measure→JLayouts.Measure、J.fitSize→JLayouts.FitSize、
-// J.fastRow→JLayouts.FastRow、J.mainDraw→JLayouts.MainDraw、J.unionBB→JLayouts.UnionBb、
-// J.splitLines→JLayouts.SplitLines、J.glyphCount→JLayouts.GlyphCount、J.metrics.adv→JLayouts.MetricsAdv、
-// J.itemBox→JAnim.ItemBox、J.chunkText/J.segments→Planner.ChunkText/Planner.Segments、
-// J.pool→JLang.Pool、J.faceOf→JLang.FaceOf、J.FONTS→JFonts.Table、
-// J.romaji/fmtTime/lum/contrast/mix/rgba(本地)/r/rs/rr/h/noise1/smooth→J.*。
-//
-// Env 缺口（本文件内补，不改 Env.cs）：JS env.beat 是 {since,len,index}，C# Env.Beat 只装归一相位
-// （Renderer.BeatNorm）——用本文件 BeatOf(env) 从 env.Plan.Beats + env.T 重建（与 09_render 的
-// beatAt 同口径）。JS 的 env.energy != null 判定对位 env.Plan.Energy is { Length: > 0 }（C# 侧
-// energy 缺省是 0 而不是 null）。
-//
-// 桩/TODO：无跨文件桩——dotMatrix 的 dotTile/dotSample 在 JS 里用 2D canvas 光栅采样，C# 本地改用
-// SKBitmap（Alpha8 覆盖率采样 + 本地贴图 shader 平铺），不依赖未移植文件。
 
 using System.Globalization;
 using System.Text;
@@ -38,17 +14,12 @@ public static class P11LayoutsB
 
     private static void Reg0(string key, LayoutDef def) => Reg.Register("layout", key, def, P);
 
-    // ================= 本包 helper（JS L6-122 逐条对位 + 绘制/光栅本地实现） =================
+        private static string Clean(string? t) => Regex.Replace(t ?? "", @"\s+", "");
 
-    /// <summary>clean(t)：去掉所有空白（含全角空格）。JS L6。</summary>
-    private static string Clean(string? t) => Regex.Replace(t ?? "", @"\s+", "");
-
-    /// <summary>slotsOf(t)：连续空白压成单个 ' ' 槽位，按 Unicode 码点切（拉丁歌词用）。JS L8。</summary>
-    private static List<string> SlotsOf(string? t) =>
+        private static List<string> SlotsOf(string? t) =>
         JLayouts.CodePoints(Regex.Replace((t ?? "").Trim(), @"[\s\u3000]+", " "));
 
-    /// <summary>romaOf(t)：含假名才转大写罗马字，纯拉丁/汉字返回 null。JS L10-15。</summary>
-    private static string? RomaOf(string? t)
+        private static string? RomaOf(string? t)
     {
         var c = Clean(t);
         if (!Regex.IsMatch(c, @"[\u3041-\u30ff]")) return null;
@@ -56,8 +27,7 @@ public static class P11LayoutsB
         return string.IsNullOrEmpty(r) ? null : r.ToUpperInvariant();
     }
 
-    /// <summary>splitL(t, per)：J.splitLines 的包装——不留纯标点行（并进上一行）。JS L17-24。</summary>
-    private static string SplitL(string t, int per)
+        private static string SplitL(string t, int per)
     {
         var outL = new List<string>();
         foreach (var l in JLayouts.SplitLines(t, per).Split('\n'))
@@ -70,21 +40,16 @@ public static class P11LayoutsB
 
     private static string[] FontsOf(StyleDef st, params string[] roles) => JLayouts.FontsOf(st, roles);
 
-    /// <summary>monoF(env)：(env.st.fonts.mono && env.st.fonts.mono[0]) || 'mono'。JS L26。</summary>
-    private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
+        private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
 
-    /// <summary>inE(env, d, delay)：outExpo 进场。JS L27。</summary>
-    private static double InE(Env env, double d = 0.35, double delay = 0) =>
+        private static double InE(Env env, double d = 0.35, double delay = 0) =>
         J.E.OutExpo(J.Clamp((env.Lt - delay) / d));
 
-    /// <summary>outK(env)：退场剩余量 1 - inCubic(pOut)。JS L28。</summary>
-    private static double OutK(Env env) => 1 - J.E.InCubic(env.POut);
+        private static double OutK(Env env) => 1 - J.E.InCubic(env.POut);
 
-    /// <summary>gIn(env)：色差 ghost 只在大色板飞入阶段开，不许拖进下一刀。JS L30。</summary>
-    private static bool GIn(Env env) => env.Lt < 0.6 && env.POut <= 0;
+        private static bool GIn(Env env) => env.Lt < 0.6 && env.POut <= 0;
 
-    /// <summary>plateHold(env)：独占 key/cell/plate 的文字只接受不挪位的 hold。JS L32。</summary>
-    private static bool PlateHold(Env env) =>
+        private static bool PlateHold(Env env) =>
         !new[] { "still", "jitter", "breathe", "glitchtick" }.Contains(env.Cut?.Hold ?? "still");
 
     private static BBox BbRect(double x0, double y0, double x1, double y1) => new()
@@ -100,15 +65,13 @@ public static class P11LayoutsB
 
     private static BBox? U(BBox? a, BBox? b) => JLayouts.UnionBb(a, b);
 
-    /// <summary>miAt(env, t)：让 mainDraw 从本地时间 t 起跳该字入场。JS L36。</summary>
-    private static double MiAt(Env env, double t)
+        private static double MiAt(Env env, double t)
     {
         var sg = env.Cut?.Stagger ?? 0;
         return Math.Max(0, t) / Math.Max(0.005, sg != 0 ? sg : 0.04);
     }
 
-    /// <summary>配色读取：JS 直接读 sc.xxx；缺字段时给兜底色。</summary>
-    private static string Col(Scheme sc, string k) => sc.Str(k) ?? k switch
+        private static string Col(Scheme sc, string k) => sc.Str(k) ?? k switch
     {
         "bg" => "#000000",
         "fg" => "#FFFFFF",
@@ -120,15 +83,13 @@ public static class P11LayoutsB
         _ => "#FFFFFF",
     };
 
-    /// <summary>J.rgba(h, a)：hex + alpha → "rgba(r,g,b,a)"（drawItem 的 shadow.color 吃这个格式）。</summary>
-    private static string Rgba(string hex, double a)
+        private static string Rgba(string hex, double a)
     {
         var (r, g, b) = J.Hex(hex);
         return "rgba(" + r.ToString(CultureInfo.InvariantCulture) + "," + g.ToString(CultureInfo.InvariantCulture) + ","
                + b.ToString(CultureInfo.InvariantCulture) + "," + a.ToString(CultureInfo.InvariantCulture) + ")";
     }
 
-    // 文字落在色板 fill 上时，从配色里挑对比最好的那个（JS L38 _onc 缓存）
     private static readonly Dictionary<string, string> OnColCache = new();
 
     private static string OnCol(Scheme sc, string fill)
@@ -153,16 +114,14 @@ public static class P11LayoutsB
         return v;
     }
 
-    /// <summary>plateCol(sc, pref)：从配色里挑一个在背景上可读的颜色（色板/横条用）。JS L58-61。</summary>
-    private static string PlateCol(Scheme sc, params string[] pref)
+        private static string PlateCol(Scheme sc, params string[] pref)
     {
         foreach (var c in pref)
             if (!string.IsNullOrEmpty(c) && J.Contrast(c, Col(sc, "bg")) >= 1.6) return c;
         return Col(sc, "fg");
     }
 
-    /// <summary>排版结果的字形中心点（设计坐标，未乘旋转）。JS L63-79 glyphPts。</summary>
-    private sealed class GlyphPt
+        private sealed class GlyphPt
     {
         public string Ch = "";
         public double X, Y, W, H;
@@ -197,8 +156,7 @@ public static class P11LayoutsB
         return list;
     }
 
-    /// <summary>逐字放置：fn(i) 返回落点/缩放/透明度/颜色，null = 藏字。JS L80-91 pathText。</summary>
-    private sealed class Place
+        private sealed class Place
     {
         public double X, Y, Rot, S = 1, A = 1;
         public string? Color;
@@ -221,8 +179,7 @@ public static class P11LayoutsB
             foreach (var kv in extra)
                 it[kv.Key] = kv.Value?.DeepClone();
         var lay = JText.LayoutText(it);
-        JText.ShareLay(it, lay); // JS it._lay = J.layoutText(it)
-        DrawIt(env, it, (i, g, _) =>
+        JText.ShareLay(it, lay);         DrawIt(env, it, (i, g, _) =>
         {
             var r = fn(i);
             if (r == null) return new CharXf { Hide = true };
@@ -240,10 +197,7 @@ public static class P11LayoutsB
         });
     }
 
-    /// <summary>env.draw 对位：直接画一条 item（不走 mainDraw 的 enter/hold/exit 流水线）。
-    /// JS 的 it.charFn 是本 item 私有的函数值字段；C# 桥只有 env.CharFn/env.PieceFn——
-    /// 这里按 JS 语义临时置位/清空（否则上一条 mainDraw 的残留会串到直画的 item 上）。</summary>
-    private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
+        private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
     {
         var prevC = env.CharFn;
         var prevP = env.PieceFn;
@@ -265,8 +219,7 @@ public static class P11LayoutsB
         }
     }
 
-    /// <summary>mainLines(text, W, H, perL, perP)：按宽度预算给主文案断行，竖屏行更短。JS L92-98。</summary>
-    private static string MainLines(string? text, double W, double H, int perL = 11, int perP = 5)
+        private static string MainLines(string? text, double W, double H, int perL = 11, int perP = 5)
     {
         var t = (text ?? "").Trim();
         var n = JLayouts.GlyphCount(t);
@@ -277,8 +230,7 @@ public static class P11LayoutsB
 
     private static readonly Dictionary<string, List<string>> PoolCache = new();
 
-    /// <summary>poolOf(cut)：歌词自有的非拉丁字符 + 隔一个取的假名池。JS L99-112。</summary>
-    private static List<string> PoolOf(Cut cut)
+        private static List<string> PoolOf(Cut cut)
     {
         var key = JLang.Lang + "|" + cut.LineText + "|" + cut.Text;
         if (PoolCache.TryGetValue(key, out var hit)) return hit;
@@ -291,16 +243,12 @@ public static class P11LayoutsB
         return p;
     }
 
-    /// <summary>rrPath：在路径上走圆角矩形（JS ctx.moveTo/arcTo×4 的等价几何）。JS L113-122。</summary>
-    private static void RrPath(SKPath p, double x, double y, double w, double h, double r)
+        private static void RrPath(SKPath p, double x, double y, double w, double h, double r)
     {
         if (w <= 0 || h <= 0) return;
         r = Math.Max(0, Math.Min(r, Math.Min(w / 2, h / 2)));
-        // 直接走 rect+rx/ry 重载（免建 SKRoundRect——原 new 后不释放，实测终结器线程 SKRoundRect.Dispose 占全进程 CPU 8.4%）
         p.AddRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r, (float)r);
     }
-
-    // ---------------- 等分格阵（JS L1316-1330 cellRows） ----------------
 
     private sealed class Cell
     {
@@ -339,8 +287,6 @@ public static class P11LayoutsB
         return g;
     }
 
-    // ---------------- dotMatrix 的点阵采样/贴图（JS L2210-2262，canvas 光栅 → SKBitmap） ----------------
-
     private sealed class DotSample
     {
         public int Cols, Rows;
@@ -357,8 +303,7 @@ public static class P11LayoutsB
     private static readonly Dictionary<string, DotSample> DotSamples = new();
     private static readonly Dictionary<string, DotTile> DotTiles = new();
 
-    /// <summary>dotTile(col, shape)：熄灭的 LED 底贴图（64×64，圆/方点），按颜色+形状缓存。JS L2213-2229。</summary>
-    private static DotTile DotTileOf(string col, string shape)
+        private static DotTile DotTileOf(string col, string shape)
     {
         var key = col + "|" + shape;
         if (DotTiles.TryGetValue(key, out var hit)) return hit;
@@ -375,16 +320,13 @@ public static class P11LayoutsB
         var t = new DotTile { Cv = bmp, T = T };
         if (DotTiles.Count > 24)
         {
-            // 只摘引用不 Dispose：清空时本帧可能还持有刚取过的 tile（同帧多次取用），
-            // 当场释放会让随后 CreateBitmap/DrawImage 读到已释放对象（0xC0000005）。交 GC 回收。
             DotTiles.Clear();
         }
         DotTiles[key] = t;
         return t;
     }
 
-    /// <summary>dotSample(mt, font, D, lead)：4× 超采样里按 4×4 覆盖率 > 0.38 取亮点。JS L2230-2262。</summary>
-    private static DotSample DotSampleOf(string mt, string font, int D, double lead)
+        private static DotSample DotSampleOf(string mt, string font, int D, double lead)
     {
         var key = mt + "|" + font + "|" + D.ToString(CultureInfo.InvariantCulture) + "|"
                   + lead.ToString(CultureInfo.InvariantCulture);
@@ -400,15 +342,12 @@ public static class P11LayoutsB
         using (var canvas = new SKCanvas(bmp))
         {
             canvas.Clear(SKColors.Transparent);
-            var f = JText.FaceFont(font, fpx); // 缓存实例，禁 Dispose；基线用主脸度量
-            f.GetFontMetrics(out var fm);
-            var yMid = (-fm.Ascent - fm.Descent) / 2; // Canvas textBaseline='middle' 对位
-            using var p = new SKPaint { IsAntialias = true, Color = SKColors.White };
+            var f = JText.FaceFont(font, fpx);             f.GetFontMetrics(out var fm);
+            var yMid = (-fm.Ascent - fm.Descent) / 2;             using var p = new SKPaint { IsAntialias = true, Color = SKColors.White };
             foreach (var g in lay.Cells)
             {
                 if (g.Ch is " " or "　") continue;
-                var gf = JText.FaceFontFor(font, g.Ch, fpx); // 逐字兜底：缺字各自换脸，采样模板不丢字
-                canvas.DrawText(g.Ch, (float)(cw / 2.0 + g.X), (float)(chh / 2.0 + g.Y + yMid), SKTextAlign.Center, gf, p);
+                var gf = JText.FaceFontFor(font, g.Ch, fpx);                 canvas.DrawText(g.Ch, (float)(cw / 2.0 + g.X), (float)(chh / 2.0 + g.Y + yMid), SKTextAlign.Center, gf, p);
             }
         }
         var lit = new List<int>();
@@ -435,8 +374,6 @@ public static class P11LayoutsB
         return r;
     }
 
-    // ---------------- tape 的撕边胶带路径（JS L2928-2937） ----------------
-
     private static SKPath TapePath(double L, double h, int seed, int k)
     {
         const int m = 7;
@@ -454,8 +391,6 @@ public static class P11LayoutsB
         p.Close();
         return p;
     }
-
-    // ---------------- stickerBomb 的贴纸轮廓（JS L1027-1039） ----------------
 
     private static SKPath StickerPath(string shape, double w, double h, double grow, int seed)
     {
@@ -484,29 +419,19 @@ public static class P11LayoutsB
         return p;
     }
 
-    // ---------------- 松散读取小工具 ----------------
-
     private static string? S(JObject p, string k) => JLayouts.S(p, k);
     private static double D(JObject p, string k, double d = 0) => JLayouts.D(p, k, d);
     private static int I(JObject p, string k, int d = 0) => JLayouts.I(p, k, d);
     private static bool B(JObject p, string k) => JLayouts.B(p, k);
-    private static bool Truthy(JToken? t) => JLayouts.Truthy(t);
 
-    /// <summary>弧度 → 角度（JS ctx.rotate 收弧度，Skia RotateDegrees 收角度）。</summary>
-    private static double Deg(double radians) => radians / J.DEG;
-
-    /// <summary>plan 里的字体数组（wordCloud 的 Pm.fonts）。</summary>
-    private static List<string> StrArr(JToken? t) => t is JArray a
+        private static List<string> StrArr(JToken? t) => t is JArray a
         ? a.Where(x => x.Type == JTokenType.String).Select(x => (string)x!).ToList()
         : new List<string>();
 
-    /// <summary>JS ENTER/EXIT 的 pieces 标志（MoveDef 无该字段，按 key 判定；JAnim 侧同约定）。</summary>
-    private static bool HasPieces(bool enter, string key) =>
+        private static bool HasPieces(bool enter, string key) =>
         enter ? key == "assemble" : key is "explode" or "fall" or "drift";
 
-    /// <summary>JS env.beat（09_render 的 beatAt）本文件内的重建：{since, len, index}。
-    /// C# Env.Beat 只装归一相位（Renderer.BeatNorm），够不着 index/since——不改 Env.cs，这里补。</summary>
-    private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
+        private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
 
     private static BeatInfo BeatOf(Env env)
     {
@@ -529,42 +454,10 @@ public static class P11LayoutsB
         return new BeatInfo(true, t - beats[i], Math.Max(0.2, len), i);
     }
 
-    // ================= 注册（JS 源里 reg(...) 的出现序） =================
-
-    /// <summary>幂等注册本文件全部 layout（顺序 = JS 源文件 J.register 调用序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterRain();        // JS L124
-        RegisterHanging();     // JS L262
-        RegisterOrbit();       // JS L377
-        RegisterTunnel();      // JS L481
-        RegisterWordCloud();   // JS L578
-        RegisterBounceLine();  // JS L730
-        RegisterElastic();     // JS L834
-        RegisterCrossBands();  // JS L938
-        RegisterStickerBomb(); // JS L1040
-        RegisterNeon();        // JS L1201
-        RegisterKeycaps();     // JS L1332
-        RegisterBubbles();     // JS L1447
-        RegisterSlotMachine(); // JS L1518
-        RegisterFlipBoard();   // JS L1650
-        RegisterCredits();     // JS L1765
-        RegisterZoomRepeat();  // JS L1887
-        RegisterSplitHalves(); // JS L1969
-        RegisterColumnsBig();  // JS L2034
-        RegisterCircleWords(); // JS L2129
-        RegisterDotMatrix();   // JS L2263
-        RegisterDepthStack();  // JS L2371
-        RegisterTypeSpecimen();// JS L2427
-        RegisterKanjiFocus();  // JS L2537
-        RegisterHalfVertical();// JS L2616
-        RegisterCurtain();     // JS L2738
-        RegisterEqualizer();   // JS L2835
-        RegisterTape();        // JS L2938
-    }
-
-    // ---------------- rain（JS L124-260） ----------------
+        RegisterRain();                RegisterHanging();             RegisterOrbit();               RegisterTunnel();              RegisterWordCloud();           RegisterBounceLine();          RegisterElastic();             RegisterCrossBands();          RegisterStickerBomb();         RegisterNeon();                RegisterKeycaps();             RegisterBubbles();             RegisterSlotMachine();         RegisterFlipBoard();           RegisterCredits();             RegisterZoomRepeat();          RegisterSplitHalves();         RegisterColumnsBig();          RegisterCircleWords();         RegisterDotMatrix();           RegisterDepthStack();          RegisterTypeSpecimen();        RegisterKanjiFocus();          RegisterHalfVertical();        RegisterCurtain();             RegisterEqualizer();           RegisterTape();            }
 
     private static void RegisterRain() => Reg0("rain", new LayoutDef
     {
@@ -590,7 +483,6 @@ public static class P11LayoutsB
             var port = cut.H > cut.W;
             var monos = JLayouts.RoleFonts(st, "mono").Where(k => k == "dot").ToArray();
             var p = new JObject { ["font"] = rng.Pick(FontsOf(st, "display", "serif")) };
-            // JS: monos.length && rng.chance(0.5) ? 'dot' : rng.pick(fontsOf(st,['body']))
             p["rf"] = monos.Length > 0 && rng.Chance(0.5) ? "dot" : rng.Pick(FontsOf(st, "body"));
             p["orient"] = cut.N <= 7 && rng.Chance(port ? 0.6 : 0.3) ? "v" : "h";
             p["density"] = rng.Range(0.5, 0.72);
@@ -633,7 +525,6 @@ public static class P11LayoutsB
             var kx1 = lb.X1 + baseSize * 0.3;
             var ky0 = lb.Y0 - baseSize * 0.3;
             var ky1 = lb.Y1 + baseSize * 0.3;
-            // 背景字流：静止的字格阵，每条活跃列有一个亮头往下扫
             var pool = PoolOf(cut);
             var NP = pool.Count;
             var cell = J.Clamp(M * 0.036, 16, 64);
@@ -690,11 +581,9 @@ public static class P11LayoutsB
                     });
                 }
             }
-            // 歌词本体：每个字由一条下落的字流送达，落位后点亮
             var span = J.Clamp(cut.Dur * 0.2, 0.1, 0.5);
             var fd = J.Clamp(cut.Dur * 0.1, 0.14, 0.26);
             var rank = Enumerable.Range(0, n).ToList();
-            // JS 的 Array.sort 稳定（V8 TimSort）；OrderBy 同为稳定排序，同 seed 同结果
             if (S(Pm, "order") == "random") rank = rank.OrderBy(i => J.R(s, i, 31)).ToList();
             var pos = new int[n];
             for (var k = 0; k < rank.Count; k++) pos[rank[k]] = k;
@@ -762,8 +651,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- hanging（JS L262-375） ----------------
 
     private static void RegisterHanging() => Reg0("hanging", new LayoutDef
     {
@@ -851,8 +738,7 @@ public static class P11LayoutsB
                 var ta = 0.12 + i * gap;
                 var tau = lt - ta;
                 var ampK = rowsN > 1 && row == 1 ? 0.5 : 1.0;
-                var dk = sp / L / J.DEG; // 横向每挪一个字距对应的摆角（度）
-                var th = D(Pm, "amp") * dk * ampK * Math.Sin(w * env.Ltb + J.R(s, i, 5) * 6);
+                var dk = sp / L / J.DEG;                 var th = D(Pm, "amp") * dk * ampK * Math.Sin(w * env.Ltb + J.R(s, i, 5) * 6);
                 if (tau > 0)
                     th += D(Pm, "kick") * dk * ampK * (J.R(s, i, 6) < 0.5 ? 1 : -1) * Math.Exp(-tau / 0.7) * Math.Sin(w * tau * 1.3);
                 var bounce = tau > 0 ? 1 + 0.05 * Math.Exp(-tau / 0.18) * Math.Cos(tau * 30) : 1;
@@ -883,8 +769,7 @@ public static class P11LayoutsB
                     {
                         env.Ctx.Save();
                         env.Ctx.Translate((float)q.Ccx, (float)q.Ccy);
-                        env.Ctx.RotateDegrees((float)(-q.Th)); // JS: rotate(-q.th * DEG)
-                        env.Ctx.Scale((float)e, (float)e);
+                        env.Ctx.RotateDegrees((float)(-q.Th));                         env.Ctx.Scale((float)e, (float)e);
                         env.RRect(-tagW / 2, -tagH / 2, tagW, tagH, tagW * 0.12, pc, 1, GIn(env));
                         env.Circle(0, -tagH / 2 + tagH * 0.1, Math.Max(2, size * 0.055), Col(sc, "bg"), null, 0, 1, false);
                         env.Ctx.Restore();
@@ -921,8 +806,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- orbit（JS L377-479） ----------------
 
     private sealed class OrbitRing
     {
@@ -1080,7 +963,6 @@ public static class P11LayoutsB
             {
                 if (env.Pass == "main")
                 {
-                    // ctx.rect(整屏) + ctx.rect(文字块) 的 evenodd clip → 只画文字块之外的前半环
                     env.Ctx.Save();
                     using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
                     path.AddRect(new SKRect((float)-W, (float)-H, (float)(W * 2), (float)(H * 2)));
@@ -1096,8 +978,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- tunnel（JS L481-575） ----------------
 
     private static JObject Merge(JObject baseObj, JObject over)
     {
@@ -1141,7 +1021,6 @@ public static class P11LayoutsB
             var mm = JLayouts.Measure(new JObject { ["text"] = mt, ["font"] = fontC, ["size"] = size, ["track"] = 0.05, ["lead"] = 1.15 });
             var hw = mm.W / 2 + size * 0.55;
             var hh = mm.H / 2 + size * 0.5;
-            // 画框比例：横屏取屏幕比例，竖屏往文字块比例折半，否则画框永远出不来
             var ra = W < H ? Math.Min(0.95, Math.Sqrt(hw / hh * (W / H))) : W / H;
             var A = W / 2;
             var Bh = A / ra;
@@ -1159,7 +1038,6 @@ public static class P11LayoutsB
             var unit = JLayouts.CodePoints(Regex.Replace(unitSrc, @"\s+", " ").Trim() + "　");
             var NU = unit.Count;
             var lw = Math.Max(1, M * 0.0015);
-            // 从屏幕四角连向最内层画框的透视线
             if (B(Pm, "persp"))
             {
                 var pa0 = s0 * A;
@@ -1188,8 +1066,6 @@ public static class P11LayoutsB
                 var outline = style == "outline" || (style == "alt" && (k + kf) % 2 == 0);
                 var col = (k + kf) % 3 == 0 ? Col(sc, "accent") : Col(sc, "fg");
                 var inset = f * 0.62;
-                // JS 这里负数取模会得到负下标（取到 undefined 字）；C# 折正（tunnel 竖屏反速时
-                // 最内一层前几个字的 JS 行为是空串，视觉无差——见移植报告 divergence 注）
                 var gi = (k * 7 + kf * 3) % NU;
                 if (gi < 0) gi += NU;
                 string Edge(double len)
@@ -1247,8 +1123,6 @@ public static class P11LayoutsB
             });
         },
     });
-
-    // ---------------- wordCloud（JS L577-728） ----------------
 
     private sealed class CloudWord
     {
@@ -1469,8 +1343,6 @@ public static class P11LayoutsB
         return outL;
     }
 
-    // ---------------- bounceLine（JS L730-832） ----------------
-
     private static void RegisterBounceLine() => Reg0("bounceLine", new LayoutDef
     {
         Name = "跳ねる",
@@ -1529,7 +1401,6 @@ public static class P11LayoutsB
             var hopH = size * D(Pm, "hop");
             var hd = J.Clamp(tempo * 0.62, 0.22, 0.34);
             const double sq = 0.13;
-            // 跳跃曲线，tau 是起跳后经过的时间
             (double H, double Sx, double Sy) Prof(double tau)
             {
                 if (tau < -0.07 || tau > hd + sq) return (0, 1, 1);
@@ -1637,8 +1508,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- elastic（JS L834-936） ----------------
-
     private static void RegisterElastic() => Reg0("elastic", new LayoutDef
     {
         Name = "ゴム",
@@ -1702,11 +1571,9 @@ public static class P11LayoutsB
             var a1 = Along(gl[n - 1]) + (vert ? gl[n - 1].H : gl[n - 1].W) / 2;
             var gap = size * 0.85;
             var half = (a1 - a0) / 2 + gap;
-            // 弹簧：锚点从中心弹出并过冲
             var te = lt - 0.02;
             var spr = te <= 0 ? 0 : 1 - Math.Exp(-te / 0.1) * Math.Cos(te * 15);
             var k = Math.Max(0.04, spr) * (1 + 0.6 * J.E.InCubic(env.POut));
-            // 拨弦：带子上的驻波
             var tau = -1.0;
             var ampK = 1.0;
             var bt = BeatOf(env);
@@ -1728,7 +1595,6 @@ public static class P11LayoutsB
             double UOf(double a) => (a - aA) / Math.Max(1, aB - aA);
             var outK = OutK(env);
             var inA = InE(env, 0.3);
-            // 橡皮筋段：锚点到文字两端
             var lw = Math.Max(1.5, size * 0.03);
             double[][] Seg(double from, double to)
             {
@@ -1769,7 +1635,6 @@ public static class P11LayoutsB
                     ["mi"] = i * 0.5,
                 }));
             }
-            // 两端锚点
             var R = Math.Max(5, size * 0.1);
             foreach (var a in new[] { aA, aB })
             {
@@ -1794,8 +1659,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- crossBands（JS L938-1025） ----------------
 
     private static void RegisterCrossBands() => Reg0("crossBands", new LayoutDef
     {
@@ -1857,13 +1720,11 @@ public static class P11LayoutsB
                 env.Ctx.Save();
                 env.Ctx.ClipRect(new SKRect((float)x0, (float)(-bh / 2), (float)(x0 + L), (float)(bh / 2)));
                 var off = ((env.Ltb * speed * M * 0.12 * dir) % per + per) % per;
-                // 背景带整行一次画：逐字 draw 是本版式的主要开销（JS 未传 alpha → globalAlpha 保持 1）
                 JLayouts.FastRow(env, JLayouts.Repeat(unit, reps), fb, fsz, -len * 0.6 - per + off, 0, fsz * 0.08,
                     OnCol(sc, cols[b]), 1);
                 env.Ctx.Restore();
                 env.Ctx.Restore();
             }
-            // 交叉处的歌词色板
             var mt = MainLines(cut.Text, W, H, 9, 5);
             var size = Math.Min(JLayouts.FitSize(mt, font, W * (port ? 0.66 : 0.5), H * 0.24,
                 new JObject { ["track"] = 0.04, ["lead"] = 1.12 }), H * 0.17);
@@ -1905,10 +1766,7 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- stickerBomb（JS L1027-1199） ----------------
-
-    /// <summary>贴纸填充（矩形/圆/星形轮廓按 grow 外扩）。</summary>
-    private static void FillSticker(Env env, string shape, double w, double h, double grow, int seed,
+        private static void FillSticker(Env env, string shape, double w, double h, double grow, int seed,
         string col, double alpha, bool ghostable)
     {
         var c = env.ColOf(col, ghostable);
@@ -1987,8 +1845,7 @@ public static class P11LayoutsB
             {
                 env.Ctx.Save();
                 env.Ctx.Translate((float)x, (float)y);
-                env.Ctx.RotateDegrees((float)(rot + q.R)); // JS: rotate((rot + q.r) * DEG)
-                env.Ctx.Scale((float)(q.S * grow), (float)(q.S * grow));
+                env.Ctx.RotateDegrees((float)(rot + q.R));                 env.Ctx.Scale((float)(q.S * grow), (float)(q.S * grow));
                 if (env.Pass == "main")
                 {
                     if (!dark)
@@ -2005,7 +1862,6 @@ public static class P11LayoutsB
                     FillSticker(env, sh, w, h, bw, seed, env.PassColor, q.A, true);
                 env.Ctx.Restore();
             }
-            // 主贴纸周围的小贴纸
             var txt = Clean(cut.Text);
             var pool = new List<string>();
             void Add(string? w0)
@@ -2073,7 +1929,6 @@ public static class P11LayoutsB
                 });
                 env.Ctx.Restore();
             }
-            // 主贴纸最后贴，盖在最上面
             var q2 = Slap(0.02);
             if (q2 == null)
             {
@@ -2107,10 +1962,7 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- neon（JS L1201-1314） ----------------
-
-    /// <summary>Canvas2D 的 ctx.shadowColor/shadowBlur 对位：带阴影的描边（neon 外框）。</summary>
-    private static void GlowLine(Env env, double[][] pts, string color, double lw, double alpha, double blurPx)
+        private static void GlowLine(Env env, double[][] pts, string color, double lw, double alpha, double blurPx)
     {
         if (alpha <= 0 || pts.Length < 2) return;
         using var path = new SKPath();
@@ -2126,8 +1978,7 @@ public static class P11LayoutsB
             Color = Env.SkColor(color, alpha),
         };
         if (blurPx > 0.5)
-            p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blurPx / 2, blurPx / 2, Env.SkColor(color, alpha)); // 记忆滤镜，不 Dispose
-        env.Ctx.DrawPath(path, p);
+            p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blurPx / 2, blurPx / 2, Env.SkColor(color, alpha));         env.Ctx.DrawPath(path, p);
     }
 
     private static void GlowRRect(Env env, double x, double y, double w, double h, double r,
@@ -2144,8 +1995,7 @@ public static class P11LayoutsB
             Color = Env.SkColor(stroke, alpha),
         };
         if (blurPx > 0.5)
-            p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blurPx / 2, blurPx / 2, Env.SkColor(stroke, alpha)); // 记忆滤镜，不 Dispose
-        env.Ctx.DrawRoundRect(rr, p);
+            p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blurPx / 2, blurPx / 2, Env.SkColor(stroke, alpha));         env.Ctx.DrawRoundRect(rr, p);
     }
 
     private static void RegisterNeon() => Reg0("neon", new LayoutDef
@@ -2216,7 +2066,6 @@ public static class P11LayoutsB
                 ["blur"] = Math.Min(60, size * (dark ? 0.24 : 0.14)),
             };
             BBox? bb = null;
-            // 点亮 + 偶发闪烁，走跟随输出帧率的 step 时钟
             double On(int i, double t0)
             {
                 var t = lt - t0;
@@ -2270,7 +2119,6 @@ public static class P11LayoutsB
                 }));
                 bb = U(bb, r);
             }
-            // 霓虹外框
             var fb = bb ?? BbRect(W / 2 - 10, H / 2 - 10, W / 2 + 10, H / 2 + 10);
             var frame = S(Pm, "frame")!;
             var fk = On(99, 0.22) * (1 - J.E.InCubic(env.POut));
@@ -2335,8 +2183,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- keycaps（JS L1332-1445） ----------------
 
     private static void RegisterKeycaps() => Reg0("keycaps", new LayoutDef
     {
@@ -2415,7 +2261,6 @@ public static class P11LayoutsB
                 var q = J.E.OutBack(J.Clamp((lt - c.I * 0.025) / 0.2), 1.6);
                 if (q <= 0 || outK <= 0) continue;
                 var gh = GIn(env);
-                // 按压：打字时各按一次，之后偶尔随机再压
                 double Press(double t) => t < 0 ? 0 : t < 0.05 ? t / 0.05 : t < 0.09 ? 1 : t < 0.22 ? 1 - (t - 0.09) / 0.13 : 0;
                 var pr = Press(lt - ti);
                 var re = lt - (0.14 + n * gap + 0.3);
@@ -2503,8 +2348,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- bubbles（JS L1447-1516） ----------------
-
     private static void RegisterBubbles() => Reg0("bubbles", new LayoutDef
     {
         Name = "泡",
@@ -2553,7 +2396,6 @@ public static class P11LayoutsB
             var outK = OutK(env);
             var popK = 1 + 0.35 * J.E.OutCubic(env.POut);
             var lift = -H * D(Pm, "rise") * env.Ltb;
-            // 背景上浮的小气泡
             if (B(Pm, "motes"))
             {
                 for (var m = 0; m < 14; m++)
@@ -2617,10 +2459,7 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- slotMachine（JS L1518-1648） ----------------
-
-    /// <summary>slotMachine 的帧不变量（CutCache 载体，性能专项）。</summary>
-    private sealed class SlotInv
+        private sealed class SlotInv
     {
         public List<string> Chs = new();
         public List<Cell> Cells = new();
@@ -2628,8 +2467,7 @@ public static class P11LayoutsB
         public List<string> Pool = new();
     }
 
-    /// <summary>滚轮拖影偏移（只读共享数组，免热循环逐字 new[]）。</summary>
-    private static readonly double[] GhostOffs = { -0.16, 0.16 };
+        private static readonly double[] GhostOffs = { -0.16, 0.16 };
 
     private static void RegisterSlotMachine() => Reg0("slotMachine", new LayoutDef
     {
@@ -2665,7 +2503,6 @@ public static class P11LayoutsB
             var M = Math.Min(W, H);
             var lt = env.Lt;
             var font = S(Pm, "font")!;
-            // 帧不变量（性能专项）：字格/网格/滚轮词池只由 (cut, W, H) 与 plan 静态量决定，按切分缓存
             var inv = CutCache.Get<SlotInv>(cut, "slotMachine");
             if (inv == null)
             {
@@ -2739,7 +2576,6 @@ public static class P11LayoutsB
                     var ch = j == FIN ? c.Ch : pool[(int)(J.H(s, c.I, j) % (uint)NP)];
                     if (fast)
                     {
-                        // 廉价运动模糊：同一个（有缓存的）字沿滚轮拖影
                         foreach (var o in GhostOffs)
                             DrawIt(env, new JObject
                             {
@@ -2792,7 +2628,6 @@ public static class P11LayoutsB
                 env.Ctx.Restore();
                 if (env.Pass == "main")
                 {
-                    // 滚筒上下压暗（几何+色相同的渐变每帧重建一次，语义等价；JS 侧是缓存）
                     using var shader = SKShader.CreateLinearGradient(
                         new SKPoint(0, (float)wy), new SKPoint(0, (float)(wy + h)),
                         new[]
@@ -2830,8 +2665,6 @@ public static class P11LayoutsB
             env.Body = bb ?? BbRect(x0, y0, x1, y1);
         },
     });
-
-    // ---------------- flipBoard（JS L1650-1763） ----------------
 
     private static void RegisterFlipBoard() => Reg0("flipBoard", new LayoutDef
     {
@@ -2952,7 +2785,6 @@ public static class P11LayoutsB
                     var B2 = ChAt(m + 1);
                     Half(B2, true, 1);
                     Half(A, false, 1);
-                    // 正在下落的翻片（压扁比例取整到 1/6，压扁的字形才好命中缓存）
                     var sy = Math.Round(Math.Abs(Math.Cos(f * Math.PI)) * 6) / 6;
                     if (f < 0.5)
                     {
@@ -3008,8 +2840,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- credits（JS L1765-1885） ----------------
-
     private static void RegisterCredits() => Reg0("credits", new LayoutDef
     {
         Name = "エンドロール",
@@ -3041,7 +2871,6 @@ public static class P11LayoutsB
             var size = Math.Min(JLayouts.FitSize(mt, font, side ? W * 0.44 : W * 0.72, H * 0.26,
                 new JObject { ["track"] = 0.06, ["lead"] = 1.2 }), H * 0.16);
             var mx = side ? W * 0.3 : W / 2;
-            // 职员表条目
             var txt = Clean(cut.Text);
             var rom = RomaOf(txt);
             var vals = new List<(string R, string V)>();
@@ -3168,8 +2997,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- zoomRepeat（JS L1887-1967） ----------------
-
     private static void RegisterZoomRepeat() => Reg0("zoomRepeat", new LayoutDef
     {
         Name = "連続拡大",
@@ -3273,8 +3100,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- splitHalves（JS L1969-2032） ----------------
-
     private static void RegisterSplitHalves() => Reg0("splitHalves", new LayoutDef
     {
         Name = "上下割り",
@@ -3307,8 +3132,7 @@ public static class P11LayoutsB
             var variant = S(Pm, "variant");
             var gap = D(Pm, "gap");
             var lead = size * 1.3 + gap * size;
-            var offD = W * 0.32; // JS 的 D：两半初始错位量
-            var e = J.E.OutExpo(J.Clamp((lt - 0.04) / 0.7));
+            var offD = W * 0.32;             var e = J.E.OutExpo(J.Clamp((lt - 0.04) / 0.7));
             var ex = J.E.InExpo(env.POut);
             var lw = Math.Max(1.5, size * 0.016);
             BBox? bb = null;
@@ -3345,7 +3169,6 @@ public static class P11LayoutsB
                     env.Ctx.Restore();
                     if (r != null) bb = U(bb, r);
                 }
-                // 切割线
                 var le = J.E.OutExpo(J.Clamp((lt - 0.1) / 0.6)) * (1 - J.E.InCubic(env.POut));
                 if (le > 0)
                 {
@@ -3364,8 +3187,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- columnsBig（JS L2034-2127） ----------------
 
     private static void RegisterColumnsBig() => Reg0("columnsBig", new LayoutDef
     {
@@ -3432,7 +3253,6 @@ public static class P11LayoutsB
             }
             var outK = OutK(env);
             var c1 = JLayouts.GlyphCount(lineT);
-            // 注释块：竖排多列文本，从第一列起向左生长
             DrawIt(env, new JObject
             {
                 ["text"] = lineT,
@@ -3483,8 +3303,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- circleWords（JS L2129-2208） ----------------
 
     private static void RegisterCircleWords() => Reg0("circleWords", new LayoutDef
     {
@@ -3611,8 +3429,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- dotMatrix（JS L2210-2369） ----------------
-
     private static void RegisterDotMatrix() => Reg0("dotMatrix", new LayoutDef
     {
         Name = "ドット表示",
@@ -3678,7 +3494,6 @@ public static class P11LayoutsB
                 if (shape == "round") path.AddCircle((float)x, (float)y, (float)rr);
                 else path.AddRect(new SKRect((float)(x - rr), (float)(y - rr), (float)(x + rr), (float)(y + rr)));
             }
-            // LED 面板不吃色差 ghost，clip 也能省一层
             if (env.Pass != "main")
             {
                 env.Body = null;
@@ -3708,7 +3523,6 @@ public static class P11LayoutsB
                     env.Ctx.DrawRect(new SKRect((float)gx, (float)gy, (float)(gx + gw * fr), (float)(gy + gh)), tp);
                 }
             }
-            // 亮点：歌词本体透过自身采样出的点阵模板画出
             var T = J.Clamp(cut.Dur * 0.3, 0.25, 0.7);
             const double t0 = 0.12;
             var u = J.Clamp((lt - t0) / T);
@@ -3750,7 +3564,6 @@ public static class P11LayoutsB
                     ["mi"] = MiAt(env, t0),
                 });
                 env.Ctx.Restore();
-                // 扫描前沿的亮列
                 if (reveal == "sweep" && u > 0 && u < 1)
                 {
                     var fc = (int)Math.Floor(front);
@@ -3764,8 +3577,6 @@ public static class P11LayoutsB
             }
         },
     });
-
-    // ---------------- depthStack（JS L2371-2424） ----------------
 
     private static void RegisterDepthStack() => Reg0("depthStack", new LayoutDef
     {
@@ -3875,8 +3686,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- typeSpecimen（JS L2426-2535） ----------------
-
     private static readonly string[] SpecFonts =
     {
         "gothic_black", "mincho", "round", "dot", "brush", "pop", "dela", "tokumin", "zenkaku",
@@ -3893,7 +3702,6 @@ public static class P11LayoutsB
         {
             var main = rng.Pick(FontsOf(st, "display", "serif"));
             var pool = SpecFonts.Where(k => k != main && JFonts.Has(k)).ToList();
-            // JS Fisher-Yates（rng.int(0,i)，从尾到头）
             for (var i = pool.Count - 1; i > 0; i--)
             {
                 var j = rng.Int(0, i);
@@ -3970,14 +3778,12 @@ public static class P11LayoutsB
                 var d = 0.06 + i * 0.07;
                 var e = J.E.OutCubic(J.Clamp((lt - d) / 0.4)) * outK;
                 if (e <= 0) continue;
-                // 每格顶部的横线和字体标注
                 env.Line(new[]
                 {
                     new[] { c.X, c.Y },
                     new[] { c.X + c.W * J.E.OutExpo(J.Clamp((lt - d) / 0.5)), c.Y },
                 }, c.Main ? Col(sc, "accent") : Col(sc, "sub"), c.Main ? lw * 3 : lw, (c.Main ? 1 : 0.6) * outK, false);
-                var F = JLang.FaceOf(c.Font); // JS: J.FONTS[c.font] && J.faceOf ? J.faceOf(c.font) : J.FONTS[c.font]
-                var label = (I(Pm, "num") + i).ToString("D2", CultureInfo.InvariantCulture)
+                var F = JLang.FaceOf(c.Font);                 var label = (I(Pm, "num") + i).ToString("D2", CultureInfo.InvariantCulture)
                             + "  " + (F.Name ?? F.Label ?? c.Font).ToUpperInvariant()
                             + "  " + F.Weight;
                 DrawIt(env, new JObject
@@ -4028,8 +3834,6 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- kanjiFocus（JS L2537-2614） ----------------
-
     private static void RegisterKanjiFocus() => Reg0("kanjiFocus", new LayoutDef
     {
         Name = "一字強調",
@@ -4065,7 +3869,6 @@ public static class P11LayoutsB
                 fi = chs.FindIndex(c => c.Trim().Length > 0 && !J.IsPunct(c[0]) && !J.IsSmallKana(c[0]));
             if (fi < 0) fi = 0;
             var fch = chs[fi];
-            // 背景的巨大单字
             var big = port ? W * 1.05 : H * 1.02;
             var side = !port && S(Pm, "pos") == "side";
             var dir = D(Pm, "dir");
@@ -4096,7 +3899,6 @@ public static class P11LayoutsB
                 bi["alpha"] = e * outK * 0.7;
             }
             DrawIt(env, bi);
-            // 前景的小号完整歌词
             var mt = MainLines(raw, W, H, 16, 8);
             var baseIt = new JObject
             {
@@ -4111,8 +3913,7 @@ public static class P11LayoutsB
             baseIt["size"] = baseSize;
             var gl = GlyphPts(baseIt);
             BBox? bb = null;
-            var head = raw.Length > fi ? raw[..fi] : raw; // JS raw.slice(0, fi)（按 UTF-16 单元）
-            var fiAdj = fi - JLayouts.CodePoints(head).Count(c => c == " " || c == "　");
+            var head = raw.Length > fi ? raw[..fi] : raw;             var fiAdj = fi - JLayouts.CodePoints(head).Count(c => c == " " || c == "　");
             for (var i = 0; i < gl.Count; i++)
             {
                 var g = gl[i];
@@ -4146,10 +3947,7 @@ public static class P11LayoutsB
         },
     });
 
-    // ---------------- halfVertical（JS L2616-2736） ----------------
-
-    /// <summary>halfVertical 的帧不变量（CutCache 载体，性能专项）。</summary>
-    private sealed class HalfVertInv
+        private sealed class HalfVertInv
     {
         public string Txt = "";
         public List<string> Arr = new();
@@ -4178,7 +3976,6 @@ public static class P11LayoutsB
             var M = Math.Min(W, H);
             var lt = env.Lt;
             var font = S(Pm, "font")!;
-            // 帧不变量（性能专项）：正则清洗 + 码点 + 断点搜索（逐字打分的 O(n) 扫描）只由 cut+params 决定
             var inv = CutCache.Get<HalfVertInv>(cut, "halfVertical");
             if (inv == null)
             {
@@ -4186,7 +3983,6 @@ public static class P11LayoutsB
                 var arr0 = JLayouts.CodePoints(txt0);
                 var rowCol0 = S(Pm, "shape") == "rowCol";
                 var port0 = W < H;
-                // 沿画幅长边的那支拿更多字，断点在目标附近找最自然的边界
                 var tgt0 = arr0.Count * (port0 ? rowCol0 ? 0.38 : 0.62 : rowCol0 ? 0.6 : 0.4);
                 var segB0 = new HashSet<int>();
                 var acc = 0;
@@ -4195,8 +3991,7 @@ public static class P11LayoutsB
                     acc += JLayouts.CpLen(g);
                     segB0.Add(acc);
                 }
-                var cutAt0 = Math.Max(1, (int)Math.Round(tgt0, MidpointRounding.AwayFromZero)); // JS Math.round：半值向上
-                var bs = -1e9;
+                var cutAt0 = Math.Max(1, (int)Math.Round(tgt0, MidpointRounding.AwayFromZero));                 var bs = -1e9;
                 for (var k = 1; k < arr0.Count; k++)
                 {
                     var pa = arr0[k - 1];
@@ -4229,7 +4024,6 @@ public static class P11LayoutsB
             const double tr = 0.06;
             var mA = JLayouts.Measure(new JObject { ["text"] = A, ["font"] = font, ["size"] = 100, ["track"] = tr, ["vertical"] = !rowCol });
             var mB = JLayouts.Measure(new JObject { ["text"] = B, ["font"] = font, ["size"] = 100, ["track"] = tr, ["vertical"] = rowCol });
-            // 以字号为单位的占位范围
             var wU = rowCol ? mA.W / 100 : 1.25 + mB.W / 100;
             var hU = rowCol ? 1.25 + mB.H / 100 : mA.H / 100;
             var size = Math.Min(Math.Min(W * 0.82 / wU, H * 0.8 / hU), M * 0.26);
@@ -4304,7 +4098,6 @@ public static class P11LayoutsB
                     }));
                 corner = new[] { x0 + size / 2, last };
             }
-            // 贴在转角外侧的细引导线
             var g2 = size * 0.42;
             var lw = Math.Max(1.2, M * 0.0016);
             var le = J.E.OutCubic(J.Clamp((lt - 0.15) / 0.7)) * outK;
@@ -4337,8 +4130,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- curtain（JS L2738-2833） ----------------
 
     private static void RegisterCurtain() => Reg0("curtain", new LayoutDef
     {
@@ -4392,11 +4183,9 @@ public static class P11LayoutsB
                     colK == "accent" ? Col(sc, "ink") : Col(sc, "accent"));
             var shade = J.Mix(panel, Col(sc, "bg"), 0.22);
             var lite = J.Mix(panel, OnCol(sc, panel), 0.12);
-            const bool moving = false; // 大幅移动的面板：不开色差 ghost
-            var lw = Math.Max(1, M * 0.002);
+            const bool moving = false;             var lw = Math.Max(1, M * 0.002);
             void Pleat(double px0, double px1, double py0, double py1, double k)
             {
-                // 垂直褶皱，随面板收窄而压缩
                 if (!B(Pm, "pleats") || env.Pass != "main") return;
                 const int m = 7;
                 var w = px1 - px0;
@@ -4427,7 +4216,6 @@ public static class P11LayoutsB
                 Pleat(xr, W, 0, H, 1);
                 if (drape && open > 0.5)
                 {
-                    // 窗帘绑带
                     var q = J.Clamp((open - 0.5) * 2);
                     var strap = Col(sc, "accent") == panel ? Col(sc, "fg") : Col(sc, "accent");
                     env.Rect(xl - W * 0.012, H * 0.62, W * 0.012 + 2, H * 0.018, strap, q, false);
@@ -4462,7 +4250,6 @@ public static class P11LayoutsB
             }
             else
             {
-                // 剧场幕上升，留一排扇贝形帷幔
                 var rest = drape ? H * 0.1 : -H * 0.05;
                 var yb = J.Lerp(H + 5, rest, open);
                 const int m = 9;
@@ -4483,8 +4270,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- equalizer（JS L2835-2926） ----------------
 
     private static void RegisterEqualizer() => Reg0("equalizer", new LayoutDef
     {
@@ -4543,7 +4328,6 @@ public static class P11LayoutsB
             var peaks = B(Pm, "peaks");
             var thin = I(Pm, "thin");
             var hasEnergy = env.Plan.Energy is { Length: > 0 };
-            // 频段 x（连续下标）在 t 时刻的电平
             double Level(double x, double t)
             {
                 var v = 0.5 + 0.5 * J.Noise1(t * 3.1 + x * 0.83, s);
@@ -4590,7 +4374,6 @@ public static class P11LayoutsB
                     else env.Rect(x - w / 2, yb - h, w, h, col, a, false);
                     if (style == "mirror") env.Rect(x - w / 2, yb + lw * 2, w, h * 0.35, col, a * 0.22, false);
                 }
-                // 字母柱之间的细频谱柱
                 if (thin > 0)
                     for (var j = 0; j <= cnt; j++)
                         for (var q = 1; q <= thin; q++)
@@ -4637,8 +4420,6 @@ public static class P11LayoutsB
             env.Body = bb;
         },
     });
-
-    // ---------------- tape（JS L2928-3096） ----------------
 
     private static void RegisterTape() => Reg0("tape", new LayoutDef
     {
@@ -4694,8 +4475,7 @@ public static class P11LayoutsB
                 var vis = L * u;
                 env.Ctx.Save();
                 env.Ctx.Translate((float)x, (float)y);
-                env.Ctx.RotateDegrees((float)ang); // JS: rotate(ang * DEG)
-                env.Ctx.Translate((float)(-L / 2), 0);
+                env.Ctx.RotateDegrees((float)ang);                 env.Ctx.Translate((float)(-L / 2), 0);
                 if (env.Pass == "main")
                 {
                     env.Ctx.Save();

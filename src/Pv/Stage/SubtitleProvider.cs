@@ -117,8 +117,6 @@ public sealed class SubtitleProvider : IPvLayerProvider, IDisposable
     public PvLayerImage Pump(in PvFrameContext ctx) =>
         _target is null ? PvLayerImage.Empty : new PvLayerImage(_target.Bitmap, null, _w, _h);
 
-    public ReadbackImage? ReadbackTarget() => _target?.Readback();
-
     private static bool SameConfig(SubtitleConfig? a, SubtitleConfig? b) =>
         a is null || b is null
             ? ReferenceEquals(a, b)

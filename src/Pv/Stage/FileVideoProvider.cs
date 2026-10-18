@@ -43,10 +43,6 @@ public sealed class FileVideoProvider : IPvLayerProvider, IDisposable
 
     public string? LastError { get; private set; }
 
-    public double Duration => _decoder?.Duration ?? 0;
-
-    public bool Ready => _decoder is not null;
-
     public FileVideoProvider(string id, D3DDevice gpu, ID2D1DeviceContext ctx, string path)
     {
         Id = id;

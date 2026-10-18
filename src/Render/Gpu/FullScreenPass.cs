@@ -31,10 +31,6 @@ public sealed class FullScreenPass : IDisposable
         _sampler = device.CreateSamplerState(SamplerDescription.LinearClamp);
     }
 
-    public void Run(ID3D11ShaderResourceView input, GpuTexturePool.Entry target,
-        ID3D11PixelShader pixelShader, ReadOnlySpan<float> constants) =>
-        Run(input, null, target, pixelShader, constants);
-
     public void Run(ID3D11ShaderResourceView input0, ID3D11ShaderResourceView? input1,
         GpuTexturePool.Entry target, ID3D11PixelShader pixelShader, ReadOnlySpan<float> constants) =>
         Run(input0, input1, target.Rtv, target.Width, target.Height, pixelShader, constants);

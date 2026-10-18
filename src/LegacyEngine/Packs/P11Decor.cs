@@ -1,21 +1,3 @@
-// 移植自 frontend/src/engine/11p_decor.js（decor 表现包 A，pack = 'decor'，45 条）。
-//
-// 契约与 JDecor.cs 相同：DecorDef.Draw(env, DecorSpec)，bb 从 env.Body 读（空时 getBB 回退
-// 画面中央 + 按 cut 缓存最近有效框）。参数 P → DecorSpec（seed/n/corner/accent/right/low/big/
-// mode/from/to/v/r）；随机全走 J.R/J.Rs/J.Rr/J.H 的无状态哈希（入参逐字保持，同 seed 同轨迹）。
-//
-// 本包私有 helper（JS L7-274 的顶层 const 与 function）见「本包 helper」区：
-// 折线/批量段/批量圆/矩形/多边形合一个 SKPath 一次描边或填充（对位 Canvas2D beginPath 批画，
-// 重叠多边形不会因逐个 fill 叠深）；part() 折线按长度占比截段；ghost 通道换色走 Env.ColOf。
-//
-// Env 缺口（本文件内补，不改 Env.cs）：
-// 1. JS env.beat 是 {since,len,index}，C# Env.Beat 只装归一相位——BeatOf(env) 从
-//    env.Plan.Beats + env.T 重建（与 P11LayoutsB.BeatOf 同口径，09_render 的 beatAt）。
-// 2. JS env.energy != null 判定对位 env.Plan.Energy is { Length: > 0 }（C# Env.Energy 缺省 0）。
-// 3. 每个 cut 记住最近有效 bbox 的 WeakMap → ConditionalWeakTable<Cut, BBox>。
-//
-// 桩/TODO：无跨文件桩。跨文件符号对位：J.measure→JLayouts.Measure、J.centerBB→JLayouts.CenterBb、
-// J.fontsOf[0]→JLayouts.Font0、J.romaji/fmtTime→J.*、ctx.*→SKCanvas 同构直译。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -30,11 +12,7 @@ public static class P11Decor
     private const string Pk = "decor";
     private static int _installed;
 
-    // ================= 本包 helper（JS L7-274 逐条对位） =================
-
-    private static double U(Env env) => Math.Min(env.W, env.H) / 1080.0; // 1080p 短边时为 1
-    private static int MG(Env env) => (int)Math.Round(Math.Min(env.W, env.H) * 0.05, MidpointRounding.AwayFromZero); // 安全边距
-    private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
+    private static double U(Env env) => Math.Min(env.W, env.H) / 1080.0;     private static int MG(Env env) => (int)Math.Round(Math.Min(env.W, env.H) * 0.05, MidpointRounding.AwayFromZero);     private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
     private static string BodyF(Env env) => JLayouts.Font0(env.St, "body") ?? "gothic_med";
     private static string SerifF(Env env) => JLayouts.Font0(env.St, "serif") ?? "mincho";
     private static string? Col(Env env, string k) => env.Sc?.Str(k);
@@ -43,9 +21,7 @@ public static class P11Decor
         (ease ?? J.E.OutExpo)(J.Clamp((env.Lt - delay) / d));
     private static double OutE(Env env) => 1 - J.E.InCubic(env.POut);
     private static double[] L2(double[] a, double[] b, double t) => new[] { a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t };
-    private static double FS(Env env) => Math.Max(12, 16 * U(env)); // 小标签字号
-
-    // 每个 cut 记住最近一次有效 bbox，歌词隐藏期间 decor 不会跳回屏幕中心（JS WeakMap BBC）
+    private static double FS(Env env) => Math.Max(12, 16 * U(env)); 
     private static readonly ConditionalWeakTable<Cut, BBox> Bbc = new();
 
     private static BBox GetBB(Env env, BBox? bb)
@@ -83,8 +59,7 @@ public static class P11Decor
 
     private readonly record struct Spot(double X, double Y, double Cx, double Cy, bool Ok, int Sx, int Sy);
 
-    /// <summary>在歌词旁找一个 w×h 的位置（安全边距内、不压歌词）。JS nearBB。</summary>
-    private static Spot NearBB(Env env, BBox bb, double w, double h, DecorSpec p, double gap)
+        private static Spot NearBB(Env env, BBox bb, double w, double h, DecorSpec p, double gap)
     {
         int w2 = env.W, h2 = env.H;
         var m = MG(env) * 0.8;
@@ -126,8 +101,7 @@ public static class P11Decor
         return CornerSpot(env, bb, w, h, p);
     }
 
-    /// <summary>安全边距内的屏幕角落，尽量避开歌词。JS cornerSpot。</summary>
-    private static Spot CornerSpot(Env env, BBox bb, double w, double h, DecorSpec p, double mk = 1)
+        private static Spot CornerSpot(Env env, BBox bb, double w, double h, DecorSpec p, double mk = 1)
     {
         int w2 = env.W, h2 = env.H;
         var m = MG(env) * mk;
@@ -154,10 +128,7 @@ public static class P11Decor
         return best!.Value;
     }
 
-    // ---- 批量绘制助手（合一个 SKPath，重叠多边形不叠深；colOf 走 Env.ColOf） ----
-
-    /// <summary>画折线（close/cap/join 可设）；g=false 时只在 main pass 上色。JS stroke。</summary>
-    private static void Stroke(Env env, IReadOnlyList<double[]> pts, string? c, double lw, double a = 1,
+        private static void Stroke(Env env, IReadOnlyList<double[]> pts, string? c, double lw, double a = 1,
         bool g = false, bool close = false, SKStrokeCap cap = SKStrokeCap.Butt, SKStrokeJoin join = SKStrokeJoin.Miter)
     {
         var k = env.ColOf(c, g);
@@ -179,8 +150,7 @@ public static class P11Decor
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>一个路径里画一批直线段 [[x0,y0,x1,y1],…]。JS segs。</summary>
-    private static void Segs(Env env, IEnumerable<double[]> list, string? c, double lw, double a = 1,
+        private static void Segs(Env env, IEnumerable<double[]> list, string? c, double lw, double a = 1,
         bool g = false, SKStrokeCap cap = SKStrokeCap.Butt)
     {
         var k = env.ColOf(c, g);
@@ -204,8 +174,7 @@ public static class P11Decor
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>一个路径里画一批实心圆 [[x,y,r],…]。JS dots。</summary>
-    private static void Dots(Env env, IEnumerable<double[]> list, string? c, double a = 1, bool g = false)
+        private static void Dots(Env env, IEnumerable<double[]> list, string? c, double a = 1, bool g = false)
     {
         var k = env.ColOf(c, g);
         var arr = list as ICollection<double[]> ?? list?.ToArray();
@@ -218,8 +187,7 @@ public static class P11Decor
         }
     }
 
-    /// <summary>一批实心矩形 [[x,y,w,h],…]（一个 path）。JS rects。</summary>
-    private static void Rects(Env env, IEnumerable<double[]> list, string? c, double a = 1, bool g = false)
+        private static void Rects(Env env, IEnumerable<double[]> list, string? c, double a = 1, bool g = false)
     {
         var k = env.ColOf(c, g);
         var arr = list as ICollection<double[]> ?? list?.ToArray();
@@ -232,8 +200,7 @@ public static class P11Decor
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>一个路径里画一批实心多边形（nonzero 填充，重叠处不叠深）。JS polys。</summary>
-    private static void Polys(Env env, IEnumerable<double[]?[]> list, string? c, double a = 1, bool g = false,
+        private static void Polys(Env env, IEnumerable<double[]?[]> list, string? c, double a = 1, bool g = false,
         SKBlendMode? blend = null, SKImageFilter? filter = null)
     {
         var k = env.ColOf(c, g);
@@ -257,8 +224,7 @@ public static class P11Decor
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>直线虚线，只画 main pass。JS dash。</summary>
-    private static void Dash(Env env, double x0, double y0, double x1, double y1, double on, double off,
+        private static void Dash(Env env, double x0, double y0, double x1, double y1, double on, double off,
         string? c, double lw, double a = 1, double phase = 0)
     {
         if (env.Pass != "main" || a <= 0.003) return;
@@ -278,8 +244,7 @@ public static class P11Decor
         Segs(env, list, c, lw, a, false);
     }
 
-    /// <summary>取折线上长度占比 e0..e1 的一段。JS part。</summary>
-    private static double[][] Part(IReadOnlyList<double[]> pts, double e0, double e1)
+        private static double[][] Part(IReadOnlyList<double[]> pts, double e0, double e1)
     {
         e0 = J.Clamp(e0);
         e1 = J.Clamp(e1);
@@ -306,8 +271,7 @@ public static class P11Decor
         return @out.ToArray();
     }
 
-    /// <summary>小号辅助文字，永不 ghost（Object.assign 覆盖 → JObject 合并）。</summary>
-    private static void Label(Env env, object text, double x, double y, JObject? o = null)
+        private static void Label(Env env, object text, double x, double y, JObject? o = null)
     {
         var it = new JObject
         {
@@ -351,8 +315,7 @@ public static class P11Decor
     private static string Pad2(double n, int k = 2) =>
         Math.Max(0, Math.Floor(n)).ToString("F0", CultureInfo.InvariantCulture).PadLeft(k, '0');
 
-    /// <summary>从歌词里挑一个字：优先汉字，其次假名。JS lyricChar。</summary>
-    private static string LyricChar(Env env, int salt)
+        private static string LyricChar(Env env, int salt)
     {
         var cut = env.Cut;
         var src = !string.IsNullOrEmpty(cut?.Text) ? cut.Text : cut?.LineText ?? "";
@@ -364,8 +327,7 @@ public static class P11Decor
         return p[(int)(J.H(unchecked((int)(cut?.Seed ?? 0)), salt, 5) % (uint)p.Count)];
     }
 
-    /// <summary>五角星折线（10 点）。JS star5。</summary>
-    private static double[][] Star5(double cx, double cy, double r, double rr, double rot = -90)
+        private static double[][] Star5(double cx, double cy, double r, double rr, double rot = -90)
     {
         var o = new List<double[]>();
         for (var i = 0; i < 10; i++)
@@ -377,8 +339,7 @@ public static class P11Decor
         return o.ToArray();
     }
 
-    /// <summary>四角凹边星形。JS glint。</summary>
-    private static double[][] Glint(double cx, double cy, double r, double w, double rot = 0)
+        private static double[][] Glint(double cx, double cy, double r, double w, double rot = 0)
     {
         var o = new List<double[]>();
         const int n = 4;
@@ -398,8 +359,7 @@ public static class P11Decor
         return @out.ToArray();
     }
 
-    /// <summary>心形折线（28 点）。JS heart。</summary>
-    private static double[][] Heart(double cx, double cy, double s)
+        private static double[][] Heart(double cx, double cy, double s)
     {
         var o = new List<double[]>();
         for (var i = 0; i < 28; i++)
@@ -412,13 +372,9 @@ public static class P11Decor
         return o.ToArray();
     }
 
-    private static double[] Pt(double x, double y) => new[] { x, y };
+        private static double Hypot(double dx, double dy) => Math.Sqrt(dx * dx + dy * dy);
 
-    /// <summary>Math.Sqrt(dx²+dy²)（Math 没有 Hypot，与引擎其余文件同式）。</summary>
-    private static double Hypot(double dx, double dy) => Math.Sqrt(dx * dx + dy * dy);
-
-    /// <summary>JS env.beat（09_render 的 beatAt）本文件内的重建：{since, len, index}。</summary>
-    internal readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
+        internal readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
 
     private static BeatInfo BeatOf(Env env)
     {
@@ -441,13 +397,7 @@ public static class P11Decor
         return new BeatInfo(true, t - beats[i], Math.Max(0.2, len), i);
     }
 
-    /// <summary>有音频能量数据才走 energy 通道（JS env.energy != null）。</summary>
-    private static bool HasEnergy(Env env) => env.Plan.Energy is { Length: > 0 };
-
-    // ================= 注册（JS DEF 键序） =================
-
-    /// <summary>幂等注册本文件全部 decor（顺序 = JS DEF 对象键序 = Object.keys 序）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
         RegisterCrosshair();
@@ -498,8 +448,6 @@ public static class P11Decor
     }
 
     private static void Reg0(string key, DecorDef def) => Reg.Register("decor", key, def, Pk);
-
-    // ---------------- crosshair（照準線） ----------------
 
     private static void RegisterCrosshair() => Reg0("crosshair", new DecorDef
     {
@@ -567,8 +515,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- cropMarks（トンボ） ----------------
 
     private static void RegisterCropMarks() => Reg0("cropMarks", new DecorDef
     {
@@ -639,8 +585,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- reticle（ロックオン） ----------------
-
     private static void RegisterReticle() => Reg0("reticle", new DecorDef
     {
         Name = "ロックオン",
@@ -708,8 +652,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- radar（レーダー） ----------------
-
     private static void RegisterRadar() => Reg0("radar", new DecorDef
     {
         Name = "レーダー",
@@ -771,8 +713,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- progressRing（進行リング） ----------------
-
     private static void RegisterProgressRing() => Reg0("progressRing", new DecorDef
     {
         Name = "進行リング",
@@ -830,8 +770,6 @@ public static class P11Decor
             Label(env, "%", cx + fs * 0.72, cy + fs * 0.12, JO("size", fs * 0.42, "align", "left", "alpha", a * e));
         },
     });
-
-    // ---------------- timecodeBar（タイムコード） ----------------
 
     private static void RegisterTimecodeBar() => Reg0("timecodeBar", new DecorDef
     {
@@ -894,8 +832,6 @@ public static class P11Decor
             Label(env, "OUT", x0 + w * e - 4 * u, by + 9 * u + fs * 0.35, JO("size", fs * 0.6, "align", "right", "alpha", a * e * 0.8));
         },
     });
-
-    // ---------------- rulerEdge（端の定規） ----------------
 
     private static void RegisterRulerEdge() => Reg0("rulerEdge", new DecorDef
     {
@@ -978,8 +914,6 @@ public static class P11Decor
                 JO("size", fs, "color", Col(env, "fg"), "align", vert ? (inward > 0 ? "left" : "right") : "left", "alpha", em));
         },
     });
-
-    // ---------------- dimension（寸法線） ----------------
 
     private static void RegisterDimension() => Reg0("dimension", new DecorDef
     {
@@ -1078,8 +1012,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- indexNum（通し番号） ----------------
-
     private static void RegisterIndexNum() => Reg0("indexNum", new DecorDef
     {
         Name = "通し番号",
@@ -1159,15 +1091,13 @@ public static class P11Decor
         },
     });
 
-    // 七段数码管的段定义（JS SEG）
     private static readonly Dictionary<int, string> Seg = new()
     {
         [0] = "abcdef", [1] = "bc", [2] = "abged", [3] = "abgcd", [4] = "fgbc",
         [5] = "afgcd", [6] = "afgedc", [7] = "abc", [8] = "abcdefg", [9] = "abcdfg",
     };
 
-    /// <summary>七段数码管单字的多边形段。JS segDigit。</summary>
-    private static List<KeyValuePair<char, double[][]>> SegDigit(double x, double y, double dw, double dh, double t, int d, double sk)
+        private static List<KeyValuePair<char, double[][]>> SegDigit(double x, double y, double dw, double dh, double t, int d, double sk)
     {
         var @out = new List<KeyValuePair<char, double[][]>>();
         var h2 = dh / 2;
@@ -1198,8 +1128,6 @@ public static class P11Decor
                 s2[c].Select(p => new[] { p[0] + (y + dh / 2 - p[1]) * sk, p[1] }).ToArray()));
         return @out;
     }
-
-    // ---------------- dateStamp（日付写真） ----------------
 
     private static void RegisterDateStamp() => Reg0("dateStamp", new DecorDef
     {
@@ -1272,8 +1200,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- qrBlock（QR風ブロック） ----------------
-
     private static void RegisterQrBlock() => Reg0("qrBlock", new DecorDef
     {
         Name = "QR風ブロック",
@@ -1343,8 +1269,6 @@ public static class P11Decor
                 JO("size", fs, "alpha", a * InE(env, 0.3, 0.4), "track", 0.14));
         },
     });
-
-    // ---------------- glitchRects（グリッチ片） ----------------
 
     private static void RegisterGlitchRects() => Reg0("glitchRects", new DecorDef
     {
@@ -1421,8 +1345,6 @@ public static class P11Decor
         return !string.IsNullOrEmpty(v) ? v : Col(env, b);
     }
 
-    // ---------------- concentricSquares（同心四角） ----------------
-
     private static void RegisterConcentricSquares() => Reg0("concentricSquares", new DecorDef
     {
         Name = "同心四角",
@@ -1474,8 +1396,6 @@ public static class P11Decor
             env.Circle(cx, cy, 2.4 * u, Col(env, "accent"), null, 0, a * InE(env, 0.3, 0.3), false);
         },
     });
-
-    // ---------------- triangleSpin（回転三角） ----------------
 
     private static void RegisterTriangleSpin() => Reg0("triangleSpin", new DecorDef
     {
@@ -1540,15 +1460,12 @@ public static class P11Decor
         },
     });
 
-    /// <summary>超椭圆半径（JS superR）。</summary>
-    private static double SuperR(double a, double b, double pp, double th)
+        private static double SuperR(double a, double b, double pp, double th)
     {
         var c = Math.Abs(Math.Cos(th));
         var s = Math.Abs(Math.Sin(th));
         return 1 / Math.Pow(Math.Pow(c / a, pp) + Math.Pow(s / b, pp), 1 / pp);
     }
-
-    // ---------------- lineBurst（放射線） ----------------
 
     private static void RegisterLineBurst() => Reg0("lineBurst", new DecorDef
     {
@@ -1617,8 +1534,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- plusGrid（プラス格子） ----------------
-
     private static void RegisterPlusGrid() => Reg0("plusGrid", new DecorDef
     {
         Name = "プラス格子",
@@ -1672,8 +1587,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- guides（ガイド線） ----------------
-
     private static void RegisterGuides() => Reg0("guides", new DecorDef
     {
         Name = "ガイド線",
@@ -1725,8 +1638,6 @@ public static class P11Decor
             if (vert) Label(env, $"X {Pad2(x1, 4)}", x1 + 6 * u, m + fs * 0.6, JO("size", fs, "color", col, "alpha", ea));
         },
     });
-
-    // ---------------- waveLine（波線） ----------------
 
     private static (bool Low, double Room, double Y) FreeBand(Env env, BBox bb, bool low)
     {
@@ -1797,8 +1708,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- spiralLine（渦巻き） ----------------
-
     private static void RegisterSpiralLine() => Reg0("spiralLine", new DecorDef
     {
         Name = "渦巻き",
@@ -1859,8 +1768,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- halftonePatch（網点） ----------------
 
     private static void RegisterHalftonePatch() => Reg0("halftonePatch", new DecorDef
     {
@@ -1927,15 +1834,12 @@ public static class P11Decor
         },
     });
 
-    /// <summary>扁平点列（top+bot 串成一条折线）→ 多边形列表。</summary>
-    private static List<double[][]> To2D(List<double[]> flat)
+        private static List<double[][]> To2D(List<double[]> flat)
     {
         var l = new List<double[][]>();
         if (flat.Count >= 3) l.Add(flat.ToArray());
         return l;
     }
-
-    // ---------------- checkerStrip（市松の帯） ----------------
 
     private static void RegisterCheckerStrip() => Reg0("checkerStrip", new DecorDef
     {
@@ -1990,8 +1894,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- beatRing（拍の輪） ----------------
-
     private static void RegisterBeatRing() => Reg0("beatRing", new DecorDef
     {
         Name = "拍の輪",
@@ -2042,8 +1944,6 @@ public static class P11Decor
             env.Circle(cx, cy, r0 * (1 + 0.03 * pulse), null, col, (1 + 2.2 * pulse) * u, @base * 0.6, false);
         },
     });
-
-    // ---------------- orbitDots（周回する点） ----------------
 
     private static void RegisterOrbitDots() => Reg0("orbitDots", new DecorDef
     {
@@ -2111,8 +2011,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- constellation（星座） ----------------
 
     private static void RegisterConstellation() => Reg0("constellation", new DecorDef
     {
@@ -2190,8 +2088,7 @@ public static class P11Decor
         },
     });
 
-    /// <summary>粒子越靠近歌词越透明（0..1）。JS clearOf。</summary>
-    private static double ClearOf(BBox bb, double x, double y, double pad, double soft)
+        private static double ClearOf(BBox bb, double x, double y, double pad, double soft)
     {
         var dx = Math.Max(Math.Max(bb.X0 - pad - x, 0), x - bb.X1 - pad);
         var dy = Math.Max(Math.Max(bb.Y0 - pad - y, 0), y - bb.Y1 - pad);
@@ -2199,8 +2096,6 @@ public static class P11Decor
     }
 
     private static double Wrap(double v, double lo, double span) => lo + (((v - lo) % span) + span) % span;
-
-    // ---------------- confetti（紙吹雪） ----------------
 
     private static void RegisterConfetti() => Reg0("confetti", new DecorDef
     {
@@ -2254,7 +2149,6 @@ public static class P11Decor
         },
     });
 
-    // 花瓣形状（单位轮廓，JS PETAL IIFE）
     private static readonly double[][] Petal = BuildPetal();
 
     private static double[][] BuildPetal()
@@ -2267,8 +2161,6 @@ public static class P11Decor
         var mirror = h.Skip(1).Take(h.Count - 2).Reverse().Select(q => new[] { -q[0], q[1] });
         return h.Concat(mirror).ToArray();
     }
-
-    // ---------------- petals（花びら） ----------------
 
     private static void RegisterPetals() => Reg0("petals", new DecorDef
     {
@@ -2319,8 +2211,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- rainStreaks（雨の筋） ----------------
-
     private static void RegisterRainStreaks() => Reg0("rainStreaks", new DecorDef
     {
         Name = "雨の筋",
@@ -2358,8 +2248,6 @@ public static class P11Decor
             Segs(env, b[2], col, 1.6 * u, 0.46 * o * k);
         },
     });
-
-    // ---------------- snow（雪） ----------------
 
     private static void RegisterSnow() => Reg0("snow", new DecorDef
     {
@@ -2400,8 +2288,6 @@ public static class P11Decor
             Dots(env, l[2], col, 0.75 * o * k);
         },
     });
-
-    // ---------------- lightLeak（光漏れ） ----------------
 
     private static void RegisterLightLeak() => Reg0("lightLeak", new DecorDef
     {
@@ -2448,8 +2334,7 @@ public static class P11Decor
             {
                 ctx.Save();
                 ctx.Translate(sx > 0 ? w2 * 0.82f : w2 * 0.18f, h2 / 2f);
-                ctx.RotateDegrees(sx * 14); // JS rotate(sx * 14 * DEG)：弧度 → 14 度
-                var w = w2 * 0.12;
+                ctx.RotateDegrees(sx * 14);                 var w = w2 * 0.12;
                 using var shader = SKShader.CreateLinearGradient(
                     new SKPoint((float)-w, 0), new SKPoint((float)w, 0),
                     new[] { Env.SkColor(c1, 0), Env.SkColor(c1, a2 * 0.5), Env.SkColor(c1, 0) },
@@ -2460,8 +2345,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- bokeh（ボケ玉） ----------------
 
     private static void RegisterBokeh() => Reg0("bokeh", new DecorDef
     {
@@ -2514,8 +2397,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- speedCorner（集中線） ----------------
 
     private static void RegisterSpeedCorner() => Reg0("speedCorner", new DecorDef
     {
@@ -2574,8 +2455,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- risingParticles（立ち上る粒） ----------------
-
     private static void RegisterRisingParticles() => Reg0("risingParticles", new DecorDef
     {
         Name = "立ち上る粒",
@@ -2631,8 +2510,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- twinkle（きらめき） ----------------
 
     private static void RegisterTwinkle() => Reg0("twinkle", new DecorDef
     {
@@ -2707,8 +2584,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- brushStroke（筆の払い） ----------------
-
     private static void RegisterBrushStroke() => Reg0("brushStroke", new DecorDef
     {
         Name = "筆の払い",
@@ -2756,8 +2631,7 @@ public static class P11Decor
             var head = J.E.OutCubic(J.Clamp(env.Lt / 0.5));
             const int k2 = 22;
             const int s2 = 26;
-            var bands = new List<List<double[]>>[2] { new(), new() }; // 元素 = 一条带（多段折线组）
-            for (var j = 0; j < k2; j++)
+            var bands = new List<List<double[]>>[2] { new(), new() };             for (var j = 0; j < k2; j++)
             {
                 var f = j / (double)(k2 - 1) - 0.5;
                 double R(int kk) => J.R(p.Seed, j, kk);
@@ -2775,8 +2649,7 @@ public static class P11Decor
                     var tt = t0 + (te - t0) * kk / (double)s2;
                     if (tt > gapAt && tt < gapAt + gapL)
                     {
-                        cur = null; // 断口：当前折线收束，下一点开新折线
-                        continue;
+                        cur = null;                         continue;
                     }
                     var tt2 = ltr ? tt : 1 - tt;
                     var x = J.Lerp(xa, xb, tt2);
@@ -2814,8 +2687,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- tapePieces（マスキングテープ） ----------------
 
     private static void RegisterTapePieces() => Reg0("tapePieces", new DecorDef
     {
@@ -2885,8 +2756,7 @@ public static class P11Decor
         },
     });
 
-    /// <summary>手绘椭圆环的点列（JS handLoop）。</summary>
-    private static double[][] HandLoop(Env env, BBox bb, DecorSpec p, double turns)
+        private static double[][] HandLoop(Env env, BBox bb, DecorSpec p, double turns)
     {
         var u = U(env);
         var w2 = env.W;
@@ -2924,8 +2794,6 @@ public static class P11Decor
         return pts.ToArray();
     }
 
-    // ---------------- scribbleCircle（手描きの囲み） ----------------
-
     private static void RegisterScribbleCircle() => Reg0("scribbleCircle", new DecorDef
     {
         Name = "手描きの囲み",
@@ -2946,8 +2814,6 @@ public static class P11Decor
                 cap: SKStrokeCap.Round, join: SKStrokeJoin.Round);
         },
     });
-
-    // ---------------- scribbleUnder（手描き下線） ----------------
 
     private static void RegisterScribbleUnder() => Reg0("scribbleUnder", new DecorDef
     {
@@ -3017,8 +2883,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- crossOut（推敲の走り書き） ----------------
 
     private static void RegisterCrossOut() => Reg0("crossOut", new DecorDef
     {
@@ -3130,8 +2994,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- highlightMark（蛍光マーカー） ----------------
-
     private static void RegisterHighlightMark() => Reg0("highlightMark", new DecorDef
     {
         Name = "蛍光マーカー",
@@ -3228,8 +3090,6 @@ public static class P11Decor
         return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : 0;
     }
 
-    // ---------------- heartsStars（ハートと星） ----------------
-
     private static void RegisterHeartsStars() => Reg0("heartsStars", new DecorDef
     {
         Name = "ハートと星",
@@ -3306,8 +3166,6 @@ public static class P11Decor
         },
     });
 
-    // ---------------- watermarkKanji（透かし大漢字） ----------------
-
     private static void RegisterWatermarkKanji() => Reg0("watermarkKanji", new DecorDef
     {
         Name = "透かし大漢字",
@@ -3346,8 +3204,6 @@ public static class P11Decor
                 });
         },
     });
-
-    // ---------------- verticalStrip（縦書き帯） ----------------
 
     private static void RegisterVerticalStrip() => Reg0("verticalStrip", new DecorDef
     {
@@ -3415,8 +3271,6 @@ public static class P11Decor
     });
 
     private const string Az = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-    // ---------------- romajiLine（ローマ字） ----------------
 
     private static void RegisterRomajiLine() => Reg0("romajiLine", new DecorDef
     {
@@ -3499,8 +3353,7 @@ public static class P11Decor
         },
     });
 
-    /// <summary>【】形括弧的点列。JS lentil。</summary>
-    private static double[][] Lentil(double xo, double yt, double yb, double aw, double tb, int side)
+        private static double[][] Lentil(double xo, double yt, double yb, double aw, double tb, int side)
     {
         var pts = new List<double[]> { new[] { xo, yt }, new[] { xo - side * aw, yt } };
         const int m = 16;
@@ -3515,8 +3368,6 @@ public static class P11Decor
         pts.Add(new[] { xo, yb });
         return pts.ToArray();
     }
-
-    // ---------------- bracketsJP（隅付き括弧） ----------------
 
     private static void RegisterBracketsJp() => Reg0("bracketsJP", new DecorDef
     {
@@ -3582,8 +3433,6 @@ public static class P11Decor
             }
         },
     });
-
-    // ---------------- seal（落款） ----------------
 
     private static void RegisterSeal() => Reg0("seal", new DecorDef
     {

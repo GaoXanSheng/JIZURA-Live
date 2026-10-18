@@ -1,29 +1,3 @@
-// 移植自 frontend/src/engine/11p_exit.js（exit/hold 表现包：exit 36 条 + hold 20 条）。
-// JS 的 pack 名是 'exitHold'（exit+hold 两组合用包）；C# 侧按任务约定统一挂 pack="exit"。
-//
-// 契约与 JAnim.cs / P11Enter.cs 相同：MoveDef.Draw(env) 里 it = env.It、p = env.Ap（exit=pOut、
-// hold=amt）、env.Cut 携带 dur/inDur/outDur/seed/text；逐字动画推 env.CharFns（管线 mainDraw 统一
-// CombineChar）、逐片动画推 env.PieceFns；条目字段直接写 item（bands/vbands/clip/clipY/streak/echo/
-// dash/fillAlpha/blur…JLayouts.DrawFx 全部消费）。随机数全部是 J.R/J.Rs/J.H/J.Noise1 确定性哈希
-// （无顺序流），哈希入参逐字保持——同 seed 同动画轨迹。
-//
-// 管线缺口与降级（本文件内解决，不改共享文件）：
-// 1. JS 的 merged/addC 自带合并（保 clip/skew/blur/outline，尾部有 a<=0.003/|s|<0.004 的 HIDE 折叠）：
-//    C# JAnim.CombineChar 全字段合并；DrawItem 侧 a<=0.002 即跳过，语义等价，不需要。
-// 2. it.post/it.pre（chainPost/chainPre）：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，
-//    pre=文字下方、post=文字上方）；本包 chainPost 维持「就地执行」约定（内容/几何一致，层级在
-//    主文字下方；文字副本类 post 经 DrawCopy 就地画副本），层级敏感的迁出来不及逐条回归，
-//    见 P11TreatTrans/P11Looks 的 env.PreFn/PostFn 先例。
-// 3. it.clipFn（任意路径裁剪，irisClose/diagWipeOut/blindsClose/checkerOut 用）：已接管线钩子
-//    （Env.ClipFn → DrawFx ClipPath，返回 SKPath；JS 的 ctx.beginPath 构造对位）。
-// 4. `ae`（AE 导出模板名）与 dissolve 的 pieces:true / backspace 的 cursor:true：MoveDef 无对应
-//    属性，未注册——对位见各条目行内注释。
-// 5. env.beat 对象（len/since/index）由渲染器每帧挂 Env（BeatHas/BeatSince/BeatLen/BeatIndex，
-//    09_render beatAt 对位）；BeatHas=false 回 JS 的 ltb 回退式。
-//
-// 跨文件符号对位：J.measure→JText.Measure、J.layoutText→JText.LayoutText、J.itemBox→JAnim.ItemBox、
-// J.glyphCount→JLayouts.GlyphCount、J.itemBands→JAnim.ItemBands、J.noise1→J.Noise1、
-// J.rgba(本地 Rgba)/r/rs/rr/h/mix/lum/smooth/clamp/lerp→J.*。
 
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -35,8 +9,6 @@ public static class P11Exit
     private const string P = "exit";
     private static int _installed;
 
-    // ================= 本包 helper（JS L9-223 逐条对位） =================
-
     private static bool IsHex(string? c) => c != null && c.Length > 0 && c[0] == '#' && (c.Length == 7 || c.Length == 4);
 
     private static string MixC(string? a, string? b, double t)
@@ -47,8 +19,7 @@ public static class P11Exit
         return IsHex(a) && IsHex(b) ? J.Mix(a!, b!, t) : (t < 0.5 ? a! : b!);
     }
 
-    /// <summary>JS colOf：it.color || '#ffffff'（本文件不做 isHex 校验，对齐源）。</summary>
-    private static string ColOf(JObject it) => S(it, "color") ?? "#ffffff";
+        private static string ColOf(JObject it) => S(it, "color") ?? "#ffffff";
 
     private static string? ScK(Env env, string k) => env.Sc?.Str(k);
 
@@ -58,13 +29,10 @@ public static class P11Exit
 
     private static JText.TextLayout LayOf(JObject it) => JText.Measure(it).Lay;
 
-    /// <summary>JS box：item 在设计空间的包围盒（每次重算，sx/sy/size 可能刚变过；Measure 按内容 memo）。</summary>
-    private static ItemBounds Box(JObject it) => JAnim.ItemBox(it);
+        private static ItemBounds Box(JObject it) => JAnim.ItemBox(it);
 
     private static int CutN(Env env) => Math.Max(1, JLayouts.GlyphCount(env.Cut?.Text ?? ""));
     private static bool CutBit(Env env, int k) => (J.H(unchecked((int)(env.Cut?.Seed ?? 0)), k, 991) & 1) == 1;
-
-    private static bool IsSingle(Env env, JObject it) => LayOf(it).N == 1 && CutN(env) > 1;
 
     private static double Win(double p, double o, double spread) => J.Clamp((p - o * spread) / (1 - spread));
 
@@ -77,22 +45,19 @@ public static class P11Exit
         return new[] { N0(it, "x") + xy[0], N0(it, "y") + xy[1] };
     }
 
-    /// <summary>设计坐标的方向向量改用 item 空间表示，charFn 的偏移才会沿屏幕轴走。</summary>
-    private static double[] DownI(JObject it)
+        private static double[] DownI(JObject it)
     {
         var r = N0(it, "rot") * J.DEG;
         return new[] { Math.Sin(r), Math.Cos(r) };
     }
 
-    /// <summary>字形 i 在 cut 内的先后次序 0..1；单字 item 按 mi 在 cut 里的位置排。</summary>
-    private static Func<int, int, double> OrderOf(Env env, JObject it)
+        private static Func<int, int, double> OrderOf(Env env, JObject it)
     {
         var nCut = CutN(env);
         var mi = Num(it, "mi");
         return (i, n) => n > 1 ? i / (double)(n - 1) : nCut > 1 ? J.Clamp(mi / (nCut - 1)) : 0;
     }
 
-    // 剪裁窗固定在 item 空间，字形被 (dx, dy) 平移时窗子不动；kx/ky 是同一 charFn 附带的字形缩放
     private static CharXf WinShift(JObject g, JObject it, double dx, double dy, double kx = 1, double ky = 1)
     {
         var sx = N1(it, "sx");
@@ -110,7 +75,6 @@ public static class P11Exit
             };
         }
 
-        // 字形转了 90°（竖排）：局部 x 沿 item +y、按 sx 缩放，局部 y 沿 item -x、按 sy 缩放
         var mY = my * D(g, "h") * sx;
         var mX = mx * D(g, "w") * sy;
         return new CharXf
@@ -122,15 +86,10 @@ public static class P11Exit
 
     private static JAnim.CharFn Glyphs(Env env, JAnim.CharFn fn)
     {
-        env.CharFns.Add(fn); // JS addC：管线侧 CombineChar 折叠合并
-        return fn;
+        env.CharFns.Add(fn);         return fn;
     }
 
-    /// <summary>
-    /// withCopies 的对位：主绘制走 mainFn（推 env.CharFns，管线在主文字上生效）；
-    /// 每个 copyFn 在就地 post 阶段画一份 item 副本（管线未挂 post，层级在主文字下方）。
-    /// </summary>
-    private static void WithCopies(Env env, JObject it, JAnim.CharFn mainFn, IReadOnlyList<JAnim.CharFn> copyFns, JObject? extra = null)
+        private static void WithCopies(Env env, JObject it, JAnim.CharFn mainFn, IReadOnlyList<JAnim.CharFn> copyFns, JObject? extra = null)
     {
         var prev = env.CharFns.ToList();
         Glyphs(env, mainFn);
@@ -148,8 +107,7 @@ public static class P11Exit
         }
     }
 
-    /// <summary>JS J.drawItem 直调的副本：DeepClone + 置换 charFn/pieceFn（P11Enter.DrawIt 同型）。</summary>
-    private static BBox? DrawCopy(Env env, JObject src, JAnim.CharFn? charFn, Action<JObject>? mutate = null)
+        private static BBox? DrawCopy(Env env, JObject src, JAnim.CharFn? charFn, Action<JObject>? mutate = null)
     {
         var c = (JObject)src.DeepClone();
         mutate?.Invoke(c);
@@ -174,43 +132,9 @@ public static class P11Exit
         }
     }
 
-    /// <summary>JS J.drawFx 直调的副本：走真管线 DrawFx（bands/vbands/clip 副本消费），外挂任意路径裁剪。</summary>
-    private static BBox? DrawFxCopy(Env env, JObject src, JAnim.CharFn? charFn, SKPath? clip, Action<JObject>? mutate = null)
-    {
-        var c = (JObject)src.DeepClone();
-        mutate?.Invoke(c);
-        var prevC = env.CharFn;
-        var prevP = env.PieceFn;
-        env.CharFn = charFn;
-        env.PieceFn = null;
-        try
-        {
-            if (clip != null)
-            {
-                env.Ctx.Save();
-                env.Ctx.ClipPath(clip, SKClipOperation.Intersect, true);
-            }
-            try
-            {
-                return JLayouts.DrawFx(env, c);
-            }
-            finally
-            {
-                if (clip != null) env.Ctx.Restore();
-            }
-        }
-        finally
-        {
-            env.CharFn = prevC;
-            env.PieceFn = prevP;
-        }
-    }
+        private static JAnim.CharFn? MergedNow(Env env) => env.CharFns.Count == 0 ? null : JAnim.CombineChar(env.CharFns);
 
-    /// <summary>当前 item 的合并 charFn（JS post 阶段 it2.charFn 的对位；管线在 Draw 返回后才写入 env.CharFn）。</summary>
-    private static JAnim.CharFn? MergedNow(Env env) => env.CharFns.Count == 0 ? null : JAnim.CombineChar(env.CharFns);
-
-    /// <summary>在 item 自己的坐标系里画，含旋转。</summary>
-    private static void InItem(Env env, JObject it, Action fn)
+        private static void InItem(Env env, JObject it, Action fn)
     {
         env.Ctx.Save();
         env.Ctx.Translate((float)N0(it, "x"), (float)N0(it, "y"));
@@ -232,8 +156,7 @@ public static class P11Exit
         public double X0, X1, Y0, Y1;
     }
 
-    /// <summary>每行（竖排为每列）在 item 空间的范围。</summary>
-    private static List<LnExt> LineExt(JObject it)
+        private static List<LnExt> LineExt(JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = N1(it, "sx");
@@ -260,8 +183,7 @@ public static class P11Exit
         public double X0, Y0, X1, Y1, Cx, Cy, W, H;
     }
 
-    /// <summary>旋转后的 item box 求设计空间 AABB，含 pad 与 skew 让位。</summary>
-    private static Dbx DBox(JObject it, double pad = 0)
+        private static Dbx DBox(JObject it, double pad = 0)
     {
         var b = Box(it);
         double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -285,30 +207,7 @@ public static class P11Exit
         };
     }
 
-    private sealed class Lbx
-    {
-        public double X0, Y0, X1, Y1, Cx, Cy, W, H;
-    }
-
-    /// <summary>item 空间的 box，相对 it.x/it.y，不旋转。</summary>
-    private static Lbx LBox(JObject it, double pad = 0)
-    {
-        var b = Box(it);
-        return new Lbx
-        {
-            X0 = b.X0 - N0(it, "x") - pad,
-            Y0 = b.Y0 - N0(it, "y") - pad,
-            X1 = b.X1 - N0(it, "x") + pad,
-            Y1 = b.Y1 - N0(it, "y") + pad,
-            Cx = b.Cx - N0(it, "x"),
-            Cy = b.Cy - N0(it, "y"),
-            W = b.W + pad * 2,
-            H = b.H + pad * 2,
-        };
-    }
-
-    /// <summary>以 item 空间给定的锚点缩放 sx/sy，不给锚点就用 box 中心。</summary>
-    private static void ScaleAbout(JObject it, double kx, double ky, double? ax = null, double? ay = null)
+        private static void ScaleAbout(JObject it, double kx, double ky, double? ax = null, double? ay = null)
     {
         double axx, ayy;
         if (ax == null)
@@ -329,8 +228,7 @@ public static class P11Exit
         it["sy"] = N1(it, "sy") * ky;
     }
 
-    /// <summary>以 box 中心缩放字号，位置、字距、字形都跟着。</summary>
-    private static void SizeAbout(JObject it, double k)
+        private static void SizeAbout(JObject it, double k)
     {
         var b = Box(it);
         var ax = b.Cx - N0(it, "x");
@@ -341,8 +239,7 @@ public static class P11Exit
         it["size"] = N0(it, "size") * k;
     }
 
-    /// <summary>绕 item 空间一点旋转 {x, y, rot}。</summary>
-    private static void RotateAbout(JObject it, double deg, double ax, double ay)
+        private static void RotateAbout(JObject it, double deg, double ax, double ay)
     {
         var r0 = N0(it, "rot") * J.DEG;
         var r1 = r0 + deg * J.DEG;
@@ -353,37 +250,10 @@ public static class P11Exit
         it["rot"] = N0(it, "rot") + deg;
     }
 
-    /// <summary>tearOut 的半边状态（JS 的普通对象 {x, y, rot}）。</summary>
-    private sealed class HState
-    {
-        public double X, Y, Rot;
-    }
-
-    private static void RotateAboutH(HState h, double deg, double ax, double ay)
-    {
-        var r0 = h.Rot * J.DEG;
-        var r1 = r0 + deg * J.DEG;
-        var p0 = Rot2(ax, ay, r0);
-        var p1 = Rot2(ax, ay, r1);
-        h.X += p0[0] - p1[0];
-        h.Y += p0[1] - p1[1];
-        h.Rot += deg;
-    }
-
-    // env.beat {since,len,index} 由渲染器每帧挂 Env（BeatHas/BeatSince/BeatLen/BeatIndex，09_render beatAt）；
-    // BeatHas=false（plan 无节拍）回 JS 的 ltb 回退式（JS beatLen/beatSince/beatIdx 对位）
     private static double BeatLen(Env env, double fb) => env.BeatHas && env.BeatLen > 0 ? env.BeatLen : fb;
     private static double BeatSince(Env env, double fb) => env.BeatHas ? env.BeatSince : ((env.Ltb % fb) + fb) % fb;
     private static int BeatIdx(Env env, double fb) => env.BeatHas ? env.BeatIndex : (int)Math.Floor(env.Ltb / fb);
 
-    /// <summary>JS J.rgba(h, a) → "rgba(r,g,b,a)"（shadow.color 吃这个格式）。</summary>
-    private static string Rgba(string hex, double a)
-    {
-        var (r, g, b) = J.Hex(hex);
-        return "rgba(" + r + "," + g + "," + b + "," + a + ")";
-    }
-
-    // 松散读取（对齐 JS 语义）：(x||0)/(x||1)/(x??d)
     private static string? S(JObject o, string k) => JLayouts.S(o, k);
     private static double D(JObject o, string k, double d = 0) => JLayouts.D(o, k, d);
     private static bool B(JObject o, string k) => JLayouts.B(o, k);
@@ -393,10 +263,7 @@ public static class P11Exit
     private static double N1(JObject o, string k) => JAnim.NumOr1(o, k);
     private static int SeedOf(JObject o) => JAnim.SeedOf(o);
 
-    // ================= 注册（JS X/H 字面量序，Object.keys 语义） =================
-
-    /// <summary>exit 条目统一包一层 JS 的兜底：p≈1 时不管配方留下什么，一定完全消失。</summary>
-    private static void Reg1(string key, MoveDef def)
+        private static void Reg1(string key, MoveDef def)
     {
         var f = def.Draw;
         def.Draw = env =>
@@ -415,69 +282,10 @@ public static class P11Exit
 
     private const string POOL = "※◆◇■□▲△▼●○◎＃＊＋×÷＝≠∞§†01／＼＜＞";
 
-    /// <summary>幂等注册本文件全部 exit/hold 条目（顺序 = JS 源 X/H 字面量序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        SinkMask();        // X.sinkMask
-        RiseOut();         // X.riseOut
-        SlideOutL();       // X.slideOutL
-        SlideOutR();       // X.slideOutR
-        FlipOutX();        // X.flipOutX
-        FlipOutY();        // X.flipOutY
-        FoldOut();         // X.foldOut
-        Squash();          // X.squash
-        TrackOutWide();    // X.trackOutWide
-        Collapse();        // X.collapse
-        ZoomThrough();     // X.zoomThrough
-        ZoomFar();         // X.zoomFar
-        SpinOut();         // X.spinOut
-        Twist();           // X.twist
-        WaveOut();         // X.waveOut
-        BlurOutStagger();  // X.blurOutStagger
-        Undraw();          // X.undraw
-        OutlineOut();      // X.outlineOut
-        IrisClose();       // X.irisClose
-        DiagWipeOut();     // X.diagWipeOut
-        BlindsClose();     // X.blindsClose
-        CheckerOut();      // X.checkerOut
-        SplitApart();      // X.splitApart
-        VSliceDrop();      // X.vSliceDrop
-        Melt();            // X.melt
-        Dissolve();        // X.dissolve
-        Backspace();       // X.backspace
-        ScrambleOut();     // X.scrambleOut
-        GlitchDissolve();  // X.glitchDissolve
-        EchoOut();         // X.echoOut
-        WhipOut();         // X.whipOut
-        Gravity();         // X.gravity
-        PopOut();          // X.popOut
-        Burn();            // X.burn
-        SweepCover();      // X.sweepCover
-        ShatterLite();     // X.shatterLite
-        Float();           // H.float
-        Sway();            // H.sway
-        Pulse();           // H.pulse
-        Shimmer();         // H.shimmer
-        ColorRun();        // H.colorRun
-        RotateSlow();      // H.rotateSlow
-        TrackBreathe();    // H.trackBreathe
-        SkewWobble();      // H.skewWobble
-        BeatHop();         // H.beatHop
-        HWave();           // H.hWave
-        Heartbeat();       // H.heartbeat
-        OrbitSmall();      // H.orbitSmall
-        Jelly();           // H.jelly
-        ScanBand();        // H.scanBand
-        NoiseDrift();      // H.noiseDrift
-        Tilt();            // H.tilt
-        ZoomSlow();        // H.zoomSlow
-        StretchPulse();    // H.stretchPulse
-        GlitchJump();      // H.glitchJump
-        EchoTrail();       // H.echoTrail
-    }
-
-    // ---------------- sinkMask（X.sinkMask） ----------------
+        SinkMask();                RiseOut();                 SlideOutL();               SlideOutR();               FlipOutX();                FlipOutY();                FoldOut();                 Squash();                  TrackOutWide();            Collapse();                ZoomThrough();             ZoomFar();                 SpinOut();                 Twist();                   WaveOut();                 BlurOutStagger();          Undraw();                  OutlineOut();              IrisClose();               DiagWipeOut();             BlindsClose();             CheckerOut();              SplitApart();              VSliceDrop();              Melt();                    Dissolve();                Backspace();               ScrambleOut();             GlitchDissolve();          EchoOut();                 WhipOut();                 Gravity();                 PopOut();                  Burn();                    SweepCover();              ShatterLite();             Float();                   Sway();                    Pulse();                   Shimmer();                 ColorRun();                RotateSlow();              TrackBreathe();            SkewWobble();              BeatHop();                 HWave();                   Heartbeat();               OrbitSmall();              Jelly();                   ScanBand();                NoiseDrift();              Tilt();                    ZoomSlow();                StretchPulse();            GlitchJump();              EchoTrail();           }
 
     private static void SinkMask() => Reg1("sinkMask", new MoveDef
     {
@@ -496,7 +304,6 @@ public static class P11Exit
                 var q = Win(p, ord(i, n), 0.5);
                 if (q <= 0) return null;
                 if (q >= 1) return new CharXf { Hide = true };
-                // 先微微上抬，再沉到自身基线以下
                 var d = (J.E.InOutCubic(q) - 0.06 * Math.Sin(Math.PI * J.Clamp(q / 0.3))) * D(g, "h") * sy * 1.4;
                 var o = WinShift(g, it, 0, d);
                 o.Dy = d;
@@ -504,8 +311,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- riseOut（X.riseOut） ----------------
 
     private static void RiseOut() => Reg1("riseOut", new MoveDef
     {
@@ -525,8 +330,7 @@ public static class P11Exit
                 if (q <= 0) return null;
                 if (q >= 1) return new CharXf { Hide = true };
                 var d = -Math.Pow(q, 2.2) * D(g, "h") * sy * 1.5;
-                var st = 1 + 0.5 * Math.Sin(Math.PI * q) * q; // 离场时的速度拉伸
-                var o = WinShift(g, it, 0, d, 1, st);
+                var st = 1 + 0.5 * Math.Sin(Math.PI * q) * q;                 var o = WinShift(g, it, 0, d, 1, st);
                 o.Dy = d;
                 o.Sy = st;
                 o.Sx = 1 - 0.1 * (st - 1);
@@ -534,8 +338,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- slideOutL / slideOutR（X.slideOut*） ----------------
 
     private static MoveDef SlideOutDef(int dir, string name) => new()
     {
@@ -552,8 +354,7 @@ public static class P11Exit
             var sz = N0(it, "size");
             Glyphs(env, (i, _, n) =>
             {
-                var o = dir < 0 ? ord(i, n) : 1 - ord(i, n); // 前缘先走
-                var q = Win(p, o, 0.5);
+                var o = dir < 0 ? ord(i, n) : 1 - ord(i, n);                 var q = Win(p, o, 0.5);
                 if (q <= 0) return null;
                 var wind = q < 0.24 ? Math.Sin(q / 0.24 * Math.PI) * sz * 0.07 : 0;
                 var u = J.Clamp((q - 0.1) / 0.9);
@@ -573,8 +374,6 @@ public static class P11Exit
     private static void SlideOutL() => Reg1("slideOutL", SlideOutDef(-1, "左へ流れる"));
     private static void SlideOutR() => Reg1("slideOutR", SlideOutDef(1, "右へ流れる"));
 
-    // ---------------- flipOutX（X.flipOutX） ----------------
-
     private static void FlipOutX() => Reg1("flipOutX", new MoveDef
     {
         Name = "扉が閉まる",
@@ -588,8 +387,7 @@ public static class P11Exit
             var sx0 = N1(it, "sx");
             var c0 = ColOf(it);
             var bg = ScK(env, "bg") ?? "#ffffff";
-            var dir = CutBit(env, 1) ? 1 : -1; // 铰链在左还是右
-            Glyphs(env, (i, g, n) =>
+            var dir = CutBit(env, 1) ? 1 : -1;             Glyphs(env, (i, g, n) =>
             {
                 if (g == null) return null;
                 var q = Win(p, ord(i, n), 0.5);
@@ -609,8 +407,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- flipOutY（X.flipOutY） ----------------
 
     private static void FlipOutY() => Reg1("flipOutY", new MoveDef
     {
@@ -634,7 +430,6 @@ public static class P11Exit
                 var th = J.E.InQuad(q) * Math.PI / 2;
                 var c = Math.Cos(th);
                 var s = Math.Sin(th);
-                // 以底边为铰链，向后倒平贴回基线
                 return new CharXf
                 {
                     Sy = c,
@@ -645,8 +440,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- foldOut（X.foldOut） ----------------
 
     private static void FoldOut() => Reg1("foldOut", new MoveDef
     {
@@ -680,8 +473,7 @@ public static class P11Exit
                 if (q >= 1) return new CharXf { Hide = true };
                 var a = J.E.InOutSine(J.Clamp(q / 0.5));
                 var b = J.Clamp((q - 0.5) / 0.5);
-                var sy = Math.Cos(a * Math.PI) * Math.Cos(J.E.InQuad(b) * Math.PI / 2); // 从 1 折过 -1 再收到 0
-                return new CharXf
+                var sy = Math.Cos(a * Math.PI) * Math.Cos(J.E.InQuad(b) * Math.PI / 2);                 return new CharXf
                 {
                     ClipY = new[] { -1.2, 0.012 },
                     Sy = sy,
@@ -692,8 +484,6 @@ public static class P11Exit
             WithCopies(env, it, Bottom, new[] { (JAnim.CharFn)Top });
         },
     });
-
-    // ---------------- squash（X.squash） ----------------
 
     private static void Squash() => Reg1("squash", new MoveDef
     {
@@ -715,27 +505,22 @@ public static class P11Exit
             var kx = (1 + 0.08 * J.E.OutCubic(a1)) * (1 - J.E.InOutCubic(a2));
             if (single)
             {
-                // 单字 item：整条向屏幕中心塌缩
                 it["x"] = J.Lerp(N0(it, "x"), env.W / 2.0, J.E.InOutCubic(a2));
                 ScaleAbout(it, 1 + 0.08 * J.E.OutCubic(a1), ky);
                 it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.7, 0.9, p));
             }
             else if (kx > 0.01) ScaleAbout(it, kx, ky);
             else it["alpha"] = 0.0;
-            // CRT 关机：塌缩完留一个渐隐的亮点
             var c = single ? new[] { env.W / 2.0, N0(it, "y") } : ToD(it, b0.Cx - N0(it, "x"), b0.Cy - N0(it, "y"));
             var dotA = J.Smooth(0.6, 0.8, p) * (1 - J.Smooth(0.88, 1, p));
             if (dotA > 0.01 && (!single || Math.Round(Num(it, "mi")) == Math.Floor((nCut - 1) / 2.0)))
             {
                 var r = sz * 0.08;
-                // JS chainPost——就地执行（层级在主文字下方）
                 env.Circle(c[0], c[1], r, col, null, 0, dotA, true);
                 env.Rect(c[0] - r * 5 * (1 - a2 * 0.5), c[1] - r * 0.12, r * 10 * (1 - a2 * 0.5), r * 0.24, col, dotA * 0.8, false);
             }
         },
     });
-
-    // ---------------- trackOutWide（X.trackOutWide） ----------------
 
     private static void TrackOutWide() => Reg1("trackOutWide", new MoveDef
     {
@@ -763,7 +548,6 @@ public static class P11Exit
             });
             if (LayOf(it).N == 1 && CutN(env) > 1)
             {
-                // 单字 item 从屏幕中心向外散开
                 it["x"] = N0(it, "x") + (N0(it, "x") - env.W / 2.0) * k * 0.7;
                 it["y"] = N0(it, "y") + (N0(it, "y") - env.H / 2.0) * k * 0.4;
             }
@@ -772,8 +556,6 @@ public static class P11Exit
                 it["blur"] = N0(it, "blur") + Math.Min(J.E.InQuad(p) * N0(it, "size") * 0.035, Math.Min(env.W, env.H) * 0.012);
         },
     });
-
-    // ---------------- collapse（X.collapse） ----------------
 
     private static void Collapse() => Reg1("collapse", new MoveDef
     {
@@ -788,7 +570,6 @@ public static class P11Exit
             var r = 1 - J.E.InQuad(p);
             var turn = dir * J.E.InQuad(p) * J.DEG;
             var sc = Math.Max(0.02, 1 - J.E.InQuad(p) * 0.94);
-            // 差速旋转，靠里的部分转得快，拧出螺旋吸向中心
             double[] Spiral(double px, double py, double rr)
             {
                 var phi = turn * (140 + 220 * (1 - J.Clamp(Math.Sqrt(px * px + py * py) / rr)));
@@ -798,7 +579,6 @@ public static class P11Exit
             }
             if (LayOf(it).N == 1 && CutN(env) > 1)
             {
-                // 单字 item 整体旋进屏幕中心
                 var px = N0(it, "x") - env.W / 2.0;
                 var py = N0(it, "y") - env.H / 2.0;
                 var res = Spiral(px, py, Math.Max(env.W, env.H) * 0.5);
@@ -828,8 +608,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- zoomThrough（X.zoomThrough） ----------------
-
     private static void ZoomThrough() => Reg1("zoomThrough", new MoveDef
     {
         Name = "手前へ抜ける",
@@ -845,8 +623,7 @@ public static class P11Exit
             var k = Math.Min(maxK, 1 + 4.5 * J.E.InCubic(p) + 0.25 * p);
             if (single)
             {
-                var kk = 1 + 4.5 * J.E.InCubic(p) + 0.25 * p; // JS 原样：single 分支用未夹 maxK 的 kk
-                it["x"] = env.W / 2.0 + (N0(it, "x") - env.W / 2.0) * kk;
+                var kk = 1 + 4.5 * J.E.InCubic(p) + 0.25 * p;                 it["x"] = env.W / 2.0 + (N0(it, "x") - env.W / 2.0) * kk;
                 it["y"] = env.H / 2.0 + (N0(it, "y") - env.H / 2.0) * kk;
             }
             SizeAbout(it, k);
@@ -856,8 +633,6 @@ public static class P11Exit
                 it["echo"] = new JObject { ["n"] = 3, ["dx"] = 0, ["dy"] = 0, ["scale"] = 0.84, ["a"] = 0.45 * J.Smooth(0, 0.25, p), ["decay"] = 0.62 };
         },
     });
-
-    // ---------------- zoomFar（X.zoomFar） ----------------
 
     private static void ZoomFar() => Reg1("zoomFar", new MoveDef
     {
@@ -869,15 +644,13 @@ public static class P11Exit
             var it = env.It!;
             var p = env.Ap;
             var sz0 = N0(it, "size");
-            var e = 1 - Math.Pow(1 - p, 2.6); // 先快退，后慢停
-            SizeAbout(it, 1 - 0.9 * e);
+            var e = 1 - Math.Pow(1 - p, 2.6);             SizeAbout(it, 1 - 0.9 * e);
             if (LayOf(it).N == 1 && CutN(env) > 1)
             {
                 it["x"] = J.Lerp(N0(it, "x"), env.W / 2.0, e * 0.85);
                 it["y"] = J.Lerp(N0(it, "y"), env.H / 2.0, e * 0.85);
             }
-            it["y"] = N0(it, "y") - sz0 * 0.35 * e; // 朝上方的消失点退
-            it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.5, 1, p));
+            it["y"] = N0(it, "y") - sz0 * 0.35 * e;             it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.5, 1, p));
             it["echo"] = new JObject
             {
                 ["n"] = 3,
@@ -890,8 +663,6 @@ public static class P11Exit
             };
         },
     });
-
-    // ---------------- spinOut（X.spinOut） ----------------
 
     private static void SpinOut() => Reg1("spinOut", new MoveDef
     {
@@ -923,8 +694,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- twist（X.twist） ----------------
-
     private static void Twist() => Reg1("twist", new MoveDef
     {
         Name = "ねじれ",
@@ -937,12 +706,10 @@ public static class P11Exit
             var ord = OrderOf(env, it);
             var vert = B(it, "vertical");
             var back = MixC(ColOf(it), ScK(env, "bg") ?? "#ffffff", 0.5);
-            var flat = 1 - J.E.InQuad(J.Clamp((p - 0.55) / 0.45)); // 丝带最后转到侧对视线
-            var e = Math.Pow(p, 1.3);
+            var flat = 1 - J.E.InQuad(J.Clamp((p - 0.55) / 0.45));             var e = Math.Pow(p, 1.3);
             Glyphs(env, (i, g, n) =>
             {
-                var th = e * (0.5 + 2 * ord(i, n)) * Math.PI; // 相位沿阅读轴渐开，形成扭转
-                var c = Math.Cos(th) * flat;
+                var th = e * (0.5 + 2 * ord(i, n)) * Math.PI;                 var c = Math.Cos(th) * flat;
                 var o = new CharXf
                 {
                     Color = c < 0 ? back : null,
@@ -955,8 +722,6 @@ public static class P11Exit
             it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.9, 1, p));
         },
     });
-
-    // ---------------- waveOut（X.waveOut） ----------------
 
     private static void WaveOut() => Reg1("waveOut", new MoveDef
     {
@@ -986,8 +751,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- blurOutStagger（X.blurOutStagger） ----------------
-
     private static void BlurOutStagger() => Reg1("blurOutStagger", new MoveDef
     {
         Name = "字ごとボケ",
@@ -999,7 +762,6 @@ public static class P11Exit
             var p = env.Ap;
             var ord = OrderOf(env, it);
             var sz = N0(it, "size");
-            // 只在 main pass 加模糊，ghost 副本直接淡出
             var bmax = env.Pass == "main" ? Math.Min(sz * 0.09, Math.Min(env.W, env.H) * 0.02) : 0;
             Glyphs(env, (i, _, n) =>
             {
@@ -1011,8 +773,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- undraw（X.undraw） ----------------
 
     private static void Undraw() => Reg1("undraw", new MoveDef
     {
@@ -1034,8 +794,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- outlineOut（X.outlineOut） ----------------
-
     private static void OutlineOut() => Reg1("outlineOut", new MoveDef
     {
         Name = "塗りが抜ける",
@@ -1056,7 +814,6 @@ public static class P11Exit
                 if (q <= 0) return null;
                 var k = J.E.InOutSine(J.Clamp(q / 0.7));
                 if (k >= 0.999) return new CharXf { Hide = true };
-                // 填充像排空一样流走，液面从顶部往下掉
                 return new CharXf { ClipY = new[] { -0.72 + 1.44 * k, 1.2 } };
             }
             CharXf? Line(int i, JObject? g, int n)
@@ -1074,8 +831,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- irisClose（X.irisClose） ----------------
 
     private static void IrisClose() => Reg1("irisClose", new MoveDef
     {
@@ -1095,7 +850,6 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：moveTo + arc 的整圆路径 → Env.ClipFn 桥（DrawFx ClipPath）
             env.ClipFn = (_, _) =>
             {
                 var path = new SKPath();
@@ -1105,12 +859,9 @@ public static class P11Exit
             var lw = Math.Max(1.5, N0(it, "size") * 0.035);
             var acc = ScK(env, "accent") ?? "#ffffff";
             var a = Math.Min(1, p * 6) * (1 - J.Smooth(0.9, 1, p));
-            // JS chainPost——就地执行
             env.Circle(c[0], c[1], r + lw * 0.5, null, acc, lw, a, false);
         },
     });
-
-    // ---------------- diagWipeOut（X.diagWipeOut） ----------------
 
     private static void DiagWipeOut() => Reg1("diagWipeOut", new MoveDef
     {
@@ -1121,7 +872,6 @@ public static class P11Exit
         {
             var it = env.It!;
             var p = env.Ap;
-            // 每个 cut 只有一条贯穿屏幕的斜边，方向来自 cut seed，同一 cut 的 item 被同一条线擦
             var bb = DBox(it, N0(it, "size") * 0.15);
             var seed = unchecked((int)(env.Cut?.Seed ?? 0));
             var v = (int)((uint)J.H(seed, 77) >> 3) & 3;
@@ -1149,7 +899,6 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：保留侧的半平面四边形（pt(u,w) 四角，L=(W+H)*3 的超长边）→ Env.ClipFn 桥
             var l = (w + h) * 3;
             double[] Pt(double u, double w2) => new[] { d[0] * u + t[0] * w2, d[1] * u + t[1] * w2 };
             env.ClipFn = (_, _) =>
@@ -1168,7 +917,6 @@ public static class P11Exit
             };
             if (Math.Abs(Num(it, "mi")) < 1e-6)
             {
-                // 色条只画一次，由第一个 item 画（JS chainPost——就地执行）
                 var acc = ScK(env, "accent") ?? "#ffffff";
                 var pad = Math.Max(w, h) * 0.1;
                 env.Poly(new[]
@@ -1181,8 +929,6 @@ public static class P11Exit
             }
         },
     });
-
-    // ---------------- blindsClose（X.blindsClose） ----------------
 
     private static void BlindsClose() => Reg1("blindsClose", new MoveDef
     {
@@ -1211,7 +957,6 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：百叶条纹并集（逐条 ctx.rect）→ Env.ClipFn 桥
             var bbY0 = bb.Y0;
             var bbX0 = bb.X0;
             env.ClipFn = (_, _) =>
@@ -1236,8 +981,6 @@ public static class P11Exit
             };
         },
     });
-
-    // ---------------- checkerOut（X.checkerOut） ----------------
 
     private static void CheckerOut() => Reg1("checkerOut", new MoveDef
     {
@@ -1274,7 +1017,6 @@ public static class P11Exit
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：格子并集（逐格 ctx.rect）→ Env.ClipFn 桥
             env.ClipFn = (_, _) =>
             {
                 var path = new SKPath();
@@ -1285,8 +1027,6 @@ public static class P11Exit
             };
         },
     });
-
-    // ---------------- splitApart（X.splitApart） ----------------
 
     private static void SplitApart() => Reg1("splitApart", new MoveDef
     {
@@ -1302,8 +1042,7 @@ public static class P11Exit
             var crack = J.Clamp(p / 0.2);
             var u = J.Clamp((p - 0.16) / 0.84);
             var e = J.E.OutCubic(u);
-            var off = crack * sz * 0.03 + sz * 0.75 * e; // 先裂出发丝缝，两半再弹开
-            var a = 1 - J.Smooth(0.35, 1, u);
+            var off = crack * sz * 0.03 + sz * 0.75 * e;             var a = 1 - J.Smooth(0.35, 1, u);
             var sq = 1 - 0.35 * e;
 
             JAnim.CharFn Half(int sgn) => (i, g, n) => vert
@@ -1331,7 +1070,6 @@ public static class P11Exit
                 var acc = ScK(env, "accent") ?? "#ffffff";
                 var lw = Math.Max(1.5, sz * (0.02 + 0.05 * e));
                 var pad = sz * (0.15 + 0.5 * e);
-                // JS chainPost（inItem 裂缝亮条）——就地执行
                 InItem(env, it, () =>
                 {
                     foreach (var l in lines)
@@ -1351,8 +1089,6 @@ public static class P11Exit
             }
         },
     });
-
-    // ---------------- vSliceDrop（X.vSliceDrop） ----------------
 
     private static void VSliceDrop() => Reg1("vSliceDrop", new MoveDef
     {
@@ -1382,8 +1118,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- melt（X.melt） ----------------
-
     private static void Melt() => Reg1("melt", new MoveDef
     {
         Name = "溶ける",
@@ -1398,8 +1132,7 @@ public static class P11Exit
             var b0 = Box(it);
             var seed = SeedOf(it);
             var sz = N0(it, "size");
-            ScaleAbout(it, 1 - 0.05 * p, 1 + 0.8 * J.E.InQuad(p), b0.Cx - N0(it, "x"), b0.Y0 - N0(it, "y")); // 向下拉伸，锚在顶部
-            var bb = DBox(it, sz * 0.35);
+            ScaleAbout(it, 1 - 0.05 * p, 1 + 0.8 * J.E.InQuad(p), b0.Cx - N0(it, "x"), b0.Y0 - N0(it, "y"));             var bb = DBox(it, sz * 0.35);
             var w = bb.X1 - bb.X0;
             var n = J.Clamp((int)Math.Round(w / (sz * (LayOf(it).N == 1 ? 0.3 : 0.15))), 4, 16);
             var e = J.E.InQuad(p);
@@ -1415,8 +1148,6 @@ public static class P11Exit
             it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.55, 1, p));
         },
     });
-
-    // ---------------- dissolve（X.dissolve；JS pieces: true） ----------------
 
     private static void Dissolve() => Reg1("dissolve", new MoveDef
     {
@@ -1434,7 +1165,6 @@ public static class P11Exit
             it["shatter"] = true;
             env.PieceFns.Add((ci, pj, _, ox, _, _) =>
             {
-                // 随机起点，再叠一层从左到右的柔和扫过
                 var t0 = J.R(seed, ci, pj, 71) * 0.5 + J.Clamp((ox + N0(it, "x") - b.X0) / bw) * 0.25;
                 var x = (p - t0) / 0.25;
                 if (x <= 0) return JAnim.Pid;
@@ -1443,7 +1173,6 @@ public static class P11Exit
             });
             if (it["gradient"] != null || IsFalse(it["fill"]) || it["dash"] != null || it["pattern"] != null)
             {
-                // 带这些属性做不了 piece，退回字形级近似
                 var step = (int)env.Step;
                 Glyphs(env, (i, _, _) =>
                 {
@@ -1458,14 +1187,11 @@ public static class P11Exit
 
     private static bool IsFalse(JToken? t) => t is JValue v && v.Type == JTokenType.Boolean && !(bool)v.Value!;
 
-    // ---------------- backspace（X.backspace；JS cursor: true） ----------------
-
     private static void Backspace() => Reg1("backspace", new MoveDef
     {
         Name = "バックスペース",
         Tags = new[] { "editorial", "glitch" },
-        W = 0.8, // JS: cursor: true（MoveDef 暂无该 flag；光标经 post 就地画矩形）
-        MinDur = 0.9,
+        W = 0.8,         MinDur = 0.9,
         OutDur = (dur, n) => J.Clamp(0.2 + n * 0.035, 0.3, Math.Max(0.3, Math.Min(0.9, dur * 0.45))),
         Draw = env =>
         {
@@ -1519,7 +1245,6 @@ public static class P11Exit
             if (vis.Count == 0) return;
             if (sel)
             {
-                // 从尾部全选，相当于 shift+←，然后一次删掉
                 var s = (int)Math.Ceiling(vis.Count * J.E.OutQuad(J.Clamp(p / 0.42)));
                 var from = vis.Count - s;
                 if (p >= 0.55) Glyphs(env, (_, _, _) => new CharXf { Hide = true });
@@ -1527,7 +1252,6 @@ public static class P11Exit
                 {
                     var selIdx = new HashSet<int>(vis.Skip(from).Select(g => g.I));
                     var fromLocal = from;
-                    // JS chainPre（选中底色块，画在文字前）——就地执行，层级同 JS（文字下方）
                     InItem(env, it, () =>
                     {
                         foreach (var g in vis.Skip(fromLocal))
@@ -1557,7 +1281,6 @@ public static class P11Exit
                 }
                 return;
             }
-            // 逐字删除，越删越快，像按键连发
             var del2 = Math.Pow(J.Clamp((p - 0.1) / 0.8), 1.3);
             var k = vis.Count - Math.Min(vis.Count, (int)Math.Floor(del2 * (vis.Count + 0.999)));
             var keep = k > 0 ? vis[k - 1].I : -1;
@@ -1569,8 +1292,6 @@ public static class P11Exit
             }
         },
     });
-
-    // ---------------- scrambleOut（X.scrambleOut） ----------------
 
     private static void ScrambleOut() => Reg1("scrambleOut", new MoveDef
     {
@@ -1600,8 +1321,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- glitchDissolve（X.glitchDissolve） ----------------
 
     private static void GlitchDissolve() => Reg1("glitchDissolve", new MoveDef
     {
@@ -1637,7 +1356,6 @@ public static class P11Exit
                     Color = r < 0.25 ? acc : null,
                 };
             });
-            // JS chainPost（噪点色块）——就地执行
             InItem(env, it, () =>
             {
                 foreach (var g in lay.Cells)
@@ -1661,8 +1379,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- echoOut（X.echoOut） ----------------
-
     private static void EchoOut() => Reg1("echoOut", new MoveDef
     {
         Name = "残響",
@@ -1681,7 +1397,6 @@ public static class P11Exit
             var col = ColOf(it);
             var acc = ScK(env, "accent") ?? "#ffffff";
             it["alpha"] = a0 * (1 - J.E.InOutSine(J.Clamp(p / 0.45)));
-            // JS chainPost（3 圈描边残影）——就地执行；副本走当前合并 charFn
             var cf = MergedNow(env);
             for (var k = 0; k < 3; k++)
             {
@@ -1715,8 +1430,6 @@ public static class P11Exit
             }
         },
     });
-
-    // ---------------- whipOut（X.whipOut） ----------------
 
     private static void WhipOut() => Reg1("whipOut", new MoveDef
     {
@@ -1762,8 +1475,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- gravity（X.gravity） ----------------
-
     private static void Gravity() => Reg1("gravity", new MoveDef
     {
         Name = "重力落下",
@@ -1803,8 +1514,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- popOut（X.popOut） ----------------
-
     private static void PopOut() => Reg1("popOut", new MoveDef
     {
         Name = "弾ける",
@@ -1838,7 +1547,6 @@ public static class P11Exit
                     Color = MixC(c0, acc, u * 0.7),
                 };
             });
-            // JS chainPost（逐字冲击环 + 放射线）——就地执行
             InItem(env, it, () =>
             {
                 foreach (var g in lay.Cells)
@@ -1869,8 +1577,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- burn（X.burn） ----------------
-
     private static void Burn() => Reg1("burn", new MoveDef
     {
         Name = "焼失",
@@ -1895,8 +1601,7 @@ public static class P11Exit
             var step = (int)env.Step;
 
             double Q(int i, int n) => Win(p, 0.6 * Ord(i, n) + 0.4 * J.R(seed, i, 1101), 0.45);
-            double K(double q) => Math.Pow(J.Clamp((q - 0.12) / 0.88), 1.15); // 烧掉的比例，从下往上
-            Glyphs(env, (i, _, n) =>
+            double K(double q) => Math.Pow(J.Clamp((q - 0.12) / 0.88), 1.15);             Glyphs(env, (i, _, n) =>
             {
                 var q = Q(i, n);
                 if (q <= 0) return null;
@@ -1912,7 +1617,6 @@ public static class P11Exit
                     Dx = J.Rs(seed, i, step, 1102) * sz * 0.012 * heat,
                 };
             });
-            // JS chainPost（上升火星）——就地执行
             InItem(env, it, () =>
             {
                 foreach (var g in lay.Cells)
@@ -1933,8 +1637,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- sweepCover（X.sweepCover） ----------------
 
     private static void SweepCover() => Reg1("sweepCover", new MoveDef
     {
@@ -1967,7 +1669,6 @@ public static class P11Exit
                 Glyphs(env, (_, g, _) => g != null && hidden.Contains((int)D(g, "li")) ? new CharXf { Hide = true } : null);
             var pa = sz * 0.14;
             var pc = sz * 0.1;
-            // JS chainPost（accent 遮盖条）——就地执行
             InItem(env, it, () =>
             {
                 for (var k = 0; k < count; k++)
@@ -1997,8 +1698,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- shatterLite（X.shatterLite） ----------------
 
     private static void ShatterLite() => Reg1("shatterLite", new MoveDef
     {
@@ -2038,10 +1737,6 @@ public static class P11Exit
         },
     });
 
-    // ================= hold（JS H 字面量序） =================
-
-    // ---------------- float（H.float） ----------------
-
     private static void Float() => RegH("float", new MoveDef
     {
         Name = "ふわふわ",
@@ -2064,8 +1759,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- sway（H.sway） ----------------
-
     private static void Sway() => RegH("sway", new MoveDef
     {
         Name = "ゆらぎ",
@@ -2078,11 +1771,8 @@ public static class P11Exit
             if (k < 0.01) return;
             var b = Box(it);
             var ang = Math.Sin(env.Ltb * J.TAU / 3.2 + SeedOf(it) % 7) * 2.6 * k;
-            RotateAbout(it, ang, b.Cx - N0(it, "x"), b.Y0 - N0(it, "y") - N0(it, "size") * 0.6); // 摆锤悬在文字上方一点
-        },
+            RotateAbout(it, ang, b.Cx - N0(it, "x"), b.Y0 - N0(it, "y") - N0(it, "size") * 0.6);         },
     });
-
-    // ---------------- pulse（H.pulse） ----------------
 
     private static void Pulse() => RegH("pulse", new MoveDef
     {
@@ -2097,8 +1787,6 @@ public static class P11Exit
             ScaleAbout(env.It!, f, f);
         },
     });
-
-    // ---------------- shimmer（H.shimmer） ----------------
 
     private static void Shimmer() => RegH("shimmer", new MoveDef
     {
@@ -2129,8 +1817,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- colorRun（H.colorRun） ----------------
-
     private static void ColorRun() => RegH("colorRun", new MoveDef
     {
         Name = "色が走る",
@@ -2159,8 +1845,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- rotateSlow（H.rotateSlow） ----------------
-
     private static void RotateSlow() => RegH("rotateSlow", new MoveDef
     {
         Name = "ゆっくり回転",
@@ -2176,8 +1860,6 @@ public static class P11Exit
             RotateAbout(it, (dir != 0 ? 1 : -1) * Math.Min(10, env.Ltb * 2.6) * k, b.Cx - N0(it, "x"), b.Cy - N0(it, "y"));
         },
     });
-
-    // ---------------- trackBreathe（H.trackBreathe） ----------------
 
     private static void TrackBreathe() => RegH("trackBreathe", new MoveDef
     {
@@ -2206,8 +1888,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- skewWobble（H.skewWobble） ----------------
-
     private static void SkewWobble() => RegH("skewWobble", new MoveDef
     {
         Name = "斜め揺れ",
@@ -2222,15 +1902,12 @@ public static class P11Exit
             var oy = b.Cy - N0(it, "y");
             var s0 = N0(it, "skew");
             var s1 = s0 + Math.Sin(env.Ltb * J.TAU / 1.9) * 12 * k;
-            // 补一个平移，box 中心保持不动
             var d = Rot2(-(Math.Tan(s1 * J.DEG) - Math.Tan(s0 * J.DEG)) * oy, 0, N0(it, "rot") * J.DEG);
             it["skew"] = s1;
             it["x"] = N0(it, "x") + d[0];
             it["y"] = N0(it, "y") + d[1];
         },
     });
-
-    // ---------------- beatHop（H.beatHop） ----------------
 
     private static void BeatHop() => RegH("beatHop", new MoveDef
     {
@@ -2254,15 +1931,12 @@ public static class P11Exit
             Glyphs(env, (i, _, n) =>
             {
                 var d = Math.Abs((n > 1 ? i : mi) - cur);
-                var w = d == 0 ? 1 : d == 1 ? 0.3 : 0; // 相邻的字带一点涟漪
-                return w != 0
+                var w = d == 0 ? 1 : d == 1 ? 0.3 : 0;                 return w != 0
                     ? new CharXf { Dy = -h * w * sz * 0.2 * k, Sy = 1 + 0.08 * h * w * k, Sx = 1 - 0.05 * h * w * k }
                     : null;
             });
         },
     });
-
-    // ---------------- hWave（H.hWave） ----------------
 
     private static void HWave() => RegH("hWave", new MoveDef
     {
@@ -2284,8 +1958,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- heartbeat（H.heartbeat） ----------------
-
     private static void Heartbeat() => RegH("heartbeat", new MoveDef
     {
         Name = "鼓動",
@@ -2298,15 +1970,12 @@ public static class P11Exit
             if (k < 0.01) return;
             var u = env.BeatHas
                 ? (env.BeatIndex % 2) * env.BeatLen + env.BeatSince
-                : ((env.Ltb % 1.05) + 1.05) % 1.05; // JS heartbeat 的 env.beat 分支 + ltb 回退式
-            var v = Math.Exp(-u * 9) + (u > 0.2 ? 0.75 * Math.Exp(-(u - 0.2) * 9) : 0);
+                : ((env.Ltb % 1.05) + 1.05) % 1.05;             var v = Math.Exp(-u * 9) + (u > 0.2 ? 0.75 * Math.Exp(-(u - 0.2) * 9) : 0);
             var f = 1 + 0.055 * v * k;
             ScaleAbout(it, f, f);
             it["color"] = MixC(ColOf(it), ScK(env, "accent") ?? "#ffffff", Math.Min(0.85, 0.6 * v * Math.Min(1, k)));
         },
     });
-
-    // ---------------- orbitSmall（H.orbitSmall） ----------------
 
     private static void OrbitSmall() => RegH("orbitSmall", new MoveDef
     {
@@ -2329,8 +1998,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- jelly（H.jelly） ----------------
-
     private static void Jelly() => RegH("jelly", new MoveDef
     {
         Name = "ゼリー",
@@ -2343,8 +2010,7 @@ public static class P11Exit
             if (k < 0.01) return;
             var sy0 = N1(it, "sy");
             var t = env.Ltb;
-            var bs = env.BeatHas ? env.BeatSince : (double?)null; // JS jelly：有 beat 用衰减振荡，无 beat 用连续 sin
-            Glyphs(env, (i, g, _) =>
+            var bs = env.BeatHas ? env.BeatSince : (double?)null;             Glyphs(env, (i, g, _) =>
             {
                 if (g == null) return null;
                 var w = bs != null
@@ -2352,12 +2018,9 @@ public static class P11Exit
                     : Math.Sin(t * J.TAU * 1.1 - i * 0.55);
                 var a = 0.1 * w * k;
                 var syk = 1 - a;
-                return new CharXf { Sx = 1 + a, Sy = syk, Dy = (1 - syk) * D(g, "h") * sy0 * 0.5 }; // 以底部为锚的挤压拉伸
-            });
+                return new CharXf { Sx = 1 + a, Sy = syk, Dy = (1 - syk) * D(g, "h") * sy0 * 0.5 };             });
         },
     });
-
-    // ---------------- scanBand（H.scanBand） ----------------
 
     private static void ScanBand() => RegH("scanBand", new MoveDef
     {
@@ -2369,8 +2032,7 @@ public static class P11Exit
             var it = env.It!;
             var k = env.Ap * MotionK(env);
             if (k < 0.01) return;
-            if (it["bands"] != null || it["vbands"] != null) return; // 入场效果正在切这个 item，别再切
-            const double per = 2.2;
+            if (it["bands"] != null || it["vbands"] != null) return;             const double per = 2.2;
             var cyc = (int)Math.Floor(env.Ltb / per);
             var v = ((env.Ltb % per) + per) % per / (per * 0.7);
             if (v >= 1) return;
@@ -2379,16 +2041,12 @@ public static class P11Exit
             var bh = Math.Max(N0(it, "size") * 0.24, h * 0.12);
             var y = bb.Y0 - bh + (h + bh) * v;
             var dx = N0(it, "size") * 0.075 * k * (J.R(SeedOf(it), cyc, 451) < 0.5 ? 1 : -1);
-            // JS it.bands = [[y, y + bh, dx]]：new JArray(集合) 会把集合摊平，必须用 JArr 建行
             it["bands"] = JAnim.JArr(new[] { new[] { y, y + bh, dx } });
             var acc = ScK(env, "accent") ?? "#ffffff";
             var lw = Math.Max(1, N0(it, "size") * 0.012);
-            // JS chainPost——就地执行
             env.Rect(bb.X0, y + bh - lw, bb.X1 - bb.X0, lw, acc, 0.55 * Math.Min(1, k), false);
         },
     });
-
-    // ---------------- noiseDrift（H.noiseDrift） ----------------
 
     private static void NoiseDrift() => RegH("noiseDrift", new MoveDef
     {
@@ -2412,8 +2070,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- tilt（H.tilt） ----------------
-
     private static void Tilt() => RegH("tilt", new MoveDef
     {
         Name = "シーソー",
@@ -2430,7 +2086,6 @@ public static class P11Exit
             var sx = N1(it, "sx");
             var sy = N1(it, "sy");
             var vert = B(it, "vertical");
-            // 基线倾斜，字形保持直立
             var tn = Math.Tan(Math.Sin(env.Ltb * J.TAU / 4.2 + SeedOf(it) % 5) * 4 * k * J.DEG);
             Glyphs(env, (_, g, _) =>
             {
@@ -2441,8 +2096,6 @@ public static class P11Exit
             });
         },
     });
-
-    // ---------------- zoomSlow（H.zoomSlow） ----------------
 
     private static void ZoomSlow() => RegH("zoomSlow", new MoveDef
     {
@@ -2460,8 +2113,6 @@ public static class P11Exit
         },
     });
 
-    // ---------------- stretchPulse（H.stretchPulse） ----------------
-
     private static void StretchPulse() => RegH("stretchPulse", new MoveDef
     {
         Name = "横伸び拍",
@@ -2475,8 +2126,6 @@ public static class P11Exit
             ScaleAbout(env.It!, 1 + 0.12 * kick, 1 - 0.045 * kick);
         },
     });
-
-    // ---------------- glitchJump（H.glitchJump） ----------------
 
     private static void GlitchJump() => RegH("glitchJump", new MoveDef
     {
@@ -2505,8 +2154,6 @@ public static class P11Exit
             }
         },
     });
-
-    // ---------------- echoTrail（H.echoTrail） ----------------
 
     private static void EchoTrail() => RegH("echoTrail", new MoveDef
     {

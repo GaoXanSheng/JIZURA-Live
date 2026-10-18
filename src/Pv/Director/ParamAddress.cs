@@ -7,6 +7,8 @@ public enum ParamAddressKind
     Layer,
 
     Effect,
+
+    Vts,
 }
 
 public readonly record struct ParamAddress(ParamAddressKind Kind, string Target, string Param)
@@ -14,6 +16,7 @@ public readonly record struct ParamAddress(ParamAddressKind Kind, string Target,
     private const string LayerPrefix = "layer:";
     private const string EffectPrefix = "effect:";
     private const string CameraPrefix = "camera.";
+    private const string VtsPrefix = "vts.";
 
     public static bool TryParse(string? text, out ParamAddress address)
     {
@@ -26,12 +29,20 @@ public readonly record struct ParamAddress(ParamAddressKind Kind, string Target,
         if (text.StartsWith(EffectPrefix, StringComparison.Ordinal))
             return TrySplitTarget(text, EffectPrefix.Length, ParamAddressKind.Effect, out address);
 
-        if (!text.StartsWith(CameraPrefix, StringComparison.Ordinal)) return false;
+        if (text.StartsWith(CameraPrefix, StringComparison.Ordinal))
+        {
+            var cameraParam = text[CameraPrefix.Length..];
+            if (cameraParam.Length == 0) return false;
+            address = new ParamAddress(ParamAddressKind.Camera, "", cameraParam);
+            return true;
+        }
 
-        var param = text[CameraPrefix.Length..];
-        if (param.Length == 0) return false;
+        if (!text.StartsWith(VtsPrefix, StringComparison.Ordinal)) return false;
 
-        address = new ParamAddress(ParamAddressKind.Camera, "", param);
+        var vtsParam = text[VtsPrefix.Length..];
+        if (vtsParam.Length == 0) return false;
+
+        address = new ParamAddress(ParamAddressKind.Vts, "model", vtsParam);
         return true;
     }
 
@@ -53,6 +64,7 @@ public readonly record struct ParamAddress(ParamAddressKind Kind, string Target,
     {
         ParamAddressKind.Layer => LayerPrefix + Target + "." + Param,
         ParamAddressKind.Effect => EffectPrefix + Target + "." + Param,
+        ParamAddressKind.Vts => VtsPrefix + Param,
         _ => CameraPrefix + Param,
     };
 }

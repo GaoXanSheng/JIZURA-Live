@@ -18,5 +18,4 @@ public static class AppDirs
 
     public static string AudioCacheDir => Path.Combine(CacheDir, "audio");
 
-    public static string FontsDir => Path.Combine(Root, "fonts");
 }

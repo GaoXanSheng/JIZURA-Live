@@ -16,8 +16,7 @@ public sealed class LegacyPvOptions
     public double RenderScale { get; set; } = 0.6667;
     public bool Synchronous { get; set; }
 
-    /// <summary>舞台层接管转场时关闭原版引擎内部 cut 转场；字形 morph 保留。</summary>
-    public bool NoCutTrans { get; set; } = true;
+        public bool NoCutTrans { get; set; } = true;
 
     public bool StageCamera { get; set; } = true;
     public bool StageTransitions { get; set; } = true;
@@ -25,7 +24,6 @@ public sealed class LegacyPvOptions
     public LegacyPresetSettings? Preset { get; set; }
 }
 
-/// <summary>原版 Plan 的 cut 摘要：舞台层用同一份运镜/转场数据，避免另生成一套。</summary>
 public sealed class LegacyPvPlanInfo
 {
     public double Duration { get; set; }
@@ -101,8 +99,7 @@ public sealed class LegacyPvPlanInfo
         }
     }
 
-    /// <summary>用原版 Plan 的节拍/能量直接构造 BeatMap，避免再跑一遍 SongAnalyzer。</summary>
-    public BeatMap ToBeatMap()
+        public BeatMap ToBeatMap()
     {
         var map = new BeatMap
         {
@@ -130,7 +127,6 @@ public sealed class LegacyPvPlanInfo
             sum += values[i];
         }
 
-        // 3 点平滑，避免能量抖动把段落切得太碎
         var smooth = new double[count];
         for (int i = 0; i < count; i++)
         {
@@ -188,46 +184,6 @@ public sealed class LegacyPvPlanInfo
         return map;
     }
 
-    public CameraTrack ToCameraTrack()    {
-        var track = new CameraTrack
-        {
-            Width = Width,
-            Height = Height,
-            BeatLen = BeatLen > 0.05 ? BeatLen : 0.5,
-            Beats = new List<double>(Beats),
-        };
-
-        foreach (var cut in Cuts)
-        {
-            var pars = new Dictionary<string, double>(cut.CamParams, StringComparer.Ordinal);
-            pars["gain"] = Math.Clamp(Motion * 1.25, 0, 1.25);
-            track.Shots.Add(new CameraShot
-            {
-                Preset = MapCamera(cut.Cam),
-                Start = cut.Start,
-                End = cut.End,
-                Seed = cut.Seed,
-                Params = pars,
-                Source = "legacy",
-            });
-        }
-
-        return track;
-    }
-
-    private static string MapCamera(string cam)
-    {
-        for (int i = 0; i < CameraDirection.Presets.Count; i++)
-            if (string.Equals(CameraDirection.Presets[i].Key, cam, StringComparison.Ordinal))
-                return cam;
-
-        return cam switch
-        {
-            "bounce" => "beatPunch",
-            _ => "push",
-        };
-    }
-
     public List<DesignSegment> ToStageTransitions()
     {
         var list = new List<DesignSegment>();
@@ -275,7 +231,6 @@ public sealed class LegacyPvCutInfo
     public Dictionary<string, double> TransParams { get; set; } = new(StringComparer.Ordinal);
 }
 
-
 public sealed class LegacyPvFrame
 {
     public byte[] Bgra { get; init; } = Array.Empty<byte>();
@@ -298,9 +253,6 @@ public sealed class LegacyPvEngine : IDisposable
     private int _surfaceHeight;
 
     public string? Error { get; }
-    public int Width => _designWidth;
-    public int Height => _designHeight;
-    public double Duration => _plan.Duration;
     public int CutCount => _plan.Cuts.Count;
     public LegacyPvPlanInfo PlanInfo { get; private set; } = new();
 
@@ -425,8 +377,7 @@ public sealed class LegacyPvEngine : IDisposable
         }
     }
 
-    /// <summary>把舞台层编辑过的运镜参数写回原版 Plan，下一帧起原版画面和角色一起按新机位渲染。</summary>
-    public void ApplyCameraTrack(CameraTrack? track)
+        public void ApplyCameraTrack(CameraTrack? track)
     {
         if (track is null || track.Shots.Count == 0) return;
 
@@ -471,8 +422,7 @@ public sealed class LegacyPvEngine : IDisposable
     private static DateTime _audioCacheStamp;
     private static AudioData? _audioCache;
 
-    /// <summary>把时间线里改过的布局/入退场/文字处理写回原版 Plan。</summary>
-    public void ApplyCutOverrides(LegacyPvPlanInfo info)
+        public void ApplyCutOverrides(LegacyPvPlanInfo info)
     {
         if (info is null) return;
         var byStart = new Dictionary<double, LegacyPvCutInfo>();

@@ -3,6 +3,35 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI">
+    <UserControl.Resources>
+        <Style x:Key="NavTab" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Grid Background="Transparent">
+                            <ContentPresenter Margin="4,3,4,6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Border x:Name="Underline" Height="2" Margin="3,0" VerticalAlignment="Bottom"
+                                    CornerRadius="1" Background="Transparent" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                                <Setter TargetName="Underline" Property="Background"
+                                        Value="{DynamicResource AccentFillColorSecondaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
             <Border Background="{DynamicResource LayerFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0">
                 <Grid>
@@ -11,19 +40,19 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <UniformGrid Grid.Row="0" Rows="1" Margin="12,10,12,6">
-                        <ui:Button x:Name="NavMedia" Content="素材" Appearance="Primary" FontSize="11"
-                                   MinWidth="0" Padding="4,2" Margin="0,0,4,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavStyle" Content="风格" Appearance="Transparent" FontSize="11"
-                                   MinWidth="0" Padding="4,2" Margin="0,0,4,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavTech" Content="手法" Appearance="Transparent" FontSize="11"
-                                   MinWidth="0" Padding="4,2" Margin="0,0,4,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavDirector" Content="导演" Appearance="Transparent" FontSize="11"
-                                   MinWidth="0" Padding="4,2" Margin="0,0,4,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavOutput" Content="输出" Appearance="Transparent" FontSize="11"
-                                   MinWidth="0" Padding="4,2" Margin="0,0,4,0" Click="Nav_Click" />
-                        <ui:Button x:Name="NavSettings" Content="设置" Appearance="Transparent" FontSize="11"
-                                   MinWidth="0" Padding="4,2" Click="Nav_Click" />
+                    <UniformGrid Grid.Row="0" Rows="1" Margin="12,8,12,4">
+                        <RadioButton x:Name="NavMedia" Content="素材" Style="{StaticResource NavTab}"
+                                     GroupName="NavTabs" IsChecked="True" Checked="Nav_Click" />
+                        <RadioButton x:Name="NavStyle" Content="风格" Style="{StaticResource NavTab}"
+                                     GroupName="NavTabs" Checked="Nav_Click" />
+                        <RadioButton x:Name="NavTech" Content="手法" Style="{StaticResource NavTab}"
+                                     GroupName="NavTabs" Checked="Nav_Click" />
+                        <RadioButton x:Name="NavDirector" Content="导演" Style="{StaticResource NavTab}"
+                                     GroupName="NavTabs" Checked="Nav_Click" />
+                        <RadioButton x:Name="NavOutput" Content="输出" Style="{StaticResource NavTab}"
+                                     GroupName="NavTabs" Checked="Nav_Click" />
+                        <RadioButton x:Name="NavSettings" Content="设置" Style="{StaticResource NavTab}"
+                                     GroupName="NavTabs" Checked="Nav_Click" />
                     </UniformGrid>
 
                     <Grid Grid.Row="1">
@@ -478,6 +507,27 @@
                                                              HorizontalAlignment="Right"
                                                              Checked="TglVSync_Changed"
                                                              Unchecked="TglVSync_Changed" />
+                                        </Grid>
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="VTS 连接" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}"
+                                                   Text="通过 VTube Studio 插件 API 驱动皮套位移与缩放。先在 VTS 设置里开启 API（端口 8001）。" />
+                                        <TextBlock x:Name="TblVtsState" Margin="0,8,0,0" TextWrapping="Wrap"
+                                                   Style="{StaticResource PanelHint}" Text="未连接" />
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:Button x:Name="BtnVtsReconnect" Content="重新连接"
+                                                       HorizontalAlignment="Stretch"
+                                                       Click="BtnVtsReconnect_Click" />
+                                            <ui:Button x:Name="BtnVtsAuth" Grid.Column="1" Content="请求授权"
+                                                       Margin="6,0,0,0" Click="BtnVtsAuth_Click" />
                                         </Grid>
                                     </StackPanel>
                                 </ui:Card>

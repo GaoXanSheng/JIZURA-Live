@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using JizuraLive.Pv;
+using JizuraLive.Vts;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
@@ -15,8 +16,8 @@ public sealed partial class TimelineView : Control
     public const double DesignMinHeight = 14;
     public const double DesignMaxHeight = 24;
     public const double AutomationHeight = 24;
-    public const double ScrollbarHeight = 10;
-    public const double ScrollbarWidth = 6;
+    public const double ScrollbarHeight = 14;
+    public const double ScrollbarWidth = 12;
 
     internal enum RowKind
     {
@@ -25,6 +26,7 @@ public sealed partial class TimelineView : Control
         Lyrics,
         Design,
         Automation,
+        VtsCue,
     }
 
     internal readonly record struct Row(RowKind Kind, int Index, double Top, double Height);
@@ -38,6 +40,7 @@ public sealed partial class TimelineView : Control
         Key,
         Handle,
         Pan,
+        VPan,
         Clip,
         Design,
     }
@@ -118,6 +121,8 @@ public sealed partial class TimelineView : Control
 
     public event Action<TDesignSegment>? SegmentDeleteRequested;
 
+    public event Action<VtsCueKind, double>? VtsCueDeleteRequested;
+
     public Func<double, Task<double?>>? ValuePrompt { get; set; }
 
     private TDesignSegment? FindSegment(int track, string refId)
@@ -185,6 +190,7 @@ public sealed partial class TimelineView : Control
         double viewH = Math.Max(0, contentHeight - trackTop);
 
         int automationCount = _snap?.Curves.Count ?? 0;
+        int cueCount = _snap?.VtsCueTracks.Count ?? 0;
 
         var populated = new List<int>();
         if (_snap is not null)
@@ -199,7 +205,7 @@ public sealed partial class TimelineView : Control
         double designBlock = populated.Count * designH;
 
         _trackViewHeight = viewH;
-        _trackTotalHeight = designBlock + automationCount * AutomationHeight;
+        _trackTotalHeight = designBlock + automationCount * AutomationHeight + cueCount * AutomationHeight;
         ClampScrollOffset();
 
         double y = trackTop - _scrollOffset;
@@ -217,12 +223,59 @@ public sealed partial class TimelineView : Control
                 y += AutomationHeight;
             }
 
+        if (_snap is not null)
+            for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
+            {
+                rows.Add(new Row(RowKind.VtsCue, i, y, AutomationHeight));
+                y += AutomationHeight;
+            }
+
         return rows;
     }
 
     private double _scrollOffset;
     private double _trackViewHeight;
     private double _trackTotalHeight;
+    private double _vScrollGrab;
+    private double _hScrollGrab;
+
+    private bool VerticalScrollbar(out double trackTop, out double trackHeight,
+        out double thumbTop, out double thumbHeight)
+    {
+        trackTop = trackHeight = thumbTop = thumbHeight = 0;
+        if (_trackTotalHeight <= _trackViewHeight + 1e-9) return false;
+
+        trackTop = ContentHeight - _trackViewHeight;
+        trackHeight = _trackViewHeight;
+        thumbHeight = Math.Max(28, trackHeight * _trackViewHeight / _trackTotalHeight);
+        double usable = Math.Max(1, trackHeight - thumbHeight);
+        thumbTop = trackTop + usable * _scrollOffset / Math.Max(1, _trackTotalHeight - _trackViewHeight);
+        return true;
+    }
+
+    private bool HorizontalScrollbar(out double trackLeft, out double trackWidth,
+        out double thumbLeft, out double thumbWidth)
+    {
+        trackLeft = HeaderWidth;
+        trackWidth = Math.Max(1, RenderSize.Width - HeaderWidth);
+        thumbLeft = thumbWidth = 0;
+        if (_snap is null) return false;
+
+        double duration = Math.Max(_snap.DurationSeconds, TimelineMath.MinSecondsPerScreen);
+        double visible = Math.Min(duration, trackWidth / _pixelsPerSecond);
+        thumbWidth = Math.Min(trackWidth, Math.Max(24, trackWidth * visible / duration));
+        thumbLeft = trackLeft + Math.Min(trackWidth - thumbWidth, trackWidth * _viewStart / duration);
+        return true;
+    }
+
+    private void ScrollToThumb(double y, double grab)
+    {
+        if (!VerticalScrollbar(out var trackTop, out var trackHeight, out _, out var thumbHeight)) return;
+        double usable = Math.Max(1, trackHeight - thumbHeight);
+        double fraction = Math.Clamp((y - grab - trackTop) / usable, 0, 1);
+        _scrollOffset = fraction * Math.Max(0, _trackTotalHeight - _trackViewHeight);
+        InvalidateVisual();
+    }
 
     private void ClampScrollOffset()
     {

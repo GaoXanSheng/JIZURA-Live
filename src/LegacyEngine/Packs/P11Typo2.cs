@@ -1,25 +1,3 @@
-// 移植自 frontend/src/engine/11p_typo2.js（排版风的入场/持续/退场，pack = 'typo2'：
-// 8 enter + 8 exit + 4 hold）。
-//
-// 契约与 JAnim.cs / P11Enter / P11Exit 相同：MoveDef.Draw(env) 里 it = env.It、p = env.Ap
-// （enter→pIn / exit→pOut / hold→amt）；逐字动画推 env.CharFns（管线 mainDraw 统一 CombineChar）；
-// 条目字段直接写 item（clip/clipY/cursorAt/alpha/x/y/track…JLayouts.DrawFx 全部消费）。
-// 随机数全部是 J.R/J.H 确定性哈希（入参逐字保持——同 seed 同动画轨迹）。
-//
-// 源文件 reg(g, key, def) 的 Object.assign({set:'typo'}, def)：`set`（11q_sets 手法集归属）与
-// `ae`（AE 导出模板名）在 MoveDef 上没有对应属性，未注册——TODO(Sets/11_export)；tyRetype 的
-// `cursor: true` 旗标同理（DrawFx 按 item.cursorAt 画光标，flag 本身无需存储）。
-//
-// 管线缺口与降级（本文件内解决，不改共享文件）：
-// 1. addPost：已接管线钩子（Env.PostFn → JLayouts.DrawFx，画在主文字上方；AddPost 链式）。
-// 2. tyTrackStep 的 it._m/it._lay=null（清排版缓存）：字段照写（JSON 往返契约），C# 侧
-//    JText.Measure 的 memo 按 track 键自动失效；GetLay 的对象级缓存没有外部失效入口——
-//    已知近似（track 步进 ±0.05em，字形逐帧重排在 JS 里也常被 _m 缓存吸收）。TODO(JText)。
-// 3. JS 的 env.beat 是 {since,len}，C# Env.Beat 只装归一相位——BeatOf(env) 从 env.Plan.Beats +
-//    env.T 重建（与 P11LayoutsB/P11Decor 的 BeatOf 同口径，09_render 的 beatAt）。
-//
-// 跨文件符号对位：J.measure(it).lay→JText.Measure(it).Lay（强类型 TextLayout）、J.itemBox→
-// JAnim.ItemBox、J.pool→JLang.Pool、J.h/r/clamp/lerp/TAU/isKanji/isPunct/isSmallKana/DEG→J.*。
 
 using Newtonsoft.Json.Linq;
 
@@ -32,24 +10,17 @@ public static class P11Typo2
 
     private static void Reg0(string group, string key, MoveDef def)
     {
-        def.Set = "typo"; // JS reg 助手：Object.assign({set: SET('typo')}, def)
-        Reg.Register(group, key, def, P);
+        def.Set = "typo";         Reg.Register(group, key, def, P);
     }
-
-    // ================= 本包 helper（JS L11-117 逐条对位） =================
 
     private static bool IsSp(string c) => c is " " or "　";
 
-    private static CharXf Hide() => new() { Hide = true }; // JS HIDE
+    private static CharXf Hide() => new() { Hide = true }; 
+        private static JText.TextLayout LayOf(JObject it) => JText.Measure(it).Lay;
 
-    /// <summary>layOf(it)：measure 的排版结果（JS it._m 缓存；C# JText.Measure 内建 memo）。</summary>
-    private static JText.TextLayout LayOf(JObject it) => JText.Measure(it).Lay;
+        private static double MotionK(Env env) => J.Clamp(env.Fx.Motion / 0.7, 0, 1.6);
 
-    /// <summary>motionK(env)：fx.motion 归一到 0.7 基准，上限 1.6。JS L13。</summary>
-    private static double MotionK(Env env) => J.Clamp(env.Fx.Motion / 0.7, 0, 1.6);
-
-    /// <summary>cutN(env)：cut 文本字数（≥1）。JS L14。</summary>
-    private static int CutN(Env env) => Math.Max(1, JLayouts.GlyphCount(env.Cut?.Text ?? ""));
+        private static int CutN(Env env) => Math.Max(1, JLayouts.GlyphCount(env.Cut?.Text ?? ""));
 
     private static string AccentOf(Env env)
     {
@@ -63,10 +34,7 @@ public static class P11Typo2
         return J.Contrast(sc.Str("sub") ?? "", sc.Str("bg") ?? "") >= 1.5 ? sc.Str("sub")! : sc.Str("fg")!;
     }
 
-    /// <summary>
-    /// addPost 的对位：钩子挂 env.PostFn（JLayouts.DrawFx 在主文字之后消费，层级与 JS 一致；链式）。
-    /// </summary>
-    private static void AddPost(Env env, JObject it, Action<Env, JObject> fn)
+        private static void AddPost(Env env, JObject it, Action<Env, JObject> fn)
     {
         var prev = env.PostFn;
         env.PostFn = prev != null
@@ -74,8 +42,7 @@ public static class P11Typo2
             : (Action<Env, JObject, BBox?>)((e, x, _) => fn(e, x));
     }
 
-    /// <summary>orders(env, it)：每个 glyph 的阅读顺序 0..1（空格跳过）；单字 item 用它在 cut 内的 mi。JS L33-50。</summary>
-    private static double[] Orders(Env env, JObject it)
+        private static double[] Orders(Env env, JObject it)
     {
         var lay = LayOf(it);
         var @out = new double[lay.N];
@@ -95,8 +62,7 @@ public static class P11Typo2
         return @out;
     }
 
-    /// <summary>keyOf(lay)：关键字（最长汉字串的首字→拉丁最长单词首字母→第一个普通字形）的 glyph i。JS L53-81。</summary>
-    private static int KeyOf(JText.TextLayout lay)
+        private static int KeyOf(JText.TextLayout lay)
     {
         var cells = lay.Cells;
         int best = -1, bl = 0;
@@ -110,10 +76,8 @@ public static class P11Typo2
                 bl = j - i;
                 best = i;
             }
-            i = j; // JS for 尾部 i++：连串后从断点字继续
-        }
+            i = j;         }
         if (best >= 0) return cells[best].I;
-        // 拉丁：最长单词的首字母
         int wb = -1, wl = 0;
         bool Latin(string ch) => ch.Length > 0 && (ch[0] is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' || ch is "'" or "’");
         for (var i = 0; i < cells.Count; i++)
@@ -136,8 +100,7 @@ public static class P11Typo2
         return cells.Count > 0 ? cells[0].I : 0;
     }
 
-    /// <summary>每行（竖排则每列）沿阅读轴的范围 + 横向位置，item 本地单位（已乘 sx/sy）。JS L84-98。</summary>
-    private sealed class LineSpan
+        private sealed class LineSpan
     {
         public int Li;
         public double A0, A1, C;
@@ -166,8 +129,7 @@ public static class P11Typo2
         return map.Values.ToList();
     }
 
-    /// <summary>在 item 本地空间（平移+旋转）里跑 fn，只在 main pass。JS L101-112。</summary>
-    private static void InItem(Env env, JObject it, Action fn)
+        private static void InItem(Env env, JObject it, Action fn)
     {
         if (env.Pass != "main") return;
         var ctx = env.Ctx;
@@ -185,11 +147,9 @@ public static class P11Typo2
         }
     }
 
-    /// <summary>boxOf(it)：item 在设计空间的盒子（未旋转）。JS L114-117。</summary>
-    private static ItemBounds BoxOf(JObject it) => JAnim.ItemBox(it);
+        private static ItemBounds BoxOf(JObject it) => JAnim.ItemBox(it);
 
-    /// <summary>JS env.beat（{since,len}）的本文件重建（不改 Env.cs；P11LayoutsB.BeatOf 同口径）。</summary>
-    private readonly record struct BeatInfo(bool Has, double Since, double Len);
+        private readonly record struct BeatInfo(bool Has, double Since, double Len);
 
     private static BeatInfo BeatOf(Env env)
     {
@@ -212,35 +172,10 @@ public static class P11Typo2
         return new BeatInfo(true, t - beats[i], Math.Max(0.2, len));
     }
 
-    // ================= 注册（JS 源 reg(...) 出现序：enter×8 → exit×8 → hold×4） =================
-
-    /// <summary>幂等注册本文件全部条目（不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterTyKeyFirst();    // JS L121
-        RegisterTyLineWipe();    // JS L151
-        RegisterTyZoomOne();     // JS L189
-        RegisterTyUnderLift();   // JS L227
-        RegisterTyDotGrow();     // JS L253
-        RegisterTyBracketOpen(); // JS L281
-        RegisterTyRetype();      // JS L297
-        RegisterTyRubyDrop();    // JS L332
-        RegisterTyStrike();      // JS L355
-        RegisterTyToDot();       // JS L382
-        RegisterTyLineFeed();    // JS L398
-        RegisterTyBracketClose();// JS L417
-        RegisterTyToIndex();     // JS L434
-        RegisterTyKeyLast();     // JS L457
-        RegisterTyUnderSink();   // JS L494
-        RegisterTyFoldVert();    // JS L519
-        RegisterTyKeyPulse();    // JS L556
-        RegisterTyReadCursor();  // JS L576
-        RegisterTyOutlineBlink();// JS L599
-        RegisterTyTrackStep();   // JS L613
-    }
-
-    // ---------------- enter: tyKeyFirst（JS L121-148）キー字先行 ----------------
+        RegisterTyKeyFirst();            RegisterTyLineWipe();            RegisterTyZoomOne();             RegisterTyUnderLift();           RegisterTyDotGrow();             RegisterTyBracketOpen();         RegisterTyRetype();              RegisterTyRubyDrop();            RegisterTyStrike();              RegisterTyToDot();               RegisterTyLineFeed();            RegisterTyBracketClose();        RegisterTyToIndex();             RegisterTyKeyLast();             RegisterTyUnderSink();           RegisterTyFoldVert();            RegisterTyKeyPulse();            RegisterTyReadCursor();          RegisterTyOutlineBlink();        RegisterTyTrackStep();       }
 
     private static void RegisterTyKeyFirst() => Reg0("enter", "tyKeyFirst", new MoveDef
     {
@@ -288,8 +223,6 @@ public static class P11Typo2
             });
         },
     });
-
-    // ---------------- enter: tyLineWipe（JS L151-186）行送りワイプ ----------------
 
     private static void RegisterTyLineWipe() => Reg0("enter", "tyLineWipe", new MoveDef
     {
@@ -349,8 +282,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- enter: tyZoomOne（JS L189-224）一字ずつ拡大 ----------------
-
     private static void RegisterTyZoomOne() => Reg0("enter", "tyZoomOne", new MoveDef
     {
         Name = "一字ずつ拡大",
@@ -407,8 +338,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- enter: tyUnderLift（JS L227-250）下線から立つ ----------------
-
     private static void RegisterTyUnderLift() => Reg0("enter", "tyUnderLift", new MoveDef
     {
         Name = "下線から立つ",
@@ -455,8 +384,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- enter: tyDotGrow（JS L253-265）点から字 ----------------
-
     private static void RegisterTyDotGrow() => Reg0("enter", "tyDotGrow", new MoveDef
     {
         Name = "点から字",
@@ -481,10 +408,7 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- enter: tyBracketOpen（JS L268-294）括弧が開く ----------------
-
-    /// <summary>drawBrackets（JS L268-280）：item 本地空间里的两枚直角括弧。</summary>
-    private static void DrawBrackets(Env e, bool v, double cx, double cy, double half, double w, double h,
+        private static void DrawBrackets(Env e, bool v, double cx, double cy, double half, double w, double h,
         double size, string col, double a)
     {
         if (a <= 0.01) return;
@@ -539,12 +463,9 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- enter: tyRetype（JS L297-329）打ち直し ----------------
-
     private static void RegisterTyRetype() => Reg0("enter", "tyRetype", new MoveDef
     {
-        Name = "打ち直し", // JS cursor: true（DrawFx 按 item.cursorAt 画光标）
-        Tags = new[] { "editorial", "glitch", "emotional" },
+        Name = "打ち直し",         Tags = new[] { "editorial", "glitch", "emotional" },
         W = 0.8,
         MinDur = 1.0,
         InDur = (dur, n) => J.Clamp(0.1 * n + 0.4, 0.45, Math.Min(1.5, dur * 0.55)),
@@ -580,7 +501,6 @@ public static class P11Typo2
             var poolCp = JLayouts.CodePoints(pool);
             var wch = poolCp[(int)(J.H(seed, 32) % (uint)poolCp.Count)];
             var ac = AccentOf(env);
-            // JS lay[wi].ch：wi 是 glyph i 兼数组下标（含空格位），照原样取
             var layCh = wi >= 0 && wi < lay.Cells.Count ? lay.Cells[wi].Ch : "";
             env.CharFns.Add((i, _, _) =>
             {
@@ -592,8 +512,6 @@ public static class P11Typo2
             it["cursorAt"] = p < 1 && !JLayouts.Truthy(it["vertical"]) && !JLayouts.Truthy(it["rot"]) ? shown : -1;
         },
     });
-
-    // ---------------- enter: tyRubyDrop（JS L332-351）ルビから ----------------
 
     private static void RegisterTyRubyDrop() => Reg0("enter", "tyRubyDrop", new MoveDef
     {
@@ -632,8 +550,6 @@ public static class P11Typo2
             });
         },
     });
-
-    // ---------------- exit: tyStrike（JS L355-379）線で消す ----------------
 
     private static void RegisterTyStrike() => Reg0("exit", "tyStrike", new MoveDef
     {
@@ -682,8 +598,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- exit: tyToDot（JS L382-395）点に戻る ----------------
-
     private static void RegisterTyToDot() => Reg0("exit", "tyToDot", new MoveDef
     {
         Name = "点に戻る",
@@ -707,8 +621,6 @@ public static class P11Typo2
             });
         },
     });
-
-    // ---------------- exit: tyLineFeed（JS L398-414）改行送り ----------------
 
     private static void RegisterTyLineFeed() => Reg0("exit", "tyLineFeed", new MoveDef
     {
@@ -741,8 +653,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- exit: tyBracketClose（JS L417-431）括弧閉じ ----------------
-
     private static void RegisterTyBracketClose() => Reg0("exit", "tyBracketClose", new MoveDef
     {
         Name = "括弧閉じ",
@@ -771,8 +681,6 @@ public static class P11Typo2
             });
         },
     });
-
-    // ---------------- exit: tyToIndex（JS L434-454）番号に変わる ----------------
 
     private static void RegisterTyToIndex() => Reg0("exit", "tyToIndex", new MoveDef
     {
@@ -810,8 +718,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- exit: tyKeyLast（JS L457-491）一字残し ----------------
-
     private static void RegisterTyKeyLast() => Reg0("exit", "tyKeyLast", new MoveDef
     {
         Name = "一字残し",
@@ -831,7 +737,6 @@ public static class P11Typo2
             foreach (var g in plain) md = Math.Max(md, Math.Abs(g.I - ki));
             if (plain.Count <= 1 && CutN(env) > 1)
             {
-                // 单字布局：只留 cut 的首个汉字，其余直接缩没
                 var keepCh = plain.Count > 0 && plain[0].Ch.Length > 0 && J.IsKanji(plain[0].Ch[0]);
                 var keep = keepCh &&
                            J.H(unchecked((int)(env.Cut?.Seed ?? 0)), (int)Math.Round(JAnim.Num(it, "mi"), MidpointRounding.AwayFromZero), 5) % 2 == 0;
@@ -871,8 +776,6 @@ public static class P11Typo2
             });
         },
     });
-
-    // ---------------- exit: tyUnderSink（JS L494-516）下線へ沈む ----------------
 
     private static void RegisterTyUnderSink() => Reg0("exit", "tyUnderSink", new MoveDef
     {
@@ -919,8 +822,6 @@ public static class P11Typo2
             }));
         },
     });
-
-    // ---------------- exit: tyFoldVert（JS L519-552）縦組に折れる ----------------
 
     private static void RegisterTyFoldVert() => Reg0("exit", "tyFoldVert", new MoveDef
     {
@@ -979,8 +880,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- hold: tyKeyPulse（JS L556-573）一字の鼓動 ----------------
-
     private static void RegisterTyKeyPulse() => Reg0("hold", "tyKeyPulse", new MoveDef
     {
         Name = "一字の鼓動",
@@ -1009,8 +908,6 @@ public static class P11Typo2
             env.CharFns.Add((i, _, _) => i == ki ? new CharXf { S = 1 + k } : null);
         },
     });
-
-    // ---------------- hold: tyReadCursor（JS L576-596）読み送り ----------------
 
     private static void RegisterTyReadCursor() => Reg0("hold", "tyReadCursor", new MoveDef
     {
@@ -1042,14 +939,11 @@ public static class P11Typo2
                     v ? new CharXf { Dx = lift * up, Color = ac } : new CharXf { Dy = -lift * up, Color = ac });
                 return;
             }
-            // JS 负 pos 会取 undefined 直接抛错（ltb<0 的 hold 不存在）；这里折回 0 域防崩
             var gi = pos >= 0 && pos < n ? plain[pos].I : -1;
             env.CharFns.Add((i, _, _) =>
                 i == gi ? (v ? new CharXf { Dx = lift * up, Color = ac } : new CharXf { Dy = -lift * up, Color = ac }) : null);
         },
     });
-
-    // ---------------- hold: tyOutlineBlink（JS L599-610）白抜き明滅 ----------------
 
     private static void RegisterTyOutlineBlink() => Reg0("hold", "tyOutlineBlink", new MoveDef
     {
@@ -1075,8 +969,6 @@ public static class P11Typo2
         },
     });
 
-    // ---------------- hold: tyTrackStep（JS L613-625）字間ステップ ----------------
-
     private static void RegisterTyTrackStep() => Reg0("hold", "tyTrackStep", new MoveDef
     {
         Name = "字間ステップ",
@@ -1093,13 +985,10 @@ public static class P11Typo2
             var k = (int)Math.Floor(t);
             var f = t - k;
             int[] lv = { 0, 1, 2, 1 };
-            // JS 负下标取到 undefined（NaN track）；hold 段 ltb≥0 不会发生，这里折正防崩
             var a = lv[((k % 4) + 4) % 4];
             var b2 = lv[(((k + 1) % 4) + 4) % 4];
             var v = J.Lerp(a, b2, J.E.OutExpo(J.Clamp((f - 0.85) / 0.15)));
             it["track"] = JAnim.Num(it, "track") + v * 0.05 * amt * Math.Min(1.2, MotionK(env));
-            // JS 清 _m/_lay 排版缓存；字段照写保 JSON 往返。C# Measure memo 按 track 键自动失效，
-            // GetLay 的对象级缓存无外部失效入口（已知近似）——TODO(JText)
             it["_m"] = null;
             it["_lay"] = null;
         },

@@ -3,11 +3,6 @@ using SkiaSharp;
 
 namespace JizuraLive.LegacyEngine.Packs;
 
-/// <summary>
-/// 追加音频表现包（移植自 frontend/src/engine/11p_audiofx.js）：山脊线（能量历史，bg）、
-/// 随音高游移（hold）、心电图（decor）、换台（trans）、ASCII 化（fx，走渲染器 FxPlug 插件桥）。
-/// 全部 extra 新增标记（IRegEntry.Extra = true；audioFx 不在 Omakase 的 BasePacks，双保险）。
-/// </summary>
 public static class P11AudioFx
 {
     private const string Pk = "audioFx";
@@ -19,15 +14,12 @@ public static class P11AudioFx
 
     private static double Clamp01(double v) => v < 0 ? 0 : v > 1 ? 1 : v;
 
-    /// <summary>JS 的 o.k 数值读取（缺省回 d）。</summary>
-    private static double Num(JObject? o, string k, double d)
+        private static double Num(JObject? o, string k, double d)
     {
         var v = o?[k];
         return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : d;
     }
 
-    // ---------------- bg：音频山脊线 ----------------
-    // 能量历史画成 Joy Division 式层叠山脊：前排=现在，后排=过去。无能量数据时退化为慢速噪声山脊。
     private static readonly BgDef RidgeAudio = new()
     {
         Key = "ridgeAudio",
@@ -75,12 +67,10 @@ public static class P11AudioFx
             const int m = 96;
             var amp = env.H * Num(P, "amp", 0.19);
             var win = Num(P, "win", 2.8);
-            var step = win / n; // 每行时间错后：前排=现在，后排=过去
-
+            var step = win / n; 
             ctx.Save();
             try
             {
-                // LineJoin 由 paint.StrokeJoin 设置
                 for (var r = 0; r < n; r++)
                 {
                     var bas = y0 + r * gap;
@@ -89,8 +79,7 @@ public static class P11AudioFx
                     var grow = J.E.OutCubic(Clamp01(e * 1.5 - r / (double)n * 0.5));
                     if (grow <= 0.003) continue;
                     var lc = front ? env.Sc?.Str("accent") ?? "#fff" : LayC(env.Sc!, 0.5 + 0.25 * r / (double)n);
-                    var beatPulse = env.BeatHas ? Math.Exp(-env.BeatSince * 5.5) : 0; // JS 的 beat ? exp(-beat.since*5.5) : 0
-                    var pts = new List<SKPoint>();
+                    var beatPulse = env.BeatHas ? Math.Exp(-env.BeatSince * 5.5) : 0;                     var pts = new List<SKPoint>();
                     for (var j = 0; j <= m; j++)
                     {
                         var uu = j / (double)m;
@@ -134,8 +123,6 @@ public static class P11AudioFx
         },
     };
 
-    // ---------------- hold：随音高游移 ----------------
-    // 整行随实时音高相对近期均值上下浮移。无音高数据时退化为慢速漂移。
     private static readonly MoveDef PitchDrift = new()
     {
         Key = "pitchDrift",
@@ -180,7 +167,6 @@ public static class P11AudioFx
                 d = 0.45 * J.Noise1(env.Ltb * 0.6, (int)(env.Cut?.Seed ?? 0) | 1);
             }
 
-            // addC 对位：往 env.CharFns 追加一个 charFn 并重combine（dy/rot 随音高）
             var driftK = k;
             var driftD = d;
             env.CharFns.Add((i, g, nn) => new CharXf
@@ -192,8 +178,6 @@ public static class P11AudioFx
         },
     };
 
-    // ---------------- decor：心电图 ----------------
-    // 底部一条扫过的心电折线：平线走带、节拍处爆双相尖峰，右侧 BPM 读数。
     private static readonly DecorDef Ecg = new()
     {
         Key = "ecg",
@@ -224,7 +208,6 @@ public static class P11AudioFx
             var amp = (float) H * 0.055;
             var seed = (int)(env.Cut?.Seed ?? 0) | 1;
 
-            // ts 时刻的脉冲高度：节拍双相尖峰（无节拍→能量包络）
             double Spike(double ts)
             {
                 if (beats != null)
@@ -260,7 +243,6 @@ public static class P11AudioFx
             ctx.Save();
             try
             {
-                // 底网格：基线 + 时间刻度
                 using (var grid = new SKPaint { Color = Env.SkColor(sc.Str("fg") ?? "#fff", (float)(0.14 * a)), StrokeWidth = Math.Max(1, (float)u) })
                 {
                     ctx.DrawLine((float)x0, (float)y, (float)x1, (float)y, grid);
@@ -271,7 +253,6 @@ public static class P11AudioFx
                     }
                 }
 
-                // 心电折线：左=过去，右=现在
                 var pts = new List<SKPoint>();
                 for (var j = 0; j <= m; j++)
                 {
@@ -296,7 +277,6 @@ public static class P11AudioFx
                 using (var dot = new SKPaint { Color = Env.SkColor(sc.Str("accent") ?? "#fff", (float)a), IsAntialias = true })
                     ctx.DrawCircle(last, 3 * (float)u, dot);
 
-                // BPM 读数（C# Env 无 beat 对象：节拍数据存在时按首间间隔估）
                 if (beats is { Length: > 2 })
                 {
                     var len = beats[1] - beats[0];
@@ -315,8 +295,6 @@ public static class P11AudioFx
         },
     };
 
-    // ---------------- trans：换台 ----------------
-    // 电视换台：垂直同步滚动 + 撕裂条 + 中段雪花爆窗。
     private static readonly TransDef ChannelSwitch = new()
     {
         Key = "channelSwitch",
@@ -332,12 +310,9 @@ public static class P11AudioFx
             var sd = (int)info.Seed ^ (int)Num(info.P as Newtonsoft.Json.Linq.JObject, "seed", 1);
             var step = (int)info.Step;
             SKImage src = p < 0.5 ? a : b;
-            var kp = p < 0.5 ? p * 2 : (p - 0.5) * 2; // 前半滚走 A，后半滚入 B
-            // 垂直同步滚动（模 wrap 两段贴回）
-            var roll = (int)Math.Floor(kp * 1.3 % 1 * ch);
+            var kp = p < 0.5 ? p * 2 : (p - 0.5) * 2;             var roll = (int)Math.Floor(kp * 1.3 % 1 * ch);
             ctx.DrawImage(src, 0, roll - ch);
             ctx.DrawImage(src, 0, roll);
-            // 撕裂横条：随机几条横向错位
             for (var i = 0; i < 4; i++)
             {
                 var yy = ch * J.R(sd, step, i, 1);
@@ -347,7 +322,6 @@ public static class P11AudioFx
                     ctx.DrawImage(src, new SKRect(0, (float)yy, cw, (float)(yy + hh)),
                         new SKRect((float)dx, (float)yy, (float)(dx + cw), (float)(yy + hh)));
             }
-            // 中段雪花爆窗
             var burst = p > 0.3 && p < 0.7 ? 1 - Math.Abs(p - 0.5) / 0.2 : 0;
             if (burst > 0.03)
             {
@@ -369,7 +343,6 @@ public static class P11AudioFx
                 }
                 ctx.Restore();
             }
-            // 滚动亮带（垂直同步前沿）+ 轻噪横纹
             var bandY = roll;
             using (var band = new SKPaint { Color = new SKColor(255, 255, 255, (byte)((0.14 + burst * 0.2) * 255)) })
                 ctx.DrawRect(0, bandY - ch * 0.012f, cw, ch * 0.024f, band);
@@ -379,9 +352,6 @@ public static class P11AudioFx
         }),
     };
 
-    // ---------------- fx：ASCII 化 ----------------
-    // 全屏后期：把已渲好的整帧转成 ASCII 字符网格，事件两端自淡入淡出（JS L179-237）。
-    // 复用渲染器 scratch 预拷帧（FxPlug.S），tmp 面降采样读像素、mono 字体逐格画字符。
     private const string AsciiRamp = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$";
     private const double AsciiBoost = 1.4;
     private const double AsciiLumSkip = 8;
@@ -392,10 +362,8 @@ public static class P11AudioFx
         Name = "ASCII化",
         Tags = new[] { "glitch", "graphic" },
         W = 0.7,
-        Extra = true, // JS extra:true（追加分开关门禁）
-        Dur = 3.2,
+        Extra = true,         Dur = 3.2,
         Amp = 1,
-        // scratch: true / ae 无 FxDef 字段：渲染器插件段恒拷 scratch（S），ae 无消费者
         Draw = (env, ev) =>
         {
             env.Ctx.Save();
@@ -423,12 +391,10 @@ public static class P11AudioFx
         var mono = JLayouts.Font0(env.St, "mono") ?? "mono";
         var fontPx = Math.Max(8, (int)Math.Round(ch * 0.021));
         var cellH = (int)Math.Round(fontPx * 1.08);
-        var font = JText.FaceFont(mono, fontPx); // 缓存实例，禁 Dispose
-        using var meas = new SKPaint();
+        var font = JText.FaceFont(mono, fontPx);         using var meas = new SKPaint();
         var cellW = Math.Max(4f, font.MeasureText("M", meas));
         var cols = Math.Max(8, (int)Math.Floor(cw / cellW));
         var rows = Math.Max(6, (int)Math.Floor(ch / (double)cellH));
-        // 整帧降采样到 cols×rows（JS 的 I.tmp 面 + imageSmoothingEnabled high）
         SKSurface? small = null;
         try
         {
@@ -449,8 +415,6 @@ public static class P11AudioFx
                 new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), dp);
         var px = small.PeekPixels();
         if (px == null) return;
-        // 整幅清底（JS alphaGuard 的 clearRect→fillRect 对位：不透明模式填 sc.bg；透過模式真清，
-        // 插件清底不镜像进 M——渲染器既有保守降级，End 后新增区域被裁掉）
         ctx.SetMatrix(SKMatrix.Identity);
         if (FxPlug.Transparent)
         {
@@ -467,13 +431,11 @@ public static class P11AudioFx
             cp.BlendMode = SKBlendMode.SrcOver;
             ctx.DrawRect(new SKRect(0, 0, cw, ch), cp);
         }
-        // 逐格：亮度→字符档位，颜色→像素色提亮（按面色彩类型解字节序，JS getImageData 的 RGBA 对位）
         var span = px.GetPixelSpan();
         var bpp = px.Info.BytesPerPixel;
         var rgbaOrder = px.Info.ColorType == SKColorType.Rgba8888;
         font.GetFontMetrics(out var fm);
-        var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // canvas textBaseline='middle'
-        var ramp = AsciiRamp;
+        var yMid = (float)((-fm.Ascent - fm.Descent) / 2);         var ramp = AsciiRamp;
         var n = ramp.Length;
         var tp = Env.SharedPaint();
         tp.IsAntialias = true;
@@ -499,21 +461,18 @@ public static class P11AudioFx
                 ctx.DrawText(ramp[idx].ToString(), (c + 0.5f) * cellW, y + yMid, SKTextAlign.Center, font, tp);
             }
         }
-        if (e < 0.995) // 边缘与原画面交叉淡化（JS globalAlpha = 1-e; drawImage(S, 0, 0)）
-        {
+        if (e < 0.995)         {
             using var simg2 = S.Snapshot();
             using var bp = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round((1 - e) * 255)) };
             ctx.DrawImage(simg2, 0, 0, bp);
         }
     }
 
-    /// <summary>注册全部条目（JS 源出现序：bg/hold/decor/trans/fx）。</summary>
-    public static void Install()
+        public static void Install()
     {
         Reg.Register("bg", "ridgeAudio", RidgeAudio, Pk);
         Reg.Register("hold", "pitchDrift", PitchDrift, Pk);
         Reg.Register("decor", "ecg", Ecg, Pk);
         Reg.Register("trans", "channelSwitch", ChannelSwitch, Pk);
-        Reg.Register("fx", "ascii", AsciiFx, Pk); // 渲染器 FxPlug 插件路径已接通（P11FxB 先例）
-    }
+        Reg.Register("fx", "ascii", AsciiFx, Pk);     }
 }

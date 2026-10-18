@@ -9,7 +9,6 @@ using System.Windows.Shapes;
 
 namespace JizuraLive.App.PvStage;
 
-/// <summary>Fluent 风格的 HSV 拾色弹层，替代 WinForms ColorDialog。</summary>
 internal static class ColorPickerPopup
 {
     private static Popup? _open;

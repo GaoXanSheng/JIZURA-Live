@@ -1,43 +1,20 @@
-// 移植自 frontend/src/engine/05_anim.js
-//
-// enter/hold/exit 三组核心动画 + 逐字/逐片合并器 + item 几何助手。
-// JS 的 apply(env, it, p, ctx) 在 C# 定型为 MoveDef.Draw(env)：
-//   it   → env.It（JObject item，与前端 duck-typed 对象一一对应）
-//   p    → env.Ap（enter→pIn / exit→pOut / hold→amt，mainDraw 调用前写入）
-//   ctx  → env.Cut（JS ctx={dur,inDur,outDur} 与 cut 同名字段一一对应，不再单独建对象）
-// charFns/pieceFns 是函数值字段，JObject 装不下，挂 env.CharFns/env.PieceFns（见 Env）。
-// 挂到 def 上的 flags（assemble.pieces / explode·fall·drift.shatter / type.cursor / wipe.bar）
-// MoveDef 暂无对应属性：mainDraw/drawFx 回接方按 key 特判（各条目行内有注释）。
-//
-// 随机数：Draw 内全部走 J.R/J.Rs 确定性哈希（非顺序流），哈希入参逐字保持——
-// 同 seed 同动画轨迹；不用 Rng 顺序流（planner 侧才用）。
 
 using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.LegacyEngine;
 
-// ---------------- 逐字/逐片变换记录（03_text.js 的 J.PT / J.PID 对位；drawItem 消费） ----------------
-
-/// <summary>J.PT/J.PID：碎片（笔画/连通域）变换。Pid 是恒等哨兵，引用比较，不得改写其字段。</summary>
 public sealed class PieceXf
 {
     public double Dx, Dy, Rot;
     public double S = 1;
 
-    /// <summary>拉伸量（>1 拉长），与 Sdir 配套。</summary>
-    public double St = 1;
+        public double St = 1;
 
-    /// <summary>拉伸方向（度）。</summary>
-    public double Sdir;
+        public double Sdir;
 
     public double A = 1;
 }
 
-/// <summary>
-/// charFn 返回值。字段全部可缺省，drawItem 侧按 JS 语义取默认：
-/// dx/dy/rot 取 0，s/a/sx/sy/skew/blur 缺省即“未设置”（JS undefined，消费处 ?? 默认），
-/// ch/color 缺省保持原字形。
-/// </summary>
 public sealed class CharXf
 {
     public bool Hide;
@@ -53,23 +30,16 @@ public sealed class CharXf
 
 public static class JAnim
 {
-    /// <summary>(i, g, n)：字 index / 字形排版对象（layoutText 产物，core 动画未用）/ 字数。</summary>
-    public delegate CharXf? CharFn(int i, JObject? g, int n);
+        public delegate CharXf? CharFn(int i, JObject? g, int n);
 
-    /// <summary>(ci, pj, pc, ox, oy, g)：片 index / 片内 index / 片数 / 片中心偏移 / 字形。返回 Pid=恒等、null=隐藏。</summary>
-    public delegate PieceXf? PieceFn(int ci, int pj, int pc, double ox, double oy, JObject? g);
+        public delegate PieceXf? PieceFn(int ci, int pj, int pc, double ox, double oy, JObject? g);
 
-    /// <summary>J.PID（恒定碎片哨兵；Object.freeze 的 C# 对位，引用比较）。</summary>
-    public static readonly PieceXf Pid = new();
+        public static readonly PieceXf Pid = new();
 
-    /// <summary>J.PT。</summary>
-    public static PieceXf Pt(double dx = 0, double dy = 0, double rot = 0, double s = 1, double st = 1, double sdir = 0, double a = 1) =>
+        public static PieceXf Pt(double dx = 0, double dy = 0, double rot = 0, double s = 1, double st = 1, double sdir = 0, double a = 1) =>
         new() { Dx = dx, Dy = dy, Rot = rot, S = s, St = st, Sdir = sdir, A = a };
 
-    // ---------------- J.itemBands / J.itemBox ----------------
-
-    /// <summary>横向条带，盖住 item 的纵向范围：返回 [y0, y1, dx] 列表。</summary>
-    public static List<double[]> ItemBands(Env env, JObject it, int n, Func<int, int, double> dxFn)
+        public static List<double[]> ItemBands(Env env, JObject it, int n, Func<int, int, double> dxFn)
     {
         var m = JLayouts.Measure(it);
         var h = Math.Max(m.H, Num(it, "size")) * 1.25 + 20;
@@ -85,16 +55,14 @@ public static class JAnim
         return @out;
     }
 
-    /// <summary>bands 数组 → JArray（[[y0,y1,dx],…]；drawFx 消费）。</summary>
-    public static JArray JArr(IReadOnlyList<double[]> rows)
+        public static JArray JArr(IReadOnlyList<double[]> rows)
     {
         var a = new JArray();
         foreach (var r in rows) a.Add(new JArray(r.Select(v => new JValue(v))));
         return a;
     }
 
-    /// <summary>J.itemBox：item 在设计空间的包围盒（未旋转）。</summary>
-    public static ItemBounds ItemBox(JObject it)
+        public static ItemBounds ItemBox(JObject it)
     {
         var m = JLayouts.Measure(it);
         var align = it["align"]?.Value<string>();
@@ -116,10 +84,7 @@ public static class JAnim
         };
     }
 
-    // ---------------- combineChar / combinePiece（JS 同名） ----------------
-
-    /// <summary>合并 charFns：hide 一票否决；dx/dy/rot/skew/blur 累加，s/a/sx/sy 连乘，其余非空覆盖。</summary>
-    public static CharFn? CombineChar(IReadOnlyList<CharFn> fns)
+        public static CharFn? CombineChar(IReadOnlyList<CharFn> fns)
     {
         if (fns.Count == 0) return null;
         if (fns.Count == 1) return fns[0];
@@ -157,8 +122,7 @@ public static class JAnim
         };
     }
 
-    /// <summary>合并 pieceFns：null 一票否决（隐藏），Pid 跳过，其余逐字段叠加；st 取最大并带上其 sdir。</summary>
-    public static PieceFn? CombinePiece(IReadOnlyList<PieceFn> fns)
+        public static PieceFn? CombinePiece(IReadOnlyList<PieceFn> fns)
     {
         if (fns.Count == 0) return null;
         if (fns.Count == 1) return fns[0];
@@ -186,12 +150,9 @@ public static class JAnim
         };
     }
 
-    // ---------------- 注册（顺序即 JS 的 ENTER_ORDER / HOLD_ORDER / EXIT_ORDER，06_layouts.js L1304-1306） ----------------
-
     private static int _installed;
 
-    /// <summary>幂等注册本文件全部 enter/hold/exit 条目（pack="core"）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (System.Threading.Interlocked.Exchange(ref _installed, 1) != 0) return;
         RegisterEnter();
@@ -209,8 +170,7 @@ public static class JAnim
 
         Reg.Register("enter", "assemble", new MoveDef
         {
-            Name = "分解→集合", // JS: pieces: true（MoveDef 暂无该 flag，mainDraw 按 key 特判）
-            Draw = env =>
+            Name = "分解→集合",             Draw = env =>
             {
                 var it = env.It!;
                 var dur = env.Cut!.InDur;
@@ -248,8 +208,7 @@ public static class JAnim
 
         Reg.Register("enter", "type", new MoveDef
         {
-            Name = "タイプ", // JS: cursor: true（MoveDef 暂无该 flag，drawFx 按 key 特判光标）
-            Draw = env =>
+            Name = "タイプ",             Draw = env =>
             {
                 var it = env.It!;
                 var p = env.Ap;
@@ -312,8 +271,7 @@ public static class JAnim
 
         Reg.Register("enter", "wipe", new MoveDef
         {
-            Name = "ワイプ", // JS: bar: true（drawFx 画 wipeBar，数据在 item 上）
-            Draw = env =>
+            Name = "ワイプ",             Draw = env =>
             {
                 var it = env.It!;
                 var p = env.Ap;
@@ -519,8 +477,7 @@ public static class JAnim
 
         Reg.Register("exit", "explode", new MoveDef
         {
-            Name = "爆散", // JS: pieces: true, shatter: true（mainDraw 按 key 特判）
-            Draw = env =>
+            Name = "爆散",             Draw = env =>
             {
                 var it = env.It!;
                 var dur = env.Cut!.OutDur;
@@ -546,8 +503,7 @@ public static class JAnim
 
         Reg.Register("exit", "fall", new MoveDef
         {
-            Name = "崩落", // JS: pieces: true, shatter: true
-            Draw = env =>
+            Name = "崩落",             Draw = env =>
             {
                 var it = env.It!;
                 var lt = env.Lt - (env.Cut!.Dur - env.Cut.OutDur);
@@ -562,8 +518,7 @@ public static class JAnim
                     var x = lt - J.R(seed, ci, pj, 21) * outDur * 0.4;
                     if (x <= 0)
                     {
-                        var tr = lt > -0.25 ? 1 : 0; // 塌落前先抖一下
-                        return tr != 0 ? Pt(J.Rs(seed, step, ci, pj) * Num(it, "size") * 0.012, 0) : Pid;
+                        var tr = lt > -0.25 ? 1 : 0;                         return tr != 0 ? Pt(J.Rs(seed, step, ci, pj) * Num(it, "size") * 0.012, 0) : Pid;
                     }
                     var v = g * x;
                     return Pt(J.Rs(seed, ci, pj, 22) * env.W * 0.03 * x, 0.5 * g * x * x, J.Rs(seed, ci, pj, 23) * 200 * x,
@@ -574,8 +529,7 @@ public static class JAnim
 
         Reg.Register("exit", "drift", new MoveDef
         {
-            Name = "霧散", // JS: pieces: true, shatter: true
-            Draw = env =>
+            Name = "霧散",             Draw = env =>
             {
                 var it = env.It!;
                 var dur = env.Cut!.OutDur;
@@ -613,8 +567,7 @@ public static class JAnim
 
         Reg.Register("exit", "wipe", new MoveDef
         {
-            Name = "ワイプ退場", // JS: bar: true
-            Draw = env =>
+            Name = "ワイプ退場",             Draw = env =>
             {
                 var it = env.It!;
                 var p = env.Ap;
@@ -716,10 +669,7 @@ public static class JAnim
         });
     }
 
-    // ---------------- 工具 ----------------
-
-    /// <summary>bounce 缓动（JS 同名局部函数）。</summary>
-    private static double Bounce(double x)
+        private static double Bounce(double x)
     {
         const double n1 = 7.5625, d1 = 2.75;
         if (x < 1 / d1) return n1 * x * x;
@@ -728,29 +678,25 @@ public static class JAnim
         return n1 * (x -= 2.625 / d1) * x + 0.984375;
     }
 
-    /// <summary>item 数值字段，缺省 0（JS undefined 参与运算处 item 上恒有值）。</summary>
-    internal static double Num(JObject it, string k)
+        internal static double Num(JObject it, string k)
     {
         var v = it[k];
         return v == null || v.Type != JTokenType.Float && v.Type != JTokenType.Integer ? 0 : (double)v;
     }
 
-    /// <summary>JS (x || 1)：缺省或 0 都取 1。</summary>
-    internal static double NumOr1(JObject it, string k)
+        internal static double NumOr1(JObject it, string k)
     {
         var v = Num(it, k);
         return v == 0 ? 1 : v;
     }
 
-    /// <summary>JS (x ?? d)：0 保持 0，只有缺省取默认。</summary>
-    internal static double NumNull(JObject it, string k, double d)
+        internal static double NumNull(JObject it, string k, double d)
     {
         var v = it[k];
         return v == null || v.Type == JTokenType.Null ? d : (double)v;
     }
 
-    /// <summary>JS (it.seed | 0)：uint 域的 seed 取低 32 位成 int32（哈希入参）。</summary>
-    internal static int SeedOf(JObject it)
+        internal static int SeedOf(JObject it)
     {
         var v = it["seed"];
         var d = v == null || v.Type == JTokenType.Null ? 0 : (double)v;
@@ -760,7 +706,6 @@ public static class JAnim
     static JAnim() => Install();
 }
 
-/// <summary>J.itemBox 返回 {x0,y0,x1,y1,w,h,cx,cy}。</summary>
 public sealed class ItemBounds
 {
     public double X0, Y0, X1, Y1, W, H, Cx, Cy;

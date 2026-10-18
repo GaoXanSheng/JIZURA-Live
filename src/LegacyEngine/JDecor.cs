@@ -1,11 +1,3 @@
-// 移植自 frontend/src/engine/07_decor.js
-//
-// 内置装饰图形 15 个（JS J.DECOR）+ HUD 绘制（J.drawHUD）。
-// JS 的 draw(env, bb, P)：bb 是 layout render 返回的主体 bbox（后景装饰传 null）——
-// C# 从 env.Body 读，空时用画面中央默认框（JLayouts.CenterBb，对位 JS 的 center(env,bb)）。
-// 参数 P → DecorSpec（seed/n/corner/accent/right/low/big/mode/from/to）。
-// 随机全走 J.r/J.rs/J.rr 的无状态哈希（与 JS 同参同值，消费顺序即调用顺序）；
-// 配色 sc.* 用 Scheme 的松散键访问；`a || b` 的空串回退用 ColOr 对齐。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -18,11 +10,9 @@ public static class JDecor
 {
     static JDecor() => Install();
 
-    /// <summary>幂等注册本文件全部 decor。注册顺序 = JS J.DECOR_ORDER（抽取候选顺序，不能变）。</summary>
-    public static void Install()
+        public static void Install()
     {
-        if (Reg.Decor.ContainsKey("brackets")) return; // 幂等
-        RegisterBrackets();
+        if (Reg.Decor.ContainsKey("brackets")) return;         RegisterBrackets();
         RegisterRings();
         RegisterDots();
         RegisterArrows();
@@ -39,16 +29,11 @@ public static class JDecor
         RegisterCounter();
     }
 
-    // ---------------- 公共小助手 ----------------
+        private static double InOut(Env env) => J.E.OutCubic(J.Clamp(env.Lt / 0.3)) * (1 - J.E.InCubic(env.POut));
 
-    /// <summary>JS inOut：进场 outCubic × (1 - 出场 inCubic)。</summary>
-    private static double InOut(Env env) => J.E.OutCubic(J.Clamp(env.Lt / 0.3)) * (1 - J.E.InCubic(env.POut));
+        private static string? Col(Env env, string k) => env.Sc?.Str(k);
 
-    /// <summary>sc[k]（Scheme 松散键；缺失为 null → 绘制助手跳过，对位 JS 无配色时 fillStyle 抛错被 try/catch 吞掉）。</summary>
-    private static string? Col(Env env, string k) => env.Sc?.Str(k);
-
-    /// <summary>JS 的 `sc.a || sc.b`：a 缺省/空串时回退 b。</summary>
-    private static string? ColOr(Env env, string a, string b)
+        private static string? ColOr(Env env, string a, string b)
     {
         var v = env.Sc?.Str(a);
         return !string.IsNullOrEmpty(v) ? v : env.Sc?.Str(b);
@@ -56,12 +41,9 @@ public static class JDecor
 
     private static string? NonEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
-    /// <summary>monoF(env) = (st.fonts.mono && st.fonts.mono[0]) || 'mono'。</summary>
-    private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
+        private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
 
     private static readonly string[] ShapeTypes = { "circle", "square", "tri", "halftone", "halftone", "ring", "ring" };
-
-    // ---------------- 前景装饰（front） ----------------
 
     private static void RegisterBrackets()
     {
@@ -187,8 +169,7 @@ public static class JDecor
                     {
                         var on = (env.Step + i) % 3 != 0;
                         var x = xEdge + side * (i * gap + (1 - e) * W * 0.2);
-                        var dd = -side; // 箭头指向文字
-                        env.Line(
+                        var dd = -side;                         env.Line(
                             new[]
                             {
                                 new[] { x - dd * s * 0.35, cy - s * 0.5 },
@@ -287,8 +268,6 @@ public static class JDecor
         });
     }
 
-    // JS 的 cut._leadLabels：romaji 全量扫描且每帧相同，按 cut 实例缓存。
-    // C# 的 Cut（Model.cs）不动，用 ConditionalWeakTable 挂等价缓存。
     private static readonly ConditionalWeakTable<Cut, string[]> LeadLabels = new();
 
     private static void RegisterLeaders()
@@ -305,7 +284,6 @@ public static class JDecor
                 var s = d.Seed;
                 var e = J.E.OutExpo(J.Clamp((env.Lt - 0.1) / 0.45)) * (1 - J.E.InCubic(env.POut));
                 if (e <= 0) return;
-                // 引线只画右上和左下两条；第三条曾计划挂在 note 上，实际从未绘制
                 var cut = env.Cut;
                 if (cut == null) return;
                 var labels = LeadLabels.GetValue(cut, c => new[]
@@ -358,8 +336,7 @@ public static class JDecor
                 var y = H * (d.Low ? 0.86 : 0.14);
                 const int n = 120;
                 var pts = new List<double[]>();
-                var en = env.Energy; // JS: env.energy != null ? env.energy : 0.5（C# Env.Energy 由渲染器填充）
-                for (var i = 0; i <= n; i++)
+                var en = env.Energy;                 for (var i = 0; i <= n; i++)
                 {
                     var u = i / (double)n;
                     var x = J.Lerp(W * 0.18, W * 0.82, u);
@@ -414,8 +391,6 @@ public static class JDecor
         });
     }
 
-    // ---------------- 背景装饰（back） ----------------
-
     private static void RegisterGrid()
     {
         Reg.Register("decor", "grid", new DecorDef
@@ -450,8 +425,7 @@ public static class JDecor
                 var e = InOut(env);
                 if (e <= 0) return;
                 var w = H * 0.04;
-                var cv = env.Ctx; // JS ctx.save/translate/rotate/restore → SKCanvas 同构
-                cv.Save();
+                var cv = env.Ctx;                 cv.Save();
                 cv.Translate((float)(d.Corner ? W * 0.85 : W * 0.15), (float)(d.Corner ? H * 0.15 : H * 0.85));
                 cv.RotateDegrees(-35);
                 for (var i = -6; i <= 6; i++)
@@ -541,8 +515,7 @@ public static class JDecor
                 var H = env.H;
                 var s = d.Seed;
                 var n = d.N != 0 ? d.N : 5;
-                var cv = env.Ctx; // JS ctx.save/translate/rotate/restore → SKCanvas 同构
-                var cols = new[] { Col(env, "accent"), ColOr(env, "accent2", "fg"), Col(env, "ink"), Col(env, "fg") };
+                var cv = env.Ctx;                 var cols = new[] { Col(env, "accent"), ColOr(env, "accent2", "fg"), Col(env, "ink"), Col(env, "fg") };
                 for (var k = 0; k < n; k++)
                 {
                     var q = J.E.OutBack(J.Clamp((env.Lt - J.R(s, k, 9) * 0.3) / 0.25), 1.8) * (1 - J.E.InCubic(env.POut));
@@ -552,8 +525,7 @@ public static class JDecor
                     var x = J.Rr(W * 0.05, W * 0.95, s, k, 2) + env.Ltb * J.Rs(s, k, 3) * 30;
                     var y = (top ? J.Rr(H * 0.06, H * 0.24, s, k, 10) : J.Rr(H * 0.76, H * 0.94, s, k, 10)) + env.Ltb * J.Rs(s, k, 5) * 20;
                     var r = J.Rr(H * 0.018, H * 0.06, s, k, 6) * q;
-                    var rotDeg = J.R(s, k, 7) * 360 + env.Ltb * J.Rs(s, k, 8) * 60; // JS 乘 J.DEG 转 rad 后 ctx.rotate；RotateDegrees 直接收度
-                    var col = cols[k % 4];
+                    var rotDeg = J.R(s, k, 7) * 360 + env.Ltb * J.Rs(s, k, 8) * 60;                     var col = cols[k % 4];
                     cv.Save();
                     cv.Translate((float)x, (float)y);
                     cv.RotateDegrees((float)rotDeg);
@@ -571,8 +543,7 @@ public static class JDecor
                         case "tri":
                             env.Poly(new[] { new[] { 0.0, -r }, new[] { r * 0.9, r * 0.6 }, new[] { -r * 0.9, r * 0.6 } }, col, 1, true);
                             break;
-                        default: // halftone
-                            var dd = r / 3.2;
+                        default:                             var dd = r / 3.2;
                             for (var i = -3; i <= 3; i++)
                                 for (var j = -3; j <= 3; j++)
                                 {
@@ -627,8 +598,6 @@ public static class JDecor
             },
         });
     }
-
-    // ---------------- HUD（JS J.drawHUD，渲染器按 fx.hud 调用） ----------------
 
     public static void DrawHud(Env env, Plan plan)
     {

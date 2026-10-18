@@ -42,17 +42,6 @@ public sealed class Image2D : IDisposable
         }
     }
 
-    public static Image2D FromSharedHandle(D3DDevice gpu, ID2D1DeviceContext ctx,
-        IntPtr shareHandle, int width, int height)
-    {
-        var texture = gpu.Device.OpenSharedResource<ID3D11Texture2D>(shareHandle);
-        var surface = texture.QueryInterface<IDXGISurface>();
-        var bitmap = ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
-            new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
-            96f, 96f, BitmapOptions.None));
-        return new Image2D(bitmap, width, height, surface, texture);
-    }
-
     public static Image2D FromEncodedBytes(ID2D1DeviceContext ctx, byte[] data)
     {
         using var ms = new MemoryStream(data);

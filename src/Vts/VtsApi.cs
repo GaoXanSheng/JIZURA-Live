@@ -47,7 +47,11 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     private const int TrackIntervalMs = 66;
 
+    private const int IdleMs = 8;
+
     private readonly BlockingCollection<Action<Worker>> _commands = new();
+    private readonly object _driveGate = new();
+    private VtsFraming? _pendingDrive;
     private Thread? _worker;
     private volatile bool _stopping;
 
@@ -62,25 +66,15 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     private readonly VtsTrackingProbe _tracking = new();
 
     private volatile string[] _expressions = [];
-    private volatile HashSet<string> _createdParams = new(StringComparer.Ordinal);
 
     private volatile bool _trackingOn = true;
 
     public VtsState State => (VtsState)_state;
     public string LastError => _lastError;
-    public string Version => _version;
     public string ModelName => _modelName;
     public IReadOnlyList<VtsHotkey> Hotkeys => _hotkeys;
 
     public VtsFraming? Framing => _framing;
-
-    public IReadOnlyDictionary<string, (double Min, double Max)> ParameterRanges => _params;
-
-    public VtsTrackingProbe Tracking => _tracking;
-
-    public IReadOnlyList<string> Expressions => _expressions;
-
-    public IReadOnlyCollection<string> CreatedParameters => _createdParams;
 
     public bool TrackingEnabled
     {
@@ -223,6 +217,14 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     public void Stop()
     {
+        if (_worker != null && !_stopping)
+        {
+            using var done = new ManualResetEventSlim();
+            try { _commands.Add(w => { w.ResetDrive(); done.Set(); }); }
+            catch (InvalidOperationException) { }
+            done.Wait(400);
+        }
+
         _stopping = true;
         try { _commands.CompleteAdding(); } catch {           }
         var w = _worker;
@@ -236,23 +238,15 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     public void Reconnect() => Post(w => w.DropConnection("手动重连"));
 
-    public void RefreshHotkeys() => Post(w => w.FetchHotkeys());
-
-    public void MoveModel(double size, double x, double y, double rotation, double seconds)
-    {
-        var target = new VtsFraming(size, x, y, rotation);
-        Post(w => w.MoveModel(target, seconds));
-    }
-
     public void SetDriveOffset(double size, double x, double y, double rotation)
-        => PostLossy(w => w.SetDriveOffset(new VtsFraming(size, x, y, rotation)));
+    {
+        if (_stopping) return;
+        lock (_driveGate) _pendingDrive = new VtsFraming(size, x, y, rotation);
+        PostLossy(_ => { });
+    }
 
     public void InjectParameters(IReadOnlyDictionary<string, double> values, double weight)
         => PostLossy(w => w.InjectParameters(values, weight));
-
-    public void PollTracking() => Post(w => w.PollTracking(force: true));
-
-    public void RefreshExpressions() => Post(w => w.FetchExpressions());
 
     public void SetExpression(string name, bool active, double fadeSec = 0.4)
     {
@@ -268,13 +262,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     public void InjectAdd(IReadOnlyDictionary<string, double> values)
         => Post(w => w.InjectAdd(values));
-
-    public void EnsureParameters(IEnumerable<string> names)
-    {
-        var list = names.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.Ordinal).ToArray();
-        if (list.Length == 0) return;
-        Post(w => w.EnsureParameters(list));
-    }
 
     public void TriggerHotkey(string hotkeyId)
     {
@@ -307,7 +294,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         {
             try
             {
-                if (_commands.TryTake(out var cmd, TrackIntervalMs)) cmd(w);
+                if (_commands.TryTake(out var cmd, IdleMs)) cmd(w);
                 w.Idle();
             }
             catch (Exception ex)
@@ -322,8 +309,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     private sealed class Worker
     {
-        private const int MoveIntervalMs = 60;
-
         private const int ParamIntervalMs = 100;
 
         private bool _trackOk;
@@ -331,7 +316,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
         private long _lastTrackAt;
 
-        private const double DriveTransitionSec = 0.09;
+        private const double DriveTransitionSec = 0.05;
 
         private readonly VtsApi _api;
         private ClientWebSocket? _ws;
@@ -341,10 +326,10 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         private string _connectFail = "";
         private VtsFraming _manual = new(0, 0, 0, 1);
         private VtsFraming _drive = new(0, 0, 0, 0);
-        private bool _moveDirty;
-        private bool _driveMove;
-        private double _pendingMoveSec = 0.12;
-        private long _lastMoveAt;
+        private bool _baseCaptured;
+        private VtsFraming? _lastDrive;
+        private bool _noReplyPending;
+        private long _lastDrainAt;
 
         private IReadOnlyDictionary<string, double> _pendingParams = new Dictionary<string, double>();
         private double _pendingParamWeight;
@@ -374,7 +359,28 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         public void Idle()
         {
             var now = Environment.TickCount64;
-            if (_moveDirty && now - _lastMoveAt >= MoveIntervalMs) FlushMove();
+
+            VtsFraming? pending;
+            lock (_api._driveGate)
+            {
+                pending = _api._pendingDrive;
+                _api._pendingDrive = null;
+            }
+            if (pending is not null && _baseCaptured && _ws is { State: WebSocketState.Open }
+                && !Equals(pending, _lastDrive))
+            {
+                _drive = pending;
+                _lastDrive = pending;
+                FlushMove();
+            }
+
+            if (_noReplyPending && now - _lastDrainAt >= 500)
+            {
+                _lastDrainAt = now;
+                _noReplyPending = false;
+                Send("APIStateRequest", new JObject(), 1500);
+            }
+
             if (_paramDirty && now - _lastParamAt >= ParamIntervalMs) FlushParams();
             PollTracking(force: false);
 
@@ -408,6 +414,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 _ws = ws;
                 _api._lastError = "";
                 _connectFail = "";
+                _lastDrive = null;
+                _noReplyPending = false;
                 var state = Send("APIStateRequest", new JObject());
                 _api._version = (string?)state?["vTubeStudioVersion"] ?? "";
                 var authed = (bool?)state?["currentSessionAuthenticated"] ?? false;
@@ -497,40 +505,33 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             }
         }
 
-        public void MoveModel(VtsFraming f, double seconds)
+        public void ResetDrive()
         {
-            if (_ws == null || _ws.State != WebSocketState.Open) return;
-            _manual = f;
-            _api._framing = f;
-            _driveMove = false;
-            _moveDirty = true;
-            _pendingMoveSec = seconds;
-            if (Environment.TickCount64 - _lastMoveAt >= MoveIntervalMs) FlushMove();
-        }
-
-        public void SetDriveOffset(VtsFraming off)
-        {
-            if (_ws == null || _ws.State != WebSocketState.Open) return;
-            _drive = off;
-            _driveMove = true;
-            _moveDirty = true;
-            if (Environment.TickCount64 - _lastMoveAt >= MoveIntervalMs) FlushMove();
+            if (_ws == null || _ws.State != WebSocketState.Open || !_baseCaptured) return;
+            lock (_api._driveGate) _api._pendingDrive = null;
+            _drive = new VtsFraming(0, 0, 0, 0);
+            _lastDrive = _drive;
+            Send("MoveModelRequest", new JObject
+            {
+                ["timeInSeconds"] = 0.15,
+                ["valuesAreRelativeToModel"] = false,
+                ["positionX"] = _manual.X,
+                ["positionY"] = _manual.Y,
+                ["rotation"] = _manual.Rotation,
+                ["size"] = _manual.Size,
+            });
         }
 
         private void FlushMove()
         {
-            if (!_moveDirty) return;
-            _moveDirty = false;
-            _lastMoveAt = Environment.TickCount64;
             var f = new VtsFraming(
                 _manual.Size + _drive.Size,
                 _manual.X + _drive.X,
                 _manual.Y + _drive.Y,
                 _manual.Rotation + _drive.Rotation);
-            var seconds = _driveMove ? DriveTransitionSec : _pendingMoveSec;
-            Send("MoveModelRequest", new JObject
+            SendNoReply("MoveModelRequest", new JObject
             {
-                ["timeInSeconds"] = seconds,
+                ["timeInSeconds"] = DriveTransitionSec,
                 ["valuesAreRelativeToModel"] = false,
                 ["positionX"] = f.X,
                 ["positionY"] = f.Y,
@@ -550,8 +551,12 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                     (double?)p["positionX"] ?? 0,
                     (double?)p["positionY"] ?? 0,
                     (double?)p["rotation"] ?? 0);
-                _manual = f;
-                _api._framing = f;
+                if (!_baseCaptured)
+                {
+                    _manual = f;
+                    _api._framing = f;
+                    _baseCaptured = true;
+                }
                 _api.Notify();
             }
         }
@@ -639,28 +644,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             if (payload != null) Send("InjectParameterDataRequest", payload);
         }
 
-        public void EnsureParameters(string[] names)
-        {
-            var existing = new HashSet<string>(_api._params.Keys, StringComparer.Ordinal);
-            foreach (var name in names)
-            {
-                if (existing.Contains(name) || _api._createdParams.Contains(name)) continue;
-                var resp = Send("ParameterCreationRequest", new JObject
-                {
-                    ["parameterName"] = name,
-                    ["explanation"] = "created by JIZURA Live PV",
-                    ["min"] = 0.0,
-                    ["max"] = 1.0,
-                    ["defaultValue"] = 0.0,
-                });
-                if (resp == null) continue;
-                var set = new HashSet<string>(_api._createdParams, StringComparer.Ordinal) { name };
-                _api._createdParams = set;
-            }
-
-            FetchParameters();
-        }
-
         public void PollTracking(bool force)
         {
             if (!_api.TrackingEnabled) return;
@@ -731,6 +714,35 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             if (resp == null) Log.Warn($"[VTS] 热键触发失败：{_api._lastError}");
         }
 
+        private void SendNoReply(string messageType, JObject data)
+        {
+            var ws = _ws;
+            if (ws == null || ws.State != WebSocketState.Open) return;
+
+            var id = "jizura-" + Interlocked.Increment(ref _seq).ToString();
+            var req = new JObject
+            {
+                ["apiName"] = "VTubeStudioPublicAPI",
+                ["apiVersion"] = "1.0",
+                ["requestID"] = id,
+                ["messageType"] = messageType,
+                ["data"] = data,
+            };
+
+            try
+            {
+                var bytes = Encoding.UTF8.GetBytes(req.ToString(Formatting.None));
+                ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                _noReplyPending = true;
+            }
+            catch (Exception ex)
+            {
+                SetError($"{messageType} 发送失败：{ex.Message}");
+                DropConnection("发送出错");
+            }
+        }
+
         private JObject? Send(string messageType, JObject data, int timeoutMs = RequestMs)
         {
             var ws = _ws;
@@ -753,31 +765,36 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token).GetAwaiter().GetResult();
 
                 var buf = new byte[256 * 1024];
-                var sb = new StringBuilder();
                 while (true)
                 {
-                    var r = ws.ReceiveAsync(buf, cts.Token).GetAwaiter().GetResult();
-                    if (r.MessageType == WebSocketMessageType.Close)
+                    var sb = new StringBuilder();
+                    while (true)
                     {
-                        DropConnection("VTS 关闭了连接");
+                        var r = ws.ReceiveAsync(buf, cts.Token).GetAwaiter().GetResult();
+                        if (r.MessageType == WebSocketMessageType.Close)
+                        {
+                            DropConnection("VTS 关闭了连接");
+                            return null;
+                        }
+
+                        sb.Append(Encoding.UTF8.GetString(buf, 0, r.Count));
+                        if (r.EndOfMessage) break;
+                    }
+
+                    var resp = JObject.Parse(sb.ToString());
+                    if ((string?)resp["requestID"] != id) continue;
+
+                    var type = (string?)resp["messageType"] ?? "";
+                    if (type == "APIError")
+                    {
+                        var msg = (string?)resp["data"]?["message"] ?? "未知错误";
+                        SetError($"{messageType}：{msg}");
+                        Log.Warn($"[VTS] {messageType} 出错：{msg}");
                         return null;
                     }
 
-                    sb.Append(Encoding.UTF8.GetString(buf, 0, r.Count));
-                    if (r.EndOfMessage) break;
+                    return (JObject?)resp["data"] ?? new JObject();
                 }
-
-                var resp = JObject.Parse(sb.ToString());
-                var type = (string?)resp["messageType"] ?? "";
-                if (type == "APIError")
-                {
-                    var msg = (string?)resp["data"]?["message"] ?? "未知错误";
-                    SetError($"{messageType}：{msg}");
-                    Log.Warn($"[VTS] {messageType} 出错：{msg}");
-                    return null;
-                }
-
-                return (JObject?)resp["data"] ?? new JObject();
             }
             catch (OperationCanceledException)
             {

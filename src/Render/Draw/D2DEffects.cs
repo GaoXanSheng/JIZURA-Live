@@ -21,9 +21,6 @@ public sealed class EffectChain : IDisposable
 
     public EffectChain(ID2D1DeviceContext ctx) => _ctx = ctx;
 
-    public static bool NeedsSurface(Paint2D p) =>
-        p.BlurSigma > 0.05f || p.ColorMatrix is not null || p.Shadow is not null;
-
     public ID2D1Image Wrap(ID2D1Image src, Paint2D p)
     {
         var cur = src;
@@ -75,51 +72,12 @@ public sealed class EffectChain : IDisposable
         return _shadow.Output;
     }
 
-    public ID2D1Image BlendImages(ID2D1Image backdrop, ID2D1Image layer, Blend2D mode)
-    {
-        _blend ??= new EffectBlend(_ctx);
-        _blend.Mode = ToBlendEffect(mode);
-        _blend.SetInput(0, backdrop, true);
-        _blend.SetInput(1, layer, true);
-        return _blend.Output;
-    }
-
-    public ID2D1Image WrapOpacity(ID2D1Image src, float alpha)
-    {
-        alpha = Math.Clamp(alpha, 0f, 1f);
-        if (alpha > 0.999f) return src;
-        _opacity ??= new Opacity(_ctx);
-        _opacity.Value = alpha;
-        _opacity.SetInput(0, src, true);
-        return _opacity.Output;
-    }
-
     public static CompositeMode ToComposite(Blend2D blend) => blend switch
     {
         Blend2D.Plus => CompositeMode.Plus,
         Blend2D.SrcCopy => CompositeMode.SourceCopy,
         Blend2D.SrcOver => CompositeMode.SourceOver,
         _ => CompositeMode.SourceOver,
-    };
-
-    public static BlendMode ToBlendEffect(Blend2D blend) => blend switch
-    {
-        Blend2D.Multiply => BlendMode.Multiply,
-        Blend2D.Screen => BlendMode.Screen,
-        Blend2D.Overlay => BlendMode.Overlay,
-        Blend2D.Lighten => BlendMode.Lighten,
-        Blend2D.Darken => BlendMode.Darken,
-        Blend2D.ColorDodge => BlendMode.ColorDodge,
-        Blend2D.ColorBurn => BlendMode.ColorBurn,
-        Blend2D.HardLight => BlendMode.HardLight,
-        Blend2D.SoftLight => BlendMode.SoftLight,
-        Blend2D.Difference => BlendMode.Difference,
-        Blend2D.Exclusion => BlendMode.Exclusion,
-        Blend2D.Hue => BlendMode.Hue,
-        Blend2D.Saturation => BlendMode.Saturation,
-        Blend2D.Color => BlendMode.Color,
-        Blend2D.Luminosity => BlendMode.Luminosity,
-        _ => BlendMode.Multiply,
     };
 
     public static bool IsDirectComposite(Blend2D blend) =>

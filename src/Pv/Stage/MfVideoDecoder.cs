@@ -95,10 +95,6 @@ public sealed class MfVideoDecoder : IDisposable
 
     public string? LastError { get; private set; }
 
-    public double LastFramePts => _lastPts;
-
-    public bool HardwareDecode => _gpuEnabled;
-
     private MfVideoDecoder(IntPtr reader, IntPtr deviceManager, bool gpuEnabled,
         int width, int height, double duration, double frameRate, int stride)
     {
@@ -113,9 +109,6 @@ public sealed class MfVideoDecoder : IDisposable
         FrameCount = duration > 0 && frameRate > 0 ? (int)Math.Round(duration * frameRate) : 0;
         Stride = stride != 0 ? stride : width * 4;
     }
-
-    public static MfVideoDecoder? TryOpen(string path, out string error) =>
-        TryOpenCore(path, null, false, out error);
 
     public static MfVideoDecoder? TryOpen(string path, ID3D11Device? device, out string error)
     {

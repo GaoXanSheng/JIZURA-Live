@@ -41,12 +41,9 @@ public sealed class SpoutIn : IDisposable
 
     public SpoutIn(ID3D11Device device) => _device = device;
 
-    public long Seq => Interlocked.Read(ref _seq);
     public bool Connected { get; private set; }
     public int SourceWidth => _srcW < 0 ? 0 : _srcW;
     public int SourceHeight => _srcH < 0 ? 0 : _srcH;
-
-    public int SourceFormat => _seenFmt;
 
     public string? FormatDiagnostic { get; private set; }
 

@@ -18,8 +18,6 @@ public sealed class DirectorEvaluator
     private CameraTrack? _cameraTrack;
     private Dictionary<string, CameraTrack> _layerCameraTracks = new(StringComparer.Ordinal);
 
-    public CameraTrack? CameraTrack => _cameraTrack;
-
     public bool TryCameraAt(double time, out PvCamState camera)
     {
         if (_cameraTrack is null)
@@ -65,11 +63,6 @@ public sealed class DirectorEvaluator
         list.RemoveAll(l => string.Equals(l.Name, name, StringComparison.Ordinal));
         list.Add(new CurveLayer(name, blend, curve, source, locked));
     }
-
-    public IReadOnlyList<CurveLayer> LayersOf(in ParamAddress addr) =>
-        _layers.TryGetValue(addr, out var list) ? list : Array.Empty<CurveLayer>();
-
-    public IEnumerable<ParamAddress> LayeredAddresses => _layers.Keys;
 
     public bool Affects(in ParamAddress addr)
     {

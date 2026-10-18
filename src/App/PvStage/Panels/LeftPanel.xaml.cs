@@ -11,11 +11,7 @@ public partial class LeftPanel : UserControl
 
     private void Nav_Click(object sender, RoutedEventArgs e) => Owner?.Nav_Click(sender, e);
 
-    private void BtnOpenAudio_Click(object sender, RoutedEventArgs e) => Owner?.BtnOpenAudio_Click(sender, e);
-
     private void BtnCloudMusic_Click(object sender, RoutedEventArgs e) => Owner?.BtnCloudMusic_Click(sender, e);
-
-    private void BtnOpenLyrics_Click(object sender, RoutedEventArgs e) => Owner?.BtnOpenLyrics_Click(sender, e);
 
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e) => Owner?.BtnAddLayer_Click(sender, e);
 
@@ -47,6 +43,10 @@ public partial class LeftPanel : UserControl
     private void BtnApplyCanvas_Click(object sender, RoutedEventArgs e) => Owner?.BtnApplyCanvas_Click(sender, e);
 
     private void TglVSync_Changed(object sender, RoutedEventArgs e) => Owner?.TglVSync_Changed(sender, e);
+
+    private void BtnVtsReconnect_Click(object sender, RoutedEventArgs e) => Owner?.BtnVtsReconnect_Click(sender, e);
+
+    private void BtnVtsAuth_Click(object sender, RoutedEventArgs e) => Owner?.BtnVtsAuth_Click(sender, e);
 
     private void TglCenterFree_Changed(object sender, RoutedEventArgs e) => Owner?.TglCenterFree_Changed(sender, e);
 

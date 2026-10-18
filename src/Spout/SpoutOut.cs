@@ -120,21 +120,6 @@ public sealed class SpoutOut : IDisposable
         }
     }
 
-    public void Resize(int width, int height, string? newSenderName = null)
-    {
-        width = Math.Max(16, width);
-        height = Math.Max(16, height);
-        var name = string.IsNullOrWhiteSpace(newSenderName) ? _senderName : newSenderName.Trim();
-
-        if (_width == width && _height == height && _senderName == name) return;
-
-        Dispose();
-        _width = width;
-        _height = height;
-        _senderName = name;
-        Initialize();
-    }
-
     public void Dispose()
     {
         _initialized = false;

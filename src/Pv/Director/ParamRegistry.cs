@@ -24,6 +24,9 @@ public static class ParamRegistry
             case ParamAddressKind.Layer:
                 return TryResolveLayer(addr, out spec, out error);
 
+            case ParamAddressKind.Vts:
+                return TryResolveVts(addr, out spec, out error);
+
             default:
                 if (!TryFindEffectParam(addr, effects, out _, out var param, out error)) return false;
                 spec = new ParamSpec(param!.Unit, param.Min, param.Max, param.Default, param.LabelKey);
@@ -124,6 +127,32 @@ public static class ParamRegistry
 
             default:
                 error = $"{CodeMissingKey}: 镜头没有参数「{addr.Param}」（首版注册 offsetX/offsetY/scale/rotation/blur/brighten）";
+                return false;
+        }
+    }
+
+    private static bool TryResolveVts(in ParamAddress addr, out ParamSpec spec, out string? error)
+    {
+        spec = default;
+        switch (addr.Param)
+        {
+            case "x":
+                spec = new ParamSpec(ParamUnit.Dimensionless, -2, 2, 0, "Param.Vts.X");
+                error = null;
+                return true;
+
+            case "y":
+                spec = new ParamSpec(ParamUnit.Dimensionless, -2, 2, 0, "Param.Vts.Y");
+                error = null;
+                return true;
+
+            case "size":
+                spec = new ParamSpec(ParamUnit.Dimensionless, -80, 80, 0, "Param.Vts.Size");
+                error = null;
+                return true;
+
+            default:
+                error = $"{CodeMissingKey}: 角色移动只有 x/y/size 三条通道（地址 vts.{addr.Param}）";
                 return false;
         }
     }

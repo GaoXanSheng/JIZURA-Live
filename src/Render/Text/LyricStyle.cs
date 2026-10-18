@@ -36,8 +36,6 @@ public sealed record LyricStyle
     [JsonIgnore]
     public Color4 StrokeColorValue => SubtitleLayout.ParseColor(StrokeColor, new Color4(0f, 0f, 0f, 1f));
 
-    public float FontSizePx(double scale) => FontSize * (float)scale;
-
     public static LyricStyle Classic { get; } = new();
 
     public static LyricStyle Neon { get; } = new()
@@ -95,12 +93,6 @@ public sealed record LyricStyle
         StrokeColor = "#000000",
         Anim = "typewriter",
     };
-
-    public static IReadOnlyList<string> PresetNames { get; } =
-        ["Classic", "Neon", "Outline", "Minimal", "Karaoke", "Pop", "Typewriter"];
-
-    public static IReadOnlyList<string> PackNames { get; } =
-        ["Noir", "Crimson", "Caution", "Magenta", "Paper", "Hud", "Mint", "Specimen", "Transit", "Blueprint", "Rouge", "Mono"];
 
     public static IReadOnlyList<LyricStyle> Packs { get; } =
     [

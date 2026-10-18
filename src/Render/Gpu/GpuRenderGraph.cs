@@ -28,12 +28,4 @@ public sealed class GpuRenderGraph
         return _passes.Count - 1;
     }
 
-    public void Clear() => _passes.Clear();
-
-    public void AddChain(IEnumerable<(ID3D11PixelShader Shader, float[] Constants)> chain)
-    {
-        var prev = External;
-        foreach (var (shader, constants) in chain)
-            prev = Add(shader, constants, prev);
-    }
 }

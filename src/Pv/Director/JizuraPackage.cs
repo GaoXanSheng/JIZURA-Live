@@ -20,8 +20,6 @@ internal static class JizuraPackage
     public static bool LooksLikePackage(ReadOnlySpan<byte> head) =>
         head.Length >= 4 && head[0] == (byte)'J' && head[1] == (byte)'Z' && head[2] == (byte)'L' && head[3] == (byte)'V';
 
-    public static List<JizuraPackageEntry> ReadFile(string path) => Read(File.ReadAllBytes(path));
-
     public static List<JizuraPackageEntry> Read(byte[] bytes)
     {
         if (bytes.Length < 16 || !LooksLikePackage(bytes))

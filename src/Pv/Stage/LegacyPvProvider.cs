@@ -10,10 +10,6 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Pv;
 
-/// <summary>
-/// 原版 PV 渲染宿主：同一份 Plan 出两张图——不透明背景层 + 透明文字层，
-/// 舞台把角色插在中间，人物就不会再盖住歌词。
-/// </summary>
 public sealed class LegacyPvProvider : IDisposable
 {
     public const string BackId = "legacy_pv_back";
@@ -50,8 +46,7 @@ public sealed class LegacyPvProvider : IDisposable
     private double _requestedTime;
     private double _lastRenderedTime = double.NaN;
 
-    /// <summary>最近一帧原版引擎（背景+文字两层）的渲染耗时。</summary>
-    public double LastRenderMs { get; private set; }
+        public double LastRenderMs { get; private set; }
 
     public bool GpuMode => _gpuMode;
 
@@ -62,11 +57,9 @@ public sealed class LegacyPvProvider : IDisposable
     public LegacyPvPlanInfo? PlanInfo => _planInfo;
     public event Action<LegacyPvPlanInfo>? PlanReady;
 
-    /// <summary>舞台层接管转场时置真，原版引擎不再自己画 cut 间转场（morph 保留）。</summary>
-    public volatile bool NoCutTrans;
+        public volatile bool NoCutTrans;
 
-    /// <summary>舞台层统一控制机位时置真，原版 cut 相机不再叠加。</summary>
-    public volatile bool NoCamera;
+        public volatile bool NoCamera;
 
     public LegacyPvProvider(string id, D3DDevice gpu, ID2D1DeviceContext ctx,
         LegacyPvOptions options, int designWidth, int designHeight, int fps, int renderWidth)
@@ -104,20 +97,6 @@ public sealed class LegacyPvProvider : IDisposable
             Priority = ThreadPriority.BelowNormal,
         };
         _thread.Start();
-    }
-
-    /// <summary>舞台层编辑过的运镜轨道：写回原版 Plan，原版画面与角色一起变。</summary>
-    public void ApplyCameraTrack(CameraTrack? track)
-    {
-        _cameraTrack = track;
-        if (_syncEngine is not null)
-        {
-            _syncEngine.ApplyCameraTrack(track);
-            return;
-        }
-
-        Interlocked.Exchange(ref _pendingCameraTrack, track);
-        _wake.Set();
     }
 
     public void ApplyCutOverrides(LegacyPvPlanInfo info)

@@ -1,29 +1,3 @@
-// 移植自 frontend/src/engine/11p_kinetic3.js（kinetic 第 3 包：按词计时的 cam/trans/treat/decor，
-// pack = 'kinetic3'，6 cam + 3 trans + 2 treat + 2 decor）。
-//
-// 契约对位：
-// - cam：CamDef.Plan(rng, st) → cut.camP；Get(env) → CamState（JS get(env, P) 的 P = env.Cut.CamP）。
-// - trans：TransDef.Draw = TransDrawFn(SKCanvas, prevA, curB, p, TransCtx)（Renderer.cs 定型的签名；
-//   JS trReg 的包装——p<=0 精确输出 A、p>=1 精确输出 B——为本文件私有 Wrap，与 P11TreatTrans 同型）。
-// - treat：TreatDef.Draw(env) 在 MainDraw 的 treat 调用点执行（JS apply(env, it, cut.treatP)），
-//   env.It 是当前 item；charFns.push → env.CharFns.Add。
-// - decor：DecorDef.Draw(env, DecorSpec)，bb 从 env.Body 读（空时 GetBB 回退画面中央 + 按 cut
-//   缓存最近有效框，与 P11Decor 同口径）。
-//
-// JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为 IRegEntry.Set 真字段（Reg0 统一赋值）。
-//
-// 本包私有 helper（JS L9-57/163-167/276-314 逐条对位）：strip/isBlank/bellK/KM/addPre(就地执行)、
-// wordTimes（镜内词时钟，ConditionalWeakTable 按 cut 缓存）/curIdx/minD/tAcc/Wrap/alive/treatGeo +
-// GetBB（P11Decor 同型）。BeatInfo/BeatOf 与 P11Kinetic1/2 同口径。
-//
-// 已知近似（管线缺口，与 P11TreatTrans 同约定，不改共享文件）：
-// 1. knWordPlate 的 addPre：已迁 env.PreFn 管线钩子（DrawFx 在文字前消费；钩子体读合并后的
-//    env.CharFn，与 JS 的 x.charFn 同源——原「静态排版位置」近似解除）。
-// 2. knCardFlip 返回的 sx/sy：CamState 无该字段（Renderer.cs L420 的既知 TODO，按 s 统一处理），
-//    翻面量折叠进 S（幅度动画保留、轴向压缩近似为等比）。
-//
-// 跨文件符号对位：J.layoutText→JText.LayoutText、J.r/rs/h→J.R/J.Rs/J.H、J.contrast/lum/smooth→J.*、
-// J.centerBB→JLayouts.CenterBb（GetBB 内）、clamp/lerp/DEG/TAU→J.*、E.*→J.E.*。
 
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json.Linq;
@@ -36,9 +10,7 @@ public static class P11Kinetic3
     private const string P = "kinetic3";
     private static int _installed;
 
-    /// <summary>JS reg(g, key, def) = J.register(g, key, {…def, set:'kinetic'}, P)。
-    /// 各条目的 ae（AE 导出模板名）注在行内注释。</summary>
-    private static void Reg0(string g, string key, object def)
+        private static void Reg0(string g, string key, object def)
     {
         switch (def)
         {
@@ -47,10 +19,7 @@ public static class P11Kinetic3
             case TreatDef d: d.Set = "kinetic"; Reg.Register(g, key, d, P); break;
             case DecorDef d: d.Set = "kinetic"; Reg.Register(g, key, d, P); break;
         }
-        // JS reg 助手的 set:'kinetic' 现为 IRegEntry.Set 真字段，Omakase 门禁直读（MarkSet 旁路解除）
     }
-
-    // ================= 本包 helper（JS 逐条对位） =================
 
     private static string Strip(string? t) => System.Text.RegularExpressions.Regex.Replace(t ?? "", @"\s+", "");
     private static bool IsBlank(string ch) => ch is " " or "　";
@@ -58,8 +27,7 @@ public static class P11Kinetic3
 
     private static double Km(Env env) => J.Clamp((env.Fx.Motion) * 1.25, 0, 1.25);
 
-    /// <summary>JS env.beat（09_render 的 beatAt）本文件内的重建：{since, len, index}。</summary>
-    private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
+        private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
 
     private static BeatInfo BeatOf(Env env)
     {
@@ -81,8 +49,6 @@ public static class P11Kinetic3
         var len = i + 1 < beats.Length ? beats[i + 1] - beats[i] : i > 0 ? beats[i] - beats[i - 1] : 0.5;
         return new BeatInfo(true, t - beats[i], Math.Max(0.2, len), i);
     }
-
-    // ---- 镜内词时钟（JS L21-51；与 kinetic 版式同一规则） ----
 
     private sealed class WordTimesEntry
     {
@@ -147,8 +113,7 @@ public static class P11Kinetic3
             : i.Sc.Str("fg") ?? "#FFFFFF";
     }
 
-    /// <summary>trReg 包装：p<=0 精确输出 A、p>=1 精确输出 B，结束时 ctx 状态干净。</summary>
-    private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
+        private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
         (ctx, a, b, p, i) =>
         {
             ctx.Save();
@@ -164,14 +129,11 @@ public static class P11Kinetic3
             }
         };
 
-    /// <summary>JS alive(it)：可加工的 item。</summary>
-    private static bool Alive(JObject it) =>
+        private static bool Alive(JObject it) =>
         !(it["fill"] is JValue fv && fv.Type == JTokenType.Boolean && !(bool)fv.Value!)
         && JAnim.NumNull(it, "alpha", 1) >= 0.9
         && !string.IsNullOrEmpty(it["text"]?.Value<string>())
         && JAnim.Num(it, "size") > 1;
-
-    // ---- 每个字所属的词（JS L277-314 的 treatGeo） ----
 
     private sealed class TGeo
     {
@@ -195,8 +157,7 @@ public static class P11Kinetic3
             JText.Typeset ? 1 : 0,
             string.Join("\u0001", env.Cut?.Words ?? System.Array.Empty<string>()));
         if (TmCache.TryGetValue(key, out var hit)) return hit;
-        var probe = (JObject)it.DeepClone(); // JS Object.assign({}, it, {size:1, sx:1, sy:1, _lay:null, _m:null})
-        probe["size"] = 1;
+        var probe = (JObject)it.DeepClone();         probe["size"] = 1;
         probe["sx"] = 1;
         probe["sy"] = 1;
         probe.Remove("_lay");
@@ -241,8 +202,6 @@ public static class P11Kinetic3
         return geo;
     }
 
-    // ---- decor 的 bb（P11Decor 同口径：env.Body，回退画面中央 + 按 cut 缓存最近有效框） ----
-
     private static readonly ConditionalWeakTable<Cut, BBox> Bbc = new();
 
     private static BBox GetBB(Env env, BBox? bb)
@@ -280,32 +239,13 @@ public static class P11Kinetic3
         return c ?? JLayouts.CenterBb(env, null);
     }
 
-    // ================= 注册（JS 源里 reg/trReg(...) 的出现序） =================
-
-    /// <summary>幂等注册本文件全部条目（顺序 = JS 源文件 reg 调用序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        KnReadPan();      // JS L59 cam
-        KnTiltKick();     // JS L76 cam
-        KnCardFlip();     // JS L92 cam
-        KnShearKick();    // JS L114 cam
-        KnJumpCut();      // JS L133 cam
-        KnRushIn();       // JS L151 cam
-        KnCornerSwing();  // JS L181 trans
-        KnStutterCut();   // JS L213 trans
-        KnStripSlam();    // JS L239 trans
-        KnWordScale();    // JS L316 treat
-        KnWordPlate();    // JS L388 treat
-        KnSpeedTrail();   // JS L458 decor
-        KnWordTicks();    // JS L493 decor
-    }
-
-    // ---------------- cam knReadPan（JS L59） ----------------
+        KnReadPan();              KnTiltKick();             KnCardFlip();             KnShearKick();            KnJumpCut();              KnRushIn();               KnCornerSwing();          KnStutterCut();           KnStripSlam();            KnWordScale();            KnWordPlate();            KnSpeedTrail();           KnWordTicks();        }
 
     private static void KnReadPan() => Reg0("cam", "knReadPan", new CamDef
     {
-        // 画框跟着阅读节奏走：一词一步，最后回正。ae: 'snapPan'
         Name = "読み追い",
         Tags = new[] { "pop", "graphic", "editorial" },
         W = 0.8,
@@ -343,11 +283,8 @@ public static class P11Kinetic3
         }
     });
 
-    // ---------------- cam knTiltKick（JS L76） ----------------
-
     private static void KnTiltKick() => Reg0("cam", "knTiltKick", new CamDef
     {
-        // 每来一个词画框就歪向一边、左右交替，最后一个词摆平。ae: 'dutch'
         Name = "語で傾く",
         Tags = new[] { "pop", "graphic", "emotional" },
         W = 0.8,
@@ -379,11 +316,8 @@ public static class P11Kinetic3
         }
     });
 
-    // ---------------- cam knCardFlip（JS L92） ----------------
-
     private static void KnCardFlip() => Reg0("cam", "knCardFlip", new CamDef
     {
-        // 画框像卡片一样翻面亮出本镜，每来一个词捏一下。ae: 'barrelRoll'，strong: true
         Name = "カード返し",
         Tags = new[] { "pop", "graphic" },
         W = 0.7,
@@ -409,8 +343,6 @@ public static class P11Kinetic3
                 if (dd > 0 && dd < 0.24) f *= 1 - 0.1 * k * BellK(dd / 0.24);
             }
             var sk = 7 * Math.Sin(th * J.DEG) * d * k;
-            // TODO(11p)：JS 返回 sx/sy（CamState 无该字段，Renderer 按 s 统一处理）——
-            // 翻面量 f 折叠进 S（幅度保留、轴向压缩近似等比）。
             if (JLayouts.Truthy(pc["vert"]))
                 return new CamState
                 {
@@ -426,11 +358,8 @@ public static class P11Kinetic3
         }
     });
 
-    // ---------------- cam knShearKick（JS L114） ----------------
-
     private static void KnShearKick() => Reg0("cam", "knShearKick", new CamDef
     {
-        // 每个词（或每拍）来一次横向剪切踢，随即弹正。ae: 'jelly'
         Name = "シアーキック",
         Tags = new[] { "pop", "glitch", "graphic" },
         W = 0.8,
@@ -464,11 +393,8 @@ public static class P11Kinetic3
         }
     });
 
-    // ---------------- cam knJumpCut（JS L133） ----------------
-
     private static void KnJumpCut() => Reg0("cam", "knJumpCut", new CamDef
     {
-        // 每个词硬切构图（更近、更远、偏心），没有中间帧，最后回正。ae: 'stepZoom'
         Name = "ジャンプカット",
         Tags = new[] { "pop", "glitch", "editorial" },
         W = 0.7,
@@ -494,11 +420,8 @@ public static class P11Kinetic3
         }
     });
 
-    // ---------------- cam knRushIn（JS L151） ----------------
-
     private static void KnRushIn() => Reg0("cam", "knRushIn", new CamDef
     {
-        // 整个画框从远处冲过来，微微过冲后锁定。ae: 'crashZoom'，strong: true
         Name = "奥から突進",
         Tags = new[] { "pop", "graphic", "emotional" },
         W = 0.7,
@@ -529,11 +452,8 @@ public static class P11Kinetic3
         }
     });
 
-    // ---------------- trans knCornerSwing（JS L181） ----------------
-
     private static void KnCornerSwing() => Reg0("trans", "knCornerSwing", new TransDef
     {
-        // 旧画框绕角旋走，新画框跟在后面旋入，转四分之一圈换行。ae: 'spinOut'
         Name = "コーナースイング",
         Tags = new[] { "pop", "graphic" },
         W = 0.8,
@@ -555,20 +475,17 @@ public static class P11Kinetic3
             {
                 ctx.Save();
                 ctx.Translate(px, py);
-                ctx.RotateDegrees((float)ang); // JS rotate(ang * DEG) 收弧度；RotateDegrees 收度，不能再乘 DEG
-                ctx.Translate(-px, -py);
+                ctx.RotateDegrees((float)ang);                 ctx.Translate(-px, -py);
                 ctx.DrawImage(img, 0, 0);
                 ctx.Restore();
             }
 
             Put(b, -90 * sg * (1 - e));
             Put(a, 90 * sg * e);
-            // 旋转缝上的一条 accent 细边
             var lw = Math.Max(2, MinD(i) * 0.006);
             ctx.Save();
             ctx.Translate(px, py);
-            ctx.RotateDegrees((float)(90 * sg * e)); // 同上：JS 传弧度，这里传度
-            using (var fill = new SKPaint { Color = Env.SkColor(TAcc(i), BellK(p)) })
+            ctx.RotateDegrees((float)(90 * sg * e));             using (var fill = new SKPaint { Color = Env.SkColor(TAcc(i), BellK(p)) })
             {
                 var y0 = -(py != 0 ? ch : 0);
                 var fy0 = (float)y0;
@@ -581,11 +498,8 @@ public static class P11Kinetic3
         }),
     });
 
-    // ---------------- trans knStutterCut（JS L213） ----------------
-
     private static void KnStutterCut() => Reg0("trans", "knStutterCut", new TransDef
     {
-        // 节奏切：新旧画框硬切互换几拍，新镜才站稳。ae: 'flashCross'
         Name = "刻みカット",
         Tags = new[] { "pop", "glitch", "graphic" },
         W = 0.7,
@@ -609,14 +523,12 @@ public static class P11Kinetic3
             var k = 0;
             while (k < cuts.Length && p >= cuts[k]) k++;
             var (img, s, dx) = seq[k];
-            // JS (C===A ? (I.scPrev || I.sc) : I.sc).bg
             var sc = ReferenceEquals(img, a) ? i.ScPrev : i.Sc;
             using (var fill = new SKPaint { Color = Env.SkColor(sc.Str("bg") ?? i.Sc.Str("bg") ?? "#000000") })
                 ctx.DrawRect(new SKRect(0, 0, cw, ch), fill);
             var dx0 = (float)(cw / 2.0 - cw * s / 2 + dx);
             var dy0 = (float)(ch / 2.0 - ch * s / 2);
             ctx.DrawImage(img, new SKRect(dx0, dy0, dx0 + (float)(cw * s), dy0 + (float)(ch * s)));
-            // 每次切闪一条一帧的 accent 横条
             var since = k > 0 ? p - cuts[k - 1] : 1;
             if (since < 0.06)
             {
@@ -628,11 +540,8 @@ public static class P11Kinetic3
         }),
     });
 
-    // ---------------- trans knStripSlam（JS L239） ----------------
-
     private static void KnStripSlam() => Reg0("trans", "knStripSlam", new TransDef
     {
-        // 新画框拆成竖条逐条砸下，每条落地小弹一下。ae: 'sliceShift'
         Name = "短冊スラム",
         Tags = new[] { "pop", "graphic" },
         W = 0.8,
@@ -659,7 +568,6 @@ public static class P11Kinetic3
                 var d = kk / (double)n * 0.45;
                 var q = J.Clamp((p - d) / 0.55);
                 if (q <= 0) continue;
-                // 先重力下坠，再衰减弹跳
                 const double tl = 0.62;
                 double y;
                 if (q < tl)
@@ -688,11 +596,8 @@ public static class P11Kinetic3
         }),
     });
 
-    // ---------------- treat knWordScale（JS L316） ----------------
-
     private static void KnWordScale() => Reg0("treat", "knWordScale", new TreatDef
     {
-        // 挑一个关键词放大、其余缩小，整行围绕对比重新排版。ae: 'sizeWave'
         Name = "大小語",
         Tags = new[] { "pop", "graphic", "editorial" },
         W = 0.9,
@@ -710,11 +615,9 @@ public static class P11Kinetic3
             if (!Alive(it)) return;
             var g0 = TreatGeo(env, it);
             if (g0.NW < 2) return;
-            // JS 把重排结果缓存在 it._knws：item 每帧新建，直接重算（键只在同帧内命中）。
             var big = JLayouts.D(pc, "big", 1.35);
             var small = JLayouts.D(pc, "small", 0.82);
             var pick = JLayouts.S(pc, "pick");
-            // 选关键词
             var cnt = new int[g0.NW];
             var kan = new int[g0.NW];
             foreach (var g in g0.L1.Cells)
@@ -729,7 +632,6 @@ public static class P11Kinetic3
             var kw = pick == "last" ? g0.NW - 1
                 : pick == "first" ? 0
                 : CntArgMax(cnt, kan);
-            // 关键词大、其余小；整体再缩一档保证行长不变
             double tb = 0, ts2 = 0;
             foreach (var g in g0.L1.Cells)
             {
@@ -741,7 +643,6 @@ public static class P11Kinetic3
             }
             var norm = Math.Min(1, (tb + ts2) / Math.Max(1e-6, tb * big + ts2 * small));
             double F(int j) => (j == kw ? big : small) * norm;
-            // 沿行重算步进，保持该行原有对齐
             var vert = JLayouts.Truthy(it["vertical"]);
             var lines = new SortedDictionary<int, List<JText.GlyphCell>>();
             foreach (var g in g0.L1.Cells)
@@ -794,8 +695,7 @@ public static class P11Kinetic3
         },
     });
 
-    /// <summary>JS cnt.reduce((b,v,j)=>(v+kan[j]*0.5 > cnt[b]+kan[b]*0.5 ? j : b), 0)。</summary>
-    private static int CntArgMax(int[] cnt, int[] kan)
+        private static int CntArgMax(int[] cnt, int[] kan)
     {
         var b = 0;
         for (var j = 1; j < cnt.Length; j++)
@@ -804,11 +704,8 @@ public static class P11Kinetic3
         return b;
     }
 
-    // ---------------- treat knWordPlate（JS L388） ----------------
-
     private static void KnWordPlate() => Reg0("treat", "knWordPlate", new TreatDef
     {
-        // 隔一个词反白：实心底板跟着词走。ae: 'boxed'
         Name = "語ごと反転",
         Tags = new[] { "pop", "graphic", "glitch" },
         W = 0.8,
@@ -844,8 +741,6 @@ public static class P11Kinetic3
             if (bv < 2.6) tc = J.Lum(plate) > 0.5 ? "#111111" : "#FFFFFF";
             var first = JLayouts.Truthy(pc["first"]);
             bool On(int j) => (j % 2 == 0) == first;
-            // JS addPre → env.PreFn：DrawFx 在裁剪/文字前消费；钩子体内的 charFn 取管线合并后的
-            // env.CharFn（与 JS 的 x.charFn 同源）——底板跟随逐字动画，原「静态排版位置」近似解除。
             var pad = JLayouts.D(pc, "pad", 0.1);
             var tilt = JLayouts.D(pc, "tilt");
             env.PreFn = (e, x) =>
@@ -905,11 +800,8 @@ public static class P11Kinetic3
         },
     });
 
-    // ---------------- decor knSpeedTrail（JS L458） ----------------
-
     private static void KnSpeedTrail() => Reg0("decor", "knSpeedTrail", new DecorDef
     {
-        // 速度线从歌词背后流出，歌词动它也跟着动。ae: 'slash'
         Name = "追従スピード線",
         Tags = new[] { "pop", "graphic", "glitch" },
         W = 0.8,
@@ -925,7 +817,6 @@ public static class P11Kinetic3
             var o = J.E.OutCubic(J.Clamp(env.Lt / 0.3)) * (1 - J.E.InCubic(env.POut));
             if (o <= 0.01) return;
             var vert = bb.Y1 - bb.Y0 > (bb.X1 - bb.X0) * 1.3;
-            // 拖尾方向：哪边空就朝哪边（P.right 决定平局）
             var roomA = vert ? bb.Y0 : bb.X0;
             var roomB = vert ? h - bb.Y1 : w - bb.X1;
             var side = Math.Abs(roomA - roomB) < u * 0.05
@@ -944,14 +835,11 @@ public static class P11Kinetic3
                 var f = (i + 0.5) / n;
                 var lw = Math.Max(1.5, u * (0.003 + R(1) * 0.006));
                 var l = u * (0.18 + R(2) * 0.3) * o;
-                // 起点缩进尾缘内侧一点，空间不够时线条也看得见
                 var tight = Math.Max(roomA, roomB) < u * 0.14;
                 var st = tight ? len * (0.2 + R(3) * 0.3) : -u * (0.015 + 0.02 * R(3));
-                var ph = (t * (1.3 + R(4) * 1.5) + R(5)) % 1.0; // JS % 1（含负号语义）
-                var s0 = st * -1 + ph * l * 0.6;
+                var ph = (t * (1.3 + R(4) * 1.5) + R(5)) % 1.0;                 var s0 = st * -1 + ph * l * 0.6;
                 var s1 = s0 + l * (0.35 + 0.65 * (1 - ph));
                 var a = (0.35 + 0.35 * R(6)) * o * (1 - ph * 0.5);
-                // 背后没空间时：线条改走长边外侧的两条带
                 var c = tight
                     ? (i % 2 != 0
                         ? (vert ? bb.X1 : bb.Y1) + span * (0.05 + 0.3 * f)
@@ -968,11 +856,8 @@ public static class P11Kinetic3
         },
     });
 
-    // ---------------- decor knWordTicks（JS L493） ----------------
-
     private static void KnWordTicks() => Reg0("decor", "knWordTicks", new DecorDef
     {
-        // 小分段条：每来一个词点亮一格，旁边跑计数。ae: 'counter'
         Name = "語カウンター",
         Tags = new[] { "graphic", "editorial", "pop" },
         W = 0.8,

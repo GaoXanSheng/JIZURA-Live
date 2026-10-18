@@ -1,26 +1,3 @@
-// 移植自 frontend/src/engine/11p_enter.js（enter 表现包第一批，pack = 'enter'，40 条）。
-//
-// 契约与 JAnim.cs（核心 13 enter）相同：MoveDef.Draw(env) 里 it = env.It、p = env.Ap、
-// env.Cut 携带 {dur,inDur,outDur}；逐字动画推 env.CharFns（管线 mainDraw 统一 CombineChar）、
-// 逐片动画推 env.PieceFns；条目字段直接写 item（bands/vbands/clip/clipY/streak/echo/
-// shadow/dash/fillAlpha/stroke…JLayouts.DrawFx 全部消费）。随机数全部是 J.R/J.Rs/J.H
-// 确定性哈希（无顺序流），哈希入参逐字保持——同 seed 同动画轨迹。
-//
-// 管线缺口与降级（本文件内解决，不改共享文件）：
-// 1. it.pre/it.post（addPre/addPost/postLocal）：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，
-//    pre 画在文字前、post 画在文字后）。本包经 DrawPre/DrawPostLocal 挂钩（链式、addPre 同语义）。
-// 2. it.clipFn（clipLocal 任意路径裁剪）：任意路径裁剪管线已接（Env.ClipFn → JLayouts.DrawFx 的
-//    ClipPath，用法见 P11Exit）；本包未升级，仍按旧法近似——矩形折算成每字形 clipX/clipY（glyph
-//    盒比例、中心 0，与 JText.drawItem 的 ClipRect 同口径）精确对位，非矩形遮罩（圆/棋盘/百叶/
-//    扫描线）按字形粒度做可见性近似（ClipHideGlyphs，行内注明）。
-// 3. JS 的 mergeChar/_enterFix 再合并（J.combineChar 丢 clipX/skew/blur 扩展字段的补丁）：
-//    C# JAnim.CombineChar 全字段合并，不需要。
-// 4. `ae`（AE 导出的模板名，11_export 消费）与 pieces: true（本包无 pieces 条目）MoveDef
-//    没有对应属性，未注册——对位见各条目行内注释。
-//
-// 跨文件符号对位：J.measure→JText.Measure（本包用返回 TextLayout 的强类型版）、
-// J.layoutText→JText.LayoutText、J.pool→JLang.Pool、J.drawItem→JText.DrawItem、
-// J.mainDraw→JLayouts.MainDraw、J.rgba(本地 Rgba)/r/rs/h/mix/lum/smooth/clamp/lerp→J.*。
 
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -35,8 +12,6 @@ public static class P11Enter
 
     private static void Reg0(string key, MoveDef def) => Reg.Register("enter", key, def, P);
 
-    // ================= 本包 helper（JS L10-195 逐条对位） =================
-
     private static double OQuart(double x) => 1 - Math.Pow(1 - J.Clamp(x), 4);
     private static double OQuint(double x) => 1 - Math.Pow(1 - J.Clamp(x), 5);
 
@@ -48,8 +23,7 @@ public static class P11Enter
 
     private static double OBack(double x, double s) => J.E.OutBack(J.Clamp(x), s);
 
-    /// <summary>k 是字的 0..1 次序，spread 是入场进度里拿来做错峰的比例。JS stg。</summary>
-    private static double Stg(double p, double k, double spread) => J.Clamp((p - spread * k) / (1 - spread));
+        private static double Stg(double p, double k, double spread) => J.Clamp((p - spread * k) / (1 - spread));
 
     private static double OrdLR(int i, int n) => n > 1 ? i / (double)(n - 1) : 0;
     private static double OrdC(int i, int n) => n > 1 ? Math.Abs(i - (n - 1) / 2.0) / ((n - 1) / 2.0) : 0;
@@ -64,13 +38,9 @@ public static class P11Enter
 
     private static string Pick(params string?[] cs) => cs.FirstOrDefault(IsHex) ?? "#ffffff";
 
-    /// <summary>JS dirOf：条目级方向币（每次 Draw 重掷，同帧内一致）。</summary>
-    private static int DirOf(Env env, int salt) => J.R(unchecked((int)env.Cut!.Seed), salt, 5) < 0.5 ? -1 : 1;
+        private static int DirOf(Env env, int salt) => J.R(unchecked((int)env.Cut!.Seed), salt, 5) < 0.5 ? -1 : 1;
 
-    /// <summary>去空白后的码点数（JS [...str.replace(/\s/g,'')].length）。</summary>
-    private static int GlyphN(JObject it) => JLayouts.CpLen(Regex.Replace(S(it, "text") ?? "", @"\s", ""));
-
-    private static bool Blank(JObject g) => S(g, "ch") is " " or "　";
+        private static int GlyphN(JObject it) => JLayouts.CpLen(Regex.Replace(S(it, "text") ?? "", @"\s", ""));
 
     private static JAnim.CharFn Glyphs(Env env, JAnim.CharFn fn)
     {
@@ -78,8 +48,7 @@ public static class P11Enter
         return fn;
     }
 
-    /// <summary>条目本地空间：原点在 it.x/it.y，旋转之前。JS box。</summary>
-    private sealed class EBox
+        private sealed class EBox
     {
         public double X0, Y0, X1, Y1, W, H, Cx, Cy;
         public JText.TextLayout Lay = null!;
@@ -106,8 +75,7 @@ public static class P11Enter
         };
     }
 
-    /// <summary>局部盒子在设计空间的 AABB（考虑旋转）。JS dRange。</summary>
-    private static (double X0, double X1, double Y0, double Y1) DRange(JObject it, EBox b)
+        private static (double X0, double X1, double Y0, double Y1) DRange(JObject it, EBox b)
     {
         var r = N0(it, "rot") * J.DEG;
         var c = Math.Cos(r);
@@ -125,8 +93,7 @@ public static class P11Enter
         return (x0, x1, y0, y1);
     }
 
-    /// <summary>以条目自身盒子中心缩放（有些布局把条目锚在左/上）。JS scaleAbout。</summary>
-    private static void ScaleAbout(JObject it, double k, EBox? b = null)
+        private static void ScaleAbout(JObject it, double k, EBox? b = null)
     {
         if (k == 1) return;
         b ??= Box(it);
@@ -143,8 +110,7 @@ public static class P11Enter
         }
     }
 
-    /// <summary>改字距但让盒子停在原地。JS setTrack。</summary>
-    private static void SetTrack(JObject it, double tr)
+        private static void SetTrack(JObject it, double tr)
     {
         var b0 = Box(it);
         it["track"] = tr;
@@ -161,8 +127,7 @@ public static class P11Enter
         }
     }
 
-    /// <summary>盖在条目上的横向 glitch 切条（设计空间）。JS hBands → it.bands（DrawFx 消费）。</summary>
-    private static List<double[]> HBands(JObject it, int n, Func<int, double> dxFn)
+        private static List<double[]> HBands(JObject it, int n, Func<int, double> dxFn)
     {
         var R = DRange(it, Box(it));
         var pad = N0(it, "size") * 0.3;
@@ -179,8 +144,7 @@ public static class P11Enter
         return @out;
     }
 
-    /// <summary>单字遮罩：遮罩停在字的落位盒上，字本身位移 (fx, fy) 个字盒。JS masked。</summary>
-    private static CharXf Masked(JObject g, double fx, double fy, double isx, double isy)
+        private static CharXf Masked(JObject g, double fx, double fy, double isx, double isy)
     {
         var o = new CharXf { Dx = fx * JLayouts.D(g, "w") * isx, Dy = fy * JLayouts.D(g, "h") * isy };
         if (B(g, "r90"))
@@ -201,14 +165,7 @@ public static class P11Enter
     private static double[] GlyphPos(JText.GlyphCell g, double isx, double isy) =>
         new[] { (g.X + g.Vx) * isx, (g.Y + g.Vy) * isy };
 
-    /// <summary>
-    /// it.clipFn 的矩形对位：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath），但矩形这里仍走
-    /// 每字形折算（与逐字遮罩同口径自然叠加）——把局部空间
-    /// 轴对齐矩形 (rx0,ry0,rx1,ry1) 折算成每字形 clipX/clipY 推一个额外 charFn——
-    /// 比例 = 局部位移 / 字形盒（与 drawItem 的 ClipRect(cx[0]*g.W) 同口径，r90 字形按 +90°
-    /// 旋转换轴）。combineChar 对 clipX/clipY 取交集，与条目自身的逐字遮罩自然叠加。
-    /// </summary>
-    private static void ClipRectLocal(Env env, JObject it, double isx, double isy, double rx0, double ry0, double rx1, double ry1)
+        private static void ClipRectLocal(Env env, JObject it, double isx, double isy, double rx0, double ry0, double rx1, double ry1)
     {
         env.CharFns.Add((_, g, _) =>
         {
@@ -223,8 +180,7 @@ public static class P11Enter
         var gy = (JLayouts.D(g, "y") + JLayouts.D(g, "vy")) * isy;
         var hx = Math.Max(1e-6, JLayouts.D(g, "w") * isx / 2);
         var hy = Math.Max(1e-6, JLayouts.D(g, "h") * isy / 2);
-        if (B(g, "r90")) // 字形本体带 +90° 旋转：裁剪框换轴
-            return new CharXf
+        if (B(g, "r90"))             return new CharXf
             {
                 ClipX = new[] { (ry0 - gy) / (2 * hy), (ry1 - gy) / (2 * hy) },
                 ClipY = new[] { -(rx1 - gx) / (2 * hx), -(rx0 - gx) / (2 * hx) },
@@ -236,8 +192,7 @@ public static class P11Enter
         };
     }
 
-    /// <summary>非矩形遮罩的字形粒度可见性近似：返回 null=保持原样、Hide=该字形还没被遮罩扫到。</summary>
-    private static void ClipHideGlyphs(Env env, Func<JObject, bool?> visFn) =>
+        private static void ClipHideGlyphs(Env env, Func<JObject, bool?> visFn) =>
         env.CharFns.Add((_, g, _) =>
         {
             if (g == null) return null;
@@ -245,22 +200,13 @@ public static class P11Enter
             return v == false ? new CharXf { Hide = true } : null;
         });
 
-    /// <summary>
-    /// it.pre/addPre 的对位：把钩子挂 env.PreFn（addPre 链式语义，先挂的先跑），
-    /// JLayouts.DrawFx 在所有裁剪之前、主文字之前消费——层级与 JS 一致。
-    /// </summary>
-    private static void DrawPre(Env env, JObject it, Action<Env, JObject> fn)
+        private static void DrawPre(Env env, JObject it, Action<Env, JObject> fn)
     {
         var prev = env.PreFn;
         env.PreFn = prev != null ? (e, x) => { prev(e, x); fn(e, x); } : (Action<Env, JObject>)fn;
     }
 
-    /// <summary>
-    /// it.post/postLocal 的对位：把钩子挂 env.PostFn（DrawFx 在主文字之后消费，层级与 JS 一致）；
-    /// 钩子体内做 postLocal 的 save/toLocal/restore 包装与 alpha 门限（alpha 在 drawFx 时点读，
-    /// 与 JS post 阶段同序）。
-    /// </summary>
-    private static void DrawPostLocal(Env env, JObject it, Action<Env, EBox, JObject, double> fn)
+        private static void DrawPostLocal(Env env, JObject it, Action<Env, EBox, JObject, double> fn)
     {
         void Hook(Env e, JObject x, BBox? _)
         {
@@ -282,8 +228,7 @@ public static class P11Enter
         env.PostFn = prev != null ? (e, x, bb) => { prev(e, x, bb); Hook(e, x, bb); } : (Action<Env, JObject, BBox?>)Hook;
     }
 
-    /// <summary>JS toLocal：translate(it.x,it.y) → rotate(it.rot) → skewX(it.skew)。</summary>
-    private static void ToLocal(SKCanvas ctx, JObject it)
+        private static void ToLocal(SKCanvas ctx, JObject it)
     {
         ctx.Translate((float)N0(it, "x"), (float)N0(it, "y"));
         var rot = N0(it, "rot");
@@ -292,8 +237,7 @@ public static class P11Enter
         if (skew != 0) ctx.Skew((float)Math.Tan(skew * J.DEG), 0);
     }
 
-    /// <summary>再画一份条目（JS J.drawItem 直调）：临时置换 env.CharFn/PieceFn（NoPieces 对位 JS 副本 pieceFn:null）。</summary>
-    private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
+        private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
     {
         var prevC = env.CharFn;
         var prevP = env.PieceFn;
@@ -316,30 +260,22 @@ public static class P11Enter
         }
     }
 
-    /// <summary>J.rgba(h, a)：hex + alpha → "rgba(r,g,b,a)"（drawItem 的 shadow.color 吃这个格式）。</summary>
-    private static string Rgba(string hex, double a)
+        private static string Rgba(string hex, double a)
     {
         var (r, g, b) = J.Hex(hex);
         return "rgba(" + r + "," + g + "," + b + "," + a + ")";
     }
 
-    // 松散读取（对齐 JS 语义）：(x||0)/(x||1)/(x??d)
     private static string? S(JObject o, string k) => JLayouts.S(o, k);
-    private static double D(JObject o, string k, double d = 0) => JLayouts.D(o, k, d);
     private static bool B(JObject o, string k) => JLayouts.B(o, k);
     private static double N0(JObject o, string k) => JAnim.Num(o, k);
     private static double NN(JObject o, string k, double d) => JAnim.NumNull(o, k, d);
     private static int SeedOf(JObject o) => JAnim.SeedOf(o);
 
-    /// <summary>JS it.fill !== false：只有显式 boolean false 才算关。</summary>
-    private static bool FillOn(JObject o) =>
+        private static bool FillOn(JObject o) =>
         !(o["fill"] is JValue v && v.Type == JTokenType.Boolean && !(bool)v.Value!);
 
-    // ================= 注册（JS DEFS 字面量序，Object.keys 语义） =================
-
-    /// <summary>幂等注册本文件全部 enter 条目（顺序 = JS 源 DEFS 字面量序；不挂静态构造函数）。</summary>
-    /// <summary>JS 的 it.xxx || 1 语义：缺省/非数值回 1（供 enter 条目读 sx/sy 等缩放）。</summary>
-    private static double N1(JObject it, string k)
+        private static double N1(JObject it, string k)
     {
         var v = it?[k];
         return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : 1;
@@ -348,49 +284,7 @@ public static class P11Enter
     public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RiseMask();      // JS L201
-        DropMask();      // JS L213
-        SlideL();        // JS L226
-        SlideR();        // JS L240
-        SlideWhole();    // JS L254
-        FlipX();         // JS L264
-        FlipY();         // JS L288
-        Domino();        // JS L309
-        Fold();          // JS L326
-        Unroll();        // JS L342
-        StrokeDraw();    // JS L376
-        OutlineFill();   // JS L386
-        SplitJoin();     // JS L436
-        VSlice();        // JS L469
-        Shutter();       // JS L485
-        Iris();          // JS L521
-        DiagWipe();      // JS L540
-        Blinds();        // JS L578
-        Checker();       // JS L600
-        RandomOrder();   // JS L635
-        BounceBig();     // JS L652
-        SquashDrop();    // JS L680
-        Rubber();        // JS L705
-        GlitchIn();      // JS L720
-        EchoIn();        // JS L744
-        Whip();          // JS L787
-        SkewIn();        // JS L803
-        TrackIn();       // JS L821
-        TrackOut();      // JS L831
-        BlurStagger();   // JS L844
-        FadeStagger();   // JS L858
-        WaveIn();        // JS L872
-        SpiralIn();      // JS L886
-        ZoomOut();       // JS L907
-        Resolve();       // JS L917
-        Magnet();        // JS L949
-        InkBleed();      // JS L980
-        NeonOn();        // JS L1003
-        CursorSweep();   // JS L1026
-        Stamp();         // JS L1054
-    }
-
-    // ---------------- riseMask（JS L201） ----------------
+        RiseMask();              DropMask();              SlideL();                SlideR();                SlideWhole();            FlipX();                 FlipY();                 Domino();                Fold();                  Unroll();                StrokeDraw();            OutlineFill();           SplitJoin();             VSlice();                Shutter();               Iris();                  DiagWipe();              Blinds();                Checker();               RandomOrder();           BounceBig();             SquashDrop();            Rubber();                GlitchIn();              EchoIn();                Whip();                  SkewIn();                TrackIn();               TrackOut();              BlurStagger();           FadeStagger();           WaveIn();                SpiralIn();              ZoomOut();               Resolve();               Magnet();                InkBleed();              NeonOn();                CursorSweep();           Stamp();             }
 
     private static void RiseMask() => Reg0("riseMask", new MoveDef
     {
@@ -413,8 +307,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- dropMask（JS L213） ----------------
-
     private static void DropMask() => Reg0("dropMask", new MoveDef
     {
         Name = "上から出現",
@@ -435,8 +327,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- slideL（JS L226） ----------------
 
     private static void SlideL() => Reg0("slideL", new MoveDef
     {
@@ -459,8 +349,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- slideR（JS L240） ----------------
-
     private static void SlideR() => Reg0("slideR", new MoveDef
     {
         Name = "右からスライド",
@@ -482,8 +370,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- slideWhole（JS L254） ----------------
-
     private static void SlideWhole() => Reg0("slideWhole", new MoveDef
     {
         Name = "全体スライド",
@@ -501,8 +387,6 @@ public static class P11Enter
             it["alpha"] = NN(it, "alpha", 1) * J.Clamp(p * 4);
         },
     });
-
-    // ---------------- flipX（JS L264） ----------------
 
     private static void FlipX() => Reg0("flipX", new MoveDef
     {
@@ -542,8 +426,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- flipY（JS L288） ----------------
-
     private static void FlipY() => Reg0("flipY", new MoveDef
     {
         Name = "横軸フリップ",
@@ -573,8 +455,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- domino（JS L309） ----------------
-
     private static void Domino() => Reg0("domino", new MoveDef
     {
         Name = "ドミノ",
@@ -594,7 +474,6 @@ public static class P11Enter
                 var q = Stg(p, OrdLR(i, n), 0.55);
                 if (q <= 0) return new CharXf { Hide = true };
                 if (q >= 1) return null;
-                // 从右侧倒下到立起，支点是右下角
                 var th = (1 - OBack(q, 1.5)) * 90 * J.DEG;
                 var hw = JLayouts.D(g, "w") * isx / 2;
                 var hh = JLayouts.D(g, "h") * isy / 2;
@@ -612,8 +491,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- fold（JS L326） ----------------
 
     private static void Fold() => Reg0("fold", new MoveDef
     {
@@ -646,8 +523,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- unroll（JS L342） ----------------
-
     private static void Unroll() => Reg0("unroll", new MoveDef
     {
         Name = "巻き開き",
@@ -676,7 +551,6 @@ public static class P11Enter
                     ? new CharXf { Sy = k, Dy = -(1 - k) * JLayouts.D(g, "h") * isy / 2, ClipY = new[] { -2.0, r }, ClipX = new[] { -2.0, 2.0 } }
                     : new CharXf { Sx = k, Dx = -(1 - k) * JLayouts.D(g, "w") * isx / 2, ClipX = new[] { -2.0, r }, ClipY = new[] { -2.0, 2.0 } };
             });
-            // JS postLocal（卷边的 accent 细条，画在文字后）——管线未挂 post，就地执行（层级在文字下）
             DrawPostLocal(env, it, (env2, _, x, A) =>
             {
                 var lay = JText.LayoutText(x);
@@ -709,8 +583,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- strokeDraw（JS L376） ----------------
-
     private static void StrokeDraw() => Reg0("strokeDraw", new MoveDef
     {
         Name = "線画から塗り",
@@ -728,8 +600,6 @@ public static class P11Enter
                 it["stroke"] = Math.Max(0.6, N0(it, "size") * 0.032 * (1 - J.Smooth(0.55, 0.86, p)));
         },
     });
-
-    // ---------------- outlineFill（JS L386） ----------------
 
     private static void OutlineFill() => Reg0("outlineFill", new MoveDef
     {
@@ -774,14 +644,12 @@ public static class P11Enter
                 if (f >= 1) return null;
                 return new CharXf { ClipY = new[] { J.Lerp(0.66, -0.68, f), 0.72 }, ClipX = new[] { -2.0, 2.0 } };
             });
-            // JS addPre：先画一份「只有描边」的整行（无填充/阴影/渐变，字遮罩用 fnOut）
             DrawPre(env, it, (env2, x) =>
             {
                 var others = env2.CharFns.Where(f => !ReferenceEquals(f, main)).ToList();
                 var parts = new List<JAnim.CharFn>(others) { FnOut };
                 var c = (JObject)x.DeepClone();
-                c["charFn"] = null; // 函数值字段走 env 桥（DrawIt 的 charFn 形参）
-                c["stroke"] = sw;
+                c["charFn"] = null;                 c["stroke"] = sw;
                 c["strokeColor"] = JLayouts.OrStr(S(x, "strokeColor"), S(x, "color"));
                 c["shadow"] = null;
                 c["extrude"] = null;
@@ -793,8 +661,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- splitJoin（JS L436） ----------------
 
     private static void SplitJoin() => Reg0("splitJoin", new MoveDef
     {
@@ -844,7 +710,6 @@ public static class P11Enter
                 if (u <= 0 || u >= 1 || B(g, "r90")) return new CharXf { Hide = true };
                 return Half(g, u, 1);
             }
-            // JS addPre：另一半（sgn=+1）的副本
             DrawPre(env, it, (env2, x) =>
             {
                 var c = (JObject)x.DeepClone();
@@ -853,8 +718,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- vSlice（JS L469） ----------------
 
     private static void VSlice() => Reg0("vSlice", new MoveDef
     {
@@ -885,8 +748,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- shutter（JS L485） ----------------
-
     private static void Shutter() => Reg0("shutter", new MoveDef
     {
         Name = "シャッター",
@@ -902,14 +763,12 @@ public static class P11Enter
             var open = IoQuart((p - 0.18) / 0.82);
             var m = size * 0.2;
             var b = Box(it);
-            // JS clipLocal：单一矩形 → 每字形 clipX/clipY（精确对位；open<=0 时全遮）
             if (open <= 0)
                 Glyphs(env, (_, _, _) => new CharXf { Hide = true });
             else if (vert)
                 ClipRectLocal(env, it, N1(it, "sx"), N1(it, "sy"), b.Cx - (b.W / 2 + m) * open, b.Y0 - m, b.Cx + (b.W / 2 + m) * open, b.Y1 + m);
             else
                 ClipRectLocal(env, it, N1(it, "sx"), N1(it, "sy"), b.X0 - m, b.Cy - (b.H / 2 + m) * open, b.X1 + m, b.Cy + (b.H / 2 + m) * open);
-            // JS postLocal（开合的 accent 边框线）——就地执行
             DrawPostLocal(env, it, (env2, bb, x, A) =>
             {
                 var a = (1 - J.Smooth(0.6, 0.9, p)) * A;
@@ -936,8 +795,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- iris（JS L521） ----------------
-
     private static void Iris() => Reg0("iris", new MoveDef
     {
         Name = "アイリス",
@@ -951,8 +808,6 @@ public static class P11Enter
             ScaleAbout(it, J.Lerp(1.14, 1, e));
             var size = N0(it, "size");
             var radius = (Math.Sqrt(Math.Pow(Box(it).W, 2) + Math.Pow(Box(it).H, 2)) / 2 + size * 0.25) * e;
-            // clipLocal 是圆形路径裁剪：任意路径裁剪管线已接（Env.ClipFn → JLayouts.DrawFx 的 ClipPath，
-            // 用法见 P11Exit）；此处仍按字形中心到盒心的距离做可见性近似（遮罩边缘按字形粒度离散）。
             {
                 var bx = Box(it);
                 var cx = bx.Cx;
@@ -969,7 +824,6 @@ public static class P11Enter
                     return Math.Sqrt(dx * dx + dy * dy) <= radius ? (bool?)true : false;
                 });
             }
-            // JS postLocal（iris 圆环描边）——就地执行
             DrawPostLocal(env, it, (env2, b, x, A) =>
             {
                 var a = (1 - J.Smooth(0.3, 0.8, p)) * A;
@@ -979,8 +833,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- diagWipe（JS L540） ----------------
 
     private static void DiagWipe() => Reg0("diagWipe", new MoveDef
     {
@@ -1021,8 +873,6 @@ public static class P11Enter
                     Pt(uc, vc, a0 - k * hv, -hv), Pt(uc, vc, a1 - k * hv, -hv),
                     Pt(uc, vc, a1 + k * hv, hv), Pt(uc, vc, a0 + k * hv, hv),
                 };
-            // clipLocal 是斜平行四边形：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
-            // 此处仍按字形中心沿阅读方向近似（du ≤ T 时可见；斜边按字形粒度离散）。
             {
                 var bx = Box(it);
                 var G = Geo(bx);
@@ -1037,7 +887,6 @@ public static class P11Enter
                     return (u - G.Uc) * dir <= G.T ? (bool?)true : false;
                 });
             }
-            // JS postLocal（accent 色版扫入）——就地执行
             DrawPostLocal(env, it, (env2, b, x, A) =>
             {
                 var G = Geo(b);
@@ -1046,8 +895,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- blinds（JS L578） ----------------
 
     private static void Blinds() => Reg0("blinds", new MoveDef
     {
@@ -1061,8 +908,6 @@ public static class P11Enter
             var vert = B(it, "vertical");
             var size = N0(it, "size");
             var b = Box(it);
-            // clipLocal 是百叶条纹的并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
-            // 此处仍按「字形所在的条纹开了没有」做可见性近似（条纹宽度变化按字形粒度离散）。
             {
                 var m = size * 0.2;
                 var V0 = (vert ? b.X0 : b.Y0) - m;
@@ -1085,8 +930,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- checker（JS L600） ----------------
-
     private static void Checker() => Reg0("checker", new MoveDef
     {
         Name = "市松",
@@ -1099,7 +942,6 @@ public static class P11Enter
             var size = N0(it, "size");
             var seed = unchecked((int)env.Cut!.Seed);
 
-            // tiles：fn(cx, cy, cell, u)；可揭示的棋盘格
             void Tiles(EBox bb, Action<double, double, double, double> fn)
             {
                 var m = size * 0.15;
@@ -1119,9 +961,6 @@ public static class P11Enter
                         if (u > 0) fn(ox + (ix + 0.5) * cell, oy + (iy + 0.5) * cell, cell, u);
                     }
             }
-            // clipLocal 是棋盘格并集：任意路径裁剪管线已接（Env.ClipFn → DrawFx ClipPath）；
-            // 此处选择不裁剪主文字（色块动画保留）。
-            // JS postLocal（accent 色块收尾）——就地执行
             DrawPostLocal(env, it, (env2, bb, x, A) =>
             {
                 Tiles(bb, (cx, cy, cell, u) =>
@@ -1133,8 +972,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- randomOrder（JS L635） ----------------
 
     private static void RandomOrder() => Reg0("randomOrder", new MoveDef
     {
@@ -1162,8 +999,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- bounceBig（JS L652） ----------------
 
     private static void BounceBig() => Reg0("bounceBig", new MoveDef
     {
@@ -1219,8 +1054,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- squashDrop（JS L680） ----------------
-
     private static void SquashDrop() => Reg0("squashDrop", new MoveDef
     {
         Name = "潰れて着地",
@@ -1259,8 +1092,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- rubber（JS L705） ----------------
-
     private static void Rubber() => Reg0("rubber", new MoveDef
     {
         Name = "ゴム伸び",
@@ -1288,8 +1119,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- glitchIn（JS L720） ----------------
 
     private static void GlitchIn() => Reg0("glitchIn", new MoveDef
     {
@@ -1331,8 +1160,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- echoIn（JS L744） ----------------
-
     private static void EchoIn() => Reg0("echoIn", new MoveDef
     {
         Name = "残像集束",
@@ -1352,7 +1179,6 @@ public static class P11Enter
                 if (q >= 1) return null;
                 return new CharXf { A = J.Clamp(q * 2.2), S = J.Lerp(0.88, 1, OQuart(q)) };
             });
-            // JS addPre：3→1 圈同心 accent 描边向字收拢（每圈一份描边副本）
             DrawPre(env, it, (env2, x) =>
             {
                 for (var m = 3; m >= 1; m--)
@@ -1386,8 +1212,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- whip（JS L787） ----------------
-
     private static void Whip() => Reg0("whip", new MoveDef
     {
         Name = "ホイップ",
@@ -1411,8 +1235,6 @@ public static class P11Enter
             it["alpha"] = NN(it, "alpha", 1) * J.Clamp(p * 8);
         },
     });
-
-    // ---------------- skewIn（JS L803） ----------------
 
     private static void SkewIn() => Reg0("skewIn", new MoveDef
     {
@@ -1443,8 +1265,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- trackIn（JS L821） ----------------
-
     private static void TrackIn() => Reg0("trackIn", new MoveDef
     {
         Name = "字間収束",
@@ -1462,8 +1282,6 @@ public static class P11Enter
             it["alpha"] = NN(it, "alpha", 1) * J.E.OutCubic(J.Clamp(p * 1.7));
         },
     });
-
-    // ---------------- trackOut（JS L831） ----------------
 
     private static void TrackOut() => Reg0("trackOut", new MoveDef
     {
@@ -1485,8 +1303,6 @@ public static class P11Enter
             Glyphs(env, (_, _, _) => new CharXf { A = J.Lerp(0.55, 1, e) });
         },
     });
-
-    // ---------------- blurStagger（JS L844） ----------------
 
     private static void BlurStagger() => Reg0("blurStagger", new MoveDef
     {
@@ -1516,8 +1332,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- fadeStagger（JS L858） ----------------
-
     private static void FadeStagger() => Reg0("fadeStagger", new MoveDef
     {
         Name = "字ごとフェード",
@@ -1538,8 +1352,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- waveIn（JS L872） ----------------
 
     private static void WaveIn() => Reg0("waveIn", new MoveDef
     {
@@ -1569,8 +1381,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- spiralIn（JS L886） ----------------
 
     private static void SpiralIn() => Reg0("spiralIn", new MoveDef
     {
@@ -1622,8 +1432,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- zoomOut（JS L907） ----------------
-
     private static void ZoomOut() => Reg0("zoomOut", new MoveDef
     {
         Name = "巨大→等倍",
@@ -1640,8 +1448,6 @@ public static class P11Enter
             it["alpha"] = NN(it, "alpha", 1) * J.Clamp(p * 6);
         },
     });
-
-    // ---------------- resolve（JS L917） ----------------
 
     private static void Resolve() => Reg0("resolve", new MoveDef
     {
@@ -1689,7 +1495,6 @@ public static class P11Enter
             if (front < nN)
             {
                 var gc = lay.Cells[front];
-                // JS postLocal（解読光标块）——就地执行
                 DrawPostLocal(env, it, (env2, _, x, A) =>
                 {
                     var __gp2 = GlyphPos(gc, isx, isy);
@@ -1702,8 +1507,6 @@ public static class P11Enter
             }
         },
     });
-
-    // ---------------- magnet（JS L949） ----------------
 
     private static void Magnet() => Reg0("magnet", new MoveDef
     {
@@ -1758,8 +1561,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- inkBleed（JS L980） ----------------
-
     private static void InkBleed() => Reg0("inkBleed", new MoveDef
     {
         Name = "にじみ",
@@ -1799,8 +1600,6 @@ public static class P11Enter
         },
     });
 
-    // ---------------- neonOn（JS L1003） ----------------
-
     private static void NeonOn() => Reg0("neonOn", new MoveDef
     {
         Name = "ネオン点灯",
@@ -1834,8 +1633,6 @@ public static class P11Enter
                 };
         },
     });
-
-    // ---------------- cursorSweep（JS L1026） ----------------
 
     private static void CursorSweep() => Reg0("cursorSweep", new MoveDef
     {
@@ -1873,7 +1670,6 @@ public static class P11Enter
                 else o.Dx = (1 - e) * size * 0.3;
                 return o;
             });
-            // JS postLocal（扫过的 accent 光标条）——就地执行
             DrawPostLocal(env, it, (env2, b, x, A) =>
             {
                 var t = bw * (1 - J.Smooth(0.78, 0.94, p));
@@ -1884,8 +1680,6 @@ public static class P11Enter
             });
         },
     });
-
-    // ---------------- stamp（JS L1054） ----------------
 
     private static void Stamp() => Reg0("stamp", new MoveDef
     {
@@ -1918,7 +1712,6 @@ public static class P11Enter
                 ScaleAbout(it, 1 - 0.05 * Math.Exp(-t * 9) * (1 - t), b);
                 var lt = J.Clamp(t / 0.7);
                 if (lt < 1)
-                    // JS postLocal（印章冲击线）——就地执行
                     DrawPostLocal(env, it, (env2, bb, x, A) =>
                     {
                         var m = size * 0.28;

@@ -264,7 +264,6 @@ public static class ProjectStore
                 {
                     if (layer is null || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) continue;
 
-                    // 直播输入默认不跟随机位，避免 VTS 画面自己漂移。
                     layer.Parallax ??= new PvParallaxConfig();
                     layer.Parallax.Depth = 0;
                     layer.Parallax.RotationFactor = 0;

@@ -1,25 +1,3 @@
-// 移植自 frontend/src/engine/11p_horror1.js（horror 包 1/3：layout 构图，12 条）。
-//
-// 契约与 P11LayoutsB 相同：fits(n) 筛台词；plan(rng, ctx, st) 抽参数存进 cut.params（键名
-// 一字不改）；Draw(env) 绘制并写回 env.Body（JS render(env) 的返回值）。RNG 消费顺序逐行
-// 对位（plan 里的 rng.pick/range/int/chance 的调用次序 + && 短路同样短路）；Draw 侧全走
-// J.R/J.Rs/J.Rr/J.H 确定性哈希，同 seed 同轨迹。
-//
-// 跨文件符号对位：J.splitLines→JLayouts.SplitLines、J.fitSize→JLayouts.FitSize、
-// J.measure→JLayouts.Measure、J.mainDraw→JLayouts.MainDraw、J.unionBB→JLayouts.UnionBb、
-// J.glyphCount→JLayouts.GlyphCount、J.fontsOf→JLayouts.FontsOf、J.FONTS.klee→JFonts.Table、
-// J.layoutText→JText.LayoutText、J.pool→JLang.Pool、J.drawItem→env.DrawItem（本文件 DrawIt 包装）、
-// J.romaji/lum/contrast/mix/fitContrast/h/r/rs/rr/noise1/clamp/lerp/smooth→J.*。
-//
-// extra/set 标记：JS 条目上的 `set: 'horror'` 已落 IRegEntry.Set 真字段（Reg0 统一赋值）；`ae: 'xxx'`
-// （AE 导出映射，Export.js 未移植）在 IRegEntry/LayoutDef 无对应字段，C# 不落表——
-// 等 Sets/AE 导出移植时再补。见移植汇报。
-//
-// 本文件私有 helper（JS L9-107 的顶层 const）：U/IsPort/Strip/HasLatin/Flat/BodyF/MonoF/
-// HandOf/Tin/Tout/Bb/Pad2/MiAt/IsDark/LightOf/DarkOf/NightC/OnCol/RedOn/FakeDate/FakeTime/
-// Slots/VeilHole/NoiseCv/DrawNoise。JS 的 shaky（L104）在源文件里从未被调用，不移植。
-// Canvas 渐变 → SKShader（CreateRadialGradient 两点式/CreateLinearGradient）；噪点纹理
-// canvas → SKBitmap（确定性 J.R 填充，4 张缓存，DrawImage 源矩形裁切 + Nearest 采样）。
 
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -35,30 +13,21 @@ public static class P11Horror1
 
     private static void Reg0(string key, LayoutDef def)
     {
-        def.Set = "horror"; // JS reg 助手：Object.assign({set: 'horror'}, def)
-        Reg.Register("layout", key, def, P);
+        def.Set = "horror";         Reg.Register("layout", key, def, P);
     }
-
-    // ================= 本包 helper（JS L9-107 逐条对位） =================
 
     private static double U(Env env) => Math.Min(env.W, env.H);
     private static bool IsPort(Env env) => env.H > env.W * 1.08;
 
-    /// <summary>Math.hypot 对位（.NET BCL 无 Math.Hypot）。</summary>
-    private static double Hypot(double a, double b) => Math.Sqrt(a * a + b * b);
+        private static double Hypot(double a, double b) => Math.Sqrt(a * a + b * b);
 
-    /// <summary>两点式 CreateRadialGradient 在本 SkiaSharp 版本收 SKColorF[]。</summary>
-    private static SKColorF Cf(string hex, double a = 1)
+        private static SKColorF Cf(string hex, double a = 1)
     {
         var c = Env.SkColor(hex, a);
         return new SKColorF(c.Red / 255f, c.Green / 255f, c.Blue / 255f, c.Alpha / 255f);
     }
 
-    /// <summary>
-    /// JS createRadialGradient(x, y, r0, x, y, r1)（同心两点式）→ 单心 CreateRadialGradient。
-    /// SkiaSharp 4.x 移除了两点式：r0 以内延续首色，[r0, r1] 线性映射 stops 的位置。
-    /// </summary>
-    private static SKShader Radial2(double cx, double cy, double r0, double r1, (double Pos, SKColorF Col)[] stops)
+        private static SKShader Radial2(double cx, double cy, double r0, double r1, (double Pos, SKColorF Col)[] stops)
     {
         var k = r1 > r0 ? r0 / r1 : 0;
         var cols = new SKColorF[stops.Length + 1];
@@ -75,33 +44,26 @@ public static class P11Horror1
             cols, null, poss, SKShaderTileMode.Clamp);
     }
 
-    /// <summary>strip(t)：去掉所有空白。</summary>
-    private static string Strip(string? t) => Regex.Replace(t ?? "", @"\s+", "");
+        private static string Strip(string? t) => Regex.Replace(t ?? "", @"\s+", "");
 
     private static bool HasLatin(string? t) => Regex.IsMatch(t ?? "", "[A-Za-z]");
 
-    /// <summary>flat(t)：含拉丁字母折行内空白为单空格，否则全剥掉。JS L13。</summary>
-    private static string Flat(string? t) =>
+        private static string Flat(string? t) =>
         HasLatin(t) ? Regex.Replace((t ?? "").Trim(), @"\s+", " ") : Strip(t);
 
     private static string[] FontsOf(StyleDef st, params string[] roles) => JLayouts.FontsOf(st, roles);
 
-    /// <summary>bodyF(env)：(st.fonts.body[0]) || 'gothic_med'。JS L15。</summary>
-    private static string BodyF(Env env) => JLayouts.Font0(env.St, "body") ?? "gothic_med";
+        private static string BodyF(Env env) => JLayouts.Font0(env.St, "body") ?? "gothic_med";
 
-    /// <summary>monoF(env)：(st.fonts.mono[0]) || 'mono'。JS L16。</summary>
-    private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
+        private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
 
-    /// <summary>handOf(rng, st)：J.FONTS.klee && rng.chance(0.75) ? 'klee' : …。JS L17。</summary>
-    private static string HandOf(Rng rng, StyleDef st) =>
+        private static string HandOf(Rng rng, StyleDef st) =>
         JFonts.Table.ContainsKey("klee") && rng.Chance(0.75) ? "klee" : rng.Pick(FontsOf(st, "body", "serif"));
 
-    /// <summary>tin(env, d, len)：outExpo 进场。JS L18（ease 参数在源内未改用过）。</summary>
-    private static double Tin(Env env, double d = 0, double len = 0.4) =>
+        private static double Tin(Env env, double d = 0, double len = 0.4) =>
         J.E.OutCubic(J.Clamp((env.Lt - d) / Math.Max(0.01, len)));
 
-    /// <summary>tout(env)：退场剩余量 1 - inCubic(pOut)。JS L19。</summary>
-    private static double Tout(Env env) => 1 - J.E.InCubic(env.POut);
+        private static double Tout(Env env) => 1 - J.E.InCubic(env.POut);
 
     private static BBox Bb(double x0, double y0, double x1, double y1) => new()
     {
@@ -118,8 +80,7 @@ public static class P11Horror1
 
     private static string Pad2(int n) => n.ToString(CultureInfo.InvariantCulture).PadLeft(2, '0');
 
-    /// <summary>miAt(env, t)：让 mainDraw 从本地时间 t 起跳该字入场。JS L23。</summary>
-    private static double MiAt(Env env, double t)
+        private static double MiAt(Env env, double t)
     {
         var sg = env.Cut?.Stagger ?? 0;
         return Math.Max(0, t) / Math.Max(0.005, sg != 0 ? sg : 0.04);
@@ -133,11 +94,9 @@ public static class P11Horror1
     private static string DarkOf(Scheme sc) =>
         J.Lum(ScK(sc, "fg")) > J.Lum(ScK(sc, "bg")) ? ScK(sc, "bg") : ScK(sc, "fg");
 
-    /// <summary>nightC(sc)：这个配色下"黑暗"用的颜色。JS L28。</summary>
-    private static string NightC(Scheme sc) => J.Mix(ScK(sc, "bg"), "#000000", IsDark(ScK(sc, "bg")) ? 0.72 : 0.9);
+        private static string NightC(Scheme sc) => J.Mix(ScK(sc, "bg"), "#000000", IsDark(ScK(sc, "bg")) ? 0.72 : 0.9);
 
-    /// <summary>配色读取兜底（JS 直接读 sc.xxx；缺字段时给黑白系兜底色）。</summary>
-    private static string ScK(Scheme sc, string k) => sc.Str(k) ?? k switch
+        private static string ScK(Scheme sc, string k) => sc.Str(k) ?? k switch
     {
         "bg" => "#000000",
         "fg" => "#FFFFFF",
@@ -149,8 +108,7 @@ public static class P11Horror1
         _ => "#FFFFFF",
     };
 
-    /// <summary>onCol(sc, fill)：底板上可读性最好的配色颜色。JS L30-41。</summary>
-    private static string OnCol(Scheme sc, string fill)
+        private static string OnCol(Scheme sc, string fill)
     {
         string? best = null;
         var bv = 0.0;
@@ -168,11 +126,9 @@ public static class P11Horror1
         return bv >= 2.6 && best != null ? best : J.Lum(fill) > 0.5 ? "#111111" : "#FFFFFF";
     }
 
-    /// <summary>redOn(sc, fill)：红笔在底板上的可读红。JS L42。</summary>
-    private static string RedOn(Scheme sc, string fill) => J.FitContrast(ScK(sc, "accent"), fill, 2.4);
+        private static string RedOn(Scheme sc, string fill) => J.FitContrast(ScK(sc, "accent"), fill, 2.4);
 
-    /// <summary>fakeDate(seed, sep)：由 cut seed 生成的日期串（纯 ASCII）。JS L44-47。</summary>
-    private static string FakeDate(int seed, string sep = "/")
+        private static string FakeDate(int seed, string sep = "/")
     {
         var y = 1987 + (int)(J.H(seed, 1) % 19);
         var m = 1 + (int)(J.H(seed, 2) % 12);
@@ -180,15 +136,13 @@ public static class P11Horror1
         return y.ToString(CultureInfo.InvariantCulture) + sep + Pad2(m) + sep + Pad2(d);
     }
 
-    /// <summary>fakeTime(seed, t)：由 cut seed 生成、随 t 走的时钟串。JS L48-51。</summary>
-    private static string FakeTime(int seed, double t)
+        private static string FakeTime(int seed, double t)
     {
         var s0 = 2 * 3600 + (int)(J.H(seed, 4) % 7200) + (int)Math.Floor(Math.Max(0, t));
         return Pad2((int)Math.Floor(s0 / 3600.0) % 24) + ":" + Pad2((int)Math.Floor(s0 / 60.0) % 60) + ":" + Pad2(s0 % 60);
     }
 
-    /// <summary>slots(it)：排版后逐字的中心点（跳过空格）。JS L53-60。</summary>
-    private sealed class Slot
+        private sealed class Slot
     {
         public string Ch = "";
         public double X, Y, W, H;
@@ -222,8 +176,7 @@ public static class P11Horror1
         return list;
     }
 
-    /// <summary>env.draw 对位：直画一条 item（可挂私有 charFn；用完恢复 env 桥字段）。</summary>
-    private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
+        private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
     {
         var prevC = env.CharFn;
         var prevP = env.PieceFn;
@@ -245,8 +198,7 @@ public static class P11Horror1
         }
     }
 
-    /// <summary>veilHole：带软孔洞的全屏遮罩，只在 main pass 画。JS L62-75。</summary>
-    private static void VeilHole(Env env, double cx, double cy, double r, double a, string col,
+        private static void VeilHole(Env env, double cx, double cy, double r, double a, string col,
         double inner = 0.35, double ry = 1)
     {
         if (env.Pass != "main" || a <= 0.002) return;
@@ -263,7 +215,6 @@ public static class P11Horror1
         ctx.Restore();
     }
 
-    // 噪点纹理块：只建一次，小尺寸、确定性（JS L77-93）。JS 的 4 张 canvas → SKBitmap 缓存。
     private static readonly SKBitmap?[] Noise = new SKBitmap?[4];
 
     private static SKBitmap NoiseCv(int k)
@@ -272,8 +223,7 @@ public static class P11Horror1
         if (Noise[k] is { } hit) return hit;
         const int w = 96, h = 72;
         var bmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-        var bytes = bmp.Bytes; // Bgra8888：B,G,R,A 逐像素
-        for (var i = 0; i < w * h; i++)
+        var bytes = bmp.Bytes;         for (var i = 0; i < w * h; i++)
         {
             var v = (byte)(Math.Pow(J.R(i, k, 4411), 1.4) * 255);
             bytes[i * 4] = v;
@@ -289,8 +239,7 @@ public static class P11Horror1
 
     private static readonly SKSamplingOptions SampNearest = new(SKFilterMode.Nearest, SKMipmapMode.None);
 
-    /// <summary>drawNoise：噪点纹理块裁切贴片（imageSmoothingEnabled=false → Nearest）。JS L94-103。</summary>
-    private static void DrawNoise(Env env, double x, double y, double w, double h, double a, int step, int seed)
+        private static void DrawNoise(Env env, double x, double y, double w, double h, double a, int step, int seed)
     {
         if (env.Pass != "main" || a <= 0.003 || w < 1 || h < 1) return;
         var n = NoiseCv(step + seed);
@@ -303,27 +252,10 @@ public static class P11Horror1
             new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), SampNearest, p);
     }
 
-    // ================= 注册（JS 源 reg(...) 出现序） =================
-
-    /// <summary>幂等注册本文件全部 layout（顺序 = JS 源 J.register 调用序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterHrFlashlight(); // JS L109
-        RegisterHrDoorGap();    // JS L180
-        RegisterHrWallScrawl(); // JS L249
-        RegisterHrCctv();       // JS L340
-        RegisterHrOuija();      // JS L500
-        RegisterHrMissing();    // JS L663
-        RegisterHrWrongOne();   // JS L813
-        RegisterHrRisingDark(); // JS L885
-        RegisterHrRedacted();   // JS L953
-        RegisterHrStaticTv();   // JS L1077
-        RegisterHrSpiritPhoto();// JS L1163
-        RegisterHrWrongShadow();// JS L1277
-    }
-
-    // ---------------- hrFlashlight（JS L109-178） ----------------
+        RegisterHrFlashlight();         RegisterHrDoorGap();            RegisterHrWallScrawl();         RegisterHrCctv();               RegisterHrOuija();              RegisterHrMissing();            RegisterHrWrongOne();           RegisterHrRisingDark();         RegisterHrRedacted();           RegisterHrStaticTv();           RegisterHrSpiritPhoto();        RegisterHrWrongShadow();    }
 
     private static void RegisterHrFlashlight() => Reg0("hrFlashlight", new LayoutDef
     {
@@ -331,7 +263,6 @@ public static class P11Horror1
         Tags = new[] { "horror", "emotional" },
         W = 1,
         Busy = true,
-        // JS: ae:'circle'（IRegEntry 无对应字段）
         Fits = n => n >= 1 && n <= 18,
         Plan = (rng, cut, st) => new JObject
         {
@@ -366,7 +297,6 @@ public static class P11Horror1
                 ["color"] = ScK(sc, "fg"),
             };
             var bb = JLayouts.MainDraw(env, it);
-            // 光束按阅读顺序逐字扫过，最后放大照亮整行
             var sl = Slots((JObject)it.DeepClone());
             var m = JLayouts.Measure(it);
             var R0 = Math.Max(size * 0.9 * JLayouts.D(Pm, "rk"), U(env) * 0.1);
@@ -394,7 +324,6 @@ public static class P11Horror1
 
             if (JLayouts.S(Pm, "path") == "search" && lt < t0)
             {
-                // 先在黑暗里乱晃，再找到字
                 var q = J.E.InOutSine(J.Clamp(lt / t0));
                 var sx = W * (0.5 + JLayouts.D(Pm, "sx")) + J.Noise1(lt * 1.3, s) * W * 0.25;
                 var sy = H * (0.5 + JLayouts.D(Pm, "sy")) + J.Noise1(lt * 1.1, s + 3) * H * 0.2;
@@ -409,7 +338,6 @@ public static class P11Horror1
             bx = J.Lerp(bx, W / 2.0, open);
             by = J.Lerp(by, H / 2.0, open);
             var R = J.Lerp(R0, Math.Max(R0, Rall), open) * (0.3 + 0.7 * Tin(env, 0, 0.35));
-            // 电池快没电：偶发骤暗
             var dip = J.R(s, (int)env.Step, 31) < 0.05 ? 0.55 : 1;
             var dark = JLayouts.D(Pm, "dark") * Tin(env, 0, 0.25) * (1 - J.E.InCubic(env.POut) * 0.6);
             VeilHole(env, bx, by, R * dip, dark, NightC(sc), 0.32, 0.86);
@@ -430,8 +358,6 @@ public static class P11Horror1
         },
     });
 
-    // ---------------- hrDoorGap（JS L180-247） ----------------
-
     private static void RegisterHrDoorGap() => Reg0("hrDoorGap", new LayoutDef
     {
         Name = "扉の隙間",
@@ -445,7 +371,6 @@ public static class P11Horror1
             return new JObject
             {
                 ["font"] = rng.Pick(FontsOf(st, "serif", "display")),
-                // JS: n <= 7 && !hasLatin && rng.chance(0.75)——短路：n>7 时不消耗 rng
                 ["vert"] = n <= 7 && !HasLatin(cut.Text) && rng.Chance(0.75),
                 ["side"] = rng.Pick(new[] { -1, 1 }),
                 ["pause"] = rng.Range(0.16, 0.26),
@@ -480,7 +405,6 @@ public static class P11Horror1
                 ["vertical"] = vert,
             };
             var m = JLayouts.Measure(it);
-            // 开门：先一条细缝，不安地停顿，再开到能读；退场时猛地关上
             var full = (vert ? m.W : m.H) + size * 0.9;
             var d = cut.Dur;
             var a1 = J.Clamp(lt / 0.5);
@@ -500,7 +424,6 @@ public static class P11Horror1
             var L = LightOf(sc);
             var cx = W / 2.0;
             var cy = H / 2.0;
-            // ctx.rect(整屏) + ctx.rect(缝) evenodd 填充 → SKPath FillType.EvenOdd
             using (var path = new SKPath { FillType = SKPathFillType.EvenOdd })
             {
                 path.AddRect(new SKRect((float)-W, (float)-H, (float)(W * 2), (float)(H * 2)));
@@ -521,7 +444,6 @@ public static class P11Horror1
 
             if (g > 1)
             {
-                // 缝隙边缘的亮边 + 洒向地面的光
                 var rimA = 0.55 * Math.Min(1, g / (size * 0.3));
                 if (vert)
                 {
@@ -551,8 +473,6 @@ public static class P11Horror1
             env.Body = bb;
         },
     });
-
-    // ---------------- hrWallScrawl（JS L249-338） ----------------
 
     private static void RegisterHrWallScrawl() => Reg0("hrWallScrawl", new LayoutDef
     {
@@ -593,7 +513,6 @@ public static class P11Horror1
             });
             var clear = (x0: W / 2 - mm.W / 2 - size * 0.4, x1: W / 2 + mm.W / 2 + size * 0.4,
                 y0: H / 2 - mm.H / 2 - size * 0.35, y1: H / 2 + mm.H / 2 + size * 0.35);
-            // 一行接一行地抄写，越来越密
             var rows = (int)JLayouts.D(Pm, "rows");
             var rh = H / rows;
             var fs = rh * 0.58;
@@ -672,8 +591,6 @@ public static class P11Horror1
             });
         },
     });
-
-    // ---------------- hrCctv（JS L340-496） ----------------
 
     private static void RegisterHrCctv() => Reg0("hrCctv", new LayoutDef
     {
@@ -767,7 +684,6 @@ public static class P11Horror1
                 var cy = (y0 + y1) / 2 + J.Rs(s, k, 4) * (y1 - y0) * 0.08;
                 var w = (x1 - x0) * 0.16;
                 var h = (y1 - y0) * 0.2;
-                // 从门上方俯视的走廊
                 var c = J.Mix(feedBg, LC, 0.25);
                 var a = 0.8 * inA * @out;
                 env.Line(new[] { new[] { x0, y0 }, new[] { cx - w, cy - h } }, c, lw, a, false);
@@ -849,7 +765,6 @@ public static class P11Horror1
                 ["lead"] = 1.2,
                 ["color"] = LC,
             });
-            // 实时画面上的扫描线
             if (env.Pass == "main")
             {
                 var sp = Math.Max(3, fh / 90);
@@ -861,7 +776,6 @@ public static class P11Horror1
 
             if (JLayouts.B(Pm, "box") && bb != null)
             {
-                // 追着文字动的侦测框
                 var e = Tin(env, cut.InDur * 0.6, 0.25) * @out;
                 var jx = J.Rs(s, st >> 1, 21) * size * 0.08;
                 var jy = J.Rs(s, st >> 1, 22) * size * 0.08;
@@ -905,8 +819,6 @@ public static class P11Horror1
         },
     });
 
-    // ---------------- hrOuija（JS L498-661） ----------------
-
     private const string KanaFallback = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをん";
     private const string Abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -949,7 +861,6 @@ public static class P11Horror1
             var by = port ? H * 0.34 : H * 0.36;
             var plate = J.Mix(ScK(sc, "bg"), ScK(sc, "fg"), IsDark(ScK(sc, "bg")) ? 0.07 : 0.06);
             env.RRect(bx - bw / 2, by - bh / 2, bw, bh, bh * 0.14, plate, inA * @out, false, J.Mix(ScK(sc, "bg"), ScK(sc, "sub"), 0.6), lw);
-            // 字符表按歌词语言取（J.pool）：中文/韩文歌词不再出现假名（ja 池本身就是假名）
             var KP = JLang.Pool("kana") ?? KanaFallback;
             var k1 = Math.Min(16, KP.Length);
             var k2 = Math.Min(32, KP.Length);
@@ -1027,7 +938,6 @@ public static class P11Horror1
                 ["x"] = bx, ["y"] = by + bh * 0.42,
                 ["color"] = col, ["alpha"] = inA * @out, ["ghost"] = false, ["track"] = 0.3,
             });
-            // 歌词行，以及每个字被拼出的时刻
             var text = Flat(cut.Text);
             var chars = JLayouts.CodePoints(text).Where(c => c != " ").ToList();
             var n2 = chars.Count;
@@ -1072,7 +982,6 @@ public static class P11Horror1
                 return cc;
             }
 
-            // 指灵盘指针（planchette）的位置
             var px = bx;
             var py = by + bh * 0.1;
             var cur = -1;
@@ -1100,7 +1009,6 @@ public static class P11Horror1
                 py += bf * 1.2;
             }
 
-            // 没有目标时的游移
             px += Math.Sin(env.Ltb * 2.1 + s) * bf * 0.12;
             py += Math.Cos(env.Ltb * 1.7 + s) * bf * 0.1;
             var pr = bf * 1.2;
@@ -1148,8 +1056,6 @@ public static class P11Horror1
             env.Body = bb ?? Bb(W * 0.2, rowY - size, W * 0.8, rowY + size);
         },
     });
-
-    // ---------------- hrMissing（JS L663-811） ----------------
 
     private static void RegisterHrMissing() => Reg0("hrMissing", new LayoutDef
     {
@@ -1236,7 +1142,6 @@ public static class P11Horror1
                 ["ghost"] = false,
                 ["sx"] = 0.92,
             });
-            // 照片里是无脸的头肩剪影
             var fw = pw * 0.52;
             var fh = fw * 1.18;
             var fx = -fw / 2;
@@ -1298,7 +1203,6 @@ public static class P11Horror1
                 ["ghost"] = false,
                 ["track"] = 0.05,
             });
-            // 可撕的电话联，torn 个已被撕走
             const int tabs = 7;
             var tw = pw / tabs;
             var ty = y0 + ph * 0.86;
@@ -1327,7 +1231,6 @@ public static class P11Horror1
 
             env.Line(new[] { new[] { x0, ty }, new[] { x0 + pw, ty } }, J.Mix(paper, ink, 0.4), Math.Max(1, u * 0.001), @out, false);
             ctx.Restore();
-            // 歌词写在寻人启事的姓名位置
             var text = JLayouts.SplitLines(Flat(cut.Text), port ? 6 : 7);
             var lyY = fy + fh + ph * 0.1;
             var o = new JObject { ["track"] = 0.04, ["lead"] = 1.1 };
@@ -1349,8 +1252,6 @@ public static class P11Horror1
             env.Body = bb ?? Bb(cx - pw / 2, cy - ph / 2, cx + pw / 2, cy + ph / 2);
         },
     });
-
-    // ---------------- hrWrongOne（JS L813-883） ----------------
 
     private static void RegisterHrWrongOne() => Reg0("hrWrongOne", new LayoutDef
     {
@@ -1400,7 +1301,6 @@ public static class P11Horror1
                 ["lead"] = 1.5,
             };
             var all = Slots(baseIt);
-            // Pm.wrong 是含空格的扁平下标，这里换算成槽位下标
             var flatArr = JLayouts.CodePoints(Flat(cut.Text));
             var wi = 0;
             for (int i = 0, k = 0; i < flatArr.Count; i++)
@@ -1434,7 +1334,6 @@ public static class P11Horror1
                 };
                 if (i == wi)
                 {
-                    // 只有这个字缓慢转动，其余不动，偶尔猛地一抽
                     var qq = J.E.InOutSine(J.Clamp((lt - turnAt) / Math.Max(0.5, d * 0.45)));
                     var twitch = J.R(s, (int)env.Step >> 1, 71) < 0.07 && lt > turnAt ? J.Rs(s, (int)env.Step, 72) * 14 : 0;
                     it["rot"] = JLayouts.D(Pm, "ang") * qq + twitch;
@@ -1475,8 +1374,6 @@ public static class P11Horror1
             env.Body = bb;
         },
     });
-
-    // ---------------- hrRisingDark（JS L885-951） ----------------
 
     private static void RegisterHrRisingDark() => Reg0("hrRisingDark", new LayoutDef
     {
@@ -1522,7 +1419,6 @@ public static class P11Horror1
             for (var i = 0; i < all.Count; i++)
             {
                 var g = all[i];
-                // 一把一把往上爬，几个突然的发力点
                 var prog = 0.0;
                 for (var k = 0; k < pulls; k++)
                 {
@@ -1546,7 +1442,6 @@ public static class P11Horror1
                 }));
             }
 
-            // 黑水池，盖在还没露出的字上面
             if (env.Pass == "main")
             {
                 var pc = NightC(sc);
@@ -1589,8 +1484,6 @@ public static class P11Horror1
             env.Body = bb;
         },
     });
-
-    // ---------------- hrRedacted（JS L953-1075） ----------------
 
     private static void RegisterHrRedacted() => Reg0("hrRedacted", new LayoutDef
     {
@@ -1647,7 +1540,6 @@ public static class P11Horror1
             var size = Math.Min(Math.Min(JLayouts.FitSize(text, JLayouts.S(Pm, "font")!, mw, H * 0.24, o), H * 0.1), fs * 3.4);
             var ly = H * JLayouts.D(Pm, "row");
             var lh = nl * size * 1.3;
-            // 填充行：正文被涂黑
             var body = Flat(!string.IsNullOrEmpty(cut.LineText) ? cut.LineText : cut.Text) + "　";
             var body6 = string.Concat(Enumerable.Repeat(body, 6));
             var rowsN = (int)Math.Floor((H * 0.84 - H * 0.14) / rh);
@@ -1704,7 +1596,6 @@ public static class P11Horror1
                 ["lead"] = 1.3,
                 ["color"] = ScK(sc, "fg"),
             });
-            // 盖着歌词的黑条：滑开、停住、再滑走
             if (env.Pass == "main")
             {
                 var m = JLayouts.Measure(new JObject
@@ -1763,8 +1654,6 @@ public static class P11Horror1
         },
     });
 
-    // ---------------- hrStaticTv（JS L1077-1161） ----------------
-
     private static void RegisterHrStaticTv() => Reg0("hrStaticTv", new LayoutDef
     {
         Name = "砂嵐のテレビ",
@@ -1799,7 +1688,6 @@ public static class P11Horror1
             var edge = J.Mix(body, ScK(sc, "fg"), 0.3);
             var lw = Math.Max(1, u * 0.0018);
             var ctx = env.Ctx;
-            // 屏幕的光洒进房间
             if (env.Pass == "main")
             {
                 using var shader = Radial2(cx, cy, th * 0.3, Math.Max(W, H) * 0.7,
@@ -1835,7 +1723,6 @@ public static class P11Horror1
                 }, edge, lw, inA * @out * 0.8, false);
             env.Rect(cx - tw * 0.36, top + th, tw * 0.05, th * 0.06, body, inA * @out, false);
             env.Rect(cx + tw * 0.31, top + th, tw * 0.05, th * 0.06, body, inA * @out, false);
-            // 屏幕：砂噪慢慢让位给文字
             var scr = J.Mix(ScK(sc, "bg"), "#000000", 0.6);
             env.RRect(sx0, sy0, sw, sh, sh * 0.1, scr, inA, false);
             var tune = J.E.InOutCubic(J.Clamp((lt - 0.15) / (cut.Dur * JLayouts.D(Pm, "tune"))));
@@ -1871,7 +1758,6 @@ public static class P11Horror1
             ctx.Restore();
             if (env.Pass == "main")
             {
-                // 玻璃反光 + 扫描线
                 var sp = Math.Max(3, sh / 70);
                 for (var y = sy0; y < sy0 + sh; y += sp * 2)
                     env.Rect(sx0, y, sw, sp * 0.5, "#000000", 0.18 * inA, false);
@@ -1881,8 +1767,6 @@ public static class P11Horror1
             env.Body = bb ?? Bb(sx0, sy0, sx0 + sw, sy0 + sh);
         },
     });
-
-    // ---------------- hrSpiritPhoto（JS L1163-1275） ----------------
 
     private static void RegisterHrSpiritPhoto() => Reg0("hrSpiritPhoto", new LayoutDef
     {
@@ -1911,7 +1795,6 @@ public static class P11Horror1
             var @out = Tout(env);
             var inA = Tin(env, 0, 0.3);
             var spot = (JArray?)Pm["spot"];
-            // 照片放左边（横屏）或上方（竖屏），便签在另一侧
             var pw = port ? W * 0.78 : Math.Min(W * 0.46, H * 0.86 * 1.25);
             var ph = pw / 1.25;
             var side = JLayouts.D(Pm, "side");
@@ -1975,7 +1858,6 @@ public static class P11Horror1
                 ["ghost"] = false,
                 ["track"] = 0.1,
             });
-            // 围着污点的红笔圈
             var ringE = J.E.OutCubic(J.Clamp((lt - cut.Dur * 0.3) / 0.5)) * @out;
             if (ringE > 0)
             {
@@ -1993,7 +1875,6 @@ public static class P11Horror1
             }
 
             ctx.Restore();
-            // 指向便签的箭头 + 手写便签（歌词）
             var text = JLayouts.SplitLines(Flat(cut.Text), port ? 7 : 6);
             var nx = port ? W / 2.0 : (side > 0 ? W * 0.76 : W * 0.24);
             var ny = port ? H * 0.75 : H * 0.5;
@@ -2062,8 +1943,6 @@ public static class P11Horror1
         },
     });
 
-    // ---------------- hrWrongShadow（JS L1277-1348） ----------------
-
     private static void RegisterHrWrongShadow() => Reg0("hrWrongShadow", new LayoutDef
     {
         Name = "影が違う",
@@ -2101,7 +1980,6 @@ public static class P11Horror1
             var m = JLayouts.Measure(mIt);
             var cy = H * 0.66 - m.H * 0.2;
             var @out = Tout(env);
-            // 灯光抖着亮起
             var on = lt < 0.08 ? 0 : lt < 0.16 ? 1 : lt < 0.24 ? 0.25 : 1;
             var flick = J.R(s, (int)env.Step, 101) < 0.04 ? 0.5 : 1;
             var L = on * flick * @out;
@@ -2131,7 +2009,6 @@ public static class P11Horror1
                 }
 
                 ctx.Restore();
-                // 影子更大更软，而且自己会动
                 var t = env.Ltb;
                 var d = cut.Dur;
                 var turn = J.E.InOutCubic(J.Clamp((lt - d * JLayouts.D(Pm, "turn")) / 0.5));

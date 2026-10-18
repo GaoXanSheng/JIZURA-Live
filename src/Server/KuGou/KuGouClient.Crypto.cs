@@ -17,7 +17,6 @@ public sealed partial class KuGouClient
     private const string KeySalt = "57ae12eb6890223e355ccfcb74edf70d";
     private const string AppId = "1005";
     private const string ClientVer = "20489";
-    private const string SrcAppId = "2919";
     private const string AndroidUa = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
 
     private const string PubKeyPem = """
@@ -81,7 +80,6 @@ public sealed partial class KuGouClient
         return o[key]?.ToString() ?? "";
     }
 
-
     private static JObject EnsureIdentity()
     {
         var st = KgState();
@@ -113,7 +111,6 @@ public sealed partial class KuGouClient
         return patch.Count > 0 ? KgSave(patch) : st;
     }
 
-
     private static string Md5(string s)
     {
         return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
@@ -126,7 +123,6 @@ public sealed partial class KuGouClient
         for (var i = 0; i < n; i++) sb.Append(cs[Random.Shared.Next(cs.Length)]);
         return sb.ToString();
     }
-
 
     private static (string Url, string ClientTime) SignedUrl(
         string baseUrl, string urlPath, Dictionary<string, string> parameters, bool android, string data = "")
@@ -156,7 +152,6 @@ public sealed partial class KuGouClient
         foreach (var (k, v) in GatewayHeaders) req.Headers.TryAddWithoutValidation(k, v);
     }
 
-
     private static string AesCbc(byte[] key, byte[] iv, string plainText)
     {
         using var aes = Aes.Create();
@@ -178,7 +173,6 @@ public sealed partial class KuGouClient
         using var dec = aes.CreateDecryptor();
         return Encoding.UTF8.GetString(dec.TransformFinalBlock(cipher, 0, cipher.Length));
     }
-
 
     private async Task<string> RegisterDevAsync(string token, long userid)
     {

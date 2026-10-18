@@ -92,7 +92,6 @@ public sealed record EffectDef(
 {
     public EffectGraphBuild? GraphBuild { get; init; }
 
-    public bool IsMultiPass => GraphBuild is not null;
 }
 
 public readonly record struct EffectWindow(double Start, double End, double FadeIn = 0, double FadeOut = 0)

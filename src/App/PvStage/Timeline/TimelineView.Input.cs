@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using JizuraLive.App.I18n;
 using JizuraLive.Pv;
+using JizuraLive.Vts;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
@@ -19,6 +20,7 @@ public sealed partial class TimelineView
         var p = e.GetPosition(this);
         if (e.ChangedButton == MouseButton.Right)
         {
+            if (TryOpenVtsCueMenu(p)) return;
             if (TryOpenDesignMenu(p)) return;
             OpenKeyMenu(p);
             return;
@@ -30,8 +32,25 @@ public sealed partial class TimelineView
         {
             _drag = DragMode.Pan;
             _dragOrigin = p;
+            _hScrollGrab = HorizontalScrollbar(out _, out _, out var hThumb, out var hThumbWidth)
+                           && p.X >= hThumb && p.X <= hThumb + hThumbWidth
+                ? p.X - hThumb
+                : 0;
             CaptureMouse();
             PanTo(p.X);
+            return;
+        }
+
+        if (p.X >= RenderSize.Width - ScrollbarWidth
+            && VerticalScrollbar(out var vTop, out var vHeight, out var thumbTop, out var thumbHeight)
+            && p.Y >= vTop && p.Y < vTop + vHeight)
+        {
+            _drag = DragMode.VPan;
+            _vScrollGrab = p.Y >= thumbTop && p.Y <= thumbTop + thumbHeight
+                ? p.Y - thumbTop
+                : thumbHeight / 2;
+            CaptureMouse();
+            ScrollToThumb(p.Y, _vScrollGrab);
             return;
         }
 
@@ -59,6 +78,9 @@ public sealed partial class TimelineView
             case RowKind.Automation:
                 StartAutomationDrag(row, p, x);
                 break;
+            case RowKind.VtsCue:
+                StartVtsCueGesture(row, x);
+                break;
         }
     }
 
@@ -67,7 +89,15 @@ public sealed partial class TimelineView
         base.OnMouseMove(e);
         if (_drag == DragMode.None)
         {
-            UpdateDesignCursor(e.GetPosition(this));
+            var hover = e.GetPosition(this);
+            if (hover.X >= RenderSize.Width - ScrollbarWidth
+                && VerticalScrollbar(out var vTop, out var vHeight, out _, out _)
+                && hover.Y >= vTop && hover.Y < vTop + vHeight)
+            {
+                Cursor = Cursors.SizeNS;
+                return;
+            }
+            UpdateDesignCursor(hover);
             return;
         }
         var p = e.GetPosition(this);
@@ -84,6 +114,9 @@ public sealed partial class TimelineView
                 break;
             case DragMode.Pan:
                 PanTo(p.X);
+                break;
+            case DragMode.VPan:
+                ScrollToThumb(p.Y, _vScrollGrab);
                 break;
             case DragMode.Clip:
                 MoveClip(p);
@@ -149,13 +182,14 @@ public sealed partial class TimelineView
         if (_snap is null) return;
         e.Handled = true;
 
-        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+        double x = Math.Max(0, e.GetPosition(this).X - HeaderWidth);
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0
+            || e.GetPosition(this).X >= RenderSize.Width - ScrollbarWidth)
         {
             ScrollTracks(-e.Delta / 120.0 * AutomationHeight * 3);
             return;
         }
 
-        double x = Math.Max(0, e.GetPosition(this).X - HeaderWidth);
         if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
             double anchorTime = TimeAt(x);
@@ -196,31 +230,6 @@ public sealed partial class TimelineView
                 e.Handled = true;
                 break;
         }
-    }
-
-    private void HitDesignSegment(Row row, double time)
-    {
-        if (_snap is null || row.Index < 0 || row.Index >= _snap.DesignTracks.Count) return;
-        var track = _snap.DesignTracks[row.Index];
-
-        TDesignSegment? hit = null;
-        for (int i = track.Segments.Count - 1; i >= 0; i--)
-        {
-            var seg = track.Segments[i];
-            if (time >= seg.Start && time < seg.End) { hit = seg; break; }
-        }
-
-        if (hit is null)
-        {
-            ClearSegmentSelection();
-            InvalidateVisual();
-            return;
-        }
-
-        _selection.Clear();
-        _selSegment = new SelSegment(row.Index, hit.RefId);
-        SegmentSelected?.Invoke(hit);
-        InvalidateVisual();
     }
 
     private TDesignSegment? DesignSegmentAt(Row row, double time)
@@ -381,7 +390,19 @@ public sealed partial class TimelineView
 
     private void UpdateDesignCursor(Point p)
     {
-        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.Design } row)
+        if (_snap is null)
+        {
+            Cursor = Cursors.Arrow;
+            return;
+        }
+
+        if (RowAt(p.Y) is { Kind: RowKind.VtsCue })
+        {
+            Cursor = Cursors.Hand;
+            return;
+        }
+
+        if (RowAt(p.Y) is not { Kind: RowKind.Design } row)
         {
             Cursor = Cursors.Arrow;
             return;
@@ -409,6 +430,40 @@ public sealed partial class TimelineView
         _drag = DragMode.Scrub;
         CaptureMouse();
         RaiseSeek(TimeAt(x));
+    }
+
+    private TVtsCue? CueAt(TVtsCueTrack track, double x)
+    {
+        foreach (var cue in track.Cues)
+            if (Math.Abs(TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond) - x) <= 7)
+                return cue;
+        return null;
+    }
+
+    private void StartVtsCueGesture(Row row, double x)
+    {
+        if (_snap is null || row.Index < 0 || row.Index >= _snap.VtsCueTracks.Count) return;
+        var track = _snap.VtsCueTracks[row.Index];
+        var hit = CueAt(track, x);
+        if (hit is not null) x = TimelineMath.TimeToX(hit.Time, _viewStart, _pixelsPerSecond);
+        StartScrub(x);
+    }
+
+    private bool TryOpenVtsCueMenu(Point p)
+    {
+        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.VtsCue } row
+            || row.Index < 0 || row.Index >= _snap.VtsCueTracks.Count) return false;
+
+        var track = _snap.VtsCueTracks[row.Index];
+        var hit = CueAt(track, p.X - HeaderWidth);
+        if (hit is null) return false;
+
+        var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
+        var remove = new MenuItem { Header = "删除" };
+        remove.Click += (_, _) => VtsCueDeleteRequested?.Invoke(track.Kind, hit.Time);
+        menu.Items.Add(remove);
+        menu.IsOpen = true;
+        return true;
     }
 
     private void StartClipGesture(double x)
@@ -614,13 +669,11 @@ public sealed partial class TimelineView
 
     private void PanTo(double x)
     {
-        if (_snap is null) return;
-        double trackW = Math.Max(1, RenderSize.Width - HeaderWidth);
+        if (_snap is null || !HorizontalScrollbar(out var trackX, out var trackW, out _, out var thumbW)) return;
+        double usable = Math.Max(1, trackW - thumbW);
+        double fraction = Math.Clamp((x - trackX - _hScrollGrab) / usable, 0, 1);
         double duration = Math.Max(_snap.DurationSeconds, TimelineMath.MinSecondsPerScreen);
         double visible = Math.Min(duration, trackW / _pixelsPerSecond);
-        double thumbW = Math.Min(trackW, Math.Max(24, trackW * visible / duration));
-        double usable = Math.Max(1, trackW - thumbW);
-        double fraction = Math.Clamp((x - HeaderWidth - thumbW / 2) / usable, 0, 1);
         _viewStart = TimelineMath.ClampViewStart(fraction * (duration - visible), _pixelsPerSecond, trackW, _snap.DurationSeconds);
         InvalidateVisual();
     }

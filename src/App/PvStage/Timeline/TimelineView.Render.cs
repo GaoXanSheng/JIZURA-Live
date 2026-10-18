@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using JizuraLive.Pv;
+using JizuraLive.Vts;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
@@ -24,6 +25,10 @@ public sealed partial class TimelineView
     private static readonly Brush FaintBrush = Solid(0x5E, 0x5E, 0x6C);
     private static readonly Brush PlayheadBrush = Solid(0xFF, 0x5F, 0x6E);
     private static readonly Brush ConflictBrush = Solid(0xFF, 0x5F, 0x6E);
+    private static readonly Brush ScrollThumbBrush = Solid(0xC0, 0x6E, 0x9C, 0xFF);
+    private static readonly Brush ScrollThumbHotBrush = Solid(0xFF, 0x9B, 0xBE, 0xFF);
+    private static readonly Brush HotkeyCueBrush = Solid(0xE8, 0xB4, 0x4A);
+    private static readonly Brush ExpressionCueBrush = Solid(0x5E, 0xD6, 0x9A);
     private static readonly Brush TipBrush = Solid(0xE6, 0x17, 0x17, 0x1E);
     private static readonly Pen LinePen = FrozenPen(Solid(0x23, 0x23, 0x2C), 1);
     private static readonly Pen SoftPen = FrozenPen(Solid(0x19, 0x19, 0x20), 1);
@@ -62,6 +67,7 @@ public sealed partial class TimelineView
                 case RowKind.Lyrics: RenderLyrics(dc, row); break;
                 case RowKind.Design: RenderDesignTrack(dc, row); break;
                 case RowKind.Automation: RenderAutomation(dc, row); break;
+                case RowKind.VtsCue: RenderVtsCueTrack(dc, row); break;
             }
         }
         dc.Pop();
@@ -86,17 +92,12 @@ public sealed partial class TimelineView
 
     private void RenderVerticalScrollbar(DrawingContext dc, double w, double h)
     {
-        ClampScrollOffset();
-        double trackTop = ContentHeight - _trackViewHeight;
-        if (_trackTotalHeight <= _trackViewHeight + 1e-9) return;
-        double trackH = _trackViewHeight;
-        double thumbH = Math.Max(20, trackH * _trackViewHeight / _trackTotalHeight);
-        double usable = Math.Max(1, trackH - thumbH);
-        double thumbY = trackTop + usable * _scrollOffset / Math.Max(1, _trackTotalHeight - _trackViewHeight);
+        if (!VerticalScrollbar(out var trackTop, out var trackHeight, out var thumbTop, out var thumbHeight)) return;
 
-        dc.DrawRectangle(RowBrush, null, new Rect(w - ScrollbarWidth, trackTop, ScrollbarWidth, trackH));
-        dc.DrawRoundedRectangle(AccentSoftBrush, null,
-            new Rect(w - ScrollbarWidth + 1, thumbY, ScrollbarWidth - 2, thumbH), 3, 3);
+        dc.DrawRectangle(RowBrush, null, new Rect(w - ScrollbarWidth, trackTop, ScrollbarWidth, trackHeight));
+        var thumbBrush = _drag == DragMode.VPan ? ScrollThumbHotBrush : ScrollThumbBrush;
+        dc.DrawRoundedRectangle(thumbBrush, null,
+            new Rect(w - ScrollbarWidth + 2, thumbTop, ScrollbarWidth - 4, thumbHeight), 4, 4);
     }
 
     private void RenderRuler(DrawingContext dc, Row row)
@@ -331,6 +332,37 @@ public sealed partial class TimelineView
         dc.Pop();
     }
 
+    private void RenderVtsCueTrack(DrawingContext dc, Row row)
+    {
+        var track = _snap!.VtsCueTracks[row.Index];
+        double w = ContentWidth;
+        dc.DrawRectangle(row.Index % 2 == 0 ? RowBrush : RowAltBrush, null,
+            new Rect(HeaderWidth, row.Top, w, row.Height));
+        dc.DrawLine(SoftPen, new Point(HeaderWidth, row.Top), new Point(HeaderWidth + w, row.Top));
+
+        var brush = track.Kind == VtsCueKind.Hotkey ? HotkeyCueBrush : ExpressionCueBrush;
+        double cy = row.Top + row.Height / 2;
+        double viewEnd = _viewStart + w / _pixelsPerSecond;
+
+        foreach (var cue in track.Cues)
+        {
+            if (cue.Time < _viewStart - 0.5 || cue.Time > viewEnd + 0.5) continue;
+            double x = HeaderWidth + TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
+
+            if (cue.Duration > 0.01)
+            {
+                double endX = HeaderWidth + TimelineMath.TimeToX(
+                    Math.Min(cue.Time + cue.Duration, viewEnd), _viewStart, _pixelsPerSecond);
+                dc.DrawLine(HandlePen, new Point(x, cy), new Point(endX, cy));
+            }
+
+            dc.DrawGeometry(brush, null, Diamond(x, cy, 4.5));
+            var label = Text(cue.Label, 9, brush);
+            if (x + 8 + label.Width <= HeaderWidth + w)
+                dc.DrawText(label, new Point(x + 8, row.Top + (row.Height - 11) / 2));
+        }
+    }
+
     private void RenderHeader(DrawingContext dc, Row row)
     {
         dc.DrawRectangle(HeaderBrush, null, new Rect(0, row.Top, HeaderWidth, row.Height));
@@ -344,6 +376,11 @@ public sealed partial class TimelineView
                 break;
             case RowKind.Automation:
                 dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(8, row.Top + 5));
+                break;
+            case RowKind.VtsCue:
+                var cueTrack = _snap!.VtsCueTracks[row.Index];
+                dc.DrawText(Text(cueTrack.Kind == VtsCueKind.Hotkey ? "动作键" : "表情",
+                    11, DimBrush), new Point(8, row.Top + 5));
                 break;
             case RowKind.Design:
                 if (_snap is not null && row.Index >= 0 && row.Index < _snap.DesignTracks.Count)
@@ -390,17 +427,12 @@ public sealed partial class TimelineView
     {
         double top = h - ScrollbarHeight;
         dc.DrawRectangle(BgBrush, null, new Rect(0, top, w, ScrollbarHeight));
-        if (_snap is null) return;
+        if (!HorizontalScrollbar(out var trackX, out var trackW, out var thumbX, out var thumbW)) return;
 
-        double trackX = HeaderWidth;
-        double trackW = Math.Max(1, w - HeaderWidth);
-        dc.DrawRectangle(RowBrush, null, new Rect(trackX, top + 2, trackW, ScrollbarHeight - 4));
-
-        double duration = Math.Max(_snap.DurationSeconds, TimelineMath.MinSecondsPerScreen);
-        double visible = Math.Min(duration, trackW / _pixelsPerSecond);
-        double thumbW = Math.Min(trackW, Math.Max(24, trackW * visible / duration));
-        double thumbX = trackX + Math.Min(trackW - thumbW, trackW * _viewStart / duration);
-        dc.DrawRoundedRectangle(AccentSoftBrush, null, new Rect(thumbX, top + 2, thumbW, ScrollbarHeight - 4), 3, 3);
+        dc.DrawRectangle(RowBrush, null, new Rect(trackX, top + 3, trackW, ScrollbarHeight - 6));
+        var thumbBrush = _drag == DragMode.Pan ? ScrollThumbHotBrush : ScrollThumbBrush;
+        dc.DrawRoundedRectangle(thumbBrush, null,
+            new Rect(thumbX, top + 3, thumbW, ScrollbarHeight - 6), 4, 4);
     }
 
     private FormattedText Text(string text, double size, Brush brush, Typeface? typeface = null) => new(

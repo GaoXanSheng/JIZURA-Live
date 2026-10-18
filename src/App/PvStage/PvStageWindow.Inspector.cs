@@ -136,6 +136,10 @@ public partial class PvStageWindow
 
     private readonly List<AnimRow> _inspectorRows = new();
     private bool _syncingRows;
+    private Panel _inspectorTarget = null!;
+    private TabControl? _inspectorTabs;
+    private string? _inspectorTab;
+    private bool _buildingInspector;
 
     private void SelectLayer(PvLayerConfig? layer)
     {
@@ -164,41 +168,64 @@ public partial class PvStageWindow
     {
         _inspectorRows.Clear();
         InspectorHost.Children.Clear();
+        _inspectorTabs = null;
+        _inspectorTarget = InspectorHost;
+        _buildingInspector = true;
 
-        if (_segmentTarget is { } target && SegmentTargetAlive(target))
+        try
         {
-            BuildSegmentSection(target);
-            RefreshParamRows();
-            return;
-        }
-        _segmentTarget = null;
-
-        foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
-        {
-            switch (section)
+            if (_segmentTarget is { } target && SegmentTargetAlive(target))
             {
-                case InspectorSectionKind.Camera:
-                    BuildCameraSection();
-                    break;
-                case InspectorSectionKind.Project:
-                    BuildProjectSection();
-                    break;
-                case InspectorSectionKind.Layer:
-                    BuildLayerSection(_selectedLayer!);
-                    break;
+                BuildSegmentSection(target);
+            }
+            else
+            {
+                _segmentTarget = null;
+                foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
+                {
+                    switch (section)
+                    {
+                        case InspectorSectionKind.Camera:
+                            BuildCameraSection();
+                            break;
+                        case InspectorSectionKind.Project:
+                            BuildProjectSection();
+                            break;
+                        case InspectorSectionKind.Layer:
+                            BuildLayerSection(_selectedLayer!);
+                            break;
+                    }
+                }
             }
         }
+        finally
+        {
+            _buildingInspector = false;
+        }
+
+        if (_inspectorTabs is not null && _inspectorTab is { } keep)
+        {
+            foreach (TabItem item in _inspectorTabs.Items)
+                if (string.Equals(item.Header as string, keep, StringComparison.Ordinal))
+                {
+                    item.IsSelected = true;
+                    break;
+                }
+        }
+
+        if (_inspectorTabs?.SelectedItem is TabItem { Header: string selected })
+            _inspectorTab = selected;
 
         RefreshParamRows();
     }
 
     private void BuildCameraSection()
     {
-        InspectorHost.Children.Add(SectionTitle("整体相机（全部图层）"));
-        InspectorHost.Children.Add(CameraRow("offsetX", "位移X", 1));
-        InspectorHost.Children.Add(CameraRow("offsetY", "位移Y", 1));
-        InspectorHost.Children.Add(CameraRow("scale", "缩放", 0.01));
-        InspectorHost.Children.Add(CameraRow("rotation", "旋转", 1));
+        AddSectionTitle("整体相机");
+        AddInspector(CameraRow("offsetX", "位移X", 1));
+        AddInspector(CameraRow("offsetY", "位移Y", 1));
+        AddInspector(CameraRow("scale", "缩放", 0.01));
+        AddInspector(CameraRow("rotation", "旋转", 1));
     }
 
     private FrameworkElement CameraRow(string param, string label, double step)
@@ -229,41 +256,64 @@ public partial class PvStageWindow
 
     private void BuildLayerSection(PvLayerConfig layer)
     {
-        InspectorHost.Children.Add(SectionTitle($"图层 · {LayerKindLabel(layer)}"));
-        InspectorHost.Children.Add(LayerRow(layer, "offsetX", "位移X", 0.01));
-        InspectorHost.Children.Add(LayerRow(layer, "offsetY", "位移Y", 0.01));
-        InspectorHost.Children.Add(LayerRow(layer, "scale", "缩放", 0.01));
-        InspectorHost.Children.Add(LayerRow(layer, "opacity", "不透明", 0.02));
-        InspectorHost.Children.Add(LayerRow(layer, "rotation", "旋转", 1));
-        InspectorHost.Children.Add(ConstRow("深度", 0, 3, 0.01,
+        AddSectionTitle("图层");
+        AddInspector(LayerRow(layer, "offsetX", "位移X", 0.01));
+        AddInspector(LayerRow(layer, "offsetY", "位移Y", 0.01));
+        AddInspector(LayerRow(layer, "scale", "缩放", 0.01));
+        AddInspector(LayerRow(layer, "opacity", "不透明", 0.02));
+        AddInspector(LayerRow(layer, "rotation", "旋转", 1));
+        AddInspector(ConstRow("深度", 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
-        InspectorHost.Children.Add(ConstRow("跟随运镜", 0, 1, 0.01,
+        AddInspector(ConstRow("跟随运镜", 0, 1, 0.01,
             () => layer.Parallax.Follow ?? layer.Parallax.Depth,
             v => layer.Parallax.Follow = v));
-        InspectorHost.Children.Add(ConstRow("环境光", 0, 1, 0.02,
+        AddInspector(ConstRow("环境光", 0, 1, 0.02,
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
-        InspectorHost.Children.Add(ConstRow("边缘光", 0, 1, 0.02,
+        AddInspector(ConstRow("边缘光", 0, 1, 0.02,
             () => layer.VisualBlend.RimGlow, v => layer.VisualBlend.RimGlow = v));
-        InspectorHost.Children.Add(ConstRow("阴影", 0, 1, 0.02,
+        AddInspector(ConstRow("阴影", 0, 1, 0.02,
             () => layer.VisualBlend.DropShadow, v => layer.VisualBlend.DropShadow = v));
 
         if (!string.IsNullOrWhiteSpace(layer.SpoutSenderName))
-            InspectorHost.Children.Add(BoolRow("预乘 Alpha", layer.Premultiplied, v =>
+        {
+            var isCharacter = layer.VtsCharacter
+                              ?? string.Equals(layer.Id, PvScene.CharacterLayerId, StringComparison.Ordinal);
+            AddInspector(BoolRow("VTS 角色来源", isCharacter,
+                v => SetVtsCharacterSource(layer, v)));
+            AddInspector(BoolRow("预乘 Alpha", layer.Premultiplied, v =>
             {
                 layer.Premultiplied = v;
                 RebuildStage();
             }));
+        }
 
         if (layer.Decor is { } decor) BuildDecorSection(decor);
 
-        if (layer.Id == PvScene.CharacterLayerId)
+        if (_scene.IsCharacterLayer(layer))
             BuildLayerCameraSection(layer);
     }
 
+    private void SetVtsCharacterSource(PvLayerConfig layer, bool on)
+    {
+        foreach (var l in _scene.Layers)
+        {
+            if (ReferenceEquals(l, layer)) l.VtsCharacter = on;
+            else if (on) l.VtsCharacter = false;
+        }
+
+        RebuildStage();
+        RefreshTimeline();
+        BuildInspector();
+        TblStatus.Text = on ? $"已设为 VTS 角色来源：{LayerTitle(layer)}" : "已取消 VTS 角色来源";
+    }
+
+    private string LayerTrackId(PvLayerConfig layer) =>
+        _scene.IsCharacterLayer(layer) ? PvScene.CharacterLayerId : layer.Id;
+
     private void BuildLayerCameraSection(PvLayerConfig layer)
     {
-        InspectorHost.Children.Add(SectionTitle("角色运镜（独立于全局运镜）"));
-        InspectorHost.Children.Add(ThemeText(
+        AddSectionTitle("角色运镜");
+        AddInspector(ThemeText(
             "角色默认跟随自己的运镜轨；跟随运镜 0 = 完全用角色运镜轨，1 = 完全跟全局运镜。",
             TextSecondaryKey, 11, wrap: true));
 
@@ -271,7 +321,7 @@ public partial class PvStageWindow
         foreach (var preset in CameraDirection.Presets)
             combo.Items.Add(new ComboBoxItem { Content = ZhLabel("cam", preset.Key), Tag = preset.Key });
         combo.SelectedIndex = 0;
-        InspectorHost.Children.Add(combo);
+        AddInspector(combo);
 
         var add = new Wpf.Ui.Controls.Button
         {
@@ -285,7 +335,7 @@ public partial class PvStageWindow
             if (combo.SelectedItem is ComboBoxItem { Tag: string key })
                 AddLayerCameraShot(layer, key);
         };
-        InspectorHost.Children.Add(add);
+        AddInspector(add);
 
         var copy = new Wpf.Ui.Controls.Button
         {
@@ -295,12 +345,14 @@ public partial class PvStageWindow
             Margin = new Thickness(0, 6, 0, 0),
         };
         copy.Click += (_, _) => CopyGlobalCameraToLayer(layer);
-        InspectorHost.Children.Add(copy);
+        AddInspector(copy);
 
-        if (_project.LayerCameraTracks.TryGetValue(layer.Id, out var track) && track.Shots.Count > 0)
-            InspectorHost.Children.Add(ThemeText(
+        if (_project.LayerCameraTracks.TryGetValue(LayerTrackId(layer), out var track) && track.Shots.Count > 0)
+            AddInspector(ThemeText(
                 $"已有 {track.Shots.Count} 段，可在时间线“角色运镜”轨选中编辑。",
                 TextSecondaryKey, 11, wrap: true));
+
+        BuildCharacterMoveSection();
     }
 
     private void CopyGlobalCameraToLayer(PvLayerConfig layer)
@@ -314,7 +366,7 @@ public partial class PvStageWindow
 
         var copy = source.Clone();
         copy.UserEdited = false;
-        _project.LayerCameraTracks[layer.Id] = copy;
+        _project.LayerCameraTracks[LayerTrackId(layer)] = copy;
         layer.Parallax.Follow = 0;
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
         PublishDirector();
@@ -326,7 +378,7 @@ public partial class PvStageWindow
 
     private void AddLayerCameraShot(PvLayerConfig layer, string preset)
     {
-        if (!_project.LayerCameraTracks.TryGetValue(layer.Id, out var track))
+        if (!_project.LayerCameraTracks.TryGetValue(LayerTrackId(layer), out var track))
         {
             track = new CameraTrack
             {
@@ -335,7 +387,7 @@ public partial class PvStageWindow
                 BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
                 Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
             };
-            _project.LayerCameraTracks[layer.Id] = track;
+            _project.LayerCameraTracks[LayerTrackId(layer)] = track;
         }
 
         double start = Math.Max(0, _audio.Time);
@@ -406,19 +458,19 @@ public partial class PvStageWindow
 
     private void BuildDecorSection(DecorConfig decor)
     {
-        InspectorHost.Children.Add(SectionTitle("装饰参数"));
+        AddSectionTitle("装饰");
 
-        InspectorHost.Children.Add(ConstRow("密度", 0, 300, 1,
+        AddInspector(ConstRow("密度", 0, 300, 1,
             () => decor.Density, v => decor.Density = v));
-        InspectorHost.Children.Add(ConstRow("速度", 0.2, 3, 0.05,
+        AddInspector(ConstRow("速度", 0.2, 3, 0.05,
             () => decor.Speed, v => decor.Speed = v));
-        InspectorHost.Children.Add(ConstRow("尺寸", 0.3, 3, 0.05,
+        AddInspector(ConstRow("尺寸", 0.3, 3, 0.05,
             () => decor.Size, v => decor.Size = v));
-        InspectorHost.Children.Add(ConstRow("种子", 1, 9999, 1,
+        AddInspector(ConstRow("种子", 1, 9999, 1,
             () => decor.Seed, v => decor.Seed = (int)Math.Round(v)));
 
-        InspectorHost.Children.Add(DecorColorRow("主色", decor.Color, v => decor.Color = v));
-        InspectorHost.Children.Add(DecorColorRow("辅色", decor.AccentColor, v => decor.AccentColor = v));
+        AddInspector(DecorColorRow("主色", decor.Color, v => decor.Color = v));
+        AddInspector(DecorColorRow("辅色", decor.AccentColor, v => decor.AccentColor = v));
     }
 
     private FrameworkElement DecorColorRow(string label, string hex, Action<string> write)
@@ -694,9 +746,10 @@ public partial class PvStageWindow
             _evaluator.SetCurve(row.Address, curve);
         }
 
-        var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
+        var mode = ModeOfKeyAt(curve, t) ?? CurveModeFor(row.Address);
         curve.Remove(t);
         curve.TryAdd(t, v, mode);
+        if (row.Address.Kind == ParamAddressKind.Vts) curve.SmoothBezierHandles();
 
         PublishDirector();
         RefreshParamRows();
@@ -715,9 +768,10 @@ public partial class PvStageWindow
             _evaluator.SetCurve(addr, curve);
         }
 
-        var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.SmoothStep;
+        var mode = ModeOfKeyAt(curve, t) ?? CurveModeFor(addr);
         curve.Remove(t);
         curve.TryAdd(t, value, mode);
+        if (addr.Kind == ParamAddressKind.Vts) curve.SmoothBezierHandles();
         PublishDirector();
     }
 
@@ -737,9 +791,10 @@ public partial class PvStageWindow
         {
             if (!row.Slider.IsMouseCaptureWithin) row.EditTime = t;
             var at = row.EditTime;
-            var mode = ModeOfKeyAt(curve, at) ?? CurveInterp.SmoothStep;
+            var mode = ModeOfKeyAt(curve, at) ?? CurveModeFor(row.Address);
             curve.Remove(at);
             curve.TryAdd(at, value, mode);
+            if (row.Address.Kind == ParamAddressKind.Vts) curve.SmoothBezierHandles();
             PublishDirector();
         }
         else
@@ -894,38 +949,38 @@ public partial class PvStageWindow
                 return;
         }
 
-        InspectorHost.Children.Add(SectionTitle(title));
-        InspectorHost.Children.Add(TechniqueRow(target, technique));
-        InspectorHost.Children.Add(InfoRow("来源", string.Equals(source, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "auto"));
+        AddSectionTitle(title);
+        AddInspector(TechniqueRow(target, technique));
+        AddInspector(InfoRow("来源", string.Equals(source, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "auto"));
 
         bool editable = target.LegacyCutIndex < 0;
         if (editable)
         {
-            InspectorHost.Children.Add(SegmentTimeRow("开始", () => times[0], v => times[0] = v));
-            InspectorHost.Children.Add(SegmentTimeRow("结束", () => times[1], v => times[1] = v));
+            AddInspector(SegmentTimeRow("开始", () => times[0], v => times[0] = v));
+            AddInspector(SegmentTimeRow("结束", () => times[1], v => times[1] = v));
             if (showFades)
             {
-                InspectorHost.Children.Add(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
-                InspectorHost.Children.Add(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
+                AddInspector(SegmentTimeRow("淡入", () => times[2], v => times[2] = v));
+                AddInspector(SegmentTimeRow("淡出", () => times[3], v => times[3] = v));
             }
 
-            InspectorHost.Children.Add(SegmentApplyRow(times, showFades));
+            AddInspector(SegmentApplyRow(times, showFades));
             var hint = ThemeText("时间单位为秒（0 = 音频开头），改完点「应用时间」生效", TextTertiaryKey, 11);
             hint.Margin = new Thickness(0, 0, 0, 2);
             hint.TextWrapping = TextWrapping.Wrap;
-            InspectorHost.Children.Add(hint);
+            AddInspector(hint);
         }
         else
         {
-            InspectorHost.Children.Add(InfoRow("开始", Fmt(times[0])));
-            InspectorHost.Children.Add(InfoRow("结束", Fmt(times[1])));
+            AddInspector(InfoRow("开始", Fmt(times[0])));
+            AddInspector(InfoRow("结束", Fmt(times[1])));
         }
 
         if (segParams.Count > 0)
         {
-            InspectorHost.Children.Add(SectionTitle("参数"));
+            AddSectionTitle("参数");
             foreach (var (key, value) in segParams.OrderBy(p => p.Key, StringComparer.Ordinal))
-                InspectorHost.Children.Add(SegmentParamRow(key, value));
+                AddInspector(SegmentParamRow(key, value));
         }
 
         if (editable)
@@ -946,7 +1001,7 @@ public partial class PvStageWindow
             lockToggle.Unchecked += (_, _) => WriteSegmentLocked(false);
             Grid.SetColumn(lockToggle, 1);
             lockRow.Children.Add(lockToggle);
-            InspectorHost.Children.Add(lockRow);
+            AddInspector(lockRow);
         }
     }
 
@@ -1367,23 +1422,53 @@ public partial class PvStageWindow
 
     private void BuildProjectSection()
     {
-        InspectorHost.Children.Add(SectionTitle("工程"));
-        InspectorHost.Children.Add(InfoRow("画布", $"{_scene.Width}×{_scene.Height}"));
-        InspectorHost.Children.Add(InfoRow("帧率", $"{_scene.Fps} fps"));
-        InspectorHost.Children.Add(InfoRow("时长", Fmt(_audio.Duration)));
-        InspectorHost.Children.Add(InfoRow("音频",
+        AddSectionTitle("工程");
+        AddInspector(InfoRow("画布", $"{_scene.Width}×{_scene.Height}"));
+        AddInspector(InfoRow("帧率", $"{_scene.Fps} fps"));
+        AddInspector(InfoRow("时长", Fmt(_audio.Duration)));
+        AddInspector(InfoRow("音频",
             string.IsNullOrWhiteSpace(_audioPath) ? "未绑定" : Path.GetFileName(_audioPath), _audioPath));
         var lyrics = _lyrics is null ? "未装载" : $"{_lyrics.Count} 句";
-        InspectorHost.Children.Add(InfoRow("歌词", _tailUncalibrated ? lyrics + " · 末句待校准" : lyrics));
+        AddInspector(InfoRow("歌词", _tailUncalibrated ? lyrics + " · 末句待校准" : lyrics));
     }
 
-    private TextBlock SectionTitle(string text)
+    private void AddSectionTitle(string text)
     {
-        var title = ThemeText(text, TextTertiaryKey, 11);
-        title.FontWeight = FontWeights.SemiBold;
-        title.Margin = new Thickness(2, 10, 0, 6);
-        return title;
+        if (_inspectorTabs is null)
+        {
+            _inspectorTabs = new TabControl
+            {
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Style = TryFindResource("InspectorTabs") as Style,
+            };
+            _inspectorTabs.SelectionChanged += (_, _) =>
+            {
+                if (!_buildingInspector && _inspectorTabs?.SelectedItem is TabItem { Header: string header })
+                    _inspectorTab = header;
+            };
+            InspectorHost.Children.Add(_inspectorTabs);
+        }
+
+        var content = new StackPanel();
+        var scroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Padding = new Thickness(0, 4, 4, 8),
+            Content = content,
+        };
+        _inspectorTabs.Items.Add(new TabItem
+        {
+            Header = text,
+            Content = scroll,
+            Style = TryFindResource("InspectorTabItem") as Style,
+        });
+        _inspectorTarget = content;
     }
+
+    private void AddInspector(UIElement element) => _inspectorTarget.Children.Add(element);
 
     private FrameworkElement InfoRow(string label, string value, string? tip = null)
     {
@@ -1444,11 +1529,19 @@ public partial class PvStageWindow
         {
             case ParamAddressKind.Camera:
                 return "镜头 · " + name;
+            case ParamAddressKind.Vts:
+                return "角色移动 · " + (addr.Param switch
+                {
+                    "x" => "位移X",
+                    "y" => "位移Y",
+                    "size" => "缩放Z",
+                    _ => addr.Param,
+                });
             case ParamAddressKind.Layer:
                 foreach (var layer in _scene.Layers)
                     if (string.Equals(layer.Id, addr.Target, StringComparison.Ordinal))
                     {
-                        var prefix = string.Equals(layer.Id, PvScene.CharacterLayerId, StringComparison.Ordinal)
+                        var prefix = _scene.IsCharacterLayer(layer)
                             ? "角色"
                             : LayerTitle(layer);
                         return prefix + " · " + name;

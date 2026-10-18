@@ -1,24 +1,3 @@
-// 移植自 frontend/src/engine/11p_horror3.js（horror 包 3/3：decor、背景、运镜、屏幕特效、
-// 转场和三个风格）。
-//
-// 注册组：decor ×7 / bg ×4 / cam ×2 / fx ×3 / trans ×2 / style ×3（Reg.Styles，"不覆盖"语义）。
-// RNG：plan 侧 Rng 顺序流逐行对位；Draw/Get 侧全走 J.R/J.Rs/J.Rr/J.H 确定性哈希。
-//
-// extra/set 标记：JS 条目上的 `set: 'horror'` 已落 IRegEntry.Set 真字段（RegD/B/C/F/X 统一赋值）；
-// 风格上的 set 落在 StyleDef.Extra["set"]（Omakase 门禁读该键）；`ae: '…'` 行内注释。
-//
-// 桩/TODO：
-// 1. fx ×3（hrSubliminal/hrSignalLoss/hrPassingShadow）的 draw(ctx, ev, k, I) 是整帧合成路径
-//   （拿上一帧快照做 difference/multiply、黑屏出字、横穿暗影），Renderer 目前只有内置分支
-//   （Renderer.cs 里 TODO(11p) 明说等 11p_fxB 定型签名）——本文件按元数据全量注册
-//   （name/tags/w/dur/amp/glitchy/mid/pre），Draw 留空 + TODO。
-// 2. trans 的 draw(ctx, A, B, p, I) 已定型为 TransDrawFn（Renderer + P11TreatTrans 同款），
-//    hrStaticCut/hrBlink 全量移植；createPattern + DOMMatrix → SKShader.CreateBitmap + SKMatrix。
-// 3. bg 的 bgT（同 bg 同 seed 连跑的起始时刻）用 ConditionalWeakTable 按 Cut 实例缓存
-//   （对位 JS WeakMap bgRun）。
-//
-// 跨文件符号对位：J.centerBB→JLayouts.CenterBb、J.blob/poly/line/circle/arc/rect/rrect/
-// polyPartial→env.*、J.mix/lum/rgba(本地)/fitContrast/h/r/rs/rr/noise1/clamp/lerp/smooth→J.*。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -32,33 +11,24 @@ public static class P11Horror3
     private const string P = "horror3";
     private static int _installed;
 
-    // JS reg 助手：Object.assign({set: 'horror'}, def) —— 各组注册前统一落 IRegEntry.Set
     private static void RegD(string key, DecorDef def) { def.Set = "horror"; Reg.Register("decor", key, def, P); }
     private static void RegB(string key, BgDef def) { def.Set = "horror"; Reg.Register("bg", key, def, P); }
     private static void RegC(string key, CamDef def) { def.Set = "horror"; Reg.Register("cam", key, def, P); }
     private static void RegF(string key, FxDef def) { def.Set = "horror"; Reg.Register("fx", key, def, P); }
     private static void RegX(string key, TransDef def) { def.Set = "horror"; Reg.Register("trans", key, def, P); }
 
-    // ================= 本包 helper（JS L10-77 逐条对位） =================
-
     private static double U(Env env) => Math.Min(env.W, env.H);
     private static bool IsDark(string? c) => J.Lum(c ?? "#000000") < 0.45;
 
-    /// <summary>Math.hypot 对位（.NET BCL 无 Math.Hypot）。</summary>
-    private static double Hypot(double a, double b) => Math.Sqrt(a * a + b * b);
+        private static double Hypot(double a, double b) => Math.Sqrt(a * a + b * b);
 
-    /// <summary>两点式 CreateRadialGradient 在本 SkiaSharp 版本收 SKColorF[]。</summary>
-    private static SKColorF Cf(string hex, double a = 1)
+        private static SKColorF Cf(string hex, double a = 1)
     {
         var c = Env.SkColor(hex, a);
         return new SKColorF(c.Red / 255f, c.Green / 255f, c.Blue / 255f, c.Alpha / 255f);
     }
 
-    /// <summary>
-    /// JS createRadialGradient(x, y, r0, x, y, r1)（同心两点式）→ 单心 CreateRadialGradient。
-    /// SkiaSharp 4.x 移除了两点式：r0 以内延续首色，[r0, r1] 线性映射 stops 的位置。
-    /// </summary>
-    private static SKShader Radial2(double cx, double cy, double r0, double r1, (double Pos, SKColorF Col)[] stops)
+        private static SKShader Radial2(double cx, double cy, double r0, double r1, (double Pos, SKColorF Col)[] stops)
     {
         var k = r1 > r0 ? r0 / r1 : 0;
         var cols = new SKColorF[stops.Length + 1];
@@ -80,11 +50,9 @@ public static class P11Horror3
 
     private static string NightC(Scheme sc) => J.Mix(ScK(sc, "bg"), "#000000", IsDark(ScK(sc, "bg")) ? 0.72 : 0.9);
 
-    /// <summary>layC(sc, k)：配色底/字色的插值（背景结构线用）。</summary>
-    private static string LayC(Scheme sc, double k) => J.Mix(ScK(sc, "bg"), ScK(sc, "fg"), k);
+        private static string LayC(Scheme sc, double k) => J.Mix(ScK(sc, "bg"), ScK(sc, "fg"), k);
 
-    /// <summary>配色读取兜底（JS 直接读 sc.xxx；hrMold 会读 accent2/sub，缺字段回黑）。</summary>
-    private static string ScK(Scheme sc, string k) => sc.Str(k) ?? k switch
+        private static string ScK(Scheme sc, string k) => sc.Str(k) ?? k switch
     {
         "bg" => "#000000",
         "fg" => "#FFFFFF",
@@ -104,7 +72,6 @@ public static class P11Horror3
     private static bool Overlaps(BBox bb, double x0, double y0, double x1, double y1, double pad = 0) =>
         !(x1 < bb.X0 - pad || x0 > bb.X1 + pad || y1 < bb.Y0 - pad || y0 > bb.Y1 + pad);
 
-    // 噪点纹理块：只建一次，确定性（JS L27-43；4 张 canvas → SKBitmap 缓存）
     private static readonly SKBitmap?[] Noise = new SKBitmap?[4];
 
     private static SKBitmap NoiseCv(int k)
@@ -113,8 +80,7 @@ public static class P11Horror3
         if (Noise[k] is { } hit) return hit;
         const int w = 128, h = 96;
         var bmp = new SKBitmap(w, h, SKColorType.Bgra8888, SKAlphaType.Premul);
-        var bytes = bmp.Bytes; // Bgra8888：B,G,R,A 逐像素
-        for (var i = 0; i < w * h; i++)
+        var bytes = bmp.Bytes;         for (var i = 0; i < w * h; i++)
         {
             var v = (byte)(Math.Pow(J.R(i, k, 5511), 1.3) * 255);
             bytes[i * 4] = v;
@@ -136,7 +102,6 @@ public static class P11Horror3
         Color = SKColors.White.WithAlpha((byte)Math.Round(J.Clamp(alpha) * 255)),
     };
 
-    // bgT：该背景从开始算起的时间；相邻同 bg 且同 seed 的 cut 视为同一次（JS L45-60）。
     private static readonly ConditionalWeakTable<Cut, StrongBox<double>> BgRun = new();
 
     private static double BgT(Env env)
@@ -164,8 +129,7 @@ public static class P11Horror3
         return env.T - box.Value;
     }
 
-    /// <summary>bg 包装：draw(env, Pm, ctx) 外面套 ctx save/restore。JS bgReg。</summary>
-    private static BgDef BgReg(string key, string name, string[] tags, double w, bool subtle,
+        private static BgDef BgReg(string key, string name, string[] tags, double w, bool subtle,
         Func<Rng, StyleDef, JObject>? plan, Action<Env, JObject, SKCanvas> draw)
     {
         return new BgDef
@@ -192,18 +156,13 @@ public static class P11Horror3
         };
     }
 
-    /// <summary>灯光亮度 0..1，按输出帧率时钟采样：大部分时间亮着，偶尔闪断。JS lamp。</summary>
-    private static double Lamp(double t, int seed, double rate = 1, int fps = 24)
+        private static double Lamp(double t, int seed, double rate = 1, int fps = 24)
     {
         var st = (int)Math.Floor(t * fps);
         var run = st >> 2;
         if (J.R(seed, run, 7) < 0.1 * rate) return J.R(seed, st, 8) < 0.5 ? 0.15 : 0.55;
         return 0.88 + 0.12 * J.R(seed, st, 9);
     }
-
-    // ================= decor（JS L80-335 出现序） =================
-
-    // ---------------- hrScratches（JS L80-112） ----------------
 
     private static void RegisterHrScratches() => RegD("hrScratches", new DecorDef
     {
@@ -257,7 +216,6 @@ public static class P11Horror3
                         pts[i] = new[] { x0 + dx * len * f + px * j, y0 + dy * len * f + py * j };
                     }
 
-                    // 中间粗、两端细
                     var lw = u * 0.011;
                     for (var i = 0; i < m; i++)
                         env.Line(new[] { pts[i], pts[i + 1] }, col,
@@ -266,8 +224,6 @@ public static class P11Horror3
             }
         },
     });
-
-    // ---------------- hrSigil（JS L115-149） ----------------
 
     private static void RegisterHrSigil() => RegD("hrSigil", new DecorDef
     {
@@ -304,7 +260,6 @@ public static class P11Horror3
             }
 
             env.PolyPartial(pts.ToArray(), J.Clamp((env.Lt - 0.3) / 1.2), col, lw, a, false);
-            // 两圈之间的刻痕
             const int m = 42;
             for (var i = 0; i < m * e; i++)
             {
@@ -332,8 +287,6 @@ public static class P11Horror3
         },
     });
 
-    // ---------------- hrWatchEye（JS L152-203） ----------------
-
     private static void RegisterHrWatchEye() => RegD("hrWatchEye", new DecorDef
     {
         Name = "見ている目",
@@ -357,7 +310,6 @@ public static class P11Horror3
                     ? Math.Max(y, Math.Min(H - eh * 1.2, bb.Y1 + eh * 1.6))
                     : Math.Min(y, Math.Max(eh * 1.2, bb.Y0 - eh * 1.6));
             var open = J.E.OutCubic(J.Clamp((env.Lt - 0.2) / 0.6)) * (1 - J.E.InCubic(env.POut));
-            // 不定期眨眼
             var bt = env.Ltb;
             for (var k = 0; k < 3; k++)
             {
@@ -392,7 +344,6 @@ public static class P11Horror3
 
             var top = Lid(-1);
             var bot = Lid(1);
-            // 虹膜和瞳孔裁剪在眼眶里，望向文字
             var tx = (bb.X0 + bb.X1) / 2;
             var ty = (bb.Y0 + bb.Y1) / 2;
             var an = Math.Atan2(ty - y, tx - x);
@@ -422,8 +373,6 @@ public static class P11Horror3
             }
         },
     });
-
-    // ---------------- hrStaticPatch（JS L206-232） ----------------
 
     private static void RegisterHrStaticPatch() => RegD("hrStaticPatch", new DecorDef
     {
@@ -462,7 +411,6 @@ public static class P11Horror3
                 var sx = (int)Math.Floor(J.R(s, k, st, 9) * 64);
                 var sy = (int)Math.Floor(J.R(s, k, st, 10) * 48);
                 using var p = AlphaPaint(a0 * J.Rr(0.45, 0.85, s, k, st, 11));
-                // ctx.drawImage(N, sx, sy, 48, 24, x, y, w, h)（imageSmoothing off）
                 ctx.DrawImage(img,
                     new SKRect(sx, sy, sx + 48, sy + 24),
                     new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), SampNearest, p);
@@ -471,8 +419,6 @@ public static class P11Horror3
             ctx.Restore();
         },
     });
-
-    // ---------------- hrDustBeam（JS L235-275） ----------------
 
     private static void RegisterHrDustBeam() => RegD("hrDustBeam", new DecorDef
     {
@@ -511,7 +457,6 @@ public static class P11Horror3
                 path.Close();
                 if (!IsDark(ScK(sc, "bg")))
                 {
-                    // 亮纸配色：改为压暗光柱之外的房间（evenodd：整屏 rect + 光柱 poly）
                     using var room = new SKPath { FillType = SKPathFillType.EvenOdd };
                     room.AddRect(new SKRect(-10, -10, (float)(W + 10), (float)(H + 10)));
                     room.AddPath(path);
@@ -549,8 +494,6 @@ public static class P11Horror3
             ctx.Restore();
         },
     });
-
-    // ---------------- hrDrips（JS L278-302） ----------------
 
     private static void RegisterHrDrips() => RegD("hrDrips", new DecorDef
     {
@@ -593,8 +536,6 @@ public static class P11Horror3
             }
         },
     });
-
-    // ---------------- hrCracks（JS L305-335） ----------------
 
     private static void RegisterHrCracks() => RegD("hrCracks", new DecorDef
     {
@@ -651,10 +592,6 @@ public static class P11Horror3
         },
     });
 
-    // ================= bg（JS L337-506 出现序） =================
-
-    // ---------------- hrFailingLamp（JS L337-361） ----------------
-
     private static void RegisterHrFailingLamp() => RegB("hrFailingLamp", BgReg("hrFailingLamp",
         "切れかけの灯", new[] { "horror", "emotional" }, 0.9, true,
         (rng, _) => new JObject
@@ -688,7 +625,6 @@ public static class P11Horror3
                        new[] { (0.0, Cf(dk, 0)), (1.0, Cf(dk, (0.75 - 0.25 * lv) * fi)) }))
             using (var p = new SKPaint { Shader = v })
                 ctx.DrawRect(new SKRect(0, 0, (float)W, (float)H), p);
-            // 顶上的灯管本身
             using (var p = new SKPaint
                    {
                        Color = Env.SkColor(LayC(sc, IsDark(ScK(sc, "bg")) ? 0.35 : 0.15), (0.25 + 0.5 * lv) * fi),
@@ -696,8 +632,6 @@ public static class P11Horror3
                 ctx.DrawRect(new SKRect((float)(cx - u * 0.12), (float)(u * 0.012),
                     (float)(cx + u * 0.12), (float)(u * 0.012 + Math.Max(2, u * 0.006))), p);
         }));
-
-    // ---------------- hrCorridor（JS L363-429） ----------------
 
     private static void RegisterHrCorridor() => RegB("hrCorridor", BgReg("hrCorridor",
         "暗い廊下", new[] { "horror", "graphic" }, 0.8, false,
@@ -722,7 +656,6 @@ public static class P11Horror3
             var bh = H * 0.1;
             var col = LayC(sc, IsDark(ScK(sc, "bg")) ? 0.28 : 0.22);
             var lw = Math.Max(1.2, u * 0.0026);
-            // 尽头的灯（会闪）
             var lv = Lamp(env.T, (int)JLayouts.D(Pm, "seed") + 1, 1, env.Fps);
             using (var g = Radial2(vx, vy, 0, Math.Max(bw, bh) * 3,
                        new[]
@@ -748,7 +681,6 @@ public static class P11Horror3
                 }
 
                 path.AddRect(new SKRect((float)(vx - bw), (float)(vy - bh), (float)(vx + bw), (float)(vy + bh)));
-                // 朝镜头滑来的门框
                 const int n = 7;
                 var sp = NumOr(Pm, "spd", 0.35);
                 for (var k = 0; k < n; k++)
@@ -765,7 +697,6 @@ public static class P11Horror3
                     path.LineTo((float)x1, (float)y1);
                     if (JLayouts.B(Pm, "doors") && k % 2 == 0)
                     {
-                        // 两侧墙上的门：天花线和地脚线之间的竖线
                         var z2 = Math.Pow(Wrap(f + 0.05, 1), 2.2);
                         if (z2 > z)
                             for (var side = 0; side < 2; side++)
@@ -797,8 +728,6 @@ public static class P11Horror3
             using (var p = new SKPaint { Shader = v })
                 ctx.DrawRect(new SKRect(0, 0, (float)W, (float)H), p);
         }));
-
-    // ---------------- hrMold（JS L431-467） ----------------
 
     private static void RegisterHrMold() => RegB("hrMold", BgReg("hrMold",
         "広がる染み", new[] { "horror", "emotional" }, 0.7, true,
@@ -856,7 +785,6 @@ public static class P11Horror3
                     ctx.DrawPath(path, p);
                 }
 
-                // 污渍边缘的斑点
                 for (var j = 0; j < 14; j++)
                 {
                     var a = J.R(s, i, j, 5) * J.TAU;
@@ -866,8 +794,6 @@ public static class P11Horror3
                 }
             }
         }));
-
-    // ---------------- hrDeadTrees（JS L469-506） ----------------
 
     private static void RegisterHrDeadTrees() => RegB("hrDeadTrees", BgReg("hrDeadTrees",
         "枯れ木の森", new[] { "horror", "calm", "emotional" }, 0.7, false,
@@ -907,8 +833,7 @@ public static class P11Horror3
                                {
                                    IsAntialias = true,
                                    IsStroke = true,
-                                   StrokeCap = SKStrokeCap.Round, // JS ctx.lineCap = 'round'
-                                   StrokeWidth = (float)Math.Max(1, u * 0.02 * sk * Math.Pow(0.55, d)),
+                                   StrokeCap = SKStrokeCap.Round,                                    StrokeWidth = (float)Math.Max(1, u * 0.02 * sk * Math.Pow(0.55, d)),
                                    Color = Env.SkColor(col, fi),
                                })
                         using (var path = new SKPath())
@@ -942,10 +867,7 @@ public static class P11Horror3
                 ctx.DrawRect(new SKRect(0, (float)(H * 0.45), (float)W, (float)H), p);
         }));
 
-    // ================= cam（JS L508-544） =================
-
-    /// <summary>KM(env)：JS 的 clamp((env.fx.motion ?? 0.7) * 1.25, 0, 1.25)。</summary>
-    private static double KM(Env env) => J.Clamp(env.Fx.Motion * 1.25 * NumOr(env.Cut?.CamP ?? new JObject(), "gain", 1), 0, 4);
+        private static double KM(Env env) => J.Clamp(env.Fx.Motion * 1.25 * NumOr(env.Cut?.CamP ?? new JObject(), "gain", 1), 0, 4);
 
     private static double NumOr(JObject p, string k, double d) =>
         p[k] is JValue v && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : d;
@@ -967,7 +889,6 @@ public static class P11Horror3
             var y = (J.Noise1(t * f * 1.4, sd + 2) * 0.6 + J.Noise1(t * f * 4.7, sd + 3) * 0.4) * env.H * 0.011 * K
                     + Math.Sin(t * 2.2) * env.H * 0.004 * K;
             var rot = J.Noise1(t * f * 1.1, sd + 4) * 1.2 * K;
-            // 偶尔猛地一缩，很快稳住
             const double per = 1.6;
             var cyc = (int)Math.Floor(t / per);
             var since = t - cyc * per - J.R(sd, cyc, 5) * per * 0.6;
@@ -1011,11 +932,6 @@ public static class P11Horror3
         },
     });
 
-    // ================= fx（JS L546-664；draw 整帧合成路径见头注 TODO 1） =================
-
-    /// <summary>evS(ev)：事件确定种子。JS 的 J.h(Math.round(ev.t * 1000), 9127)。</summary>
-    private static int EvS(PlanEvent ev) => unchecked((int)J.H((int)Math.Round(ev.T * 1000), 9127));
-
     private static void RegisterHrSubliminal() => RegF("hrSubliminal", new FxDef
     {
         Name = "サブリミナル",
@@ -1025,9 +941,6 @@ public static class P11Horror3
         Amp = 1,
         Glitchy = true,
         Mid = true,
-        // JS: scratch: true / ae: 'invert'（IRegEntry 无对应字段）
-        // TODO(11p)：draw(ctx, ev, k, I) 整帧合成（上一帧快照放大 + difference/multiply 红染 +
-        // 压暗）等 Renderer 定型非内置 fx 签名后按 JS L569-586 移植。
         Draw = null,
     });
 
@@ -1040,8 +953,6 @@ public static class P11Horror3
         Pre = 3,
         Amp = 1,
         Glitchy = true,
-        // JS: scratch: true / ae: 'blackFrame'
-        // TODO(11p)：draw：撕裂 → 黑屏 NO SIGNAL 字样 → 画面滚回（JS L600-636），等 fx 签名定型。
         Draw = null,
     });
 
@@ -1053,15 +964,10 @@ public static class P11Horror3
         Dur = 5,
         Amp = 1,
         Mid = true,
-        // JS: ae: 'flash'
-        // TODO(11p)：draw：高大的暗影在几帧内横穿画面（JS L641-664），等 fx 签名定型。
         Draw = null,
     });
 
-    // ================= trans（JS L666-737；TransDrawFn 已定型，全量移植） =================
-
-    /// <summary>trReg 包装：p<=0 精确输出 A、p>=1 精确输出 B（同 P11TreatTrans.Wrap）。</summary>
-    private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
+        private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
         (ctx, a, b, p, i) =>
         {
             ctx.Save();
@@ -1076,8 +982,6 @@ public static class P11Horror3
                 ctx.Restore();
             }
         };
-
-    // ---------------- hrStaticCut（JS L678-701） ----------------
 
     private static void RegisterHrStaticCut() => RegX("hrStaticCut", new TransDef
     {
@@ -1101,7 +1005,6 @@ public static class P11Horror3
                 if (oy != 0) ctx.DrawImage(src, 0f, oy > 0 ? oy - ch : oy + ch, SampLinear, sp);
             }
 
-            // createPattern(N, 'repeat') + DOMMatrix 平移缩放 → CreateBitmap + CreateScaleTranslation
             var sz = Math.Max(1, (int)Math.Round(ch / 400.0));
             var tx = -(int)Math.Floor(J.R(st, 1) * 128) * sz * 2;
             var ty = -(int)Math.Floor(J.R(st, 2) * 96) * sz;
@@ -1117,8 +1020,6 @@ public static class P11Horror3
                 ctx.DrawRect(new SKRect(0, (float)(J.R(st, 3) * ch), cw, (float)(J.R(st, 3) * ch + ch * 0.12)), p3);
         }),
     });
-
-    // ---------------- hrBlink（JS L704-737） ----------------
 
     private static void RegisterHrBlink() => RegX("hrBlink", new TransDef
     {
@@ -1160,7 +1061,6 @@ public static class P11Horror3
                 }
             }
 
-            // 眼睑周围的软边
             using (var shader = SKShader.CreateLinearGradient(
                        new SKPoint(0, 0), new SKPoint(0, ch),
                        new[] { new SKColor(0, 0, 0, 153), new SKColor(0, 0, 0, 0), new SKColor(0, 0, 0, 153) },
@@ -1169,10 +1069,6 @@ public static class P11Horror3
                 ctx.DrawRect(new SKRect(0, 0, cw, ch), p2);
         }),
     });
-
-    // ================= style ×3（JS L739-994） =================
-    // JS 的 J.STYLES[k] 赋值是"不覆盖"语义（core 风格存在即跳过）；C# 对位写 Reg.Styles +
-    // JStyles.StyleOrder 追加。desc/set/fonts/texture/ghost/glow 进 StyleDef.Extra。
 
     private static JObject W(params (string K, object V)[] kv)
     {
@@ -1188,7 +1084,6 @@ public static class P11Horror3
         return s;
     }
 
-    // JS 字面量是整数处保持整数（JSON 往返对齐 JSON.stringify：1 而非 1.0）
     private static JToken ToTok(object v) => v switch
     {
         JToken t => t,
@@ -1202,7 +1097,6 @@ public static class P11Horror3
 
     private static void RegisterStyles()
     {
-        // LAY / ENT / EXI：horror 布局/入场/退场的抽取偏置表（JS L739-781）
         var LAY = W(
             ("hrFlashlight", 1.6), ("hrDoorGap", 1.3), ("hrWallScrawl", 1.2), ("hrCctv", 1.2),
             ("hrOuija", 0.9), ("hrMissing", 1), ("hrWrongOne", 1.5), ("hrRisingDark", 1.3),
@@ -1224,8 +1118,7 @@ public static class P11Horror3
             return o;
         }
 
-        if (Reg.Styles.ContainsKey("hrRuin")) return; // 幂等 + 不覆盖（JS: if (J.STYLES[k]) continue）
-
+        if (Reg.Styles.ContainsKey("hrRuin")) return; 
         Reg.Styles["hrRuin"] = new StyleDef
         {
             Key = "hrRuin",
@@ -1400,30 +1293,8 @@ public static class P11Horror3
         if (!JStyles.StyleOrder.Contains("hrCurse")) JStyles.StyleOrder.Add("hrCurse");
     }
 
-    // ================= 注册（JS 源 reg/bgReg/fx/trReg/STYLES 出现序） =================
-
-    /// <summary>幂等注册本文件全部条目（顺序 = JS 源调用序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterHrScratches();    // decor, JS L80
-        RegisterHrSigil();        // decor, JS L115
-        RegisterHrWatchEye();     // decor, JS L152
-        RegisterHrStaticPatch();  // decor, JS L206
-        RegisterHrDustBeam();     // decor, JS L235
-        RegisterHrDrips();        // decor, JS L278
-        RegisterHrCracks();       // decor, JS L305
-        RegisterHrFailingLamp();  // bg,    JS L337
-        RegisterHrCorridor();     // bg,    JS L363
-        RegisterHrMold();         // bg,    JS L431
-        RegisterHrDeadTrees();    // bg,    JS L469
-        RegisterHrNervous();      // cam,   JS L510
-        RegisterHrDutchSnap();    // cam,   JS L531
-        RegisterHrSubliminal();   // fx,    JS L559
-        RegisterHrSignalLoss();   // fx,    JS L590
-        RegisterHrPassingShadow();// fx,    JS L639
-        RegisterHrStaticCut();    // trans, JS L678
-        RegisterHrBlink();        // trans, JS L704
-        RegisterStyles();         // style, JS L782-994
-    }
+        RegisterHrScratches();            RegisterHrSigil();                RegisterHrWatchEye();             RegisterHrStaticPatch();          RegisterHrDustBeam();             RegisterHrDrips();                RegisterHrCracks();               RegisterHrFailingLamp();          RegisterHrCorridor();             RegisterHrMold();                 RegisterHrDeadTrees();            RegisterHrNervous();              RegisterHrDutchSnap();            RegisterHrSubliminal();           RegisterHrSignalLoss();           RegisterHrPassingShadow();        RegisterHrStaticCut();            RegisterHrBlink();                RegisterStyles();             }
 }

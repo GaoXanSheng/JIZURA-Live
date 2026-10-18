@@ -2,24 +2,11 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.LegacyEngine.Packs;
 
-// 移植自 frontend/src/engine/11p_styles.js：追加风格包（12 个风格）。
-//
-// scheme 字段：bg/fg/sub/accent/accent2；ink=贴纸和色块的颜色，其上的文字用 bg 画；dim=弱化的背景文字；
-// ghostA/ghostB=色差残影（暗底 source-over、亮底 multiply）；grad?/paper?=可选的渐变色对与纸张质感——
-// 全部原样进 Scheme.Extra（渲染数据契约，一字不改）。
-//
-// 字段对位：name→StyleDef.Name、desc→Extra["desc"]、moods→StyleDef.Tags（omakase 按风格 moods
-// 选主题 → Omakase 用 sd.Tags.Contains(mood)）、fonts/texture/ghost/glow/useGrad→Extra、
-// glitchBoost→StyleDef.GlitchBoost、hud→StyleDef.Hud、bias/decor→StyleDef.Bias/Decor。
-// bias 七组（layout/enter/exit/treat/bg/cam/fx）逐键保持源顺序与数值。
-//
-// 注册语义：JS `if (J.STYLES[k]) continue`（不覆盖核心风格）→ ContainsKey 跳过；STYLE_ORDER 追加。
 public static class P11Styles
 {
     private static int _installed;
 
-    /// <summary>11p_styles.js 的 IIFE 载入即注册；显式公开供装配按文件序调用。幂等。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (_installed != 0) return;
         _installed = 1;
@@ -535,15 +522,12 @@ public static class P11Styles
             false, null, ("glow", 1.7), ("useGrad", true)));
     }
 
-    /// <summary>JS `if (J.STYLES[k]) continue`：不覆盖已有（核心/先注册的）风格。</summary>
-    private static void Put(string key, StyleDef st)
+        private static void Put(string key, StyleDef st)
     {
         if (Reg.Styles.ContainsKey(key)) return;
         Reg.Styles[key] = st;
         if (!JStyles.StyleOrder.Contains(key)) JStyles.StyleOrder.Add(key);
     }
-
-    // ---------------- 构造助手（对位 JStyles 私有助手 + bias 七组） ----------------
 
     private static StyleDef Style(string key, string name, string desc, string[] moods, Scheme[] schemes,
         JObject fonts, JObject texture, double ghost, JObject bias, JObject decor, bool hud,
@@ -612,7 +596,6 @@ public static class P11Styles
         return o;
     }
 
-    // JS 字面量是整数处保持整数（JSON 往返对齐 JSON.stringify：1 而非 1.0）
     private static JToken ToTok(object v) => v switch
     {
         JToken t => t,

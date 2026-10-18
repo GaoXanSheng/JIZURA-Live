@@ -34,6 +34,63 @@
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
             <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Microsoft YaHei UI" />
         </Style>
+        <Style x:Key="InspectorTabs" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <ItemsPresenter Grid.Row="0" />
+                            <ContentPresenter Grid.Row="1" Margin="0,6,0,0"
+                                              ContentSource="SelectedContent" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="InspectorTabItem" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Grid Background="Transparent">
+                            <Border x:Name="Bg" Margin="0,0,0,2" CornerRadius="4" Background="Transparent" />
+                            <ContentPresenter ContentSource="Header" Margin="9,5"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Border x:Name="Line" Height="2" Margin="4,0" VerticalAlignment="Bottom"
+                                    CornerRadius="1" Background="Transparent" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background"
+                                        Value="{DynamicResource ControlFillColorSecondaryBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Line" Property="Background"
+                                        Value="{DynamicResource AccentFillColorSecondaryBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </ui:FluentWindow.Resources>
 
     <Grid>
@@ -186,9 +243,7 @@
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </Grid>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,4,0,10">
-                        <StackPanel x:Name="InspectorHost" Margin="14,0,12,0" />
-                    </ScrollViewer>
+                    <Grid x:Name="InspectorHost" Margin="10,0,8,0" />
                 </DockPanel>
             </Border>
         </Grid>

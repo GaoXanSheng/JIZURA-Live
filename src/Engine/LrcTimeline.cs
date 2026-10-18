@@ -25,16 +25,6 @@ namespace JizuraLive.Engine
 
         private const long TailFallbackMs = 3000;
 
-        public static List<KrcLine> Parse(string? raw)
-        {
-            var result = ParseClips(raw);
-            var lines = new List<KrcLine>(result.Clips.Count);
-            foreach (var clip in result.Clips)
-                lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text, clip.Words));
-
-            return lines;
-        }
-
         public static LrcImportResult ParseClips(string? raw, double? audioDurationSeconds = null)
         {
             var clips = new List<LyricClip>();
@@ -198,40 +188,6 @@ namespace JizuraLive.Engine
 
             var clip = clips[match];
             return new LyricSample(clip.Id, clip.Text, clip.StartMs, clip.EndMs, clip.OutOfRange);
-        }
-
-        public static int FindLineIndex(IReadOnlyList<KrcLine> lines, double timeSeconds)
-        {
-            if (lines.Count == 0) return -1;
-            var tMs = (long)(timeSeconds * 1000.0);
-
-            var low = 0;
-            var high = lines.Count - 1;
-            var match = -1;
-
-            while (low <= high)
-            {
-                var mid = (low + high) / 2;
-                var line = lines[mid];
-
-                if (line.StartMs <= tMs)
-                {
-                    match = mid;
-                    low = mid + 1;
-                }
-                else
-                {
-                    high = mid - 1;
-                }
-            }
-
-            if (match >= 0)
-            {
-                var line = lines[match];
-                if (tMs < line.StartMs + line.DurMs) return match;
-            }
-
-            return -1;
         }
 
         private sealed record LyricEvent(

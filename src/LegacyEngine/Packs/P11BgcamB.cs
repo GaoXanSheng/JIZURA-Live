@@ -5,24 +5,6 @@ using SkiaSharp;
 
 namespace JizuraLive.LegacyEngine.Packs;
 
-// 移植自 frontend/src/engine/11p_bgcamB.js：bgcamB 手法包——bg 背景 37 条（渐变、和柄/织物纹样、
-// 场景、质感）+ cam 运镜 12 条，pack = "bgcamB"。
-//
-// Canvas2D → SkiaSharp 直译（README 约定 1）：
-//   createPattern(repeat)        → SKShader.CreateBitmap(tile, Repeat, Repeat, T·S localMatrix)
-//   离屏 canvas 缓存（CV/PL/LOWC）→ SKSurface.Snapshot 的 SKImage LRU（容量/预算同源）
-//   createConicGradient          → SKShader.CreateSweepGradient（JS 的无 conic 回退分支不再需要）
-//   globalAlpha                  → paint.Color alpha / DrawImage paint alpha
-//   globalCompositeOperation     → SKBlendMode（fireworks 的 screen、青海波瓦片的 destination-out）
-//   Path2D / fill('evenodd')     → SKPath（FillType=EvenOdd）
-//   putImageData 斑点噪声        → SKBitmap 逐像素写入 + SKImage.FromPixels 借用（Owner 保活）
-//
-// 跨文件符号对位：J.rgba→本地 Rgba、J.smooth→J.Smooth、J.mix/lum/contrast/noise1/r/rs/rr/h→J.*、
-// J.E.*→J.E.*；clamp/lerp→J.Clamp/J.Lerp、Math.hypot→本地 Hyp。
-// env 对位：env.beat 已由渲染器挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatSince 按真节拍
-// 走，无拍才回退 ltb 取模式；
-// cam 返回的 sx/sy（vertigo/jelly）走 CamState.Sx/Sy，由渲染器按 JS 的
-// X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1)) 应用。
 public static class P11BgcamB
 {
     private const string PKG = "bgcamB";
@@ -31,13 +13,10 @@ public static class P11BgcamB
     private static readonly SKSamplingOptions SmpLinear = new(SKFilterMode.Linear, SKMipmapMode.None);
     private static readonly SKSamplingOptions SmpNearest = new(SKFilterMode.Nearest);
 
-    /// <summary>11p_bgcamB.js 的 IIFE 载入即注册；显式公开供装配按文件序调用。幂等。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (_installed != 0) return;
         _installed = 1;
-
-        // ================= bg 背景（源注册顺序即候选顺序，不能变） =================
 
         BgReg("auroraRibbons", "オーロラ", new[] { "emotional", "calm" }, 0.9, false,
             rng => Prm(
@@ -263,8 +242,6 @@ public static class P11BgcamB
                 ("acc", rng.Chance(0.5)), ("p", rng.Range(2.4, 3.2))),
             DrawPaperCut);
 
-        // ================= cam 运镜 =================
-
         Reg.Register("cam", "orbitDrift", new CamDef
         {
             Name = "周回", Tags = new[] { "calm", "emotional", "graphic" }, W = 0.8,
@@ -295,9 +272,7 @@ public static class P11BgcamB
                 var p = CamP(env);
                 var K = Math.Min(1, KM(env));
                 var q = J.Clamp(env.Lt / Num(p, "d", 0.5));
-                if (q >= 1) return new CamState(); // JS return {}：全默认
-                var r = 1 - J.E.OutBack(q, 1.3); // 快速翻转，稍微过冲再回正
-                return new CamState
+                if (q >= 1) return new CamState();                 var r = 1 - J.E.OutBack(q, 1.3);                 return new CamState
                 {
                     Rot = Num(p, "dir", 1) * (Num(p, "a", 90)) * K * r,
                     S = 1 - 0.12 * K * Math.Sin(Math.PI * Math.Min(1, q * 1.25)),
@@ -312,12 +287,10 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("a", rng.Range(1.8, 2.6)), ("per", rng.Range(2, 3)), ("side", rng.Pick(new[] { 1.0, -1.0 })))),
             Get = env =>
             {
-                // 画面挂在屏幕上方的支点上，旋转和横移是联动的
                 var p = CamP(env);
                 var K = KM(env);
                 var damp = 0.75 + 0.25 * Math.Exp(-env.Lt * 0.6);
-                var L = env.W * 0.62; // 这样横移在任意画幅下都约是宽度的 3%
-                var phi = Num(p, "a", 2.2) * K * Num(p, "side", 1) * Math.Cos(env.Lt / Num(p, "per", 2.4) * J.TAU) * damp * J.DEG;
+                var L = env.W * 0.62;                 var phi = Num(p, "a", 2.2) * K * Num(p, "side", 1) * Math.Cos(env.Lt / Num(p, "per", 2.4) * J.TAU) * damp * J.DEG;
                 return new CamState { X = -L * Math.Sin(phi), Y = -L * (1 - Math.Cos(phi)), Rot = phi / J.DEG, S = 1.02 };
             }
         }, PKG);
@@ -333,7 +306,6 @@ public static class P11BgcamB
                 var q = J.E.OutCubic(J.Clamp(env.Lt / Num(p, "d", 0.65)));
                 return new CamState
                 {
-                    // 对焦时的镜头呼吸
                     Blur = (1 - q) * Num(p, "b", 12) * Math.Min(1, K),
                     S = 1 + 0.03 * (1 - q) + 0.012 * K * CuOf(env)
                 };
@@ -366,7 +338,6 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("per", rng.Range(0.55, 0.8)), ("a", rng.Range(0.85, 1.1)))),
             Get = env =>
             {
-                // 一直有低频晃动，节拍上再叠一下猛的；纵向为主，跑在跟随输出帧率的随机时钟上
                 var p = CamP(env);
                 var K = KM(env) * Num(p, "a", 1);
                 var hit = Math.Exp(-BeatSince(env, Num(p, "per", 0.65)) * 7);
@@ -410,7 +381,6 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("dir", rng.Pick(new[] { 1.0, -1.0 })), ("a", rng.Range(0.05, 0.07)))),
             Get = env =>
             {
-                // 缓慢推进但透视一直在变形：拉伸/错切随缩放变大
                 var p = CamP(env);
                 var K = KM(env);
                 var z = J.E.InOutSine(CuOf(env));
@@ -433,7 +403,6 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("a", rng.Range(0.024, 0.032)))),
             Get = env =>
             {
-                // 镜头向下摇：从画面下方升进来再停稳，顺带从轻微的 zoom 里缓出来
                 var p = CamP(env);
                 var K = KM(env);
                 var q = J.E.OutCubic(CuOf(env));
@@ -470,7 +439,6 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("dir", rng.Pick(new[] { 1.0, -1.0 })), ("a", rng.Range(0.024, 0.032)), ("at", rng.Range(0.45, 0.6)))),
             Get = env =>
             {
-                // 先保持一个构图，中途猛甩到相反构图（有节拍就卡节拍），再保持住
                 var p = CamP(env);
                 var K = KM(env);
                 var dur = env.Cut?.Dur ?? 0;
@@ -497,13 +465,11 @@ public static class P11BgcamB
             Plan = Plan(rng => Prm(("a", rng.Range(0.045, 0.065)), ("f", rng.Range(18, 24)))),
             Get = env =>
             {
-                // 挤压拉伸的晃动：切分开始时压扁落地，节拍上再晃一次
                 var p = CamP(env);
                 var K = KM(env);
                 var t = env.Lt;
                 var f = Num(p, "f", 21);
                 var w = Math.Exp(-t * 5) * Math.Cos(t * f);
-                // JS：beat 且 t>0.6 时叠一记 exp(-s*7)*cos(s*f)
                 if (env.BeatHas && env.BeatLen > 0.2 && t > 0.6)
                 {
                     var bs = BeatSince(env, 0.6);
@@ -515,26 +481,21 @@ public static class P11BgcamB
         }, PKG);
     }
 
-    // ================= 本包 helper（JS L9-212 逐条对位） =================
-
     private static bool IsDark(string c) => J.Lum(c) < 0.45;
     private static string Bg(Scheme sc) => sc.Str("bg") ?? "#000000";
     private static string Fg(Scheme sc) => sc.Str("fg") ?? "#FFFFFF";
     private static string Ac(Scheme sc) => sc.Str("accent") ?? "#FFFFFF";
 
-    /// <summary>layC：淡淡的底色层，k 大致在 0.04..0.15。</summary>
-    private static string LayC(Scheme sc, double k) => J.Mix(Bg(sc), Fg(sc), k);
+        private static string LayC(Scheme sc, double k) => J.Mix(Bg(sc), Fg(sc), k);
 
-    /// <summary>tintC：淡淡的强调色。</summary>
-    private static string TintC(Scheme sc, double k) => J.Mix(Bg(sc), Ac(sc), k);
+        private static string TintC(Scheme sc, double k) => J.Mix(Bg(sc), Ac(sc), k);
 
     private static double Umin(Env env) => Math.Min(env.W, env.H);
     private static int Bs(Rng rng) => rng.Int(1, 1_000_000_000);
     private static double Wrap(double v, double m) => ((v % m) + m) % m;
     private static double Fract(double v) => v - Math.Floor(v);
     private static double Hyp(double x, double y) => Math.Sqrt(x * x + y * y);
-    private static double Round(double v) => Math.Round(v, MidpointRounding.AwayFromZero); // JS Math.round
-
+    private static double Round(double v) => Math.Round(v, MidpointRounding.AwayFromZero); 
     private static string F2(double v) => v.ToString("0.00", CultureInfo.InvariantCulture);
     private static string F3(double v) => v.ToString("0.000", CultureInfo.InvariantCulture);
 
@@ -544,8 +505,7 @@ public static class P11BgcamB
         return new SKColor((byte)r, (byte)g, (byte)b, (byte)Math.Round(J.Clamp(a) * 255));
     }
 
-    /// <summary>hues：从配色里挑跟背景拉得开的颜色，accent 优先，去重。</summary>
-    private static List<string> Hues(Scheme sc)
+        private static List<string> Hues(Scheme sc)
     {
         var bg = Bg(sc);
         var outs = new List<string>();
@@ -558,8 +518,7 @@ public static class P11BgcamB
         return outs.Count > 0 ? outs : new List<string> { Fg(sc) };
     }
 
-    /// <summary>glowOf：深色背景上明显更亮的颜色，做光效用。</summary>
-    private static string GlowOf(Scheme sc)
+        private static string GlowOf(Scheme sc)
     {
         var l = J.Lum(Bg(sc));
         foreach (var c in new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("ghostA"), sc.Str("ghostB"), sc.Str("fg") })
@@ -567,12 +526,10 @@ public static class P11BgcamB
         return Fg(sc);
     }
 
-    /// <summary>lightOn：浅背景上也看得清的光色：中浅底给纯白，接近纸白就改用 accent 混白。</summary>
-    private static string LightOn(Scheme sc) => IsDark(Bg(sc))
+        private static string LightOn(Scheme sc) => IsDark(Bg(sc))
         ? GlowOf(sc)
         : J.Lum(Bg(sc)) < 0.78 ? "#FFFFFF" : J.Mix(Ac(sc), "#FFFFFF", 0.2);
 
-    // 当前背景播了多久；相邻切分同 bg 同 seed 算同一段连续播放（JS WeakMap → CWT）
     private static readonly ConditionalWeakTable<Cut, double[]> BgRun = new();
 
     private static double BgT(Env env)
@@ -595,8 +552,7 @@ public static class P11BgcamB
 
     private static double FadeIn(Env env, double d = 0.6) => J.E.OutCubic(J.Clamp(BgT(env) / d));
 
-    /// <summary>JS plan(rng) 只吃 rng；注册表的 Plan 是 (rng, st) —— 适配器对位。</summary>
-    private static Func<Rng, StyleDef, JObject> Plan(Func<Rng, JObject> f) => (rng, st) => f(rng);
+        private static Func<Rng, StyleDef, JObject> Plan(Func<Rng, JObject> f) => (rng, st) => f(rng);
 
     private static void BgReg(string key, string name, string[] tags, double w, bool subtle,
         Func<Rng, JObject> plan, Action<Env> draw)
@@ -608,7 +564,6 @@ public static class P11BgcamB
             W = w,
             Subtle = subtle,
             Plan = Plan(plan),
-            // bgReg 包装：save/restore 包住条目自己的绘制
             Draw = env =>
             {
                 using var _ = new SKAutoCanvasRestore(env.Ctx);
@@ -616,7 +571,6 @@ public static class P11BgcamB
             }
         }, PKG);
 
-    // 预渲染缓存（瓦片/精灵/纹理），小 LRU（≤40 条），Owner 持有像素源（putImageData 类）
     private sealed class ImgEntry
     {
         public SKImage Img = null!;
@@ -647,7 +601,6 @@ public static class P11BgcamB
 
     private static SKImage Cached(string key, Func<SKImage> make) => Cached(key, () => new ImgEntry { Img = make() });
 
-    // 瓦片位图缓存（CreateBitmap 需要 SKBitmap，P11LayoutsB.DotTile 同款）
     private static readonly Dictionary<string, SKBitmap> BmpCv = new();
 
     private static SKBitmap CachedBmp(string key, Func<SKBitmap> make)
@@ -660,7 +613,6 @@ public static class P11BgcamB
         }
         while (BmpCv.Count >= 40)
         {
-            // 同 Plate：只摘引用不 Dispose（淘汰顺序不是 LRU，本帧仍可能有人持有）
             var k0 = BmpCv.Keys.First();
             BmpCv.Remove(k0);
         }
@@ -671,8 +623,7 @@ public static class P11BgcamB
 
     private static double ResQ(Env env) => Math.Min(2, Math.Max(0.1, env.Scale == 0 ? 1 : env.Scale));
 
-    /// <summary>tileCv：周期性瓦片，周期 pw × ph 设计像素，按输出分辨率渲染（SKBitmap 供 CreateBitmap）。</summary>
-    private static SKBitmap TileCv(string key, Env env, double pw, double ph, Action<SKCanvas> paint)
+        private static SKBitmap TileCv(string key, Env env, double pw, double ph, Action<SKCanvas> paint)
     {
         var q = ResQ(env);
         var w = Math.Max(2, (int)Round(pw * q));
@@ -688,9 +639,7 @@ public static class P11BgcamB
         });
     }
 
-    /// <summary>fillTile：用瓦片填当前空间的 (x0,y0,w,h) 矩形，pattern 原点偏移 (ox,oy)。
-    /// JS 的「设备空间整数吸附」分支省略——统一走 shader 平铺（TODO(对拍)：接缝亚像素差）。</summary>
-    private static void FillTile(SKCanvas ctx, SKBitmap tile, double pw, double ph,
+        private static void FillTile(SKCanvas ctx, SKBitmap tile, double pw, double ph,
         double x0, double y0, double w, double h, double ox = 0, double oy = 0, double a = 1)
     {
         using var shader = SKShader.CreateBitmap(tile, SKShaderTileMode.Repeat, SKShaderTileMode.Repeat,
@@ -705,7 +654,6 @@ public static class P11BgcamB
         ctx.DrawRect(new SKRect((float)x0, (float)y0, (float)(x0 + w), (float)(y0 + h)), p);
     }
 
-    // 整帧底板：贵的填充按输出分辨率只画一次，之后每帧整像素 blit
     private static readonly Dictionary<string, SKImage> Pl = new();
 
     private static SKImage Plate(string key, Env env, double mx, double my, Action<SKCanvas, double, double> paint)
@@ -722,17 +670,11 @@ public static class P11BgcamB
         }
         long px = (long)w * h;
         foreach (var v in Pl.Values) px += (long)v.Width * v.Height;
-        var budget = Math.Max(30e6, (double)w * h * 3.2); // 上限约 120 MB
-        while (Pl.Count > 0 && (Pl.Count >= 12 || px > budget))
+        var budget = Math.Max(30e6, (double)w * h * 3.2);         while (Pl.Count > 0 && (Pl.Count >= 12 || px > budget))
         {
             var k0 = Pl.Keys.First();
             var v0 = Pl[k0];
             px -= (long)v0.Width * v0.Height;
-            // 只摘引用、不 Dispose：淘汰顺序（Keys.First）不是 LRU——Remove+Add 会复用空槽，刚取过的
-            // 底板也可能被选中，而调用方的局部变量还持有它（同帧多次 Plate：底图 + 线纹，或背景切换的
-            // 新旧两层）。当场 Dispose 会让随后的 Blit 读到已释放的 SKImage → 0xC0000005
-            // （崩在 sk_image_get_width）。交 GC 回收：仍被局部变量引用的对象 GC 不会动，
-            // 引用消失后终结器再释放，语义上不可能提前释放。
             Pl.Remove(k0);
         }
         using var surf = SKSurface.Create(new SKImageInfo(w, h));
@@ -743,8 +685,7 @@ public static class P11BgcamB
         return img;
     }
 
-    /// <summary>把底板的 (ox,oy)（设计像素）对到画面左上角，并吸附到整数设备像素。</summary>
-    private static void Blit(SKCanvas ctx, Env env, SKImage cv, double ox, double oy, double a = 1,
+        private static void Blit(SKCanvas ctx, Env env, SKImage cv, double ox, double oy, double a = 1,
         SKBlendMode blend = SKBlendMode.SrcOver)
     {
         var m = ctx.TotalMatrix;
@@ -752,8 +693,7 @@ public static class P11BgcamB
         ctx.Save();
         ctx.ResetMatrix();
         var dx = (float)-Round(ox * m.ScaleX);
-        var dy = (float)-Round(oy * m.ScaleX); // JS 同源：y 也用 m.a
-        using var p = new SKPaint
+        var dy = (float)-Round(oy * m.ScaleX);         using var p = new SKPaint
         {
             Color = SKColors.White.WithAlpha((byte)Math.Round(J.Clamp(a) * 255)),
             BlendMode = blend
@@ -765,7 +705,6 @@ public static class P11BgcamB
         ctx.Restore();
     }
 
-    // 大面积柔效果（渐变、光晕）画到复用的低分辨率画布上，一次性放大
     private static readonly Dictionary<string, SKSurface> LowC = new();
 
     private static void DrawLow(SKCanvas ctx, Env env, double div, Action<SKCanvas, double> fn)
@@ -792,13 +731,9 @@ public static class P11BgcamB
         x.ResetMatrix();
         var pix = c.PeekPixels()!;
         using var img = SKImage.FromPixels(pix.Info, pix.GetPixels(), pix.RowBytes);
-        ctx.DrawImage(img, new SKRect(0, 0, env.W, env.H), SmpLinear, null); // imageSmoothingEnabled = true
-    }
+        ctx.DrawImage(img, new SKRect(0, 0, env.W, env.H), SmpLinear, null);     }
 
-    // ---------------- 基础绘制助手 ----------------
-
-    /// <summary>stop 列表：颜色收 string（hex）或 SKColor，统一转 SKColor。</summary>
-    private static (double Stop, SKColor C)[] Stops(params (double Stop, object Col)[] stops)
+        private static (double Stop, SKColor C)[] Stops(params (double Stop, object Col)[] stops)
         => stops.Select(s => (s.Stop, s.Col is string str ? Rgba(str) : (SKColor)s.Col)).ToArray();
 
     private static SKShader Lin(double x0, double y0, double x1, double y1, (double Stop, SKColor C)[] stops)
@@ -809,15 +744,12 @@ public static class P11BgcamB
         => SKShader.CreateRadialGradient(new SKPoint((float)cx, (float)cy), (float)r,
             stops.Select(s => s.C).ToArray(), stops.Select(s => (float)s.Stop).ToArray(), SKShaderTileMode.Clamp);
 
-    /// <summary>双半径（环带）径向渐变（horizonGlow/nightMoon/vignette/sunsetSun 用）——
-    /// Canvas2D createRadialGradient(r0→r1) 底层就是两点锥形渐变，同圆心的 TwoPointConical 等价。</summary>
-    private static SKShader Rad2(double cx, double cy, double r0, double r1, (double Stop, SKColor C)[] stops)
+        private static SKShader Rad2(double cx, double cy, double r0, double r1, (double Stop, SKColor C)[] stops)
         => SKShader.CreateTwoPointConicalGradient(new SKPoint((float)cx, (float)cy), (float)r0,
             new SKPoint((float)cx, (float)cy), (float)r1,
             stops.Select(s => s.C).ToArray(), stops.Select(s => (float)s.Stop).ToArray(), SKShaderTileMode.Clamp);
 
-    /// <summary>createConicGradient → CreateSweepGradient（start/end 角度差一整圈，度）。</summary>
-    private static SKShader Conic(double a, double cx, double cy, (double Stop, SKColor C)[] stops)
+        private static SKShader Conic(double a, double cx, double cy, (double Stop, SKColor C)[] stops)
     {
         var s0 = (float)(a * 180 / Math.PI);
         return SKShader.CreateSweepGradient(new SKPoint((float)cx, (float)cy),
@@ -898,8 +830,7 @@ public static class P11BgcamB
         ctx.DrawImage(img, src, dst, smp ?? SmpLinear, p);
     }
 
-    /// <summary>pathPoly：闭合多边形轮廓（追加到现有 path）。</summary>
-    private static void Poly(SKPath p, double[][] pts)
+        private static void Poly(SKPath p, double[][] pts)
     {
         p.MoveTo((float)pts[0][0], (float)pts[0][1]);
         for (var i = 1; i < pts.Length; i++) p.LineTo((float)pts[i][0], (float)pts[i][1]);
@@ -909,7 +840,6 @@ public static class P11BgcamB
     private static void AddCircle(SKPath p, double cx, double cy, double r)
         => p.AddOval(new SKRect((float)(cx - r), (float)(cy - r), (float)(cx + r), (float)(cy + r)));
 
-    // 快速 2D value noise，输出 0..1，预渲染和逐帧场都用
     private static double Hash2(int x, int y, int s)
     {
         unchecked
@@ -960,11 +890,8 @@ public static class P11BgcamB
             f *= 2.1;
         }
         return v / n;
-    } // 输出 -1..1
+    } 
 
-    // ---------------- bg 条目 Draw（源注册顺序） ----------------
-
-    // 每种颜色一条竖直帘条：顶部透明，下沿最亮
     private static SKImage AuroraStrip(string col) => Cached("aurS|" + col, () =>
     {
         const int w = 4, h = 256;
@@ -1022,7 +949,6 @@ public static class P11BgcamB
                     var a = k * (0.2 + 1.1 * ray) * J.Smooth(0, 0.18, u) * J.Smooth(1, 0.82, u)
                             * (0.75 + 0.25 * J.Noise1(u * 1.5 + t * 0.1, s + r));
                     if (a <= 0.004) continue;
-                    // 列吸附到低分辨率像素上，相邻条带才接得上无缝
                     var x0 = Round(xx * q) / q;
                     var x1 = Round((xx + cw) * q) / q;
                     if (x1 <= x0) continue;
@@ -1083,10 +1009,8 @@ public static class P11BgcamB
         var a = Num(P, "a0", 0) + env.T * Num(P, "spd", 0.1);
         DrawLow(ctx, env, 6, (x, _) =>
         {
-            // Skia 原生有 sweep：conic 可用，无回退分支
             using (var g = Conic(a, cx, cy, Stops((0, cA), (0.25, cB), (0.5, cA), (0.75, cB), (1, cA))))
                 FillRect(x, 0, 0, W, H, g, 0.9 * e);
-            // 跟着扫掠一起转的柔高光
             using (var g2 = Conic(a * 1.6 + 1, cx, cy, Stops(
                        (0, Rgba("#000000", 0)), (0.06, Rgba(LightOn(sc), 0.07 * e)), (0.12, Rgba("#000000", 0)),
                        (0.56, Rgba("#000000", 0)), (0.62, Rgba(LightOn(sc), 0.07 * e)), (0.68, Rgba("#000000", 0)),
@@ -1133,7 +1057,6 @@ public static class P11BgcamB
             arc.AddArc(new SKRect((float)(cx - R), (float)(cy - R), (float)(cx + R), (float)(cy + R)), 180, 180);
             Stroke(ctx, arc, gc, Math.Max(1, U * 0.0022), Math.Min(0.8, k * 1.6));
         }
-        // 沿行星边缘慢慢滑的亮斑
         var fa = -Math.PI / 2 + 0.22 * Math.Sin(t * 0.12 + NumN(P, "seed", 1) % 13);
         var fx = cx + Math.Cos(fa) * R;
         var fy = cy + Math.Sin(fa) * R;
@@ -1167,7 +1090,6 @@ public static class P11BgcamB
                 {
                     var cx = i * 2 * R + ((j & 1) != 0 ? R : 0);
                     var cy = j * R / 2;
-                    // destination-out 打孔再 source-over 画纹样
                     using (var punch = new SKPath())
                     {
                         AddCircle(punch, cx, cy, R);
@@ -1247,7 +1169,6 @@ public static class P11BgcamB
         var ox = Wrap(t * a * 0.08 * Num(P, "dx", 1), a);
         var oy = Wrap(t * h * 0.05 + (1 - e) * h, 2 * h);
         Blit(ctx, env, pl, ox, oy, e);
-        // 慢速斜向光带把图案重画得更亮，三层嵌套出软边
         var D = W + H;
         var c = (Wrap(BgT(env) * Num(P, "sweep", 0.09) + 0.4, 1.5) - 0.25) * D;
         var bw = Umin(env) * 0.22;
@@ -1315,8 +1236,7 @@ public static class P11BgcamB
         var cA = LayC(sc, k);
         var cB = LayC(sc, k * 0.45);
         var key = $"hrb|{cA}|{cB}|{F2(u)}";
-        var Pd = 4 * u * Math.Sqrt(2); // 45° 编织在屏幕空间的周期
-        var pl = Plate(key + "|" + rot.ToString(CultureInfo.InvariantCulture), env, Pd, Pd, (x, w, h) =>
+        var Pd = 4 * u * Math.Sqrt(2);         var pl = Plate(key + "|" + rot.ToString(CultureInfo.InvariantCulture), env, Pd, Pd, (x, w, h) =>
         {
             var tile = TileCv(key, env, 4 * u, 4 * u, y =>
             {
@@ -1338,9 +1258,7 @@ public static class P11BgcamB
             x.RotateDegrees((float)rot);
             FillTile(x, tile, 4 * u, 4 * u, -D, -D, 2 * D, 2 * D);
         });
-        var sp = t * u * 0.6 * Num(P, "dir", 1); // 沿之字列的行进量
-        Blit(ctx, env, pl, rot > 0 ? Pd / 2 : Wrap(sp, Pd), rot > 0 ? Wrap(sp, Pd) : Pd / 2, e);
-        // 缓缓扫过织物的高光带
+        var sp = t * u * 0.6 * Num(P, "dir", 1);         Blit(ctx, env, pl, rot > 0 ? Pd / 2 : Wrap(sp, Pd), rot > 0 ? Wrap(sp, Pd) : Pd / 2, e);
         var L = W + H;
         var bx = (Wrap(t * 0.1, 1.6) - 0.3) * L;
         var bw = Umin(env) * 0.35;
@@ -1349,8 +1267,7 @@ public static class P11BgcamB
                    Stops((0, Rgba(hc, 0)), (0.5, Rgba(hc, IsDark(Bg(sc)) ? 0.035 : 0.08)), (1, Rgba(hc, 0)))))
         {
             ctx.Save();
-            ctx.Concat(new SKMatrix(1, -0.6f, 0, 0, 1, 0, 0, 0, 1)); // ctx.transform(1, 0, -0.6, 1, 0, 0)
-            FillRect(ctx, bx - bw, 0, bw * 2, H, gl, e);
+            ctx.Concat(new SKMatrix(1, -0.6f, 0, 0, 1, 0, 0, 0, 1));             FillRect(ctx, bx - bw, 0, bw * 2, H, gl, e);
             ctx.Restore();
         }
     }
@@ -1374,7 +1291,6 @@ public static class P11BgcamB
         var dia = Plate(kd, env, 2 * dw, 2 * dh, (x, w, h) =>
             FillTile(x, TileCv(kd, env, 2 * dw, 2 * dh, y =>
             {
-                // (i+j)&1 交替色：按菱形逐个铺
                 for (var j = -1; j <= 2; j++)
                 for (var i = -1; i <= 2; i++)
                 {
@@ -1423,7 +1339,6 @@ public static class P11BgcamB
         var w1 = Num(P, "w1", 0.22);
         var w2 = Num(P, "w2", 0.1);
         var key = $"tart|{cA}|{cB}|{cL}|{cT}|{F3(w1)}|{F3(w2)}|{S.ToString("0.0", CultureInfo.InvariantCulture)}";
-        // 一组镜像的 tartan 条纹：宽带/细线/中带/发丝线
         var sett = new[] { (0.0, w1, cA, 0.6), (w1 + 0.04, 0.012, cL, 0.9), (w1 + 0.1, w2, cB, 0.55), (0.72, 0.008, cT, 0.9), (0.84, 0.02, cL, 0.7) };
         void Stripe(SKCanvas x, double len, double span)
         {
@@ -1439,8 +1354,7 @@ public static class P11BgcamB
         var vert = Plate(key + "|v", env, S, 0, (x, w, h) => Stripe(x, w, h));
         var hor = Plate(key + "|h", env, 0, S, (x, w, h) =>
         {
-            x.Concat(new SKMatrix(0, 1, 0, 1, 0, 0, 0, 0, 1)); // ctx.transform(0, 1, 1, 0, 0, 0)
-            Stripe(x, h, w);
+            x.Concat(new SKMatrix(0, 1, 0, 1, 0, 0, 0, 0, 1));             Stripe(x, h, w);
         });
         Blit(ctx, env, vert, Wrap(-t * S * 0.035, S), 0, e);
         Blit(ctx, env, hor, 0, Wrap(t * S * 0.025 + S * 0.37, S), e);
@@ -1515,7 +1429,6 @@ public static class P11BgcamB
                     FillPath(y, path, col);
                 }), pw, ph, 0, 0, w, h));
         }).ToArray();
-        // 光向慢慢转，三个面的亮度轮流当主
         var L = Num(P, "l0", 0) + t * Num(P, "spd", 0.25);
         var dirs = new[] { -Math.PI / 2, Math.PI * 5 / 6, Math.PI / 6 };
         var ox = Wrap(t * s * 0.25, pw);
@@ -1623,8 +1536,7 @@ public static class P11BgcamB
             }
         }
         var k = Num(P, "k", 0.085);
-        var acc = Flag(P, "acc"); // JS: cf = P.acc ? tintC : layC
-        var ms = new[] { 0.35, 0.65, 1.0, 1.45 };
+        var acc = Flag(P, "acc");         var ms = new[] { 0.35, 0.65, 1.0, 1.45 };
         for (var l = 0; l < 4; l++)
             FillPath(ctx, paths[l], l == 3 && acc ? TintC(sc, k * ms[l] * 1.4)
                 : acc ? TintC(sc, k * ms[l]) : LayC(sc, k * ms[l]));
@@ -1644,7 +1556,6 @@ public static class P11BgcamB
         var s = (int)Num(P, "seed", 1) % 17;
         var col = LayC(sc, Num(P, "k", 0.1));
         var M = amp * 2.2;
-        // 一组同心环只渲染一次并留边，两个干涉副本是同一块底板的两次 blit
         var pl = Plate($"moi|{col}|{F2(gap)}|{M.ToString("0.0", CultureInfo.InvariantCulture)}", env, M * 2, M * 2, (x, w, h) =>
         {
             var cx = w / 2;
@@ -1676,10 +1587,8 @@ public static class P11BgcamB
         var z = t * Num(P, "spd", 0.45) + (1 - e) * 1.5;
         var S0 = U * 0.08;
         var maxS = Hyp(W, H) * 1.05;
-        // 第 n 个方块的半边长是 S0 * r^(z - n)，z 前进即向前飞
         var nLo = (int)Math.Floor(z - Math.Log(maxS / S0) / lr) - 2;
-        nLo -= ((nLo % 2) + 2) % 2; // 固定最外层方块的奇偶，避免闪变
-        var nHi = (int)Math.Ceiling(z - Math.Log(U * 0.035 / S0) / lr);
+        nLo -= ((nLo % 2) + 2) % 2;         var nHi = (int)Math.Ceiling(z - Math.Log(U * 0.035 / S0) / lr);
         ctx.Translate((float)(W / 2.0), (float)(H / 2.0));
         using var path = new SKPath { FillType = SKPathFillType.EvenOdd };
         for (var n = nLo; n <= nHi && n - nLo < 60; n++)
@@ -1744,7 +1653,6 @@ public static class P11BgcamB
         FillRect(ctx, cx - U * 0.42, cy - U * 0.42, U * 0.84, U * 0.84, g);
     }
 
-    // marching squares：16 种角点情形的线段端点（边号 0 上 1 右 2 下 3 左）
     private static readonly int[][][] MS =
     {
         Array.Empty<int[]>(),
@@ -1990,7 +1898,6 @@ public static class P11BgcamB
             ? J.Mix(Bg(sc), glow == Fg(sc) ? Fg(sc) : J.Mix(Fg(sc), glow, 0.3), Num(P, "k", 0.22))
             : J.Mix(Bg(sc), "#FFFFFF", 0.55);
         var haloC = dk ? moonC : J.Mix(Bg(sc), "#FFFFFF", 0.7);
-        // 稀疏的星星，带闪烁
         var nS = (int)Round(28 * Math.Sqrt(W * (double)H / (1920 * 1080)));
         var starCol = dk ? LayC(sc, 0.55) : LayC(sc, 0.2);
         for (var i = 0; i < nS; i++)
@@ -2032,7 +1939,6 @@ public static class P11BgcamB
             FillPath(ctx, craters, J.Mix(moonC, Bg(sc), 0.22), e);
         }
         ctx.Restore();
-        // 横掠月亮的薄云条
         var cloudC = J.Mix(Bg(sc), Fg(sc), dk ? 0.07 : 0.05);
         void Cap(SKPath p, double x, double y, double w, double h)
         {
@@ -2072,7 +1978,6 @@ public static class P11BgcamB
         var k = Num(P, "k", 0.09);
         var Lp = Math.Max(W, H) * 1.5;
         var rise = (1 - e) * H * 0.25;
-        // 城市背后的地平线光晕
         var gc = dk ? GlowOf(sc) : Ac(sc);
         using (var g = Lin(0, H * 0.5, 0, H, Stops((0, Rgba(gc, 0)), (1, Rgba(gc, (dk ? 0.1 : 0.08) * e)))))
             FillRect(ctx, 0, H * 0.5, W, H * 0.5, g);
@@ -2159,7 +2064,6 @@ public static class P11BgcamB
         }
         ctx.Restore();
         FillRect(ctx, 0, hz - 0.5, W, Math.Max(1, U * 0.0016), LayC(sc, 0.14), e);
-        // 水面：太阳下的碎光倒影，加几道淡淡的涌浪线
         for (var j = 0; j < 18; j++)
         {
             var y = hz + U * 0.012 * Math.Pow(j + 1, 1.3);
@@ -2249,7 +2153,6 @@ public static class P11BgcamB
         }
         using (var fog = Lin(0, H * 0.62, 0, H, Stops((0, Rgba(Fg(sc), 0)), (1, Rgba(Fg(sc), 0.05 * e)))))
             FillRect(ctx, 0, H * 0.62, W, H * 0.38, fog);
-        // 玻璃上的水滴：先停在原地长大，再往下滑并拖出尾迹
         var dc = LayC(sc, k * 1.5);
         var hc = dk ? LayC(sc, k * 3.5) : J.Mix(Bg(sc), "#FFFFFF", 0.7);
         var drops = (int)Num(P, "drops", 12);
@@ -2400,8 +2303,7 @@ public static class P11BgcamB
             var step = unchecked((int)env.Step);
             for (var j = 0; j < heads.Count; j++)
             {
-                if (a > 0.9 && J.R(sd, b, j, step) < 0.35) continue; // 尾段噼啪闪烁
-                FillRect(ctx, heads[j].X - U * 0.0028, heads[j].Y - U * 0.0028, U * 0.0056, U * 0.0056, headCol, K * fade, blend);
+                if (a > 0.9 && J.R(sd, b, j, step) < 0.35) continue;                 FillRect(ctx, heads[j].X - U * 0.0028, heads[j].Y - U * 0.0028, U * 0.0056, U * 0.0056, headCol, K * fade, blend);
             }
             if (a < 0.25)
             {
@@ -2494,8 +2396,7 @@ public static class P11BgcamB
             path.LineTo(W + 2, H + 2);
             path.Close();
             FillPath(ctx, path, LayC(sc, k * (0.45 + 0.75 * q)), 1);
-            if (!Flag(P, "mist") && P["mist"] != null) continue; // JS mist !== false
-            if (l < n - 1)
+            if (!Flag(P, "mist") && P["mist"] != null) continue;             if (l < n - 1)
             {
                 using var g = Lin(0, @base - A * 0.25, 0, @base + H * 0.06,
                     Stops((0, Rgba(Bg(sc), 0)), (1, Rgba(Bg(sc), 0.55))));
@@ -2527,8 +2428,7 @@ public static class P11BgcamB
         var hw = b * 0.3;
         var hh = b * 0.38;
         var off = Wrap(t * p * Num(P, "spd", 0.9) * Num(P, "dir", 1), p);
-        void Ra(double a, double c, double w, double h, string col2, double al) // a 沿条带方向，c 横向
-        {
+        void Ra(double a, double c, double w, double h, string col2, double al)         {
             if (vert) FillRect(ctx, c, a, h, w, col2, al);
             else FillRect(ctx, a, c, w, h, col2, al);
         }
@@ -2550,7 +2450,6 @@ public static class P11BgcamB
                 }
                 FillPath(ctx, holes, hole);
             }
-            // 每 4 个齿孔一道分帧线
             using (var marks = new SKPath())
             {
                 for (var a = Wrap(off, p * 4) - p * 4; a < L + p; a += p * 4)
@@ -2563,9 +2462,7 @@ public static class P11BgcamB
                 FillPath(ctx, marks, edge);
             }
         }
-        if (!Flag(P, "scratch") && P["scratch"] != null) return; // JS scratch !== false
-        // 闪烁的划痕和灰尘，跟着绘制帧的时钟换
-        var st = unchecked((int)env.Step);
+        if (!Flag(P, "scratch") && P["scratch"] != null) return;         var st = unchecked((int)env.Step);
         var scrCol = dk ? LayC(sc, 0.35) : LayC(sc, 0.3);
         for (var i = 0; i < 3; i++)
         {
@@ -2583,7 +2480,6 @@ public static class P11BgcamB
         }
     }
 
-    // VHS 斑点噪声，每个颜色/尺寸预渲染一次，3 个变体按绘制帧轮换
     private static SKImage VhsNoise(string col, int w, int h, int v) => Cached($"vhs|{col}|{w}x{h}|{v}", () =>
     {
         var (r0, g0, b0) = J.Hex(col);
@@ -2600,8 +2496,7 @@ public static class P11BgcamB
                     n = n * n * n;
                     if (Hash2(i >> 4, y, v * 5 + 3) > 0.94) n = Math.Max(n, 0.55 + 0.45 * Hash2(i, y, v + 9));
                     var o = (y * w + i) * 4;
-                    span[o] = (byte)b0;     // BGRA8888 字节序
-                    span[o + 1] = (byte)g0;
+                    span[o] = (byte)b0;                         span[o + 1] = (byte)g0;
                     span[o + 2] = (byte)r0;
                     span[o + 3] = (byte)Math.Round(255 * J.Clamp(n * row));
                 }
@@ -2631,7 +2526,6 @@ public static class P11BgcamB
         var nz = VhsNoise(col, nw, nh, ((st % 3) + 3) % 3);
         var bh = H * Num(P, "h", 0.09);
         var y = Wrap(t * H * Num(P, "spd", 0.12) + J.R(sd, 1) * H, H * 1.3) - H * 0.15;
-        // imageSmoothingEnabled = false → 最近邻
         var sh = Math.Min(nh, (int)Math.Ceiling(bh * q));
         var sy = (int)Math.Floor(J.R(sd, st, 2) * Math.Max(1, nh - sh));
         DrawImgSrc(ctx, nz, new SKRect(0, sy, nw, sy + sh),
@@ -2646,7 +2540,6 @@ public static class P11BgcamB
             var lx = J.R(sd, st, i, 5) * W * 0.6;
             FillRect(ctx, lx, ly, W * J.Rr(0.2, 0.6, sd, st, i, 6), Math.Max(1, U * 0.0016), lc, e * 0.5);
         }
-        // 底部 head-switching 条：横向错位的撕裂噪声
         var hb = H * 0.028;
         const int rows = 4;
         for (var r = 0; r < rows; r++)
@@ -2673,7 +2566,6 @@ public static class P11BgcamB
         var k = Num(P, "k", 0.065);
         var v = Str(P, "v", "tb");
         if (v == "side" && H > W) v = "tb";
-        // [A, B, n]：撕边从 A 到 B，纸盖在法线 n 指的那一侧
         double[][][] S;
         if (v == "diag")
             S = new[]
@@ -2729,7 +2621,6 @@ public static class P11BgcamB
             FillPath(ctx, poly, Rgba("#000000", dk ? 0.35 : 0.1));
             ctx.Restore();
             FillPath(ctx, poly, tones[i % 2]);
-            // 撕口的纤维毛边，撕痕处纸芯更亮
             using var fiber = new SKPath();
             for (var j = 0; j < pts.Count; j++)
             {
@@ -2773,7 +2664,6 @@ public static class P11BgcamB
                 var w = (1.2 + 3.6 * J.R(sd, i, 2)) * J.DEG * (0.75 + 0.25 * J.Noise1(t * 0.4 + i, sd + 7));
                 var lv = 0.5 + 0.5 * J.Noise1(t * 0.35 + i * 2.1, sd + 3);
                 var dim = lv > 0.66 ? 0 : lv > 0.33 ? 1 : 2;
-                // 三层嵌套楔形，光束的衰减才柔和
                 var fs = new[] { 0.45, 1.0, 1.8 };
                 for (var qi = 0; qi < 3; qi++)
                 {
@@ -2791,9 +2681,7 @@ public static class P11BgcamB
             var ms = new[] { 0.55, 0.3, 0.16 };
             for (var l = 0; l < 3; l++) FillPath(x, paths[l], g, ms[l]);
         });
-        if (!Flag(P, "dust") && P["dust"] != null) return; // JS dust !== false
-        // 光柱里飘的尘埃
-        for (var i = 0; i < 26; i++)
+        if (!Flag(P, "dust") && P["dust"] != null) return;         for (var i = 0; i < 26; i++)
         {
             var x = Wrap(J.R(sd, i, 11) * W + t * U * J.Rs(sd, i, 12) * 0.02 + Math.Sin(t * 0.5 + i) * U * 0.01, W);
             var y = Wrap(J.R(sd, i, 13) * H + t * U * J.Rr(-0.02, 0.01, sd, i, 14), H);
@@ -2814,7 +2702,6 @@ public static class P11BgcamB
         var dk = IsDark(Bg(sc));
         var e = FadeIn(env, 0.8);
         var cols = Hues(sc);
-        // JS：beat 时 0.62+0.38*exp(-since*4)，无节拍回固定周期脉动
         var pulse = env.BeatHas
             ? 0.62 + 0.38 * Math.Exp(-env.BeatSince * 4)
             : 0.75 + 0.25 * Math.Sin(t * J.TAU * Num(P, "rate", 0.45));
@@ -2899,7 +2786,6 @@ public static class P11BgcamB
         }
         FillPath(ctx, fillP, LayC(sc, k));
         Stroke(ctx, lineP, TintC(sc, k * 2.4), Math.Max(1, U * 0.0028));
-        // 淡淡的多边形环，撑住对称感
         using var rings = new SKPath();
         foreach (var (rr, dir) in new[] { (U * 0.46, -1.0), (U * 0.82, 1.0) })
         for (var q = 0; q <= 2 * n; q++)
@@ -2913,7 +2799,6 @@ public static class P11BgcamB
         Stroke(ctx, rings, LayC(sc, k * 0.9), Math.Max(1, U * 0.002), e);
     }
 
-    // 大理石纹：每个 seed/尺寸/颜色低分辨率算一次，之后慢慢转
     private static SKImage MarbleCv(JObject P, int px, string c1, string c2)
         => Cached($"marb|{Num(P, "seed", 1)}|{px}|{c1}|{c2}|{(Flag(P, "acc") ? 1 : 0)}", () =>
         {
@@ -2958,8 +2843,7 @@ public static class P11BgcamB
                         continue;
                     }
                     var f = a2 * (1 - a1) / al;
-                    span[o] = (byte)Math.Round(A.Item3 + (B.Item3 - A.Item3) * f);     // BGRA8888 字节序
-                    span[o + 1] = (byte)Math.Round(A.Item2 + (B.Item2 - A.Item2) * f);
+                    span[o] = (byte)Math.Round(A.Item3 + (B.Item3 - A.Item3) * f);                         span[o + 1] = (byte)Math.Round(A.Item2 + (B.Item2 - A.Item2) * f);
                     span[o + 2] = (byte)Math.Round(A.Item1 + (B.Item1 - A.Item1) * f);
                     span[o + 3] = (byte)Math.Round(255 * J.Clamp(al));
                 }
@@ -2980,7 +2864,6 @@ public static class P11BgcamB
         var M = U * 0.12;
         var s = (int)Num(P, "seed", 1) % 13;
         var c2 = J.Contrast(Ac(sc), Bg(sc)) > 1.3 ? Ac(sc) : (sc.Str("accent2") ?? Fg(sc));
-        // 低清纹理一次性放大进带漂移余量的整帧底板，每帧再做整像素 blit
         var key = $"marbP|{Num(P, "seed", 1)}|{Num(P, "ang", 0).ToString("0.000", CultureInfo.InvariantCulture)}|{Num(P, "freq", 0).ToString("0.000", CultureInfo.InvariantCulture)}|{Num(P, "turb", 0).ToString("0.000", CultureInfo.InvariantCulture)}|{(Flag(P, "acc") ? 1 : 0)}|{Fg(sc)}|{c2}";
         var pl = Plate(key, env, M * 2, M * 2, (x, w, h) =>
         {
@@ -3013,8 +2896,7 @@ public static class P11BgcamB
         var lobes = (int)Num(P, "lobes", 6);
         for (var i = 0; i < L; i++)
         {
-            var d = L > 1 ? (L - 1 - i) / (double)(L - 1) : 0; // 1 是最里层，开口最小
-            var inP = J.E.OutCubic(J.Clamp((bt - i * 0.1) / 0.8));
+            var d = L > 1 ? (L - 1 - i) / (double)(L - 1) : 0;             var inP = J.E.OutCubic(J.Clamp((bt - i * 0.1) / 0.8));
             var grow = 1 + (1 - inP) * 0.7;
             var rx = W * (0.41 + 0.17 * (1 - d)) * grow;
             var ry = H * (0.38 + 0.17 * (1 - d)) * grow;
@@ -3049,16 +2931,13 @@ public static class P11BgcamB
         }
     }
 
-    // ================= cam helper（JS L1961-2121） =================
-
     private static double KM(Env env) => J.Clamp(env.Fx.Motion * 1.25 * Num(CamP(env), "gain", 1), 0, 4);
     private static double CuOf(Env env) => J.Clamp(env.Lt / Math.Max(0.3, env.Cut?.Dur ?? 0));
     private static int SeedOf(Env env) => (int)(env.Cut?.Seed ?? 0);
 
     private static double LagOf(Env env) => Math.Max(0, env.Ltb - env.Lt);
 
-    /// <summary>带时间滞后的通路距上个节拍的时间；无节拍回 JS 的固定周期取模（wrap(env.lt, per)）。</summary>
-    private static double BeatSince(Env env, double per)
+        private static double BeatSince(Env env, double per)
     {
         if (env.BeatHas && env.BeatLen > 0.15)
         {
@@ -3094,14 +2973,11 @@ public static class P11BgcamB
         return v;
     }
 
-    // ---------------- 参数读取助手（JS 的 P.x || d / P.x ?? d / truthy 语义） ----------------
-
     private static readonly JObject EmptyP = new();
 
     private static JObject POf(Env env) => env.Cut?.BgP ?? EmptyP;
 
-    /// <summary>JS (P.k || d)：缺键或 0 都取 d。</summary>
-    private static double Num(JObject? p, string k, double d)
+        private static double Num(JObject? p, string k, double d)
     {
         if (p?[k] is JValue jv && (jv.Type == JTokenType.Integer || jv.Type == JTokenType.Float))
         {
@@ -3111,8 +2987,7 @@ public static class P11BgcamB
         return d;
     }
 
-    /// <summary>JS (P.x ?? d)：0 是有效值，只有缺键才取 d。</summary>
-    private static double NumN(JObject? p, string k, double d)
+        private static double NumN(JObject? p, string k, double d)
     {
         if (p == null || p[k] == null) return d;
         if (p[k] is JValue jv && (jv.Type == JTokenType.Integer || jv.Type == JTokenType.Float))
@@ -3126,8 +3001,7 @@ public static class P11BgcamB
     private static string Str(JObject? p, string k, string d)
         => p?[k] is JValue { Type: JTokenType.String } jv ? (string)jv.Value! : d;
 
-    /// <summary>JS (P.pos || [a, b])：二元数组参数。</summary>
-    private static double[] Pair(JObject? p, string k, double[] d)
+        private static double[] Pair(JObject? p, string k, double[] d)
     {
         if (p?[k] is JArray arr && arr.Count >= 2)
         {

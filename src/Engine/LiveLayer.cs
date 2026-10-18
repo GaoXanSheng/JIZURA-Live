@@ -37,18 +37,6 @@ public sealed class PvOptions
     [JsonIgnore]
     public int Revision { get; set; }
 
-    public LiveLayerOptions[] Snapshot()
-    {
-        if (!Enabled || Sources == null || Sources.Count == 0) return [];
-        var arr = Sources.ToArray();
-        var n = 0;
-        foreach (var s in arr)
-            if (s != null) arr[n++] = s;
-        if (n == arr.Length) return arr;
-        var trimmed = new LiveLayerOptions[n];
-        Array.Copy(arr, trimmed, n);
-        return trimmed;
-    }
 }
 
 public sealed class VtsDriveOptions

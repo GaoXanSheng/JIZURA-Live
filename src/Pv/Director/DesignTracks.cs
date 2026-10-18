@@ -132,58 +132,12 @@ public static class DesignTracks
         return seg;
     }
 
-    public static DesignSegment FromTransition(string technique, double start, double duration,
-        IReadOnlyDictionary<string, double>? pars = null, int seed = 0,
-        IReadOnlyDictionary<string, string>? colors = null)
-    {
-        var seg = new DesignSegment
-        {
-            Track = DesignTrackKind.Trans,
-            Start = start,
-            End = start + Math.Max(0, duration),
-            Technique = technique ?? "",
-            Seed = seed,
-        };
-
-        if (pars is not null)
-            foreach (var (key, value) in pars) seg.Params[key] = value;
-
-        if (colors is not null)
-        {
-            seg.Colors = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var (key, value) in colors) seg.Colors[key] = value;
-        }
-
-        return seg;
-    }
 }
 
 public sealed class TransitionTrack
 {
     private readonly object _gate = new();
     private List<DesignSegment> _segments = new();
-
-    public IReadOnlyList<DesignSegment> Segments
-    {
-        get
-        {
-            lock (_gate) return _segments.ToArray();
-        }
-    }
-
-    public void Add(string technique, double start, double duration,
-        IReadOnlyDictionary<string, double>? pars = null, int seed = 0,
-        IReadOnlyDictionary<string, string>? colors = null)
-    {
-        if (string.IsNullOrWhiteSpace(technique) || !double.IsFinite(start) || !(duration > 0)) return;
-        var seg = DesignTracks.FromTransition(technique, start, duration, pars, seed, colors);
-        lock (_gate) _segments.Add(seg);
-    }
-
-    public void Clear()
-    {
-        lock (_gate) _segments.Clear();
-    }
 
     public void LoadFrom(IEnumerable<DesignSegment>? segments)
     {
@@ -213,5 +167,4 @@ public sealed class TransitionTrack
         return null;
     }
 
-    public bool Covers(double time) => At(time) is not null;
 }

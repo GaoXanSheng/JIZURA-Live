@@ -66,8 +66,6 @@ public sealed class PvStageRenderer : IDisposable
 
     public int EffectCount => Effects.Nodes.Count(n => n.Enabled);
 
-    public GpuTexturePool FxPool => _fx.Pool;
-
     public int FxBitmapsCreated { get; private set; }
 
     public ID2D1DeviceContext D2DContext => _d2d.Ctx;
@@ -100,24 +98,6 @@ public sealed class PvStageRenderer : IDisposable
         _frameEffects = effects;
         _frameTime = time;
         LastTiming = (0, LastTiming.Fx, LastTiming.Composite);
-    }
-
-    public SharedTarget OpenSharedTarget(IntPtr shareHandle, int width, int height)
-    {
-        var texture = _gpu.Device.OpenSharedResource<ID3D11Texture2D>(shareHandle);
-        try
-        {
-            var surface = texture.QueryInterface<IDXGISurface>();
-            var bitmap = _d2d.Ctx.CreateBitmapFromDxgiSurface(surface, new BitmapProperties1(
-                new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
-                96f, 96f, BitmapOptions.Target | BitmapOptions.CannotDraw));
-            return new SharedTarget(texture, surface, bitmap, width, height);
-        }
-        catch
-        {
-            texture.Dispose();
-            throw;
-        }
     }
 
     public sealed class SharedTarget : IDisposable

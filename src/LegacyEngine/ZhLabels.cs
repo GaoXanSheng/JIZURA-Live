@@ -1,29 +1,14 @@
-// 简体中文标签包（移植自 frontend/src/engine/zh-labels.js）。
-// 运行时覆盖注册表条目的 name，引擎零改动；必须在全部引擎文件之后应用
-// （EngineBoot.Install 末尾——对位 index.ts 里 zh-labels 最后导入，依赖 Reg 已填充）。
-//
-// 移植差异：
-//   1. 注册表条目（IRegEntry）与 StyleDef 都没有 desc 字段；不改接口，desc 统一收进
-//      Descriptions 字典（键 "group.key"，风格为 "style.key"）供 UI 查询，改名仍只作用于 Name。
-//   2. 源里对不上注册表的条目（11p_* 等尚未移植的表现包，M5 补包）静默跳过。
-//   3. 源第三段的 J.MOODS / J.THEMES 已接上（Apply 里覆盖 Omakase.Moods/Themes 的显示名）；
-//      J.SAMPLE_LYRICS 有意不接：示例歌词是渲染内容（默认工程歌词），改动会影响规划器输出
-//      与黄金值对拍，待做按语言的默认内容机制时再接（表保留在 SampleLyrics 常量）。
-//   4. 源第四段 TR（导出错误文案替换）是 JS 导出层的字符串替换；C# 导出（src/Export）的
-//      进度/错误文案本就是简体中文，无对应物，故未移植。
 
 namespace JizuraLive.LegacyEngine;
 
 public static class ZhLabels
 {
-    /// <summary>一条标签：源里是字符串形态（只有 name）或 [name, desc] 形态。</summary>
-    public readonly record struct Label(string Name, string? Desc = null)
+        public readonly record struct Label(string Name, string? Desc = null)
     {
         public static implicit operator Label(string name) => new(name);
     }
 
-    /// <summary>注册表 10 组：group → key → 标签（逐字来自源文件的 titles 表与表现包 P 表）。</summary>
-    public static readonly Dictionary<string, Dictionary<string, Label>> Tables = new()
+        public static readonly Dictionary<string, Dictionary<string, Label>> Tables = new()
     {
         ["layout"] = new()
         {
@@ -923,8 +908,7 @@ public static class ZhLabels
         },
     };
 
-    /// <summary>风格（源：J.STYLES，两段表合并）。</summary>
-    public static readonly Dictionary<string, Label> Styles = new()
+        public static readonly Dictionary<string, Label> Styles = new()
     {
         ["hrRuin"] = new("废墟", "褪色灰绿、锈红与回响的宋体"),
         ["hrNightRec"] = new("深夜录像", "漆黑画面、监控影像的白与红、雪花噪点"),
@@ -957,8 +941,7 @@ public static class ZhLabels
         ["ascii"] = new("ASCII 字符画", "把整个画面实时转成 ASCII——亮度定字符密度，色彩保留"),
     };
 
-    /// <summary>氛围显示名（源：J.MOODS；Apply() 覆盖到 Omakase.Moods 的 Name）。</summary>
-    public static readonly Dictionary<string, string> Moods = new()
+        public static readonly Dictionary<string, string> Moods = new()
     {
         ["horror"] = "恐怖",
         ["glitch"] = "故障",
@@ -970,8 +953,7 @@ public static class ZhLabels
         ["chaos"] = "不拘一格",
     };
 
-    /// <summary>一键随机主题显示名（源：J.THEMES；Apply() 覆盖到 Omakase.Themes 的 Name）。</summary>
-    public static readonly Dictionary<string, string> Themes = new()
+        public static readonly Dictionary<string, string> Themes = new()
     {
         ["lyricpv"] = "文字PV",
         ["kinetic"] = "动感",
@@ -981,38 +963,26 @@ public static class ZhLabels
         ["ballad"] = "抒情",
     };
 
-    /// <summary>示例歌词（源：J.SAMPLE_LYRICS 的覆盖值）。当前 Model.SampleLyrics 仍是日文原文，尚未接上。</summary>
-    public const string SampleLyrics = "我还记得/黎明的颜色\n远处响起渐渐散去的声音\n现在还来得及吗？\n不想就这样*透明*地结束!";
+        public static readonly Dictionary<string, string> Descriptions = new();
 
-    /// <summary>带 desc 的条目（源里 [name, desc] 形态），UI 查询用：键 "group.key"，风格为 "style.key"。</summary>
-    public static readonly Dictionary<string, string> Descriptions = new();
-
-    /// <summary>
-    /// 按表覆盖 Reg 条目的 Name；带 desc 的条目同时收进 Descriptions。
-    /// 表里有、Reg 里没有的键（未移植的表现包）静默跳过。幂等。
-    /// </summary>
-    public static void Apply()
+        public static void Apply()
     {
         foreach (var (group, table) in Tables)
         {
             foreach (var (key, label) in table)
             {
                 var def = Lookup(group, key);
-                if (def == null) continue;                       // 未移植的表现包：跳过
-                def.Name = label.Name;
+                if (def == null) continue;                                       def.Name = label.Name;
                 if (!string.IsNullOrEmpty(label.Desc)) Descriptions[group + "." + key] = label.Desc;
             }
         }
 
         foreach (var (key, label) in Styles)
         {
-            if (!Reg.Styles.TryGetValue(key, out var st)) continue;   // 11p_styles 的风格：跳过
-            st.Name = label.Name;
+            if (!Reg.Styles.TryGetValue(key, out var st)) continue;               st.Name = label.Name;
             if (!string.IsNullOrEmpty(label.Desc)) Descriptions["style." + key] = label.Desc;
         }
 
-        // 氛围/主题显示名（08b_omakase 基表是日文/混合，覆盖为简中；只改 Name，不动随机语义）。
-        // Omakase 静态构造器在首次触达时填充 Moods/Themes，早于本方法任何调用路径。
         foreach (var (key, name) in Moods)
             if (Omakase.Moods.TryGetValue(key, out var mood))
                 mood.Name = name;
@@ -1021,8 +991,7 @@ public static class ZhLabels
                 theme.Name = name;
     }
 
-    /// <summary>group → Reg 条目（只读访问，不新增注册表接口）。</summary>
-    private static IRegEntry? Lookup(string group, string key) => group switch
+        private static IRegEntry? Lookup(string group, string key) => group switch
     {
         "layout" => Reg.Layouts.GetValueOrDefault(key),
         "enter" => Reg.Enter.GetValueOrDefault(key),

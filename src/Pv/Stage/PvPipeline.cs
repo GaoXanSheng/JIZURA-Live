@@ -102,8 +102,6 @@ public sealed class PvPipeline : IDisposable
     private static readonly ParamAddress CameraBrightenAddr =
         new(ParamAddressKind.Camera, "", "brighten");
 
-    public PvScene Scene => _scene;
-    public EffectGraph Effects => _effects.Snapshot;
     public PvStageRenderer Renderer => _renderer;
     public bool LegacyMode => _legacyMode;
     public int LegacyCutCount => _legacy?.CutCount ?? 0;
@@ -113,14 +111,6 @@ public sealed class PvPipeline : IDisposable
 
     public (int Live, int Total) SpoutState =>
         (_spoutProviders.Count(p => p.Connected), _spoutProviders.Count);
-
-    public string? CharacterSourceSummary =>
-        _character is null ? null
-        : _character.Connected ? $"{_character.SourceWidth}×{_character.SourceHeight}"
-        : _character.Sender;
-
-    public string SubtitleSummary =>
-        _subtitle is null ? "无字幕层" : "字幕 就绪";
 
     public void RequestBroadcast(bool enable, string name) =>
         _pendingBroadcast = new BroadcastRequest(enable, name?.Trim() ?? "");
@@ -191,13 +181,6 @@ public sealed class PvPipeline : IDisposable
 
     public void SetAudioAnalysis(AudioBandSeries? series) => _audioBands = series;
 
-    public static AudioBandSnapshot SampleAudioBands(AudioBandSeries? series, double transportSeconds)
-    {
-        if (series is null || !series.Sample(transportSeconds, out var bands)) return default;
-
-        return new AudioBandSnapshot(bands.Valid, bands.Rms, bands.Bass, bands.Mid, bands.High);
-    }
-
     public void Prepare(double time)
     {
         var sw = Stopwatch.StartNew();
@@ -230,9 +213,6 @@ public sealed class PvPipeline : IDisposable
         _renderer.Composite(target, width, height);
         LastCompositeMs = sw.Elapsed.TotalMilliseconds;
     }
-
-    public PvStageRenderer.SharedTarget OpenSharedTarget(IntPtr shareHandle, int w, int h) =>
-        _renderer.OpenSharedTarget(shareHandle, w, h);
 
     public ID2D1DeviceContext D2DContext => _renderer.D2DContext;
 
@@ -387,7 +367,7 @@ public sealed class PvPipeline : IDisposable
             for (var i = 0; i < _scene.Layers.Count; i++)
             {
                 var layer = _scene.Layers[i];
-                var backgroundMedia = layer.Id != PvScene.CharacterLayerId
+                var backgroundMedia = !ReferenceEquals(layer, _scene.CharacterLayer)
                                       && (layer.Kind == PvLayerKind.Background
                                           || (layer.Kind == PvLayerKind.VisualAsset
                                               && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
@@ -399,7 +379,6 @@ public sealed class PvPipeline : IDisposable
             _scene.Layers.Insert(insert, back);
         }
 
-        // 只在首次创建时置顶；之后保留用户在图层列表里拖出来的顺序。
         if (existingFront is null)
             _scene.Layers.Add(front);
 
@@ -431,7 +410,7 @@ public sealed class PvPipeline : IDisposable
         },
     };
 
-    private static void MigrateVisualDefaults(PvLayerConfig layer)
+    private void MigrateVisualDefaults(PvLayerConfig layer)
     {
         if (layer.Kind == PvLayerKind.VisualAsset
             && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
@@ -457,7 +436,7 @@ public sealed class PvPipeline : IDisposable
             }
         }
 
-        if (layer.Id != PvScene.CharacterLayerId || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) return;
+        if (!_scene.IsCharacterLayer(layer) || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) return;
 
         var blend = layer.VisualBlend;
 
@@ -479,7 +458,7 @@ public sealed class PvPipeline : IDisposable
                 layer.Premultiplied);
             _renderer.Stage.Register(provider);
             _spoutProviders.Add(provider);
-            if (layer.Id == PvScene.CharacterLayerId) _character = provider;
+            if (_scene.IsCharacterLayer(layer)) _character = provider;
             return;
         }
 
@@ -808,8 +787,6 @@ public sealed class PvPipeline : IDisposable
         _d2d.Dispose();
     }
 }
-
-public readonly record struct AudioBandSnapshot(bool Valid, double Rms, double Bass, double Mid, double High);
 
 public sealed class SnapshotSlot<T> where T : class
 {

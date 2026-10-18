@@ -1,5 +1,6 @@
 using JizuraLive.Engine;
 using JizuraLive.Pv;
+using JizuraLive.Vts;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
@@ -19,7 +20,6 @@ public sealed class TCurve
 
 public sealed class TClip
 {
-    public string Id = "";
     public double Start, End;
     public string Text = "";
 }
@@ -42,6 +42,20 @@ public sealed class TDesignTrack
     public List<TDesignSegment> Segments = new();
 }
 
+public sealed class TVtsCue
+{
+    public double Time;
+    public double Duration;
+    public string Target = "";
+    public string Label = "";
+}
+
+public sealed class TVtsCueTrack
+{
+    public VtsCueKind Kind;
+    public List<TVtsCue> Cues = new();
+}
+
 public sealed class TSnapshot
 {
     public double DurationSeconds;
@@ -49,6 +63,7 @@ public sealed class TSnapshot
     public List<TCurve> Curves = new();
     public List<TClip> Lyrics = new();
     public List<TDesignTrack> DesignTracks = new();
+    public List<TVtsCueTrack> VtsCueTracks = new();
 
     public WaveformPeaks? Waveform;
 }

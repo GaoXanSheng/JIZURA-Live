@@ -1,4 +1,4 @@
-using System.Windows.Controls;
+﻿using System.Windows.Controls;
 using JizuraLive.App.PvStage.Panels;
 
 namespace JizuraLive.App.PvStage;
@@ -12,12 +12,12 @@ public partial class PvStageWindow
     private ScrollViewer PanelOutput => Left.PanelOutput;
     private ScrollViewer PanelSettings => Left.PanelSettings;
 
-    private Wpf.Ui.Controls.Button NavMedia => Left.NavMedia;
-    private Wpf.Ui.Controls.Button NavStyle => Left.NavStyle;
-    private Wpf.Ui.Controls.Button NavTech => Left.NavTech;
-    private Wpf.Ui.Controls.Button NavDirector => Left.NavDirector;
-    private Wpf.Ui.Controls.Button NavOutput => Left.NavOutput;
-    private Wpf.Ui.Controls.Button NavSettings => Left.NavSettings;
+    private RadioButton NavMedia => Left.NavMedia;
+    private RadioButton NavStyle => Left.NavStyle;
+    private RadioButton NavTech => Left.NavTech;
+    private RadioButton NavDirector => Left.NavDirector;
+    private RadioButton NavOutput => Left.NavOutput;
+    private RadioButton NavSettings => Left.NavSettings;
 
     private Wpf.Ui.Controls.Button BtnAddLayer => Left.BtnAddLayer;
     private Wpf.Ui.Controls.Button BtnGenerateAuto => Left.BtnGenerateAuto;
@@ -42,6 +42,9 @@ public partial class PvStageWindow
     private TextBlock TblVideoDecode => Left.TblVideoDecode;
     private TextBlock TblGpuName => Left.TblGpuName;
     private TextBlock TblPvRender => Left.TblPvRender;
+    private TextBlock TblVtsState => Left.TblVtsState;
+    private Wpf.Ui.Controls.Button BtnVtsReconnect => Left.BtnVtsReconnect;
+    private Wpf.Ui.Controls.Button BtnVtsAuth => Left.BtnVtsAuth;
 
     private ComboBox CmbKoma => Left.CmbKoma;
     private ComboBox CmbHud => Left.CmbHud;

@@ -11,8 +11,6 @@ public sealed class UndoLog
 
     public bool CanRedo => _index >= 0 && _index < _stack.Count - 1;
 
-    public int Count => _stack.Count;
-
     public void Push(string snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);

@@ -1,23 +1,3 @@
-// 移植自 frontend/src/engine/08_planner.js
-//
-// 歌词 → 行 → 词块 → 带时刻切分 + 事件的规划器。逐行对齐 JS：
-// RNG 消费顺序、分支条件、clamp 边界与 JS 一致（同 seed 编排可复现）。
-// 对位关系：
-//   J.plan(project, audio)                → Planner.Plan(Project, AudioData?)
-//   J.parseLyrics / J.parseOrderV1        → Planner.ParseLyrics / ParseOrderV1
-//   J.computeTiming                       → Planner.ComputeTiming
-//   J.segments / chunkText / phraseChunks → Planner.Segments / ChunkText / PhraseChunks
-//   J.joinWords / isWordLike / isLatinText→ Planner.JoinWords / IsWordLike / IsLatinText
-//   J.cutAt（09_render.js 开头）          → Planner.CutAt(Plan, double)
-//   J.previewPlan / designSize / outputSize→ Planner.PreviewPlan / DesignSize / OutputSize
-//   J.komaOf / J.stepDur                  → Planner.KomaOf / StepDur
-//   J.lineSnapshot                        → Planner.LineSnapshot
-//   J.sideZones                           → Planner.SideZones
-//   J.LAYOUTS/ENTER/HOLD/EXIT/...         → Reg.Layouts/Enter/Hold/Exit/...
-//   plan.evOwner（WeakMap）               → Plan.EvOwner（Dictionary<PlanEvent, Cut>）
-//   J.resolveStyle / J.keyMode            → JStyles.ResolveStyle / KeyMode
-//   J.resolveLang / J.setLang             → JLang.ResolveLang / SetLang
-//   J.setTypeset                          → 省略（只影响排版量测；Plan.Typeset 已带，M1 无排版）
 
 using System.Globalization;
 using System.Text;
@@ -28,10 +8,8 @@ namespace JizuraLive.LegacyEngine;
 
 public static class Planner
 {
-    // ---------------- 解析（J.parseLyrics / J.parseOrderV1） ----------------
 
-    /// <summary>parseLyrics 的单行结果（JS 的松散对象 base）。Emph/Manual 与 LRC 展开行共享引用，同 JS。</summary>
-    public sealed class ParsedLine
+        public sealed class ParsedLine
     {
         public string Text = "";
         public bool Interlude;
@@ -45,8 +23,7 @@ public static class Planner
         public double? Lrc;
     }
 
-    /// <summary>parseLyrics 的返回 {lines, meta}。meta 是 LRC 标签（ti/ar/al/by/offset）。</summary>
-    public sealed class ParsedLyrics
+        public sealed class ParsedLyrics
     {
         public List<ParsedLine> Lines = new();
         public Dictionary<string, string> Meta = new();
@@ -63,8 +40,7 @@ public static class Planner
     private static readonly Regex EmphRe = new(@"\*([^*]+)\*", RegexOptions.Compiled);
     private static readonly Regex LatinRe = new("[A-Za-z]", RegexOptions.Compiled);
 
-    /// <summary>J.parseLyrics：LRC 标签/间奏/记号（|备注、!强、*强调*、/手工切分）解析 + 时间排序。</summary>
-    public static ParsedLyrics ParseLyrics(string? raw)
+        public static ParsedLyrics ParseLyrics(string? raw)
     {
         var lines = new List<ParsedLine>();
         var meta = new Dictionary<string, string>();
@@ -95,13 +71,11 @@ public static class Planner
                 s = s[m.Length..];
             }
             s = s.Trim();
-            // 間奏：[間奏] / [間奏 8]（8 秒），也认 [interlude] [inst] [间奏] [간주]；没歌词，只出背景和装饰
             var im = InterludeRe.Match(s);
             if (im.Success)
             {
                 var secs = im.Groups[2].Success ? double.Parse(im.Groups[2].Value, CultureInfo.InvariantCulture) : (double?)null;
-                var gapBeforeI = pendingGap; // JS 的 base 在置 false 前取 pendingGap
-                void PushInter(double? lrc)
+                var gapBeforeI = pendingGap;                 void PushInter(double? lrc)
                 {
                     lines.Add(new ParsedLine
                     {
@@ -151,8 +125,7 @@ public static class Planner
             }
             if (s.Length == 0) continue;
             var text = s;
-            var gapBeforeL = pendingGap; // JS 的 base 在置 false 前取 pendingGap
-            void PushLine(double? lrc)
+            var gapBeforeL = pendingGap;             void PushLine(double? lrc)
             {
                 lines.Add(new ParsedLine
                 {
@@ -170,7 +143,6 @@ public static class Planner
             if (times.Count > 0) foreach (var t in times) PushLine(t);
             else PushLine(null);
         }
-        // LRC：按时间排序；无戳行（间奏、手工补的行）跟在文本里前一行后面（v0.10 起）
         if (lines.Any(l => l.Lrc != null))
         {
             double key = -1;
@@ -188,26 +160,9 @@ public static class Planner
                 else kk = key + 1e-6 * ++k;
                 keyed.Add((l, kk));
             }
-            lines = keyed.OrderBy(x => x.Key).Select(x => x.L).ToList(); // LINQ OrderBy 稳定排序，同 JS
-        }
+            lines = keyed.OrderBy(x => x.Key).Select(x => x.L).ToList();         }
         return new ParsedLyrics { Lines = lines, Meta = meta };
     }
-
-    /// <summary>
-    /// v0.10 之前的行序（无戳行排最后），只用来把老工程的逐行设置搬过来。
-    /// 返回旧索引 → 新索引；无混合时间戳时返回 null。
-    /// </summary>
-    public static int[]? ParseOrderV1(string? raw)
-    {
-        var lines = ParseLyrics(raw).Lines;
-        if (!lines.Any(l => l.Lrc != null) || lines.All(l => l.Lrc != null)) return null;
-        return Enumerable.Range(0, lines.Count)
-            .OrderBy(i => lines[i].Lrc ?? 1e9)
-            .ThenBy(i => lines[i].Src)
-            .ToArray();
-    }
-
-    // ---------------- 分词 / 词块（J.segments / chunkText / phraseChunks / joinWords） ----------------
 
     private static List<string> CodePoints(string s)
     {
@@ -245,7 +200,6 @@ public static class Planner
         return s[0].ToString();
     }
 
-    // WORDCH = /[A-Za-z\u00c0-\u024f0-9\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]/（\u024f 后的 0-9 是独立区间）
     private static readonly Regex WordChRe =
         new("[A-Za-z\u00c0-\u024f0-9\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]", RegexOptions.Compiled);
     private static readonly Regex WordLikeRe =
@@ -255,8 +209,7 @@ public static class Planner
     private static readonly Regex WsRe = new(@"\s+", RegexOptions.Compiled);
     private static readonly Regex DashSplitRe = new("(?<=[-‐–—])(?=\\S)", RegexOptions.Compiled);
 
-    /// <summary>J.isWordLike：拉丁/韩文词（词间补空格用）。</summary>
-    public static bool IsWordLike(string t) => WordLikeRe.IsMatch(t) && WordChRe.IsMatch(t);
+        public static bool IsWordLike(string t) => WordLikeRe.IsMatch(t) && WordChRe.IsMatch(t);
 
     private static bool CpIsWs(string cp) => cp.Length == 1 && char.IsWhiteSpace(cp[0]);
     private static bool CpIsPunct(string cp) => cp.Length == 1 && J.IsPunct(cp[0]);
@@ -276,11 +229,7 @@ public static class Planner
         return 'O';
     }
 
-    /// <summary>
-    /// J.segments：按字类切分。TODO ICU word segmentation：JS 的 Intl.Segmenter 分支省略，
-    /// 直接用文件里的字符类回退算法（segType）；连字/汉字按类聚合，假名可附在汉字块后。
-    /// </summary>
-    public static List<string> Segments(string text)
+        public static List<string> Segments(string text)
     {
         var outList = new List<string>();
         var cur = new StringBuilder();
@@ -302,8 +251,7 @@ public static class Planner
         return outList;
     }
 
-    /// <summary>J.joinWords：拼接词序列，词间补空格（拉丁/谚文），连字符后不补。</summary>
-    public static string JoinWords(IReadOnlyList<string> arr)
+        public static string JoinWords(IReadOnlyList<string> arr)
     {
         var latin = LatinRe.IsMatch(string.Concat(arr));
         var acc = "";
@@ -326,8 +274,7 @@ public static class Planner
         return acc;
     }
 
-    /// <summary>J.isLatinText：以拉丁字母为主的文本（英语、印尼语、越南语……歌词）。</summary>
-    public static bool IsLatinText(string? t)
+        public static bool IsLatinText(string? t)
     {
         var s = Regex.Replace(t ?? "", @"\s", "");
         if (s.Length == 0) return false;
@@ -343,8 +290,7 @@ public static class Planner
         public bool HasH;
     }
 
-    /// <summary>J.chunkText：分词结果聚成词块（≤10 字），拆超长块、合并落单假名。</summary>
-    public static List<string> ChunkText(string text)
+        public static List<string> ChunkText(string text)
     {
         var segs = Segments(text);
         var chunks = new List<string>();
@@ -406,14 +352,12 @@ public static class Planner
             cur = new ChunkCur { S = sg, K = t, HasH = t == 'H' };
         }
         Close();
-        // 拆超长词块，合并落单的假名
         var outList = new List<string>();
         foreach (var c in chunks)
         {
             var n = CpLen(c);
             if (n > 10 && IsWordLike(c))
             {
-                // 很长的拉丁/韩文词绝不在词中间切，只在连字符后面分（never-ending → never- / ending）
                 var parts = DashSplitRe.Split(c);
                 if (parts.Length > 1) outList.AddRange(parts);
                 else outList.Add(c);
@@ -438,8 +382,7 @@ public static class Planner
         return outList.Count > 0 ? outList : new List<string> { text };
     }
 
-    /// <summary>J.phraseChunks：英文歌词按短语切，不逐词（一个日语词块约相当于 2–3 个英文单词）。</summary>
-    public static List<string> PhraseChunks(IReadOnlyList<string> words)
+        public static List<string> PhraseChunks(IReadOnlyList<string> words)
     {
         var outList = new List<string>();
         var cur = new List<string>();
@@ -458,7 +401,6 @@ public static class Planner
             if (letters >= 9 || cur.Count >= 3 || Regex.IsMatch(w, "[,.;:!?]$")) Flush();
         }
         Flush();
-        // 结尾落单的短词并进上一段
         if (outList.Count >= 2 && Regex.Replace(outList[^1], "[^A-Za-z]", "").Length <= 4)
         {
             var last = outList[^1];
@@ -468,19 +410,12 @@ public static class Planner
         return outList.Count > 0 ? outList : words.ToList();
     }
 
-    // ---------------- 时刻估算（J.computeTiming） ----------------
-
-    /// <summary>
-    /// J.computeTiming：行起点/终点/总时长。
-    /// 手工时刻（lineTimes）优先于 LRC 标签，估算行走 beat 量化 + 挤进固定时刻间隙。
-    /// </summary>
-    public static (double[] Starts, double[] Ends, double Duration) ComputeTiming(
+        public static (double[] Starts, double[] Ends, double Duration) ComputeTiming(
         Project project, ParsedLyrics parsed, AudioData? audio)
     {
         var T = project.Timing ?? new TimingSettings();
         var lines = parsed.Lines;
         var beat = T.Bpm > 0 ? 60 / T.Bpm : 0;
-        // 固定时刻：手工设定的时间（打字/打点/拖动）优先于 LRC 标签，其余行走估算
         var fixedT = new double?[lines.Count];
         for (var i = 0; i < lines.Count; i++)
         {
@@ -489,7 +424,6 @@ public static class Planner
             if (man != null && double.IsFinite(man.Value)) fixedT[i] = Math.Max(0, man.Value);
             else if (lines[i].Lrc is { } lrc2 && double.IsFinite(lrc2)) fixedT[i] = lrc2;
         }
-        // 固定时刻不能倒退到更早的固定时刻之前（保存的值本身不动）
         double lastFix = double.NegativeInfinity;
         for (var i = 0; i < fixedT.Length; i++)
             if (fixedT[i] != null)
@@ -523,16 +457,13 @@ public static class Planner
                 i2++;
                 continue;
             }
-            // 一段估算行 [i, j)，夹在上一个起点与下一个固定时刻之间（若有的话）
             var j = i2;
             while (j < lines.Count && fixedT[j] == null) j++;
             if (i2 == 0 && j < lines.Count && t >= fixedT[j]!.Value) t = 0;
             var from = i2 > 0 ? starts[i2 - 1] : t;
-            // 链式推进方式与旧版一致（无固定时刻时 plan 结果完全不变）
             for (var k = i2; k < j; k++) starts[k] = k > 0 ? starts[k - 1] + Natural(k - 1) + GapOf(k) : t;
             if (j < lines.Count)
             {
-                // 这些行都必须在下一个固定时刻之前开始：把它们挤进可用的空间里
                 var room = fixedT[j]!.Value - from;
                 var need = starts[j - 1] + Natural(j - 1) + GapOf(j) - from;
                 if (need > room)
@@ -564,15 +495,7 @@ public static class Planner
         return (starts, ends, duration);
     }
 
-    // ---------------- koma / step（J.komaOf / J.stepDur） ----------------
-
-    /// <summary>
-    /// J.komaOf：24fps 时间轴上每秒作画张数（12 = 二拍一，8 = 三拍一，0 = 每个输出帧）。
-    /// 逐字对位 JS：fx.koma != null ? +fx.koma : (fx.onTwos === false ? 0 : 12)——
-    /// 显式档位永远优先；没写这个键才回退看 onTwos。C# 用可空 Koma 表达「工程里没有这个键」。
-    /// 本 fork 的缺省是 Koma=null + OnTwos=false → 全帧（上游 JS 那个缺省是 onTwos=true → 12）。
-    /// </summary>
-    public static int KomaOf(FxSettings fx) => fx.Koma ?? (fx.OnTwos ? 12 : 0);
+        public static int KomaOf(FxSettings fx) => fx.Koma ?? (fx.OnTwos ? 12 : 0);
 
     public static double StepDur(FxSettings fx, int fps)
     {
@@ -580,10 +503,7 @@ public static class Planner
         return k > 0 ? 1.0 / k : 1.0 / (fps != 0 ? fps : 24);
     }
 
-    // ---------------- 覆盖/开关读取助手（JS duck-typed 访问的 C# 形态） ----------------
-
-    /// <summary>JS 真值判定（if (x) 语义）。</summary>
-    private static bool Truthy(JToken? t) => t switch
+        private static bool Truthy(JToken? t) => t switch
     {
         null or JValue { Value: null } => false,
         JValue { Value: string s } => s.Length > 0,
@@ -600,15 +520,12 @@ public static class Planner
         => o?[k] is JValue { Type: JTokenType.Float or JTokenType.Integer } v ? (double?)v : null;
 
     private static bool EnOn(Dictionary<string, Dictionary<string, bool>> en, string g, string k)
-        => en.TryGetValue(g, out var m) && m.TryGetValue(k, out var v) && v; // JS 真值检查
-
+        => en.TryGetValue(g, out var m) && m.TryGetValue(k, out var v) && v; 
     private static bool EnNotOff(Dictionary<string, Dictionary<string, bool>> en, string g, string k)
-        => !(en.TryGetValue(g, out var m) && m.TryGetValue(k, out var v) && !v); // JS !== false 检查
-
+        => !(en.TryGetValue(g, out var m) && m.TryGetValue(k, out var v) && !v); 
     private static JObject? BiasOf(StyleDef st, string g) => st.Bias?[g] as JObject;
 
-    /// <summary>wkey(obj, k, d)：obj[k] 存在且为数值时取之，否则用默认。</summary>
-    private static double WKey(JObject? obj, string k, double d)
+        private static double WKey(JObject? obj, string k, double d)
     {
         var v = obj?[k];
         return v != null && v.Type is JTokenType.Float or JTokenType.Integer ? (double)v : d;
@@ -635,8 +552,7 @@ public static class Planner
         ? null
         : new Zone { X = z.X, Y = z.Y, W = z.W, H = z.H, Side = z.Side };
 
-    /// <summary>单切分指定（ov.cutTech / ov.cutLayouts 合并），JS cutTechOf。</summary>
-    private static JObject CutTechOf(JObject? ov, int k)
+        private static JObject CutTechOf(JObject? ov, int k)
     {
         var t = (ov?["cutTech"] as JObject)?[k.ToString()] as JObject ?? new JObject();
         var fromLay = (ov?["cutLayouts"] as JObject)?[k.ToString()];
@@ -651,10 +567,7 @@ public static class Planner
 
     private static string? TechStr(JObject tech, string k) => Str(tech, k);
 
-    // ---------------- 主规划（J.plan） ----------------
-
-    /// <summary>抽取结果的历史条目（JS 的 hist 对象），novelty/pickDecor 用。</summary>
-    private sealed class Hist
+        private sealed class Hist
     {
         public string? Layout;
         public string? Enter;
@@ -666,16 +579,14 @@ public static class Planner
         public List<string> Decor = new();
     }
 
-    /// <summary>切分单元（units：{text, w, recap}）。</summary>
-    private sealed class Unit
+        private sealed class Unit
     {
         public string Text = "";
         public double W;
         public bool Recap;
     }
 
-    /// <summary>統一感的重复行规格（remember 存、again 取）。</summary>
-    private sealed class AgainSpec
+        private sealed class AgainSpec
     {
         public string Text = "";
         public string Layout = "";
@@ -702,8 +613,7 @@ public static class Planner
     private static void AddEvent(Plan plan, double t, string type, double amp, double dur)
         => plan.Events.Add(new PlanEvent { T = t, Type = type, Amp = amp, Dur = dur });
 
-    /// <summary>J.plan：歌词 → 行 → 词块 → 带时刻切分 + 事件。</summary>
-    public static Plan Plan(Project project, AudioData? audio)
+        public static Plan Plan(Project project, AudioData? audio)
     {
         var st = JStyles.ResolveStyle(project);
         var fx = CloneFx(project.Fx);
@@ -711,7 +621,6 @@ public static class Planner
         var title = !string.IsNullOrEmpty(project.Title) ? project.Title : parsed.Meta.GetValueOrDefault("ti") ?? "";
         var artist = !string.IsNullOrEmpty(project.Artist) ? project.Artist : parsed.Meta.GetValueOrDefault("ar") ?? "";
         var tm = ComputeTiming(project, parsed, audio);
-        // 文字整列：歌词比人声早 0.2s 出现，提前读着才觉得合拍
         if (project.Typeset)
         {
             const double lead = 0.2;
@@ -719,8 +628,6 @@ public static class Planner
             tm.Ends = tm.Ends.Select((x, i) => Math.Max(tm.Starts[i] + 0.3, x - lead)).ToArray();
         }
         var (W, H) = DesignSize(project.Aspect);
-        // enabled：没显式关掉的都算开（老工程里新手法包的条目自动可用）；
-        // 追加分/和風 开关决定随机能选什么（逐行 override 不受影响）
         var en = new Dictionary<string, Dictionary<string, bool>>();
         foreach (var g in Reg.GroupKeys)
         {
@@ -730,18 +637,14 @@ public static class Planner
                 m[k] = (src == null || !src.TryGetValue(k, out var v) || v) && Reg.RandomAllows(project, g, k);
             en[g] = m;
         }
-        // 中央を空ける（给角色留位）：每个切分排进侧边条带，宽帧左右、竖帧上下，逐行交替；中间只留整帧背景和屏幕特效
         var zones = project.CenterFree ? SideZones(W, H, project.CenterDir, project.CenterGap, project.CenterZone) : null;
-        // 每个切分的歌词拆两半：前半进条带 0（左/上），后半进条带 1（右/下）
         Zone? ZoneOf() => zones == null ? null : CloneZone(zones[0]);
-        if (zones != null && en.TryGetValue("bg", out var enBg)) enBg["bigChar"] = false; // 唯一会自己画歌词的背景（大字居中）
-
+        if (zones != null && en.TryGetValue("bg", out var enBg)) enBg["bigChar"] = false; 
         var plan = new Plan
         {
             Version = 1,
             Generator = "JIZURA",
-            AppVersion = null, // JS 的 '@VERSION@' 构建期替换；C# 侧由宿主按需补
-            Title = title,
+            AppVersion = null,             Title = title,
             Artist = artist,
             W = W,
             H = H,
@@ -756,16 +659,12 @@ public static class Planner
             Events = new List<PlanEvent>(),
             Beats = audio?.Beats != null ? (double[])audio.Beats.Clone() : Array.Empty<double>(),
             Hud = fx.Hud == "on" ? true : fx.Hud == "off" ? false : st.Hud,
-            KeyBg = JStyles.KeyMode(project), // 'green' | 'black' | null，抠像合成背景
-            CenterFree = zones != null,
+            KeyBg = JStyles.KeyMode(project),             CenterFree = zones != null,
             Zones = zones,
             Typeset = project.Typeset,
             Unify = project.Unify,
-            Lang = JLang.ResolveLang(project), // 歌词语言（auto → 检测结果）
-        };
-        JLang.SetLang(plan.Lang); // 下面的切词和排版量测都用这个语言
-        // （JS 的 J.setTypeset(plan.typeset) 只影响排版量测，M1 无排版——省略调用点）
-
+            Lang = JLang.ResolveLang(project),         };
+        JLang.SetLang(plan.Lang); 
         var beats = plan.Beats;
         double Snap(double t2)
         {
@@ -794,7 +693,6 @@ public static class Planner
         var schemeIdx = 0;
         var nSchemes = st.Schemes.Count;
 
-        // 动作时长（切分时长 × 比例，被 enter/exit 注册项的 inDur/outDur 覆盖）
         static (double InD, double OutD) Durs(double dur, int nn, string en2, string ex2)
         {
             var a = J.Clamp(dur * 0.36, 0.12, 0.6);
@@ -816,7 +714,6 @@ public static class Planner
             return (a, b);
         }
 
-        // 片头标题卡
         var firstStart = tm.Starts.Length > 0 ? tm.Starts[0] : 0;
         if (title.Length > 0 && firstStart >= 1.1)
         {
@@ -838,7 +735,6 @@ public static class Planner
                 seed: J.H((int)project.Seed, 999, 1)));
         }
 
-        // 統一感：段落、重复行、キメ 行和各段调色板
         var U = plan.Unify ? MakeUnify(parsed.Lines, st, en, fx, history, plan.Lang) : null;
 
         for (var li = 0; li < parsed.Lines.Count; li++)
@@ -854,7 +750,6 @@ public static class Planner
             var rng = J.Rng(lineSeed);
             if (ln.Interlude)
             {
-                // [間奏]：只有背景、装饰和屏幕特效
                 plan.Lines.Add(new PlanLine
                 {
                     Index = li,
@@ -906,7 +801,6 @@ public static class Planner
                     cam: "push",
                     camP: new JObject()));
                 if (EnNotOff(en, "fx", "chroma")) AddEvent(plan, ls, "chroma", 1 + fx.Chroma, 0.25);
-                // 长间奏加几个特效点缀，免得太死
                 for (double t2 = ls + 1.2; t2 < le - 0.8; t2 += J.Clamp(durI / 4, 1.6, 3.2))
                 {
                     var pick = PickFx(rng, st, en, fx, false, fxHistory, "mid");
@@ -943,7 +837,6 @@ public static class Planner
             var nC = (int)Math.Round(durL / L, MidpointRounding.AwayFromZero);
             var maxC = chunks.Count + (chunks.Count >= 2 && durL > 2.0 ? 1 : 0);
             nC = J.Clamp(nC, 1, Math.Max(1, maxC));
-            // 逐行设置（版式/动态/装饰/配色/强调之外的任意字段）优先于統一感
             var ovBookkeeping = new HashSet<string> { "lock", "lockedSeed", "seed", "cutTech", "cutLayouts", "cutQuiet", "cutTime" };
             var ovAny = false;
             if (ov != null)
@@ -955,9 +848,7 @@ public static class Planner
                     }
             var kime = U != null && U.Kime.Contains(li) && !(Num(ov, "cuts") is { } cv && (cv != 0 && !double.IsNaN(cv)));
             if (Truthy(ov?["single"]) || kime) nC = 1;
-            if (zones != null) nC = Math.Max(1, Math.Min(nC, (int)Math.Floor(chunks.Count / 2.0))); // 每个切分要拆成两半，每半至少留 2 个词
-            // 指定切分数（按行）：就切这么多刀，块不够就继续拆
-            var fixedN = Num(ov, "cuts") is { } fv && fv > 0 ? Math.Min(12, (int)fv) : 0;
+            if (zones != null) nC = Math.Max(1, Math.Min(nC, (int)Math.Floor(chunks.Count / 2.0)));             var fixedN = Num(ov, "cuts") is { } fv && fv > 0 ? Math.Min(12, (int)fv) : 0;
             var chunks2 = chunks;
             if (fixedN > 0)
             {
@@ -977,7 +868,6 @@ public static class Planner
                     W = units.Average(u => u.W) * 1.25,
                     Recap = true
                 });
-            // ロック：锁定的行也保留自己的切分，否则数量会跟着细密度滑块或おまかせ走
             if (LockedCutsValid(ov, ln.Text))
                 units = ((JArray?)ov!["lockedCuts"])!.Select(c2 =>
                 {
@@ -986,7 +876,6 @@ public static class Planner
                     return new Unit { Text = ut, W = CpLen(ut) + 1.6, Recap = Truthy(c3["recap"]) };
                 }).ToList();
             var tot = units.Sum(u => u.W);
-            // ロック：锁定的行原样保留锁定时的内容（版式、动态、装饰、配色、强调）
             var lockSpecs = LockSpecsOf(ov, units);
             var acc = ls;
             var bounds = new List<double> { ls };
@@ -997,12 +886,10 @@ public static class Planner
             }
             for (var k = 1; k < bounds.Count - 1; k++)
             {
-                // 相邻边界间距 < 0.44s 时下界会大于上界，clamp 要先归序，防止出现 start>end 的负时长 cut
                 var loB = bounds[k - 1] + 0.22;
                 var hiB = bounds[k + 1] - 0.22;
                 bounds[k] = J.Clamp(Snap(bounds[k]), Math.Min(loB, hiB), Math.Max(loB, hiB));
             }
-            // 切分开始时刻（详细模式）：行首起的秒数，手工填或打点（Tab），保持顺序、互距至少 0.22s
             if (ov?["cutTime"] is JObject cutTime)
             {
                 var nb = bounds.Count - 1;
@@ -1019,7 +906,6 @@ public static class Planner
                     if (bounds[k] > bounds[k + 1] - 0.22)
                         bounds[k] = bounds[k + 1] - 0.22;
             }
-            // 配色方案按行切换
             if (nSchemes > 1 && li > 0)
             {
                 var doSwitch = U != null
@@ -1027,8 +913,6 @@ public static class Planner
                     : rng.Chance(fx.BgSwitch * (ln.Impact ? 1.8 : 1));
                 if (doSwitch) schemeIdx = (schemeIdx + 1 + rng.Int(0, nSchemes - 2)) % nSchemes;
             }
-            // （JS 的 const emphLine 在源码里未被使用——不移植）
-            // 背景图形按行选，偶尔在切分上重抽
             var lineBg = Str(ov, "bg") is { } obg2 && Reg.Bg.ContainsKey(obg2) ? obg2 : PickBg(rng, st, en, fx, bgHistory);
             bgHistory.Add(lineBg);
             var lineBgP = Reg.Bg.TryGetValue(lineBg, out var lbgD) && lbgD.Plan != null
@@ -1041,16 +925,12 @@ public static class Planner
                 var cs = bounds[k];
                 var ce = bounds[k + 1];
                 var dur = ce - cs;
-                var halves = zones != null ? SplitHalf(u.Text, plan.Lang) : null; // 「花が」｜「咲いた」
-                var txt = halves != null ? halves[0] : u.Text;
+                var halves = zones != null ? SplitHalf(u.Text, plan.Lang) : null;                 var txt = halves != null ? halves[0] : u.Text;
                 var nn = (halves ?? new List<string> { u.Text }).Max(t2 => CpLen(WsRe.Replace(t2, "")));
                 var emph = kime || (ln.Impact && (k == 0 || u.Recap)) || ln.Emph.Any(w2 => u.Text.Contains(w2));
                 var Z = ZoneOf();
                 var LW = Z != null ? Z.W : W;
-                var LH = Z != null ? Z.H : H; // 这个切分布局用的画面区域
-                var UU = U != null && !ovAny ? U : null; // 逐行设置优先于統一感
-                var tech = CutTechOf(ov, k); // 只作用于这个切分的指定
-                var layout = Str(ov, "layout") is { } ol && Reg.Layouts.ContainsKey(ol)
+                var LH = Z != null ? Z.H : H;                 var UU = U != null && !ovAny ? U : null;                 var tech = CutTechOf(ov, k);                 var layout = Str(ov, "layout") is { } ol && Reg.Layouts.ContainsKey(ol)
                     ? ol
                     : PickLayout(rng, st, en, nn, dur, history, emph, u.Recap, LH > LW);
                 if (UU != null) layout = UU.Layout(li, layout, nn, kime, rng, LH > LW);
@@ -1105,7 +985,6 @@ public static class Planner
                     ? camD.Plan!(rng, st) ?? new JObject()
                     : new JObject();
                 var cutSeed = J.H((int)lineSeed, k, 17);
-                // 統一感：重复出现的行（サビ 等）和第一次完全一样
                 var again = UU?.Again(li, k, txt);
                 if (again != null)
                 {
@@ -1173,8 +1052,6 @@ public static class Planner
                     inDur = Num(LS, "inDur") ?? 0.3;
                     outDur = Num(LS, "outDur") ?? 0.25;
                 }
-                // 单切分指定：叠加在抽取结果之上，用独立的随机流，改一个切分不会挪动其他切分
-                // （下面的 history 记录的仍是画出来的东西，当作这里什么都没改）
                 var drawn = new Hist
                 {
                     Layout = layout,
@@ -1198,7 +1075,6 @@ public static class Planner
                     }
                     catch
                     {
-                        // JS 的空 catch：layout plan 失败时保留原参数
                     }
                 }
                 var techEnter = TechStr(tech, "enter");
@@ -1239,12 +1115,10 @@ public static class Planner
                 }
                 if (techEnter != null || techExit != null)
                 {
-                    // 动作没变就保留（锁定的）时长
                     var (i2d, o2d) = Durs(dur, nn, enter, exit);
                     if (techEnter != null && Reg.Enter.ContainsKey(techEnter)) inDur = i2d;
                     if (techExit != null && Reg.Exit.ContainsKey(techExit)) outDur = o2d;
                 }
-                // 切分间转场（顶掉上一刀的 exit 和这一刀的 enter）
                 var prevCut = plan.Cuts.Count > 0 ? plan.Cuts[^1] : null;
                 string? trans = null;
                 var transP = new JObject();
@@ -1254,7 +1128,6 @@ public static class Planner
                 var joinSavedInDur = inDur;
                 var joinSavedPrevExit = prevCut?.Exit;
                 var joinSavedPrevOut = prevCut?.OutDur;
-                // 锁定行保留自己的 exit：下一个未锁定行不许用转场/モーフ顶掉它
                 var prevLockedOther = false;
                 if (prevCut != null && prevCut.Line != li && LS == null)
                 {
@@ -1263,10 +1136,8 @@ public static class Planner
                 }
                 var canTrans = prevCut != null && Math.Abs(prevCut.End - cs) < 0.06
                                && prevCut.Layout != "interlude" && dur > 0.5 && !prevLockedOther;
-                // 統一感：モーフ——同一行的下一部分从这一部分里长出来（共享字滑动，其余融化）
                 if (LS != null)
                 {
-                    // 锁定行：切分仍相接时沿用之前的接法
                     if (canTrans && LS["morph"] is JObject lm)
                     {
                         morph = new JObject { ["dur"] = lm["dur"]?.DeepClone() ?? new JValue(0.0) };
@@ -1293,7 +1164,6 @@ public static class Planner
                 }
                 else if (canTrans && again != null && Str(ov, "trans") == null)
                 {
-                    // 統一感：重复行的切分接法和第一次相同
                     if (again.Trans != null && Reg.Trans.ContainsKey(again.Trans))
                     {
                         trans = again.Trans;
@@ -1326,7 +1196,6 @@ public static class Planner
                 var techTrans = TechStr(tech, "trans");
                 if (techTrans == "none")
                 {
-                    // 单切分指定「つなぎなし」：撤销接缝
                     if (trans != null || morph != null)
                     {
                         enter = joinSavedEnter;
@@ -1396,7 +1265,6 @@ public static class Planner
                 if (morph != null) cut.Morph = morph;
                 UU?.Remember(li, k, txt, cut);
                 if (zones != null) SplitCut(cut, halves!, zones, st, dur, LS);
-                // 文字整列：特效不叠加——至多一个装饰，上面不再叠文字处理
                 if (plan.Typeset)
                 {
                     cut.Decor = cut.Decor.Take(1).ToList();
@@ -1408,7 +1276,6 @@ public static class Planner
                 }
                 plan.Cuts.Add(cut);
                 var evMark = plan.Events.Count;
-                // history 记抽取结果（含通常的接缝），单切分的改选才不会挪动后面的切分
                 var hist = new Hist
                 {
                     Layout = layout,
@@ -1429,7 +1296,6 @@ public static class Planner
                 if (tech.ContainsKey("trans")) hist.Trans = drawn.Trans;
                 if (tech.ContainsKey("decor")) hist.Decor = drawn.Decor;
                 history.Add(hist);
-                // 切分开始处的事件——时长按 24fps 时间轴计，任何输出帧率下观感一致
                 var gg = fx.Glitch * (st.GlitchBoost != 0 ? st.GlitchBoost : 1);
                 const double F = 1.0 / 24;
                 if (EnNotOff(en, "fx", "chroma"))
@@ -1444,7 +1310,6 @@ public static class Planner
                     AddEvent(plan, cs, "flash", 1, 3 * F);
                 if (kime)
                 {
-                    // キメ：行落点上的重音
                     if (EnNotOff(en, "fx", "zoom")) AddEvent(plan, cs, "zoom", 1.1, 0.25);
                     if (EnNotOff(en, "fx", "shake"))
                         AddEvent(plan, cs + 0.04, "shake", 1.1 * Math.Max(0.5, fx.Motion), 0.35);
@@ -1457,7 +1322,6 @@ public static class Planner
                     AddEvent(plan, cs, "mosaic", 1, 3 * F);
                 if (EnNotOff(en, "fx", "slice") && dur > 0.8 && rng.Chance(gg * 0.4))
                     AddEvent(plan, cs + rng.Range(0.35, 0.8) * dur, "slice", 0.4 + gg * 0.4, 2 * F);
-                // 新特效库：每个切分边界至多一个，偶尔切分中段加一个
                 if (plan.Cuts.Count > 1 || k > 0 || li > 0)
                 {
                     var pick = PickFx(rng, st, en, fx, emph, fxHistory, "edge");
@@ -1488,7 +1352,6 @@ public static class Planner
                             Num(eo, "amp") ?? 0, Num(eo, "dur") ?? 0);
                     }
                 }
-                // 文字整列：除色差外每个切分至多一个屏幕特效（キメ 行保留全部）
                 if (plan.Typeset && !cut.Kime && LS == null)
                 {
                     var mine = plan.Events.Skip(evMark).ToList();
@@ -1498,9 +1361,7 @@ public static class Planner
                         if (ev.Type == "chroma" || ev.Type == "shake" && emph || extra++ < 1)
                             plan.Events.Add(ev);
                 }
-                for (var q = evMark; q < plan.Events.Count; q++) plan.EvOwner[plan.Events[q]] = cut; // 记下每个打点来自哪个切分（锁定用）
-            }
-            // 长空档里补间奏
+                for (var q = evMark; q < plan.Events.Count; q++) plan.EvOwner[plan.Events[q]] = cut;             }
             double? nextStart = li < parsed.Lines.Count - 1 ? tm.Starts[li + 1] : null;
             if (nextStart != null && nextStart.Value - visEnd > 1.3 && !parsed.Lines[li + 1].Interlude)
             {
@@ -1533,7 +1394,6 @@ public static class Planner
             if (zones == null || c.Zone != null) continue;
             if (c.Layout == "interlude")
             {
-                // 没歌词的占整帧
                 var p2 = (JObject)c.Params.DeepClone();
                 p2["showTitle"] = false;
                 c.Params = p2;
@@ -1549,8 +1409,7 @@ public static class Planner
         return plan;
     }
 
-    /// <summary>ov.decor 数组 → DecorSpec（按注册表过滤，逐 id 消耗 RNG）。</summary>
-    private static List<DecorSpec> OvDecor(Rng rng, JArray arr)
+        private static List<DecorSpec> OvDecor(Rng rng, JArray arr)
     {
         var outList = new List<DecorSpec>();
         foreach (var t in arr)
@@ -1559,8 +1418,7 @@ public static class Planner
         return outList;
     }
 
-    /// <summary>lockedCuts 可用性（第一道检查：utext 都是新行文本的子串）。</summary>
-    private static bool LockedCutsValid(JObject? ov, string lineText)
+        private static bool LockedCutsValid(JObject? ov, string lineText)
     {
         if (ov == null || !Truthy(ov["lock"]) || ov["lockedCuts"] is not JArray arr || arr.Count == 0) return false;
         foreach (var t in arr)
@@ -1572,8 +1430,7 @@ public static class Planner
         return true;
     }
 
-    /// <summary>lockSpecs：锁定行数量与单元一一对应、utext 相同且 layout 有效时返回 lockedCuts。</summary>
-    private static JArray? LockSpecsOf(JObject? ov, List<Unit> units)
+        private static JArray? LockSpecsOf(JObject? ov, List<Unit> units)
     {
         if (ov == null || !Truthy(ov["lock"]) || ov["lockedCuts"] is not JArray arr || arr.Count != units.Count) return null;
         for (var i = 0; i < arr.Count; i++)
@@ -1585,11 +1442,6 @@ public static class Planner
         }
         return arr;
     }
-
-    // ---------------- 統一感（makeUnify） ----------------
-    // 手写歌词视频的惯例：空行隔出的每段保持一小套版式/动态/运镜/装饰；
-    // 重复出现的行和第一次完全一样；方向性动作左右上下交替，强的动作留给重要的行；
-    // キメ：以 ! 结尾的行；行内各部分之间用モーフ，偶尔用太さ（细→粗）。
 
     private static readonly Dictionary<string, string[][]> DirPairs = new()
     {
@@ -1653,7 +1505,6 @@ public static class Planner
             _fx = fx;
             _history = history;
             _lang = lang.Length > 0 ? lang : "ja";
-            // 段落：空行或间奏切开的块
             var si = 0;
             for (var i = 0; i < lines.Count; i++)
             {
@@ -1665,7 +1516,6 @@ public static class Planner
                 }
                 _sec.Add(si);
             }
-            // 重复行：归一化文本相同的行
             var first = new Dictionary<string, int>();
             var count = new Dictionary<string, int>();
             foreach (var t in lines)
@@ -1684,7 +1534,6 @@ public static class Planner
                     _repeatOf.Add(null);
                 }
             }
-            // キメ 行
             for (var i = 0; i < lines.Count; i++)
                 if (lines[i].Impact && !lines[i].Interlude) Kime.Add(i);
             if (Kime.Count == 0)
@@ -1727,7 +1576,6 @@ public static class Planner
             return p;
         }
 
-        // 每段最多存 max 个不同选择，满了之后大多复用
         private string Sticky(int i, string g, string v, int max, Rng rng, Func<string, bool>? fits = null, double reuse = 0.85)
         {
             var P = Pal(i)[g];
@@ -1740,7 +1588,6 @@ public static class Planner
             return v;
         }
 
-        // 段内方向交替
         private string Alternate(int i, string g, string v)
         {
             var key = _sec[i] + ":" + g;
@@ -1896,19 +1743,15 @@ public static class Planner
         }
     }
 
-    // ---------------- 中央を空ける（splitHalf / SplitCut / SideZones） ----------------
-
     private static readonly Regex HeadBadRe =
         new("[、。，．,.!?！？…・ーっッゃゅょャュョぁぃぅぇぉァィゥェォをがはにでとのへもやよね」』）)]", RegexOptions.Compiled);
     private static readonly Regex LatinWordRe = new("^[A-Za-z0-9'’-]+$", RegexOptions.Compiled);
     private static readonly Regex HasLatinRe = new("[A-Za-z]", RegexOptions.Compiled);
 
-    /// <summary>splitHalf：一幅画面，歌词拆两半——「花が」在左（上）带，「咲いた」在右（下）带。</summary>
-    private static List<string> SplitHalf(string text, string lang)
+        private static List<string> SplitHalf(string text, string lang)
     {
         var t = (text ?? "").Trim();
         var n = CpLen(WsRe.Replace(t, ""));
-        // 尽量从词与词之间、靠近正中处分开（「花が」｜「咲いた」，"Good night," | "see you tomorrow"）
         var words = (lang == "en" ? PhraseChunks(ChunkText(t)) : ChunkText(t));
         if (words.Count >= 2)
         {
@@ -1934,13 +1777,11 @@ public static class Planner
                 string.Join(sep, words.Skip(best)).Trim()
             };
         }
-        // 单个词：短的（和英文单词）两边都放整词，长的在中间附近切
         if (n <= 3 || LatinWordRe.IsMatch(t)) return new List<string> { t, t };
         var two = SplitToCount(new List<string> { t }, 2);
         if (two.Count < 2) return new List<string> { t, t };
         var a = two[0].Trim();
         var b = string.Concat(two.Skip(1)).Trim();
-        // 后半不能以助词、标点或小假名开头：「夜明けの色を」｜「覚えてる」，而不是「…色」｜「を…」
         for (var g = 0; g < 3 && b.Length > 1 && HeadBadRe.IsMatch(b[0].ToString()); g++)
         {
             a += b[0];
@@ -1949,8 +1790,7 @@ public static class Planner
         return new List<string> { a, b };
     }
 
-    /// <summary>splitCut：把切分拆成左右（上下）孪生，两半用同一套版式/动态/装饰/运镜。</summary>
-    private static void SplitCut(Cut cut, List<string> halves, Zone[] zones, StyleDef st, double dur, JObject? LS)
+        private static void SplitCut(Cut cut, List<string> halves, Zone[] zones, StyleDef st, double dur, JObject? LS)
     {
         var LD = Reg.Layouts[cut.Layout];
         var seed = J.H((int)cut.Seed, 23);
@@ -1967,7 +1807,6 @@ public static class Planner
         cut.LineText = halves[0];
         cut.Words = ChunkText(halves[0]).ToArray();
         cut.Zone = CloneZone(zones[0]);
-        // 锁定行用自己的参数
         cut.Params = LS != null && LS["params"] != null && Truthy(LS["twinParams"])
             ? (JObject)LS["params"]!.DeepClone()
             : PlanFor(halves[0], zones[0]);
@@ -1991,8 +1830,7 @@ public static class Planner
         cut.Companion = twin;
     }
 
-    /// <summary>JS 的 Object.assign({}, cut)：浅拷贝全部字段（decor/params 等共享引用后由调用方覆盖）。</summary>
-    private static Cut CloneCutShallow(Cut c) => new()
+        private static Cut CloneCutShallow(Cut c) => new()
     {
         Index = c.Index,
         Text = c.Text,
@@ -2032,12 +1870,7 @@ public static class Planner
         WeightGrow = c.WeightGrow
     };
 
-    /// <summary>
-    /// sideZones：中央を空ける的侧边条带（设计像素）。宽帧分左右第三（21:9 再窄一点），
-    /// 竖帧分上下，接近方形的算宽帧。gapPct：留白占宽/高百分比（10..70），缺省用固定比例。
-    /// zonePos：留白位置 center/left/right/top/bottom。
-    /// </summary>
-    public static Zone[] SideZones(int W, int H, string? dir, double? gapPct, string? zonePos)
+        public static Zone[] SideZones(int W, int H, string? dir, double? gapPct, string? zonePos)
     {
         var gap = !(gapPct > 0) ? 0 : Math.Min(70, Math.Max(10, gapPct.Value)) / 100.0;
         var bw = (int)Math.Round(W * (gap > 0 ? gap : 0.3), MidpointRounding.AwayFromZero);
@@ -2082,7 +1915,6 @@ public static class Planner
         }
         if (H > W * 1.1 && dir == "lr")
         {
-            // 竖长帧也分左右
             var w = (int)Math.Round(W * (gap > 0 ? (1 - gap) / 2 : 0.34), MidpointRounding.AwayFromZero);
             return new[]
             {
@@ -2107,36 +1939,7 @@ public static class Planner
         };
     }
 
-    /// <summary>
-    /// 留空区（centerFree）的实际范围：SideZones 两条条带的补集包围盒。
-    /// 编辑器预览用它画虚线指引框——直接由 plan.Zones 反推，与引擎真正留出的像素一致
-    /// （不再依赖工程里的 CenterDir/CenterGap/CenterZone 复算，避免两处公式漂移）。
-    /// </summary>
-    public static (double X, double Y, double W, double H)? FreeZone(Plan? plan)
-    {
-        var z = plan?.Zones;
-        if (plan == null || z == null || z.Length < 2) return null;
-        var W = plan.W;
-        var H = plan.H;
-        // 左带：第一条从 X>0 起 → 左侧留空
-        if (z[0].X > 0) return (0, 0, z[0].X, H);
-        // 右带：最后一条没顶到右边 → 右侧留空
-        if (z[1].X + z[1].W < W) return (z[1].X + z[1].W, 0, W - (z[1].X + z[1].W), H);
-        // 上带：第一条从 Y>0 起 → 顶部留空
-        if (z[0].Y > 0) return (0, 0, W, z[0].Y);
-        // 下带：最后一条没顶到下边 → 底部留空
-        if (z[1].Y + z[1].H < H) return (0, z[1].Y + z[1].H, W, H - (z[1].Y + z[1].H));
-        // 条带是左右两半（横屏默认 / 竖屏 lr）→ 中间竖带
-        if (z[0].W < W) return (z[0].X + z[0].W, 0, z[1].X - (z[0].X + z[0].W), H);
-        // 条带是上下两条（竖屏默认）→ 中间横带
-        if (z[0].H < H) return (0, z[0].Y + z[0].H, W, z[1].Y - (z[0].Y + z[0].H));
-        return null;
-    }
-
-    // ---------------- makeCut / 切分拆分工具 ----------------
-
-    /// <summary>makeCut：默认值与 JS 一致（hold="still", inDur=0.3, outDur=0.25, stagger=0.04, …），dur = end - start。</summary>
-    private static Cut MakeCut(string text, string lineText, int line, double start, double end, string layout,
+        private static Cut MakeCut(string text, string lineText, int line, double start, double end, string layout,
         string enter, string exit, string hold,
         double inDur = 0.3, double outDur = 0.25, double stagger = 0.04,
         JObject? p = null, List<DecorSpec>? decor = null, int scheme = 0, uint seed = 0,
@@ -2184,8 +1987,7 @@ public static class Planner
         return c;
     }
 
-    /// <summary>splitToCount：拆词块直到至少 n 块，每次拆最长的（拉丁文按词，其他按字）。</summary>
-    private static List<string> SplitToCount(List<string> chunks, int n)
+        private static List<string> SplitToCount(List<string> chunks, int n)
     {
         var outList = chunks.ToList();
         var guard = 0;
@@ -2215,7 +2017,6 @@ public static class Planner
             }
             else
             {
-                // 有分词边界就取最靠近中间的（夜明け|の），否则按字切
                 var ch = CodePoints(c0);
                 var segs = Segments(c0);
                 var cut = (int)Math.Ceiling(ch.Count / 2.0);
@@ -2272,8 +2073,6 @@ public static class Planner
         return groups;
     }
 
-    // ---------------- 抽取（novelty / pick* / decorParams） ----------------
-
     private static string? HVal(Hist h, string key) => key switch
     {
         "layout" => h.Layout,
@@ -2286,8 +2085,7 @@ public static class Planner
         _ => null
     };
 
-    /// <summary>novelty：最近用过的手法降权（d&lt;2 ×0.2，否则 ×0.6，最多回看 6 条）。</summary>
-    private static double Novelty(List<Hist> history, string key, string? val)
+        private static double Novelty(List<Hist> history, string key, string? val)
     {
         var w = 1.0;
         var d = 0;
@@ -2297,8 +2095,7 @@ public static class Planner
         return w;
     }
 
-    /// <summary>PORTRAIT_W：竖帧权重乘数表（layout 未声明 portrait 时用）。</summary>
-    private static readonly Dictionary<string, double> PortraitW = new()
+        private static readonly Dictionary<string, double> PortraitW = new()
     {
         ["vcols"] = 1.9, ["condensed"] = 1.3, ["huge"] = 1.3, ["center"] = 1.2, ["stack"] = 1.1,
         ["mixed"] = 0.7, ["marquee"] = 0.6, ["wave"] = 0.6, ["diag"] = 0.8, ["type"] = 0.8, ["gloss"] = 0.5
@@ -2325,8 +2122,7 @@ public static class Planner
         return rng.WPick(cands);
     }
 
-    /// <summary>LAYOUT_ENTER：按版式的 enter 偏置表。</summary>
-    private static readonly Dictionary<string, JObject> LayoutEnter = new()
+        private static readonly Dictionary<string, JObject> LayoutEnter = new()
     {
         ["type"] = new JObject { ["type"] = 4, ["scramble"] = 1.5 },
         ["ring"] = new JObject { ["pop"] = 2, ["spin"] = 2, ["cut"] = 1, ["assemble"] = 0.4, ["slice"] = 0.2, ["wipe"] = 0.2 },
@@ -2402,8 +2198,7 @@ public static class Planner
         return cands.Count > 0 ? rng.WPick(cands) : "still";
     }
 
-    /// <summary>decorParams：一个装饰的全部随机参数（RNG 消耗顺序固定）。</summary>
-    private static DecorSpec DecorParams(Rng rng, string k) => new()
+        private static DecorSpec DecorParams(Rng rng, string k) => new()
     {
         Id = k,
         Seed = rng.Int(1, 1000000000),
@@ -2449,7 +2244,6 @@ public static class Planner
         return outList;
     }
 
-    // 文字加工：大多数时候不加，decor 滑块提高使用频率
     private static string PickTreat(Rng rng, StyleDef st, Dictionary<string, Dictionary<string, bool>> en,
         FxSettings fx, LayoutDef LD, bool emph, List<Hist> history)
     {
@@ -2510,7 +2304,6 @@ public static class Planner
         return cands.Count > 0 ? rng.WPick(cands) : null;
     }
 
-    // kind 'edge' = 切分边界上的转场，'mid' = 切分中段的点缀
     private static string? PickFx(Rng rng, StyleDef st, Dictionary<string, Dictionary<string, bool>> en,
         FxSettings fx, bool emph, List<string> fxHist, string kind)
     {
@@ -2533,26 +2326,6 @@ public static class Planner
         return cands.Count > 0 ? rng.WPick(cands) : null;
     }
 
-    // ---------------- 锁定快照（J.lineSnapshot） ----------------
-
-    /// <summary>DecorSpec → JSON（锁定快照契约键：id/seed/n/right/…，与 JS decorParams 同形）。</summary>
-    private static JObject DecorToJson(DecorSpec d) => new()
-    {
-        ["id"] = d.Id,
-        ["seed"] = d.Seed,
-        ["n"] = d.N,
-        ["right"] = d.Right,
-        ["low"] = d.Low,
-        ["accent"] = d.Accent,
-        ["corner"] = d.Corner,
-        ["big"] = d.Big,
-        ["mode"] = d.Mode,
-        ["from"] = d.From,
-        ["to"] = d.To,
-        ["v"] = d.V,
-        ["r"] = d.R
-    };
-
     private static DecorSpec DecorFromJson(JObject? o) => new()
     {
         Id = Str(o, "id") ?? "",
@@ -2570,87 +2343,8 @@ public static class Planner
         R = Num(o, "r") ?? 0
     };
 
-    /// <summary>
-    /// J.lineSnapshot：把一行显示的东西存下来，便于原样保留（存进 project.overrides[line].lockedCuts）。
-    /// 返回 JArray（对齐 JS 的 JSON 结构，字段名逐字一致）。
-    /// </summary>
-    public static JArray? LineSnapshot(Plan plan, int li)
+        public static Plan PreviewPlan(Project project, string group, string key)
     {
-        var cuts = plan.Cuts.Where(c => c.Line == li && c.Utext != null).ToList();
-        if (cuts.Count == 0) return null;
-        var S = new JArray();
-        foreach (var c in cuts)
-            S.Add(new JObject
-            {
-                ["utext"] = c.Utext,
-                ["layout"] = c.Layout,
-                ["enter"] = c.Enter,
-                ["exit"] = c.Exit,
-                ["hold"] = c.Hold,
-                ["inDur"] = c.InDur,
-                ["outDur"] = c.OutDur,
-                ["params"] = c.Params != null ? c.Params.DeepClone() : new JObject(),
-                ["decor"] = new JArray(c.Decor.Select(DecorToJson)),
-                ["treat"] = c.Treat,
-                ["treatP"] = c.TreatP != null ? c.TreatP.DeepClone() : new JObject(),
-                ["bg"] = c.Bg,
-                ["bgP"] = c.BgP != null ? c.BgP.DeepClone() : new JObject(),
-                ["cam"] = c.Cam,
-                ["camP"] = c.CamP != null ? c.CamP.DeepClone() : new JObject(),
-                ["scheme"] = c.Scheme,
-                ["seed"] = c.Seed,
-                ["trans"] = c.Trans != null ? (JToken)c.Trans : JValue.CreateNull(),
-                ["transP"] = c.TransP != null ? c.TransP.DeepClone() : new JObject(),
-                ["transDur"] = c.TransDur,
-                ["morph"] = c.Morph != null ? c.Morph.DeepClone() : JValue.CreateNull(),
-                ["weightGrow"] = c.WeightGrow,
-                ["kime"] = c.Kime,
-                ["recap"] = c.Recap,
-                ["twinParams"] = c.Companion != null
-                    ? (JToken)(c.Companion.Params?.DeepClone() ?? new JObject())
-                    : JValue.CreateNull(),
-                ["events"] = new JArray()
-            });
-        // 每个打点归属它所在的切分（紧贴切分开始前的算给这个切分）
-        void PushEvent(int k, PlanEvent e)
-        {
-            ((JArray)S[k]["events"]!).Add(new JObject
-            {
-                // JS 的 +(e.t - start).toFixed(4)
-                ["dt"] = Math.Round(e.T - cuts[k].Start, 4, MidpointRounding.AwayFromZero),
-                ["type"] = e.Type,
-                ["amp"] = e.Amp,
-                ["dur"] = e.Dur
-            });
-        }
-        foreach (var e in plan.Events)
-        {
-            // 打点属于制造它的那个切分，包括行尾之后才播放的（收尾特效不再丢失）
-            Cut? own = plan.EvOwner.TryGetValue(e, out var oc) ? oc : null;
-            if (own != null)
-            {
-                var k = cuts.IndexOf(own);
-                if (k >= 0) PushEvent(k, e);
-                continue;
-            }
-            var kj = -1;
-            // [start − 0.25, 下一刀 start − 0.25)：贴着下一刀前面的打点归下一刀
-            for (var j = 0; j < cuts.Count; j++)
-            {
-                var until = j < cuts.Count - 1 ? cuts[j + 1].Start - 0.25 : cuts[j].End - 0.3;
-                if (e.T >= cuts[j].Start - 0.25 && e.T < until) kj = j;
-            }
-            if (kj >= 0) PushEvent(kj, e);
-        }
-        return S;
-    }
-
-    // ---------------- 缩略图预览（J.previewPlan） ----------------
-
-    /// <summary>手法标签页缩略图用的单切分 plan（转场是两切分）。</summary>
-    public static Plan PreviewPlan(Project project, string group, string key)
-    {
-        // JS 的 enUI = document.documentElement.lang === 'en'（UI 语言，引擎内无 DOM——固定日文）
         const bool enUI = false;
         var st = JStyles.ResolveStyle(project);
         var fx = CloneFx(project.Fx);
@@ -2816,8 +2510,6 @@ public static class Planner
         };
     }
 
-    // ---------------- 画幅（J.designSize / J.outputSize） ----------------
-
     public static (int W, int H) DesignSize(string aspect) => aspect switch
     {
         "9:16" => (1080, 1920),
@@ -2829,18 +2521,7 @@ public static class Planner
         _ => (1920, 1080)
     };
 
-    public static (int W, int H) OutputSize(Project project)
-    {
-        var (W, H) = DesignSize(project.Aspect);
-        var k = (project.Res != 0 ? project.Res : 1080) / (double)Math.Min(W, H);
-        return ((int)Math.Round(W * k / 2, MidpointRounding.AwayFromZero) * 2,
-            (int)Math.Round(H * k / 2, MidpointRounding.AwayFromZero) * 2);
-    }
-
-    // ---------------- 当前切分（J.cutAt，09_render.js 开头） ----------------
-
-    /// <summary>J.cutAt：t 所在的切分；不在任何切分内（间隙或首切分之前）返回 null。</summary>
-    public static Cut? CutAt(Plan plan, double t)
+        public static Cut? CutAt(Plan plan, double t)
     {
         var cs = plan.Cuts;
         int lo = 0, hi = cs.Count - 1, ans = -1;

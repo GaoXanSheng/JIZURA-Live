@@ -1,10 +1,12 @@
 using System.Globalization;
+using System.IO;
 using System.Text;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
+using JizuraLive.Vts;
 
 namespace JizuraLive.App.PvStage;
 
@@ -37,9 +39,34 @@ public partial class PvStageWindow
             });
 
         ExportDesignTracks(snap);
+        ExportVtsCueTracks(snap);
 
         _snap = snap;
         TheTimeline.SetSnapshot(snap);
+    }
+
+    private void ExportVtsCueTracks(TSnapshot snap)
+    {
+        var hotkeys = new TVtsCueTrack { Kind = VtsCueKind.Hotkey };
+        var expressions = new TVtsCueTrack { Kind = VtsCueKind.Expression };
+        foreach (var cue in _project.VtsCues?.Cues ?? new List<VtsCue>())
+        {
+            if (cue is null) continue;
+            var item = new TVtsCue
+            {
+                Time = cue.Time,
+                Duration = cue.Duration,
+                Target = cue.Target,
+                Label = cue.Kind == VtsCueKind.Hotkey
+                    ? _vts.Hotkeys.FirstOrDefault(h => h.HotkeyId == cue.Target)?.Name ?? cue.Target
+                    : Path.GetFileNameWithoutExtension(cue.Target),
+            };
+            if (cue.Kind == VtsCueKind.Hotkey) hotkeys.Cues.Add(item);
+            else if (cue.Kind == VtsCueKind.Expression) expressions.Cues.Add(item);
+        }
+
+        snap.VtsCueTracks.Add(hotkeys);
+        snap.VtsCueTracks.Add(expressions);
     }
 
     private void ExportDesignTracks(TSnapshot snap)
@@ -96,7 +123,6 @@ public partial class PvStageWindow
         ExportLegacyPlanTracks(snap);
     }
 
-    // 原版 Plan 的布局/入退场/文字处理直接铺到时间线，方便对照它的切点。
     private void ExportLegacyPlanTracks(TSnapshot snap)
     {
         if (_legacyPlanInfo is not { Cuts.Count: > 0 } plan) return;
@@ -198,6 +224,18 @@ public partial class PvStageWindow
             SldTime.SmallChange = Math.Max(0.1, d / 200);
             SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
         }
+    }
+
+    private void Timeline_VtsCueDeleteRequested(VtsCueKind kind, double time)
+    {
+        int removed = _project.VtsCues.Cues.RemoveAll(c =>
+            c is not null && c.Kind == kind && Math.Abs(c.Time - time) < 1e-3);
+        if (removed == 0) return;
+
+        PushUndo();
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = "已删除 VTS 关键帧";
     }
 
     private void Timeline_SeekRequested(double seconds)

@@ -99,11 +99,4 @@ public sealed class Paint2D
 
     public Matrix5x4? ColorMatrix { get; set; }
 
-    public Paint2D Clone() => (Paint2D)MemberwiseClone();
-
-    public Paint2D WithColor(Color4 c)
-    {
-        Brush = new SolidBrush2D(c);
-        return this;
-    }
 }

@@ -141,13 +141,4 @@ public static class EffectGraphJson
         return graph;
     }
 
-    public static void Save(EffectGraph graph, string path)
-    {
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        File.WriteAllText(path, Serialize(graph));
-    }
-
-    public static EffectGraph Load(string path) =>
-        File.Exists(path) ? Deserialize(File.ReadAllText(path)) : new EffectGraph();
 }

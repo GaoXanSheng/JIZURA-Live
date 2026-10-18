@@ -68,25 +68,6 @@ public static class SpoutNames
         return names;
     }
 
-    public static string DumpRegistry()
-    {
-        var buf = TryReadBuffer(out var note);
-        if (buf == null) return note;
-        var sb = new StringBuilder();
-        sb.Append($"len={buf.Length}\n");
-        for (var i = 0; i < buf.Length; i += SlotBytes)
-        {
-            var end = i;
-            var limit = Math.Min(i + SlotBytes, buf.Length);
-            while (end < limit && buf[end] != 0) end++;
-            if (end == i) continue;
-            var raw = Encoding.ASCII.GetString(buf, i, limit - i).Replace('\0', '.');
-            sb.Append($"slot{i / SlotBytes,3} @{i:x4}  {raw.TrimEnd('.')}\n");
-        }
-
-        return sb.ToString();
-    }
-
     private static bool IsPrintable(string s)
     {
         foreach (var c in s)

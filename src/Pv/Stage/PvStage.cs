@@ -21,19 +21,11 @@ public sealed class PvStage : IDisposable
 
     public void Register(IPvLayerProvider provider) => _providers[provider.Id] = provider;
 
-    public IPvLayerProvider? Get(string id) => _providers.GetValueOrDefault(id);
-
     public bool Remove(string id)
     {
         if (!_providers.Remove(id, out var p)) return false;
         p.Dispose();
         return true;
-    }
-
-    public void RenderFrame(Immediate2D draw, in PvFrameContext ctx)
-    {
-        PumpImages(ctx);
-        new PvStageCompositor(draw).Composite(Scene, Camera, _images, ctx.Width, ctx.Height);
     }
 
     public void PumpImages(in PvFrameContext ctx)
@@ -56,12 +48,6 @@ public sealed class PvStage : IDisposable
             var zi = zone.Pump(ctx);
             if (zi.HasContent) _images[id] = zi;
         }
-    }
-
-    public static PvStage CreateDefault()
-    {
-        var stage = new PvStage(PvScene.CreateDefault());
-        return stage;
     }
 
     public void Dispose()

@@ -39,22 +39,6 @@ public sealed class VtsCueTrack
     public Dictionary<string, string> Roles { get; set; } = new();
 }
 
-public static class VtsRoles
-{
-    public const string Chorus = "chorus";
-    public const string Hit = "hit";
-    public const string Bridge = "bridge";
-    public const string Outro = "outro";
-
-    public static readonly IReadOnlyList<(string Role, string Label)> All =
-    [
-        (Chorus, "副歌表情"),
-        (Hit, "高潮动作"),
-        (Bridge, "间奏表情"),
-        (Outro, "结尾动作"),
-    ];
-}
-
 public interface IVtsCueSink
 {
     void TriggerHotkey(string nameOrId);

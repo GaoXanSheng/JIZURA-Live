@@ -2,28 +2,14 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.LegacyEngine;
 
-// 移植自 frontend/src/engine/04_styles.js
-//
-// 风格包：每包 = cut 间轮换的几套配色 scheme + 字体角色 + 质感 + ghost 色 + 版式/手法倾向 bias。
-// scheme 字段：bg/fg/sub/accent/accent2/ink（贴纸和盒子的底色）/dim（压暗文字）/ghostA/ghostB/grad。
-//
-// 对位关系：
-//   J.STYLES.xxx（核心 12 风格）→ Reg.Styles[key] = StyleDef（Reg 没有 style 组的 Register 重载，
-//     直接写字典；name 必填语义由字面量保证。核心条目没有 tags/w 字段 → Tags 留空）。
-//   J.STYLE_ORDER → StyleOrder（可变 List，11p_styles 追加风格时沿用「不覆盖核心风格」语义）。
-//   J.resolveStyle / J.keyMode / J.KEY_BG → ResolveStyle / KeyMode / KeyBg。
-//   scheme 的键全部原样保留在 Scheme.Extra（渲染数据契约，一字不改）；风格包其余字段
-//   （desc/fonts/texture/ghost/glow/useGrad/key）放进 StyleDef.Extra。
 public static class JStyles
 {
-    // ---------------- J.STYLE_ORDER：UI 显示顺序 ----------------
 
     public static readonly List<string> StyleOrder = new()
     {
         "noir", "crimson", "caution", "magenta", "paper", "hud", "mint", "specimen", "transit", "blueprint", "rouge", "mono"
     };
 
-    // J.KEY_BG：合成用背景（绿幕/黑幕）。
     public static readonly Dictionary<string, string> KeyBg = new()
     {
         ["green"] = "#00FF00",
@@ -32,8 +18,7 @@ public static class JStyles
 
     static JStyles() => RegisterAll();
 
-    /// <summary>04_styles.js 的 IIFE 载入即注册；显式公开供引擎装配按文件序调用。</summary>
-    public static void RegisterAll()
+        public static void RegisterAll()
     {
         Reg.Styles["noir"] = Style("noir", "ノワール・クロマ", "黒地・白文字・シアン/琥珀の色ズレ",
             new[]
@@ -334,19 +319,13 @@ public static class JStyles
             false);
     }
 
-    // ---------------- J.resolveStyle ----------------
-
-    /// <summary>J.resolveStyle：把风格包和用户的颜色/字体覆盖合成出最终生效的 style。未知风格回退 noir。</summary>
-    public static StyleDef ResolveStyle(Project project)
+        public static StyleDef ResolveStyle(Project project)
     {
-        // 静态构造器已保证核心 12 风格注册，noir 恒存在（对齐 JS 的 J.STYLES.noir）
         var baseStyle = Reg.Styles.GetValueOrDefault(project?.Style ?? "") ?? Reg.Styles.GetValueOrDefault("noir")!;
-        // JS 的 JSON.parse(JSON.stringify(base)) → 深拷贝，后续改动不触碰注册表本体
         var st = CloneStyle(baseStyle);
         if (project == null) return st;
 
         var ov = project.Colors ?? new JObject();
-        // 底色（背景/文字）只替换第一套 scheme（pickDefined(ov, ['bg','fg','sub'])）
         if (Truthy(ov["enabled"]))
         {
             var s0 = st.Schemes[0];
@@ -356,21 +335,18 @@ public static class JStyles
                     s0.Extra[k] = ov[k]!.DeepClone();
         }
 
-        // accent 和色差 ghost 色应用到每套 scheme；accent 按各自背景重新调对比度
         if (Truthy(ov["accentOn"]))
         {
             st.Schemes = st.Schemes.Select(s =>
             {
                 var o = CloneScheme(s);
-                var bg = s.Str("bg") ?? "#000000"; // JS 里 s.bg 恒存在；缺省按黑底兜底
-                var accent = Str(ov, "accent");
+                var bg = s.Str("bg") ?? "#000000";                 var accent = Str(ov, "accent");
                 if (accent != null)
                 {
                     o.Extra!["accent"] = J.FitContrast(accent, bg, 2.4);
                     if (s.Str("ink") == s.Str("accent")) o.Extra["ink"] = o.Extra["accent"];
                 }
 
-                // ghost 只要在该 scheme 的背景上看得清就行，对比度门槛放低
                 var ga = Str(ov, "ghostA");
                 if (ga != null) o.Extra!["ghostA"] = J.FitContrast(ga, bg, 1.35);
                 var gb = Str(ov, "ghostB");
@@ -383,8 +359,6 @@ public static class JStyles
 
         var fo = project.Fonts ?? new Dictionary<string, string>();
         foreach (var role in new[] { "display", "serif", "body" })
-            // J.FONTS[fo[role]] 存在性判定（用户字体覆盖是否命中目录 → JFonts.Table，
-        // 运行期用户自定义字体 JFonts.AddUserFont 注册后同样命中，对齐 JS）
         if (fo.TryGetValue(role, out var fk) && !string.IsNullOrEmpty(fk) && JFonts.Has(fk))
                 if (st.Extra != null && st.Extra.TryGetValue("fonts", out var ft) && ft is JObject fonts)
                     fonts[role] = new JArray(fk);
@@ -393,15 +367,10 @@ public static class JStyles
         return st;
     }
 
-    // ---------------- J.keyMode / keyStyle ----------------
-
-    /// <summary>J.keyMode：'green' | 'black' | null。</summary>
-    public static string? KeyMode(Project? project)
+        public static string? KeyMode(Project? project)
         => project != null && KeyBg.ContainsKey(project.KeyBg ?? "") ? project.KeyBg : null;
 
-    /// <summary>J.keyStyle：合成用背景（绿幕/黑幕）：每套 scheme 都改成黑底白字、质感归零，渲染器最后把整帧
-    /// 去色，green 再 screen 上纯绿。黑始终代表"空"，键控（green）和 screen/明度混合（black）等价。</summary>
-    private static void KeyStyle(StyleDef st)
+        private static void KeyStyle(StyleDef st)
     {
         st.Schemes = st.Schemes.Select(s =>
         {
@@ -427,8 +396,6 @@ public static class JStyles
         st.Extra["texture"] = new JObject { ["grain"] = 0, ["paper"] = 0, ["scan"] = 0 };
         st.Extra["key"] = true;
     }
-
-    // ---------------- 构造/克隆助手 ----------------
 
     private static StyleDef Style(string key, string name, string desc, Scheme[] schemes,
         JObject fonts, JObject texture, double ghost, JObject bias, JObject decor, bool hud,
@@ -509,7 +476,6 @@ public static class JStyles
         return o;
     }
 
-    // JS 字面量是整数处保持整数（JSON 往返对齐 JSON.stringify：1 而非 1.0）
     private static JToken ToTok(object v) => v switch
     {
         JToken t => t,
@@ -521,7 +487,6 @@ public static class JStyles
         _ => JToken.FromObject(v)
     };
 
-    // JS 真值判定（ov.enabled / ov.accentOn / pickDefined 的 if (o[k]) 语义）
     private static bool Truthy(JToken? t) => t switch
     {
         null or JValue { Value: null } => false,

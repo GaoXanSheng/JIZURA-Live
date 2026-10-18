@@ -1,19 +1,3 @@
-// 移植自 frontend/src/engine/11p_decorB.js（decor 表现包 B，pack = 'decorB'，54 条）。
-//
-// 契约与 P11Decor.cs 相同：DecorDef.Draw(env, DecorSpec)；随机全走 J.R/J.Rs/J.Rr/J.H 的
-// 无状态哈希（入参逐字保持）；ghost 通道换色走 Env.ColOf。与 A 包的差异：
-// 1. getBB 在 pOut>0 且有缓存时按住静止 bbox（JS L27 退场锁框）。
-// 2. vis/ACC/ACC2：在背景上真正看得清的配色（contrast 达标才用，否则退 fg）。
-// 3. withSettle（SETTLE 名单）：相对歌词摆放的 decor 等入场落定后再起表（lt/ltb 前移 settleT）。
-// 4. glyphLines：歌词字形框按行（竖排按列）归组（glyphLock 用）。
-//
-// JS 条目上的 `ae:` 字段（AE 导出模板名）引擎侧无任何消费者（全源 grep 无读取点），
-// DecorDef 亦无对应属性，未注册——语义为死元数据。
-//
-// Env 缺口（本文件内补，不改 Env.cs）：env.beat → BeatOf（同 P11Decor）；env.energy != null →
-// env.Plan.Energy is { Length: > 0 }；WeakMap → ConditionalWeakTable。
-//
-// 桩/TODO：无跨文件桩。ctx.* 全部 SKCanvas 同构直译（clip/transform/gradient/blend）。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -27,8 +11,6 @@ public static class P11DecorB
 {
     private const string Pk = "decorB";
     private static int _installed;
-
-    // ================= 本包 helper（JS L7-440 逐条对位） =================
 
     private static double U(Env env) => Math.Min(env.W, env.H) / 1080.0;
     private static int MG(Env env) => (int)Math.Round(Math.Min(env.W, env.H) * 0.05, MidpointRounding.AwayFromZero);
@@ -44,18 +26,15 @@ public static class P11DecorB
     private static double[] L2(double[] a, double[] b, double t) => new[] { a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t };
     private static double FS(Env env) => Math.Max(12, 16 * U(env));
 
-    /// <summary>在背景上真正看得清的配色，太接近背景就退回 fg（JS vis）。</summary>
-    private static string Vis(Env env, string? c, double min = 1.5) =>
+        private static string Vis(Env env, string? c, double min = 1.5) =>
         !string.IsNullOrEmpty(c) && J.Contrast(c, Col(env, "bg") ?? "#000000") >= min ? c : Col(env, "fg") ?? "#FFFFFF";
     private static string Acc(Env env) => Vis(env, Col(env, "accent"));
     private static string Acc2(Env env) => Vis(env, string.IsNullOrEmpty(Col(env, "accent2")) ? Col(env, "accent") : Col(env, "accent2"));
 
-    // 每个 cut 记住最近一次有效 bbox（JS WeakMap BBC）
     private static readonly ConditionalWeakTable<Cut, BBox> Bbc = new();
 
     private static BBox GetBB(Env env, BBox? bb)
     {
-        // 退场期间按住静止 bbox，文字可能放大或飞走
         if (env.POut > 0 && env.Cut != null && Bbc.TryGetValue(env.Cut, out var held)) return held;
         if (bb != null && double.IsFinite(bb.X0 + bb.X1 + bb.Y0 + bb.Y1) && bb.X1 > bb.X0 && bb.Y1 > bb.Y0)
         {
@@ -169,8 +148,7 @@ public static class P11DecorB
         public string Side = "";
     }
 
-    /// <summary>歌词四周的可用矩形（上/下/左/右），最好用的排最前（JS freeRects）。</summary>
-    private static List<FreeRect> FreeRects(Env env, BBox bb, double gap)
+        private static List<FreeRect> FreeRects(Env env, BBox bb, double gap)
     {
         int w2 = env.W, h2 = env.H;
         var m = MG(env) * 0.8;
@@ -185,8 +163,7 @@ public static class P11DecorB
         return @out;
     }
 
-    /// <summary>在歌词下方（或上方）的空带里放一个居中的 w×h 块，放不下就退回 spot()（JS bandSpot）。</summary>
-    private static Spot BandSpot(Env env, BBox bb, double w, double h, DecorSpec p, double gap)
+        private static Spot BandSpot(Env env, BBox bb, double w, double h, DecorSpec p, double gap)
     {
         int w2 = env.W, h2 = env.H;
         var m = MG(env) * 0.8;
@@ -199,8 +176,6 @@ public static class P11DecorB
         }
         return SpotP(env, bb, w, h, p, gap);
     }
-
-    // ---- 批量绘制助手（同 P11Decor 的直译约定） ----
 
     private static void Stroke(Env env, IReadOnlyList<double[]> pts, string? c, double lw, double a = 1,
         bool g = false, bool close = false, SKStrokeCap cap = SKStrokeCap.Butt, SKStrokeJoin join = SKStrokeJoin.Miter)
@@ -224,8 +199,7 @@ public static class P11DecorB
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>一个路径里画多条折线（JS strokes）。</summary>
-    private static void Strokes(Env env, IEnumerable<double[][]> list, string? c, double lw, double a = 1,
+        private static void Strokes(Env env, IEnumerable<double[][]> list, string? c, double lw, double a = 1,
         bool g = false, bool close = false, SKStrokeCap cap = SKStrokeCap.Butt, SKStrokeJoin join = SKStrokeJoin.Miter)
     {
         var k = env.ColOf(c, g);
@@ -276,8 +250,7 @@ public static class P11DecorB
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>一个路径里画一批圆弧 [[cx,cy,r,a0(rad),a1(rad)],…]（弧度制）。JS arcs。</summary>
-    private static void ArcsB(Env env, IEnumerable<double[]> list, string? c, double lw, double a = 1,
+        private static void ArcsB(Env env, IEnumerable<double[]> list, string? c, double lw, double a = 1,
         bool g = false, SKStrokeCap cap = SKStrokeCap.Butt)
     {
         var k = env.ColOf(c, g);
@@ -318,8 +291,7 @@ public static class P11DecorB
         }
     }
 
-    /// <summary>一批描边圆 [[x,y,r],…]（JS rings）。</summary>
-    private static void RingsB(Env env, IEnumerable<double[]> list, string? c, double lw, double a = 1, bool g = false)
+        private static void RingsB(Env env, IEnumerable<double[]> list, string? c, double lw, double a = 1, bool g = false)
     {
         var k = env.ColOf(c, g);
         var arr = list as ICollection<double[]> ?? list?.ToArray();
@@ -377,8 +349,7 @@ public static class P11DecorB
         env.Ctx.DrawPath(path, p);
     }
 
-    /// <summary>圆角矩形描边（只画 main pass）。JS rrStroke。</summary>
-    private static void RrStroke(Env env, double x, double y, double w, double h, double r, string? c, double lw, double a)
+        private static void RrStroke(Env env, double x, double y, double w, double h, double r, string? c, double lw, double a)
     {
         if (env.Pass != "main" || a <= 0.003 || w <= 0 || h <= 0 || c == null) return;
         r = Math.Max(0, Math.Min(r, Math.Min(w / 2, h / 2)));
@@ -394,8 +365,7 @@ public static class P11DecorB
         env.Ctx.DrawRoundRect(rr, p);
     }
 
-    /// <summary>圆角矩形填充（只画 main pass）。JS rrFill。</summary>
-    private static void RrFill(Env env, double x, double y, double w, double h, double r, string? c, double a)
+        private static void RrFill(Env env, double x, double y, double w, double h, double r, string? c, double a)
     {
         if (env.Pass != "main" || a <= 0.003 || w <= 0 || h <= 0 || c == null) return;
         r = Math.Max(0, Math.Min(r, Math.Min(w / 2, h / 2)));
@@ -456,8 +426,7 @@ public static class P11DecorB
         return @out.ToArray();
     }
 
-    /// <summary>长度占比 t 处的点和切线角（JS along）。</summary>
-    private static (double X, double Y, double Ang) Along(IReadOnlyList<double[]> pts, double t)
+        private static (double X, double Y, double Ang) Along(IReadOnlyList<double[]> pts, double t)
     {
         var p = Part(pts, 0, J.Clamp(t, 0.0005, 1));
         var a = p[^1];
@@ -465,8 +434,7 @@ public static class P11DecorB
         return (a[0], a[1], Math.Atan2(a[1] - b[1], a[0] - b[0]));
     }
 
-    /// <summary>圆弧点列（角度制，JS arcP）。</summary>
-    private static double[][] ArcP(double cx, double cy, double r, double a0, double a1, int n = 48)
+        private static double[][] ArcP(double cx, double cy, double r, double a0, double a1, int n = 48)
     {
         var o = new List<double[]>();
         for (var i = 0; i <= n; i++)
@@ -477,8 +445,7 @@ public static class P11DecorB
         return o.ToArray();
     }
 
-    /// <summary>椭圆弧点列（角度制 + 旋转，JS ellP）。</summary>
-    private static double[][] EllP(double cx, double cy, double rx, double ry, double rot, double a0, double a1, int n = 48)
+        private static double[][] EllP(double cx, double cy, double rx, double ry, double rot, double a0, double a1, int n = 48)
     {
         var o = new List<double[]>();
         var c = Math.Cos(rot);
@@ -493,16 +460,14 @@ public static class P11DecorB
         return o.ToArray();
     }
 
-    /// <summary>点列绕 (cx,cy) 旋转缩放（JS xf）。</summary>
-    private static double[][] Xf(IReadOnlyList<double[]> pts, double cx, double cy, double ang = 0, double s = 1)
+        private static double[][] Xf(IReadOnlyList<double[]> pts, double cx, double cy, double ang = 0, double s = 1)
     {
         var c = Math.Cos(ang);
         var sn = Math.Sin(ang);
         return pts.Select(q => new[] { cx + (q[0] * c - q[1] * sn) * s, cy + (q[0] * sn + q[1] * c) * s }).ToArray();
     }
 
-    /// <summary>三次贝塞尔采样（JS bez）。</summary>
-    private static double[][] Bez(double[] p0, double[] p1, double[] p2, double[] p3, int n = 20)
+        private static double[][] Bez(double[] p0, double[] p1, double[] p2, double[] p3, int n = 20)
     {
         var o = new List<double[]>();
         for (var i = 0; i <= n; i++)
@@ -609,8 +574,7 @@ public static class P11DecorB
     private sealed class GlyphLine
     {
         public double K;
-        public List<double[]> G = new(); // [x0, y0, x1, y1]
-    }
+        public List<double[]> G = new();     }
 
     private sealed class GlyphLines
     {
@@ -618,8 +582,7 @@ public static class P11DecorB
         public List<GlyphLine> Lines = new();
     }
 
-    /// <summary>歌词的字形框换算到屏幕坐标，按行归组（竖排按列）。JS glyphLines。</summary>
-    private static GlyphLines GlyphLinesOf(BBox bb)
+        private static GlyphLines GlyphLinesOf(BBox bb)
     {
         var vert = IsVert(bb);
         var res = new GlyphLines { Vert = vert };
@@ -655,8 +618,7 @@ public static class P11DecorB
         return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : 0;
     }
 
-    /// <summary>相对歌词摆放的 decor 等入场基本落定（JS settleT + withSettle：lt/ltb 前移）。</summary>
-    private static void WithSettle(Env env, DecorSpec p, Action<Env, DecorSpec> draw)
+        private static void WithSettle(Env env, DecorSpec p, Action<Env, DecorSpec> draw)
     {
         var s = J.Clamp((env.Cut?.InDur ?? 0) * 0.6, 0, 0.35);
         if (s <= 0.001)
@@ -680,10 +642,7 @@ public static class P11DecorB
         }
     }
 
-    // ================= 注册（JS DEF 键序 + SETTLE 名单） =================
-
-    /// <summary>幂等注册本文件全部 decor（顺序 = JS DEF 对象键序；SETTLE 名单的条目套 WithSettle）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
         RegisterKamon();
@@ -746,14 +705,12 @@ public static class P11DecorB
 
     private static readonly string[] KamonNames = { "三巴纹", "七宝纹", "梅钵纹", "轮违纹", "三轮纹" };
 
-    /// <summary>单位半径的家纹路径（闭合折线），局部坐标（JS kamonPaths）。</summary>
-    private static List<double[][]> KamonPaths(int kind)
+        private static List<double[][]> KamonPaths(int kind)
     {
         var @out = new List<double[][]>();
         switch (kind)
         {
-            case 0: // 三巴纹：三条旋涡
-                for (var k = 0; k < 3; k++)
+            case 0:                 for (var k = 0; k < 3; k++)
                 {
                     var th0 = (-90 + k * 120) * J.DEG;
                     var sw = 150 * J.DEG;
@@ -785,28 +742,24 @@ public static class P11DecorB
                     @out.Add(poly.ToArray());
                 }
                 break;
-            case 1: // 七宝纹：四个过圆心的圆
-                for (var k = 0; k < 4; k++)
+            case 1:                 for (var k = 0; k < 4; k++)
                 {
                     var a = k * 90;
                     @out.Add(ArcP(Math.Cos(a * J.DEG) * 0.5, Math.Sin(a * J.DEG) * 0.5, 0.5, a + 180, a + 540, 40));
                 }
                 @out.Add(ArcP(0, 0, 0.13, -90, 270, 20));
                 break;
-            case 2: // 梅钵纹：五个圆瓣绕小圆心
-                for (var k = 0; k < 5; k++)
+            case 2:                 for (var k = 0; k < 5; k++)
                 {
                     var a = -90 + k * 72;
                     @out.Add(ArcP(Math.Cos(a * J.DEG) * 0.6, Math.Sin(a * J.DEG) * 0.6, 0.3, a + 180, a + 540, 32));
                 }
                 @out.Add(ArcP(0, 0, 0.17, -90, 270, 20));
                 break;
-            case 3: // 轮违纹：两个相扣的环
-                @out.Add(ArcP(-0.3, 0, 0.55, 0, 360, 48));
+            case 3:                 @out.Add(ArcP(-0.3, 0, 0.55, 0, 360, 48));
                 @out.Add(ArcP(0.3, 0, 0.55, 180, 540, 48));
                 break;
-            default: // 三轮纹：三个相扣的环
-                for (var k = 0; k < 3; k++)
+            default:                 for (var k = 0; k < 3; k++)
                 {
                     var a = -90 + k * 120;
                     @out.Add(ArcP(Math.Cos(a * J.DEG) * 0.4, Math.Sin(a * J.DEG) * 0.4, 0.46, a + 180, a + 540, 40));
@@ -1389,8 +1342,7 @@ public static class P11DecorB
         }),
     });
 
-    /// <summary>风格化云轮廓：起伏的顶、平底、左侧的涡卷（JS kumo）。</summary>
-    private static (double[][] Outline, double[][] Curl) Kumo(double x0, double yb, double l, double hc)
+        private static (double[][] Outline, double[][] Curl) Kumo(double x0, double yb, double l, double hc)
     {
         double[][] bumps = { new[] { 0.22, 0.5 }, new[] { 0.48, 0.78 }, new[] { 0.74, 0.55 }, new[] { 0.9, 0.32 } };
         var top = new List<double[]>();
@@ -1484,7 +1436,6 @@ public static class P11DecorB
         }),
     });
 
-    // 红叶形状（JS MAPLE IIFE）
     private static readonly double[][] Maple = BuildMaple();
 
     private static double[][] BuildMaple()
@@ -1576,8 +1527,7 @@ public static class P11DecorB
         },
     });
 
-    /// <summary>波浪头的轮廓/曲面/内线（JS waveCrest）。</summary>
-    private static (double[][] Crest, double[][] Face, List<double[][]> Inner, double[] Top) WaveCrest(
+        private static (double[][] Crest, double[][] Face, List<double[][]> Inner, double[] Top) WaveCrest(
         double x, double yb, double w, double h)
     {
         var back = Bez(new[] { x - w / 2, yb }, new[] { x - w * 0.18, yb }, new[] { x - w * 0.28, yb - h }, new[] { x, yb - h }, 16);
@@ -1713,8 +1663,7 @@ public static class P11DecorB
         },
     });
 
-    /// <summary>SKPath 上加圆角矩形子路径（JS rrPath；AddRoundRect 的圆角是椭圆弧，与 arcTo 圆角同观感）。</summary>
-    private static void AddRr(SKPath path, double x, double y, double w, double h, double r)
+        private static void AddRr(SKPath path, double x, double y, double w, double h, double r)
     {
         r = Math.Max(0, Math.Min(r, Math.Min(w / 2, h / 2)));
         path.AddRoundRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), (float)r, (float)r);
@@ -2103,8 +2052,7 @@ public static class P11DecorB
             else
             {
                 var gc = JLayouts.GlyphCount(Regex.Replace(env2.Cut?.Text ?? "", @"\s+", ""));
-                var n = Math.Max(1, Math.Min(12, gc > 0 ? gc : 1)); // JS (…|| 1)
-                var list = new List<double[]>();
+                var n = Math.Max(1, Math.Min(12, gc > 0 ? gc : 1));                 var list = new List<double[]>();
                 for (var i = 0; i < n; i++)
                     list.Add(vert
                         ? new[] { bb.X0, J.Lerp(bb.Y0, bb.Y1, i / (double)n), bb.X1, J.Lerp(bb.Y0, bb.Y1, (i + 1) / (double)n) }
@@ -2296,8 +2244,7 @@ public static class P11DecorB
             var bt = BeatOf(env2);
             var len = bt.Has ? bt.Len : 0.62;
             var since = bt.Has ? bt.Since : ((env2.Ltb % len) + len) % len;
-            const double span = 0; // vert?40:34 → 见下方 spanV
-            var spanV = vert ? 40 : 34;
+            const double span = 0;             var spanV = vert ? 40 : 34;
             var e = J.E.OutCubic(J.Clamp(env2.Lt / 0.4));
             var ac = Acc(env2);
             foreach (var sd in sides)
@@ -2645,8 +2592,7 @@ public static class P11DecorB
         },
     });
 
-    /// <summary>围着歌词画虚拟"纸张"的角线（JS sheetCorner，staple/paperClip 共用）。</summary>
-    private static void SheetCorner(Env env, double x, double y, int sx, int sy, double l, double e, double a)
+        private static void SheetCorner(Env env, double x, double y, int sx, int sy, double l, double e, double a)
     {
         var u = U(env);
         var lw = Math.Max(1, u);
@@ -2733,7 +2679,6 @@ public static class P11DecorB
         }),
     });
 
-    // 回形针线材中轴（JS CLIP IIFE；[-0.34..0.46] × [-1.12..1.12] 局部坐标，已垂直居中）
     private static readonly double[][] ClipPath = BuildClip();
 
     private static double[][] BuildClip()
@@ -2991,8 +2936,7 @@ public static class P11DecorB
         }),
     });
 
-    /// <summary>云的轮廓弧段/基线/圆组（JS cloudOutline）。</summary>
-    private static (List<double[][]> Runs, double[][] Base, List<double[]> Circles) CloudOutline(double cx, double by, double wc, int seed)
+        private static (List<double[][]> Runs, double[][] Base, List<double[]> Circles) CloudOutline(double cx, double by, double wc, int seed)
     {
         double[][] shape = { new[] { -0.38, 0.15, 0.3 }, new[] { -0.21, 0.22, 0.5 }, new[] { 0.02, 0.26, 0.75 }, new[] { 0.23, 0.2, 0.5 }, new[] { 0.39, 0.13, 0.3 }, new[] { -0.07, 0.19, 1.35 } };
         var cs = shape.Select((f, i) =>
@@ -3006,7 +2950,6 @@ public static class P11DecorB
             var x = c[0];
             var y = c[1];
             var r = c[2];
-            // 上半段（an: π→2π）与下半段（an: 0→π，只取基线以上）各自成 run
             foreach (var (from, to, steps) in new[] { (Math.PI, 2 * Math.PI, 40), (0.0, Math.PI, 20) })
             {
                 List<double[]>? cur = null;
@@ -4169,7 +4112,6 @@ public static class P11DecorB
         }),
     });
 
-    // 正字五画的笔画端点（单位坐标，JS SEI）
     private static readonly double[][][] Sei =
     {
         new[] { new[] { 0.1, 0.12 }, new[] { 0.9, 0.12 } },
@@ -4236,7 +4178,6 @@ public static class P11DecorB
         }),
     });
 
-    // 鼠标指针轮廓（单位坐标，JS CURSOR）
     private static readonly double[][] Cursor = { new[] { 0.0, 0.0 }, new[] { 0.0, 1.0 }, new[] { 0.27, 0.76 }, new[] { 0.45, 1.13 }, new[] { 0.6, 1.06 }, new[] { 0.42, 0.7 }, new[] { 0.74, 0.7 } };
 
     private static void RegisterCursorClick() => Reg0("cursorClick", new DecorDef
@@ -4476,8 +4417,7 @@ public static class P11DecorB
             }
             var done = prog >= 0.999;
             var le = InE(env2, 0.3, 0.15);
-            var dots3 = new string('.', Math.Max(0, (int)Math.Floor(env2.Ltb * 3)) % 4); // 钳负值（JS Ltb 恒正不触发；C# 直调测试会碰负值）
-            Label(env2, done ? "Complete" : "Loading" + dots3, tx, sp.Y + fs * 0.6,
+            var dots3 = new string('.', Math.Max(0, (int)Math.Floor(env2.Ltb * 3)) % 4);             Label(env2, done ? "Complete" : "Loading" + dots3, tx, sp.Y + fs * 0.6,
                 JO("size", fs, "font", BodyF(env2), "color", Col(env2, "fg"), "alpha", a * le, "track", 0.04));
             Label(env2, $"{(int)Math.Floor(prog * 100)}%", tx + tw, sp.Y + fs * 0.6,
                 JO("size", fs, "align", "right", "color", done ? ac : Col(env2, "fg"), "alpha", a * le));

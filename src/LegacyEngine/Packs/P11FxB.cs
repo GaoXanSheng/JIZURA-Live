@@ -1,26 +1,3 @@
-// 移植自 frontend/src/engine/11p_fxB.js（fx 表现包 B，pack = 'fxB'，34 条：
-// 镜头光学 / glitch / 印刷·胶片质感 / 漫画系遮罩）。
-//
-// fx 插件路径：FxDef.Draw = (env, ev)（Registry 冻结，装不下 JS 的 draw(ctx, ev, k, I)）——
-// k 与 I.cw/ch/S/tmp/tmp2/transparent 由 Renderer.Post 的 FXE 插件段装配进 FxPlug 桥（文件底部），
-// I.sc/st/step/allowFilter 直接取 env.Sc/env.St/env.Step/env.AllowFilter。渲染器接入点：
-// Renderer.Post 的事件循环里「非内置（!Builtin && Draw != null）→ FxBegin → Draw → finally FxEnd」。
-//
-// Canvas2D → SkiaSharp 对位（同 Engine 约定）：
-//   globalCompositeOperation → 每 paint 的 BlendMode（screen/multiply/difference/saturation/
-//   lighten/darken/overlay/color-burn/lighter/destination-in/destination-over）；
-//   ctx.filter='blur(px)' → JText.BlurFilter(px)；contrast()/hue-rotate()/saturate() → 4x5 颜色矩阵
-//   （CSS filter 规范矩阵，本文件私有实现）；
-//   createRadial/LinearGradient + fill → SKShader + DrawPath/DrawRect；
-//   createPattern(setTransform) + fillRect → SKShader.CreateBitmap(Repeat, Repeat, localMatrix)；
-//   imageSmoothingEnabled=false → SKFilterMode.Nearest 采样。
-//
-// 已知降级（不改共享文件）：
-// 1. 元数据 scratch/ae 无 FxDef 字段：渲染器插件段对全部非内置 fx 恒拷 scratch 帧（S），
-//    是否读 S 由各 Draw 自身决定（JS 无 scratch 标记的条目不读 S，行为一致）；
-//    ae（AE 导出映射标签）丢弃——TODO(AE 导出对位，无消费者)。
-// 2. buf() 模块级离屏画布 → [ThreadStatic] SKSurface 组（同 JS：按索引复用、尺寸变化重建）。
-// 3. DOT/ROWS/BAYER/STATIC 纹理缓存 → 静态缓存（确定性生成，跨 renderer 共享只读安全）。
 
 using System.Collections.Concurrent;
 using System.Globalization;
@@ -30,28 +7,18 @@ using SkiaSharp;
 
 namespace JizuraLive.LegacyEngine;
 
-/// <summary>
-/// Renderer.Post 的 FXE 插件段 ↔ 表现包 Draw 的一次性信息桥（JS 的 I 对位）。
-/// FxDef.Draw(Env, PlanEvent) 装不下 (k, I)：每次插件调用前由渲染器 FxBegin 装配、finally FxEnd 清空。
-/// 静态字段＝JS 的模块级单例语义；Renderer 线程不安全（每画布/每导出管线一个），与 JS 同约束。
-/// </summary>
 internal static class FxPlug
 {
-    /// <summary>事件进度 0..1（渲染器已按 JS clamp）。</summary>
-    internal static double K;
+        internal static double K;
 
-    /// <summary>设备像素帧尺寸（JS 的 I.cw/I.ch）。</summary>
-    internal static int Cw, Ch;
+        internal static int Cw, Ch;
 
-    /// <summary>特效前整帧（JS 的 I.S；渲染器 scratch 面，fx 内只读不写，FxEnd 由渲染器清桥）。</summary>
-    internal static SKSurface? S;
+        internal static SKSurface? S;
 
-    /// <summary>JS 的 I.tmp / I.tmp2：转场临时画布（渲染器的复用面工厂）。</summary>
-    internal static Func<int, int, SKSurface>? Tmp;
+        internal static Func<int, int, SKSurface>? Tmp;
     internal static Func<int, int, SKSurface>? Tmp2;
 
-    /// <summary>JS 的 I.opt.transparent。</summary>
-    internal static bool Transparent;
+        internal static bool Transparent;
 }
 
 public static class P11FxB
@@ -59,60 +26,16 @@ public static class P11FxB
     private const string Pk = "fxB";
     private static int _installed;
 
-    /// <summary>幂等注册本文件全部条目（顺序 = JS fx() 出现序）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterRadialChroma();   // JS L112
-        RegisterBloomFlash();     // L139
-        RegisterBulge();          // L188
-        RegisterPixelSort();      // L224
-        RegisterInterlace();      // L274
-        RegisterMacroBlock();     // L308
-        RegisterHalftone();       // L381
-        RegisterDuotone();        // L404
-        RegisterDitherBit();      // L453
-        RegisterRotateSnap();     // L496
-        RegisterEchoFrames();     // L530
-        RegisterKaleido();        // L556
-        RegisterBandInvert();     // L591
-        RegisterLightRays();      // L608
-        RegisterAnamorphic();     // L641
-        RegisterHeartbeat();      // L686
-        RegisterTvStatic();       // L726
-        RegisterDustScratches();  // L752
-        RegisterFilmAdvance();    // L807
-        RegisterPerspectiveTilt();// L845
-        RegisterRipple();         // L879
-        RegisterFocusLines();     // L920
-        RegisterSpeedLines();     // L947
-        RegisterStarGlint();      // L980
-        RegisterColorBars();      // L1018
-        RegisterZoomStutter();    // L1043
-        RegisterNegativeRing();   // L1062
-        RegisterEdgeDetect();     // L1101
-        RegisterShatter();        // L1158
-        RegisterDefocus();        // L1238
-        RegisterSnapshot();       // L1272
-        RegisterSquash();         // L1310
-        RegisterScanBar();        // L1327
-        RegisterLoopScroll();     // L1367
-    }
-
-    // ================= 本包 helper（JS L8-109 + 各条目间 function 逐条对位） =================
-
-    private static double D(JObject o, string k)
-    {
-        var v = o[k];
-        return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : 0;
-    }
+        RegisterRadialChroma();           RegisterBloomFlash();             RegisterBulge();                  RegisterPixelSort();              RegisterInterlace();              RegisterMacroBlock();             RegisterHalftone();               RegisterDuotone();                RegisterDitherBit();              RegisterRotateSnap();             RegisterEchoFrames();             RegisterKaleido();                RegisterBandInvert();             RegisterLightRays();              RegisterAnamorphic();             RegisterHeartbeat();              RegisterTvStatic();               RegisterDustScratches();          RegisterFilmAdvance();            RegisterPerspectiveTilt();        RegisterRipple();                 RegisterFocusLines();             RegisterSpeedLines();             RegisterStarGlint();              RegisterColorBars();              RegisterZoomStutter();            RegisterNegativeRing();           RegisterEdgeDetect();             RegisterShatter();                RegisterDefocus();                RegisterSnapshot();               RegisterSquash();                 RegisterScanBar();                RegisterLoopScroll();         }
 
     private static string ScK(Scheme sc, string k) => sc.Str(k) ?? "#000000";
 
     private static bool IsDark(string? c) => J.Lum(c ?? "#000000") < 0.45;
 
-    /// <summary>JS ToInt32 语义（大 uint/double 入 J.h/J.r 前的回绕；J.* 的 int 形参消费）。</summary>
-    private static int ToI(double v) => unchecked((int)(long)v);
+        private static int ToI(double v) => unchecked((int)(long)v);
 
     private static double Bell(double k) => Math.Sin(Math.PI * J.Clamp(k));
 
@@ -120,8 +43,7 @@ public static class P11FxB
 
     private static double AmpOf(PlanEvent ev) => J.Clamp(ev.Amp, 0.3, 1.6);
 
-    /// <summary>攻击(0..a)→保持→释放(b..1)（JS ahr）。</summary>
-    private static double Ahr(double k, double a, double b, Func<double, double>? inE = null, Func<double, double>? outE = null)
+        private static double Ahr(double k, double a, double b, Func<double, double>? inE = null, Func<double, double>? outE = null)
     {
         inE ??= J.E.OutCubic;
         outE ??= J.E.InCubic;
@@ -156,8 +78,7 @@ public static class P11FxB
         return best;
     }
 
-    /// <summary>配色里最鲜艳的颜色；黑白配色回退到冷蓝（JS vivid）。</summary>
-    private static string Vivid(Scheme sc, string fb = "#4FB8FF")
+        private static string Vivid(Scheme sc, string fb = "#4FB8FF")
     {
         string? best = null;
         var bv = 0.18;
@@ -173,8 +94,7 @@ public static class P11FxB
         return best ?? fb;
     }
 
-    /// <summary>双色调的两个色相：配色中最鲜艳的一个，再加一个色相差明显的（JS huePair）。</summary>
-    private static (double H1, double H2) HuePair(Scheme sc)
+        private static (double H1, double H2) HuePair(Scheme sc)
     {
         var cs = new List<(double H, double V)>();
         foreach (var c in new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("ghostA"), sc.Str("ghostB"), sc.Str("fg"), sc.Str("bg") })
@@ -188,14 +108,6 @@ public static class P11FxB
         var bi = cs.FindIndex(p => p.V > 0.15 && HueD(p.H, cs[0].H) > 50);
         return (cs[0].H, bi >= 0 ? cs[bi].H : cs[0].H + 170);
     }
-
-    private static string Rgba(string hex, double a)
-    {
-        var (r, g, b) = J.Hex(hex);
-        return "rgba(" + r + "," + g + "," + b + "," + a.ToString("0.######", CultureInfo.InvariantCulture) + ")";
-    }
-
-    // ---- 离屏画布组（JS buf(i, w, h)：模块级数组、按索引复用、尺寸变化重建） ----
 
     [ThreadStatic] private static SKSurface?[]? _buf;
 
@@ -217,8 +129,7 @@ public static class P11FxB
     private static readonly SKSamplingOptions SmpN = new(SKFilterMode.Nearest, SKMipmapMode.None);
     private static readonly SKSamplingOptions SmpL = new(SKFilterMode.Linear, SKMipmapMode.None);
 
-    /// <summary>alpha 白画笔（drawImage 的 globalAlpha/globalCompositeOperation 对位）。</summary>
-    private static SKPaint ImgPaint(double alpha = 1, SKBlendMode blend = SKBlendMode.SrcOver) => new()
+        private static SKPaint ImgPaint(double alpha = 1, SKBlendMode blend = SKBlendMode.SrcOver) => new()
     {
         Color = SKColors.White.WithAlpha((byte)Math.Round(J.Clamp(alpha) * 255)),
         BlendMode = blend,
@@ -232,8 +143,7 @@ public static class P11FxB
         x.DrawRect(new SKRect((float)x0, (float)y0, (float)(x0 + w), (float)(y0 + h)), p);
     }
 
-    /// <summary>以 (cx,cy) 为锚点把 img 缩放绘制（JS drawScaled）。</summary>
-    private static void DrawScaled(SKCanvas ctx, SKImage img, double s, double cx, double cy, double cw, double ch,
+        private static void DrawScaled(SKCanvas ctx, SKImage img, double s, double cx, double cy, double cw, double ch,
         double alpha = 1, SKBlendMode blend = SKBlendMode.SrcOver)
     {
         using var p = ImgPaint(alpha, blend);
@@ -248,8 +158,7 @@ public static class P11FxB
         ctx.DrawImage(img, new SKPoint((float)dx, (float)dy), smp ?? SmpL, p);
     }
 
-    /// <summary>canvas.drawImage(img, sx,sy,sw,sh, dx,dy,dw,dh)。</summary>
-    private static void DrawImg9(SKCanvas ctx, SKImage img, double sx, double sy, double sw, double sh,
+        private static void DrawImg9(SKCanvas ctx, SKImage img, double sx, double sy, double sw, double sh,
         double dx, double dy, double dw, double dh, double alpha = 1, SKBlendMode blend = SKBlendMode.SrcOver,
         SKSamplingOptions? smp = null)
     {
@@ -258,8 +167,7 @@ public static class P11FxB
             new SKRect((float)dx, (float)dy, (float)(dx + dw), (float)(dy + dh)), smp ?? SmpL, p);
     }
 
-    /// <summary>|帧-bg| 灰度蒙版：暗配色是黑底亮墨，亮配色再反相（JS greyMask）。</summary>
-    private static SKSurface GreyMask(SKSurface t, SKSurface s, Scheme sc, int w, int h, bool dk)
+        private static SKSurface GreyMask(SKSurface t, SKSurface s, Scheme sc, int w, int h, bool dk)
     {
         var x = t.Canvas;
         x.SetMatrix(SKMatrix.Identity);
@@ -273,8 +181,7 @@ public static class P11FxB
         return t;
     }
 
-    /// <summary>蒙版染上 col：暗配色用 multiply 叠加，亮配色用 screen（JS tintMask）。</summary>
-    private static SKSurface TintMask(SKSurface t, SKImage mImg, string col, bool dk)
+        private static SKSurface TintMask(SKSurface t, SKImage mImg, string col, bool dk)
     {
         var x = t.Canvas;
         var w = (float)t.Canvas.DeviceClipBounds.Width;
@@ -287,8 +194,7 @@ public static class P11FxB
         return t;
     }
 
-    /// <summary>fx()/fxReg() 包装：save/restore + 进度钳到 0..1（渲染器侧也已 clamp，双保险同 JS）。</summary>
-    private static Action<Env, PlanEvent> Wrapped(Action<Env, PlanEvent, double> draw) => (env, ev) =>
+        private static Action<Env, PlanEvent> Wrapped(Action<Env, PlanEvent, double> draw) => (env, ev) =>
     {
         env.Ctx.Save();
         try
@@ -301,8 +207,6 @@ public static class P11FxB
         }
     };
 
-    // ================= 注册（JS fx(k, d) 出现序） =================
-
     private static void RegisterRadialChroma() => Reg.Register("fx", "radialChroma", new FxDef
     {
         Name = "放射色収差",
@@ -311,7 +215,6 @@ public static class P11FxB
         Dur = 4,
         Amp = 1,
         Mid = true,
-        // scratch: true, ae: 'chroma' —— 无 FxDef 字段（见头注降级 1）
         Draw = Wrapped(DrawRadialChroma),
     }, Pk);
 
@@ -402,15 +305,13 @@ public static class P11FxB
             }
             else
             {
-                // 亮配色走曝光过度：亮纸在墨上泛光，整体提向白
                 DrawImg(ctx, i1b, 0, 0, 0.75 * a, SKBlendMode.Screen);
                 DrawScaled(ctx, i2, 1.04, cx, cy, cw, ch, 0.5 * a, SKBlendMode.Screen);
             }
         }
     }
 
-    /// <summary>可分离的镜头扭曲：先列后行，分段线性条带（无接缝）。JS L187。</summary>
-    private static void RegisterBulge() => Reg.Register("fx", "bulge", new FxDef
+        private static void RegisterBulge() => Reg.Register("fx", "bulge", new FxDef
     {
         Name = "魚眼",
         Tags = new[] { "pop", "graphic", "glitch" },
@@ -473,8 +374,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>纵向熔融：一段段列的窗口向下（或向上）拉伸，平滑噪声保证连贯。JS L223。</summary>
-    private static void RegisterPixelSort() => Reg.Register("fx", "pixelSort", new FxDef
+        private static void RegisterPixelSort() => Reg.Register("fx", "pixelSort", new FxDef
     {
         Name = "ピクセルソート",
         Tags = new[] { "glitch" },
@@ -543,8 +443,7 @@ public static class P11FxB
         Draw = Wrapped(DrawInterlace),
     }, Pk);
 
-    /// <summary>1×2L 条纹贴图：上半黑、下半透明（JS rowTile，按 L 缓存）。</summary>
-    private static readonly ConcurrentDictionary<int, SKBitmap> Rows = new();
+        private static readonly ConcurrentDictionary<int, SKBitmap> Rows = new();
 
     private static SKBitmap RowTile(int l)
     {
@@ -583,7 +482,6 @@ public static class P11FxB
         x.Clear();
         using (var simg2 = S.Snapshot())
             DrawImg(x, simg2, Math.Round(dx), 0);
-        // destination-in + 条纹 pattern（translate y = (step%2)*L）
         using (var tim = t.Snapshot())
         using (var shader = SKShader.CreateBitmap(RowTile(l), SKShaderTileMode.Repeat, SKShaderTileMode.Repeat,
                    SKMatrix.CreateTranslation(0, (float)((env.Step % 2) * l))))
@@ -593,8 +491,7 @@ public static class P11FxB
             DrawImg(ctx, outImg, 0, 0);
     }
 
-    /// <summary>压缩劣化：网格对齐的块被拉平、从顶行向下拖影、量化或错位。JS L307。</summary>
-    private static void RegisterMacroBlock() => Reg.Register("fx", "macroBlock", new FxDef
+        private static void RegisterMacroBlock() => Reg.Register("fx", "macroBlock", new FxDef
     {
         Name = "ブロックノイズ",
         Tags = new[] { "glitch" },
@@ -643,13 +540,11 @@ public static class P11FxB
                 if (bw < 1 || bh < 1) continue;
                 if (m < 0.42)
                 {
-                    // datamosh：块的顶行向下拖 1..3 格
                     var n = 1 + (int)(J.H(st, c, id, 9) % 3);
                     DrawImg9(ctx, simg, bx, by, bw, 1, bx, by, bw, Math.Min(ch - by, (double)b * n));
                 }
                 else if (m < 0.7)
                 {
-                    // 量化成 3×3 平坦色块
                     tx.Clear();
                     using (var qp = new SKPaint())
                         tx.DrawImage(simg, new SKRect(bx, by, bx + bw, by + bh), new SKRect(0, 0, 3, 3), SmpL, qp);
@@ -658,13 +553,11 @@ public static class P11FxB
                 }
                 else if (m < 0.9)
                 {
-                    // 从邻块拷贝（错位）
                     var sx = J.Clamp(bx + (J.R(st, c, id, 10) < 0.5 ? -1 : 1) * (1 + (int)(J.H(st, c, id, 12) % 2)) * b, 0, cw - bw);
                     DrawImg9(ctx, simg, sx, by, bw, bh, bx, by, bw, bh);
                 }
                 else
                 {
-                    // 整块拉平
                     DrawImg9(ctx, simg, Math.Min(cw - 1, bx + bw / 2.0), Math.Min(ch - 1, by + bh / 2.0), 1, 1, bx, by, bw, bh, smp: SmpN);
                 }
                 if (m >= 0.42 && J.R(st, c, id, 8) < 0.06 * a)
@@ -688,8 +581,7 @@ public static class P11FxB
         Draw = Wrapped(DrawHalftone),
     }, Pk);
 
-    /// <summary>圆点网屏贴图（JS dotTile，按 c|r 缓存；3×3 邻接圆保证平铺无缝）。</summary>
-    private static readonly ConcurrentDictionary<string, SKBitmap> Dots = new();
+        private static readonly ConcurrentDictionary<string, SKBitmap> Dots = new();
 
     private static SKBitmap DotTile(int c, double r)
     {
@@ -770,8 +662,7 @@ public static class P11FxB
         FillMode(ctx, 0, 0, cw, ch, dark, a, SKBlendMode.Screen);
     }
 
-    /// <summary>Bayer 8×8 有序抖动阈值贴图（JS bayerTile，建一次）。</summary>
-    private static SKBitmap? _bayer;
+        private static SKBitmap? _bayer;
 
     private static SKBitmap BayerTile()
     {
@@ -808,8 +699,7 @@ public static class P11FxB
         return b;
     }
 
-    /// <summary>有序抖动 → 硬阈值（contrast 滤镜）→ 映射到配色的最深/最浅色。JS L452。</summary>
-    private static void RegisterDitherBit() => Reg.Register("fx", "ditherBit", new FxDef
+        private static void RegisterDitherBit() => Reg.Register("fx", "ditherBit", new FxDef
     {
         Name = "1bitディザ",
         Tags = new[] { "glitch", "graphic", "pop" },
@@ -820,8 +710,7 @@ public static class P11FxB
         Draw = Wrapped(DrawDitherBit),
     }, Pk);
 
-    /// <summary>CSS contrast(c)：c' = (c-0.5)*c + 0.5 → 4x5 颜色矩阵。</summary>
-    private static SKColorFilter ContrastFilter(double c) => SKColorFilter.CreateColorMatrix(new float[]
+        private static SKColorFilter ContrastFilter(double c) => SKColorFilter.CreateColorMatrix(new float[]
     {
         (float)c, 0, 0, 0, (float)(0.5 * (1 - c)),
         0, (float)c, 0, 0, (float)(0.5 * (1 - c)),
@@ -868,8 +757,7 @@ public static class P11FxB
             DrawImg9(ctx, t2img, 0, 0, w, h, 0, 0, w * p, h * p, smp: SmpN);
     }
 
-    /// <summary>首帧咬合到位再阻尼弹簧回正的倾斜。JS L496。</summary>
-    private static void RegisterRotateSnap() => Reg.Register("fx", "rotateSnap", new FxDef
+        private static void RegisterRotateSnap() => Reg.Register("fx", "rotateSnap", new FxDef
     {
         Name = "傾きスナップ",
         Tags = new[] { "pop", "graphic", "glitch" },
@@ -913,8 +801,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>帧的阶梯残影；暗底用 lighten、亮底用 darken，背景不受影响。JS L529。</summary>
-    private static void RegisterEchoFrames() => Reg.Register("fx", "echoFrames", new FxDef
+        private static void RegisterEchoFrames() => Reg.Register("fx", "echoFrames", new FxDef
     {
         Name = "残像エコー",
         Tags = new[] { "emotional", "pop", "glitch" },
@@ -948,8 +835,7 @@ public static class P11FxB
                 fade * (0.64 - i * 0.12), dk ? SKBlendMode.Lighten : SKBlendMode.Darken);
     }
 
-    /// <summary>中心周围 n 个镜像楔形，真万华镜而不是轴镜像。JS L555。</summary>
-    private static void RegisterKaleido() => Reg.Register("fx", "kaleido", new FxDef
+        private static void RegisterKaleido() => Reg.Register("fx", "kaleido", new FxDef
     {
         Name = "万華鏡",
         Tags = new[] { "pop", "graphic", "emotional" },
@@ -1140,7 +1026,6 @@ public static class P11FxB
                 (1, Cs(col, 0)),
             });
             Ell(m * 0.07, m * 0.07, new[] { (0.0, Cs("#ffffff", 0.8 * a)), (1, Cs("#ffffff", 0)) });
-            // 沿过画面中心直线的镜头鬼影
             for (var j = 0; j < 3; j++)
             {
                 var f = new[] { 0.55, 1.1, 1.7 }[j];
@@ -1160,8 +1045,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>双心跳：彩色暗角收拢两次，带一点推近。JS L685。</summary>
-    private static void RegisterHeartbeat() => Reg.Register("fx", "heartbeat", new FxDef
+        private static void RegisterHeartbeat() => Reg.Register("fx", "heartbeat", new FxDef
     {
         Name = "鼓動",
         Tags = new[] { "emotional", "calm" },
@@ -1202,8 +1086,7 @@ public static class P11FxB
             ctx.DrawRect(new SKRect(0, 0, cw, ch), p);
     }
 
-    /// <summary>256² 砂嵐噪声贴图（JS staticTex，确定性生成建一次）。</summary>
-    private static SKBitmap? _staticTex;
+        private static SKBitmap? _staticTex;
 
     private static SKBitmap StaticTex()
     {
@@ -1362,8 +1245,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>画面缩进带齿孔的胶片条上，胶片被拉过一格。JS L806。</summary>
-    private static void RegisterFilmAdvance() => Reg.Register("fx", "filmAdvance", new FxDef
+        private static void RegisterFilmAdvance() => Reg.Register("fx", "filmAdvance", new FxDef
     {
         Name = "フィルム送り",
         Tags = new[] { "emotional", "editorial", "calm" },
@@ -1400,7 +1282,6 @@ public static class P11FxB
             {
                 var y = yc + j * pitch;
                 if (y > ch || y + fh < 0) continue;
-                // drawImage(S, x0, y, fw, fh)：4 参 = 目标宽高（源整图缩放）
                 ctx.DrawImage(simg, new SKRect((float)x0, (float)y, (float)(x0 + fw), (float)(y + fh)), SmpL, p);
             }
         if (x0 > 3)
@@ -1411,7 +1292,6 @@ public static class P11FxB
             using var p = new SKPaint { IsAntialias = true, Color = Env.SkColor("#ECE6DA", 0.9 * e) };
             for (var y = ((yc % hp) + hp) % hp - hp; y < ch; y += hp)
             {
-                // JS 的 rrect 路径累积后一次 fill；C# 逐个 DrawRoundRect 同 paint（视觉一致）
                 ctx.DrawRoundRect((float)(x0 * 0.29), (float)(y + (hp - hh) / 2), (float)hw, (float)hh,
                     (float)(hw * 0.2), (float)(hw * 0.2), p);
                 ctx.DrawRoundRect((float)(cw - x0 * 0.29 - hw), (float)(y + (hp - hh) / 2), (float)hw, (float)hh,
@@ -1420,8 +1300,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>画面绕竖直（或水平）轴做 3D 摆动：投影条带形成透视梯形。JS L844。</summary>
-    private static void RegisterPerspectiveTilt() => Reg.Register("fx", "perspectiveTilt", new FxDef
+        private static void RegisterPerspectiveTilt() => Reg.Register("fx", "perspectiveTilt", new FxDef
     {
         Name = "パース揺れ",
         Tags = new[] { "pop", "graphic", "emotional" },
@@ -1481,8 +1360,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>水波：落点周围的圆环逐个按径向位移轻微缩放重画。JS L878。</summary>
-    private static void RegisterRipple() => Reg.Register("fx", "ripple", new FxDef
+        private static void RegisterRipple() => Reg.Register("fx", "ripple", new FxDef
     {
         Name = "波紋",
         Tags = new[] { "emotional", "calm", "pop" },
@@ -1532,7 +1410,6 @@ public static class P11FxB
             DrawImg9(ctx, simg, 0, 0, simg.Width, simg.Height, cx - cx * mm, cy - cy * mm, cw * mm, ch * mm);
             ctx.Restore();
         }
-        // 波峰高光
         using var sp = new SKPaint { IsAntialias = true, IsStroke = true, StrokeWidth = (float)Math.Max(1, dr * 0.9) };
         for (var j = 0; j < 3; j++)
         {
@@ -1545,8 +1422,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>集中線：向中心汇聚的细楔形，每帧重画模拟手绘。JS L918。</summary>
-    private static string InkCol(Scheme sc) =>
+        private static string InkCol(Scheme sc) =>
         IsDark(ScK(sc, "bg"))
             ? Lightest(new[] { sc.Str("fg"), sc.Str("ink"), "#FFFFFF" }) ?? "#FFFFFF"
             : Darkest(new[] { sc.Str("fg"), sc.Str("ink"), "#111111" }) ?? "#111111";
@@ -1600,8 +1476,7 @@ public static class P11FxB
         ctx.DrawPath(path, p);
     }
 
-    /// <summary>流線：横穿画面的尖尾速度线，避开中央条带。JS L946。</summary>
-    private static void RegisterSpeedLines() => Reg.Register("fx", "speedLines", new FxDef
+        private static void RegisterSpeedLines() => Reg.Register("fx", "speedLines", new FxDef
     {
         Name = "流線",
         Tags = new[] { "pop", "graphic" },
@@ -1665,8 +1540,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>キラッ：歌词带周围的八角星光依次弹出。JS L979。</summary>
-    private static void RegisterStarGlint() => Reg.Register("fx", "starGlint", new FxDef
+        private static void RegisterStarGlint() => Reg.Register("fx", "starGlint", new FxDef
     {
         Name = "キラッ",
         Tags = new[] { "pop", "emotional" },
@@ -1722,8 +1596,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>细色条以不同速度扫过画面。JS L1017。</summary>
-    private static void RegisterColorBars() => Reg.Register("fx", "colorBars", new FxDef
+        private static void RegisterColorBars() => Reg.Register("fx", "colorBars", new FxDef
     {
         Name = "カラーバー",
         Tags = new[] { "pop", "graphic", "glitch" },
@@ -1767,8 +1640,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>三段硬变焦（ダダダン），每段焦点略偏，最后弹回。JS L1042。</summary>
-    private static void RegisterZoomStutter() => Reg.Register("fx", "zoomStutter", new FxDef
+        private static void RegisterZoomStutter() => Reg.Register("fx", "zoomStutter", new FxDef
     {
         Name = "ズーム連打",
         Tags = new[] { "pop", "graphic", "glitch" },
@@ -1794,8 +1666,7 @@ public static class P11FxB
         DrawScaled(ctx, simg, z, cw * (0.5 + J.Rs(ToI(s), 2, j) * 0.04), ch * (0.5 + J.Rs(ToI(s), 3, j) * 0.04), cw, ch);
     }
 
-    /// <summary>反转环（圆或菱形）从中心爆出，随后一圈更细的回声环。JS L1061。</summary>
-    private static void RegisterNegativeRing() => Reg.Register("fx", "negativeRing", new FxDef
+        private static void RegisterNegativeRing() => Reg.Register("fx", "negativeRing", new FxDef
     {
         Name = "反転リング",
         Tags = new[] { "graphic", "pop", "glitch" },
@@ -1852,8 +1723,7 @@ public static class P11FxB
         Ring((k - 0.22) * 1.35, m * 0.05 * a);
     }
 
-    /// <summary>边缘检测：|帧-偏移帧| → 暗底霓虹描边、亮底墨线画。JS L1096。</summary>
-    private static string InvHex(string h)
+        private static string InvHex(string h)
     {
         var (r, g, b) = J.Hex(h);
         return J.ToHex(255 - r, 255 - g, 255 - b);
@@ -1900,7 +1770,6 @@ public static class P11FxB
         var y = t2.Canvas;
         y.SetMatrix(SKMatrix.Identity);
         y.Clear();
-        // 噪底：浅灰 color-burn 即 max(0,(v-0.07)/0.93)，去掉抖动渐变的台阶；之后增益 ×4
         using (var tim = t.Snapshot())
         using (var cp = new SKPaint())
             y.DrawImage(tim, 0, 0, cp);
@@ -1912,7 +1781,6 @@ public static class P11FxB
             y.DrawImage(t2imgSelf, 0, 0, lp);
         }
         var edge = dk ? J.Mix(Vivid(sc), "#ffffff", 0.45) : Darkest(new[] { sc.Str("fg"), sc.Str("ink"), "#111111" }) ?? "#111111";
-        // 半分辨率上色后一次放大：暗底压暗衬托霓虹线 / 亮底纸色上的墨线
         FillMode(y, 0, 0, w, h, dk ? edge : InvHex(edge), 1, SKBlendMode.Multiply);
         if (dk) FillMode(y, 0, 0, w, h, J.Mix(ScK(sc, "bg"), "#000000", 0.6), 1, SKBlendMode.Screen);
         else
@@ -1924,8 +1792,7 @@ public static class P11FxB
             DrawImg9(ctx, outImg, 0, 0, w, h, 0, 0, cw, ch, alpha: a);
     }
 
-    /// <summary>玻璃碎裂：旧帧先出裂纹，新帧以碎片漂离再拼回。JS L1157。</summary>
-    private static void RegisterShatter() => Reg.Register("fx", "shatter", new FxDef
+        private static void RegisterShatter() => Reg.Register("fx", "shatter", new FxDef
     {
         Name = "ガラス割れ",
         Tags = new[] { "glitch", "pop", "emotional" },
@@ -2047,8 +1914,7 @@ public static class P11FxB
             }
             ctx.DrawPath(path, sp);
         }
-        if (k < b * 1.5) // 撞击闪光
-        {
+        if (k < b * 1.5)         {
             var f = 1 - k / (b * 1.5);
             using var g = SKShader.CreateRadialGradient(new SKPoint((float)px, (float)py), (float)(m * 0.25),
                 new[] { SKColors.White.WithAlpha((byte)Math.Round(0.85 * f * 255)), SKColors.Transparent },
@@ -2058,8 +1924,7 @@ public static class P11FxB
         }
     }
 
-    /// <summary>变焦虚焦：画面在切点失焦到峰值，再拉回。JS L1237。</summary>
-    private static void RegisterDefocus() => Reg.Register("fx", "defocus", new FxDef
+        private static void RegisterDefocus() => Reg.Register("fx", "defocus", new FxDef
     {
         Name = "ピンぼけ",
         Tags = new[] { "emotional", "calm", "editorial" },
@@ -2111,8 +1976,7 @@ public static class P11FxB
             DrawScaled(ctx, tim, 1 + 0.025 * amt, cw / 2.0, ch / 2.0, cw, ch, Math.Min(1, amt * 1.8));
     }
 
-    /// <summary>快门：白闪，画面变成暗底上斜置的拍立得，再变焦回位。JS L1271。</summary>
-    private static void RegisterSnapshot() => Reg.Register("fx", "snapshot", new FxDef
+        private static void RegisterSnapshot() => Reg.Register("fx", "snapshot", new FxDef
     {
         Name = "シャッター",
         Tags = new[] { "pop", "emotional", "editorial" },
@@ -2160,8 +2024,7 @@ public static class P11FxB
             FillMode(ctx, 0, 0, cw, ch, "#ffffff", 0.9 * (1 - k / 0.22));
     }
 
-    /// <summary>整帧的弹性挤压拉伸（阻尼弹簧）。JS L1309。</summary>
-    private static void RegisterSquash() => Reg.Register("fx", "squash", new FxDef
+        private static void RegisterSquash() => Reg.Register("fx", "squash", new FxDef
     {
         Name = "伸縮",
         Tags = new[] { "pop", "graphic" },
@@ -2193,8 +2056,7 @@ public static class P11FxB
                 (float)(cw / 2.0 + cw * sx / 2), (float)(ch / 2.0 + ch * sy / 2)), SmpL, ImgPaint(1));
     }
 
-    /// <summary>扫描：发光条扫过画面，未扫到的部分压暗，条后沿的行抖动。JS L1326。</summary>
-    private static void RegisterScanBar() => Reg.Register("fx", "scanBar", new FxDef
+        private static void RegisterScanBar() => Reg.Register("fx", "scanBar", new FxDef
     {
         Name = "スキャン",
         Tags = new[] { "graphic", "editorial", "glitch" },
@@ -2246,8 +2108,7 @@ public static class P11FxB
         FillMode(ctx, 0, y - Math.Max(1, ch * 0.0015), cw, Math.Max(2, ch * 0.003), dk ? "#FFFFFF" : col, 0.9);
     }
 
-    /// <summary>整帧滚动一整屏宽（回绕）带运动模糊，终点恰为起点。JS L1366。</summary>
-    private static void RegisterLoopScroll() => Reg.Register("fx", "loopScroll", new FxDef
+        private static void RegisterLoopScroll() => Reg.Register("fx", "loopScroll", new FxDef
     {
         Name = "横ループ",
         Tags = new[] { "pop", "graphic", "glitch" },
@@ -2272,12 +2133,10 @@ public static class P11FxB
         var l = vert ? ch : cw;
         var q = J.E.InOutCubic(k);
         var o = ((q * l * dir) % l + l) % l;
-        var v = k < 0.5 ? 12 * k * k : 12 * (1 - k) * (1 - k); // d(inOutCubic)/dk, 0..3
-        var blur = l * 0.05 * v / 3;
+        var v = k < 0.5 ? 12 * k * k : 12 * (1 - k) * (1 - k);         var blur = l * 0.05 * v / 3;
 
         void Wrap(SKCanvas c, SKImage img, double off, double w, double h)
         {
-            // JS 是 drawImage(img, dx, dy, w, h)：整图缩放进 w×h（点重载按原尺寸贴，半尺寸缓冲只吃到左上角）
             if (vert)
             {
                 DrawImg9(c, img, 0, 0, img.Width, img.Height, 0, off - h, w, h);
@@ -2331,11 +2190,7 @@ public static class P11FxB
             DrawImg9(ctx, o2, 0, 0, w, h, 0, 0, cw, ch);
     }
 
-    // ================= Renderer → 插件桥（见文件头注释） =================
-
-    /// <summary>Renderer.Post 的 FXE 插件段在 def.Draw(env, ev) 前调用；s = 渲染器 scratch 面。
-    /// public：对拍/冒烟测试直调插件 Draw 时也要装桥（引擎测试工程无 InternalsVisibleTo）。</summary>
-    public static void FxBegin(int cw, int ch, double k, SKSurface? s,
+        public static void FxBegin(int cw, int ch, double k, SKSurface? s,
         Func<int, int, SKSurface> tmp, Func<int, int, SKSurface> tmp2, bool transparent)
     {
         FxPlug.Cw = cw;
@@ -2347,8 +2202,7 @@ public static class P11FxB
         FxPlug.Transparent = transparent;
     }
 
-    /// <summary>finally 里清桥（S 快照由调用方的 using 释放）。</summary>
-    public static void FxEnd()
+        public static void FxEnd()
     {
         FxPlug.S = null;
         FxPlug.Tmp = null;

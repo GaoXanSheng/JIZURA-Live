@@ -67,7 +67,6 @@ public sealed class PresentHost : HwndHost
     public FrameClock? Clock { get; private set; }
 
     public double Fps => Clock?.Fps ?? 0;
-    public long Frames => Clock?.Frame ?? 0;
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
@@ -260,7 +259,6 @@ public sealed class PresentHost : HwndHost
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter,
         int x, int y, int cx, int cy, int flags);
-
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -38,7 +38,6 @@ public sealed class D2DHost : IDisposable
         }
 
         var ctx = device.CreateDeviceContext(DeviceContextOptions.None);
-        // 渲染器全程按像素坐标画；不能让 D2D 再按系统 DPI 把像素当 DIP 放大。
         ctx.UnitMode = UnitMode.Pixels;
         ctx.SetDpi(96f, 96f);
         var dw = DWrite.DWriteCreateFactory<IDWriteFactory>(DWFactoryType.Shared);

@@ -64,19 +64,21 @@ public sealed class PvScene
     {
         get
         {
-            PvLayerConfig? fallback = null;
+            PvLayerConfig? byId = null;
             foreach (var layer in Layers)
             {
                 if (layer is null) continue;
-                if (string.Equals(layer.Id, CharacterLayerId, StringComparison.Ordinal)) return layer;
-                if (fallback is null && layer.Kind == PvLayerKind.VisualAsset
-                    && !string.IsNullOrWhiteSpace(layer.SpoutSenderName))
-                    fallback = layer;
+                if (layer.VtsCharacter == true) return layer;
+                if (byId is null && layer.VtsCharacter is null
+                    && string.Equals(layer.Id, CharacterLayerId, StringComparison.Ordinal))
+                    byId = layer;
             }
 
-            return fallback;
+            return byId;
         }
     }
+
+    public bool IsCharacterLayer(PvLayerConfig layer) => ReferenceEquals(CharacterLayer, layer);
 
     public static PvScene CreateBlank() => new();
 
@@ -104,36 +106,8 @@ public sealed class PvScene
         return scene;
     }
 
-    public string ToJson() => JsonConvert.SerializeObject(this, Formatting.Indented);
-
     public static PvScene? FromJson(string json) => JsonConvert.DeserializeObject<PvScene>(json);
 
-    public void SaveToFile(string filePath)
-    {
-        var dir = Path.GetDirectoryName(filePath);
-        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
-
-        var json = JsonConvert.SerializeObject(this, Formatting.Indented);
-        File.WriteAllText(filePath, json);
-    }
-
-    public static PvScene LoadFromFile(string filePath)
-    {
-        if (!File.Exists(filePath))
-            return CreateDefault();
-
-        try
-        {
-            var json = File.ReadAllText(filePath);
-            var scene = JsonConvert.DeserializeObject<PvScene>(json);
-            return scene ?? CreateDefault();
-        }
-        catch
-        {
-            return CreateDefault();
-        }
-    }
 }
 
 public sealed class PvCameraConfig

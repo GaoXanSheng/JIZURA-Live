@@ -1,28 +1,3 @@
-// 移植自 frontend/src/engine/11p_exitB.js（exit/hold 表现包第二批：exit 39 条 + hold 12 条，pack = "exitB"）。
-//
-// 契约与 P11Exit.cs 相同（MoveDef.Draw(env)：it = env.It、p = env.Ap；逐字推 env.CharFns、
-// 逐片推 env.PieceFns；字段直接写 item）。随机数全部是 J.R/J.Rs/J.Rr/J.H/J.Noise1 确定性哈希
-// （无顺序流），哈希入参逐字保持——同 seed 同动画轨迹。
-//
-// 管线缺口与降级（本文件内解决，不改共享文件）：
-// 1. JS 的 merged/addC 自带合并：C# JAnim.CombineChar 全字段合并，语义等价（DrawItem 侧
-//    a<=0.002 即跳过），不需要。
-// 2. it.post/it.pre（chainPost/chainPre）：JLayouts.DrawFx 已接（Env.PreFn/PostFn，pre 画在文字
-//    前、post 画在文字后）。本包仍在 Draw 调用点内就地执行——内容/几何一致，层级在主文字
-//    下方（可回迁到 env.PreFn/PostFn）。文字副本（drawFx/drawItem 的 copyOf）经 DrawFxCopy/
-//    DrawCopy 就地画。
-// 3. it.clipFn（任意路径裁剪，peelOff/tearOut/scorchOut/scanOut/stripesOut/halftoneOut/eraserOut/
-//    clockOut/floodOut/slashOut 用）：管线已接（Env.ClipFn → DrawFx ClipPath）——主文字与自画副本
-//    均走真 SKPath 裁剪（精确）。
-//    clapShut 单字分支与 shredOut 的轴对齐矩形分别折算成 it.clip / it.clipY（DrawFx 原生消费）。
-// 4. `ae`（AE 导出模板名）：MoveDef 无对应属性，未注册——对位见各条目行内注释。
-// 5. env.beat：渲染器已挂 Env.BeatHas/BeatSince/BeatLen/BeatIndex，BeatLen/BeatSince/BeatIdx
-//    按真节拍走，无拍才回退 ltb 式。
-// 6. mosaicOut 的 DOM 离屏 canvas 对位为常驻 SKSurface（静态复用，不足时扩容）。
-//
-// 跨文件符号对位：J.measure→JText.Measure、J.layoutText→JText.LayoutText、J.itemBox→JAnim.ItemBox、
-// J.glyphCount→JLayouts.GlyphCount、J.pool→JLang.Pool、J.fitContrast→J.FitContrast、
-// J.noise1→J.Noise1、J.rgba(本地 Rgba)/r/rs/rr/h/mix/lum/smooth/clamp/lerp→J.*。
 
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
@@ -34,8 +9,6 @@ public static class P11ExitB
     private const string P = "exitB";
     private static int _installed;
 
-    // ================= 本包 helper（JS L8-314 逐条对位） =================
-
     private static bool IsHex(string? c) => c != null && c.Length > 0 && c[0] == '#' && (c.Length == 7 || c.Length == 4);
 
     private static string MixC(string? a, string? b, double t)
@@ -46,8 +19,7 @@ public static class P11ExitB
         return IsHex(a) && IsHex(b) ? J.Mix(a!, b!, t) : (t < 0.5 ? a! : b!);
     }
 
-    /// <summary>JS colOf：isHex(it.color) ? it.color : '#ffffff'。</summary>
-    private static string ColOf(JObject it)
+        private static string ColOf(JObject it)
     {
         var c = S(it, "color");
         return IsHex(c) ? c! : "#ffffff";
@@ -61,15 +33,13 @@ public static class P11ExitB
 
     private static JText.TextLayout LayOf(JObject it) => JText.Measure(it).Lay;
 
-    /// <summary>JS box：每次重算（sx/sy/size 可能刚变过；Measure 按内容 memo）。</summary>
-    private static ItemBounds Box(JObject it) => JAnim.ItemBox(it);
+        private static ItemBounds Box(JObject it) => JAnim.ItemBox(it);
 
     private static int CutN(Env env) => Math.Max(1, JLayouts.GlyphCount(env.Cut?.Text ?? ""));
     private static bool CutBit(Env env, int k) => (J.H(unchecked((int)(env.Cut?.Seed ?? 0)), k, 1991) & 1) == 1;
     private static double CutR(Env env, int k) => J.R(unchecked((int)(env.Cut?.Seed ?? 0)), k, 1993);
 
-    /// <summary>一个 item 只有一个字形，mixed/scatter 布局才有。</summary>
-    private static bool IsSingle(Env env, JObject it) => LayOf(it).N == 1 && CutN(env) > 1;
+        private static bool IsSingle(Env env, JObject it) => LayOf(it).N == 1 && CutN(env) > 1;
 
     private static double Win(double p, double o, double spread) => J.Clamp((p - o * spread) / (1 - spread));
 
@@ -85,8 +55,7 @@ public static class P11ExitB
     private static double[] ToL(JObject it, double x, double y) =>
         Rot2(x - N0(it, "x"), y - N0(it, "y"), -N0(it, "rot") * J.DEG);
 
-    /// <summary>设计坐标方向向量改用 item 空间表示，charFn 偏移才沿屏幕轴。</summary>
-    private static double[] DownI(JObject it)
+        private static double[] DownI(JObject it)
     {
         var r = N0(it, "rot") * J.DEG;
         return new[] { Math.Sin(r), Math.Cos(r) };
@@ -107,8 +76,7 @@ public static class P11ExitB
 
     private static double FadeEnd(double p, double a = 0.85) => 1 - J.Smooth(a, 1, p);
 
-    /// <summary>字形 i 在 cut 里的次序 0..1；单字 item 用它的 mi 排。</summary>
-    private static Func<int, int, double> OrderOf(Env env, JObject it)
+        private static Func<int, int, double> OrderOf(Env env, JObject it)
     {
         var nCut = CutN(env);
         var mi = Num(it, "mi");
@@ -117,12 +85,10 @@ public static class P11ExitB
 
     private static JAnim.CharFn Glyphs(Env env, JAnim.CharFn fn)
     {
-        env.CharFns.Add(fn); // JS addC：管线侧 CombineChar 折叠合并
-        return fn;
+        env.CharFns.Add(fn);         return fn;
     }
 
-    /// <summary>withCopies 的对位：主绘制走 mainFn；copyFn 各画一份副本（就地 post，层级在主文字下方）。</summary>
-    private static void WithCopies(Env env, JObject it, JAnim.CharFn mainFn, IReadOnlyList<JAnim.CharFn> copyFns)
+        private static void WithCopies(Env env, JObject it, JAnim.CharFn mainFn, IReadOnlyList<JAnim.CharFn> copyFns)
     {
         var prev = env.CharFns.ToList();
         Glyphs(env, mainFn);
@@ -137,8 +103,7 @@ public static class P11ExitB
         }
     }
 
-    /// <summary>JS 的 post 阶段干净副本（COPY_RESET：函数值字段走 env 桥不落 JObject）。</summary>
-    private static JObject CopyOfReset(JObject src, Action<JObject>? over = null)
+        private static JObject CopyOfReset(JObject src, Action<JObject>? over = null)
     {
         var c = (JObject)src.DeepClone();
         foreach (var k in new[] { "streak", "echo", "wipeBar", "clip", "clipY", "bands", "vbands" }) c[k] = null;
@@ -147,8 +112,7 @@ public static class P11ExitB
         return c;
     }
 
-    /// <summary>JS J.drawItem 直调的副本：DeepClone + 置换 charFn/pieceFn。</summary>
-    private static BBox? DrawCopy(Env env, JObject src, JAnim.CharFn? charFn, Action<JObject>? mutate = null)
+        private static BBox? DrawCopy(Env env, JObject src, JAnim.CharFn? charFn, Action<JObject>? mutate = null)
     {
         var c = (JObject)src.DeepClone();
         mutate?.Invoke(c);
@@ -173,8 +137,7 @@ public static class P11ExitB
         }
     }
 
-    /// <summary>JS J.drawFx 直调的副本：走真管线 DrawFx（bands/clip 副本消费），外挂任意路径裁剪。</summary>
-    private static BBox? DrawFxCopy(Env env, JObject src, JAnim.CharFn? charFn, SKPath? clip, Action<JObject>? mutate = null)
+        private static BBox? DrawFxCopy(Env env, JObject src, JAnim.CharFn? charFn, SKPath? clip, Action<JObject>? mutate = null)
     {
         var c = CopyOfReset(src, mutate);
         var prevC = env.CharFn;
@@ -204,11 +167,9 @@ public static class P11ExitB
         }
     }
 
-    /// <summary>当前 item 的合并 charFn（JS post 阶段 it2.charFn 的对位）。</summary>
-    private static JAnim.CharFn? MergedNow(Env env) => env.CharFns.Count == 0 ? null : JAnim.CombineChar(env.CharFns);
+        private static JAnim.CharFn? MergedNow(Env env) => env.CharFns.Count == 0 ? null : JAnim.CombineChar(env.CharFns);
 
-    /// <summary>在 item 自己的坐标系里画，含旋转。</summary>
-    private static void InItem(Env env, JObject it, Action fn)
+        private static void InItem(Env env, JObject it, Action fn)
     {
         env.Ctx.Save();
         env.Ctx.Translate((float)N0(it, "x"), (float)N0(it, "y"));
@@ -230,8 +191,7 @@ public static class P11ExitB
         public double X0, X1, Y0, Y1;
     }
 
-    /// <summary>每行（竖排每列）在 item 空间的范围。</summary>
-    private static List<LnExt> LineExt(JObject it)
+        private static List<LnExt> LineExt(JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = N1(it, "sx");
@@ -258,8 +218,7 @@ public static class P11ExitB
         public double X0, Y0, X1, Y1, Cx, Cy, W, H;
     }
 
-    /// <summary>item 空间的 box，相对 it.x/it.y，不旋转。</summary>
-    private static Lbx LBox(JObject it, double pad = 0)
+        private static Lbx LBox(JObject it, double pad = 0)
     {
         var b = Box(it);
         return new Lbx
@@ -280,8 +239,7 @@ public static class P11ExitB
         public double X0, Y0, X1, Y1, Cx, Cy, W, H;
     }
 
-    /// <summary>旋转后的 item box 求设计空间 AABB，含 pad 与 skew 让位。</summary>
-    private static Dbx DBox(JObject it, double pad = 0)
+        private static Dbx DBox(JObject it, double pad = 0)
     {
         var b = Box(it);
         double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
@@ -339,8 +297,7 @@ public static class P11ExitB
         it["size"] = N0(it, "size") * k;
     }
 
-    /// <summary>绕 item 空间一点旋转 {x, y, rot}。</summary>
-    private static void RotateAbout(JObject it, double deg, double ax, double ay)
+        private static void RotateAbout(JObject it, double deg, double ax, double ay)
     {
         var r0 = N0(it, "rot") * J.DEG;
         var r1 = r0 + deg * J.DEG;
@@ -351,8 +308,7 @@ public static class P11ExitB
         it["rot"] = N0(it, "rot") + deg;
     }
 
-    /// <summary>tearOut/glassBreak 的半边/碎片位姿（JS 的普通对象 {x, y, rot}）。</summary>
-    private sealed class HState
+        private sealed class HState
     {
         public double X, Y, Rot;
     }
@@ -368,8 +324,7 @@ public static class P11ExitB
         h.Rot += deg;
     }
 
-    /// <summary>item 空间区间换算成逐字形剪裁比例。</summary>
-    private static (double[]? CX, double[]? CY) Gclip(JObject g, JObject it, double gx, double gy, double kx, double ky, double[]? xr, double[]? yr)
+        private static (double[]? CX, double[]? CY) Gclip(JObject g, JObject it, double gx, double gy, double kx, double ky, double[]? xr, double[]? yr)
     {
         var sx = N1(it, "sx") * kx;
         var sy = N1(it, "sy") * ky;
@@ -381,23 +336,19 @@ public static class P11ExitB
         }
         else
         {
-            // 字形转了 90°，局部 x 沿 item +y，局部 y 沿 item -x
             if (yr != null) cx = new[] { (yr[0] - gy) / (sx * D(g, "w")), (yr[1] - gy) / (sx * D(g, "w")) };
             if (xr != null) cy = new[] { -(xr[1] - gx) / (sy * D(g, "h")), -(xr[0] - gx) / (sy * D(g, "h")) };
         }
         return (cx, cy);
     }
 
-    /// <summary>字形在 item 空间的静止中心。</summary>
-    private static double GCx(JObject g, JObject it) => (D(g, "x") + D(g, "vx")) * N1(it, "sx");
+        private static double GCx(JObject g, JObject it) => (D(g, "x") + D(g, "vx")) * N1(it, "sx");
     private static double GCy(JObject g, JObject it) => (D(g, "y") + D(g, "vy")) * N1(it, "sy");
 
-    /// <summary>GCx/GCy 的强类型版（直接吃排版的 GlyphCell）。</summary>
-    private static double GCx(JText.GlyphCell g, JObject it) => (g.X + g.Vx) * N1(it, "sx");
+        private static double GCx(JText.GlyphCell g, JObject it) => (g.X + g.Vx) * N1(it, "sx");
     private static double GCy(JText.GlyphCell g, JObject it) => (g.Y + g.Vy) * N1(it, "sy");
 
-    /// <summary>单位方向 (dx, dy) 上的半平面（keep u≥s 一侧），画成大四边形裁剪路径。</summary>
-    private static SKPath HalfPlanePath(double dx, double dy, double s, double l = 1e5)
+        private static SKPath HalfPlanePath(double dx, double dy, double s, double l = 1e5)
     {
         double tx = -dy, ty = dx;
         double a = s, b = s + l;
@@ -410,8 +361,7 @@ public static class P11ExitB
         return path;
     }
 
-    /// <summary>item 空间多边形 → 设计空间 SKPath（跟 h 的位姿）。</summary>
-    private static SKPath PolyPath(double[][] pts, double x, double y, double rotDeg)
+        private static SKPath PolyPath(double[][] pts, double x, double y, double rotDeg)
     {
         var r = rotDeg * J.DEG;
         var c = Math.Cos(r);
@@ -428,8 +378,7 @@ public static class P11ExitB
         return path;
     }
 
-    /// <summary>轴对齐矩形 [x, y, w, h] 集合 → 裁剪路径。</summary>
-    private static SKPath RectsPath(IEnumerable<double[]> rects, double pad = 0)
+        private static SKPath RectsPath(IEnumerable<double[]> rects, double pad = 0)
     {
         var path = new SKPath();
         foreach (var r in rects)
@@ -437,8 +386,7 @@ public static class P11ExitB
         return path;
     }
 
-    /// <summary>有没有字形吃到逐字 blur（字形 filter 上再叠 shadow 开销极大）。</summary>
-    private static bool GlyphBlurOn(Env env, JObject it)
+        private static bool GlyphBlurOn(Env env, JObject it)
     {
         if (env.CharFns.Count == 0) return false;
         var lay = LayOf(it);
@@ -449,8 +397,7 @@ public static class P11ExitB
         return false;
     }
 
-    /// <summary>item 上所有逐字 blur 乘 k，顺带把旧函数折叠成一个。</summary>
-    private static void ScaleGlyphBlur(Env env, double k)
+        private static void ScaleGlyphBlur(Env env, double k)
     {
         if (env.CharFns.Count == 0) return;
         var m = JAnim.CombineChar(env.CharFns.ToArray());
@@ -484,27 +431,22 @@ public static class P11ExitB
         ClipY = r.ClipY,
     };
 
-    // env.beat {since,len,index} 由渲染器每帧挂 Env（BeatHas/BeatSince/BeatLen/BeatIndex，09_render beatAt）；
-    // BeatHas=false（plan 无节拍）回 JS 的 ltb 回退式（JS beatLen/beatSince/beatIdx 对位）
     private static double BeatLen(Env env, double fb) => env.BeatHas && env.BeatLen > 0 ? env.BeatLen : fb;
     private static double BeatSince(Env env, double fb) => env.BeatHas ? env.BeatSince : ((env.Ltb % fb) + fb) % fb;
     private static int BeatIdx(Env env, double fb) => env.BeatHas ? env.BeatIndex : (int)Math.Floor(env.Ltb / fb);
 
     private static bool DarkBg(Env env) => J.Lum(ScK(env, "bg") ?? "#ffffff") < 0.5;
 
-    /// <summary>装饰只画一次：淡化副本和描边副本不画。</summary>
-    private static bool Primary(JObject it) => NN(it, "alpha", 1) > 0.9 && !IsFalse(it["fill"]);
+        private static bool Primary(JObject it) => NN(it, "alpha", 1) > 0.9 && !IsFalse(it["fill"]);
 
     private static bool IsFalse(JToken? t) => t is JValue v && v.Type == JTokenType.Boolean && !(bool)v.Value!;
 
-    /// <summary>JS J.rgba(h, a) → "rgba(r,g,b,a)"（shadow.color 吃这个格式）。</summary>
-    private static string Rgba(string hex, double a)
+        private static string Rgba(string hex, double a)
     {
         var (r, g, b) = J.Hex(hex);
         return "rgba(" + r + "," + g + "," + b + "," + a + ")";
     }
 
-    // 松散读取（对齐 JS 语义）：(x||0)/(x||1)/(x??d)
     private static string? S(JObject o, string k) => JLayouts.S(o, k);
     private static double D(JObject o, string k, double d = 0) => JLayouts.D(o, k, d);
     private static bool B(JObject o, string k) => JLayouts.B(o, k);
@@ -514,10 +456,7 @@ public static class P11ExitB
     private static double N1(JObject o, string k) => JAnim.NumOr1(o, k);
     private static int SeedOf(JObject o) => JAnim.SeedOf(o);
 
-    // ================= 注册（JS X/H 字面量序，Object.keys 语义） =================
-
-    /// <summary>exit 条目统一包一层 JS 的兜底：p≈1 时不管配方留下什么，一定完全消失。</summary>
-    private static void Reg1(string key, MoveDef def)
+        private static void Reg1(string key, MoveDef def)
     {
         var f = def.Draw;
         def.Draw = env =>
@@ -534,64 +473,10 @@ public static class P11ExitB
 
     private static void RegH(string key, MoveDef def) => Reg.Register("hold", key, def, P);
 
-    /// <summary>幂等注册本文件全部 exit/hold 条目（顺序 = JS 源 X/H 字面量序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        PeelOff();        // X.peelOff
-        CrumpleOut();     // X.crumpleOut
-        TearOut();        // X.tearOut
-        ScorchOut();      // X.scorchOut
-        OverexposeOut();  // X.overexposeOut
-        ScanOut();        // X.scanOut
-        StripesOut();     // X.stripesOut
-        HalftoneOut();    // X.halftoneOut
-        EraserOut();      // X.eraserOut
-        VacuumOut();      // X.vacuumOut
-        SandOut();        // X.sandOut
-        ShredOut();       // X.shredOut
-        DominoOut();      // X.dominoOut
-        HingeOut();       // X.hingeOut
-        RocketOff();      // X.rocketOff
-        BounceOff();      // X.bounceOff
-        BalloonOff();     // X.balloonOff
-        DeflateOut();     // X.deflateOut
-        HazeOut();        // X.hazeOut
-        GlassBreak();     // X.glassBreak
-        ZipOut();         // X.zipOut
-        ClapShut();       // X.clapShut
-        LampOff();        // X.lampOff
-        SlotOut();        // X.slotOut
-        ClockOut();       // X.clockOut
-        MatrixOut();      // X.matrixOut
-        TornadoOut();     // X.tornadoOut
-        RollUpOut();      // X.rollUpOut
-        SnakeOut();       // X.snakeOut
-        FlutterOut();     // X.flutterOut
-        RollOff();        // X.rollOff
-        FanClose();       // X.fanClose
-        RgbSplitOut();    // X.rgbSplitOut
-        ShockOut();       // X.shockOut
-        FloodOut();       // X.floodOut
-        SlashOut();       // X.slashOut
-        MosaicOut();      // X.mosaicOut
-        ScribbleOut();    // X.scribbleOut
-        CandleOut();      // X.candleOut
-        GlowFlicker();    // H.glowFlicker
-        WindGust();       // H.windGust
-        Dangle();         // H.dangle
-        EqBounce();       // H.eqBounce
-        FlashBox();       // H.flashBox
-        GlintSweep();     // H.glintSweep
-        FlipSwap();       // H.flipSwap
-        ShadowSway();     // H.shadowSway
-        MagnetJiggle();   // H.magnetJiggle
-        TypeRattle();     // H.typeRattle
-        FocusRack();      // H.focusRack
-        PluckString();    // H.pluckString
-    }
-
-    // ---------------- peelOff（X.peelOff；JS ae:'wipe'） ----------------
+        PeelOff();                CrumpleOut();             TearOut();                ScorchOut();              OverexposeOut();          ScanOut();                StripesOut();             HalftoneOut();            EraserOut();              VacuumOut();              SandOut();                ShredOut();               DominoOut();              HingeOut();               RocketOff();              BounceOff();              BalloonOff();             DeflateOut();             HazeOut();                GlassBreak();             ZipOut();                 ClapShut();               LampOff();                SlotOut();                ClockOut();               MatrixOut();              TornadoOut();             RollUpOut();              SnakeOut();               FlutterOut();             RollOff();                FanClose();               RgbSplitOut();            ShockOut();               FloodOut();               SlashOut();               MosaicOut();              ScribbleOut();            CandleOut();              GlowFlicker();            WindGust();               Dangle();                 EqBounce();               FlashBox();               GlintSweep();             FlipSwap();               ShadowSway();             MagnetJiggle();           TypeRattle();             FocusRack();              PluckString();        }
 
     private static void PeelOff() => Reg1("peelOff", new MoveDef
     {
@@ -624,11 +509,9 @@ public static class P11ExitB
             var back = MixC(MixC(c0, bg, 0.5), ScK(env, "accent") ?? "#ffffff", 0.18);
             if (f < 1)
             {
-                // JS clipFn = halfPlane(ctx, dx, dy, s, 1)（保留侧半平面）→ Env.ClipFn 桥
                 env.ClipFn = (_, _) => HalfPlanePath(dx, dy, s);
             }
             else it["alpha"] = 0.0;
-            // JS chainPost（撕起的背面 flap）——就地执行
             var fa = a0 * (1 - J.E.InQuad(fly));
             if (fa <= 0.01) return;
             var lift = sz * (0.05 + 0.1 * f);
@@ -642,7 +525,6 @@ public static class P11ExitB
                 var m = sz * 2.2 * fly * fly;
                 ctx.Translate((float)(dx * m), (float)(dy * m - sz * 1.2 * fly));
             }
-            // ctx.transform(1-2dx², -2dxdy, -2dxdy, 1-2dy², 2s·dx, 2s·dy)：沿 u=s 的镜像
             ctx.Concat(new SKMatrix(
                 (float)(1 - 2 * dx * dx), (float)(-2 * dx * dy), (float)(2 * s * dx),
                 (float)(-2 * dx * dy), (float)(1 - 2 * dy * dy), (float)(2 * s * dy),
@@ -673,8 +555,6 @@ public static class P11ExitB
             ctx.Restore();
         },
     });
-
-    // ---------------- crumpleOut（X.crumpleOut；JS ae:'shrink'） ----------------
 
     private static void CrumpleOut() => Reg1("crumpleOut", new MoveDef
     {
@@ -747,8 +627,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- tearOut（X.tearOut；JS ae:'slice'） ----------------
-
     private static void TearOut() => Reg1("tearOut", new MoveDef
     {
         Name = "破り捨て",
@@ -766,7 +644,6 @@ public static class P11ExitB
             double[] piv;
             if (IsSingle(env, it) && !vert)
             {
-                // 单字 item：撕口横贯屏幕中心
                 var cs = unchecked((int)(env.Cut?.Seed ?? 0));
                 var bb = DBox(it, sz * 0.3);
                 var kN = J.Clamp((int)Math.Ceiling((bb.Y1 - bb.Y0) / (sz * 0.08)), 4, 40);
@@ -799,15 +676,13 @@ public static class P11ExitB
                     var off = J.Rs(seed, k, 331) * sz * 0.05 + J.Noise1(k * 0.35, seed + 5) * sz * 0.16;
                     jag.Add(vert ? new[] { t2, mid + off } : new[] { mid + off, t2 });
                 }
-                // A 是左半（竖排为上半），B 是右半（下半）
                 polyA = vert
                     ? new[] { new[] { b.X0, b.Y0 - sz } }.Concat(jag).Concat(new[] { new[] { b.X1, b.Y0 - sz } }).ToArray()
                     : new[] { new[] { b.X0 - sz, b.Y0 } }.Concat(jag).Concat(new[] { new[] { b.X0 - sz, b.Y1 } }).ToArray();
                 polyB = vert
                     ? new[] { new[] { b.X0, b.Y1 + sz } }.Concat(jag).Concat(new[] { new[] { b.X1, b.Y1 + sz } }).ToArray()
                     : new[] { new[] { b.X1 + sz, b.Y0 } }.Concat(jag).Concat(new[] { new[] { b.X1 + sz, b.Y1 } }).ToArray();
-                piv = jag[^1]; // 从远端起撕，近端先张开
-            }
+                piv = jag[^1];             }
             var o = J.E.OutCubic(J.Clamp(p / 0.32));
             var v = J.Clamp((p - 0.26) / 0.74);
             var th = 7 * o + 40 * v * v;
@@ -835,10 +710,8 @@ public static class P11ExitB
             it["y"] = ha.Y;
             it["rot"] = ha.Rot;
             it["alpha"] = NN(it, "alpha", 1) * FadeEnd(p, 0.82);
-            // JS clipFn = polyL(ctx, it3, polyA)（item 空间多边形、按 drawFx 时点的 item 位姿换算）→ Env.ClipFn 桥
             var pa = polyA;
             env.ClipFn = (_, it3) => PolyPath(pa, N0(it3, "x"), N0(it3, "y"), N0(it3, "rot"));
-            // JS chainPost：drawFx 画 polyB 半（B 位姿）——就地执行
             var pb = polyB;
             using var bPath = PolyPath(pb, hb.X, hb.Y, hb.Rot);
             DrawFxCopy(env, it, MergedNow(env), bPath, c =>
@@ -849,8 +722,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- scorchOut（X.scorchOut；JS ae:'wipe'） ----------------
 
     private static void ScorchOut() => Reg1("scorchOut", new MoveDef
     {
@@ -863,8 +734,7 @@ public static class P11ExitB
             var it = env.It!;
             var p = env.Ap;
             var single = IsSingle(env, it);
-            var q = p; // 单字 item 共用一条贯穿屏幕的火线
-            var vert = B(it, "vertical");
+            var q = p;             var vert = B(it, "vertical");
             var sz = N0(it, "size");
             var t = env.Ltb;
             var acc = ScK(env, "accent") ?? "#ffffff";
@@ -945,14 +815,12 @@ public static class P11ExitB
                 path.Close();
                 return path;
             }
-            // JS clipFn = path(ctx, 0, null)（火线远侧直到 far 的区域）→ Env.ClipFn 桥
             env.ClipFn = (_, _) => BurnPath(0, null);
             var heat = MixC(c0, acc, 0.85);
             var soot = DarkBg(env) ? MixC(bg, acc, 0.25) : MixC(bg, "#000000", 0.45);
             var lw = Math.Max(1.5, uu * 0.03);
             var a0 = NN(it, "alpha", 1);
             var rimA = a0 * (1 - J.Smooth(0.86, 1, q));
-            // JS chainPost——就地执行
             using (var bandPath = BurnPath(0, band))
                 DrawFxCopy(env, it, MergedNow(env), bandPath, c =>
                 {
@@ -967,8 +835,7 @@ public static class P11ExitB
             env.Line(sp, soot, lw * 2.2, 0.8 * rimA, false);
             env.Line(ep, acc, lw * 4, 0.22 * rimA, false);
             env.Line(ep, acc, lw, rimA, false);
-            var sparks = single ? 6 : 22; // 火星在火线处生成，向后上方飘
-            for (var j = 0; j < sparks; j++)
+            var sparks = single ? 6 : 22;             for (var j = 0; j < sparks; j++)
             {
                 var t0 = J.R(seed, j, 341) * 0.85;
                 var age = (q - t0) / 0.28;
@@ -981,8 +848,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- overexposeOut（X.overexposeOut；JS ae:'blur'） ----------------
 
     private static void OverexposeOut() => Reg1("overexposeOut", new MoveDef
     {
@@ -1004,10 +869,8 @@ public static class P11ExitB
             it["color"] = MixC(c0, hot, a);
             if (it["gradient"] != null) it["gradient"] = null;
             if (it["pattern"] != null) it["pattern"] = null;
-            ScaleGlyphBlur(env, 1 - J.Smooth(0, 0.12, p)); // 给 bloom 让路，字形 filter 上叠 shadow 太贵
-            if (p > 0.08)
-                it["extrude"] = null; // 过曝阶段把立体这类深度效果吞掉；JS 还 chainPre 了「treatment 在 pre 里再给回来」的兜底——管线未挂 pre，略
-            SizeAbout(it, 1 + 0.07 * e);
+            ScaleGlyphBlur(env, 1 - J.Smooth(0, 0.12, p));             if (p > 0.08)
+                it["extrude"] = null;             SizeAbout(it, 1 + 0.07 * e);
             it["track"] = N0(it, "track") + 0.06 * e;
             var fade = 1 - J.E.InOutSine(J.Clamp((p - 0.38) / 0.62));
             if (env.Pass == "main")
@@ -1015,7 +878,6 @@ public static class P11ExitB
             it["alpha"] = NN(it, "alpha", 1) * fade;
             if (env.Pass == "main" && e > 0.02 && p > 0.12)
             {
-                // JS chainPre（更宽的 bloom 垫层）——就地执行（层级在主文字下方）
                 var ga = NN(it, "alpha", 1);
                 DrawCopy(env, it, MergedNow(env), c =>
                 {
@@ -1034,7 +896,6 @@ public static class P11ExitB
             var st = Math.Sin(Math.PI * J.Clamp((p - 0.12) / 0.88));
             if (st > 0.02 && Primary(it) && (!IsSingle(env, it) || Math.Round(Num(it, "mi")) == 0))
             {
-                // JS chainPost（镜头横纹）——就地执行
                 var single = IsSingle(env, it);
                 var bbx = single ? null : DBox(it, 0);
                 var cx = single ? env.W / 2.0 : bbx!.Cx;
@@ -1046,8 +907,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- scanOut（X.scanOut；JS ae:'slice'） ----------------
 
     private static void ScanOut() => Reg1("scanOut", new MoveDef
     {
@@ -1068,7 +927,6 @@ public static class P11ExitB
             var ph = h / n;
             var single = IsSingle(env, it);
             var l = single ? env.H * 0.14 : Math.Max(sz * 0.9, h * 0.3);
-            // 单字 item 用一条贯穿屏幕的扫描线
             var ys = single ? J.Lerp(env.H * 0.2, env.H * 0.8 + l, p) : J.Lerp(bb.Y0 - sz * 0.02, bb.Y1 + l, p);
             var rects = new List<double[]>();
             var lastScan = -1;
@@ -1083,13 +941,11 @@ public static class P11ExitB
                 var hh = ph * keep * 0.8;
                 if (hh > 0.08) rects.Add(new[] { yc - hh / 2, hh });
             }
-            var yU = bb.Y0 + (lastScan + 1) * ph; // 没扫到的区域从这里开始
-            if (rects.Count == 0 && yU >= bb.Y1 - 0.5)
+            var yU = bb.Y0 + (lastScan + 1) * ph;             if (rects.Count == 0 && yU >= bb.Y1 - 0.5)
             {
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：隔行扫描条 + 未扫区（x 从 bb.x0-sz*3 起、宽 bb.w+sz*6）→ Env.ClipFn 桥
             var rectsLoc = rects;
             var bbY1 = bb.Y1;
             var bbX0 = bb.X0;
@@ -1127,14 +983,11 @@ public static class P11ExitB
                 var acc = ScK(env, "accent") ?? "#ffffff";
                 var lw = Math.Max(1.5, sz * 0.025);
                 var a0 = NN(it, "alpha", 1) * (1 - J.Smooth(0.8, 1, p));
-                // JS chainPost——就地执行
                 env.Rect(bb.X0 - sz * 0.2, ys - lw * 3, bb.W + sz * 0.4, lw * 6, acc, 0.18 * a0, false);
                 env.Rect(bb.X0 - sz * 0.2, ys - lw / 2, bb.W + sz * 0.4, lw, acc, a0, false);
             }
         },
     });
-
-    // ---------------- stripesOut（X.stripesOut；JS ae:'wipe'） ----------------
 
     private static void StripesOut() => Reg1("stripesOut", new MoveDef
     {
@@ -1187,7 +1040,6 @@ public static class P11ExitB
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：斜条纹四边形并集（pt(a,l) = Ad*a + Ld*l）→ Env.ClipFn 桥
             var remLoc = rem;
             env.ClipFn = (_, _) =>
             {
@@ -1212,11 +1064,9 @@ public static class P11ExitB
             var tb = DBox(it, sz * 0.02);
             if (caps.Count > 0 && env.Pass == "main")
             {
-                // JS chainPost（刻度帽，clip 到 tb）——就地执行
                 var capsLoc = caps;
                 env.Ctx.Save();
-                env.Ctx.ClipRect(new SKRect((float)tb.X0, (float)tb.Y0, (float)(tb.X0 + tb.W), (float)(tb.Y0 + tb.H))); // 刻度只画在文字范围内
-                foreach (var cap in capsLoc)
+                env.Ctx.ClipRect(new SKRect((float)tb.X0, (float)tb.Y0, (float)(tb.X0 + tb.W), (float)(tb.Y0 + tb.H)));                 foreach (var cap in capsLoc)
                     env.Poly(new[]
                     {
                         new[] { ad[0] * (cap[0] + 0.5) + ld[0] * (cap[2] - cap[3] * th), ad[1] * (cap[0] + 0.5) + ld[1] * (cap[2] - cap[3] * th) },
@@ -1228,8 +1078,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- halftoneOut（X.halftoneOut；JS ae:'shrink'） ----------------
 
     private static void HalftoneOut() => Reg1("halftoneOut", new MoveDef
     {
@@ -1273,7 +1121,6 @@ public static class P11ExitB
                 it["alpha"] = 0.0;
                 return;
             }
-            // JS clipFn：网点并集（moveTo + arc 逐圆）→ Env.ClipFn 桥
             var dotsLoc = dots;
             env.ClipFn = (_, _) =>
             {
@@ -1285,8 +1132,6 @@ public static class P11ExitB
             it["color"] = MixC(ColOf(it), ScK(env, "accent") ?? "#ffffff", 0.4 * J.Smooth(0.05, 0.5, p));
         },
     });
-
-    // ---------------- eraserOut（X.eraserOut；JS ae:'wipe'） ----------------
 
     private static void EraserOut() => Reg1("eraserOut", new MoveDef
     {
@@ -1314,10 +1159,8 @@ public static class P11ExitB
             var leg = len + ew;
             var pos = J.Clamp(p / 0.9) * kN * leg;
             var lane = Math.Min(kN - 1, (int)Math.Floor(pos / leg));
-            var along = pos - lane * leg - ew / 2; // 板擦中心到该条起点的距离
-            bool Fwd(int j) => (j & 1) == 0;
+            var along = pos - lane * leg - ew / 2;             bool Fwd(int j) => (j & 1) == 0;
 
-            // 第 j 条的横向区间和擦除轴区间（s 从条起点沿擦除方向量）
             double[] LaneR(int j, double s0, double s1)
             {
                 var a0 = vert ? bb.X1 - (j + 1) * lh : bb.Y0 + j * lh;
@@ -1335,7 +1178,6 @@ public static class P11ExitB
             if (cut > 0) gone.Add(LaneR(lane, 0, cut));
             if (keep.Count == 0 && p > 0.9) it["alpha"] = 0.0;
             var a0 = NN(it, "alpha", 1);
-            // JS clipFn = pad(keep, ctx)（保留矩形并集，w/h 各 +0.4）→ Env.ClipFn 桥
             var keepLoc = keep;
             env.ClipFn = (_, _) => RectsPath(keepLoc, 0.4);
             var smear = a0 * 0.26 * (1 - J.Smooth(0.35, 0.95, p));
@@ -1343,10 +1185,8 @@ public static class P11ExitB
             var acc = ScK(env, "accent") ?? "#ffffff";
             var felt = MixC(acc, ScK(env, "bg") ?? "#ffffff", 0.45);
             var drawEraser = !single || Math.Round(Num(it, "mi")) == 0;
-            // JS chainPost——就地执行
             if (smear > 0.01 && gone.Count > 0 && env.Pass == "main")
             {
-                // 粉笔痕：加模糊，顺擦除方向拖长
                 var goneLoc = gone;
                 using var gonePath = RectsPath(goneLoc, 0.4);
                 DrawFxCopy(env, it, MergedNow(env), gonePath, c =>
@@ -1370,8 +1210,7 @@ public static class P11ExitB
             var w = r[2] + (vert ? lh * 0.06 : 0);
             var h = r[3] + (vert ? 0 : lh * 0.06);
             env.RRect(x, y, w, h, Math.Min(w, h) * 0.18, acc, eA, false);
-            const double kf = 0.3; // 拖尾一侧的毛毡条
-            if (vert)
+            const double kf = 0.3;             if (vert)
             {
                 var fy = Fwd(lane) ? y : y + h * (1 - kf);
                 env.RRect(x, fy, w, h * kf, Math.Min(w, h) * 0.12, felt, eA, false);
@@ -1383,8 +1222,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- vacuumOut（X.vacuumOut；JS ae:'shrink'） ----------------
 
     private static void VacuumOut() => Reg1("vacuumOut", new MoveDef
     {
@@ -1408,14 +1245,12 @@ public static class P11ExitB
                 var pulse = 1 + 0.25 * Math.Sin(p * 40) * (1 - p);
                 var rr = sz * (0.05 + 0.09 * fr) * pulse * (1 - J.Smooth(0.9, 1, p));
                 var ring = J.Clamp((p - 0.86) / 0.14);
-                // JS chainPost——就地执行
                 if (rr > 0.3) env.Circle(t[0], t[1], rr, acc, null, 0, 1, true);
                 if (ring > 0 && ring < 1)
                     env.Circle(t[0], t[1], sz * (0.15 + 0.5 * J.E.OutCubic(ring)), null, acc, Math.Max(1, sz * 0.03 * (1 - ring)), 1 - ring, false);
             }
             if (single)
             {
-                // 单字 item 整体飞向屏幕上一点
                 var t = new[] { rev ? env.W * 0.08 : env.W * 0.92, env.H / 2.0 };
                 var d0 = Math.Sqrt(Math.Pow(t[0] - N0(it, "x"), 2) + Math.Pow(t[1] - N0(it, "y"), 2));
                 var dm = env.W * 0.85;
@@ -1461,8 +1296,7 @@ public static class P11ExitB
                 var nx = -vy / Math.Max(1, dd);
                 var ny = vx / Math.Max(1, dd);
                 var st = Math.Min(1.8, 3 * q * q);
-                var along = alongX != B(g, "r90"); // 拉伸沿行进方向的那个局部轴
-                return new CharXf
+                var along = alongX != B(g, "r90");                 return new CharXf
                 {
                     Dx = vx * e + nx * bend,
                     Dy = vy * e + ny * bend,
@@ -1480,8 +1314,6 @@ public static class P11ExitB
             Dot(ToD(it, tl[0], tl[1]), fr / (double)Math.Max(1, lay.N), true);
         },
     });
-
-    // ---------------- sandOut（X.sandOut；JS ae:'drift'） ----------------
 
     private static void SandOut() => Reg1("sandOut", new MoveDef
     {
@@ -1521,7 +1353,6 @@ public static class P11ExitB
             }
             if (it["gradient"] != null || IsFalse(it["fill"]) || it["dash"] != null || it["pattern"] != null)
             {
-                // 带这些属性做不了 piece，退回字形级近似
                 Glyphs(env, (i, g, _) =>
                 {
                     if (g == null) return null;
@@ -1554,8 +1385,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- shredOut（X.shredOut；JS ae:'fall'） ----------------
-
     private static void ShredOut() => Reg1("shredOut", new MoveDef
     {
         Name = "シュレッダー",
@@ -1578,8 +1407,7 @@ public static class P11ExitB
             var v = J.Clamp((p - 0.72) / 0.28);
             var drop = env.H * 0.9 * v * v;
             it["y"] = N0(it, "y") + dd;
-            it["clipY"] = new JArray(-1e5, ySlot); // 口以上完好
-            var n = J.Clamp((int)Math.Round(bb.W / (sz * 0.2)), 5, 20);
+            it["clipY"] = new JArray(-1e5, ySlot);             var n = J.Clamp((int)Math.Round(bb.W / (sz * 0.2)), 5, 20);
             var sw = bb.W / n;
             var below = Math.Max(0, bb.Y1 + dd - ySlot);
             var curl = J.Clamp(below / (sz * 1.5));
@@ -1587,7 +1415,6 @@ public static class P11ExitB
             var lw = Math.Max(2, sz * 0.05);
             var barA = J.Smooth(0, 0.1, p) * (1 - J.Smooth(0.82, 0.98, p));
             var a0 = NN(it, "alpha", 1) * (1 - J.Smooth(0.8, 0.97, p));
-            // JS chainPost——就地执行
             if (below > 0.5 && env.Pass == "main")
                 for (var k = 0; k < n; k++)
                 {
@@ -1608,8 +1435,7 @@ public static class P11ExitB
                     var cf = JAnim.CombineChar(env.CharFns.Concat(new[] { cfExtra }).ToList());
                     env.Ctx.Save();
                     env.Ctx.Translate((float)xc, (float)ySlot);
-                    env.Ctx.RotateDegrees((float)(ang / J.DEG)); // ang 是弧度，RotateDegrees 收角度
-                    env.Ctx.RotateDegrees((float)(ang / J.DEG));
+                    env.Ctx.RotateDegrees((float)(ang / J.DEG));                     env.Ctx.RotateDegrees((float)(ang / J.DEG));
                     env.Ctx.Translate((float)-xc, (float)(-ySlot + drop * (0.7 + 0.6 * J.R(seed, k, 132))));
                     env.Ctx.ClipRect(new SKRect((float)xs0, (float)ySlot, (float)xs1, (float)(ySlot + env.H * 3)));
                     DrawCopy(env, it, cf, c => c["alpha"] = a0);
@@ -1622,8 +1448,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- dominoOut（X.dominoOut；JS ae:'fall'） ----------------
 
     private static void DominoOut() => Reg1("dominoOut", new MoveDef
     {
@@ -1660,14 +1484,11 @@ public static class P11ExitB
                     th = 90 - 10 * Math.Sin(Math.PI * Math.Min(1, u * 1.6)) * (1 - u);
                 }
                 var px = sgn * D(g, "w") * sx0 / 2;
-                var py = sz * sy0 * 0.5; // 倒下那侧的底角，item 空间
-                var rr = Rot2(-px, -py, sgn * th * J.DEG);
+                var py = sz * sy0 * 0.5;                 var rr = Rot2(-px, -py, sgn * th * J.DEG);
                 return new CharXf { Dx = px + rr[0] + dn[0] * sink, Dy = py + rr[1] + dn[1] * sink, Rot = sgn * th, A = fade };
             });
         },
     });
-
-    // ---------------- hingeOut（X.hingeOut；JS ae:'fall'） ----------------
 
     private static void HingeOut() => Reg1("hingeOut", new MoveDef
     {
@@ -1707,13 +1528,10 @@ public static class P11ExitB
             var r = Math.Max(2, sz * 0.045);
             var pa = 1 - J.Smooth(0.05, 0.25, v);
             var fl = J.Clamp(q / 0.16);
-            // JS chainPost（销钉）——就地执行
             if (pa > 0.01) env.Circle(pin0[0], pin0[1], r, acc, null, 0, pa, false);
             if (fl < 1) env.Circle(pin1[0] + sg * sz * 0.5 * fl, pin1[1] - sz * 0.6 * fl + sz * 1.6 * fl * fl, r, acc, null, 0, 1 - fl, false);
         },
     });
-
-    // ---------------- rocketOff（X.rocketOff；JS ae:'drift'） ----------------
 
     private static void RocketOff() => Reg1("rocketOff", new MoveDef
     {
@@ -1766,7 +1584,6 @@ public static class P11ExitB
                     Sy = r90 ? 1 - 0.12 * (st - 1) : st,
                 };
             });
-            // JS chainPost（尾焰 + 扬尘）——就地执行
             if (env.Pass != "main") return;
             InItem(env, it, () =>
             {
@@ -1781,8 +1598,7 @@ public static class P11ExitB
                     var gx = GCx(g, it);
                     var gy = GCy(g, it);
                     var bx = gx - dn[0] * l + dn[0] * hh;
-                    var by = gy - dn[1] * l + dn[1] * hh; // 字形底部当前位置
-                    var tl = Math.Min(l, sz * 2.6);
+                    var by = gy - dn[1] * l + dn[1] * hh;                     var tl = Math.Min(l, sz * 2.6);
                     var a = 1 - u * 0.8;
                     env.Line(new[] { new[] { bx, by }, new[] { bx + dn[0] * tl, by + dn[1] * tl } }, acc, Math.Max(1.5, sz * 0.2 * (1 - u * 0.5)), 0.28 * a, false);
                     env.Line(new[] { new[] { bx, by }, new[] { bx + dn[0] * tl * 0.75, by + dn[1] * tl * 0.75 } }, acc, Math.Max(1, sz * 0.08), 0.95 * a, false);
@@ -1793,18 +1609,14 @@ public static class P11ExitB
                         new[] { bx + dn[0] * sz * 0.45, by + dn[1] * sz * 0.45 },
                     }, acc, a, false);
                     var ox = gx + dn[0] * hh;
-                    var oy = gy + dn[1] * hh; // 发射台扬起的烟尘
-                    for (var k = 0; k < 3; k++)
+                    var oy = gy + dn[1] * hh;                     for (var k = 0; k < 3; k++)
                         env.Circle(ox + (k - 1) * sz * 0.25 * (0.4 + u), oy - sz * 0.05, sz * (0.08 + 0.22 * u) * (1 - Math.Abs(k - 1) * 0.3), sub, null, 0, 0.35 * (1 - u), false);
                 }
             });
         },
     });
 
-    // ---------------- bounceOff（X.bounceOff；JS ae:'scatter'） ----------------
-
-    /// <summary>越跳越小的弹跳：返回 (高度 0..1, 落地压扁 0..1)。</summary>
-    private static (double H, double Land) Hops(double q)
+        private static (double H, double Land) Hops(double q)
     {
         const double r = 0.64;
         const int nh = 4;
@@ -1871,8 +1683,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- balloonOff（X.balloonOff；JS ae:'drift'） ----------------
-
     private static void BalloonOff() => Reg1("balloonOff", new MoveDef
     {
         Name = "風船で飛ぶ",
@@ -1910,7 +1720,6 @@ public static class P11ExitB
                 var dxy = DirI(it, s.Sw, -s.L);
                 return new CharXf { Dx = dxy[0], Dy = dxy[1], Rot = s.Rot, S = s.Inf };
             });
-            // JS chainPost（绳子拖尾，摆动带滞后）——就地执行
             if (env.Pass != "main") return;
             InItem(env, it, () =>
             {
@@ -1940,8 +1749,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- deflateOut（X.deflateOut；JS ae:'scatter'） ----------------
-
     private static void DeflateOut() => Reg1("deflateOut", new MoveDef
     {
         Name = "しぼんで飛ぶ",
@@ -1961,7 +1768,6 @@ public static class P11ExitB
                 if (q >= 0.97) return new CharXf { Hide = true };
                 if (q < 0.16)
                 {
-                    // 鼓起绷紧
                     var u = q / 0.16;
                     return new CharXf
                     {
@@ -1978,7 +1784,6 @@ public static class P11ExitB
                 const int ns = 14;
                 for (var k = 0; k < ns; k++)
                 {
-                    // 分段积分乱窜的航向
                     var t = (k + 0.5) / ns * u2;
                     th = th0 + 7 * J.Noise1(t * 5, seed + i * 7) + 3 * t;
                     var v = sz * 7.5 * (0.5 + t) * (u2 / ns);
@@ -1998,8 +1803,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- hazeOut（X.hazeOut；JS ae:'blur'） ----------------
 
     private static void HazeOut() => Reg1("hazeOut", new MoveDef
     {
@@ -2051,8 +1854,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- glassBreak（X.glassBreak；JS ae:'explode'） ----------------
-
     private static void GlassBreak() => Reg1("glassBreak", new MoveDef
     {
         Name = "ガラス割れ",
@@ -2094,7 +1895,6 @@ public static class P11ExitB
                 shards.Add(new[] { new[] { ix, iy }, rPts[k], rPts[k2] });
                 shards.Add(new[] { rPts[k], bPts[k], bPts[k2], rPts[k2] });
             }
-            // 落在两根辐条之间的 box 角归外侧碎片
             for (var k = 0; k < kN; k++)
             {
                 var k2 = (k + 1) % kN;
@@ -2120,7 +1920,6 @@ public static class P11ExitB
             var lw = Math.Max(1.5, sz * 0.032);
             if (v <= 0)
             {
-                // JS chainPost（裂纹）——就地执行
                 if (env.Pass != "main") return;
                 InItem(env, it, () =>
                 {
@@ -2134,7 +1933,6 @@ public static class P11ExitB
                 return;
             }
             it["alpha"] = 0.0;
-            // JS chainPost（碎片，只画一次，碎裂时色差 ghost 不画）——就地执行
             if (env.Pass != "main") return;
             var sx2 = N1(it, "sx");
             var sy2 = N1(it, "sy");
@@ -2182,7 +1980,6 @@ public static class P11ExitB
                 var y1l = y1;
                 var cfExtra = (JAnim.CharFn)((_, g, _) =>
                 {
-                    // 只留这块碎片能露出的字形
                     if (g == null) return new CharXf { Hide = true };
                     var gx = GCx(g, it);
                     var gy = GCy(g, it);
@@ -2210,8 +2007,6 @@ public static class P11ExitB
                 });
         },
     });
-
-    // ---------------- zipOut（X.zipOut；JS ae:'wipe'） ----------------
 
     private static void ZipOut() => Reg1("zipOut", new MoveDef
     {
@@ -2254,7 +2049,6 @@ public static class P11ExitB
                 return acrossX ? new CharXf { Sx = k } : new CharXf { Sy = k };
             });
             var fa = NN(it, "alpha", 1) * (1 - J.Smooth(0.76, 0.96, p));
-            // JS chainPost（链齿 + 滑块）——就地执行
             if (env.Pass != "main" || fa <= 0.01) return;
             InItem(env, it, () =>
             {
@@ -2272,14 +2066,12 @@ public static class P11ExitB
                     var th = sz * 0.05;
                     for (double a = z0, k = 0; a < z1; a += tp, k++)
                     {
-                        // 链齿
                         var o = (k % 2 != 0 ? 1 : -1) * th * 0.5;
                         if (vert) env.Rect(mid - th * 0.5 + o, a, th, tp * 0.6, sub, fa, false);
                         else env.Rect(a, mid - th * 0.5 + o, tp * 0.6, th, sub, fa, false);
                     }
                     if (sp > a0 - sz * 0.5 && sp < a1 + sz * 0.5)
                     {
-                        // 滑块和拉片
                         var w = sz * 0.3;
                         var h = sz * 0.46;
                         if (vert)
@@ -2297,8 +2089,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- clapShut（X.clapShut；JS ae:'wipe'） ----------------
 
     private static void ClapShut() => Reg1("clapShut", new MoveDef
     {
@@ -2319,7 +2109,6 @@ public static class P11ExitB
                 var left = N0(it, "x") < env.W / 2.0;
                 var dd = env.W * 0.47 * e;
                 it["x"] = N0(it, "x") + (left ? dd : -dd);
-                // JS clipFn 是设计空间轴对齐半屏矩形 → it.clip 精确对位（DrawFx 原生消费）
                 it["clip"] = left
                     ? new JArray(-env.W * 1.0, -env.W * 1.0 + env.W * 1.5)
                     : new JArray(env.W / 2.0, env.W / 2.0 + env.W * 1.5);
@@ -2328,7 +2117,6 @@ public static class P11ExitB
                 {
                     var h = env.H * 0.3 * (1 + 0.6 * J.E.OutCubic(hit));
                     var lw = sz * 0.12 * (1 - hit);
-                    // JS chainPost——就地执行
                     env.Rect(env.W / 2.0 - lw / 2, env.H / 2.0 - h / 2, lw, h, acc, 1 - hit, false);
                 }
                 return;
@@ -2367,7 +2155,6 @@ public static class P11ExitB
                 var lw2 = Math.Max(1.5, sz * 0.025);
                 var ext = (vert ? b.W : b.H) * 1.1 * J.E.OutCubic(J.Smooth(0, 0.15, p));
                 var mc = vert ? b.Cx : b.Cy;
-                // JS chainPost（接缝线）——就地执行
                 InItem(env, it, () =>
                 {
                     if (vert) env.Rect(mc - ext / 2, seam - lw2 / 2, ext, lw2, acc, sa, false);
@@ -2379,7 +2166,6 @@ public static class P11ExitB
                 var lw3 = sz * 0.14 * (1 - J.E.OutCubic(hit));
                 var ext2 = (vert ? b.W : b.H) * (1 + 0.7 * J.E.OutCubic(hit));
                 var fa = 1 - hit;
-                // JS chainPost（撞击闪光 + 火花）——就地执行
                 InItem(env, it, () =>
                 {
                     var mc = vert ? b.Cx : b.Cy;
@@ -2387,7 +2173,6 @@ public static class P11ExitB
                     else env.Rect(seam - lw3 / 2, mc - ext2 / 2, lw3, ext2, acc, fa, false);
                     for (var k = 0; k < 4; k++)
                     {
-                        // 撞击火花
                         var a = (k + 0.5) / 4 * J.TAU + 0.3;
                         var r0 = sz * (0.2 + 0.6 * hit);
                         var r1 = r0 + sz * 0.25 * (1 - hit);
@@ -2403,8 +2188,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- lampOff（X.lampOff；JS ae:'glitch'） ----------------
 
     private static void LampOff() => Reg1("lampOff", new MoveDef
     {
@@ -2450,8 +2233,6 @@ public static class P11ExitB
                 };
         },
     });
-
-    // ---------------- slotOut（X.slotOut；JS ae:'glitch'） ----------------
 
     private static void SlotOut() => Reg1("slotOut", new MoveDef
     {
@@ -2507,8 +2288,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- clockOut（X.clockOut；JS ae:'wipe'） ----------------
-
     private sealed class CCell
     {
         public int I;
@@ -2539,8 +2318,7 @@ public static class P11ExitB
             {
                 if (IsSp(g.Ch)) continue;
                 var q = Win(p, ord(g.I, lay.N), 0.55);
-                if (q >= 1) continue; // 扫完的字形不在保留并集里 → 被裁掉
-                cells.Add(new CCell
+                if (q >= 1) continue;                 cells.Add(new CCell
                 {
                     I = g.I,
                     Cx = GCx(g, it),
@@ -2562,7 +2340,6 @@ public static class P11ExitB
                 var t = Math.Min(Math.Abs(ca) > 1e-6 ? c.Hw / Math.Abs(ca) : 1e9, Math.Abs(sa) > 1e-6 ? c.Hh / Math.Abs(sa) : 1e9);
                 return new[] { c.Cx + ca * t, c.Cy + sa * t };
             }
-            // 中心 → 表针 → 按扫过顺序的角点 → 12 点方向
             double[][] Region(CCell c)
             {
                 var ah = aStart + sg * c.E * J.TAU;
@@ -2578,7 +2355,6 @@ public static class P11ExitB
                 pts.Add(new[] { c.Cx, c.Cy - c.Hh });
                 return pts.ToArray();
             }
-            // JS clipFn：每字形扇形并集（polyL 按 drawFx 时点 item 位姿换算；e<=0.001 用整块矩形）→ Env.ClipFn 桥
             env.ClipFn = (_, it3) =>
             {
                 var path = new SKPath();
@@ -2604,7 +2380,6 @@ public static class P11ExitB
                 return path;
             };
             var fa = NN(it, "alpha", 1);
-            // JS chainPost（表针 + 辉光）——就地执行
             if (env.Pass != "main") return;
             InItem(env, it, () =>
             {
@@ -2622,8 +2397,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- matrixOut（X.matrixOut；JS ae:'glitch'） ----------------
 
     private static void MatrixOut() => Reg1("matrixOut", new MoveDef
     {
@@ -2681,8 +2454,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- tornadoOut（X.tornadoOut；JS ae:'scatter'） ----------------
-
     private static void TornadoOut() => Reg1("tornadoOut", new MoveDef
     {
         Name = "竜巻",
@@ -2712,7 +2483,6 @@ public static class P11ExitB
                 foreach (var g in lay.Cells)
                     r0 = Math.Max(r0, Math.Abs(ToD(it, GCx(g, it), GCy(g, it))[0] - cx));
             r0 += sz * 0.3;
-            // X0 是字形设计坐标 x，hx 是螺旋进度 0..1
             (double Dx, double Dy, double Z, double Tilt) Orbit(double x0, int i, double q, double hx)
             {
                 var ox = x0 - cx;
@@ -2749,8 +2519,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- rollUpOut（X.rollUpOut；JS ae:'wipe'） ----------------
-
     private static void RollUpOut() => Reg1("rollUpOut", new MoveDef
     {
         Name = "巻き取る",
@@ -2779,7 +2547,6 @@ public static class P11ExitB
             double xr;
             if (single)
             {
-                // 单字 item：纸卷横穿整个屏幕
                 var x0 = env.W * 0.03 - N0(it, "x");
                 var x1 = env.W * 0.97 - N0(it, "x");
                 xr = rev ? J.Lerp(x1, x0, e) : J.Lerp(x0, x1, e);
@@ -2789,20 +2556,16 @@ public static class P11ExitB
                 ? Math.Max(0, (single ? env.W * 0.97 - N0(it, "x") : a1) - xr)
                 : Math.Max(0, xr - (single ? env.W * 0.03 - N0(it, "x") : a0));
             var r = r0 * Math.Sqrt(1 + rolled / (sz * 2));
-            var sg = rev ? -1 : 1; // 纸卷沿轴的 +sg 方向走
-            var edge = xr + sg * r; // 平纸从这条边开始
-            Glyphs(env, (_, g, _) =>
+            var sg = rev ? -1 : 1;             var edge = xr + sg * r;             Glyphs(env, (_, g, _) =>
             {
                 if (g == null) return null;
                 var c2 = vert ? GCy(g, it) : GCx(g, it);
                 var hw = (vert ? D(g, "h") * sy0 : D(g, "w") * sx0) / 2;
-                var d = (c2 - edge) * sg; // 到纸卷前方的距离
-                if (d + hw <= 0) return new CharXf { Hide = true };
+                var d = (c2 - edge) * sg;                 if (d + hw <= 0) return new CharXf { Hide = true };
                 var near = J.Clamp(1 - (d - hw) / (r * 2.6));
                 if (near <= 0) return null;
                 var k = 1 - 0.55 * Math.Pow(near, 1.6);
-                var nc = c2 - sg * (1 - k) * hw; // 纸往卷上缠时会聚拢起皱
-                var alongLocalX = vert ? B(g, "r90") : !B(g, "r90");
+                var nc = c2 - sg * (1 - k) * hw;                 var alongLocalX = vert ? B(g, "r90") : !B(g, "r90");
                 var kx = alongLocalX ? k : 1;
                 var ky = alongLocalX ? 1 : k;
                 var o = new CharXf { Color = MixC(c0, bg, 0.45 * near), Sx = kx, Sy = ky };
@@ -2823,12 +2586,10 @@ public static class P11ExitB
             var hi = MixC(c0, bg, 0.25);
             var lo = MixC(c0, bg, 0.8);
             if (fa <= 0.01) return;
-            // JS chainPost（纸卷）——就地执行
             InItem(env, it, () =>
             {
                 var lift = J.E.InCubic(J.Clamp((p - 0.8) / 0.18));
-                var cm = (c0x + c1x) / 2; // 最后纸卷被拿走，收缩到中点
-                var ext0 = J.Lerp(c0x - sz * 0.06, cm, lift);
+                var cm = (c0x + c1x) / 2;                 var ext0 = J.Lerp(c0x - sz * 0.06, cm, lift);
                 var ext1 = J.Lerp(c1x + sz * 0.06, cm, lift);
                 var x0 = xr - r * (1 - lift);
                 var w = 2 * r * (1 - lift);
@@ -2845,8 +2606,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- snakeOut（X.snakeOut；JS ae:'stretch'） ----------------
-
     private static void SnakeOut() => Reg1("snakeOut", new MoveDef
     {
         Name = "列になって去る",
@@ -2861,7 +2620,6 @@ public static class P11ExitB
             var sz = N0(it, "size");
             var rev = CutBit(env, 231);
             var nd = CutBit(env, 232) ? 1 : -1;
-            // 行进坐标 a2、横向偏移 o，返回路径点 (a, o, rotDeg)
             (double A, double O, double Rd) D2(double a2, double o, double aEnd, double rr)
             {
                 if (a2 <= aEnd) return (a2, o, 0);
@@ -2883,8 +2641,7 @@ public static class P11ExitB
                 var aEnd = rev ? -env.W * 0.1 : env.W * 0.9;
                 var rr = Math.Min(env.W, env.H) * 0.2;
                 var a = N0(it, "x") * ux;
-                var o = (N0(it, "y") - env.H / 2.0) * ux; // v = rot90(u) = (0, ux)
-                var dt = env.W * 1.2 + rr * 2 + env.H * 0.8;
+                var o = (N0(it, "y") - env.H / 2.0) * ux;                 var dt = env.W * 1.2 + rr * 2 + env.H * 0.8;
                 var res = D2(a + dt * Ease(p), o, aEnd, rr);
                 it["x"] = res.A * ux;
                 it["y"] = env.H / 2.0 + res.O * ux;
@@ -2924,8 +2681,6 @@ public static class P11ExitB
             it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.9, 1, p));
         },
     });
-
-    // ---------------- flutterOut（X.flutterOut；JS ae:'fall'） ----------------
 
     private static void FlutterOut() => Reg1("flutterOut", new MoveDef
     {
@@ -2969,8 +2724,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- rollOff（X.rollOff；JS ae:'scatter'） ----------------
-
     private static void RollOff() => Reg1("rollOff", new MoveDef
     {
         Name = "転がって去る",
@@ -3000,10 +2753,8 @@ public static class P11ExitB
                 var dist = dir > 0 ? env.W - gxD + sz * 1.3 : gxD + sz * 1.3;
                 var r = Math.Max(D(g, "w") * sx0, sz * sy0 * 0.8) / 2;
                 var along = dist * Math.Pow(q, 1.7);
-                var th = along / r; // 按无滑动滚动算
-                var ph = ((th % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
-                var rise = r * (Math.Sqrt(2) * Math.Cos(ph - Math.PI / 4) - 1); // 中心越过每个角时抬高
-                return new CharXf
+                var th = along / r;                 var ph = ((th % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2);
+                var rise = r * (Math.Sqrt(2) * Math.Cos(ph - Math.PI / 4) - 1);                 return new CharXf
                 {
                     Dx = ri[0] * dir * along - dn[0] * rise,
                     Dy = ri[1] * dir * along - dn[1] * rise,
@@ -3012,8 +2763,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- fanClose（X.fanClose；JS ae:'shrink'） ----------------
 
     private static void FanClose() => Reg1("fanClose", new MoveDef
     {
@@ -3034,7 +2783,6 @@ public static class P11ExitB
             var fs = 1 - 0.75 * J.E.InQuad(fin);
             var alpha = 1 - J.Smooth(0.8, 0.99, p);
             var spin = (rev ? 1 : -1) * 0.5 * J.E.InQuad(fin);
-            // a 是沿行方向到中心的距离，w 是朝轴心的偏移，轴心在该侧 R 远处
             (double Na, double Nw, double Rd) Place(double a, double w, double rr, double aLim)
             {
                 var alT = J.Lerp(a / rr, aLim, close) + spin;
@@ -3059,8 +2807,7 @@ public static class P11ExitB
             var b = LBox(it);
             var lay = LayOf(it);
             var u = vert ? new[] { 0.0, 1.0 } : new[] { 1.0, 0.0 };
-            var v2 = new[] { -u[1], u[0] }; // 轴心在 +v 一侧：横排在下方，竖排在左边
-            var ac = b.Cx * u[0] + b.Cy * u[1];
+            var v2 = new[] { -u[1], u[0] };             var ac = b.Cx * u[0] + b.Cy * u[1];
             var oc = b.Cx * v2[0] + b.Cy * v2[1];
             double aMin = 1e9, aMax = -1e9;
             foreach (var g in lay.Cells)
@@ -3092,8 +2839,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- rgbSplitOut（X.rgbSplitOut；JS ae:'glitch'） ----------------
-
     private static void RgbSplitOut() => Reg1("rgbSplitOut", new MoveDef
     {
         Name = "色分解",
@@ -3119,7 +2864,6 @@ public static class P11ExitB
             var a0 = NN(it, "alpha", 1);
             var ca = a0 * J.Smooth(0, 0.1, p) * (1 - J.Smooth(0.55, 0.96, p));
             it["alpha"] = a0 * (1 - J.Smooth(0.05, 0.35, p));
-            // JS chainPost（3 通道副本）——就地执行
             if (env.Pass != "main" || ca <= 0.01) return;
             var cf = MergedNow(env);
             for (var k = 0; k < 3; k++)
@@ -3151,8 +2895,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- shockOut（X.shockOut；JS ae:'explode'） ----------------
-
     private static void ShockOut() => Reg1("shockOut", new MoveDef
     {
         Name = "衝撃波",
@@ -3170,7 +2912,6 @@ public static class P11ExitB
             double rr = 0;
             double[] center;
 
-            // 返回 (径向位移, 缩放, alpha, rot)
             (double M, double S, double A, double Rt) Push(double dd, int i)
             {
                 var passed = rr - dd;
@@ -3217,13 +2958,10 @@ public static class P11ExitB
             }
             if (rr <= 0.5 || !Primary(it)) return;
             var fa = 1 - J.Smooth(0.3, 1, p);
-            // JS chainPost（冲击环）——就地执行
             env.Circle(center[0], center[1], rr, null, acc, Math.Max(1.5, sz * 0.09 * fa), fa, false);
             env.Circle(center[0], center[1], rr * 0.82, null, acc, Math.Max(1, sz * 0.025 * fa), fa * 0.6, false);
         },
     });
-
-    // ---------------- floodOut（X.floodOut；JS ae:'wipe'） ----------------
 
     private static void FloodOut() => Reg1("floodOut", new MoveDef
     {
@@ -3255,17 +2993,14 @@ public static class P11ExitB
                 surf[k] = new[] { x, yY + a * Math.Sin(x / uu * 4.2 + t * 5) + a * 0.5 * Math.Sin(x / uu * 9.5 - t * 7.3) };
             }
             if (yY < bb.Y0 - a * 2) it["alpha"] = 0.0;
-            // JS clipFn = above（水面以上区域，远端 -H*2 封口）→ Env.ClipFn 桥
             var surfLoc = surf;
             var envH = env.H;
             env.ClipFn = (_, _) => SurfPath(surfLoc, false, envH);
             var a0 = NN(it, "alpha", 1);
             var uw = (1 - J.Smooth(0.3, 0.95, p)) * 0.5;
             var fa = 1 - J.Smooth(0.82, 0.98, p);
-            // JS chainPost——就地执行
             if (uw > 0.01 && env.Pass == "main")
             {
-                // 水下部分：折射、染色、淡出
                 const int nSeg = 6;
                 var h = bb.H + sz;
                 var @out = new JArray();
@@ -3291,7 +3026,6 @@ public static class P11ExitB
             env.Line(surf, acc, Math.Max(1.5, uu * 0.028), fa, false);
             for (var j = 0; j < 7; j++)
             {
-                // 往水面冒的气泡
                 var x = J.Lerp(x0, x1, J.R(SeedOf(it), j, 291));
                 var ph = (p * 2.2 + J.R(SeedOf(it), j, 292)) % 1;
                 var y = yY + a + (1 - ph) * sz * 0.9;
@@ -3301,8 +3035,7 @@ public static class P11ExitB
         },
     });
 
-    /// <summary>水面折线 + 远端封口 → 裁剪路径。below=false 取上方区域，true 取下方。</summary>
-    private static SKPath SurfPath(double[][] surf, bool below, double h)
+        private static SKPath SurfPath(double[][] surf, bool below, double h)
     {
         var path = new SKPath();
         for (var i = 0; i < surf.Length; i++)
@@ -3315,8 +3048,6 @@ public static class P11ExitB
         path.Close();
         return path;
     }
-
-    // ---------------- slashOut（X.slashOut；JS ae:'slice'） ----------------
 
     private static void SlashOut() => Reg1("slashOut", new MoveDef
     {
@@ -3350,10 +3081,8 @@ public static class P11ExitB
                     new[] { o[0] - d[0] * l, o[1] - d[1] * l },
                 };
             }
-            var lower = HalfL(1);  // 横排时 +n 是切口下方
-            var upper = HalfL(-1);
-            var down = d[1] > 0 ? d : new[] { -d[0], -d[1] }; // 沿切口的下坡方向
-            var fl = J.Clamp(p / 0.12);
+            var lower = HalfL(1);              var upper = HalfL(-1);
+            var down = d[1] > 0 ? d : new[] { -d[0], -d[1] };             var fl = J.Clamp(p / 0.12);
             var gap = J.Smooth(0.12, 0.3, p);
             var v = J.Clamp((p - 0.3) / 0.7);
             var slide = sz * 0.06 * gap + sz * 2.2 * J.E.InQuad(v);
@@ -3367,11 +3096,9 @@ public static class P11ExitB
             it["x"] = x0 + lOff[0];
             it["y"] = y0 + lOff[1];
             it["alpha"] = a0 * (1 - J.Smooth(0.5, 0.95, p));
-            // JS clipFn = polyL(ctx, it3, lower)（下半，item 空间多边形、按 drawFx 时点 item 位姿）→ Env.ClipFn 桥
             var lowerLoc = lower;
             env.ClipFn = (_, it3) => PolyPath(lowerLoc, N0(it3, "x"), N0(it3, "y"), N0(it3, "rot"));
             var ua = a0 * (1 - J.Smooth(0.62, 0.98, p));
-            // JS chainPost——就地执行
             var rot = N0(it, "rot");
             using var upperPath = PolyPath(upper, x0 + uOff[0], y0 + uOff[1], rot);
             DrawFxCopy(env, it, MergedNow(env), upperPath, c2 =>
@@ -3401,10 +3128,7 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- mosaicOut（X.mosaicOut；JS ae:'glitch'） ----------------
-
-    /// <summary>JS 的 DOM 离屏 canvas（模块级 MOS）对位：常驻离屏面，不足时扩容。</summary>
-    private static SKSurface? _mos;
+        private static SKSurface? _mos;
 
     private static void MosaicOut() => Reg1("mosaicOut", new MoveDef
     {
@@ -3422,7 +3146,6 @@ public static class P11ExitB
             var fade = 1 - J.Smooth(0.55, 0.97, p);
             var bb = DBox(it, sz * 0.15);
             it["alpha"] = 0.0;
-            // JS chainPost——就地执行（每帧只离屏一次，色差 ghost 不参与）
             if (env.Pass != "main") return;
             var b = blk;
             var ow = (int)Math.Ceiling(bb.W / b);
@@ -3464,13 +3187,11 @@ public static class P11ExitB
             using var paint = new SKPaint { IsAntialias = false };
             ctx.DrawImage(img, new SKRect(0, 0, ow, oh),
                 new SKRect((float)bb.X0, (float)bb.Y0, (float)(bb.X0 + ow * b), (float)(bb.Y0 + oh * b)),
-                new SKSamplingOptions(SKFilterMode.Nearest), paint); // imageSmoothingEnabled = false
-            ctx.Restore();
+                new SKSamplingOptions(SKFilterMode.Nearest), paint);             ctx.Restore();
         },
     });
 
-    /// <summary>JS 的 Object.assign({}, env2, {ctx, scale, allowFilter}) 对位。</summary>
-    private static Env CloneEnvFor(Env e, SKCanvas ctx, double scale, bool allowFilter) => new()
+        private static Env CloneEnvFor(Env e, SKCanvas ctx, double scale, bool allowFilter) => new()
     {
         Ctx = ctx,
         W = e.W,
@@ -3506,8 +3227,6 @@ public static class P11ExitB
         GlyphLog = e.GlyphLog,
     };
 
-    // ---------------- scribbleOut（X.scribbleOut；JS ae:'wipe'） ----------------
-
     private static void ScribbleOut() => Reg1("scribbleOut", new MoveDef
     {
         Name = "ぐしゃぐしゃ消し",
@@ -3538,7 +3257,6 @@ public static class P11ExitB
                 var k = 0;
                 while (a < a1 && k < 200)
                 {
-                    // 去程：笔触不匀，手上下漂
                     var drift = Math.Sin(a / sz * 1.3 + li) * half * 0.18;
                     pts.Add(P2(a, drift + (k % 2 != 0 ? 1 : -1) * half * (0.8 + 0.45 * J.R(seed, li, k, 312))));
                     a += sz * (0.14 + 0.2 * J.R(seed, li, k, 311));
@@ -3547,7 +3265,6 @@ public static class P11ExitB
                 a = a1;
                 while (a > a0 && k < 400)
                 {
-                    // 回程：更平更快，补缝
                     var drift = Math.Sin(a / sz * 2.1 + li * 3) * half * 0.25;
                     pts.Add(P2(a, drift + (k % 2 != 0 ? 1 : -1) * half * (0.45 + 0.4 * J.R(seed, li, k, 314))));
                     a -= sz * (0.2 + 0.25 * J.R(seed, li, k, 313));
@@ -3559,7 +3276,6 @@ public static class P11ExitB
             var lw = sz * 0.15 * (1 - 0.7 * J.Smooth(0.62, 0.95, p));
             var sa = 1 - J.Smooth(0.66, 0.97, p);
             it["alpha"] = NN(it, "alpha", 1) * (1 - J.Smooth(0.45, 0.75, p));
-            // JS chainPost（粗马克笔涂痕）——就地执行
             if (env.Pass != "main" || sa <= 0.01) return;
             InItem(env, it, () =>
             {
@@ -3604,8 +3320,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- candleOut（X.candleOut；JS ae:'drift'） ----------------
-
     private static void CandleOut() => Reg1("candleOut", new MoveDef
     {
         Name = "吹き消す",
@@ -3643,7 +3357,6 @@ public static class P11ExitB
                     S = 1 + 0.04 * lean,
                 };
             });
-            // JS chainPost（一缕烟）——就地执行
             if (env.Pass != "main") return;
             InItem(env, it, () =>
             {
@@ -3670,10 +3383,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ================= hold（JS H 字面量序） =================
-
-    // ---------------- glowFlicker（H.glowFlicker；JS ae:'breathe'） ----------------
 
     private static void GlowFlicker() => RegH("glowFlicker", new MoveDef
     {
@@ -3713,8 +3422,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- windGust（H.windGust；JS ae:'wave'） ----------------
-
     private static void WindGust() => RegH("windGust", new MoveDef
     {
         Name = "突風",
@@ -3729,7 +3436,6 @@ public static class P11ExitB
             var sz = N0(it, "size");
             var ord = OrderOf(env, it);
             double cyc, since;
-            // env.beat 分支：C# Env 未挂 beat 对象，走 ltb 回退式（第一阵风在 cut 开始约 0.5s 后）
             const double per = 2.2;
             var t = env.Ltb - 0.5 - (cs % 5) * 0.06;
             cyc = Math.Floor(t / per);
@@ -3747,8 +3453,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- dangle（H.dangle；JS ae:'wave'） ----------------
 
     private static void Dangle() => RegH("dangle", new MoveDef
     {
@@ -3771,13 +3475,10 @@ public static class P11ExitB
                 var w = J.TAU * (0.5 + 0.28 * J.R(seed, i, 611));
                 var ph = J.R(seed, i, 612) * J.TAU;
                 var th = (6.5 * Math.Sin(w * t + ph) + 1.6 * Math.Sin(w * 2.7 * t + ph * 2)) * k * J.DEG;
-                var hh = (vert ? D(g, "h") : sz) * sy0 / 2; // 轴在字形顶边
-                return new CharXf { Dx = -hh * Math.Sin(th), Dy = hh * (Math.Cos(th) - 1), Rot = th / J.DEG };
+                var hh = (vert ? D(g, "h") : sz) * sy0 / 2;                 return new CharXf { Dx = -hh * Math.Sin(th), Dy = hh * (Math.Cos(th) - 1), Rot = th / J.DEG };
             });
         },
     });
-
-    // ---------------- eqBounce（H.eqBounce；JS ae:'breathe'） ----------------
 
     private static void EqBounce() => RegH("eqBounce", new MoveDef
     {
@@ -3796,8 +3497,7 @@ public static class P11ExitB
             var acc = ScK(env, "accent") ?? "#ffffff";
             var c0 = ColOf(it);
             var vert = B(it, "vertical");
-            var @base = J.Clamp(env.Energy * 1.2); // env.energy 恒有值（C# double 非可空）
-            var mi = Num(it, "mi");
+            var @base = J.Clamp(env.Energy * 1.2);             var mi = Num(it, "mi");
             Glyphs(env, (i, g, _) =>
             {
                 if (g == null) return null;
@@ -3809,8 +3509,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- flashBox（H.flashBox；JS ae:'glitchtick'） ----------------
 
     private static void FlashBox() => RegH("flashBox", new MoveDef
     {
@@ -3848,7 +3546,6 @@ public static class P11ExitB
             var bg = J.FitContrast(ScK(env, "bg") ?? "#000000", acc, 2.5);
             var gI = gSel.I;
             Glyphs(env, (i, _, _) => i == gI ? new CharXf { Color = bg, S = 1 + 0.05 * (1 - u) } : null);
-            // JS chainPre（accent 色块，画在文字前）——就地执行（层级同 JS，文字下方）
             if (env.Pass != "main") return;
             InItem(env, it, () =>
             {
@@ -3858,8 +3555,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- glintSweep（H.glintSweep；JS ae:'still'） ----------------
 
     private static void GlintSweep() => RegH("glintSweep", new MoveDef
     {
@@ -3872,8 +3567,7 @@ public static class P11ExitB
             var k = env.Ap * MotionK(env);
             if (k < 0.05 || env.Pass != "main") return;
             const double per = 2.4;
-            var t = env.Ltb - 0.5 - Num(it, "mi") * 0.04; // 第一次扫过在 cut 开始约 0.5s 后
-            var u = ((t % per) + per) % per / 0.75;
+            var t = env.Ltb - 0.5 - Num(it, "mi") * 0.04;             var u = ((t % per) + per) % per / 0.75;
             if (u >= 1) return;
             var sz = N0(it, "size");
             var bb = DBox(it, sz * 0.2);
@@ -3883,7 +3577,6 @@ public static class P11ExitB
             var sl = bb.H * 0.45;
             var x = J.Lerp(bb.X0 - bw - sl, bb.X1 + bw + sl, J.E.InOutSine(u));
             var a = Math.Min(1, k) * 0.9;
-            // JS chainPost（clip 斜光带内画亮色副本）——就地执行
             using var band = new SKPath();
             void Band(double x0, double w)
             {
@@ -3927,8 +3620,6 @@ public static class P11ExitB
             }
         },
     });
-
-    // ---------------- flipSwap（H.flipSwap；JS ae:'glitchtick'） ----------------
 
     private static void FlipSwap() => RegH("flipSwap", new MoveDef
     {
@@ -4004,8 +3695,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- shadowSway（H.shadowSway；JS ae:'drift'） ----------------
-
     private static void ShadowSway() => RegH("shadowSway", new MoveDef
     {
         Name = "影が揺れる",
@@ -4026,8 +3715,6 @@ public static class P11ExitB
             it["extrude"] = new JObject { ["n"] = 12, ["dx"] = Math.Cos(ang) * l, ["dy"] = Math.Sin(ang) * l, ["color"] = col, ["fade"] = true, ["a"] = 0.9 };
         },
     });
-
-    // ---------------- magnetJiggle（H.magnetJiggle；JS ae:'jitter'） ----------------
 
     private static void MagnetJiggle() => RegH("magnetJiggle", new MoveDef
     {
@@ -4078,8 +3765,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- typeRattle（H.typeRattle；JS ae:'jitter'） ----------------
-
     private static void TypeRattle() => RegH("typeRattle", new MoveDef
     {
         Name = "タイプの震え",
@@ -4116,8 +3801,6 @@ public static class P11ExitB
         },
     });
 
-    // ---------------- focusRack（H.focusRack；JS ae:'breathe'） ----------------
-
     private static void FocusRack() => RegH("focusRack", new MoveDef
     {
         Name = "ピント送り",
@@ -4134,7 +3817,6 @@ public static class P11ExitB
             var sz = N0(it, "size");
             var kk = Math.Min(1, k);
             var fpos = 0.5 + 0.62 * Math.Sin(t * J.TAU / 4.6 + seed % 7);
-            // 立体文字不做逐字 blur，太贵
             var maxB = env.Pass == "main" && env.AllowFilter && it["extrude"] == null ? Math.Min(sz * 0.065, 18) * kk : 0;
             Glyphs(env, (i, _, n) =>
             {
@@ -4144,8 +3826,6 @@ public static class P11ExitB
             });
         },
     });
-
-    // ---------------- pluckString（H.pluckString；JS ae:'wave'） ----------------
 
     private static void PluckString() => RegH("pluckString", new MoveDef
     {
@@ -4158,7 +3838,6 @@ public static class P11ExitB
             var k = env.Ap * MotionK(env);
             if (k < 0.01) return;
             double tau;
-            // env.beat 分支：C# Env 未挂 beat 对象，走 ltb 回退式
             const double per = 2.4;
             tau = ((env.Ltb - 0.45) % per + per) % per;
             var sz = N0(it, "size");

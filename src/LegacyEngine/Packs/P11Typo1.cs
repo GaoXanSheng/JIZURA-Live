@@ -1,24 +1,3 @@
-// 移植自 frontend/src/engine/11p_typo1.js（文字 PV 版式第 1 包，18 条 layout）。
-//
-// 契约与 JLayouts.cs / P11LayoutsA–D 相同：fits(n) 筛台词；plan(rng, cut, st) 抽参数存进
-// cut.params（键名是数据契约，planner/锁定行/AE 导出共用，一字不改）；Draw(env) 绘制并写回
-// env.Body（JS render(env) 的返回值）。RNG 消费顺序逐行对位（rng.pick/chance/range/int 的
-// 调用次序就是画面轨迹）。plan 全部不消费 cut（与 JS 一致，rng 只在字面量抽取序里流动）。
-//
-// 源文件 reg(key, def) 的 Object.assign({set:'typo'}, def)：`set`（11q_sets 的手法集归属）与
-// `ae`（AE 导出模板名）在 LayoutDef 上没有对应属性，未注册——TODO(Sets/11_export) 移植时随
-// 该两层补（P11Enter 对 MoveDef 的 ae 同约定）。
-//
-// 本包私有 helper（JS L9-119 顶层 const + L745 groupLines）见「本包 helper」区；Env 已有
-// 助手（rect/line/circle/rrect/poly + DrawItem）直接复用。跨文件符号对位：
-// J.fontsOf→JLayouts.FontsOf、J.measure→JLayouts.Measure、J.fitSize→JLayouts.FitSize、
-// J.mainDraw→JLayouts.MainDraw、J.unionBB→JLayouts.UnionBb、J.splitLines→JLayouts.SplitLines、
-// J.glyphCount→JLayouts.GlyphCount、J.segments→Planner.Segments、J.romaji/fmtTime/isPunct/
-// isKanji/isHira/isKata/isSmallKana/clamp/lerp/mix/contrast/lum→J.*；env.draw→本地 DrawIt。
-//
-// Env 缺口（本文件内补，不改 Env.cs）：JS ctx.setLineDash（tyIndexTable 的虚线引导线）Env.Line
-// 无对应参数 → 本地 DashLine；tySplitType 的多矩形联合 clip → 本地 ClipUnion（Canvas 多 rect
-// 一次 clip 是 nonzero 并集，SKCanvas.ClipRect 连续调用是交集，不等价）。
 
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -34,40 +13,27 @@ public static class P11Typo1
 
     private static void Reg0(string key, LayoutDef def)
     {
-        def.Set = "typo"; // JS reg 助手：Object.assign({set: SET('typo')}, def)
-        Reg.Register("layout", key, def, P);
+        def.Set = "typo";         Reg.Register("layout", key, def, P);
     }
 
-    // ================= 本包 helper（JS L9-119 + L745 groupLines 逐条对位） =================
+        private static string Clean(string? t) => Regex.Replace(t ?? "", @"\s+", "");
 
-    /// <summary>clean(t)：去掉所有空白。JS L9。</summary>
-    private static string Clean(string? t) => Regex.Replace(t ?? "", @"\s+", "");
-
-    /// <summary>slotsOf(t)：逐字槽位，连续空白压成单个 ' '（拉丁歌词保留词间空格）。JS L11。</summary>
-    private static List<string> SlotsOf(string? t) =>
+        private static List<string> SlotsOf(string? t) =>
         JLayouts.CodePoints(Regex.Replace((t ?? "").Trim(), @"[\s　]+", " "));
 
     private static bool IsSp(string c) => c is " " or "　";
 
     private static string[] FontsOf(StyleDef st, params string[] roles) => JLayouts.FontsOf(st, roles);
 
-    /// <summary>(env.st.fonts.mono && env.st.fonts.mono[0]) || 'mono'。JS L14。</summary>
-    private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
+        private static string MonoF(Env env) => JLayouts.Font0(env.St, "mono") ?? "mono";
 
-    /// <summary>(env.st.fonts.body && env.st.fonts.body[0]) || 'gothic_med'。JS L15。</summary>
-    private static string BodyF(Env env) => JLayouts.Font0(env.St, "body") ?? "gothic_med";
+        private static string BodyF(Env env) => JLayouts.Font0(env.St, "body") ?? "gothic_med";
 
-    /// <summary>inE(env, d, delay)：outExpo 进场。JS L16。</summary>
-    private static double InE(Env env, double d = 0.35, double delay = 0) =>
-        J.E.OutExpo(J.Clamp((env.Lt - delay) / d));
-
-    /// <summary>outK(env)：退场剩余量 1 - inCubic(pOut)。JS L17。</summary>
-    private static double OutK(Env env) => 1 - J.E.InCubic(env.POut);
+        private static double OutK(Env env) => 1 - J.E.InCubic(env.POut);
 
     private static string Pad2(double n) => ((long)n).ToString(CultureInfo.InvariantCulture).PadLeft(2, '0');
 
-    /// <summary>hair(env)：发丝线宽。JS L19。</summary>
-    private static double Hair(Env env) => Math.Max(1, Math.Min(env.W, env.H) * 0.0014);
+        private static double Hair(Env env) => Math.Max(1, Math.Min(env.W, env.H) * 0.0014);
 
     private static BBox BbRect(double x0, double y0, double x1, double y1) => new()
     {
@@ -82,8 +48,7 @@ public static class P11Typo1
 
     private static BBox? U(BBox? a, BBox? b) => JLayouts.UnionBb(a, b);
 
-    /// <summary>romaOf(t)：含假名才转大写罗马字。JS L22-27。</summary>
-    private static string? RomaOf(string? t)
+        private static string? RomaOf(string? t)
     {
         var c = Clean(t);
         if (!Regex.IsMatch(c, "[ぁ-ヿ]")) return null;
@@ -91,8 +56,7 @@ public static class P11Typo1
         return string.IsNullOrEmpty(r) ? null : r.ToUpperInvariant();
     }
 
-    /// <summary>splitL(t, per)：J.splitLines 变体——不允许某行只剩标点。JS L29-36。</summary>
-    private static string SplitL(string t, int per)
+        private static string SplitL(string t, int per)
     {
         var outL = new List<string>();
         foreach (var l in JLayouts.SplitLines(t, Math.Max(1, per)).Split('\n'))
@@ -103,8 +67,7 @@ public static class P11Typo1
         return string.Join("\n", outL);
     }
 
-    /// <summary>mainLines(text, W, H, perL, perP)：主文本折行，竖屏行更短。JS L38-43。</summary>
-    private static string MainLines(string? text, double W, double H, int perL = 11, int perP = 5)
+        private static string MainLines(string? text, double W, double H, int perL = 11, int perP = 5)
     {
         var t = (text ?? "").Trim();
         var n = JLayouts.GlyphCount(t);
@@ -113,8 +76,7 @@ public static class P11Typo1
         return SplitL(t, (int)Math.Ceiling(n / Math.Ceiling(n / (double)per)));
     }
 
-    /// <summary>排好版的字形中心，设计空间、未含旋转。JS L45-61。</summary>
-    private sealed class GlyphPt
+        private sealed class GlyphPt
     {
         public string Ch = "";
         public double X, Y, W, H;
@@ -149,8 +111,7 @@ public static class P11Typo1
         return list;
     }
 
-    /// <summary>关键字下标：最长汉字连串的首字，没有就取第一个普通字。JS L63-86。</summary>
-    private static int KeyIndex(List<string> arr, string mode)
+        private static int KeyIndex(List<string> arr, string mode)
     {
         bool Ok(string? c) => !string.IsNullOrEmpty(c) && !IsSp(c) && !J.IsPunct(c[0]) && !J.IsSmallKana(c[0]);
         if (mode == "mid")
@@ -178,8 +139,7 @@ public static class P11Typo1
                 bl = j - i;
                 best = i;
             }
-            i = j; // JS for 循环体尾的 i++：汉字连串后从断点字继续（断点非汉字，等价）
-        }
+            i = j;         }
         if (best >= 0) return best;
         for (var i = 0; i < arr.Count; i++)
             if (Ok(arr[i]))
@@ -187,8 +147,7 @@ public static class P11Typo1
         return 0;
     }
 
-    /// <summary>底板上对比最好的方案文字色。JS L88-99。</summary>
-    private static string OnCol(Scheme sc, string fill)
+        private static string OnCol(Scheme sc, string fill)
     {
         string? best = null;
         var bv = 0.0;
@@ -205,8 +164,7 @@ public static class P11Typo1
         return bv >= 2.4 && best != null ? best : J.Lum(fill) > 0.5 ? "#111111" : "#FFFFFF";
     }
 
-    /// <summary>plateCol(sc, pref)：从配色里挑在背景上可读的。JS L100-103。</summary>
-    private static string PlateCol(Scheme sc, params string[] pref)
+        private static string PlateCol(Scheme sc, params string[] pref)
     {
         foreach (var c in pref)
             if (!string.IsNullOrEmpty(c) && J.Contrast(c, sc.Str("bg") ?? "#000000") >= 1.6)
@@ -214,14 +172,12 @@ public static class P11Typo1
         return sc.Str("fg") ?? "#FFFFFF";
     }
 
-    /// <summary>accentOn(sc)：accent 在背景上可读就用 accent。JS L104。</summary>
-    private static string AccentOn(Scheme sc) =>
+        private static string AccentOn(Scheme sc) =>
         J.Contrast(sc.Str("accent") ?? "#FF3B30", sc.Str("bg") ?? "#000000") >= 1.8
             ? sc.Str("accent") ?? "#FF3B30"
             : sc.Str("fg") ?? "#FFFFFF";
 
-    /// <summary>label：小注记标签（只走主通道 env.draw）。JS L106-117（o.extra 无调用方，未移植）。</summary>
-    private static void Label(Env env, string text, double x, double y,
+        private static void Label(Env env, string text, double x, double y,
         double? size = null, string? font = null, string? align = null, double? track = null,
         string? color = null, double? alpha = null)
     {
@@ -241,15 +197,12 @@ public static class P11Typo1
         DrawIt(env, it);
     }
 
-    /// <summary>isLatinT(t)：纯拉丁文本（含拉丁但含 CJK/全角的算否）。JS L118。</summary>
-    private static bool IsLatinT(string? t) =>
+        private static bool IsLatinT(string? t) =>
         t != null && Regex.IsMatch(t, "[A-Za-z]") && !Regex.IsMatch(t, "[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]");
 
-    /// <summary>labelSize(env)。JS L119。</summary>
-    private static double LabelSize(Env env) => J.Clamp(Math.Min(env.W, env.H) * 0.018, 11, 22);
+        private static double LabelSize(Env env) => J.Clamp(Math.Min(env.W, env.H) * 0.018, 11, 22);
 
-    /// <summary>groupLines(units, L)：按总字数均分 L 行。JS L745-761。</summary>
-    private static List<string> GroupLines(List<string> units, int L)
+        private static List<string> GroupLines(List<string> units, int L)
     {
         var lens = units.Select(u => JLayouts.GlyphCount(u)).ToList();
         var tot = lens.Sum();
@@ -271,9 +224,7 @@ public static class P11Typo1
         return outL;
     }
 
-    /// <summary>env.draw 对位：直接画一条 item（不走 mainDraw 流水线）。临时置换 env.CharFn/PieceFn，
-    /// 防止上一条 mainDraw 的残留串到直画 item 上（P11LayoutsB 同约定）。</summary>
-    private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
+        private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
     {
         var prevC = env.CharFn;
         var prevP = env.PieceFn;
@@ -295,24 +246,21 @@ public static class P11Typo1
         }
     }
 
-    /// <summary>Object.assign({}, base, over) 的深拷贝合并。</summary>
-    private static JObject Merge(JObject baseObj, JObject over)
+        private static JObject Merge(JObject baseObj, JObject over)
     {
         var o = (JObject)baseObj.DeepClone();
         foreach (var kv in over) o[kv.Key] = kv.Value?.DeepClone();
         return o;
     }
 
-    /// <summary>多矩形 nonzero 并集 clip（Canvas 一次 beginPath+多 rect+clip 的对位）。</summary>
-    private static void ClipUnion(Env env, IEnumerable<SKRect> rects)
+        private static void ClipUnion(Env env, IEnumerable<SKRect> rects)
     {
         using var path = new SKPath();
         foreach (var r in rects) path.AddRect(r);
         env.Ctx.ClipPath(path);
     }
 
-    /// <summary>ctx.setLineDash([dash, gap]) + env.line 的本地对位（Env.Line 无 dash 参数；g=false）。</summary>
-    private static void DashLine(Env env, double[][] pts, string? c, double lw, double a, double dash, double gap)
+        private static void DashLine(Env env, double[][] pts, string? c, double lw, double a, double dash, double gap)
     {
         var col = env.ColOf(c, false);
         if (col == null || a <= 0 || pts.Length < 2) return;
@@ -333,45 +281,20 @@ public static class P11Typo1
         env.Ctx.DrawPath(path, p);
     }
 
-    // 松散读取（对齐 JS 语义）
     private static string? S(JObject p, string k) => JLayouts.S(p, k);
     private static double D(JObject p, string k, double d = 0) => JLayouts.D(p, k, d);
     private static bool B(JObject p, string k) => JLayouts.B(p, k);
 
-    // ================= 注册（JS 源 reg(...) 出现序） =================
-
-    /// <summary>幂等注册本文件全部 layout（顺序 = JS 源 J.register 出现序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterTyKeySplit();   // JS L121
-        RegisterTyCropGiant();  // JS L267
-        RegisterTyCross();      // JS L351
-        RegisterTyBandHide();   // JS L438
-        RegisterTyRuby();       // JS L506
-        RegisterTyBaseline();   // JS L564
-        RegisterTyScaleSteps(); // JS L636
-        RegisterTyJustify();    // JS L762
-        RegisterTyIndexTable(); // JS L828
-        RegisterTySplitType();  // JS L894
-        RegisterTyErode();      // JS L950
-        RegisterTyVRuler();     // JS L1003
-        RegisterTyFullTrack();  // JS L1063
-        RegisterTyStatCount();  // JS L1131
-        RegisterTyMargin();     // JS L1211
-        RegisterTyRotBlock();   // JS L1276
-        RegisterTySquare();     // JS L1373
-        RegisterTyLineFocus();  // JS L1438
-    }
-
-    // ---------------- tyKeySplit（JS L121-265） ----------------
+        RegisterTyKeySplit();           RegisterTyCropGiant();          RegisterTyCross();              RegisterTyBandHide();           RegisterTyRuby();               RegisterTyBaseline();           RegisterTyScaleSteps();         RegisterTyJustify();            RegisterTyIndexTable();         RegisterTySplitType();          RegisterTyErode();              RegisterTyVRuler();             RegisterTyFullTrack();          RegisterTyStatCount();          RegisterTyMargin();             RegisterTyRotBlock();           RegisterTySquare();             RegisterTyLineFocus();      }
 
     private static void RegisterTyKeySplit() => Reg0("tyKeySplit", new LayoutDef
     {
         Name = "大字挟み",
         Tags = new[] { "editorial", "graphic", "emotional" },
-        W = 1.1, // JS ae:'mixed'（未注册）
-        Emph = 1.4,
+        W = 1.1,         Emph = 1.4,
         Fits = n => n is >= 2 and <= 16,
         Plan = (rng, cut, st) => new JObject
         {
@@ -395,8 +318,7 @@ public static class P11Typo1
             var key = ki < arr.Count ? arr[ki] : "?";
             var before = string.Concat(arr.Take(ki)).Trim();
             var after = string.Concat(arr.Skip(ki + 1)).Trim();
-            if (IsLatinT(cut.Text)) // 拉丁文：最长的词当关键字
-            {
+            if (IsLatinT(cut.Text))             {
                 var ws = Regex.Split(cut.Text.Trim(), @"\s+");
                 var wi = 0;
                 for (var i = 0; i < ws.Length; i++)
@@ -498,7 +420,6 @@ public static class P11Typo1
             }
             var @out = OutK(env);
             var lw = Hair(env);
-            // 细线把两侧小块连到关键字上
             if (B(Pm, "rule"))
             {
                 var e = J.E.OutCubic(J.Clamp((lt - 0.2) / 0.6)) * @out;
@@ -546,12 +467,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyCropGiant（JS L267-349） ----------------
-
     private static void RegisterTyCropGiant() => Reg0("tyCropGiant", new LayoutDef
     {
-        Name = "見切れ大文字", // JS ae:'huge'（未注册）
-        Tags = new[] { "graphic", "editorial", "pop" },
+        Name = "見切れ大文字",         Tags = new[] { "graphic", "editorial", "pop" },
         W = 1,
         Fits = n => n is >= 1 and <= 14,
         Plan = (rng, cut, st) => new JObject
@@ -574,9 +492,7 @@ public static class P11Typo1
             var u = J.Clamp(lt / Math.Max(0.5, cut.Dur));
             var inG = J.E.OutCubic(J.Clamp(lt / 0.8));
             var outG = J.E.InCubic(env.POut);
-            var lowEdge = S(Pm, "edge") == "a"; // 横屏走下缘，竖屏走右缘
-            var font = S(Pm, "font")!;
-            // 被画框裁掉一截的巨型副本
+            var lowEdge = S(Pm, "edge") == "a";             var font = S(Pm, "font")!;
             var gi = new JObject
             {
                 ["text"] = port ? Clean(txt) : txt,
@@ -611,7 +527,6 @@ public static class P11Typo1
             }
             else gi["color"] = J.Mix(sc.Str("bg") ?? "#000000", sc.Str("fg") ?? "#FFFFFF", 0.16);
             DrawIt(env, gi);
-            // 空白侧的可读歌词
             var mt = MainLines(txt, W, H, 10, 6);
             var fm = S(Pm, "fm")!;
             var o = new JObject { ["lead"] = 1.18, ["track"] = 0.03 };
@@ -659,12 +574,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyCross（JS L351-436） ----------------
-
     private static void RegisterTyCross() => Reg0("tyCross", new LayoutDef
     {
-        Name = "十字組", // JS ae:'vcols'（未注册）
-        Tags = new[] { "graphic", "editorial" },
+        Name = "十字組",         Tags = new[] { "graphic", "editorial" },
         W = 0.9,
         Fits = n => n is >= 3 and <= 11,
         Plan = (rng, cut, st) => new JObject
@@ -693,8 +605,7 @@ public static class P11Typo1
             const double tr = 0.08;
             var tA = string.Concat(arr.Take(ki)).Trim();
             var tK = arr[ki];
-            var tB = string.Concat(arr.Skip(ki + 1)).Trim(); // JS 局部名 B 与本文件 B() 帮手撞名，改名 tA/tK/tB
-            double W100(string s) => s.Length > 0
+            var tB = string.Concat(arr.Skip(ki + 1)).Trim();             double W100(string s) => s.Length > 0
                 ? JLayouts.Measure(new JObject { ["text"] = s, ["font"] = font, ["size"] = 100, ["track"] = tr }).W
                 : 0;
             double H100(string s) => s.Length > 0
@@ -770,15 +681,11 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyBandHide（JS L438-504） ----------------
-
-    /// <summary>tyBandHide 的帧不变量（CutCache 载体，性能专项）。</summary>
-    private sealed record TyBandInv(string Mt, int Lines, double Size, double Fs, double Per, string Rep);
+        private sealed record TyBandInv(string Mt, int Lines, double Size, double Fs, double Per, string Rep);
 
     private static void RegisterTyBandHide() => Reg0("tyBandHide", new LayoutDef
     {
-        Name = "帯隠れ", // JS ae:'diag'（未注册）
-        Tags = new[] { "graphic", "pop", "editorial" },
+        Name = "帯隠れ",         Tags = new[] { "graphic", "pop", "editorial" },
         W = 1,
         Fits = n => n is >= 1 and <= 14,
         Plan = (rng, cut, st) => new JObject
@@ -798,8 +705,6 @@ public static class P11Typo1
             var cut = env.Cut!;
             var lt = env.Lt;
             const double lead = 1.32;
-            // 帧不变量（性能专项）：清洗/折行/FitSize/主盒度量、跑马灯单元串与单元宽只由 (cut, params, W, H) 决定，
-            // 逐帧重算曾是本版式的分配主要来源（--leaf 归因）；按切分缓存（plan 换随 Cut 回收）
             var inv = CutCache.Get<TyBandInv>(cut, "tyBandHide");
             if (inv == null)
             {
@@ -868,12 +773,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyRuby（JS L506-562） ----------------
-
     private static void RegisterTyRuby() => Reg0("tyRuby", new LayoutDef
     {
-        Name = "ルビ振り", // JS ae:'gloss'（未注册）
-        Tags = new[] { "editorial", "calm", "emotional" },
+        Name = "ルビ振り",         Tags = new[] { "editorial", "calm", "emotional" },
         W = 1,
         Fits = n => n is >= 1 and <= 14,
         Plan = (rng, cut, st) => new JObject
@@ -961,12 +863,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyBaseline（JS L564-634） ----------------
-
     private static void RegisterTyBaseline() => Reg0("tyBaseline", new LayoutDef
     {
-        Name = "罫線組", // JS ae:'type'（未注册）
-        Tags = new[] { "editorial", "calm", "graphic" },
+        Name = "罫線組",         Tags = new[] { "editorial", "calm", "graphic" },
         W = 1.1,
         Fits = n => n is >= 2 and <= 18,
         Plan = (rng, cut, st) => new JObject
@@ -1007,7 +906,6 @@ public static class P11Typo1
             var lw = Hair(env);
             var mono = MonoF(env);
             var ls = LabelSize(env);
-            // 关键字（基线上要打 accent 记号）
             var all = string.Concat(lines);
             var arr = JLayouts.CodePoints(all);
             var ki = KeyIndex(arr, "kanji");
@@ -1057,12 +955,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyScaleSteps（JS L636-743） ----------------
-
     private static void RegisterTyScaleSteps() => Reg0("tyScaleSteps", new LayoutDef
     {
-        Name = "級数上げ", // JS ae:'mixed'（未注册）
-        Tags = new[] { "graphic", "editorial", "pop" },
+        Name = "級数上げ",         Tags = new[] { "graphic", "editorial", "pop" },
         W = 1,
         Fits = n => n is >= 2 and <= 16,
         Plan = (rng, cut, st) => new JObject
@@ -1182,12 +1077,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyJustify（JS L762-826） ----------------
-
     private static void RegisterTyJustify() => Reg0("tyJustify", new LayoutDef
     {
-        Name = "幅揃え", // JS ae:'stack'（未注册）
-        Tags = new[] { "graphic", "pop", "editorial" },
+        Name = "幅揃え",         Tags = new[] { "graphic", "pop", "editorial" },
         W = 1.1,
         Fits = n => n is >= 3 and <= 16,
         Plan = (rng, cut, st) => new JObject
@@ -1221,7 +1113,6 @@ public static class P11Typo1
             var lines = GroupLines(units, L);
             for (var i = 1; i < lines.Count; i++)
             {
-                // 行头标点并回上一行（JS [...] 首码点 + slice(c.length)）
                 while (lines[i].Length > 0 && J.IsPunct(JLayouts.CodePoints(lines[i])[0][0]))
                 {
                     var c = JLayouts.CodePoints(lines[i])[0];
@@ -1277,12 +1168,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyIndexTable（JS L828-892） ----------------
-
     private static void RegisterTyIndexTable() => Reg0("tyIndexTable", new LayoutDef
     {
-        Name = "一覧表", // JS ae:'gloss'（未注册）
-        Tags = new[] { "editorial", "graphic", "calm" },
+        Name = "一覧表",         Tags = new[] { "editorial", "graphic", "calm" },
         W = 0.8,
         Portrait = 1.3,
         Fits = n => n is >= 2 and <= 9,
@@ -1366,12 +1254,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tySplitType（JS L894-948） ----------------
-
     private static void RegisterTySplitType() => Reg0("tySplitType", new LayoutDef
     {
-        Name = "断ち割り", // JS ae:'center'（未注册）
-        Tags = new[] { "graphic", "glitch", "pop" },
+        Name = "断ち割り",         Tags = new[] { "graphic", "glitch", "pop" },
         W = 1,
         Fits = n => n is >= 1 and <= 14,
         Plan = (rng, cut, st) => new JObject
@@ -1412,7 +1297,6 @@ public static class P11Typo1
                 env.Ctx.Save();
                 try
                 {
-                    // Canvas 多 rect 一次 clip（nonzero 并集）→ SKPath + ClipPath
                     var rects = new List<SKRect>();
                     for (var li = 0; li < ys.Count; li++)
                     {
@@ -1470,12 +1354,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyErode（JS L950-1001） ----------------
-
     private static void RegisterTyErode() => Reg0("tyErode", new LayoutDef
     {
-        Name = "削り反復", // JS ae:'stack'（未注册）
-        Tags = new[] { "emotional", "editorial", "calm" },
+        Name = "削り反復",         Tags = new[] { "emotional", "editorial", "calm" },
         W = 0.9,
         Portrait = 0.6,
         Fits = n => n is >= 3 and <= 12,
@@ -1553,12 +1434,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyVRuler（JS L1003-1061） ----------------
-
     private static void RegisterTyVRuler() => Reg0("tyVRuler", new LayoutDef
     {
-        Name = "縦目盛り", // JS ae:'vcols'（未注册）
-        Tags = new[] { "editorial", "calm", "graphic" },
+        Name = "縦目盛り",         Tags = new[] { "editorial", "calm", "graphic" },
         W = 0.9,
         Portrait = 1.3,
         Fits = n => n is >= 1 and <= 12,
@@ -1628,7 +1506,6 @@ public static class P11Typo1
                 Label(env, t, rx + side * size * 0.45, g.Y,
                     alpha: a, size: fs, align: side > 0 ? "left" : "right");
             }
-            // 播放头
             var u = J.Clamp(lt / Math.Max(0.3, cut.Dur * 0.92));
             var py = J.Lerp(gl[0].Y, gl[n - 1].Y, u);
             var ts = fs * 0.7;
@@ -1643,12 +1520,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyFullTrack（JS L1063-1129） ----------------
-
     private static void RegisterTyFullTrack() => Reg0("tyFullTrack", new LayoutDef
     {
-        Name = "全幅字送り", // JS ae:'center'（未注册）
-        Tags = new[] { "editorial", "calm", "graphic" },
+        Name = "全幅字送り",         Tags = new[] { "editorial", "calm", "graphic" },
         W = 1,
         Fits = n => n is >= 3 and <= 14,
         Plan = (rng, cut, st) => new JObject
@@ -1731,12 +1605,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyStatCount（JS L1131-1209） ----------------
-
     private static void RegisterTyStatCount() => Reg0("tyStatCount", new LayoutDef
     {
-        Name = "字数表示", // JS ae:'type'（未注册）
-        Tags = new[] { "editorial", "graphic" },
+        Name = "字数表示",         Tags = new[] { "editorial", "graphic" },
         W = 0.8,
         Fits = n => n is >= 1 and <= 16,
         Plan = (rng, cut, st) => new JObject
@@ -1821,12 +1692,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyMargin（JS L1211-1274） ----------------
-
     private static void RegisterTyMargin() => Reg0("tyMargin", new LayoutDef
     {
-        Name = "余白", // JS ae:'center'（未注册）
-        Tags = new[] { "calm", "editorial", "emotional" },
+        Name = "余白",         Tags = new[] { "calm", "editorial", "emotional" },
         W = 0.8,
         Emph = 0.4,
         Fits = n => n is >= 1 and <= 18,
@@ -1877,8 +1745,7 @@ public static class P11Typo1
                 var a1 = right ? W * 0.08 : W * 0.92;
                 if ((a1 - a0) * (right ? -1 : 1) > W * 0.05)
                 {
-                    var yl = y + (JLayouts.GlyphCount(mt) > 0 ? 0 : 0); // JS 原样（恒 0）
-                    env.Line(new[] { new[] { a0, yl }, new[] { J.Lerp(a0, a1, e), yl } }, sc.Str("sub"), lw, 0.6, false);
+                    var yl = y + (JLayouts.GlyphCount(mt) > 0 ? 0 : 0);                     env.Line(new[] { new[] { a0, yl }, new[] { J.Lerp(a0, a1, e), yl } }, sc.Str("sub"), lw, 0.6, false);
                     if (B(Pm, "mark"))
                     {
                         var q = size * 0.16;
@@ -1894,12 +1761,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyRotBlock（JS L1276-1371） ----------------
-
     private static void RegisterTyRotBlock() => Reg0("tyRotBlock", new LayoutDef
     {
-        Name = "回転ブロック", // JS ae:'sideways'（未注册）
-        Tags = new[] { "graphic", "pop", "editorial" },
+        Name = "回転ブロック",         Tags = new[] { "graphic", "pop", "editorial" },
         W = 1,
         Fits = n => n is >= 4 and <= 16,
         Plan = (rng, cut, st) => new JObject
@@ -1930,13 +1794,11 @@ public static class P11Typo1
                 if (l0 >= 1 && l0 <= Math.Ceiling(n * 0.55)) cutAt = l0;
             }
             while (cutAt < n - 1 && (J.IsSmallKana(arr[cutAt][0]) || J.IsPunct(arr[cutAt][0]))) cutAt++;
-            var tA = string.Concat(arr.Take(cutAt)).Trim(); // JS 局部名 A/B 与本文件帮手撞名，改名 tA/tB
-            if (tA.Length == 0) tA = arr[0];
+            var tA = string.Concat(arr.Take(cutAt)).Trim();             if (tA.Length == 0) tA = arr[0];
             var tB = string.Concat(arr.Skip(cutAt)).Trim();
             if (tB.Length == 0) tB = arr[n - 1];
             var labelA = false;
-            if (IsLatinT(cut.Text)) // 拉丁文：在词间空格处切；只有一个词时旋转块退化为行号小标签
-            {
+            if (IsLatinT(cut.Text))             {
                 var t = cut.Text.Trim();
                 var sp = t.IndexOf(' ');
                 if (sp > 0)
@@ -2019,12 +1881,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tySquare（JS L1373-1436） ----------------
-
     private static void RegisterTySquare() => Reg0("tySquare", new LayoutDef
     {
-        Name = "方形組", // JS ae:'gridCells'（未注册）
-        Tags = new[] { "graphic", "editorial", "pop" },
+        Name = "方形組",         Tags = new[] { "graphic", "editorial", "pop" },
         W = 1,
         Fits = n => n is >= 3 and <= 16,
         Plan = (rng, cut, st) => new JObject
@@ -2109,12 +1968,9 @@ public static class P11Typo1
         },
     });
 
-    // ---------------- tyLineFocus（JS L1438-1529） ----------------
-
     private static void RegisterTyLineFocus() => Reg0("tyLineFocus", new LayoutDef
     {
-        Name = "行中強調", // JS ae:'center'（未注册）
-        Tags = new[] { "editorial", "emotional", "calm" },
+        Name = "行中強調",         Tags = new[] { "editorial", "emotional", "calm" },
         W = 1,
         Fits = n => n is >= 1 and <= 16,
         Plan = (rng, cut, st) => new JObject

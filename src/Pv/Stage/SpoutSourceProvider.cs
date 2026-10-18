@@ -45,13 +45,7 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
     public string Id { get; }
     public long Version => Interlocked.Read(ref _version);
 
-    public string Sender => _sender;
     public bool Connected => _in.Connected;
-    public int SourceWidth => _in.SourceWidth;
-    public int SourceHeight => _in.SourceHeight;
-    public string LastError => _in.LastError;
-
-    public string? FormatDiagnostic => _in.FormatDiagnostic;
 
     public double LastReceiveMs { get; private set; }
     public double MaxReceiveMs { get; private set; }
@@ -128,7 +122,6 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
             _alphaUnsupported = false;
         }
 
-        // 直通 alpha：先在 GPU 上做 rgb *= a，再按预乘位图交给 D2D。
         if (!_premultiplied) return _alphaUnsupported ? null : PremultipliedBitmap(tex);
 
         if (_alphaUnsupported) return null;

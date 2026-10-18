@@ -45,10 +45,6 @@ public static class PvParallax
 {
     private const double DegToRad = Math.PI / 180.0;
 
-    public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, PvCamState cam,
-        double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true) =>
-        Compute(cw, ch, layer, PvLayerState.From(layer), cam, shakeX, shakeY, globalParallax, antiBleed);
-
     public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, in PvLayerState state,
         PvCamState cam, double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true)
     {

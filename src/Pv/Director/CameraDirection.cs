@@ -120,9 +120,6 @@ public static class CameraDirection
         new("knRushIn", 0.70, true),
     ];
 
-    public static uint SeedFor(int seed, int shotIndex, int lineIndex) =>
-        CameraHash.H((int)CameraHash.H(seed, lineIndex >= 0 ? lineIndex : 0x3f3f3f), shotIndex, 17);
-
     public static Dictionary<string, double> PlanParams(string preset, CameraRng rng) => preset switch
     {
         "orbitDrift" => P(
@@ -262,7 +259,6 @@ public static class CameraDirection
         return ApplyPanZoom(state, e, p, K, Cu);
     }
 
-    // 分镜机位：景别/构图/角度是镜头本身，不参与动效强度 k 的缩放。
     private static PvCamState ApplyFraming(PvCamState s, in Env e, IReadOnlyDictionary<string, double> p)
     {
         if (!p.ContainsKey("shotScale")) return s;
@@ -1043,9 +1039,6 @@ public static class CameraHash
         H(a, b, c, d, e) / 4294967296.0;
 
     public static double Rs(int a, int b = 0, int c = 0, int d = 0, int e = 0) => R(a, b, c, d, e) * 2 - 1;
-
-    public static double Rr(double lo, double hi, int a, int b = 0, int c = 0, int d = 0, int e = 0) =>
-        lo + (hi - lo) * R(a, b, c, d, e);
 
     public static double Noise1(double x, int seed = 0)
     {

@@ -2,11 +2,7 @@ namespace JizuraLive.Pv;
 
 public static partial class AutoDirector
 {
-    /// <summary>
-    /// 按原版 Plan 的切点自动生成多机位：景别（远/中/近/特）、左右构图、俯仰/荷兰角，
-    /// 每个机位内部再叠加 push/pan/dolly 等运动。角色不再单独位移，整幅画面一起跟机位走。
-    /// </summary>
-    private static void BuildAutoCamera(DirectorProject project, LegacyPvPlanInfo plan, AutoOptions options,
+        private static void BuildAutoCamera(DirectorProject project, LegacyPvPlanInfo plan, AutoOptions options,
         AutoReport report, List<CameraShot> preserved)
     {
         var track = new CameraTrack

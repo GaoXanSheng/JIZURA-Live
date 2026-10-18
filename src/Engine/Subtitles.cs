@@ -35,13 +35,3 @@ public sealed class SubtitleConfig
     public bool HoldLastLine { get; set; }
 }
 
-public static class SubtitleHelper
-{
-    public static (string Roma, string Trans) NoteParts(string note)
-    {
-        if (string.IsNullOrWhiteSpace(note)) return ("", "");
-        var parts = note.Split(['\t', '　', ' '], StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 1) return (parts[0], "");
-        return (parts[0], string.Join(" ", parts.Skip(1)));
-    }
-}

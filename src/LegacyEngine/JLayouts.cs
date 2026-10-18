@@ -1,10 +1,3 @@
-// 移植自 frontend/src/engine/06_layouts.js
-//
-// layout 契约（JS 源 L269）：fits(n) 筛台词，plan(rng, ctx, st) 抽参数存进 cut.params 并随 AE 导出，
-// Draw(env) 绘制并返回主体 bbox（JS 的 render(env) 返回值；C# Draw 是 Action<Env>，结果写回 env.Body）。
-// plan 返回的参数对象逐字段 new JObject{["key"]=…} 对齐，键名是数据契约（planner/锁定行/AE 导出共用），一字不改。
-// draw item 也用 JObject（与前端 duck-typed 对象一一对应）；主绘制 MainDraw/DrawFx（JS L6–182）已随
-// 03_text+05_anim+09_render 回接定型（函数值字段经 Env 的动画管线桥字段传递，见 MainDraw 注释）。
 
 using System.Globalization;
 using System.Text;
@@ -15,17 +8,11 @@ using SkiaSharp;
 
 namespace JizuraLive.LegacyEngine;
 
-/// <summary>主体 bbox（JS mainDraw/drawItem 返回的松散对象 {x0,y0,x1,y1,boxes,cx,cy}）。</summary>
 public sealed class BBox
 {
     public double X0, Y0, X1, Y1, Cx, Cy;
 
-    /// <summary>
-    /// 逐字盒（设计空间，中心 + 宽高）。性能专项：原实现逐字 new JObject（每字形 ~500B，
-    /// 实测 cutpass 阶段 270-410KB/帧、44MB/s 分配率的头号来源）——改为紧凑结构数组，
-    /// <see cref="Boxes"/> 首次读取时才物化成与旧口径完全一致的 JObject 列表（消费方零改动）。
-    /// </summary>
-    public readonly struct GlyphBox
+        public readonly struct GlyphBox
     {
         public readonly double X, Y, W, H;
 
@@ -41,25 +28,17 @@ public sealed class BBox
     private List<GlyphBox>? _gb;
     private List<JObject>? _jo;
 
-    /// <summary>逐字热路径追加（零 JObject 分配）。</summary>
-    public void AddGlyph(double x, double y, double w, double h) =>
+        public void AddGlyph(double x, double y, double w, double h) =>
         (_gb ??= new List<GlyphBox>(8)).Add(new GlyphBox(x, y, w, h));
 
-    /// <summary>逐字盒数量（不必物化即可判断空非空）。</summary>
-    public int BoxCount => _gb?.Count ?? _jo?.Count ?? 0;
+        public int BoxCount => _gb?.Count ?? _jo?.Count ?? 0;
 
-    /// <summary>只读紧凑视图（消费方只读 x/y/w/h 时用，不物化 JObject）。</summary>
-    public IReadOnlyList<GlyphBox> Glyphs => _gb ?? (IReadOnlyList<GlyphBox>)Array.Empty<GlyphBox>();
-
-    /// <summary>紧凑逐字盒的搬运（layered 路径把内层 bbox 原样搬出，不触发 JObject 物化）。</summary>
-    public void TakeGlyphsFrom(BBox src)
+        public void TakeGlyphsFrom(BBox src)
     {
         if (src._gb is { Count: > 0 }) _gb = new List<GlyphBox>(src._gb);
-        else if (src._jo is { Count: > 0 }) _jo = src._jo; // 旧口径：直接共享同一列表引用
-    }
+        else if (src._jo is { Count: > 0 }) _jo = src._jo;     }
 
-    /// <summary>JObject 视图（旧字段口径；首读物化，之后缓存）。</summary>
-    public List<JObject> Boxes
+        public List<JObject> Boxes
     {
         get
         {
@@ -78,7 +57,6 @@ public sealed class BBox
     }
 }
 
-/// <summary>J.measure 的返回 {w, h, lay}；lay 是 layoutText 的排版结果（03_text 移植后定型）。</summary>
 public sealed class TextMetrics
 {
     public double W;
@@ -88,41 +66,17 @@ public sealed class TextMetrics
 
 public static class JLayouts
 {
-    // ---------------- 顺序表（JS J.LAYOUT_ORDER / J.ENTER_ORDER / J.HOLD_ORDER / J.EXIT_ORDER，08_planner 依赖） ----------------
 
-    public static readonly string[] LayoutOrder =
-        { "center", "mixed", "vcols", "marquee", "tile", "scatter", "ring", "wave", "huge", "labels", "condensed", "gloss", "type", "diag", "circle", "stack", "pill" };
-
-    public static readonly string[] EnterOrder =
-        { "cut", "assemble", "slice", "type", "pop", "drop", "stretch", "wipe", "blur", "spin", "flicker", "scramble", "zoom" };
-
-    public static readonly string[] HoldOrder = { "still", "jitter", "drift", "breathe", "wave", "glitchtick" };
-
-    public static readonly string[] ExitOrder =
-        { "cut", "explode", "fall", "drift", "slice", "wipe", "shrink", "blur", "stretch", "scatter", "glitch" };
-
-    // ---------------- 未移植引擎部件的桩（对位符号见 TODO） ----------------
-
-    /// <summary>
-    /// J.mainDraw（06_layouts.js L6-43）：单个 item 的进场/持续/退场流水线，末尾交给 drawFx。
-    /// item 上装不进 JObject 的函数值字段（charFns/pieceFns/charFn/pieceFn）走 Env 桥字段
-    /// （It/Ap/CharFns/PieceFns/CharFn/PieceFn，mainDraw 每 item 清空重建）；
-    /// enter.pieces / enter.cursor / *.bar 之类挂在 def 上的 flag MoveDef 没有对应属性，按 key 特判
-    /// （JAnim 移植时的既定约定）。
-    /// </summary>
-    public static BBox? MainDraw(Env env, JObject it)
+        public static BBox? MainDraw(Env env, JObject it)
     {
         var cut = env.Cut!;
-        var mi = (int)Num(it, "mi"); // JS (it.mi | 0)：向零截断（mi 可为 0.25 这类小数）
-        // it.seed 缺省：h(cut.seed, mi|0 + 1, 7)（存 double 对齐 JS number）
-        var seedTok = it["seed"];
+        var mi = (int)Num(it, "mi");         var seedTok = it["seed"];
         if (seedTok == null || seedTok.Type == JTokenType.Null)
             it["seed"] = (double)J.H(unchecked((int)cut.Seed), mi + 1, 7);
         env.CharFns.Clear();
         env.PieceFns.Clear();
         env.CharFn = null;
         env.PieceFn = null;
-        // it.pre/it.post/it.clipFn 由调用方先设 env 桥；捕获与清空在 DrawFx 入口（消费处）
         env.It = it;
         var stagger = cut.Stagger;
         it["delay"] = (double)mi * stagger;
@@ -137,20 +91,16 @@ public static class JLayouts
         ex ??= Reg.Exit["cut"];
         Reg.Hold.TryGetValue(S(it, "hold") ?? cut.Hold, out var ho);
         ho ??= Reg.Hold["still"];
-        // it.plain：layout 自己画底板就置真，跳过文字特效
         if (!string.IsNullOrEmpty(cut.Treat) && !Truthy(it["plain"]) && Reg.Treat.TryGetValue(cut.Treat, out var tr) && tr != null)
         {
             try
             {
-                using var _pt = new Prof.Scope("treat", cut.Treat); // 叶子归因（性能专项）
-                tr.Draw?.Invoke(env); // JS apply(env, it, cut.treatP)：C# 的 Draw(env) 从 env.It / env.Cut.TreatP 取
-            }
+                using var _pt = new Prof.Scope("treat", cut.Treat);                 tr.Draw?.Invoke(env);             }
             catch (Exception e)
             {
                 Log.Warn($"treat {cut.Treat}: {e.Message}");
             }
         }
-        // enter.pieces：05_anim 里只有 assemble（explode/fall/drift 的 pieces+shatter 是 exit 且 Draw 内自置 shatter）
         var enPieces = en.Key == "assemble";
         if (ltI < 0 && en.Key == "cut") return null;
         if (en.Key != "cut" && (pIn < 1 || enPieces))
@@ -159,8 +109,7 @@ public static class JLayouts
             env.Lt = ltI;
             try
             {
-                using var _pe = new Prof.Scope("enter", en.Key); // 叶子归因（性能专项）
-                en.Draw?.Invoke(env);
+                using var _pe = new Prof.Scope("enter", en.Key);                 en.Draw?.Invoke(env);
             }
             finally
             {
@@ -172,31 +121,20 @@ public static class JLayouts
         if (amt > 0 && !Truthy(it["noHold"]))
         {
             env.Ap = amt;
-            using var _ph = new Prof.Scope("hold", ho.Key); // 叶子归因（性能专项）
-            ho.Draw?.Invoke(env);
+            using var _ph = new Prof.Scope("hold", ho.Key);             ho.Draw?.Invoke(env);
         }
         if (pOut > 0 && ex.Key != "cut")
         {
             env.Ap = pOut;
-            using var _px = new Prof.Scope("exit", ex.Key); // 叶子归因（性能专项）
-            ex.Draw?.Invoke(env);
+            using var _px = new Prof.Scope("exit", ex.Key);             ex.Draw?.Invoke(env);
         }
         env.CharFn = JAnim.CombineChar(env.CharFns);
         env.PieceFn = JAnim.CombinePiece(env.PieceFns);
-        using var _pf = new Prof.Scope("drawfx", S(it, "enter") ?? cut.Enter); // 叶子归因（性能专项）
-        return DrawFx(env, it);
+        using var _pf = new Prof.Scope("drawfx", S(it, "enter") ?? cut.Enter);         return DrawFx(env, it);
     }
 
-    /// <summary>
-    /// J.drawFx（06_layouts.js L46-182）：裁剪、streak/echo 副本、wipeBar、打字光标都叠在这一层。
-    /// it.pre/it.post/it.clipFn 经 env 桥（Env.PreFn/PostFn/ClipFn，JObject 装不下函数）：
-    /// pre 在所有裁剪之前（不被裁剪、主文字下方）、clipFn 包住文字绘制、post 在主文字之后（上方）。
-    /// </summary>
-    public static BBox? DrawFx(Env env, JObject it)
+        public static BBox? DrawFx(Env env, JObject it)
     {
-        // it.pre/it.post/it.clipFn：调用方（表现包/测试）先设 env 桥再经 MainDraw 进来。
-        // 入口捕获为局部再从 env 清空（JS 里这些是配方对象自带的函数值字段，每个 item 自带一份；
-        // 清空保证下一 item 从干净状态开始），消费点全部走局部变量
         var preFn = env.PreFn;
         var postFn = env.PostFn;
         var clipFn = env.ClipFn;
@@ -205,7 +143,6 @@ public static class JLayouts
         env.ClipFn = null;
         var ctx = env.Ctx;
         BBox? bb = null;
-        // 副本共用的 TextDrawOpts：env 的内部标记原样透传
         JText.TextDrawOpts Opts() => new()
         {
             HideText = env.HideText,
@@ -219,9 +156,7 @@ public static class JLayouts
             var streak = it["streak"] as JObject;
             if (streak != null && D(streak, "a") > 0.01)
             {
-                using var _ps = new Prof.Scope("fx", "streak"); // 叶子归因（性能专项）
-                var lay0 = GetLayShared(it); // 拖尾副本共享排版，免每帧每副本重排
-                var n = I(streak, "n");
+                using var _ps = new Prof.Scope("fx", "streak");                 var lay0 = GetLayShared(it);                 var n = I(streak, "n");
                 for (var k = n; k >= 1; k--)
                 {
                     var c = CloneShared(it, lay0);
@@ -235,15 +170,12 @@ public static class JLayouts
                         HideText = opts.HideText,
                         GlyphLog = opts.GlyphLog,
                         AllowFilter = opts.AllowFilter,
-                        NoPieces = true, // JS 副本 pieceFn:null
-                    });
+                        NoPieces = true,                     });
                 }
             }
             var echo = it["echo"] as JObject;
-            if (echo != null && I(echo, "n") > 0) // echo：主文字背后几层错位副本，描边或染色
-            {
-                using var _pe = new Prof.Scope("fx", "echo"); // 叶子归因（性能专项）
-                var lay0 = GetLayShared(it);
+            if (echo != null && I(echo, "n") > 0)             {
+                using var _pe = new Prof.Scope("fx", "echo");                 var lay0 = GetLayShared(it);
                 var n = I(echo, "n");
                 for (var k = n; k >= 1; k--)
                 {
@@ -273,12 +205,10 @@ public static class JLayouts
                     });
                 }
             }
-            using var _pm = new Prof.Scope("fx", "main"); // 叶子归因（性能专项）
-            var r = JText.DrawItem(env, it, opts);
+            using var _pm = new Prof.Scope("fx", "main");             var r = JText.DrawItem(env, it, opts);
             if (r != null) bb = r;
         }
 
-        // JS it.pre：裁剪应用之前画（钩子内容不被 clip/clipY/clipFn 裁）；JS try/catch console.warn 对位
         if (preFn != null)
         {
             try
@@ -290,9 +220,6 @@ public static class JLayouts
                 Log.Warn($"item pre: {e.GetType().Name}: {e.Message}\n{FirstStack(e)}");
             }
         }
-        // JS 这几处是 ctx.rect(x, y, w, h)：SKRect 不是 (x,y,w,h) 而是 left/top/right/bottom，
-        // 必须写成 (x, y, x+w, y+h)——否则裁剪带按 [x, w] 收窄，退场「括号合上」这类从中间夹走的
-        // 效果会变成从左往右裁掉右半边。
         if (it["clip"] is JArray clip)
         {
             ctx.Save();
@@ -307,7 +234,6 @@ public static class JLayouts
             var y1 = (float)(double)clipY[1]!;
             ctx.ClipRect(new SKRect(-env.W * 1f, y0, env.W * 2f, y1));
         }
-        // JS it.clipFn：ctx.beginPath() 后由钩子在 ctx 上构造路径再 ctx.clip()——C# 返回 SKPath 由这里裁
         if (clipFn != null)
         {
             using var clipPath = clipFn(env, it);
@@ -337,7 +263,6 @@ public static class JLayouts
                 Draw();
                 ctx.Restore();
             }
-            // bands 区间之外的部分（JS ctx.rect(-W*2, -H*3, W*5, lo+H*3) / (-W*2, hi, W*5, H*4)）
             var lo = (double)bands[0]![0]!;
             var hi = (double)bands[bands.Count - 1]![1]!;
             using var outPath = new SKPath();
@@ -352,7 +277,6 @@ public static class JLayouts
         if (clipFn != null) ctx.Restore();
         if (it["clipY"] != null) ctx.Restore();
         if (it["clip"] != null) ctx.Restore();
-        // JS it.post(env, it, bb)：主文字之后画（bb 是主文字 bbox，可能 null）
         if (postFn != null)
         {
             try
@@ -389,58 +313,44 @@ public static class JLayouts
         return bb;
     }
 
-    /// <summary>drawFx 副本：DeepClone + 排版共享（对位 JS Object.assign 克隆带走 _lay）。</summary>
-    private static JObject CloneShared(JObject src, JText.TextLayout lay)
+        private static JObject CloneShared(JObject src, JText.TextLayout lay)
     {
         var c = (JObject)src.DeepClone();
         JText.ShareLay(c, lay);
         return c;
     }
 
-    /// <summary>drawFx 副本排版源（JS it._lay || (it._lay = J.layoutText(it))）。</summary>
-    private static JText.TextLayout GetLayShared(JObject it) => JText.GetLay(it);
+        private static JText.TextLayout GetLayShared(JObject it) => JText.GetLay(it);
 
-    /// <summary>J.measure（03_text.js L585）→ {w, h, lay}，JText.Measure 的 JObject-lay 对位（TextMetrics.Lay 是
-    /// TextLayout.ToJson 的 JSON 同构，只读 N/W/H 的调用方零成本穿透）。</summary>
-    public static TextMetrics Measure(JObject it)
+        public static TextMetrics Measure(JObject it)
     {
         var r = JText.Measure(it);
         return new TextMetrics { W = r.W, H = r.H, Lay = r.Lay.ToJson() };
     }
 
-    /// <summary>J.fitSize（03_text.js L603）：求正好装进盒子的字号。</summary>
-    public static double FitSize(string text, string font, double maxW, double maxH, JObject? opt = null) =>
+        public static double FitSize(string text, string font, double maxW, double maxH, JObject? opt = null) =>
         JText.FitSize(text, font, maxW, maxH, opt);
 
-    /// <summary>J.fastRow（03_text.js L403）：密排小字一次画一行；只该在 main pass 用，sp 为每字额外间距 px。</summary>
-    public static void FastRow(Env env, string text, string font, double size, double x, double y, double sp,
+        public static void FastRow(Env env, string text, string font, double size, double x, double y, double sp,
         string color, double alpha, string align = "left") =>
         JText.FastRow(env, text, font, size, x, y, sp, color, alpha, align);
 
-    /// <summary>J.metrics.adv（03_text.js）：单字 advance。</summary>
-    public static double MetricsAdv(string font, string ch) => JText.Metrics.Adv(font, ch);
+        public static double MetricsAdv(string font, string ch) => JText.Metrics.Adv(font, ch);
 
-    /// <summary>drawFx 告警的前几行堆栈（JS console.warn(e) 带错误体的对位；定位钩子异常用）。</summary>
-    private static string? FirstStack(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
+        private static string? FirstStack(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
         .Split('\n')
         .Where(l => l.Contains("JizuraLive"))
         .Select(l => l.Trim().Replace(Environment.NewLine, "")));
 
-    /// <summary>drawFx 的松散数值读取（JS 的 it.k 直接读，JAnim 内部帮手同型复用）。</summary>
-    private static double Num(JObject o, string k) => JAnim.Num(o, k);
+        private static double Num(JObject o, string k) => JAnim.Num(o, k);
 
     private static double NumNull(JObject o, string k, double d) => JAnim.NumNull(o, k, d);
 
-    /// <summary>J.FONTS[k] 存在性（02_fonts.js 的字体目录 → JFonts.Table）。fontsOf 过滤无效字体 key 用。</summary>
-    private static bool FontExists(string k) => JFonts.Has(k);
-
-    // ---------------- 注册 ----------------
+        private static bool FontExists(string k) => JFonts.Has(k);
 
     static JLayouts() => Install();
 
-    /// <summary>幂等注册本文件全部 layout（含 special 的 title/interlude；special 不进 Reg.LayoutOrder，
-    /// 注册顺序即 JS J.LAYOUT_ORDER）。</summary>
-    public static void Install()
+        public static void Install()
     {
         RegisterCenter();
         RegisterMixed();
@@ -462,8 +372,6 @@ public static class JLayouts
         RegisterTitle();
         RegisterInterlude();
     }
-
-    // ---------------- layout：常规 17 种 ----------------
 
     private static void RegisterCenter()
     {
@@ -826,7 +734,6 @@ public static class JLayouts
                     var dir = r % 2 == 1 ? 1 : -1;
                     var off = ((r % 2) * period * 0.5 + lb * 26 * dir) % period;
                     off = (off + period) % period;
-                    // 背景平铺行整行一次画：逐字 draw 时每帧上千字形，是本版式卡顿的来源
                     FastRow(env, Repeat(unitText, reps), tileFont, ts,
                         -period + off - period * 0.5, (r + 0.5) * rowH, ts * 0.02, sc.Str("sub")!,
                         0.42 * J.Clamp((lb - ap) / 0.1));
@@ -1021,7 +928,6 @@ public static class JLayouts
                         ["noHold"] = true,
                     };
                     var b = MainDraw(env, it);
-                    // 每个环上字符的盒子都要并进来，只留首个字符会锚到随时间旋转的单字
                     bb = UnionBb(bb, b);
                 }
                 env.Body = bb ?? new BBox { X0 = cx - R, X1 = cx + R, Y0 = cy - R, Y1 = cy + R, Cx = cx, Cy = cy };
@@ -1205,8 +1111,6 @@ public static class JLayouts
                 var fontC = S(P, "fontC")!;
                 var variant = S(P, "variant");
                 var center = S(P, "center");
-                // 帧不变量（text/units 只由 cut+params 决定）：按切分缓存（性能专项，稳态省 ~70KB/帧的
-                // Regex/LINQ/List 重建），plan 换则随 Cut 一起回收
                 var inv = CutCache.Get<LabelsInv>(cut, "labels");
                 if (inv == null)
                 {
@@ -1230,8 +1134,7 @@ public static class JLayouts
                     var h = fs * 1.36;
                     env.Ctx.Save();
                     env.Ctx.Translate((float)x, (float)y);
-                    env.Ctx.RotateDegrees((float)rot); // JS: rotate(rot * DEG) 收弧度；RotateDegrees 直接收度
-                    env.Ctx.Scale((float)q, (float)q);
+                    env.Ctx.RotateDegrees((float)rot);                     env.Ctx.Scale((float)q, (float)q);
                     env.Rect(-w / 2, -h / 2, w, h, sc.Str("ink"), 1);
                     env.DrawItem(new JObject { ["text"] = u, ["font"] = font, ["size"] = fs, ["track"] = 0.04, ["x"] = 0, ["y"] = 0, ["color"] = sc.Str("bg"), ["ghost"] = false });
                     env.Ctx.Restore();
@@ -1293,14 +1196,11 @@ public static class JLayouts
         });
     }
 
-    /// <summary>labels 的帧不变量（CutCache 载体）。</summary>
-    private sealed record LabelsInv(string Text, List<string> Units);
+        private sealed record LabelsInv(string Text, List<string> Units);
 
-    /// <summary>stack 等版式的 FitSize 常量 opt（只读共享实例，免逐帧 new JObject）。</summary>
-    private static readonly JObject TrackOpt3 = new() { ["track"] = 0.03 };
+        private static readonly JObject TrackOpt3 = new() { ["track"] = 0.03 };
 
-    /// <summary>pill 的 FitSize 常量 opt。</summary>
-    private static readonly JObject PillTrackOpt = new() { ["track"] = 0.04 };
+        private static readonly JObject PillTrackOpt = new() { ["track"] = 0.04 };
 
     private static void RegisterCondensed()
     {
@@ -1583,8 +1483,7 @@ public static class JLayouts
                 var e = J.E.OutExpo(J.Clamp(env.Lt / (cut.InDur * 0.8))) * (1 - J.E.InExpo(env.POut));
                 env.Ctx.Save();
                 env.Ctx.Translate(W / 2f, H / 2f);
-                env.Ctx.RotateDegrees((float)-ang); // JS: rotate(-P.ang * DEG)；RotateDegrees 直接收度
-                env.Rect(-W * 1.2, -bh / 2 * e, W * 2.4, bh * e, bandCol, 1);
+                env.Ctx.RotateDegrees((float)-ang);                 env.Rect(-W * 1.2, -bh / 2 * e, W * 2.4, bh * e, bandCol, 1);
                 if (B(P, "second"))
                 {
                     var y2 = bh * 0.95;
@@ -1656,7 +1555,6 @@ public static class JLayouts
                     var ey = H / 2 + H * 0.12;
                     if (env.Pass == "main")
                     {
-                        // ctx.shadowColor/shadowBlur → SKImageFilter.CreateDropShadow（Canvas2D blur 半径 ≈ 2σ）
                         env.Ctx.Save();
                         var blur = (float)(38 * env.Scale / 2);
                         using var p = new SKPaint
@@ -1666,8 +1564,7 @@ public static class JLayouts
                             StrokeWidth = 3,
                             Color = Env.SkColor(sc.Str("fg")!, 0.9),
                         };
-                        p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blur, blur, p.Color); // 记忆滤镜，不 Dispose
-                        env.Ctx.DrawCircle((float)ex, (float)ey, (float)(R * 1.01 * outK), p);
+                        p.ImageFilter = JText.ShadowSigmaFilter(0, 0, blur, blur, p.Color);                         env.Ctx.DrawCircle((float)ex, (float)ey, (float)(R * 1.01 * outK), p);
                         env.Ctx.Restore();
                         env.Circle(ex, ey, R * outK, J.Mix(sc.Str("bg")!, "#000000", 0.35), null, 0, 1, false);
                     }
@@ -1724,7 +1621,6 @@ public static class JLayouts
                 var dir = D(P, "dir");
                 var gap = D(P, "gap");
                 var xs = D(P, "xs");
-                // 帧不变量：字号只由 (text, font, W, H) 决定，按切分缓存（性能专项）
                 var size = CutCache.Get<double>(cut, "stack.size");
                 if (size <= 0)
                 {
@@ -1787,7 +1683,6 @@ public static class JLayouts
                 var cut = env.Cut!;
                 var text = cut.Text;
                 var font = S(P, "font")!;
-                // 帧不变量：字号与主盒宽只由 (text, font, W, H) 决定，按切分缓存（性能专项）
                 var size = CutCache.Get<double>(cut, "pill.size");
                 if (size <= 0)
                 {
@@ -1811,7 +1706,6 @@ public static class JLayouts
                 var ww = Math.Max(h, w * e);
                 if (env.Pass == "main")
                 {
-                    // ctx.createLinearGradient(W/2 - ww/2, 0, W/2 + ww/2, 0) + addColorStop(0/1)
                     using var shader = SKShader.CreateLinearGradient(
                         new SKPoint((float)(W / 2 - ww / 2), 0), new SKPoint((float)(W / 2 + ww / 2), 0),
                         new[] { Env.SkColor(fillC[0]), Env.SkColor(fillC[1]) }, new float[] { 0, 1 }, SKShaderTileMode.Clamp);
@@ -1869,8 +1763,6 @@ public static class JLayouts
             },
         });
     }
-
-    // ---------------- layout：special（不参与自动挑选，由标题卡、间奏直接指定） ----------------
 
     private static void RegisterTitle()
     {
@@ -1935,7 +1827,6 @@ public static class JLayouts
                 var lb = env.Ltb;
                 var fs = J.Clamp(H * 0.022, 12, 22);
                 var body = Font0(env.St, "body");
-                // 长间奏的安静变体，只留曲名（variant/showTitle/titleText 由 planner 侧注入，不在本 plan 里）
                 if (S(P, "variant") == "quiet")
                 {
                     var titleText = S(P, "titleText");
@@ -1990,9 +1881,6 @@ public static class JLayouts
         });
     }
 
-    // ---------------- 文本断行（planner 依赖） ----------------
-
-    // 拉丁文本只在词间断行，行数取能装下的最少值，再做均衡分配
     private static string SplitWords(string text, int maxPer)
     {
         var ws = Regex.Split(text.Trim(), @"\s+");
@@ -2000,7 +1888,6 @@ public static class JLayouts
         var total = ws.Sum(w => (double)CpLen(w)) + n - 1;
         var nLines = Math.Min(n, (int)Math.Ceiling(total / maxPer));
         if (nLines <= 1) return string.Join(" ", ws);
-        // DP：最小化各行与理想行长的平方差
         double Len(int a, int b) => ws.Skip(a).Take(b - a).Sum(w => (double)CpLen(w)) + (b - a - 1);
         var ideal = total / nLines;
         var memo = new Dictionary<(int, int), (double C, int[] Cuts)>();
@@ -2039,14 +1926,12 @@ public static class JLayouts
         return string.Join("\n", outLines);
     }
 
-    /// <summary>J.splitLines：长文本均衡断行，断点优先挑标点/空格之后、小假名之前。</summary>
-    public static string SplitLines(string text, int maxPer)
+        public static string SplitLines(string text, int maxPer)
     {
         var src = text ?? "";
         var arr = CodePoints(src);
         if (arr.Count <= maxPer) return src;
-        if (IsLatinText(src)) return Regex.IsMatch(src.Trim(), @"\s") ? SplitWords(src, maxPer) : src;   // 一个词保持完整
-        var nLines = (int)Math.Ceiling(arr.Count / (double)maxPer);
+        if (IsLatinText(src)) return Regex.IsMatch(src.Trim(), @"\s") ? SplitWords(src, maxPer) : src;           var nLines = (int)Math.Ceiling(arr.Count / (double)maxPer);
         var per = arr.Count / (double)nLines;
         var outLines = new List<string>();
         var start = 0;
@@ -2076,8 +1961,6 @@ public static class JLayouts
         return string.Join("\n", outLines);
     }
 
-    // 以拉丁字母为主的文本（英语、印尼语、越南语……歌词）。
-    // 对位 08_planner.js 的 J.isLatinText。
     private static bool IsLatinText(string? t)
     {
         var s = Regex.Replace(t ?? "", @"\s", "");
@@ -2092,10 +1975,7 @@ public static class JLayouts
         return n / (double)cps.Count >= 0.6;
     }
 
-    // ---------------- 本文件小工具（JS J.glyphCount / J.fontsOf / J.unionBB / J.centerBB） ----------------
-
-    /// <summary>J.glyphCount：去空白后的码点数。</summary>
-    public static int GlyphCount(string t)
+        public static int GlyphCount(string t)
     {
         var n = 0;
         foreach (var cp in CodePoints(t ?? ""))
@@ -2103,8 +1983,7 @@ public static class JLayouts
         return n;
     }
 
-    /// <summary>J.fontsOf：按角色取风格字体列表，过滤掉字体目录里不存在的 key；全空则回退 display（再空 gothic_black）。</summary>
-    public static string[] FontsOf(StyleDef st, params string[] roles)
+        public static string[] FontsOf(StyleDef st, params string[] roles)
     {
         var f = new List<string>();
         foreach (var r in roles)
@@ -2115,8 +1994,7 @@ public static class JLayouts
         return disp.Count > 0 ? disp.ToArray() : new[] { "gothic_black" };
     }
 
-    /// <summary>st.fonts[role]（04_styles 的字体三/四角色 → key 数组）。</summary>
-    internal static List<string> RoleFonts(StyleDef st, string role)
+        internal static List<string> RoleFonts(StyleDef st, string role)
     {
         var fonts = StTok(st, "fonts") as JObject;
         var arr = fonts?[role] as JArray;
@@ -2127,15 +2005,13 @@ public static class JLayouts
         return list;
     }
 
-    /// <summary>env.st.fonts[role][0]。</summary>
-    internal static string? Font0(StyleDef st, string role)
+        internal static string? Font0(StyleDef st, string role)
     {
         var arr = RoleFonts(st, role);
         return arr.Count > 0 ? arr[0] : null;
     }
 
-    /// <summary>J.unionBB：两个主体 bbox 的并集（boxes 不保留）。</summary>
-    public static BBox? UnionBb(BBox? a, BBox? b)
+        public static BBox? UnionBb(BBox? a, BBox? b)
     {
         if (a == null) return b;
         if (b == null) return a;
@@ -2151,8 +2027,7 @@ public static class JLayouts
         };
     }
 
-    /// <summary>J.centerBB：bb 为空时给画面中央的默认 bbox。</summary>
-    public static BBox CenterBb(Env env, BBox? bb) => bb ?? new BBox
+        public static BBox CenterBb(Env env, BBox? bb) => bb ?? new BBox
     {
         X0 = env.W * 0.35,
         X1 = env.W * 0.65,
@@ -2163,10 +2038,7 @@ public static class JLayouts
         Boxes = new List<JObject>(),
     };
 
-    // ---------------- 松散 JSON / 码点帮手 ----------------
-
-    /// <summary>JS 侧 item/params 是 duck-typed 对象 → JObject；这里收拢松散读取。</summary>
-    internal static string? S(JObject p, string k) => p[k] is JValue v && v.Type == JTokenType.String ? (string?)v.Value : null;
+        internal static string? S(JObject p, string k) => p[k] is JValue v && v.Type == JTokenType.String ? (string?)v.Value : null;
 
     internal static double D(JObject p, string k, double d = 0) =>
         p[k] is JValue v && v.Type is JTokenType.Float or JTokenType.Integer ? Convert.ToDouble(v.Value, CultureInfo.InvariantCulture) : d;
@@ -2176,8 +2048,7 @@ public static class JLayouts
 
     internal static bool B(JObject p, string k) => p[k] is JValue v && v.Type == JTokenType.Boolean && (bool)v.Value!;
 
-    /// <summary>JS 真值（false/0/""/null/undefined 为假）。</summary>
-    internal static bool Truthy(JToken? t) => t switch
+        internal static bool Truthy(JToken? t) => t switch
     {
         null => false,
         JValue v when v.Type == JTokenType.Null => false,
@@ -2190,8 +2061,7 @@ public static class JLayouts
 
     internal static JToken? StTok(StyleDef st, string k) => st.Extra != null && st.Extra.TryGetValue(k, out var v) ? v : null;
 
-    /// <summary>[...str] 的对位：按 Unicode 码点切分（代理对合并；孤立代理保留为单元素）。</summary>
-    internal static List<string> CodePoints(string s)
+        internal static List<string> CodePoints(string s)
     {
         var list = new List<string>(s.Length);
         for (var i = 0; i < s.Length; i++)
@@ -2206,17 +2076,14 @@ public static class JLayouts
         return list;
     }
 
-    /// <summary>码点数（[...str].length 对位）。</summary>
-    internal static int CpLen(string s) => CodePoints(s).Count;
+        internal static int CpLen(string s) => CodePoints(s).Count;
 
-    /// <summary>JS string.prototype.repeat。</summary>
-    internal static string Repeat(string s, int n)
+        internal static string Repeat(string s, int n)
     {
         var sb = new StringBuilder(s.Length * Math.Max(0, n));
         for (var i = 0; i < n; i++) sb.Append(s);
         return sb.ToString();
     }
 
-    /// <summary>JS 的 a || b || c（字符串链：取第一个非空值）。</summary>
-    internal static string? OrStr(params string?[] xs) => xs.FirstOrDefault(x => !string.IsNullOrEmpty(x));
+        internal static string? OrStr(params string?[] xs) => xs.FirstOrDefault(x => !string.IsNullOrEmpty(x));
 }

@@ -1,21 +1,3 @@
-// 移植自 frontend/src/engine/11p_horror2.js（horror 包 2/3：入场/退场/保持动效与文字加工）。
-//
-// MoveDef 条目（enter/hold/exit）的 apply(env, it, p) → Draw(env)：it→env.It、p→env.Ap
-// （enter→pIn / exit→pOut / hold→amt，JLayouts.MainDraw 调用前写入）、cut→env.Cut。
-// it.charFns.push(fn) → env.CharFns.Add(fn)； TreatDef 条目 apply(env, it, P) → Draw(env)，
-// P 从 env.Cut.TreatP 取（与 P11TreatTrans 同约定）。
-//
-// RNG：Draw 侧全走 J.R/J.Rs/J.Rr/J.H 确定性哈希；plan 侧 Rng 顺序流。注册序 = JS 源出现序。
-//
-// extra/set 标记：JS 的 `set: 'horror'` 已落 IRegEntry.Set 真字段（Reg0/RegT 统一赋值）；`ae: '…'` 行内注释。
-//
-// 已知偏差（与 P11TreatTrans 同约定）：
-// 1. JS 的 addPre/addPost：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，pre 画在文字前、
-//    post 画在文字上）。hrVhold 同步条/hrSwallow 黑渍/hrDrain 墨滴/hrInkBleed 淌墨/hrEroded 麻点/
-//    hrRedact 黑条 → env.PostFn；hrDoubleExp 的重影副本 → env.PreFn。
-// 2. it.clipFn：管线钩子已接（Env.ClipFn → DrawFx ClipPath）。hrClawReveal 的斜向爪痕、
-//    hrSwallow 的整屏 rect + 反序 blob（nonzero 挖洞）按 JS 逐行回迁。
-// 3. glyphList 的逐字位移按 treat apply 时刻的 env.CharFn（此时 enter/exit 尚未 apply）近似。
 
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -31,8 +13,7 @@ public static class P11Horror2
 
     private static void Reg0(string g, string key, MoveDef def)
     {
-        def.Set = "horror"; // JS reg 助手：Object.assign({set: 'horror'}, def)
-        Reg.Register(g, key, def, P);
+        def.Set = "horror";         Reg.Register(g, key, def, P);
     }
     private static void RegT(string key, TreatDef def)
     {
@@ -40,15 +21,11 @@ public static class P11Horror2
         Reg.Register("treat", key, def, P);
     }
 
-    // ================= 本包 helper（JS L10-129 逐条对位） =================
-
-    /// <summary>HIDE（JS Object.freeze({hide:true})；drawItem 只读其字段，共享安全）。</summary>
-    private static readonly CharXf HideXf = new() { Hide = true };
+        private static readonly CharXf HideXf = new() { Hide = true };
 
     private static bool IsHex(string? c) => c != null && Regex.IsMatch(c, @"^#([0-9a-f]{3}|[0-9a-f]{6})$", RegexOptions.IgnoreCase);
 
-    /// <summary>colOf(it)：it.color 是 hex 用之，否则 '#ffffff'。</summary>
-    private static string ColOf(JObject it) => IsHex(JLayouts.S(it, "color")) ? JLayouts.S(it, "color")! : "#ffffff";
+        private static string ColOf(JObject it) => IsHex(JLayouts.S(it, "color")) ? JLayouts.S(it, "color")! : "#ffffff";
 
     private static string? MixC(string? a, string? b, double t)
     {
@@ -58,38 +35,32 @@ public static class P11Horror2
 
     private static double MotionK(Env env) => J.Clamp(env.Fx.Motion / 0.7, 0, 1.6);
 
-    /// <summary>layOf(it).N：measure 缓存的排版字数（TextMetrics.Lay 是 JSON 同构 JObject）。</summary>
-    private static int LayN(JObject it) => JLayouts.Measure(it).Lay?["N"]?.Value<int>() ?? 0;
+        private static int LayN(JObject it) => JLayouts.Measure(it).Lay?["N"]?.Value<int>() ?? 0;
 
     private static int CutN(Env env) => Math.Max(1, JLayouts.GlyphCount(env.Cut?.Text ?? ""));
 
     private static int Cseed(Env env) => unchecked((int)(env.Cut?.Seed ?? 0));
 
-    /// <summary>Math.hypot 对位（.NET BCL 无 Math.Hypot）。</summary>
-    private static double Hypot(double a, double b) => Math.Sqrt(a * a + b * b);
+        private static double Hypot(double a, double b) => Math.Sqrt(a * a + b * b);
 
-    /// <summary>orderOf(env, it)：字 i 在整句歌词中的位置 0..1（多字项按 i/(n-1)，单字项按 motion index）。</summary>
-    private static Func<int, int, double> OrderOf(Env env, JObject it)
+        private static Func<int, int, double> OrderOf(Env env, JObject it)
     {
         var N = CutN(env);
         var mi = JAnim.Num(it, "mi");
         return (i, n) => n > 1 ? i / (double)(n - 1) : N > 1 ? J.Clamp(mi / (N - 1)) : 0;
     }
 
-    /// <summary>indexOf(env, it)：字 i 在整句歌词中的整数下标。</summary>
-    private static Func<int, int, int> IndexOf(Env env, JObject it)
+        private static Func<int, int, int> IndexOf(Env env, JObject it)
     {
         var N = CutN(env);
-        var mi = (int)Math.Round(JAnim.Num(it, "mi"), MidpointRounding.AwayFromZero); // JS Math.round 半位远离零
-        return (i, n) => n > 1 ? i : N > 1 ? Math.Min(N - 1, mi) : 0;
+        var mi = (int)Math.Round(JAnim.Num(it, "mi"), MidpointRounding.AwayFromZero);         return (i, n) => n > 1 ? i : N > 1 ? Math.Min(N - 1, mi) : 0;
     }
 
     private static bool IsDarkBg(Env env) => J.Lum(ScK(env.Sc!, "bg")) < 0.45;
 
     private static string NightC(Scheme sc) => J.Mix(ScK(sc, "bg"), "#000000", J.Lum(ScK(sc, "bg")) < 0.45 ? 0.72 : 0.9);
 
-    /// <summary>配色读取兜底（JS 直接读 sc.xxx）。</summary>
-    private static string ScK(Scheme sc, string k) => sc.Str(k) ?? k switch
+        private static string ScK(Scheme sc, string k) => sc.Str(k) ?? k switch
     {
         "bg" => "#000000",
         "fg" => "#FFFFFF",
@@ -101,8 +72,7 @@ public static class P11Horror2
         _ => "#FFFFFF",
     };
 
-    /// <summary>layCenter(it)：排版结果在项内空间的中心 [cx, cy, w, h]。JS L30-40。</summary>
-    private static (double Cx, double Cy, double W, double H) LayCenter(JObject it)
+        private static (double Cx, double Cy, double W, double H) LayCenter(JObject it)
     {
         var lay = JText.LayoutText(it);
         double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
@@ -117,8 +87,7 @@ public static class P11Horror2
         return lay.Cells.Count > 0 ? ((x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0) : (0, 0, 0, 0);
     }
 
-    /// <summary>uneasyTimes(seed, N, span)：别扭的时间轴——随机累加间隔（有些特别长），归一化 0..span。</summary>
-    private static double[] UneasyTimes(int seed, int N, double span)
+        private static double[] UneasyTimes(int seed, int N, double span)
     {
         var gaps = new double[N];
         var tot = 0.0;
@@ -141,23 +110,20 @@ public static class P11Horror2
         return @out;
     }
 
-    /// <summary>alive(it, amin)：JS L129。</summary>
-    private static bool Alive(JObject it, double amin = 0.9) =>
+        private static bool Alive(JObject it, double amin = 0.9) =>
         !(it["fill"] is JValue { Type: JTokenType.Boolean } fb && !(bool)fb.Value!) &&
         NumNull(it, "alpha", 1) >= amin && !string.IsNullOrEmpty(JLayouts.S(it, "text")) && JAnim.Num(it, "size") > 1;
 
     private static double NumNull(JObject o, string k, double d) =>
         o[k] is JValue v && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : d;
 
-    /// <summary>JS (x || d)：0 也取默认（与 NumNull 的 `??` 语义区分，plan 参数里两义并存）。</summary>
-    private static double DOr(JObject o, string k, double d)
+        private static double DOr(JObject o, string k, double d)
     {
         var v = JAnim.Num(o, k);
         return v != 0 ? v : d;
     }
 
-    /// <summary>inItem(env, it, fn)：在项内空间里执行 fn（应用位移/旋转/斜切）。JS L117-128。</summary>
-    private static void InItem(Env env, JObject it, Action fn)
+        private static void InItem(Env env, JObject it, Action fn)
     {
         var ctx = env.Ctx;
         ctx.Save();
@@ -182,8 +148,7 @@ public static class P11Horror2
         public double X, Y, W, H, A, Rot;
     }
 
-    /// <summary>glyphList(it)：项内空间里应用逐字动效后的可见字形（charFn 走 env.CharFn 桥）。JS L97-115。</summary>
-    private static List<Gly> GlyphList(Env env, JObject it)
+        private static List<Gly> GlyphList(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = JAnim.NumOr1(it, "sx");
@@ -210,8 +175,7 @@ public static class P11Horror2
         return @out;
     }
 
-    /// <summary>复制一份干净 item 给叠加通道用，钩子与特效字段全清空（JS bare）。JS L73-95。</summary>
-    private static JObject Bare(JObject i, JObject? extra = null)
+        private static JObject Bare(JObject i, JObject? extra = null)
     {
         var c = (JObject)i.DeepClone();
         foreach (var k in new[]
@@ -228,8 +192,7 @@ public static class P11Horror2
         return c;
     }
 
-    /// <summary>副本绘制：临时清空 env.CharFn（函数字段不进 JObject；JS bare 已置 charFn 为空）。</summary>
-    private static void DrawCopy(Env env, JObject copy)
+        private static void DrawCopy(Env env, JObject copy)
     {
         var saved = env.CharFn;
         env.CharFn = null;
@@ -243,45 +206,17 @@ public static class P11Horror2
         }
     }
 
-    /// <summary>J.rgba(h, a)。</summary>
-    private static string Rgba(string hex, double a)
+        private static string Rgba(string hex, double a)
     {
         var (r, g, b) = J.Hex(hex);
         return "rgba(" + r.ToString(CultureInfo.InvariantCulture) + "," + g.ToString(CultureInfo.InvariantCulture) + ","
                + b.ToString(CultureInfo.InvariantCulture) + "," + a.ToString("0.######", CultureInfo.InvariantCulture) + ")";
     }
 
-    // ================= 注册（JS 源 reg(...) 出现序） =================
-
-    /// <summary>幂等注册本文件全部 enter/exit/hold/treat（顺序 = JS 源 J.register 调用序）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterHrBlinkCreep();  // enter, JS L132
-        RegisterHrJumpScare();   // enter, JS L161
-        RegisterHrUneasy();      // enter, JS L183
-        RegisterHrVhold();       // enter, JS L205
-        RegisterHrMirrorSnap();  // enter, JS L228
-        RegisterHrManifest();    // enter, JS L244
-        RegisterHrClawReveal();  // enter, JS L265
-        RegisterHrPulledDown();  // exit,  JS L296
-        RegisterHrLookBack();    // exit,  JS L328
-        RegisterHrTurnAway();    // exit,  JS L359
-        RegisterHrShiver();      // exit,  JS L380
-        RegisterHrSwallow();     // exit,  JS L395
-        RegisterHrFlickerDie();  // exit,  JS L426
-        RegisterHrDrain();       // exit,  JS L444
-        RegisterHrTwitch();      // hold,  JS L480
-        RegisterHrStare();       // hold,  JS L501
-        RegisterHrLagOne();      // hold,  JS L520
-        RegisterHrFlickerLight();// hold,  JS L537
-        RegisterHrInkBleed();    // treat, JS L553
-        RegisterHrEroded();      // treat, JS L592
-        RegisterHrRedact();      // treat, JS L620
-        RegisterHrDoubleExp();   // treat, JS L663
-    }
-
-    // ---------------- enter: hrBlinkCreep（JS L132-158） ----------------
+        RegisterHrBlinkCreep();          RegisterHrJumpScare();           RegisterHrUneasy();              RegisterHrVhold();               RegisterHrMirrorSnap();          RegisterHrManifest();            RegisterHrClawReveal();          RegisterHrPulledDown();          RegisterHrLookBack();            RegisterHrTurnAway();            RegisterHrShiver();              RegisterHrSwallow();             RegisterHrFlickerDie();          RegisterHrDrain();               RegisterHrTwitch();              RegisterHrStare();               RegisterHrLagOne();              RegisterHrFlickerLight();        RegisterHrInkBleed();            RegisterHrEroded();              RegisterHrRedact();              RegisterHrDoubleExp();       }
 
     private static void RegisterHrBlinkCreep() => Reg0("enter", "hrBlinkCreep", new MoveDef
     {
@@ -327,8 +262,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- enter: hrJumpScare（JS L161-180） ----------------
-
     private static void RegisterHrJumpScare() => Reg0("enter", "hrJumpScare", new MoveDef
     {
         Name = "飛び出し",
@@ -362,8 +295,6 @@ public static class P11Horror2
             it["rot"] = NumNull(it, "rot", 0) + J.Rs(seed, st, 6) * 7 * k;
         },
     });
-
-    // ---------------- enter: hrUneasy（JS L183-202） ----------------
 
     private static void RegisterHrUneasy() => Reg0("enter", "hrUneasy", new MoveDef
     {
@@ -401,8 +332,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- enter: hrVhold（JS L205-225） ----------------
-
     private static void RegisterHrVhold() => Reg0("enter", "hrVhold", new MoveDef
     {
         Name = "垂直同期",
@@ -429,7 +358,6 @@ public static class P11Horror2
             it["alpha"] = NumNull(it, "alpha", 1) * Math.Min(1, 0.4 + p * 2);
             var bar = J.Mix(ScK(env.Sc!, "bg"), "#000000", 0.6);
             var single = LayN(it) == 1 && CutN(env) > 1;
-            // JS addPost → env.PostFn：同步条画在文字上方（层级与 JS 一致）
             env.PostFn = (e2, _, _) =>
             {
                 if (e2.Pass != "main" || m < 1 || single) return;
@@ -441,8 +369,6 @@ public static class P11Horror2
             };
         },
     });
-
-    // ---------------- enter: hrMirrorSnap（JS L228-241） ----------------
 
     private static void RegisterHrMirrorSnap() => Reg0("enter", "hrMirrorSnap", new MoveDef
     {
@@ -472,8 +398,6 @@ public static class P11Horror2
             });
         },
     });
-
-    // ---------------- enter: hrManifest（JS L244-262） ----------------
 
     private static void RegisterHrManifest() => Reg0("enter", "hrManifest", new MoveDef
     {
@@ -508,8 +432,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- enter: hrClawReveal（JS L265-293） ----------------
-
     private static void RegisterHrClawReveal() => Reg0("enter", "hrClawReveal", new MoveDef
     {
         Name = "爪痕から",
@@ -534,7 +456,6 @@ public static class P11Horror2
             var slope = Math.Min(0.55 * Hh, sp * 1.4);
             var dir = (J.H(seed, 3) & 1) != 0 ? 1 : -1;
             if (p > 0.97) return;
-            // JS clipFn：4 道斜向爪痕条带并集（逐条撑开，seed/k/slope 上的 J.rs 噪声）→ Env.ClipFn 桥
             env.ClipFn = (_, _) =>
             {
                 var path = new SKPath();
@@ -546,7 +467,6 @@ public static class P11Horror2
                     var e = J.E.InOutCubic(q);
                     var cx = x0 + (k + 0.5) * sp;
                     var w = sp * 0.08 + sp * 1.1 * e * e;
-                    // 斜向条带，从一端扫到另一端
                     var reach = J.E.OutCubic(J.Clamp(q * 3));
                     var ya = dir > 0 ? y0 : y1;
                     var yb = J.Lerp(ya, dir > 0 ? y1 : y0, reach);
@@ -569,8 +489,6 @@ public static class P11Horror2
             };
         },
     });
-
-    // ---------------- exit: hrPulledDown（JS L296-325） ----------------
 
     private static void RegisterHrPulledDown() => Reg0("exit", "hrPulledDown", new MoveDef
     {
@@ -621,8 +539,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- exit: hrLookBack（JS L328-356） ----------------
-
     private static void RegisterHrLookBack() => Reg0("exit", "hrLookBack", new MoveDef
     {
         Name = "一字残る",
@@ -671,8 +587,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- exit: hrTurnAway（JS L359-377） ----------------
-
     private static void RegisterHrTurnAway() => Reg0("exit", "hrTurnAway", new MoveDef
     {
         Name = "背を向ける",
@@ -704,8 +618,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- exit: hrShiver（JS L380-392） ----------------
-
     private static void RegisterHrShiver() => Reg0("exit", "hrShiver", new MoveDef
     {
         Name = "震えて消える",
@@ -736,8 +648,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- exit: hrSwallow（JS L395-423） ----------------
-
     private static void RegisterHrSwallow() => Reg0("exit", "hrSwallow", new MoveDef
     {
         Name = "闇に呑まれる",
@@ -764,7 +674,6 @@ public static class P11Horror2
                 pts.Add(new[] { cx + Math.Cos(a) * r, cy + Math.Sin(a) * r });
             }
 
-            // JS clipFn：整屏 rect + 反序 blob 子路径（nonzero 环绕把 blob 挖成洞）→ Env.ClipFn 桥
             var ptsArr = pts.ToArray();
             env.ClipFn = (e2, _) =>
             {
@@ -780,7 +689,6 @@ public static class P11Horror2
             };
             var dk = NightC(env.Sc!);
             var fade = 1 - J.Smooth(0.62, 0.95, p);
-            // JS addPost → env.PostFn：黑渍画在文字上方（层级与 JS 一致）
             env.PostFn = (e2, _, _) =>
             {
                 if (e2.Pass == "main" && R > 0.5) e2.Blob(ptsArr, dk, 0.85 * fade, false);
@@ -788,8 +696,6 @@ public static class P11Horror2
             if (p > 0.97) it["alpha"] = 0.0;
         },
     });
-
-    // ---------------- exit: hrFlickerDie（JS L426-441） ----------------
 
     private static void RegisterHrFlickerDie() => Reg0("exit", "hrFlickerDie", new MoveDef
     {
@@ -830,8 +736,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- exit: hrDrain（JS L444-477） ----------------
-
     private static void RegisterHrDrain() => Reg0("exit", "hrDrain", new MoveDef
     {
         Name = "滴り落ちる",
@@ -858,7 +762,6 @@ public static class P11Horror2
                 return new CharXf { ClipY = new[] { -0.7 + q * 1.4, 0.7 } };
             });
             var c = ColOf(it);
-            // JS addPost → env.PostFn：墨滴画在文字上方（层级与 JS 一致）
             if (env.Pass != "main") return;
             env.PostFn = (e2, _, _) =>
             {
@@ -888,8 +791,6 @@ public static class P11Horror2
             };
         },
     });
-
-    // ---------------- hold: hrTwitch（JS L480-498） ----------------
 
     private static void RegisterHrTwitch() => Reg0("hold", "hrTwitch", new MoveDef
     {
@@ -923,8 +824,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- hold: hrStare（JS L501-517） ----------------
-
     private static void RegisterHrStare() => Reg0("hold", "hrStare", new MoveDef
     {
         Name = "見つめる字",
@@ -956,8 +855,6 @@ public static class P11Horror2
                 : null);
         },
     });
-
-    // ---------------- hold: hrLagOne（JS L520-534） ----------------
 
     private static void RegisterHrLagOne() => Reg0("hold", "hrLagOne", new MoveDef
     {
@@ -993,8 +890,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- hold: hrFlickerLight（JS L537-550） ----------------
-
     private static void RegisterHrFlickerLight() => Reg0("hold", "hrFlickerLight", new MoveDef
     {
         Name = "切れかけの灯",
@@ -1016,8 +911,6 @@ public static class P11Horror2
             if (a < 0.6) it["color"] = MixC(ColOf(it), ScK(env.Sc!, "bg"), 0.3);
         },
     });
-
-    // ---------------- treat: hrInkBleed（JS L553-589） ----------------
 
     private static void RegisterHrInkBleed() => RegT("hrInkBleed", new TreatDef
     {
@@ -1047,7 +940,6 @@ public static class P11Horror2
                 };
             var cs = Cseed(env);
             var rate = DOr(pm, "drips", 0.35);
-            // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main") return;
             env.PostFn = (e2, _, _) =>
             {
@@ -1076,8 +968,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- treat: hrEroded（JS L592-617） ----------------
-
     private static void RegisterHrEroded() => RegT("hrEroded", new TreatDef
     {
         Name = "風化",
@@ -1093,7 +983,6 @@ public static class P11Horror2
             var bg = ScK(env.Sc!, "bg");
             var sz = JAnim.Num(it, "size");
             var dens = DOr(pm, "dens", 1);
-            // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main" || NumNull(it, "alpha", 1) < 0.3) return;
             env.PostFn = (e2, _, _) =>
             {
@@ -1127,8 +1016,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- treat: hrRedact（JS L620-660） ----------------
-
     private static void RegisterHrRedact() => RegT("hrRedact", new TreatDef
     {
         Name = "黒塗り",
@@ -1150,7 +1037,6 @@ public static class P11Horror2
             var ord = OrderOf(env, it);
             if (N == 1 && CutN(env) > 1)
             {
-                // 单字项：按它在整句歌词中的位置决定是否参与遮盖
                 var o = ord(0, 1);
                 var a = JLayouts.D(pm, "from") * (1 - JLayouts.D(pm, "frac"));
                 if (o < a || o > a + JLayouts.D(pm, "frac")) return;
@@ -1158,7 +1044,6 @@ public static class P11Horror2
 
             var c = ColOf(it);
             var sc = env.Sc!;
-            // JS addPost → env.PostFn（见头注；层级与 JS 一致）
             if (env.Pass != "main") return;
             env.PostFn = (e2, _, _) =>
             {
@@ -1205,8 +1090,6 @@ public static class P11Horror2
         },
     });
 
-    // ---------------- treat: hrDoubleExp（JS L663-684） ----------------
-
     private static void RegisterHrDoubleExp() => RegT("hrDoubleExp", new TreatDef
     {
         Name = "二重露光",
@@ -1229,7 +1112,6 @@ public static class P11Horror2
                 }
 
             col ??= ScK(sc, "sub");
-            // JS addPre → env.PreFn（层级/时点与 JS 一致）
             if (env.Pass != "main") return;
             env.PreFn = (e2, _) =>
             {

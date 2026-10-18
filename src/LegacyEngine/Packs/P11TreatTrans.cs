@@ -1,30 +1,3 @@
-// 移植自 frontend/src/engine/11p_treattrans.js（pack = 'treattrans'：treat 27 条 + trans 20 条）。
-//
-// treat：TreatDef.Plan(rng, st) → JObject（键名 = JS plan 对象字段，planner 存 cut.treatP）；
-// Draw(env) 在 JLayouts.MainDraw 的 treat 调用点执行（JS apply(env, it, cut.treatP)）：
-// env.It 是当前 item、env.Cut.TreatP 是参数。apply 对 item 的就地改写（fill/stroke/gradient/
-// track/size/rot/lead…）直接写 env.It；charFns.push → env.CharFns.Add（管线 CombineChar 合并）。
-//
-// 管线缺口与降级（本文件内解决，与 P11Exit 同约定，不改共享文件）：
-// 1. addPre/addPost/sized：管线钩子已接（Env.PreFn/PostFn → JLayouts.DrawFx，pre 画在文字下、
-//    post 画在文字上）。本包经 PreFx/PostFx 挂钩（addPre/addPost 链式语义保留，WithFx 语境在
-//    钩子体内重建）。sized 因此只按 apply 时的 size 算一次（出入场改 size 时不刷新——已知近似）。
-// 2. withFx 的 ctx 级 blur（it.blur>0.4）：副本经 DrawItem 自带 it.blur 通道，不再重复施加
-//    （blur<0.4 的主文字本就不过 ctx.filter，等价）。
-// 3. lineSpans/glyphList 的 it.charFn：apply 时管线尚未 CombineChar，读 env.CharFn（此时为
-//    null）→ 字形按静态布局位置取（JS 里该 fn 也只影响藏字判定，影响面 = 播到逐字入场时）。
-// 4. QUOTED/SPOT 这两个 WeakMap<env> → ConditionalWeakTable<Env, box>（每帧 env 新建，语义同）。
-//
-// trans：TransDef.Draw = TransDrawFn(SKCanvas, SKImage prevA, SKImage curB, double p, TransCtx)。
-// JS 的 trReg 包装保证 p<=0 精确输出 A、p>=1 精确输出 B（draw 包 save/restore）——每个条目的
-// Draw 就是该包装。渲染器接入点：Renderer.cs Frame() 的 cut 间转场分支（L450-511，M2 已定型）：
-// transOn 窗口内把上一刀收尾帧渲进 _transA、当前帧拷进 _transB，以 clamp(lt/dur) 调
-// tdef.Draw(ctx, A, B, p, new TransCtx{Cw,Ch,Sc,ScPrev,St,P=cut.TransP,Step,T,Scale,AllowFilter,
-// Seed=cut.Seed,Tmp=(w,h)=>Ensure(ref _transC,w,h)})——本包注册即生效，无需再改渲染器。
-//
-// 跨文件符号对位：J.drawItem→JText.DrawItem（副本经 env.DrawItem）、J.combineChar→JAnim.CombineChar、
-// J.itemBands→JAnim.ItemBands(+JAnim.JArr)、J.layoutText/measure→JText/JLayouts、
-// J.rgba(本地 Rgba)/r/rs/rr/h/mix/lum/contrast/fitContrast/smooth→J.*；rng.*→Rng.*。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -39,8 +12,7 @@ public static class P11TreatTrans
     private const string Pk = "treattrans";
     private static int _installed;
 
-    /// <summary>幂等注册本文件全部条目（顺序 = JS reg/trReg 出现序）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
         RegisterNeonOutline();
@@ -93,8 +65,6 @@ public static class P11TreatTrans
         RegisterPixelate();
     }
 
-    // ================= 本包 helper（JS L8-199 + L1073-1103 逐条对位） =================
-
     private static double D(JObject o, string k)
     {
         var v = o[k];
@@ -144,24 +114,20 @@ public static class P11TreatTrans
         return b;
     }
 
-    /// <summary>挑一个和 col 拉得开、在背景上也读得出的 accent（JS accentFor）。</summary>
-    private static string AccentFor(Scheme sc, string col, double min = 1.6) =>
+        private static string AccentFor(Scheme sc, string col, double min = 1.6) =>
         FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("ghostA"), sc.Str("ghostB") },
             c => Ctr(c, col) >= min && Ctr(c, ScK(sc, "bg")) >= 1.5,
             J.FitContrast(ScK(sc, "accent"), col, min + 0.3))!;
 
-    /// <summary>画在 box 底色上的文字色（JS textOn）。</summary>
-    private static string TextOn(string box, string pref, Scheme sc) =>
+        private static string TextOn(string box, string pref, Scheme sc) =>
         Ctr(pref, box) >= 3 ? pref : Best(new[] { sc.Str("bg"), sc.Str("fg"), sc.Str("ink"), "#111111", "#FFFFFF" }, box);
 
-    /// <summary>在背景上够显眼的标记色（JS markCol）。</summary>
-    private static string MarkCol(Scheme sc, string col) =>
+        private static string MarkCol(Scheme sc, string col) =>
         FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), col }, c => Ctr(c, ScK(sc, "bg")) >= 2, col)!;
 
     private const string Tr = "rgba(0,0,0,0)";
 
-    /// <summary>文字色和背景太近 = 躺在版面自己的底板上（JS onPlate）。</summary>
-    private static bool OnPlate(Scheme sc, string col) => Ctr(col, ScK(sc, "bg")) < 1.5;
+        private static bool OnPlate(Scheme sc, string col) => Ctr(col, ScK(sc, "bg")) < 1.5;
 
     private static bool Alive(JObject it, double amin = 0.9) =>
         !(it["fill"] is JValue { Type: JTokenType.Boolean } fb && !(bool)fb.Value!) &&
@@ -182,8 +148,7 @@ public static class P11TreatTrans
 
     private static bool IsSp(string ch) => ch is " " or "　";
 
-    /// <summary>碎块型出入场进行中返回 true（JS inPieces；enter.pieces=assemble、exit.pieces=explode/fall/drift）。</summary>
-    private static bool InPieces(Env env, JObject it)
+        private static bool InPieces(Env env, JObject it)
     {
         var c = env.Cut!;
         var enterKey = S(it, "enter") ?? c.Enter;
@@ -193,9 +158,7 @@ public static class P11TreatTrans
         return false;
     }
 
-    /// <summary>addPre + withFx 组合：钩子挂 env.PreFn（DrawFx 在裁剪/主文字前消费，层级与 JS 一致），
-    /// WithFx 语境（clip/bands/local）在钩子体内重建。</summary>
-    private static void PreFx(Env env, JObject it, Action fn, bool local = true)
+        private static void PreFx(Env env, JObject it, Action fn, bool local = true)
     {
         var prev = env.PreFn;
         env.PreFn = prev != null
@@ -203,8 +166,7 @@ public static class P11TreatTrans
             : (Action<Env, JObject>)((e, x) => WithFx(e, x, fn, local));
     }
 
-    /// <summary>addPost + withFx 组合：钩子挂 env.PostFn（DrawFx 在主文字后消费，层级与 JS 一致）。</summary>
-    private static void PostFx(Env env, JObject it, Action fn, bool local = true)
+        private static void PostFx(Env env, JObject it, Action fn, bool local = true)
     {
         var prev = env.PostFn;
         env.PostFn = prev != null
@@ -212,8 +174,7 @@ public static class P11TreatTrans
             : (Action<Env, JObject, BBox?>)((e, x, _) => WithFx(e, x, fn, local));
     }
 
-    /// <summary>让 fn 处在和画文字相同的 clip/bands 下；local=true 再变换到 item 坐标（JS withFx）。</summary>
-    private static void WithFx(Env env, JObject it, Action fn, bool local = true)
+        private static void WithFx(Env env, JObject it, Action fn, bool local = true)
     {
         var ctx = env.Ctx;
         double w = env.W, h = env.H;
@@ -296,8 +257,7 @@ public static class P11TreatTrans
         public int N;
     }
 
-    /// <summary>逐行（竖排逐列）在 item 空间的行范围（JS lineSpans；charFn 藏掉的字不算）。</summary>
-    private static List<Span> LineSpans(Env env, JObject it)
+        private static List<Span> LineSpans(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = JAnim.NumOr1(it, "sx");
@@ -334,8 +294,7 @@ public static class P11TreatTrans
         public double X, Y, W, H, S, Rot, A;
     }
 
-    /// <summary>item 空间里的可见字形（JS glyphList；出入场逐字位移按 apply 时刻近似，见头注 3）。</summary>
-    private static List<Gly> GlyphList(Env env, JObject it)
+        private static List<Gly> GlyphList(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = JAnim.NumOr1(it, "sx");
@@ -361,8 +320,7 @@ public static class P11TreatTrans
         return @out;
     }
 
-    /// <summary>复制一份干净 item 给叠加通道用，钩子与特效字段全清空（JS bare）。</summary>
-    private static JObject Bare(JObject i, JObject? extra = null)
+        private static JObject Bare(JObject i, JObject? extra = null)
     {
         var c = (JObject)i.DeepClone();
         foreach (var k in new[] { "shadow", "extrude", "pattern", "patternBg", "gradient", "strokeDash", "bands", "vbands", "clip", "clipY", "blend" })
@@ -374,11 +332,9 @@ public static class P11TreatTrans
         return c;
     }
 
-    /// <summary>dash 描字没画完时别叠 fill 副本（JS tracing）。</summary>
-    private static bool Tracing(JObject i) => i["dash"] != null && D(i, "dash") < 1;
+        private static bool Tracing(JObject i) => i["dash"] != null && D(i, "dash") < 1;
 
-    /// <summary>副本绘制：临时换 env.CharFn（函数字段不进 JObject）。</summary>
-    private static void DrawCopy(Env env, JObject copy, JAnim.CharFn? charFn = null)
+        private static void DrawCopy(Env env, JObject copy, JAnim.CharFn? charFn = null)
     {
         var saved = env.CharFn;
         env.CharFn = charFn;
@@ -402,10 +358,7 @@ public static class P11TreatTrans
     private static JObject Shadow(string color, double blur, double dx, double dy) =>
         new() { ["color"] = color, ["blur"] = blur, ["dx"] = dx, ["dy"] = dy };
 
-    private static JObject SizedStroke(double stroke) => new() { ["stroke"] = stroke };
-
-    /// <summary>渐变 stops → JArray [[pos, color],…]。</summary>
-    private static JArray Grad(params (double Pos, string Col)[] stops)
+        private static JArray Grad(params (double Pos, string Col)[] stops)
     {
         var a = new JArray();
         foreach (var (pos, col) in stops)
@@ -413,15 +366,12 @@ public static class P11TreatTrans
         return a;
     }
 
-    // ---------------- trans 侧 helper（JS L1073-1103） ----------------
-
     private static double Bell(double k) => Math.Sin(Math.PI * J.Clamp(k));
     private static double IoQuart(double k) => k < 0.5 ? 8 * k * k * k * k : 1 - 8 * Math.Pow(1 - k, 4);
     private static double MinD(TransCtx i) => Math.Min(i.Cw, i.Ch);
     private static double LwOf(TransCtx i, double k = 0.006) => Math.Max(2, MinD(i) * k);
 
-    /// <summary>在前后两个背景上都读得出的 accent（JS tAcc）。</summary>
-    private static string TAcc(TransCtx i, bool second = false)
+        private static string TAcc(TransCtx i, bool second = false)
     {
         var sc = i.Sc;
         var pb = ScK(i.ScPrev ?? sc, "bg");
@@ -439,8 +389,7 @@ public static class P11TreatTrans
         Color = alpha < 0.999 ? new SKColor(255, 255, 255, (byte)Math.Round(J.Clamp(alpha) * 255)) : SKColors.White,
     };
 
-    /// <summary>把 C 的子矩形 (x,y,w,h) 原地平移 (dx,dy)，越界部分裁掉（JS part）。</summary>
-    private static void PartImg(SKCanvas ctx, SKImage c, double x, double y, double w, double h, double dx = 0, double dy = 0)
+        private static void PartImg(SKCanvas ctx, SKImage c, double x, double y, double w, double h, double dx = 0, double dy = 0)
     {
         var x0 = Math.Max(0, (int)Math.Floor(x));
         var y0 = Math.Max(0, (int)Math.Floor(y));
@@ -452,8 +401,7 @@ public static class P11TreatTrans
             new SKRect((float)(x0 + dx), (float)(y0 + dy), (float)(x0 + dx + (x1 - x0)), (float)(y0 + dy + (y1 - y0))), SampNearest, p);
     }
 
-    /// <summary>JS scaled：以 (cx,cy) 为中心缩放整图绘制。</summary>
-    private static void Scaled(SKCanvas ctx, SKImage c, double cw, double ch, double s, double? cx = null, double? cy = null,
+        private static void Scaled(SKCanvas ctx, SKImage c, double cw, double ch, double s, double? cx = null, double? cy = null,
         bool smooth = true, double alpha = 1)
     {
         var gx = cx ?? cw / 2;
@@ -491,19 +439,7 @@ public static class P11TreatTrans
         ctx.DrawRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), p);
     }
 
-    /// <summary>线性渐变矩形（JS createLinearGradient + fillRect）。</summary>
-    private static void GradientRect(SKCanvas ctx, double x, double y, double w, double h, SKPoint g0, SKPoint g1,
-        (float Pos, string Col, double A)[] stops)
-    {
-        using var shader = SKShader.CreateLinearGradient(g0, g1,
-            stops.Select(s => Env.SkColor(s.Col, s.A)).ToArray(),
-            stops.Select(s => s.Pos).ToArray(), SKShaderTileMode.Clamp);
-        using var p = new SKPaint { IsAntialias = true, Shader = shader };
-        ctx.DrawRect(new SKRect((float)x, (float)y, (float)(x + w), (float)(y + h)), p);
-    }
-
-    /// <summary>trReg 包装：p<=0 精确输出 A、p>=1 精确输出 B，结束时 ctx 状态干净。</summary>
-    private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
+        private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
         (ctx, a, b, p, i) =>
         {
             ctx.Save();
@@ -529,8 +465,6 @@ public static class P11TreatTrans
     private static void RegT(string key, TreatDef def) => Reg.Register("treat", key, def, Pk);
     private static void RegX(string key, TransDef def) => Reg.Register("trans", key, def, Pk);
 
-    // ================= treat（JS reg('treat', …) 出现序） =================
-
     private static void RegisterNeonOutline() => RegT("neonOutline", new TreatDef
     {
         Name = "ネオン管",
@@ -555,7 +489,6 @@ public static class P11TreatTrans
             it["strokeColor"] = tube;
             it["stroke"] = Math.Max(1.4, D(it, "size") * D(p, "k"));
             it["shadow"] = Shadow(Rgba(gc, dk ? 1 : 0.7), D(it, "size") * 0.07, 0, 0);
-            // 泛光垫底（addPre 就地执行；主通道只画一次）
             if (env.Pass == "main" && !Tracing(it))
             {
                 var s = D(it, "size");
@@ -674,7 +607,6 @@ public static class P11TreatTrans
             var cb = cands.Find(c => Ctr(c, ca) >= 1.3) ?? J.Mix(ca, ScK(sc, "bg"), 0.4);
             var mi = (int)D(it, "mi");
             var s0 = unchecked((int)J.H(unchecked((int)env.Cut.Seed), mi + 5, 43));
-            // addPre（就地执行）
             var step = unchecked((int)env.Step);
             var r = J.R(s0, step);
             var hit = r < 0.2 && env.Lt > env.Cut.InDur * 0.5;
@@ -734,7 +666,6 @@ public static class P11TreatTrans
             it["strokeColor"] = ScK(sc, "bg");
             it["strokeUnder"] = true;
             it["stroke"] = Math.Max(1.5, D(it, "size") * 0.028);
-            // addPre（就地执行）
             if (env.Pass != "main" || Tracing(it)) return;
             var s = D(it, "size");
             var d = s * D(p, "d");
@@ -786,7 +717,6 @@ public static class P11TreatTrans
             parts.Add((lo, 0.8));
             var fns = parts.Select(pr => (JAnim.CharFn)((gi, gl, n) => new CharXf { ClipY = new[] { pr.Lo, pr.Hi } })).ToArray();
             env.CharFns.Add(fns[0]);
-            // addPre：其余切段的副本（就地执行）
             if (Tracing(it)) return;
             for (var k = 1; k < fns.Length; k++)
             {
@@ -858,7 +788,6 @@ public static class P11TreatTrans
                 it["strokeUnder"] = true;
                 it["stroke"] = Math.Max(1.5, D(it, "size") * 0.06);
             }
-            // addPost（就地执行）
             if (env.Pass != "main" || Tracing(it)) return;
             var t0 = cut.InDur * 0.6;
             var t = Math.Max(0.3, (cut.Dur - cut.OutDur - t0) * D(p, "sp"));
@@ -938,7 +867,6 @@ public static class P11TreatTrans
                 if (J.IsPunct(g.Ch[0])) s = Math.Min(s, 0.9);
                 if (g.I < n) sp[g.I] = s;
             }
-            // 沿行重排让小字靠拢；偏移按 em 存
             var fArr = new double[n];
             var size0 = D(it, "size");
             var tr = NumNull(it, "track", 0) * size0;
@@ -1094,7 +1022,6 @@ public static class P11TreatTrans
                     ? new CharXf { S = k, Color = tc }
                     : new CharXf { S = k };
             });
-            // addPre（就地执行）
             PreFx(env, it, () =>
             {
                 var s = D(it, "size");
@@ -1113,7 +1040,6 @@ public static class P11TreatTrans
         },
     });
 
-    // 单字 item 首末配对标记（JS QUOTED WeakMap）
     private static readonly ConditionalWeakTable<Env, StrongBox<bool>> Quoted = new();
 
     private static void RegisterBracketsQuote() => RegT("bracketsQuote", new TreatDef
@@ -1151,7 +1077,6 @@ public static class P11TreatTrans
             }
             var sc = env.Sc!;
             var lc = MarkCol(sc, ColOfIt(env, it));
-            // 超宽就缩字号，给括弧让位
             var m = JLayouts.Measure(it);
             var vert = Truthy(it["vertical"]);
             var along = vert ? m.H : m.W;
@@ -1159,7 +1084,6 @@ public static class P11TreatTrans
             var cap = (vert ? (double)env.H : env.W) * 0.92;
             if (along + room > cap && along < cap * 1.05)
                 it["size"] = D(it, "size") * Math.Max(0.72, cap / (along + room));
-            // addPost（就地执行）
             PostFx(env, it, () =>
             {
                 var spans = LineSpans(env, it);
@@ -1219,7 +1143,6 @@ public static class P11TreatTrans
             var p = env.Cut!.TreatP;
             if (it == null || !Alive(it, 0.9)) return;
             var col = ColOfIt(env, it);
-            // addPre（就地执行）
             if (env.Pass != "main" || Tracing(it) || InPieces(env, it)) return;
             var m = JLayouts.Measure(it);
             var s = D(it, "size");
@@ -1296,7 +1219,6 @@ public static class P11TreatTrans
             var line = Truthy(p["c"])
                 ? FirstOK(new[] { sc.Str("accent"), sc.Str("accent2") }, c => Ctr(c, col) >= 2, sc.Str("bg"))!
                 : ScK(sc, "bg");
-            // addPost（就地执行）
             if (env.Pass != "main" || Tracing(it) || InPieces(env, it)) return;
             var s = D(it, "size");
             PostFx(env, it, () =>
@@ -1334,7 +1256,6 @@ public static class P11TreatTrans
             var edge = J.Mix(paper, "#000000", 0.16);
             if (!Truthy(it["vertical"]) || GlyphN(S(it, "text")) <= 4)
                 it["rot"] = NumNull(it, "rot", 0) + D(p, "rot") * ((int)D(it, "mi") % 2 != 0 ? -0.7 : 1);
-            // addPre（就地执行）
             if (env.Pass != "main" || InPieces(env, it)) return;
             var s = D(it, "size");
             PreFx(env, it, () =>
@@ -1465,8 +1386,7 @@ public static class P11TreatTrans
                     ? new CharXf { Dy = (Tgt(gci, gn, D(g, "w")) - D(g, "y")) * sy, S = 0.86 }
                     : new CharXf { Dx = (Tgt(gci, gn, D(g, "h")) - D(g, "x")) * sx, S = 0.86 };
             });
-            if (GlyphN(S(it, "text")) < 2 || OnPlate(sc, col)) return; // 单字 item、底板上的文字只吸附不画格
-            var tint = J.Mix(ScK(sc, "bg"), lc, IsDark(ScK(sc, "bg")) ? 0.1 : 0.08);
+            if (GlyphN(S(it, "text")) < 2 || OnPlate(sc, col)) return;             var tint = J.Mix(ScK(sc, "bg"), lc, IsDark(ScK(sc, "bg")) ? 0.1 : 0.08);
             PreFx(env, it, () =>
             {
                 var q = J.E.OutCubic(InP(env, it, 0, 0.45)) * (1 - J.E.InCubic(env.POut));
@@ -1520,8 +1440,7 @@ public static class P11TreatTrans
         },
     });
 
-    /// <summary>withFx 的 item 空间内 fillRect（ghostable 底色随 pass 走）。</summary>
-    private static void FillRectLocal(SKCanvas ctx, double x, double y, double w, double h, string color, double a, Env env)
+        private static void FillRectLocal(SKCanvas ctx, double x, double y, double w, double h, string color, double a, Env env)
     {
         var col = env.ColOf(color, true);
         if (col == null || a <= 0.003) return;
@@ -1551,7 +1470,6 @@ public static class P11TreatTrans
             it["fill"] = false;
             it["strokeColor"] = col;
             it["stroke"] = Math.Max(1.4, D(it, "size") * D(p, "k"));
-            // addPre（就地执行）
             if (env.Pass != "main" || Tracing(it)) return;
             var d = D(it, "size") * D(p, "d");
             var dir = ((JArray?)p["dir"])?.Select(D0).ToArray() ?? new[] { 1.0, 1.0 };
@@ -1587,7 +1505,6 @@ public static class P11TreatTrans
             var col = ColOfIt(env, it);
             var tc = FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("fg"), sc.Str("ink") },
                 c => Ctr(c, ScK(sc, "bg")) >= 2.2 && Ctr(c, col) >= 1.3, MarkCol(sc, col))!;
-            // addPre（就地执行）
             if (env.Pass != "main" || Tracing(it) || InPieces(env, it)) return;
             var d = D(it, "size") * D(p, "d");
             var dir = ((JArray?)p["dir"])?.Select(D0).ToArray() ?? new[] { 1.0, 1.0 };
@@ -1659,7 +1576,6 @@ public static class P11TreatTrans
                 ? new CharXf { ClipX = new[] { -0.75, at } }
                 : new CharXf { ClipY = new[] { -0.75, at } });
             env.CharFns.Add(topFn);
-            // addPre（就地执行）
             if (Tracing(it)) return;
             var q = J.E.OutBack(InP(env, it, env.Cut.InDur * 0.55, 0.3), 2.2) * (1 - J.E.InCubic(env.POut));
             var s = D(it, "size");
@@ -1728,7 +1644,6 @@ public static class P11TreatTrans
         },
     });
 
-    // 一字强调的整句唯一标记（JS SPOT WeakMap）
     private static readonly ConditionalWeakTable<Env, StrongBox<bool>> SpotMap = new();
 
     private static void RegisterSpotChar() => RegT("spotChar", new TreatDef
@@ -1747,8 +1662,7 @@ public static class P11TreatTrans
             var it = env.It;
             var p = env.Cut!.TreatP;
             if (it == null || !Alive(it, 0.9)) return;
-            if (SpotMap.TryGetValue(env, out var seen) && seen.Value) return; // 整句只挑一处
-            var lay = JText.LayoutText(it);
+            if (SpotMap.TryGetValue(env, out var seen) && seen.Value) return;             var lay = JText.LayoutText(it);
             var gs = lay.Cells.Where(g => !IsSp(g.Ch) && !J.IsPunct(g.Ch[0])).ToList();
             if (gs.Count == 0) return;
             JText.GlyphCell Choose(IEnumerable<JText.GlyphCell> list)
@@ -1885,8 +1799,6 @@ public static class P11TreatTrans
             });
         },
     });
-
-    // ================= trans（JS trReg('trans', …) 出现序） =================
 
     private static void RegisterWipe() => RegX("wipe", new TransDef
     {
@@ -2162,7 +2074,6 @@ public static class P11TreatTrans
             if (h) DrawImg(ctx, a, ao, 0);
             else DrawImg(ctx, a, 0, ao);
             FillRect(ctx, 0, 0, cw, ch, "#000000", 0.45 * e);
-            // 入场边前方一道软阴影
             var sw = MinD(i) * 0.06;
             var edge = h ? (sg > 0 ? cw + bo : bo) : (sg > 0 ? ch + bo : bo);
             ShadowBand(ctx, h, cw, ch, edge, sg * sw, 0.45 * Bell(p));
@@ -2171,8 +2082,7 @@ public static class P11TreatTrans
         }),
     });
 
-    /// <summary>入场边前方一道软阴影：沿边线的线性渐变矩形（cover/uncover 共用）。</summary>
-    private static void ShadowBand(SKCanvas ctx, bool h, double cw, double ch, double edge, double dSw, double alpha)
+        private static void ShadowBand(SKCanvas ctx, bool h, double cw, double ch, double edge, double dSw, double alpha)
     {
         SKPoint g0, g1;
         SKRect rect;
@@ -2505,8 +2415,7 @@ public static class P11TreatTrans
         }),
     });
 
-    /// <summary>墨滴路径（JS blobPath：过各边中点的二次贝塞尔闭合曲线）。</summary>
-    private static SKPath BlobPath(double cx, double cy, double r, int s0, double ph, int n = 56)
+        private static SKPath BlobPath(double cx, double cy, double r, int s0, double ph, int n = 56)
     {
         var pts = new List<double[]>();
         for (var i = 0; i < n; i++)
@@ -2724,7 +2633,6 @@ public static class P11TreatTrans
             var dir = D(pp, "dir");
             var back = J.Mix(J.Mix(ScK(i.ScPrev ?? i.Sc, "bg"), ScK(i.Sc, "bg"), p), "#000000", 0.55);
             FillRect(ctx, 0, 0, cw, ch, back, 1);
-            // 竖棱的 (x,z) 旋转后投影成屏幕 x 和半高
             double[] Prj(double x, double z)
             {
                 var xr = (x * cs - z * sn) * dir;
@@ -2764,7 +2672,6 @@ public static class P11TreatTrans
                     ctx.DrawPath(path, sp);
                 }
             }
-            // A 贴正面，B 贴侧面；dir<0 时镜像
             Face(a, -1, 1, 1, 1, 0.55 * (1 - cs));
             Face(b, 1, 1, 1, -1, 0.55 * (1 - sn));
         }),

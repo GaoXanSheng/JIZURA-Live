@@ -13,13 +13,8 @@ public sealed class AutoOptions
 public sealed class AutoReport
 {
     public int CameraShots;
-    public int EffectInstances;
 
-    public int EffectWindows;
-
-    public int CurveKeys;
     public int CharacterKeys;
-    public int DecorLayers;
     public int TransSegments;
     public List<string> Notes = new();
 }
@@ -34,11 +29,7 @@ public static partial class AutoDirector
 
     private static bool IsUser(string? source) => string.Equals(source, "user", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// 原版 PV 引擎的舞台叠加层：沿用引擎 Plan 的 cut/运镜/转场，
-    /// 只把角色层和整体转场缝上去。布局、文字处理仍由原版引擎负责。
-    /// </summary>
-    public static AutoReport GenerateLegacyStage(DirectorProject project, LegacyPvPlanInfo plan,
+        public static AutoReport GenerateLegacyStage(DirectorProject project, LegacyPvPlanInfo plan,
         BeatMap? map, AutoOptions options)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -176,13 +167,6 @@ public static partial class AutoDirector
         return keptShots;
     }
 
-    private static void Spike(FloatCurve c, double t, double baseVal, double peak, double decay)
-    {
-        Key(c, t - 0.03, baseVal, CurveInterp.Linear);
-        Key(c, t, peak, CurveInterp.SmoothStep);
-        Key(c, t + decay, baseVal, CurveInterp.Linear);
-    }
-
     private static bool TransitionsLockedNear(DirectorProject project, double time, double dur)
     {
         foreach (var seg in project.DesignSegments)
@@ -194,20 +178,4 @@ public static partial class AutoDirector
         return false;
     }
 
-    private static void Key(FloatCurve c, double t, double v, CurveInterp mode)
-    {
-        if (!double.IsFinite(t) || !double.IsFinite(v)) return;
-        c.TryAdd(Math.Max(0, t), v, mode);
-    }
-
-    private static int Save(DirectorProject project, string address, string? layer, CurveBlend blend, FloatCurve curve, int minKeys = 1)
-    {
-        curve.NormalizeKeys();
-        if (curve.Count < minKeys) return 0;
-        if (project.Curves.Any(c => string.Equals(c.Address, address, StringComparison.Ordinal)
-                                    && string.Equals(c.Layer, layer, StringComparison.Ordinal)))
-            return 0;
-        project.Curves.Add(new CurveSave { Address = address, Curve = curve, Layer = layer, Blend = blend, Source = "auto" });
-        return curve.Count;
-    }
 }

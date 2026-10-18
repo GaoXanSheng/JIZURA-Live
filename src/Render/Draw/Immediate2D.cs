@@ -18,10 +18,6 @@ public sealed class Immediate2D : IDisposable
     public int Width { get; private set; }
     public int Height { get; private set; }
 
-    public Matrix3x2 Matrix => _matrix;
-
-    public int SaveCount => _stack.Count;
-
     private readonly struct StateEntry
     {
         public readonly Matrix3x2 Matrix;
@@ -68,8 +64,6 @@ public sealed class Immediate2D : IDisposable
             H = h;
         }
     }
-
-    public bool InSurface => _surfaceStack.Count > 0;
 
     private Matrix3x2 _matrix = Matrix3x2.Identity;
     private Blend2D _blend = Blend2D.SrcOver;
@@ -136,12 +130,6 @@ public sealed class Immediate2D : IDisposable
         _antialias = e.Antialias;
     }
 
-    public void RestoreToCount(int count)
-    {
-        count = Math.Clamp(count, 0, _stack.Count);
-        while (_stack.Count > count) Restore();
-    }
-
     public void Translate(float x, float y)
     {
         _matrix = Matrix3x2.Multiply(_matrix, Matrix3x2.CreateTranslation(x, y));
@@ -157,32 +145,6 @@ public sealed class Immediate2D : IDisposable
     public void Rotate(float degrees)
     {
         _matrix = Matrix3x2.Multiply(_matrix, Matrix3x2.CreateRotation(degrees * MathF.PI / 180f));
-        Rt.Transform = _matrix;
-    }
-
-    public void RotateRadians(float radians)
-    {
-        _matrix = Matrix3x2.Multiply(_matrix, Matrix3x2.CreateRotation(radians));
-        Rt.Transform = _matrix;
-    }
-
-    public void Rotate(float degrees, float px, float py)
-    {
-        Translate(px, py);
-        Rotate(degrees);
-        Translate(-px, -py);
-    }
-
-    public void Skew(float kx, float ky)
-    {
-        var m = new Matrix3x2(1, ky, kx, 1, 0, 0);
-        _matrix = Matrix3x2.Multiply(_matrix, m);
-        Rt.Transform = _matrix;
-    }
-
-    public void Concat(Matrix3x2 m)
-    {
-        _matrix = Matrix3x2.Multiply(_matrix, m);
         Rt.Transform = _matrix;
     }
 
@@ -255,45 +217,6 @@ public sealed class Immediate2D : IDisposable
         finally { EndDraw(); }
     }
 
-    public void DrawRect(Rect r, Paint2D p)
-    {
-        if (p.IsStroke) StrokeRect(r, p);
-        else FillRect(r, p);
-    }
-
-    public void FillRoundRect(Rect r, float rx, float ry, Paint2D p)
-    {
-        var rr = new RoundedRectangle(new Vortice.RawRectF(r.Left, r.Top, r.Right, r.Bottom), rx, ry);
-        if (BeginDraw(p) is not { } b) return;
-        try { Rt.FillRoundedRectangle(rr, b); }
-        finally { EndDraw(); }
-    }
-
-    public void StrokeRoundRect(Rect r, float rx, float ry, Paint2D p)
-    {
-        var rr = new RoundedRectangle(new Vortice.RawRectF(r.Left, r.Top, r.Right, r.Bottom), rx, ry);
-        var w = MathF.Max(0.01f, p.StrokeWidth);
-
-        var style = StrokeStyle(p);
-        if (BeginDraw(p) is not { } b) return;
-        try
-        {
-            if (style is null) Rt.DrawRoundedRectangle(rr, b, w);
-            else
-            {
-                var s = style;
-                Rt.DrawRoundedRectangle(rr, b, w, s);
-            }
-        }
-        finally { EndDraw(); }
-    }
-
-    public void DrawRoundRect(Rect r, float rx, float ry, Paint2D p)
-    {
-        if (p.IsStroke) StrokeRoundRect(r, rx, ry, p);
-        else FillRoundRect(r, rx, ry, p);
-    }
-
     public void DrawLine(float x0, float y0, float x1, float y1, Paint2D p)
     {
         var a = new Vector2(x0, y0);
@@ -301,13 +224,6 @@ public sealed class Immediate2D : IDisposable
         if (BeginDraw(p) is not { } b) return;
         try { Rt.DrawLine(a, b2, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)); }
         finally { EndDraw(); }
-    }
-
-    public void DrawPoint(float x, float y, Paint2D p)
-    {
-        var s = MathF.Max(0.5f, p.StrokeWidth);
-        if (p.StrokeCap == StrokeCap2D.Round) FillCircle(x, y, s / 2f, p);
-        else FillRect(new Rect(x - s / 2f, y - s / 2f, s, s), p);
     }
 
     public void FillCircle(float cx, float cy, float radius, Paint2D p)
@@ -326,55 +242,12 @@ public sealed class Immediate2D : IDisposable
         finally { EndDraw(); }
     }
 
-    public void DrawCircle(float cx, float cy, float radius, Paint2D p)
-    {
-        if (p.IsStroke) StrokeCircle(cx, cy, radius, p);
-        else FillCircle(cx, cy, radius, p);
-    }
-
-    public void DrawOval(Rect r, Paint2D p)
-    {
-        var e = new Ellipse(new Vector2((r.Left + r.Right) / 2f, (r.Top + r.Bottom) / 2f),
-            (r.Right - r.Left) / 2f, (r.Bottom - r.Top) / 2f);
-        if (BeginDraw(p) is not { } b) return;
-        try
-        {
-            if (p.IsStroke) Rt.DrawEllipse(e, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p));
-            else Rt.FillEllipse(e, b);
-        }
-        finally { EndDraw(); }
-    }
-
     public void FillPath(Path2D path, Paint2D p)
     {
         var geo = path.Geometry;
         if (geo is null) return;
         if (BeginDraw(p) is not { } b) return;
         try { Rt.FillGeometry(geo, b); }
-        finally { EndDraw(); }
-    }
-
-    public void StrokePath(Path2D path, Paint2D p)
-    {
-        var geo = path.Geometry;
-        if (geo is null) return;
-        if (BeginDraw(p) is not { } b) return;
-        try { Rt.DrawGeometry(geo, b, MathF.Max(0.01f, p.StrokeWidth), StrokeStyle(p)); }
-        finally { EndDraw(); }
-    }
-
-    public void DrawPath(Path2D path, Paint2D p)
-    {
-        if (p.IsStroke) StrokePath(path, p);
-        else FillPath(path, p);
-    }
-
-    public void DrawImage(Image2D img, Rect dest, float alpha = 1f,
-        BitmapInterpolationMode interp = BitmapInterpolationMode.Linear)
-    {
-        if (alpha <= 0.001f) return;
-        if (BeginDraw(new Paint2D { Alpha = alpha }) is null) return;
-        try { Rt.DrawBitmap(img.Bitmap, dest, Math.Clamp(alpha, 0f, 1f), interp, null); }
         finally { EndDraw(); }
     }
 
@@ -450,68 +323,6 @@ public sealed class Immediate2D : IDisposable
         Ctx.DrawImage(image, InterpolationMode.Linear, EffectChain.ToComposite(p.Blend));
 
         ReturnSurface(frame.Surface, frame.W, frame.H);
-    }
-
-    public Surface2D CreateSurface(int width, int height)
-    {
-        width = Math.Max(1, width);
-        height = Math.Max(1, height);
-        var props = new BitmapProperties1(
-            new Vortice.DCommon.PixelFormat(Vortice.DXGI.Format.B8G8R8A8_UNorm,
-                Vortice.DCommon.AlphaMode.Premultiplied),
-            96f, 96f, BitmapOptions.Target);
-        return new Surface2D(Ctx.CreateBitmap(new SizeI(width, height), props), width, height);
-    }
-
-    public void PushSurface(Surface2D surface, bool clear = true)
-    {
-        _surfaceStack.Add(new SurfaceFrame(surface.Bitmap, Ctx.Target, _matrix, surface.Width, surface.Height));
-        Ctx.Target = surface.Bitmap;
-        _matrix = Matrix3x2.Identity;
-        Rt.Transform = _matrix;
-        if (clear) Ctx.Clear(new Color4(0f, 0f, 0f, 0f));
-    }
-
-    public void PopSurface()
-    {
-        if (_surfaceStack.Count == 0) return;
-        var frame = _surfaceStack[^1];
-        _surfaceStack.RemoveAt(_surfaceStack.Count - 1);
-        Ctx.Target = frame.PrevTarget;
-        _matrix = frame.PrevMatrix;
-        Rt.Transform = _matrix;
-    }
-
-    public void DrawComposite(Paint2D p, Surface2D backdrop, Surface2D layer, Rect? dest = null)
-    {
-        var chain = _effects ??= new EffectChain(Ctx);
-
-        ID2D1Image image;
-        CompositeMode composite;
-        if (EffectChain.IsDirectComposite(p.Blend))
-        {
-            image = chain.WrapOpacity(layer.Image, p.Alpha);
-            composite = EffectChain.ToComposite(p.Blend);
-        }
-        else
-        {
-            image = chain.BlendImages(backdrop.Image, layer.Image, p.Blend);
-            image = chain.WrapOpacity(image, p.Alpha);
-            composite = CompositeMode.SourceOver;
-        }
-
-        if (dest is { } r)
-        {
-            Save();
-            Translate(r.Left, r.Top);
-            Scale(r.Width / MathF.Max(1f, backdrop.Width), r.Height / MathF.Max(1f, backdrop.Height));
-            Ctx.DrawImage(image, InterpolationMode.Linear, composite);
-            Restore();
-        }
-        else
-        {
-            Ctx.DrawImage(image, InterpolationMode.Linear, composite);
-        }
     }
 
     private ID2D1Bitmap1 RentSurface(int w, int h)

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
@@ -12,7 +12,6 @@ using System.Windows.Media;
 using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
-using JizuraLive.Engine.Music;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
 using JizuraLive.Render.Draw;
@@ -58,6 +57,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private string? _saveError;
     private System.Windows.Threading.DispatcherTimer? _uiTimer;
     private System.Windows.Threading.DispatcherTimer? _playheadTimer;
+    private System.Windows.Threading.DispatcherTimer? _vtsTimer;
     private readonly List<PvLayerConfig> _uiLayers = new();
     private int _projectEpoch;
     private System.Windows.Point _dragStart;
@@ -98,6 +98,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private bool _inspectorCollapsed;
 
     private int _step = -1;
+    private bool _syncingNav;
 
     private bool _syncingToggles;
     private bool _syncingExportForm;
@@ -117,12 +118,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private bool _spoutTransparent;
     private readonly string _spoutName;
 
-    private bool _ready => _pipe is { Ready: true };
-
     public PvStageWindow()
     {
         InitializeComponent();
         Left.Owner = this;
+        InitVts();
 
         var settings = App.SettingsOf();
         _broadcastOn = settings?.SpoutEnabled ?? false;
@@ -164,6 +164,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.SegmentDeselected += Timeline_SegmentDeselected;
         TheTimeline.SegmentTimeEdited += Timeline_SegmentTimeEdited;
         TheTimeline.SegmentDeleteRequested += Timeline_SegmentDeleteRequested;
+        TheTimeline.VtsCueDeleteRequested += Timeline_VtsCueDeleteRequested;
         TheTimeline.ValuePrompt = PromptTimelineValueAsync;
         TheTimeline.Fps = _scene.Fps;
 
@@ -388,6 +389,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         _uiTimer?.Stop();
         _playheadTimer?.Stop();
+        _vtsTimer?.Stop();
 
         var pipe = _pipe;
         pipe?.StopPumping();
@@ -399,6 +401,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             Log.Error("[PV 工作台] 停机握手未完成，管线留给渲染线程收尾");
             return;
         }
+
+        ResetVtsMove();
+        _vts.Dispose();
 
         if (pipe is not null)
             Log.Info($"[PV 工作台] 已按握手关闭（{_scene.Layers.Count} 层，Spout 取帧最长 {maxRecv:F1} ms）");
@@ -1204,54 +1209,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
-    private void StartMusicAnalysis(string path)
-    {
-        _musicCts?.Cancel();
-        var cts = new CancellationTokenSource();
-        _musicCts = cts;
-        _beatMap = null;
-
-        Task.Run(() =>
-        {
-            BeatMap? map = null;
-            try
-            {
-                map = SongAnalyzer.AnalyzeFile(path, cts.Token);
-            }
-            catch (Exception ex)
-            {
-                if (!cts.IsCancellationRequested) Log.Warn("[工作台] 音乐分析失败：" + ex.Message);
-            }
-
-            Dispatcher.BeginInvoke(() =>
-            {
-                if (!ReferenceEquals(_musicCts, cts)) return;
-                if (map is null) return;
-
-                _beatMap = map;
-                TblAutoReport.Text =
-                    $"BPM {map.Bpm:F1} · 段落 {map.Sections.Count} 段 · 下拍 {map.Downbeats.Count} 个\n"
-                    + $"段落序列 {SectionSequence(map)}";
-                if (_legacyPlanInfo is { } legacyPlan)
-                    ApplyLegacyPlan(legacyPlan, force: true);
-            });
-        });
-    }
-
-    private static string SectionSequence(BeatMap map) =>
-        string.Join("→", map.Sections.Where(s => s is not null).Select(s => SectionKindLabel(s.Kind)));
-
-    private static string SectionKindLabel(string? kind) => (kind ?? "").Trim().ToLowerInvariant() switch
-    {
-        "intro" => "前奏",
-        "verse" => "主歌",
-        "chorus" => "副歌",
-        "bridge" => "桥段",
-        "outro" => "尾奏",
-        "break" => "间奏",
-        var other => other,
-    };
-
     private static int ChorusCount(BeatMap map) =>
         map.Sections.Count(s => s is not null && s.Kind.Equals("chorus", StringComparison.OrdinalIgnoreCase));
 
@@ -1699,10 +1656,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TblStatus.Text = _saveError is null ? "工程已保存" : $"保存失败：{_saveError}";
     }
 
-    private void BtnSave_Click(object sender, RoutedEventArgs e) => SaveNow();
-
-    private void BtnSaveAs_Click(object sender, RoutedEventArgs e) => SaveProjectAs();
-
     private void BtnUndo_Click(object sender, RoutedEventArgs e) => UndoRedo(true);
 
     private void BtnRedo_Click(object sender, RoutedEventArgs e) => UndoRedo(false);
@@ -1743,6 +1696,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void SetStep(int index)
     {
+        if (PanelMedia is null) return;
         _step = index;
 
         PanelMedia.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -1752,20 +1706,28 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         PanelOutput.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed;
         PanelSettings.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
 
-        NavMedia.Appearance = AppearanceOf(index == 0);
-        NavStyle.Appearance = AppearanceOf(index == 1);
-        NavTech.Appearance = AppearanceOf(index == 2);
-        NavDirector.Appearance = AppearanceOf(index == 3);
-        NavOutput.Appearance = AppearanceOf(index == 4);
-        NavSettings.Appearance = AppearanceOf(index == 5);
+        if (!_syncingNav)
+        {
+            _syncingNav = true;
+            try
+            {
+                NavMedia.IsChecked = index == 0;
+                NavStyle.IsChecked = index == 1;
+                NavTech.IsChecked = index == 2;
+                NavDirector.IsChecked = index == 3;
+                NavOutput.IsChecked = index == 4;
+                NavSettings.IsChecked = index == 5;
+            }
+            finally
+            {
+                _syncingNav = false;
+            }
+        }
 
         if (index == 0) RefreshMediaPanel();
         if (index == 1) EnsureStylePanel();
         if (index == 2) EnsureTechPanel();
         if (index == 5) SyncSettingsPanel();
-
-        static Wpf.Ui.Controls.ControlAppearance AppearanceOf(bool selected) =>
-            selected ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Transparent;
     }
 
     private void SyncSettingsPanel()
@@ -1797,6 +1759,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
             SelectCanvasPreset(_scene.Width, _scene.Height);
             SyncPvRenderOption();
+            UpdateVtsUi();
         }
         finally
         {

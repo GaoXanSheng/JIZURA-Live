@@ -99,6 +99,46 @@ public sealed class FloatCurve
         }
     }
 
+    public void SmoothBezierHandles()
+    {
+        NormalizeKeys();
+        var count = Keys.Count;
+        if (count == 0) return;
+
+        for (var i = 0; i < count; i++)
+        {
+            var key = Keys[i];
+            var slope = 0.0;
+            if (i > 0 && i + 1 < count)
+            {
+                var span = Keys[i + 1].Time - Keys[i - 1].Time;
+                if (span > TimeEpsilon) slope = (Keys[i + 1].Value - Keys[i - 1].Value) / span;
+            }
+
+            var outY = i + 1 < count
+                ? HandleRatio(slope, Keys[i + 1].Time - key.Time, Keys[i + 1].Value - key.Value)
+                : 0;
+            var inY = i > 0
+                ? HandleRatio(slope, key.Time - Keys[i - 1].Time, key.Value - Keys[i - 1].Value)
+                : 0;
+
+            Keys[i] = key with
+            {
+                Mode = CurveInterp.Bezier,
+                OutX = 0.333,
+                OutY = outY,
+                InX = 0.333,
+                InY = inY,
+            };
+        }
+
+        static double HandleRatio(double slope, double dt, double dv)
+        {
+            if (Math.Abs(dv) < 1e-9 || dt <= TimeEpsilon) return 0.333;
+            return Math.Clamp(slope * dt / (3 * dv), -2, 2);
+        }
+    }
+
     public double Evaluate(double time)
     {
         if (Keys.Count == 0)

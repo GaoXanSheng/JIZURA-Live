@@ -9,9 +9,6 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Server.Netease;
 
-// 网易云加密与登录态。加密方案与常量经 2026-09 实测验证（对齐 NeteaseCloudMusicApi v4.2.0 的 util/crypto.js）：
-//   weapi：AES-CBC 两重（presetKey → 随机 16 字符 key），RSA 无填充加密反转后的随机 key
-//   eapi ：AES-128-ECB，明文为 url/明文/md5 摘要以分隔符拼接（见 EapiParams），响应同 key 解密
 public sealed partial class NeteaseClient
 {
     private const string WeapiPresetKey = "0CoJUm6Qyw8W8jud";
@@ -29,7 +26,6 @@ public sealed partial class NeteaseClient
                                      -----END PUBLIC KEY-----
                                      """;
 
-    // 登录态（MUSIC_U 等）与 settings.json 同放 %LOCALAPPDATA%\JizuraLive\config，同 kg_login.json 惯例
     private static readonly string StateFile = Path.Combine(AppDirs.ConfigDir, "ne_login.json");
     private static readonly SemaphoreSlim _stateLock = new(1, 1);
 
@@ -61,22 +57,6 @@ public sealed partial class NeteaseClient
         }
     }
 
-    private static JObject NeSave(JObject patch)
-    {
-        _stateLock.Wait();
-        try
-        {
-            var s = NeStateInternal();
-            foreach (var p in patch.Properties()) s[p.Name] = p.Value;
-            AtomicFile.Write(StateFile, s.ToString(Formatting.Indented));
-            return s;
-        }
-        finally
-        {
-            _stateLock.Release();
-        }
-    }
-
     private static string S(JObject o, string key)
     {
         return o[key]?.ToString() ?? "";
@@ -99,7 +79,6 @@ public sealed partial class NeteaseClient
         return enc.TransformFinalBlock(b, 0, b.Length);
     }
 
-    // 大端字节块转正 BigInteger，前补 0x00 防止符号位
     private static BigInteger ToBig(byte[] bigEndian)
     {
         var le = new byte[bigEndian.Length + 1];
@@ -108,7 +87,6 @@ public sealed partial class NeteaseClient
         return new BigInteger(le);
     }
 
-    // RSA 无填充：数据左补零到 128 字节当大端整数，modpow(e, n)，结果 256 位十六进制
     private static string RsaNoPadHex(BigInteger n, BigInteger e, byte[] data)
     {
         var block = new byte[128];

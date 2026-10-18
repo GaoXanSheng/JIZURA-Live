@@ -6,7 +6,6 @@ using SkiaSharp;
 
 namespace JizuraLive.App.PvStage;
 
-/// <summary>用原版引擎的 Planner.PreviewPlan 渲染手法缩略图。</summary>
 internal static class TechniquePreview
 {
     private static readonly Dictionary<string, BitmapSource?> Cache = new(StringComparer.Ordinal);

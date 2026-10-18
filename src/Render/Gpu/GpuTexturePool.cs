@@ -61,14 +61,6 @@ public sealed class GpuTexturePool : IDisposable
         }
     }
 
-    public readonly record struct PoolStats(
-        int FreeCount,
-        long FreeBytes,
-        int LeasedCount,
-        long AllocatedBytes,
-        long Evictions,
-        long DoubleReturns);
-
     private readonly ID3D11Device _device;
     private readonly long _freeCacheBudgetBytes;
     private readonly int _maxFreePerSize;
@@ -163,9 +155,6 @@ public sealed class GpuTexturePool : IDisposable
 
         TrimFreeCache((entry.Width, entry.Height));
     }
-
-    public PoolStats GetStats() =>
-        new(_freeCount, _freeBytes, _leased.Count, _allocatedBytes, _evictions, _doubleReturns);
 
     public IReadOnlyList<Entry> LiveEntries => _all;
 

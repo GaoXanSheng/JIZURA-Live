@@ -1,28 +1,3 @@
-// 移植自 frontend/src/engine/11p_typo3.js（排版装饰 + 文字 treat + 两个打字机式转场，
-// pack = 'typo3'：6 decor + 4 treat + 2 trans）。
-//
-// 契约与 JDecor.cs / P11Decor、P11TreatTrans 相同：
-// · decor：DecorDef.Draw(env, DecorSpec)，bb 从 env.Body 读（空时 getBB 回退画面中央 + 按 cut
-//   缓存最近有效框）；参数 Pd → DecorSpec（right/low/v/n/accent…planner 的 DecorParams 供给）。
-// · treat：TreatDef.Draw(env) 在 MainDraw 的 treat 调用点执行；env.It 是当前 item、
-//   env.Cut.TreatP 是 plan 参数（键名 = JS plan 对象字段，一字不改）；charFns.push → env.CharFns.Add。
-// · trans：TransDef.Draw = TransDrawFn(ctx, A, B, p, TransCtx)（Renderer.cs M2 定型）；trReg 的
-//   p<=0 精确输出 A / p>=1 精确输出 B 包装本地重做（P11TreatTrans.Wrap 私有，不跨文件引用）。
-//
-// 源文件 reg/trReg 的 Object.assign({set:'typo'}, def)：`set`（11q_sets 手法集归属）与 `ae`
-// （AE 导出模板名）在 Def 类上没有对应属性，未注册——TODO(Sets/11_export)。
-//
-// 管线缺口与降级（本文件内解决，与 P11TreatTrans 同约定，不改共享文件）：
-// 1. addPost：已接管线钩子（Env.PostFn → JLayouts.DrawFx，画在主文字上方；AddPost 链式）。
-// 2. lineSpans / tyIndexSup 的 it.charFn：apply 时管线尚未 CombineChar，读 env.CharFn（此时为
-//    null）→ 字形按静态布局位置取（JS 里该 fn 也只影响藏字判定）。
-// 3. tyColophon 的 cornerSpot 传 {…Pd, low: Pd.low !== false}：planner 的 DecorParams 恒填
-//    bool low，`!== false` 恒等于原值——直接传 Pd。
-// 4. trans 的 part()：JS drawImage 九参裁剪拷贝 → SKCanvas.DrawImage(srcRect, dstRect)。
-//
-// 跨文件符号对位：J.layoutText→JText.LayoutText、J.measure→JLayouts.Measure、J.centerBB→
-// JLayouts.CenterBb、J.romaji/fmtTime/glyphCount/isKanji/isPunct/isSmallKana/mix/contrast→J.*、
-// env.st.fonts[role][0]→JLayouts.Font0、rng.*→Rng.*。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -37,12 +12,9 @@ public static class P11Typo3
     private const string P = "typo3";
     private static int _installed;
 
-    // JS reg 助手：Object.assign({set: SET('typo')}, def)
     private static void RegD(string key, DecorDef def) { def.Set = "typo"; Reg.Register("decor", key, def, P); }
     private static void RegT(string key, TreatDef def) { def.Set = "typo"; Reg.Register("treat", key, def, P); }
     private static void RegX(string key, TransDef def) { def.Set = "typo"; Reg.Register("trans", key, def, P); }
-
-    // ================= 本包 helper（JS L10-88 + L316-366 + L492-515 逐条对位） =================
 
     private static bool IsSp(string c) => c is " " or "　";
 
@@ -52,17 +24,14 @@ public static class P11Typo3
     private static string BodyF(Env env) => JLayouts.Font0(env.St, "body") ?? "gothic_med";
     private static string SerifF(Env env) => JLayouts.Font0(env.St, "serif") ?? "mincho";
 
-    /// <summary>outE(env)：退场剩余量 1 - inCubic(pOut)。JS L14。</summary>
-    private static double OutE(Env env) => 1 - J.E.InCubic(env.POut);
+        private static double OutE(Env env) => 1 - J.E.InCubic(env.POut);
 
-    /// <summary>inE(env, d, delay)：outExpo 进场。JS L15。</summary>
-    private static double InE(Env env, double d = 0.4, double delay = 0) =>
+        private static double InE(Env env, double d = 0.4, double delay = 0) =>
         J.E.OutExpo(J.Clamp((env.Lt - delay) / d));
 
     private static string Pad2(double n) => ((long)n).ToString(CultureInfo.InvariantCulture).PadLeft(2, '0');
 
-    /// <summary>FS(env)：注记基准字号。JS L17。</summary>
-    private static double FS(Env env) => Math.Max(11, 16 * U(env));
+        private static double FS(Env env) => Math.Max(11, 16 * U(env));
 
     private static string AccentOf(Scheme sc) =>
         J.Contrast(sc.Str("accent") ?? "", sc.Str("bg") ?? "") >= 1.8 ? sc.Str("accent")! : sc.Str("fg")!;
@@ -73,7 +42,6 @@ public static class P11Typo3
     private static bool HitBB(double x0, double y0, double x1, double y1, BBox bb, double pad = 0) =>
         !(x1 < bb.X0 - pad || x0 > bb.X1 + pad || y1 < bb.Y0 - pad || y0 > bb.Y1 + pad);
 
-    // 记住 cut 最近一次的真实 bbox，歌词隐藏时 decor 不至于跳位（JS WeakMap → CWT）
     private static readonly ConditionalWeakTable<Cut, BBox> Bbc = new();
 
     private static BBox GetBB(Env env, BBox? bb)
@@ -109,8 +77,7 @@ public static class P11Typo3
         public int Sx = -1, Sy = -1;
     }
 
-    /// <summary>边距内一块不压到歌词的屏幕角落；ok=false 表示四个角都放不下。JS cornerSpot L43-51。</summary>
-    private static Spot CornerSpot(Env env, BBox bb, double w, double h, DecorSpec p)
+        private static Spot CornerSpot(Env env, BBox bb, double w, double h, DecorSpec p)
     {
         var W = (double)env.W;
         var H = (double)env.H;
@@ -127,8 +94,7 @@ public static class P11Typo3
         return new Spot { X = m, Y = m, Ok = false, Sx = -1, Sy = -1 };
     }
 
-    /// <summary>label：小注记（只走主通道 env.draw）。JS L53-64。</summary>
-    private static void Label(Env env, string text, double x, double y,
+        private static void Label(Env env, string text, double x, double y,
         double? size = null, string? font = null, string? align = null, double? track = null,
         string? color = null, double? alpha = null)
     {
@@ -150,8 +116,7 @@ public static class P11Typo3
     private static double TextW(string text, string font, double size, double track = 0.12) =>
         JLayouts.Measure(new JObject { ["text"] = text, ["font"] = font, ["size"] = size, ["track"] = track }).W;
 
-    /// <summary>keyChar：歌词的关键字。JS L66-70。</summary>
-    private static string? KeyChar(string? text)
+        private static string? KeyChar(string? text)
     {
         var arr = JLayouts.CodePoints(text ?? "");
         var k = arr.FirstOrDefault(c => c.Length > 0 && J.IsKanji(c[0]))
@@ -160,8 +125,7 @@ public static class P11Typo3
         return string.IsNullOrEmpty(k) ? null : k;
     }
 
-    /// <summary>歌词的字形边缘位置（横排取 x），取自 bbox 的 glyph boxes，缺了就均匀铺。JS L72-88。</summary>
-    private static List<double> GlyphEdges(Env env, BBox bb)
+        private static List<double> GlyphEdges(Env env, BBox bb)
     {
         var @out = new List<double>();
         if (bb.Boxes is { Count: > 0 } && bb.Boxes.Count <= 40)
@@ -190,8 +154,7 @@ public static class P11Typo3
         return ded.Take(34).ToList();
     }
 
-    /// <summary>env.draw 对位：直接画一条 item（不走 mainDraw 流水线；防残留 fn 串扰同 P11LayoutsB）。</summary>
-    private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
+        private static BBox? DrawIt(Env env, JObject it, JAnim.CharFn? charFn = null)
     {
         var prevC = env.CharFn;
         var prevP = env.PieceFn;
@@ -213,19 +176,13 @@ public static class P11Typo3
         }
     }
 
-    // ---------------- treat 侧 helper（JS L316-366） ----------------
-
     private static bool IsFalse(JToken? t) => t is JValue v && v.Type == JTokenType.Boolean && !(bool)v.Value!;
 
-    /// <summary>alive(it, amin)。JS L316。</summary>
-    private static bool Alive(JObject it, double amin = 0.9) =>
+        private static bool Alive(JObject it, double amin = 0.9) =>
         !IsFalse(it["fill"]) && JAnim.NumNull(it, "alpha", 1) >= amin
         && !string.IsNullOrEmpty(JLayouts.S(it, "text")) && JAnim.Num(it, "size") > 1;
 
-    /// <summary>
-    /// addPost 的对位：钩子挂 env.PostFn（JLayouts.DrawFx 在主文字之后消费，层级与 JS 一致；链式）。
-    /// </summary>
-    private static void AddPost(Env env, JObject it, Action<Env, JObject> fn)
+        private static void AddPost(Env env, JObject it, Action<Env, JObject> fn)
     {
         var prev = env.PostFn;
         env.PostFn = prev != null
@@ -233,8 +190,7 @@ public static class P11Typo3
             : (Action<Env, JObject, BBox?>)((e, x, _) => fn(e, x));
     }
 
-    /// <summary>nonSp(it)：非空白字数。JS L324。</summary>
-    private static int NonSp(JObject it) =>
+        private static int NonSp(JObject it) =>
         JLayouts.CodePoints(JLayouts.S(it, "text") ?? "").Count(c => !char.IsWhiteSpace(c[0]));
 
     private sealed class Span3
@@ -243,8 +199,7 @@ public static class P11Typo3
         public double A0, A1, C;
     }
 
-    /// <summary>每行的范围，item 空间（静态 layout；charFn 读 env.CharFn——见文件头注 2）。JS L326-344。</summary>
-    private static List<Span3> LineSpans(Env env, JObject it)
+        private static List<Span3> LineSpans(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = JAnim.NumOr1(it, "sx");
@@ -272,10 +227,7 @@ public static class P11Typo3
         return map.Values.ToList();
     }
 
-    /// <summary>itemSpace：clip/平移/旋转/skew 的 item 本地空间。JS L345-366。
-    /// clip/clipY 与 JLayouts.DrawFx 是同一份 JS `ctx.rect(x, y, w, h)` 的两个移植点：
-    /// SKRect 要 left/top/right/bottom，右/下边界必须是绝对坐标（写成 w/h 会让夹取带反向）。</summary>
-    private static void ItemSpace(Env env, JObject it, Action fn)
+        private static void ItemSpace(Env env, JObject it, Action fn)
     {
         var ctx = env.Ctx;
         ctx.Save();
@@ -300,12 +252,9 @@ public static class P11Typo3
         }
     }
 
-    // ---------------- trans 侧 helper（JS L492-515） ----------------
-
     private static double Bell(double k) => Math.Sin(Math.PI * J.Clamp(k));
 
-    /// <summary>part()：drawImage 九参裁剪拷贝 → DrawImage(srcRect→dstRect)。JS L493-498。</summary>
-    private static void Part(SKCanvas ctx, SKImage img, double x, double y, double w, double h, int cw, int ch)
+        private static void Part(SKCanvas ctx, SKImage img, double x, double y, double w, double h, int cw, int ch)
     {
         var x0 = Math.Max(0, (int)Math.Floor(x));
         var y0 = Math.Max(0, (int)Math.Floor(y));
@@ -315,8 +264,7 @@ public static class P11Typo3
         ctx.DrawImage(img, new SKRect(x0, y0, x1, y1), new SKRect(x0, y0, x1, y1));
     }
 
-    /// <summary>tAcc(I)：转场里在前后两版配色上都可读的强调色。JS L499-503。</summary>
-    private static string TAcc(TransCtx i)
+        private static string TAcc(TransCtx i)
     {
         var sc = i.Sc;
         var pb = i.ScPrev.Str("bg") ?? sc.Str("bg") ?? "";
@@ -326,8 +274,7 @@ public static class P11Typo3
         return sc.Str("fg") ?? "#FFFFFF";
     }
 
-    /// <summary>trReg 包装：p<=0 精确输出 A、p>=1 精确输出 B，结束时 ctx 状态干净（JS L504-515）。</summary>
-    private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
+        private static TransDrawFn Wrap(Action<SKCanvas, SKImage, SKImage, double, TransCtx, JObject> draw) =>
         (ctx, a, b, p, i) =>
         {
             ctx.Save();
@@ -343,38 +290,18 @@ public static class P11Typo3
             }
         };
 
-    // 松散读取
-    private static string? S(JObject p, string k) => JLayouts.S(p, k);
     private static double D(JObject p, string k, double d = 0) => JLayouts.D(p, k, d);
     private static int I(JObject p, string k, int d = 0) => JLayouts.I(p, k, d);
     private static bool Bo(JObject p, string k) => JLayouts.B(p, k);
 
-    // ================= 注册（JS 源 reg/trReg 出现序） =================
-
-    /// <summary>幂等注册本文件全部条目（顺序 = JS 源出现序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterTyColophon();    // JS L91
-        RegisterTyRunningHead(); // JS L128
-        RegisterTyGlyphBody();   // JS L160
-        RegisterTyTextRule();    // JS L193
-        RegisterTyTypeScale();   // JS L235
-        RegisterTyBigPunct();    // JS L284
-        RegisterTyHollowKey();   // JS L369
-        RegisterTyHeadRules();   // JS L391
-        RegisterTyHeadBig();     // JS L417
-        RegisterTyIndexSup();    // JS L450
-        RegisterTyRuleWipe();    // JS L518
-        RegisterTyGridCells();   // JS L547
-    }
-
-    // ---------------- decor: tyColophon（JS L91-125）奥付 ----------------
+        RegisterTyColophon();            RegisterTyRunningHead();         RegisterTyGlyphBody();           RegisterTyTextRule();            RegisterTyTypeScale();           RegisterTyBigPunct();            RegisterTyHollowKey();           RegisterTyHeadRules();           RegisterTyHeadBig();             RegisterTyIndexSup();            RegisterTyRuleWipe();            RegisterTyGridCells();       }
 
     private static void RegisterTyColophon() => RegD("tyColophon", new DecorDef
     {
-        Name = "奥付", // JS ae:'leaders'（未注册）
-        Tags = new[] { "editorial", "calm", "graphic" },
+        Name = "奥付",         Tags = new[] { "editorial", "calm", "graphic" },
         W = 1,
         Layer = "front",
         Draw = (env, p) =>
@@ -404,7 +331,6 @@ public static class P11Typo3
             var w = 0.0;
             foreach (var (t, f, _) in lines) w = Math.Max(w, TextW(t, f, fs));
             var h = lead * lines.Count;
-            // JS {…Pd, low: Pd.low !== false}：planner 恒填 bool low，等价直接传 Pd
             var sp = CornerSpot(env, bb, w + fs * 1.4, h, p);
             if (!sp.Ok) return;
             var x = sp.X + fs * 1.4;
@@ -423,12 +349,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- decor: tyRunningHead（JS L128-157）柱とノンブル ----------------
-
     private static void RegisterTyRunningHead() => RegD("tyRunningHead", new DecorDef
     {
-        Name = "柱とノンブル", // JS ae:'timecodeBar'（未注册）
-        Tags = new[] { "editorial", "calm" },
+        Name = "柱とノンブル",         Tags = new[] { "editorial", "calm" },
         W = 1,
         Layer = "front",
         Draw = (env, p) =>
@@ -473,12 +396,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- decor: tyGlyphBody（JS L160-190）字割り線 ----------------
-
     private static void RegisterTyGlyphBody() => RegD("tyGlyphBody", new DecorDef
     {
-        Name = "字割り線", // JS ae:'guides'（未注册）
-        Tags = new[] { "editorial", "graphic", "calm" },
+        Name = "字割り線",         Tags = new[] { "editorial", "graphic", "calm" },
         W = 0.9,
         Layer = "front",
         Draw = (env, p) =>
@@ -491,8 +411,7 @@ public static class P11Typo3
             var m = MG(env) * 0.6;
             var o = OutE(env);
             if (o <= 0.003 || env.Lt < 0) return;
-            if (Bh(bb) > Bw(bb) * 1.3) return; // 竖排歌词：横向没有可分的线
-            var xs = GlyphEdges(env, bb);
+            if (Bh(bb) > Bw(bb) * 1.3) return;             var xs = GlyphEdges(env, bb);
             var gap = 10 * u + Bh(bb) * 0.06;
             var lw = Math.Max(1, 0.9 * u);
             var col = sc.Str("sub");
@@ -509,7 +428,6 @@ public static class P11Typo3
                 if (t0 > m) env.Line(new[] { new[] { x, t0 }, new[] { x, t1 } }, col, lw, a, false);
                 if (b0 < H - m) env.Line(new[] { new[] { x, b0 }, new[] { x, b1 } }, col, lw, a, false);
             }
-            // 身体上下线引到左右边距
             var e2 = InE(env, 0.8, 0.1) * o;
             var ac = AccentOf(sc);
             foreach (var y in new[] { bb.Y0, bb.Y1 })
@@ -524,12 +442,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- decor: tyTextRule（JS L193-232）文字罫 ----------------
-
     private static void RegisterTyTextRule() => RegD("tyTextRule", new DecorDef
     {
-        Name = "文字罫", // JS ae:'verticalStrip'（未注册）
-        Tags = new[] { "editorial", "graphic", "calm" },
+        Name = "文字罫",         Tags = new[] { "editorial", "graphic", "calm" },
         W = 1,
         Layer = "front",
         Subtle = true,
@@ -583,12 +498,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- decor: tyTypeScale（JS L235-281）級数見本 ----------------
-
     private static void RegisterTyTypeScale() => RegD("tyTypeScale", new DecorDef
     {
-        Name = "級数見本", // JS ae:'indexNum'（未注册）
-        Tags = new[] { "editorial", "graphic" },
+        Name = "級数見本",         Tags = new[] { "editorial", "graphic" },
         W = 0.8,
         Layer = "front",
         Draw = (env, p) =>
@@ -639,12 +551,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- decor: tyBigPunct（JS L284-314）大きな約物 ----------------
-
     private static void RegisterTyBigPunct() => RegD("tyBigPunct", new DecorDef
     {
-        Name = "大きな約物", // JS ae:'bracketsJP'（未注册）
-        Tags = new[] { "editorial", "emotional", "graphic" },
+        Name = "大きな約物",         Tags = new[] { "editorial", "emotional", "graphic" },
         W = 0.9,
         Layer = "front",
         Draw = (env, p) =>
@@ -665,7 +574,6 @@ public static class P11Typo3
             var font = SerifF(env);
             var col = p.Accent ? J.Mix(sc.Str("bg") ?? "#000000", sc.Str("accent") ?? "#FF3B30", 0.42)
                                : J.Mix(sc.Str("bg") ?? "#000000", sc.Str("fg") ?? "#FFFFFF", 0.2);
-            // 墨盒位置：「 在字身框右上、」在左下、引号靠中偏上
             double xl, yt, xr, yb;
             if (!quote)
             {
@@ -686,12 +594,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- treat: tyHollowKey（JS L369-388）一字抜き ----------------
-
     private static void RegisterTyHollowKey() => RegT("tyHollowKey", new TreatDef
     {
-        Name = "一字抜き", // JS ae:'spotChar'（未注册）
-        Tags = new[] { "graphic", "editorial", "pop" },
+        Name = "一字抜き",         Tags = new[] { "graphic", "editorial", "pop" },
         W = 0.9,
         Safe = true,
         Plan = (rng, _) => new JObject { ["rev"] = rng.Chance(0.35) },
@@ -718,12 +623,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- treat: tyHeadRules（JS L391-414）天地罫 ----------------
-
     private static void RegisterTyHeadRules() => RegT("tyHeadRules", new TreatDef
     {
-        Name = "天地罫", // JS ae:'underline'（未注册）
-        Tags = new[] { "editorial", "graphic", "calm" },
+        Name = "天地罫",         Tags = new[] { "editorial", "graphic", "calm" },
         W = 0.8,
         Plan = (rng, _) => new JObject { ["k"] = rng.Range(0.06, 0.09), ["acc"] = rng.Chance(0.5) },
         Draw = env =>
@@ -766,12 +668,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- treat: tyHeadBig（JS L417-447）頭字強調 ----------------
-
     private static void RegisterTyHeadBig() => RegT("tyHeadBig", new TreatDef
     {
-        Name = "頭字強調", // JS ae:'sizeWave'（未注册）
-        Tags = new[] { "editorial", "pop", "emotional" },
+        Name = "頭字強調",         Tags = new[] { "editorial", "pop", "emotional" },
         W = 0.9,
         Plan = (rng, _) => new JObject { ["k"] = rng.Range(1.35, 1.6), ["acc"] = rng.Chance(0.7) },
         Draw = env =>
@@ -818,12 +717,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- treat: tyIndexSup（JS L450-490）字番号 ----------------
-
     private static void RegisterTyIndexSup() => RegT("tyIndexSup", new TreatDef
     {
-        Name = "字番号", // JS ae:'emphasisDots'（未注册）
-        Tags = new[] { "editorial", "graphic" },
+        Name = "字番号",         Tags = new[] { "editorial", "graphic" },
         W = 0.7,
         Plan = (rng, _) => new JObject { ["acc"] = rng.Chance(0.6) },
         Draw = env =>
@@ -881,12 +777,9 @@ public static class P11Typo3
         },
     });
 
-    // ---------------- trans: tyRuleWipe（JS L518-544）罫線ワイプ ----------------
-
     private static void RegisterTyRuleWipe() => RegX("tyRuleWipe", new TransDef
     {
-        Name = "罫線ワイプ", // JS ae:'blinds'（未注册）
-        Tags = new[] { "editorial", "graphic", "calm" },
+        Name = "罫線ワイプ",         Tags = new[] { "editorial", "graphic", "calm" },
         W = 0.9,
         Dur = 0.45,
         Plan = (rng, _) => new JObject { ["n"] = rng.Int(7, 12), ["rtl"] = rng.Chance(0.25) },
@@ -919,7 +812,6 @@ public static class P11Typo3
                     ctx.DrawRect(new SKRect((float)xc, (float)(y0 + bh * 0.2), (float)(xc + cwid), (float)(y0 + bh * 0.8)), pf);
                 }
             }
-            // 条带之间的罫线，随进度淡入淡出
             using (var pf = new SKPaint { IsAntialias = false, Color = Env.SkColor(ac, 0.6 * Bell(p)) })
                 for (var row = 1; row < n; row++)
                 {
@@ -929,12 +821,9 @@ public static class P11Typo3
         }),
     });
 
-    // ---------------- trans: tyGridCells（JS L547-585）升目送り ----------------
-
     private static void RegisterTyGridCells() => RegX("tyGridCells", new TransDef
     {
-        Name = "升目送り", // JS ae:'checker'（未注册）
-        Tags = new[] { "editorial", "graphic" },
+        Name = "升目送り",         Tags = new[] { "editorial", "graphic" },
         W = 0.8,
         Dur = 0.5,
         Plan = (rng, _) => new JObject { ["rows"] = rng.Int(4, 6), ["tate"] = rng.Chance(0.7) },
@@ -1002,8 +891,7 @@ public static class P11Typo3
         }),
     });
 
-    /// <summary>带 paint 的 part 变体（tyGridCells 的 globalAlpha=f 逐格拷贝）。</summary>
-    private static void DrawPartial(SKCanvas ctx, SKImage img, double x, double y, double w, double h, int cw, int ch, SKPaint paint)
+        private static void DrawPartial(SKCanvas ctx, SKImage img, double x, double y, double w, double h, int cw, int ch, SKPaint paint)
     {
         var x0 = Math.Max(0, (int)Math.Floor(x));
         var y0 = Math.Max(0, (int)Math.Floor(y));

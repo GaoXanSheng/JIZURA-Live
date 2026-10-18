@@ -84,10 +84,6 @@ public static class Log
         L.Fatal(message);
     }
 
-    public static void Shutdown()
-    {
-        LogManager.Shutdown();
-    }
 }
 
 public sealed class PanelAppender : AppenderSkeleton

@@ -29,62 +29,6 @@ public sealed class WaveformPeaks
 
     public int WindowCount(int level) => _min[level].Length / Channels;
 
-    public float[] Min(int level) => _min[level];
-
-    public float[] Max(int level) => _max[level];
-
-    public static WaveformPeaks Build(ReadOnlySpan<float> interleaved, int channels, int baseWindow = DefaultBaseWindow)
-    {
-        if (channels <= 0) throw new ArgumentOutOfRangeException(nameof(channels));
-        if (baseWindow <= 0) throw new ArgumentOutOfRangeException(nameof(baseWindow));
-
-        long frames = interleaved.Length / channels;
-        int count = (int)((frames + baseWindow - 1) / baseWindow);
-
-        var min = new List<float[]> { new float[channels * count] };
-        var max = new List<float[]> { new float[channels * count] };
-        for (int c = 0; c < channels; c++)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                int from = i * baseWindow;
-                int to = (int)Math.Min((long)from + baseWindow, frames);
-                float mn = float.PositiveInfinity, mx = float.NegativeInfinity;
-                for (int s = from; s < to; s++)
-                {
-                    float v = interleaved[s * channels + c];
-                    if (v < mn) mn = v;
-                    if (v > mx) mx = v;
-                }
-                min[0][c * count + i] = mn;
-                max[0][c * count + i] = mx;
-            }
-        }
-
-        while (count > 1)
-        {
-            int next = (count + 1) / 2;
-            float[] prevMin = min[^1], prevMax = max[^1];
-            var nextMin = new float[channels * next];
-            var nextMax = new float[channels * next];
-            for (int c = 0; c < channels; c++)
-            {
-                for (int i = 0; i < next; i++)
-                {
-                    int a = c * count + 2 * i;
-                    int b = c * count + Math.Min(2 * i + 1, count - 1);
-                    nextMin[c * next + i] = Math.Min(prevMin[a], prevMin[b]);
-                    nextMax[c * next + i] = Math.Max(prevMax[a], prevMax[b]);
-                }
-            }
-            min.Add(nextMin);
-            max.Add(nextMax);
-            count = next;
-        }
-
-        return new WaveformPeaks([.. min], [.. max], frames, channels, baseWindow);
-    }
-
     public static Builder CreateBuilder(int channels, int baseWindow = DefaultBaseWindow) =>
         new(channels, baseWindow);
 

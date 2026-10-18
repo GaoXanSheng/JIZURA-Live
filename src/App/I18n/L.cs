@@ -24,15 +24,6 @@ public static class L
 
     public static event Action? LanguageChanged;
 
-    public static IReadOnlyCollection<string> AvailableLangs
-    {
-        get
-        {
-            EnsureLoaded();
-            return Packs.Keys.ToArray();
-        }
-    }
-
     public static void Initialize(string? lang)
     {
         EnsureLoaded();
@@ -66,14 +57,6 @@ public static class L
         if (_fallback.TryGetValue(key, out var f)) return f;
         Log.Warn("[i18n] 缺少文案键：" + key);
         return key;
-    }
-
-    public static string F(string key, params object?[] args) => string.Format(T(key), args);
-
-    public static IReadOnlyDictionary<string, string> Pack(string lang)
-    {
-        EnsureLoaded();
-        return Packs.TryGetValue(lang, out var p) ? p : new Dictionary<string, string>();
     }
 
     private static void ApplyToResources()

@@ -1,20 +1,3 @@
-// 移植自 frontend/src/engine/09_render.js
-//
-// 渲染器主流程：整帧缓存（koma 量化步内逐像素相同才复用）、paper 纸纹、色差 ghost 三 pass
-// （B/A/main，lag 1.6/24 与 0.8/24）、每 cut 的 bg/layout/enter/hold/exit/decor/cam（经 Env.Make
-// 装配）、cut 间转场（J.TRANS，core 注册表为空、代码路径保留）、事件后期 FX 内置分支
-// （slice/block/invert/flash/zoom/mosaic；chroma/shake 走帧头的衰减注入）、HUD（JDecor.DrawHud）、
-// モーフ（glyphLog 抓取 + 逐字滑移/化掉 + 位图缓存）。
-//
-// Canvas2D → SkiaSharp 对位（与 JText/Env 同约定）：
-//   ctx.filter='blur(Npx)' → SKImageFilter.CreateBlur(σ=N/2)；
-//   ctx.globalCompositeOperation → 每 paint 的 BlendMode（ghost pass 的整 pass multiply 经 Env.Blend）；
-//   ctx.setTransform/save/restore → SKCanvas.SetMatrix/Save/Restore；
-//   离屏画布（scratch/small/tiny/camLayer/transA·B/guardP·M/morph*）→ SKSurface 复用（尺寸变化即重建）。
-//
-// 未移植（明确不进纯 C# core，检测到即抛）：
-//   st.kline → J.KLINE_RENDERER（11p 图表渲染路径）；st.ascii → J.asciiFrame（11p 字符画）。
-//   11p_* 表现包一律不在本次范围。
 
 using System.Diagnostics;
 using System.Globalization;
@@ -27,50 +10,35 @@ using SkiaSharp;
 
 namespace JizuraLive.LegacyEngine;
 
-/// <summary>frame(ctx, plan, t, opt) 的 opt（JS duck-typed 对象的定型）。</summary>
 public sealed class RenderOpts
 {
-    /// <summary>输出缩放（画布像素 = 设计尺寸 * scale）。</summary>
-    public double Scale = 1;
+        public double Scale = 1;
 
-    /// <summary>fast：跳过 glow/filter 的性能路径。</summary>
-    public bool Fast;
+        public bool Fast;
 
-    /// <summary>关掉色差 ghost pass。</summary>
-    public bool NoGhost;
+        public bool NoGhost;
 
-    /// <summary>透過PNG（保留 alpha；配合 Layer 分层导出）。</summary>
-    public bool Transparent;
+        public bool Transparent;
 
-    /// <summary>透過分层：'back' = 背景图+歌词后面的装饰，'front' = 其余。</summary>
-    public string? Layer;
+        public string? Layer;
 
-    /// <summary>K线背景已画好，不能再清底（kline 渲染路径专用）。</summary>
-    public bool KlineBg;
+        public bool KlineBg;
 
-    /// <summary>跳过 cut 间转场（转场 A 帧递归、morph 抓取时置真）。</summary>
-    public bool NoTrans;
+        public bool NoTrans;
 
-    /// <summary>只跳过 cut 间转场，保留字形 morph（舞台层接管转场时用）。</summary>
-    public bool NoCutTrans;
+        public bool NoCutTrans;
 
-    /// <summary>跳过原版 cut 相机，由舞台层统一控制机位（背景/角色/文字一起动）。</summary>
-    public bool NoCamera;
+        public bool NoCamera;
 
-    /// <summary>跳过事件后期 + 纹理后期。</summary>
-    public bool NoPost;
+        public bool NoPost;
 
-    /// <summary>跳过 HUD。</summary>
-    public bool NoHud;
+        public bool NoHud;
 
-    /// <summary>舞台大字模式打点（JS 只透传给 PERF；C# 保留字段）。</summary>
-    public bool Stage;
+        public bool Stage;
 
-    /// <summary>ascii 帧内层防递归（asciiFrame 未移植，仅保字段）。</summary>
-    public bool AsciiInner;
+        public bool AsciiInner;
 
-    /// <summary>モーフ字形抓取（非 null 时主 pass 记录每个字形落点，不进整帧缓存）。</summary>
-    public List<JText.GlyphLogEntry>? GlyphLog;
+        public List<JText.GlyphLogEntry>? GlyphLog;
 
     public RenderOpts Clone() => new()
     {
@@ -91,10 +59,8 @@ public sealed class RenderOpts
     };
 }
 
-/// <summary>J.TRANS[k].draw(ctx, A, B, p, info) 的 C# 形态（M2 定型；11p_treattrans 移植时按实际签名对齐）。</summary>
 public delegate void TransDrawFn(SKCanvas ctx, SKImage prevA, SKImage curB, double p, TransCtx info);
 
-/// <summary>trans draw 的 info 对位（JS 的 {cw,ch,sc,scPrev,st,P,step,t,scale,allowFilter,seed,tmp}）。</summary>
 public sealed class TransCtx
 {
     public int Cw;
@@ -109,21 +75,13 @@ public sealed class TransCtx
     public bool AllowFilter;
     public int Seed;
 
-    /// <summary>tmp(w, h)：转场临时画布（复用）。</summary>
-    public Func<int, int, SKSurface> Tmp = null!;
+        public Func<int, int, SKSurface> Tmp = null!;
 }
 
-/// <summary>渲染器：J.Renderer 对位。线程不安全（每画布/每导出管线各建一个）。</summary>
 public sealed class Renderer : IDisposable
 {
-    /// <summary>
-    /// 中间面工厂（GPU 光栅接线用）：非空时 scratch/small/tiny/camLayer/transA·B·C/morph/guard 等
-    /// 中间面改由它创建（GPU 面，省掉每帧「CPU 面 → GPU 上传」）。null = CPU 面（默认：
-    /// 导出/测试/校验路径保持位级一致）。主画布不在此列——由调用方给（Spout 给 GPU 面，预览/导出给 CPU 面）。
-    /// </summary>
-    public Func<int, int, SKSurface>? SurfaceFactory;
+        public Func<int, int, SKSurface>? SurfaceFactory;
 
-        // 内容 pass 描述符，实例级复用；Frame() 里只刷色差偏移
         private sealed class PassDesc
         {
             public readonly string Pass;
@@ -145,30 +103,24 @@ public sealed class Renderer : IDisposable
             new("main", 0),
         };
 
-        // 离屏画布（JS 的 ensure(w,h) 按需 resize 的 canvas 组）
         private SKSurface? _scratch, _small, _tiny, _camLayer, _transA, _transB, _transC, _morphCv, _morphShotCv, _guardP, _guardM;
         private readonly SKBitmap?[] _grain = new SKBitmap?[4];
         private SKBitmap _scan = null!;
         private readonly Dictionary<string, SKBitmap> _paperCache = new();
 
-        // 整帧缓存（JS 的 this.fCache）：冷键不落盘，同键再现才拷贝
         private Plan? _fcPlan;
         private SKImage? _fcCv;
         private string _fcKey = "";
         private string _fcHot = "";
 
-        // モーフ位图缓存 / glyphLog 缓存（按 plan 键控）
         private Plan? _msPlan;
         private Dictionary<string, SKImage>? _msMap;
         private Plan? _mlPlan;
         private Dictionary<string, (List<JText.GlyphLogEntry> A, List<JText.GlyphLogEntry> B)>? _mlMap;
 
-        /// <summary>纸纹/颗粒用确定性伪随机（JS 是 Math.random，纯噪声无位级对齐价值，定 seed 保可复现）。</summary>
-        private readonly Random _rng = new(0x20260922);
+                private readonly Random _rng = new(0x20260922);
 
-        /// <summary>性能剖析钩子（性能专项接线；null 时零开销）：(阶段名, 距上次报告 ms, 距上次报告的本线程分配字节)。
-        /// 分配量用 GC.GetAllocatedBytesForCurrentThread——渲染都在本线程发生，即阶段归因。线程不安全。</summary>
-        public static Action<string, double, long>? StageHook;
+                public static Action<string, double, long>? StageHook;
 
         public Renderer()
         {
@@ -178,7 +130,6 @@ public sealed class Renderer : IDisposable
                 FillNoise(g, v => (byte)v, v => (byte)v, v => (byte)v, _ => 255, () => _rng.NextDouble() * 255);
                 _grain[k] = g;
             }
-            // 1×4：上 3 行白、底 1 行黑（scanline pattern）
             var sl = new SKBitmap(1, 4);
             using (var x = new SKCanvas(sl))
             using (var w = new SKPaint { Color = SKColors.White })
@@ -191,32 +142,9 @@ public sealed class Renderer : IDisposable
             _scan = sl;
         }
 
-        // ---------------- 渲染侧计数（诊断） ----------------
-        // 出帧侧（泵）报的帧数只是「Frame 被调用了几次」：命中整帧缓存时那一帧只是一次贴图，
-        // 不代表引擎真画了。真渲染次数/耗时只能在这里记账（渲染线程写、日志线程读 → Interlocked）。
         private long _stCalls, _stCached, _stSumTicks, _stRealTicks, _stMaxTicks;
 
-        /// <summary>窗口统计：Calls = Frame 调用次数，Cached = 整帧缓存命中，
-        /// Real = Calls − Cached = 真渲染次数，SumMs = 全部调用耗时，RealSumMs = 仅真渲染耗时，MaxMs = 峰值。</summary>
-        public readonly record struct Stats(long Calls, long Cached, long Real, double SumMs, double RealSumMs, double MaxMs);
-
-        /// <summary>取本窗口统计，读取即清零（单读取方 = 日志线程；渲染线程只累加）。</summary>
-        public Stats TakeWindowStats()
-        {
-            var calls = Interlocked.Exchange(ref _stCalls, 0);
-            var cached = Interlocked.Exchange(ref _stCached, 0);
-            var sum = Interlocked.Exchange(ref _stSumTicks, 0) * 1000.0 / Stopwatch.Frequency;
-            var realSum = Interlocked.Exchange(ref _stRealTicks, 0) * 1000.0 / Stopwatch.Frequency;
-            var max = Interlocked.Exchange(ref _stMaxTicks, 0) * 1000.0 / Stopwatch.Frequency;
-            return new Stats(calls, cached, calls - cached, sum, realSum, max);
-        }
-
-        // ---------------- 主入口 ----------------
-
-        /// <summary>把 t 时刻的一帧画进 ctx，画布像素 = 设计尺寸 * scale。
-        /// 只做记账（调用次数/耗时/峰值/缓存命中），绘制在 FrameCore——FrameCore 有 4 个出口
-        /// （kline/ascii/缓存命中/正常收尾），由返回值报「是否整帧缓存命中」，在这里统计才不漏。</summary>
-        public void Frame(SKCanvas ctx, Plan plan, double t, RenderOpts? optIn = null)
+                public void Frame(SKCanvas ctx, Plan plan, double t, RenderOpts? optIn = null)
         {
             Interlocked.Increment(ref _stCalls);
             var t0 = Stopwatch.GetTimestamp();
@@ -236,8 +164,7 @@ public sealed class Renderer : IDisposable
             }
         }
 
-        /// <summary>返回 true = 整帧缓存命中（只贴图，没真画）。</summary>
-        private bool FrameCore(SKCanvas ctx, Plan plan, double t, RenderOpts? optIn = null)
+                private bool FrameCore(SKCanvas ctx, Plan plan, double t, RenderOpts? optIn = null)
         {
             var opt = optIn ?? new RenderOpts();
             var W = plan.W;
@@ -246,8 +173,6 @@ public sealed class Renderer : IDisposable
             var dm = ctx.DeviceClipBounds;
             var cw = Math.Max(1, dm.Width);
             var ch = Math.Max(1, dm.Height);
-            // 性能剖析（性能专项临时接线，null 时零开销）：StageHook != null 才计时。
-            // (阶段名, 距上次报告的毫秒)；粒度：setup/bgpaper/bgdef/cutpass/camblur/morph/trans/hud/post/fcsave
             var _h0 = StageHook != null ? Stopwatch.GetTimestamp() : 0L;
             var _a0 = StageHook != null ? GC.GetAllocatedBytesForCurrentThread() : 0L;
             void Stage(string name)
@@ -262,21 +187,17 @@ public sealed class Renderer : IDisposable
             var fx = plan.Fx;
             var st = plan.Style;
             var fps = Math.Max(1, plan.Fps);
-            // K线风格走完全独立的渲染路径（11p）：图表+中心滚动歌词画满整帧直接返回
             if (Truthy(JLayouts.StTok(st, "kline")))
             {
                 P11Kline.Frame(ctx, plan, t, opt, (int)cw, (int)ch);
                 return false;
             }
-            // ASCII 字符画风格（11p）：整帧先按正常管线渲进离屏，再整帧转字符网格；
-            // AsciiInner 防 asciiFrame 递归内层再次进入本分支
             if (Truthy(JLayouts.StTok(st, "ascii")) && !opt.AsciiInner)
             {
                 P11Ascii.Frame(ctx, plan, t, opt,
                     (inner, innerOpt) => Frame(inner, plan, t, innerOpt));
                 return false;
             }
-            // 动作按 koma 量化：koma>0 → 1/koma；koma=0（全帧）→ 1/fps，作画时钟跟随输出帧率
             var stepDur = Planner.StepDur(fx, fps);
             var koma = Planner.KomaOf(fx);
             var clock = stepDur;
@@ -287,13 +208,8 @@ public sealed class Renderer : IDisposable
             var sc = schemes.Count > 0
                 ? schemes[mainCut != null ? ((mainCut.Scheme % schemes.Count) + schemes.Count) % schemes.Count : 0]
                 : Sc0();
-            var allowFilter = !opt.Fast; // Skia 恒有 filter（JS 的 filterOK 能力探测在 C# 恒真）
-            JLang.SetLang(string.IsNullOrEmpty(plan.Lang) ? "ja" : plan.Lang); // 字体随歌词语言
-            JText.SetTypeset(plan.Typeset); // 文字整列
-            var u = H / 1080.0;
-            var key = plan.KeyBg is "green" or "black" ? plan.KeyBg : null; // keyBg 合成用：黑底白字，最后 keyFinish() 收尾
-            var events = plan.Events;
-            // 事件衰减与节拍脉冲按真实 t 连续（不量化）：窗口内整帧缓存不命中，保持逐帧正确
+            var allowFilter = !opt.Fast;             JLang.SetLang(string.IsNullOrEmpty(plan.Lang) ? "ja" : plan.Lang);             JText.SetTypeset(plan.Typeset);             var u = H / 1080.0;
+            var key = plan.KeyBg is "green" or "black" ? plan.KeyBg : null;             var events = plan.Events;
             double spike = 0, shake = 0, beatPulse = 0;
             var evLive = false;
             for (var i = 0; i < events.Count; i++)
@@ -312,23 +228,18 @@ public sealed class Renderer : IDisposable
                 if (b != null && t - b.Value < 0.25) beatPulse = 0.9 * Math.Exp(-(t - b.Value) * 16);
             }
             var step = (int)Math.Floor(tq / clock + 1e-6);
-            // energy 取样对齐 koma 时钟：画面一切动作已按 koma 作画，柱状/频谱类跟随同一时钟
             float energy = 0;
             if (plan.Energy is { Length: > 0 } en)
             {
                 var eIdx = Math.Clamp((int)Math.Floor(tq * plan.EnergyRate), 0, en.Length - 1);
                 energy = en[eIdx];
             }
-            // 转场窗口：合成结果依赖真实 t 与两帧内容，整帧缓存绕过（A 静帧由本缓存按自身键命中）
             Cut? tPrev = !opt.NoCutTrans && mainCut is { Index: > 0 } mc0 ? plan.Cuts[mc0.Index - 1] : null;
             var transDur0 = mainCut is { TransDur: > 0 } ? mainCut.TransDur : 0.35;
             var transOn = !opt.NoCutTrans && mainCut != null && !string.IsNullOrEmpty(mainCut.Trans)
                 && Reg.Trans.ContainsKey(mainCut.Trans) && mainCut.Index > 0
                 && tPrev != null && (tq - mainCut.Start) < transDur0
                 && Math.Abs(tPrev.End - mainCut.Start) < 0.06;
-            // 整帧缓存：画面内容由 (tq, step) 量化量完全决定，同一逐步内的帧逐像素相同——
-            // koma=12 时 60fps 播放每秒只需真渲染 12 次，其余整帧贴图。冷键不落盘：
-            // 多画布/多 plan 轮转时白付拷贝不值，同一键第二次出现才开始写缓存。
             string? fKey = null;
             if (opt.GlyphLog == null && !opt.KlineBg && opt.Layer == null && !evLive && spike == 0 && shake == 0
                 && beatPulse <= 0.02 && !transOn && !opt.NoTrans && !opt.NoPost)
@@ -348,19 +259,16 @@ public sealed class Renderer : IDisposable
             }
             if (fKey != null && fKey == _fcKey && _fcCv != null && _fcCv.Width == cw && _fcCv.Height == ch)
             {
-                Interlocked.Increment(ref _stCached); // 贴图而非真画：计入缓存命中（见 Stats）
-                ctx.Save();
+                Interlocked.Increment(ref _stCached);                 ctx.Save();
                 ctx.SetMatrix(SKMatrix.Identity);
-                using (var p = new SKPaint { BlendMode = SKBlendMode.Src }) // JS globalCompositeOperation='copy'
-                    ctx.DrawImage(_fcCv, 0, 0, p);
+                using (var p = new SKPaint { BlendMode = SKBlendMode.Src })                     ctx.DrawImage(_fcCv, 0, 0, p);
                 ctx.Restore();
                 return true;
             }
             Stage("setup");
             ctx.Save();
             ctx.SetMatrix(SKMatrix.Identity);
-            ctx.Clear(); // !opt.klineBg 才清（K线背景已画好不能清掉；kline 路径上面已抛）
-            ctx.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
+            ctx.Clear();             ctx.SetMatrix(SKMatrix.CreateScale((float)scale, (float)scale));
             var bgCol = sc.Str("bg") ?? "#000000";
             if (key != null && !opt.Transparent)
             {
@@ -368,20 +276,13 @@ public sealed class Renderer : IDisposable
             }
             else if (!opt.Transparent && !opt.KlineBg)
             {
-                // 底色 + 中央提亮渐变：两者合成结果只依赖 (bgCol, 渐变α, 尺寸, scale)，逐帧不变 →
-                // 预渲染成一张不透明缓存图 1:1 贴回。不透明像素的 premul 存储是无损的（缓存里的合成
-                // 取整与画布上「先填底色再叠渐变」逐位相同），不像半透明中转会引入 ±1 抖动。
                 DrawGradImage(ctx, BgBakedImage(bgCol, cw, ch, W, H, scale,
                     J.Lum(bgCol) < 0.5 ? 0.045 : 0.10));
                 var paperAmt = (Truthy(sc.Get("paper")) ? 1 : StTextureNum(st, "paper")) * fx.Texture;
                 if (paperAmt > 0.02)
                 {
                     var dark = J.Lum(bgCol) < 0.4;
-                    // JS 用 ctx.filter='invert(1)' 现场反相；C# 预生成反相纸纹（暗底 screen 亮噪 ≈ 同效果）
-                    // 性能：SKImage 缓存复用（每帧 FromBitmap 会白白产出一个 finalizable 对象）
                     var paperImg = PaperImage(W, H, dark);
-                    // 每帧一次的低频绘制保留一次性 paint（性能专项实测：低频位共用共享 paint 会引入
-                    // 难以溯源的状态残留；真正的高频热点是 Env 助手里的逐 decor/逐字形绘制）
                     using var pp = new SKPaint
                     {
                         BlendMode = dark ? SKBlendMode.Screen : SKBlendMode.Multiply,
@@ -394,7 +295,6 @@ public sealed class Renderer : IDisposable
             var stGhost = StNum(st, "ghost", 1);
             var chroma = fx.Chroma * stGhost * (1 + spike + beatPulse);
             var beatInfo = plan.Beats is { Length: > 0 } ? BeatAt(plan.Beats, tq) : null;
-            // 透過PNG 前后景分层（opt.layer）：'back' = 背景图+歌词后面的装饰，'front' = 其余
             var layer = opt.Layer;
             if ((!opt.Transparent || layer == "back") && key == null && !opt.KlineBg && mainCut != null
                 && !string.IsNullOrEmpty(mainCut.Bg) && mainCut.Bg != "none"
@@ -407,9 +307,7 @@ public sealed class Renderer : IDisposable
                 ctx.Save();
                 try
                 {
-                    using var _bg = new Prof.Scope("bg", mainCut.Bg); // 叶子归因（性能专项）
-                    bgDef.Draw?.Invoke(env); // JS draw(env, cut.bgP || {})：C# 的 BgDef.Draw(env) 从 env.Cut.BgP 取
-                }
+                    using var _bg = new Prof.Scope("bg", mainCut.Bg);                     bgDef.Draw?.Invoke(env);                 }
                 catch (Exception e)
                 {
                     WarnThrottled("bg", mainCut.Bg, e);
@@ -424,13 +322,11 @@ public sealed class Renderer : IDisposable
             _passes[1].OffX = 3.2 * chroma * u;
             _passes[1].OffY = 1.9 * chroma * u;
             var ghostOn = fx.Chroma > 0.02 && stGhost > 0.02 && !opt.NoGhost;
-            // morph：cut 开头一小段时间，歌词改由 drawMorph 画（字形滑移/融化）
             var MC = !opt.NoTrans && opt.GlyphLog == null && mainCut is { Index: > 0 } mc1 && mc1.Morph != null ? mc1 : null;
             var mPrev = MC != null ? plan.Cuts[MC.Index - 1] : null;
             var mlt = MC != null ? tq - MC.Start : 0;
             var morphDur = MC?.Morph != null ? NumTok(MC.Morph, "dur") : 0;
             var morphOn = MC != null && mPrev != null && mlt < morphDur && Math.Abs(mPrev.End - MC.Start) < 0.06;
-            // 镜头虚焦整层只做一次 blur：每个 draw call 都挂 blur filter，多行文字时慢得没法用
             double layerBlur = 0;
             SKCanvas? LX = null;
             if (allowFilter && !opt.NoCamera && mainCut != null && mainCut.Cam != "push"
@@ -447,7 +343,6 @@ public sealed class Renderer : IDisposable
                 }
                 catch
                 {
-                    // JS 空 catch 对位
                 }
                 if (layerBlur > 0)
                 {
@@ -465,13 +360,11 @@ public sealed class Renderer : IDisposable
                 var cut0 = P.Lag > 0 ? Planner.CutAt(plan, tp) : mainCut;
                 if (cut0 == null) continue;
                 if (morphOn && !ReferenceEquals(cut0, mainCut)) continue;
-                // 中央を空ける：cut 画在自己一侧的 band，companion 画在另一侧
                 var cutList = plan.CenterFree && cut0.Companion != null ? new[] { cut0, cut0.Companion! } : new[] { cut0 };
                 foreach (var cut in cutList)
                 {
                     var lt = tp - cut.Start;
-                    if (lt < 0) continue; // 孪生切分若存在入场延迟（delay），未到开唱时刻前不提前画出
-                    var csc = schemes.Count > 0
+                    if (lt < 0) continue;                     var csc = schemes.Count > 0
                         ? schemes[((cut.Scheme % schemes.Count) + schemes.Count) % schemes.Count]
                         : sc;
                     var X = LX ?? ctx;
@@ -484,7 +377,6 @@ public sealed class Renderer : IDisposable
                         layer: layer, zone: Z, hideText: morphOn,
                         glyphLog: P.Pass == "main" ? opt.GlyphLog : null);
                     X.Save();
-                    // cut 的文字、装饰、镜头都裁剪在自己的 band 内
                     if (Z != null)
                     {
                         X.ClipRect(new SKRect(Z.X, Z.Y, Z.X + Z.W, Z.Y + Z.H));
@@ -492,7 +384,6 @@ public sealed class Renderer : IDisposable
                     }
                     var envW = env.W;
                     var envH = env.H;
-                    // 该 cut 的镜头运动，默认缓推
                     if (!Reg.Camera.TryGetValue(cut.Cam, out var camDef) || camDef == null)
                         Reg.Camera.TryGetValue("push", out camDef);
                     CamState? cam = null;
@@ -509,12 +400,9 @@ public sealed class Renderer : IDisposable
                     }
                     cam ??= new CamState();
                     X.Translate((float)(envW / 2.0 + shx + P.OffX + cam.X), (float)(envH / 2.0 + shy + P.OffY + cam.Y));
-                    if (cam.Rot != 0) X.RotateDegrees((float)cam.Rot); // JS: rotate(cam.rot * DEG) 收弧度；RotateDegrees 直接收度
-                    if (cam.Skx != 0) X.Concat(SKMatrix.CreateSkew((float)Math.Tan(cam.Skx * J.DEG), 0));
-                    // JS: X.scale(cs * (cam.sx ?? 1), cs * (cam.sy ?? 1))——vertigo/jelly 靠逐轴压扁/拉伸
+                    if (cam.Rot != 0) X.RotateDegrees((float)cam.Rot);                     if (cam.Skx != 0) X.Concat(SKMatrix.CreateSkew((float)Math.Tan(cam.Skx * J.DEG), 0));
                     X.Scale((float)(cam.S * (cam.Sx ?? 1)), (float)(cam.S * (cam.Sy ?? 1)));
                     X.Translate((float)-envW / 2, (float)-envH / 2);
-                    // ghost pass 的整 pass 染色（JS 的 X.globalCompositeOperation）
                     env.Blend = P.Pass != "main" && J.Lum(csc.Str("bg") ?? "#000000") > 0.55
                         ? SKBlendMode.Multiply
                         : SKBlendMode.SrcOver;
@@ -538,13 +426,10 @@ public sealed class Renderer : IDisposable
                 var L = MorphLogs(plan, mPrev, MC, cw, ch, scale, opt);
                 var kk = J.Clamp(mlt / morphDur);
                 var e = kk < 0.5 ? 4 * kk * kk * kk : 1 - Math.Pow(-2 * kk + 2, 3) / 2;
-                // koma=0（逐输出帧，如 60fps 工程）时 morph 连续现绘；位图只有 10 档 + ≤960 宽，
-                // 满帧率下会看到阶梯。koma>0（24 基准作画）维持位图路径
                 if (koma == 0) DrawMorph(ctx, L, e, allowFilter);
                 else MorphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
             }
             Stage("morph");
-            // cut 间转场：用上一 cut 的收尾帧和当前帧合成（窗口判定已在开头算好：transOn）
             if (transOn && mainCut != null && mPrev2(plan, mainCut) is { } prev)
             {
                 var lt = tq - mainCut.Start;
@@ -569,7 +454,6 @@ public sealed class Renderer : IDisposable
                         : sc;
                     ctx.Save();
                     ctx.SetMatrix(SKMatrix.Identity);
-                    // 透過出力跟 post 一样套 alphaGuard：转场普遍从 sc.bg 全幅填起，不 fence 会把空背景涂实
                     var guard = opt.Transparent ? NewGuard(cw, ch) : null;
                     guard?.Begin(ctx);
                     try
@@ -596,7 +480,6 @@ public sealed class Renderer : IDisposable
                         }
                         else
                         {
-                            // TODO(11p)：TransDef.Draw 的 C# 签名未定型（trans 注册表 core 为空，走不到）
                             Log.Warn($"trans {mainCut.Trans}: draw 签名不是 TransDrawFn，跳过");
                         }
                     }
@@ -622,7 +505,6 @@ public sealed class Renderer : IDisposable
             if (!opt.NoPost) Post(ctx, plan, t, tq, step, sc, scale, opt, allowFilter);
             if (key != null && !opt.NoPost) KeyFinish(ctx, key, opt);
             Stage("post");
-            // 整帧缓存落盘：冷键只记 hot，同键再现才真正拷贝（首帧 warm-up 后开始命中）
             if (fKey != null)
             {
                 if (fKey == _fcHot)
@@ -644,17 +526,10 @@ public sealed class Renderer : IDisposable
         private static Cut? mPrev2(Plan plan, Cut mainCut) =>
             mainCut.Index > 0 ? plan.Cuts[mainCut.Index - 1] : null;
 
-        // eIdx 已进 fKey（能量样本号）；占位保持键形一致
         private static int eIdxIdx(Plan plan, double tq) =>
             plan.Energy is { Length: > 0 } ? Math.Clamp((int)Math.Floor(tq * plan.EnergyRate), 0, plan.Energy.Length - 1) : 0;
 
-        // ---------------- keyFinish（keyBg 合成收尾） ----------------
-
-        /// <summary>
-        /// 合成用收尾：整帧先做成黑底白字（黑=空）。key=green 时再 screen 上 #00FF00，
-        /// 黑变绿、白保持白，灰阶（ghost/辉光/淡出）键控后即成半透明。
-        /// </summary>
-        private void KeyFinish(SKCanvas ctx, string key, RenderOpts opt)
+                private void KeyFinish(SKCanvas ctx, string key, RenderOpts opt)
         {
             var cw = Math.Max(1, ctx.DeviceClipBounds.Width);
             var ch = Math.Max(1, ctx.DeviceClipBounds.Height);
@@ -662,7 +537,6 @@ public sealed class Renderer : IDisposable
             ctx.SetMatrix(SKMatrix.Identity);
             if (opt.Transparent)
             {
-                // 保留 alpha：过一层拷贝再去色（ctx.filter='grayscale(1)' → 亮度加权色矩阵）
                 var S = Ensure(ref _scratch, cw, ch);
                 var sx = S.Canvas;
                 sx.SetMatrix(SKMatrix.Identity);
@@ -676,7 +550,6 @@ public sealed class Renderer : IDisposable
             }
             else
             {
-                // 不透明帧：和任意灰做 saturation 混合，保明度去色
                 RectFill(ctx, 0, 0, cw, ch, new SKColor(128, 128, 128), SKBlendMode.Saturation);
                 if (key == "green") RectFill(ctx, 0, 0, cw, ch, Env.SkColor("#00FF00"), SKBlendMode.Screen);
             }
@@ -691,10 +564,7 @@ public sealed class Renderer : IDisposable
             0, 0, 0, 1, 0,
         });
 
-        // ---------------- モーフ ----------------
-
-        /// <summary>上一 cut 每个字形的停驻位置 + 本 cut 字形的落点（glyphLog 抓取，带缓存）。</summary>
-        private (List<JText.GlyphLogEntry> A, List<JText.GlyphLogEntry> B) MorphLogs(
+                private (List<JText.GlyphLogEntry> A, List<JText.GlyphLogEntry> B) MorphLogs(
             Plan plan, Cut A, Cut B, int cw, int ch, double scale, RenderOpts opt)
         {
             if (!ReferenceEquals(_mlPlan, plan))
@@ -728,8 +598,7 @@ public sealed class Renderer : IDisposable
             return r;
         }
 
-        /// <summary>モーフ帧位图缓存：按 e 量化 10 档存位图。位图降到 ≤960 宽存储。</summary>
-        private void MorphShot(SKCanvas ctx, Plan plan, Cut A, Cut B, int cw, int ch, double scale, double e,
+                private void MorphShot(SKCanvas ctx, Plan plan, Cut A, Cut B, int cw, int ch, double scale, double e,
             bool allowFilter, (List<JText.GlyphLogEntry> A, List<JText.GlyphLogEntry> B) L)
         {
             var shot = MorphShotBuild(plan, A, B, cw, ch, scale, e, allowFilter, L);
@@ -740,8 +609,7 @@ public sealed class Renderer : IDisposable
             ctx.Restore();
         }
 
-        /// <summary>生成/取回某一档位的 morph 位图，预热可直接调它填缓存。</summary>
-        public SKImage MorphShotBuild(Plan plan, Cut A, Cut B, int cw, int ch, double scale, double e,
+                public SKImage MorphShotBuild(Plan plan, Cut A, Cut B, int cw, int ch, double scale, double e,
             bool allowFilter, (List<JText.GlyphLogEntry> A, List<JText.GlyphLogEntry> B) L)
         {
             if (!ReferenceEquals(_msPlan, plan))
@@ -785,8 +653,7 @@ public sealed class Renderer : IDisposable
             return shot;
         }
 
-        /// <summary>drawMorph：旧字化掉（下坠/膨胀/模糊）、共有字滑到新位置、新字从模糊里凝出。</summary>
-        private static void DrawMorph(SKCanvas ctx,
+                private static void DrawMorph(SKCanvas ctx,
             (List<JText.GlyphLogEntry> A, List<JText.GlyphLogEntry> B) L, double e, bool allowFilter)
         {
             var A = L.A;
@@ -816,12 +683,8 @@ public sealed class Renderer : IDisposable
             {
                 if (alpha <= 0.01) return;
                 var font = string.IsNullOrEmpty(g.Ch)
-                    ? JText.FaceFont(g.FontKey ?? "", g.Px) // 缓存实例，禁 Dispose
-                    : JText.FaceFontFor(g.FontKey ?? "", g.Ch, g.Px); // morph 单字形：逐字兜底防方块
-                font.GetFontMetrics(out var fm);
-                var yMid = (float)((-fm.Ascent - fm.Descent) / 2); // textBaseline='middle'
-                using var p = new SKPaint { IsAntialias = true };
-                // 滤镜走 JText 共享记忆工厂：不 Dispose（性能专项）
+                    ? JText.FaceFont(g.FontKey ?? "", g.Px)                     : JText.FaceFontFor(g.FontKey ?? "", g.Ch, g.Px);                 font.GetFontMetrics(out var fm);
+                var yMid = (float)((-fm.Ascent - fm.Descent) / 2);                 using var p = new SKPaint { IsAntialias = true };
                 var f = allowFilter && blur > 0.4 ? JText.BlurFilter(blur) : null;
                 p.ImageFilter = f;
                 if (g.Fill)
@@ -839,7 +702,6 @@ public sealed class Renderer : IDisposable
                 }
             }
             ctx.Save();
-            // 旧句剩下的字化掉：下坠、膨胀、模糊
             for (var q = 0; q < A.Count; q++)
             {
                 if (used[q]) continue;
@@ -849,7 +711,6 @@ public sealed class Renderer : IDisposable
                 ctx.Scale((float)(1 + e * 0.12), (float)(1 + e * 0.6));
                 Put(a, a.Color, a.A * Math.Pow(1 - e, 1.4), e * a.Px * 0.14 * Det(a.M));
             }
-            // 共有字滑到新位置，新字从模糊里凝出
             for (var pi = 0; pi < pairB.Count; pi++)
             {
                 var a = pairA[pi];
@@ -879,7 +740,6 @@ public sealed class Renderer : IDisposable
 
         private static SKMatrix MOf(float[] m)
         {
-            // JS setTransform(a,b,c,d,e,f)：x' = a·x + c·y + e → Skia 列 [scaleX skewX transX / skewY scaleY transY]
             var r = SKMatrix.Identity;
             r.ScaleX = m[0];
             r.SkewX = m[2];
@@ -894,14 +754,7 @@ public sealed class Renderer : IDisposable
 
         private static bool IsHex(string s) => HexRe.IsMatch(s);
 
-        // ---------------- drawCut ----------------
-
-        /// <summary>
-        /// 包异常日志的按 (类, 名) 去重 + 5s 节流：坏包是**逐帧**抛（每帧数次），原样每帧写一条
-        /// 日志 = 渲染线程被日志 I/O 拖住（实测 knZoomDive 每秒 60+ 条）。首条立即记，窗口内
-        /// 只计 suppressed 数，窗口后带计数汇总一条。
-        /// </summary>
-        private readonly Dictionary<string, (long First, int Count, long LastLog)> _warnThrottle = new();
+                private readonly Dictionary<string, (long First, int Count, long LastLog)> _warnThrottle = new();
 
         private void WarnThrottled(string kind, string name, Exception e)
         {
@@ -922,13 +775,10 @@ public sealed class Renderer : IDisposable
             }
 
             _warnThrottle[key] = (now, 0, now);
-            // 首现带堆栈（每站点一次）：错站点定位不用猜——例如 decor 内部 IndexOutOfRange 只看
-            // Message 根本不知道是哪一行（性能专项/可诊断性）
             Log.Warn($"{kind} {name}: {e.GetType().Name}: {e.Message}\n{StackHead(e)}");
         }
 
-        /// <summary>异常堆栈里头几行引擎帧（定位钩子/站点异常用；同 JLayouts.FirstStack 口径）。</summary>
-        private static string StackHead(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
+                private static string StackHead(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
             .Split('\n')
             .Where(l => l.Contains("JizuraLive"))
             .Select(l => l.Trim().Replace(Environment.NewLine, "")));
@@ -944,24 +794,18 @@ public sealed class Renderer : IDisposable
                     if (Reg.Decor.TryGetValue(d.Id, out var D) && D.Layer == "back")
                         try
                         {
-                            using var _pb = new Prof.Scope("decorback", d.Id); // 叶子归因（性能专项）
-                            D.Draw?.Invoke(env, d); // JS draw(env, null, d)：后景装饰 bb 由 env.Body 携带（可为空）
-                        }
+                            using var _pb = new Prof.Scope("decorback", d.Id);                             D.Draw?.Invoke(env, d);                         }
                         catch (Exception e)
                         {
                             WarnThrottled("decor", d.Id, e);
                         }
             if (env.Layer == "back")
             {
-                env.Body = null; // 後景だけ：歌词和前景装饰归另一层
-                return;
+                env.Body = null;                 return;
             }
-            env.Body = null; // 清掉上一 cut/上一 decor 的残留（JS render 返回值语义）
-            try
+            env.Body = null;             try
             {
-                using var _pl = new Prof.Scope("layout", cut.Layout); // 叶子归因（性能专项）
-                layout?.Draw?.Invoke(env); // JS render(env) 返回主体 bbox → C# 写 env.Body
-            }
+                using var _pl = new Prof.Scope("layout", cut.Layout);                 layout?.Draw?.Invoke(env);             }
             catch (Exception e)
             {
                 WarnThrottled("layout", cut.Layout, e);
@@ -973,8 +817,7 @@ public sealed class Renderer : IDisposable
                     env.Body = bb;
                     try
                     {
-                        using var _pf = new Prof.Scope("decorfront", d.Id); // 叶子归因（性能专项）
-                        D.Draw?.Invoke(env, d);
+                        using var _pf = new Prof.Scope("decorfront", d.Id);                         D.Draw?.Invoke(env, d);
                     }
                     catch (Exception e)
                     {
@@ -984,15 +827,7 @@ public sealed class Renderer : IDisposable
             env.Body = bb;
         }
 
-        // ---------------- 透過PNG 的特效围栏 ----------------
-
-        /// <summary>
-        /// alphaGuard 的 C# 对位：JS 靠 monkey-patch fillRect/drawImage 拦「整幅不透明填充/内容副本」；
-        /// C# 画布拦不了——内置 FX 都是我们自己的移植代码，直接调 ContentDraw（S 副本镜像进 M）
-        /// 与 Cleared（整幅清底，TODO(11p)：转场类的整幅 sc.bg 填充走这里）。
-        /// end()：cleared 时只留 FX 期间画进 M 的内容，否则 P（特效前内容）∪ M，最后 destination-in。
-        /// </summary>
-        private sealed class AlphaGuard
+                private sealed class AlphaGuard
         {
             private readonly SKSurface _p, _m;
             public bool Cleared;
@@ -1016,8 +851,7 @@ public sealed class Renderer : IDisposable
                 _m.Canvas.Clear();
             }
 
-            /// <summary>内容副本（S 的偏移/缩放/镜像块）：既画到 ctx，也镜像进 M（这部分是要留下的内容）。</summary>
-            public void ContentDraw(SKCanvas ctx, SKImage img, SKRect dst, SKPaint paint) =>
+                        public void ContentDraw(SKCanvas ctx, SKImage img, SKRect dst, SKPaint paint) =>
                 ContentDraw(ctx, img, new SKRect(0, 0, img.Width, img.Height), dst, paint);
 
             public void ContentDraw(SKCanvas ctx, SKImage img, SKRect src, SKRect dst, SKPaint paint)
@@ -1049,14 +883,11 @@ public sealed class Renderer : IDisposable
         private AlphaGuard NewGuard(int cw, int ch) =>
             new(Ensure(ref _guardP, cw, ch), Ensure(ref _guardM, cw, ch));
 
-        // ---------------- post（事件后期 + 纹理） ----------------
-
         private void Post(SKCanvas ctx, Plan plan, double t, double tq, int step, Scheme sc, double scale,
             RenderOpts opt, bool allowFilter)
         {
             var cw = Math.Max(1, ctx.DeviceClipBounds.Width);
             var ch = Math.Max(1, ctx.DeviceClipBounds.Height);
-            // 性能剖析（与 Frame.Stage 同款；fx: 前缀的子阶段）
             var _h0 = StageHook != null ? Stopwatch.GetTimestamp() : 0L;
             var _a0 = StageHook != null ? GC.GetAllocatedBytesForCurrentThread() : 0L;
             void Stage(string name)
@@ -1071,13 +902,10 @@ public sealed class Renderer : IDisposable
             var fx = plan.Fx;
             var st = plan.Style;
             var active = new List<PlanEvent>();
-            var evWin = 1.0 / (plan.Fps > 0 ? plan.Fps : 24); // 守卫同 L1075 的 clock24：异常工程 Fps 不得污染事件窗口
-            foreach (var ev in plan.Events)
+            var evWin = 1.0 / (plan.Fps > 0 ? plan.Fps : 24);             foreach (var ev in plan.Events)
                 if (t >= ev.T && t < ev.T + Math.Max(ev.Dur, evWin))
                     active.Add(ev);
             var glow = StNum(st, "glow", 0.6) * 0.5 * fx.Texture;
-            // 11p：非内置 FX（fxB/looks 插件）也要 scratch 帧（JS 的 needScratch 含 D.scratch——
-            // C# 对全部插件恒拷贝，是否读 S 由各 Draw 决定，行为一致）
             var needScratch = active.Any(ev => ev.Type is "slice" or "block" or "zoom" or "mosaic")
                               || active.Any(ev => Reg.Fxe.TryGetValue(ev.Type, out var pd) && !pd.Builtin && pd.Draw != null)
                               || (!opt.Fast && glow > 0);
@@ -1085,21 +913,13 @@ public sealed class Renderer : IDisposable
             if (needScratch) S = Ensure(ref _scratch, cw, ch);
             ctx.Save();
             ctx.SetMatrix(SKMatrix.Identity);
-            var clock24 = (int)Math.Floor(t * (plan.Fps != 0 ? plan.Fps : 24)); // glitch 随机数跟随输出帧率
-            var guard = opt.Transparent ? NewGuard(cw, ch) : null;
+            var clock24 = (int)Math.Floor(t * (plan.Fps != 0 ? plan.Fps : 24));             var guard = opt.Transparent ? NewGuard(cw, ch) : null;
             foreach (var ev in active)
             {
-                // 进度钳到 0..1：比一输出帧还短的事件也要显示那一帧，否则 k 会冲过 1
                 var k0 = (t - ev.T) / Math.Max(ev.Dur, 1e-3);
                 var k = double.IsFinite(k0) ? J.Clamp(k0, 0, 1) : 0;
                 var st2 = clock24;
                 guard?.Begin(ctx);
-                // —— 11p 非内置 FX 插件路径（fxB/looks）——
-                // JS 的 D.draw(ctx, ev, k, I)：FxDef.Draw 签名是 (Env, PlanEvent)（Registry 冻结装不下
-                // (k, I)），k/cw/ch/S/tmp/tmp2/transparent 经 P11FxB.FxPlug 桥传递；I.sc/st/step/
-                // allowFilter 由 env.Sc/env.St/env.Step（= clock24，JS 同源）/env.AllowFilter 承载。
-                // 透過 + alphaGuard：插件内部绘制无法镜像进 M（JS 靠 monkey-patch ctx），End() 退化为
-                // P ∪ 空间 alpha 裁剪——插件新增的不透明区域会被裁掉（保守降级，TODO(11p)）。
                 var fxDef = Reg.Fxe.GetValueOrDefault(ev.Type);
                 if (fxDef is { Builtin: false, Draw: not null })
                 {
@@ -1124,8 +944,6 @@ public sealed class Renderer : IDisposable
                     {
                         P11FxB.FxEnd();
                     }
-                    // JS 在插件 D.draw 后复位 ctx 状态；C# 的 paint 都作用域即弃，画布矩阵由
-                    // fxEnv/包装的 Save/Restore 恢复
                     guard?.End(ctx);
                     continue;
                 }
@@ -1224,8 +1042,7 @@ public sealed class Renderer : IDisposable
                         var tx = T.Canvas;
                         tx.SetMatrix(SKMatrix.Identity);
                         tx.Clear();
-                        using (var mp = new SKPaint()) // 缩小：线性采样
-                            tx.DrawImage(simg, new SKRect(0, 0, tw, th), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), mp);
+                        using (var mp = new SKPaint())                             tx.DrawImage(simg, new SKRect(0, 0, tw, th), new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), mp);
                         using (var timg = T.Snapshot())
                         using (var up = new SKPaint
                                {
@@ -1233,14 +1050,12 @@ public sealed class Renderer : IDisposable
                                })
                         {
                             var dst = new SKRect(0, 0, cw, ch);
-                            // 放大：最近邻（JS imageSmoothingEnabled=false 的马赛克硬边）
                             if (guard != null) guard.ContentDraw(ctx, timg, dst, up);
                             else ctx.DrawImage(timg, dst, default(SKSamplingOptions), up);
                         }
                         break;
                     }
                 }
-                // JS 每个特效后复位 ctx 状态；C# 的 paint 都是作用域内即弃，无残留
                 guard?.End(ctx);
             }
             Stage("fx:events");
@@ -1252,7 +1067,6 @@ public sealed class Renderer : IDisposable
                 var sx = Sm.Canvas;
                 sx.SetMatrix(SKMatrix.Identity);
                 sx.Clear();
-                // 辉光模糊只依赖小画布宽（同尺寸恒同 σ）：filter 实例缓存复用
                 using (var snap = SnapshotOf(ctx))
                 using (var bp = new SKPaint { ImageFilter = GlowFilter(sw2) })
                     sx.DrawImage(snap, new SKRect(0, 0, sw2, sh2),
@@ -1290,8 +1104,6 @@ public sealed class Renderer : IDisposable
                     ctx.Save();
                     ctx.Scale((float)k, (float)k);
                     ctx.Translate((float)-ox, (float)-oy);
-                    // 注：曾试把覆盖矩形钳到「正好画布」以求省面积——实测无收益（Skia 绘制先按设备
-                    // 边界裁剪，多铺的 256px 边距本就不花着色成本），故保留原式（像素与行为都不动）。
                     RectFill(ctx, 0, 0, cw / k + 256, ch / k + 256,
                         SKColors.White.WithAlpha((byte)Math.Round(gr * 0.2 * 255)), SKBlendMode.Overlay, shader: shader);
                     RectFill(ctx, 0, 0, cw / k + 256, ch / k + 256,
@@ -1299,17 +1111,12 @@ public sealed class Renderer : IDisposable
                     ctx.Restore();
                 }
                 Stage("fx:grain");
-                // 注：暗角渐变叠加在不定内容上（不可连底烘焙），premul 中转又有 ±1 抖动 → 维持 shader 直绘。
                 using (var vg = VigGrad(cw, ch, 0.28 * fx.Texture))
                     RectFill(ctx, 0, 0, cw, ch, SKColors.White, shader: vg);
                 Stage("fx:vig");
             }
             ctx.Restore();
         }
-
-        // ---- 后期纹理的只读资源缓存（颗粒/扫描线 shader、辉光 blur；Dispose 统一收） ----
-        // 注：常量全幅渐变（bgGrad/vigGrad）预渲染缓存试验后回退——premul 中转引入 ±1 级
-        // 全帧像素抖动（97% 像素非位级一致），违反「逐像素不变」铁律，见 Frame/Post 内注释。
 
         private readonly SKShader?[] _grainShader = new SKShader?[4];
         private SKShader? _scanShader;
@@ -1343,8 +1150,6 @@ public sealed class Renderer : IDisposable
                 sx.DrawImage(img, 0, 0, p);
         }
 
-        // ---------------- makeEnv ----------------
-
         private static Env MakeEnv(SKCanvas ctx, Plan plan, Cut? cut, Scheme? sc,
             double t, double lt, double ltb, int stepI, double scale, bool allowFilter,
             double energy, BeatInfo? beatInfo, string pass, string? passColor,
@@ -1365,14 +1170,9 @@ public sealed class Renderer : IDisposable
             return env;
         }
 
-        // ---------------- 纸纹 / 渐变 / 离屏画布帮手 ----------------
+                private readonly Dictionary<string, SKImage> _paperImgCache = new();
 
-        /// <summary>paper(W, H)：半分辨率纸纹（低频底噪 + 逐像素噪声 + 900 条纤维 + 1400 颗粒），带缓存。
-        /// inverted=true：暗底用（JS 的 ctx.filter='invert(1)' 预先内建）。</summary>
-        private readonly Dictionary<string, SKImage> _paperImgCache = new();
-
-        /// <summary>纸纹的 SKImage 视图（FromBitmap 共享位图像素）：缓存复用，调用方禁 Dispose。</summary>
-        private SKImage PaperImage(int W, int H, bool inverted)
+                private SKImage PaperImage(int W, int H, bool inverted)
         {
             var bmp = Paper(W, H, inverted);
             var key = (inverted ? "i" : "n") + W + "x" + H;
@@ -1383,12 +1183,6 @@ public sealed class Renderer : IDisposable
             }
             return img;
         }
-
-        // ---- 底色+中央提亮渐变的预渲染缓存（性能专项）----
-        // bg 填充与 BgGrad 渐变的合成结果只依赖 (bgCol, 渐变α, 设计尺寸, scale)；scheme 轮换/明暗底
-        // 切换会换键，字典按全键缓存、超量整清。缓存面按与画布相同的矩阵/着色器做同两步合成
-        // （透明底 ← SrcOver 不透明底色 ← SrcOver 渐变），结果不透明 → premul 存储无损、贴回即原像素。
-        // （注：单把「半透明渐变」单独烘焙成图会在 premul 中转里引入 ±1 抖动，不可行；必须连底色一起烘焙。）
 
         private readonly Dictionary<(int CW, int CH, int W, int H, double Scale, int Bg, int LiftA8), SKImage> _bgBaked = new();
 
@@ -1418,8 +1212,7 @@ public sealed class Renderer : IDisposable
             return img;
         }
 
-        /// <summary>预渲染整幅图的 1:1 贴回（identity 矩阵 + 最近邻采样，逐像素等于原直绘结果）。</summary>
-        private void DrawGradImage(SKCanvas ctx, SKImage img)
+                private void DrawGradImage(SKCanvas ctx, SKImage img)
         {
             ctx.Save();
             ctx.SetMatrix(SKMatrix.Identity);
@@ -1444,7 +1237,6 @@ public sealed class Renderer : IDisposable
             using (var x = new SKCanvas(bmp))
             {
                 x.Clear(SKColors.White);
-                // 低频纸底噪（225..255 暖灰），放大铺满
                 var loW = Math.Max(1, (int)Math.Ceiling(w / 24.0));
                 var loH = Math.Max(1, (int)Math.Ceiling(h / 24.0));
                 using (var lo = new SKBitmap(loW, loH))
@@ -1458,9 +1250,7 @@ public sealed class Renderer : IDisposable
                     using (var lp = new SKPaint { Color = SKColors.White.WithAlpha((byte)Math.Round(0.9 * 255)) })
                         x.DrawBitmap(lo, new SKRect(0, 0, loW, loH), new SKRect(0, 0, w, h), lp);
                 }
-                // 逐像素噪声
                 AddPerPxNoise(bmp, 22);
-                // 900 条纤维（二次贝塞尔短弧）
                 using (var sp = new SKPaint
                        {
                            IsAntialias = true,
@@ -1482,7 +1272,6 @@ public sealed class Renderer : IDisposable
                         x.DrawPath(path, sp);
                     }
                 }
-                // 1400 颗粒
                 using (var fp = new SKPaint { Color = new SKColor(60, 50, 40, (byte)Math.Round(0.25 * 255)) })
                 {
                     for (var i = 0; i < 1400; i++)
@@ -1509,15 +1298,13 @@ public sealed class Renderer : IDisposable
             for (var i = 0; i + 3 < len; i += 4)
             {
                 var v = src();
-                if (order) // BGRA
-                {
+                if (order)                 {
                     buf[i] = b(v);
                     buf[i + 1] = g(v);
                     buf[i + 2] = r(v);
                     buf[i + 3] = a(v);
                 }
-                else // RGBA
-                {
+                else                 {
                     buf[i] = r(v);
                     buf[i + 1] = g(v);
                     buf[i + 2] = b(v);
@@ -1561,15 +1348,13 @@ public sealed class Renderer : IDisposable
             Marshal.Copy(buf, 0, ptr, len);
         }
 
-        /// <summary>bgGrad：中央提亮的径向渐变（JS createRadialGradient → Skia 两点圆锥）。</summary>
-        private static SKShader BgGrad(int W, int H, SKColor lift) =>
+                private static SKShader BgGrad(int W, int H, SKColor lift) =>
             SKShader.CreateTwoPointConicalGradient(
                 new SKPoint(W / 2f, H * 0.45f), 0,
                 new SKPoint(W / 2f, H / 2f), (float)(Math.Sqrt((double)W * W + (double)H * H) * 0.6),
                 new[] { lift, SKColors.Transparent }, null, SKShaderTileMode.Clamp);
 
-        /// <summary>vigGrad：四角压暗。</summary>
-        private static SKShader VigGrad(int cw, int ch, double a) =>
+                private static SKShader VigGrad(int cw, int ch, double a) =>
             SKShader.CreateTwoPointConicalGradient(
                 new SKPoint(cw / 2f, ch / 2f), (float)(Math.Min(cw, ch) * 0.35),
                 new SKPoint(cw / 2f, ch / 2f), (float)(Math.Sqrt((double)cw * cw + (double)ch * ch) * 0.62),
@@ -1590,8 +1375,6 @@ public sealed class Renderer : IDisposable
 
         private static SKImage SnapshotOf(SKCanvas ctx)
         {
-            // SkiaSharp 3.x 的 SKCanvas 没有 ReadPixels：整帧缓存/特效 scratch 依赖 snapshot，
-            // 主画布必须是 SKSurface 的 canvas（导出/冒烟管线均满足；SKCanvas(bitmap) 场景由上层包 surface）
             var s = ctx.Surface ?? throw new NotSupportedException(
                 "Renderer 需要 SKSurface 的 canvas（可 Snapshot）；请用 SKSurface 包裹目标位图后再画");
             return s.Snapshot();
@@ -1617,8 +1400,6 @@ public sealed class Renderer : IDisposable
             throw new InvalidOperationException("empty map");
         }
 
-        // ---------------- 松散 JSON 读取（item/params 的 duck-typed 对位） ----------------
-
         private static double NumTok(JObject? o, string k, double d = 0)
         {
             if (o == null) return d;
@@ -1640,8 +1421,6 @@ public sealed class Renderer : IDisposable
 
         private static double StTextureNum(StyleDef st, string k) =>
             JLayouts.StTok(st, "texture") is JObject t ? NumTok(t, k) : 0;
-
-        // ---------------- beat（JS beatAt / prevBeat） ----------------
 
         private readonly record struct BeatInfo(double Since, double Len, int Index);
 
@@ -1680,14 +1459,9 @@ public sealed class Renderer : IDisposable
             return ans;
         }
 
-        /// <summary>beatInfo → Env.Beat（归一相位 since/len）；完整 {since,len,index} 由 MakeEnv 挂 Env.BeatHas 等字段。</summary>
-        private static double BeatNorm(BeatInfo? b) => b == null ? 0 : b.Value.Since / b.Value.Len;
+                private static double BeatNorm(BeatInfo? b) => b == null ? 0 : b.Value.Since / b.Value.Len;
 
-        /// <summary>
-        /// 清空整帧缓存（换目标画幅、换离屏面或重建管线时调用）。
-        /// 及时释放快照引用，使换下的旧表面与位图能够立即安全 Dispose。
-        /// </summary>
-        public void ClearFrameCache()
+                public void ClearFrameCache()
         {
             _fcCv?.Dispose();
             _fcCv = null;
@@ -1712,8 +1486,7 @@ public sealed class Renderer : IDisposable
             foreach (var g in _grain) g?.Dispose();
             foreach (var s in _grainShader) s?.Dispose();
             _scanShader?.Dispose();
-            _glowFilters.Clear(); // 值来自 JText 共享记忆工厂，不随 Renderer 释放（性能专项）
-            foreach (var img in _bgBaked.Values) img.Dispose();
+            _glowFilters.Clear();             foreach (var img in _bgBaked.Values) img.Dispose();
             _bgBaked.Clear();
             foreach (var img in _paperImgCache.Values) img.Dispose();
             _paperImgCache.Clear();

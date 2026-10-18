@@ -9,15 +9,11 @@ public readonly record struct PvLayerImage(ID2D1Bitmap? Bitmap, Color4? Solid, i
 {
     public bool HasContent => Bitmap is not null || Solid is not null;
 
-    public static PvLayerImage FromSolid(Color4 color, int width, int height) =>
-        new(null, color, width, height);
-
     public static PvLayerImage Empty => new(null, null, 0, 0);
 }
 
 public static class PvAmbient
 {
-    public static Matrix5x4 TintMatrix(Color4 tint, double strength) => BlendMatrix(tint, strength, 0);
 
     public static double AtmosphereFar(PvParallaxConfig parallax, bool globalParallax) =>
         globalParallax && parallax.Depth > 0.001
@@ -67,26 +63,6 @@ public sealed class PvStageCompositor
     public PvStageCompositor(Immediate2D draw) => _draw = draw;
 
     public static readonly string[] FixedZones = { "subtitle_top" };
-
-    public void Composite(PvScene scene, PvCamState cam,
-        IReadOnlyDictionary<string, PvLayerImage> images, int width, int height)
-    {
-        var layers = scene.Layers;
-        for (var i = 0; i < layers.Count; i++)
-        {
-            var layer = layers[i];
-            if (!layer.Enabled) continue;
-            if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
-
-            var state = scene.Frame.TryGetLayer(layer.Id, out var frame) ? frame : PvLayerState.From(layer);
-            CompositeLayer(scene, layer, state, image, cam, width, height);
-        }
-
-        DrawBrighten(cam, width, height);
-
-        foreach (var id in FixedZones)
-            CompositeFixedZone(id, images, width, height);
-    }
 
     public void CompositeLayer(PvScene scene, PvLayerConfig layer, in PvLayerState state, PvLayerImage image,
         PvCamState cam, int width, int height)

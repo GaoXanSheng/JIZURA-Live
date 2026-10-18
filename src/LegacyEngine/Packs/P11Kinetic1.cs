@@ -1,27 +1,3 @@
-// 移植自 frontend/src/engine/11p_kinetic1.js（kinetic 第 1 包：按词计时的版式，pack = 'kinetic1'，12 条）。
-//
-// 契约与 P11LayoutsB 相同：Fits 筛台词；Plan(rng, ctx, st) 抽参数存 cut.params（键名一字不改）；
-// Draw(env) 绘制并写回 env.Body（JS render(env) 的返回值，null → env.Body = null）。
-// RNG 消费顺序逐行对位（rng.pick/chance/range/int 的调用次序就是画面轨迹；JS 里靠 ?:
-// 短路的抽取在 C# 里同样短路）。JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为
-// IRegEntry.Set 真字段（Reg0 统一赋值，Omakase 门禁直读）。
-//
-// 本包私有 helper（JS L9-199 顶层 const/function 逐条对位）见「本包 helper」区：
-// U/isPort/strip/hasLatin/flat/gcount/fontsOf/bodyF/monoF/tout/meas/em/box/UB/miAt/rotV/
-// sprg/bellK/onCol/accOn/splitUnit/unitsOf/onsets/curIdx/partitions/flowUnits + loopPath/pathAt。
-// 词时钟/词块缓存（JS WeakMap/Map）对位 ConditionalWeakTable<Cut,…> 与定容 Dictionary。
-//
-// 跨文件符号对位：J.fontsOf→JLayouts.FontsOf、J.measure→JLayouts.Measure、J.fitSize→JLayouts.FitSize、
-// J.layoutText→JText.LayoutText、J.mainDraw→JLayouts.MainDraw、J.unionBB→JLayouts.UnionBb、
-// J.centerBB→JLayouts.CenterBb、J.splitLines→JLayouts.SplitLines、J.chunkText→Planner.ChunkText、
-// J.glyphCount(码点数)→JLayouts.CpLen、J.metrics.adv→JLayouts.MetricsAdv、
-// J.TYPESET→JText.Typeset、J.drawItem(env.draw)→env.DrawItem、J.isKanji→J.IsKanji、
-// J.r/rs/h→J.R/J.Rs/J.H、clamp/lerp/smooth/lum/contrast/mix/DEG/TAU→J.*、E.*→J.E.*。
-//
-// env 缺口（本文件内补）：JS env.beat {since,len,index} → 本文件 BeatInfo/BeatOf（与 P11LayoutsB
-// 同口径，从 env.Plan.Beats + env.T 重建）。ctx.setLineDash → 本文件 DashedLine（SKPathEffect）。
-//
-// 条目字段对位：ae（AE 导出模板名）LayoutDef 无对应属性，未注册（各条目行内注明）。
 
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
@@ -35,14 +11,10 @@ public static class P11Kinetic1
     private const string P = "kinetic1";
     private static int _installed;
 
-    /// <summary>JS reg(key, def) = J.register('layout', key, {…def, set:'kinetic'}, P)。</summary>
-    private static void Reg0(string key, LayoutDef def)
+        private static void Reg0(string key, LayoutDef def)
     {
-        def.Set = "kinetic"; // JS reg 助手：Object.assign(def, {set: 'kinetic'})——真字段，Omakase 门禁直读
-        Reg.Register("layout", key, def, P);
+        def.Set = "kinetic";         Reg.Register("layout", key, def, P);
     }
-
-    // ================= 本包 helper（JS L9-199 逐条对位） =================
 
     private static double U(Env env) => Math.Min(env.W, env.H);
     private static bool IsPort(Env env) => env.H > env.W * 1.08;
@@ -62,8 +34,7 @@ public static class P11Kinetic1
 
     private static double Tout(Env env) => 1 - J.E.InCubic(env.POut);
 
-    /// <summary>meas(text, font, size, o)：JS J.measure(Object.assign({text,font,size}, o))。</summary>
-    private static TextMetrics Meas(string text, string font, double size, JObject? o = null)
+        private static TextMetrics Meas(string text, string font, double size, JObject? o = null)
     {
         var probe = new JObject { ["text"] = text, ["font"] = font, ["size"] = size };
         if (o != null)
@@ -72,16 +43,14 @@ public static class P11Kinetic1
         return JLayouts.Measure(probe);
     }
 
-    /// <summary>em(text, font, o)：size 100 的宽度换算成 em。</summary>
-    private static double Em(string text, string font, JObject? o = null) => Meas(text, font, 100, o).W / 100;
+        private static double Em(string text, string font, JObject? o = null) => Meas(text, font, 100, o).W / 100;
 
     private static BBox Box(double x0, double y0, double x1, double y1) => new()
     { X0 = x0, Y0 = y0, X1 = x1, Y1 = y1, Cx = (x0 + x1) / 2, Cy = (y0 + y1) / 2 };
 
     private static BBox? UB(BBox? a, BBox? b) => JLayouts.UnionBb(a, b);
 
-    /// <summary>换算成 motion index，让 mainDraw 在本地时间 t 开始这个 item 的入场。</summary>
-    private static double MiAt(Env env, double t) =>
+        private static double MiAt(Env env, double t) =>
         Math.Max(0, t) / Math.Max(0.005, env.Cut!.Stagger != 0 ? env.Cut.Stagger : 0.04);
 
     private static double[] RotV(double x, double y, double a)
@@ -91,14 +60,12 @@ public static class P11Kinetic1
         return new[] { x * c - y * s, x * s + y * c };
     }
 
-    /// <summary>阻尼弹簧 1 → 0，会冲过 0 再荡回来；t 秒。</summary>
-    private static double Sprg(double t, double k = 7, double f = 18) =>
+        private static double Sprg(double t, double k = 7, double f = 18) =>
         t <= 0 ? 1 : Math.Exp(-k * t) * Math.Cos(f * t);
 
     private static double BellK(double k) => Math.Sin(Math.PI * J.Clamp(k));
 
-    /// <summary>在底板色上读得出的文字色。</summary>
-    private static string OnCol(Scheme sc, string? fill)
+        private static string OnCol(Scheme sc, string? fill)
     {
         string? best = null;
         var bv = 0.0;
@@ -117,14 +84,12 @@ public static class P11Kinetic1
             : J.Lum(fill ?? "#000") > 0.5 ? "#111111" : "#FFFFFF";
     }
 
-    /// <summary>背景上读得出的 accent，不然退回 fg。</summary>
-    private static string AccOn(Scheme sc) =>
+        private static string AccOn(Scheme sc) =>
         J.Contrast(sc.Str("accent") ?? "#000", sc.Str("bg") ?? "#000") >= 1.7
             ? sc.Str("accent")!
             : sc.Str("fg") ?? "#FFFFFF";
 
-    /// <summary>JS env.beat（09_render 的 beatAt）本文件内的重建：{since, len, index}。</summary>
-    private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
+        private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
 
     private static BeatInfo BeatOf(Env env)
     {
@@ -147,8 +112,6 @@ public static class P11Kinetic1
         return new BeatInfo(true, t - beats[i], Math.Max(0.2, len), i);
     }
 
-    // ---- 词单元：把整句切成数量好用的词块（JS L48-104） ----
-
     private static readonly Dictionary<string, string[]> UnitCache = new();
 
     private static string[] SplitUnit(string s)
@@ -156,7 +119,6 @@ public static class P11Kinetic1
         var t = (s ?? "").Trim();
         if (Regex.IsMatch(t, @"\s"))
         {
-            // 拉丁文：在靠中间的空格处切
             var mid = t.Length / 2.0;
             var bi = -1;
             var bd = 1e9;
@@ -186,8 +148,7 @@ public static class P11Kinetic1
         if (Strip(string.Join("", w)) != Strip(text))
             w = Planner.ChunkText(text).Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
         if (w.Count == 0) w.Add(text.Trim().Length > 0 ? text.Trim() : "…");
-        while (w.Count > maxU) // 合并最短的一对相邻词
-        {
+        while (w.Count > maxU)         {
             var bi = 0;
             var bv = 1e9;
             for (var i = 0; i < w.Count - 1; i++)
@@ -199,11 +160,9 @@ public static class P11Kinetic1
                     bi = i;
                 }
             }
-            w[bi] = w[bi] + (lat ? " " : "") + w[bi + 1]; // JS w.splice(bi, 2, merged)
-            w.RemoveAt(bi + 1);
+            w[bi] = w[bi] + (lat ? " " : "") + w[bi + 1];             w.RemoveAt(bi + 1);
         }
-        for (var g = 0; g < 8 && w.Count < minU; g++) // 拆开最长的可拆单元
-        {
+        for (var g = 0; g < 8 && w.Count < minU; g++)         {
             var bi = -1;
             var bv = 1.0;
             for (var i = 0; i < w.Count; i++)
@@ -219,8 +178,7 @@ public static class P11Kinetic1
             if (bi < 0) break;
             var parts = SplitUnit(w[bi]);
             if (parts.Length < 2 || parts[0].Length == 0 || parts[1].Length == 0) break;
-            w.RemoveAt(bi); // JS w.splice(bi, 1, parts[0], parts[1])
-            w.Insert(bi, parts[0]);
+            w.RemoveAt(bi);             w.Insert(bi, parts[0]);
             w.Insert(bi + 1, parts[1]);
         }
         if (UnitCache.Count > 400) UnitCache.Clear();
@@ -228,8 +186,6 @@ public static class P11Kinetic1
         UnitCache[key] = arr;
         return arr;
     }
-
-    // ---- 词时钟：每个词的入场时刻；靠近节拍就吸附到节拍上（JS L106-148） ----
 
     private static readonly ConditionalWeakTable<Cut, Dictionary<string, double[]>> ClockCache = new();
 
@@ -268,8 +224,7 @@ public static class P11Kinetic1
         return arr;
     }
 
-    /// <summary>当前时刻已过的最新词序号，第一个词之前是 -1。</summary>
-    private static int CurIdx(double[] ts, double t)
+        private static int CurIdx(double[] ts, double t)
     {
         var k = -1;
         for (var i = 0; i < ts.Length; i++)
@@ -277,8 +232,6 @@ public static class P11Kinetic1
                 k = i;
         return k;
     }
-
-    // ---- 把词流进等重的行并塞进框里（JS L150-199） ----
 
     private static List<int[][]> Partitions(int n, int L)
     {
@@ -378,29 +331,10 @@ public static class P11Kinetic1
         };
     }
 
-    // ================= 注册（JS 源里 reg(...) 的出现序） =================
-
-    /// <summary>幂等注册本文件全部 layout（顺序 = JS 源文件 reg 调用序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        KnSlamStack();    // JS L201
-        KnQuarterTurn();  // JS L302
-        KnSwapCenter();   // JS L424
-        KnZoomDive();     // JS L518
-        KnFlowSnap();     // JS L608
-        KnSeesaw();       // JS L735
-        KnTypeSlam();     // JS L835
-        KnRhythmCuts();   // JS L948
-        KnPathRide();     // JS L1089
-        KnGearWords();    // JS L1155
-        KnCollide();      // JS L1235
-        KnTumble();       // JS L1337
-        KnReflow();       // JS L1413
-        KnPadGrid();      // JS L1489
-    }
-
-    // ---------------- knSlamStack（JS L201） ----------------
+        KnSlamStack();            KnQuarterTurn();          KnSwapCenter();           KnZoomDive();             KnFlowSnap();             KnSeesaw();               KnTypeSlam();             KnRhythmCuts();           KnPathRide();             KnGearWords();            KnCollide();              KnTumble();               KnReflow();               KnPadGrid();          }
 
     private static void KnSlamStack() => Reg0("knSlamStack", new LayoutDef
     {
@@ -411,7 +345,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["blur"] = 0.7, ["pop"] = 0.8, ["slice"] = 0.3, ["wipe"] = 0.4 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'justified'（AE 导出模板名，LayoutDef 无对应属性）
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["align"] = rng.Pick(new[] { "center", "center", "left", "right" }),
             ["from"] = rng.Pick(new[] { "scale", "scale", "drop", "side" }),
@@ -445,8 +378,7 @@ public static class P11Kinetic1
                 for (var q = 0; q < 5; q++)
                 {
                     for (var i = 0; i < k; i++) sizes[i] = Math.Min(w / ms[i], cap);
-                    var lo = sizes.Min() * 2.2; // 最小字之上最多留 2.2 倍，保持大小对比可读
-                    for (var i = 0; i < k; i++) sizes[i] = Math.Min(sizes[i], lo);
+                    var lo = sizes.Min() * 2.2;                     for (var i = 0; i < k; i++) sizes[i] = Math.Min(sizes[i], lo);
                     var s = sizes.Sum() + gap * sizes[0] * (k - 1);
                     if (s <= hb) break;
                     w *= hb / s;
@@ -507,7 +439,6 @@ public static class P11Kinetic1
                         x += (i % 2 != 0 ? 1 : -1) * W * 0.9 * f;
                     }
                 }
-                // 新一行砸下时，已落地的行跟着震一下
                 var land = lt - ts[k - 1] - 0.12;
                 if (!fresh && k > 1 && land > 0)
                     y += aL.Sizes[k - 1] * 0.07 * Sprg(land, 9, 26) * (land < 0.6 ? 1 : 0);
@@ -554,8 +485,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knQuarterTurn（JS L302） ----------------
-
     private static void KnQuarterTurn() => Reg0("knQuarterTurn", new LayoutDef
     {
         Name = "直角ターン",
@@ -566,7 +495,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["pop"] = 0.8, ["blur"] = 0.8, ["slice"] = 0.2, ["wipe"] = 0.3 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'sideways'
             ["font"] = rng.Pick(FontsOf(st, "display", "serif")),
             ["sgn"] = rng.Pick(new[] { 1, -1 }),
             ["end"] = "all",
@@ -586,7 +514,6 @@ public static class P11Kinetic1
             var n = units.Length;
             var ts = Onsets(env, n, frac: 0.46, gap: 0.5);
             var font = JLayouts.S(Pm, "font")!;
-            // 以 em 串链：词 i 沿方向 a_i 走，拐角处转 90°（阶梯式，转向左右交替）
             var lLen = units.Select(t => Em(t, font, new JObject { ["track"] = 0.03 })).ToArray();
             var lastAdv = units.Select(t =>
             {
@@ -618,7 +545,6 @@ public static class P11Kinetic1
                 chEx[i] = sx0 + d[0] * lLen[i];
                 chEy[i] = sy0 + d[1] * lLen[i];
             }
-            // 每个词一台机位：转正、居中、缩放到放得下
             double ZW(int i) => Math.Min(Math.Min(W * 0.76 / lLen[i], H * 0.3), W * 0.42);
             var camR = new double[n];
             var camX = new double[n];
@@ -631,7 +557,6 @@ public static class P11Kinetic1
                 camY[i] = chCy[i];
                 camZ[i] = ZW(i);
             }
-            // 全景机位：一眼看全，第一个词保持水平
             double x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
             for (var i = 0; i < n; i++)
             {
@@ -710,7 +635,6 @@ public static class P11Kinetic1
                     ["alpha"] = i == 0 ? 1 : J.Clamp(q * 4),
                 };
                 bb = UB(bb, JLayouts.MainDraw(env, it));
-                // 拐角标记：转折处放一小块 accent 方点
                 if (JLayouts.Truthy(Pm["joint"]) && i > 0)
                 {
                     var pd = RotV(1, 0, chA[i - 1]);
@@ -723,8 +647,7 @@ public static class P11Kinetic1
                         var ctx = env.Ctx;
                         ctx.Save();
                         ctx.Translate((float)(W / 2.0 + ev[0] * cam[3]), (float)(H / 2.0 + ev[1] * cam[3]));
-                        ctx.RotateDegrees((float)(cam[0] + 45)); // JS rotate((cam.r + 45) * DEG) 收弧度；这里收度
-                        env.Rect(-s / 2, -s / 2, s, s, sc.Str("accent"), 1, false);
+                        ctx.RotateDegrees((float)(cam[0] + 45));                         env.Rect(-s / 2, -s / 2, s, s, sc.Str("accent"), 1, false);
                         ctx.Restore();
                     }
                 }
@@ -733,18 +656,14 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knSwapCenter（JS L424） ----------------
-
-    /// <summary>knSwapCenter 的帧不变量（CutCache 载体）。</summary>
-    private sealed class KnSwapInv
+        private sealed class KnSwapInv
     {
         public string[] Units = null!;
         public double[] Big = null!;
         public FlowLayout Flow = null!;
     }
 
-    /// <summary>FitSize/Em 的常量 opt（只读共享实例）。</summary>
-    private static readonly JObject KinTrackOpt = new() { ["track"] = 0.02 };
+        private static readonly JObject KinTrackOpt = new() { ["track"] = 0.02 };
 
     private static void KnSwapCenter() => Reg0("knSwapCenter", new LayoutDef
     {        Name = "入れ替わり",
@@ -754,7 +673,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["pop"] = 0.7, ["blur"] = 0.8, ["slice"] = 0.3, ["wipe"] = 0.3 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'slotMachine'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["fontL"] = rng.Pick(FontsOf(st, "display", "serif")),
             ["mode"] = rng.Pick(new[] { "roll", "punch", "slide", "roll" }),
@@ -773,8 +691,6 @@ public static class P11Kinetic1
             var port = IsPort(env);
             var font = JLayouts.S(Pm, "font")!;
             var fontL = JLayouts.S(Pm, "fontL")!;
-            // 帧不变量（性能专项）：units/big/FlowUnits 只由 (cut, W, H) 与 plan 静态量决定——
-            // FlowUnits 内部是逐行数 Partitions 组合搜索 + 逐词 Em，逐帧重算曾是本版式 ~160KB/帧的分配大头
             var inv = CutCache.Get<KnSwapInv>(c, "knSwap");
             if (inv == null)
             {
@@ -870,7 +786,6 @@ public static class P11Kinetic1
                 env.Body = bb;
                 return;
             }
-            // 收束：每个词飞回整行里的位置
             for (var i = 0; i < n; i++)
             {
                 var last = i == n - 1;
@@ -895,15 +810,12 @@ public static class P11Kinetic1
         },
     });
 
-    /// <summary>knZoomDive 的帧不变量（CutCache 载体，性能专项）。</summary>
-    private sealed class KnZoomInv
+        private sealed class KnZoomInv
     {
         public string[] Units = null!;
         public double[] Sizes = null!;
         public double[][] Focus = null!;
     }
-
-    // ---------------- knZoomDive（JS L518） ----------------
 
     private static void KnZoomDive() => Reg0("knZoomDive", new LayoutDef
     {
@@ -914,7 +826,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["blur"] = 0.8, ["pop"] = 0.5, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'zoomRepeat'
             ["font"] = rng.Pick(FontsOf(st, "display", "serif")),
             ["cap"] = rng.Chance(0.75),
             ["acc"] = rng.Chance(0.5),
@@ -929,15 +840,12 @@ public static class P11Kinetic1
             var font = JLayouts.S(Pm, "font")!;
             var accOn = JLayouts.Truthy(Pm["acc"]);
             var u = U(env);
-            // 帧不变量（性能专项）：units/逐词字号/焦点字只由 (cut, W, H) 与 plan 静态量决定；
-            // FitSize×n + LayoutText×n 逐帧重算曾是本版式 ~45KB/帧的分配大头
             var inv = CutCache.Get<KnZoomInv>(c, "knZoomDive");
             if (inv == null)
             {
                 var units0 = UnitsOf(c, 5, 2);
                 var sizes0 = units0.Select(t => Math.Min(Math.Min(
                     JLayouts.FitSize(t, font, W * 0.78, H * 0.4, KinTrackOpt), H * 0.34), W * 0.6)).ToArray();
-                // 焦点字：第一个汉字（没有就取中间字），em 单位、相对词中心
                 var foc0 = units0.Select(unit =>
                 {
                     var lay = JText.LayoutText(new JObject
@@ -967,7 +875,6 @@ public static class P11Kinetic1
             var accC = AccOn(sc);
             BBox? bb = null;
             const double t = 0.42;
-            // 上一个词绕焦点字放大，镜头从这个字里穿过去
             if (k > 0)
             {
                 var e = J.Clamp((lt - ts[k]) / t);
@@ -1011,7 +918,6 @@ public static class P11Kinetic1
                     ["mi"] = MiAt(env, ts[k]),
                 });
             }
-            // 最后一个词落定后，整句缩成底部小字幕
             if (JLayouts.Truthy(Pm["cap"]) && n > 1 && k == n - 1 && bb != null)
             {
                 var aCap = J.E.OutCubic(J.Clamp((lt - ts[k] - 0.55) / 0.35)) * Tout(env);
@@ -1022,9 +928,6 @@ public static class P11Kinetic1
                     var fs = Math.Min(J.Clamp(u * 0.034, 14, 40),
                         JLayouts.FitSize(txt, body, W * 0.8, H * 0.1, new JObject { ["track"] = 0.18 }));
                     var capY = Math.Min(H * 0.92, bb.Y1 + fs * 1.6);
-                    // 底部字幕是全新 item（JS 字面量没有 charFn）——env 的函数值桥里还挂着上一个
-                    // MainDraw 的 hold 配方（knWordRide），不压掉就会按旧词的 Map 逐字取位 → 越界
-                    //（实测：每帧 System.IndexOutOfRangeException + 画面缺字幕）。按本包的 DrawCopy 惯例压桥。
                     var savedCharFn = env.CharFn;
                     var savedPieceFn = env.PieceFn;
                     env.CharFn = null;
@@ -1061,8 +964,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knFlowSnap（JS L608） ----------------
-
     private static void KnFlowSnap() => Reg0("knFlowSnap", new LayoutDef
     {
         Name = "流れて整列",
@@ -1072,7 +973,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["blur"] = 0.6, ["pop"] = 0.6, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'gridCells'
             ["font"] = rng.Pick(FontsOf(st, "display", "body")),
             ["amp"] = rng.Range(0.1, 0.16),
             ["lam"] = rng.Range(0.45, 0.7),
@@ -1094,7 +994,6 @@ public static class P11Kinetic1
             var t0 = Flat(c.Text);
             var chars = JLayouts.CodePoints(t0);
             var n = chars.Count;
-            // 终态排版：日文方格阵，拉丁文均衡分行
             string ft;
             double trk;
             if (lat)
@@ -1130,7 +1029,6 @@ public static class P11Kinetic1
             var ox = W / 2.0 - (lat ? 0 : mmW / 2);
             var oy = H / 2.0;
             var gl = lay.Cells.Where(g => g.Ch != "\n").ToList();
-            // 吸附时刻：约在镜内 40% 处
             var tS = J.Clamp(c.Dur * 0.42, 0.45, 1.5);
             var advs = gl.Select((g, i) =>
                 JLayouts.MetricsAdv(font, g.Ch) * 1.08 + (i > 0 && g.Li != gl[i - 1].Li ? 0.35 : 0)).ToList();
@@ -1143,7 +1041,6 @@ public static class P11Kinetic1
                 offs[i] = (acc0 + advs[i] / 2) * fs;
                 acc0 += advs[i];
             }
-            // 字列从右缘冲入，向中间减速，然后吸附到位
             var xs = W / 2.0 - totA * fs / 2;
             var x0 = W + fs * 0.8;
             var amp = Math.Min(H * JLayouts.D(Pm, "amp"), W * 0.16);
@@ -1188,7 +1085,6 @@ public static class P11Kinetic1
                 };
                 bb = UB(bb, JLayouts.MainDraw(env, it));
             }
-            // 格线跟着吸附一起画出来
             var ge = J.E.OutExpo(J.Clamp((lt - tS - 0.08) / 0.5)) * @out;
             if (ge > 0.01)
             {
@@ -1236,7 +1132,6 @@ public static class P11Kinetic1
                     }
                 }
             }
-            // 字列流过的轨迹，吸附后淡出
             var pa = (1 - J.Clamp((lt - tS) / 0.25)) * J.Clamp(lt / 0.15) * 0.35;
             if (pa > 0.01)
             {
@@ -1249,8 +1144,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knSeesaw（JS L735） ----------------
-
     private static void KnSeesaw() => Reg0("knSeesaw", new LayoutDef
     {
         Name = "シーソー",
@@ -1261,7 +1154,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["pop"] = 0.6, ["blur"] = 0.5, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'bounceLine'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["order"] = rng.Pick(new[] { "lr", "lr", "out" }),
             ["acc"] = rng.Chance(0.5),
@@ -1287,7 +1179,6 @@ public static class P11Kinetic1
             var half = f.W / 2 + size * 0.6;
             var px = W / 2.0;
             var py = H * (port ? 0.55 : 0.6);
-            // 落地顺序：从左到右，或从中间向两边
             var ord = Enumerable.Range(0, n).ToList();
             if (JLayouts.S(Pm, "order") == "out")
                 ord.Sort((a, b2) => Math.Abs(f.Pos[a].X).CompareTo(Math.Abs(f.Pos[b2].X)));
@@ -1298,7 +1189,6 @@ public static class P11Kinetic1
                 tl[ord[r]] = ts0[r] + fall;
             var mass = units.Select(Gcount).ToArray();
             var mTot = mass.Sum();
-            // 板子角度：每次落地往已落词的力矩方向压，全员落定后回平
             var targ = new List<double> { 0 };
             double tq = 0;
             for (var r = 0; r < ord.Count; r++)
@@ -1320,7 +1210,6 @@ public static class P11Kinetic1
             var plateC = sc.Str("sub");
             var accC = AccOn(sc);
             var accOn = JLayouts.Truthy(Pm["acc"]);
-            // 支点和跷板
             var fh = size * 0.62;
             if (JLayouts.S(Pm, "fulc") == "tri")
                 env.Poly(new[]
@@ -1384,8 +1273,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knTypeSlam（JS L835） ----------------
-
     private static void KnTypeSlam() => Reg0("knTypeSlam", new LayoutDef
     {
         Name = "タイプ→スラム",
@@ -1395,7 +1282,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["blur"] = 0.5, ["pop"] = 0.5, ["slice"] = 0.2, ["wipe"] = 0.3 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'type'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["key"] = rng.Pick(new[] { "long", "long", "last" }),
             ["side"] = rng.Pick(new[] { "below", "below", "above" }),
@@ -1444,7 +1330,6 @@ public static class P11Kinetic1
             var x0 = W / 2.0 - tm.W / 2;
             var seed = unchecked((int)c.Seed);
             var step = (int)env.Step;
-            // 打字行：clip 逐字露出，光标跟在末尾
             var k = (int)Math.Floor(J.Clamp(lt / tType) * nG + 1e-6);
             var pre = string.Concat(JLayouts.CodePoints(t0).Take(k));
             var wk = k >= nG
@@ -1473,7 +1358,6 @@ public static class P11Kinetic1
                 if (lt < tS + 0.6)
                     env.Rect(x0 + wk + ts * 0.1, ty - ts * 0.5, ts * 0.55, ts, accC, @out, false);
             }
-            // 关键词砸进来
             if (lt >= tS)
             {
                 var q = J.Clamp((lt - tS) / 0.16);
@@ -1515,7 +1399,6 @@ public static class P11Kinetic1
                         }, accC, lw, a * @out, false);
                     }
                 }
-                // 在打字行里给关键词下划线
                 var idx = t0.IndexOf(key.Trim(), StringComparison.Ordinal);
                 if (idx >= 0 && land > 0)
                 {
@@ -1535,8 +1418,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knRhythmCuts（JS L947-1053） ----------------
-
     private static readonly string[] Shots = { "huge", "vert", "small", "crop", "band", "tilt" };
 
     private static void KnRhythmCuts() => Reg0("knRhythmCuts", new LayoutDef
@@ -1548,7 +1429,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3.5, ["pop"] = 0.4, ["blur"] = 0.4, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) =>
         {
-            // ae: 'panels'
             var sh = Shots.ToArray();
             for (var i = sh.Length - 1; i > 0; i--)
             {
@@ -1670,7 +1550,6 @@ public static class P11Kinetic1
                 env.Body = JLayouts.MainDraw(env, it);
                 return;
             }
-            // 收尾镜头：整行干净排版
             var f = FlowUnits(units, fontB, W * 0.84, H * (port ? 0.42 : 0.34), maxSize: H * 0.16, track: 0.04);
             var left = JLayouts.S(Pm, "fin") == "left";
             var ox = left ? W * 0.08 + f.W / 2 : W / 2.0;
@@ -1702,8 +1581,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---- ループ軌道（JS L1055-1087 的 pathCache/loopPath/pathAt） ----
-
     private sealed class LoopPathData
     {
         public double[][] Pts = Array.Empty<double[]>();
@@ -1720,7 +1597,6 @@ public static class P11Kinetic1
         if (PathCache.TryGetValue(key, out var hit)) return hit;
         var pts = new List<double[]> { new[] { -W * 0.9, yL }, new[] { xT, yL } };
         const int n = 72;
-        // 在 (xT, yL) 与直线相切的一整圈：side 1 从上方绕回，side -1 从下方
         for (var i = 1; i <= n; i++)
         {
             var a = i / (double)n * J.TAU;
@@ -1765,8 +1641,7 @@ public static class P11Kinetic1
         };
     }
 
-    /// <summary>ctx.setLineDash 对位（Env.Line 无 dash 参数）：本文件内的虚线描边。</summary>
-    private static void DashedLine(Env env, double[][] pts, string? c, double lw, double a, double[] dash)
+        private static void DashedLine(Env env, double[][] pts, string? c, double lw, double a, double[] dash)
     {
         if (c == null || a <= 0 || pts.Length < 2) return;
         using var path = new SKPath();
@@ -1785,8 +1660,6 @@ public static class P11Kinetic1
         env.Ctx.DrawPath(path, p);
     }
 
-    // ---------------- knPathRide（JS L1089） ----------------
-
     private static void KnPathRide() => Reg0("knPathRide", new LayoutDef
     {
         Name = "ループ軌道",
@@ -1797,7 +1670,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["blur"] = 0.6, ["pop"] = 0.3, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'wave'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["side"] = rng.Pick(new[] { 1, 1, -1 }),
             ["rail"] = rng.Pick(new[] { "dash", "line", "dots" }),
@@ -1841,7 +1713,6 @@ public static class P11Kinetic1
             var @out = Tout(env);
             var accC = AccOn(sc);
             var accOn = JLayouts.Truthy(Pm["acc"]);
-            // 轨道
             var ra = J.E.OutCubic(J.Clamp(lt / 0.3)) * @out * (1 - 0.6 * J.Smooth(t, t + 0.5, lt));
             if (ra > 0.01)
             {
@@ -1886,8 +1757,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knGearWords（JS L1155） ----------------
-
     private static void KnGearWords() => Reg0("knGearWords", new LayoutDef
     {
         Name = "歯車",
@@ -1898,7 +1767,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["pop"] = 0.5, ["blur"] = 0.4, ["slice"] = 0.1, ["wipe"] = 0.1 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'circleWords'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["dir"] = rng.Pick(new[] { 1, -1 }),
             ["fillMode"] = rng.Pick(new[] { "alt", "alt", "ink", "ring" }),
@@ -1926,7 +1794,6 @@ public static class P11Kinetic1
             var med = rs0.OrderBy(v => v).ElementAt(n / 2);
             var rs = rs0.Select(r0 => J.Clamp(r0, med * 0.75, med * 1.3)).ToArray();
             var tk = rs0.Select((r0, i) => Math.Min(1, rs[i] / r0)).ToArray();
-            // 齿轮横排相切（横屏）或竖向之字形（竖屏）
             const double gap = 0.1;
             var tot = rs.Sum(r0 => r0 * 2) + gap * (n - 1);
             var mr = rs.Max();
@@ -1951,7 +1818,6 @@ public static class P11Kinetic1
             for (var i = 0; i < n; i++)
             {
                 if (lt < ts[i]) continue;
-                // 每来一个词整列车转一整圈（相邻反转，新齿轮滚入）
                 double ang = 0;
                 for (var j = i; j < n; j++)
                     if (lt >= ts[j])
@@ -2002,8 +1868,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knCollide（JS L1235） ----------------
-
     private static void KnCollide() => Reg0("knCollide", new LayoutDef
     {
         Name = "正面衝突",
@@ -2013,7 +1877,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3.5, ["pop"] = 0.3, ["blur"] = 0.4, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'splitHalves'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["acc"] = rng.Pick(new[] { "A", "B", "none" }),
             ["spark"] = rng.Chance(0.8),
@@ -2032,7 +1895,6 @@ public static class P11Kinetic1
             var font = JLayouts.S(Pm, "font")!;
             var all = UnitsOf(c, 8, 2);
             var lat = HasLatin(c.Text);
-            // 按字数切成两半
             var best = 1;
             var bd = 1e9;
             var tot = all.Sum(Gcount);
@@ -2076,7 +1938,6 @@ public static class P11Kinetic1
                 pb = new[] { W / 2.0, H / 2.0 + size * 0.62 };
                 axis = 1;
             }
-            // 两半从画框外起步，加速对撞
             var dMax = axis != 0
                 ? Math.Max(pa[1], H - pb[1]) + size * 0.7
                 : Math.Max(pa[0] + Em(aTxt, font, new JObject { ["track"] = 0.02 }) * size / 2,
@@ -2119,7 +1980,6 @@ public static class P11Kinetic1
 
             var bb = Mk(aTxt, pa, 1, accMode == "A" ? accC : sc.Str("fg"));
             bb = UB(bb, Mk(bTxt, pb, -1, accMode == "B" ? accC : sc.Str("fg")));
-            // 飞行时身后拖速度线，接触点迸火花
             var lw = Math.Max(1.5, u * 0.0028);
             if (d0 < 0 && lt > 0.02)
             {
@@ -2179,8 +2039,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knTumble（JS L1337） ----------------
-
     private static void KnTumble() => Reg0("knTumble", new LayoutDef
     {
         Name = "箱転がし",
@@ -2190,7 +2048,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3.5, ["pop"] = 0.3, ["blur"] = 0.4, ["slice"] = 0.1, ["wipe"] = 0.1 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'dominoes'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["box"] = rng.Pick(new[] { "plate", "frame", "none" }),
             ["acc"] = rng.Int(0, 5),
@@ -2241,7 +2098,6 @@ public static class P11Kinetic1
                     }, sc.Str("sub"), lw, 0.8, false);
                 }
                 if (lt < ts[i]) continue;
-                // 从右侧绕左下角滚入：四分之一圈一步，落点宽高交替
                 var m = Math.Min(3, Math.Max(1, (int)Math.Ceiling((W - xF) / (2 * (w + h)))));
                 var steps = 4 * m;
                 var tm = t * (0.7 + 0.3 * m);
@@ -2297,8 +2153,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knReflow（JS L1413） ----------------
-
     private static void KnReflow() => Reg0("knReflow", new LayoutDef
     {
         Name = "縦から横へ",
@@ -2308,7 +2162,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 2.5, ["blur"] = 1, ["pop"] = 0.4, ["slice"] = 0.2, ["wipe"] = 0.3 },
         Plan = (rng, ctx, st) =>
         {
-            // ae: 'halfVertical'
             var port = ctx.H > ctx.W * 1.08;
             var lat = Regex.IsMatch(ctx.Text ?? "", "[A-Za-z]");
             return new JObject
@@ -2372,7 +2225,6 @@ public static class P11Kinetic1
                 var ay = H / 2.0 + a.Y + a.Vy;
                 var bx = W / 2.0 + b.X + b.Vx;
                 var by = H / 2.0 + b.Y + b.Vy;
-                // 沿一条侧向鼓起的弧线：字形打着旋从竖排换到横排
                 var mx = (ax + bx) / 2;
                 var my = (ay + by) / 2;
                 var dx = bx - ax;
@@ -2403,8 +2255,6 @@ public static class P11Kinetic1
         },
     });
 
-    // ---------------- knPadGrid（JS L1489） ----------------
-
     private static void KnPadGrid() => Reg0("knPadGrid", new LayoutDef
     {
         Name = "パッド",
@@ -2414,7 +2264,6 @@ public static class P11Kinetic1
         EnterBias = new JObject { ["cut"] = 3, ["pop"] = 0.8, ["blur"] = 0.4, ["slice"] = 0.2, ["wipe"] = 0.2 },
         Plan = (rng, _, st) => new JObject
         {
-            // ae: 'gridCells'
             ["font"] = rng.Pick(FontsOf(st, "display")),
             ["round"] = rng.Chance(0.5),
             ["flash"] = rng.Pick(new[] { "accent", "accent", "ink" }),
@@ -2465,7 +2314,6 @@ public static class P11Kinetic1
                 var iy = y + chh / 2 * (1 - e);
                 env.RRect(ix, iy, cw * e, chh * e, round ? chh * 0.12 : 0, null, 1, false, sc.Str("sub"), lw);
                 if (i >= n || lt < ts[i]) continue;
-                // 命中：格子全亮再衰减成微光；节拍每次只重触发一格
                 var fl = Math.Exp(-(lt - ts[i]) * 6);
                 if (beatOn && beat.Has && lt > ts[n - 1] + 0.4 && beat.Index % n == i)
                     fl = Math.Max(fl, 0.55 * Math.Exp(-beat.Since * 7));

@@ -78,12 +78,6 @@ public sealed class SwapChainTarget : IDisposable
 
     public ID3D11Texture2D GetBackBuffer(uint index = 0) => SwapChain.GetBuffer<ID3D11Texture2D>(index);
 
-    public void Bind(ID3D11DeviceContext ctx)
-    {
-        ctx.OMSetRenderTargets(RenderTargetView, null);
-        ctx.RSSetViewport(0, 0, Width, Height);
-    }
-
     public void Resize(int width, int height)
     {
         width = Math.Max(1, width);

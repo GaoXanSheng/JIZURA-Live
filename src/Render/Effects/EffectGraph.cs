@@ -8,20 +8,8 @@ public sealed class EffectGraph
 
     public List<EffectNode> Nodes { get; } = new();
 
-    public EffectGraph Add(string defId, Action<EffectNode>? configure = null)
-    {
-        var node = new EffectNode { DefId = defId, InstanceId = NewInstanceId(defId) };
-        configure?.Invoke(node);
-        Nodes.Add(node);
-        return this;
-    }
-
     internal static string NewInstanceId(string defId) =>
         $"fx_{defId}_{Guid.NewGuid().ToString("N")[..6]}";
-
-    public bool Remove(string defId) => Nodes.RemoveAll(n => n.DefId == defId) > 0;
-
-    public EffectNode? Find(string defId) => Nodes.FirstOrDefault(n => n.DefId == defId);
 
     public EffectGraph Clone()
     {
@@ -42,19 +30,6 @@ public sealed class EffectGraph
         }
 
         return copy;
-    }
-
-    public bool Move(EffectNode node, int toIndex)
-    {
-        var from = Nodes.IndexOf(node);
-        if (from < 0) return false;
-
-        toIndex = Math.Clamp(toIndex, 0, Nodes.Count - 1);
-        if (from == toIndex) return false;
-
-        Nodes.RemoveAt(from);
-        Nodes.Insert(toIndex, node);
-        return true;
     }
 
     public GpuRenderGraph BuildRenderGraph(ShaderLibrary library, float time, int width, int height,
@@ -95,12 +70,6 @@ public sealed class EffectGraph
         return false;
     }
 
-    public List<GpuPass> BuildPasses(ShaderLibrary library, float time, int width, int height)
-    {
-        var graph = BuildRenderGraph(library, time, width, height);
-        return graph.Passes.Select(p => new GpuPass(p.Shader, p.Constants)).ToList();
-    }
-
     public static float[] PackConstants(EffectDef def, EffectNode node, float time, int width, int height)
     {
         var c = new float[FullScreenPass.ParamSlots * 4];
@@ -135,14 +104,4 @@ public sealed class EffectGraph
         c[gi + 2] = height;
         c[gi + 3] = height > 0 ? width / (float)height : 1f;
     }
-
-    public static EffectGraph CreateDefaultPost() => new EffectGraph()
-        .Add("colorGrade", n =>
-        {
-            n.Set(EffectCatalog.Get("colorGrade")!.Params[0], 1.1f);
-            n.Set(EffectCatalog.Get("colorGrade")!.Params[1], 1.05f);
-        })
-        .Add("glow", n => n.Set(EffectCatalog.Get("glow")!.Params[1], 0.9f))
-        .Add("grain", n => n.Set(EffectCatalog.Get("grain")!.Params[0], 0.05f))
-        .Add("vignette", n => n.Set(EffectCatalog.Get("vignette")!.Params[0], 0.45f));
 }

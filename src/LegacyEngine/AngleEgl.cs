@@ -2,20 +2,11 @@ using System.Runtime.InteropServices;
 
 namespace JizuraLive.LegacyEngine;
 
-/// <summary>
-/// libEGL/libGLESv2（ANGLE）P/Invoke 的极小集合：GPU 光栅宿主只要「建显示/配置/上下文、
-/// 建 pbuffer 表面、问出表面背后的 D3D11 共享句柄、清屏等待」这五件事。
-///
-/// 常量来源：EGL 1.5 核心 + ANGLE 扩展。凡本机无头文件可核实的（0x3200 一族）都注明实测依据——
-/// 四轮 POC 已用运行时探测定死：eglQuerySurfacePointerANGLE 只认 attribute=0x3200，
-/// 返回的是 D3D11 纹理共享句柄（ID3D11Device::OpenSharedResource 可直接打开，BGRA8）。
-/// </summary>
 internal static class AngleEgl
 {
     public const string EglDll = "libEGL.dll";
     public const string GlesDll = "libGLESv2.dll";
 
-    // ---- EGL 核心 ----
     public const int EGL_NONE = 0x3038;
     public const int EGL_WIDTH = 0x3057;
     public const int EGL_HEIGHT = 0x3056;
@@ -31,22 +22,17 @@ internal static class AngleEgl
     public const int EGL_OPENGL_ES3_BIT = 0x0040;
     public const int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
     public const int EGL_OPENGL_ES_API = 0x30A0;
-    public const int EGL_EXTENSIONS = 0x3055;
     public const int EGL_VENDOR = 0x3053;
     public const int EGL_VERSION = 0x3054;
 
-    // ---- EGL_ANGLE_* ----
     public const int EGL_PLATFORM_ANGLE_ANGLE = 0x3202;
     public const int EGL_PLATFORM_ANGLE_TYPE_ANGLE = 0x3203;
     public const int EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE = 0x320B;
     public const int EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE = 0x3209;
     public const int EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE = 0x320A;
 
-    /// <summary>EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE（实测：eglQuerySurfacePointerANGLE 唯一认的属性）。</summary>
-    public const int EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE = 0x3200;
+        public const int EGL_D3D_TEXTURE_2D_SHARE_HANDLE_ANGLE = 0x3200;
 
-    // ---- GLES ----
-    public const int GL_COLOR_BUFFER_BIT = 0x00004000;
     public const int GL_RGBA8 = 0x8058;
 
     [DllImport(EglDll)] public static extern IntPtr eglGetDisplay(IntPtr nativeDisplay);
@@ -68,6 +54,5 @@ internal static class AngleEgl
     [DllImport(GlesDll)] public static extern void glClear(int mask);
     [DllImport(GlesDll)] public static extern void glFinish();
 
-    /// <summary>加载同目录依赖（libGLESv2/d3dcompiler_47）用：GpuRasterHost 预载 ANGLE 时设。</summary>
-    public const uint LoadWithAlteredSearchPath = 0x00000008;
+        public const uint LoadWithAlteredSearchPath = 0x00000008;
 }

@@ -1,11 +1,10 @@
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using JizuraLive.Engine;
-using JizuraLive.Engine.Music;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
 

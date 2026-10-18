@@ -1,23 +1,3 @@
-// 移植自 frontend/src/engine/11p_kinetic2.js（kinetic 第 2 包：逐词的 enter/exit/hold，
-// pack = 'kinetic2'，10 enter + 8 exit + 6 hold）。
-//
-// 契约与 JAnim.cs / P11Enter.cs 相同：MoveDef.Draw(env) 里 it = env.It、p = env.Ap、
-// env.Cut 携带 {dur,inDur,outDur}；逐字动画推 env.CharFns（管线 mainDraw 统一 CombineChar）。
-// JS reg 助手的 Object.assign(def, {set:'kinetic'}) 对位为 IRegEntry.Set 真字段（Reg0 统一赋值）。
-//
-// 本包私有 helper（JS L10-147 顶层 const/function 逐条对位）见「本包 helper」区：
-// strip/hasLatin/isBlank/bellK/rotV/kick/bounceE/stg/glyphs/mot/beatSince/beatIdx/WIN/WOUT +
-// wordsFor/wgeo（item 的词几何：每字属于哪个词、size-1 下的词框；geoCache 定容 Dictionary）、
-// lineWords（词按文本行分组）/kOf/gpos。
-//
-// 跨文件符号对位：J.layoutText→JText.LayoutText、J.TYPESET→JText.Typeset、
-// J.h/r/rs→J.H/J.R/J.Rs、mainDraw 隐含（管线调用）、J.smooth→J.Smooth、
-// clamp/lerp/DEG/TAU→J.*、E.*→J.E.*。
-//
-// item 字段改写的对位：knJumpCutOut 的 it._lay=null/it._m=null 无需对位——C# 的排版缓存按
-// item 对象身份（每帧版式都新建 item）与内容键（Measure 的 memo）双重失效，改 size/x/y 即生效。
-//
-// 条目字段对位：ae（AE 导出模板名）MoveDef 无对应属性，未注册（各条目行内注明）。
 
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
@@ -29,14 +9,10 @@ public static class P11Kinetic2
     private const string P = "kinetic2";
     private static int _installed;
 
-    /// <summary>JS reg(g, key, def) = J.register(g, key, {…def, set:'kinetic'}, P)。</summary>
-    private static void Reg0(string g, string key, MoveDef def)
+        private static void Reg0(string g, string key, MoveDef def)
     {
-        def.Set = "kinetic"; // JS reg 助手：Object.assign(def, {set: 'kinetic'})——真字段，Omakase 门禁直读
-        Reg.Register(g, key, def, P);
+        def.Set = "kinetic";         Reg.Register(g, key, def, P);
     }
-
-    // ================= 本包 helper（JS L10-147 逐条对位） =================
 
     private static string Strip(string? t) => Regex.Replace(t ?? "", @"\s+", "");
     private static bool HasLatin(string? t) => Regex.IsMatch(t ?? "", "[A-Za-z]");
@@ -51,8 +27,7 @@ public static class P11Kinetic2
         return new[] { x * c - y * s, x * s + y * c };
     }
 
-    /// <summary>从 0 起振的阻尼摆动，出去再荡回来；t 秒。</summary>
-    private static double Kick(double t, double k = 9, double f = 26) =>
+        private static double Kick(double t, double k = 9, double f = 26) =>
         t <= 0 ? 0 : Math.Exp(-k * t) * Math.Sin(f * t);
 
     private static double BounceE(double x)
@@ -64,19 +39,15 @@ public static class P11Kinetic2
         return n1 * (x -= 2.625 / d1) * x + 0.984375;
     }
 
-    /// <summary>n 个元素里第 k 个的错峰进度，spread 是错峰占掉的时间比例。</summary>
-    private static double Stg(double p, double k, double n, double spread) =>
+        private static double Stg(double p, double k, double n, double spread) =>
         J.Clamp((p - (n > 1 ? k / (n - 1) : 0) * spread) / (1 - spread));
 
-    /// <summary>JS glyphs(it, fn) = (it.charFns ||= []).push(fn)。</summary>
-    private static void Glyphs(Env env, JAnim.CharFn fn) => env.CharFns.Add(fn);
+        private static void Glyphs(Env env, JAnim.CharFn fn) => env.CharFns.Add(fn);
 
-    private static double Mot(Env env) => env.Fx.Motion; // JS (env.fx.motion ?? 0.7)
-
+    private static double Mot(Env env) => env.Fx.Motion; 
     private static double BeatSince(Env env, double per)
     {
         var b = BeatOf(env);
-        // JS env.ltb ?? env.lt：渲染器每帧都写 ltb（0 即 0，?? 对 0 不回退）
         return b.Has && b.Len > 0.15 ? b.Since : ((env.Ltb % per) + per) % per;
     }
 
@@ -86,8 +57,7 @@ public static class P11Kinetic2
         return b.Has && b.Len > 0.15 ? b.Index : (int)Math.Floor(env.Ltb / per);
     }
 
-    /// <summary>JS env.beat（09_render 的 beatAt）本文件内的重建：{since, len, index}。</summary>
-    private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
+        private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
 
     private static BeatInfo BeatOf(Env env)
     {
@@ -112,11 +82,8 @@ public static class P11Kinetic2
 
     private static CharXf Hide() => new() { Hide = true };
 
-    /// <summary>JS it.sx || 1 / it.sy || 1（缺省或 0 回 1）。</summary>
-    private static double Sx1(JObject it) => JAnim.NumOr1(it, "sx");
+        private static double Sx1(JObject it) => JAnim.NumOr1(it, "sx");
     private static double Sy1(JObject it) => JAnim.NumOr1(it, "sy");
-
-    // ---- item 的词几何（JS L38-127）：每个字属于哪个词、size 1 下的词框 ----
 
     private sealed class WBox
     {
@@ -134,8 +101,7 @@ public static class P11Kinetic2
         public WBox[] Wb = Array.Empty<WBox>();
         public double Bx0, Bx1, By0, By1, Bcx, Bcy;
         public bool Vert;
-        public List<KeyValuePair<int, List<int>>>? Lw; // lineWords 缓存（JS G._lw）
-    }
+        public List<KeyValuePair<int, List<int>>>? Lw;     }
 
     private static readonly Dictionary<string, Geo> GeoCache = new();
 
@@ -173,8 +139,7 @@ public static class P11Kinetic2
             string.Join("\u0001", env.Cut?.Words ?? Array.Empty<string>()));
         if (GeoCache.TryGetValue(key, out var hit)) return hit;
 
-        var probe = (JObject)it.DeepClone(); // JS Object.assign({}, it, {size:1, _lay:null, _m:null})
-        probe["size"] = 1;
+        var probe = (JObject)it.DeepClone();         probe["size"] = 1;
         probe.Remove("_lay");
         probe.Remove("_m");
         var l1 = JText.LayoutText(probe);
@@ -262,8 +227,7 @@ public static class P11Kinetic2
         return geo;
     }
 
-    /// <summary>词按文本行分组、按阅读序：[[li, [j…]], …]（JS lineWords，缓存在 G._lw）。</summary>
-    private static List<KeyValuePair<int, List<int>>> LineWords(Geo g)
+        private static List<KeyValuePair<int, List<int>>> LineWords(Geo g)
     {
         if (g.Lw != null) return g.Lw;
         var m = new SortedDictionary<int, List<int>>();
@@ -276,8 +240,7 @@ public static class P11Kinetic2
         return g.Lw = m.Select(kv => kv).ToList();
     }
 
-    /// <summary>画出的字相对 size-1 布局的尺寸比（JS kOf）。</summary>
-    private static double KOf(Geo g, JObject it, JObject? gl)
+        private static double KOf(Geo g, JObject it, JObject? gl)
     {
         if (gl == null) return JAnim.Num(it, "size");
         var gi = (int)JLayouts.D(gl, "i");
@@ -286,8 +249,7 @@ public static class P11Kinetic2
         return r != null && r.W > 1e-6 ? gw / r.W : JAnim.Num(it, "size");
     }
 
-    /// <summary>size-1 坐标点的当前位置（JS gpos）。</summary>
-    private static double[] Gpos(JObject? gl, JObject it) => gl is null
+        private static double[] Gpos(JObject? gl, JObject it) => gl is null
         ? [0.0, 0.0]
         : new[]
         {
@@ -298,43 +260,13 @@ public static class P11Kinetic2
     private static double Win(double dur) => J.Clamp(dur * 0.45, 0.32, 1.0);
     private static double Wout(double dur) => J.Clamp(dur * 0.32, 0.3, 0.75);
 
-    // ================= 注册（JS 源里 reg(...) 的出现序） =================
-
-    /// <summary>幂等注册本文件全部条目（顺序 = JS 源文件 reg 调用序；不挂静态构造函数）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        KnWordSlam();     // JS L149 enter
-        KnTypeToSlam();   // JS L182 enter
-        KnReplaceIn();    // JS L202 enter
-        KnHingeDrop();    // JS L242 enter
-        KnLoopIn();       // JS L262 enter
-        KnPushIn();       // JS L290 enter
-        KnInertia();      // JS L318 enter
-        KnWordSpin();     // JS L340 enter
-        KnDiveIn();       // JS L358 enter
-        KnStretchOut();   // JS L380 enter
-        KnWordKick();     // JS L403 exit
-        KnPushOut();      // JS L427 exit
-        KnDiveGlyph();    // JS L455 exit
-        KnLaunch();       // JS L497 exit
-        KnWordBlink();    // JS L519 exit
-        KnCloseGap();     // JS L550 exit
-        KnJumpCutOut();   // JS L608 exit
-        KnStackAway();    // JS L632 exit
-        KnWordPulse();    // JS L663 hold
-        KnCounterRock();  // JS L681 hold
-        KnWordRide();     // JS L699 hold
-        KnTickShift();    // JS L720 hold
-        KnBeatLean();     // JS L733 hold
-        KnGapBreath();    // JS L748 hold
-    }
-
-    // ---------------- enter knWordSlam（JS L149） ----------------
+        KnWordSlam();             KnTypeToSlam();           KnReplaceIn();            KnHingeDrop();            KnLoopIn();               KnPushIn();               KnInertia();              KnWordSpin();             KnDiveIn();               KnStretchOut();           KnWordKick();             KnPushOut();              KnDiveGlyph();            KnLaunch();               KnWordBlink();            KnCloseGap();             KnJumpCutOut();           KnStackAway();            KnWordPulse();            KnCounterRock();          KnWordRide();             KnTickShift();            KnBeatLean();             KnGapBreath();        }
 
     private static void KnWordSlam() => Reg0("enter", "knWordSlam", new MoveDef
     {
-        // 词从超大尺寸逐个砸下；已落地的词在每次撞击时震一下。ae: 'pop'
         Name = "語ごとスラム",
         Tags = new[] { "pop", "graphic", "glitch" },
         W = 1.1,
@@ -385,11 +317,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knTypeToSlam（JS L182） ----------------
-
     private static void KnTypeToSlam() => Reg0("enter", "knTypeToSlam", new MoveDef
     {
-        // 每个词先以小尺寸打出来，再弹到全尺寸。ae: 'type'
         Name = "打鍵→拡大",
         Tags = new[] { "pop", "editorial", "graphic" },
         W = 0.9,
@@ -425,11 +354,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knReplaceIn（JS L202） ----------------
-
     private static void KnReplaceIn() => Reg0("enter", "knReplaceIn", new MoveDef
     {
-        // 词逐个在中央大字闪现替换，最后全体飞回各自位置。ae: 'scramble'
         Name = "入れ替わり登場",
         Tags = new[] { "pop", "graphic", "glitch" },
         W = 0.9,
@@ -476,17 +402,13 @@ public static class P11Kinetic2
                     cy = J.Lerp(g0.Bcy, b.Cy, fly) * k;
                     a = last ? 1 : J.Clamp(fly * 3);
                 }
-                // 字相对词中心的偏移，缩放后摆到 (cx, cy) 周围
                 return new CharXf { S = s, Dx = cx + (gx - b.Cx * k) * s - gx, Dy = cy + (gy - b.Cy * k) * s - gy, A = a };
             });
         },
     });
 
-    // ---------------- enter knHingeDrop（JS L242） ----------------
-
     private static void KnHingeDrop() => Reg0("enter", "knHingeDrop", new MoveDef
     {
-        // 每个词立着，绕左下角铰链倒下，弹两下放平。ae: 'drop'
         Name = "蝶番おろし",
         Tags = new[] { "pop", "graphic" },
         W = 0.9,
@@ -520,11 +442,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knLoopIn（JS L262） ----------------
-
     private static void KnLoopIn() => Reg0("enter", "knLoopIn", new MoveDef
     {
-        // 所有字走同一条环轨进位，一节节像列车。ae: 'spin'
         Name = "ループ入り",
         Tags = new[] { "pop", "graphic" },
         W = 0.8,
@@ -556,11 +475,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knPushIn（JS L290） ----------------
-
     private static void KnPushIn() => Reg0("enter", "knPushIn", new MoveDef
     {
-        // 词逐个赶到行尾，把前面的词顶进位。ae: 'type'
         Name = "押し込み",
         Tags = new[] { "pop", "editorial", "graphic" },
         W = 1,
@@ -576,7 +492,6 @@ public static class P11Kinetic2
             var f = p * n;
             var k0 = Math.Min(n - 1, (int)Math.Floor(f));
             var e = J.E.OutBack(J.Clamp((f - k0) / 0.75), 1.5);
-            // 每行单独推：已出现的词贴住该行的最终末端
             var s = new Dictionary<int, double>();
             foreach (var kv in LineWords(g0))
             {
@@ -607,11 +522,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knInertia（JS L318） ----------------
-
     private static void KnInertia() => Reg0("enter", "knInertia", new MoveDef
     {
-        // 整行刹车进场：车头先停，后面的挤上来再弹开。ae: 'stretch'
         Name = "急ブレーキ",
         Tags = new[] { "pop", "graphic" },
         W = 0.9,
@@ -622,12 +534,10 @@ public static class P11Kinetic2
             var it = env.It!;
             var p = env.Ap;
             var vert = JLayouts.Truthy(it["vertical"]);
-            var dir = (J.H(unchecked((int)env.Cut!.Seed), (int)JAnim.Num(it, "mi"), 67) & 1) != 0 ? 1 : -1; // 1 = 从左来
-            var d = (vert ? env.H : env.W) * 0.6;
+            var dir = (J.H(unchecked((int)env.Cut!.Seed), (int)JAnim.Num(it, "mi"), 67) & 1) != 0 ? 1 : -1;             var d = (vert ? env.H : env.W) * 0.6;
             Glyphs(env, (i, _, n) =>
             {
-                var back = n > 1 ? (dir > 0 ? (n - 1 - i) / (double)(n - 1) : i / (double)(n - 1)) : 0; // 0 = 车头
-                var q = J.Clamp((p - back * 0.3) / 0.7);
+                var back = n > 1 ? (dir > 0 ? (n - 1 - i) / (double)(n - 1) : i / (double)(n - 1)) : 0;                 var q = J.Clamp((p - back * 0.3) / 0.7);
                 var e = J.E.OutBack(q, 2.1);
                 var v = (J.E.OutBack(Math.Min(1, q + 0.02), 2.1) - e) / 0.02;
                 var off = -dir * d * (1 - e);
@@ -640,11 +550,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knWordSpin（JS L340） ----------------
-
     private static void KnWordSpin() => Reg0("enter", "knWordSpin", new MoveDef
     {
-        // 每个词整体刚性旋入，相邻词反向转。ae: 'spin'
         Name = "語ごと回転",
         Tags = new[] { "pop", "graphic" },
         W = 0.9,
@@ -677,11 +584,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knDiveIn（JS L358） ----------------
-
     private static void KnDiveIn() => Reg0("enter", "knDiveIn", new MoveDef
     {
-        // 词从镜头背后逐个飞来，又大又虚，落点变实。ae: 'zoom'
         Name = "手前から語",
         Tags = new[] { "pop", "emotional", "graphic" },
         W = 0.9,
@@ -717,11 +621,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- enter knStretchOut（JS L380） ----------------
-
     private static void KnStretchOut() => Reg0("enter", "knStretchOut", new MoveDef
     {
-        // 每个词从首字母拉出来，像卷尺，到位后绷紧。ae: 'stretch'
         Name = "伸び出し",
         Tags = new[] { "pop", "graphic" },
         W = 0.9,
@@ -752,11 +653,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knWordKick（JS L403） ----------------
-
     private static void KnWordKick() => Reg0("exit", "knWordKick", new MoveDef
     {
-        // 词逐个被踢出去，上下交替翻滚。ae: 'scatter'
         Name = "語ごと蹴り出し",
         Tags = new[] { "pop", "graphic" },
         W = 1,
@@ -796,11 +694,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knPushOut（JS L427） ----------------
-
     private static void KnPushOut() => Reg0("exit", "knPushOut", new MoveDef
     {
-        // 整行按词宽逐格推移；经过行首的词淡出。ae: 'wipe'
         Name = "押し出し退場",
         Tags = new[] { "editorial", "graphic", "pop" },
         W = 0.9,
@@ -813,7 +708,6 @@ public static class P11Kinetic2
             var vert = g0.Vert;
             double St(int j) => vert ? g0.Wb[j].Y0 : g0.Wb[j].X0;
             double En(int j) => vert ? g0.Wb[j].Y1 : g0.Wb[j].X1;
-            // 每行单独推，步长按本行的词
             var s = new Dictionary<int, double>();
             var start = new Dictionary<int, double>();
             foreach (var kv in LineWords(g0))
@@ -849,11 +743,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knDiveGlyph（JS L455） ----------------
-
     private static void KnDiveGlyph() => Reg0("exit", "knDiveGlyph", new MoveDef
     {
-        // 镜头扎进一个字：整行绕它放大，其余的字擦身飞过。ae: 'shrink'
         Name = "一字へ突入",
         Tags = new[] { "pop", "emotional", "graphic" },
         W = 0.9,
@@ -862,8 +753,7 @@ public static class P11Kinetic2
         {
             var it = env.It!;
             var p = env.Ap;
-            var probe = (JObject)it.DeepClone(); // JS Object.assign({}, it, {size:1, _lay:null, _m:null})
-            probe["size"] = 1;
+            var probe = (JObject)it.DeepClone();             probe["size"] = 1;
             probe.Remove("_lay");
             probe.Remove("_m");
             var lay = JText.LayoutText(probe).Cells.Where(g => !IsBlank(g.Ch)).ToList();
@@ -878,7 +768,6 @@ public static class P11Kinetic2
             }
             else
             {
-                // 俯冲时选中的字漂到画面中央
                 var e = J.E.InOutCubic(p);
                 var fx0 = (f.X + f.Vx) * Sx1(it) * JAnim.Num(it, "size");
                 var fy0 = (f.Y + f.Vy) * Sy1(it) * JAnim.Num(it, "size");
@@ -891,8 +780,7 @@ public static class P11Kinetic2
             double? fxF = null, fyF = null;
             Glyphs(env, (i, gl, _) =>
             {
-                if (gl == null) return null; // drawItem 每字形都带 g；防御 null（JS 侧不发生）
-                if (fxF == null)
+                if (gl == null) return null;                 if (fxF == null)
                 {
                     var gi = (int)JLayouts.D(gl, "i");
                     var src = lay.FirstOrDefault(q => q.I == gi) ?? f;
@@ -910,11 +798,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knLaunch（JS L497） ----------------
-
     private static void KnLaunch() => Reg0("exit", "knLaunch", new MoveDef
     {
-        // 整行弹射离场：车头的字先走，后面像拉长的链子跟上。ae: 'stretch'
         Name = "急発進",
         Tags = new[] { "pop", "graphic" },
         W = 0.9,
@@ -930,8 +815,7 @@ public static class P11Kinetic2
             {
                 var back = n > 1 ? (dir > 0 ? (n - 1 - i) / (double)(n - 1) : i / (double)(n - 1)) : 0;
                 var q = J.Clamp((p - back * 0.35) / 0.65);
-                var antic = -0.06 * BellK(J.Clamp(p / 0.18)); // 出发前先小小回拉蓄力
-                var e = J.E.InCubic(q) + antic;
+                var antic = -0.06 * BellK(J.Clamp(p / 0.18));                 var e = J.E.InCubic(q) + antic;
                 var v = 3 * q * q;
                 var st = 1 + Math.Min(1.2, v * 0.35);
                 if (q >= 1) return Hide();
@@ -942,11 +826,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knWordBlink（JS L519） ----------------
-
     private static void KnWordBlink() => Reg0("exit", "knWordBlink", new MoveDef
     {
-        // 一次一个词：accent 色冲一下就消失；有节拍就跟节拍。ae: 'cut'
         Name = "一語ずつ消灯",
         Tags = new[] { "pop", "glitch", "graphic" },
         W = 0.9,
@@ -966,7 +847,6 @@ public static class P11Kinetic2
                 var j0 = (uint)i < (uint)g0.Map.Length ? g0.Map[i] : -1;
                 if (j0 < 0 || (uint)j0 >= (uint)g0.Wb.Length) return null;
                 var j = rev ? n - 1 - j0 : j0;
-                // 单字 item（一字一 item 的版式）按自己的时刻闪没
                 var w0 = n > 1 ? j / (double)n : J.R(seed, mi, 74) * 0.6;
                 var w1 = n > 1 ? (j + 1) / (double)n : w0 + 0.4;
                 if (p >= w1 || p >= 0.999) return Hide();
@@ -988,11 +868,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knCloseGap（JS L550） ----------------
-
     private static void KnCloseGap() => Reg0("exit", "knCloseGap", new MoveDef
     {
-        // 词逐个消失，剩下的滑拢重新居中，最后一个弹掉。ae: 'shrink'
         Name = "詰めて消える",
         Tags = new[] { "editorial", "graphic", "pop" },
         W = 0.9,
@@ -1006,7 +883,6 @@ public static class P11Kinetic2
             var vert = g0.Vert;
             double Lo(int j) => vert ? g0.Wb[j].Y0 : g0.Wb[j].X0;
             double Hi(int j) => vert ? g0.Wb[j].Y1 : g0.Wb[j].X1;
-            // 消失顺序：两端交替、向中间推进
             var ord = new List<int>();
             for (int a = 0, b = n - 1; a <= b; a++, b--)
             {
@@ -1017,7 +893,6 @@ public static class P11Kinetic2
             for (var r = 0; r < ord.Count; r++) rank[ord[r]] = r;
             var cArr = new double[n];
             for (var j = 0; j < n; j++) cArr[j] = J.E.InOutCubic(J.Clamp(p * n - rank[j]));
-            // 沿阅读轴逐行重排
             var ctr = new double[n];
             var byLine = new SortedDictionary<int, List<int>>();
             for (var j = 0; j < n; j++)
@@ -1063,11 +938,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- exit knJumpCutOut（JS L608） ----------------
-
     private static void KnJumpCutOut() => Reg0("exit", "knJumpCutOut", new MoveDef
     {
-        // 三次硬跳切（更近、更远、倾斜）后整行消失，没有中间帧。ae: 'glitch'
         Name = "ジャンプカット",
         Tags = new[] { "pop", "glitch", "graphic" },
         W = 0.8,
@@ -1095,16 +967,11 @@ public static class P11Kinetic2
             it["x"] = JAnim.Num(it, "x") + s[1] * env.W;
             it["y"] = JAnim.Num(it, "y") + s[2] * env.H;
             it["rot"] = JAnim.Num(it, "rot") + s[3];
-            // JS 的 it._lay = null / it._m = null：C# 排版缓存按 item 身份（每帧新建）与
-            // Measure 内容键双重失效，无需对位。
         },
     });
 
-    // ---------------- exit knStackAway（JS L632） ----------------
-
     private static void KnStackAway() => Reg0("exit", "knStackAway", new MoveDef
     {
-        // 词逐个跳成一座塔，然后整塔掉出画面。ae: 'fall'
         Name = "積んで落とす",
         Tags = new[] { "pop", "graphic" },
         W = 0.8,
@@ -1127,7 +994,6 @@ public static class P11Kinetic2
                 var k = KOf(g0, it, gl);
                 var gp = Gpos(gl!, it);
                 var q = J.E.InOutCubic(J.Clamp((p * (1 / t) - j / Math.Max(1, n) * 0.7) / 0.3));
-                // 塔位：从第一个词起向上堆叠，对齐行中心
                 var hh = g0.Vert ? b.X1 - b.X0 : Math.Max(1e-3, b.Y1 - b.Y0);
                 var tx = g0.Vert ? g0.Bcx - (j - (n - 1) / 2.0) * hh * 1.05 : g0.Bcx;
                 var ty = g0.Vert ? g0.Bcy : g0.Bcy - (j - (n - 1) / 2.0) * hh * 1.05;
@@ -1143,11 +1009,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- hold knWordPulse（JS L663） ----------------
-
     private static void KnWordPulse() => Reg0("hold", "knWordPulse", new MoveDef
     {
-        // 按拍轮流：一次一个词鼓一下，沿整行循环。ae: 'breathe'
         Name = "語ごとの拍",
         Tags = new[] { "pop", "graphic" },
         W = 1,
@@ -1176,11 +1039,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- hold knCounterRock（JS L681） ----------------
-
     private static void KnCounterRock() => Reg0("hold", "knCounterRock", new MoveDef
     {
-        // 相邻词反向摇摆，像咬合的齿轮。ae: 'wave'
         Name = "逆回転ゆれ",
         Tags = new[] { "pop", "calm", "graphic" },
         W = 0.9,
@@ -1190,8 +1050,7 @@ public static class P11Kinetic2
             var amt = env.Ap;
             var g0 = Wgeo(env, it);
             var n = g0.NW;
-            var t = env.Ltb; // JS env.ltb ?? env.lt（渲染器每帧写 ltb）
-            var a = 4 * amt * (0.4 + Mot(env)) * Math.Sin(t * J.TAU * 0.55);
+            var t = env.Ltb;             var a = 4 * amt * (0.4 + Mot(env)) * Math.Sin(t * J.TAU * 0.55);
             if (Math.Abs(a) < 0.05) return;
             Glyphs(env, (i, gl, _) =>
             {
@@ -1207,11 +1066,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- hold knWordRide（JS L699） ----------------
-
     private static void KnWordRide() => Reg0("hold", "knWordRide", new MoveDef
     {
-        // 一道慢波沿行推进；每个词整体骑在波上，随坡度倾斜。ae: 'wave'
         Name = "語の波乗り",
         Tags = new[] { "calm", "emotional", "pop" },
         W = 0.9,
@@ -1220,8 +1076,7 @@ public static class P11Kinetic2
             var it = env.It!;
             var amt = env.Ap;
             var g0 = Wgeo(env, it);
-            var t = env.Ltb; // JS env.ltb ?? env.lt（渲染器每帧写 ltb）
-            var a = JAnim.Num(it, "size") * 0.07 * amt * (0.4 + Mot(env));
+            var t = env.Ltb;             var a = JAnim.Num(it, "size") * 0.07 * amt * (0.4 + Mot(env));
             if (a < 0.2) return;
             Glyphs(env, (i, gl, _) =>
             {
@@ -1241,11 +1096,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- hold knTickShift（JS L720） ----------------
-
     private static void KnTickShift() => Reg0("hold", "knTickShift", new MoveDef
     {
-        // 每拍横移一格，像秒针：弹到位、微微过冲、停住。ae: 'jitter'
         Name = "刻みシフト",
         Tags = new[] { "graphic", "pop", "editorial" },
         W = 0.8,
@@ -1266,11 +1118,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- hold knBeatLean（JS L733） ----------------
-
     private static void KnBeatLean() => Reg0("hold", "knBeatLean", new MoveDef
     {
-        // 每拍词向前向后交替倾倒，再弹回直立。ae: 'jitter'
         Name = "拍で傾く",
         Tags = new[] { "pop", "glitch", "graphic" },
         W = 0.8,
@@ -1293,11 +1142,8 @@ public static class P11Kinetic2
         },
     });
 
-    // ---------------- hold knGapBreath（JS L748） ----------------
-
     private static void KnGapBreath() => Reg0("hold", "knGapBreath", new MoveDef
     {
-        // 词间距一呼一吸，词本身不动。ae: 'breathe'
         Name = "語間の呼吸",
         Tags = new[] { "calm", "editorial", "emotional" },
         W = 0.9,
@@ -1307,8 +1153,7 @@ public static class P11Kinetic2
             var amt = env.Ap;
             var g0 = Wgeo(env, it);
             var n = g0.NW;
-            var t = env.Ltb; // JS env.ltb ?? env.lt（渲染器每帧写 ltb）
-            if (n < 2) return;
+            var t = env.Ltb;             if (n < 2) return;
             var a = JAnim.Num(it, "size") * 0.16 * amt * (0.4 + Mot(env)) * (0.5 - 0.5 * Math.Cos(t * J.TAU * 0.4));
             if (a < 0.2) return;
             Glyphs(env, (i, _, _) =>

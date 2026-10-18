@@ -1,28 +1,3 @@
-// 移植自 frontend/src/engine/11p_looks.js（pack = 'looks'：treat 24 + bg 24 + cam 15 + fx 24；
-// C# fx 注册 23 条——gridRepeat 有意剔除）。
-//
-// 契约（与 P11TreatTrans 同约定，不改共享文件）：
-// - treat：TreatDef.Plan(rng, st) → JObject（键名 = JS plan 字段，planner 存 cut.treatP）；
-//   Draw(env) 在 JLayouts.MainDraw 的 treat 调用点执行（JS apply(env, it, cut.treatP)）：
-//   env.It 是当前 item、env.Cut.TreatP 是参数。item 就地改写直接写 env.It；
-//   charFns.push → env.CharFns.Add（管线 CombineChar 合并）。
-// - addPre/addPost/sized：C# DrawFx 已接钩子字段（Env.PreFn/PostFn）——钩子体仍在本 Draw 内就地
-//   执行（pre 与 JS 同层=文字下方；post 的内容提前画，层级在主文字下，内容/几何一致；可回迁）。
-//   sized 因此只按 apply 时的 size 算一次（出入场改 size 时不刷新——已知近似）。
-// - lineSpans/glyphList 的 it.charFn：apply 时管线尚未 CombineChar → 字形按静态布局位置取。
-// - bg：BgDef.Draw(env)（JS draw(env, cut.bgP || {})，P 从 env.Cut.BgP 取，save/restore 包装）。
-// - cam：CamDef.Get(env) → CamState（JS get(env, cut.camP)，P 从 env.Cut.CamP 取）。
-// - fx：与 P11FxB 同一插件路径——FxDef.Draw(env, ev)，k/I 信息经 FxPlug 桥（Renderer.Post 的
-//   FXE 插件段装配）。注意 looks 的 evS 种子是 7331（fxB 是 9127），逐字保持。
-//
-// Env 缺口（本文件内补）：JS env.beat 是 {since,len,index}，C# Env.Beat 只装归一相位——
-// 用 BeatOf(env) 从 env.Plan.Beats + env.T 重建（与 P11LayoutsB/09_render 的 beatAt 同口径）。
-// JS 的 env.energy != null 判定对位 env.Plan.Energy is { Length: > 0 }（C# 侧缺省是 0 不是 null）。
-// WeakMap（bgRun/stepCache）→ ConditionalWeakTable。
-//
-// 跨文件符号对位：J.drawItem→env.DrawItem、J.layoutText/measure→JText.LayoutText/Measure、
-// J.fontsOf→JLayouts.FontsOf、J.rgba(本地 Rgba)/r/rs/rr/h/mix/lum/contrast/fitContrast/smooth/
-// noise1/isKanji/isKata/isPunct→J.*；E.*→J.E.*；rng.*→Rng.*。
 
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -38,102 +13,13 @@ public static class P11Looks
     private const string Pk = "looks";
     private static int _installed;
 
-    /// <summary>幂等注册本文件全部条目（顺序 = JS reg/bgReg/reg('cam')/fxReg 出现序）。</summary>
-    public static void Install()
+        public static void Install()
     {
         if (Interlocked.Exchange(ref _installed, 1) != 0) return;
-        RegisterTreatOutline();        // JS L181
-        RegisterTreatOutlineFill();    // L194
-        RegisterTreatDoubleOutline();  // L208
-        RegisterTreatExtrude();        // L244
-        RegisterTreatLongShadow();     // L268
-        RegisterTreatHardShadow();     // L290
-        RegisterTreatSoftShadow();     // L303
-        RegisterTreatGlow();           // L387
-        RegisterTreatMarker();         // L410
-        RegisterTreatUnderline();      // L453
-        RegisterTreatStrike();         // L485
-        RegisterTreatBoxed();          // L518
-        RegisterTreatGradientV();      // L551
-        RegisterTreatSplitColor();     // L563
-        RegisterTreatHalftone();       // L588
-        RegisterTreatStripes();        // L595
-        RegisterTreatHatch();          // L602
-        RegisterTreatDotted();         // L610
-        RegisterTreatAlternate();      // L626
-        RegisterTreatItalic();         // L643
-        RegisterTreatWide();           // L655
-        RegisterTreatTall();           // L668
-        RegisterTreatEchoOutline();    // L681
-        RegisterTreatEmphasisDots();   // L710
-
-        RegisterBgSunburst();          // L776
-        RegisterBgConcentric();        // L809
-        RegisterBgHalftoneFade();      // L837
-        RegisterBgBigStripes();        // L879
-        RegisterBgSplitV();            // L902
-        RegisterBgSplitH();            // L923
-        RegisterBgSplitDiag();         // L944
-        RegisterBgGradientSweep();     // L977
-        RegisterBgSpotlight();         // L1001
-        RegisterBgTvBars();            // L1036
-        RegisterBgChecker();           // L1054
-        RegisterBgBigChar();           // L1078
-        RegisterBgSpeedLines();        // L1114
-        RegisterBgScanBars();          // L1135
-        RegisterBgDotGrid();           // L1155
-        RegisterBgRetroGrid();         // L1192
-        RegisterBgBokeh();             // L1253
-        RegisterBgParticles();         // L1280
-        RegisterBgRipples();           // L1304
-        RegisterBgPolka();             // L1348
-        RegisterBgEqBars();            // L1372
-        RegisterBgBorderFrame();       // L1420
-        RegisterBgLetterbox();         // L1444
-        RegisterBgNoiseField();        // L1462
-
-        RegisterCamPullOut();          // L1494
-        RegisterCamPanL();             // L1500
-        RegisterCamPanR();             // L1506
-        RegisterCamTiltUp();           // L1512
-        RegisterCamDutch();            // L1518
-        RegisterCamHandheld();         // L1530
-        RegisterCamBeatPunch();        // L1543
-        RegisterCamWhipIn();           // L1558
-        RegisterCamCrashZoom();        // L1575
-        RegisterCamBounce();           // L1590
-        RegisterCamRoll();             // L1599
-        RegisterCamDriftDiag();        // L1605
-        RegisterCamShakeHard();        // L1618
-        RegisterCamDollyIn();          // L1634
-        RegisterCamStepZoom();         // L1661
-
-        RegisterFxPanelWipe();         // L1695
-        RegisterFxIrisTrans();         // L1728
-        RegisterFxDoors();             // L1752
-        RegisterFxBlindsTrans();       // L1772
-        RegisterFxRgbSplit();          // L1789
-        RegisterFxSmear();             // L1831
-        RegisterFxVhsRoll();           // L1849
-        RegisterFxTrackingNoise();     // L1899
-        RegisterFxMirrorFlash();       // L1932
-        RegisterFxStrobe();            // L1958
-        RegisterFxPosterize();         // L1968
-        RegisterFxHueShift();          // L1987
-        RegisterFxTileShift();         // L2009
-        RegisterFxFilmBurn();          // L2040
-        RegisterFxWhipBlur();          // L2068
-        RegisterFxBlackFrame();        // L2107
-        RegisterFxWhiteFrame();        // L2108
-        RegisterFxWaveWarp();          // L2128
-        RegisterFxPixelDrift();        // L2143
-        RegisterFxZoomPunch();         // L2160
-        RegisterFxLightSweep();        // L2172
-        RegisterFxCrtOff();            // L2198
-        RegisterFxSplitSlide();        // L2231
-    }
-
-    // ================= 本包 helper（JS L8-179 + L742-773 + L1489-1492 + L1677-1693 逐条对位） =================
+        RegisterTreatOutline();                RegisterTreatOutlineFill();            RegisterTreatDoubleOutline();          RegisterTreatExtrude();                RegisterTreatLongShadow();             RegisterTreatHardShadow();             RegisterTreatSoftShadow();             RegisterTreatGlow();                   RegisterTreatMarker();                 RegisterTreatUnderline();              RegisterTreatStrike();                 RegisterTreatBoxed();                  RegisterTreatGradientV();              RegisterTreatSplitColor();             RegisterTreatHalftone();               RegisterTreatStripes();                RegisterTreatHatch();                  RegisterTreatDotted();                 RegisterTreatAlternate();              RegisterTreatItalic();                 RegisterTreatWide();                   RegisterTreatTall();                   RegisterTreatEchoOutline();            RegisterTreatEmphasisDots();   
+        RegisterBgSunburst();                  RegisterBgConcentric();                RegisterBgHalftoneFade();              RegisterBgBigStripes();                RegisterBgSplitV();                    RegisterBgSplitH();                    RegisterBgSplitDiag();                 RegisterBgGradientSweep();             RegisterBgSpotlight();                 RegisterBgTvBars();                    RegisterBgChecker();                   RegisterBgBigChar();                   RegisterBgSpeedLines();                RegisterBgScanBars();                  RegisterBgDotGrid();                   RegisterBgRetroGrid();                 RegisterBgBokeh();                     RegisterBgParticles();                 RegisterBgRipples();                   RegisterBgPolka();                     RegisterBgEqBars();                    RegisterBgBorderFrame();               RegisterBgLetterbox();                 RegisterBgNoiseField();        
+        RegisterCamPullOut();                  RegisterCamPanL();                     RegisterCamPanR();                     RegisterCamTiltUp();                   RegisterCamDutch();                    RegisterCamHandheld();                 RegisterCamBeatPunch();                RegisterCamWhipIn();                   RegisterCamCrashZoom();                RegisterCamBounce();                   RegisterCamRoll();                     RegisterCamDriftDiag();                RegisterCamShakeHard();                RegisterCamDollyIn();                  RegisterCamStepZoom();         
+        RegisterFxPanelWipe();                 RegisterFxIrisTrans();                 RegisterFxDoors();                     RegisterFxBlindsTrans();               RegisterFxRgbSplit();                  RegisterFxSmear();                     RegisterFxVhsRoll();                   RegisterFxTrackingNoise();             RegisterFxMirrorFlash();               RegisterFxStrobe();                    RegisterFxPosterize();                 RegisterFxHueShift();                  RegisterFxTileShift();                 RegisterFxFilmBurn();                  RegisterFxWhipBlur();                  RegisterFxBlackFrame();                RegisterFxWhiteFrame();                RegisterFxWaveWarp();                  RegisterFxPixelDrift();                RegisterFxZoomPunch();                 RegisterFxLightSweep();                RegisterFxCrtOff();                    RegisterFxSplitSlide();            }
 
     private static double D(JObject o, string k)
     {
@@ -141,8 +27,7 @@ public static class P11Looks
         return v != null && (v.Type == JTokenType.Float || v.Type == JTokenType.Integer) ? (double)v : 0;
     }
 
-    /// <summary>JS 的 P.x || d：缺字段或 0 时取 d。</summary>
-    private static double DOr(JObject o, string k, double d)
+        private static double DOr(JObject o, string k, double d)
     {
         var v = D(o, k);
         return v != 0 ? v : d;
@@ -184,18 +69,15 @@ public static class P11Looks
         return b;
     }
 
-    /// <summary>和 col 拉开差距、又在方案背景上读得清的 accent（JS accentFor）。</summary>
-    private static string AccentFor(Scheme sc, string col, double min = 1.6) =>
+        private static string AccentFor(Scheme sc, string col, double min = 1.6) =>
         FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("ghostA"), sc.Str("ghostB") },
             c => Ctr(c, col) >= min && Ctr(c, ScK(sc, "bg")) >= 1.5,
             J.FitContrast(ScK(sc, "accent"), col, min + 0.3))!;
 
-    /// <summary>压在 box 上的文字色（JS textOn）。</summary>
-    private static string TextOn(string box, string pref, Scheme sc) =>
+        private static string TextOn(string box, string pref, Scheme sc) =>
         Ctr(pref, box) >= 3 ? pref : Best(new[] { sc.Str("bg"), sc.Str("fg"), sc.Str("ink"), "#111111", "#FFFFFF" }, box);
 
-    /// <summary>和方案背景拉开差距的颜色，画在文字旁的记号用（JS markCol）。</summary>
-    private static string MarkCol(Scheme sc, string col) =>
+        private static string MarkCol(Scheme sc, string col) =>
         FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), col }, c => Ctr(c, ScK(sc, "bg")) >= 2, col)!;
 
     private static bool Alive(JObject it, double amin = 0.9) =>
@@ -217,8 +99,7 @@ public static class P11Looks
 
     private static bool IsSp(string ch) => ch is " " or "　";
 
-    /// <summary>碎块型出入场进行中返回 true（JS inPieces；带 gradient 或无填充会废掉 piece）。</summary>
-    private static bool InPieces(Env env, JObject it)
+        private static bool InPieces(Env env, JObject it)
     {
         var c = env.Cut!;
         var enterKey = S(it, "enter") ?? c.Enter;
@@ -228,8 +109,7 @@ public static class P11Looks
         return false;
     }
 
-    /// <summary>在和 J.drawFx 相同的 clip/bands 下跑 fn；local=true 再进 item 空间（JS withFx）。</summary>
-    private static void WithFx(Env env, JObject it, Action fn, bool local = true)
+        private static void WithFx(Env env, JObject it, Action fn, bool local = true)
     {
         var ctx = env.Ctx;
         double w = env.W, h = env.H;
@@ -305,16 +185,13 @@ public static class P11Looks
         }
     }
 
-    /// <summary>JS addPre 的对位：钩子挂 env.PreFn（DrawFx 在裁剪/主文字前消费，时点层级与 JS 一致）；
-    /// WithFx 语境（clip/bands/local）在钩子体内重建（body 里已包 WithFx 的用法传 fn 直通）。</summary>
-    private static void AddPre(Env env, Action<Env, JObject> fn)
+        private static void AddPre(Env env, Action<Env, JObject> fn)
     {
         var prev = env.PreFn;
         env.PreFn = prev != null ? (e, x) => { prev(e, x); fn(e, x); } : (Action<Env, JObject>)fn;
     }
 
-    /// <summary>JS addPost 的对位：钩子挂 env.PostFn（DrawFx 在主文字后消费，层级与 JS 一致）。</summary>
-    private static void AddPost(Env env, Action<Env, JObject> fn)
+        private static void AddPost(Env env, Action<Env, JObject> fn)
     {
         var prev = env.PostFn;
         env.PostFn = prev != null
@@ -330,8 +207,7 @@ public static class P11Looks
         public double A0, A1, C;
     }
 
-    /// <summary>静态布局下每行（竖排每列）的 item 空间范围（JS lineSpans；charFn 藏掉的字不算）。</summary>
-    private static List<Span> LineSpans(Env env, JObject it)
+        private static List<Span> LineSpans(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = DOr(it, "sx", 1);
@@ -365,8 +241,7 @@ public static class P11Looks
         public double X, Y, W, H, S, Rot, A;
     }
 
-    /// <summary>可见字形列表，位置带上 sx/sy（JS glyphList；charFn 位移按 apply 时刻近似，见头注）。</summary>
-    private static List<Gly> GlyphList(Env env, JObject it)
+        private static List<Gly> GlyphList(Env env, JObject it)
     {
         var lay = JText.LayoutText(it);
         var sx = DOr(it, "sx", 1);
@@ -392,8 +267,7 @@ public static class P11Looks
         return @out;
     }
 
-    /// <summary>字形中心在行内的 0..1 位置（JS lineFracs），marker 划过哪几个字就翻哪几个的色。</summary>
-    private static double[] LineFracs(JObject it)
+        private static double[] LineFracs(JObject it)
     {
         var lay = JText.LayoutText(it);
         var ext = new Dictionary<int, (double A, double B)>();
@@ -415,8 +289,7 @@ public static class P11Looks
         return fr;
     }
 
-    /// <summary>复制一份干净 item 给叠加通道用，钩子与特效字段全清空（JS 的 bare 副本字面量）。</summary>
-    private static JObject Bare(JObject i, JObject? extra = null)
+        private static JObject Bare(JObject i, JObject? extra = null)
     {
         var c = (JObject)i.DeepClone();
         foreach (var k in new[] { "pre", "post", "echo", "streak", "shadow", "extrude", "pattern", "gradient",
@@ -429,8 +302,7 @@ public static class P11Looks
         return c;
     }
 
-    /// <summary>副本绘制：临时换 env.CharFn（函数字段不进 JObject；piece 走 env 默认=null）。</summary>
-    private static void DrawCopy(Env env, JObject copy)
+        private static void DrawCopy(Env env, JObject copy)
     {
         var saved = env.CharFn;
         env.CharFn = null;
@@ -465,8 +337,6 @@ public static class P11Looks
         FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("ghostA"), sc.Str("ghostB") },
             c => Ctr(c, col) >= 1.5 && Ctr(c, ScK(sc, "bg")) >= 2, J.Mix(col, ScK(sc, "bg"), 0.45))!;
 
-    // ---- bg 侧 helper（JS L742-773） ----
-
     private static string LayC(Scheme sc, double k) => J.Mix(ScK(sc, "bg"), ScK(sc, "fg"), k);
     private static string TintC(Scheme sc, double k) => J.Mix(ScK(sc, "bg"), ScK(sc, "accent"), k);
     private static double Umin(Env env) => Math.Min(env.W, env.H);
@@ -474,13 +344,11 @@ public static class P11Looks
 
     private static double WrapV(double v, double m) => ((v % m) + m) % m;
 
-    /// <summary>JS addColorStop 用 rgba 字符串；C# 直接 SKColor（本地不需要）。</summary>
-    private static SKColor Css(string hex, double a) => Env.SkColor(hex, a);
+        private static SKColor Css(string hex, double a) => Env.SkColor(hex, a);
 
     private sealed class BgRunBox { public double S; }
 
-    /// <summary>当前背景已经跑了多久；同一背景连续的几个 cut 算一段（JS bgT + WeakMap）。</summary>
-    private static readonly ConditionalWeakTable<Cut, BgRunBox> BgRun = new();
+        private static readonly ConditionalWeakTable<Cut, BgRunBox> BgRun = new();
 
     private static double BgT(Env env)
     {
@@ -501,8 +369,7 @@ public static class P11Looks
         return env.T - s;
     }
 
-    /// <summary>bgReg 包装：draw(env, P || {}, ctx) 的 save/restore 对位。</summary>
-    private static Action<Env> BgWrap(Action<Env, JObject> draw) => env =>
+        private static Action<Env> BgWrap(Action<Env, JObject> draw) => env =>
     {
         env.Ctx.Save();
         try
@@ -517,8 +384,6 @@ public static class P11Looks
 
     private static void RegBg(string key, BgDef def) => Reg.Register("bg", key, def, Pk);
 
-    // ---- cam 侧 helper（JS L1489-1492 + stepTimes L1643-1660） ----
-
     private static double Km(Env env) => J.Clamp(env.Fx.Motion * 1.25 * DOr(env.Cut?.CamP ?? new JObject(), "gain", 1), 0, 4);
     private static double CuOf(Env env) => J.Clamp(env.Lt / Math.Max(0.3, env.Cut?.Dur ?? 0));
     private static double PanP(double u) => u * 0.6 + J.E.InOutSine(u) * 0.4;
@@ -526,8 +391,7 @@ public static class P11Looks
 
     private readonly record struct BeatInfo(bool Has, double Since, double Len, int Index);
 
-    /// <summary>env.Plan.Beats + env.T 重建 {since,len,index}（与 09_render beatAt 同口径；Env 只装得下归一相位）。</summary>
-    private static BeatInfo BeatOf(Env env)
+        private static BeatInfo BeatOf(Env env)
     {
         var beats = env.Plan.Beats;
         if (beats == null || beats.Length == 0) return default;
@@ -552,8 +416,7 @@ public static class P11Looks
 
     private static readonly ConditionalWeakTable<Cut, StepBox> StepCache = new();
 
-    /// <summary>切分内的打点时刻（最多 n 个，间隔 ≥0.3s；无节拍数据时均分）（JS stepTimes）。</summary>
-    private static double[] StepTimes(Env env, int n)
+        private static double[] StepTimes(Env env, int n)
     {
         var c = env.Cut!;
         if (StepCache.TryGetValue(c, out var box) && box.N == n) return box.V;
@@ -575,16 +438,13 @@ public static class P11Looks
 
     private static void RegCam(string key, CamDef def) => Reg.Register("cam", key, def, Pk);
 
-    // ---- fx 侧 helper（JS L1677-1693；evS 种子 7331，与 fxB 的 9127 不同） ----
-
     private static double Bell(double k) => Math.Sin(Math.PI * J.Clamp(k));
 
     private static uint EvS(PlanEvent ev) => J.H(unchecked((int)(long)Math.Round(ev.T * 1000)), 7331);
 
     private static double AmpOf(PlanEvent ev) => J.Clamp(ev.Amp, 0.3, 1.6);
 
-    /// <summary>0 到 1，在边界 b 处全遮，再落回 0（JS cover）。</summary>
-    private static double Cover(double k, double b, Func<double, double>? inE = null, Func<double, double>? outE = null)
+        private static double Cover(double k, double b, Func<double, double>? inE = null, Func<double, double>? outE = null)
     {
         inE ??= J.E.InCubic;
         outE ??= J.E.OutCubic;
@@ -594,8 +454,7 @@ public static class P11Looks
     private static string InkOf(Scheme sc) =>
         FirstOK(new[] { sc.Str("ink"), sc.Str("fg") }, c => Ctr(c, ScK(sc, "bg")) >= 1.6, ScK(sc, "fg"))!;
 
-    /// <summary>fxReg 包装：save/restore（进度已由渲染器 clamp）。</summary>
-    private static Action<Env, PlanEvent> FxWrapped(Action<Env, PlanEvent, double> draw) => (env, ev) =>
+        private static Action<Env, PlanEvent> FxWrapped(Action<Env, PlanEvent, double> draw) => (env, ev) =>
     {
         env.Ctx.Save();
         try
@@ -625,8 +484,6 @@ public static class P11Looks
         x.DrawRect(new SKRect((float)x0, (float)y0, (float)(x0 + w), (float)(y0 + h)), p);
     }
 
-    // ================= treat（JS reg('treat', …) 出现序） =================
-
     private static void RegT(string key, TreatDef def) => Reg.Register("treat", key, def, Pk);
 
     private static void RegisterTreatOutline() => RegT("outline", new TreatDef
@@ -642,8 +499,7 @@ public static class P11Looks
             if (it == null || !Alive(it, 0.5) || InPieces(env, it)) return;
             it["strokeColor"] = ColOfIt(env, it);
             it["fill"] = false;
-            it["stroke"] = Math.Max(1.4, D(it, "size") * DOr(p, "k", 0.03)); // sized 就地（size 依赖，见头注）
-        },
+            it["stroke"] = Math.Max(1.4, D(it, "size") * DOr(p, "k", 0.03));         },
     });
 
     private static void RegisterTreatOutlineFill() => RegT("outlineFill", new TreatDef
@@ -687,7 +543,6 @@ public static class P11Looks
             it["strokeColor"] = gap;
             it["strokeUnder"] = true;
             it["stroke"] = Math.Max(2, D(it, "size") * D(p, "a"));
-            // 外圈：addPre → env.PreFn（item 底下垫一份只描边的粗副本）
             var c = Bare(it, new JObject
             {
                 ["fill"] = false,
@@ -807,8 +662,6 @@ public static class P11Looks
         },
     });
 
-    // ---- 软光晕（JS halo L317-386）：item 缩小画进复用离屏，模糊再放大回来 ----
-
     [ThreadStatic] private static SKSurface? _haloA;
     [ThreadStatic] private static SKSurface? _haloB;
 
@@ -821,8 +674,7 @@ public static class P11Looks
         if (s == null || s.Canvas.DeviceClipBounds.Width < w || s.Canvas.DeviceClipBounds.Height < h)
         {
             s?.Dispose();
-            s = SKSurface.Create(new SKImageInfo(w, h)); // JS 是 grow-only，重建即等价（尺寸单调不回缩）
-            slot = s;
+            s = SKSurface.Create(new SKImageInfo(w, h));             slot = s;
         }
         return s;
     }
@@ -927,13 +779,11 @@ public static class P11Looks
                     c => J.Lum(c) > J.Lum(ScK(sc, "bg")) + 0.2, col)!
                 : FirstOK(new[] { sc.Str("accent"), sc.Str("accent2"), sc.Str("ghostA"), sc.Str("ghostB") },
                     c => Ctr(c, ScK(sc, "bg")) >= 2 && J.Lum(c) > 0.08 && Ctr(c, col) >= 1.4, col)!;
-            var small = D(it, "size") < Math.Min(env.W, env.H) * 0.09; // 小字直接用 canvas shadow，便宜也够
-            var useShadow = !(env.AllowFilter && !small);
+            var small = D(it, "size") < Math.Min(env.W, env.H) * 0.09;             var useShadow = !(env.AllowFilter && !small);
             if (useShadow)
                 it["shadow"] = Shadow(Rgba(gc, 0.95), D(it, "size") * D(p, "b") * 0.6, 0, 0);
             else
                 it["shadow"] = null;
-            // addPre → env.PreFn：大字在主通道垫离屏软光晕
             if (env.Pass == "main" && env.AllowFilter && !small)
             {
                 var bParam = D(p, "b") * (0.9 + 0.1 * Math.Sin(env.Ltb * 3.2));
@@ -977,7 +827,6 @@ public static class P11Looks
                     return f >= o && f <= q ? new CharXf { Color = tc } : null;
                 });
             }
-            // addPre → env.PreFn：荧光笔画在文字下方
             AddPre(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
@@ -1032,7 +881,6 @@ public static class P11Looks
             if (it == null || !Alive(it, 0.9) || GlyphN(S(it, "text")) < 2) return;
             var v = S(p, "v") ?? "bar";
             var lc = MarkCol(env.Sc!, ColOfIt(env, it));
-            // addPost → env.PostFn（层级在主文字上，与 JS 一致）
             AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
@@ -1097,7 +945,6 @@ public static class P11Looks
             var v = S(p, "v") ?? "one";
             var lc = AccentFor(sc, ColOfIt(env, it), 1.8);
             var vert = Truthy(it["vertical"]);
-            // addPost → env.PostFn（见头注）
             AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
@@ -1169,7 +1016,6 @@ public static class P11Looks
             bool Alt(int gi) => v == "alt" && (gi + off) % 2 == 1;
             if (!frame)
                 env.CharFns.Add((gi, g, n) => QOf(env, gi) > 0.55 ? new CharXf { Color = Alt(gi) ? tcB : tcA } : null);
-            // addPre → env.PreFn：逐字底盒
             AddPre(env, (e2, _) => WithFx(e2, it, () =>
             {
                 var s = D(it, "size");
@@ -1242,8 +1088,7 @@ public static class P11Looks
         },
     });
 
-    /// <summary>JS patternTreat(kind, alt)：图案填充类 treat 的共用体。</summary>
-    private static void PatternTreat(Env env, JObject it, JObject p, string kind, string? alt)
+        private static void PatternTreat(Env env, JObject it, JObject p, string kind, string? alt)
     {
         if (!Alive(it)) return;
         var sc = env.Sc!;
@@ -1259,8 +1104,7 @@ public static class P11Looks
         {
             it["patternBg"] = J.Mix(col, ScK(sc, "bg"), 0.62);
             it["strokeColor"] = col;
-            it["stroke"] = Math.Max(1.2, D(it, "size") * 0.018); // sized 就地
-        }
+            it["stroke"] = Math.Max(1.2, D(it, "size") * 0.018);         }
     }
 
     private static void RegisterTreatHalftone() => RegT("halftone", new TreatDef
@@ -1375,7 +1219,6 @@ public static class P11Looks
             if (it == null || string.IsNullOrEmpty(S(it, "text"))) return;
             if (!Truthy(it["vertical"]))
             {
-                // 别让原本放得下的行超出版面
                 var w0 = JText.Measure(it).W;
                 var lim = env.W * 0.9;
                 it["sx"] = DOr(it, "sx", 1) * 1.1;
@@ -1459,7 +1302,6 @@ public static class P11Looks
             var vert = Truthy(it["vertical"]);
             var sx = DOr(it, "sx", 1);
             var sy = DOr(it, "sy", 1);
-            // addPost → env.PostFn（见头注）
             AddPost(env, (e2, _) => WithFx(e2, it, () =>
             {
                 if (env.Pass != "main") return;
@@ -1490,8 +1332,6 @@ public static class P11Looks
             }));
         },
     });
-
-    // ================= bg（JS bgReg(k, d) 出现序） =================
 
     private static void RegisterBgSunburst() => RegBg("sunburst", new BgDef
     {
@@ -1584,8 +1424,7 @@ public static class P11Looks
         }),
     });
 
-    [ThreadStatic] private static Dictionary<string, SKBitmap>? _htCache; // 渲染缓存随线程走（约定同 _haloA/B）：满额逐出时 Dispose 的位图不能是别的线程 DrawBitmap 中的
-
+    [ThreadStatic] private static Dictionary<string, SKBitmap>? _htCache; 
     private static void RegisterBgHalftoneFade() => RegBg("halftoneFade", new BgDef
     {
         Name = "網点グラデ",
@@ -2162,8 +2001,7 @@ public static class P11Looks
         }),
     });
 
-    /// <summary>JS 的 % 取余对负数回绕（dotGrid/eqBars 用）。</summary>
-    private static int Mod(int v, int m) => ((v % m) + m) % m;
+        private static int Mod(int v, int m) => ((v % m) + m) % m;
 
     private static void RegisterBgRetroGrid() => RegBg("retroGrid", new BgDef
     {
@@ -2639,8 +2477,6 @@ public static class P11Looks
         }),
     });
 
-    // ================= cam（JS reg('cam', …) 出现序） =================
-
     private static void RegisterCamPullOut() => RegCam("pullOut", new CamDef
     {
         Name = "引き",
@@ -2939,8 +2775,6 @@ public static class P11Looks
         },
     });
 
-    // ================= fx（JS fxReg(k, d) 出现序；坐标一律设备像素） =================
-
     private static void RegF(string key, FxDef def) => Reg.Register("fx", key, def, Pk);
 
     private static void RegisterFxPanelWipe() => RegF("panelWipe", new FxDef
@@ -3137,7 +2971,6 @@ public static class P11Looks
             var st = unchecked((int)env.Step + (int)EvS(ev));
             var d = Math.Max(2, cw * (0.006 + 0.01 * J.R(st, 5)) * a * (1 - 0.6 * k));
             var dy = J.Rs(st, 6) * ch * 0.004 * a;
-            // 墨版：帧和背景做差把文字抠出来，着色副本只添色边，背景不被染色
             var hw = Math.Max(2, (int)Math.Round(cw / 2.0));
             var hh = Math.Max(2, (int)Math.Round(ch / 2.0));
 
@@ -3249,8 +3082,7 @@ public static class P11Looks
         }),
     });
 
-    /// <summary>trackingNoise 用的条纹噪点纹理（JS noiseTex，确定性生成建一次）。</summary>
-    private static SKImage? _noiseTex;
+        private static SKImage? _noiseTex;
 
     private static SKImage NoiseTex()
     {
@@ -3336,8 +3168,7 @@ public static class P11Looks
         }),
     });
 
-    /// <summary>JS setTransform(a,b,c,d,e,f) → SKMatrix。</summary>
-    private static SKMatrix Mat(double a, double b, double c, double d, double e, double f) => new()
+        private static SKMatrix Mat(double a, double b, double c, double d, double e, double f) => new()
     {
         ScaleX = (float)a,
         SkewY = (float)b,
@@ -3412,8 +3243,7 @@ public static class P11Looks
         }),
     });
 
-    /// <summary>CSS saturate(s) → 4x4 颜色矩阵（线性部分）。</summary>
-    private static float[][] SatMat(double s)
+        private static float[][] SatMat(double s)
     {
         return new[]
         {
@@ -3424,8 +3254,7 @@ public static class P11Looks
         };
     }
 
-    /// <summary>CSS hue-rotate(θ) → 4x4 颜色矩阵（线性部分）。</summary>
-    private static float[][] HueMat(double deg)
+        private static float[][] HueMat(double deg)
     {
         var c = Math.Cos(deg * J.DEG);
         var sn = Math.Sin(deg * J.DEG);
@@ -3438,8 +3267,7 @@ public static class P11Looks
         };
     }
 
-    /// <summary>4x4 矩阵 + 偏移 → 4x5 颜色矩阵行布局。</summary>
-    private static float[] CmLinear(float[][] m, float off = 0)
+        private static float[] CmLinear(float[][] m, float off = 0)
     {
         var f = new float[20];
         for (var i = 0; i < 4; i++)
@@ -3450,8 +3278,7 @@ public static class P11Looks
         return f;
     }
 
-    /// <summary>合成两个 4x5 颜色矩阵（a ∘ b：先 b 后 a；alpha 行保持恒等）。</summary>
-    private static float[] CmCompose(float[] a, float[] b)
+        private static float[] CmCompose(float[] a, float[] b)
     {
         var o = new float[20];
         for (var i = 0; i < 4; i++)
@@ -3489,7 +3316,6 @@ public static class P11Looks
             using var simg = S.Snapshot();
             if (env.AllowFilter)
             {
-                // ctx.filter = contrast(c) saturate(s)：先 saturate 后 contrast
                 using var cf = Cm(CmCompose(CmLinear(new float[4][]
                     {
                         new[] { (float)(1 + 1.8 * a), 0, 0, 0 },
@@ -3525,8 +3351,7 @@ public static class P11Looks
             var sc = env.Sc!;
             if (S == null) return;
             var ctx = env.Ctx;
-            var kk = double.IsFinite(k) ? J.Clamp(k, 0, 1) : 1; // 进度可能越过终点，低帧率下的短事件
-            var s = unchecked((int)EvS(ev));
+            var kk = double.IsFinite(k) ? J.Clamp(k, 0, 1) : 1;             var s = unchecked((int)EvS(ev));
             var a = Math.Pow(1 - kk, 0.8) * Math.Min(1, AmpOf(ev));
             var deg = (int)Math.Round(90 + 180 * J.R(s, 3));
             var dk = IsDark(ScK(sc, "bg"));
@@ -3534,7 +3359,6 @@ public static class P11Looks
             using var simg = S.Snapshot();
             if (env.AllowFilter)
             {
-                // ctx.filter = hue-rotate(deg) saturate(1.6)：先 hue 后 saturate
                 using var cf = Cm(CmCompose(CmLinear(SatMat(1.6)), CmLinear(HueMat(deg))));
                 using var p = new SKPaint { ColorFilter = cf, Color = SKColors.White.WithAlpha((byte)Math.Round(a * 255)) };
                 ctx.DrawImage(simg, 0, 0, p);
@@ -3688,8 +3512,7 @@ public static class P11Looks
         }),
     });
 
-    /// <summary>黒コマ/白コマ共用体（JS koma(col)）。</summary>
-    private static FxDef Koma(string col) => new()
+        private static FxDef Koma(string col) => new()
     {
         Tags = col == "#000000" ? new[] { "editorial", "emotional", "glitch" } : new[] { "emotional", "pop" },
         Dur = 2,
