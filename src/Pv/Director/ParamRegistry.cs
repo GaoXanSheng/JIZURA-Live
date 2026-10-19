@@ -147,7 +147,7 @@ public static class ParamRegistry
                 return true;
 
             case "size":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.Size");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -800, 500, 0, "Param.Vts.Size");
                 error = null;
                 return true;
 

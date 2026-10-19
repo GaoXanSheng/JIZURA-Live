@@ -46,9 +46,10 @@ public static class PvAmbient
 
     public static bool NeedsSurface(PvLayerConfig layer, bool ambientEnabled)
     {
-        if (!ambientEnabled) return false;
         var b = layer.VisualBlend;
-        return b.AmbientTintIntensity > 0.001 || b.RimGlow > 0.001 || b.DropShadow > 0.001;
+        return b.RimGlow > 0.001
+               || b.DropShadow > 0.001
+               || (ambientEnabled && b.AmbientTintIntensity > 0.001);
     }
 }
 

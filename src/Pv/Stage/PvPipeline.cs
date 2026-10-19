@@ -670,35 +670,41 @@ public sealed class PvPipeline : IDisposable
         {
             var layer = layers[i];
             var state = BaseLayer(layer, _director, time);
-            bool isCharacter = ReferenceEquals(layer, character);
-            var trackId = isCharacter ? PvScene.CharacterLayerId : layer.Id;
-            if (_director is not null && _director.TryLayerCameraAt(trackId, time, out var layerCam))
-                state = isCharacter
-                    ? ApplyCharacterCamera(layer, state, frame.Camera, layerCam)
-                    : ApplyLayerCamera(state, layerCam);
+            if (ReferenceEquals(layer, character))
+            {
+                var cam = frame.Camera;
+                if (_director is not null
+                    && _director.TryLayerCameraAt(PvScene.CharacterLayerId, time, out var layerCam))
+                    cam = CharacterCamera(layer, cam, layerCam);
+                else
+                    cam = cam with { X = 0, Y = 0 };
+
+                state = state with { CameraOverride = cam };
+            }
+            else if (_director is not null && _director.TryLayerCameraAt(layer.Id, time, out var layerCam))
+            {
+                state = ApplyLayerCamera(state, layerCam);
+            }
+
             frame.SetLayer(layer.Id, state);
         }
     }
 
-    private static PvLayerState ApplyCharacterCamera(PvLayerConfig layer, PvLayerState state,
-        PvCamState globalCam, PvCamState layerCam)
+    private static PvCamState CharacterCamera(PvLayerConfig layer, PvCamState globalCam, PvCamState layerCam)
     {
         var parallax = layer.Parallax;
         double follow = Math.Clamp(parallax?.Follow ?? parallax?.Depth ?? 0, 0, 1);
         double own = 1 - follow;
-        return state with
-        {
-            CameraOverride = new PvCamState(
-                Mix(globalCam.X, layerCam.X, own),
-                Mix(globalCam.Y, layerCam.Y, own),
-                Mix(globalCam.Scale, layerCam.Scale, own),
-                Mix(globalCam.Rotation, layerCam.Rotation, own),
-                Mix(globalCam.SkewX, layerCam.SkewX, own),
-                MixOpt(globalCam.ScaleX, layerCam.ScaleX, own),
-                MixOpt(globalCam.ScaleY, layerCam.ScaleY, own),
-                Mix(globalCam.BlurSigma, layerCam.BlurSigma, own),
-                Mix(globalCam.Brighten, layerCam.Brighten, own)),
-        };
+        return new PvCamState(
+            0,
+            0,
+            Mix(globalCam.Scale, layerCam.Scale, own),
+            Mix(globalCam.Rotation, layerCam.Rotation, own),
+            Mix(globalCam.SkewX, layerCam.SkewX, own),
+            MixOpt(globalCam.ScaleX, layerCam.ScaleX, own),
+            MixOpt(globalCam.ScaleY, layerCam.ScaleY, own),
+            Mix(globalCam.BlurSigma, layerCam.BlurSigma, own),
+            Mix(globalCam.Brighten, layerCam.Brighten, own));
     }
 
     private static double Mix(double a, double b, double t) => a + (b - a) * t;

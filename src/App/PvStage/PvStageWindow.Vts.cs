@@ -100,21 +100,18 @@ public partial class PvStageWindow
             () => _vtsRestX, v => _vtsRestX = v));
         AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, "位移Y", -5, 5, 0.01,
             () => _vtsRestY, v => _vtsRestY = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -1000, 1000, 1,
+        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -800, 500, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
 
-        AddInspector(ConstRow("自动强度", 0.1, 1.5, 0.05,
-            () => _vtsAutoIntensity, v => _vtsAutoIntensity = v));
-
-        var auto = new Wpf.Ui.Controls.Button
+        var addKeys = new Wpf.Ui.Controls.Button
         {
-            Content = "按音频生成移动曲线",
+            Content = "在播放头添加移动关键帧",
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
         };
-        auto.Click += (_, _) => GenerateVtsMoveFromAudio();
-        AddInspector(auto);
+        addKeys.Click += (_, _) => AddVtsMoveKeysAtPlayhead();
+        AddInspector(addKeys);
 
         var clear = new Wpf.Ui.Controls.Button
         {
@@ -360,91 +357,34 @@ public partial class PvStageWindow
         else _vts.TriggerHotkey(target);
     }
 
-    private double _vtsAutoIntensity = 0.6;
-
-    private void GenerateVtsMoveFromAudio()
+    private void AddVtsMoveKeysAtPlayhead()
     {
-        var map = _beatMap;
-        double duration = _audio.Duration;
-        if (map is null || map.Beats.Count == 0 || duration <= 0.2)
-        {
-            TblStatus.Text = "自动生成角色移动：先导入音频";
-            return;
-        }
+        double t = _audio.Time;
+        AddVtsMoveKey(VtsXAddr, _vtsRestX, t);
+        AddVtsMoveKey(VtsYAddr, _vtsRestY, t);
+        AddVtsMoveKey(VtsSizeAddr, _vtsRestSize, t);
 
-        double Energy(double t)
-        {
-            foreach (var section in map.Sections)
-                if (t >= section.Start && t < section.End) return section.Energy;
-            return 0.5;
-        }
-
-        double k = Math.Clamp(_vtsAutoIntensity, 0.1, 1.5);
-        double scale = 0.85 + 0.85 * k;
-        double beat = map.Bpm > 0 ? 60.0 / map.Bpm : 0.5;
-        double bar = Math.Max(0.8, beat * 4);
-        double phrase = Math.Max(1.6, beat * 8);
-
-        var sectionStarts = new HashSet<double>(
-            map.Sections.Select(s => Math.Round(s.Start, 3)));
-        var xTimes = new SortedSet<double>();
-        for (double t = bar; t < duration - 0.1; t += bar) xTimes.Add(Math.Round(t, 4));
-        foreach (var section in map.Sections)
-            if (section.Start > 0.08 && section.Start < duration - 0.08)
-                xTimes.Add(Math.Round(section.Start, 4));
-
-        var rng = new Random(_project.LegacySeed);
-        double Vary() => 0.85 + rng.NextDouble() * 0.3;
-
-        var x = new FloatCurve();
-        x.TryAdd(0, 0, CurveInterp.Bezier);
-        int sign = 1;
-        foreach (var t in xTimes)
-        {
-            double e = Math.Clamp(Energy(t), 0, 1);
-            bool accent = sectionStarts.Contains(Math.Round(t, 3));
-            double amp = (accent ? 0.18 + 0.24 * e : 0.10 + 0.18 * e) * scale * Vary();
-            double v = Math.Clamp(sign * amp, -0.9, 0.9);
-            if (accent) x.TryAdd(t - 0.16, -v * 0.35, CurveInterp.Bezier);
-            x.TryAdd(t, v, CurveInterp.Bezier);
-            sign = -sign;
-        }
-        x.TryAdd(duration, 0, CurveInterp.Bezier);
-
-        var y = new FloatCurve();
-        y.TryAdd(0, 0, CurveInterp.Bezier);
-        int ySign = 1;
-        for (double t = phrase; t < duration - 0.1; t += phrase)
-        {
-            double amp = (0.025 + 0.045 * Math.Clamp(Energy(t), 0, 1)) * scale * Vary();
-            y.TryAdd(t, ySign * amp, CurveInterp.Bezier);
-            ySign = -ySign;
-        }
-        y.TryAdd(duration, 0, CurveInterp.Bezier);
-
-        var size = new FloatCurve();
-        size.TryAdd(0, 0, CurveInterp.Bezier);
-        foreach (var section in map.Sections)
-        {
-            if (section.Start <= 0.08 || section.Start >= duration - 0.08) continue;
-            double e = Math.Clamp(section.Energy, 0, 1);
-            double baseV = Math.Clamp(Math.Clamp((e - 0.5) * 55, -25, 40) * scale, -60, 60);
-            double punch = Math.Clamp((e > 0.62 ? 10 : 4) * scale, 0, 18);
-            size.TryAdd(section.Start - 0.15, baseV, CurveInterp.Bezier);
-            size.TryAdd(section.Start, Math.Clamp(baseV + punch, -70, 75), CurveInterp.Bezier);
-            size.TryAdd(section.Start + 0.35, baseV, CurveInterp.Bezier);
-        }
-        size.TryAdd(duration, 0, CurveInterp.Bezier);
-
-        PushUndo();
-        _evaluator.SetCurve(VtsXAddr, x, "auto");
-        _evaluator.SetCurve(VtsYAddr, y, "auto");
-        _evaluator.SetCurve(VtsSizeAddr, size, "auto");
         PublishDirector();
         RefreshTimeline();
         RefreshParamRows();
+        PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"已生成角色移动：X {x.Count} 帧 · Y {y.Count} 帧 · Z {size.Count} 帧";
+        TblStatus.Text = $"已在 {t:F2}s 添加角色移动关键帧（X / Y / Z）";
+    }
+
+    private void AddVtsMoveKey(in ParamAddress addr, double baseValue, double time)
+    {
+        double value = _evaluator.TryEvaluate(addr, time, out var eval) ? eval : baseValue;
+        if (!_evaluator.Curves.TryGetValue(addr, out var curve))
+        {
+            curve = new FloatCurve();
+            _evaluator.SetCurve(addr, curve);
+        }
+
+        var mode = ModeOfKeyAt(curve, time) ?? CurveModeFor(addr);
+        curve.Remove(time);
+        curve.TryAdd(time, value, mode);
+        curve.SmoothBezierHandles();
     }
 
     private void UpdateVtsMove()
@@ -461,7 +401,7 @@ public partial class PvStageWindow
             && Math.Abs(size - _vtsSent.Size) < 1e-4) return;
 
         var baseSize = _vts.Framing?.Size ?? 0;
-        var sizeDrive = baseSize * Math.Clamp(size, -1000, 1000) / 100.0;
+        var sizeDrive = baseSize * Math.Clamp(size, -800, 500) / 100.0;
 
         _vtsSent = (x, y, size);
         _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -1000, 1000), Math.Clamp(y, -1000, 1000), 0);

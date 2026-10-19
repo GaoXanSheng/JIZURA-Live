@@ -52,7 +52,7 @@ public sealed class DirectorProject
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public EditorLayout EditorLayout { get; set; } = new();
 
-    public void SyncCharacterCameraTrack(bool refreshAuto = false)
+    public void SyncCharacterCameraTrack()
     {
         Scene ??= PvScene.CreateDefault();
         LayerCameraTracks ??= new Dictionary<string, CameraTrack>(StringComparer.Ordinal);
@@ -61,30 +61,16 @@ public sealed class DirectorProject
         if (character is not null)
             character.Parallax ??= new PvParallaxConfig();
 
-        if (CameraTrack is null || CameraTrack.Shots is not { Count: > 0 }) return;
+        if (!LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack)
+            || layerTrack is null)
+            return;
 
-        if (!LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
+        if (!layerTrack.UserEdited
+            && layerTrack.Shots.All(shot => !shot.Locked
+                && !string.Equals(shot.Source, "user", StringComparison.OrdinalIgnoreCase)))
         {
-            var copy = CameraTrack.Clone();
-            copy.UserEdited = false;
-            LayerCameraTracks[PvScene.CharacterLayerId] = copy;
-            return;
+            LayerCameraTracks.Remove(PvScene.CharacterLayerId);
         }
-
-        if (!refreshAuto || layerTrack is null || layerTrack.Shots is not { Count: > 0 }) return;
-        if (layerTrack.UserEdited
-            || layerTrack.Shots.Any(shot => shot.Locked
-                                             || string.Equals(shot.Source, "user", StringComparison.OrdinalIgnoreCase)))
-            return;
-
-        var refreshed = CameraTrack.Clone();
-        layerTrack.Shots.Clear();
-        layerTrack.Shots.AddRange(refreshed.Shots);
-        layerTrack.Beats = refreshed.Beats;
-        layerTrack.BeatLen = refreshed.BeatLen;
-        layerTrack.Width = refreshed.Width;
-        layerTrack.Height = refreshed.Height;
-        layerTrack.UserEdited = false;
     }
 }
 
