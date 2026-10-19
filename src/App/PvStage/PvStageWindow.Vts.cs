@@ -96,11 +96,11 @@ public partial class PvStageWindow
                 : $"基准：X {framing.X:F2} · Y {framing.Y:F2} · 缩放 {framing.Size:F2}；滑杆 0 = 保持基准。",
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, "位移X", -2, 2, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, "位移X", -5, 5, 0.01,
             () => _vtsRestX, v => _vtsRestX = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, "位移Y", -2, 2, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, "位移Y", -5, 5, 0.01,
             () => _vtsRestY, v => _vtsRestY = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -80, 80, 1,
+        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -1000, 1000, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
 
         AddInspector(ConstRow("自动强度", 0.1, 1.5, 0.05,
@@ -461,7 +461,7 @@ public partial class PvStageWindow
             && Math.Abs(size - _vtsSent.Size) < 1e-4) return;
 
         var baseSize = _vts.Framing?.Size ?? 0;
-        var sizeDrive = baseSize * Math.Clamp(size, -80, 80) / 100.0;
+        var sizeDrive = baseSize * Math.Clamp(size, -1000, 1000) / 100.0;
 
         _vtsSent = (x, y, size);
         _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -1000, 1000), Math.Clamp(y, -1000, 1000), 0);

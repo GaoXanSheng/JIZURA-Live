@@ -6,7 +6,7 @@
     <UserControl.Resources>
         <Style x:Key="NavTab" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="Template">
@@ -185,7 +185,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBox x:Name="TxtPresetSeed" FontSize="12" />
+                                            <ui:TextBox x:Name="TxtPresetSeed" FontSize="12" />
                                             <ui:Button x:Name="BtnReseedPreset" Grid.Column="1" Content="换种子"
                                                        Margin="6,0,0,0" Click="BtnReseedPreset_Click" />
                                         </Grid>
@@ -213,9 +213,9 @@
                                                        VerticalAlignment="Center" FontSize="11"
                                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                         </Grid>
-                                        <TextBox x:Name="TxtTechFilter" Margin="0,6,0,4" FontSize="12"
-                                                 ToolTip="按名称筛选手法"
-                                                 TextChanged="TxtTechFilter_TextChanged" />
+                                        <ui:TextBox x:Name="TxtTechFilter" Margin="0,6,0,4" FontSize="12"
+                                                    PlaceholderText="按名称筛选手法"
+                                                    TextChanged="TxtTechFilter_TextChanged" />
                                         <StackPanel x:Name="TechHost" />
                                     </StackPanel>
                                 </ui:Card>
@@ -349,7 +349,8 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <ui:TextBox x:Name="TxtExportPath" TextChanged="ExportField_TextChanged" />
+                                            <ui:TextBox x:Name="TxtExportPath" TextChanged="ExportField_TextChanged"
+                                                        ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                                             <ui:Button x:Name="BtnExportBrowse" Grid.Column="1" Margin="6,0,0,0"
                                                        Content="浏览…" Click="BtnExportBrowse_Click" />
                                         </Grid>

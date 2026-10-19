@@ -25,6 +25,7 @@ public sealed partial class TimelineView
     private static readonly Brush FaintBrush = Solid(0x5E, 0x5E, 0x6C);
     private static readonly Brush PlayheadBrush = Solid(0xFF, 0x5F, 0x6E);
     private static readonly Brush ConflictBrush = Solid(0xFF, 0x5F, 0x6E);
+    private static readonly Brush ScrollTrackBrush = Solid(0x28, 0x28, 0x33);
     private static readonly Brush ScrollThumbBrush = Solid(0xC0, 0x6E, 0x9C, 0xFF);
     private static readonly Brush ScrollThumbHotBrush = Solid(0xFF, 0x9B, 0xBE, 0xFF);
     private static readonly Brush HotkeyCueBrush = Solid(0xE8, 0xB4, 0x4A);
@@ -96,7 +97,7 @@ public sealed partial class TimelineView
     {
         if (!VerticalScrollbar(out var trackTop, out var trackHeight, out var thumbTop, out var thumbHeight)) return;
 
-        dc.DrawRectangle(RowBrush, null, new Rect(w - ScrollbarWidth, trackTop, ScrollbarWidth, trackHeight));
+        dc.DrawRectangle(ScrollTrackBrush, null, new Rect(w - ScrollbarWidth, trackTop, ScrollbarWidth, trackHeight));
         var thumbBrush = _drag == DragMode.VPan ? ScrollThumbHotBrush : ScrollThumbBrush;
         dc.DrawRoundedRectangle(thumbBrush, null,
             new Rect(w - ScrollbarWidth + 2, thumbTop, ScrollbarWidth - 4, thumbHeight), 4, 4);
@@ -241,9 +242,9 @@ public sealed partial class TimelineView
             if (rect.Width >= 24)
             {
                 dc.PushClip(new RectangleGeometry(rect));
-                dc.DrawText(Text(string.IsNullOrWhiteSpace(seg.Label) ? seg.Technique : seg.Label, 9,
+                dc.DrawText(Text(string.IsNullOrWhiteSpace(seg.Label) ? seg.Technique : seg.Label, 10,
                         selected ? BgBrush : DimBrush),
-                    new Point(rect.X + 4, rect.Y + (rect.Height - 12) / 2));
+                    new Point(rect.X + 4, rect.Y + (rect.Height - 13) / 2));
                 dc.Pop();
             }
         }
@@ -355,9 +356,9 @@ public sealed partial class TimelineView
             if (cue.Mode != VtsCueMode.Toggle)
             {
                 dc.DrawGeometry(brush, null, Diamond(x, cy, 4.5));
-                var onceLabel = Text(cue.Label, 9, brush);
+                var onceLabel = Text(cue.Label, 10, brush);
                 if (x + 8 + onceLabel.Width <= HeaderWidth + w)
-                    dc.DrawText(onceLabel, new Point(x + 8, row.Top + (row.Height - 11) / 2));
+                    dc.DrawText(onceLabel, new Point(x + 8, row.Top + (row.Height - 13) / 2));
                 continue;
             }
 
@@ -373,7 +374,7 @@ public sealed partial class TimelineView
             if (rect.Width >= 22)
             {
                 dc.PushClip(new RectangleGeometry(rect));
-                dc.DrawText(Text(cue.Label, 9, brush), new Point(rect.X + 10, row.Top + (row.Height - 11) / 2));
+                dc.DrawText(Text(cue.Label, 10, brush), new Point(rect.X + 10, row.Top + (row.Height - 13) / 2));
                 dc.Pop();
             }
         }
@@ -453,7 +454,7 @@ public sealed partial class TimelineView
         dc.DrawRectangle(BgBrush, null, new Rect(0, top, w, ScrollbarHeight));
         if (!HorizontalScrollbar(out var trackX, out var trackW, out var thumbX, out var thumbW)) return;
 
-        dc.DrawRectangle(RowBrush, null, new Rect(trackX, top + 3, trackW, ScrollbarHeight - 6));
+        dc.DrawRectangle(ScrollTrackBrush, null, new Rect(trackX, top + 3, trackW, ScrollbarHeight - 6));
         var thumbBrush = _drag == DragMode.Pan ? ScrollThumbHotBrush : ScrollThumbBrush;
         dc.DrawRoundedRectangle(thumbBrush, null,
             new Rect(thumbX, top + 3, thumbW, ScrollbarHeight - 6), 4, 4);

@@ -1841,9 +1841,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             var title = new TextBlock
             {
                 Text = L.T("Dialog.Value"),
-                FontSize = 18,
+                FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 12),
+                Margin = new Thickness(0, 0, 0, 8),
             };
             title.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorPrimaryBrush");
 
@@ -1870,42 +1870,24 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             buttons.Children.Add(ok);
             buttons.Children.Add(cancel);
 
-            var panel = new StackPanel();
+            var panel = new StackPanel { Margin = new Thickness(20) };
             panel.Children.Add(title);
             panel.Children.Add(box);
             panel.Children.Add(buttons);
 
-            var card = new Border
-            {
-                Child = panel,
-                Padding = new Thickness(22),
-                CornerRadius = new CornerRadius(12),
-                BorderThickness = new Thickness(1),
-                Width = 360,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            card.SetResourceReference(Border.BackgroundProperty, "SolidBackgroundFillColorSecondaryBrush");
-            card.SetResourceReference(Border.BorderBrushProperty, "CardStrokeColorDefaultBrush");
-
-            var overlay = new Grid
-            {
-                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(150, 0, 0, 0)),
-            };
-            overlay.Children.Add(card);
-
-            var dialog = new Window
+            var dialog = new Wpf.Ui.Controls.FluentWindow
             {
                 Owner = this,
-                WindowStyle = WindowStyle.None,
-                AllowsTransparency = true,
-                Background = Brushes.Transparent,
+                Title = L.T("Dialog.Value"),
+                Width = 360,
+                MinWidth = 0,
+                MinHeight = 0,
+                SizeToContent = SizeToContent.Height,
                 ResizeMode = ResizeMode.NoResize,
                 ShowInTaskbar = false,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Width = ActualWidth,
-                Height = ActualHeight,
-                Content = overlay,
+                WindowCornerPreference = Wpf.Ui.Controls.WindowCornerPreference.Round,
+                Content = panel,
                 FontFamily = FontFamily,
             };
 
@@ -1925,8 +1907,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 }
             };
 
-            var accepted = dialog.ShowDialog() == true;
-            return Task.FromResult(accepted ? box.Value : (double?)null);
+            return Task.FromResult(dialog.ShowDialog() == true ? box.Value : (double?)null);
         }
         catch (Exception ex)
         {

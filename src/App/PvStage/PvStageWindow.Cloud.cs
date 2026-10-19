@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Media;
 using JizuraLive.App.Cloud;
 using JizuraLive.Logging;
 
@@ -27,49 +26,21 @@ public partial class PvStageWindow
 
     private void ShowMenu(FrameworkElement anchor, IReadOnlyList<(string Label, Action Click)> items)
     {
-        var panel = new StackPanel { MinWidth = 150 };
-        Popup? popup = null;
-
-        foreach (var (label, action) in items)
-        {
-            var button = new Wpf.Ui.Controls.Button
-            {
-                Content = label,
-                Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(12, 6, 12, 6),
-            };
-            button.Click += (_, _) =>
-            {
-                if (popup is not null) popup.IsOpen = false;
-                action();
-            };
-            panel.Children.Add(button);
-        }
-
-        var root = new Border
-        {
-            CornerRadius = new CornerRadius(6),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(4),
-            Child = panel,
-            Background = TryFindResource("ApplicationBackgroundBrush") as Brush
-                         ?? new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x24)),
-        };
-        root.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
-
-        popup = new Popup
+        var menu = new ContextMenu
         {
             PlacementTarget = anchor,
             Placement = PlacementMode.Bottom,
-            VerticalOffset = 4,
-            StaysOpen = false,
-            AllowsTransparency = true,
-            PopupAnimation = PopupAnimation.Fade,
-            Child = root,
-            IsOpen = true,
+            MinWidth = 150,
         };
+
+        foreach (var (label, action) in items)
+        {
+            var item = new Wpf.Ui.Controls.MenuItem { Header = label };
+            item.Click += (_, _) => action();
+            menu.Items.Add(item);
+        }
+
+        menu.IsOpen = true;
     }
 
     internal async void BtnCloudMusic_Click(object sender, RoutedEventArgs e) => await ImportCloudMusicAsync();

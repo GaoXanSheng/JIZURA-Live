@@ -265,11 +265,11 @@ public sealed partial class TimelineView : Control
         trackTop = trackHeight = thumbTop = thumbHeight = 0;
         if (_trackTotalHeight <= _trackViewHeight + 1e-9) return false;
 
-        trackTop = ContentHeight - _trackViewHeight;
-        trackHeight = _trackViewHeight;
-        thumbHeight = Math.Max(28, trackHeight * _trackViewHeight / _trackTotalHeight);
+        trackTop = 0;
+        trackHeight = ContentHeight;
+        thumbHeight = Math.Min(trackHeight, Math.Max(28, _trackViewHeight * _trackViewHeight / _trackTotalHeight));
         double usable = Math.Max(1, trackHeight - thumbHeight);
-        thumbTop = trackTop + usable * _scrollOffset / Math.Max(1, _trackTotalHeight - _trackViewHeight);
+        thumbTop = usable * _scrollOffset / Math.Max(1, _trackTotalHeight - _trackViewHeight);
         return true;
     }
 

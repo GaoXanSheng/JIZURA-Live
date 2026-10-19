@@ -10,7 +10,6 @@
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
 
-            <Style TargetType="Window" />
             <Style x:Key="InlineValueBox" TargetType="TextBox">
                 <Setter Property="Background" Value="{DynamicResource SolidBackgroundFillColorSecondaryBrush}" />
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />

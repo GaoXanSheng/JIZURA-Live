@@ -8,7 +8,7 @@ using JizuraLive.Server.Models;
 
 namespace JizuraLive.App.PvStage;
 
-public partial class CloudMusicWindow : Window
+public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
 {
     private readonly List<SongRow> _rows = new();
     private int _page = 1;
@@ -194,15 +194,6 @@ public partial class CloudMusicWindow : Window
             SelectedSong = row.Song;
             DialogResult = true;
         }
-    }
-
-    private void BtnClose_Click(object sender, RoutedEventArgs e) => DialogResult = false;
-
-    private void Header_MouseDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ButtonState != MouseButtonState.Pressed) return;
-        try { DragMove(); }
-        catch { }
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)

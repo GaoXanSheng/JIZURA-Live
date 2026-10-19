@@ -348,7 +348,7 @@ public partial class PvStageWindow
         row.Children.Add(text);
 
         var value = string.IsNullOrWhiteSpace(get()) ? fallback : get();
-        var box = new TextBox
+        var box = new Wpf.Ui.Controls.TextBox
         {
             Text = value,
             FontSize = 12,

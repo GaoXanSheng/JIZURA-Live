@@ -44,7 +44,7 @@ public partial class PvStageWindow
             Display = new TextBlock
             {
                 FontFamily = MonoFontFamily,
-                FontSize = 11,
+                FontSize = 12,
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand,
@@ -60,13 +60,13 @@ public partial class PvStageWindow
             Editor = new TextBox
             {
                 FontFamily = MonoFontFamily,
-                FontSize = 11,
+                FontSize = 12,
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Height = 22,
-                Width = 42,
+                Height = 24,
+                Width = 64,
                 MinWidth = 0,
                 MinHeight = 0,
                 Padding = new Thickness(2, 0, 2, 0),
@@ -501,7 +501,7 @@ public partial class PvStageWindow
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
         host.Children.Add(swatch);
 
-        var box = new TextBox
+        var box = new Wpf.Ui.Controls.TextBox
         {
             Text = hex,
             Width = 78,
@@ -570,7 +570,7 @@ public partial class PvStageWindow
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
 
         var lab = ThemeText(label, TextSecondaryKey, 12);
         lab.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -663,7 +663,7 @@ public partial class PvStageWindow
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -724,7 +724,7 @@ public partial class PvStageWindow
         var badge = new Wpf.Ui.Controls.Badge
         {
             Cursor = Cursors.Hand,
-            FontSize = 10,
+            FontSize = 11,
             Padding = new Thickness(4, 0, 4, 0),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
         };
