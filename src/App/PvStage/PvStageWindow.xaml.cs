@@ -171,6 +171,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.VtsCueDeleteRequested += Timeline_VtsCueDeleteRequested;
         TheTimeline.VtsCueEdited += Timeline_VtsCueEdited;
         TheTimeline.TrackVisibilityChanged += Timeline_TrackVisibilityChanged;
+        TheTimeline.TrackHeightsChanged += Timeline_TrackHeightsChanged;
         TheTimeline.ValuePrompt = PromptTimelineValueAsync;
         TheTimeline.Fps = _scene.Fps;
 
@@ -1958,6 +1959,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 320;
         InspectorColumn.Width = new GridLength(_inspectorCollapsed ? 0 : InspectorWidth);
         InspectorPane.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        InspectorSplitter.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        InspectorSplitterColumn.Width = new GridLength(_inspectorCollapsed ? 0 : 6);
     }
 
     private void RefreshMediaPanel()

@@ -62,6 +62,12 @@ public sealed partial class TimelineView
             else ToggleTrackHidden(row);
             return;
         }
+        if (TrackResizeRowAt(p, out var resizeRow))
+        {
+            e.Handled = true;
+            StartTrackResize(resizeRow, p);
+            return;
+        }
         double x = p.X - HeaderWidth;
 
         if (e.ClickCount == 2 && row.Kind == RowKind.Automation)
@@ -109,6 +115,11 @@ public sealed partial class TimelineView
                 Cursor = Cursors.Hand;
                 return;
             }
+            if (TrackResizeRowAt(hover, out _))
+            {
+                Cursor = Cursors.SizeNS;
+                return;
+            }
             UpdateDesignCursor(hover);
             return;
         }
@@ -135,6 +146,9 @@ public sealed partial class TimelineView
                 break;
             case DragMode.VtsCue:
                 MoveVtsCue(p.X - HeaderWidth);
+                break;
+            case DragMode.TrackResize:
+                MoveTrackResize(p);
                 break;
         }
     }
@@ -166,6 +180,12 @@ public sealed partial class TimelineView
         {
             CommitVtsCueDrag();
         }
+        else if (_drag == DragMode.TrackResize)
+        {
+            _drag = DragMode.None;
+            _dragTip = null;
+            CommitTrackResize();
+        }
         else _drag = DragMode.None;
 
         if (IsMouseCaptured) ReleaseMouseCapture();
@@ -176,6 +196,14 @@ public sealed partial class TimelineView
     {
         base.OnLostMouseCapture(e);
         if (_drag == DragMode.None) return;
+        if (_drag == DragMode.TrackResize)
+        {
+            _drag = DragMode.None;
+            _dragTip = null;
+            CommitTrackResize();
+            InvalidateVisual();
+            return;
+        }
         if (_drag == DragMode.VtsCue)
         {
             RestoreVtsCueDrag();
@@ -406,6 +434,74 @@ public sealed partial class TimelineView
         && seg.RefId.StartsWith("legacy_", StringComparison.Ordinal)
         && seg.Track is (int)DesignTrackKind.Layout or (int)DesignTrackKind.Enter
             or (int)DesignTrackKind.Exit or (int)DesignTrackKind.Treat;
+
+    private bool TrackResizeRowAt(Point p, out Row row)
+    {
+        row = default;
+        if (p.X > HeaderWidth) return false;
+
+        double contentHeight = ContentHeight;
+        foreach (var candidate in BuildRows())
+        {
+            if (candidate.Kind == RowKind.Ruler) continue;
+
+            double edge = candidate.Top + candidate.Height;
+            bool fixedRow = candidate.Kind is RowKind.Waveform or RowKind.Lyrics;
+            if (!fixedRow && edge < _trackTop) continue;
+            if (edge > contentHeight) continue;
+            if (Math.Abs(p.Y - edge) > 4) continue;
+
+            row = candidate;
+            return true;
+        }
+        return false;
+    }
+
+    private void StartTrackResize(in Row row, Point p)
+    {
+        if (_snap is null) return;
+
+        var id = TrackIdOf(row);
+        if (id.Length == 0) return;
+
+        _resizeTrackId = id;
+        _resizeStartY = p.Y;
+        _resizeStartHeight = row.Height;
+        (_resizeMinHeight, _resizeMaxHeight) = ResizeBounds(row.Kind);
+        _drag = DragMode.TrackResize;
+        _dragTip = $"{row.Height:0}px";
+        CaptureMouse();
+        InvalidateVisual();
+    }
+
+    private static (double Min, double Max) ResizeBounds(RowKind kind) => kind switch
+    {
+        RowKind.Waveform => (WaveformMinHeight, WaveformMaxHeight),
+        RowKind.Lyrics => (LyricsMinHeight, LyricsMaxHeight),
+        RowKind.Design => (DesignMinHeight, TrackMaxHeight),
+        _ => (TrackMinHeight, TrackMaxHeight),
+    };
+
+    private void MoveTrackResize(Point p)
+    {
+        if (_snap is null || _resizeTrackId.Length == 0) return;
+
+        double height = Math.Clamp(_resizeStartHeight + (p.Y - _resizeStartY),
+            _resizeMinHeight, _resizeMaxHeight);
+        height = Math.Round(height);
+        _snap.TrackHeights[_resizeTrackId] = height;
+        _dragTip = $"{height:0}px";
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+    }
+
+    private void CommitTrackResize()
+    {
+        if (_resizeTrackId.Length == 0) return;
+        _resizeTrackId = "";
+        TrackHeightsChanged?.Invoke();
+    }
 
     private bool EyeAt(Point p, in Row row)
     {
@@ -757,7 +853,7 @@ public sealed partial class TimelineView
     private void MoveSelectedKeys(Point p)
     {
         bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
-        double grid = TimelineMath.GridStep(_pixelsPerSecond, Fps);
+        double grid = TimelineMath.KeyframeStep;
         double dt = TimeAt(p.X - HeaderWidth) - TimeAt(_dragOrigin.X - HeaderWidth);
         double dv = (_dragOrigin.Y - p.Y) * _dragValuePerPixel;
 
@@ -766,7 +862,16 @@ public sealed partial class TimelineView
             var curve = FindCurve(address);
             if (curve is null || index >= curve.Keys.Count) continue;
             double time = Math.Max(0, TimelineMath.Snap(origin.TimeSeconds + dt, grid, snap));
-            double value = origin.Value + dv;
+            double value;
+            if (curve.Address.Kind == ParamAddressKind.Vts && curve.Address.Param is "x" or "y")
+            {
+                double step = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? 1.0
+                    : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? 0.1
+                    : 0.01;
+                value = origin.Value + (_dragOrigin.Y - p.Y) * step;
+                value = Math.Round(Math.Round(value / step, MidpointRounding.AwayFromZero) * step, 6);
+            }
+            else value = origin.Value + dv;
             if (!double.IsFinite(value)) value = origin.Value;
             curve.Keys[index] = origin with { TimeSeconds = time, Value = value };
         }
@@ -819,7 +924,7 @@ public sealed partial class TimelineView
     private void AddKeyAt(TCurve curve, double x)
     {
         bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
-        double time = TimelineMath.Snap(TimeAt(x), TimelineMath.GridStep(_pixelsPerSecond, Fps), snap);
+        double time = TimelineMath.Snap(TimeAt(x), TimelineMath.KeyframeStep, snap);
         int existing = TimelineMath.IndexAtTime(curve.Keys, time);
         if (existing >= 0)
         {

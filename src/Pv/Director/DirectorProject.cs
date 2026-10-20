@@ -90,6 +90,8 @@ public sealed class EditorLayout
 
     public List<string> CollapsedTrackIds { get; set; } = new();
 
+    public Dictionary<string, double> TrackHeights { get; set; } = new(StringComparer.Ordinal);
+
     public bool VtsStageDrive { get; set; } = true;
 }
 

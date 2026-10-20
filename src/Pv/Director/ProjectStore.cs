@@ -143,6 +143,9 @@ public static class ProjectStore
 
         layout.SelectedNodeIds ??= new List<string>();
         layout.CollapsedTrackIds ??= new List<string>();
+        layout.TrackHeights ??= new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var id in layout.TrackHeights.Where(p => !double.IsFinite(p.Value)).Select(p => p.Key).ToList())
+            layout.TrackHeights.Remove(id);
     }
 
     private static double Finite(double value, double fallback) => double.IsFinite(value) ? value : fallback;

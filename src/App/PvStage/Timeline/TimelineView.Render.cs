@@ -448,12 +448,13 @@ public sealed partial class TimelineView
                         new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.Automation:
-                    dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(28, row.Top + 5));
+                    dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush),
+                        new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.VtsCue:
                     var cueTrack = _snap!.VtsCueTracks[row.Index];
                     dc.DrawText(Text(CueTrackLabel(cueTrack.Kind), 11, DimBrush),
-                        new Point(28, row.Top + 5));
+                        new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.Design:
                     if (_snap is not null && row.Index >= 0 && row.Index < _snap.DesignTracks.Count)

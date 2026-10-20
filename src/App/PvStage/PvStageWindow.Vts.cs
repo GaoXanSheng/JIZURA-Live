@@ -127,10 +127,10 @@ public partial class PvStageWindow
             L.T("VTS 模式下，方框是采集画面边界，手柄直接改 VTS 模型坐标和关键帧。"),
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 1,
-            () => _vtsRestX, v => _vtsRestX = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 1,
-            () => _vtsRestY, v => _vtsRestY = v));
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 0.01,
+            () => _vtsRestX, v => _vtsRestX = v, scrubByStep: true));
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 0.01,
+            () => _vtsRestY, v => _vtsRestY = v, scrubByStep: true));
         AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
         AddInspector(AnimParamRow(_inspectorRows, VtsRotationAddr, L.T("旋转"), -180, 180, 1,
@@ -391,6 +391,14 @@ public partial class PvStageWindow
         AddInspector(ThemeText(
             L.T("染色关键帧在时间线上可拖动；开关模式结束会恢复白色。"),
             TextTertiaryKey, 11, wrap: true));
+    }
+
+    private static double SnapVtsMove(double value)
+    {
+        double step = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? 1.0
+            : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? 0.1
+            : 0.01;
+        return Math.Round(Math.Round(value / step, MidpointRounding.AwayFromZero) * step, 6);
     }
 
     private string VtsFramingLabel()

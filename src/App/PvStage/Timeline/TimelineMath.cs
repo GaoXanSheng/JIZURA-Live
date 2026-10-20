@@ -28,6 +28,8 @@ public static class TimelineMath
 
     private const double MinGridPixels = 10.0;
 
+    public const double KeyframeStep = 0.1;
+
     private static readonly double[] RulerSteps = [1, 5, 10, 30, 60, 300];
 
     public static readonly string[] Interps = ["Step", "Linear", "SmoothStep", "Bezier", "Spring"];

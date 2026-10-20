@@ -44,6 +44,7 @@ public sealed partial class TimelineView : Control
         Clip,
         Design,
         VtsCue,
+        TrackResize,
     }
 
     internal readonly record struct SelSegment(int Track, string RefId);
@@ -134,15 +135,34 @@ public sealed partial class TimelineView : Control
 
     public event Action? TrackVisibilityChanged;
 
+    public event Action? TrackHeightsChanged;
+
     public Func<double, Task<double?>>? ValuePrompt { get; set; }
 
     public IEnumerable<string> CollapsedTrackIds =>
         _snap?.CollapsedTracks ?? (IEnumerable<string>)Array.Empty<string>();
 
+    public IReadOnlyDictionary<string, double> TrackHeights =>
+        _snap?.TrackHeights ?? EmptyHeights;
+
+    private static readonly Dictionary<string, double> EmptyHeights = new(StringComparer.Ordinal);
+
     private const string WaveformTrackId = "waveform";
     private const string LyricsTrackId = "lyrics";
     private const double EyeHitWidth = 24;
     private const double RulerEyeLeft = HeaderWidth - 52;
+    private const double WaveformMinHeight = 30;
+    private const double WaveformMaxHeight = 200;
+    private const double LyricsMinHeight = 20;
+    private const double LyricsMaxHeight = 120;
+    private const double TrackMinHeight = 18;
+    private const double TrackMaxHeight = 120;
+
+    private string _resizeTrackId = "";
+    private double _resizeStartY;
+    private double _resizeStartHeight;
+    private double _resizeMinHeight;
+    private double _resizeMaxHeight;
 
     private static string DesignTrackId(DesignTrackKind kind) => "design:" + kind;
 
@@ -205,70 +225,105 @@ public sealed partial class TimelineView : Control
 
         rows.Add(new Row(RowKind.Ruler, 0, top, RulerHeight));
         top += RulerHeight;
+
         if (!Hidden(WaveformTrackId))
         {
-            rows.Add(new Row(RowKind.Waveform, 0, top, WaveformHeight));
-            top += WaveformHeight;
+            double height = HeightOf(WaveformTrackId, WaveformHeight,
+                WaveformMinHeight, WaveformMaxHeight);
+            rows.Add(new Row(RowKind.Waveform, 0, top, height));
+            top += height;
         }
+
         if (_snap is { Lyrics.Count: > 0 } && !Hidden(LyricsTrackId))
         {
-            rows.Add(new Row(RowKind.Lyrics, 0, top, LyricHeight));
-            top += LyricHeight;
+            double height = HeightOf(LyricsTrackId, LyricHeight, LyricsMinHeight, LyricsMaxHeight);
+            rows.Add(new Row(RowKind.Lyrics, 0, top, height));
+            top += height;
         }
 
         double trackTop = top;
         _trackTop = trackTop;
         double viewH = Math.Max(0, contentHeight - trackTop);
 
-        int automationCount = 0;
-        int cueCount = 0;
         var populated = new List<int>();
         if (_snap is not null)
-        {
-            foreach (var curve in _snap.Curves)
-                if (!Hidden(CurveTrackId(curve.Address))) automationCount++;
-            foreach (var track in _snap.VtsCueTracks)
-                if (!Hidden(VtsTrackId(track.Kind))) cueCount++;
             for (int i = 0; i < _snap.DesignTracks.Count; i++)
                 if (_snap.DesignTracks[i].Segments.Count > 0
                     && !Hidden(DesignTrackId(_snap.DesignTracks[i].Kind)))
                     populated.Add(i);
+
+        double autoDesignH = DesignMaxHeight;
+        if (populated.Count > 0)
+            autoDesignH = Math.Clamp(viewH / populated.Count, DesignMinHeight, DesignMaxHeight);
+
+        var designHeights = new List<double>(populated.Count);
+        double designBlock = 0;
+        foreach (var index in populated)
+        {
+            double height = HeightOf(DesignTrackId(_snap!.DesignTracks[index].Kind),
+                autoDesignH, DesignMinHeight, TrackMaxHeight);
+            designHeights.Add(height);
+            designBlock += height;
         }
 
-        double designH = DesignMaxHeight;
-        if (populated.Count > 0) designH = Math.Clamp(viewH / populated.Count, DesignMinHeight, DesignMaxHeight);
-        double designBlock = populated.Count * designH;
+        double automationBlock = 0;
+        if (_snap is not null)
+            for (int i = 0; i < _snap.Curves.Count; i++)
+            {
+                var id = CurveTrackId(_snap.Curves[i].Address);
+                if (Hidden(id)) continue;
+                automationBlock += HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
+            }
+
+        double cueBlock = 0;
+        if (_snap is not null)
+            for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
+            {
+                var id = VtsTrackId(_snap.VtsCueTracks[i].Kind);
+                if (Hidden(id)) continue;
+                cueBlock += HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
+            }
 
         _trackViewHeight = viewH;
-        _trackTotalHeight = designBlock + automationCount * AutomationHeight + cueCount * AutomationHeight;
+        _trackTotalHeight = designBlock + automationBlock + cueBlock;
         ClampScrollOffset();
 
         double y = trackTop - _scrollOffset;
 
         for (int i = 0; i < populated.Count; i++)
         {
-            rows.Add(new Row(RowKind.Design, populated[i], y, designH));
-            y += designH;
+            double height = designHeights[i];
+            rows.Add(new Row(RowKind.Design, populated[i], y, height));
+            y += height;
         }
 
         if (_snap is not null)
             for (int i = 0; i < _snap.Curves.Count; i++)
             {
-                if (Hidden(CurveTrackId(_snap.Curves[i].Address))) continue;
-                rows.Add(new Row(RowKind.Automation, i, y, AutomationHeight));
-                y += AutomationHeight;
+                var id = CurveTrackId(_snap.Curves[i].Address);
+                if (Hidden(id)) continue;
+                double height = HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
+                rows.Add(new Row(RowKind.Automation, i, y, height));
+                y += height;
             }
 
         if (_snap is not null)
             for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
             {
-                if (Hidden(VtsTrackId(_snap.VtsCueTracks[i].Kind))) continue;
-                rows.Add(new Row(RowKind.VtsCue, i, y, AutomationHeight));
-                y += AutomationHeight;
+                var id = VtsTrackId(_snap.VtsCueTracks[i].Kind);
+                if (Hidden(id)) continue;
+                double height = HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
+                rows.Add(new Row(RowKind.VtsCue, i, y, height));
+                y += height;
             }
 
         return rows;
     }
+
+    private double HeightOf(string id, double fallback, double min, double max) =>
+        _snap is not null && _snap.TrackHeights.TryGetValue(id, out var height)
+            ? Math.Clamp(height, min, max)
+            : Math.Clamp(fallback, min, max);
 
     private string TrackIdOf(in Row row) => row.Kind switch
     {

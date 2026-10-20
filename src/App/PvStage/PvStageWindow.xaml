@@ -23,7 +23,7 @@
             <Setter Property="ItemsPanel">
                 <Setter.Value>
                     <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" />
+                        <WrapPanel Orientation="Horizontal" />
                     </ItemsPanelTemplate>
                 </Setter.Value>
             </Setter>
@@ -147,7 +147,8 @@
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="320" MinWidth="260" />
-                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" MinWidth="320" />
+                <ColumnDefinition x:Name="InspectorSplitterColumn" Width="6" />
                 <ColumnDefinition x:Name="InspectorColumn" Width="360" MinWidth="320" />
             </Grid.ColumnDefinitions>
 
@@ -216,7 +217,7 @@
                 </Border>
             </Grid>
 
-            <Border x:Name="InspectorPane" Grid.Column="2" Background="{DynamicResource LayerFillColorDefaultBrush}"
+            <Border x:Name="InspectorPane" Grid.Column="3" Background="{DynamicResource LayerFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="14,12,12,4">
@@ -229,6 +230,11 @@
                     <Grid x:Name="InspectorHost" Margin="10,0,8,0" />
                 </DockPanel>
             </Border>
+
+            <GridSplitter x:Name="InspectorSplitter" Grid.Column="2" Width="6"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" ResizeBehavior="PreviousAndNext"
+                          ResizeDirection="Columns" Cursor="SizeWE" />
         </Grid>
 
         <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"

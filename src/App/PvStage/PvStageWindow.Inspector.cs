@@ -561,8 +561,13 @@ public partial class PvStageWindow
         return AnimParamRow(_inspectorRows, addr, label, spec.Min, spec.Max, step, read, write);
     }
 
+    private sealed record SliderScrub(AnimRow Row, double StartX, double StartValue);
+
+    private SliderScrub? _sliderScrub;
+
     private FrameworkElement AnimParamRow(List<AnimRow> owner, ParamAddress address, string label,
-        double min, double max, double step, Func<double> readBase, Action<double> writeBase)
+        double min, double max, double step, Func<double> readBase, Action<double> writeBase,
+        bool scrubByStep = false)
     {
         double current = readBase();
         double span = Math.Max(max - min, 0);
@@ -608,6 +613,45 @@ public partial class PvStageWindow
         };
         slider.ValueChanged += (_, e) => OnRowValueChanged(state, e.NewValue);
         slider.PreviewMouseLeftButtonDown += (_, _) => state.EditTime = _audio.Time;
+        if (scrubByStep)
+        {
+            slider.PreviewMouseLeftButtonDown += (_, e) =>
+            {
+                if (e.ChangedButton != MouseButton.Left) return;
+                e.Handled = true;
+                state.EditTime = _audio.Time;
+                double start = _evaluator.TryEvaluate(state.Address, _audio.Time, out var evaluated)
+                    ? evaluated
+                    : state.ReadBase();
+                _sliderScrub = new SliderScrub(state, e.GetPosition(slider).X, start);
+                PushUndo();
+                slider.CaptureMouse();
+            };
+
+            slider.PreviewMouseMove += (_, e) =>
+            {
+                if (_sliderScrub is not { } scrub || !slider.IsMouseCaptured) return;
+                if (e.LeftButton != MouseButtonState.Pressed) return;
+
+                e.Handled = true;
+                double step = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? 1.0
+                    : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? 0.1
+                    : 0.01;
+                double delta = e.GetPosition(slider).X - scrub.StartX;
+                slider.Value = Math.Clamp(scrub.StartValue + delta * step, lo, hi);
+            };
+
+            slider.PreviewMouseLeftButtonUp += (_, e) =>
+            {
+                if (_sliderScrub is null) return;
+                e.Handled = true;
+                _sliderScrub = null;
+                slider.ReleaseMouseCapture();
+                _saveError = SaveProjectNow();
+            };
+
+            slider.LostMouseCapture += (_, _) => _sliderScrub = null;
+        }
         state.Slider = slider;
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
@@ -720,6 +764,11 @@ public partial class PvStageWindow
     private void OnRowValueChanged(AnimRow row, double value)
     {
         if (_syncingRows) return;
+
+        if (row.Slider.IsMouseCaptureWithin
+            && row.Address.Kind == ParamAddressKind.Vts
+            && row.Address.Param is "x" or "y")
+            value = SnapVtsMove(value);
 
         var t = _audio.Time;
         if (_evaluator.Curves.TryGetValue(row.Address, out var curve))

@@ -45,6 +45,10 @@ public partial class PvStageWindow
         foreach (var id in _project.EditorLayout?.CollapsedTrackIds ?? new List<string>())
             if (!string.IsNullOrEmpty(id)) snap.CollapsedTracks.Add(id);
 
+        foreach (var (id, height) in _project.EditorLayout?.TrackHeights ?? new Dictionary<string, double>())
+            if (!string.IsNullOrEmpty(id) && double.IsFinite(height))
+                snap.TrackHeights[id] = height;
+
         _snap = snap;
         TheTimeline.SetSnapshot(snap);
     }
@@ -54,6 +58,15 @@ public partial class PvStageWindow
         if (_project is null) return;
         var layout = _project.EditorLayout ??= new EditorLayout();
         layout.CollapsedTrackIds = TheTimeline.CollapsedTrackIds.ToList();
+        _saveError = SaveProjectNow();
+    }
+
+    private void Timeline_TrackHeightsChanged()
+    {
+        if (_project is null) return;
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        layout.TrackHeights = TheTimeline.TrackHeights
+            .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         _saveError = SaveProjectNow();
     }
 

@@ -67,6 +67,8 @@ public sealed class TSnapshot
 
     public HashSet<string> CollapsedTracks = new(StringComparer.Ordinal);
 
+    public Dictionary<string, double> TrackHeights = new(StringComparer.Ordinal);
+
     public WaveformPeaks? Waveform;
 }
 

@@ -40,7 +40,6 @@ public partial class PvStageWindow
     private bool _stageDragMoved;
     private long _stageDragRefreshAt;
 
-    private const double VtsSceneWidthUnits = 2000.0;
 
     private void SyncStageSelection() => _pipe?.SelectedLayerId = _selectedLayer?.Id;
 
@@ -71,7 +70,7 @@ public partial class PvStageWindow
         _stageDragCenter = sel.Center;
         _stageDragStartDistance = Math.Max(1f, Vector2.Distance(design, sel.Center));
         _stageDragStartAngle = Angle(design - sel.Center);
-        _stageDragVtsScale = VtsSceneWidthUnits / Math.Max(1.0, sel.FitWidth);
+        _stageDragVtsScale = sel.CaptureWidth / Math.Max(1.0, sel.FitWidth);
         _stageDragMoved = false;
 
         _stageDragKeyX = Keyed(xAddr);
@@ -144,8 +143,8 @@ public partial class PvStageWindow
         double x, y;
         if (_stageDragVts)
         {
-            x = Math.Clamp(_stageDragBaseX + offset.X * _stageDragVtsScale, -1000, 1000);
-            y = Math.Clamp(_stageDragBaseY + offset.Y * _stageDragVtsScale, -1000, 1000);
+            x = SnapVtsMove(Math.Clamp(_stageDragBaseX + offset.X * _stageDragVtsScale, -1000, 1000));
+            y = SnapVtsMove(Math.Clamp(_stageDragBaseY + offset.Y * _stageDragVtsScale, -1000, 1000));
         }
         else
         {
@@ -194,7 +193,7 @@ public partial class PvStageWindow
             StageDragKind.Scale => L.F("图层 {0}：{1} {2:F2}", title, L.T("缩放"), _stageDragValueScale),
             StageDragKind.Rotate => L.F("图层 {0}：{1} {2:F1}", title, L.T("旋转"), _stageDragValueRotation),
             _ when _stageDragVts =>
-                L.F("图层 {0}：X {1:F1} · Y {2:F1}", title, _stageDragValueX, _stageDragValueY),
+                L.F("图层 {0}：X {1:F2} · Y {2:F2}", title, _stageDragValueX, _stageDragValueY),
             _ => L.F("图层 {0}：X {1:F3} · Y {2:F3}", title, _stageDragValueX, _stageDragValueY),
         };
     }
@@ -222,7 +221,7 @@ public partial class PvStageWindow
             StageDragKind.Scale => L.F("已调整图层 {0}：{1} {2:F2}", title, L.T("缩放"), _stageDragValueScale),
             StageDragKind.Rotate => L.F("已调整图层 {0}：{1} {2:F1}", title, L.T("旋转"), _stageDragValueRotation),
             _ when vts =>
-                L.F("已调整图层 {0}：X {1:F1} · Y {2:F1}", title, _stageDragValueX, _stageDragValueY),
+                L.F("已调整图层 {0}：X {1:F2} · Y {2:F2}", title, _stageDragValueX, _stageDragValueY),
             _ => L.F("已调整图层 {0}：X {1:F3} · Y {2:F3}", title, _stageDragValueX, _stageDragValueY),
         };
     }

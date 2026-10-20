@@ -16,7 +16,7 @@ namespace JizuraLive.Pv;
 
 public sealed record PvSelectionInfo(
     Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
-    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth)
+    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth, double CaptureWidth)
 {
     public Vector2 TopMiddle => (A + B) * 0.5f;
 
@@ -428,7 +428,7 @@ public sealed class PvStageRenderer : IDisposable
             Map(r.X + r.Width, r.Y + r.Height),
             Map(r.X, r.Y + r.Height),
             Map(r.X + r.Width / 2, r.Y + r.Height / 2),
-            tf.Matrix, _designW, _designH, Math.Max(1, r.Width));
+            tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, image.Width));
     }
 
     private void DrawSelection(Immediate2D d, PvSelectionInfo sel, Rect rect)
