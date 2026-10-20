@@ -100,7 +100,7 @@ public partial class PvStageWindow
             () => _vtsRestX, v => _vtsRestX = v));
         AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, "位移Y", -5, 5, 0.01,
             () => _vtsRestY, v => _vtsRestY = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -800, 500, 1,
+        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
 
         var addKeys = new Wpf.Ui.Controls.Button
@@ -124,7 +124,7 @@ public partial class PvStageWindow
         AddInspector(clear);
 
         AddInspector(ThemeText(
-            "点每行的 ◆K 在播放头打关键帧；关键帧会出现在时间线自动化轨，可直接拖贝塞尔手柄。",
+            "点 ◆K 开始做动画：首次打帧会自动补 0s 保持键；之后拖滑杆或改数值，会在播放头自动覆盖/新增关键帧。时间线上的关键帧可拖动、可调贝塞尔手柄。",
             TextTertiaryKey, 11, wrap: true));
     }
 
@@ -375,16 +375,11 @@ public partial class PvStageWindow
     private void AddVtsMoveKey(in ParamAddress addr, double baseValue, double time)
     {
         double value = _evaluator.TryEvaluate(addr, time, out var eval) ? eval : baseValue;
-        if (!_evaluator.Curves.TryGetValue(addr, out var curve))
-        {
-            curve = new FloatCurve();
-            _evaluator.SetCurve(addr, curve);
-        }
+        var curve = EnsureCurve(addr, baseValue, time);
 
         var mode = ModeOfKeyAt(curve, time) ?? CurveModeFor(addr);
         curve.Remove(time);
         curve.TryAdd(time, value, mode);
-        curve.SmoothBezierHandles();
     }
 
     private void UpdateVtsMove()
@@ -401,10 +396,10 @@ public partial class PvStageWindow
             && Math.Abs(size - _vtsSent.Size) < 1e-4) return;
 
         var baseSize = _vts.Framing?.Size ?? 0;
-        var sizeDrive = baseSize * Math.Clamp(size, -800, 500) / 100.0;
+        var sizeDrive = baseSize * Math.Clamp(size, -90, 300) / 100.0;
 
         _vtsSent = (x, y, size);
-        _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -1000, 1000), Math.Clamp(y, -1000, 1000), 0);
+        _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -5, 5), Math.Clamp(y, -5, 5), 0);
     }
 
     private void ResetVtsMove()

@@ -196,19 +196,23 @@ public partial class PvStageWindow
 
     private (double Min, double Max) CurveRange(in ParamAddress addr, FloatCurve? curve)
     {
-        if (ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _)) return (spec.Min, spec.Max);
-        if (curve is null || curve.Count == 0) return (-1, 1);
+        bool hasSpec = ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _);
+        double min = hasSpec ? spec.Min : double.PositiveInfinity;
+        double max = hasSpec ? spec.Max : double.NegativeInfinity;
 
-        var min = double.MaxValue;
-        var max = double.MinValue;
-        foreach (var key in curve.Keys)
+        if (curve is not null)
         {
-            min = Math.Min(min, key.Value);
-            max = Math.Max(max, key.Value);
+            foreach (var key in curve.Keys)
+            {
+                if (!double.IsFinite(key.Value)) continue;
+                min = Math.Min(min, key.Value);
+                max = Math.Max(max, key.Value);
+            }
         }
 
+        if (!double.IsFinite(min) || !double.IsFinite(max)) return (-1, 1);
         if (max - min < 1e-9) return (min - 0.5, max + 0.5);
-        var pad = (max - min) * 0.1;
+        var pad = (max - min) * 0.05;
         return (min - pad, max + pad);
     }
 
@@ -283,8 +287,12 @@ public partial class PvStageWindow
 
         curve.Keys.Clear();
         foreach (var key in edit.After)
+        {
+            if (!double.IsFinite(key.TimeSeconds) || !double.IsFinite(key.Value)) continue;
             curve.Keys.Add(new CurveKey(key.TimeSeconds, key.Value, ParseInterp(key.Interp),
                 key.OutX, key.OutY, key.InX, key.InY));
+        }
+
         if (curve.Count == 0) _evaluator.RemoveCurve(edit.Address);
 
         PublishDirector();

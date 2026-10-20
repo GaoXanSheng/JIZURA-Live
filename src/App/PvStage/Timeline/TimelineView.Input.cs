@@ -780,7 +780,8 @@ public sealed partial class TimelineView
             var curve = FindCurve(address);
             if (curve is null || index >= curve.Keys.Count) continue;
             double time = Math.Max(0, TimelineMath.Snap(origin.TimeSeconds + dt, grid, snap));
-            double value = curve.Max > curve.Min ? Math.Clamp(origin.Value + dv, curve.Min, curve.Max) : origin.Value + dv;
+            double value = origin.Value + dv;
+            if (!double.IsFinite(value)) value = origin.Value;
             curve.Keys[index] = origin with { TimeSeconds = time, Value = value };
         }
 
@@ -854,7 +855,7 @@ public sealed partial class TimelineView
     private async void EditKeyValue(TCurve curve, int index)
     {
         var value = await PromptValueAsync(curve.Keys[index].Value);
-        if (value is null) return;
+        if (value is null || !double.IsFinite(value.Value)) return;
         BeginGesture([curve.Address]);
         curve.Keys[index] = curve.Keys[index] with { Value = value.Value };
         CommitGesture("value");

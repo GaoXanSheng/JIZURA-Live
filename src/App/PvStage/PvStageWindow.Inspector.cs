@@ -18,10 +18,12 @@ public partial class PvStageWindow
         public ParamAddress Address;
         public string Label = "";
         public double Min, Max;
+        public double SpecMin, SpecMax;
         public Func<double> ReadBase = null!;
         public Action<double> WriteBase = null!;
         public Slider Slider = null!;
         public NumericValue Value = null!;
+        public Wpf.Ui.Controls.Button KeyButton = null!;
         public Wpf.Ui.Controls.Badge Badge = null!;
         public TextBlock ClampMark = null!;
         public double EditTime;
@@ -655,8 +657,11 @@ public partial class PvStageWindow
             Label = label,
             Min = lo,
             Max = hi,
+            SpecMin = min,
+            SpecMax = max,
             ReadBase = readBase,
             WriteBase = writeBase,
+            EditTime = _audio.Time,
         };
         owner.Add(state);
 
@@ -683,6 +688,7 @@ public partial class PvStageWindow
             VerticalAlignment = VerticalAlignment.Center,
         };
         slider.ValueChanged += (_, e) => OnRowValueChanged(state, e.NewValue);
+        slider.PreviewMouseLeftButtonDown += (_, _) => state.EditTime = _audio.Time;
         state.Slider = slider;
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
@@ -691,7 +697,11 @@ public partial class PvStageWindow
         {
             Min = lo,
             Max = hi,
-            Commit = v => OnRowValueChanged(state, v),
+            Commit = v =>
+            {
+                state.EditTime = _audio.Time;
+                OnRowValueChanged(state, v);
+            },
         };
         state.Value = value;
         Grid.SetColumn(value.Root, 2);
@@ -718,6 +728,9 @@ public partial class PvStageWindow
             ToolTip = "在当前时刻打一个关键帧（该时刻已有则替换）",
         };
         key.Click += (_, _) => KeyRowAtPlayhead(state);
+        if (!ParamRegistry.TryResolve(address, _effects, _scene, out _, out _))
+            key.Visibility = Visibility.Collapsed;
+        state.KeyButton = key;
         Grid.SetColumn(key, 4);
         row.Children.Add(key);
 
@@ -739,40 +752,42 @@ public partial class PvStageWindow
     private void KeyRowAtPlayhead(AnimRow row)
     {
         var t = _audio.Time;
-        var v = _evaluator.TryEvaluate(row.Address, t, out var eval) ? eval : row.Slider.Value;
+        var v = _evaluator.TryEvaluate(row.Address, t, out var eval) ? eval : row.ReadBase();
 
-        if (!_evaluator.Curves.TryGetValue(row.Address, out var curve))
-        {
-            curve = new FloatCurve();
-            _evaluator.SetCurve(row.Address, curve);
-        }
-
+        bool created = !_evaluator.Curves.ContainsKey(row.Address);
+        var curve = EnsureCurve(row.Address, row.ReadBase(), t);
         var mode = ModeOfKeyAt(curve, t) ?? CurveModeFor(row.Address);
         curve.Remove(t);
         curve.TryAdd(t, v, mode);
-        if (row.Address.Kind == ParamAddressKind.Vts) curve.SmoothBezierHandles();
 
         PublishDirector();
         RefreshParamRows();
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"已打关键帧 t={t:F2}s · {row.Label} {v:F2}";
+        TblStatus.Text = created && t > 1e-6
+            ? $"已打关键帧 t={t:F2}s · {row.Label} {v:F2}（并在 0s 补了保持键）"
+            : $"已打关键帧 t={t:F2}s · {row.Label} {v:F2}";
+    }
+
+    private FloatCurve EnsureCurve(in ParamAddress addr, double rest, double time)
+    {
+        if (_evaluator.Curves.TryGetValue(addr, out var curve)) return curve;
+
+        curve = new FloatCurve();
+        if (time > 1e-6) curve.TryAdd(0, rest, CurveModeFor(addr));
+        _evaluator.SetCurve(addr, curve);
+        return curve;
     }
 
     private void WriteCurveKeyAtPlayhead(in ParamAddress addr, double value)
     {
         var t = _audio.Time;
-        if (!_evaluator.Curves.TryGetValue(addr, out var curve))
-        {
-            curve = new FloatCurve();
-            _evaluator.SetCurve(addr, curve);
-        }
+        var curve = EnsureCurve(addr, value, t);
 
         var mode = ModeOfKeyAt(curve, t) ?? CurveModeFor(addr);
         curve.Remove(t);
         curve.TryAdd(t, value, mode);
-        if (addr.Kind == ParamAddressKind.Vts) curve.SmoothBezierHandles();
         PublishDirector();
     }
 
@@ -795,7 +810,6 @@ public partial class PvStageWindow
             var mode = ModeOfKeyAt(curve, at) ?? CurveModeFor(row.Address);
             curve.Remove(at);
             curve.TryAdd(at, value, mode);
-            if (row.Address.Kind == ParamAddressKind.Vts) curve.SmoothBezierHandles();
             PublishDirector();
         }
         else
@@ -837,7 +851,7 @@ public partial class PvStageWindow
     {
         var hasCurve = _evaluator.Curves.TryGetValue(row.Address, out var curve) && curve.Count > 0;
         var value = hasCurve ? curve!.Evaluate(time) : row.ReadBase();
-        var clamped = value < row.Min || value > row.Max;
+        var clamped = value < row.SpecMin || value > row.SpecMax;
 
         var source = ValueSourceBadge.Label(hasCurve);
         row.Badge.Content = source;
@@ -847,11 +861,18 @@ public partial class PvStageWindow
             hasCurve ? TextAccentKey : TextTertiaryKey);
         row.Badge.ToolTip = hasCurve ? "由曲线驱动 base(t)（点徽标跳到时间轴该轨）" : "文档里的常量";
 
-        var range = $"[{row.Min.ToString("0.###", CultureInfo.InvariantCulture)}, {row.Max.ToString("0.###", CultureInfo.InvariantCulture)}]";
+        var range = $"[{row.SpecMin.ToString("0.###", CultureInfo.InvariantCulture)}, {row.SpecMax.ToString("0.###", CultureInfo.InvariantCulture)}]";
         row.ClampMark.Visibility = clamped ? Visibility.Visible : Visibility.Collapsed;
         row.ClampMark.ToolTip = clamped
             ? $"原值 {value.ToString("0.###", CultureInfo.InvariantCulture)} 越界，写入目标时按 {range} 限幅"
             : null;
+
+        bool keyHere = hasCurve && ModeOfKeyAt(curve!, time) is not null;
+        row.KeyButton.SetResourceReference(Control.ForegroundProperty,
+            keyHere ? TextAccentKey : TextTertiaryKey);
+        row.KeyButton.ToolTip = keyHere
+            ? "当前时刻已有关键帧（点击用当前值覆盖）"
+            : "在当前时刻打一个关键帧（首次打帧会自动补 0 时刻保持键）";
 
         row.Value.SetValue(value);
 

@@ -670,6 +670,15 @@ public sealed class PvPipeline : IDisposable
         {
             var layer = layers[i];
             var state = BaseLayer(layer, _director, time);
+            state = state with
+            {
+                OffsetX = Math.Clamp(Finite(state.OffsetX, 0), -1, 1),
+                OffsetY = Math.Clamp(Finite(state.OffsetY, 0), -1, 1),
+                Scale = Math.Clamp(Finite(state.Scale, 1), 0.1, 5),
+                Opacity = Math.Clamp(Finite(state.Opacity, 1), 0, 1),
+                Rotation = Math.Clamp(Finite(state.Rotation, 0), -180, 180),
+            };
+
             if (ReferenceEquals(layer, character))
             {
                 var cam = frame.Camera;
@@ -723,7 +732,14 @@ public sealed class PvPipeline : IDisposable
     private void ApplyCamera(double time, PvFrameState frame)
     {
         var cam = _scene.Camera ?? new PvCameraConfig();
-        frame.Camera = BaseCamera(cam, _director, time);
+        var state = BaseCamera(cam, _director, time);
+        frame.Camera = state with
+        {
+            X = Math.Clamp(Finite(state.X, 0), -_scene.Width, _scene.Width),
+            Y = Math.Clamp(Finite(state.Y, 0), -_scene.Height, _scene.Height),
+            Scale = Math.Clamp(Finite(state.Scale, 1), 0.5, 2),
+            Rotation = Math.Clamp(Finite(state.Rotation, 0), -180, 180),
+        };
         _renderer.Stage.Energy = 0;
     }
 
