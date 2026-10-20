@@ -36,6 +36,8 @@ public sealed record VtsHotkey(string HotkeyId, string Name, string Type, string
 
 public sealed record VtsFraming(double Size, double X, double Y, double Rotation);
 
+public sealed record VtsHullBounds(double MinX, double MaxX, double MinY, double MaxY);
+
 public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 {
     private const string Url = "ws://127.0.0.1:8001";
@@ -51,6 +53,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     [
         "ModelLoadedEvent",
         "ModelConfigChangedEvent",
+        "ModelOutlineEvent",
         "TrackingStatusChangedEvent",
         "HotkeyTriggeredEvent",
     ];
@@ -66,6 +69,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     private volatile string _version = "";
     private volatile VtsHotkey[] _hotkeys = [];
     private volatile VtsFraming? _framing;
+    private VtsHullBounds? _hull;
     private volatile string _modelName = "";
     private volatile Dictionary<string, (double Min, double Max)> _params = new(StringComparer.Ordinal);
 
@@ -86,6 +90,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     public IReadOnlyList<string> ArtMeshTags => _artMeshTags;
 
     public VtsFraming? Framing => _framing;
+
+    public VtsHullBounds? Hull => Volatile.Read(ref _hull);
 
     public event Action? Changed;
     public static JObject? BuildInjectPayload(
@@ -733,6 +739,24 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
                 case "ModelConfigChangedEvent":
                     _refreshHotkeys = true;
+                    break;
+
+                case "ModelOutlineEvent":
+                    if (data?["convexHull"] is not JArray hull || hull.Count == 0) return;
+                    double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
+                    double minY = double.PositiveInfinity, maxY = double.NegativeInfinity;
+                    foreach (var point in hull)
+                    {
+                        double px = (double?)point["x"] ?? 0;
+                        double py = (double?)point["y"] ?? 0;
+                        if (!double.IsFinite(px) || !double.IsFinite(py)) continue;
+                        minX = Math.Min(minX, px);
+                        maxX = Math.Max(maxX, px);
+                        minY = Math.Min(minY, py);
+                        maxY = Math.Max(maxY, py);
+                    }
+                    if (maxX > minX && maxY > minY)
+                        Volatile.Write(ref _api._hull, new VtsHullBounds(minX, maxX, minY, maxY));
                     break;
 
                 case "TrackingStatusChangedEvent":

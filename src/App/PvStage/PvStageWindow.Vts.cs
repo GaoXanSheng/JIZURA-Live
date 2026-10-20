@@ -127,10 +127,10 @@ public partial class PvStageWindow
             L.T("VTS 模式下，方框是采集画面边界，手柄直接改 VTS 模型坐标和关键帧。"),
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 0.01,
-            () => _vtsRestX, v => _vtsRestX = v, sliderWindow: 2));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 0.01,
-            () => _vtsRestY, v => _vtsRestY = v, sliderWindow: 2));
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -10, 10, 0.01,
+            () => _vtsRestX, v => _vtsRestX = v, sliderWindow: 0.2));
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -10, 10, 0.01,
+            () => _vtsRestY, v => _vtsRestY = v, sliderWindow: 0.2));
         AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
         AddInspector(AnimParamRow(_inspectorRows, VtsRotationAddr, L.T("旋转"), -180, 180, 1,
@@ -685,7 +685,9 @@ public partial class PvStageWindow
         bool controlActive = _stageVtsDrive
             && _selectedLayer is not null
             && _scene.IsCharacterLayer(_selectedLayer);
-        _pipe?.VtsControl = new PvVtsControl(controlActive, x, y, size, rotation);
+        var hull = _vts.Hull;
+        _pipe?.VtsControl = new PvVtsControl(controlActive, x, y, size, rotation,
+            hull?.MinX ?? 0, hull?.MaxX ?? 0, hull?.MinY ?? 0, hull?.MaxY ?? 0, hull is not null);
 
         if (Math.Abs(x - _vtsSent.X) < 1e-4
             && Math.Abs(y - _vtsSent.Y) < 1e-4

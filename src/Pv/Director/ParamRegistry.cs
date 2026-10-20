@@ -137,12 +137,12 @@ public static class ParamRegistry
         switch (addr.Param)
         {
             case "x":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.X");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -10, 10, 0, "Param.Vts.X");
                 error = null;
                 return true;
 
             case "y":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.Y");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -10, 10, 0, "Param.Vts.Y");
                 error = null;
                 return true;
 

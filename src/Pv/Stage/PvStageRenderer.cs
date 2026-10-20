@@ -14,14 +14,13 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Pv;
 
-public sealed record PvVtsControl(bool Active, double X, double Y, double Size, double Rotation);
+public sealed record PvVtsControl(bool Active, double X, double Y, double Size, double Rotation,
+    double HullMinX = 0, double HullMaxX = 0, double HullMinY = 0, double HullMaxY = 0, bool HasHull = false);
 
 public sealed record PvSelectionInfo(
     Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
-    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth)
+    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth, double FitHeight)
 {
-    public const double VtsSceneWidthUnits = 2000;
-
     public Vector2 TopMiddle => (A + B) * 0.5f;
 
     public Vector2 RotationHandle
@@ -432,12 +431,34 @@ public sealed class PvStageRenderer : IDisposable
             antiBleed: Stage.Scene.AntiBleedGuardEnabled);
         var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
         var vts = VtsControl;
+        if (vts.Active && vts.HasHull
+            && vts.HullMaxX > vts.HullMinX && vts.HullMaxY > vts.HullMinY)
+        {
+            double padX = (vts.HullMaxX - vts.HullMinX) * 0.03;
+            double padY = (vts.HullMaxY - vts.HullMinY) * 0.03;
+            float left = (float)(r.X + r.Width / 2 + (vts.HullMinX - padX) * r.Width / 2);
+            float right = (float)(r.X + r.Width / 2 + (vts.HullMaxX + padX) * r.Width / 2);
+            float top = (float)(r.Y + r.Height / 2 - (vts.HullMaxY + padY) * r.Height / 2);
+            float bottom = (float)(r.Y + r.Height / 2 - (vts.HullMinY - padY) * r.Height / 2);
+
+            Vector2 Hull(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
+
+            return new PvSelectionInfo(
+                Hull(left, top),
+                Hull(right, top),
+                Hull(right, bottom),
+                Hull(left, bottom),
+                Hull((left + right) / 2, (top + bottom) / 2),
+                tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, r.Height));
+        }
+
         if (vts.Active)
         {
-            double designPerUnit = r.Width / PvSelectionInfo.VtsSceneWidthUnits;
+            double designPerUnitX = r.Width / 2.0;
+            double designPerUnitY = r.Height / 2.0;
             var center = new Vector2(
-                (float)(r.X + r.Width / 2 + vts.X * designPerUnit),
-                (float)(r.Y + r.Height / 2 + vts.Y * designPerUnit));
+                (float)(r.X + r.Width / 2 + vts.X * designPerUnitX),
+                (float)(r.Y + r.Height / 2 - vts.Y * designPerUnitY));
             double vtsScale = Math.Clamp(1 + vts.Size / 100.0, 0.1, 4.0);
             double radians = vts.Rotation * Math.PI / 180.0;
             float halfWidth = (float)(r.Width * 0.19 * vtsScale);
@@ -459,7 +480,7 @@ public sealed class PvStageRenderer : IDisposable
                 Corner(1, 1),
                 Corner(-1, 1),
                 Vector2.Transform(center, tf.Matrix),
-                tf.Matrix, _designW, _designH, Math.Max(1, r.Width));
+                tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, r.Height));
         }
 
         Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
@@ -470,7 +491,7 @@ public sealed class PvStageRenderer : IDisposable
             Map(r.X + r.Width, r.Y + r.Height),
             Map(r.X, r.Y + r.Height),
             Map(r.X + r.Width / 2, r.Y + r.Height / 2),
-            tf.Matrix, _designW, _designH, Math.Max(1, r.Width));
+            tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, r.Height));
     }
 
     private void DrawSelection(Immediate2D d, PvSelectionInfo sel, Rect rect)

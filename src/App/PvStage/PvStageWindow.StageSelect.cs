@@ -24,7 +24,8 @@ public partial class PvStageWindow
     private Vector2 _stageDragCenter;
     private double _stageDragStartDistance;
     private double _stageDragStartAngle;
-    private double _stageDragVtsScale;
+    private double _stageDragVtsScaleX;
+    private double _stageDragVtsScaleY;
     private double _stageDragBaseX;
     private double _stageDragBaseY;
     private double _stageDragBaseScale;
@@ -70,7 +71,8 @@ public partial class PvStageWindow
         _stageDragCenter = sel.Center;
         _stageDragStartDistance = Math.Max(1f, Vector2.Distance(design, sel.Center));
         _stageDragStartAngle = Angle(design - sel.Center);
-        _stageDragVtsScale = PvSelectionInfo.VtsSceneWidthUnits / Math.Max(1.0, sel.FitWidth);
+        _stageDragVtsScaleX = 2.0 / Math.Max(1.0, sel.FitWidth);
+        _stageDragVtsScaleY = 2.0 / Math.Max(1.0, sel.FitHeight);
         _stageDragMoved = false;
 
         _stageDragKeyX = Keyed(xAddr);
@@ -143,8 +145,8 @@ public partial class PvStageWindow
         double x, y;
         if (_stageDragVts)
         {
-            x = SnapVtsMove(Math.Clamp(_stageDragBaseX + offset.X * _stageDragVtsScale, -1000, 1000));
-            y = SnapVtsMove(Math.Clamp(_stageDragBaseY + offset.Y * _stageDragVtsScale, -1000, 1000));
+            x = SnapVtsMove(Math.Clamp(_stageDragBaseX + offset.X * _stageDragVtsScaleX, -1000, 1000));
+            y = SnapVtsMove(Math.Clamp(_stageDragBaseY - offset.Y * _stageDragVtsScaleY, -1000, 1000));
         }
         else
         {
