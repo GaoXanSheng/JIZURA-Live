@@ -698,7 +698,7 @@ public sealed partial class TimelineView
         double minDur = Math.Max(0.1, grid);
         double delta = TimeAt(x) - _dragCueAnchor;
 
-        if (_dragCue.Mode == VtsCueMode.Once)
+        if (_dragCue.Mode != VtsCueMode.Toggle)
         {
             double t = Math.Clamp(_dragCueStart + delta, 0, Math.Max(0, duration - 0.05));
             if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, Math.Max(0, duration - 0.05));

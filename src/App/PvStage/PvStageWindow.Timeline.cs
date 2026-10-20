@@ -331,8 +331,17 @@ public partial class PvStageWindow
             return;
         }
 
+        int removed = cues.RemoveAll(Match);
+        if (kind == VtsCueKind.Tint
+            && _vtsTintOnTransitions
+            && (string.IsNullOrEmpty(target) || target == _vtsTintTarget))
+        {
+            _vtsTintOnTransitions = false;
+            if (_project is { EditorLayout: { } layout }) layout.VtsTintOnTransitions = false;
+            if (_vtsTintTransitionToggle is { } toggle) toggle.IsChecked = false;
+        }
+
         PushUndo();
-        int removed = cues.RemoveAll(cue => Match(cue));
         RefreshTimeline();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.F("已清空 VTS 轨道（{0} 个）", removed);
@@ -346,29 +355,78 @@ public partial class PvStageWindow
             return;
         }
 
-        PushUndo();
         _evaluator.RemoveCurve(address);
         PublishDirector();
         RefreshParamRows();
         RefreshTimeline();
+        PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.T("已清空曲线");
     }
 
     private void Timeline_DesignTrackClear(DesignTrackKind kind)
     {
-        var segments = _project?.DesignSegments;
-        if (segments is null || !segments.Any(segment => segment.Track == kind))
+        if (kind == DesignTrackKind.Treat
+            || (_legacyPlanInfo is { Cuts.Count: > 0 }
+                && kind is DesignTrackKind.Layout or DesignTrackKind.Enter or DesignTrackKind.Exit))
+        {
+            TblStatus.Text = L.T("原版切分由歌词与 Plan 生成，不能清空");
+            return;
+        }
+
+        int removed;
+        bool effectsChanged = false;
+        bool cameraChanged = false;
+
+        switch (kind)
+        {
+            case DesignTrackKind.Fx:
+                removed = _effects.Nodes.Count;
+                if (removed == 0) break;
+                _effects.Nodes.Clear();
+                effectsChanged = true;
+                break;
+            case DesignTrackKind.Cam:
+            {
+                var shots = _project.CameraTrack?.Shots;
+                removed = shots?.Count ?? 0;
+                if (removed == 0) break;
+                shots!.Clear();
+                cameraChanged = true;
+                break;
+            }
+            case DesignTrackKind.LayerCam:
+            {
+                if (!_project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var track)
+                    || track.Shots.Count == 0)
+                {
+                    removed = 0;
+                    break;
+                }
+
+                removed = track.Shots.Count;
+                track.Shots.Clear();
+                track.UserEdited = true;
+                cameraChanged = true;
+                break;
+            }
+            default:
+                removed = _project.DesignSegments.RemoveAll(segment => segment.Track == kind);
+                break;
+        }
+
+        if (removed == 0)
         {
             TblStatus.Text = L.T("轨道已经是空的");
             return;
         }
 
-        PushUndo();
-        int removed = segments.RemoveAll(segment => segment.Track == kind);
-        PublishDirector();
-        RefreshTimeline();
-        _saveError = SaveProjectNow();
+        if (effectsChanged) EffectsChanged();
+        if (cameraChanged)
+            _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        _segmentTarget = null;
+        BuildInspector();
+        AfterSegmentEdit();
         TblStatus.Text = L.F("已清空设计轨：{0} 段", removed);
     }
 

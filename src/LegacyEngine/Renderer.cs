@@ -790,7 +790,7 @@ public sealed class Renderer : IDisposable
 
                 private static string StackHead(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
             .Split('\n')
-            .Where(l => l.Contains("JizuraLive"))
+            .Where(l => l.Contains("JizuraLivePV"))
             .Select(l => l.Trim().Replace(Environment.NewLine, "")));
 
         private void DrawCut(Env env)

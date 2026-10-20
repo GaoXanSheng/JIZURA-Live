@@ -339,7 +339,7 @@ public static class JLayouts
 
         private static string? FirstStack(Exception e) => string.Join(" <- ", (e.StackTrace ?? "")
         .Split('\n')
-        .Where(l => l.Contains("JizuraLive"))
+        .Where(l => l.Contains("JizuraLivePVPV"))
         .Select(l => l.Trim().Replace(Environment.NewLine, "")));
 
         private static double Num(JObject o, string k) => JAnim.Num(o, k);

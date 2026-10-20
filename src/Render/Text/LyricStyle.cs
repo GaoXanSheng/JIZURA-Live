@@ -27,15 +27,6 @@ public sealed record LyricStyle
     [JsonIgnore]
     public Color4 ColorValue => SubtitleLayout.ParseColor(Color, new Color4(1f, 1f, 1f, 1f));
 
-    [JsonIgnore]
-    public Color4 HighlightColorValue => SubtitleLayout.ParseColor(HighlightColor, new Color4(1f, 1f, 1f, 1f));
-
-    [JsonIgnore]
-    public Color4 GlowColorValue => SubtitleLayout.ParseColor(GlowColor, new Color4(0f, 0f, 0f, 0f));
-
-    [JsonIgnore]
-    public Color4 StrokeColorValue => SubtitleLayout.ParseColor(StrokeColor, new Color4(0f, 0f, 0f, 1f));
-
     public static LyricStyle Classic { get; } = new();
 
     public static LyricStyle Neon { get; } = new()

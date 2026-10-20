@@ -226,7 +226,7 @@ public static class JFonts
         private static readonly Dictionary<string, SKTypeface> UserFaces = new();
 
         public static string UserFontDir { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLive", "fonts");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JizuraLivePVPV", "fonts");
 
         public static string FontCss(string key, double px)
     {

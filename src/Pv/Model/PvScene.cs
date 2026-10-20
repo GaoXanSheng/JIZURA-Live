@@ -1,4 +1,3 @@
-using System.IO;
 using JizuraLive.Render.Text;
 using Newtonsoft.Json;
 
@@ -6,8 +5,6 @@ namespace JizuraLive.Pv;
 
 public sealed class PvScene
 {
-    public const string DefaultFileName = "config/pv_scene.json";
-
     public const string CharacterLayerId = "character";
 
     public int SchemaVersion { get; set; } = 1;

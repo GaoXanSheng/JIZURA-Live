@@ -89,18 +89,6 @@ public sealed class VtsBaseSave
 
 public sealed class EditorLayout
 {
-    public double CanvasZoom { get; set; } = 1;
-
-    public double CanvasPanX { get; set; }
-
-    public double CanvasPanY { get; set; }
-
-    public List<string> SelectedNodeIds { get; set; } = new();
-
-    public double TimelineZoom { get; set; } = 1;
-
-    public long TimelineScrollTicks { get; set; }
-
     public List<string> CollapsedTrackIds { get; set; } = new();
 
     public Dictionary<string, double> TrackHeights { get; set; } = new(StringComparer.Ordinal);

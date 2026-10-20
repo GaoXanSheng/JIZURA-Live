@@ -144,12 +144,6 @@ public static class ProjectStore
     {
         var layout = project.EditorLayout ??= new EditorLayout();
 
-        layout.CanvasZoom = Finite(layout.CanvasZoom, 1);
-        layout.CanvasPanX = Finite(layout.CanvasPanX, 0);
-        layout.CanvasPanY = Finite(layout.CanvasPanY, 0);
-        layout.TimelineZoom = Finite(layout.TimelineZoom, 1);
-
-        layout.SelectedNodeIds ??= new List<string>();
         layout.CollapsedTrackIds ??= new List<string>();
         layout.TrackHeights ??= new Dictionary<string, double>(StringComparer.Ordinal);
         foreach (var id in layout.TrackHeights.Where(p => !double.IsFinite(p.Value)).Select(p => p.Key).ToList())

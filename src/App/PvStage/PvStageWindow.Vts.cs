@@ -30,7 +30,10 @@ public partial class PvStageWindow
     private string _vtsTintTarget = "all";
     private string _vtsTintColor = "#FF6B6B";
     private ComboBox? _vtsTintTargetCombo;
+    private ComboBox? _vtsHotkeyCombo;
+    private ComboBox? _vtsExprCombo;
     private TextBlock? _vtsTintHint;
+    private string _vtsPickSignature = "";
     private int _vtsTintTargetCount = -1;
     private bool _stageVtsDrive = true;
     private bool _vtsTintOnTransitions;
@@ -103,6 +106,7 @@ public partial class PvStageWindow
         else if (state != VtsState.Ready) _vtsBaseSynced = false;
 
         RefreshTintTargetsIfNeeded();
+        RefreshVtsPickListsIfNeeded();
 
         _vtsWasReady = state == VtsState.Ready;
     }
@@ -241,10 +245,7 @@ public partial class PvStageWindow
         var hotMode = VtsModeCombo(() => _vtsHotkeyMode, v => _vtsHotkeyMode = v);
         AddInspector(hotMode);
         var hotCombo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
-        foreach (var hotkey in _vts.Hotkeys)
-            hotCombo.Items.Add(new ComboBoxItem { Content = hotkey.Name, Tag = hotkey.HotkeyId });
-        if (hotCombo.Items.Count == 0)
-            hotCombo.Items.Add(new ComboBoxItem { Content = L.T("未读取到动作键"), IsEnabled = false });
+        _vtsHotkeyCombo = hotCombo;
         hotCombo.SelectionChanged += (_, _) =>
         {
             if (hotCombo.SelectedItem is not ComboBoxItem { Tag: string id }) return;
@@ -254,7 +255,7 @@ public partial class PvStageWindow
             _vtsHotkeyMode = toggle ? VtsCueMode.Toggle : VtsCueMode.Once;
             hotMode.SelectedIndex = toggle ? 0 : 1;
         };
-        hotCombo.SelectedIndex = 0;
+        FillVtsHotkeyCombo(hotCombo);
         AddInspector(hotCombo);
 
         var hotAdd = new Wpf.Ui.Controls.Button
@@ -290,15 +291,8 @@ public partial class PvStageWindow
         AddInspector(exprMode);
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
-        foreach (var file in _vts.Expressions)
-            combo.Items.Add(new ComboBoxItem
-            {
-                Content = Path.GetFileNameWithoutExtension(file),
-                Tag = file,
-            });
-        if (combo.Items.Count == 0)
-            combo.Items.Add(new ComboBoxItem { Content = L.T("未读取到表情"), IsEnabled = false });
-        combo.SelectedIndex = 0;
+        _vtsExprCombo = combo;
+        FillVtsExprCombo(combo);
         AddInspector(combo);
 
         var add = new Wpf.Ui.Controls.Button
@@ -339,6 +333,66 @@ public partial class PvStageWindow
         AddInspector(ThemeText(
             L.T("时间线上的开关条可拖动位置，拖左右边缘改开始/结束；一次性关键帧只可拖动时间。"),
             TextTertiaryKey, 11, wrap: true));
+        _vtsPickSignature = VtsPickSignature();
+    }
+
+    private string VtsPickSignature() =>
+        string.Join("\u0001", _vts.Hotkeys.Select(h => h.HotkeyId + "\u0003" + h.Name + "\u0003" + h.Type))
+        + "\u0002"
+        + string.Join("\u0001", _vts.Expressions);
+
+    private void RefreshVtsPickListsIfNeeded()
+    {
+        if (_vtsHotkeyCombo is null && _vtsExprCombo is null) return;
+
+        var signature = VtsPickSignature();
+        if (signature == _vtsPickSignature) return;
+        _vtsPickSignature = signature;
+
+        if (_vtsHotkeyCombo is { } hotkeys) FillVtsHotkeyCombo(hotkeys);
+        if (_vtsExprCombo is { } expressions) FillVtsExprCombo(expressions);
+    }
+
+    private void FillVtsHotkeyCombo(ComboBox combo)
+    {
+        var selected = (combo.SelectedItem as ComboBoxItem)?.Tag as string;
+        combo.Items.Clear();
+        foreach (var hotkey in _vts.Hotkeys)
+            combo.Items.Add(new ComboBoxItem { Content = hotkey.Name, Tag = hotkey.HotkeyId });
+        if (combo.Items.Count == 0)
+            combo.Items.Add(new ComboBoxItem { Content = L.T("未读取到动作键"), IsEnabled = false });
+
+        for (int i = 0; i < combo.Items.Count; i++)
+            if (combo.Items[i] is ComboBoxItem { Tag: string id } && id == selected)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+
+        combo.SelectedIndex = 0;
+    }
+
+    private void FillVtsExprCombo(ComboBox combo)
+    {
+        var selected = (combo.SelectedItem as ComboBoxItem)?.Tag as string;
+        combo.Items.Clear();
+        foreach (var file in _vts.Expressions)
+            combo.Items.Add(new ComboBoxItem
+            {
+                Content = Path.GetFileNameWithoutExtension(file),
+                Tag = file,
+            });
+        if (combo.Items.Count == 0)
+            combo.Items.Add(new ComboBoxItem { Content = L.T("未读取到表情"), IsEnabled = false });
+
+        for (int i = 0; i < combo.Items.Count; i++)
+            if (combo.Items[i] is ComboBoxItem { Tag: string file } && file == selected)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+
+        combo.SelectedIndex = 0;
     }
 
     private void BuildCharacterTintSection()
@@ -377,7 +431,7 @@ public partial class PvStageWindow
             if (target.SelectedItem is not ComboBoxItem { Tag: string value }) return;
             if (value == _vtsTintTarget) return;
             _vtsTintTarget = value;
-            ClearTransitionTintOnTargetChange();
+            RefreshTransitionTintOnTargetChange();
         };
         AddInspector(target);
         _vtsTintHint = ThemeText("", TextTertiaryKey, 11, wrap: true);
@@ -389,9 +443,9 @@ public partial class PvStageWindow
             _vtsTintScope = value;
             _vtsTintTarget = value == "all" ? "all" : "";
             _vtsTintTargetCount = -1;
-            ClearTransitionTintOnTargetChange();
             if (value != "all") _vts.RefreshArtMeshes();
             FillTintTargets(target);
+            RefreshTransitionTintOnTargetChange();
         };
 
         var colorRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
@@ -509,7 +563,7 @@ public partial class PvStageWindow
         AddInspector(autoTint);
 
         AddInspector(ThemeText(
-            L.T("自动节拍染色会替换当前目标的自动节拍点；换目标或颜色后重新开关转场染色。"),
+            L.T("自动节拍染色会替换当前目标的自动节拍点；转场染色按目标分别生成，换目标会追加新目标并保留已有目标的轨道。"),
             TextTertiaryKey, 11, wrap: true));
 
         AddInspector(ThemeText(
@@ -537,7 +591,6 @@ public partial class PvStageWindow
         var beats = _beatMap.Downbeats.Count > 0
             ? _beatMap.Downbeats
             : _beatMap.Beats.Where((_, index) => index % 4 == 0).ToList();
-        if (beats.Count == 0) return;
 
         var palette = BuildTintPalette(_vtsTintColor);
         var cueMode = _vtsTintMode == VtsCueMode.Manual ? VtsCueMode.Once : _vtsTintMode;
@@ -546,7 +599,6 @@ public partial class PvStageWindow
         _project.VtsCues ??= new VtsCueTrack();
         var cues = _project.VtsCues.Cues;
 
-        PushUndo();
         cues.RemoveAll(cue => cue is not null
             && cue.Kind == VtsCueKind.Tint
             && cue.Target == _vtsTintTarget
@@ -577,38 +629,50 @@ public partial class PvStageWindow
         }
 
         cues.Sort((left, right) => left.Time.CompareTo(right.Time));
+        PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.F("已在 {0} 个节拍点自动染色", added);
     }
 
-    private void ClearTransitionTintOnTargetChange()
+    private void RefreshTransitionTintOnTargetChange()
     {
         if (!_vtsTintOnTransitions) return;
-        SetTransitionTint(false);
-        if (_vtsTintTransitionToggle is { } toggle) toggle.IsChecked = false;
+
+        GenerateTransitionTints();
+        PushUndo();
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
     }
 
     private void SetTransitionTint(bool on)
     {
         if (on == _vtsTintOnTransitions) return;
 
-        _vtsTintOnTransitions = on;
-        if (_project?.EditorLayout is { } layout) layout.VtsTintOnTransitions = on;
-
-        if (on) GenerateTransitionTints();
+        if (on)
+        {
+            if (!GenerateTransitionTints())
+            {
+                if (_vtsTintTransitionToggle is { } toggle) toggle.IsChecked = false;
+                return;
+            }
+        }
         else RemoveTransitionTints();
 
+        _vtsTintOnTransitions = on;
+        if (_project.EditorLayout is { } layout) layout.VtsTintOnTransitions = on;
+
+        PushUndo();
+        RefreshTimeline();
         _saveError = SaveProjectNow();
     }
 
-    private void GenerateTransitionTints()
+    private bool GenerateTransitionTints()
     {
-        if (_project is null) return;
         if (string.IsNullOrWhiteSpace(_vtsTintTarget))
         {
             TblStatus.Text = L.T("先选择一个染色目标");
-            return;
+            return false;
         }
 
         var segments = _project.DesignSegments
@@ -619,7 +683,7 @@ public partial class PvStageWindow
         if (segments.Count == 0)
         {
             TblStatus.Text = L.T("没有可用的转场段");
-            return;
+            return false;
         }
 
         var palette = BuildTintPalette(_vtsTintColor);
@@ -627,8 +691,9 @@ public partial class PvStageWindow
         _project.VtsCues ??= new VtsCueTrack();
         var cues = _project.VtsCues.Cues;
 
-        PushUndo();
-        cues.RemoveAll(cue => cue is not null && cue.Source == AutoTransitionSource);
+        cues.RemoveAll(cue => cue is not null
+            && cue.Source == AutoTransitionSource
+            && cue.Target == _vtsTintTarget);
 
         for (int i = 0; i < segments.Count; i++)
         {
@@ -649,18 +714,16 @@ public partial class PvStageWindow
         }
 
         cues.Sort((left, right) => left.Time.CompareTo(right.Time));
-        RefreshTimeline();
         TblStatus.Text = L.F("已给 {0} 个转场段添加染色", segments.Count);
+        return true;
     }
 
     private void RemoveTransitionTints()
     {
-        var cues = _project?.VtsCues?.Cues;
+        var cues = _project.VtsCues?.Cues;
         if (cues is null) return;
 
-        PushUndo();
-        int removed = cues.RemoveAll(cue => cue is not null && cue.Source == AutoTransitionSource);
-        if (removed > 0) RefreshTimeline();
+        cues.RemoveAll(cue => cue is not null && cue.Source == AutoTransitionSource);
         TblStatus.Text = L.T("已关闭转场染色");
     }
 
@@ -683,8 +746,6 @@ public partial class PvStageWindow
 
     private void ZeroVtsOffsets()
     {
-        PushUndo();
-
         foreach (var addr in new[] { VtsXAddr, VtsYAddr, VtsSizeAddr, VtsRotationAddr })
             if (_evaluator.Curves.ContainsKey(addr))
                 WriteCurveKeyAtPlayhead(addr, 0);
@@ -697,6 +758,7 @@ public partial class PvStageWindow
         PublishDirector();
         RefreshParamRows();
         RefreshTimeline();
+        PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.T("已把 VTS 偏移归零到基准");
     }
@@ -827,6 +889,7 @@ public partial class PvStageWindow
                 return;
             }
 
+        _vtsTintTarget = "";
         combo.SelectedIndex = 0;
         UpdateTintHint();
     }
@@ -1115,7 +1178,7 @@ public partial class PvStageWindow
         if (string.IsNullOrWhiteSpace(target)) return;
         if (kind == VtsCueKind.Expression) _vts.SetExpression(target, false, 0.15);
         else if (kind == VtsCueKind.Tint) _vts.ClearArtMeshTint(target);
-        else _vts.TriggerHotkey(target);
+        else if (kind == VtsCueKind.Hotkey) _vts.TriggerHotkey(target);
     }
 
     private void AddVtsMoveKeysAtPlayhead()

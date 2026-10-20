@@ -102,7 +102,6 @@ public partial class PvStageWindow
             if (_stageDragKind == StageDragKind.Move
                 && Vector2.DistanceSquared(design, _stageDragStart) < 0.25f) return;
             _stageDragMoved = true;
-            PushUndo();
         }
 
         double t = _audio.Time;
@@ -215,6 +214,7 @@ public partial class PvStageWindow
 
         RefreshParamRows();
         RefreshTimeline();
+        PushUndo();
         _saveError = SaveProjectNow();
 
         string title = (vts ? "VTS " : "") + LayerTitle(layer);

@@ -121,10 +121,10 @@ public sealed partial class TimelineView
 
         dc.DrawLine(LinePen, new Point(HeaderWidth, 0), new Point(HeaderWidth, h));
         RenderScrollbar(dc, w, h);
-        RenderVerticalScrollbar(dc, w, h);
+        RenderVerticalScrollbar(dc, w);
     }
 
-    private void RenderVerticalScrollbar(DrawingContext dc, double w, double h)
+    private void RenderVerticalScrollbar(DrawingContext dc, double w)
     {
         if (!VerticalScrollbar(out var trackTop, out var trackHeight, out var thumbTop, out var thumbHeight)) return;
 

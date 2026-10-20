@@ -67,12 +67,6 @@ public static class TimelineMath
         return top + height * (1 - (value - min) / (max - min));
     }
 
-    public static double YToValue(double y, double min, double max, double top, double height)
-    {
-        if (max <= min || height <= 0) return (min + max) / 2;
-        return min + (max - min) * (1 - (y - top) / height);
-    }
-
     public static double ClampPixelsPerSecond(double pixelsPerSecond, double viewportWidth, double durationSeconds)
     {
         if (viewportWidth <= 0) return pixelsPerSecond;

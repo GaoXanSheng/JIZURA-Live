@@ -11,15 +11,6 @@ using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.Vts;
 
-public interface IVtsDriveTarget
-{
-    void SetDriveOffset(double size, double x, double y, double rotation);
-
-    void InjectParameters(IReadOnlyDictionary<string, double> values, double weight);
-
-    void TriggerHotkey(string hotkeyId);
-}
-
 public enum VtsState
 {
     Disconnected,
@@ -45,7 +36,7 @@ public sealed record VtsFraming(double Size, double X, double Y, double Rotation
 
 public sealed record VtsHullBounds(double MinX, double MaxX, double MinY, double MaxY);
 
-public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
+public sealed class VtsApi : IDisposable
 {
     private const string Url = "ws://127.0.0.1:8001";
     private const string PluginName = "JIZURA Live PV";
@@ -79,7 +70,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     private VtsHullBounds? _hull;
     private volatile string _modelName = "";
     private volatile string _vtsModelName = "";
-    private volatile Dictionary<string, (double Min, double Max)> _params = new(StringComparer.Ordinal);
 
     private volatile string[] _expressions = [];
 
@@ -108,55 +98,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     public VtsHullBounds? Hull => Volatile.Read(ref _hull);
 
     public event Action? Changed;
-    public static JObject? BuildInjectPayload(
-        IReadOnlyDictionary<string, double> values, double weight,
-        IReadOnlyDictionary<string, (double Min, double Max)> ranges,
-        HashSet<string> injected, string mode = "set")
-    {
-        var arr = new JArray();
-        if (mode == "add")
-        {
-            foreach (var kv in values)
-            {
-                if (ranges.Count > 0 && !ranges.ContainsKey(kv.Key)) continue;
-                arr.Add(new JObject { ["id"] = kv.Key, ["value"] = kv.Value, ["weight"] = 1.0 });
-            }
-        }
-        else if (weight > 0.0005)
-        {
-            foreach (var kv in values)
-            {
-                double lo = 0, hi = 1;
-                if (ranges.Count > 0)
-                {
-                    if (!ranges.TryGetValue(kv.Key, out var r)) continue;
-                    (lo, hi) = (r.Min, r.Max);
-                }
-
-                arr.Add(new JObject
-                {
-                    ["id"] = kv.Key,
-                    ["value"] = lo + (hi - lo) * Math.Clamp(kv.Value, 0, 1),
-                    ["weight"] = Math.Clamp(weight, 0, 1),
-                });
-                injected.Add(kv.Key);
-            }
-        }
-        else
-        {
-            foreach (var name in injected)
-                arr.Add(new JObject { ["id"] = name, ["value"] = 0, ["weight"] = 0 });
-            injected.Clear();
-        }
-
-        if (arr.Count == 0) return null;
-        return new JObject
-        {
-            ["faceFound"] = false,
-            ["mode"] = mode,
-            ["parameterValues"] = arr,
-        };
-    }
 
     public static JObject BuildExpressionPayload(string file, bool active, double fadeSec) =>
         new()
@@ -243,26 +184,13 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     {
         if (_stopping) return;
         lock (_driveGate) _pendingDrive = new VtsFraming(size, x, y, rotation);
-        PostLossy(_ => { });
     }
-
-    public void InjectParameters(IReadOnlyDictionary<string, double> values, double weight)
-        => PostLossy(w => w.InjectParameters(values, weight));
 
     public void SetExpression(string name, bool active, double fadeSec = 0.4)
     {
         if (string.IsNullOrEmpty(name)) return;
         Post(w => w.SetExpression(name, active, fadeSec));
     }
-
-    public void MoveModelRelative(double x, double y, double rotation, double size, double seconds)
-    {
-        var delta = new VtsFraming(size, x, y, rotation);
-        Post(w => w.MoveModelRelative(delta, seconds));
-    }
-
-    public void InjectAdd(IReadOnlyDictionary<string, double> values)
-        => Post(w => w.InjectAdd(values));
 
     public void TriggerHotkey(string hotkeyId)
     {
@@ -288,17 +216,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         catch (InvalidOperationException) {                            }
     }
 
-    private void PostLossy(Action<Worker> cmd)
-    {
-        if (_stopping) return;
-        try
-        {
-            if (_commands.Count > 6) return;
-            _commands.Add(cmd);
-        }
-        catch (InvalidOperationException) {                            }
-    }
-
     private void WorkerLoop()
     {
         var w = new Worker(this);
@@ -321,11 +238,10 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     private sealed class Worker
     {
-        private const int ParamIntervalMs = 100;
-
         private const double DriveTransitionSec = 0.05;
 
         private readonly VtsApi _api;
+        private readonly byte[] _recv = new byte[64 * 1024];
         private ClientWebSocket? _ws;
         private long _nextConnectAt;
         private string _token = "";
@@ -344,12 +260,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         private bool _faceFound;
         private bool _leftHandFound;
         private bool _rightHandFound;
-
-        private IReadOnlyDictionary<string, double> _pendingParams = new Dictionary<string, double>();
-        private double _pendingParamWeight;
-        private bool _paramDirty;
-        private long _lastParamAt;
-        private readonly HashSet<string> _injected = new(StringComparer.Ordinal);
 
         public Worker(VtsApi api)
         {
@@ -406,7 +316,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 _drive = new VtsFraming(0, 0, 0, 0);
                 lock (_api._driveGate) _api._pendingDrive = null;
                 FetchFraming();
-                FetchParameters();
                 FetchHotkeys();
                 FetchExpressions();
                 FetchArtMeshes();
@@ -422,8 +331,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 _refreshArtMeshes = false;
                 FetchArtMeshes();
             }
-
-            if (_paramDirty && now - _lastParamAt >= ParamIntervalMs) FlushParams();
 
             if (_ws != null && _ws.State == WebSocketState.Open) return;
             if (Environment.TickCount64 < _nextConnectAt) return;
@@ -470,7 +377,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 {
                     SetState(VtsState.Ready);
                     FetchFraming();
-                    FetchParameters();
                     FetchHotkeys();
                     FetchExpressions();
                     FetchArtMeshes();
@@ -542,7 +448,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             {
                 SetState(VtsState.Ready);
                 FetchFraming();
-                FetchParameters();
                 FetchHotkeys();
                 FetchExpressions();
                 FetchArtMeshes();
@@ -655,43 +560,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                      + $" 缩放 {framing.Size:F3} 旋转 {framing.Rotation:F1}");
         }
 
-        public void FetchParameters()
-        {
-            var resp = Send("InputParameterListRequest", new JObject());
-            var map = new Dictionary<string, (double Min, double Max)>(StringComparer.Ordinal);
-            foreach (var key in new[] { "defaultParameters", "customParameters" })
-                if (resp?[key] is JArray arr)
-                    foreach (var d in arr)
-                    {
-                        var n = (string?)d["name"];
-                        if (string.IsNullOrEmpty(n)) continue;
-                        map[n!] = ((double?)d["min"] ?? 0, (double?)d["max"] ?? 1);
-                    }
-            _api._params = map;
-            Log.Info($"[VTS] 可注入参数：{map.Count} 个");
-            _api.Notify();
-        }
-
-        public void InjectParameters(IReadOnlyDictionary<string, double> values, double weight)
-        {
-            if (_ws == null || _ws.State != WebSocketState.Open) return;
-            _pendingParams = values;
-            _pendingParamWeight = weight;
-            _paramDirty = true;
-            if (Environment.TickCount64 - _lastParamAt >= ParamIntervalMs) FlushParams();
-        }
-
-        private void FlushParams()
-        {
-            if (!_paramDirty) return;
-            _paramDirty = false;
-            _lastParamAt = Environment.TickCount64;
-
-            var payload = BuildInjectPayload(_pendingParams, _pendingParamWeight, _api._params, _injected);
-            if (payload == null) return;
-            Send("InjectParameterDataRequest", payload);
-        }
-
         public void FetchExpressions()
         {
             var resp = Send("ExpressionStateRequest", new JObject());
@@ -715,27 +583,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         {
             var resp = Send("ExpressionActivationRequest", BuildExpressionPayload(file, active, fadeSec));
             if (resp == null) Log.Warn($"[VTS] 表情「{file}」设置失败：{_api._lastError}");
-        }
-
-        public void MoveModelRelative(VtsFraming delta, double seconds)
-        {
-            if (_ws == null || _ws.State != WebSocketState.Open) return;
-            Send("MoveModelRequest", new JObject
-            {
-                ["timeInSeconds"] = Math.Clamp(seconds, 0, 2),
-                ["valuesAreRelativeToModel"] = true,
-                ["positionX"] = delta.X,
-                ["positionY"] = delta.Y,
-                ["rotation"] = delta.Rotation,
-                ["size"] = delta.Size,
-            });
-        }
-
-        public void InjectAdd(IReadOnlyDictionary<string, double> values)
-        {
-            if (_ws == null || _ws.State != WebSocketState.Open) return;
-            var payload = BuildInjectPayload(values, 1, _api._params, _injected, "add");
-            if (payload != null) Send("InjectParameterDataRequest", payload);
         }
 
         public void FetchArtMeshes()
@@ -1106,7 +953,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 var bytes = Encoding.UTF8.GetBytes(req.ToString(Formatting.None));
                 ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token).GetAwaiter().GetResult();
 
-                var buf = new byte[256 * 1024];
+                var buf = _recv;
                 while (true)
                 {
                     var sb = new StringBuilder();

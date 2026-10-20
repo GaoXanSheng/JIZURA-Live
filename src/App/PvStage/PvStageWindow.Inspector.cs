@@ -1384,7 +1384,7 @@ public partial class PvStageWindow
         }
 
         var addr = new ParamAddress(
-            _segmentTarget?.Effect is { } fx ? ParamAddressKind.Effect : ParamAddressKind.Layer,
+            _segmentTarget?.Effect is not null ? ParamAddressKind.Effect : ParamAddressKind.Layer,
             _segmentTarget?.Effect?.InstanceId ?? "segment", key);
         return AnimParamRow(_inspectorRows, addr, ParamDisplayName(key), min, max, Math.Max(0.0001, (max - min) / 100),
             () => _segmentTarget?.Effect is { } eff && eff.Values.TryGetValue(key, out var v) ? v
