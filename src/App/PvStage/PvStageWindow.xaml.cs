@@ -761,6 +761,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private static string LayerKindLabel(PvLayerConfig layer) => layer.Id switch
     {
         LegacyPvProvider.FrontId => "歌词文字",
+        LegacyPvProvider.FrontLayoutId => "歌词布局",
+        LegacyPvProvider.FrontDecorId => "歌词装饰",
+        LegacyPvProvider.FrontHudId => "歌词界面",
         LegacyPvProvider.BackId => "PV 背景",
         _ => LayerKindLabel(layer.Kind),
     };

@@ -306,7 +306,8 @@ public static class ProjectStore
         foreach (var layer in scene.Layers)
         {
             if (layer is null) continue;
-            bool hollow = layer.Kind is PvLayerKind.VisualAsset or PvLayerKind.ForegroundFx
+            bool hollow = !IsStageLayer(layer.Id)
+                          && layer.Kind is PvLayerKind.VisualAsset or PvLayerKind.ForegroundFx
                           && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
                           && string.IsNullOrWhiteSpace(layer.VideoPath)
                           && string.IsNullOrWhiteSpace(layer.ImagePath);
@@ -351,6 +352,11 @@ public static class ProjectStore
             Log.Warn("[工程存储] 规范化：移除多余的 Background Layer（已有 PV 背景层）");
         }
     }
+
+    private static bool IsStageLayer(string id) =>
+        id is LegacyPvProvider.BackId or LegacyPvProvider.FrontId
+            or LegacyPvProvider.FrontLayoutId or LegacyPvProvider.FrontDecorId
+            or LegacyPvProvider.FrontHudId;
 
     public static ProjectBootstrap LoadOrImport(string projectPath, string legacyScenePath, string legacyEffectsPath)
     {

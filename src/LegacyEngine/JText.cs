@@ -555,6 +555,27 @@ public static class JText
 
         public static BBox? DrawItem(Env env, JObject it, TextDrawOpts? opts = null)
     {
+        if (env.ExtractText && env.TextCtx is { } textCtx && !ReferenceEquals(env.Ctx, textCtx))
+        {
+            var target = env.Ctx;
+            var matrix = target.TotalMatrix;
+            var clip = target.DeviceClipBounds;
+            textCtx.Save();
+            textCtx.SetMatrix(SKMatrix.Identity);
+            if (clip.Width > 0 && clip.Height > 0)
+                textCtx.ClipRect(new SKRect(clip.Left, clip.Top, clip.Right, clip.Bottom));
+            textCtx.SetMatrix(matrix);
+            env.Ctx = textCtx;
+            try
+            {
+                return DrawItem(env, it, opts);
+            }
+            finally
+            {
+                env.Ctx = target;
+                textCtx.Restore();
+            }
+        }
         var o = opts ?? TextDrawOpts.Default;
         var ctx = env.Ctx;
         var ghostPass = env.GhostPass;

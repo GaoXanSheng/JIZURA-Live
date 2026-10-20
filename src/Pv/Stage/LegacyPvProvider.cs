@@ -14,6 +14,9 @@ public sealed class LegacyPvProvider : IDisposable
 {
     public const string BackId = "legacy_pv_back";
     public const string FrontId = "legacy_pv_front";
+    public const string FrontLayoutId = "legacy_pv_front_layout";
+    public const string FrontDecorId = "legacy_pv_front_decor";
+    public const string FrontHudId = "legacy_pv_front_hud";
 
     private readonly D3DDevice _gpu;
     private readonly ID2D1DeviceContext _ctx;
@@ -26,8 +29,12 @@ public sealed class LegacyPvProvider : IDisposable
     private readonly AutoResetEvent _wake = new(false);
     private readonly Thread _thread;
 
-    private readonly LayerTarget _back = new();
-    private readonly LayerTarget _front = new();
+    private readonly Part _back;
+    private readonly Part _front;
+    private readonly Part _frontLayout;
+    private readonly Part _frontDecor;
+    private readonly Part _frontHud;
+    private readonly Part[] _parts;
 
     private volatile bool _running = true;
     private volatile int _cutCount;
@@ -39,8 +46,6 @@ public sealed class LegacyPvProvider : IDisposable
     private LegacyPvPlanInfo? _pendingCutOverrides;
     private CameraTrack? _pendingCameraTrack;
     private GpuRasterHost? _gpuHost;
-    private GpuLayer? _gpuBack;
-    private GpuLayer? _gpuFront;
     private volatile bool _gpuMode;
 
     private double _requestedTime;
@@ -53,6 +58,9 @@ public sealed class LegacyPvProvider : IDisposable
     public string Id { get; }
     public IPvLayerProvider Back { get; }
     public IPvLayerProvider Front { get; }
+    public IPvLayerProvider FrontLayout { get; }
+    public IPvLayerProvider FrontDecor { get; }
+    public IPvLayerProvider FrontHud { get; }
     public int CutCount => _cutCount;
     public LegacyPvPlanInfo? PlanInfo => _planInfo;
     public event Action<LegacyPvPlanInfo>? PlanReady;
@@ -75,8 +83,18 @@ public sealed class LegacyPvProvider : IDisposable
         NoCutTrans = options.NoCutTrans;
         NoCamera = options.StageCamera;
 
-        Back = new LayerProvider(this, front: false);
-        Front = new LayerProvider(this, front: true);
+        _back = new Part(BackId, "back", transparent: false, "legacy_back");
+        _front = new Part(FrontId, "front_text", transparent: true, "legacy_front_text");
+        _frontLayout = new Part(FrontLayoutId, "front_layout", transparent: true, "legacy_front_layout");
+        _frontDecor = new Part(FrontDecorId, "front_decor", transparent: true, "legacy_front_decor");
+        _frontHud = new Part(FrontHudId, "front_hud", transparent: true, "legacy_front_hud");
+        _parts = [_back, _frontLayout, _front, _frontDecor, _frontHud];
+
+        Back = new LayerProvider(this, _back);
+        Front = new LayerProvider(this, _front);
+        FrontLayout = new LayerProvider(this, _frontLayout);
+        FrontDecor = new LayerProvider(this, _frontDecor);
+        FrontHud = new LayerProvider(this, _frontHud);
 
         if (options.Synchronous)
         {
@@ -130,9 +148,9 @@ public sealed class LegacyPvProvider : IDisposable
         return copy;
     }
 
-    private PvLayerImage PumpLayer(in PvFrameContext ctx, bool front)
+    private PvLayerImage PumpLayer(in PvFrameContext ctx, Part part)
     {
-        var target = front ? _front : _back;
+        var target = part.Target;
 
         if (_syncEngine is not null)
         {
@@ -140,7 +158,7 @@ public sealed class LegacyPvProvider : IDisposable
             {
                 var sw = Stopwatch.StartNew();
                 var rendered = _syncEngine.Render(ctx.Time, _renderWidth, false, NoCutTrans,
-                    front ? "front" : "back", front, NoCamera);
+                    part.Layer, part.Transparent, NoCamera);
                 sw.Stop();
                 LastRenderMs = sw.Elapsed.TotalMilliseconds;
                 if (rendered is not null)
@@ -156,7 +174,7 @@ public sealed class LegacyPvProvider : IDisposable
         Volatile.Write(ref _requestedTime, ctx.Time);
         _wake.Set();
 
-        if (_gpuMode) return PumpGpu(front);
+        if (_gpuMode) return PumpGpu(part);
 
         lock (_frameGate)
         {
@@ -170,9 +188,9 @@ public sealed class LegacyPvProvider : IDisposable
         return target.Bitmap is null ? PvLayerImage.Empty : new PvLayerImage(target.Bitmap, null, target.Width, target.Height);
     }
 
-    private PvLayerImage PumpGpu(bool front)
+    private PvLayerImage PumpGpu(Part part)
     {
-        var layer = front ? _gpuFront : _gpuBack;
+        var layer = part.Gpu;
         if (layer is null) return PvLayerImage.Empty;
 
         GpuFrame? frame;
@@ -249,23 +267,27 @@ public sealed class LegacyPvProvider : IDisposable
                     var info = engine.PlanInfo;
                     var w = _renderWidth;
                     var h = Math.Max(1, (int)Math.Round(info.Height * (w / (double)Math.Max(1, info.Width))));
-                    var gpuBack = new GpuLayer(host, "legacy_back", w, h);
-                    var gpuFront = new GpuLayer(host, "legacy_front", w, h);
-                    if (gpuBack.Frames[0].Surface.DxgiFormat != (int)Format.B8G8R8A8_UNorm)
-                        throw new InvalidOperationException(
-                            $"ANGLE 表面格式不是 BGRA8：{gpuBack.Frames[0].Surface.DxgiFormat}");
+                    foreach (var part in _parts)
+                    {
+                        var gpu = new GpuLayer(host, part.GpuKey, w, h);
+                        if (gpu.Frames[0].Surface.DxgiFormat != (int)Format.B8G8R8A8_UNorm)
+                            throw new InvalidOperationException(
+                                $"ANGLE 表面格式不是 BGRA8：{gpu.Frames[0].Surface.DxgiFormat}");
+                        part.Gpu = gpu;
+                    }
                     engine.UseGpu(host);
                     _gpuHost = host;
-                    _gpuBack = gpuBack;
-                    _gpuFront = gpuFront;
                     _gpuMode = true;
                 }
                 catch (Exception ex)
                 {
                     Log.Warn("[PV/原版引擎] GPU 光栅初始化失败，回退 CPU：" + ex.Message);
                     _gpuMode = false;
-                    _gpuBack = null;
-                    _gpuFront = null;
+                    foreach (var part in _parts)
+                    {
+                        part.Gpu?.DisposeBitmaps();
+                        part.Gpu = null;
+                    }
                     engine.UseCpu();
                 }
             }
@@ -325,16 +347,17 @@ public sealed class LegacyPvProvider : IDisposable
 
     private bool RenderCpuFrame(LegacyPvEngine engine, double time)
     {
-        var back = engine.Render(time, _renderWidth, false, NoCutTrans, "back", false, NoCamera);
-        var front = engine.Render(time, _renderWidth, false, NoCutTrans, "front", true, NoCamera);
-        if (back is null || front is null) return false;
-
-        lock (_frameGate)
+        foreach (var part in _parts)
         {
-            _back.Frame = back;
-            _back.FrameVersion++;
-            _front.Frame = front;
-            _front.FrameVersion++;
+            var frame = engine.Render(time, _renderWidth, false, NoCutTrans,
+                part.Layer, part.Transparent, NoCamera);
+            if (frame is null) return false;
+
+            lock (_frameGate)
+            {
+                part.Target.Frame = frame;
+                part.Target.FrameVersion++;
+            }
         }
 
         return true;
@@ -342,24 +365,21 @@ public sealed class LegacyPvProvider : IDisposable
 
     private bool RenderGpuFrame(LegacyPvEngine engine, double time)
     {
-        var backLayer = _gpuBack!;
-        var frontLayer = _gpuFront!;
-        var back = backLayer.Acquire(_frameGate);
-        var front = frontLayer.Acquire(_frameGate);
-
-        _gpuHost!.Activate(back.Surface);
-        engine.RenderTo(back.Surface, time, NoCutTrans, "back", false, NoCamera);
-        _gpuHost!.FlushAndSync();
-        _gpuHost!.Activate(front.Surface);
-        engine.RenderTo(front.Surface, time, NoCutTrans, "front", true, NoCamera);
-        _gpuHost!.FlushAndSync();
-
-        lock (_frameGate)
+        foreach (var part in _parts)
         {
-            backLayer.Latest = back.Index;
-            frontLayer.Latest = front.Index;
-            _back.Version++;
-            _front.Version++;
+            var layer = part.Gpu;
+            if (layer is null) continue;
+            var frame = layer.Acquire(_frameGate);
+
+            _gpuHost!.Activate(frame.Surface);
+            engine.RenderTo(frame.Surface, time, NoCutTrans, part.Layer, part.Transparent, NoCamera);
+            _gpuHost!.FlushAndSync();
+
+            lock (_frameGate)
+            {
+                layer.Latest = frame.Index;
+                part.Target.Version++;
+            }
         }
 
         return true;
@@ -433,20 +453,30 @@ public sealed class LegacyPvProvider : IDisposable
         _engine = null;
         _gpuMode = false;
         _gpuHost = null;
-        _gpuBack?.DisposeBitmaps();
-        _gpuFront?.DisposeBitmaps();
-        _gpuBack = null;
-        _gpuFront = null;
+        foreach (var part in _parts)
+        {
+            part.Gpu?.DisposeBitmaps();
+            part.Gpu = null;
+            part.Target.Dispose();
+        }
         _wake.Dispose();
-        _back.Dispose();
-        _front.Dispose();
     }
 
-    private sealed class LayerProvider(LegacyPvProvider host, bool front) : IPvLayerProvider
+    private sealed class Part(string id, string layer, bool transparent, string gpuKey)
     {
-        public string Id => front ? FrontId : BackId;
-        public long Version => (front ? host._front : host._back).Version;
-        public PvLayerImage Pump(in PvFrameContext ctx) => host.PumpLayer(ctx, front);
+        public string Id { get; } = id;
+        public string Layer { get; } = layer;
+        public bool Transparent { get; } = transparent;
+        public string GpuKey { get; } = gpuKey;
+        public LayerTarget Target { get; } = new();
+        public GpuLayer? Gpu;
+    }
+
+    private sealed class LayerProvider(LegacyPvProvider host, Part part) : IPvLayerProvider
+    {
+        public string Id => part.Id;
+        public long Version => part.Target.Version;
+        public PvLayerImage Pump(in PvFrameContext ctx) => host.PumpLayer(ctx, part);
         public void Dispose() { }
     }
 

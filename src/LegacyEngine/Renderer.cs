@@ -103,7 +103,7 @@ public sealed class Renderer : IDisposable
             new("main", 0),
         };
 
-        private SKSurface? _scratch, _small, _tiny, _camLayer, _transA, _transB, _transC, _morphCv, _morphShotCv, _guardP, _guardM;
+        private SKSurface? _scratch, _small, _tiny, _camLayer, _transA, _transB, _transC, _morphCv, _morphShotCv, _guardP, _guardM, _probe, _textCv;
         private readonly SKBitmap?[] _grain = new SKBitmap?[4];
         private SKBitmap _scan = null!;
         private readonly Dictionary<string, SKBitmap> _paperCache = new();
@@ -189,11 +189,21 @@ public sealed class Renderer : IDisposable
             var fps = Math.Max(1, plan.Fps);
             if (Truthy(JLayouts.StTok(st, "kline")))
             {
+                if (opt.Layer is "front_layout" or "front_decor" or "front_hud")
+                {
+                    ctx.Clear();
+                    return false;
+                }
                 P11Kline.Frame(ctx, plan, t, opt, (int)cw, (int)ch);
                 return false;
             }
             if (Truthy(JLayouts.StTok(st, "ascii")) && !opt.AsciiInner)
             {
+                if (opt.Layer is "front_layout" or "front_decor" or "front_hud")
+                {
+                    ctx.Clear();
+                    return false;
+                }
                 P11Ascii.Frame(ctx, plan, t, opt,
                     (inner, innerOpt) => Frame(inner, plan, t, innerOpt));
                 return false;
@@ -374,7 +384,7 @@ public sealed class Renderer : IDisposable
                         allowFilter: allowFilter, energy: energy, beatInfo: beatInfo,
                         pass: P.Pass,
                         passColor: P.Pass == "A" ? csc.Str("ghostA") : P.Pass == "B" ? csc.Str("ghostB") : null,
-                        layer: layer, zone: Z, hideText: morphOn,
+                        layer: layer, zone: Z, hideText: morphOn || (layer is "front_decor" or "front_layout"),
                         glyphLog: P.Pass == "main" ? opt.GlyphLog : null);
                     X.Save();
                     if (Z != null)
@@ -421,7 +431,7 @@ public sealed class Renderer : IDisposable
                 ctx.Restore();
             }
             Stage("camblur");
-            if (morphOn && layer != "back" && MC != null && mPrev != null)
+            if (morphOn && (layer is null or "front" or "front_text") && MC != null && mPrev != null)
             {
                 var L = MorphLogs(plan, mPrev, MC, cw, ch, scale, opt);
                 var kk = J.Clamp(mlt / morphDur);
@@ -430,7 +440,7 @@ public sealed class Renderer : IDisposable
                 else MorphShot(ctx, plan, mPrev, MC, cw, ch, scale, e, allowFilter, L);
             }
             Stage("morph");
-            if (transOn && mainCut != null && mPrev2(plan, mainCut) is { } prev)
+            if (transOn && mainCut != null && layer != "front_hud" && mPrev2(plan, mainCut) is { } prev)
             {
                 var lt = tq - mainCut.Start;
                 var dur = mainCut.TransDur > 0 ? mainCut.TransDur : 0.35;
@@ -492,7 +502,7 @@ public sealed class Renderer : IDisposable
                 }
             }
             Stage("trans");
-            if (plan.Hud && !opt.NoHud && layer != "back")
+            if (plan.Hud && !opt.NoHud && (layer is null or "front" or "front_hud"))
             {
                 var env = MakeEnv(ctx, plan, mainCut, sc,
                     t: tq, lt: 0, ltb: 0, stepI: step, scale: scale,
@@ -789,7 +799,8 @@ public sealed class Renderer : IDisposable
             if (!Reg.Layouts.TryGetValue(cut.Layout, out var layout) || layout == null)
                 Reg.Layouts.TryGetValue("center", out layout);
             var decor = cut.Decor;
-            if (env.Layer != "front")
+            var layer = env.Layer;
+            if (layer is null or "back")
                 foreach (var d in decor)
                     if (Reg.Decor.TryGetValue(d.Id, out var D) && D.Layer == "back")
                         try
@@ -799,32 +810,147 @@ public sealed class Renderer : IDisposable
                         {
                             WarnThrottled("decor", d.Id, e);
                         }
-            if (env.Layer == "back")
+            if (layer == "back")
             {
                 env.Body = null;                 return;
             }
-            env.Body = null;             try
+            if (layer == "front_hud")
             {
-                using var _pl = new Prof.Scope("layout", cut.Layout);                 layout?.Draw?.Invoke(env);             }
-            catch (Exception e)
+                env.Body = null;
+                return;
+            }
+            env.Body = null;
+            if (layer == "front_text")
             {
-                WarnThrottled("layout", cut.Layout, e);
+                DrawTextOnly(env, layout);
+            }
+            else if (layer == "front_layout")
+            {
+                DrawLayoutOnly(env, layout);
+            }
+            else if (layer == "front_decor")
+            {
+                DrawForBody(env, layout);
+            }
+            else
+            {
+                try
+                {
+                    using var _pl = new Prof.Scope("layout", cut.Layout);                 layout?.Draw?.Invoke(env);             }
+                catch (Exception e)
+                {
+                    WarnThrottled("layout", cut.Layout, e);
+                }
             }
             var bb = env.Body;
-            foreach (var d in decor)
-                if (Reg.Decor.TryGetValue(d.Id, out var D) && D.Layer == "front")
-                {
-                    env.Body = bb;
-                    try
+            if (layer is null or "front" or "front_decor")
+                foreach (var d in decor)
+                    if (Reg.Decor.TryGetValue(d.Id, out var D) && D.Layer == "front")
                     {
-                        using var _pf = new Prof.Scope("decorfront", d.Id);                         D.Draw?.Invoke(env, d);
+                        env.Body = bb;
+                        try
+                        {
+                            using var _pf = new Prof.Scope("decorfront", d.Id);                         D.Draw?.Invoke(env, d);
+                        }
+                        catch (Exception e)
+                        {
+                            WarnThrottled("decor", d.Id, e);
+                        }
                     }
-                    catch (Exception e)
-                    {
-                        WarnThrottled("decor", d.Id, e);
-                    }
-                }
             env.Body = bb;
+        }
+
+        private SKSurface LayerSurface(ref SKSurface? slot, Env env)
+        {
+            var scale = env.Scale != 0 ? env.Scale : 1;
+            var w = Math.Max(1, (int)Math.Round(env.Plan.W * scale));
+            var h = Math.Max(1, (int)Math.Round(env.Plan.H * (w / (double)Math.Max(1, env.Plan.W))));
+            return Ensure(ref slot, w, h);
+        }
+
+        private void DrawTextOnly(Env env, LayoutDef? layout)
+        {
+            var target = env.Ctx;
+            var probe = LayerSurface(ref _probe, env);
+            var text = LayerSurface(ref _textCv, env);
+            var pc = probe.Canvas;
+            pc.SetMatrix(target.TotalMatrix);
+            pc.Clear();
+            var tc = text.Canvas;
+            tc.SetMatrix(SKMatrix.Identity);
+            tc.Clear();
+            env.Ctx = pc;
+            env.TextCtx = tc;
+            env.ExtractText = true;
+            try
+            {
+                using var _pl = new Prof.Scope("layout", env.Cut?.Layout ?? "");
+                layout?.Draw?.Invoke(env);
+            }
+            catch (Exception e)
+            {
+                WarnThrottled("layout", env.Cut?.Layout ?? "", e);
+            }
+            finally
+            {
+                env.ExtractText = false;
+                env.TextCtx = null;
+                env.Ctx = target;
+            }
+
+            using var snap = text.Snapshot();
+            target.Save();
+            target.SetMatrix(SKMatrix.Identity);
+            target.DrawImage(snap, 0, 0);
+            target.Restore();
+        }
+
+        private void DrawLayoutOnly(Env env, LayoutDef? layout)
+        {
+            var probe = LayerSurface(ref _probe, env);
+            var pc = probe.Canvas;
+            pc.SetMatrix(SKMatrix.Identity);
+            pc.Clear();
+            env.TextCtx = pc;
+            env.ExtractText = true;
+            try
+            {
+                using var _pl = new Prof.Scope("layout", env.Cut?.Layout ?? "");
+                layout?.Draw?.Invoke(env);
+            }
+            catch (Exception e)
+            {
+                WarnThrottled("layout", env.Cut?.Layout ?? "", e);
+            }
+            finally
+            {
+                env.ExtractText = false;
+                env.TextCtx = null;
+            }
+        }
+
+        private void DrawForBody(Env env, LayoutDef? layout)
+        {
+            var target = env.Ctx;
+            var dm = target.DeviceClipBounds;
+            var probe = Ensure(ref _probe, Math.Max(1, dm.Width), Math.Max(1, dm.Height));
+            var pc = probe.Canvas;
+            pc.SetMatrix(SKMatrix.Identity);
+            pc.Clear();
+            env.Ctx = pc;
+            try
+            {
+                using var _pl = new Prof.Scope("layout", env.Cut?.Layout ?? "");
+                layout?.Draw?.Invoke(env);
+            }
+            catch (Exception e)
+            {
+                WarnThrottled("layout", env.Cut?.Layout ?? "", e);
+            }
+            finally
+            {
+                env.Ctx = target;
+            }
         }
 
                 private sealed class AlphaGuard
@@ -1483,6 +1609,8 @@ public sealed class Renderer : IDisposable
             _morphShotCv?.Dispose();
             _guardP?.Dispose();
             _guardM?.Dispose();
+            _probe?.Dispose();
+            _textCv?.Dispose();
             foreach (var g in _grain) g?.Dispose();
             foreach (var s in _grainShader) s?.Dispose();
             _scanShader?.Dispose();

@@ -95,6 +95,10 @@ public sealed class Env
 
         public string? Layer { get; set; }
 
+        public SKCanvas? TextCtx { get; set; }
+
+        public bool ExtractText { get; set; }
+
         public bool HideText { get; set; }
 
         public bool AllowFilter { get; set; } = true;

@@ -325,7 +325,11 @@ public sealed class PvPipeline : IDisposable
                                      || l.Kind == PvLayerKind.Decor
                                      || l.Decor is not null
                                      || (l.Kind == PvLayerKind.Subtitle && subtitleSource is null)
-                                     || (!_legacyMode && l.Id is LegacyPvProvider.BackId or LegacyPvProvider.FrontId));
+                                     || (!_legacyMode && l.Id is LegacyPvProvider.BackId
+                                         or LegacyPvProvider.FrontId
+                                         or LegacyPvProvider.FrontLayoutId
+                                         or LegacyPvProvider.FrontDecorId
+                                         or LegacyPvProvider.FrontHudId));
 
         foreach (var layer in _scene.Layers) MigrateVisualDefaults(layer);
         foreach (var layer in _scene.Layers) RegisterLayerProvider(layer);
@@ -351,15 +355,34 @@ public sealed class PvPipeline : IDisposable
         _legacy.PlanReady += info => LegacyPlanReady?.Invoke(info);
         _renderer.Stage.Register(_legacy.Back);
         _renderer.Stage.Register(_legacy.Front);
+        _renderer.Stage.Register(_legacy.FrontLayout);
+        _renderer.Stage.Register(_legacy.FrontDecor);
+        _renderer.Stage.Register(_legacy.FrontHud);
 
         var existingBack = ExistingLayer(LegacyPvProvider.BackId);
-        var existingFront = ExistingLayer(LegacyPvProvider.FrontId);
+        var existingText = ExistingLayer(LegacyPvProvider.FrontId);
+        var existingLayout = ExistingLayer(LegacyPvProvider.FrontLayoutId);
+        var existingDecor = ExistingLayer(LegacyPvProvider.FrontDecorId);
+        var existingHud = ExistingLayer(LegacyPvProvider.FrontHudId);
         var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, "PV 背景层", PvLayerKind.Background);
-        var front = existingFront ?? LegacyLayer(LegacyPvProvider.FrontId, "歌词文字层", PvLayerKind.ForegroundFx);
+        var text = existingText ?? LegacyLayer(LegacyPvProvider.FrontId, "歌词文字层", PvLayerKind.ForegroundFx);
+        var layout = existingLayout ?? LegacyLayer(LegacyPvProvider.FrontLayoutId, "歌词布局层", PvLayerKind.ForegroundFx);
+        var decor = existingDecor ?? LegacyLayer(LegacyPvProvider.FrontDecorId, "歌词装饰层", PvLayerKind.ForegroundFx);
+        var hud = existingHud ?? LegacyLayer(LegacyPvProvider.FrontHudId, "歌词界面层", PvLayerKind.ForegroundFx);
         back.Name = "PV 背景层";
         back.Kind = PvLayerKind.Background;
-        front.Name = "歌词文字层";
-        front.Kind = PvLayerKind.ForegroundFx;
+        text.Name = "歌词文字层";
+        text.Kind = PvLayerKind.ForegroundFx;
+        layout.Name = "歌词布局层";
+        layout.Kind = PvLayerKind.ForegroundFx;
+        decor.Name = "歌词装饰层";
+        decor.Kind = PvLayerKind.ForegroundFx;
+        hud.Name = "歌词界面层";
+        hud.Kind = PvLayerKind.ForegroundFx;
+
+        if (existingLayout is null) CopyLayerTransform(text, layout);
+        if (existingDecor is null) CopyLayerTransform(text, decor);
+        if (existingHud is null) CopyLayerTransform(text, hud);
 
         if (existingBack is null)
         {
@@ -379,11 +402,52 @@ public sealed class PvPipeline : IDisposable
             _scene.Layers.Insert(insert, back);
         }
 
-        if (existingFront is null)
-            _scene.Layers.Add(front);
+        EnsureLyricLayer(layout, existingLayout is not null,
+            [], [LegacyPvProvider.FrontId, LegacyPvProvider.FrontDecorId, LegacyPvProvider.FrontHudId]);
+        EnsureLyricLayer(text, existingText is not null,
+            [LegacyPvProvider.FrontLayoutId], [LegacyPvProvider.FrontDecorId, LegacyPvProvider.FrontHudId]);
+        EnsureLyricLayer(decor, existingDecor is not null,
+            [LegacyPvProvider.FrontId, LegacyPvProvider.FrontLayoutId], [LegacyPvProvider.FrontHudId]);
+        EnsureLyricLayer(hud, existingHud is not null,
+            [LegacyPvProvider.FrontDecorId, LegacyPvProvider.FrontId, LegacyPvProvider.FrontLayoutId], []);
 
         Log.Info($"[PV 原版引擎] 图层顺序：{string.Join(" → ", _scene.Layers.Select(l => l.Id))}");
-        Log.Info($"[PV 原版引擎] 启动中：{renderWidth}px 渲染（背景/文字分层）");
+        Log.Info($"[PV 原版引擎] 启动中：{renderWidth}px 渲染（背景/布局/文字/装饰/界面分层）");
+    }
+
+    private void EnsureLyricLayer(PvLayerConfig layer, bool exists, string[] afterIds, string[] beforeIds)
+    {
+        if (exists) return;
+
+        foreach (var id in afterIds)
+        {
+            var index = _scene.Layers.FindIndex(l => l?.Id == id);
+            if (index < 0) continue;
+            _scene.Layers.Insert(index + 1, layer);
+            return;
+        }
+
+        foreach (var id in beforeIds)
+        {
+            var index = _scene.Layers.FindIndex(l => l?.Id == id);
+            if (index < 0) continue;
+            _scene.Layers.Insert(index, layer);
+            return;
+        }
+
+        _scene.Layers.Add(layer);
+    }
+
+    private static void CopyLayerTransform(PvLayerConfig from, PvLayerConfig to)
+    {
+        to.Enabled = from.Enabled;
+        to.Opacity = from.Opacity;
+        to.Scale = from.Scale;
+        to.OffsetX = from.OffsetX;
+        to.OffsetY = from.OffsetY;
+        to.Rotation = from.Rotation;
+        to.MirrorX = from.MirrorX;
+        to.Cover = from.Cover;
     }
 
     private PvLayerConfig? ExistingLayer(string id) =>
@@ -540,7 +604,8 @@ public sealed class PvPipeline : IDisposable
     public static List<PvLayerConfig> WithLayerAdded(IReadOnlyList<PvLayerConfig> layers, PvLayerConfig layer)
     {
         var next = new List<PvLayerConfig>(layers);
-        int front = next.FindIndex(l => l.Id == LegacyPvProvider.FrontId);
+        int front = next.FindIndex(l => l.Id == LegacyPvProvider.FrontLayoutId);
+        if (front < 0) front = next.FindIndex(l => l.Id == LegacyPvProvider.FrontId);
         if (front >= 0) next.Insert(front, layer);
         else next.Add(layer);
         return next;
