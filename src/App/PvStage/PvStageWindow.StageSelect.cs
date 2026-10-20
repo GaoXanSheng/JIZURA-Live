@@ -70,7 +70,7 @@ public partial class PvStageWindow
         _stageDragCenter = sel.Center;
         _stageDragStartDistance = Math.Max(1f, Vector2.Distance(design, sel.Center));
         _stageDragStartAngle = Angle(design - sel.Center);
-        _stageDragVtsScale = sel.CaptureWidth / Math.Max(1.0, sel.FitWidth);
+        _stageDragVtsScale = PvSelectionInfo.VtsSceneWidthUnits / Math.Max(1.0, sel.FitWidth);
         _stageDragMoved = false;
 
         _stageDragKeyX = Keyed(xAddr);

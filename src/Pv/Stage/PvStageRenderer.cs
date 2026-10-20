@@ -18,8 +18,10 @@ public sealed record PvVtsControl(bool Active, double X, double Y, double Size, 
 
 public sealed record PvSelectionInfo(
     Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
-    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth, double CaptureWidth)
+    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth)
 {
+    public const double VtsSceneWidthUnits = 2000;
+
     public Vector2 TopMiddle => (A + B) * 0.5f;
 
     public Vector2 RotationHandle
@@ -432,10 +434,10 @@ public sealed class PvStageRenderer : IDisposable
         var vts = VtsControl;
         if (vts.Active)
         {
-            double designPerCapture = r.Width / Math.Max(1, image.Width);
+            double designPerUnit = r.Width / PvSelectionInfo.VtsSceneWidthUnits;
             var center = new Vector2(
-                (float)(r.X + r.Width / 2 + vts.X * designPerCapture),
-                (float)(r.Y + r.Height / 2 + vts.Y * designPerCapture));
+                (float)(r.X + r.Width / 2 + vts.X * designPerUnit),
+                (float)(r.Y + r.Height / 2 + vts.Y * designPerUnit));
             double vtsScale = Math.Clamp(1 + vts.Size / 100.0, 0.1, 4.0);
             double radians = vts.Rotation * Math.PI / 180.0;
             float halfWidth = (float)(r.Width * 0.19 * vtsScale);
@@ -457,8 +459,7 @@ public sealed class PvStageRenderer : IDisposable
                 Corner(1, 1),
                 Corner(-1, 1),
                 Vector2.Transform(center, tf.Matrix),
-                tf.Matrix, _designW, _designH,
-                Math.Max(1, r.Width), Math.Max(1, image.Width));
+                tf.Matrix, _designW, _designH, Math.Max(1, r.Width));
         }
 
         Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
@@ -469,7 +470,7 @@ public sealed class PvStageRenderer : IDisposable
             Map(r.X + r.Width, r.Y + r.Height),
             Map(r.X, r.Y + r.Height),
             Map(r.X + r.Width / 2, r.Y + r.Height / 2),
-            tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, image.Width));
+            tf.Matrix, _designW, _designH, Math.Max(1, r.Width));
     }
 
     private void DrawSelection(Immediate2D d, PvSelectionInfo sel, Rect rect)

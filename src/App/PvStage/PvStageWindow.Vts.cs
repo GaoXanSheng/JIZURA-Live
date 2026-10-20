@@ -128,9 +128,9 @@ public partial class PvStageWindow
             TextTertiaryKey, 11, wrap: true));
 
         AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 0.01,
-            () => _vtsRestX, v => _vtsRestX = v, scrubByStep: true));
+            () => _vtsRestX, v => _vtsRestX = v, sliderWindow: 2));
         AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 0.01,
-            () => _vtsRestY, v => _vtsRestY = v, scrubByStep: true));
+            () => _vtsRestY, v => _vtsRestY = v, sliderWindow: 2));
         AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
         AddInspector(AnimParamRow(_inspectorRows, VtsRotationAddr, L.T("旋转"), -180, 180, 1,
@@ -392,8 +392,6 @@ public partial class PvStageWindow
             L.T("染色关键帧在时间线上可拖动；开关模式结束会恢复白色。"),
             TextTertiaryKey, 11, wrap: true));
     }
-
-    private const double VtsDragSensitivity = 0.02;
 
     private static double SnapVtsMove(double value)
     {

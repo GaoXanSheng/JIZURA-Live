@@ -20,6 +20,7 @@ public partial class PvStageWindow
         public string Label = "";
         public double Min, Max;
         public double SpecMin, SpecMax;
+        public double? SliderWindow;
         public Func<double> ReadBase = null!;
         public Action<double> WriteBase = null!;
         public Slider Slider = null!;
@@ -561,15 +562,13 @@ public partial class PvStageWindow
         return AnimParamRow(_inspectorRows, addr, label, spec.Min, spec.Max, step, read, write);
     }
 
-    private sealed record SliderScrub(AnimRow Row, double StartX, double StartValue);
-
-    private SliderScrub? _sliderScrub;
-
     private FrameworkElement AnimParamRow(List<AnimRow> owner, ParamAddress address, string label,
         double min, double max, double step, Func<double> readBase, Action<double> writeBase,
-        bool scrubByStep = false)
+        double? sliderWindow = null)
     {
-        double current = readBase();
+        double current = _evaluator.TryEvaluate(address, _audio.Time, out var evaluated)
+            ? evaluated
+            : readBase();
         double span = Math.Max(max - min, 0);
         double margin = span > 1e-9 ? span * 0.5 : Math.Max(Math.Abs(current) * 0.5, 0.5);
         double lo = double.IsFinite(current) ? Math.Min(min, current - margin) : min;
@@ -583,6 +582,7 @@ public partial class PvStageWindow
             Max = hi,
             SpecMin = min,
             SpecMax = max,
+            SliderWindow = sliderWindow,
             ReadBase = readBase,
             WriteBase = writeBase,
             EditTime = _audio.Time,
@@ -602,65 +602,31 @@ public partial class PvStageWindow
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
+        double halfWindow = sliderWindow is { } window ? window / 2 : 0;
+        double sliderMin = sliderWindow is null ? lo : current - halfWindow;
+        double sliderMax = sliderWindow is null ? hi : current + halfWindow;
+
         var slider = new Slider
         {
-            Minimum = lo,
-            Maximum = hi,
+            Minimum = sliderMin,
+            Maximum = sliderMax,
             SmallChange = step,
-            Value = Math.Clamp(readBase(), lo, hi),
+            Value = Math.Clamp(current, sliderMin, sliderMax),
             IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
         };
         slider.ValueChanged += (_, e) => OnRowValueChanged(state, e.NewValue);
         slider.PreviewMouseLeftButtonDown += (_, _) => state.EditTime = _audio.Time;
-        if (scrubByStep)
-        {
-            slider.PreviewMouseLeftButtonDown += (_, e) =>
-            {
-                if (e.ChangedButton != MouseButton.Left) return;
-                e.Handled = true;
-                state.EditTime = _audio.Time;
-                double start = _evaluator.TryEvaluate(state.Address, _audio.Time, out var evaluated)
-                    ? evaluated
-                    : state.ReadBase();
-                _sliderScrub = new SliderScrub(state, e.GetPosition(slider).X, start);
-                PushUndo();
-                slider.CaptureMouse();
-            };
-
-            slider.PreviewMouseMove += (_, e) =>
-            {
-                if (_sliderScrub is not { } scrub || !slider.IsMouseCaptured) return;
-                if (e.LeftButton != MouseButtonState.Pressed) return;
-
-                e.Handled = true;
-                double step = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? 1.0
-                    : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? 0.1
-                    : 0.01;
-                double delta = e.GetPosition(slider).X - scrub.StartX;
-                slider.Value = Math.Clamp(
-                    scrub.StartValue + delta * step * VtsDragSensitivity, lo, hi);
-            };
-
-            slider.PreviewMouseLeftButtonUp += (_, e) =>
-            {
-                if (_sliderScrub is null) return;
-                e.Handled = true;
-                _sliderScrub = null;
-                slider.ReleaseMouseCapture();
-                _saveError = SaveProjectNow();
-            };
-
-            slider.LostMouseCapture += (_, _) => _sliderScrub = null;
-        }
+        if (sliderWindow is not null)
+            slider.LostMouseCapture += (_, _) => RefreshParamRows();
         state.Slider = slider;
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
 
         var value = new NumericValue
         {
-            Min = lo,
-            Max = hi,
+            Min = min,
+            Max = max,
             Commit = v =>
             {
                 state.EditTime = _audio.Time;
@@ -846,12 +812,25 @@ public partial class PvStageWindow
 
         row.Value.SetValue(value);
 
-        var shown = Math.Clamp(value, row.Min, row.Max);
-        if (!row.Slider.IsMouseCaptureWithin && Math.Abs(row.Slider.Value - shown) > 1e-4)
+        if (row.Slider.IsMouseCaptureWithin) return;
+
+        double shown = Math.Clamp(value, row.Min, row.Max);
+        _syncingRows = true;
+        try
         {
-            _syncingRows = true;
-            try { row.Slider.Value = shown; }
-            finally { _syncingRows = false; }
+            if (row.SliderWindow is { } window)
+            {
+                double half = window / 2;
+                row.Slider.Minimum = value - half;
+                row.Slider.Maximum = value + half;
+                shown = value;
+            }
+
+            if (Math.Abs(row.Slider.Value - shown) > 1e-4) row.Slider.Value = shown;
+        }
+        finally
+        {
+            _syncingRows = false;
         }
     }
 
