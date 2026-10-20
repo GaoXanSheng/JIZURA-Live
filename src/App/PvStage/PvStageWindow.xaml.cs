@@ -399,7 +399,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             return;
         }
 
-        ResetVtsMove();
         _vts.Dispose();
 
         if (pipe is not null)
@@ -1005,6 +1004,18 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _lrcText = project.LrcText;
 
         _evaluator = DirectorEvaluator.FromSaves(project.Curves, project.CameraTrack, project.LayerCameraTracks);
+
+        if (resetUndo)
+        {
+            _vtsBaseSynced = false;
+            _vtsSaveBasePending = false;
+            _vtsRestX = 0;
+            _vtsRestY = 0;
+            _vtsRestSize = 0;
+            _vtsRestRot = 0;
+            _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+            SyncVtsBaseFromProject();
+        }
 
         bool sameAudio = !resetUndo && !string.IsNullOrWhiteSpace(_audioPath)
                          && string.Equals(prevAudio, _audioPath, StringComparison.OrdinalIgnoreCase)

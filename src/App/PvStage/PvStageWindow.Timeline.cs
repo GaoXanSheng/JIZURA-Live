@@ -218,6 +218,11 @@ public partial class PvStageWindow
     {
         var (min, max) = CurveRange(addr, curve);
         var track = new TCurve { Address = addr, Label = TrackLabel(addr), Min = min, Max = max };
+        if (ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _))
+        {
+            track.SpecMin = spec.Min;
+            track.SpecMax = spec.Max;
+        }
         if (curve is null) return track;
 
         foreach (var key in curve.Keys)
@@ -228,8 +233,8 @@ public partial class PvStageWindow
     private (double Min, double Max) CurveRange(in ParamAddress addr, FloatCurve? curve)
     {
         bool hasSpec = ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _);
-        double min = double.PositiveInfinity;
-        double max = double.NegativeInfinity;
+        double min = hasSpec ? spec.Min : double.PositiveInfinity;
+        double max = hasSpec ? spec.Max : double.NegativeInfinity;
 
         if (curve is not null)
         {
@@ -241,11 +246,7 @@ public partial class PvStageWindow
             }
         }
 
-        if (!double.IsFinite(min) || !double.IsFinite(max))
-        {
-            min = hasSpec ? spec.Min : -1;
-            max = hasSpec ? spec.Max : 1;
-        }
+        if (!double.IsFinite(min) || !double.IsFinite(max)) return (-1, 1);
         if (max - min < 1e-9) return (min - 0.5, max + 0.5);
         var pad = (max - min) * 0.05;
         return (min - pad, max + pad);

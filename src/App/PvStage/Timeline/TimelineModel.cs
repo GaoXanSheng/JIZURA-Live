@@ -14,6 +14,8 @@ public sealed class TCurve
 
     public double Min = 0, Max = 1;
 
+    public double SpecMin = double.NegativeInfinity, SpecMax = double.PositiveInfinity;
+
     public List<TKey> Keys = new();
 }
 

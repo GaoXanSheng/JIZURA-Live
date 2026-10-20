@@ -873,6 +873,7 @@ public sealed partial class TimelineView
             }
             else value = origin.Value + dv;
             if (!double.IsFinite(value)) value = origin.Value;
+            value = Math.Clamp(value, curve.SpecMin, curve.SpecMax);
             curve.Keys[index] = origin with { TimeSeconds = time, Value = value };
         }
 

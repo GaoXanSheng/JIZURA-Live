@@ -1,7 +1,9 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text;
+using Microsoft.Win32;
 using JizuraLive.App;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
@@ -28,6 +30,8 @@ public enum VtsState
 
     Ready,
 }
+
+public sealed record VtsArtMeshGroup(string GroupId, string GroupName, int Count);
 
 public sealed record VtsHotkey(string HotkeyId, string Name, string Type, string Description)
 {
@@ -71,12 +75,15 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     private volatile VtsFraming? _framing;
     private VtsHullBounds? _hull;
     private volatile string _modelName = "";
+    private volatile string _vtsModelName = "";
     private volatile Dictionary<string, (double Min, double Max)> _params = new(StringComparer.Ordinal);
 
     private volatile string[] _expressions = [];
 
     private volatile string[] _artMeshes = [];
     private volatile string[] _artMeshTags = [];
+    private volatile VtsArtMeshGroup[] _artMeshGroups = [];
+    private volatile string _artMeshKeys = "";
 
     public VtsState State => (VtsState)_state;
     public string LastError => _lastError;
@@ -88,6 +95,10 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     public IReadOnlyList<string> ArtMeshes => _artMeshes;
 
     public IReadOnlyList<string> ArtMeshTags => _artMeshTags;
+
+    public IReadOnlyList<VtsArtMeshGroup> ArtMeshGroups => _artMeshGroups;
+
+    public string ArtMeshResponseKeys => _artMeshKeys;
 
     public VtsFraming? Framing => _framing;
 
@@ -158,6 +169,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         if (string.IsNullOrEmpty(target) || target == "all") matcher["tintAll"] = true;
         else if (target.StartsWith("tag:", StringComparison.Ordinal))
             matcher["tagExact"] = new JArray(target[4..]);
+        else if (target.StartsWith("group:", StringComparison.Ordinal))
+            matcher["artMeshGroupIDExact"] = new JArray(target[6..]);
         else if (target.StartsWith("name:", StringComparison.Ordinal))
             matcher["nameExact"] = new JArray(target[5..]);
         else matcher["nameExact"] = new JArray(target);
@@ -191,14 +204,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     public void Stop()
     {
-        if (_worker != null && !_stopping)
-        {
-            using var done = new ManualResetEventSlim();
-            try { _commands.Add(w => { w.ResetDrive(); done.Set(); }); }
-            catch (InvalidOperationException) { }
-            done.Wait(400);
-        }
-
+        if (_stopping) return;
         _stopping = true;
         try { _commands.CompleteAdding(); } catch {           }
         var w = _worker;
@@ -244,6 +250,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     }
 
     public void CalibrateBase() => Post(w => w.CalibrateBase());
+
+    public void ApplyBase(VtsFraming framing) => Post(w => w.ApplyBase(framing));
 
     public void RefreshArtMeshes() => Post(w => w.FetchArtMeshes());
 
@@ -311,6 +319,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
         private bool _refreshModel;
         private bool _refreshHotkeys;
+        private bool _refreshArtMeshes;
         private bool _faceFound;
         private bool _leftHandFound;
         private bool _rightHandFound;
@@ -370,6 +379,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             {
                 _refreshModel = false;
                 _refreshHotkeys = false;
+                _refreshArtMeshes = false;
                 _baseCaptured = false;
                 _lastDrive = null;
                 _drive = new VtsFraming(0, 0, 0, 0);
@@ -384,6 +394,12 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             {
                 _refreshHotkeys = false;
                 FetchHotkeys();
+            }
+
+            if (_refreshArtMeshes)
+            {
+                _refreshArtMeshes = false;
+                FetchArtMeshes();
             }
 
             if (_paramDirty && now - _lastParamAt >= ParamIntervalMs) FlushParams();
@@ -518,23 +534,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             }
         }
 
-        public void ResetDrive()
-        {
-            if (_ws == null || _ws.State != WebSocketState.Open || !_baseCaptured) return;
-            lock (_api._driveGate) _api._pendingDrive = null;
-            _drive = new VtsFraming(0, 0, 0, 0);
-            _lastDrive = _drive;
-            Send("MoveModelRequest", new JObject
-            {
-                ["timeInSeconds"] = 0.15,
-                ["valuesAreRelativeToModel"] = false,
-                ["positionX"] = _manual.X,
-                ["positionY"] = _manual.Y,
-                ["rotation"] = _manual.Rotation,
-                ["size"] = _manual.Size,
-            });
-        }
-
         private void FlushMove()
         {
             var f = new VtsFraming(
@@ -566,6 +565,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             }
 
             _api._modelName = (string?)resp["modelName"] ?? "";
+            _api._vtsModelName = (string?)resp["vtsModelName"] ?? "";
             if (resp["modelPosition"] is JObject p)
             {
                 var f = new VtsFraming(
@@ -608,6 +608,30 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             _api.Notify();
             Log.Info($"[VTS] 已校准基准：X {framing.X:F2} Y {framing.Y:F2}"
                      + $" 缩放 {framing.Size:F2} 旋转 {framing.Rotation:F2}");
+        }
+
+        public void ApplyBase(VtsFraming framing)
+        {
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+
+            _manual = framing;
+            _api._framing = framing;
+            _baseCaptured = true;
+            _drive = new VtsFraming(0, 0, 0, 0);
+            _lastDrive = null;
+            lock (_api._driveGate) _api._pendingDrive = null;
+            Send("MoveModelRequest", new JObject
+            {
+                ["timeInSeconds"] = 0.15,
+                ["valuesAreRelativeToModel"] = false,
+                ["positionX"] = framing.X,
+                ["positionY"] = framing.Y,
+                ["rotation"] = framing.Rotation,
+                ["size"] = framing.Size,
+            });
+            _api.Notify();
+            Log.Info($"[VTS] 已应用工程基准：X {framing.X:F3} Y {framing.Y:F3}"
+                     + $" 缩放 {framing.Size:F3} 旋转 {framing.Rotation:F1}");
         }
 
         public void FetchParameters()
@@ -699,10 +723,196 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             if (resp is null) return;
             var names = StringsOf(resp["artMeshNames"]);
             var tags = StringsOf(resp["artMeshTags"]);
+            var groups = new List<VtsArtMeshGroup>();
+            if (resp["artMeshGroups"] is JArray groupArray)
+                foreach (var group in groupArray)
+                {
+                    var id = group["groupID"]?.ToString() ?? "";
+                    if (id.Length == 0) continue;
+                    var name = group["groupName"]?.ToString() ?? id;
+                    int count = (int?)group["numberOfArtMeshesInGroup"]
+                                ?? (group["artMeshNames"] as JArray)?.Count
+                                ?? 0;
+                    groups.Add(new VtsArtMeshGroup(id, name, count));
+                }
+
+            if (groups.Count == 0 && _api._vtsModelName.Length > 0)
+                groups = LoadModelGroups(_api._vtsModelName);
+
             _api._artMeshes = names;
             _api._artMeshTags = tags;
-            Log.Info($"[VTS] ArtMesh：{names.Length} 个，标签 {tags.Length} 个");
+            _api._artMeshGroups = groups.ToArray();
+            _api._artMeshKeys = string.Join(",", resp.Properties().Select(p => p.Name));
+            Log.Info($"[VTS] ArtMesh：{names.Length} 个，标签 {tags.Length} 个，组 {groups.Count} 个"
+                     + $"（响应字段：{_api._artMeshKeys}）");
             _api.Notify();
+        }
+
+        private static string? _groupsRoot;
+
+        private static List<VtsArtMeshGroup> LoadModelGroups(string vtsModelName)
+        {
+            var root = FindGroupsRoot();
+            if (root is null)
+            {
+                Log.Warn("[VTS] 未找到 VTS 模型目录，无法从 .vtube.json 读取图层组");
+                return [];
+            }
+
+            var file = FindModelFile(root, vtsModelName);
+            if (file is null)
+            {
+                Log.Warn($"[VTS] 未找到模型文件：{vtsModelName}");
+                return [];
+            }
+
+            try
+            {
+                var json = JObject.Parse(File.ReadAllText(file));
+                if (json.SelectToken("$..ModelArtMeshGroups") is not JArray arr) return [];
+
+                var list = new List<VtsArtMeshGroup>();
+                foreach (var group in arr)
+                {
+                    var id = group["ID"]?.ToString() ?? "";
+                    if (id.Length == 0) continue;
+                    var name = group["Name"]?.ToString() ?? id;
+                    int count = (group["Entries"] as JArray)?.Count ?? 0;
+                    list.Add(new VtsArtMeshGroup(id, name, count));
+                }
+
+                Log.Info($"[VTS] 从模型文件读取图层组：{list.Count} 个（{file}）");
+                return list;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[VTS] 读取模型图层组失败：" + ex.Message);
+                return [];
+            }
+        }
+
+        private static string? FindGroupsRoot()
+        {
+            if (_groupsRoot is not null && Directory.Exists(_groupsRoot)) return _groupsRoot;
+
+            var candidates = new List<string>();
+            try
+            {
+                foreach (var process in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (!process.ProcessName.Contains("VTube Studio", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var path = process.MainModule?.FileName;
+                        if (path is null) continue;
+                        var dir = Path.GetDirectoryName(path);
+                        if (dir is null) continue;
+                        candidates.Add(Path.Combine(dir, "VTube Studio_Data", "StreamingAssets", "Live2DModels"));
+                    }
+                    catch
+                    {
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            var steam = TryGetSteamPath();
+            if (steam is not null)
+            {
+                candidates.Add(Path.Combine(steam, "steamapps", "common", "VTube Studio",
+                    "VTube Studio_Data", "StreamingAssets", "Live2DModels"));
+                candidates.AddRange(ReadSteamLibraries(steam).Select(lib =>
+                    Path.Combine(lib, "steamapps", "common", "VTube Studio",
+                        "VTube Studio_Data", "StreamingAssets", "Live2DModels")));
+            }
+
+            try
+            {
+                foreach (var drive in DriveInfo.GetDrives())
+                {
+                    if (!drive.IsReady) continue;
+                    var root = drive.RootDirectory.FullName;
+                    candidates.Add(Path.Combine(root, "SteamLibrary", "steamapps", "common", "VTube Studio",
+                        "VTube Studio_Data", "StreamingAssets", "Live2DModels"));
+                    candidates.Add(Path.Combine(root, "Program Files (x86)", "Steam", "steamapps", "common",
+                        "VTube Studio", "VTube Studio_Data", "StreamingAssets", "Live2DModels"));
+                }
+            }
+            catch
+            {
+            }
+
+            foreach (var candidate in candidates)
+            {
+                if (!Directory.Exists(candidate)) continue;
+                _groupsRoot = candidate;
+                return candidate;
+            }
+
+            return null;
+        }
+
+        private static string? FindModelFile(string root, string vtsModelName)
+        {
+            var direct = Path.Combine(root, vtsModelName);
+            if (File.Exists(direct)) return direct;
+
+            var folder = Path.GetFileNameWithoutExtension(vtsModelName);
+            if (folder.Length > 0)
+            {
+                var byFolder = Path.Combine(root, folder, Path.GetFileName(vtsModelName));
+                if (File.Exists(byFolder)) return byFolder;
+            }
+
+            try
+            {
+                return Directory.EnumerateFiles(root, Path.GetFileName(vtsModelName),
+                    SearchOption.AllDirectories).FirstOrDefault();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? TryGetSteamPath()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+                return key?.GetValue("SteamPath") as string;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static IEnumerable<string> ReadSteamLibraries(string steam)
+        {
+            var vdf = Path.Combine(steam, "steamapps", "libraryfolders.vdf");
+            if (!File.Exists(vdf)) yield break;
+
+            foreach (var line in File.ReadLines(vdf))
+            {
+                int key = line.IndexOf("\"path\"", StringComparison.OrdinalIgnoreCase);
+                if (key < 0) continue;
+                int first = line.IndexOf('"', key + 6);
+                if (first < 0) continue;
+                int second = line.IndexOf('"', first + 1);
+                if (second < 0) continue;
+
+                var path = line[(first + 1)..second].Replace("\\\\", "\\");
+                if (Directory.Exists(path)) yield return path;
+            }
         }
 
         public void SetArtMeshTint(string target, int r, int g, int b)
@@ -739,6 +949,7 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
                 case "ModelConfigChangedEvent":
                     _refreshHotkeys = true;
+                    _refreshArtMeshes = true;
                     break;
 
                 case "ModelOutlineEvent":

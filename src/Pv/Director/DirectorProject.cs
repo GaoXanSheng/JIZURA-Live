@@ -47,6 +47,8 @@ public sealed class DirectorProject
 
     public VtsCueTrack VtsCues { get; set; } = new();
 
+    public VtsBaseSave? VtsBase { get; set; }
+
     public List<DesignSegment> DesignSegments { get; set; } = new();
 
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
@@ -72,6 +74,17 @@ public sealed class DirectorProject
             LayerCameraTracks.Remove(PvScene.CharacterLayerId);
         }
     }
+}
+
+public sealed class VtsBaseSave
+{
+    public double X { get; set; }
+
+    public double Y { get; set; }
+
+    public double Size { get; set; } = 1;
+
+    public double Rotation { get; set; }
 }
 
 public sealed class EditorLayout

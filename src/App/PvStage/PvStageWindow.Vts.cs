@@ -26,10 +26,16 @@ public partial class PvStageWindow
     private VtsCueMode _vtsExpressionMode = VtsCueMode.Toggle;
     private double _vtsTintDuration = 2.0;
     private VtsCueMode _vtsTintMode = VtsCueMode.Toggle;
+    private string _vtsTintScope = "all";
     private string _vtsTintTarget = "all";
     private string _vtsTintColor = "#FF6B6B";
+    private ComboBox? _vtsTintTargetCombo;
+    private TextBlock? _vtsTintHint;
+    private int _vtsTintTargetCount = -1;
     private bool _stageVtsDrive = true;
     private TextBlock? _vtsFramingText;
+    private bool _vtsBaseSynced;
+    private bool _vtsSaveBasePending;
     private readonly HashSet<string> _manualExprOn = new(StringComparer.Ordinal);
     private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
 
@@ -79,8 +85,57 @@ public partial class PvStageWindow
         if (_vtsFramingText is not null) _vtsFramingText.Text = VtsFramingLabel();
 
         if (state == VtsState.Ready && !_vtsWasReady)
+        {
             _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+            _vtsBaseSynced = false;
+        }
+
+        if (_vtsSaveBasePending && state == VtsState.Ready && _vts.Framing is { } calibrated)
+        {
+            SaveVtsBase(calibrated);
+            _vtsSaveBasePending = false;
+            _vtsBaseSynced = true;
+        }
+
+        if (state == VtsState.Ready && !_vtsBaseSynced) SyncVtsBaseFromProject();
+        else if (state != VtsState.Ready) _vtsBaseSynced = false;
+
+        RefreshTintTargetsIfNeeded();
+
         _vtsWasReady = state == VtsState.Ready;
+    }
+
+    private void SyncVtsBaseFromProject()
+    {
+        if (_project is null || _vts.State != VtsState.Ready) return;
+
+        if (_project.VtsBase is { } saved)
+        {
+            _vts.ApplyBase(new VtsFraming(saved.Size, saved.X, saved.Y, saved.Rotation));
+            _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+            _vtsBaseSynced = true;
+            return;
+        }
+
+        if (_vts.Framing is { } framing)
+        {
+            SaveVtsBase(framing);
+            _vtsBaseSynced = true;
+        }
+    }
+
+    private void SaveVtsBase(VtsFraming framing)
+    {
+        if (_project is null) return;
+
+        _project.VtsBase = new VtsBaseSave
+        {
+            X = framing.X,
+            Y = framing.Y,
+            Size = framing.Size,
+            Rotation = framing.Rotation,
+        };
+        _saveError = SaveProjectNow();
     }
 
     internal void BtnVtsReconnect_Click(object sender, RoutedEventArgs e)
@@ -114,6 +169,16 @@ public partial class PvStageWindow
         };
         calibrate.Click += (_, _) => CalibrateVtsBase();
         AddInspector(calibrate);
+
+        var zeroOffset = new Wpf.Ui.Controls.Button
+        {
+            Content = L.T("偏移归零（回到基准）"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        zeroOffset.Click += (_, _) => ZeroVtsOffsets();
+        AddInspector(zeroOffset);
 
         _stageVtsDrive = _project.EditorLayout?.VtsStageDrive ?? _stageVtsDrive;
         AddInspector(BoolRow(L.T("画面手柄控制 VTS 坐标"), _stageVtsDrive,
@@ -278,11 +343,27 @@ public partial class PvStageWindow
     {
         AddSectionTitle(L.T("角色染色"));
         AddInspector(ThemeText(
-            L.T("给整个模型或指定 ArtMesh 染色；开关模式到点染色、结束恢复原色。"),
+            L.T("按范围给整个模型、图层组、单个 ArtMesh 或标签染色；开关模式到点染色、结束恢复原色。"),
             TextSecondaryKey, 11, wrap: true));
+
+        AddInspector(ThemeText(L.T("范围"), TextSecondaryKey, 12));
+        var scope = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        scope.Items.Add(new ComboBoxItem { Content = L.T("整个模型"), Tag = "all" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("图层组"), Tag = "group" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("单个 ArtMesh"), Tag = "name" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("标签"), Tag = "tag" });
+        scope.SelectedIndex = _vtsTintScope switch
+        {
+            "group" => 1,
+            "name" => 2,
+            "tag" => 3,
+            _ => 0,
+        };
+        AddInspector(scope);
 
         AddInspector(ThemeText(L.T("目标"), TextSecondaryKey, 12));
         var target = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        _vtsTintTargetCombo = target;
         FillTintTargets(target);
         target.DropDownOpened += (_, _) =>
         {
@@ -294,6 +375,18 @@ public partial class PvStageWindow
             if (target.SelectedItem is ComboBoxItem { Tag: string value }) _vtsTintTarget = value;
         };
         AddInspector(target);
+        _vtsTintHint = ThemeText("", TextTertiaryKey, 11, wrap: true);
+        AddInspector(_vtsTintHint);
+
+        scope.SelectionChanged += (_, _) =>
+        {
+            if (scope.SelectedItem is not ComboBoxItem { Tag: string value }) return;
+            _vtsTintScope = value;
+            _vtsTintTarget = value == "all" ? "all" : "";
+            _vtsTintTargetCount = -1;
+            if (value != "all") _vts.RefreshArtMeshes();
+            FillTintTargets(target);
+        };
 
         var colorRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
         colorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
@@ -363,6 +456,12 @@ public partial class PvStageWindow
         };
         add.Click += (_, _) =>
         {
+            if (string.IsNullOrWhiteSpace(_vtsTintTarget))
+            {
+                TblStatus.Text = L.T("先选择一个染色目标");
+                return;
+            }
+
             var (r, g, b) = ParseTintColor(_vtsTintColor);
             if (_vtsTintMode == VtsCueMode.Manual)
             {
@@ -410,6 +509,26 @@ public partial class PvStageWindow
                 framing.X, framing.Y, framing.Size);
     }
 
+    private void ZeroVtsOffsets()
+    {
+        PushUndo();
+
+        foreach (var addr in new[] { VtsXAddr, VtsYAddr, VtsSizeAddr, VtsRotationAddr })
+            if (_evaluator.Curves.ContainsKey(addr))
+                WriteCurveKeyAtPlayhead(addr, 0);
+
+        _vtsRestX = 0;
+        _vtsRestY = 0;
+        _vtsRestSize = 0;
+        _vtsRestRot = 0;
+        _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+        PublishDirector();
+        RefreshParamRows();
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.T("已把 VTS 偏移归零到基准");
+    }
+
     private void CalibrateVtsBase()
     {
         if (_vts.State != VtsState.Ready)
@@ -424,6 +543,7 @@ public partial class PvStageWindow
         }
 
         _vts.CalibrateBase();
+        _vtsSaveBasePending = true;
         _vtsRestX = 0;
         _vtsRestY = 0;
         _vtsRestSize = 0;
@@ -433,18 +553,67 @@ public partial class PvStageWindow
         TblStatus.Text = L.T("已以 VTS 当前姿态校准基准坐标");
     }
 
+    private void RefreshTintTargetsIfNeeded()
+    {
+        if (_vtsTintTargetCombo is null || _vtsTintScope == "all") return;
+
+        int count = _vtsTintScope switch
+        {
+            "group" => _vts.ArtMeshGroups.Count,
+            "name" => _vts.ArtMeshes.Count,
+            "tag" => _vts.ArtMeshTags.Count,
+            _ => 0,
+        };
+        if (count == _vtsTintTargetCount) return;
+
+        _vtsTintTargetCount = count;
+        FillTintTargets(_vtsTintTargetCombo);
+    }
+
     private void FillTintTargets(ComboBox combo)
     {
         combo.Items.Clear();
-        combo.Items.Add(new ComboBoxItem { Content = L.T("整个模型"), Tag = "all" });
-        foreach (var name in _vts.ArtMeshes)
-            combo.Items.Add(new ComboBoxItem { Content = name, Tag = "name:" + name });
-        foreach (var tag in _vts.ArtMeshTags)
-            combo.Items.Add(new ComboBoxItem { Content = L.F("标签 · {0}", tag), Tag = "tag:" + tag });
-        if (combo.Items.Count == 1)
+        _vtsTintTargetCount = _vtsTintScope switch
+        {
+            "group" => _vts.ArtMeshGroups.Count,
+            "name" => _vts.ArtMeshes.Count,
+            "tag" => _vts.ArtMeshTags.Count,
+            _ => 0,
+        };
+
+        switch (_vtsTintScope)
+        {
+            case "group":
+                foreach (var group in _vts.ArtMeshGroups)
+                    combo.Items.Add(new ComboBoxItem
+                    {
+                        Content = L.F("组 · {0}（{1}）", group.GroupName, group.Count),
+                        Tag = "group:" + group.GroupId,
+                    });
+                break;
+            case "name":
+                foreach (var name in _vts.ArtMeshes)
+                    combo.Items.Add(new ComboBoxItem { Content = name, Tag = "name:" + name });
+                break;
+            case "tag":
+                foreach (var tag in _vts.ArtMeshTags)
+                    combo.Items.Add(new ComboBoxItem { Content = L.F("标签 · {0}", tag), Tag = "tag:" + tag });
+                break;
+            default:
+                combo.Items.Add(new ComboBoxItem { Content = L.T("整个模型"), Tag = "all" });
+                break;
+        }
+
+        if (combo.Items.Count == 0)
             combo.Items.Add(new ComboBoxItem
             {
-                Content = L.T("未读取到 ArtMesh，连上 VTS 后重试"),
+                Content = _vtsTintScope switch
+                {
+                    "group" => L.T("VTS 模型没有图层组，可在 VTS 里创建或改用标签"),
+                    "name" => L.T("未读取到 ArtMesh，连上 VTS 后重试"),
+                    "tag" => L.T("未读取到标签，连上 VTS 后重试"),
+                    _ => L.T("未读取到目标，连上 VTS 后重试"),
+                },
                 IsEnabled = false,
             });
 
@@ -454,7 +623,39 @@ public partial class PvStageWindow
                 combo.SelectedIndex = i;
                 return;
             }
+
         combo.SelectedIndex = 0;
+        if (combo.SelectedItem is ComboBoxItem { Tag: string first }) _vtsTintTarget = first;
+
+        UpdateTintHint();
+    }
+
+    private void UpdateTintHint()
+    {
+        if (_vtsTintHint is null) return;
+
+        if (_vtsTintScope != "group" || _vts.ArtMeshGroups.Count > 0)
+        {
+            _vtsTintHint.Text = "";
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_vts.LastError))
+        {
+            _vtsTintHint.Text = L.F("读取图层组失败：{0}", _vts.LastError);
+            return;
+        }
+
+        var keys = _vts.ArtMeshResponseKeys;
+        if (keys.Length == 0)
+        {
+            _vtsTintHint.Text = L.T("还没读取到 VTS 的 ArtMesh 列表，稍等或重新打开下拉框。");
+            return;
+        }
+
+        _vtsTintHint.Text = keys.Contains("artMeshGroups", StringComparison.Ordinal)
+            ? L.T("VTS 返回了 artMeshGroups，但列表为空。")
+            : L.F("VTS 响应里没有 artMeshGroups（字段：{0}），当前 VTS 版本可能不支持读取组。", keys);
     }
 
     private void AddVtsTintCue(int r, int g, int b)
@@ -512,15 +713,18 @@ public partial class PvStageWindow
         return ((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
     }
 
-    private static string VtsTintTargetLabel(VtsCue cue)
+    private string VtsTintTargetLabel(VtsCue cue)
     {
         var target = string.IsNullOrEmpty(cue.Target) || cue.Target == "all"
             ? L.T("整个模型")
-            : cue.Target.StartsWith("tag:", StringComparison.Ordinal)
-                ? L.F("标签 · {0}", cue.Target[4..])
-                : cue.Target.StartsWith("name:", StringComparison.Ordinal)
-                    ? cue.Target[5..]
-                    : cue.Target;
+            : cue.Target.StartsWith("group:", StringComparison.Ordinal)
+                ? L.F("组 · {0}", _vts.ArtMeshGroups
+                    .FirstOrDefault(g => g.GroupId == cue.Target[6..])?.GroupName ?? cue.Target[6..])
+                : cue.Target.StartsWith("tag:", StringComparison.Ordinal)
+                    ? L.F("标签 · {0}", cue.Target[4..])
+                    : cue.Target.StartsWith("name:", StringComparison.Ordinal)
+                        ? cue.Target[5..]
+                        : cue.Target;
         return $"#{Math.Clamp(cue.TintR, 0, 255):X2}"
                + $"{Math.Clamp(cue.TintG, 0, 255):X2}"
                + $"{Math.Clamp(cue.TintB, 0, 255):X2} {target}";

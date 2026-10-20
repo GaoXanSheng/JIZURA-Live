@@ -105,6 +105,12 @@ public sealed class PvStageRenderer : IDisposable
 
     public PvSelectionInfo? Selection => Volatile.Read(ref _selection);
 
+    private double _hullHalfX;
+    private double _hullHalfY;
+    private double _hullCenterX;
+    private double _hullCenterY;
+    private bool _hullCenterValid;
+
     private PvVtsControl _vtsControl = new(false, 0, 0, 0, 0);
 
     public PvVtsControl VtsControl
@@ -431,48 +437,56 @@ public sealed class PvStageRenderer : IDisposable
             antiBleed: Stage.Scene.AntiBleedGuardEnabled);
         var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
         var vts = VtsControl;
-        if (vts.Active && vts.HasHull
-            && vts.HullMaxX > vts.HullMinX && vts.HullMaxY > vts.HullMinY)
-        {
-            double padX = (vts.HullMaxX - vts.HullMinX) * 0.03;
-            double padY = (vts.HullMaxY - vts.HullMinY) * 0.03;
-            float left = (float)(r.X + r.Width / 2 + (vts.HullMinX - padX) * r.Width / 2);
-            float right = (float)(r.X + r.Width / 2 + (vts.HullMaxX + padX) * r.Width / 2);
-            float top = (float)(r.Y + r.Height / 2 - (vts.HullMaxY + padY) * r.Height / 2);
-            float bottom = (float)(r.Y + r.Height / 2 - (vts.HullMinY - padY) * r.Height / 2);
-
-            Vector2 Hull(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
-
-            return new PvSelectionInfo(
-                Hull(left, top),
-                Hull(right, top),
-                Hull(right, bottom),
-                Hull(left, bottom),
-                Hull((left + right) / 2, (top + bottom) / 2),
-                tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, r.Height));
-        }
-
         if (vts.Active)
         {
-            double designPerUnitX = r.Width / 2.0;
-            double designPerUnitY = r.Height / 2.0;
-            var center = new Vector2(
-                (float)(r.X + r.Width / 2 + vts.X * designPerUnitX),
-                (float)(r.Y + r.Height / 2 - vts.Y * designPerUnitY));
-            double vtsScale = Math.Clamp(1 + vts.Size / 100.0, 0.1, 4.0);
-            double radians = vts.Rotation * Math.PI / 180.0;
-            float halfWidth = (float)(r.Width * 0.19 * vtsScale);
-            float halfHeight = (float)(r.Height * 0.33 * vtsScale);
-            var cos = (float)Math.Cos(radians);
-            var sin = (float)Math.Sin(radians);
+            double halfWidth = r.Width / 2.0;
+            double halfHeight = r.Height / 2.0;
+            bool hasHull = vts.HasHull
+                           && vts.HullMaxX > vts.HullMinX
+                           && vts.HullMaxY > vts.HullMinY;
 
-            Vector2 Corner(float sx, float sy)
+            double targetCenterX, targetCenterY, targetHalfX, targetHalfY;
+            if (hasHull)
             {
-                float x = sx * halfWidth;
-                float y = sy * halfHeight;
-                var p = center + new Vector2(x * cos - y * sin, x * sin + y * cos);
-                return Vector2.Transform(p, tf.Matrix);
+                targetCenterX = (vts.HullMinX + vts.HullMaxX) / 2;
+                targetCenterY = (vts.HullMinY + vts.HullMaxY) / 2;
+                targetHalfX = (vts.HullMaxX - vts.HullMinX) / 2 * 1.03;
+                targetHalfY = (vts.HullMaxY - vts.HullMinY) / 2 * 1.03;
             }
+            else
+            {
+                double vtsScale = Math.Clamp(1 + vts.Size / 100.0, 0.1, 4.0);
+                targetCenterX = vts.X;
+                targetCenterY = vts.Y;
+                targetHalfX = 0.19 * vtsScale;
+                targetHalfY = 0.33 * vtsScale;
+            }
+
+            if (!_hullCenterValid)
+            {
+                _hullCenterX = targetCenterX;
+                _hullCenterY = targetCenterY;
+                _hullHalfX = targetHalfX;
+                _hullHalfY = targetHalfY;
+                _hullCenterValid = true;
+            }
+            else
+            {
+                _hullCenterX += (targetCenterX - _hullCenterX) * 0.35;
+                _hullCenterY += (targetCenterY - _hullCenterY) * 0.35;
+                _hullHalfX += (targetHalfX - _hullHalfX) * 0.35;
+                _hullHalfY += (targetHalfY - _hullHalfY) * 0.35;
+            }
+
+            var center = new Vector2(
+                (float)(r.X + r.Width / 2 + _hullCenterX * halfWidth),
+                (float)(r.Y + r.Height / 2 - _hullCenterY * halfHeight));
+
+            float boxHalfX = (float)(_hullHalfX * halfWidth);
+            float boxHalfY = (float)(_hullHalfY * halfHeight);
+
+            Vector2 Corner(float sx, float sy) => Vector2.Transform(
+                new Vector2(center.X + sx * boxHalfX, center.Y + sy * boxHalfY), tf.Matrix);
 
             return new PvSelectionInfo(
                 Corner(-1, -1),
@@ -482,6 +496,10 @@ public sealed class PvStageRenderer : IDisposable
                 Vector2.Transform(center, tf.Matrix),
                 tf.Matrix, _designW, _designH, Math.Max(1, r.Width), Math.Max(1, r.Height));
         }
+
+        _hullHalfX = 0;
+        _hullHalfY = 0;
+        _hullCenterValid = false;
 
         Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
 

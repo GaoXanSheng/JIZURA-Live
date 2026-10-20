@@ -121,6 +121,14 @@ public static class ProjectStore
 
         SanitizeCurves(project);
 
+        if (project.VtsBase is { } vtsBase)
+        {
+            vtsBase.X = Finite(vtsBase.X, 0);
+            vtsBase.Y = Finite(vtsBase.Y, 0);
+            vtsBase.Size = Finite(vtsBase.Size, 1);
+            vtsBase.Rotation = Finite(vtsBase.Rotation, 0);
+        }
+
         SanitizeCameraTrack(project);
 
         project.SyncCharacterCameraTrack();

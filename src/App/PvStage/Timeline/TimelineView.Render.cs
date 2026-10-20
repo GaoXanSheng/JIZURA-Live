@@ -42,6 +42,7 @@ public sealed partial class TimelineView
     private static readonly Pen SoftPen = FrozenPen(Solid(0x19, 0x19, 0x20), 1);
     private static readonly Pen WavePen = FrozenPen(WaveBrush, 1);
     private static readonly Pen CurvePen = FrozenPen(AccentBrush, 1.4);
+    private static readonly Pen ZeroPen = FrozenPen(Solid(0x30, 0x30, 0x3C), 1);
     private static readonly Pen KeyPen = FrozenPen(AccentBrush, 1);
     private static readonly Pen SelKeyPen = FrozenPen(FgBrush, 1.4);
     private static readonly Pen PlayheadPen = FrozenPen(PlayheadBrush, 1.5);
@@ -317,6 +318,12 @@ public sealed partial class TimelineView
         double fallback = (curve.Min + curve.Max) / 2;
 
         dc.PushClip(new RectangleGeometry(new Rect(HeaderWidth, row.Top, w, row.Height)));
+
+        if (curve.Min <= 0 && curve.Max >= 0)
+        {
+            double zeroY = TimelineMath.ValueToY(0, curve.Min, curve.Max, top, height);
+            dc.DrawLine(ZeroPen, new Point(HeaderWidth, zeroY), new Point(HeaderWidth + w, zeroY));
+        }
 
         var geometry = new StreamGeometry();
         using (var g = geometry.Open())
