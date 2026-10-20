@@ -70,6 +70,18 @@ public sealed class PvPipeline : IDisposable
 
     public LegacyPvPlanInfo? LegacyPlan => _legacy?.PlanInfo;
 
+    public string? SelectedLayerId
+    {
+        get => _renderer.SelectedLayerId;
+        set => _renderer.SelectedLayerId = value;
+    }
+
+    public PvSelectionInfo? Selection => _renderer.Selection;
+
+    public int DesignWidth => _renderer.DesignWidth;
+
+    public int DesignHeight => _renderer.DesignHeight;
+
     public event Action<LegacyPvPlanInfo>? LegacyPlanReady;
 
     private SpoutOut? _broadcast;

@@ -32,8 +32,6 @@ public static class TimelineMath
 
     public static readonly string[] Interps = ["Step", "Linear", "SmoothStep", "Bezier", "Spring"];
 
-    private const int BezierIterations = 20;
-
     private static readonly double SpringQ1 = Math.Exp(-5) * Math.Cos(12);
 
     public static double GridStep(double pixelsPerSecond, double fps)
@@ -197,34 +195,23 @@ public static class TimelineMath
         {
             "Step" => a.Value,
             "SmoothStep" => a.Value + (b.Value - a.Value) * (u * u * (3 - 2 * u)),
-            "Bezier" => BezierValue(a, b, u),
+            "Bezier" => a.Value + (b.Value - a.Value) * AutoBezierValue(u),
             "Spring" => a.Value + (b.Value - a.Value) * SpringValue(u),
             _ => a.Value + (b.Value - a.Value) * u,
         };
     }
 
-    private static double BezierValue(in TKey a, in TKey b, double u)
+    private static double AutoBezierValue(double u)
     {
-        double w = SolveBezierX(u, Math.Clamp(a.OutX, 0, 1), 1 - Math.Clamp(b.InX, 0, 1));
-        return a.Value + (b.Value - a.Value) * Cubic(w, 0, a.OutY, 1 - b.InY, 1);
-    }
-
-    private static double SpringValue(double u) =>
-        (1 - Math.Exp(-5 * u) * Math.Cos(12 * u)) / (1 - SpringQ1);
-
-    private static double SolveBezierX(double u, double x1, double x2)
-    {
-        if (u <= 0) return 0;
-        if (u >= 1) return 1;
-
         double lo = 0, hi = 1;
-        for (int i = 0; i < BezierIterations; i++)
+        for (int i = 0; i < 20; i++)
         {
             double mid = (lo + hi) / 2;
-            if (Cubic(mid, 0, x1, x2, 1) < u) lo = mid;
+            if (Cubic(mid, 0, 0.333, 0.667, 1) < u) lo = mid;
             else hi = mid;
         }
-        return (lo + hi) / 2;
+
+        return Cubic((lo + hi) / 2, 0, 0, 1, 1);
     }
 
     private static double Cubic(double w, double p0, double p1, double p2, double p3)
@@ -233,32 +220,8 @@ public static class TimelineMath
         return s * s * s * p0 + 3 * s * s * w * p1 + 3 * s * w * w * p2 + w * w * w * p3;
     }
 
-    public static (double Time, double Value) OutHandlePoint(in TKey a, in TKey b) =>
-        (a.TimeSeconds + a.OutX * (b.TimeSeconds - a.TimeSeconds), a.Value + a.OutY * (b.Value - a.Value));
-
-    public static (double Time, double Value) InHandlePoint(in TKey a, in TKey b) =>
-        (b.TimeSeconds - b.InX * (b.TimeSeconds - a.TimeSeconds), b.Value - b.InY * (b.Value - a.Value));
-
-    public static (double X, double Y) OutHandleAt(double time, double value, in TKey a, in TKey b, double outY) =>
-        (HandleU(time, a, b), HandleV(value, a, b, outY));
-
-    public static (double X, double Y) InHandleAt(double time, double value, in TKey a, in TKey b, double inY)
-    {
-        double delta = b.Value - a.Value;
-        return (1 - HandleU(time, a, b), delta != 0 ? 1 - (value - a.Value) / delta : inY);
-    }
-
-    private static double HandleU(double time, in TKey a, in TKey b)
-    {
-        double span = b.TimeSeconds - a.TimeSeconds;
-        return span > 0 ? Math.Clamp((time - a.TimeSeconds) / span, 0, 1) : 0;
-    }
-
-    private static double HandleV(double value, in TKey a, in TKey b, double fallback)
-    {
-        double delta = b.Value - a.Value;
-        return delta != 0 ? (value - a.Value) / delta : fallback;
-    }
+    private static double SpringValue(double u) =>
+        (1 - Math.Exp(-5 * u) * Math.Cos(12 * u)) / (1 - SpringQ1);
 
     public static long TimeToSample(double seconds, double durationSeconds, long sampleCount)
     {

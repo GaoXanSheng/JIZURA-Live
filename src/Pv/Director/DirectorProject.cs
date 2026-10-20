@@ -89,6 +89,8 @@ public sealed class EditorLayout
     public long TimelineScrollTicks { get; set; }
 
     public List<string> CollapsedTrackIds { get; set; } = new();
+
+    public bool VtsStageDrive { get; set; } = true;
 }
 
 public sealed class CurveSave

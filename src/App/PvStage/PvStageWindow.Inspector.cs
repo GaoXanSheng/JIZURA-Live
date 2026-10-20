@@ -147,6 +147,7 @@ public partial class PvStageWindow
     private void SelectLayer(PvLayerConfig? layer)
     {
         _selectedLayer = layer;
+        SyncStageSelection();
         HighlightLayerCards();
         TheTimeline.ClearDesignSelection();
         BuildInspector();
@@ -260,6 +261,9 @@ public partial class PvStageWindow
     private void BuildLayerSection(PvLayerConfig layer)
     {
         AddSectionTitle(L.T("图层"));
+        AddInspector(ThemeText(
+            L.T("选中图层后，画面里会出现方框；拖框内移动，拖四角缩放，拖上方圆点旋转，Shift 锁定方向；已有对应关键帧时在播放头自动打帧。VTS 图层可改为直接控制 VTS 坐标。"),
+            TextTertiaryKey, 11, wrap: true));
         AddInspector(LayerRow(layer, "offsetX", L.T("位移X"), 0.01));
         AddInspector(LayerRow(layer, "offsetY", L.T("位移Y"), 0.01));
         AddInspector(LayerRow(layer, "scale", L.T("缩放"), 0.01));
@@ -356,6 +360,7 @@ public partial class PvStageWindow
 
         BuildCharacterMoveSection();
         BuildCharacterExpressionSection();
+        BuildCharacterTintSection();
     }
 
     private void CopyGlobalCameraToLayer(PvLayerConfig layer)
@@ -670,7 +675,7 @@ public partial class PvStageWindow
 
         bool created = !_evaluator.Curves.ContainsKey(row.Address);
         var curve = EnsureCurve(row.Address, row.ReadBase(), t);
-        var mode = ModeOfKeyAt(curve, t) ?? CurveModeFor(row.Address);
+        var mode = ModeOfKeyAt(curve, t) ?? DefaultCurveMode();
         curve.Remove(t);
         curve.TryAdd(t, v, mode);
 
@@ -689,7 +694,7 @@ public partial class PvStageWindow
         if (_evaluator.Curves.TryGetValue(addr, out var curve)) return curve;
 
         curve = new FloatCurve();
-        if (time > 1e-6) curve.TryAdd(0, rest, CurveModeFor(addr));
+        if (time > 1e-6) curve.TryAdd(0, rest, DefaultCurveMode());
         _evaluator.SetCurve(addr, curve);
         return curve;
     }
@@ -699,7 +704,7 @@ public partial class PvStageWindow
         var t = _audio.Time;
         var curve = EnsureCurve(addr, value, t);
 
-        var mode = ModeOfKeyAt(curve, t) ?? CurveModeFor(addr);
+        var mode = ModeOfKeyAt(curve, t) ?? DefaultCurveMode();
         curve.Remove(t);
         curve.TryAdd(t, value, mode);
         PublishDirector();
@@ -721,7 +726,7 @@ public partial class PvStageWindow
         {
             if (!row.Slider.IsMouseCaptureWithin) row.EditTime = t;
             var at = row.EditTime;
-            var mode = ModeOfKeyAt(curve, at) ?? CurveModeFor(row.Address);
+            var mode = ModeOfKeyAt(curve, at) ?? DefaultCurveMode();
             curve.Remove(at);
             curve.TryAdd(at, value, mode);
             PublishDirector();
@@ -1472,6 +1477,7 @@ public partial class PvStageWindow
                     "x" => L.T("位移X"),
                     "y" => L.T("位移Y"),
                     "size" => L.T("缩放Z"),
+                    "rotation" => L.T("旋转"),
                     _ => addr.Param,
                 });
             case ParamAddressKind.Layer:

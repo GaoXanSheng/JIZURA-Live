@@ -55,6 +55,13 @@ public sealed partial class TimelineView
         }
 
         if (RowAt(p.Y) is not { } row) return;
+        if (EyeAt(p, row))
+        {
+            e.Handled = true;
+            if (row.Kind == RowKind.Ruler) TryOpenHiddenTracksMenu();
+            else ToggleTrackHidden(row);
+            return;
+        }
         double x = p.X - HeaderWidth;
 
         if (e.ClickCount == 2 && row.Kind == RowKind.Automation)
@@ -97,6 +104,11 @@ public sealed partial class TimelineView
                 Cursor = Cursors.SizeNS;
                 return;
             }
+            if (RowAt(hover.Y) is { } hoverRow && EyeAt(hover, hoverRow))
+            {
+                Cursor = Cursors.Hand;
+                return;
+            }
             UpdateDesignCursor(hover);
             return;
         }
@@ -108,9 +120,6 @@ public sealed partial class TimelineView
                 break;
             case DragMode.Key:
                 MoveSelectedKeys(p);
-                break;
-            case DragMode.Handle:
-                MoveHandle(p);
                 break;
             case DragMode.Pan:
                 PanTo(p.X);
@@ -142,11 +151,6 @@ public sealed partial class TimelineView
             _dragTip = null;
             _drag = DragMode.None;
             CommitGesture("move");
-        }
-        else if (_drag == DragMode.Handle)
-        {
-            _drag = DragMode.None;
-            CommitGesture("interp");
         }
         else if (_drag == DragMode.Clip)
         {
@@ -402,6 +406,34 @@ public sealed partial class TimelineView
         && seg.RefId.StartsWith("legacy_", StringComparison.Ordinal)
         && seg.Track is (int)DesignTrackKind.Layout or (int)DesignTrackKind.Enter
             or (int)DesignTrackKind.Exit or (int)DesignTrackKind.Treat;
+
+    private bool EyeAt(Point p, in Row row)
+    {
+        if (row.Kind == RowKind.Ruler)
+            return p.X >= RulerEyeLeft && p.X < HeaderWidth && HiddenTrackEntries().Count > 0;
+        return p.X >= 0 && p.X <= EyeHitWidth;
+    }
+
+    private bool TryOpenHiddenTracksMenu()
+    {
+        var entries = HiddenTrackEntries();
+        if (entries.Count == 0) return false;
+
+        var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
+        foreach (var (id, label) in entries)
+        {
+            var item = new MenuItem { Header = label };
+            item.Click += (_, _) => ShowTrack(id);
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+        var all = new MenuItem { Header = L.T("全部显示") };
+        all.Click += (_, _) => ShowAllTracks();
+        menu.Items.Add(all);
+        menu.IsOpen = true;
+        return true;
+    }
 
     private void UpdateDesignCursor(Point p)
     {
@@ -679,7 +711,6 @@ public sealed partial class TimelineView
     private void StartAutomationDrag(Row row, Point p, double x)
     {
         var curve = _snap!.Curves[row.Index];
-        if (StartHandleDrag(row, curve, p)) return;
         int hit = TimelineMath.HitKey(curve.Keys, x, _viewStart, _pixelsPerSecond);
         if (hit < 0)
         {
@@ -720,51 +751,6 @@ public sealed partial class TimelineView
         _dragOrigin = p;
         _drag = DragMode.Key;
         CaptureMouse();
-        InvalidateVisual();
-    }
-
-    private bool StartHandleDrag(Row row, TCurve curve, Point p)
-    {
-        foreach (var (index, outSide) in HandleTargets(curve))
-        {
-            var handle = HandlePixel(curve, row, index, outSide);
-            if (Math.Abs(handle.X - p.X) > TimelineMath.KeyHitRadiusPx) continue;
-            if (Math.Abs(handle.Y - p.Y) > TimelineMath.KeyHitRadiusPx) continue;
-
-            BeginGesture([curve.Address]);
-            _handleDrag = (curve.Address, index, outSide);
-            _dragRow = row;
-            _drag = DragMode.Handle;
-            CaptureMouse();
-            return true;
-        }
-        return false;
-    }
-
-    private void MoveHandle(Point p)
-    {
-        var curve = FindCurve(_handleDrag.Address);
-        if (curve is null || _handleDrag.KeyIndex >= curve.Keys.Count) return;
-
-        int index = _handleDrag.KeyIndex;
-        double time = TimeAt(p.X - HeaderWidth);
-        double value = TimelineMath.YToValue(p.Y, curve.Min, curve.Max,
-            _dragRow.Top + ValuePad, _dragRow.Height - 2 * ValuePad);
-
-        if (_handleDrag.Out)
-        {
-            if (index + 1 >= curve.Keys.Count) return;
-            var key = curve.Keys[index];
-            var (x, y) = TimelineMath.OutHandleAt(time, value, key, curve.Keys[index + 1], key.OutY);
-            curve.Keys[index] = key with { OutX = x, OutY = y };
-        }
-        else
-        {
-            if (index == 0) return;
-            var key = curve.Keys[index];
-            var (x, y) = TimelineMath.InHandleAt(time, value, curve.Keys[index - 1], key, key.InY);
-            curve.Keys[index] = key with { InX = x, InY = y };
-        }
         InvalidateVisual();
     }
 
@@ -875,16 +861,31 @@ public sealed partial class TimelineView
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
         foreach (var interp in TimelineMath.Interps)
         {
-            var item = new MenuItem { Header = interp, IsCheckable = true, IsChecked = key.Interp == interp };
+            var item = new MenuItem
+            {
+                Header = InterpLabel(interp),
+                IsCheckable = true,
+                IsChecked = key.Interp == interp,
+            };
             item.Click += (_, _) => SetInterp(interp);
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
-        var remove = new MenuItem { Header = "Delete" };
+        var remove = new MenuItem { Header = L.T("删除") };
         remove.Click += (_, _) => DeleteSelected();
         menu.Items.Add(remove);
         menu.IsOpen = true;
     }
+
+    private static string InterpLabel(string interp) => interp switch
+    {
+        "Step" => L.T("阶梯"),
+        "Linear" => L.T("线性"),
+        "SmoothStep" => L.T("平滑"),
+        "Bezier" => L.T("贝塞尔"),
+        "Spring" => L.T("弹簧"),
+        _ => interp,
+    };
 
     public void SetInterp(string interp)
     {

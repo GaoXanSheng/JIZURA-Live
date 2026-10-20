@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using JizuraLive.App.I18n;
 using JizuraLive.Pv;
 using JizuraLive.Vts;
 
@@ -38,7 +39,6 @@ public sealed partial class TimelineView : Control
         None,
         Scrub,
         Key,
-        Handle,
         Pan,
         VPan,
         Clip,
@@ -63,8 +63,6 @@ public sealed partial class TimelineView : Control
     private Point _dragOrigin;
     private double _dragValuePerPixel;
     private string? _dragTip;
-    private (ParamAddress Address, int KeyIndex, bool Out) _handleDrag;
-    private Row _dragRow;
     private int _clipIndex = -1;
     private ClipEdge _clipEdge;
     private ClipRange _clipOrigin;
@@ -134,7 +132,23 @@ public sealed partial class TimelineView : Control
 
     public event Action<VtsCueKind, string, double, double, double>? VtsCueEdited;
 
+    public event Action? TrackVisibilityChanged;
+
     public Func<double, Task<double?>>? ValuePrompt { get; set; }
+
+    public IEnumerable<string> CollapsedTrackIds =>
+        _snap?.CollapsedTracks ?? (IEnumerable<string>)Array.Empty<string>();
+
+    private const string WaveformTrackId = "waveform";
+    private const string LyricsTrackId = "lyrics";
+    private const double EyeHitWidth = 24;
+    private const double RulerEyeLeft = HeaderWidth - 52;
+
+    private static string DesignTrackId(DesignTrackKind kind) => "design:" + kind;
+
+    private static string CurveTrackId(in ParamAddress address) => "curve:" + address;
+
+    private static string VtsTrackId(VtsCueKind kind) => "vts:" + kind;
 
     private TDesignSegment? FindSegment(int track, string refId)
     {
@@ -187,27 +201,37 @@ public sealed partial class TimelineView : Control
         var rows = new List<Row>();
         double top = 0;
         double contentHeight = ContentHeight;
+        bool Hidden(string id) => _snap?.CollapsedTracks.Contains(id) == true;
+
         rows.Add(new Row(RowKind.Ruler, 0, top, RulerHeight));
         top += RulerHeight;
-        rows.Add(new Row(RowKind.Waveform, 0, top, WaveformHeight));
-        top += WaveformHeight;
-        if (_snap is { Lyrics.Count: > 0 })
+        if (!Hidden(WaveformTrackId))
+        {
+            rows.Add(new Row(RowKind.Waveform, 0, top, WaveformHeight));
+            top += WaveformHeight;
+        }
+        if (_snap is { Lyrics.Count: > 0 } && !Hidden(LyricsTrackId))
         {
             rows.Add(new Row(RowKind.Lyrics, 0, top, LyricHeight));
             top += LyricHeight;
         }
 
         double trackTop = top;
+        _trackTop = trackTop;
         double viewH = Math.Max(0, contentHeight - trackTop);
 
-        int automationCount = _snap?.Curves.Count ?? 0;
-        int cueCount = _snap?.VtsCueTracks.Count ?? 0;
-
+        int automationCount = 0;
+        int cueCount = 0;
         var populated = new List<int>();
         if (_snap is not null)
         {
+            foreach (var curve in _snap.Curves)
+                if (!Hidden(CurveTrackId(curve.Address))) automationCount++;
+            foreach (var track in _snap.VtsCueTracks)
+                if (!Hidden(VtsTrackId(track.Kind))) cueCount++;
             for (int i = 0; i < _snap.DesignTracks.Count; i++)
-                if (_snap.DesignTracks[i].Segments.Count > 0)
+                if (_snap.DesignTracks[i].Segments.Count > 0
+                    && !Hidden(DesignTrackId(_snap.DesignTracks[i].Kind)))
                     populated.Add(i);
         }
 
@@ -230,6 +254,7 @@ public sealed partial class TimelineView : Control
         if (_snap is not null)
             for (int i = 0; i < _snap.Curves.Count; i++)
             {
+                if (Hidden(CurveTrackId(_snap.Curves[i].Address))) continue;
                 rows.Add(new Row(RowKind.Automation, i, y, AutomationHeight));
                 y += AutomationHeight;
             }
@@ -237,11 +262,83 @@ public sealed partial class TimelineView : Control
         if (_snap is not null)
             for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
             {
+                if (Hidden(VtsTrackId(_snap.VtsCueTracks[i].Kind))) continue;
                 rows.Add(new Row(RowKind.VtsCue, i, y, AutomationHeight));
                 y += AutomationHeight;
             }
 
         return rows;
+    }
+
+    private string TrackIdOf(in Row row) => row.Kind switch
+    {
+        RowKind.Waveform => WaveformTrackId,
+        RowKind.Lyrics => LyricsTrackId,
+        RowKind.Design => DesignTrackId(_snap!.DesignTracks[row.Index].Kind),
+        RowKind.Automation => CurveTrackId(_snap!.Curves[row.Index].Address),
+        RowKind.VtsCue => VtsTrackId(_snap!.VtsCueTracks[row.Index].Kind),
+        _ => "",
+    };
+
+    private void ToggleTrackHidden(in Row row)
+    {
+        if (_snap is null) return;
+        var id = TrackIdOf(row);
+        if (id.Length == 0) return;
+
+        bool hidden = !_snap.CollapsedTracks.Remove(id);
+        if (hidden) _snap.CollapsedTracks.Add(id);
+
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    private void ShowTrack(string id)
+    {
+        if (_snap is null || !_snap.CollapsedTracks.Remove(id)) return;
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    private void ShowAllTracks()
+    {
+        if (_snap is null || _snap.CollapsedTracks.Count == 0) return;
+        _snap.CollapsedTracks.Clear();
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    private List<(string Id, string Label)> HiddenTrackEntries()
+    {
+        var list = new List<(string, string)>();
+        if (_snap is null) return list;
+        bool Hidden(string id) => _snap.CollapsedTracks.Contains(id);
+
+        if (Hidden(WaveformTrackId)) list.Add((WaveformTrackId, L.T("音频")));
+        if (Hidden(LyricsTrackId) && _snap.Lyrics.Count > 0) list.Add((LyricsTrackId, L.T("歌词")));
+        foreach (var track in _snap.DesignTracks)
+        {
+            if (track.Segments.Count == 0) continue;
+            var id = DesignTrackId(track.Kind);
+            if (Hidden(id)) list.Add((id, DesignTrackNames.Label(track.Kind)));
+        }
+        foreach (var curve in _snap.Curves)
+        {
+            var id = CurveTrackId(curve.Address);
+            if (Hidden(id)) list.Add((id, curve.Label));
+        }
+        foreach (var track in _snap.VtsCueTracks)
+        {
+            var id = VtsTrackId(track.Kind);
+            if (Hidden(id)) list.Add((id, CueTrackLabel(track.Kind)));
+        }
+        return list;
     }
 
     private TVtsCue? _dragCue;
@@ -254,6 +351,7 @@ public sealed partial class TimelineView : Control
     private bool _dragCueResizeEnd;
 
     private double _scrollOffset;
+    private double _trackTop;
     private double _trackViewHeight;
     private double _trackTotalHeight;
     private double _vScrollGrab;
@@ -416,8 +514,6 @@ public sealed partial class TimelineView : Control
         return true;
     }
 
-    private const string BezierInterp = "Bezier";
-
     public void SelectKey(ParamAddress address, double time)
     {
         _selection.Clear();
@@ -439,24 +535,4 @@ public sealed partial class TimelineView : Control
         return IsSelected(address, time);
     }
 
-    private IEnumerable<(int KeyIndex, bool Out)> HandleTargets(TCurve curve)
-    {
-        for (int i = 0; i + 1 < curve.Keys.Count; i++)
-        {
-            if (curve.Keys[i].Interp != BezierInterp) continue;
-            if (!IsKeySelected(curve.Address, i, curve.Keys[i].TimeSeconds) &&
-                !IsKeySelected(curve.Address, i + 1, curve.Keys[i + 1].TimeSeconds)) continue;
-            yield return (i, true);
-            yield return (i + 1, false);
-        }
-    }
-
-    private Point HandlePixel(TCurve curve, Row row, int index, bool outSide)
-    {
-        var a = outSide ? curve.Keys[index] : curve.Keys[index - 1];
-        var b = outSide ? curve.Keys[index + 1] : curve.Keys[index];
-        var (time, value) = outSide ? TimelineMath.OutHandlePoint(a, b) : TimelineMath.InHandlePoint(a, b);
-        return new Point(HeaderWidth + TimelineMath.TimeToX(time, _viewStart, _pixelsPerSecond),
-            TimelineMath.ValueToY(value, curve.Min, curve.Max, row.Top + ValuePad, row.Height - 2 * ValuePad));
-    }
 }

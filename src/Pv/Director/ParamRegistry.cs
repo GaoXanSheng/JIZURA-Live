@@ -137,12 +137,12 @@ public static class ParamRegistry
         switch (addr.Param)
         {
             case "x":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -5, 5, 0, "Param.Vts.X");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.X");
                 error = null;
                 return true;
 
             case "y":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -5, 5, 0, "Param.Vts.Y");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.Y");
                 error = null;
                 return true;
 
@@ -151,8 +151,13 @@ public static class ParamRegistry
                 error = null;
                 return true;
 
+            case "rotation":
+                spec = new ParamSpec(ParamUnit.Degrees, -DegreeRange, DegreeRange, 0, "Param.Vts.Rotation");
+                error = null;
+                return true;
+
             default:
-                error = $"{CodeMissingKey}: 角色移动只有 x/y/size 三条通道（地址 vts.{addr.Param}）";
+                error = $"{CodeMissingKey}: 角色移动只有 x/y/size/rotation 四条通道（地址 vts.{addr.Param}）";
                 return false;
         }
     }

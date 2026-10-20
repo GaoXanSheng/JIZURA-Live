@@ -1,6 +1,8 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using JizuraLive.Pv;
 using JizuraLive.Vts;
 using JizuraLive.App.I18n;
@@ -13,23 +15,31 @@ public partial class PvStageWindow
     private double _vtsRestX;
     private double _vtsRestY;
     private double _vtsRestSize;
-    private (double X, double Y, double Size) _vtsSent = (double.NaN, double.NaN, double.NaN);
+    private double _vtsRestRot;
+    private (double X, double Y, double Size, double Rotation) _vtsSent =
+        (double.NaN, double.NaN, double.NaN, double.NaN);
     private bool _vtsWasReady;
     private double _cueTime;
     private double _vtsHotkeyDuration = 2.0;
     private double _vtsExpressionDuration = 2.0;
     private VtsCueMode _vtsHotkeyMode = VtsCueMode.Toggle;
     private VtsCueMode _vtsExpressionMode = VtsCueMode.Toggle;
+    private double _vtsTintDuration = 2.0;
+    private VtsCueMode _vtsTintMode = VtsCueMode.Toggle;
+    private string _vtsTintTarget = "all";
+    private string _vtsTintColor = "#FF6B6B";
+    private bool _stageVtsDrive = true;
+    private TextBlock? _vtsFramingText;
     private readonly HashSet<string> _manualExprOn = new(StringComparer.Ordinal);
     private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
 
     private static readonly ParamAddress VtsXAddr = new(ParamAddressKind.Vts, "model", "x");
     private static readonly ParamAddress VtsYAddr = new(ParamAddressKind.Vts, "model", "y");
     private static readonly ParamAddress VtsSizeAddr = new(ParamAddressKind.Vts, "model", "size");
+    private static readonly ParamAddress VtsRotationAddr = new(ParamAddressKind.Vts, "model", "rotation");
 
     private void InitVts()
     {
-        _vts.TrackingEnabled = false;
         _vts.Changed += () => Dispatcher.BeginInvoke(UpdateVtsUi);
         _vts.Start();
 
@@ -66,8 +76,10 @@ public partial class PvStageWindow
 
         TblVtsState.Text = text;
         BtnVtsAuth.IsEnabled = state is VtsState.NeedAuth;
+        if (_vtsFramingText is not null) _vtsFramingText.Text = VtsFramingLabel();
 
-        if (state == VtsState.Ready && !_vtsWasReady) _vtsSent = (double.NaN, double.NaN, double.NaN);
+        if (state == VtsState.Ready && !_vtsWasReady)
+            _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
         _vtsWasReady = state == VtsState.Ready;
     }
 
@@ -87,22 +99,42 @@ public partial class PvStageWindow
     {
         AddSectionTitle(L.T("角色移动"));
         AddInspector(ThemeText(
-            L.T("X/Y 为 VTS 场景位移，Z 为皮套缩放；关键帧用平滑贝塞尔插值，播放时实时写入 VTS。"),
+            L.T("X/Y 为 VTS 场景位移，Z 为皮套缩放，旋转为角度；关键帧用自动平滑插值，播放时实时写入 VTS。"),
             TextSecondaryKey, 11, wrap: true));
 
-        var framing = _vts.Framing;
+        _vtsFramingText = ThemeText(VtsFramingLabel(), TextTertiaryKey, 11, wrap: true);
+        AddInspector(_vtsFramingText);
+
+        var calibrate = new Wpf.Ui.Controls.Button
+        {
+            Content = L.T("校准初始坐标（以 VTS 当前姿态为基准）"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        calibrate.Click += (_, _) => CalibrateVtsBase();
+        AddInspector(calibrate);
+
+        _stageVtsDrive = _project.EditorLayout?.VtsStageDrive ?? _stageVtsDrive;
+        AddInspector(BoolRow(L.T("画面手柄控制 VTS 坐标"), _stageVtsDrive,
+            v =>
+            {
+                _stageVtsDrive = v;
+                if (_project.EditorLayout is { } layout) layout.VtsStageDrive = v;
+                _saveError = SaveProjectNow();
+            }));
         AddInspector(ThemeText(
-            framing is null
-                ? L.T("滑杆是相对载入时 VTS 姿态的偏移，0 = 保持基准；连上 VTS 后读取基准。")
-                : L.F("基准：X {0:F2} · Y {1:F2} · 缩放 {2:F2}；滑杆 0 = 保持基准。", framing.X, framing.Y, framing.Size),
+            L.T("VTS 模式下，方框是采集画面边界，手柄直接改 VTS 模型坐标和关键帧。"),
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -5, 5, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 1,
             () => _vtsRestX, v => _vtsRestX = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -5, 5, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 1,
             () => _vtsRestY, v => _vtsRestY = v));
         AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
+        AddInspector(AnimParamRow(_inspectorRows, VtsRotationAddr, L.T("旋转"), -180, 180, 1,
+            () => _vtsRestRot, v => _vtsRestRot = v));
 
         var addKeys = new Wpf.Ui.Controls.Button
         {
@@ -242,11 +274,256 @@ public partial class PvStageWindow
             TextTertiaryKey, 11, wrap: true));
     }
 
+    private void BuildCharacterTintSection()
+    {
+        AddSectionTitle(L.T("角色染色"));
+        AddInspector(ThemeText(
+            L.T("给整个模型或指定 ArtMesh 染色；开关模式到点染色、结束恢复原色。"),
+            TextSecondaryKey, 11, wrap: true));
+
+        AddInspector(ThemeText(L.T("目标"), TextSecondaryKey, 12));
+        var target = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        FillTintTargets(target);
+        target.DropDownOpened += (_, _) =>
+        {
+            _vts.RefreshArtMeshes();
+            FillTintTargets(target);
+        };
+        target.SelectionChanged += (_, _) =>
+        {
+            if (target.SelectedItem is ComboBoxItem { Tag: string value }) _vtsTintTarget = value;
+        };
+        AddInspector(target);
+
+        var colorRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        colorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        colorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        colorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
+
+        var colorLabel = ThemeText(L.T("颜色"), TextSecondaryKey, 12);
+        colorLabel.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(colorLabel, 0);
+        colorRow.Children.Add(colorLabel);
+
+        var colorBox = new TextBox
+        {
+            Text = _vtsTintColor,
+            FontSize = 12,
+            Height = 28,
+            FontFamily = MonoFontFamily,
+            Padding = new Thickness(6, 0, 6, 0),
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        var swatch = new Border
+        {
+            Width = 22,
+            Height = 20,
+            CornerRadius = new CornerRadius(3),
+            Background = BrushFromHex(_vtsTintColor),
+            BorderThickness = new Thickness(1),
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Cursor = Cursors.Hand,
+            ToolTip = L.T("打开拾色器"),
+        };
+        swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+        swatch.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            var current = IsHexColor(colorBox.Text.Trim()) ? colorBox.Text.Trim() : _vtsTintColor;
+            Dispatcher.BeginInvoke(new Action(() =>
+                ColorPickerPopup.Show(swatch, current,
+                    hex => colorBox.Text = hex,
+                    hex => swatch.Background = BrushFromHex(hex))));
+        };
+        colorBox.TextChanged += (_, _) =>
+        {
+            var hex = colorBox.Text.Trim();
+            if (!IsHexColor(hex)) return;
+            _vtsTintColor = hex;
+            swatch.Background = BrushFromHex(hex);
+        };
+        Grid.SetColumn(colorBox, 1);
+        colorRow.Children.Add(colorBox);
+        Grid.SetColumn(swatch, 2);
+        colorRow.Children.Add(swatch);
+        AddInspector(colorRow);
+
+        AddInspector(ConstRow(L.T("持续"), 0.3, 20, 0.1,
+            () => _vtsTintDuration, v => _vtsTintDuration = v));
+        var mode = VtsModeCombo(() => _vtsTintMode, v => _vtsTintMode = v);
+        AddInspector(mode);
+
+        var add = new Wpf.Ui.Controls.Button
+        {
+            Content = _vtsTintMode == VtsCueMode.Manual ? L.T("立即染色") : L.T("在播放头添加染色"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        add.Click += (_, _) =>
+        {
+            var (r, g, b) = ParseTintColor(_vtsTintColor);
+            if (_vtsTintMode == VtsCueMode.Manual)
+            {
+                _vts.SetArtMeshTint(_vtsTintTarget, r, g, b);
+                TblStatus.Text = L.T("已应用染色");
+                return;
+            }
+            AddVtsTintCue(r, g, b);
+        };
+        mode.SelectionChanged += (_, _) =>
+            add.Content = _vtsTintMode == VtsCueMode.Manual
+                ? L.T("立即染色")
+                : L.T("在播放头添加染色");
+        AddInspector(add);
+
+        var reset = new Wpf.Ui.Controls.Button
+        {
+            Content = L.T("清除全部染色"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        reset.Click += (_, _) => ClearVtsTints();
+        AddInspector(reset);
+
+        AddInspector(ThemeText(
+            L.T("染色关键帧在时间线上可拖动；开关模式结束会恢复白色。"),
+            TextTertiaryKey, 11, wrap: true));
+    }
+
+    private string VtsFramingLabel()
+    {
+        var framing = _vts.Framing;
+        return framing is null
+            ? L.T("滑杆是相对校准基准的偏移，0 = 保持基准；连上 VTS 后可校准初始坐标。")
+            : L.F("基准：X {0:F2} · Y {1:F2} · 缩放 {2:F2}；滑杆 0 = 保持基准。",
+                framing.X, framing.Y, framing.Size);
+    }
+
+    private void CalibrateVtsBase()
+    {
+        if (_vts.State != VtsState.Ready)
+        {
+            TblStatus.Text = L.T("先连上 VTS 再校准");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_vts.ModelName))
+        {
+            TblStatus.Text = L.T("VTS 没有加载模型");
+            return;
+        }
+
+        _vts.CalibrateBase();
+        _vtsRestX = 0;
+        _vtsRestY = 0;
+        _vtsRestSize = 0;
+        _vtsRestRot = 0;
+        _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+        RefreshParamRows();
+        TblStatus.Text = L.T("已以 VTS 当前姿态校准基准坐标");
+    }
+
+    private void FillTintTargets(ComboBox combo)
+    {
+        combo.Items.Clear();
+        combo.Items.Add(new ComboBoxItem { Content = L.T("整个模型"), Tag = "all" });
+        foreach (var name in _vts.ArtMeshes)
+            combo.Items.Add(new ComboBoxItem { Content = name, Tag = "name:" + name });
+        foreach (var tag in _vts.ArtMeshTags)
+            combo.Items.Add(new ComboBoxItem { Content = L.F("标签 · {0}", tag), Tag = "tag:" + tag });
+        if (combo.Items.Count == 1)
+            combo.Items.Add(new ComboBoxItem
+            {
+                Content = L.T("未读取到 ArtMesh，连上 VTS 后重试"),
+                IsEnabled = false,
+            });
+
+        for (int i = 0; i < combo.Items.Count; i++)
+            if (combo.Items[i] is ComboBoxItem { Tag: string value } && value == _vtsTintTarget)
+            {
+                combo.SelectedIndex = i;
+                return;
+            }
+        combo.SelectedIndex = 0;
+    }
+
+    private void AddVtsTintCue(int r, int g, int b)
+    {
+        if (_project is null) return;
+        _project.VtsCues ??= new VtsCueTrack();
+
+        double t = _audio.Time;
+        var cues = _project.VtsCues.Cues;
+        cues.RemoveAll(c => c is not null && c.Kind == VtsCueKind.Tint
+            && c.Target == _vtsTintTarget
+            && c.TintR == r && c.TintG == g && c.TintB == b
+            && Math.Abs(c.Time - t) < 1e-3);
+        cues.Add(new VtsCue
+        {
+            Time = t,
+            Kind = VtsCueKind.Tint,
+            Mode = _vtsTintMode,
+            Target = _vtsTintTarget,
+            Duration = Math.Max(0.2, _vtsTintDuration),
+            TintR = r,
+            TintG = g,
+            TintB = b,
+        });
+        cues.Sort((x, y) => x.Time.CompareTo(y.Time));
+
+        PushUndo();
+        RefreshTimeline();
+        TheTimeline.RevealCues();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已在 {0:F2}s 添加染色关键帧", t);
+    }
+
+    private void ClearVtsTints()
+    {
+        int removed = _project?.VtsCues?.Cues.RemoveAll(
+            c => c is not null && c.Kind == VtsCueKind.Tint) ?? 0;
+        _vts.ClearArtMeshTint("all");
+        if (removed > 0)
+        {
+            PushUndo();
+            RefreshTimeline();
+            _saveError = SaveProjectNow();
+        }
+        TblStatus.Text = L.T("已清除全部染色");
+    }
+
+    private static (int R, int G, int B) ParseTintColor(string hex)
+    {
+        var text = hex.Trim().TrimStart('#');
+        if (text.Length == 3) text = string.Concat(text.Select(c => new string(c, 2)));
+        if (text.Length != 6
+            || !int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int rgb))
+            return (255, 255, 255);
+        return ((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
+    }
+
+    private static string VtsTintTargetLabel(VtsCue cue)
+    {
+        var target = string.IsNullOrEmpty(cue.Target) || cue.Target == "all"
+            ? L.T("整个模型")
+            : cue.Target.StartsWith("tag:", StringComparison.Ordinal)
+                ? L.F("标签 · {0}", cue.Target[4..])
+                : cue.Target.StartsWith("name:", StringComparison.Ordinal)
+                    ? cue.Target[5..]
+                    : cue.Target;
+        return $"#{Math.Clamp(cue.TintR, 0, 255):X2}"
+               + $"{Math.Clamp(cue.TintG, 0, 255):X2}"
+               + $"{Math.Clamp(cue.TintB, 0, 255):X2} {target}";
+    }
+
     private void ClearVtsMoves()
     {
         bool removed = _evaluator.RemoveCurve(VtsXAddr);
         removed |= _evaluator.RemoveCurve(VtsYAddr);
         removed |= _evaluator.RemoveCurve(VtsSizeAddr);
+        removed |= _evaluator.RemoveCurve(VtsRotationAddr);
         if (!removed)
         {
             TblStatus.Text = L.T("角色移动没有关键帧");
@@ -316,7 +593,7 @@ public partial class PvStageWindow
         double t = _audio.Time;
         if (!_audio.IsPlaying)
         {
-            _cueTime = t;
+            _cueTime = t - 0.001;
             return;
         }
 
@@ -336,6 +613,8 @@ public partial class PvStageWindow
 
             if (cue.Kind == VtsCueKind.Hotkey) _vts.TriggerHotkey(cue.Target);
             else if (cue.Kind == VtsCueKind.Expression) _vts.SetExpression(cue.Target, true, 0.15);
+            else if (cue.Kind == VtsCueKind.Tint)
+                _vts.SetArtMeshTint(cue.Target, cue.TintR, cue.TintG, cue.TintB);
 
             double duration = cue.Duration > 0.01 ? cue.Duration : 2.0;
             if (cue.Mode == VtsCueMode.Toggle)
@@ -355,6 +634,7 @@ public partial class PvStageWindow
     {
         if (string.IsNullOrWhiteSpace(target)) return;
         if (kind == VtsCueKind.Expression) _vts.SetExpression(target, false, 0.15);
+        else if (kind == VtsCueKind.Tint) _vts.ClearArtMeshTint(target);
         else _vts.TriggerHotkey(target);
     }
 
@@ -364,13 +644,14 @@ public partial class PvStageWindow
         AddVtsMoveKey(VtsXAddr, _vtsRestX, t);
         AddVtsMoveKey(VtsYAddr, _vtsRestY, t);
         AddVtsMoveKey(VtsSizeAddr, _vtsRestSize, t);
+        AddVtsMoveKey(VtsRotationAddr, _vtsRestRot, t);
 
         PublishDirector();
         RefreshTimeline();
         RefreshParamRows();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已在 {0:F2}s 添加角色移动关键帧（X / Y / Z）", t);
+        TblStatus.Text = L.F("已在 {0:F2}s 添加角色移动关键帧（X / Y / Z / 旋转）", t);
     }
 
     private void AddVtsMoveKey(in ParamAddress addr, double baseValue, double time)
@@ -378,7 +659,7 @@ public partial class PvStageWindow
         double value = _evaluator.TryEvaluate(addr, time, out var eval) ? eval : baseValue;
         var curve = EnsureCurve(addr, baseValue, time);
 
-        var mode = ModeOfKeyAt(curve, time) ?? CurveModeFor(addr);
+        var mode = ModeOfKeyAt(curve, time) ?? DefaultCurveMode();
         curve.Remove(time);
         curve.TryAdd(time, value, mode);
     }
@@ -391,24 +672,26 @@ public partial class PvStageWindow
         var x = _evaluator.TryEvaluate(VtsXAddr, t, out var vx) ? vx : _vtsRestX;
         var y = _evaluator.TryEvaluate(VtsYAddr, t, out var vy) ? vy : _vtsRestY;
         var size = _evaluator.TryEvaluate(VtsSizeAddr, t, out var vs) ? vs : _vtsRestSize;
+        var rotation = _evaluator.TryEvaluate(VtsRotationAddr, t, out var vr) ? vr : _vtsRestRot;
 
         if (Math.Abs(x - _vtsSent.X) < 1e-4
             && Math.Abs(y - _vtsSent.Y) < 1e-4
-            && Math.Abs(size - _vtsSent.Size) < 1e-4) return;
+            && Math.Abs(size - _vtsSent.Size) < 1e-4
+            && Math.Abs(rotation - _vtsSent.Rotation) < 1e-4) return;
 
         var baseSize = _vts.Framing?.Size ?? 0;
         var sizeDrive = baseSize * Math.Clamp(size, -90, 300) / 100.0;
 
-        _vtsSent = (x, y, size);
-        _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -5, 5), Math.Clamp(y, -5, 5), 0);
+        _vtsSent = (x, y, size, rotation);
+        _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -1000, 1000), Math.Clamp(y, -1000, 1000),
+            Math.Clamp(rotation, -360, 360));
     }
 
     private void ResetVtsMove()
     {
-        _vtsSent = (double.NaN, double.NaN, double.NaN);
+        _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
         _vts.SetDriveOffset(0, 0, 0, 0);
     }
 
-    private static CurveInterp CurveModeFor(in ParamAddress addr) =>
-        addr.Kind == ParamAddressKind.Vts ? CurveInterp.Bezier : CurveInterp.SmoothStep;
+    private static CurveInterp DefaultCurveMode() => CurveInterp.SmoothStep;
 }

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using JizuraLive.Logging;
 
@@ -10,17 +11,34 @@ public sealed class PresentHost : HwndHost
 {
     private const int WsChild = 0x40000000;
     private const int WsVisible = 0x10000000;
+    private const int SsNotify = 0x00000100;
     private const int SwpNoMove = 0x0002;
     private const int SwpNoZOrder = 0x0004;
     private const int SwpNoActivate = 0x0010;
+
+    private const uint WmSetCursor = 0x0020;
+    private const uint WmNcHitTest = 0x0084;
+    private const uint WmMouseMove = 0x0200;
+    private const uint WmLButtonDown = 0x0201;
+    private const uint WmLButtonUp = 0x0202;
+    private const uint WmCaptureChanged = 0x0215;
+    private const uint WmMouseLeave = 0x02A3;
+    private const uint TmeLeave = 0x00000002;
+    private const int HtClient = 1;
+    private const int IdcArrow = 32512;
+    private const int IdcSizeAll = 32644;
 
     private IntPtr _hwnd = IntPtr.Zero;
     private Thread? _thread;
     private volatile bool _running;
     private readonly DispatcherTimer _sizeTimer;
+    private readonly SubclassProc _subclassProc;
+    private bool _pointerDown;
+    private bool _trackLeave;
 
     public PresentHost()
     {
+        _subclassProc = WndSubclass;
         SizeChanged += (_, _) => ResizeChild();
         _sizeTimer = new DispatcherTimer(DispatcherPriority.Render)
         {
@@ -60,6 +78,14 @@ public sealed class PresentHost : HwndHost
 
     public event Action<PresentHost>? Shutdown;
 
+    public event Action<Point>? PointerPressed;
+
+    public event Action<Point>? PointerMoved;
+
+    public event Action? PointerReleased;
+
+    public Func<Point, bool>? MoveCursorHitTest;
+
     public string? Error { get; private set; }
 
     public D3DDevice? Gpu { get; private set; }
@@ -70,7 +96,7 @@ public sealed class PresentHost : HwndHost
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
-        _hwnd = CreateWindowExW(0, "STATIC", null, WsChild | WsVisible,
+        _hwnd = CreateWindowExW(0, "STATIC", null, WsChild | WsVisible | SsNotify,
             0, 0, InitialWidth, InitialHeight, hwndParent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
         if (_hwnd == IntPtr.Zero)
         {
@@ -78,6 +104,9 @@ public sealed class PresentHost : HwndHost
             Log.Error("[PresentHost] " + Error);
             return new HandleRef(this, IntPtr.Zero);
         }
+
+        if (!SetWindowSubclass(_hwnd, _subclassProc, (UIntPtr)1, IntPtr.Zero))
+            Log.Warn($"[PresentHost] 子窗口输入挂接失败 err={Marshal.GetLastWin32Error()}");
 
         _running = true;
         _thread = new Thread(RenderLoop)
@@ -118,6 +147,7 @@ public sealed class PresentHost : HwndHost
         if (!StopRender())
             Log.Error("[PresentHost] 停机握手未完成：仍按 WPF 要求销毁 HWND，GPU 资源留给渲染线程或进程退出收尾");
 
+        if (_hwnd != IntPtr.Zero) RemoveWindowSubclass(_hwnd, _subclassProc, (UIntPtr)1);
         if (hwnd.Handle != IntPtr.Zero) DestroyWindow(hwnd.Handle);
         _hwnd = IntPtr.Zero;
     }
@@ -241,11 +271,172 @@ public sealed class PresentHost : HwndHost
         return (InitialWidth, InitialHeight);
     }
 
+    private IntPtr WndSubclass(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam,
+        UIntPtr uIdSubclass, IntPtr dwRefData)
+    {
+        switch (msg)
+        {
+            case WmNcHitTest:
+                return (IntPtr)HtClient;
+
+            case WmMouseMove:
+                if (!_trackLeave)
+                {
+                    _trackLeave = true;
+                    var track = new TrackMouseEventData
+                    {
+                        Size = (uint)Marshal.SizeOf<TrackMouseEventData>(),
+                        Flags = TmeLeave,
+                        Hwnd = hwnd,
+                    };
+                    TrackMouseEvent(ref track);
+                }
+                RaisePointer(PointerMoved, lParam);
+                break;
+
+            case WmLButtonDown:
+                _pointerDown = true;
+                SetCapture(hwnd);
+                RaisePointer(PointerPressed, lParam);
+                return IntPtr.Zero;
+
+            case WmLButtonUp:
+                if (_pointerDown)
+                {
+                    _pointerDown = false;
+                    ReleaseCapture();
+                    RaisePointerReleased();
+                }
+                return IntPtr.Zero;
+
+            case WmCaptureChanged:
+                if (_pointerDown)
+                {
+                    _pointerDown = false;
+                    RaisePointerReleased();
+                }
+                break;
+
+            case WmMouseLeave:
+                _trackLeave = false;
+                break;
+
+            case WmSetCursor:
+                if (((long)lParam & 0xFFFF) == HtClient)
+                {
+                    SetCursor(LoadCursorW(IntPtr.Zero,
+                        (IntPtr)(_pointerDown || HitTestMove() ? IdcSizeAll : IdcArrow)));
+                    return (IntPtr)1;
+                }
+                break;
+        }
+
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    }
+
+    private bool HitTestMove()
+    {
+        var test = MoveCursorHitTest;
+        if (test is null || !GetCursorPos(out var p)) return false;
+        if (!ScreenToClient(_hwnd, ref p)) return false;
+
+        try { return test(ToDip(p.X, p.Y)); }
+        catch (Exception ex)
+        {
+            Log.Warn("[PresentHost] 光标命中测试异常：" + ex.Message);
+            return false;
+        }
+    }
+
+    private Point ToDip(int x, int y)
+    {
+        var dpi = VisualTreeHelper.GetDpi(this);
+        return new Point(x / dpi.DpiScaleX, y / dpi.DpiScaleY);
+    }
+
+    private void RaisePointer(Action<Point>? handler, IntPtr lParam)
+    {
+        if (handler is null) return;
+        try { handler(ToDip(LoWord(lParam), HiWord(lParam))); }
+        catch (Exception ex)
+        {
+            Log.Warn("[PresentHost] 鼠标事件处理异常：" + ex.Message);
+        }
+    }
+
+    private void RaisePointerReleased()
+    {
+        try { PointerReleased?.Invoke(); }
+        catch (Exception ex)
+        {
+            Log.Warn("[PresentHost] 鼠标事件处理异常：" + ex.Message);
+        }
+    }
+
+    private static int LoWord(IntPtr value) => unchecked((short)(long)value);
+
+    private static int HiWord(IntPtr value) => unchecked((short)((long)value >> 16));
+
+    private delegate IntPtr SubclassProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam,
+        UIntPtr uIdSubclass, IntPtr dwRefData);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TrackMouseEventData
+    {
+        public uint Size;
+        public uint Flags;
+        public IntPtr Hwnd;
+        public uint HoverTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Point32
+    {
+        public int X;
+        public int Y;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
     {
         public int Left, Top, Right, Bottom;
     }
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id, IntPtr data);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProc proc, UIntPtr id);
+
+    [DllImport("comctl32.dll")]
+    private static extern IntPtr DefSubclassProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetCapture(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetCursor(IntPtr cursor);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr LoadCursorW(IntPtr instance, IntPtr name);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out Point32 p);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ScreenToClient(IntPtr hwnd, ref Point32 p);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool TrackMouseEvent(ref TrackMouseEventData data);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateWindowExW(int exStyle, string className, string? windowName,

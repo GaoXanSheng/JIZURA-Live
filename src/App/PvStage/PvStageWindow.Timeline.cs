@@ -42,14 +42,26 @@ public partial class PvStageWindow
         ExportDesignTracks(snap);
         ExportVtsCueTracks(snap);
 
+        foreach (var id in _project.EditorLayout?.CollapsedTrackIds ?? new List<string>())
+            if (!string.IsNullOrEmpty(id)) snap.CollapsedTracks.Add(id);
+
         _snap = snap;
         TheTimeline.SetSnapshot(snap);
+    }
+
+    private void Timeline_TrackVisibilityChanged()
+    {
+        if (_project is null) return;
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        layout.CollapsedTrackIds = TheTimeline.CollapsedTrackIds.ToList();
+        _saveError = SaveProjectNow();
     }
 
     private void ExportVtsCueTracks(TSnapshot snap)
     {
         var hotkeys = new TVtsCueTrack { Kind = VtsCueKind.Hotkey };
         var expressions = new TVtsCueTrack { Kind = VtsCueKind.Expression };
+        var tints = new TVtsCueTrack { Kind = VtsCueKind.Tint };
         foreach (var cue in _project.VtsCues?.Cues ?? new List<VtsCue>())
         {
             if (cue is null) continue;
@@ -60,16 +72,22 @@ public partial class PvStageWindow
                 Duration = cue.Duration > 0.01 ? cue.Duration : 2.0,
                 Target = target,
                 Mode = cue.Mode,
-                Label = (cue.Kind == VtsCueKind.Hotkey
-                    ? _vts.Hotkeys.FirstOrDefault(h => h.HotkeyId == target)?.Name
-                    : Path.GetFileNameWithoutExtension(target)) ?? target,
+                Label = (cue.Kind switch
+                {
+                    VtsCueKind.Hotkey => _vts.Hotkeys.FirstOrDefault(h => h.HotkeyId == target)?.Name,
+                    VtsCueKind.Expression => Path.GetFileNameWithoutExtension(target),
+                    VtsCueKind.Tint => VtsTintTargetLabel(cue),
+                    _ => target,
+                }) ?? target,
             };
             if (cue.Kind == VtsCueKind.Hotkey) hotkeys.Cues.Add(item);
             else if (cue.Kind == VtsCueKind.Expression) expressions.Cues.Add(item);
+            else if (cue.Kind == VtsCueKind.Tint) tints.Cues.Add(item);
         }
 
         snap.VtsCueTracks.Add(hotkeys);
         snap.VtsCueTracks.Add(expressions);
+        snap.VtsCueTracks.Add(tints);
     }
 
     private void ExportDesignTracks(TSnapshot snap)
@@ -190,16 +208,15 @@ public partial class PvStageWindow
         if (curve is null) return track;
 
         foreach (var key in curve.Keys)
-            track.Keys.Add(new TKey(key.Time, key.Value, key.Mode.ToString(),
-                key.OutX, key.OutY, key.InX, key.InY));
+            track.Keys.Add(new TKey(key.Time, key.Value, InterpName(key.Mode)));
         return track;
     }
 
     private (double Min, double Max) CurveRange(in ParamAddress addr, FloatCurve? curve)
     {
         bool hasSpec = ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _);
-        double min = hasSpec ? spec.Min : double.PositiveInfinity;
-        double max = hasSpec ? spec.Max : double.NegativeInfinity;
+        double min = double.PositiveInfinity;
+        double max = double.NegativeInfinity;
 
         if (curve is not null)
         {
@@ -211,7 +228,11 @@ public partial class PvStageWindow
             }
         }
 
-        if (!double.IsFinite(min) || !double.IsFinite(max)) return (-1, 1);
+        if (!double.IsFinite(min) || !double.IsFinite(max))
+        {
+            min = hasSpec ? spec.Min : -1;
+            max = hasSpec ? spec.Max : 1;
+        }
         if (max - min < 1e-9) return (min - 0.5, max + 0.5);
         var pad = (max - min) * 0.05;
         return (min - pad, max + pad);
@@ -290,8 +311,7 @@ public partial class PvStageWindow
         foreach (var key in edit.After)
         {
             if (!double.IsFinite(key.TimeSeconds) || !double.IsFinite(key.Value)) continue;
-            curve.Keys.Add(new CurveKey(key.TimeSeconds, key.Value, ParseInterp(key.Interp),
-                key.OutX, key.OutY, key.InX, key.InY));
+            curve.Keys.Add(new CurveKey(key.TimeSeconds, key.Value, ParseInterp(key.Interp)));
         }
 
         if (curve.Count == 0) _evaluator.RemoveCurve(edit.Address);
@@ -688,6 +708,8 @@ public partial class PvStageWindow
 
     private static CurveInterp ParseInterp(string interp) =>
         Enum.TryParse<CurveInterp>(interp, out var mode) ? mode : CurveInterp.SmoothStep;
+
+    private static string InterpName(CurveInterp mode) => mode.ToString();
 
     private static string ReasonLabel(string reason) => reason switch
     {

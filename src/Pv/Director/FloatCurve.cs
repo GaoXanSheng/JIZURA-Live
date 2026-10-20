@@ -17,27 +17,22 @@ public enum CurveInterp
 }
 
 [JsonConverter(typeof(CurveKeyJsonConverter))]
-public readonly record struct CurveKey(double Time, double Value, CurveInterp Mode,
-    double OutX = 0.333, double OutY = 0, double InX = 0.333, double InY = 0);
+public readonly record struct CurveKey(double Time, double Value, CurveInterp Mode);
 
 public sealed class CurveKeyJsonConverter : JsonConverter<CurveKey>
 {
-    private const double DefaultHandleX = 0.333;
-
     public override CurveKey ReadJson(JsonReader reader, Type objectType, CurveKey existingValue,
         bool hasExistingValue, JsonSerializer serializer)
     {
         if (reader.TokenType == JsonToken.Null) return default;
 
         var obj = JObject.Load(reader);
+        var mode = (CurveInterp?)(int?)obj["Mode"] ?? CurveInterp.Step;
+
         return new CurveKey(
             (double?)obj["Time"] ?? 0,
             (double?)obj["Value"] ?? 0,
-            (CurveInterp?)(int?)obj["Mode"] ?? CurveInterp.Step,
-            (double?)obj["OutX"] ?? DefaultHandleX,
-            (double?)obj["OutY"] ?? 0,
-            (double?)obj["InX"] ?? DefaultHandleX,
-            (double?)obj["InY"] ?? 0);
+            mode);
     }
 
     public override void WriteJson(JsonWriter writer, CurveKey value, JsonSerializer serializer)
@@ -49,14 +44,6 @@ public sealed class CurveKeyJsonConverter : JsonConverter<CurveKey>
         writer.WriteValue(value.Value);
         writer.WritePropertyName("Mode");
         writer.WriteValue((int)value.Mode);
-        writer.WritePropertyName("OutX");
-        writer.WriteValue(value.OutX);
-        writer.WritePropertyName("OutY");
-        writer.WriteValue(value.OutY);
-        writer.WritePropertyName("InX");
-        writer.WriteValue(value.InX);
-        writer.WritePropertyName("InY");
-        writer.WriteValue(value.InY);
         writer.WriteEndObject();
     }
 }
@@ -64,8 +51,6 @@ public sealed class CurveKeyJsonConverter : JsonConverter<CurveKey>
 public sealed class FloatCurve
 {
     private const double TimeEpsilon = 1e-6;
-
-    private const double BezierParameterTolerance = 1e-6;
 
     public List<CurveKey> Keys { get; } = new();
 
@@ -94,6 +79,7 @@ public sealed class FloatCurve
         if (Keys.Count == 0) return;
 
         Keys.RemoveAll(k => !double.IsFinite(k.Time) || !double.IsFinite(k.Value));
+
         if (Keys.Count < 2) return;
 
         Keys.Sort((a, b) => a.Time.CompareTo(b.Time));
@@ -142,32 +128,29 @@ public sealed class FloatCurve
         {
             CurveInterp.Step => a.Value,
             CurveInterp.SmoothStep => a.Value + delta * (u * u * (3 - 2 * u)),
-            CurveInterp.Bezier => a.Value + delta * BezierRatio(u, a, b),
+            CurveInterp.Bezier => a.Value + delta * AutoBezierRatio(u),
             CurveInterp.Spring => a.Value + delta * SpringRatio(u),
             _ => a.Value + delta * u,
         };
     }
 
-    private static double BezierRatio(double u, in CurveKey a, in CurveKey b)
+    private static double AutoBezierRatio(double u)
     {
-        var x1 = Math.Clamp(a.OutX, 0, 1);
-        var x2 = 1 - Math.Clamp(b.InX, 0, 1);
-
         double lo = 0, hi = 1;
-        while (hi - lo > BezierParameterTolerance)
+        for (int i = 0; i < 20; i++)
         {
-            var mid = (lo + hi) * 0.5;
-            if (CubicBezier(mid, x1, x2) < u) lo = mid;
+            double mid = (lo + hi) * 0.5;
+            if (Cubic(mid, 0, 0.333, 0.667, 1) < u) lo = mid;
             else hi = mid;
         }
 
-        return CubicBezier((lo + hi) * 0.5, a.OutY, 1 - b.InY);
+        return Cubic((lo + hi) * 0.5, 0, 0, 1, 1);
     }
 
-    private static double CubicBezier(double w, double c1, double c2)
+    private static double Cubic(double w, double p0, double p1, double p2, double p3)
     {
-        var inv = 1 - w;
-        return 3 * inv * inv * w * c1 + 3 * inv * w * w * c2 + w * w * w;
+        double s = 1 - w;
+        return s * s * s * p0 + 3 * s * s * w * p1 + 3 * s * w * w * p2 + w * w * w * p3;
     }
 
     private static double SpringRatio(double u)

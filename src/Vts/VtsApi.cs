@@ -45,9 +45,15 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     private const int RequestMs = 8_000;
     private const int ApprovalMs = 90_000;
 
-    private const int TrackIntervalMs = 66;
-
     private const int IdleMs = 8;
+
+    private static readonly string[] SubscribedEvents =
+    [
+        "ModelLoadedEvent",
+        "ModelConfigChangedEvent",
+        "TrackingStatusChangedEvent",
+        "HotkeyTriggeredEvent",
+    ];
 
     private readonly BlockingCollection<Action<Worker>> _commands = new();
     private readonly object _driveGate = new();
@@ -63,11 +69,10 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     private volatile string _modelName = "";
     private volatile Dictionary<string, (double Min, double Max)> _params = new(StringComparer.Ordinal);
 
-    private readonly VtsTrackingProbe _tracking = new();
-
     private volatile string[] _expressions = [];
 
-    private volatile bool _trackingOn = true;
+    private volatile string[] _artMeshes = [];
+    private volatile string[] _artMeshTags = [];
 
     public VtsState State => (VtsState)_state;
     public string LastError => _lastError;
@@ -76,13 +81,11 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
     public IReadOnlyList<string> Expressions => _expressions;
 
-    public VtsFraming? Framing => _framing;
+    public IReadOnlyList<string> ArtMeshes => _artMeshes;
 
-    public bool TrackingEnabled
-    {
-        get => _trackingOn;
-        set => _trackingOn = value;
-    }
+    public IReadOnlyList<string> ArtMeshTags => _artMeshTags;
+
+    public VtsFraming? Framing => _framing;
 
     public event Action? Changed;
     public static JObject? BuildInjectPayload(
@@ -143,66 +146,29 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             ["fadeTime"] = Math.Clamp(fadeSec, 0, 2),
         };
 
-    public static VtsTrackingState ParseTracking(JObject? d)
+    public static JObject BuildTintPayload(string target, int r, int g, int b)
     {
-        if (d is null) return VtsTrackingState.Empty;
-        var at = Environment.TickCount64;
+        var matcher = new JObject();
+        if (string.IsNullOrEmpty(target) || target == "all") matcher["tintAll"] = true;
+        else if (target.StartsWith("tag:", StringComparison.Ordinal))
+            matcher["tagExact"] = new JArray(target[4..]);
+        else if (target.StartsWith("name:", StringComparison.Ordinal))
+            matcher["nameExact"] = new JArray(target[5..]);
+        else matcher["nameExact"] = new JArray(target);
 
-        var values = new Dictionary<string, double>(StringComparer.Ordinal);
-        foreach (var key in ParamListKeys)
+        return new JObject
         {
-            if (d[key] is not JArray arr) continue;
-            foreach (var e in arr)
+            ["colorTint"] = new JObject
             {
-                var name = (string?)e["name"];
-                if (string.IsNullOrEmpty(name)) continue;
-                if (e["value"] is null) continue;
-                values[name!] = (double?)e["value"] ?? 0;
-            }
-        }
-
-        if (values.Count == 0) return VtsTrackingState.Empty with { AtMs = at };
-
-        double V(string name) => values.TryGetValue(name, out var v) ? v : 0;
-        bool Has(string name) => values.ContainsKey(name);
-
-        var recognised = 0;
-        foreach (var name in TrackingParamNames)
-            if (values.ContainsKey(name)) recognised++;
-
-        static double Angle(double deg) => Math.Clamp(deg / VtsTrackingMap.AngleRangeDeg, -1, 1);
-
-        return new VtsTrackingState(
-            FaceFound: recognised > 0,
-            HeadX: Angle(V("FaceAngleX")),
-            HeadY: Angle(V("FaceAngleY")),
-            HeadZ: 0,
-            HeadAngleX: V("FaceAngleX"),
-            HeadAngleY: V("FaceAngleY"),
-            HeadAngleZ: V("FaceAngleZ"),
-            BodyAngleX: V("MocopiBodyAngleX"),
-            BodyAngleZ: V("MocopiBodyAngleZ"),
-            EyeOpenLeft: Math.Clamp(V("EyeOpenLeft"), 0, 1),
-            EyeOpenRight: Math.Clamp(V("EyeOpenRight"), 0, 1),
-            MouthOpen: Math.Clamp(V("MouthOpen"), 0, 1),
-            MouthSmile: Math.Clamp(V("MouthSmile"), 0, 1),
-            HandLeftFound: Has("HandLeftFound") && V("HandLeftFound") > 0.5,
-            HandRightFound: Has("HandRightFound") && V("HandRightFound") > 0.5,
-            HandLeftX: V("HandLeftPositionX"),
-            HandLeftY: V("HandLeftPositionY"),
-            HandRightX: V("HandRightPositionX"),
-            HandRightY: V("HandRightPositionY"),
-            AtMs: at);
+                ["colorR"] = Math.Clamp(r, 0, 255),
+                ["colorG"] = Math.Clamp(g, 0, 255),
+                ["colorB"] = Math.Clamp(b, 0, 255),
+                ["colorA"] = 255,
+                ["mixWithSceneLightingColor"] = 1.0,
+            },
+            ["artMeshMatcher"] = matcher,
+        };
     }
-
-    internal static readonly string[] ParamListKeys = ["defaultParameters", "customParameters"];
-
-    private static readonly string[] TrackingParamNames =
-    [
-        "FaceAngleX", "FaceAngleY", "FaceAngleZ",
-        "MouthOpen", "MouthSmile",
-        "EyeOpenLeft", "EyeOpenRight",
-    ];
 
     private void Notify() => Changed?.Invoke();
 
@@ -271,6 +237,15 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         Post(w => w.TriggerHotkey(hotkeyId));
     }
 
+    public void CalibrateBase() => Post(w => w.CalibrateBase());
+
+    public void RefreshArtMeshes() => Post(w => w.FetchArtMeshes());
+
+    public void SetArtMeshTint(string target, int r, int g, int b)
+        => Post(w => w.SetArtMeshTint(target, r, g, b));
+
+    public void ClearArtMeshTint(string target = "all") => SetArtMeshTint(target, 255, 255, 255);
+
     private void Post(Action<Worker> cmd)
     {
         if (_stopping) return;
@@ -313,11 +288,6 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     {
         private const int ParamIntervalMs = 100;
 
-        private bool _trackOk;
-        private long _trackMisses;
-
-        private long _lastTrackAt;
-
         private const double DriveTransitionSec = 0.05;
 
         private readonly VtsApi _api;
@@ -332,6 +302,12 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         private VtsFraming? _lastDrive;
         private bool _noReplyPending;
         private long _lastDrainAt;
+
+        private bool _refreshModel;
+        private bool _refreshHotkeys;
+        private bool _faceFound;
+        private bool _leftHandFound;
+        private bool _rightHandFound;
 
         private IReadOnlyDictionary<string, double> _pendingParams = new Dictionary<string, double>();
         private double _pendingParamWeight;
@@ -376,15 +352,35 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 FlushMove();
             }
 
-            if (_noReplyPending && now - _lastDrainAt >= 500)
+            long drainGap = _noReplyPending ? 500 : 1000;
+            if (now - _lastDrainAt >= drainGap)
             {
                 _lastDrainAt = now;
                 _noReplyPending = false;
                 Send("APIStateRequest", new JObject(), 1500);
             }
 
+            if (_refreshModel)
+            {
+                _refreshModel = false;
+                _refreshHotkeys = false;
+                _baseCaptured = false;
+                _lastDrive = null;
+                _drive = new VtsFraming(0, 0, 0, 0);
+                lock (_api._driveGate) _api._pendingDrive = null;
+                FetchFraming();
+                FetchParameters();
+                FetchHotkeys();
+                FetchExpressions();
+                FetchArtMeshes();
+            }
+            else if (_refreshHotkeys)
+            {
+                _refreshHotkeys = false;
+                FetchHotkeys();
+            }
+
             if (_paramDirty && now - _lastParamAt >= ParamIntervalMs) FlushParams();
-            PollTracking(force: false);
 
             if (_ws != null && _ws.State == WebSocketState.Open) return;
             if (Environment.TickCount64 < _nextConnectAt) return;
@@ -418,6 +414,10 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 _connectFail = "";
                 _lastDrive = null;
                 _noReplyPending = false;
+                _baseCaptured = false;
+                _refreshModel = false;
+                _refreshHotkeys = false;
+                _drive = new VtsFraming(0, 0, 0, 0);
                 var state = Send("APIStateRequest", new JObject());
                 _api._version = (string?)state?["vTubeStudioVersion"] ?? "";
                 var authed = (bool?)state?["currentSessionAuthenticated"] ?? false;
@@ -430,6 +430,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                     FetchParameters();
                     FetchHotkeys();
                     FetchExpressions();
+                    FetchArtMeshes();
+                    SubscribeEvents();
                 }
                 else
                 {
@@ -499,6 +501,9 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 FetchFraming();
                 FetchParameters();
                 FetchHotkeys();
+                FetchExpressions();
+                FetchArtMeshes();
+                SubscribeEvents();
             }
             else
             {
@@ -528,9 +533,9 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         {
             var f = new VtsFraming(
                 _manual.Size + _drive.Size,
-                _manual.X + _drive.X,
-                _manual.Y + _drive.Y,
-                _manual.Rotation + _drive.Rotation);
+                Math.Clamp(_manual.X + _drive.X, -1000, 1000),
+                Math.Clamp(_manual.Y + _drive.Y, -1000, 1000),
+                Math.Clamp(_manual.Rotation + _drive.Rotation, -360, 360));
             SendNoReply("MoveModelRequest", new JObject
             {
                 ["timeInSeconds"] = DriveTransitionSec,
@@ -545,8 +550,17 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
         public void FetchFraming()
         {
             var resp = Send("CurrentModelRequest", new JObject());
-            _api._modelName = (string?)resp?["modelName"] ?? "";
-            if (resp?["modelPosition"] is JObject p)
+            if (resp is null) return;
+            if ((bool?)resp["modelLoaded"] == false)
+            {
+                _api._modelName = "";
+                _api._framing = null;
+                _api.Notify();
+                return;
+            }
+
+            _api._modelName = (string?)resp["modelName"] ?? "";
+            if (resp["modelPosition"] is JObject p)
             {
                 var f = new VtsFraming(
                     (double?)p["size"] ?? 1,
@@ -561,6 +575,33 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 }
                 _api.Notify();
             }
+        }
+
+        public void CalibrateBase()
+        {
+            var resp = Send("CurrentModelRequest", new JObject());
+            if (resp is null) return;
+            if ((bool?)resp["modelLoaded"] == false)
+            {
+                SetError("VTS 没有加载模型");
+                return;
+            }
+            if (resp["modelPosition"] is not JObject p) return;
+
+            var framing = new VtsFraming(
+                (double?)p["size"] ?? 1,
+                (double?)p["positionX"] ?? 0,
+                (double?)p["positionY"] ?? 0,
+                (double?)p["rotation"] ?? 0);
+            _manual = framing;
+            _api._framing = framing;
+            _baseCaptured = true;
+            _drive = new VtsFraming(0, 0, 0, 0);
+            _lastDrive = null;
+            lock (_api._driveGate) _api._pendingDrive = null;
+            _api.Notify();
+            Log.Info($"[VTS] 已校准基准：X {framing.X:F2} Y {framing.Y:F2}"
+                     + $" 缩放 {framing.Size:F2} 旋转 {framing.Rotation:F2}");
         }
 
         public void FetchParameters()
@@ -646,40 +687,70 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             if (payload != null) Send("InjectParameterDataRequest", payload);
         }
 
-        public void PollTracking(bool force)
+        public void FetchArtMeshes()
         {
-            if (!_api.TrackingEnabled) return;
-            if (_ws == null || _ws.State != WebSocketState.Open) return;
-            var now = Environment.TickCount64;
-            if (!force && now - _lastTrackAt < TrackIntervalMs) return;
-            _lastTrackAt = now;
-
-            var resp = Send("InputParameterListRequest", new JObject(), 1500);
+            var resp = Send("ArtMeshListRequest", new JObject());
             if (resp is null) return;
-            var state = VtsApi.ParseTracking(resp);
-            _api._tracking.Set(state);
+            var names = StringsOf(resp["artMeshNames"]);
+            var tags = StringsOf(resp["artMeshTags"]);
+            _api._artMeshes = names;
+            _api._artMeshTags = tags;
+            Log.Info($"[VTS] ArtMesh：{names.Length} 个，标签 {tags.Length} 个");
+            _api.Notify();
+        }
 
-            if (state.FaceFound)
+        public void SetArtMeshTint(string target, int r, int g, int b)
+        {
+            var resp = Send("ColorTintRequest", VtsApi.BuildTintPayload(target, r, g, b));
+            if (resp is null) return;
+            int matched = (int?)resp["matchedArtMeshes"] ?? 0;
+            if (matched == 0) Log.Warn($"[VTS] 染色没有匹配到 ArtMesh：{target}");
+        }
+
+        private static string[] StringsOf(JToken? token) =>
+            token is JArray arr
+                ? arr.Select(e => (string?)e).Where(n => !string.IsNullOrEmpty(n)).Select(n => n!).ToArray()
+                : [];
+
+        private void SubscribeEvents()
+        {
+            foreach (var name in SubscribedEvents)
+                Send("EventSubscriptionRequest", new JObject { ["eventName"] = name });
+            Log.Info($"[VTS] 已订阅事件：{string.Join("、", SubscribedEvents)}");
+        }
+
+        private void HandleEvent(string type, JObject? data)
+        {
+            switch (type)
             {
-                if (!_trackOk)
-                {
-                    _trackOk = true;
-                    Log.Info($"[VTS] 追踪已接通：头角 X{state.HeadAngleX:F1} Y{state.HeadAngleY:F1}"
-                             + $" Z{state.HeadAngleZ:F1}°，口 {state.MouthOpen:F2}"
-                             + $"，眼 {state.EyeOpenLeft:F2}/{state.EyeOpenRight:F2}"
-                             + $"，手 {(state.HandLeftFound ? "左" : "")}{(state.HandRightFound ? "右" : "")}"
-                             + (state.HandLeftFound || state.HandRightFound ? "" : "无"));
-                }
-            }
-            else if (!_trackOk && ++_trackMisses % 60 == 1)
-            {
-                var keys = string.Join(",", resp.Properties().Select(q => q.Name));
-                var names = new List<string>();
-                foreach (var key in VtsApi.ParamListKeys)
-                    if (resp[key] is JArray arr)
-                        names.AddRange(arr.Take(16).Select(e => (string?)e["name"] ?? "?"));
-                Log.Warn($"[VTS] 追踪参数读不到（缺 FaceAngleX/Y）。响应顶层 [{keys}]，"
-                         + $"参数名样例 [{string.Join(", ", names)}]");
+                case "ModelLoadedEvent":
+                    _api._modelName = (bool?)data?["modelLoaded"] == true
+                        ? (string?)data?["modelName"] ?? ""
+                        : "";
+                    _refreshModel = true;
+                    _api.Notify();
+                    break;
+
+                case "ModelConfigChangedEvent":
+                    _refreshHotkeys = true;
+                    break;
+
+                case "TrackingStatusChangedEvent":
+                    bool face = (bool?)data?["faceFound"] ?? false;
+                    bool left = (bool?)data?["leftHandFound"] ?? false;
+                    bool right = (bool?)data?["rightHandFound"] ?? false;
+                    if (face == _faceFound && left == _leftHandFound && right == _rightHandFound) return;
+                    _faceFound = face;
+                    _leftHandFound = left;
+                    _rightHandFound = right;
+                    Log.Info($"[VTS] 追踪：脸{(face ? "在" : "丢失")}，"
+                             + $"左手{(left ? "在" : "无")}，右手{(right ? "在" : "无")}");
+                    break;
+
+                case "HotkeyTriggeredEvent":
+                    var hotkey = (string?)data?["hotkeyName"] ?? (string?)data?["hotkeyID"] ?? "?";
+                    Log.Info($"[VTS] 热键触发：{hotkey}");
+                    break;
             }
         }
 
@@ -784,9 +855,15 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                     }
 
                     var resp = JObject.Parse(sb.ToString());
+                    var type = (string?)resp["messageType"] ?? "";
+                    if (type.EndsWith("Event", StringComparison.Ordinal))
+                    {
+                        HandleEvent(type, (JObject?)resp["data"]);
+                        continue;
+                    }
+
                     if ((string?)resp["requestID"] != id) continue;
 
-                    var type = (string?)resp["messageType"] ?? "";
                     if (type == "APIError")
                     {
                         var msg = (string?)resp["data"]?["message"] ?? "未知错误";

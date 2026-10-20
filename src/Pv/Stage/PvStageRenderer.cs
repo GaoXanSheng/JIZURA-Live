@@ -1,3 +1,4 @@
+using System.Numerics;
 using JizuraLive.Engine;
 using JizuraLive.Render.Draw;
 using JizuraLive.Render.Effects;
@@ -12,6 +13,29 @@ using DCommonAlphaMode = Vortice.DCommon.AlphaMode;
 using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Pv;
+
+public sealed record PvSelectionInfo(
+    Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
+    Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth)
+{
+    public Vector2 TopMiddle => (A + B) * 0.5f;
+
+    public Vector2 RotationHandle
+    {
+        get
+        {
+            var up = A - D;
+            var length = up.Length();
+            if (length <= 1e-4f) return A;
+
+            var offset = up / length * 26f;
+            var outward = TopMiddle + offset;
+            if (outward.X < 0 || outward.X > DesignWidth || outward.Y < 0 || outward.Y > DesignHeight)
+                return TopMiddle - offset;
+            return outward;
+        }
+    }
+}
 
 public sealed class PvStageRenderer : IDisposable
 {
@@ -61,6 +85,22 @@ public sealed class PvStageRenderer : IDisposable
     public EffectGraph Effects => _effects;
 
     public IPvLayerProvider? Overlay { get; set; }
+
+    private volatile string? _selectedLayerId;
+
+    public string? SelectedLayerId
+    {
+        get => _selectedLayerId;
+        set
+        {
+            _selectedLayerId = value;
+            if (value is null) Volatile.Write(ref _selection, null);
+        }
+    }
+
+    private PvSelectionInfo? _selection;
+
+    public PvSelectionInfo? Selection => Volatile.Read(ref _selection);
 
     public (double Engine, double Fx, double Composite) LastTiming { get; private set; }
 
@@ -154,6 +194,7 @@ public sealed class PvStageRenderer : IDisposable
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
 
+        PvSelectionInfo? selection = null;
         var frameLayers = Stage.Scene.Layers;
         for (var li = 0; li < frameLayers.Count; li++)
         {
@@ -162,6 +203,8 @@ public sealed class PvStageRenderer : IDisposable
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
             var state = LayerState(layer);
+            if (string.Equals(layer.Id, _selectedLayerId, StringComparison.Ordinal))
+                selection = BuildSelection(layer, state, image);
 
             if (!_frameEffects.HasEffectsFor(layer.Id))
             {
@@ -189,6 +232,7 @@ public sealed class PvStageRenderer : IDisposable
         }
 
         d.End();
+        _selection = selection;
         if (transTech is not null && transSeg is not null)
         {
             BlitInto(_transitionRunner.SurfaceB, _stageTarget.Bitmap);
@@ -222,6 +266,7 @@ public sealed class PvStageRenderer : IDisposable
         var previewRect = Letterbox(_designW, _designH, width, height);
         DrawStage(d, fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut), previewRect);
         DrawOverlay(d, frame, previewRect);
+        if (selection is not null) DrawSelection(d, selection, previewRect);
         d.End();
 
         if (_broadcast is { IsActive: true, Bitmap: { } bbmp } b)
@@ -366,6 +411,62 @@ public sealed class PvStageRenderer : IDisposable
         if (image.Bitmap is { } bmp) d.DrawBitmap(bmp, rect);
         else if (image.Solid is { } solid)
             d.FillRect(rect, new Paint2D { Brush = new SolidBrush2D(solid) });
+    }
+
+    private PvSelectionInfo BuildSelection(PvLayerConfig layer, in PvLayerState state, PvLayerImage image)
+    {
+        var tf = PvParallax.Compute(_designW, _designH, layer, state, Stage.Camera,
+            globalParallax: Stage.Scene.GlobalParallaxEnabled,
+            antiBleed: Stage.Scene.AntiBleedGuardEnabled);
+        var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
+
+        Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
+
+        return new PvSelectionInfo(
+            Map(r.X, r.Y),
+            Map(r.X + r.Width, r.Y),
+            Map(r.X + r.Width, r.Y + r.Height),
+            Map(r.X, r.Y + r.Height),
+            Map(r.X + r.Width / 2, r.Y + r.Height / 2),
+            tf.Matrix, _designW, _designH, Math.Max(1, r.Width));
+    }
+
+    private void DrawSelection(Immediate2D d, PvSelectionInfo sel, Rect rect)
+    {
+        float sx = (float)(rect.Width / sel.DesignWidth);
+        float sy = (float)(rect.Height / sel.DesignHeight);
+
+        Vector2 Map(Vector2 p) => new((float)rect.X + p.X * sx, (float)rect.Y + p.Y * sy);
+
+        var a = Map(sel.A);
+        var b = Map(sel.B);
+        var c = Map(sel.C);
+        var e = Map(sel.D);
+
+        var line = new Paint2D
+        {
+            Brush = new SolidBrush2D(new Color4(0.36f, 0.55f, 1f, 1f)),
+            StrokeWidth = 1.5f,
+        };
+        d.DrawLine(a.X, a.Y, b.X, b.Y, line);
+        d.DrawLine(b.X, b.Y, c.X, c.Y, line);
+        d.DrawLine(c.X, c.Y, e.X, e.Y, line);
+        d.DrawLine(e.X, e.Y, a.X, a.Y, line);
+
+        var topMiddle = Map(sel.TopMiddle);
+        var rotation = Map(sel.RotationHandle);
+        d.DrawLine(topMiddle.X, topMiddle.Y, rotation.X, rotation.Y, line);
+
+        var fill = new Paint2D { Brush = new SolidBrush2D(new Color4(1f, 1f, 1f, 1f)) };
+        foreach (var p in new[] { a, b, c, e })
+        {
+            var handle = new Rect(p.X - 4f, p.Y - 4f, 8f, 8f);
+            d.FillRect(handle, fill);
+            d.StrokeRect(handle, line);
+        }
+
+        d.FillCircle(rotation.X, rotation.Y, 4.5f, fill);
+        d.StrokeCircle(rotation.X, rotation.Y, 4.5f, line);
     }
 
     public void FreezeFrames() => _freezeLast = true;

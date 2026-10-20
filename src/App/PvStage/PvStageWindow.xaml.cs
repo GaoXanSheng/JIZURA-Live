@@ -157,6 +157,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         Stage.Prepare += OnStagePrepare;
         Stage.Frame += OnStageFrame;
         Stage.Shutdown += OnStageShutdown;
+        Stage.PointerPressed += Stage_PointerPressed;
+        Stage.PointerMoved += Stage_PointerMoved;
+        Stage.PointerReleased += Stage_PointerReleased;
+        Stage.MoveCursorHitTest = StageCursorHitTest;
 
         TheTimeline.SeekRequested += Timeline_SeekRequested;
         TheTimeline.EditCommitted += Timeline_EditCommitted;
@@ -166,6 +170,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.SegmentDeleteRequested += Timeline_SegmentDeleteRequested;
         TheTimeline.VtsCueDeleteRequested += Timeline_VtsCueDeleteRequested;
         TheTimeline.VtsCueEdited += Timeline_VtsCueEdited;
+        TheTimeline.TrackVisibilityChanged += Timeline_TrackVisibilityChanged;
         TheTimeline.ValuePrompt = PromptTimelineValueAsync;
         TheTimeline.Fps = _scene.Fps;
 
@@ -431,6 +436,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         var pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects, null, LegacyOptions());
         _pipe = pipe;
+        pipe.SelectedLayerId = _selectedLayer?.Id;
         pipe.SetSpoutTransparent(_spoutTransparent);
         pipe.StageCameraEnabled = _project.LegacyStageCamera;
         pipe.StageTransitionsEnabled = _project.LegacyStageTransitions;
@@ -646,6 +652,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         for (var i = layers.Count - 1; i >= 0; i--) _uiLayers.Add(layers[i]);
 
         if (_selectedLayer is not null && !_uiLayers.Contains(_selectedLayer)) _selectedLayer = null;
+        SyncStageSelection();
 
         LayersHost.Children.Clear();
         foreach (var layer in _uiLayers)

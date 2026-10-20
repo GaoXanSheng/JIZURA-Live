@@ -83,8 +83,8 @@ public static class PvParallax
         }
 
         var m = Matrix3x2.CreateTranslation(
-            (float)(cx + camX + state.OffsetX * cw),
-            (float)(cy + camY + state.OffsetY * ch));
+            (float)(camX + state.OffsetX * cw - cx),
+            (float)(camY + state.OffsetY * ch - cy));
 
         var totalRot = (float)(camRot + state.Rotation);
         if (Math.Abs(totalRot) > 0.01f)
@@ -98,7 +98,7 @@ public static class PvParallax
         if (layer.MirrorX) sx = -sx;
 
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(sx, sy));
-        m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(-cx, -cy));
+        m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(cx, cy));
 
         return new PvLayerTransform(m, camS * state.Scale, overscan, blur);
     }

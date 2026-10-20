@@ -4,8 +4,7 @@ using JizuraLive.Vts;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
-public readonly record struct TKey(double TimeSeconds, double Value, string Interp,
-    double OutX = 0.333, double OutY = 0, double InX = 0.333, double InY = 0);
+public readonly record struct TKey(double TimeSeconds, double Value, string Interp);
 
 public sealed class TCurve
 {
@@ -65,6 +64,8 @@ public sealed class TSnapshot
     public List<TClip> Lyrics = new();
     public List<TDesignTrack> DesignTracks = new();
     public List<TVtsCueTrack> VtsCueTracks = new();
+
+    public HashSet<string> CollapsedTracks = new(StringComparer.Ordinal);
 
     public WaveformPeaks? Waveform;
 }

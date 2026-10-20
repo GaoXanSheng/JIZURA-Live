@@ -11,7 +11,6 @@ public sealed partial class TimelineView
 {
     private const double ValuePad = 3;
     private const double KeyRadius = 4;
-    private const double HandleRadius = 3.5;
 
     private static readonly Brush BgBrush = Solid(0x0A, 0x0A, 0x0D);
     private static readonly Brush PanelBrush = Solid(0x10, 0x10, 0x15);
@@ -31,8 +30,13 @@ public sealed partial class TimelineView
     private static readonly Brush ScrollThumbHotBrush = Solid(0xFF, 0x9B, 0xBE, 0xFF);
     private static readonly Brush HotkeyCueBrush = Solid(0xE8, 0xB4, 0x4A);
     private static readonly Brush ExpressionCueBrush = Solid(0x5E, 0xD6, 0x9A);
+    private static readonly Brush TintCueBrush = Solid(0xE8, 0x6E, 0xC8);
     private static readonly Brush HotkeyCueFill = Solid(0x55, 0xE8, 0xB4, 0x4A);
     private static readonly Brush ExpressionCueFill = Solid(0x55, 0x5E, 0xD6, 0x9A);
+    private static readonly Brush TintCueFill = Solid(0x55, 0xE8, 0x6E, 0xC8);
+    private static readonly Brush EyeBrush = Solid(0x8A, 0x8A, 0x98);
+    private static readonly Pen EyePen = FrozenPen(Solid(0x8A, 0x8A, 0x98), 1);
+    private static readonly Pen EyeOffPen = FrozenPen(Solid(0xE8, 0xB4, 0x4A), 1);
     private static readonly Brush TipBrush = Solid(0xE6, 0x17, 0x17, 0x1E);
     private static readonly Pen LinePen = FrozenPen(Solid(0x23, 0x23, 0x2C), 1);
     private static readonly Pen SoftPen = FrozenPen(Solid(0x19, 0x19, 0x20), 1);
@@ -40,7 +44,6 @@ public sealed partial class TimelineView
     private static readonly Pen CurvePen = FrozenPen(AccentBrush, 1.4);
     private static readonly Pen KeyPen = FrozenPen(AccentBrush, 1);
     private static readonly Pen SelKeyPen = FrozenPen(FgBrush, 1.4);
-    private static readonly Pen HandlePen = FrozenPen(AccentSoftBrush, 1);
     private static readonly Pen PlayheadPen = FrozenPen(PlayheadBrush, 1.5);
     private static readonly Typeface UiFont = new("Microsoft YaHei UI");
     private static readonly Typeface MonoFont = new("Consolas");
@@ -62,7 +65,19 @@ public sealed partial class TimelineView
         dc.PushClip(new RectangleGeometry(new Rect(0, 0, HeaderWidth, h)));
         foreach (var row in rows)
         {
+            if (row.Kind is not (RowKind.Ruler or RowKind.Waveform or RowKind.Lyrics)) continue;
             if (row.Top + row.Height <= 0) continue;
+            if (row.Top >= contentH) break;
+            RenderHeader(dc, row);
+        }
+        dc.Pop();
+
+        dc.PushClip(new RectangleGeometry(
+            new Rect(0, _trackTop, HeaderWidth, Math.Max(0, h - _trackTop))));
+        foreach (var row in rows)
+        {
+            if (row.Kind is RowKind.Ruler or RowKind.Waveform or RowKind.Lyrics) continue;
+            if (row.Top + row.Height <= _trackTop) continue;
             if (row.Top >= contentH) break;
             RenderHeader(dc, row);
         }
@@ -71,6 +86,7 @@ public sealed partial class TimelineView
         dc.PushClip(new RectangleGeometry(contentRect));
         foreach (var row in rows)
         {
+            if (row.Kind is not (RowKind.Ruler or RowKind.Waveform or RowKind.Lyrics)) continue;
             if (row.Top + row.Height <= 0) continue;
             if (row.Top >= contentH) break;
             switch (row.Kind)
@@ -78,6 +94,19 @@ public sealed partial class TimelineView
                 case RowKind.Ruler: RenderRuler(dc, row); break;
                 case RowKind.Waveform: RenderWaveform(dc, row); break;
                 case RowKind.Lyrics: RenderLyrics(dc, row); break;
+            }
+        }
+        dc.Pop();
+
+        dc.PushClip(new RectangleGeometry(
+            new Rect(HeaderWidth, _trackTop, contentW, Math.Max(0, contentH - _trackTop))));
+        foreach (var row in rows)
+        {
+            if (row.Kind is RowKind.Ruler or RowKind.Waveform or RowKind.Lyrics) continue;
+            if (row.Top + row.Height <= _trackTop) continue;
+            if (row.Top >= contentH) break;
+            switch (row.Kind)
+            {
                 case RowKind.Design: RenderDesignTrack(dc, row); break;
                 case RowKind.Automation: RenderAutomation(dc, row); break;
                 case RowKind.VtsCue: RenderVtsCueTrack(dc, row); break;
@@ -322,19 +351,30 @@ public sealed partial class TimelineView
             dc.DrawGeometry(selected ? AccentBrush : PanelBrush, selected ? SelKeyPen : KeyPen, Diamond(x, y, KeyRadius));
         }
 
-        foreach (var (index, outSide) in HandleTargets(curve))
-        {
-            var key = curve.Keys[index];
-            var anchor = new Point(
-                HeaderWidth + TimelineMath.TimeToX(key.TimeSeconds, _viewStart, _pixelsPerSecond),
-                TimelineMath.ValueToY(key.Value, curve.Min, curve.Max, top, height));
-            var handle = HandlePixel(curve, row, index, outSide);
-            dc.DrawLine(HandlePen, anchor, handle);
-            dc.DrawEllipse(AccentBrush, null, handle, HandleRadius, HandleRadius);
-        }
-
         dc.Pop();
     }
+
+    private static Brush CueBrush(VtsCueKind kind) => kind switch
+    {
+        VtsCueKind.Hotkey => HotkeyCueBrush,
+        VtsCueKind.Tint => TintCueBrush,
+        _ => ExpressionCueBrush,
+    };
+
+    private static Brush CueFill(VtsCueKind kind) => kind switch
+    {
+        VtsCueKind.Hotkey => HotkeyCueFill,
+        VtsCueKind.Tint => TintCueFill,
+        _ => ExpressionCueFill,
+    };
+
+    private static string CueTrackLabel(VtsCueKind kind) => kind switch
+    {
+        VtsCueKind.Hotkey => L.T("动作键"),
+        VtsCueKind.Expression => L.T("表情"),
+        VtsCueKind.Tint => L.T("染色"),
+        _ => kind.ToString(),
+    };
 
     private void RenderVtsCueTrack(DrawingContext dc, Row row)
     {
@@ -344,8 +384,8 @@ public sealed partial class TimelineView
             new Rect(HeaderWidth, row.Top, w, row.Height));
         dc.DrawLine(SoftPen, new Point(HeaderWidth, row.Top), new Point(HeaderWidth + w, row.Top));
 
-        var brush = track.Kind == VtsCueKind.Hotkey ? HotkeyCueBrush : ExpressionCueBrush;
-        var fill = track.Kind == VtsCueKind.Hotkey ? HotkeyCueFill : ExpressionCueFill;
+        var brush = CueBrush(track.Kind);
+        var fill = CueFill(track.Kind);
         double cy = row.Top + row.Height / 2;
         double viewEnd = _viewStart + w / _pixelsPerSecond;
 
@@ -384,41 +424,72 @@ public sealed partial class TimelineView
     private void RenderHeader(DrawingContext dc, Row row)
     {
         dc.DrawRectangle(HeaderBrush, null, new Rect(0, row.Top, HeaderWidth, row.Height));
-        switch (row.Kind)
+
+        if (row.Kind == RowKind.Ruler)
         {
-            case RowKind.Ruler:
-                var head = Text(FormatTime(_snap?.PlayheadSeconds ?? 0), 13, FgBrush, MonoFont);
-                dc.DrawText(head, new Point(8, row.Top + 4));
-                dc.DrawText(Text("/ " + FormatTime(_snap?.DurationSeconds ?? 0), 10, FaintBrush, MonoFont),
-                    new Point(12 + head.Width, row.Top + 7));
-                break;
-            case RowKind.Waveform:
-                dc.DrawText(Text(L.T("音频"), 11, DimBrush),
-                    new Point(8, row.Top + (row.Height - 14) / 2));
-                break;
-            case RowKind.Lyrics:
-                dc.DrawText(Text(L.T("歌词"), 11, DimBrush),
-                    new Point(8, row.Top + (row.Height - 14) / 2));
-                break;
-            case RowKind.Automation:
-                dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(8, row.Top + 5));
-                break;
-            case RowKind.VtsCue:
-                var cueTrack = _snap!.VtsCueTracks[row.Index];
-                dc.DrawText(Text(cueTrack.Kind == VtsCueKind.Hotkey ? L.T("动作键") : L.T("表情"),
-                    11, DimBrush), new Point(8, row.Top + 5));
-                break;
-            case RowKind.Design:
-                if (_snap is not null && row.Index >= 0 && row.Index < _snap.DesignTracks.Count)
-                {
-                    var track = _snap.DesignTracks[row.Index];
-                    bool empty = track.Segments.Count == 0;
-                    dc.DrawText(Text(DesignTrackNames.Label(track.Kind), 11, empty ? FaintBrush : DimBrush),
-                        new Point(8, row.Top + (row.Height - 14) / 2));
-                }
-                break;
+            var head = Text(FormatTime(_snap?.PlayheadSeconds ?? 0), 13, FgBrush, MonoFont);
+            dc.DrawText(head, new Point(8, row.Top + 4));
+            dc.DrawText(Text("/ " + FormatTime(_snap?.DurationSeconds ?? 0), 10, FaintBrush, MonoFont),
+                new Point(12 + head.Width, row.Top + 7));
+            DrawHiddenTracksIndicator(dc, row);
         }
+        else
+        {
+            DrawEye(dc, row);
+            dc.PushClip(new RectangleGeometry(new Rect(26, row.Top, HeaderWidth - 30, row.Height)));
+            switch (row.Kind)
+            {
+                case RowKind.Waveform:
+                    dc.DrawText(Text(L.T("音频"), 11, DimBrush),
+                        new Point(28, row.Top + (row.Height - 14) / 2));
+                    break;
+                case RowKind.Lyrics:
+                    dc.DrawText(Text(L.T("歌词"), 11, DimBrush),
+                        new Point(28, row.Top + (row.Height - 14) / 2));
+                    break;
+                case RowKind.Automation:
+                    dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush), new Point(28, row.Top + 5));
+                    break;
+                case RowKind.VtsCue:
+                    var cueTrack = _snap!.VtsCueTracks[row.Index];
+                    dc.DrawText(Text(CueTrackLabel(cueTrack.Kind), 11, DimBrush),
+                        new Point(28, row.Top + 5));
+                    break;
+                case RowKind.Design:
+                    if (_snap is not null && row.Index >= 0 && row.Index < _snap.DesignTracks.Count)
+                    {
+                        var track = _snap.DesignTracks[row.Index];
+                        bool empty = track.Segments.Count == 0;
+                        dc.DrawText(Text(DesignTrackNames.Label(track.Kind), 11, empty ? FaintBrush : DimBrush),
+                            new Point(28, row.Top + (row.Height - 14) / 2));
+                    }
+                    break;
+            }
+            dc.Pop();
+        }
+
         dc.DrawLine(SoftPen, new Point(0, row.Top + row.Height), new Point(HeaderWidth, row.Top + row.Height));
+    }
+
+    private static void DrawEye(DrawingContext dc, in Row row)
+    {
+        double cx = 14;
+        double cy = row.Top + row.Height / 2;
+        dc.DrawEllipse(null, EyePen, new Point(cx, cy), 6, 3.5);
+        dc.DrawEllipse(EyeBrush, null, new Point(cx, cy), 1.6, 1.6);
+    }
+
+    private void DrawHiddenTracksIndicator(DrawingContext dc, in Row row)
+    {
+        int count = HiddenTrackEntries().Count;
+        if (count == 0) return;
+
+        double cx = HeaderWidth - 34;
+        double cy = row.Top + row.Height / 2;
+        dc.DrawEllipse(null, EyeOffPen, new Point(cx, cy), 5.5, 3);
+        dc.DrawLine(EyeOffPen, new Point(cx - 7, cy - 4), new Point(cx + 7, cy + 4));
+        var text = Text(count.ToString(CultureInfo.InvariantCulture), 10, EyeOffPen.Brush, MonoFont);
+        dc.DrawText(text, new Point(HeaderWidth - 22, row.Top + (row.Height - 13) / 2));
     }
 
     private void RenderPlayhead(DrawingContext dc, double contentH)

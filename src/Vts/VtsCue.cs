@@ -9,6 +9,8 @@ public enum VtsCueKind
     Move,
 
     Pulse,
+
+    Tint,
 }
 
 public enum VtsCueMode
@@ -39,6 +41,12 @@ public sealed class VtsCue
     public double Y { get; set; }
 
     public double Rotation { get; set; }
+
+    public int TintR { get; set; } = 255;
+
+    public int TintG { get; set; } = 255;
+
+    public int TintB { get; set; } = 255;
 }
 
 public sealed class VtsCueTrack
