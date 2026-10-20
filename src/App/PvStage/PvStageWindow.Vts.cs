@@ -34,6 +34,7 @@ public partial class PvStageWindow
     private int _vtsTintTargetCount = -1;
     private bool _stageVtsDrive = true;
     private bool _vtsTintOnTransitions;
+    private Wpf.Ui.Controls.ToggleSwitch? _vtsTintTransitionToggle;
     private TextBlock? _vtsFramingText;
     private bool _vtsBaseSynced;
     private bool _vtsSaveBasePending;
@@ -373,7 +374,10 @@ public partial class PvStageWindow
         };
         target.SelectionChanged += (_, _) =>
         {
-            if (target.SelectedItem is ComboBoxItem { Tag: string value }) _vtsTintTarget = value;
+            if (target.SelectedItem is not ComboBoxItem { Tag: string value }) return;
+            if (value == _vtsTintTarget) return;
+            _vtsTintTarget = value;
+            ClearTransitionTintOnTargetChange();
         };
         AddInspector(target);
         _vtsTintHint = ThemeText("", TextTertiaryKey, 11, wrap: true);
@@ -385,6 +389,7 @@ public partial class PvStageWindow
             _vtsTintScope = value;
             _vtsTintTarget = value == "all" ? "all" : "";
             _vtsTintTargetCount = -1;
+            ClearTransitionTintOnTargetChange();
             if (value != "all") _vts.RefreshArtMeshes();
             FillTintTargets(target);
         };
@@ -491,7 +496,7 @@ public partial class PvStageWindow
         AddInspector(ThemeText(L.T("自动染色"), TextSecondaryKey, 12));
         _vtsTintOnTransitions = _project.EditorLayout?.VtsTintOnTransitions ?? _vtsTintOnTransitions;
         AddInspector(BoolRow(L.T("转场染色（自动给转场段加染色点）"), _vtsTintOnTransitions,
-            SetTransitionTint));
+            SetTransitionTint, toggle => _vtsTintTransitionToggle = toggle));
 
         var autoTint = new Wpf.Ui.Controls.Button
         {
@@ -535,6 +540,7 @@ public partial class PvStageWindow
         if (beats.Count == 0) return;
 
         var palette = BuildTintPalette(_vtsTintColor);
+        var cueMode = _vtsTintMode == VtsCueMode.Manual ? VtsCueMode.Once : _vtsTintMode;
         double audioEnd = _audio.Duration > 0.5 ? _audio.Duration : _beatMap.Beats[^1] + 1;
 
         _project.VtsCues ??= new VtsCueTrack();
@@ -559,7 +565,7 @@ public partial class PvStageWindow
             {
                 Time = time,
                 Kind = VtsCueKind.Tint,
-                Mode = VtsCueMode.Toggle,
+                Mode = cueMode,
                 Target = _vtsTintTarget,
                 Duration = pulse,
                 TintR = r,
@@ -576,8 +582,17 @@ public partial class PvStageWindow
         TblStatus.Text = L.F("已在 {0} 个节拍点自动染色", added);
     }
 
+    private void ClearTransitionTintOnTargetChange()
+    {
+        if (!_vtsTintOnTransitions) return;
+        SetTransitionTint(false);
+        if (_vtsTintTransitionToggle is { } toggle) toggle.IsChecked = false;
+    }
+
     private void SetTransitionTint(bool on)
     {
+        if (on == _vtsTintOnTransitions) return;
+
         _vtsTintOnTransitions = on;
         if (_project?.EditorLayout is { } layout) layout.VtsTintOnTransitions = on;
 
@@ -608,6 +623,7 @@ public partial class PvStageWindow
         }
 
         var palette = BuildTintPalette(_vtsTintColor);
+        var cueMode = _vtsTintMode == VtsCueMode.Manual ? VtsCueMode.Once : _vtsTintMode;
         _project.VtsCues ??= new VtsCueTrack();
         var cues = _project.VtsCues.Cues;
 
@@ -622,7 +638,7 @@ public partial class PvStageWindow
             {
                 Time = segment.Start,
                 Kind = VtsCueKind.Tint,
-                Mode = VtsCueMode.Toggle,
+                Mode = cueMode,
                 Target = _vtsTintTarget,
                 Duration = Math.Max(0.1, segment.End - segment.Start),
                 TintR = r,
@@ -805,8 +821,8 @@ public partial class PvStageWindow
         for (int i = 0; i < combo.Items.Count; i++)
             if (combo.Items[i] is ComboBoxItem { Tag: string first })
             {
-                combo.SelectedIndex = i;
                 _vtsTintTarget = first;
+                combo.SelectedIndex = i;
                 UpdateTintHint();
                 return;
             }

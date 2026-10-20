@@ -432,7 +432,8 @@ public partial class PvStageWindow
         TblStatus.Text = L.F("已添加角色运镜：{0}", ZhLabel("cam", preset));
     }
 
-    private FrameworkElement BoolRow(string label, bool value, Action<bool> write)
+    private FrameworkElement BoolRow(string label, bool value, Action<bool> write,
+        Action<Wpf.Ui.Controls.ToggleSwitch>? capture = null)
     {
         var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -449,6 +450,7 @@ public partial class PvStageWindow
         };
         toggle.Checked += (_, _) => write(true);
         toggle.Unchecked += (_, _) => write(false);
+        capture?.Invoke(toggle);
         Grid.SetColumn(toggle, 1);
         row.Children.Add(toggle);
         return row;
