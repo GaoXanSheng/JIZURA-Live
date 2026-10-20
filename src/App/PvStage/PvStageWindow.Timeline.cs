@@ -104,6 +104,7 @@ public partial class PvStageWindow
                         Kind = VtsCueKind.Tint,
                         Id = "vts:tint:" + target,
                         Label = VtsTintTargetName(target),
+                        Target = target,
                     };
                     tints[target] = track;
                 }
@@ -313,6 +314,62 @@ public partial class PvStageWindow
         RefreshTimeline();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.T("已调整 VTS 关键帧时间");
+    }
+
+    private void Timeline_VtsTrackClear(VtsCueKind kind, string target)
+    {
+        var cues = _project?.VtsCues?.Cues;
+        if (cues is null) return;
+
+        bool Match(VtsCue cue) => cue is not null
+            && cue.Kind == kind
+            && (string.IsNullOrEmpty(target) || cue.Target == target);
+
+        if (!cues.Any(Match))
+        {
+            TblStatus.Text = L.T("轨道已经是空的");
+            return;
+        }
+
+        PushUndo();
+        int removed = cues.RemoveAll(cue => Match(cue));
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已清空 VTS 轨道（{0} 个）", removed);
+    }
+
+    private void Timeline_CurveClear(ParamAddress address)
+    {
+        if (!_evaluator.Curves.ContainsKey(address))
+        {
+            TblStatus.Text = L.T("轨道已经是空的");
+            return;
+        }
+
+        PushUndo();
+        _evaluator.RemoveCurve(address);
+        PublishDirector();
+        RefreshParamRows();
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.T("已清空曲线");
+    }
+
+    private void Timeline_DesignTrackClear(DesignTrackKind kind)
+    {
+        var segments = _project?.DesignSegments;
+        if (segments is null || !segments.Any(segment => segment.Track == kind))
+        {
+            TblStatus.Text = L.T("轨道已经是空的");
+            return;
+        }
+
+        PushUndo();
+        int removed = segments.RemoveAll(segment => segment.Track == kind);
+        PublishDirector();
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已清空设计轨：{0} 段", removed);
     }
 
     private void Timeline_SeekRequested(double seconds)

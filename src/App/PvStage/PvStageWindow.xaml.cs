@@ -172,6 +172,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.VtsCueEdited += Timeline_VtsCueEdited;
         TheTimeline.TrackVisibilityChanged += Timeline_TrackVisibilityChanged;
         TheTimeline.TrackHeightsChanged += Timeline_TrackHeightsChanged;
+        TheTimeline.VtsTrackClearRequested += Timeline_VtsTrackClear;
+        TheTimeline.CurveClearRequested += Timeline_CurveClear;
+        TheTimeline.DesignTrackClearRequested += Timeline_DesignTrackClear;
         TheTimeline.ValuePrompt = PromptTimelineValueAsync;
         TheTimeline.Fps = _scene.Fps;
 

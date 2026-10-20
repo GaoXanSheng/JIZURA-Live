@@ -20,9 +20,11 @@ public sealed partial class TimelineView
         var p = e.GetPosition(this);
         if (e.ChangedButton == MouseButton.Right)
         {
+            if (p.X < HeaderWidth && TryOpenTrackMenu(p)) return;
             if (TryOpenVtsCueMenu(p)) return;
             if (TryOpenDesignMenu(p)) return;
-            OpenKeyMenu(p);
+            if (OpenKeyMenu(p)) return;
+            TryOpenTrackMenu(p);
             return;
         }
         if (e.ChangedButton != MouseButton.Left) return;
@@ -510,6 +512,49 @@ public sealed partial class TimelineView
         return p.X >= 0 && p.X <= EyeHitWidth;
     }
 
+    private bool TryOpenTrackMenu(Point p)
+    {
+        if (_snap is null || RowAt(p.Y) is not { } row) return false;
+
+        string label;
+        Action clear;
+        switch (row.Kind)
+        {
+            case RowKind.Design:
+            {
+                var design = _snap.DesignTracks[row.Index];
+                label = L.F("清空轨道「{0}」", DesignTrackNames.Label(design.Kind));
+                clear = () => DesignTrackClearRequested?.Invoke(design.Kind);
+                break;
+            }
+            case RowKind.Automation:
+            {
+                var curve = _snap.Curves[row.Index];
+                label = L.F("清空曲线「{0}」", curve.Label);
+                clear = () => CurveClearRequested?.Invoke(curve.Address);
+                break;
+            }
+            case RowKind.VtsCue:
+            {
+                var track = _snap.VtsCueTracks[row.Index];
+                label = L.F("清空轨道「{0}」", VtsCueTrackLabel(track));
+                var kind = track.Kind;
+                var target = track.Target;
+                clear = () => VtsTrackClearRequested?.Invoke(kind, target);
+                break;
+            }
+            default:
+                return false;
+        }
+
+        var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
+        var item = new MenuItem { Header = label };
+        item.Click += (_, _) => clear();
+        menu.Items.Add(item);
+        menu.IsOpen = true;
+        return true;
+    }
+
     private bool TryOpenHiddenTracksMenu()
     {
         var entries = HiddenTrackEntries();
@@ -954,12 +999,12 @@ public sealed partial class TimelineView
         InvalidateVisual();
     }
 
-    private void OpenKeyMenu(Point p)
+    private bool OpenKeyMenu(Point p)
     {
-        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.Automation } row) return;
+        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.Automation } row) return false;
         var curve = _snap.Curves[row.Index];
         int hit = TimelineMath.HitKey(curve.Keys, p.X - HeaderWidth, _viewStart, _pixelsPerSecond);
-        if (hit < 0) return;
+        if (hit < 0) return false;
 
         var key = curve.Keys[hit];
         if (!IsSelected(curve.Address, key.TimeSeconds)) SelectKey(curve.Address, key.TimeSeconds);
@@ -981,6 +1026,7 @@ public sealed partial class TimelineView
         remove.Click += (_, _) => DeleteSelected();
         menu.Items.Add(remove);
         menu.IsOpen = true;
+        return true;
     }
 
     private static string InterpLabel(string interp) => interp switch

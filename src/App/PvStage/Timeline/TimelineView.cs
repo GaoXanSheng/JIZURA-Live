@@ -131,6 +131,12 @@ public sealed partial class TimelineView : Control
 
     public event Action<VtsCueKind, string, double>? VtsCueDeleteRequested;
 
+    public event Action<VtsCueKind, string>? VtsTrackClearRequested;
+
+    public event Action<ParamAddress>? CurveClearRequested;
+
+    public event Action<DesignTrackKind>? DesignTrackClearRequested;
+
     public event Action<VtsCueKind, string, double, double, double>? VtsCueEdited;
 
     public event Action? TrackVisibilityChanged;
