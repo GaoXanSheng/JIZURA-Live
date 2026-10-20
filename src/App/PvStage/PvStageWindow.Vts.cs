@@ -393,7 +393,7 @@ public partial class PvStageWindow
             TextTertiaryKey, 11, wrap: true));
     }
 
-    private const double VtsDragSensitivity = 0.1;
+    private const double VtsDragSensitivity = 0.02;
 
     private static double SnapVtsMove(double value)
     {
@@ -683,6 +683,11 @@ public partial class PvStageWindow
         var y = _evaluator.TryEvaluate(VtsYAddr, t, out var vy) ? vy : _vtsRestY;
         var size = _evaluator.TryEvaluate(VtsSizeAddr, t, out var vs) ? vs : _vtsRestSize;
         var rotation = _evaluator.TryEvaluate(VtsRotationAddr, t, out var vr) ? vr : _vtsRestRot;
+
+        bool controlActive = _stageVtsDrive
+            && _selectedLayer is not null
+            && _scene.IsCharacterLayer(_selectedLayer);
+        _pipe?.VtsControl = new PvVtsControl(controlActive, x, y, size, rotation);
 
         if (Math.Abs(x - _vtsSent.X) < 1e-4
             && Math.Abs(y - _vtsSent.Y) < 1e-4

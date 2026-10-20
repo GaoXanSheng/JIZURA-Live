@@ -14,6 +14,8 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace JizuraLive.Pv;
 
+public sealed record PvVtsControl(bool Active, double X, double Y, double Size, double Rotation);
+
 public sealed record PvSelectionInfo(
     Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
     Matrix3x2 Matrix, int DesignWidth, int DesignHeight, double FitWidth, double CaptureWidth)
@@ -101,6 +103,14 @@ public sealed class PvStageRenderer : IDisposable
     private PvSelectionInfo? _selection;
 
     public PvSelectionInfo? Selection => Volatile.Read(ref _selection);
+
+    private PvVtsControl _vtsControl = new(false, 0, 0, 0, 0);
+
+    public PvVtsControl VtsControl
+    {
+        get => Volatile.Read(ref _vtsControl);
+        set => Volatile.Write(ref _vtsControl, value);
+    }
 
     public (double Engine, double Fx, double Composite) LastTiming { get; private set; }
 
@@ -419,6 +429,37 @@ public sealed class PvStageRenderer : IDisposable
             globalParallax: Stage.Scene.GlobalParallaxEnabled,
             antiBleed: Stage.Scene.AntiBleedGuardEnabled);
         var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
+        var vts = VtsControl;
+        if (vts.Active)
+        {
+            double designPerCapture = r.Width / Math.Max(1, image.Width);
+            var center = new Vector2(
+                (float)(r.X + r.Width / 2 + vts.X * designPerCapture),
+                (float)(r.Y + r.Height / 2 + vts.Y * designPerCapture));
+            double vtsScale = Math.Clamp(1 + vts.Size / 100.0, 0.1, 4.0);
+            double radians = vts.Rotation * Math.PI / 180.0;
+            float halfWidth = (float)(r.Width * 0.19 * vtsScale);
+            float halfHeight = (float)(r.Height * 0.33 * vtsScale);
+            var cos = (float)Math.Cos(radians);
+            var sin = (float)Math.Sin(radians);
+
+            Vector2 Corner(float sx, float sy)
+            {
+                float x = sx * halfWidth;
+                float y = sy * halfHeight;
+                var p = center + new Vector2(x * cos - y * sin, x * sin + y * cos);
+                return Vector2.Transform(p, tf.Matrix);
+            }
+
+            return new PvSelectionInfo(
+                Corner(-1, -1),
+                Corner(1, -1),
+                Corner(1, 1),
+                Corner(-1, 1),
+                Vector2.Transform(center, tf.Matrix),
+                tf.Matrix, _designW, _designH,
+                Math.Max(1, r.Width), Math.Max(1, image.Width));
+        }
 
         Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
 

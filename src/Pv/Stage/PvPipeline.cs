@@ -78,6 +78,12 @@ public sealed class PvPipeline : IDisposable
 
     public PvSelectionInfo? Selection => _renderer.Selection;
 
+    public PvVtsControl VtsControl
+    {
+        get => _renderer.VtsControl;
+        set => _renderer.VtsControl = value;
+    }
+
     public int DesignWidth => _renderer.DesignWidth;
 
     public int DesignHeight => _renderer.DesignHeight;
