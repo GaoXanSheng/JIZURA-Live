@@ -36,7 +36,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: restore
-        run: dotnet restore JizuraLive.csproj
+        run: dotnet restore JizuraLivePV.csproj
 
       - name: 构建主程序（Rebuild）
-        run: dotnet build JizuraLive.csproj -t:Rebuild -nologo
+        run: dotnet build JizuraLivePV.csproj -t:Rebuild -nologo
