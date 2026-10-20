@@ -375,6 +375,9 @@ public sealed partial class TimelineView
         _ => ExpressionCueFill,
     };
 
+    private static string VtsCueTrackLabel(TVtsCueTrack track) =>
+        string.IsNullOrEmpty(track.Label) ? CueTrackLabel(track.Kind) : track.Label;
+
     private static string CueTrackLabel(VtsCueKind kind) => kind switch
     {
         VtsCueKind.Hotkey => L.T("动作键"),
@@ -460,7 +463,7 @@ public sealed partial class TimelineView
                     break;
                 case RowKind.VtsCue:
                     var cueTrack = _snap!.VtsCueTracks[row.Index];
-                    dc.DrawText(Text(CueTrackLabel(cueTrack.Kind), 11, DimBrush),
+                    dc.DrawText(Text(VtsCueTrackLabel(cueTrack), 11, DimBrush),
                         new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.Design:

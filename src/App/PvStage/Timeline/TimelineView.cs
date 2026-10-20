@@ -129,7 +129,7 @@ public sealed partial class TimelineView : Control
 
     public event Action<TDesignSegment>? SegmentDeleteRequested;
 
-    public event Action<VtsCueKind, double>? VtsCueDeleteRequested;
+    public event Action<VtsCueKind, string, double>? VtsCueDeleteRequested;
 
     public event Action<VtsCueKind, string, double, double, double>? VtsCueEdited;
 
@@ -168,7 +168,8 @@ public sealed partial class TimelineView : Control
 
     private static string CurveTrackId(in ParamAddress address) => "curve:" + address;
 
-    private static string VtsTrackId(VtsCueKind kind) => "vts:" + kind;
+    private static string VtsTrackId(TVtsCueTrack track) =>
+        track.Id.Length > 0 ? track.Id : "vts:" + track.Kind;
 
     private TDesignSegment? FindSegment(int track, string refId)
     {
@@ -279,7 +280,7 @@ public sealed partial class TimelineView : Control
         if (_snap is not null)
             for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
             {
-                var id = VtsTrackId(_snap.VtsCueTracks[i].Kind);
+                var id = VtsTrackId(_snap.VtsCueTracks[i]);
                 if (Hidden(id)) continue;
                 cueBlock += HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
             }
@@ -310,7 +311,7 @@ public sealed partial class TimelineView : Control
         if (_snap is not null)
             for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
             {
-                var id = VtsTrackId(_snap.VtsCueTracks[i].Kind);
+                var id = VtsTrackId(_snap.VtsCueTracks[i]);
                 if (Hidden(id)) continue;
                 double height = HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
                 rows.Add(new Row(RowKind.VtsCue, i, y, height));
@@ -331,7 +332,7 @@ public sealed partial class TimelineView : Control
         RowKind.Lyrics => LyricsTrackId,
         RowKind.Design => DesignTrackId(_snap!.DesignTracks[row.Index].Kind),
         RowKind.Automation => CurveTrackId(_snap!.Curves[row.Index].Address),
-        RowKind.VtsCue => VtsTrackId(_snap!.VtsCueTracks[row.Index].Kind),
+        RowKind.VtsCue => VtsTrackId(_snap!.VtsCueTracks[row.Index]),
         _ => "",
     };
 
@@ -390,8 +391,8 @@ public sealed partial class TimelineView : Control
         }
         foreach (var track in _snap.VtsCueTracks)
         {
-            var id = VtsTrackId(track.Kind);
-            if (Hidden(id)) list.Add((id, CueTrackLabel(track.Kind)));
+            var id = VtsTrackId(track);
+            if (Hidden(id)) list.Add((id, VtsCueTrackLabel(track)));
         }
         return list;
     }

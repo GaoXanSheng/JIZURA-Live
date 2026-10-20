@@ -33,6 +33,7 @@ public partial class PvStageWindow
     private TextBlock? _vtsTintHint;
     private int _vtsTintTargetCount = -1;
     private bool _stageVtsDrive = true;
+    private bool _vtsTintOnTransitions;
     private TextBlock? _vtsFramingText;
     private bool _vtsBaseSynced;
     private bool _vtsSaveBasePending;
@@ -487,9 +488,164 @@ public partial class PvStageWindow
         reset.Click += (_, _) => ResetVtsTint();
         AddInspector(reset);
 
+        AddInspector(ThemeText(L.T("自动染色"), TextSecondaryKey, 12));
+        _vtsTintOnTransitions = _project.EditorLayout?.VtsTintOnTransitions ?? _vtsTintOnTransitions;
+        AddInspector(BoolRow(L.T("转场染色（自动给转场段加染色点）"), _vtsTintOnTransitions,
+            SetTransitionTint));
+
+        var autoTint = new Wpf.Ui.Controls.Button
+        {
+            Content = L.T("按音频自动染色"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        autoTint.Click += (_, _) => AutoTintFromAudio();
+        AddInspector(autoTint);
+
+        AddInspector(ThemeText(
+            L.T("自动节拍染色会替换当前目标的自动节拍点；换目标或颜色后重新开关转场染色。"),
+            TextTertiaryKey, 11, wrap: true));
+
         AddInspector(ThemeText(
             L.T("染色关键帧在时间线上可拖动；开关模式结束会恢复白色。"),
             TextTertiaryKey, 11, wrap: true));
+    }
+
+    private const string AutoBeatSource = "auto-beat";
+    private const string AutoTransitionSource = "auto-trans";
+
+    private void AutoTintFromAudio()
+    {
+        if (_project is null) return;
+        if (string.IsNullOrWhiteSpace(_vtsTintTarget))
+        {
+            TblStatus.Text = L.T("先选择一个染色目标");
+            return;
+        }
+        if (_beatMap is null || _beatMap.Beats.Count == 0)
+        {
+            TblStatus.Text = L.T("没有可用的节拍数据，先把音乐分析完");
+            return;
+        }
+
+        var beats = _beatMap.Downbeats.Count > 0
+            ? _beatMap.Downbeats
+            : _beatMap.Beats.Where((_, index) => index % 4 == 0).ToList();
+        if (beats.Count == 0) return;
+
+        var palette = BuildTintPalette(_vtsTintColor);
+        double audioEnd = _audio.Duration > 0.5 ? _audio.Duration : _beatMap.Beats[^1] + 1;
+
+        _project.VtsCues ??= new VtsCueTrack();
+        var cues = _project.VtsCues.Cues;
+
+        PushUndo();
+        cues.RemoveAll(cue => cue is not null
+            && cue.Kind == VtsCueKind.Tint
+            && cue.Target == _vtsTintTarget
+            && cue.Source == AutoBeatSource);
+
+        int added = 0;
+        for (int i = 0; i < beats.Count; i++)
+        {
+            double time = beats[i];
+            if (time < 0 || time > audioEnd) continue;
+
+            double next = i + 1 < beats.Count ? beats[i + 1] : time + 0.5;
+            double pulse = Math.Clamp((next - time) * 0.45, 0.08, 0.5);
+            var (r, g, b) = palette[TintColorIndex(time, i) % palette.Count];
+            cues.Add(new VtsCue
+            {
+                Time = time,
+                Kind = VtsCueKind.Tint,
+                Mode = VtsCueMode.Toggle,
+                Target = _vtsTintTarget,
+                Duration = pulse,
+                TintR = r,
+                TintG = g,
+                TintB = b,
+                Source = AutoBeatSource,
+            });
+            added++;
+        }
+
+        cues.Sort((left, right) => left.Time.CompareTo(right.Time));
+        RefreshTimeline();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已在 {0} 个节拍点自动染色", added);
+    }
+
+    private void SetTransitionTint(bool on)
+    {
+        _vtsTintOnTransitions = on;
+        if (_project?.EditorLayout is { } layout) layout.VtsTintOnTransitions = on;
+
+        if (on) GenerateTransitionTints();
+        else RemoveTransitionTints();
+
+        _saveError = SaveProjectNow();
+    }
+
+    private void GenerateTransitionTints()
+    {
+        if (_project is null) return;
+        if (string.IsNullOrWhiteSpace(_vtsTintTarget))
+        {
+            TblStatus.Text = L.T("先选择一个染色目标");
+            return;
+        }
+
+        var segments = _project.DesignSegments
+            .Where(segment => segment is not null
+                              && segment.Track == DesignTrackKind.Trans
+                              && segment.End > segment.Start + 0.01)
+            .ToList();
+        if (segments.Count == 0)
+        {
+            TblStatus.Text = L.T("没有可用的转场段");
+            return;
+        }
+
+        var palette = BuildTintPalette(_vtsTintColor);
+        _project.VtsCues ??= new VtsCueTrack();
+        var cues = _project.VtsCues.Cues;
+
+        PushUndo();
+        cues.RemoveAll(cue => cue is not null && cue.Source == AutoTransitionSource);
+
+        for (int i = 0; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            var (r, g, b) = palette[TintColorIndex(segment.Start, i) % palette.Count];
+            cues.Add(new VtsCue
+            {
+                Time = segment.Start,
+                Kind = VtsCueKind.Tint,
+                Mode = VtsCueMode.Toggle,
+                Target = _vtsTintTarget,
+                Duration = Math.Max(0.1, segment.End - segment.Start),
+                TintR = r,
+                TintG = g,
+                TintB = b,
+                Source = AutoTransitionSource,
+            });
+        }
+
+        cues.Sort((left, right) => left.Time.CompareTo(right.Time));
+        RefreshTimeline();
+        TblStatus.Text = L.F("已给 {0} 个转场段添加染色", segments.Count);
+    }
+
+    private void RemoveTransitionTints()
+    {
+        var cues = _project?.VtsCues?.Cues;
+        if (cues is null) return;
+
+        PushUndo();
+        int removed = cues.RemoveAll(cue => cue is not null && cue.Source == AutoTransitionSource);
+        if (removed > 0) RefreshTimeline();
+        TblStatus.Text = L.T("已关闭转场染色");
     }
 
     private static double SnapVtsMove(double value)
@@ -592,9 +748,31 @@ public partial class PvStageWindow
                     });
                 break;
             case "name":
+            {
+                var known = new HashSet<string>(_vts.ArtMeshes, StringComparer.Ordinal);
+                var assigned = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var group in _vts.ArtMeshGroups)
+                {
+                    var entries = group.Entries.Where(known.Contains).ToArray();
+                    if (entries.Length == 0) continue;
+
+                    combo.Items.Add(new ComboBoxItem
+                    {
+                        Content = L.F("组 · {0}", group.GroupName),
+                        IsEnabled = false,
+                    });
+                    foreach (var name in entries)
+                    {
+                        combo.Items.Add(new ComboBoxItem { Content = "  " + name, Tag = "name:" + name });
+                        assigned.Add(name);
+                    }
+                }
+
                 foreach (var name in _vts.ArtMeshes)
-                    combo.Items.Add(new ComboBoxItem { Content = name, Tag = "name:" + name });
+                    if (!assigned.Contains(name))
+                        combo.Items.Add(new ComboBoxItem { Content = name, Tag = "name:" + name });
                 break;
+            }
             case "tag":
                 foreach (var tag in _vts.ArtMeshTags)
                     combo.Items.Add(new ComboBoxItem { Content = L.F("标签 · {0}", tag), Tag = "tag:" + tag });
@@ -624,9 +802,16 @@ public partial class PvStageWindow
                 return;
             }
 
-        combo.SelectedIndex = 0;
-        if (combo.SelectedItem is ComboBoxItem { Tag: string first }) _vtsTintTarget = first;
+        for (int i = 0; i < combo.Items.Count; i++)
+            if (combo.Items[i] is ComboBoxItem { Tag: string first })
+            {
+                combo.SelectedIndex = i;
+                _vtsTintTarget = first;
+                UpdateTintHint();
+                return;
+            }
 
+        combo.SelectedIndex = 0;
         UpdateTintHint();
     }
 
@@ -705,18 +890,93 @@ public partial class PvStageWindow
         return ((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF);
     }
 
+    private int TintColorIndex(double time, int fallback)
+    {
+        var sections = _beatMap?.Sections;
+        if (sections is { Count: > 0 })
+            for (int i = 0; i < sections.Count; i++)
+                if (time >= sections[i].Start && time < sections[i].End)
+                    return i;
+
+        return fallback / 8;
+    }
+
+    private static List<(int R, int G, int B)> BuildTintPalette(string hex)
+    {
+        var (r, g, b) = ParseTintColor(hex);
+        var (h, s, v) = RgbToHsv(r, g, b);
+        s = Math.Clamp(s, 0.35, 1);
+        v = Math.Clamp(v, 0.45, 1);
+
+        var palette = new List<(int, int, int)>(6);
+        for (int i = 0; i < 6; i++)
+            palette.Add(HsvToRgb(h + i * 60, s, v));
+        return palette;
+    }
+
+    private static (double H, double S, double V) RgbToHsv(int r, int g, int b)
+    {
+        double rr = r / 255.0;
+        double gg = g / 255.0;
+        double bb = b / 255.0;
+        double max = Math.Max(rr, Math.Max(gg, bb));
+        double min = Math.Min(rr, Math.Min(gg, bb));
+        double delta = max - min;
+
+        double h = 0;
+        if (delta > 1e-9)
+        {
+            if (max == rr) h = 60 * (((gg - bb) / delta) % 6);
+            else if (max == gg) h = 60 * (((bb - rr) / delta) + 2);
+            else h = 60 * (((rr - gg) / delta) + 4);
+        }
+        if (h < 0) h += 360;
+
+        double s = max <= 0 ? 0 : delta / max;
+        return (h, s, max);
+    }
+
+    private static (int R, int G, int B) HsvToRgb(double h, double s, double v)
+    {
+        h = ((h % 360) + 360) % 360;
+        double c = v * s;
+        double x = c * (1 - Math.Abs((h / 60) % 2 - 1));
+        double m = v - c;
+
+        var (r, g, b) = h switch
+        {
+            < 60 => (c, x, 0.0),
+            < 120 => (x, c, 0.0),
+            < 180 => (0.0, c, x),
+            < 240 => (0.0, x, c),
+            < 300 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+
+        return ((int)Math.Round((r + m) * 255),
+            (int)Math.Round((g + m) * 255),
+            (int)Math.Round((b + m) * 255));
+    }
+
+    private string VtsTintTargetName(string target)
+    {
+        if (string.IsNullOrEmpty(target) || target == "all") return L.T("整个模型");
+        if (target.StartsWith("group:", StringComparison.Ordinal))
+            return L.F("组 · {0}", _vts.ArtMeshGroups
+                .FirstOrDefault(g => g.GroupId == target[6..])?.GroupName ?? target[6..]);
+        if (target.StartsWith("tag:", StringComparison.Ordinal)) return L.F("标签 · {0}", target[4..]);
+        if (target.StartsWith("name:", StringComparison.Ordinal))
+        {
+            var name = target[5..];
+            var group = _vts.ArtMeshGroups.FirstOrDefault(g => g.Entries.Contains(name));
+            return group is null ? name : L.F("{0}（{1}）", name, group.GroupName);
+        }
+        return target;
+    }
+
     private string VtsTintTargetLabel(VtsCue cue)
     {
-        var target = string.IsNullOrEmpty(cue.Target) || cue.Target == "all"
-            ? L.T("整个模型")
-            : cue.Target.StartsWith("group:", StringComparison.Ordinal)
-                ? L.F("组 · {0}", _vts.ArtMeshGroups
-                    .FirstOrDefault(g => g.GroupId == cue.Target[6..])?.GroupName ?? cue.Target[6..])
-                : cue.Target.StartsWith("tag:", StringComparison.Ordinal)
-                    ? L.F("标签 · {0}", cue.Target[4..])
-                    : cue.Target.StartsWith("name:", StringComparison.Ordinal)
-                        ? cue.Target[5..]
-                        : cue.Target;
+        var target = VtsTintTargetName(cue.Target);
         return $"#{Math.Clamp(cue.TintR, 0, 255):X2}"
                + $"{Math.Clamp(cue.TintG, 0, 255):X2}"
                + $"{Math.Clamp(cue.TintB, 0, 255):X2} {target}";

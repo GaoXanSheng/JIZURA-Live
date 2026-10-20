@@ -727,7 +727,7 @@ public sealed partial class TimelineView
 
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
         var remove = new MenuItem { Header = L.T("删除") };
-        remove.Click += (_, _) => VtsCueDeleteRequested?.Invoke(track.Kind, hit.Time);
+        remove.Click += (_, _) => VtsCueDeleteRequested?.Invoke(track.Kind, hit.Target, hit.Time);
         menu.Items.Add(remove);
         menu.IsOpen = true;
         return true;

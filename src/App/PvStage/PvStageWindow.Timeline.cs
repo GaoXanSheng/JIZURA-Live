@@ -72,9 +72,9 @@ public partial class PvStageWindow
 
     private void ExportVtsCueTracks(TSnapshot snap)
     {
-        var hotkeys = new TVtsCueTrack { Kind = VtsCueKind.Hotkey };
-        var expressions = new TVtsCueTrack { Kind = VtsCueKind.Expression };
-        var tints = new TVtsCueTrack { Kind = VtsCueKind.Tint };
+        var hotkeys = new TVtsCueTrack { Kind = VtsCueKind.Hotkey, Id = "vts:Hotkey" };
+        var expressions = new TVtsCueTrack { Kind = VtsCueKind.Expression, Id = "vts:Expression" };
+        var tints = new Dictionary<string, TVtsCueTrack>(StringComparer.Ordinal);
         foreach (var cue in _project.VtsCues?.Cues ?? new List<VtsCue>())
         {
             if (cue is null) continue;
@@ -95,12 +95,26 @@ public partial class PvStageWindow
             };
             if (cue.Kind == VtsCueKind.Hotkey) hotkeys.Cues.Add(item);
             else if (cue.Kind == VtsCueKind.Expression) expressions.Cues.Add(item);
-            else if (cue.Kind == VtsCueKind.Tint) tints.Cues.Add(item);
+            else if (cue.Kind == VtsCueKind.Tint)
+            {
+                if (!tints.TryGetValue(target, out var track))
+                {
+                    track = new TVtsCueTrack
+                    {
+                        Kind = VtsCueKind.Tint,
+                        Id = "vts:tint:" + target,
+                        Label = VtsTintTargetName(target),
+                    };
+                    tints[target] = track;
+                }
+                track.Cues.Add(item);
+            }
         }
 
         snap.VtsCueTracks.Add(hotkeys);
         snap.VtsCueTracks.Add(expressions);
-        snap.VtsCueTracks.Add(tints);
+        foreach (var track in tints.Values.OrderBy(t => t.Label, StringComparer.Ordinal))
+            snap.VtsCueTracks.Add(track);
     }
 
     private void ExportDesignTracks(TSnapshot snap)
@@ -268,12 +282,12 @@ public partial class PvStageWindow
         }
     }
 
-    private void Timeline_VtsCueDeleteRequested(VtsCueKind kind, double time)
+    private void Timeline_VtsCueDeleteRequested(VtsCueKind kind, string target, double time)
     {
         if (_project.VtsCues?.Cues is not { } cues) return;
 
         int removed = cues.RemoveAll(c =>
-            c is not null && c.Kind == kind && Math.Abs(c.Time - time) < 1e-3);
+            c is not null && c.Kind == kind && c.Target == target && Math.Abs(c.Time - time) < 1e-3);
         if (removed == 0) return;
 
         PushUndo();

@@ -216,6 +216,16 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
     public void Stop()
     {
         if (_stopping) return;
+
+        var worker = _worker;
+        if (worker is { IsAlive: true } && worker != Thread.CurrentThread)
+        {
+            using var done = new ManualResetEventSlim();
+            try { _commands.Add(w => { w.ResetTints(); done.Set(); }); }
+            catch (InvalidOperationException) { }
+            done.Wait(1000);
+        }
+
         _stopping = true;
         try { _commands.CompleteAdding(); } catch {           }
         var w = _worker;
@@ -928,6 +938,14 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                 var path = line[(first + 1)..second].Replace("\\\\", "\\");
                 if (Directory.Exists(path)) yield return path;
             }
+        }
+
+        public void ResetTints()
+        {
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+
+            var resp = Send("ColorTintRequest", VtsApi.BuildTintPayload("all", 255, 255, 255));
+            if (resp is not null) Log.Info("[VTS] 已恢复默认染色（退出前）");
         }
 
         public void SetArtMeshTint(string target, int r, int g, int b)

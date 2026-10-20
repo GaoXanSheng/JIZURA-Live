@@ -106,6 +106,8 @@ public sealed class EditorLayout
     public Dictionary<string, double> TrackHeights { get; set; } = new(StringComparer.Ordinal);
 
     public bool VtsStageDrive { get; set; } = true;
+
+    public bool VtsTintOnTransitions { get; set; }
 }
 
 public sealed class CurveSave

@@ -55,6 +55,8 @@ public sealed class TVtsCue
 public sealed class TVtsCueTrack
 {
     public VtsCueKind Kind;
+    public string Id = "";
+    public string Label = "";
     public List<TVtsCue> Cues = new();
 }
 

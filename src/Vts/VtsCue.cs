@@ -32,6 +32,8 @@ public sealed class VtsCue
 
     public string Target { get; set; } = "";
 
+    public string Source { get; set; } = "user";
+
     public double Value { get; set; }
 
     public double Duration { get; set; }
