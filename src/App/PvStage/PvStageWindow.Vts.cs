@@ -479,12 +479,12 @@ public partial class PvStageWindow
 
         var reset = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("清除全部染色"),
+            Content = L.T("恢复默认染色"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
         };
-        reset.Click += (_, _) => ClearVtsTints();
+        reset.Click += (_, _) => ResetVtsTint();
         AddInspector(reset);
 
         AddInspector(ThemeText(
@@ -689,18 +689,10 @@ public partial class PvStageWindow
         TblStatus.Text = L.F("已在 {0:F2}s 添加染色关键帧", t);
     }
 
-    private void ClearVtsTints()
+    private void ResetVtsTint()
     {
-        int removed = _project?.VtsCues?.Cues.RemoveAll(
-            c => c is not null && c.Kind == VtsCueKind.Tint) ?? 0;
         _vts.ClearArtMeshTint("all");
-        if (removed > 0)
-        {
-            PushUndo();
-            RefreshTimeline();
-            _saveError = SaveProjectNow();
-        }
-        TblStatus.Text = L.T("已清除全部染色");
+        TblStatus.Text = L.T("已恢复默认染色");
     }
 
     private static (int R, int G, int B) ParseTintColor(string hex)
