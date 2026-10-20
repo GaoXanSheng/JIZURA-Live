@@ -393,6 +393,8 @@ public partial class PvStageWindow
             TextTertiaryKey, 11, wrap: true));
     }
 
+    private const double VtsDragSensitivity = 0.1;
+
     private static double SnapVtsMove(double value)
     {
         double step = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? 1.0

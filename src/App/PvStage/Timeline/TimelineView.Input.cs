@@ -868,7 +868,7 @@ public sealed partial class TimelineView
                 double step = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? 1.0
                     : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? 0.1
                     : 0.01;
-                value = origin.Value + (_dragOrigin.Y - p.Y) * step;
+                value = origin.Value + (_dragOrigin.Y - p.Y) * step * 0.1;
                 value = Math.Round(Math.Round(value / step, MidpointRounding.AwayFromZero) * step, 6);
             }
             else value = origin.Value + dv;

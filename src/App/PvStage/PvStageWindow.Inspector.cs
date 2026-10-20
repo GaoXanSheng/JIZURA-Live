@@ -638,7 +638,8 @@ public partial class PvStageWindow
                     : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? 0.1
                     : 0.01;
                 double delta = e.GetPosition(slider).X - scrub.StartX;
-                slider.Value = Math.Clamp(scrub.StartValue + delta * step, lo, hi);
+                slider.Value = Math.Clamp(
+                    scrub.StartValue + delta * step * VtsDragSensitivity, lo, hi);
             };
 
             slider.PreviewMouseLeftButtonUp += (_, e) =>
