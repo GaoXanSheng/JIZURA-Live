@@ -1,3 +1,4 @@
+using JizuraLive.App.I18n;
 using JizuraLive.Render.Effects;
 
 namespace JizuraLive.Pv;
@@ -31,17 +32,17 @@ public static class DesignTrackNames
 {
     public static string Label(DesignTrackKind kind) => kind switch
     {
-        DesignTrackKind.Layout => "布局",
-        DesignTrackKind.Enter => "入场",
-        DesignTrackKind.Hold => "保持",
-        DesignTrackKind.Exit => "退场",
-        DesignTrackKind.Decor => "装饰",
-        DesignTrackKind.Treat => "文字处理",
-        DesignTrackKind.Bg => "背景",
-        DesignTrackKind.Cam => "运镜",
-        DesignTrackKind.Fx => "画面效果",
-        DesignTrackKind.Trans => "转场",
-        DesignTrackKind.LayerCam => "角色运镜",
+        DesignTrackKind.Layout => L.T("布局"),
+        DesignTrackKind.Enter => L.T("入场"),
+        DesignTrackKind.Hold => L.T("保持"),
+        DesignTrackKind.Exit => L.T("退场"),
+        DesignTrackKind.Decor => L.T("装饰"),
+        DesignTrackKind.Treat => L.T("文字处理"),
+        DesignTrackKind.Bg => L.T("背景"),
+        DesignTrackKind.Cam => L.T("运镜"),
+        DesignTrackKind.Fx => L.T("画面效果"),
+        DesignTrackKind.Trans => L.T("转场"),
+        DesignTrackKind.LayerCam => L.T("角色运镜"),
         _ => kind.ToString(),
     };
 }

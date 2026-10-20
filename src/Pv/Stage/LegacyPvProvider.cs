@@ -41,10 +41,7 @@ public sealed class LegacyPvProvider : IDisposable
     private volatile string? _error;
     private volatile LegacyPvPlanInfo? _planInfo;
     private LegacyPvEngine? _syncEngine;
-    private volatile LegacyPvEngine? _engine;
-    private volatile CameraTrack? _cameraTrack;
     private LegacyPvPlanInfo? _pendingCutOverrides;
-    private CameraTrack? _pendingCameraTrack;
     private GpuRasterHost? _gpuHost;
     private volatile bool _gpuMode;
 
@@ -103,7 +100,6 @@ public sealed class LegacyPvProvider : IDisposable
             _cutCount = _syncEngine.CutCount;
             _error = _syncEngine.Error;
             _planInfo = _syncEngine.PlanInfo;
-            _engine = _syncEngine;
             _thread = new Thread(() => { });
             return;
         }
@@ -258,7 +254,6 @@ public sealed class LegacyPvProvider : IDisposable
 
             _cutCount = engine.CutCount;
             _planInfo = engine.PlanInfo;
-            _engine = engine;
 
             if (host is not null)
             {
@@ -290,12 +285,6 @@ public sealed class LegacyPvProvider : IDisposable
                     }
                     engine.UseCpu();
                 }
-            }
-
-            if (_cameraTrack is { } track)
-            {
-                engine.ApplyCameraTrack(track);
-                Interlocked.Exchange(ref _pendingCameraTrack, null);
             }
 
             ApplyPending(engine);
@@ -332,8 +321,7 @@ public sealed class LegacyPvProvider : IDisposable
         }
         finally
         {
-            _engine = null;
-            _gpuMode = false;
+                _gpuMode = false;
             try
             {
                 engine?.Dispose();
@@ -373,7 +361,7 @@ public sealed class LegacyPvProvider : IDisposable
 
             _gpuHost!.Activate(frame.Surface);
             engine.RenderTo(frame.Surface, time, NoCutTrans, part.Layer, part.Transparent, NoCamera);
-            _gpuHost!.FlushAndSync();
+            _gpuHost!.Flush();
 
             lock (_frameGate)
             {
@@ -382,19 +370,13 @@ public sealed class LegacyPvProvider : IDisposable
             }
         }
 
+        _gpuHost!.FlushAndSync();
         return true;
     }
 
     private bool ApplyPending(LegacyPvEngine engine)
     {
         var dirty = false;
-        var track = Interlocked.Exchange(ref _pendingCameraTrack, null);
-        if (track is not null)
-        {
-            engine.ApplyCameraTrack(track);
-            dirty = true;
-        }
-
         var cuts = Interlocked.Exchange(ref _pendingCutOverrides, null);
         if (cuts is not null)
         {
@@ -450,7 +432,6 @@ public sealed class LegacyPvProvider : IDisposable
             try { _thread.Join(3000); } catch { }
         }
 
-        _engine = null;
         _gpuMode = false;
         _gpuHost = null;
         foreach (var part in _parts)

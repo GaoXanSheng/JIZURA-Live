@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -31,11 +32,11 @@ public partial class PvStageWindow
 
         PublishDirector();
         SaveProjectNow();
-        ShowStatus($"原版引擎叠加：整体运镜 {OnOff(_project.LegacyStageCamera)}"
-                   + $" · 整体转场 {OnOff(_project.LegacyStageTransitions)}");
+        ShowStatus(L.F("原版引擎叠加：整体运镜 {0}", OnOff(_project.LegacyStageCamera))
+                   + L.F(" · 整体转场 {0}", OnOff(_project.LegacyStageTransitions)));
     }
 
-    private static string OnOff(bool on) => on ? "开" : "关";
+    private static string OnOff(bool on) => on ? L.T("开") : L.T("关");
 
     private void SyncStageToggles()
     {
@@ -94,16 +95,16 @@ public partial class PvStageWindow
             _saveError = SaveProjectNow();
         }
 
-        string cameraLine = _project.LegacyStageCamera ? $"运镜 {report.CameraShots} 个" : "运镜：关";
-        string transLine = _project.LegacyStageTransitions ? $"转场 {report.TransSegments} 段" : "转场：关";
+        string cameraLine = _project.LegacyStageCamera ? L.F("运镜 {0} 个", report.CameraShots) : L.T("运镜：关");
+        string transLine = _project.LegacyStageTransitions ? L.F("转场 {0} 段", report.TransSegments) : L.T("转场：关");
 
         TblAutoReport.Text =
-            (_beatMap is { } bm ? $"BPM {bm.Bpm:F1} · 段落 {bm.Sections.Count} 段 · " : "")
-            + $"原版 PV 计划 · {info.Cuts.Count} 个切分 · 时长 {info.Duration:F1}s\n"
-            + $"舞台叠加：{cameraLine} · {transLine}（角色不单独位移，随镜头整体移动）\n"
-            + $"布局 / 入退场 / 文字处理 / 引擎转场由原版引擎生成";
+            (_beatMap is { } bm ? L.F("BPM {0:F1} · 段落 {1} 段 · ", bm.Bpm, bm.Sections.Count) : "")
+            + L.F("原版 PV 计划 · {0} 个切分 · 时长 {1:F1}s\n", info.Cuts.Count, info.Duration)
+            + L.F("舞台叠加：{0} · {1}（角色不单独位移，随镜头整体移动）\n", cameraLine, transLine)
+            + L.T("布局 / 入退场 / 文字处理 / 引擎转场由原版引擎生成");
 
-        ShowStatus($"原版引擎就绪：{info.Cuts.Count} 切分 · {cameraLine} · {transLine}");
+        ShowStatus(L.F("原版引擎就绪：{0} 切分 · {1} · {2}", info.Cuts.Count, cameraLine, transLine));
     }
 
     private static Dictionary<double, LegacyPvCutInfo> CaptureUserCutOverrides(LegacyPvPlanInfo? info)
@@ -159,25 +160,25 @@ public partial class PvStageWindow
     {
         if (_autoGenerating) return Task.CompletedTask;
 
-        var what = _autoSeed > 1 ? $"换一版（第 {_autoSeed} 版）" : "一键成片";
+        var what = _autoSeed > 1 ? L.F("换一版（第 {0} 版）", _autoSeed) : L.T("一键成片");
 
         if (string.IsNullOrWhiteSpace(_audioPath) || !File.Exists(_audioPath))
         {
-            ShowStatus($"{what}失败：请先导入音频");
+            ShowStatus(L.F("{0}失败：请先导入音频", what));
             return Task.CompletedTask;
         }
 
         if (string.IsNullOrWhiteSpace(_lrcText))
         {
-            ShowStatus($"{what}失败：请先导入歌词");
+            ShowStatus(L.F("{0}失败：请先导入歌词", what));
             return Task.CompletedTask;
         }
 
         _autoGenerating = true;
         BtnGenerateAuto.IsEnabled = false;
         BtnRegenerateAuto.IsEnabled = false;
-        BtnGenerateAuto.Content = "生成中…";
-        ShowStatus($"{what}：正在重建原版引擎 Plan…");
+        BtnGenerateAuto.Content = L.T("生成中…");
+        ShowStatus(L.F("{0}：正在重建原版引擎 Plan…", what));
 
         _autoSeed = Math.Max(1, _autoSeed);
         try
@@ -205,26 +206,27 @@ public partial class PvStageWindow
             PushUndo();
 
             string mapLine = _beatMap is { } bm
-                ? $"BPM {bm.Bpm:F1} · 段落 {bm.Sections.Count} 段 · 节拍 {bm.Beats.Count} 个\n"
+                ? L.F("BPM {0:F1} · 段落 {1} 段 · 节拍 {2} 个\n", bm.Bpm, bm.Sections.Count, bm.Beats.Count)
                 : "";
             TblAutoReport.Text =
-                $"原版引擎 · 第 {_autoSeed} 版（种子 {_project.LegacySeed}）\n"
+                L.F("原版引擎 · 第 {0} 版（种子 {1}）\n", _autoSeed, _project.LegacySeed)
                 + mapLine
-                + $"主题 {ThemeLabel(_project.LegacyStyle)} · 正在按原版 Plan 切点缝入角色运动 / 整体运镜 / 整体转场…";
-            var legacyNote = $"{what}：已重排原版引擎 · 第 {_autoSeed} 版 · 种子 {_project.LegacySeed} · 主题 {ThemeLabel(_project.LegacyStyle)}";
+                + L.F("主题 {0} · 正在按原版 Plan 切点缝入角色运动 / 整体运镜 / 整体转场…", ThemeLabel(_project.LegacyStyle));
+            var legacyNote = L.F("{0}：已重排原版引擎 · 第 {1} 版 · 种子 {2} · 主题 {3}",
+                what, _autoSeed, _project.LegacySeed, ThemeLabel(_project.LegacyStyle));
             ShowStatus(legacyNote);
             Log.Info($"[PV 工作台] {legacyNote}");
         }
         catch (Exception ex)
         {
-            TblAutoReport.Text = "生成失败：" + ex.Message;
-            ShowStatus($"{what}失败：{ex.Message}");
+            TblAutoReport.Text = L.T("生成失败：") + ex.Message;
+            ShowStatus(L.F("{0}失败：{1}", what, ex.Message));
             Log.Warn("[PV 工作台] 一键成片异常：" + ex);
         }
         finally
         {
             _autoGenerating = false;
-            BtnGenerateAuto.Content = "一键生成";
+            BtnGenerateAuto.Content = L.T("一键生成");
             UpdateAutoButton();
         }
 

@@ -81,7 +81,6 @@ public sealed class PvScene
     public bool IsCharacterLayer(PvLayerConfig layer) => ReferenceEquals(CharacterLayer, layer);
 
     public static PvScene CreateBlank() => new();
-
     public static PvScene CreateDefault()
     {
         var scene = new PvScene();
@@ -106,7 +105,6 @@ public sealed class PvScene
         return scene;
     }
 
-    public static PvScene? FromJson(string json) => JsonConvert.DeserializeObject<PvScene>(json);
 
 }
 

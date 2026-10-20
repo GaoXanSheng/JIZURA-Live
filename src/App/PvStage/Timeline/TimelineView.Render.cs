@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using JizuraLive.Pv;
 using JizuraLive.Vts;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage.Timeline;
 
@@ -392,11 +393,11 @@ public sealed partial class TimelineView
                     new Point(12 + head.Width, row.Top + 7));
                 break;
             case RowKind.Waveform:
-                dc.DrawText(Text("音频", 11, DimBrush),
+                dc.DrawText(Text(L.T("音频"), 11, DimBrush),
                     new Point(8, row.Top + (row.Height - 14) / 2));
                 break;
             case RowKind.Lyrics:
-                dc.DrawText(Text("歌词", 11, DimBrush),
+                dc.DrawText(Text(L.T("歌词"), 11, DimBrush),
                     new Point(8, row.Top + (row.Height - 14) / 2));
                 break;
             case RowKind.Automation:
@@ -404,7 +405,7 @@ public sealed partial class TimelineView
                 break;
             case RowKind.VtsCue:
                 var cueTrack = _snap!.VtsCueTracks[row.Index];
-                dc.DrawText(Text(cueTrack.Kind == VtsCueKind.Hotkey ? "动作键" : "表情",
+                dc.DrawText(Text(cueTrack.Kind == VtsCueKind.Hotkey ? L.T("动作键") : L.T("表情"),
                     11, DimBrush), new Point(8, row.Top + 5));
                 break;
             case RowKind.Design:

@@ -41,17 +41,17 @@
                     </Grid.RowDefinitions>
 
                     <UniformGrid Grid.Row="0" Rows="1" Margin="12,8,12,4">
-                        <RadioButton x:Name="NavMedia" Content="素材" Style="{StaticResource NavTab}"
+                        <RadioButton x:Name="NavMedia" Content="{DynamicResource Loc.PanelXaml.001}" Style="{StaticResource NavTab}"
                                      GroupName="NavTabs" IsChecked="True" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavStyle" Content="风格" Style="{StaticResource NavTab}"
+                        <RadioButton x:Name="NavStyle" Content="{DynamicResource Loc.PanelXaml.002}" Style="{StaticResource NavTab}"
                                      GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavTech" Content="手法" Style="{StaticResource NavTab}"
+                        <RadioButton x:Name="NavTech" Content="{DynamicResource Loc.PanelXaml.003}" Style="{StaticResource NavTab}"
                                      GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavDirector" Content="导演" Style="{StaticResource NavTab}"
+                        <RadioButton x:Name="NavDirector" Content="{DynamicResource Loc.PanelXaml.004}" Style="{StaticResource NavTab}"
                                      GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavOutput" Content="输出" Style="{StaticResource NavTab}"
+                        <RadioButton x:Name="NavOutput" Content="{DynamicResource Loc.PanelXaml.005}" Style="{StaticResource NavTab}"
                                      GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavSettings" Content="设置" Style="{StaticResource NavTab}"
+                        <RadioButton x:Name="NavSettings" Content="{DynamicResource Loc.PanelXaml.006}" Style="{StaticResource NavTab}"
                                      GroupName="NavTabs" Checked="Nav_Click" />
                     </UniformGrid>
 
@@ -61,29 +61,29 @@
                             <StackPanel>
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="音乐" Style="{StaticResource PanelCardTitle}" />
-                                        <ui:Button x:Name="BtnCloudMusic" Content="云端音乐" Appearance="Primary"
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.007}" Style="{StaticResource PanelCardTitle}" />
+                                        <ui:Button x:Name="BtnCloudMusic" Content="{DynamicResource Loc.PanelXaml.008}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Click="BtnCloudMusic_Click"
-                                                   ToolTip="搜索酷狗 / 网易云歌曲，导入音频与歌词">
+                                                   ToolTip="{DynamicResource Loc.PanelXaml.009}">
                                             <ui:Button.Icon>
                                                 <ui:SymbolIcon Symbol="Cloud24" />
                                             </ui:Button.Icon>
                                         </ui:Button>
                                         <TextBlock x:Name="TblAudioName" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
-                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="未导入音乐" />
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{DynamicResource Loc.PanelXaml.010}" />
                                         <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}"
-                                                   Text="拖入音频文件即可开始" />
+                                                   Text="{DynamicResource Loc.PanelXaml.011}" />
                                     </StackPanel>
                                 </ui:Card>
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="歌词" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.012}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="通过顶部「导入文件」装载 .lrc/.krc，或用云端音乐一起导入" />
+                                                   Text="{DynamicResource Loc.PanelXaml.013}" />
                                         <TextBlock x:Name="TblLyricInfo" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="未装载歌词" />
+                                                   Text="{DynamicResource Loc.PanelXaml.014}" />
                                     </StackPanel>
                                 </ui:Card>
 
@@ -94,16 +94,16 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="图层" Style="{StaticResource PanelCardTitle}" Margin="0" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.015}" Style="{StaticResource PanelCardTitle}" Margin="0" />
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                                 <TextBlock x:Name="TblLayerCount" Margin="0,0,6,0" VerticalAlignment="Center"
                                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                                                <ui:Button x:Name="BtnAddLayer" Content="+ 源" Click="BtnAddLayer_Click"
-                                                           ToolTip="添加一路 Spout 源图层，或一层磁盘图片/视频（图片与视频不需要发送端）" />
+                                                <ui:Button x:Name="BtnAddLayer" Content="{DynamicResource Loc.PanelXaml.016}" Click="BtnAddLayer_Click"
+                                                           ToolTip="{DynamicResource Loc.PanelXaml.017}" />
                                             </StackPanel>
                                         </Grid>
                                         <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="从上到下 = 从前往后，拖拽可改顺序；点卡片在右侧编辑它。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.018}" />
                                         <StackPanel x:Name="LayersHost" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </ui:Card>
@@ -116,16 +116,16 @@
                             <StackPanel>
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="主题风格" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.019}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock x:Name="TblThemeName" Style="{StaticResource PanelHint}"
-                                                   Text="当前主题：黑色电影" />
+                                                   Text="{DynamicResource Loc.PanelXaml.020}" />
                                         <WrapPanel x:Name="ThemeGrid" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </ui:Card>
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="特效" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.021}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="FxSliderHost" />
                                         <StackPanel x:Name="FxToggleHost" Margin="0,6,0,0" />
                                         <Grid Margin="0,8,0,0">
@@ -133,12 +133,12 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="抽帧" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.022}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbKoma" Grid.Column="1" HorizontalAlignment="Right"
                                                       Width="110" SelectionChanged="CmbKoma_SelectionChanged">
-                                                <ComboBoxItem Tag="0" Content="全帧" />
-                                                <ComboBoxItem Tag="12" Content="一拍二" />
-                                                <ComboBoxItem Tag="8" Content="一拍三" />
+                                                <ComboBoxItem Tag="0" Content="{DynamicResource Loc.PanelXaml.023}" />
+                                                <ComboBoxItem Tag="12" Content="{DynamicResource Loc.PanelXaml.024}" />
+                                                <ComboBoxItem Tag="8" Content="{DynamicResource Loc.PanelXaml.025}" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
@@ -149,9 +149,9 @@
                                             <TextBlock Text="HUD" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbHud" Grid.Column="1" HorizontalAlignment="Right"
                                                       Width="110" SelectionChanged="CmbHud_SelectionChanged">
-                                                <ComboBoxItem Tag="auto" Content="跟随主题" />
-                                                <ComboBoxItem Tag="on" Content="显示" />
-                                                <ComboBoxItem Tag="off" Content="不显示" />
+                                                <ComboBoxItem Tag="auto" Content="{DynamicResource Loc.PanelXaml.026}" />
+                                                <ComboBoxItem Tag="on" Content="{DynamicResource Loc.PanelXaml.027}" />
+                                                <ComboBoxItem Tag="off" Content="{DynamicResource Loc.PanelXaml.028}" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
@@ -159,12 +159,12 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="背景" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.029}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbKeyBg" Grid.Column="1" HorizontalAlignment="Right"
                                                       Width="110" SelectionChanged="CmbKeyBg_SelectionChanged">
-                                                <ComboBoxItem Tag="off" Content="常规" />
-                                                <ComboBoxItem Tag="black" Content="黑幕" />
-                                                <ComboBoxItem Tag="green" Content="绿幕" />
+                                                <ComboBoxItem Tag="off" Content="{DynamicResource Loc.PanelXaml.030}" />
+                                                <ComboBoxItem Tag="black" Content="{DynamicResource Loc.PanelXaml.031}" />
+                                                <ComboBoxItem Tag="green" Content="{DynamicResource Loc.PanelXaml.032}" />
                                             </ComboBox>
                                         </Grid>
                                     </StackPanel>
@@ -172,21 +172,21 @@
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="字体与配色" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.033}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="StyleExtraHost" />
                                     </StackPanel>
                                 </ui:Card>
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="种子" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.034}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <ui:TextBox x:Name="TxtPresetSeed" FontSize="12" />
-                                            <ui:Button x:Name="BtnReseedPreset" Grid.Column="1" Content="换种子"
+                                            <ui:Button x:Name="BtnReseedPreset" Grid.Column="1" Content="{DynamicResource Loc.PanelXaml.035}"
                                                        Margin="6,0,0,0" Click="BtnReseedPreset_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -200,7 +200,7 @@
                             <StackPanel>
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="手法范围" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.036}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="TechPackHost" />
                                     </StackPanel>
                                 </ui:Card>
@@ -208,13 +208,13 @@
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
                                         <Grid>
-                                            <TextBlock Text="手法清单" Style="{StaticResource PanelCardTitle}" Margin="0" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.037}" Style="{StaticResource PanelCardTitle}" Margin="0" />
                                             <TextBlock x:Name="TblTechCount" HorizontalAlignment="Right"
                                                        VerticalAlignment="Center" FontSize="11"
                                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                         </Grid>
                                         <ui:TextBox x:Name="TxtTechFilter" Margin="0,6,0,4" FontSize="12"
-                                                    PlaceholderText="按名称筛选手法"
+                                                    PlaceholderText="{DynamicResource Loc.PanelXaml.038}"
                                                     TextChanged="TxtTechFilter_TextChanged" />
                                         <StackPanel x:Name="TechHost" />
                                     </StackPanel>
@@ -228,30 +228,30 @@
                             <StackPanel>
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="一键成片" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.039}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="按原版引擎 Plan 的切点生成角色运动、整体运镜与整体转场；布局、文字处理仍由原版引擎负责。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.040}" />
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="生成风格" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.041}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbAutoStyle" Grid.Column="1" Width="130"
                                                       HorizontalAlignment="Right" SelectedIndex="1">
-                                                <ComboBoxItem Tag="soft" Content="柔和" />
-                                                <ComboBoxItem Tag="dynamic" Content="动感" />
-                                                <ComboBoxItem Tag="epic" Content="史诗" />
+                                                <ComboBoxItem Tag="soft" Content="{DynamicResource Loc.PanelXaml.042}" />
+                                                <ComboBoxItem Tag="dynamic" Content="{DynamicResource Loc.PanelXaml.043}" />
+                                                <ComboBoxItem Tag="epic" Content="{DynamicResource Loc.PanelXaml.044}" />
                                             </ComboBox>
                                         </Grid>
                                         <TextBlock Margin="0,10,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="原版引擎负责布局、入退场、文字处理；整体运镜自动生成多机位切换，角色随画面整体移动，不再单独位移。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.045}" />
                                         <Grid Margin="0,10,2,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="整体运镜" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.046}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglStageCamera" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="StageToggles_Changed"
@@ -262,14 +262,14 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="整体转场" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.047}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglStageTransitions" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="StageToggles_Changed"
                                                              Unchecked="StageToggles_Changed" />
                                         </Grid>
                                         <Grid Margin="0,10,2,0">
-                                            <TextBlock Text="强度" HorizontalAlignment="Left"
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.048}" HorizontalAlignment="Left"
                                                        Style="{StaticResource PanelRowLabel}" />
                                             <TextBlock x:Name="TblAutoIntensity" Text="0.60" HorizontalAlignment="Right"
                                                        Style="{StaticResource PanelValue}" />
@@ -277,14 +277,14 @@
                                         <Slider x:Name="SldAutoIntensity" Margin="0,4,0,0" IsMoveToPointEnabled="True"
                                                 Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
                                                 ValueChanged="SldAutoIntensity_ValueChanged" />
-                                        <ui:Button x:Name="BtnGenerateAuto" Content="一键生成" Appearance="Primary"
+                                        <ui:Button x:Name="BtnGenerateAuto" Content="{DynamicResource Loc.PanelXaml.049}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Margin="0,14,0,0"
                                                    Click="BtnGenerateAuto_Click">
                                             <ui:Button.Icon>
                                                 <ui:SymbolIcon Symbol="Wand24" />
                                             </ui:Button.Icon>
                                         </ui:Button>
-                                        <ui:Button x:Name="BtnRegenerateAuto" Content="换一版"
+                                        <ui:Button x:Name="BtnRegenerateAuto" Content="{DynamicResource Loc.PanelXaml.050}"
                                                    HorizontalAlignment="Stretch" Margin="0,8,0,0"
                                                    Click="BtnRegenerateAuto_Click">
                                             <ui:Button.Icon>
@@ -292,7 +292,7 @@
                                             </ui:Button.Icon>
                                         </ui:Button>
                                         <TextBlock x:Name="TblAutoHint" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="先导入音乐，生成才会解锁。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.051}" />
                                         <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
@@ -307,13 +307,13 @@
                             <StackPanel>
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="推流（Spout）" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.052}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="广播到 Spout 发送端" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.053}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglBroadcast" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglBroadcast_Changed"
@@ -324,26 +324,26 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="透明背景" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.054}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglSpoutTransparent" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglSpoutTransparent_Changed"
                                                              Unchecked="TglSpoutTransparent_Changed" />
                                         </Grid>
                                         <TextBlock Margin="0,4,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="清空画布底色，启用的背景层仍会输出；要透明就关掉背景层。OBS 需开启 Spout 源的 alpha 支持。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.055}" />
                                         <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="广播 关" />
+                                                   Text="{DynamicResource Loc.PanelXaml.056}" />
                                     </StackPanel>
                                 </ui:Card>
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="导出视频" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.057}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="逐帧离屏渲染成片，导出期间界面照常用；含图层与效果、分镜与曲线驱动的镜头动画、动效歌词。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.058}" />
 
-                                        <TextBlock Text="输出路径" Margin="0,10,0,4" Style="{StaticResource PanelRowLabel}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.059}" Margin="0,10,0,4" Style="{StaticResource PanelRowLabel}" />
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -352,7 +352,7 @@
                                             <ui:TextBox x:Name="TxtExportPath" TextChanged="ExportField_TextChanged"
                                                         ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                                             <ui:Button x:Name="BtnExportBrowse" Grid.Column="1" Margin="6,0,0,0"
-                                                       Content="浏览…" Click="BtnExportBrowse_Click" />
+                                                       Content="{DynamicResource Loc.PanelXaml.060}" Click="BtnExportBrowse_Click" />
                                         </Grid>
 
                                         <Grid Margin="0,8,0,0">
@@ -362,21 +362,21 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="帧率" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.061}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtExportFps" Grid.Column="1" Width="70" Margin="8,0,0,0"
                                                         Text="60" />
-                                            <TextBlock Grid.Column="2" Text="时长(秒)" Margin="12,0,8,0"
+                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.PanelXaml.062}" Margin="12,0,8,0"
                                                        Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtExportSeconds" Grid.Column="3" Width="90"
                                                         TextChanged="ExportField_TextChanged" />
                                         </Grid>
 
                                         <CheckBox x:Name="ChkBurnSubtitles" Margin="0,12,0,0"
-                                                  Content="烧入清晰字幕（预览不显示字幕层）" />
+                                                  Content="{DynamicResource Loc.PanelXaml.063}" />
                                         <CheckBox x:Name="ChkIncludeAudio" Margin="0,8,0,0" IsEnabled="False"
-                                                  Content="包含音轨" Click="ChkIncludeAudio_Click" />
+                                                  Content="{DynamicResource Loc.PanelXaml.064}" Click="ChkIncludeAudio_Click" />
 
-                                        <ui:Button x:Name="BtnExport" Content="开始导出" Appearance="Primary"
+                                        <ui:Button x:Name="BtnExport" Content="{DynamicResource Loc.PanelXaml.065}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Margin="0,14,0,0"
                                                    Click="BtnExport_Click">
                                             <ui:Button.Icon>
@@ -404,17 +404,17 @@
                             <StackPanel>
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="画布" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.066}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="画布决定预览、Spout 广播与导出的设计分辨率。宽高必须是 2 的倍数。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.067}" />
                                         <ComboBox x:Name="CmbCanvasPreset" Margin="0,10,0,0"
                                                   SelectionChanged="CmbCanvasPreset_SelectionChanged">
                                             <ComboBoxItem Tag="1920x1080" Content="1920 × 1080（16:9）" />
                                             <ComboBoxItem Tag="2560x1440" Content="2560 × 1440（16:9）" />
                                             <ComboBoxItem Tag="3840x2160" Content="3840 × 2160（4K）" />
-                                            <ComboBoxItem Tag="1080x1920" Content="1080 × 1920（竖屏 9:16）" />
-                                            <ComboBoxItem Tag="1080x1080" Content="1080 × 1080（方形 1:1）" />
-                                            <ComboBoxItem Tag="custom" Content="自定义" />
+                                            <ComboBoxItem Tag="1080x1920" Content="{DynamicResource Loc.PanelXaml.068}" />
+                                            <ComboBoxItem Tag="1080x1080" Content="{DynamicResource Loc.PanelXaml.069}" />
+                                            <ComboBoxItem Tag="custom" Content="{DynamicResource Loc.PanelXaml.070}" />
                                         </ComboBox>
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
@@ -423,10 +423,10 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="宽" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.071}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtCanvasW" Grid.Column="1" Margin="8,0,0,0"
                                                         TextChanged="CanvasField_TextChanged" />
-                                            <TextBlock Grid.Column="2" Text="高" Margin="10,0,8,0"
+                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.PanelXaml.072}" Margin="10,0,8,0"
                                                        Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtCanvasH" Grid.Column="3"
                                                         TextChanged="CanvasField_TextChanged" />
@@ -436,13 +436,13 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="帧率" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.073}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtCanvasFps" Grid.Column="1" Width="90"
                                                         HorizontalAlignment="Left" Margin="8,0,0,0" />
                                         </Grid>
                                         <TextBlock x:Name="TblCanvasState" Margin="0,8,0,0"
                                                    Style="{StaticResource PanelHint}" Text="" />
-                                        <ui:Button x:Name="BtnApplyCanvas" Content="应用画布" Appearance="Primary"
+                                        <ui:Button x:Name="BtnApplyCanvas" Content="{DynamicResource Loc.PanelXaml.074}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Margin="0,12,0,0"
                                                    Click="BtnApplyCanvas_Click">
                                             <ui:Button.Icon>
@@ -454,7 +454,7 @@
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="渲染" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.075}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid Margin="0,2,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
@@ -471,31 +471,20 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="视频解码" Style="{StaticResource PanelRowLabel}" />
-                                            <TextBlock x:Name="TblVideoDecode" Grid.Column="1" Margin="12,0,0,0"
-                                                       HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                                        </Grid>
-                                        <Grid Margin="0,6,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="PV 渲染分辨率" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.077}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbPvRender" Grid.Column="1" Width="170"
                                                       HorizontalAlignment="Right"
                                                       SelectionChanged="CmbPvRender_SelectionChanged">
-                                                <ComboBoxItem Tag="1" Content="100% · 画布分辨率" />
+                                                <ComboBoxItem Tag="1" Content="{DynamicResource Loc.PanelXaml.078}" />
                                                 <ComboBoxItem Tag="0.75" Content="75%" />
-                                                <ComboBoxItem Tag="0.6667" Content="66.7% · 默认" />
+                                                <ComboBoxItem Tag="0.6667" Content="{DynamicResource Loc.PanelXaml.079}" />
                                                 <ComboBoxItem Tag="0.5" Content="50%" />
                                                 <ComboBoxItem Tag="0.3333" Content="33.3%" />
                                                 <ComboBoxItem Tag="0.25" Content="25%" />
                                             </ComboBox>
                                         </Grid>
                                         <TextBlock Style="{StaticResource PanelHint}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                                   Text="原版引擎背景/文字两层独立渲染；66.7% 是历史默认（1920 画布 = 1280×720）。仅影响实时预览与 Spout 广播，导出始终全分辨率。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.080}" />
                                         <TextBlock x:Name="TblPvRender" Style="{StaticResource PanelHint}"
                                                    TextWrapping="Wrap" Text="" />
                                         <Grid Margin="0,6,0,0">
@@ -503,7 +492,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="垂直同步" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.081}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglVSync" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglVSync_Changed"
@@ -514,20 +503,20 @@
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="VTS 连接" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.082}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="通过 VTube Studio 插件 API 驱动皮套位移与缩放。先在 VTS 设置里开启 API（端口 8001）。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.083}" />
                                         <TextBlock x:Name="TblVtsState" Margin="0,8,0,0" TextWrapping="Wrap"
-                                                   Style="{StaticResource PanelHint}" Text="未连接" />
+                                                   Style="{StaticResource PanelHint}" Text="{DynamicResource Loc.PanelXaml.084}" />
                                         <Grid Margin="0,8,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <ui:Button x:Name="BtnVtsReconnect" Content="重新连接"
+                                            <ui:Button x:Name="BtnVtsReconnect" Content="{DynamicResource Loc.PanelXaml.085}"
                                                        HorizontalAlignment="Stretch"
                                                        Click="BtnVtsReconnect_Click" />
-                                            <ui:Button x:Name="BtnVtsAuth" Grid.Column="1" Content="请求授权"
+                                            <ui:Button x:Name="BtnVtsAuth" Grid.Column="1" Content="{DynamicResource Loc.PanelXaml.086}"
                                                        Margin="6,0,0,0" Click="BtnVtsAuth_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -535,15 +524,15 @@
 
                                 <ui:Card Padding="14,12" Margin="0,0,0,8">
                                     <StackPanel>
-                                        <TextBlock Text="区域留白" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.087}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="在画面里留出一条空白带，歌词只排进其余条带；不再探测角色轮廓。" />
+                                                   Text="{DynamicResource Loc.PanelXaml.088}" />
                                         <Grid Margin="0,10,2,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="启用留白" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.089}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglCenterFree" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglCenterFree_Changed"
@@ -554,19 +543,19 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="留白位置" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.090}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbCenterZone" Grid.Column="1" Width="110"
                                                       HorizontalAlignment="Right" SelectedIndex="0"
                                                       SelectionChanged="CmbCenterZone_SelectionChanged">
-                                                <ComboBoxItem Content="居中" Tag="center" />
-                                                <ComboBoxItem Content="左侧" Tag="left" />
-                                                <ComboBoxItem Content="右侧" Tag="right" />
-                                                <ComboBoxItem Content="上方" Tag="top" />
-                                                <ComboBoxItem Content="下方" Tag="bottom" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.091}" Tag="center" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.092}" Tag="left" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.093}" Tag="right" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.094}" Tag="top" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.095}" Tag="bottom" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,8,0,0">
-                                            <TextBlock Text="留白比例" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.096}" Style="{StaticResource PanelRowLabel}" />
                                             <TextBlock x:Name="TblCenterGap" HorizontalAlignment="Right"
                                                        Style="{StaticResource PanelValue}" Text="30%" />
                                         </Grid>

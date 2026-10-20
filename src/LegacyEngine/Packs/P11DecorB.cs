@@ -2244,7 +2244,7 @@ public static class P11DecorB
             var bt = BeatOf(env2);
             var len = bt.Has ? bt.Len : 0.62;
             var since = bt.Has ? bt.Since : ((env2.Ltb % len) + len) % len;
-            const double span = 0;             var spanV = vert ? 40 : 34;
+            var spanV = vert ? 40 : 34;
             var e = J.E.OutCubic(J.Clamp(env2.Lt / 0.4));
             var ac = Acc(env2);
             foreach (var sd in sides)

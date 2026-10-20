@@ -4,17 +4,13 @@ namespace JizuraLive.Pv;
 
 public enum PvLayerKind
 {
-    Background,
+    Background = 0,
 
-    VisualAsset,
+    VisualAsset = 1,
 
-    LyricPv,
+    ForegroundFx = 3,
 
-    ForegroundFx,
-
-    Decor,
-
-    Subtitle,
+    Subtitle = 5,
 }
 
 public sealed class PvParallaxConfig
@@ -43,25 +39,6 @@ public sealed class PvVisualBlendConfig
     public double AntiBleedMargin { get; set; } = 0.06;
 }
 
-public sealed class DecorConfig
-{
-    public List<string> Kinds { get; set; } = new();
-
-    public double Density { get; set; } = 90;
-
-    public double Speed { get; set; } = 1.0;
-
-    public double Size { get; set; } = 1.0;
-
-    public string Color { get; set; } = "#ffc0d8";
-
-    public string AccentColor { get; set; } = "#8ad4ff";
-
-    public int Seed { get; set; } = 1;
-
-    public List<double> Bursts { get; set; } = new();
-}
-
 public sealed class PvLayerConfig
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
@@ -84,12 +61,6 @@ public sealed class PvLayerConfig
     public bool Cover { get; set; }
 
     public string? SpoutSenderName { get; set; } = "VTubeStudio";
-
-    public string? ImagePath { get; set; }
-
-    public string? VideoPath { get; set; }
-
-    public DecorConfig? Decor { get; set; }
 
     public bool Premultiplied { get; set; }
 

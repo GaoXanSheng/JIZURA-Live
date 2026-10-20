@@ -349,12 +349,12 @@ public sealed partial class TimelineView
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
         if (IsLegacy(seg))
         {
-            menu.Items.Add(new MenuItem { Header = "原版切分由歌词与 Plan 生成，只读", IsEnabled = false });
+            menu.Items.Add(new MenuItem { Header = L.T("原版切分由歌词与 Plan 生成，只读"), IsEnabled = false });
             menu.IsOpen = true;
             return true;
         }
 
-        var start = new MenuItem { Header = $"开始时间：{FormatTime(seg.Start)}…" };
+        var start = new MenuItem { Header = L.F("开始时间：{0}…", FormatTime(seg.Start)) };
         start.Click += async (_, _) =>
         {
             var value = await PromptValueAsync(seg.Start);
@@ -365,7 +365,7 @@ public sealed partial class TimelineView
         };
         menu.Items.Add(start);
 
-        var end = new MenuItem { Header = $"结束时间：{FormatTime(seg.End)}…" };
+        var end = new MenuItem { Header = L.F("结束时间：{0}…", FormatTime(seg.End)) };
         end.Click += async (_, _) =>
         {
             var value = await PromptValueAsync(seg.End);
@@ -377,7 +377,7 @@ public sealed partial class TimelineView
         menu.Items.Add(end);
 
         menu.Items.Add(new Separator());
-        var fit = new MenuItem { Header = "从播放头开始" };
+        var fit = new MenuItem { Header = L.T("从播放头开始") };
         fit.Click += (_, _) =>
         {
             double length = seg.End - seg.Start;
@@ -389,7 +389,7 @@ public sealed partial class TimelineView
         menu.Items.Add(fit);
 
         menu.Items.Add(new Separator());
-        var remove = new MenuItem { Header = "删除段" };
+        var remove = new MenuItem { Header = L.T("删除段") };
         remove.Click += (_, _) => SegmentDeleteRequested?.Invoke(seg);
         menu.Items.Add(remove);
 
@@ -598,7 +598,7 @@ public sealed partial class TimelineView
         if (hit is null) return false;
 
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
-        var remove = new MenuItem { Header = "删除" };
+        var remove = new MenuItem { Header = L.T("删除") };
         remove.Click += (_, _) => VtsCueDeleteRequested?.Invoke(track.Kind, hit.Time);
         menu.Items.Add(remove);
         menu.IsOpen = true;

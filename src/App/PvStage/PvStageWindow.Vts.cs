@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using JizuraLive.Pv;
 using JizuraLive.Vts;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -57,10 +58,10 @@ public partial class PvStageWindow
         var state = _vts.State;
         var text = state switch
         {
-            VtsState.Ready => "已连接" + (string.IsNullOrWhiteSpace(_vts.ModelName) ? "" : " · " + _vts.ModelName),
-            VtsState.AwaitApproval => "等待 VTS 弹窗确认…",
-            VtsState.NeedAuth => "已连接 · 需要授权",
-            _ => string.IsNullOrWhiteSpace(_vts.LastError) ? "未连接" : "未连接 · " + _vts.LastError,
+            VtsState.Ready => L.T("已连接") + (string.IsNullOrWhiteSpace(_vts.ModelName) ? "" : " · " + _vts.ModelName),
+            VtsState.AwaitApproval => L.T("等待 VTS 弹窗确认…"),
+            VtsState.NeedAuth => L.T("已连接 · 需要授权"),
+            _ => string.IsNullOrWhiteSpace(_vts.LastError) ? L.T("未连接") : L.T("未连接 · ") + _vts.LastError,
         };
 
         TblVtsState.Text = text;
@@ -84,28 +85,28 @@ public partial class PvStageWindow
 
     private void BuildCharacterMoveSection()
     {
-        AddSectionTitle("角色移动");
+        AddSectionTitle(L.T("角色移动"));
         AddInspector(ThemeText(
-            "X/Y 为 VTS 场景位移，Z 为皮套缩放；关键帧用平滑贝塞尔插值，播放时实时写入 VTS。",
+            L.T("X/Y 为 VTS 场景位移，Z 为皮套缩放；关键帧用平滑贝塞尔插值，播放时实时写入 VTS。"),
             TextSecondaryKey, 11, wrap: true));
 
         var framing = _vts.Framing;
         AddInspector(ThemeText(
             framing is null
-                ? "滑杆是相对载入时 VTS 姿态的偏移，0 = 保持基准；连上 VTS 后读取基准。"
-                : $"基准：X {framing.X:F2} · Y {framing.Y:F2} · 缩放 {framing.Size:F2}；滑杆 0 = 保持基准。",
+                ? L.T("滑杆是相对载入时 VTS 姿态的偏移，0 = 保持基准；连上 VTS 后读取基准。")
+                : L.F("基准：X {0:F2} · Y {1:F2} · 缩放 {2:F2}；滑杆 0 = 保持基准。", framing.X, framing.Y, framing.Size),
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, "位移X", -5, 5, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -5, 5, 0.01,
             () => _vtsRestX, v => _vtsRestX = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, "位移Y", -5, 5, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -5, 5, 0.01,
             () => _vtsRestY, v => _vtsRestY = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, "缩放Z%", -90, 300, 1,
+        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
 
         var addKeys = new Wpf.Ui.Controls.Button
         {
-            Content = "在播放头添加移动关键帧",
+            Content = L.T("在播放头添加移动关键帧"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -115,7 +116,7 @@ public partial class PvStageWindow
 
         var clear = new Wpf.Ui.Controls.Button
         {
-            Content = "清空移动关键帧",
+            Content = L.T("清空移动关键帧"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 10, 0, 0),
@@ -124,19 +125,19 @@ public partial class PvStageWindow
         AddInspector(clear);
 
         AddInspector(ThemeText(
-            "点 ◆K 开始做动画：首次打帧会自动补 0s 保持键；之后拖滑杆或改数值，会在播放头自动覆盖/新增关键帧。时间线上的关键帧可拖动、可调贝塞尔手柄。",
+            L.T("点 ◆K 开始做动画：首次打帧会自动补 0s 保持键；之后拖滑杆或改数值，会在播放头自动覆盖/新增关键帧。时间线上的关键帧可拖动、可调贝塞尔手柄。"),
             TextTertiaryKey, 11, wrap: true));
     }
 
     private void BuildCharacterExpressionSection()
     {
-        AddSectionTitle("角色表情");
+        AddSectionTitle(L.T("角色表情"));
         AddInspector(ThemeText(
-            "动作键与表情共用时间线；开关到点开启、结束关闭，一次性只触发开始，手动不自动触发。",
+            L.T("动作键与表情共用时间线；开关到点开启、结束关闭，一次性只触发开始，手动不自动触发。"),
             TextSecondaryKey, 11, wrap: true));
 
-        AddInspector(ThemeText("动作关键帧", TextSecondaryKey, 12));
-        AddInspector(ConstRow("持续", 0.3, 20, 0.1,
+        AddInspector(ThemeText(L.T("动作关键帧"), TextSecondaryKey, 12));
+        AddInspector(ConstRow(L.T("持续"), 0.3, 20, 0.1,
             () => _vtsHotkeyDuration, v => _vtsHotkeyDuration = v));
         var hotMode = VtsModeCombo(() => _vtsHotkeyMode, v => _vtsHotkeyMode = v);
         AddInspector(hotMode);
@@ -144,7 +145,7 @@ public partial class PvStageWindow
         foreach (var hotkey in _vts.Hotkeys)
             hotCombo.Items.Add(new ComboBoxItem { Content = hotkey.Name, Tag = hotkey.HotkeyId });
         if (hotCombo.Items.Count == 0)
-            hotCombo.Items.Add(new ComboBoxItem { Content = "未读取到动作键", IsEnabled = false });
+            hotCombo.Items.Add(new ComboBoxItem { Content = L.T("未读取到动作键"), IsEnabled = false });
         hotCombo.SelectionChanged += (_, _) =>
         {
             if (hotCombo.SelectedItem is not ComboBoxItem { Tag: string id }) return;
@@ -159,7 +160,7 @@ public partial class PvStageWindow
 
         var hotAdd = new Wpf.Ui.Controls.Button
         {
-            Content = _vtsHotkeyMode == VtsCueMode.Manual ? "手动触发动作" : "在播放头开启动作",
+            Content = _vtsHotkeyMode == VtsCueMode.Manual ? L.T("手动触发动作") : L.T("在播放头开启动作"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
@@ -168,23 +169,23 @@ public partial class PvStageWindow
         {
             if (hotCombo.SelectedItem is not ComboBoxItem { Tag: string id })
             {
-                TblStatus.Text = "先连上 VTS 读取动作键";
+                TblStatus.Text = L.T("先连上 VTS 读取动作键");
                 return;
             }
 
             if (_vtsHotkeyMode == VtsCueMode.Manual)
             {
                 _vts.TriggerHotkey(id);
-                TblStatus.Text = "已手动触发动作键";
+                TblStatus.Text = L.T("已手动触发动作键");
             }
             else AddVtsCue(VtsCueKind.Hotkey, id, _vtsHotkeyMode);
         };
         hotMode.SelectionChanged += (_, _) =>
-            hotAdd.Content = _vtsHotkeyMode == VtsCueMode.Manual ? "手动触发动作" : "在播放头开启动作";
+            hotAdd.Content = _vtsHotkeyMode == VtsCueMode.Manual ? L.T("手动触发动作") : L.T("在播放头开启动作");
         AddInspector(hotAdd);
 
-        AddInspector(ThemeText("表情关键帧", TextSecondaryKey, 12));
-        AddInspector(ConstRow("持续", 0.3, 20, 0.1,
+        AddInspector(ThemeText(L.T("表情关键帧"), TextSecondaryKey, 12));
+        AddInspector(ConstRow(L.T("持续"), 0.3, 20, 0.1,
             () => _vtsExpressionDuration, v => _vtsExpressionDuration = v));
         var exprMode = VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v);
         AddInspector(exprMode);
@@ -197,13 +198,13 @@ public partial class PvStageWindow
                 Tag = file,
             });
         if (combo.Items.Count == 0)
-            combo.Items.Add(new ComboBoxItem { Content = "未读取到表情", IsEnabled = false });
+            combo.Items.Add(new ComboBoxItem { Content = L.T("未读取到表情"), IsEnabled = false });
         combo.SelectedIndex = 0;
         AddInspector(combo);
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = _vtsExpressionMode == VtsCueMode.Manual ? "手动开关表情" : "在播放头开启表情",
+            Content = _vtsExpressionMode == VtsCueMode.Manual ? L.T("手动开关表情") : L.T("在播放头开启表情"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
@@ -212,7 +213,7 @@ public partial class PvStageWindow
         {
             if (combo.SelectedItem is not ComboBoxItem { Tag: string file })
             {
-                TblStatus.Text = "先连上 VTS 读取表情";
+                TblStatus.Text = L.T("先连上 VTS 读取表情");
                 return;
             }
 
@@ -221,23 +222,23 @@ public partial class PvStageWindow
                 if (_manualExprOn.Remove(file))
                 {
                     _vts.SetExpression(file, false, 0.1);
-                    TblStatus.Text = "已手动关闭表情";
+                    TblStatus.Text = L.T("已手动关闭表情");
                 }
                 else
                 {
                     _vts.SetExpression(file, true, 0.1);
                     _manualExprOn.Add(file);
-                    TblStatus.Text = "已手动开启表情";
+                    TblStatus.Text = L.T("已手动开启表情");
                 }
             }
             else AddVtsCue(VtsCueKind.Expression, file, _vtsExpressionMode);
         };
         exprMode.SelectionChanged += (_, _) =>
-            add.Content = _vtsExpressionMode == VtsCueMode.Manual ? "手动开关表情" : "在播放头开启表情";
+            add.Content = _vtsExpressionMode == VtsCueMode.Manual ? L.T("手动开关表情") : L.T("在播放头开启表情");
         AddInspector(add);
 
         AddInspector(ThemeText(
-            "时间线上的开关条可拖动位置，拖左右边缘改开始/结束；一次性关键帧只可拖动时间。",
+            L.T("时间线上的开关条可拖动位置，拖左右边缘改开始/结束；一次性关键帧只可拖动时间。"),
             TextTertiaryKey, 11, wrap: true));
     }
 
@@ -248,7 +249,7 @@ public partial class PvStageWindow
         removed |= _evaluator.RemoveCurve(VtsSizeAddr);
         if (!removed)
         {
-            TblStatus.Text = "角色移动没有关键帧";
+            TblStatus.Text = L.T("角色移动没有关键帧");
             return;
         }
 
@@ -258,15 +259,15 @@ public partial class PvStageWindow
         RefreshTimeline();
         RefreshParamRows();
         _saveError = SaveProjectNow();
-        TblStatus.Text = "已清空角色移动关键帧";
+        TblStatus.Text = L.T("已清空角色移动关键帧");
     }
 
     private ComboBox VtsModeCombo(Func<VtsCueMode> read, Action<VtsCueMode> write)
     {
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
-        combo.Items.Add(new ComboBoxItem { Content = "开关（开始开，结束关）", Tag = VtsCueMode.Toggle });
-        combo.Items.Add(new ComboBoxItem { Content = "一次性（只触发开始）", Tag = VtsCueMode.Once });
-        combo.Items.Add(new ComboBoxItem { Content = "手动（不自动触发）", Tag = VtsCueMode.Manual });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("开关（开始开，结束关）"), Tag = VtsCueMode.Toggle });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("一次性（只触发开始）"), Tag = VtsCueMode.Once });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("手动（不自动触发）"), Tag = VtsCueMode.Manual });
         combo.SelectedIndex = read() switch
         {
             VtsCueMode.Once => 1,
@@ -304,8 +305,8 @@ public partial class PvStageWindow
         RefreshTimeline();
         TheTimeline.RevealCues();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"已在 {t:F2}s 打点：{(kind == VtsCueKind.Hotkey ? "动作键" : "表情")}"
-                         + $"（{(mode == VtsCueMode.Toggle ? "开关" : "一次性")}）";
+        TblStatus.Text = L.F("已在 {0:F2}s 打点：{1}", t, (kind == VtsCueKind.Hotkey ? L.T("动作键") : L.T("表情")))
+                         + L.F("（{0}）", mode == VtsCueMode.Toggle ? L.T("开关") : L.T("一次性"));
     }
 
     private void UpdateVtsCues()
@@ -369,7 +370,7 @@ public partial class PvStageWindow
         RefreshParamRows();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"已在 {t:F2}s 添加角色移动关键帧（X / Y / Z）";
+        TblStatus.Text = L.F("已在 {0:F2}s 添加角色移动关键帧（X / Y / Z）", t);
     }
 
     private void AddVtsMoveKey(in ParamAddress addr, double baseValue, double time)

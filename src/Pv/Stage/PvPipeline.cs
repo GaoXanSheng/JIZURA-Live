@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Render.Draw;
@@ -21,8 +22,6 @@ public sealed class PvPipeline : IDisposable
     private readonly SnapshotSlot<EffectGraph> _effects;
 
     private readonly ConcurrentQueue<string> _pendingAdds = new();
-    private readonly ConcurrentQueue<string> _pendingImageAdds = new();
-    private readonly ConcurrentQueue<string> _pendingVideoAdds = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
@@ -218,18 +217,6 @@ public sealed class PvPipeline : IDisposable
 
     public void RequestAdd(string sender) => _pendingAdds.Enqueue(sender);
 
-    public void RequestAddImage(string imagePath)
-    {
-        if (string.IsNullOrWhiteSpace(imagePath)) return;
-        _pendingImageAdds.Enqueue(imagePath);
-    }
-
-    public void RequestAddVideo(string videoPath)
-    {
-        if (string.IsNullOrWhiteSpace(videoPath)) return;
-        _pendingVideoAdds.Enqueue(videoPath);
-    }
-
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
     public void RequestOrder(IReadOnlyList<string> idsTopFirst) =>
         _pendingOrder = [.. idsTopFirst];
@@ -254,17 +241,6 @@ public sealed class PvPipeline : IDisposable
         layer.Kind == PvLayerKind.VisualAsset
         && !string.IsNullOrWhiteSpace(layer.SpoutSenderName);
 
-    public static bool WantsVideo(PvLayerConfig layer) =>
-        layer.Kind == PvLayerKind.VisualAsset
-        && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
-        && !string.IsNullOrWhiteSpace(layer.VideoPath);
-
-    public static bool WantsImage(PvLayerConfig layer) =>
-        layer.Kind == PvLayerKind.VisualAsset
-        && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
-        && string.IsNullOrWhiteSpace(layer.VideoPath)
-        && !string.IsNullOrWhiteSpace(layer.ImagePath);
-
     public static PvLayerConfig NewSourceLayer(string id, string sender) => new()
     {
         Id = id,
@@ -277,61 +253,15 @@ public sealed class PvPipeline : IDisposable
         VisualBlend = new PvVisualBlendConfig { AmbientTintIntensity = 0.18, RimGlow = 0.12 },
     };
 
-    public static PvLayerConfig NewImageLayer(string id, string imagePath) => new()
-    {
-        Id = id,
-        Name = Path.GetFileNameWithoutExtension(imagePath),
-        Kind = PvLayerKind.VisualAsset,
-        ImagePath = imagePath,
-        SpoutSenderName = null,
-        Cover = true,
-        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0 },
-        VisualBlend = new PvVisualBlendConfig
-        {
-            AmbientTintIntensity = 0,
-            RimGlow = 0,
-            DropShadow = 0,
-            ShadowOffsetY = 0,
-            AntiBleedMargin = 0,
-        },
-    };
-
-    public static PvLayerConfig NewVideoLayer(string id, string videoPath) => new()
-    {
-        Id = id,
-        Name = Path.GetFileNameWithoutExtension(videoPath),
-        Kind = PvLayerKind.VisualAsset,
-        VideoPath = videoPath,
-        SpoutSenderName = null,
-        Cover = true,
-        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0 },
-        VisualBlend = new PvVisualBlendConfig
-        {
-            AmbientTintIntensity = 0,
-            RimGlow = 0,
-            DropShadow = 0,
-            ShadowOffsetY = 0,
-            AntiBleedMargin = 0,
-        },
-    };
-
     private void RegisterProviders(D3DDevice gpu, IPvSubtitleSource? subtitleSource)
     {
-        _scene.Layers.RemoveAll(l => l.Id is "legacy_pv"
-                                     || l.Id == "lyrics_pv"
-                                     || l.Id == "foreground_fx"
-                                     || l.Id == "bg"
-                                     || l.Kind == PvLayerKind.LyricPv
-                                     || l.Kind == PvLayerKind.Decor
-                                     || l.Decor is not null
+        _scene.Layers.RemoveAll(l => l is null
                                      || (l.Kind == PvLayerKind.Subtitle && subtitleSource is null)
                                      || (!_legacyMode && l.Id is LegacyPvProvider.BackId
                                          or LegacyPvProvider.FrontId
                                          or LegacyPvProvider.FrontLayoutId
                                          or LegacyPvProvider.FrontDecorId
                                          or LegacyPvProvider.FrontHudId));
-
-        foreach (var layer in _scene.Layers) MigrateVisualDefaults(layer);
         foreach (var layer in _scene.Layers) RegisterLayerProvider(layer);
 
         if (subtitleSource is not null)
@@ -364,20 +294,20 @@ public sealed class PvPipeline : IDisposable
         var existingLayout = ExistingLayer(LegacyPvProvider.FrontLayoutId);
         var existingDecor = ExistingLayer(LegacyPvProvider.FrontDecorId);
         var existingHud = ExistingLayer(LegacyPvProvider.FrontHudId);
-        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, "背景层", PvLayerKind.Background);
-        var text = existingText ?? LegacyLayer(LegacyPvProvider.FrontId, "歌词文字层", PvLayerKind.ForegroundFx);
-        var layout = existingLayout ?? LegacyLayer(LegacyPvProvider.FrontLayoutId, "歌词布局层", PvLayerKind.ForegroundFx);
-        var decor = existingDecor ?? LegacyLayer(LegacyPvProvider.FrontDecorId, "歌词装饰层", PvLayerKind.ForegroundFx);
-        var hud = existingHud ?? LegacyLayer(LegacyPvProvider.FrontHudId, "歌词界面层", PvLayerKind.ForegroundFx);
-        back.Name = "背景层";
+        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, L.T("背景层"), PvLayerKind.Background);
+        var text = existingText ?? LegacyLayer(LegacyPvProvider.FrontId, L.T("歌词文字层"), PvLayerKind.ForegroundFx);
+        var layout = existingLayout ?? LegacyLayer(LegacyPvProvider.FrontLayoutId, L.T("歌词布局层"), PvLayerKind.ForegroundFx);
+        var decor = existingDecor ?? LegacyLayer(LegacyPvProvider.FrontDecorId, L.T("歌词装饰层"), PvLayerKind.ForegroundFx);
+        var hud = existingHud ?? LegacyLayer(LegacyPvProvider.FrontHudId, L.T("歌词界面层"), PvLayerKind.ForegroundFx);
+        back.Name = L.T("背景层");
         back.Kind = PvLayerKind.Background;
-        text.Name = "歌词文字层";
+        text.Name = L.T("歌词文字层");
         text.Kind = PvLayerKind.ForegroundFx;
-        layout.Name = "歌词布局层";
+        layout.Name = L.T("歌词布局层");
         layout.Kind = PvLayerKind.ForegroundFx;
-        decor.Name = "歌词装饰层";
+        decor.Name = L.T("歌词装饰层");
         decor.Kind = PvLayerKind.ForegroundFx;
-        hud.Name = "歌词界面层";
+        hud.Name = L.T("歌词界面层");
         hud.Kind = PvLayerKind.ForegroundFx;
 
         if (existingLayout is null) CopyLayerTransform(text, layout);
@@ -391,11 +321,7 @@ public sealed class PvPipeline : IDisposable
             {
                 var layer = _scene.Layers[i];
                 var backgroundMedia = !ReferenceEquals(layer, _scene.CharacterLayer)
-                                      && (layer.Kind == PvLayerKind.Background
-                                          || (layer.Kind == PvLayerKind.VisualAsset
-                                              && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
-                                              && (!string.IsNullOrWhiteSpace(layer.VideoPath)
-                                                  || !string.IsNullOrWhiteSpace(layer.ImagePath))));
+                                      && layer.Kind == PvLayerKind.Background;
                 if (backgroundMedia) insert = i + 1;
             }
 
@@ -474,46 +400,6 @@ public sealed class PvPipeline : IDisposable
         },
     };
 
-    private void MigrateVisualDefaults(PvLayerConfig layer)
-    {
-        if (layer.Kind == PvLayerKind.VisualAsset
-            && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
-            && layer.Parallax.Follow is null
-            && Math.Abs(layer.Parallax.Depth - 0.9) < 0.001)
-        {
-            layer.Parallax.Depth = 0;
-            layer.Parallax.RotationFactor = 0;
-            layer.Parallax.ScaleFactor = 0;
-
-            var media = layer.VisualBlend;
-            if (Math.Abs(media.AmbientTintIntensity - 0.18) < 0.001
-                && Math.Abs(media.RimGlow - 0.12) < 0.001
-                && Math.Abs(media.DropShadow - 0.3) < 0.001
-                && Math.Abs(media.ShadowOffsetY - 16) < 0.001
-                && Math.Abs(media.AntiBleedMargin - 0.06) < 0.001)
-            {
-                media.AmbientTintIntensity = 0;
-                media.RimGlow = 0;
-                media.DropShadow = 0;
-                media.ShadowOffsetY = 0;
-                media.AntiBleedMargin = 0;
-            }
-        }
-
-        if (!_scene.IsCharacterLayer(layer) || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) return;
-
-        var blend = layer.VisualBlend;
-
-        if (layer.Premultiplied
-            && Math.Abs(blend.RimGlow - 0.15) < 0.001
-            && Math.Abs(blend.DropShadow - 0.35) < 0.001)
-        {
-            layer.Premultiplied = false;
-            blend.RimGlow = 0;
-            blend.DropShadow = 0;
-        }
-    }
-
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
         if (WantsSpout(layer))
@@ -526,16 +412,6 @@ public sealed class PvPipeline : IDisposable
             return;
         }
 
-        if (WantsVideo(layer))
-        {
-            _renderer.Stage.Register(new FileVideoProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.VideoPath!));
-            return;
-        }
-
-        if (WantsImage(layer))
-        {
-            _renderer.Stage.Register(new FileImageProvider(layer.Id, _d2d.Ctx, layer.ImagePath!));
-        }
     }
 
     private void ApplyLayerOps()
@@ -550,26 +426,6 @@ public sealed class PvPipeline : IDisposable
             RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建图层 '{id}' <- '{sender}'");
-        }
-
-        while (_pendingImageAdds.TryDequeue(out var imagePath))
-        {
-            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
-            var layer = NewImageLayer(id, imagePath);
-            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
-            RegisterLayerProvider(layer);
-            changed = true;
-            Log.Info($"[PV 管线] 新建图片图层 '{id}' <- '{imagePath}'");
-        }
-
-        while (_pendingVideoAdds.TryDequeue(out var videoPath))
-        {
-            var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
-            var layer = NewVideoLayer(id, videoPath);
-            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
-            RegisterLayerProvider(layer);
-            changed = true;
-            Log.Info($"[PV 管线] 新建视频图层 '{id}' <- '{videoPath}'");
         }
 
         while (_pendingRemoves.TryDequeue(out var id))

@@ -176,6 +176,14 @@ public sealed class GpuRasterHost : IDisposable
         return s;
     }
 
+        public void Flush()
+    {
+        if (_gr.IsAbandoned)
+            throw new InvalidOperationException("GRContext 已失效 (IsAbandoned = true)");
+        _gr.Flush();
+        AngleEgl.glFlush();
+    }
+
         public void FlushAndSync()
     {
         if (_gr.IsAbandoned)

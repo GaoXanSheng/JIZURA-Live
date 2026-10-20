@@ -1,7 +1,0 @@
-﻿{
-  "Lyrics.Version": "歌词版本",
-  "Lyrics.Version.Other": "其他版本",
-  "Lyrics.Version.Switched": "歌词版本：{0}",
-  "Lyrics.Version.PlainLrc": "（普通 LRC，没有音译/翻译）",
-  "Lyrics.Version.BadFmt": "该版本格式暂不支持，请换个版本试试"
-}

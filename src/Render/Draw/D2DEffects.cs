@@ -1,7 +1,6 @@
 using System.Numerics;
 using Vortice.Direct2D1;
 using Vortice.Direct2D1.Effects;
-using EffectBlend = Vortice.Direct2D1.Effects.Blend;
 using Vortice.Mathematics;
 
 namespace JizuraLive.Render.Draw;
@@ -17,7 +16,6 @@ public sealed class EffectChain : IDisposable
     private Unpremultiply? _unpremul;
     private Premultiply? _premul;
     private Opacity? _opacity;
-    private EffectBlend? _blend;
 
     public EffectChain(ID2D1DeviceContext ctx) => _ctx = ctx;
 
@@ -91,6 +89,5 @@ public sealed class EffectChain : IDisposable
         _unpremul?.Dispose();
         _premul?.Dispose();
         _opacity?.Dispose();
-        _blend?.Dispose();
     }
 }

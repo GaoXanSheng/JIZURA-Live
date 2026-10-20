@@ -1,3 +1,4 @@
+using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -15,7 +16,7 @@ public static class PvExporter
     public static string? Export(PvScene scene, EffectGraph effects, double durationSec, int fps, string outPath,
         IProgress<double>? progress, PvExportInputs? inputs = null)
     {
-        if (string.IsNullOrWhiteSpace(outPath)) return "导出路径为空";
+        if (string.IsNullOrWhiteSpace(outPath)) return L.T("导出路径为空");
         if (Validate(scene, effects, durationSec, fps, out _) is { } reason) return reason;
 
         try
@@ -33,7 +34,7 @@ public static class PvExporter
         }
         catch (Exception ex)
         {
-            return "导出失败：" + ex.Message;
+            return L.T("导出失败：") + ex.Message;
         }
     }
 
@@ -55,7 +56,7 @@ public static class PvExporter
         try
         {
             var gpu = D3DDevice.TryCreate(out var gpuError);
-            if (gpu is null) return $"建立离屏 D3D 设备失败：{gpuError}";
+            if (gpu is null) return L.F("建立离屏 D3D 设备失败：{0}", gpuError);
 
             var legacy = inputs?.Legacy;
             if (legacy is not null)
@@ -99,7 +100,7 @@ public static class PvExporter
         }
         catch (Exception ex)
         {
-            return "导出失败：" + ex.Message;
+            return L.T("导出失败：") + ex.Message;
         }
     }
 
@@ -256,16 +257,16 @@ public static class PvExporter
     private static string? Validate(PvScene? scene, EffectGraph? effects, double durationSec, int fps, out int frameCount)
     {
         frameCount = 0;
-        if (scene is null) return "导出缺少场景文档";
-        if (effects is null) return "导出缺少效果图";
-        if (!double.IsFinite(durationSec) || durationSec <= 0) return $"导出时长必须是正数（当前 {durationSec}）";
-        if (fps is < 1 or > 240) return $"帧率必须在 1..240 之间（当前 {fps}）";
+        if (scene is null) return L.T("导出缺少场景文档");
+        if (effects is null) return L.T("导出缺少效果图");
+        if (!double.IsFinite(durationSec) || durationSec <= 0) return L.F("导出时长必须是正数（当前 {0}）", durationSec);
+        if (fps is < 1 or > 240) return L.F("帧率必须在 1..240 之间（当前 {0}）", fps);
 
         if (scene.Width <= 0 || scene.Height <= 0 || (scene.Width & 1) != 0 || (scene.Height & 1) != 0)
-            return $"画布宽高必须是正偶数（当前 {scene.Width}×{scene.Height}）：NV12 色度按 2×2 采样";
+            return L.F("画布宽高必须是正偶数（当前 {0}×{1}）：NV12 色度按 2×2 采样", scene.Width, scene.Height);
 
         var frames = Math.Round(durationSec * fps);
-        if (frames > int.MaxValue) return $"导出帧数超出上限（{durationSec} 秒 × {fps} fps）";
+        if (frames > int.MaxValue) return L.F("导出帧数超出上限（{0} 秒 × {1} fps）", durationSec, fps);
         frameCount = Math.Max(1, (int)frames);
         return null;
     }

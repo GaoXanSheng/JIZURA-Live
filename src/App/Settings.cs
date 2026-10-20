@@ -8,36 +8,18 @@ namespace JizuraLive.App;
 
 public sealed class Settings
 {
-    public int SchemaVersion { get; set; } = 1;
-
     public string SpoutName { get; set; } = "JIZURA-live-PV";
     public bool Clean { get; set; }
     public bool SpoutEnabled { get; set; } = true;
 
     public bool SpoutTransparent { get; set; } = false;
 
-    public PvOptions Pv { get; set; } = new();
-
-    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
-    public LiveLayerOptions? Live { get; set; }
-
-    public int Width { get; set; } = 1920;
-    public int Height { get; set; } = 1080;
-    public int RenderFps { get; set; } = 60;
     public bool VSync { get; set; } = true;
-
-    public bool WantRoma { get; set; } = true;
-    public bool WantTrans { get; set; } = true;
 
     public SubtitleConfig Subtitle { get; set; } = new() { Content = SubContent.Both };
 
     public double PreviewVolume { get; set; } = 0.8;
     public bool PreviewMuted { get; set; }
-
-    public double CloudVolume { get; set; } = 0.85;
-    public bool CloudMuted { get; set; }
-
-    public bool FetchFonts { get; set; } = true;
 
     public string UiLang { get; set; } = "zh-Hans";
 
@@ -54,7 +36,6 @@ public sealed class Settings
                 var settings = JsonConvert.DeserializeObject<Settings>(text);
                 if (settings != null)
                 {
-                    settings.MigratePv();
                     Log.Info($"已加载配置文件：{FilePath}");
                     return settings;
                 }
@@ -69,20 +50,6 @@ public sealed class Settings
         defaultSettings.Save();
         Log.Info($"已初始化默认配置文件：{FilePath}");
         return defaultSettings;
-    }
-
-    private void MigratePv()
-    {
-        if (Live == null) return;
-        if (Pv.Sources.Count == 0)
-        {
-            Pv.Sources.Add(Live);
-            Pv.Enabled |= Live.Enabled;
-        }
-
-        Live = null;
-        Log.Info($"[Settings] 已把旧版单路外部输入配置迁移为 PV 源（共 {Pv.Sources.Count} 路，"
-                 + $"合成{(Pv.Enabled ? "开" : "关")}）");
     }
 
     public void Save()

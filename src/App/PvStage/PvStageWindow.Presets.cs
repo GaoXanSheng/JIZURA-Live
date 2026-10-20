@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using JizuraLive.LegacyEngine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -93,7 +94,7 @@ public partial class PvStageWindow
 
             var sample = new TextBlock
             {
-                Text = "字面",
+                Text = L.T("字面"),
                 FontSize = 19,
                 FontWeight = FontWeights.Bold,
                 Foreground = BrushFromHex(fg),
@@ -141,7 +142,7 @@ public partial class PvStageWindow
         SyncThemeCards();
         PresetChanged();
         RefreshTechPreviews();
-        TblStatus.Text = $"主题风格：{ThemeLabel(key)}（正在重建…）";
+        TblStatus.Text = L.F("主题风格：{0}（正在重建…）", ThemeLabel(key));
     }
 
     private void RefreshTechPreviews()
@@ -162,7 +163,7 @@ public partial class PvStageWindow
                 swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
         }
 
-        if (TblThemeName is not null) TblThemeName.Text = "当前主题：" + ThemeLabel(current);
+        if (TblThemeName is not null) TblThemeName.Text = L.T("当前主题：") + ThemeLabel(current);
     }
 
     private static string ThemeLabel(string? key)
@@ -185,22 +186,22 @@ public partial class PvStageWindow
         _presetSliders.Clear();
         FxSliderHost.Children.Clear();
 
-        AddSlider("动态强度", () => Preset.Motion, v => Preset.Motion = v);
-        AddSlider("故障效果", () => Preset.Glitch, v => Preset.Glitch = v);
-        AddSlider("色彩错位", () => Preset.Chroma, v => Preset.Chroma = v);
-        AddSlider("装饰量", () => Preset.Decor, v => Preset.Decor = v);
-        AddSlider("镜头密度", () => Preset.Density, v => Preset.Density = v);
-        AddSlider("质感", () => Preset.Texture, v => Preset.Texture = v);
-        AddSlider("背景切换", () => Preset.BgSwitch, v => Preset.BgSwitch = v);
+        AddSlider(L.T("动态强度"), () => Preset.Motion, v => Preset.Motion = v);
+        AddSlider(L.T("故障效果"), () => Preset.Glitch, v => Preset.Glitch = v);
+        AddSlider(L.T("色彩错位"), () => Preset.Chroma, v => Preset.Chroma = v);
+        AddSlider(L.T("装饰量"), () => Preset.Decor, v => Preset.Decor = v);
+        AddSlider(L.T("镜头密度"), () => Preset.Density, v => Preset.Density = v);
+        AddSlider(L.T("质感"), () => Preset.Texture, v => Preset.Texture = v);
+        AddSlider(L.T("背景切换"), () => Preset.BgSwitch, v => Preset.BgSwitch = v);
 
         _presetToggles.Clear();
         FxToggleHost.Children.Clear();
 
-        AddToggle("统一感", () => Preset.Unify, v => Preset.Unify = v);
-        AddToggle("文字整列", () => Preset.Typeset, v => Preset.Typeset = v);
-        AddToggle("闪光", () => Preset.Flash, v => Preset.Flash = v);
-        AddToggle("隐藏装饰编号", () => Preset.HideNo, v => Preset.HideNo = v);
-        AddToggle("隐藏装饰时间", () => Preset.HideTime, v => Preset.HideTime = v);
+        AddToggle(L.T("统一感"), () => Preset.Unify, v => Preset.Unify = v);
+        AddToggle(L.T("文字整列"), () => Preset.Typeset, v => Preset.Typeset = v);
+        AddToggle(L.T("闪光"), () => Preset.Flash, v => Preset.Flash = v);
+        AddToggle(L.T("隐藏装饰编号"), () => Preset.HideNo, v => Preset.HideNo = v);
+        AddToggle(L.T("隐藏装饰时间"), () => Preset.HideTime, v => Preset.HideTime = v);
 
         TxtPresetSeed.LostFocus -= SeedBox_LostFocus;
         TxtPresetSeed.LostFocus += SeedBox_LostFocus;
@@ -223,74 +224,74 @@ public partial class PvStageWindow
         _presetCombos.Clear();
         _presetColorBoxes.Clear();
 
-        StyleExtraHost.Children.Add(ComboRow("歌词语言", new[]
+        StyleExtraHost.Children.Add(ComboRow(L.T("歌词语言"), new[]
         {
-            ("自动识别", "auto"), ("简体中文", "zh-Hans"), ("繁體中文", "zh-Hant"),
-            ("日本語", "ja"), ("한국어", "ko"), ("English", "en"),
+            (L.T("自动识别"), "auto"), (L.T("简体中文"), "zh-Hans"), (L.T("繁體中文"), "zh-Hant"),
+            (L.T("日本語"), "ja"), (L.T("한국어"), "ko"), ("English", "en"),
         }, () => Preset.Lang, v =>
         {
             Preset.Lang = v;
             PresetChanged();
         }));
 
-        StyleExtraHost.Children.Add(ComboRow("标题字体", FontOptions(), () => Preset.FontDisplay, v =>
+        StyleExtraHost.Children.Add(ComboRow(L.T("标题字体"), FontOptions(), () => Preset.FontDisplay, v =>
         {
             Preset.FontDisplay = v;
             PresetChanged();
         }));
-        StyleExtraHost.Children.Add(ComboRow("衬线字体", FontOptions(), () => Preset.FontSerif, v =>
+        StyleExtraHost.Children.Add(ComboRow(L.T("衬线字体"), FontOptions(), () => Preset.FontSerif, v =>
         {
             Preset.FontSerif = v;
             PresetChanged();
         }));
-        StyleExtraHost.Children.Add(ComboRow("正文字体", FontOptions(), () => Preset.FontBody, v =>
+        StyleExtraHost.Children.Add(ComboRow(L.T("正文字体"), FontOptions(), () => Preset.FontBody, v =>
         {
             Preset.FontBody = v;
             PresetChanged();
         }));
 
-        AddToggleTo(StyleExtraHost, "启用自定义颜色", () => Preset.ColorsEnabled, v =>
+        AddToggleTo(StyleExtraHost, L.T("启用自定义颜色"), () => Preset.ColorsEnabled, v =>
         {
             Preset.ColorsEnabled = v;
             PresetChanged();
         });
-        StyleExtraHost.Children.Add(ColorRow("背景色", () => Preset.ColorBg,
+        StyleExtraHost.Children.Add(ColorRow(L.T("背景色"), () => Preset.ColorBg,
             "#101014", v =>
             {
                 Preset.ColorBg = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow("文字色", () => Preset.ColorFg,
+        StyleExtraHost.Children.Add(ColorRow(L.T("文字色"), () => Preset.ColorFg,
             "#f5eeea", v =>
             {
                 Preset.ColorFg = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow("次级文字", () => Preset.ColorSub,
+        StyleExtraHost.Children.Add(ColorRow(L.T("次级文字"), () => Preset.ColorSub,
             "#bdb6b2", v =>
             {
                 Preset.ColorSub = v;
                 PresetChanged();
             }));
 
-        AddToggleTo(StyleExtraHost, "自定义强调色", () => Preset.AccentOn, v =>
+        AddToggleTo(StyleExtraHost, L.T("自定义强调色"), () => Preset.AccentOn, v =>
         {
             Preset.AccentOn = v;
             PresetChanged();
         });
-        StyleExtraHost.Children.Add(ColorRow("强调色", () => Preset.ColorAccent,
+        StyleExtraHost.Children.Add(ColorRow(L.T("强调色"), () => Preset.ColorAccent,
             "#f5a50c", v =>
             {
                 Preset.ColorAccent = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow("错位色 A", () => Preset.ColorGhostA,
+        StyleExtraHost.Children.Add(ColorRow(L.T("错位色 A"), () => Preset.ColorGhostA,
             "#f5a50c", v =>
             {
                 Preset.ColorGhostA = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow("错位色 B", () => Preset.ColorGhostB,
+        StyleExtraHost.Children.Add(ColorRow(L.T("错位色 B"), () => Preset.ColorGhostB,
             "#16f4d4", v =>
             {
                 Preset.ColorGhostB = v;
@@ -300,7 +301,7 @@ public partial class PvStageWindow
 
     private static IEnumerable<(string Label, string Key)> FontOptions()
     {
-        yield return ("风格默认", "");
+        yield return (L.T("风格默认"), "");
         foreach (var (key, face) in JFonts.Table.OrderBy(p => p.Value.Label, StringComparer.CurrentCulture))
             yield return (string.IsNullOrWhiteSpace(face.Label) ? key : face.Label, key);
     }
@@ -366,7 +367,7 @@ public partial class PvStageWindow
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = Cursors.Hand,
-            ToolTip = "打开拾色器",
+            ToolTip = L.T("打开拾色器"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
         swatch.MouseLeftButtonUp += (_, e) =>
@@ -517,11 +518,11 @@ public partial class PvStageWindow
     private void BuildTechPackToggles()
     {
         TechPackHost.Children.Clear();
-        AddPackToggle("新增手法", () => Preset.Extra, v => Preset.Extra = v);
-        AddPackToggle("和风手法", () => Preset.Wa, v => Preset.Wa = v);
-        AddPackToggle("文字排版手法", () => Preset.Typo, v => Preset.Typo = v);
-        AddPackToggle("动态文字手法", () => Preset.Kinetic, v => Preset.Kinetic = v);
-        AddPackToggle("恐怖手法", () => Preset.Horror, v => Preset.Horror = v);
+        AddPackToggle(L.T("新增手法"), () => Preset.Extra, v => Preset.Extra = v);
+        AddPackToggle(L.T("和风手法"), () => Preset.Wa, v => Preset.Wa = v);
+        AddPackToggle(L.T("文字排版手法"), () => Preset.Typo, v => Preset.Typo = v);
+        AddPackToggle(L.T("动态文字手法"), () => Preset.Kinetic, v => Preset.Kinetic = v);
+        AddPackToggle(L.T("恐怖手法"), () => Preset.Horror, v => Preset.Horror = v);
     }
 
     private void AddPackToggle(string label, Func<bool> get, Action<bool> set)
@@ -588,9 +589,9 @@ public partial class PvStageWindow
             };
 
             var tools = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
-            tools.Children.Add(TechBulkButton("全部开启", category, 1));
-            tools.Children.Add(TechBulkButton("全部关闭", category, 0));
-            tools.Children.Add(TechBulkButton("反转", category, 2));
+            tools.Children.Add(TechBulkButton(L.T("全部开启"), category, 1));
+            tools.Children.Add(TechBulkButton(L.T("全部关闭"), category, 0));
+            tools.Children.Add(TechBulkButton(L.T("反转"), category, 2));
             list.Children.Add(tools);
             list.Children.Add(cards);
 
@@ -635,7 +636,7 @@ public partial class PvStageWindow
             check.Checked += (_, _) => SetTechEnabled(category.Group, key, true);
             check.Unchecked += (_, _) => SetTechEnabled(category.Group, key, false);
 
-            var placeholder = ThemeText("预览", TextTertiaryKey, 9);
+            var placeholder = ThemeText(L.T("预览"), TextTertiaryKey, 9);
             placeholder.HorizontalAlignment = HorizontalAlignment.Center;
             placeholder.VerticalAlignment = VerticalAlignment.Center;
 
@@ -774,8 +775,8 @@ public partial class PvStageWindow
         {
             var on = category.Items.Count(item => IsTechEnabled(category.Group, item.Key));
             category.Header.Text = _techFilter.Length == 0
-                ? $"{TechGroupLabel(category.Group)}   {on}/{category.Items.Count}"
-                : $"{TechGroupLabel(category.Group)}   {MatchCount(category)} 项匹配";
+                ? L.F("{0}   {1}/{2}", TechGroupLabel(category.Group), on, category.Items.Count)
+                : L.F("{0}   {1} 项匹配", TechGroupLabel(category.Group), MatchCount(category));
             enabled += on;
             total += category.Items.Count;
         }
@@ -819,16 +820,16 @@ public partial class PvStageWindow
 
     private static string TechGroupLabel(string group) => group switch
     {
-        "layout" => "布局",
-        "enter" => "入场",
-        "hold" => "保持",
-        "exit" => "退场",
-        "decor" => "装饰",
-        "treat" => "文字处理",
-        "bg" => "背景",
-        "cam" => "运镜",
-        "trans" => "转场",
-        "fx" => "特效",
+        "layout" => L.T("布局"),
+        "enter" => L.T("入场"),
+        "hold" => L.T("保持"),
+        "exit" => L.T("退场"),
+        "decor" => L.T("装饰"),
+        "treat" => L.T("文字处理"),
+        "bg" => L.T("背景"),
+        "cam" => L.T("运镜"),
+        "trans" => L.T("转场"),
+        "fx" => L.T("特效"),
         _ => group,
     };
 
@@ -873,9 +874,9 @@ public partial class PvStageWindow
         _saveError = SaveProjectNow();
         TblStatus.Text = tag switch
         {
-            "black" => "背景：黑幕",
-            "green" => "背景：绿幕",
-            _ => "背景：常规",
+            "black" => L.T("背景：黑幕"),
+            "green" => L.T("背景：绿幕"),
+            _ => L.T("背景：常规"),
         };
         Log.Info($"[风格] 背景切换：{tag}");
         PresetChanged();
@@ -910,7 +911,7 @@ public partial class PvStageWindow
         if (_presetSync) return;
         TechniquePreview.Invalidate();
         _saveError = SaveProjectNow();
-        TblStatus.Text = "预设已修改，正在重新生成…";
+        TblStatus.Text = L.T("预设已修改，正在重新生成…");
 
         _presetDebounce ??= CreatePresetDebounce();
         _presetDebounce.Stop();

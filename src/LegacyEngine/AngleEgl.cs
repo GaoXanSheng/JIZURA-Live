@@ -53,6 +53,7 @@ internal static class AngleEgl
     [DllImport(GlesDll)] public static extern void glViewport(int x, int y, int w, int h);
     [DllImport(GlesDll)] public static extern void glClear(int mask);
     [DllImport(GlesDll)] public static extern void glFinish();
+    [DllImport(GlesDll)] public static extern void glFlush();
 
         public const uint LoadWithAlteredSearchPath = 0x00000008;
 }

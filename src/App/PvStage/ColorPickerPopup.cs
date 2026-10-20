@@ -6,6 +6,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -127,7 +128,7 @@ internal static class ColorPickerPopup
                 FontFamily = new FontFamily("Consolas, Cascadia Mono, Microsoft YaHei UI"),
                 Height = 26,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = "输入 #rrggbb，回车确认",
+                ToolTip = L.T("输入 #rrggbb，回车确认"),
             };
             _hexBox.TextChanged += (_, _) =>
             {

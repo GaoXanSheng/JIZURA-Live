@@ -59,6 +59,20 @@ public static class L
         return key;
     }
 
+    public static string F(string key, params object?[] args)
+    {
+        var text = T(key);
+        try
+        {
+            return string.Format(text, args);
+        }
+        catch (FormatException)
+        {
+            Log.Warn("[i18n] 文案占位符不匹配：" + key);
+            return text;
+        }
+    }
+
     private static void ApplyToResources()
     {
         if (Application.Current == null) return;

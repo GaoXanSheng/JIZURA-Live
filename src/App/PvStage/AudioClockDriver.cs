@@ -1,5 +1,6 @@
 using JizuraLive.Logging;
 using NAudio.Wave;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -172,7 +173,7 @@ public sealed class AudioClockDriver : IDisposable
             }
             catch (Exception ex)
             {
-                Error = "定位失败：" + ex.Message;
+                Error = L.T("定位失败：") + ex.Message;
                 return;
             }
 

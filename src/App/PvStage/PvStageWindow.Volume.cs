@@ -1,4 +1,5 @@
 using System.Windows;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -60,7 +61,7 @@ public partial class PvStageWindow
         if (!_muted && _volume <= 0.001) _volume = 0.8;
         ApplyVolume();
         SaveVolume();
-        TblStatus.Text = _muted ? "已静音" : $"音量 {_volume * 100:F0}%";
+        TblStatus.Text = _muted ? L.T("已静音") : L.F("音量 {0:F0}%", _volume * 100);
     }
 
     private void SaveVolume()

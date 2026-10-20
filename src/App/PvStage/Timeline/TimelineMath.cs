@@ -1,3 +1,4 @@
+using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 
 namespace JizuraLive.App.PvStage.Timeline;
@@ -155,12 +156,12 @@ public static class TimelineMath
 
     public static string? ClipFault(IReadOnlyList<TClip> clips, int index, in ClipRange range)
     {
-        if (range.End - range.Start <= MinClipSeconds) return "歌词条太短：结束必须晚于开始";
+        if (range.End - range.Start <= MinClipSeconds) return L.T("歌词条太短：结束必须晚于开始");
 
         for (int i = 0; i < clips.Count; i++)
         {
             if (i == index) continue;
-            if (range.Start < clips[i].End && clips[i].Start < range.End) return "歌词条重叠：不能盖住相邻的句子";
+            if (range.Start < clips[i].End && clips[i].Start < range.End) return L.T("歌词条重叠：不能盖住相邻的句子");
         }
 
         return null;

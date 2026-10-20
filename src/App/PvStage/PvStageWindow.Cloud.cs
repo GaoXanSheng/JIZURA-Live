@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using JizuraLive.App.Cloud;
 using JizuraLive.Logging;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -11,17 +12,17 @@ public partial class PvStageWindow
     private void BtnProjectMenu_Click(object sender, RoutedEventArgs e) =>
         ShowMenu((FrameworkElement)sender, new (string Label, Action Click)[]
         {
-            ("新建项目", () => BtnNewProject_Click(this, new RoutedEventArgs())),
-            ("打开项目…", () => BtnOpenProject_Click(this, new RoutedEventArgs())),
-            ("保存", SaveNow),
-            ("另存为…", SaveProjectAs),
+            (L.T("新建项目"), () => BtnNewProject_Click(this, new RoutedEventArgs())),
+            (L.T("打开项目…"), () => BtnOpenProject_Click(this, new RoutedEventArgs())),
+            (L.T("保存"), SaveNow),
+            (L.T("另存为…"), SaveProjectAs),
         });
 
     private void BtnImportMenu_Click(object sender, RoutedEventArgs e) =>
         ShowMenu((FrameworkElement)sender, new (string Label, Action Click)[]
         {
-            ("导入音频…", () => BtnOpenAudio_Click(this, new RoutedEventArgs())),
-            ("导入歌词…", () => BtnOpenLyrics_Click(this, new RoutedEventArgs())),
+            (L.T("导入音频…"), () => BtnOpenAudio_Click(this, new RoutedEventArgs())),
+            (L.T("导入歌词…"), () => BtnOpenLyrics_Click(this, new RoutedEventArgs())),
         });
 
     private void ShowMenu(FrameworkElement anchor, IReadOnlyList<(string Label, Action Click)> items)
@@ -50,11 +51,11 @@ public partial class PvStageWindow
         var dlg = new CloudMusicWindow { Owner = this };
         if (dlg.ShowDialog() != true || dlg.SelectedSong is not { } song) return;
 
-        TblStatus.Text = $"云端音乐：{song.Singer} - {song.Name} 正在获取…";
+        TblStatus.Text = L.F("云端音乐：{0} - {1} 正在获取…", song.Singer, song.Name);
         try
         {
             var loaded = await CloudMusicService.LoadAsync(song, dlg.Quality,
-                msg => TblStatus.Text = "云端音乐：" + msg);
+                msg => TblStatus.Text = L.T("云端音乐：") + msg);
             LoadAudioFile(loaded.AudioPath);
 
             if (!string.IsNullOrWhiteSpace(loaded.Lrc))
@@ -68,12 +69,12 @@ public partial class PvStageWindow
             _saveError = SaveProjectToCurrent();
             RefreshMediaPanel();
             RefreshTimeline();
-            TblStatus.Text = $"已导入云端音乐：{song.Singer} - {song.Name}{loaded.Note}";
+            TblStatus.Text = L.F("已导入云端音乐：{0} - {1}{2}", song.Singer, song.Name, loaded.Note);
             Log.Info($"[Cloud] 已导入云端音乐：{song.Singer} - {song.Name} → {loaded.AudioPath}");
         }
         catch (Exception ex)
         {
-            TblStatus.Text = "云端音乐导入失败：" + ex.Message;
+            TblStatus.Text = L.T("云端音乐导入失败：") + ex.Message;
             Log.Warn("[Cloud] 云端音乐导入失败：" + ex);
         }
     }

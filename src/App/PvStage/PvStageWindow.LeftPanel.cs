@@ -39,7 +39,6 @@ public partial class PvStageWindow
     private TextBlock TblExportState => Left.TblExportState;
     private TextBlock TblCanvasState => Left.TblCanvasState;
     private TextBlock TblBroadcastState => Left.TblBroadcastState;
-    private TextBlock TblVideoDecode => Left.TblVideoDecode;
     private TextBlock TblGpuName => Left.TblGpuName;
     private TextBlock TblPvRender => Left.TblPvRender;
     private TextBlock TblVtsState => Left.TblVtsState;

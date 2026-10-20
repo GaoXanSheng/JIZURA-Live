@@ -7,6 +7,7 @@ using JizuraLive.Logging;
 using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
 using JizuraLive.Vts;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
 
@@ -243,7 +244,7 @@ public partial class PvStageWindow
         PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
-        TblStatus.Text = "已删除 VTS 关键帧";
+        TblStatus.Text = L.T("已删除 VTS 关键帧");
     }
 
     private void Timeline_VtsCueEdited(VtsCueKind kind, string target,
@@ -262,7 +263,7 @@ public partial class PvStageWindow
         PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
-        TblStatus.Text = "已调整 VTS 关键帧时间";
+        TblStatus.Text = L.T("已调整 VTS 关键帧时间");
     }
 
     private void Timeline_SeekRequested(double seconds)
@@ -299,7 +300,7 @@ public partial class PvStageWindow
         RefreshParamRows();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = $"关键帧已{ReasonLabel(edit.Reason)} · {edit.After.Count} 个 key";
+        TblStatus.Text = L.F("关键帧已{0} · {1} 个 key", ReasonLabel(edit.Reason), edit.After.Count);
     }
 
     private void CommitLyricClip(TEdit edit)
@@ -308,14 +309,14 @@ public partial class PvStageWindow
         if (_snap is null || moved.Index < 0
             || moved.Index >= _snap.Lyrics.Count || moved.Index >= _lyricClips.Count)
         {
-            TblStatus.Text = "歌词条未生效：这一句已经不在歌词轨上了";
+            TblStatus.Text = L.T("歌词条未生效：这一句已经不在歌词轨上了");
             return;
         }
 
         var range = new ClipRange(moved.Start, moved.End);
         if (TimelineMath.ClipFault(_snap.Lyrics, moved.Index, range) is { } fault)
         {
-            TblStatus.Text = "歌词条未生效：" + fault;
+            TblStatus.Text = L.T("歌词条未生效：") + fault;
             return;
         }
 
@@ -326,7 +327,7 @@ public partial class PvStageWindow
         PushUndo();
         _saveError = SaveProjectNow();
         RefreshTimeline();
-        TblStatus.Text = $"歌词条已调整：{range.Start:F3}s – {range.End:F3}s";
+        TblStatus.Text = L.F("歌词条已调整：{0:F3}s – {1:F3}s", range.Start, range.End);
     }
 
     private static long ToMs(double seconds) => (long)Math.Round(seconds * 1000.0);
@@ -443,7 +444,7 @@ public partial class PvStageWindow
 
         if (_segmentTarget is { LegacyCutIndex: >= 0 })
         {
-            TblStatus.Text = "原版切分的开始/结束时间由歌词与 Plan 决定，不能直接拖动";
+            TblStatus.Text = L.T("原版切分的开始/结束时间由歌词与 Plan 决定，不能直接拖动");
             RefreshTimeline();
             return;
         }
@@ -496,14 +497,14 @@ public partial class PvStageWindow
                 removed = _project.DesignSegments.Remove(design);
                 break;
             case { LegacyCutIndex: >= 0 }:
-                TblStatus.Text = "原版切分由歌词与 Plan 生成，不能删除";
+                TblStatus.Text = L.T("原版切分由歌词与 Plan 生成，不能删除");
                 RefreshTimeline();
                 return;
         }
 
         if (!removed)
         {
-            TblStatus.Text = "段未删除：对应对象已不存在";
+            TblStatus.Text = L.T("段未删除：对应对象已不存在");
             RefreshTimeline();
             return;
         }
@@ -514,7 +515,7 @@ public partial class PvStageWindow
             _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
         BuildInspector();
         AfterSegmentEdit();
-        TblStatus.Text = "已删除设计段";
+        TblStatus.Text = L.T("已删除设计段");
     }
 
     private SegmentTarget? _segmentTarget;
@@ -543,13 +544,13 @@ public partial class PvStageWindow
         if (double.IsNaN(start) || double.IsNaN(end) || double.IsNaN(fadeIn) || double.IsNaN(fadeOut)
             || double.IsInfinity(start) || double.IsInfinity(end) || double.IsInfinity(fadeIn) || double.IsInfinity(fadeOut))
         {
-            TblStatus.Text = "段时间未生效：时间值必须是有限数";
+            TblStatus.Text = L.T("段时间未生效：时间值必须是有限数");
             return;
         }
 
         if (end <= start)
         {
-            TblStatus.Text = $"段时间未生效：结束 {end:F3}s 必须大于开始 {start:F3}s";
+            TblStatus.Text = L.F("段时间未生效：结束 {0:F3}s 必须大于开始 {1:F3}s", end, start);
             return;
         }
 
@@ -562,7 +563,7 @@ public partial class PvStageWindow
             double overflow = fadeIn + fadeOut - length;
             if (fadeIn >= fadeOut) fadeIn = Math.Max(0, fadeIn - overflow);
             else fadeOut = Math.Max(0, fadeOut - overflow);
-            TblStatus.Text = $"淡入淡出之和已收敛到段长内（{start:F3}s – {end:F3}s）";
+            TblStatus.Text = L.F("淡入淡出之和已收敛到段长内（{0:F3}s – {1:F3}s）", start, end);
         }
 
         switch (_segmentTarget)
@@ -572,7 +573,7 @@ public partial class PvStageWindow
                     node.Windows[target.WindowIndex] = new EffectWindow(start, end, fadeIn, fadeOut);
                 else
                 {
-                    TblStatus.Text = "效果段未生效：对应窗口已不存在";
+                    TblStatus.Text = L.T("效果段未生效：对应窗口已不存在");
                     return;
                 }
                 EffectsChanged();
@@ -608,7 +609,7 @@ public partial class PvStageWindow
                 return;
         }
 
-        TblStatus.Text = $"段时间已应用：{start:F3}s – {end:F3}s";
+        TblStatus.Text = L.F("段时间已应用：{0:F3}s – {1:F3}s", start, end);
         AfterSegmentEdit();
     }
 
@@ -690,12 +691,12 @@ public partial class PvStageWindow
 
     private static string ReasonLabel(string reason) => reason switch
     {
-        "add" => "新增",
-        "move" => "移动",
-        "delete" => "删除",
-        "interp" => "改插值",
-        "value" => "改值",
-        _ => "更新",
+        "add" => L.T("新增"),
+        "move" => L.T("移动"),
+        "delete" => L.T("删除"),
+        "interp" => L.T("改插值"),
+        "value" => L.T("改值"),
+        _ => L.T("更新"),
     };
 
     private void StartAudioLoad(string path)

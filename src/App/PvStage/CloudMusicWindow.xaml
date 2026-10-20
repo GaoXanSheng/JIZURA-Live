@@ -2,7 +2,7 @@
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-                 Title="云端音乐"
+                 Title="{DynamicResource Loc.CloudXaml.001}"
                  Width="960" Height="620"
                  MinWidth="840" MinHeight="560"
                  ExtendsContentIntoTitleBar="True"
@@ -21,16 +21,16 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Title="云端音乐" Height="40" ShowMinimize="False" ShowMaximize="False" />
+        <ui:TitleBar Title="{DynamicResource Loc.CloudXaml.002}" Height="40" ShowMinimize="False" ShowMaximize="False" />
 
         <Grid Grid.Row="1" Margin="20,2,20,6">
-            <TextBlock Text="搜索歌曲并导入音频与歌词" FontSize="11" VerticalAlignment="Center"
+            <TextBlock Text="{DynamicResource Loc.CloudXaml.003}" FontSize="11" VerticalAlignment="Center"
                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
             <Border HorizontalAlignment="Right" CornerRadius="8" Background="#22FFFFFF" Padding="3">
                 <StackPanel Orientation="Horizontal">
-                    <ui:Button x:Name="BtnKugou" Content="酷狗音乐" Appearance="Primary" FontSize="12"
+                    <ui:Button x:Name="BtnKugou" Content="{DynamicResource Loc.CloudXaml.004}" Appearance="Primary" FontSize="12"
                                Padding="14,5" Click="BtnSource_Click" Tag="kugou" />
-                    <ui:Button x:Name="BtnNetease" Content="网易云音乐" Appearance="Transparent" FontSize="12"
+                    <ui:Button x:Name="BtnNetease" Content="{DynamicResource Loc.CloudXaml.005}" Appearance="Transparent" FontSize="12"
                                Padding="14,5" Click="BtnSource_Click" Tag="netease" />
                 </StackPanel>
             </Border>
@@ -57,16 +57,16 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <ui:TextBox x:Name="TxtKeyword" Height="34" VerticalContentAlignment="Center"
-                                    PlaceholderText="输入歌名或歌手，回车搜索" KeyDown="TxtKeyword_KeyDown" />
-                        <ui:Button x:Name="BtnSearch" Grid.Column="1" Content="搜索" Appearance="Primary"
+                                    PlaceholderText="{DynamicResource Loc.CloudXaml.006}" KeyDown="TxtKeyword_KeyDown" />
+                        <ui:Button x:Name="BtnSearch" Grid.Column="1" Content="{DynamicResource Loc.CloudXaml.007}" Appearance="Primary"
                                    Margin="8,0,0,0" Height="34" Click="BtnSearch_Click" />
-                        <ui:Button x:Name="BtnMore" Grid.Column="2" Content="更多" Margin="6,0,0,0"
+                        <ui:Button x:Name="BtnMore" Grid.Column="2" Content="{DynamicResource Loc.CloudXaml.008}" Margin="6,0,0,0"
                                    Height="34" Click="BtnMore_Click" />
                     </Grid>
 
                     <TextBlock x:Name="TblStatus" Grid.Row="1" Margin="2,10,0,8" FontSize="11"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                               Text="输入歌名或歌手后搜索" />
+                               Text="{DynamicResource Loc.CloudXaml.009}" />
 
                     <ui:Card Grid.Row="2" Padding="4" VerticalAlignment="Stretch">
                         <ListBox x:Name="LstSongs" Background="Transparent" BorderThickness="0" Padding="4,4,18,4"
@@ -122,7 +122,7 @@
                         <StackPanel Grid.Row="1" Margin="0,14,0,0">
                             <TextBlock x:Name="TblName" FontSize="15" FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis" TextAlignment="Center"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="选择一首歌" />
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{DynamicResource Loc.CloudXaml.010}" />
                             <TextBlock x:Name="TblSinger" FontSize="12" Margin="0,5,0,0" TextAlignment="Center"
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" Text="" />
@@ -136,7 +136,7 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="音质" FontSize="12" VerticalAlignment="Center"
+                            <TextBlock Text="{DynamicResource Loc.CloudXaml.011}" FontSize="12" VerticalAlignment="Center"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                             <ComboBox x:Name="CmbQuality" Grid.Column="1" Margin="10,0,0,0"
                                       Width="120" HorizontalAlignment="Right">
@@ -148,9 +148,9 @@
                         <TextBlock x:Name="TblDetailStatus" Grid.Row="4" Margin="0,10,0,0" FontSize="11"
                                    TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Bottom"
                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                                   Text="双击列表中的歌曲也可以直接导入" />
+                                   Text="{DynamicResource Loc.CloudXaml.012}" />
 
-                        <ui:Button x:Name="BtnImport" Grid.Row="5" Content="导入到工程" Appearance="Primary"
+                        <ui:Button x:Name="BtnImport" Grid.Row="5" Content="{DynamicResource Loc.CloudXaml.013}" Appearance="Primary"
                                    Height="38" HorizontalAlignment="Stretch" Margin="0,8,0,0"
                                    Click="BtnImport_Click" />
                     </Grid>

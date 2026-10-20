@@ -2,15 +2,15 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using JizuraLive.App;
+using JizuraLive.App.I18n;
 using JizuraLive.Logging;
-using JizuraLive.Render.Effects;
 using Newtonsoft.Json;
 
 namespace JizuraLive.Pv;
 
 public sealed record ProjectLoadResult(DirectorProject? Project, string? Fault);
 
-public sealed record ProjectBootstrap(DirectorProject Project, string? Fault, bool ImportedFromLegacy);
+public sealed record ProjectBootstrap(DirectorProject Project, string? Fault);
 
 public static class ProjectStore
 {
@@ -59,7 +59,7 @@ public static class ProjectStore
     public static ProjectLoadResult Load(string path)
     {
         if (!File.Exists(path))
-            return new ProjectLoadResult(null, $"工程文件不存在：{path}");
+            return new ProjectLoadResult(null, L.F("工程文件不存在：{0}", path));
 
         string json;
         byte[]? embeddedAudio = null;
@@ -70,7 +70,7 @@ public static class ProjectStore
             {
                 var entries = JizuraPackage.Read(bytes);
                 var projectEntry = entries.FirstOrDefault(e => e.Name == "project.json")
-                                   ?? throw new InvalidDataException("工程包缺少 project.json");
+                                   ?? throw new InvalidDataException(L.T("工程包缺少 project.json"));
                 json = Encoding.UTF8.GetString(projectEntry.Data);
                 embeddedAudio = entries.FirstOrDefault(e => e.Name == "audio.bin")?.Data;
             }
@@ -81,7 +81,7 @@ public static class ProjectStore
         }
         catch (Exception ex)
         {
-            return new ProjectLoadResult(null, $"工程文件读取失败：{ex.Message}");
+            return new ProjectLoadResult(null, L.F("工程文件读取失败：{0}", ex.Message));
         }
 
         DirectorProject? project;
@@ -91,11 +91,11 @@ public static class ProjectStore
         }
         catch (Exception ex)
         {
-            return new ProjectLoadResult(null, $"工程文件 JSON 损坏：{ex.Message}");
+            return new ProjectLoadResult(null, L.F("工程文件 JSON 损坏：{0}", ex.Message));
         }
 
         if (project is null)
-            return new ProjectLoadResult(null, "工程文件 JSON 损坏：解析结果为空");
+            return new ProjectLoadResult(null, L.T("工程文件 JSON 损坏：解析结果为空"));
 
         if (embeddedAudio is { Length: > 0 })
             RestoreEmbeddedAudio(project, path, embeddedAudio);
@@ -115,9 +115,7 @@ public static class ProjectStore
 
         if (project.SchemaVersion > DirectorProject.CurrentSchemaVersion)
             return new ProjectLoadResult(null,
-                $"工程版本过新（{project.SchemaVersion} > {DirectorProject.CurrentSchemaVersion}），本程序不识别，请升级后再打开");
-
-        Migrate(project);
+                L.F("工程版本过新（{0} > {1}），本程序不识别，请升级后再打开", project.SchemaVersion, DirectorProject.CurrentSchemaVersion));
 
         NormalizeScene(project, project.Scene);
 
@@ -253,28 +251,6 @@ public static class ProjectStore
         foreach (var save in project.Curves) save.Curve.NormalizeKeys();
     }
 
-    private static void Migrate(DirectorProject project)
-    {
-        if (project.SchemaVersion < 3)
-        {
-            var layers = project.Scene?.Layers;
-            if (layers is not null)
-            {
-                foreach (var layer in layers)
-                {
-                    if (layer is null || string.IsNullOrWhiteSpace(layer.SpoutSenderName)) continue;
-
-                    layer.Parallax ??= new PvParallaxConfig();
-                    layer.Parallax.Depth = 0;
-                    layer.Parallax.RotationFactor = 0;
-                    layer.Parallax.ScaleFactor = 0;
-                }
-            }
-        }
-
-        project.SchemaVersion = DirectorProject.CurrentSchemaVersion;
-    }
-
     private static void RestoreEmbeddedAudio(DirectorProject project, string projectPath, byte[] data)
     {
         try
@@ -283,10 +259,8 @@ public static class ProjectStore
             var source = string.IsNullOrWhiteSpace(project.AudioPath) ? projectPath : project.AudioPath;
             var ext = Path.GetExtension(source);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".mp3";
-            var baseName = Path.GetFileNameWithoutExtension(source);
-            if (string.IsNullOrWhiteSpace(baseName)) baseName = "audio";
             var hash = Convert.ToHexString(SHA256.HashData(data))[..12].ToLowerInvariant();
-            var cached = Path.Combine(AppDirs.AudioCacheDir, $"{baseName}_{hash}{ext}");
+            var cached = Path.Combine(AppDirs.AudioCacheDir, $"pv_audio_{hash}{ext}");
             if (!File.Exists(cached) || new FileInfo(cached).Length != data.Length)
                 File.WriteAllBytes(cached, data);
             project.AudioPath = cached;
@@ -301,123 +275,42 @@ public static class ProjectStore
     private static void NormalizeScene(DirectorProject project, PvScene scene)
     {
         if (scene is null) return;
+        scene.Layers ??= new List<PvLayerConfig>();
+        scene.Layers.RemoveAll(l => l is null);
 
-        var hollowLayerIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var layer in scene.Layers)
-        {
-            if (layer is null) continue;
-            bool hollow = !IsStageLayer(layer.Id)
-                          && layer.Kind is PvLayerKind.VisualAsset or PvLayerKind.ForegroundFx
-                          && string.IsNullOrWhiteSpace(layer.SpoutSenderName)
-                          && string.IsNullOrWhiteSpace(layer.VideoPath)
-                          && string.IsNullOrWhiteSpace(layer.ImagePath);
-            if (hollow) hollowLayerIds.Add(layer.Id);
-        }
-
-        if (hollowLayerIds.Count > 0)
-        {
-            scene.Layers = scene.Layers.Where(l => l is null || !hollowLayerIds.Contains(l.Id)).ToList();
-            int removed = project.Curves.RemoveAll(c =>
-                c is not null && c.Address.StartsWith("layer:", StringComparison.Ordinal)
-                && ParamAddress.TryParse(c.Address, out var addr)
-                && addr.Kind == ParamAddressKind.Layer
-                && hollowLayerIds.Contains(addr.Target));
-            if (removed > 0)
-                Log.Warn($"[工程存储] 规范化：移除 {hollowLayerIds.Count} 个空壳图层及 {removed} 条关联曲线");
-        }
-
-        var decorLayerIds = scene.Layers
-            .Where(l => l is not null && (l.Kind == PvLayerKind.Decor || l.Decor is not null))
+        var removed = scene.Layers
+            .Where(l => l.Kind == PvLayerKind.VisualAsset && string.IsNullOrWhiteSpace(l.SpoutSenderName))
             .Select(l => l.Id)
             .ToHashSet(StringComparer.Ordinal);
+        if (removed.Count == 0) return;
 
-        if (decorLayerIds.Count > 0)
-        {
-            scene.Layers = scene.Layers.Where(l => l is null || !decorLayerIds.Contains(l.Id)).ToList();
-            project.Curves.RemoveAll(c =>
-                c is not null
-                && ParamAddress.TryParse(c.Address, out var addr)
-                && addr.Kind == ParamAddressKind.Layer
-                && decorLayerIds.Contains(addr.Target));
-            Log.Warn($"[工程存储] 规范化：移除 {decorLayerIds.Count} 个已停用的装饰图层");
-        }
-
-        if (scene.Layers.RemoveAll(l => l is not null && string.Equals(l.Id, "bg", StringComparison.Ordinal)) > 0)
-        {
-            project.Curves.RemoveAll(c =>
-                c is not null
-                && ParamAddress.TryParse(c.Address, out var addr)
-                && addr.Kind == ParamAddressKind.Layer
-                && string.Equals(addr.Target, "bg", StringComparison.Ordinal));
-            Log.Warn("[工程存储] 规范化：移除多余的 Background Layer（已有 背景层）");
-        }
+        scene.Layers = scene.Layers.Where(l => !removed.Contains(l.Id)).ToList();
+        project.Curves.RemoveAll(c => c is not null
+            && ParamAddress.TryParse(c.Address, out var addr)
+            && addr.Kind == ParamAddressKind.Layer
+            && removed.Contains(addr.Target));
+        Log.Info($"[工程存储] 已移除 {removed.Count} 个图片/视频图层（该功能已停用）");
     }
 
-    private static bool IsStageLayer(string id) =>
-        id is LegacyPvProvider.BackId or LegacyPvProvider.FrontId
-            or LegacyPvProvider.FrontLayoutId or LegacyPvProvider.FrontDecorId
-            or LegacyPvProvider.FrontHudId;
-
-    public static ProjectBootstrap LoadOrImport(string projectPath, string legacyScenePath, string legacyEffectsPath)
+    public static ProjectBootstrap LoadOrCreate(string projectPath)
     {
         if (File.Exists(projectPath))
         {
             var loaded = Load(projectPath);
             if (loaded.Project is not null)
-                return new ProjectBootstrap(loaded.Project, null, false);
+                return new ProjectBootstrap(loaded.Project, null);
 
             Log.Warn("[工程存储] 打开工程失败，本次会话使用默认工程（磁盘文件保持原样）：" + loaded.Fault);
             var fallback = new DirectorProject();
             fallback.SyncCharacterCameraTrack();
-            return new ProjectBootstrap(fallback, loaded.Fault, false);
+            return new ProjectBootstrap(fallback, loaded.Fault);
         }
 
-        var faults = new List<string>();
-        var project = new DirectorProject
-        {
-            Scene = ReadLegacyScene(legacyScenePath, faults),
-            Effects = ReadLegacyEffects(legacyEffectsPath, faults),
-        };
-
+        var project = new DirectorProject();
         NormalizeScene(project, project.Scene);
         project.SyncCharacterCameraTrack();
 
         var saveFault = SaveJson(project, projectPath);
-        if (saveFault is not null) faults.Add($"工程文件写入失败：{saveFault}");
-
-        return new ProjectBootstrap(project, faults.Count > 0 ? string.Join("；", faults) : null, true);
-    }
-
-    private static PvScene ReadLegacyScene(string path, List<string> faults)
-    {
-        if (!File.Exists(path)) return PvScene.CreateBlank();
-
-        try
-        {
-            var scene = PvScene.FromJson(File.ReadAllText(path));
-            if (scene is not null) return scene;
-            faults.Add($"旧场景文件解析结果为空：{path}");
-        }
-        catch (Exception ex)
-        {
-            faults.Add($"旧场景文件解析失败：{ex.Message}");
-        }
-
-        return PvScene.CreateBlank();
-    }
-
-    private static EffectGraph ReadLegacyEffects(string path, List<string> faults)
-    {
-        if (!File.Exists(path)) return new EffectGraph();
-
-        try
-        {
-            return EffectGraphJson.Deserialize(File.ReadAllText(path));
-        }
-        catch (Exception ex)
-        {
-            faults.Add($"旧效果文件读取失败：{ex.Message}");
-            return new EffectGraph();
-        }
+        return new ProjectBootstrap(project, saveFault is null ? null : L.F("工程文件写入失败：{0}", saveFault));
     }
 }

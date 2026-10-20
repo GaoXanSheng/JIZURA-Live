@@ -180,7 +180,7 @@ public static class P11Exit
 
     private sealed class Dbx
     {
-        public double X0, Y0, X1, Y1, Cx, Cy, W, H;
+        public double X0, Y0, X1, Y1, Cx, Cy;
     }
 
         private static Dbx DBox(JObject it, double pad = 0)

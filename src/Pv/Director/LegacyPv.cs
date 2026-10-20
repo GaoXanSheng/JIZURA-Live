@@ -377,46 +377,6 @@ public sealed class LegacyPvEngine : IDisposable
         }
     }
 
-        public void ApplyCameraTrack(CameraTrack? track)
-    {
-        if (track is null || track.Shots.Count == 0) return;
-
-        var byStart = new Dictionary<double, CameraShot>();
-        foreach (var shot in track.Shots)
-        {
-            if (shot is null || !double.IsFinite(shot.Start)) continue;
-            byStart[Math.Round(shot.Start, 3)] = shot;
-        }
-
-        if (byStart.Count == 0) return;
-        double baseGain = Math.Max(0.001, (_plan.Fx?.Motion ?? 0.7) * 1.25);
-
-        lock (EngineRenderGate.Lock)
-        {
-            foreach (var cut in _plan.Cuts)
-            {
-                if (!byStart.TryGetValue(Math.Round(cut.Start, 3), out var shot)) continue;
-                if (!Reg.Camera.ContainsKey(shot.Preset)) continue;
-
-                cut.Cam = shot.Preset;
-                var p = new JObject();
-                foreach (var (key, value) in shot.Params)
-                {
-                    if (!double.IsFinite(value)) continue;
-                    if (key is "gain" or "shotScale" or "shotX" or "shotY" or "shotRot"
-                        or "panX0" or "panY0" or "panX1" or "panY1" or "zoom0" or "zoom1") continue;
-                    p[key] = value;
-                }
-
-                double gain = shot.Params.TryGetValue("gain", out var g) && double.IsFinite(g) ? g : baseGain;
-                p["gain"] = Math.Clamp(gain / baseGain, 0.05, 4.0);
-                cut.CamP = p;
-            }
-
-            _renderer.ClearFrameCache();
-        }
-    }
-
     private static readonly object AudioCacheGate = new();
     private static string? _audioCachePath;
     private static DateTime _audioCacheStamp;

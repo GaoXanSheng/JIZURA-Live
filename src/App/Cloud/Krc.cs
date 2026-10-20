@@ -1,8 +1,9 @@
-﻿using System.IO;
+using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
+using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.Cloud;
 
@@ -18,7 +19,7 @@ public static class Krc
     {
         if (data.Length < 8 || data[0] != (byte)'k' || data[1] != (byte)'r' || data[2] != (byte)'c'
             || data[3] != (byte)'1')
-            throw new InvalidDataException("不是 .krc 文件（缺少 krc1 魔数）");
+            throw new InvalidDataException(L.T("不是 .krc 文件（缺少 krc1 魔数）"));
         var body = new byte[data.Length - 4];
         Array.Copy(data, 4, body, 0, body.Length);
         for (var i = 0; i < body.Length; i++) body[i] ^= KrcKey[i % 16];
