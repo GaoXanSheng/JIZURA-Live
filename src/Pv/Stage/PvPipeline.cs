@@ -364,12 +364,12 @@ public sealed class PvPipeline : IDisposable
         var existingLayout = ExistingLayer(LegacyPvProvider.FrontLayoutId);
         var existingDecor = ExistingLayer(LegacyPvProvider.FrontDecorId);
         var existingHud = ExistingLayer(LegacyPvProvider.FrontHudId);
-        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, "PV 背景层", PvLayerKind.Background);
+        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, "背景层", PvLayerKind.Background);
         var text = existingText ?? LegacyLayer(LegacyPvProvider.FrontId, "歌词文字层", PvLayerKind.ForegroundFx);
         var layout = existingLayout ?? LegacyLayer(LegacyPvProvider.FrontLayoutId, "歌词布局层", PvLayerKind.ForegroundFx);
         var decor = existingDecor ?? LegacyLayer(LegacyPvProvider.FrontDecorId, "歌词装饰层", PvLayerKind.ForegroundFx);
         var hud = existingHud ?? LegacyLayer(LegacyPvProvider.FrontHudId, "歌词界面层", PvLayerKind.ForegroundFx);
-        back.Name = "PV 背景层";
+        back.Name = "背景层";
         back.Kind = PvLayerKind.Background;
         text.Name = "歌词文字层";
         text.Kind = PvLayerKind.ForegroundFx;

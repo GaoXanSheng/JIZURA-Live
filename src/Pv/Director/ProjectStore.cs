@@ -349,7 +349,7 @@ public static class ProjectStore
                 && ParamAddress.TryParse(c.Address, out var addr)
                 && addr.Kind == ParamAddressKind.Layer
                 && string.Equals(addr.Target, "bg", StringComparison.Ordinal));
-            Log.Warn("[工程存储] 规范化：移除多余的 Background Layer（已有 PV 背景层）");
+            Log.Warn("[工程存储] 规范化：移除多余的 Background Layer（已有 背景层）");
         }
     }
 
