@@ -31,7 +31,10 @@ public enum VtsState
     Ready,
 }
 
-public sealed record VtsArtMeshGroup(string GroupId, string GroupName, int Count);
+public sealed record VtsArtMeshGroup(string GroupId, string GroupName, string[] Entries)
+{
+    public int Count => Entries.Length;
+}
 
 public sealed record VtsHotkey(string HotkeyId, string Name, string Type, string Description)
 {
@@ -163,14 +166,22 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
             ["fadeTime"] = Math.Clamp(fadeSec, 0, 2),
         };
 
-    public static JObject BuildTintPayload(string target, int r, int g, int b)
+    public static JObject BuildTintPayload(string target, int r, int g, int b,
+        IReadOnlyList<VtsArtMeshGroup>? groups = null)
     {
         var matcher = new JObject();
         if (string.IsNullOrEmpty(target) || target == "all") matcher["tintAll"] = true;
         else if (target.StartsWith("tag:", StringComparison.Ordinal))
             matcher["tagExact"] = new JArray(target[4..]);
         else if (target.StartsWith("group:", StringComparison.Ordinal))
-            matcher["artMeshGroupIDExact"] = new JArray(target[6..]);
+        {
+            var id = target[6..];
+            var group = groups?.FirstOrDefault(item => item.GroupId == id);
+            if (group is { Entries.Length: > 0 })
+                matcher["nameExact"] = new JArray(group.Entries);
+            else
+                matcher["artMeshGroupIDExact"] = new JArray(id);
+        }
         else if (target.StartsWith("name:", StringComparison.Ordinal))
             matcher["nameExact"] = new JArray(target[5..]);
         else matcher["nameExact"] = new JArray(target);
@@ -730,10 +741,11 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                     var id = group["groupID"]?.ToString() ?? "";
                     if (id.Length == 0) continue;
                     var name = group["groupName"]?.ToString() ?? id;
-                    int count = (int?)group["numberOfArtMeshesInGroup"]
-                                ?? (group["artMeshNames"] as JArray)?.Count
-                                ?? 0;
-                    groups.Add(new VtsArtMeshGroup(id, name, count));
+                    var entries = (group["artMeshNames"] as JArray)?
+                        .Select(e => e?.ToString() ?? "")
+                        .Where(s => s.Length > 0)
+                        .ToArray() ?? [];
+                    groups.Add(new VtsArtMeshGroup(id, name, entries));
                 }
 
             if (groups.Count == 0 && _api._vtsModelName.Length > 0)
@@ -777,8 +789,11 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
                     var id = group["ID"]?.ToString() ?? "";
                     if (id.Length == 0) continue;
                     var name = group["Name"]?.ToString() ?? id;
-                    int count = (group["Entries"] as JArray)?.Count ?? 0;
-                    list.Add(new VtsArtMeshGroup(id, name, count));
+                    var entries = (group["Entries"] as JArray)?
+                        .Select(e => e?.ToString() ?? "")
+                        .Where(s => s.Length > 0)
+                        .ToArray() ?? [];
+                    list.Add(new VtsArtMeshGroup(id, name, entries));
                 }
 
                 Log.Info($"[VTS] 从模型文件读取图层组：{list.Count} 个（{file}）");
@@ -917,7 +932,8 @@ public sealed class VtsApi : IDisposable, IVtsDriveTarget, IVtsCueSink
 
         public void SetArtMeshTint(string target, int r, int g, int b)
         {
-            var resp = Send("ColorTintRequest", VtsApi.BuildTintPayload(target, r, g, b));
+            var resp = Send("ColorTintRequest",
+                VtsApi.BuildTintPayload(target, r, g, b, _api._artMeshGroups));
             if (resp is null) return;
             int matched = (int?)resp["matchedArtMeshes"] ?? 0;
             if (matched == 0) Log.Warn($"[VTS] 染色没有匹配到 ArtMesh：{target}");
