@@ -528,6 +528,21 @@ public static class JText
     private static readonly Regex NoShape =
         new("^[A-Za-z#№.\\s\\d/\\-–—―−─━◆◇／·+×x%:,'°]+$", RegexOptions.ECMAScript | RegexOptions.Compiled);
 
+    private static readonly Regex NoToken =
+        new("(?<![A-Za-z0-9])No\\s*[.．]?\\s*\\d{1,4}|№\\s*\\d{1,4}",
+            RegexOptions.ECMAScript | RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex TimeToken =
+        new("\\d{1,2}[:：]\\d{2}", RegexOptions.ECMAScript | RegexOptions.Compiled);
+
+    private const string SepChars = "·・:：;；,，.．\\-–—―−─━／/|\\\\~～*＊#№";
+
+    private static readonly Regex SepRun =
+        new("[" + SepChars + "\\s]{2,}", RegexOptions.ECMAScript | RegexOptions.Compiled);
+
+    private static readonly Regex SepEdge =
+        new("^[" + SepChars + "\\s]+|[" + SepChars + "\\s]+$", RegexOptions.ECMAScript | RegexOptions.Compiled);
+
         public static string? DecoTextKind(string? t)
     {
         t = (string.IsNullOrEmpty(t) ? "" : t).Trim();
@@ -541,16 +556,40 @@ public static class JText
         return null;
     }
 
-        public static bool HideDecoText(Env env, string? text)
+        public static bool HideDecoText(Env env, string? text) => DecoText(env, text) is null;
+
+    private static bool HasDigit(string s)
     {
+        foreach (var c in s)
+            if (c is >= '0' and <= '9')
+                return true;
+        return false;
+    }
+
+        /// <summary>
+        /// 按「隐藏装饰编号/时间」设置过滤要绘制的文字。
+        /// 返回 null 表示整条不画；返回原文表示照常绘制；其余为摘掉编号/时间后的片段。
+        /// </summary>
+        public static string? DecoText(Env env, string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
         var fx = env.Fx;
-        if (!fx.HideNo && !fx.HideTime) return false;
-        var k = DecoTextKind(text);
-        if (k == null || !(k == "no" ? fx.HideNo : fx.HideTime)) return false;
+        if (!fx.HideNo && !fx.HideTime) return text;
+        if (!HasDigit(text)) return text;
         var lyr = env.Cut != null
             ? !string.IsNullOrEmpty(env.Cut.LineText) ? env.Cut.LineText : env.Cut.Text ?? ""
             : "";
-        return !lyr.Contains((text ?? "").Trim());
+        if (lyr.Contains(text.Trim())) return text;
+
+        var k = DecoTextKind(text);
+        if (k != null && (k == "no" ? fx.HideNo : fx.HideTime)) return null;
+
+        var cut = text;
+        if (fx.HideNo) cut = NoToken.Replace(cut, " ");
+        if (fx.HideTime) cut = TimeToken.Replace(cut, " ");
+        if (cut == text) return text;
+        cut = SepEdge.Replace(SepRun.Replace(cut, " "), "").Trim();
+        return cut.Length == 0 ? null : cut;
     }
 
         public static BBox? DrawItem(Env env, JObject it, TextDrawOpts? opts = null)
@@ -583,7 +622,13 @@ public static class JText
         var text = TextOf(it, "text");
         var size = Num(it, "size");
         if (text.Length == 0 || size <= 0.5) return null;
-        if (HideDecoText(env, text)) return null;
+        var deco = DecoText(env, text);
+        if (deco is null) return null;
+        if (!string.Equals(deco, text, StringComparison.Ordinal))
+        {
+            it = (JObject)it.DeepClone();
+            it["text"] = deco;
+        }
         if (!o.InLayer && o.GlyphLog == null && !o.HideText && o.AllowFilter && o.PieceFn == null && o.PieceFnEx == null && env.PieceFn == null && !o.NoPieces)
         {
             var shadowTok = it["shadow"] as JObject;
@@ -825,7 +870,9 @@ public static class JText
         public static void FastRow(Env env, string? text, string font, double size, double x, double y, double sp,
         string? color, double alpha, string align = "left")
     {
-        if (env.Pass != "main" || alpha <= 0.01 || string.IsNullOrEmpty(text) || HideDecoText(env, text)) return;
+        if (env.Pass != "main" || alpha <= 0.01) return;
+        text = DecoText(env, text);
+        if (string.IsNullOrEmpty(text)) return;
         var ctx = env.Ctx;
         var cps = CodePoints(text);
         double total = sp * cps.Count;
