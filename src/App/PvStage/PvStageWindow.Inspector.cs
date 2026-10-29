@@ -150,6 +150,7 @@ public partial class PvStageWindow
 
     private void SelectLayer(PvLayerConfig? layer)
     {
+        _segmentTarget = null;
         _selectedLayer = layer;
         SyncStageSelection();
         HighlightLayerCards();
@@ -167,7 +168,7 @@ public partial class PvStageWindow
             card.SetResourceReference(Border.BorderBrushProperty, active ? SelectStrokeKey : CardStrokeKey);
         }
 
-        TblInspectorTitle.Text = _selectedLayer is null ? L.T("工程") : LayerTitle(_selectedLayer);
+        TblInspectorTitle.Text = _selectedLayer is null ? L.T("整体") : LayerTitle(_selectedLayer);
     }
 
     private static string LayerTitle(PvLayerConfig layer) =>
@@ -203,8 +204,8 @@ public partial class PvStageWindow
                         case InspectorSectionKind.Camera:
                             BuildCameraSection();
                             break;
-                        case InspectorSectionKind.Project:
-                            BuildProjectSection();
+                        case InspectorSectionKind.Effects:
+                            BuildEffectsSection();
                             break;
                         case InspectorSectionKind.Layer:
                             BuildLayerSection(_selectedLayer!);
@@ -246,6 +247,7 @@ public partial class PvStageWindow
         AddInspector(CameraRow("blur", L.T("虚化"), 0.5));
         AddInspector(CameraRow("brighten", L.T("提亮"), 0.01));
         AddInspector(CameraAddRow());
+        AddInspector(TransitionAddRow());
     }
 
     private FrameworkElement CameraAddRow()
@@ -2307,17 +2309,93 @@ public partial class PvStageWindow
         return (-span, span, Math.Max(0.0001, span / 100));
     }
 
-    private void BuildProjectSection()
+    private void BuildEffectsSection()
     {
-        AddSectionTitle(L.T("工程"));
-        AddInspector(InfoRow(L.T("画布"), $"{_scene.Width}×{_scene.Height}"));
-        AddInspector(InfoRow(L.T("帧率"), $"{_scene.Fps} fps"));
-        AddInspector(InfoRow(L.T("时长"), Fmt(ProjectDuration())));
-        AddInspector(InfoRow(L.T("音频"),
-            string.IsNullOrWhiteSpace(_audioPath) ? L.T("未绑定") : Path.GetFileName(_audioPath), _audioPath));
-        var lyrics = _lyrics is null ? L.T("未装载") : L.F("{0} 句", _lyrics.Count);
-        AddInspector(InfoRow(L.T("歌词"), _tailUncalibrated ? lyrics + L.T(" · 末句待校准") : lyrics));
-        AddInspector(TransitionAddRow());
+        var target = _selectedLayer?.Id ?? "";
+        AddSectionTitle(L.T("特效"));
+        AddInspector(ThemeText(
+            _selectedLayer is null
+                ? L.T("当前作用于整幅画面。添加后点特效名字可调参数，开关控制启用。")
+                : L.T("当前只作用于选中图层。添加后点特效名字可调参数，开关控制启用。"),
+            TextTertiaryKey, 11, wrap: true));
+
+        var any = false;
+        foreach (var node in _effects.Nodes)
+        {
+            if (node is null || !string.Equals(node.Target, target, StringComparison.Ordinal)) continue;
+            AddInspector(EffectPanelRow(node));
+            any = true;
+        }
+
+        if (!any)
+            AddInspector(ThemeText(L.T("还没有特效"), TextTertiaryKey, 11, wrap: true));
+
+        AddInspector(EffectAddRow(target));
+    }
+
+    private FrameworkElement EffectPanelRow(EffectNode node)
+    {
+        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var toggle = new Wpf.Ui.Controls.ToggleSwitch
+        {
+            IsChecked = node.Enabled,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 6, 0),
+        };
+        toggle.Checked += (_, _) => SetFxEnabled(node, true);
+        toggle.Unchecked += (_, _) => SetFxEnabled(node, false);
+        row.Children.Add(toggle);
+
+        var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        name.VerticalAlignment = VerticalAlignment.Center;
+        name.Cursor = Cursors.Hand;
+        name.ToolTip = L.T("点击编辑参数");
+        name.MouseLeftButtonUp += (_, _) =>
+        {
+            _segmentTarget = node.Windows.Count > 0
+                ? SegmentTarget.OfEffectWindow(node, 0)
+                : SegmentTarget.Of(node);
+            BuildInspector();
+        };
+        Grid.SetColumn(name, 1);
+        row.Children.Add(name);
+
+        var del = SmallFxButton("✕");
+        del.ToolTip = L.T("删除");
+        del.Click += (_, _) => RemoveFxNode(node);
+        Grid.SetColumn(del, 2);
+        row.Children.Add(del);
+        return row;
+    }
+
+    private FrameworkElement EffectAddRow(string target)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+        var combo = new ComboBox { FontSize = 12 };
+        foreach (var def in EffectCatalog.All.OrderBy(d => L.T(d.NameKey), StringComparer.CurrentCulture))
+            combo.Items.Add(new ComboBoxItem { Content = EffectName(def), Tag = def.Id });
+        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+        panel.Children.Add(combo);
+
+        var add = new Wpf.Ui.Controls.Button
+        {
+            Content = target.Length == 0 ? L.T("添加全局特效") : L.T("添加图层特效"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        add.Click += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string defId })
+                AddFxNode(defId, target, focus: false);
+        };
+        panel.Children.Add(add);
+        return panel;
     }
 
     private FrameworkElement TransitionAddRow()
@@ -2579,7 +2657,7 @@ public partial class PvStageWindow
 public enum InspectorSectionKind
 {
     Camera,
-    Project,
+    Effects,
     Layer,
 }
 
@@ -2595,6 +2673,6 @@ public static class InspectorLayout
 {
     public static IReadOnlyList<InspectorSectionKind> Sections(bool hasLayerSelection) =>
         hasLayerSelection
-            ? [InspectorSectionKind.Layer, InspectorSectionKind.Project]
-            : [InspectorSectionKind.Camera, InspectorSectionKind.Project];
+            ? [InspectorSectionKind.Layer, InspectorSectionKind.Effects]
+            : [InspectorSectionKind.Camera, InspectorSectionKind.Effects];
 }

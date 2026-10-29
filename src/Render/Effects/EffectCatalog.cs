@@ -65,6 +65,36 @@ public static class EffectCatalog
             ],
             ["calm", "emotional", "grade"]),
 
+        new("colorCorrect", "Fx.ColorCorrect", EffectStage.GlobalPost, EffectCategory.ColorGrade,
+            ShaderSources.ColorCorrect,
+            [
+                EffectParam.Num("saturation", "Fx.ColorCorrect.Saturation", 0, 0, 0f, 3f, 1f, 0.01f),
+                EffectParam.Num("brightness", "Fx.ColorCorrect.Brightness", 0, 1, -1f, 1f, 0f, 0.01f),
+                EffectParam.Num("contrast", "Fx.ColorCorrect.Contrast", 0, 2, 0f, 3f, 1f, 0.01f),
+            ],
+            ["grade", "layer", "color"]),
+
+        new("whiteBalance", "Fx.WhiteBalance", EffectStage.GlobalPost, EffectCategory.ColorGrade,
+            ShaderSources.WhiteBalance,
+            [
+                EffectParam.Num("temperature", "Fx.WhiteBalance.Temperature", 0, 0, -1f, 1f, 0f, 0.01f),
+                EffectParam.Num("tint", "Fx.WhiteBalance.Tint", 0, 1, -1f, 1f, 0f, 0.01f),
+                EffectParam.Flag("preserveLuminance", "Fx.WhiteBalance.PreserveLuminance", 0, 2, true),
+            ],
+            ["grade", "layer", "color"]),
+
+        new("levels", "Fx.Levels", EffectStage.GlobalPost, EffectCategory.ColorGrade,
+            ShaderSources.Levels,
+            [
+                EffectParam.Num("inputBlack", "Fx.Levels.InputBlack", 0, 0, 0f, 1f, 0f, 0.01f, unit: ParamUnit.Ratio),
+                EffectParam.Num("inputWhite", "Fx.Levels.InputWhite", 0, 1, 0f, 1f, 1f, 0.01f, unit: ParamUnit.Ratio),
+                EffectParam.Num("gamma", "Fx.Levels.Gamma", 0, 2, 0.1f, 4f, 1f, 0.01f),
+                EffectParam.Num("outputBlack", "Fx.Levels.OutputBlack", 1, 0, 0f, 1f, 0f, 0.01f, unit: ParamUnit.Ratio),
+                EffectParam.Num("outputWhite", "Fx.Levels.OutputWhite", 1, 1, 0f, 1f, 1f, 0.01f, unit: ParamUnit.Ratio),
+                EffectParam.Flag("invert", "Fx.Levels.Invert", 1, 2, false),
+            ],
+            ["grade", "layer", "color"]),
+
         new("halftone", "Fx.Halftone", EffectStage.GlobalPost, EffectCategory.Texture,
             ShaderSources.Halftone,
             [
@@ -90,6 +120,7 @@ public static class EffectCatalog
                 EffectParam.Num("threshold", "Fx.Glow.Threshold", 0, 0, 0f, 1f, 0.6f, unit: ParamUnit.Ratio),
                 EffectParam.Num("intensity", "Fx.Glow.Intensity", 0, 1, 0f, 3f, 1.1f, 0.05f, unit: ParamUnit.Dimensionless),
                 EffectParam.Num("radius", "Fx.Glow.Radius", 0, 2, 1f, 160f, 32f, 1f, unit: ParamUnit.Pixels),
+                EffectParam.Num("smooth", "Fx.Glow.Smooth", 1, 0, 0f, 1f, 0f, 0.01f),
             ],
             ["pop", "emotional", "neon"], CostHint: 2.5f),
 
@@ -243,6 +274,28 @@ public static class EffectCatalog
                 EffectParam.Color3("color", "Fx.Letterbox.Color", 1, 0, "#000000"),
             ],
             ["cinematic", "anime", "calm"]),
+
+        new("outline", "Fx.Outline", EffectStage.GlobalPost, EffectCategory.Stylize,
+            ShaderSources.Outline,
+            [
+                EffectParam.Color3("color", "Fx.Outline.Color", 0, 0, "#000000"),
+                EffectParam.Num("size", "Fx.Outline.Size", 1, 0, 0f, 40f, 4f, 0.5f, unit: ParamUnit.Pixels),
+                EffectParam.Num("count", "Fx.Outline.Count", 1, 1, 1f, 6f, 4f, 1f),
+                EffectParam.Num("opacity", "Fx.Outline.Opacity", 1, 2, 0f, 1f, 1f, 0.01f),
+                EffectParam.Flag("highQuality", "Fx.Outline.HighQuality", 1, 3, false),
+            ],
+            ["layer", "anime", "stylize"]),
+
+        new("dropShadow", "Fx.DropShadow", EffectStage.GlobalPost, EffectCategory.Stylize,
+            ShaderSources.DropShadow,
+            [
+                EffectParam.Color3("color", "Fx.DropShadow.Color", 0, 0, "#000000"),
+                EffectParam.Num("distance", "Fx.DropShadow.Distance", 1, 0, 0f, 200f, 18f, 1f, unit: ParamUnit.Pixels),
+                EffectParam.Num("angle", "Fx.DropShadow.Angle", 1, 1, -180f, 180f, 45f, 1f),
+                EffectParam.Num("blur", "Fx.DropShadow.Blur", 1, 2, 0f, 60f, 8f, 0.5f, unit: ParamUnit.Pixels),
+                EffectParam.Num("opacity", "Fx.DropShadow.Opacity", 1, 3, 0f, 1f, 0.6f, 0.01f),
+            ],
+            ["layer", "anime", "stylize"]),
     ];
 
     private static int BuildBloom(EffectNode node, GpuRenderGraph graph, ShaderLibrary lib,
@@ -301,6 +354,11 @@ public static class EffectCatalog
         ["mangaPanels"] = ("amount", 0f),
         ["duotone"] = ("amount", 0f),
         ["letterbox"] = ("amount", 0f),
+        ["colorCorrect"] = ("saturation", 1f),
+        ["whiteBalance"] = ("temperature", 0f),
+        ["levels"] = ("inputWhite", 1f),
+        ["outline"] = ("opacity", 0f),
+        ["dropShadow"] = ("opacity", 0f),
     };
 
     public static bool TryGetMix(string defId, out string key, out float identity)

@@ -39,8 +39,6 @@ public sealed class LegacyPresetSettings
 
     public bool Flash { get; set; } = true;
 
-    public int Koma { get; set; }
-
     public string Hud { get; set; } = "auto";
 
     public bool HideNo { get; set; }
@@ -112,7 +110,7 @@ public sealed class LegacyPresetSettings
         fx.Texture = Clamp01(Texture);
         fx.BgSwitch = Clamp01(BgSwitch);
         fx.Flash = Flash;
-        fx.Koma = Koma > 0 ? Koma : null;
+        fx.Koma = null;
         fx.OnTwos = false;
         fx.Hud = string.IsNullOrWhiteSpace(Hud) ? "auto" : Hud;
         fx.HideNo = HideNo;

@@ -90,9 +90,6 @@ public partial class LeftPanel : UserControl
 
     private void BtnReseedPreset_Click(object sender, RoutedEventArgs e) => Owner?.BtnReseedPreset_Click(sender, e);
 
-    private void CmbKoma_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        Owner?.CmbKoma_SelectionChanged(sender, e);
-
     private void CmbHud_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         Owner?.CmbHud_SelectionChanged(sender, e);
 

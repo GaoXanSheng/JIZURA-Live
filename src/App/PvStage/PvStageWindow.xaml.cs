@@ -164,7 +164,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
 
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
-        NormalizeKoma();
 
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -207,7 +206,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SetStep(0);
 
         TblInspectorTitle.Cursor = Cursors.Hand;
-        TblInspectorTitle.ToolTip = L.T("点击回到工程与整体相机");
+        TblInspectorTitle.ToolTip = L.T("点击回到整体相机与特效");
         TblInspectorTitle.MouseLeftButtonDown += (_, _) => SelectLayer(null);
 
         BuildLayerList();
@@ -845,7 +844,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 || FindAncestor<ButtonBase>(d) is not null
                 || FindAncestor<Wpf.Ui.Controls.ToggleSwitch>(d) is not null)) return;
         var layer = ((Border)sender).Tag as PvLayerConfig;
-        if (!ReferenceEquals(layer, _selectedLayer)) SelectLayer(layer);
+        SelectLayer(layer);
         _dragStart = e.GetPosition(this);
         _dragLayer = layer;
     }
@@ -1128,7 +1127,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _lrcText = project.LrcText;
 
         _evaluator = DirectorEvaluator.FromSaves(project.Curves, project.CameraTrack, project.LayerCameraTracks);
-        NormalizeKoma();
 
         if (resetUndo)
         {
@@ -2347,7 +2345,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         w = Math.Clamp(w, 64, 7680) & ~1;
         h = Math.Clamp(h, 64, 7680) & ~1;
         fps = Math.Clamp(fps, 1, 240);
-        var oldFps = _scene.Fps;
 
         if (w == _scene.Width && h == _scene.Height && fps == _scene.Fps)
         {
@@ -2359,11 +2356,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _scene.Height = h;
         _scene.Fps = fps;
         _project.Scene = _scene;
-        if (_project.Preset is { Koma: > 0 } preset)
-        {
-            if (preset.Koma == Math.Max(1, oldFps / 2)) preset.Koma = Math.Max(1, fps / 2);
-            else if (preset.Koma == Math.Max(1, oldFps / 3)) preset.Koma = Math.Max(1, fps / 3);
-        }
         if (_project.CameraTrack is { } cameraTrack)
         {
             cameraTrack.Fps = fps;

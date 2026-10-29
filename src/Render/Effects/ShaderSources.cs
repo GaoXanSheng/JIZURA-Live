@@ -142,6 +142,8 @@ public static class ShaderSources
             float4 base = Tex.Sample(Smp, i.uv);
             float3 rgb = base.rgb / max(base.a, 1e-4);
             float radius = max(PARAM(0, z), 0.5) / max(PARAM(15, y), 1.0);
+            float threshold = PARAM(0, x);
+            float smoothness = PARAM(1, x);
             float3 acc = 0;
             for (int k = 0; k < 16; k++)
             {
@@ -151,7 +153,10 @@ public static class ShaderSources
                 float4 s = Tex.Sample(Smp, i.uv + off);
                 float3 srgb = s.rgb / max(s.a, 1e-4);
                 float l = dot(srgb, float3(0.299, 0.587, 0.114));
-                acc += srgb * max(l - PARAM(0, x), 0.0);
+                float k2 = smoothness > 1e-4
+                    ? smoothstep(threshold, min(threshold + smoothness, 1.0), l) * (1.0 - threshold)
+                    : max(l - threshold, 0.0);
+                acc += srgb * k2;
             }
             acc /= 16.0;
             rgb += acc * PARAM(0, y);
@@ -565,6 +570,107 @@ public static class ShaderSources
             if (bar <= 0.0) return c;
             if (i.uv.y < bar || i.uv.y > 1.0 - bar) return float4(PARAM(1, xyz), 1.0);
             return c;
+        }
+        """;
+
+    public const string Outline = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 base = Tex.Sample(Smp, i.uv);
+            float2 res = max(PARAM(15, yz), 1.0);
+            float size = max(PARAM(1, x), 0.0);
+            float count = clamp(PARAM(1, y), 1.0, 6.0);
+            int dirs = PARAM(1, w) > 0.5 ? 16 : 8;
+            float edge = 0.0;
+            for (int k = 0; k < 16; k++)
+            {
+                if (k >= dirs) break;
+                float ang = 6.2831853 * k / (float)dirs;
+                float2 dir = float2(cos(ang), sin(ang)) / res;
+                float a = 0.0;
+                for (int j = 1; j <= 6; j++)
+                {
+                    if (j > count) break;
+                    a = max(a, Tex.Sample(Smp, i.uv + dir * size * (j / count)).a);
+                }
+                edge = max(edge, a);
+            }
+            float ring = saturate(edge - base.a) * PARAM(1, z);
+            float3 rgb = base.rgb + PARAM(0, xyz) * ring;
+            return float4(saturate(rgb), saturate(base.a + ring));
+        }
+        """;
+
+    public const string DropShadow = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 base = Tex.Sample(Smp, i.uv);
+            float2 res = max(PARAM(15, yz), 1.0);
+            float ang = radians(PARAM(1, y));
+            float2 center = i.uv + float2(cos(ang), sin(ang)) * PARAM(1, x) / res;
+            float blur = max(PARAM(1, z), 0.0);
+            float alpha = 0.0;
+            for (int k = 0; k < 12; k++)
+            {
+                float a2 = 6.2831853 * k / 12.0;
+                float r = blur * (0.25 + 0.75 * frac(k * 0.618));
+                float2 off = float2(cos(a2), sin(a2)) / res * r;
+                alpha += Tex.Sample(Smp, center + off).a;
+            }
+            alpha = alpha / 12.0 * PARAM(1, w);
+            float behind = alpha * (1.0 - base.a);
+            float3 rgb = base.rgb + PARAM(0, xyz) * behind;
+            return float4(saturate(rgb), saturate(base.a + behind));
+        }
+        """;
+
+    public const string WhiteBalance = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 c = Tex.Sample(Smp, i.uv);
+            float3 rgb = c.rgb / max(c.a, 1e-4);
+            float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+            float temp = PARAM(0, x);
+            float tint = PARAM(0, y);
+            rgb.r *= 1.0 + temp * 0.35;
+            rgb.b *= 1.0 - temp * 0.35;
+            rgb.g *= 1.0 - tint * 0.3;
+            rgb.r *= 1.0 + tint * 0.15;
+            rgb.b *= 1.0 + tint * 0.15;
+            if (PARAM(0, z) > 0.5)
+            {
+                float l = dot(saturate(rgb), float3(0.299, 0.587, 0.114));
+                rgb *= luma / max(l, 1e-4);
+            }
+            return float4(saturate(rgb) * c.a, c.a);
+        }
+        """;
+
+    public const string Levels = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 c = Tex.Sample(Smp, i.uv);
+            float3 rgb = c.rgb / max(c.a, 1e-4);
+            float inBlack = PARAM(0, x);
+            float inWhite = PARAM(0, y);
+            float gamma = max(PARAM(0, z), 0.05);
+            rgb = saturate((rgb - inBlack) / max(inWhite - inBlack, 1e-4));
+            rgb = pow(rgb, 1.0 / gamma);
+            rgb = PARAM(1, x) + rgb * (PARAM(1, y) - PARAM(1, x));
+            if (PARAM(1, z) > 0.5) rgb = 1.0 - rgb;
+            return float4(saturate(rgb) * c.a, c.a);
+        }
+        """;
+
+    public const string ColorCorrect = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 c = Tex.Sample(Smp, i.uv);
+            float3 rgb = c.rgb / max(c.a, 1e-4);
+            float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+            rgb = lerp(luma.xxx, rgb, PARAM(0, x));
+            rgb = (rgb - 0.5) * PARAM(0, z) + 0.5 + PARAM(0, y);
+            return float4(saturate(rgb) * c.a, c.a);
         }
         """;
 }

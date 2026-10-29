@@ -627,6 +627,7 @@ public partial class PvStageWindow
         EffectCategory.ColorGrade => L.T("调色"),
         EffectCategory.LightGlow => L.T("光晕"),
         EffectCategory.Geometry => L.T("几何"),
+        EffectCategory.Stylize => L.T("风格化"),
         EffectCategory.Camera => L.T("相机"),
         _ => category.ToString(),
     };

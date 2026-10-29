@@ -29,6 +29,8 @@ public enum EffectCategory
 
     Texture,
 
+    Stylize,
+
     Camera,
 }
 

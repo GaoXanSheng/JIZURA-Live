@@ -146,19 +146,6 @@
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.021}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="FxSliderHost" />
                                         <StackPanel x:Name="FxToggleHost" Margin="0,6,0,0" />
-                                        <Grid Margin="0,8,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.022}" Style="{StaticResource PanelRowLabel}" />
-                                            <ComboBox x:Name="CmbKoma" Grid.Column="1" HorizontalAlignment="Right"
-                                                      Width="110" SelectionChanged="CmbKoma_SelectionChanged">
-                                                <ComboBoxItem Tag="0" Content="{DynamicResource Loc.PanelXaml.023}" />
-                                                <ComboBoxItem Tag="-2" Content="{DynamicResource Loc.PanelXaml.024}" />
-                                                <ComboBoxItem Tag="-3" Content="{DynamicResource Loc.PanelXaml.025}" />
-                                            </ComboBox>
-                                        </Grid>
                                         <Grid Margin="0,6,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />

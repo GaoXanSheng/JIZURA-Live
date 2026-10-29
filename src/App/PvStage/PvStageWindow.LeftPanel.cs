@@ -46,7 +46,6 @@ public partial class PvStageWindow
     private Wpf.Ui.Controls.Button BtnVtsReconnect => Left.BtnVtsReconnect;
     private Wpf.Ui.Controls.Button BtnVtsAuth => Left.BtnVtsAuth;
 
-    private ComboBox CmbKoma => Left.CmbKoma;
     private ComboBox CmbHud => Left.CmbHud;
     private ComboBox CmbKeyBg => Left.CmbKeyBg;
     private ComboBox CmbFxAdd => Left.CmbFxAdd;
