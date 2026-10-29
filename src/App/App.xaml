@@ -10,6 +10,9 @@
                 <ui:ControlsDictionary />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- 去掉鼠标点击 / 键盘聚焦后控件外圈的白色焦点边框 -->
+            <SolidColorBrush x:Key="KeyboardFocusBorderColorBrush" Color="Transparent" />
+
             <Style x:Key="InlineValueBox" TargetType="TextBox">
                 <Setter Property="Background" Value="{DynamicResource SolidBackgroundFillColorSecondaryBrush}" />
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
