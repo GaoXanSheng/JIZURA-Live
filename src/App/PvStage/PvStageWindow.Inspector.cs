@@ -150,6 +150,8 @@ public partial class PvStageWindow
 
     private void SelectLayer(PvLayerConfig? layer)
     {
+        if (ReferenceEquals(_selectedLayer, layer) && _segmentTarget is null) return;
+
         _segmentTarget = null;
         _selectedLayer = layer;
         SyncStageSelection();
@@ -203,9 +205,6 @@ public partial class PvStageWindow
                     {
                         case InspectorSectionKind.Camera:
                             BuildCameraSection();
-                            break;
-                        case InspectorSectionKind.Effects:
-                            BuildEffectsSection();
                             break;
                         case InspectorSectionKind.Layer:
                             BuildLayerSection(_selectedLayer!);
@@ -279,52 +278,18 @@ public partial class PvStageWindow
 
     private void AddGlobalCameraShot(string preset)
     {
-        var track = _project.CameraTrack;
-        if (track is null)
-        {
-            track = new CameraTrack
-            {
-                Width = _scene.Width,
-                Height = _scene.Height,
-                Fps = _scene.Fps,
-                BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
-                Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
-            };
-            _project.CameraTrack = track;
-        }
-        else
-        {
-            track.Width = _scene.Width;
-            track.Height = _scene.Height;
-            track.Fps = _scene.Fps;
-            if (track.BeatLen <= 0.05)
-                track.BeatLen = _beatMap is { Bpm: > 0 } bm2 ? 60.0 / bm2.Bpm : 0.5;
-        }
+        var track = _project.CameraTrack ??= NewCameraTrack();
+        track.Width = _scene.Width;
+        track.Height = _scene.Height;
+        track.Fps = _scene.Fps;
+        if (track.BeatLen <= 0.05)
+            track.BeatLen = _beatMap is { Bpm: > 0 } bm2 ? 60.0 / bm2.Bpm : 0.5;
 
         double start = Math.Max(0, _audio.Time);
-        double span = Math.Max(2.0, track.BeatLen * 8);
-        double end = start + span;
-        var duration = ProjectDuration();
-        if (duration > start + 0.2) end = Math.Min(duration, end);
+        double end = Math.Min(ProjectDuration(), start + Math.Max(2.0, track.BeatLen * 8));
         if (end <= start + 0.2) end = start + 2.0;
 
-        var rng = new CameraRng(unchecked((uint)(_project.LegacySeed * 7919 + track.Shots.Count * 104729 + 17)));
-        var pars = CameraDirection.PlanParams(preset, rng);
-        pars["shotScale"] = 1.0;
-        pars["shotX"] = 0;
-        pars["shotY"] = 0;
-        pars["shotRot"] = 0;
-        pars["gain"] = 1.0;
-
-        var shot = new CameraShot
-        {
-            Preset = preset,
-            Start = start,
-            End = end,
-            Seed = unchecked((int)(rng.Next() * int.MaxValue)),
-            Params = pars,
-            Source = "user",
-        };
+        var shot = NewCameraShot(track, preset, start, end);
         track.Shots.Add(shot);
         track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
 
@@ -336,6 +301,36 @@ public partial class PvStageWindow
         PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.F("已添加整体运镜：{0}", ZhLabel("cam", preset));
+    }
+
+    private CameraTrack NewCameraTrack() => new()
+    {
+        Width = _scene.Width,
+        Height = _scene.Height,
+        Fps = _scene.Fps,
+        BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
+        Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
+    };
+
+    private CameraShot NewCameraShot(CameraTrack track, string preset, double start, double end)
+    {
+        var rng = new CameraRng(unchecked((uint)(_project.LegacySeed * 7919 + track.Shots.Count * 104729 + 17)));
+        var pars = CameraDirection.PlanParams(preset, rng);
+        pars["shotScale"] = 1.0;
+        pars["shotX"] = 0;
+        pars["shotY"] = 0;
+        pars["shotRot"] = 0;
+        pars["gain"] = 1.0;
+
+        return new CameraShot
+        {
+            Preset = preset,
+            Start = start,
+            End = end,
+            Seed = unchecked((int)(rng.Next() * int.MaxValue)),
+            Params = pars,
+            Source = "user",
+        };
     }
 
     private FrameworkElement CameraRow(string param, string label, double step)
@@ -495,14 +490,7 @@ public partial class PvStageWindow
     {
         if (!_project.LayerCameraTracks.TryGetValue(LayerTrackId(layer), out var track))
         {
-            track = new CameraTrack
-            {
-                Width = _scene.Width,
-                Height = _scene.Height,
-                Fps = _scene.Fps,
-                BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
-                Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
-            };
+            track = NewCameraTrack();
             _project.LayerCameraTracks[LayerTrackId(layer)] = track;
         }
 
@@ -510,23 +498,7 @@ public partial class PvStageWindow
         double end = Math.Min(TimelineSpan(), start + Math.Max(2.0, track.BeatLen * 8));
         if (end <= start + 0.2) end = start + 2.0;
 
-        var rng = new CameraRng(unchecked((uint)(_project.LegacySeed * 7919 + track.Shots.Count * 104729 + 17)));
-        var pars = CameraDirection.PlanParams(preset, rng);
-        pars["shotScale"] = 1.0;
-        pars["shotX"] = 0;
-        pars["shotY"] = 0;
-        pars["shotRot"] = 0;
-        pars["gain"] = 1.0;
-
-        track.Shots.Add(new CameraShot
-        {
-            Preset = preset,
-            Start = start,
-            End = end,
-            Seed = unchecked((int)(rng.Next() * int.MaxValue)),
-            Params = pars,
-            Source = "user",
-        });
+        track.Shots.Add(NewCameraShot(track, preset, start, end));
         track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
         track.UserEdited = true;
 
@@ -1343,7 +1315,16 @@ public partial class PvStageWindow
             if (selected) card.SetResourceReference(Border.BackgroundProperty, SelectFillKey);
 
             var key = option.Key;
-            card.MouseEnter += (_, _) => EnsureTechniquePreview(thumb, group, option.Key, 160);
+            card.MouseEnter += (_, _) =>
+            {
+                _techPreviewHost = thumb;
+                EnsureTechniquePreview(thumb, group, option.Key, 160);
+            };
+            card.MouseLeave += (_, _) =>
+            {
+                if (ReferenceEquals(_techPreviewHost, thumb)) _techPreviewHost = null;
+                StopTechniquePreview(thumb.Child as Image);
+            };
             card.MouseLeftButtonDown += (_, _) =>
             {
                 if (popup is not null) popup.IsOpen = false;
@@ -1388,6 +1369,7 @@ public partial class PvStageWindow
             PopupAnimation = PopupAnimation.Fade,
             Child = root,
         };
+        popup.Closed += (_, _) => StopTechniquePreview();
         popup.IsOpen = true;
     }
 
@@ -2309,95 +2291,6 @@ public partial class PvStageWindow
         return (-span, span, Math.Max(0.0001, span / 100));
     }
 
-    private void BuildEffectsSection()
-    {
-        var target = _selectedLayer?.Id ?? "";
-        AddSectionTitle(L.T("特效"));
-        AddInspector(ThemeText(
-            _selectedLayer is null
-                ? L.T("当前作用于整幅画面。添加后点特效名字可调参数，开关控制启用。")
-                : L.T("当前只作用于选中图层。添加后点特效名字可调参数，开关控制启用。"),
-            TextTertiaryKey, 11, wrap: true));
-
-        var any = false;
-        foreach (var node in _effects.Nodes)
-        {
-            if (node is null || !string.Equals(node.Target, target, StringComparison.Ordinal)) continue;
-            AddInspector(EffectPanelRow(node));
-            any = true;
-        }
-
-        if (!any)
-            AddInspector(ThemeText(L.T("还没有特效"), TextTertiaryKey, 11, wrap: true));
-
-        AddInspector(EffectAddRow(target));
-    }
-
-    private FrameworkElement EffectPanelRow(EffectNode node)
-    {
-        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var toggle = new Wpf.Ui.Controls.ToggleSwitch
-        {
-            IsChecked = node.Enabled,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 6, 0),
-        };
-        toggle.Checked += (_, _) => SetFxEnabled(node, true);
-        toggle.Unchecked += (_, _) => SetFxEnabled(node, false);
-        row.Children.Add(toggle);
-
-        var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
-        name.TextTrimming = TextTrimming.CharacterEllipsis;
-        name.VerticalAlignment = VerticalAlignment.Center;
-        name.Cursor = Cursors.Hand;
-        name.ToolTip = L.T("点击编辑参数");
-        name.MouseLeftButtonUp += (_, _) =>
-        {
-            _segmentTarget = node.Windows.Count > 0
-                ? SegmentTarget.OfEffectWindow(node, 0)
-                : SegmentTarget.Of(node);
-            BuildInspector();
-        };
-        Grid.SetColumn(name, 1);
-        row.Children.Add(name);
-
-        var del = SmallFxButton("✕");
-        del.ToolTip = L.T("删除");
-        del.Click += (_, _) => RemoveFxNode(node);
-        Grid.SetColumn(del, 2);
-        row.Children.Add(del);
-        return row;
-    }
-
-    private FrameworkElement EffectAddRow(string target)
-    {
-        var panel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-        var combo = new ComboBox { FontSize = 12 };
-        foreach (var def in EffectCatalog.All.OrderBy(d => L.T(d.NameKey), StringComparer.CurrentCulture))
-            combo.Items.Add(new ComboBoxItem { Content = EffectName(def), Tag = def.Id });
-        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
-        panel.Children.Add(combo);
-
-        var add = new Wpf.Ui.Controls.Button
-        {
-            Content = target.Length == 0 ? L.T("添加全局特效") : L.T("添加图层特效"),
-            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 6, 0, 0),
-        };
-        add.Click += (_, _) =>
-        {
-            if (combo.SelectedItem is ComboBoxItem { Tag: string defId })
-                AddFxNode(defId, target, focus: false);
-        };
-        panel.Children.Add(add);
-        return panel;
-    }
-
     private FrameworkElement TransitionAddRow()
     {
         var panel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
@@ -2657,7 +2550,6 @@ public partial class PvStageWindow
 public enum InspectorSectionKind
 {
     Camera,
-    Effects,
     Layer,
 }
 
@@ -2673,6 +2565,6 @@ public static class InspectorLayout
 {
     public static IReadOnlyList<InspectorSectionKind> Sections(bool hasLayerSelection) =>
         hasLayerSelection
-            ? [InspectorSectionKind.Layer, InspectorSectionKind.Effects]
-            : [InspectorSectionKind.Camera, InspectorSectionKind.Effects];
+            ? [InspectorSectionKind.Layer]
+            : [InspectorSectionKind.Camera];
 }

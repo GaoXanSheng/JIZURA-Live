@@ -44,6 +44,8 @@ public sealed class TDesignSegment
 public sealed class TDesignTrack
 {
     public DesignTrackKind Kind;
+    public string Id = "";
+    public string Label = "";
     public List<TDesignSegment> Segments = new();
 }
 
@@ -88,8 +90,6 @@ public sealed class TOwner
     public ParamAddressKind AddressKind;
 
     public string Target = "";
-
-    public bool Enabled = true;
 }
 
 public sealed class TSnapshot

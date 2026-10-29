@@ -77,7 +77,14 @@ public sealed partial class TimelineView
             return;
         }
 
-        if (RowAt(p.Y) is not { } row) return;
+        if (RowAt(p.Y) is not { } row)
+        {
+            ClearSegmentSelection();
+            _selection.Clear();
+            OwnerSelected?.Invoke(null);
+            InvalidateVisual();
+            return;
+        }
         if (row.Kind == RowKind.Group)
         {
             e.Handled = true;
@@ -119,7 +126,7 @@ public sealed partial class TimelineView
             return;
         }
 
-        if (p.X < HeaderWidth && row.Kind == RowKind.Automation)
+        if (p.X < HeaderWidth && row.Kind is RowKind.Automation or RowKind.Design)
         {
             e.Handled = true;
             SelectOwner(row);
@@ -712,8 +719,8 @@ public sealed partial class TimelineView
             case RowKind.Design:
             {
                 var design = _snap.DesignTracks[row.Index];
-                label = L.F("清空轨道「{0}」", DesignTrackNames.Label(design.Kind));
-                clear = () => DesignTrackClearRequested?.Invoke(design.Kind);
+                label = L.F("清空轨道「{0}」", TrackLabel(design));
+                clear = () => DesignTrackClearRequested?.Invoke(design.Kind, design.Id);
                 break;
             }
             case RowKind.Automation:

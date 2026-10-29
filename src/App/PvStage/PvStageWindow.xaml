@@ -27,8 +27,9 @@
                     <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"
                                       TextElement.Foreground="{TemplateBinding Control.Foreground}" />
                     <Popup x:Name="Popup" Grid.Row="1" AllowsTransparency="True" Focusable="False"
-                           IsOpen="{TemplateBinding MenuItem.IsSubmenuOpen}" Placement="Bottom"
-                           PopupAnimation="None" VerticalOffset="1"
+                           IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                           Placement="Bottom"
+                           PopupAnimation="None" StaysOpen="False" VerticalOffset="1"
                            PlacementTarget="{Binding ElementName=Chrome}">
                         <Border Background="{DynamicResource FlyoutBackground}"
                                 BorderBrush="{DynamicResource FlyoutBorderBrush}" BorderThickness="1"
@@ -148,8 +149,6 @@
                 <MenuItem Header="导入图片…" Click="MenuImportImage_Click" />
                 <MenuItem Header="云端音乐…" Click="MenuCloudMusic_Click" />
                 <Separator />
-                <MenuItem Header="导出…" InputGestureText="Ctrl+E" Click="MenuExport_Click" />
-                <Separator />
                 <MenuItem Header="退出" Click="MenuExit_Click" />
             </MenuItem>
             <MenuItem Header="编辑">
@@ -157,14 +156,9 @@
                 <MenuItem Header="重做" InputGestureText="Ctrl+Shift+Z" Click="MenuRedo_Click" />
             </MenuItem>
             <MenuItem Header="视图">
-                <MenuItem Header="素材" Click="MenuPanel_Click" Tag="0" />
-                <MenuItem Header="画面" Click="MenuPanel_Click" Tag="1" />
-                <MenuItem Header="效果" Click="MenuPanel_Click" Tag="2" />
-                <MenuItem Header="运镜" Click="MenuPanel_Click" Tag="3" />
-                <MenuItem Header="导出" Click="MenuPanel_Click" Tag="4" />
-                <MenuItem Header="设置" Click="MenuPanel_Click" Tag="5" />
-                <Separator />
+                <MenuItem Header="显示 / 隐藏左栏" Click="MenuToggleLeftPanel_Click" />
                 <MenuItem Header="显示 / 隐藏属性栏" Click="MenuToggleInspector_Click" />
+                <MenuItem Header="显示 / 隐藏时间轴" Click="MenuToggleTimeline_Click" />
                 <Separator />
                 <MenuItem Header="时间轴：全部展开" Click="MenuExpandTimeline_Click" />
                 <MenuItem Header="时间轴：全部折叠" Click="MenuCollapseTimeline_Click" />
@@ -189,7 +183,7 @@
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftColumn" Width="320" MinWidth="240" />
-                <ColumnDefinition Width="4" />
+                <ColumnDefinition x:Name="LeftSplitterColumn" Width="4" />
                 <ColumnDefinition Width="*" MinWidth="320" />
                 <ColumnDefinition x:Name="InspectorSplitterColumn" Width="6" />
                 <ColumnDefinition x:Name="InspectorColumn" Width="380" MinWidth="340" />
@@ -197,7 +191,7 @@
 
             <panels:LeftPanel x:Name="Left" Grid.Column="0" />
 
-            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+            <GridSplitter x:Name="LeftSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
                           VerticalAlignment="Stretch" Background="Transparent"
                           ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
                           Cursor="SizeWE" />

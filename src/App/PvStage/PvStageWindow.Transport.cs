@@ -18,6 +18,7 @@ public partial class PvStageWindow
         StopShuttle();
         if (_audio.IsPlaying || _audio.Duration <= 0) return;
         _audio.Play();
+        TheTimeline.FollowPlayhead();
         UpdatePlayIcon();
     }
 
@@ -46,6 +47,7 @@ public partial class PvStageWindow
         }
 
         _shuttleActive = true;
+        TheTimeline.FollowPlayhead();
         UpdatePlayIcon();
     }
 

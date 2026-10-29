@@ -60,15 +60,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private string? _saveError;
     private System.Windows.Threading.DispatcherTimer? _uiTimer;
     private System.Windows.Threading.DispatcherTimer? _playheadTimer;
+    private System.Windows.Threading.DispatcherTimer? _paramTimer;
     private System.Windows.Threading.DispatcherTimer? _vtsTimer;
     private readonly List<PvLayerConfig> _uiLayers = new();
     private int _projectEpoch;
     private System.Windows.Point _dragStart;
     private PvLayerConfig? _dragLayer;
     private bool _draggingTime;
-
-    private bool _exporting;
-    private double _exportPercent;
 
     private DirectorEvaluator _evaluator = new();
 
@@ -99,14 +97,14 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private const double InspectorWidth = 380;
     private bool _inspectorCollapsed;
+    private bool _leftCollapsed;
+    private bool _timelineCollapsed;
 
     private int _step = -1;
     private bool _syncingNav;
 
     private bool _syncingToggles;
-    private bool _syncingExportForm;
     private bool _syncingSettings;
-    private bool _exportFormEdited;
 
     private string _mediaAudioCache = "";
     private string _mediaMetaCache = "";
@@ -191,7 +189,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.TrackVisibilityChanged += Timeline_TrackVisibilityChanged;
         TheTimeline.TrackHeightsChanged += Timeline_TrackHeightsChanged;
         TheTimeline.OwnerSelected += Timeline_OwnerSelected;
-        TheTimeline.LayerVisibilityToggled += Timeline_LayerVisibilityToggled;
         TheTimeline.ZoomChanged += SyncTimelineZoom;
         TheTimeline.VtsTrackClearRequested += Timeline_VtsTrackClear;
         TheTimeline.CurveClearRequested += Timeline_CurveClear;
@@ -219,12 +216,19 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         {
             Interval = TimeSpan.FromMilliseconds(500),
         };
-        _playheadTimer = new System.Windows.Threading.DispatcherTimer
+        _playheadTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Render)
         {
             Interval = TimeSpan.FromMilliseconds(33),
         };
         _playheadTimer.Tick += (_, _) => TickTimeline();
         _playheadTimer.Start();
+        _paramTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(200),
+        };
+        _paramTimer.Tick += (_, _) => RefreshParamRows();
+        _paramTimer.Start();
         _uiTimer.Tick += (_, _) =>
         {
             RefreshStatus();
@@ -430,6 +434,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         _uiTimer?.Stop();
         _playheadTimer?.Stop();
+        _paramTimer?.Stop();
+        StopTechniquePreview();
         _vtsTimer?.Stop();
 
         var pipe = _pipe;
@@ -843,6 +849,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             && (FindAncestor<RangeBase>(d) is not null
                 || FindAncestor<ButtonBase>(d) is not null
                 || FindAncestor<Wpf.Ui.Controls.ToggleSwitch>(d) is not null)) return;
+        Keyboard.ClearFocus();
         var layer = ((Border)sender).Tag as PvLayerConfig;
         SelectLayer(layer);
         _dragStart = e.GetPosition(this);
@@ -1214,7 +1221,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         _saveError = SaveProjectNow();
         TblStatus.Text = _saveError is null ? note : L.F("{0}（工程文件写入失败：{1}）", note, _saveError);
-        _exportFormEdited = false;
         Log.Info($"[PV 工作台] {note}（存盘落到 {_projectPath}）");
     }
 
@@ -1324,7 +1330,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TheTimeline.ResetView();
             RefreshTimeline();
             StartAudioLoad(path);
-            _exportFormEdited = false;
             if (_pipe is not null)
             {
                 _rebuildPipeKeepTransport = true;
@@ -1412,144 +1417,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             ? L.F("广播 开（发送端 {0}{1}）", _spoutName, (_spoutTransparent ? L.T(" · 透明背景") : ""))
             : L.T("广播 关");
     }
-
-    private void SyncExportForm()
-    {
-        SyncExportAudioToggle();
-        if (_exportFormEdited) return;
-
-        var audioPath = _audioPath;
-        var dir = string.IsNullOrWhiteSpace(audioPath) ? null : Path.GetDirectoryName(audioPath);
-        var defaultDir = string.IsNullOrEmpty(dir) ? AppDirs.ConfigDir : dir;
-        var name = (string.IsNullOrWhiteSpace(audioPath) ? "pv_export" : Path.GetFileNameWithoutExtension(audioPath)) + ".mp4";
-        var path = Path.Combine(defaultDir, name);
-        var duration = ProjectDuration();
-        var seconds = duration > 0 ? duration.ToString("F2", CultureInfo.InvariantCulture) : "";
-        var fpsText = _scene.Fps.ToString(CultureInfo.InvariantCulture);
-
-        _syncingExportForm = true;
-        try
-        {
-            if (!string.Equals(TxtExportPath.Text, path, StringComparison.Ordinal)) TxtExportPath.Text = path;
-            if (!string.Equals(TxtExportSeconds.Text, seconds, StringComparison.Ordinal)) TxtExportSeconds.Text = seconds;
-            if (!string.Equals(TxtExportFps.Text, fpsText, StringComparison.Ordinal)) TxtExportFps.Text = fpsText;
-        }
-        finally
-        {
-            _syncingExportForm = false;
-        }
-    }
-
-    internal void ExportField_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (_syncingExportForm) return;
-        _exportFormEdited = true;
-    }
-
-    internal void BtnExportBrowse_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new Microsoft.Win32.SaveFileDialog
-        {
-            Title = L.T("导出 MP4"),
-            Filter = L.T("MP4 视频 (*.mp4)|*.mp4"),
-            DefaultExt = ".mp4",
-            AddExtension = true,
-            FileName = Path.GetFileName(TxtExportPath.Text),
-            InitialDirectory = Path.GetDirectoryName(TxtExportPath.Text) ?? AppDirs.ConfigDir,
-        };
-        if (dlg.ShowDialog(this) == true) TxtExportPath.Text = dlg.FileName;
-    }
-
-    internal void BtnExport_Click(object sender, RoutedEventArgs e)
-    {
-        if (_exporting) return;
-
-        if (string.IsNullOrWhiteSpace(TxtExportPath.Text)
-            || !int.TryParse(TxtExportFps.Text.Trim(), out var fps)
-            || !double.TryParse(TxtExportSeconds.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var sec))
-        {
-            TblExportState.Text = L.T("导出未开始：输出路径不能为空，帧率与时长都必须是数字");
-            return;
-        }
-
-        bool driveVts = ChkVtsDrive.IsChecked == true;
-        if (driveVts && _vts.State != VtsState.Ready)
-        {
-            TblExportState.Text = L.T("导出未开始：VTS 未连接，无法驱动角色");
-            return;
-        }
-
-        if (_project.VtsCues?.Cues.Count > 0 && !driveVts
-            && MessageBox.Show(this,
-                L.T("未勾选“导出时驱动 VTS”，VTS 动作/表情/染色不会在导出中执行；导出只捕获当前 VTS / Spout 状态。\n\n仍要继续导出？"),
-                L.T("PV 工作台"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-            return;
-
-        StartExport(TxtExportPath.Text.Trim(), fps, sec, ChkBurnSubtitles.IsChecked == true,
-            ChkIncludeAudio.IsChecked == true, driveVts);
-    }
-
-    private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles, bool includeAudio,
-        bool driveVts)
-    {
-        if (driveVts)
-        {
-            if (_audio.IsPlaying) _audio.Pause();
-            UpdatePlayIcon();
-            ResetVtsExportState();
-        }
-
-        _exporting = true;
-        BtnExport.IsEnabled = false;
-        PrgExport.Progress = 0;
-        PrgExport.Visibility = Visibility.Visible;
-        _exportPercent = 0;
-        TblExportState.Text = ExportText();
-        TblStatus.Text = ExportText();
-
-        var copy = ProjectFromSnapshot(ProjectSnapshot(), L.T("导出"));
-        var inputs = copy is null ? null : ExportInputs(copy, burnSubtitles, includeAudio, driveVts);
-        if (inputs?.Legacy is { } legacyOptions) legacyOptions.Fps = fps;
-        var progress = new Progress<double>(p =>
-        {
-            _exportPercent = p;
-            PrgExport.Progress = p * 100;
-            if (_exporting)
-            {
-                TblExportState.Text = ExportText();
-                TblStatus.Text = ExportText();
-            }
-        });
-
-        var fault = copy is null
-            ? L.T("导出失败：工程快照读不出来")
-            : await Task.Run(() => PvExporter.Export(copy.Scene, copy.Effects, seconds, fps, outPath, progress, inputs));
-
-        _exporting = false;
-        if (driveVts) EndVtsExportState();
-        BtnExport.IsEnabled = true;
-        PrgExport.Visibility = Visibility.Collapsed;
-        TblExportState.Text = fault ?? L.F("导出完成：{0}", outPath);
-        ShowStatus(fault ?? L.F("导出完成：{0}", outPath));
-    }
-
-    private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles, bool includeAudio, bool driveVts)
-    {
-        var curves = DirectorEvaluator.FromSaves(copy.Curves, copy.CameraTrack, copy.LayerCameraTracks);
-
-        return new PvExportInputs(
-            Curves: curves,
-            Bands: _audioBands,
-            Segments: copy.DesignSegments,
-            Clips: _lyricClips,
-            Subtitles: burnSubtitles ? App.SettingsOf()?.Subtitle : null,
-            AudioPath: includeAudio ? _audioPath : null,
-            AudioOffsetSec: ExportAudioOffsetSec,
-            Legacy: LegacyOptions(copy),
-            FrameTick: driveVts ? ExportVtsFrame : null);
-    }
-
-    private string ExportText() => L.F("导出中… {0:F0}%", _exportPercent * 100);
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
@@ -1725,10 +1592,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 e.Handled = true;
                 BtnOpenLyrics_Click(this, new RoutedEventArgs());
                 break;
-            case Key.E:
-                e.Handled = true;
-                MenuExport_Click(this, new RoutedEventArgs());
-                break;
         }
 
         base.OnPreviewKeyDown(e);
@@ -1744,7 +1607,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private static bool ConsumesSpaceKeyboard(IInputElement? element)
     {
         for (var node = element as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
-            if (node is ComboBox or ComboBoxItem) return true;
+            if (node is ComboBox combo) return combo.IsDropDownOpen;
+            else if (node is ComboBoxItem) return true;
         return false;
     }
 
@@ -1834,7 +1698,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         if (_audio.IsPlaying) _audio.Pause();
-        else _audio.Play();
+        else
+        {
+            _audio.Play();
+            TheTimeline.FollowPlayhead();
+        }
         UpdatePlayIcon();
     }
 
@@ -1862,6 +1730,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             {
                 _resumeAfterScrub = false;
                 _audio.Play();
+                TheTimeline.FollowPlayhead();
             }
         }
 
@@ -1993,12 +1862,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 TblStatus.Text = _transientStatus;
         }
 
-        if (_exporting) TblStatus.Text = ExportText();
-
         AppTitleBar.Title = L.F("{0} — JIZURA Live PV",
             string.IsNullOrWhiteSpace(_project.Name) ? L.T("默认工程") : _project.Name);
         if (_step == 0) RefreshMediaPanel();
-        SyncExportForm();
         UpdateAutoButton();
         UpdatePlayIcon();
     }
@@ -2032,7 +1898,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var ready = !string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath)
                     && !string.IsNullOrWhiteSpace(_lrcText);
         BtnGenerateAuto.IsEnabled = !_autoGenerating && ready;
-        BtnRegenerateAuto.IsEnabled = !_autoGenerating && ready;
         TblAutoHint.Text = ready
             ? L.T("生成会重建自动运镜与整体转场，保留手改内容；一次生成压一条撤销。")
             : L.T("先导入音频和歌词，生成才会解锁。");
@@ -2451,7 +2316,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         settings.SaveDebounced();
     }
 
-    private void BtnInspector_Click(object sender, RoutedEventArgs e)
+    private void ToggleInspector()
     {
         _inspectorCollapsed = !_inspectorCollapsed;
         InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 340;
@@ -2459,6 +2324,24 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         InspectorPane.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
         InspectorSplitter.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
         InspectorSplitterColumn.Width = new GridLength(_inspectorCollapsed ? 0 : 6);
+    }
+
+    private void ToggleLeftPanel()
+    {
+        _leftCollapsed = !_leftCollapsed;
+        LeftColumn.MinWidth = _leftCollapsed ? 0 : 240;
+        LeftColumn.Width = new GridLength(_leftCollapsed ? 0 : 320);
+        Left.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        LeftSplitter.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        LeftSplitterColumn.Width = new GridLength(_leftCollapsed ? 0 : 4);
+    }
+
+    private void ToggleTimeline()
+    {
+        _timelineCollapsed = !_timelineCollapsed;
+        TimelineRow.MinHeight = _timelineCollapsed ? 34 : 80;
+        TimelineRow.Height = new GridLength(_timelineCollapsed ? 34 : 300);
+        TheTimeline.Visibility = _timelineCollapsed ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void RefreshMediaPanel()

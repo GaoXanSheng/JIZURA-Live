@@ -21,9 +21,6 @@ public partial class PvStageWindow
 
     private Wpf.Ui.Controls.Button BtnAddLayer => Left.BtnAddLayer;
     private Wpf.Ui.Controls.Button BtnGenerateAuto => Left.BtnGenerateAuto;
-    private Wpf.Ui.Controls.Button BtnRegenerateAuto => Left.BtnRegenerateAuto;
-    private Wpf.Ui.Controls.Button BtnExport => Left.BtnExport;
-    private Wpf.Ui.Controls.Button BtnExportBrowse => Left.BtnExportBrowse;
     private Wpf.Ui.Controls.Button BtnApplyCanvas => Left.BtnApplyCanvas;
     private Wpf.Ui.Controls.Button BtnReseedPreset => Left.BtnReseedPreset;
 
@@ -36,7 +33,6 @@ public partial class PvStageWindow
     private TextBlock TblAutoHint => Left.TblAutoHint;
     private TextBlock TblAutoIntensity => Left.TblAutoIntensity;
     private TextBlock TblTechCount => Left.TblTechCount;
-    private TextBlock TblExportState => Left.TblExportState;
     private TextBlock TblCanvasState => Left.TblCanvasState;
     private TextBlock TblBroadcastState => Left.TblBroadcastState;
     private TextBlock TblGpuName => Left.TblGpuName;
@@ -77,18 +73,9 @@ public partial class PvStageWindow
 
     private TextBox TxtPresetSeed => Left.TxtPresetSeed;
     private TextBox TxtTechFilter => Left.TxtTechFilter;
-    private Wpf.Ui.Controls.TextBox TxtExportPath => Left.TxtExportPath;
-    private Wpf.Ui.Controls.TextBox TxtExportSeconds => Left.TxtExportSeconds;
-    private Wpf.Ui.Controls.TextBox TxtExportFps => Left.TxtExportFps;
     private Wpf.Ui.Controls.TextBox TxtCanvasW => Left.TxtCanvasW;
     private Wpf.Ui.Controls.TextBox TxtCanvasH => Left.TxtCanvasH;
     private Wpf.Ui.Controls.TextBox TxtCanvasFps => Left.TxtCanvasFps;
-
-    private CheckBox ChkIncludeAudio => Left.ChkIncludeAudio;
-    private CheckBox ChkBurnSubtitles => Left.ChkBurnSubtitles;
-    private CheckBox ChkVtsDrive => Left.ChkVtsDrive;
-
-    private Wpf.Ui.Controls.ProgressRing PrgExport => Left.PrgExport;
 
     private StackPanel LayersHost => Left.LayersHost;
     private WrapPanel ThemeGrid => Left.ThemeGrid;

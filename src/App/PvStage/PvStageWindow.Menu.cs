@@ -30,12 +30,6 @@ public partial class PvStageWindow
     private void MenuCloudMusic_Click(object sender, RoutedEventArgs e) =>
         BtnCloudMusic_Click(this, new RoutedEventArgs());
 
-    private void MenuExport_Click(object sender, RoutedEventArgs e)
-    {
-        SetStep(4);
-        BtnExport_Click(this, new RoutedEventArgs());
-    }
-
     private void MenuExit_Click(object sender, RoutedEventArgs e) => Close();
 
     private void MenuUndo_Click(object sender, RoutedEventArgs e) => UndoRedo(true);
@@ -77,14 +71,11 @@ public partial class PvStageWindow
         BuildLayerList();
     }
 
-    private void MenuPanel_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { Tag: string tag } && int.TryParse(tag, out var index))
-            SetStep(index);
-    }
+    private void MenuToggleInspector_Click(object sender, RoutedEventArgs e) => ToggleInspector();
 
-    private void MenuToggleInspector_Click(object sender, RoutedEventArgs e) =>
-        BtnInspector_Click(this, new RoutedEventArgs());
+    private void MenuToggleLeftPanel_Click(object sender, RoutedEventArgs e) => ToggleLeftPanel();
+
+    private void MenuToggleTimeline_Click(object sender, RoutedEventArgs e) => ToggleTimeline();
 
     private void MenuExpandTimeline_Click(object sender, RoutedEventArgs e) =>
         TheTimeline.ExpandAllGroups();
@@ -98,8 +89,13 @@ public partial class PvStageWindow
     private void MenuResetLayout_Click(object sender, RoutedEventArgs e)
     {
         _inspectorCollapsed = false;
+        _leftCollapsed = false;
+        _timelineCollapsed = false;
         LeftColumn.MinWidth = 240;
         LeftColumn.Width = new GridLength(320);
+        Left.Visibility = Visibility.Visible;
+        LeftSplitter.Visibility = Visibility.Visible;
+        LeftSplitterColumn.Width = new GridLength(4);
         InspectorColumn.MinWidth = 340;
         InspectorColumn.Width = new GridLength(InspectorWidth);
         InspectorSplitterColumn.Width = new GridLength(6);
@@ -107,6 +103,7 @@ public partial class PvStageWindow
         InspectorSplitter.Visibility = Visibility.Visible;
         TimelineRow.MinHeight = 80;
         TimelineRow.Height = new GridLength(300);
+        TheTimeline.Visibility = Visibility.Visible;
         TheTimeline.ZoomToFit();
         TheTimeline.CollapseAllGroups();
     }
@@ -145,8 +142,7 @@ public partial class PvStageWindow
             + "Ctrl + S      保存\n"
             + "Ctrl + Shift + S  另存为\n"
             + "Ctrl + I      导入音频\n"
-            + "Ctrl + L      导入歌词\n"
-            + "Ctrl + E      导出\n\n"
+            + "Ctrl + L      导入歌词\n\n"
             + "帮助\n"
             + "F1            快捷键一览",
             L.T("快捷键一览"), MessageBoxButton.OK, MessageBoxImage.Information);

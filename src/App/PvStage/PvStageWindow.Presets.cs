@@ -50,7 +50,6 @@ public partial class PvStageWindow
         _stylePanelBuilt = true;
         BuildThemeGrid();
         BuildPresetRows();
-        BuildFxStack();
         SyncPresetControls();
     }
 
@@ -60,6 +59,7 @@ public partial class PvStageWindow
         EngineBoot.InstallPacks();
         Preset.EnsureEnabled();
         _techPanelBuilt = true;
+        BuildFxStack();
         BuildTechPackToggles();
         BuildTechLists();
         SyncPresetControls();
@@ -244,24 +244,60 @@ public partial class PvStageWindow
         AddFxNode(defId);
     }
 
-    private void AddFxNode(string defId, string target = "", bool focus = true)
+    private void AddFxNode(string defId)
     {
         var node = new EffectNode
         {
             DefId = defId,
             InstanceId = EffectGraph.NewInstanceId(defId),
-            Target = target,
             Source = "user",
         };
 
         _effects.Nodes.Add(node);
-        if (focus) _segmentTarget = SegmentTarget.Of(node);
+        _segmentTarget = SegmentTarget.Of(node);
         EffectsChanged();
         BuildInspector();
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已添加画面后期：{0}", EffectName(node));
+        if (node.Windows.Any(w => w.IsValid))
+            PreviewEffect(node);
+        else
+            TblStatus.Text = L.F("已添加画面后期：{0}", EffectName(node));
+    }
+
+    private void PreviewEffect(EffectNode node)
+    {
+        if (node.Windows.Count == 0)
+        {
+            if (!_audio.IsPlaying && _audio.Duration > 0)
+            {
+                _audio.Play();
+                UpdatePlayIcon();
+            }
+            TblStatus.Text = L.F("持续特效已生效：{0}", EffectName(node));
+            return;
+        }
+
+        double start = 0;
+        foreach (var window in node.Windows)
+            if (window.IsValid)
+            {
+                start = Math.Max(0, window.Start);
+                break;
+            }
+
+        if (_audio.Duration <= 0)
+        {
+            TblStatus.Text = L.F("已添加画面后期：{0}", EffectName(node));
+            return;
+        }
+
+        StopShuttle();
+        _audio.Seek(start);
+        if (!_audio.IsPlaying) _audio.Play();
+        UpdatePlayIcon();
+        ShowStatus(L.F("预览特效：{0}", EffectName(node)), 3);
     }
 
     private void RefreshFxStack()
@@ -291,6 +327,7 @@ public partial class PvStageWindow
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var toggle = new Wpf.Ui.Controls.ToggleSwitch
         {
@@ -317,21 +354,27 @@ public partial class PvStageWindow
         Grid.SetColumn(name, 1);
         row.Children.Add(name);
 
+        var preview = SmallFxButton("▶");
+        preview.ToolTip = L.T("定位到特效窗口预览");
+        preview.Click += (_, _) => PreviewEffect(node);
+        Grid.SetColumn(preview, 2);
+        row.Children.Add(preview);
+
         var up = SmallFxButton("↑");
         up.IsEnabled = index > 0;
         up.Click += (_, _) => MoveFxNode(node, -1);
-        Grid.SetColumn(up, 2);
+        Grid.SetColumn(up, 3);
         row.Children.Add(up);
 
         var down = SmallFxButton("↓");
         down.IsEnabled = index < _effects.Nodes.Count - 1;
         down.Click += (_, _) => MoveFxNode(node, 1);
-        Grid.SetColumn(down, 3);
+        Grid.SetColumn(down, 4);
         row.Children.Add(down);
 
         var del = SmallFxButton("✕");
         del.Click += (_, _) => RemoveFxNode(node);
-        Grid.SetColumn(del, 4);
+        Grid.SetColumn(del, 5);
         row.Children.Add(del);
 
         body.Children.Add(row);
@@ -797,10 +840,11 @@ public partial class PvStageWindow
     }
 
     private static readonly string[] TechGroups =
-        ["layout", "enter", "hold", "exit", "decor", "treat", "bg", "cam", "trans", "fx"];
+        ["layout", "enter", "hold", "exit", "decor", "treat", "bg", "trans", "fx"];
 
     private void BuildTechLists()
     {
+        StopTechniquePreview();
         TechHost.Children.Clear();
         _techCategories.Clear();
 
@@ -856,6 +900,7 @@ public partial class PvStageWindow
 
         if (category.Built)
         {
+            StopTechniquePreview();
             category.Cards.Children.Clear();
             category.Rows.Clear();
         }
@@ -939,7 +984,16 @@ public partial class PvStageWindow
             check.Unchecked += (_, _) => Sync();
             Sync();
 
-            card.MouseEnter += (_, _) => EnsureTechniquePreview(thumb, category.Group, key, 74);
+            card.MouseEnter += (_, _) =>
+            {
+                _techPreviewHost = thumb;
+                EnsureTechniquePreview(thumb, category.Group, key, 74);
+            };
+            card.MouseLeave += (_, _) =>
+            {
+                if (ReferenceEquals(_techPreviewHost, thumb)) _techPreviewHost = null;
+                StopTechniquePreview(thumb.Child as Image);
+            };
             card.MouseLeftButtonDown += (_, _) => check.IsChecked = check.IsChecked != true;
             category.Cards.Children.Add(card);
             category.Rows.Add((key, label, card, check));

@@ -44,6 +44,20 @@ public readonly record struct PvHitQuad(
     string Id, Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
     Matrix3x2 Matrix, float FitWidth, float FitHeight)
 {
+    public byte[]? Alpha { get; init; }
+
+    public int AlphaWidth { get; init; }
+
+    public int AlphaHeight { get; init; }
+
+    public float FitX { get; init; }
+
+    public float FitY { get; init; }
+
+    public float FitW { get; init; }
+
+    public float FitH { get; init; }
+
     public bool Contains(Vector2 p)
     {
         float c1 = Cross(A, B, p);
@@ -52,6 +66,22 @@ public readonly record struct PvHitQuad(
         float c4 = Cross(D, A, p);
         return (c1 >= 0 && c2 >= 0 && c3 >= 0 && c4 >= 0)
                || (c1 <= 0 && c2 <= 0 && c3 <= 0 && c4 <= 0);
+    }
+
+    public bool ContainsOpaque(Vector2 p)
+    {
+        if (!Contains(p)) return false;
+        if (Alpha is not { Length: > 0 } alpha || AlphaWidth <= 0 || AlphaHeight <= 0) return true;
+        if (!Matrix3x2.Invert(Matrix, out var inverse)) return true;
+
+        var local = Vector2.Transform(p, inverse);
+        float u = (local.X - FitX) / Math.Max(0.001f, FitW);
+        float v = (local.Y - FitY) / Math.Max(0.001f, FitH);
+        if (u < 0 || v < 0 || u > 1 || v > 1) return false;
+
+        int ax = Math.Clamp((int)(u * (AlphaWidth - 1)), 0, AlphaWidth - 1);
+        int ay = Math.Clamp((int)(v * (AlphaHeight - 1)), 0, AlphaHeight - 1);
+        return alpha[ay * AlphaWidth + ax] > 8;
     }
 
     private static float Cross(Vector2 a, Vector2 b, Vector2 p) =>
@@ -67,8 +97,6 @@ public sealed class PvStageRenderer : IDisposable
     private readonly List<GpuTexturePool.Entry> _returns = new();
     private OffscreenTarget? _stageTarget;
     private ID3D11ShaderResourceView? _stageSrv;
-    private OffscreenTarget? _transparentStageTarget;
-    private ID3D11ShaderResourceView? _transparentStageSrv;
 
     private readonly Dictionary<string, LayerTarget> _layerTargets = new(StringComparer.Ordinal);
 
@@ -139,7 +167,7 @@ public sealed class PvStageRenderer : IDisposable
     {
         var hits = _hits;
         for (int i = hits.Length - 1; i >= 0; i--)
-            if (hits[i].Contains(designPoint)) return hits[i];
+            if (hits[i].ContainsOpaque(designPoint)) return hits[i];
         return null;
     }
 
@@ -247,7 +275,7 @@ public sealed class PvStageRenderer : IDisposable
 
         d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
         d.Begin();
-        d.Clear(new Color4(0f, 0f, 0f, 1f));
+        d.Clear(BackdropClear);
 
         PvSelectionInfo? selection = null;
         _hitScratch.Clear();
@@ -259,7 +287,8 @@ public sealed class PvStageRenderer : IDisposable
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
             var state = LayerState(layer);
-            _hitScratch.Add(BuildHit(layer, state, image));
+            if (!string.Equals(layer.Id, LegacyPvProvider.BackId, StringComparison.Ordinal))
+                _hitScratch.Add(BuildHit(layer, state, image));
             if (string.Equals(layer.Id, _selectedLayerId, StringComparison.Ordinal))
                 selection = BuildSelection(layer, state, image);
 
@@ -275,7 +304,7 @@ public sealed class PvStageRenderer : IDisposable
 
         _hits = [.. _hitScratch];
 
-        compositor.DrawBrighten(Stage.Camera, _designW, _designH);
+        if (!SpoutTransparent) compositor.DrawBrighten(Stage.Camera, _designW, _designH);
 
         foreach (var id in PvStageCompositor.FixedZones)
         {
@@ -302,7 +331,7 @@ public sealed class PvStageRenderer : IDisposable
                 var composite = _fx.RunGraph(compositePasses, _stageSrv!, _designW, _designH);
                 d.SetTarget(_stageTarget.Bitmap, _designW, _designH);
                 d.Begin();
-                d.Clear(new Color4(0f, 0f, 0f, 1f));
+                d.Clear(BackdropClear);
                 d.DrawBitmap(BitmapFor(composite), full);
                 d.End();
                 returns.Add(composite);
@@ -349,40 +378,13 @@ public sealed class PvStageRenderer : IDisposable
         if (_broadcast is { IsActive: true, Bitmap: { } bbmp } b)
         {
             var broadcastRect = new Rect(0, 0, b.Width, b.Height);
-            if (SpoutTransparent)
-            {
-                EnsureTransparentStageTarget();
-                var transparent = _transparentStageTarget!;
-
-                d.SetTarget(transparent.Bitmap, _designW, _designH);
-                d.Begin();
-                d.Clear(new Color4(0f, 0f, 0f, 0f));
-                CompositeTransparent(images);
-                d.End();
-
-                GpuTexturePool.Entry? transparentOut = null;
-                if (passes is { Count: > 0 })
-                    transparentOut = _fx.RunGraph(passes, _transparentStageSrv!, _designW, _designH);
-
-                d.SetTarget(bbmp, b.Width, b.Height);
-                d.Begin();
-                d.Clear(new Color4(0f, 0f, 0f, 0f));
-                DrawStage(d, transparentOut is null ? transparent.Bitmap : BitmapFor(transparentOut), broadcastRect);
-                DrawOverlay(d, frame, broadcastRect);
-                d.End();
-
-                if (transparentOut is not null) _fx.Pool.Return(transparentOut);
-            }
-            else
-            {
-                var src = fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut);
-                d.SetTarget(bbmp, b.Width, b.Height);
-                d.Begin();
-                d.Clear(new Color4(0f, 0f, 0f, 1f));
-                DrawStage(d, src, broadcastRect);
-                DrawOverlay(d, frame, broadcastRect);
-                d.End();
-            }
+            var src = fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut);
+            d.SetTarget(bbmp, b.Width, b.Height);
+            d.Begin();
+            d.Clear(SpoutTransparent ? new Color4(0f, 0f, 0f, 0f) : new Color4(0f, 0f, 0f, 1f));
+            DrawStage(d, src, broadcastRect);
+            DrawOverlay(d, frame, broadcastRect);
+            d.End();
 
             b.PresentFrame();
         }
@@ -500,6 +502,32 @@ public sealed class PvStageRenderer : IDisposable
             parallaxOverride: PvParallax.OverrideFor(Stage.Scene, layer));
         var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
 
+        if (Stage.Scene.IsCharacterLayer(layer)
+            && VtsControl is { HasHull: true } vts
+            && vts.HullMaxX > vts.HullMinX
+            && vts.HullMaxY > vts.HullMinY)
+        {
+            double halfWidth = r.Width / 2.0;
+            double halfHeight = r.Height / 2.0;
+            double centerX = (vts.HullMinX + vts.HullMaxX) / 2;
+            double centerY = (vts.HullMinY + vts.HullMaxY) / 2;
+            double halfX = (vts.HullMaxX - vts.HullMinX) / 2 * 1.03;
+            double halfY = (vts.HullMaxY - vts.HullMinY) / 2 * 1.03;
+
+            var center = new Vector2(
+                (float)(r.X + r.Width / 2 + centerX * halfWidth),
+                (float)(r.Y + r.Height / 2 - centerY * halfHeight));
+            float boxHalfX = (float)(halfX * halfWidth);
+            float boxHalfY = (float)(halfY * halfHeight);
+
+            Vector2 Corner(float sx, float sy) => Vector2.Transform(
+                new Vector2(center.X + sx * boxHalfX, center.Y + sy * boxHalfY), tf.Matrix);
+
+            return new PvHitQuad(layer.Id, Corner(-1, -1), Corner(1, -1), Corner(1, 1), Corner(-1, 1),
+                Vector2.Transform(center, tf.Matrix), tf.Matrix,
+                Math.Max(1, r.Width), Math.Max(1, r.Height));
+        }
+
         Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
 
         return new PvHitQuad(layer.Id,
@@ -508,7 +536,16 @@ public sealed class PvStageRenderer : IDisposable
             Map(r.X + r.Width, r.Y + r.Height),
             Map(r.X, r.Y + r.Height),
             Map(r.X + r.Width / 2, r.Y + r.Height / 2),
-            tf.Matrix, Math.Max(1, r.Width), Math.Max(1, r.Height));
+            tf.Matrix, Math.Max(1, r.Width), Math.Max(1, r.Height))
+        {
+            Alpha = image.Alpha,
+            AlphaWidth = image.AlphaWidth,
+            AlphaHeight = image.AlphaHeight,
+            FitX = (float)r.X,
+            FitY = (float)r.Y,
+            FitW = (float)r.Width,
+            FitH = (float)r.Height,
+        };
     }
 
     private PvSelectionInfo BuildSelection(PvLayerConfig layer, in PvLayerState state, PvLayerImage image)
@@ -655,27 +692,9 @@ public sealed class PvStageRenderer : IDisposable
         _stageSrv = _gpu.Device.CreateShaderResourceView(_stageTarget.Texture);
     }
 
-    private void EnsureTransparentStageTarget()
-    {
-        if (_transparentStageTarget is not null) return;
-        _transparentStageTarget = OffscreenTarget.Create(_gpu, _d2d.Ctx, _designW, _designH, sampleable: true);
-        _transparentStageSrv = _gpu.Device.CreateShaderResourceView(_transparentStageTarget.Texture);
-    }
-
-    private void CompositeTransparent(IReadOnlyDictionary<string, PvLayerImage> images)
-    {
-        var scene = Stage.Scene;
-        var layers = scene.Layers;
-        for (var i = 0; i < layers.Count; i++)
-        {
-            var layer = layers[i];
-            if (!layer.Enabled) continue;
-            if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
-
-            var state = LayerState(layer);
-            _compositor.CompositeLayer(scene, layer, state, image, Stage.Camera, _designW, _designH);
-        }
-    }
+    private Color4 BackdropClear => SpoutTransparent
+        ? new Color4(0f, 0f, 0f, 0f)
+        : new Color4(0f, 0f, 0f, 1f);
 
     private PvLayerState LayerState(PvLayerConfig layer) =>
         Stage.Scene.Frame.TryGetLayer(layer.Id, out var frameState)
@@ -763,8 +782,6 @@ public sealed class PvStageRenderer : IDisposable
         _layerTargets.Clear();
         _stageSrv?.Dispose();
         _stageTarget?.Dispose();
-        _transparentStageSrv?.Dispose();
-        _transparentStageTarget?.Dispose();
         Stage.Dispose();
         _fx.Dispose();
     }

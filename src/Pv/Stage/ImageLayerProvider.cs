@@ -16,6 +16,9 @@ public sealed class ImageLayerProvider : IPvLayerProvider, IDisposable
     private readonly ID2D1Bitmap1? _bitmap;
     private readonly int _width;
     private readonly int _height;
+    private readonly byte[]? _alpha;
+    private readonly int _alphaWidth;
+    private readonly int _alphaHeight;
 
     public string Id { get; }
 
@@ -66,10 +69,33 @@ public sealed class ImageLayerProvider : IPvLayerProvider, IDisposable
 
         _width = width;
         _height = height;
+
+        int maxSide = 192;
+        double factor = Math.Min(1.0, maxSide / (double)Math.Max(1, Math.Max(width, height)));
+        _alphaWidth = Math.Max(1, (int)Math.Round(width * factor));
+        _alphaHeight = Math.Max(1, (int)Math.Round(height * factor));
+        var alpha = new byte[_alphaWidth * _alphaHeight];
+        for (int ay = 0; ay < _alphaHeight; ay++)
+        {
+            int sy = Math.Min(height - 1, ay * height / _alphaHeight);
+            for (int ax = 0; ax < _alphaWidth; ax++)
+            {
+                int sx = Math.Min(width - 1, ax * width / _alphaWidth);
+                alpha[ay * _alphaWidth + ax] = pixels[(sy * width + sx) * 4 + 3];
+            }
+        }
+        _alpha = alpha;
     }
 
     public PvLayerImage Pump(in PvFrameContext ctx) =>
-        _bitmap is null ? PvLayerImage.Empty : new PvLayerImage(_bitmap, null, _width, _height);
+        _bitmap is null
+            ? PvLayerImage.Empty
+            : new PvLayerImage(_bitmap, null, _width, _height)
+            {
+                Alpha = _alpha,
+                AlphaWidth = _alphaWidth,
+                AlphaHeight = _alphaHeight,
+            };
 
     public void Dispose()
     {

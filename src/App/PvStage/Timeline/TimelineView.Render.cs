@@ -544,9 +544,7 @@ public sealed partial class TimelineView
             if (HasGroupChildren(row.GroupKey)) DrawTwirl(dc, 13, cy, IsGroupExpanded(row.GroupKey));
             else DrawLeafMark(dc, 13, cy);
             var owner = FindOwner(row.GroupKey);
-            bool eyeClosed = owner is { Kind: TOwnerKind.Layer }
-                ? !owner.Enabled
-                : IsGroupHidden(row.GroupKey);
+            bool eyeClosed = IsGroupHidden(row.GroupKey);
             DrawEye(dc, row, 32, eyeClosed);
             dc.PushClip(new RectangleGeometry(new Rect(44, row.Top, HeaderWidth - 52, row.Height)));
             dc.DrawText(Text(owner?.Label ?? row.GroupKey, 11.5,
@@ -588,7 +586,7 @@ public sealed partial class TimelineView
                     {
                         var track = _snap.DesignTracks[row.Index];
                         bool empty = track.Segments.Count == 0;
-                        dc.DrawText(Text(DesignTrackNames.Label(track.Kind), 11, empty ? FaintBrush : DimBrush),
+                        dc.DrawText(Text(TrackLabel(track), 11, empty ? FaintBrush : DimBrush),
                             new Point(28, row.Top + (row.Height - 14) / 2));
                     }
                     break;
@@ -634,9 +632,12 @@ public sealed partial class TimelineView
                 }
                 break;
             case TOwnerKind.Design:
+            {
+                bool effectGroup = string.Equals(owner.Key, "fx", StringComparison.Ordinal);
                 for (int i = 0; i < _snap!.DesignTracks.Count; i++)
                 {
                     var track = _snap.DesignTracks[i];
+                    if ((track.Id.Length > 0) != effectGroup) continue;
                     foreach (var seg in track.Segments)
                     {
                         if (seg.End < _viewStart || seg.Start > viewEnd) continue;
@@ -649,6 +650,7 @@ public sealed partial class TimelineView
                     }
                 }
                 break;
+            }
             case TOwnerKind.VtsCue:
                 for (int i = 0; i < _snap!.VtsCueTracks.Count; i++)
                 {

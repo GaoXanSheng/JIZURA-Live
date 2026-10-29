@@ -106,18 +106,32 @@ public sealed partial class TimelineView : Control
         if (follow)
         {
             double visible = Math.Max(0.1, ContentWidth / Math.Max(1, _pixelsPerSecond));
-            double right = _viewStart + visible;
-            bool outside = seconds < _viewStart || seconds > right;
+            double left = _viewStart + visible * 0.02;
+            double right = _viewStart + visible * 0.8;
+            bool outside = seconds < _viewStart || seconds > _viewStart + visible;
             if (!_followPlayhead && outside) _followPlayhead = true;
 
-            if (_followPlayhead && (seconds < _viewStart || seconds > right - visible * 0.03))
-            {
+            if (_followPlayhead && seconds < left)
                 _viewStart = TimelineMath.ClampViewStart(
-                    seconds - visible * 0.15, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
-            }
+                    seconds - visible * 0.2, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
+            else if (_followPlayhead && seconds > right)
+                _viewStart = TimelineMath.ClampViewStart(
+                    seconds - visible * 0.8, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
         }
 
         _snap.PlayheadSeconds = seconds;
+        InvalidateVisual();
+    }
+
+    public void FollowPlayhead()
+    {
+        if (_snap is null) return;
+        _followPlayhead = true;
+        double visible = Math.Max(0.1, ContentWidth / Math.Max(1, _pixelsPerSecond));
+        double seconds = _snap.PlayheadSeconds;
+        if (seconds < _viewStart || seconds > _viewStart + visible * 0.8)
+            _viewStart = TimelineMath.ClampViewStart(
+                seconds - visible * 0.2, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
         InvalidateVisual();
     }
 
@@ -327,7 +341,7 @@ public sealed partial class TimelineView : Control
 
     public event Action<ParamAddress>? CurveClearRequested;
 
-    public event Action<DesignTrackKind>? DesignTrackClearRequested;
+    public event Action<DesignTrackKind, string>? DesignTrackClearRequested;
 
     public event Action<VtsCueKind, string, double, double, double>? VtsCueEdited;
 
@@ -335,9 +349,7 @@ public sealed partial class TimelineView : Control
 
     public event Action? TrackHeightsChanged;
 
-    public event Action<TOwner>? OwnerSelected;
-
-    public event Action<string, bool>? LayerVisibilityToggled;
+    public event Action<TOwner?>? OwnerSelected;
 
     public event Action<double>? ZoomChanged;
 
@@ -374,6 +386,12 @@ public sealed partial class TimelineView : Control
     private double _resizeMaxHeight;
 
     private static string DesignTrackId(DesignTrackKind kind) => "design:" + kind;
+
+    private static string DesignTrackId(TDesignTrack track) =>
+        track.Id.Length > 0 ? track.Id : DesignTrackId(track.Kind);
+
+    internal static string TrackLabel(TDesignTrack track) =>
+        track.Label.Length > 0 ? track.Label : DesignTrackNames.Label(track.Kind);
 
     private static string CurveTrackId(in ParamAddress address) => "curve:" + address;
 
@@ -466,7 +484,7 @@ public sealed partial class TimelineView : Control
                 _groupChildCounts[owner.Key] = children.Count;
                 bool show = owner.Kind == TOwnerKind.Layer || children.Count > 0;
                 if (!show) continue;
-                if (owner.Kind == TOwnerKind.Design)
+                if (owner.Kind == TOwnerKind.Design && !IsGroupHidden(owner.Key))
                     designRows += children.Count;
                 blocks.Add(new GroupBlock(owner, children)
                 {
@@ -484,8 +502,9 @@ public sealed partial class TimelineView : Control
         double total = 0;
         foreach (var block in blocks)
         {
+            if (block.Hidden) continue;
             total += GroupHeight;
-            if (!block.Expanded || block.Hidden) continue;
+            if (!block.Expanded) continue;
             foreach (var child in block.Children)
                 total += ChildHeight(child, designAutoH);
         }
@@ -497,9 +516,10 @@ public sealed partial class TimelineView : Control
         double y = trackTop - _scrollOffset;
         foreach (var block in blocks)
         {
+            if (block.Hidden) continue;
             rows.Add(new Row(RowKind.Group, 0, y, GroupHeight, block.Owner.Key));
             y += GroupHeight;
-            if (!block.Expanded || block.Hidden) continue;
+            if (!block.Expanded) continue;
             foreach (var child in block.Children)
             {
                 double height = ChildHeight(child, designAutoH);
@@ -539,6 +559,16 @@ public sealed partial class TimelineView : Control
             case TOwnerKind.Camera:
             case TOwnerKind.VtsMove:
             case TOwnerKind.Layer:
+                for (int i = 0; i < _snap.Curves.Count; i++)
+                {
+                    var curve = _snap.Curves[i];
+                    if (curve.Address.Kind != owner.AddressKind) continue;
+                    if (!string.Equals(curve.Address.Target, owner.Target, StringComparison.Ordinal)) continue;
+                    var id = CurveTrackId(curve.Address);
+                    if (hidden(id)) continue;
+                    list.Add(new ChildEntry(RowKind.Automation, i, id));
+                }
+                break;
             case TOwnerKind.Effect:
                 for (int i = 0; i < _snap.Curves.Count; i++)
                 {
@@ -551,15 +581,20 @@ public sealed partial class TimelineView : Control
                 }
                 break;
             case TOwnerKind.Design:
+            {
+                bool effectGroup = string.Equals(owner.Key, "fx", StringComparison.Ordinal);
                 for (int i = 0; i < _snap.DesignTracks.Count; i++)
                 {
                     var track = _snap.DesignTracks[i];
+                    bool effectTrack = track.Id.Length > 0;
+                    if (effectTrack != effectGroup) continue;
                     if (track.Segments.Count == 0) continue;
-                    var id = DesignTrackId(track.Kind);
+                    var id = DesignTrackId(track);
                     if (hidden(id)) continue;
                     list.Add(new ChildEntry(RowKind.Design, i, id));
                 }
                 break;
+            }
             case TOwnerKind.VtsCue:
                 for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
                 {
@@ -591,7 +626,7 @@ public sealed partial class TimelineView : Control
         RowKind.Waveform => WaveformTrackId,
         RowKind.Lyrics => LyricsTrackId,
         RowKind.Group => GroupTrackId(row.GroupKey),
-        RowKind.Design => DesignTrackId(_snap!.DesignTracks[row.Index].Kind),
+        RowKind.Design => DesignTrackId(_snap!.DesignTracks[row.Index]),
         RowKind.Automation => CurveTrackId(_snap!.Curves[row.Index].Address),
         RowKind.VtsCue => VtsTrackId(_snap!.VtsCueTracks[row.Index]),
         _ => "",
@@ -637,27 +672,12 @@ public sealed partial class TimelineView : Control
     private void ToggleGroupHidden(in Row row)
     {
         if (_snap is null || row.GroupKey.Length == 0) return;
-        var owner = FindOwner(row.GroupKey);
-        if (owner is { Kind: TOwnerKind.Layer })
-        {
-            owner.Enabled = !owner.Enabled;
-            LayerVisibilityToggled?.Invoke(owner.Target, owner.Enabled);
-            InvalidateVisual();
-            return;
-        }
-
         var id = GroupTrackId(row.GroupKey);
         if (!_snap.CollapsedTracks.Remove(id)) _snap.CollapsedTracks.Add(id);
         BuildRows();
         ClampScrollOffset();
         InvalidateVisual();
         TrackVisibilityChanged?.Invoke();
-    }
-
-    internal bool IsOwnerEnabled(string key)
-    {
-        var owner = FindOwner(key);
-        return owner is null || owner.Enabled;
     }
 
     public void ExpandAllGroups()
@@ -747,8 +767,8 @@ public sealed partial class TimelineView : Control
         foreach (var track in _snap.DesignTracks)
         {
             if (track.Segments.Count == 0) continue;
-            var id = DesignTrackId(track.Kind);
-            if (Hidden(id)) list.Add((id, DesignTrackNames.Label(track.Kind)));
+            var id = DesignTrackId(track);
+            if (Hidden(id)) list.Add((id, TrackLabel(track)));
         }
         foreach (var curve in _snap.Curves)
         {

@@ -177,24 +177,6 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="画面后期" Style="{StaticResource PanelCardTitle}" />
-                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
-                                                   Text="按列表顺序叠加；目标可选全局或单个图层。点效果名在右侧改参数。" />
-                                        <Grid Margin="0,8,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <ComboBox x:Name="CmbFxAdd" FontSize="12" />
-                                            <ui:Button x:Name="BtnFxAdd" Grid.Column="1" Content="添加"
-                                                       Margin="6,0,0,0" Click="BtnFxAdd_Click" />
-                                        </Grid>
-                                        <StackPanel x:Name="FxStackHost" Margin="0,8,0,0" />
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                                    <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.033}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="StyleExtraHost" />
                                     </StackPanel>
@@ -225,10 +207,19 @@
                             <StackPanel>
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.036}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="已应用特效" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
-                                                   Text="勾选参与生成的效果包；关掉的效果在自动生成时不会被选中。" />
-                                        <StackPanel x:Name="TechPackHost" />
+                                                   Text="按列表顺序叠加；目标可选全局或单个图层。点名字在右侧改参数，▶ 定位到特效窗口预览。" />
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ComboBox x:Name="CmbFxAdd" FontSize="12" />
+                                            <ui:Button x:Name="BtnFxAdd" Grid.Column="1" Content="添加"
+                                                       Margin="6,0,0,0" Click="BtnFxAdd_Click" />
+                                        </Grid>
+                                        <StackPanel x:Name="FxStackHost" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </Border>
 
@@ -244,6 +235,15 @@
                                                     PlaceholderText="{DynamicResource Loc.PanelXaml.038}"
                                                     TextChanged="TxtTechFilter_TextChanged" />
                                         <StackPanel x:Name="TechHost" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <StackPanel>
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.036}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="勾选参与生成的效果包；关掉的效果在自动生成时不会被选中。" />
+                                        <StackPanel x:Name="TechPackHost" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -286,13 +286,6 @@
                                                    Click="BtnGenerateAuto_Click">
                                             <ui:Button.Icon>
                                                 <ui:SymbolIcon Symbol="Wand24" />
-                                            </ui:Button.Icon>
-                                        </ui:Button>
-                                        <ui:Button x:Name="BtnRegenerateAuto" Content="{DynamicResource Loc.PanelXaml.050}"
-                                                   HorizontalAlignment="Stretch" Margin="0,8,0,0"
-                                                   Click="BtnRegenerateAuto_Click">
-                                            <ui:Button.Icon>
-                                                <ui:SymbolIcon Symbol="ArrowSync24" />
                                             </ui:Button.Icon>
                                         </ui:Button>
                                         <TextBlock x:Name="TblAutoHint" Margin="0,10,0,0" Style="{StaticResource PanelHint}"
@@ -411,68 +404,6 @@
                                                    Text="{DynamicResource Loc.PanelXaml.055}" />
                                         <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.056}" />
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                                    <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.057}" Style="{StaticResource PanelCardTitle}" />
-                                        <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.058}" />
-
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.059}" Margin="0,10,0,4" Style="{StaticResource PanelRowLabel}" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <ui:TextBox x:Name="TxtExportPath" TextChanged="ExportField_TextChanged"
-                                                        ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
-                                            <ui:Button x:Name="BtnExportBrowse" Grid.Column="1" Margin="6,0,0,0"
-                                                       Content="{DynamicResource Loc.PanelXaml.060}" Click="BtnExportBrowse_Click" />
-                                        </Grid>
-
-                                        <Grid Margin="0,10,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.061}" Style="{StaticResource PanelRowLabel}" />
-                                            <ui:TextBox x:Name="TxtExportFps" Grid.Column="1" Margin="8,0,0,0"
-                                                        HorizontalAlignment="Stretch" Text="60" />
-                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.PanelXaml.062}" Margin="14,0,8,0"
-                                                       Style="{StaticResource PanelRowLabel}" />
-                                            <ui:TextBox x:Name="TxtExportSeconds" Grid.Column="3"
-                                                        HorizontalAlignment="Stretch"
-                                                        TextChanged="ExportField_TextChanged" />
-                                        </Grid>
-
-                                        <CheckBox x:Name="ChkBurnSubtitles" Margin="0,12,0,0"
-                                                  Content="{DynamicResource Loc.PanelXaml.063}" />
-                                        <CheckBox x:Name="ChkVtsDrive" Margin="0,8,0,0"
-                                                  Content="导出时驱动 VTS（实时，较慢）" />
-                                        <CheckBox x:Name="ChkIncludeAudio" Margin="0,8,0,0" IsEnabled="False"
-                                                  Content="{DynamicResource Loc.PanelXaml.064}" Click="ChkIncludeAudio_Click" />
-
-                                        <ui:Button x:Name="BtnExport" Content="{DynamicResource Loc.PanelXaml.065}" Appearance="Primary"
-                                                   HorizontalAlignment="Stretch" Margin="0,14,0,0"
-                                                   Click="BtnExport_Click">
-                                            <ui:Button.Icon>
-                                                <ui:SymbolIcon Symbol="ArrowExport24" />
-                                            </ui:Button.Icon>
-                                        </ui:Button>
-
-                                        <Grid Margin="0,10,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <ui:ProgressRing x:Name="PrgExport" Width="22" Height="22" Visibility="Collapsed" />
-                                            <TextBlock x:Name="TblExportState" Grid.Column="1" Margin="8,0,0,0"
-                                                       Style="{StaticResource PanelHint}" />
-                                        </Grid>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

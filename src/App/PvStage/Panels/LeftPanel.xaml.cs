@@ -25,8 +25,6 @@ public partial class LeftPanel : UserControl
 
     private void BtnGenerateAuto_Click(object sender, RoutedEventArgs e) => Owner?.BtnGenerateAuto_Click(sender, e);
 
-    private void BtnRegenerateAuto_Click(object sender, RoutedEventArgs e) => Owner?.BtnRegenerateAuto_Click(sender, e);
-
     private void SldAutoIntensity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
         Owner?.SldAutoIntensity_ValueChanged(sender, e);
 
@@ -38,14 +36,6 @@ public partial class LeftPanel : UserControl
 
     private void CmbAutoStyle_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         Owner?.CmbAutoStyle_SelectionChanged(sender, e);
-
-    private void BtnExport_Click(object sender, RoutedEventArgs e) => Owner?.BtnExport_Click(sender, e);
-
-    private void BtnExportBrowse_Click(object sender, RoutedEventArgs e) => Owner?.BtnExportBrowse_Click(sender, e);
-
-    private void ChkIncludeAudio_Click(object sender, RoutedEventArgs e) => Owner?.ChkIncludeAudio_Click(sender, e);
-
-    private void ExportField_TextChanged(object sender, TextChangedEventArgs e) => Owner?.ExportField_TextChanged(sender, e);
 
     private void CanvasField_TextChanged(object sender, TextChangedEventArgs e) => Owner?.CanvasField_TextChanged(sender, e);
 

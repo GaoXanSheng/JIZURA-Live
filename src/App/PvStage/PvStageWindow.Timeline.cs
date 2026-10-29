@@ -119,7 +119,6 @@ public partial class PvStageWindow
                 Kind = TOwnerKind.Layer,
                 AddressKind = ParamAddressKind.Layer,
                 Target = layer.Id,
-                Enabled = layer.Enabled,
             });
         }
 
@@ -138,7 +137,7 @@ public partial class PvStageWindow
             bool hasCurve = _evaluator.Curves.Keys.Any(a =>
                 a.Kind == ParamAddressKind.Effect
                 && string.Equals(a.Target, node.InstanceId, StringComparison.Ordinal));
-            if (!hasCurve && node.Windows.Count == 0) continue;
+            if (!hasCurve) continue;
             snap.Owners.Add(new TOwner
             {
                 Key = "effect:" + node.InstanceId,
@@ -146,6 +145,16 @@ public partial class PvStageWindow
                 Kind = TOwnerKind.Effect,
                 AddressKind = ParamAddressKind.Effect,
                 Target = node.InstanceId,
+            });
+        }
+
+        if (_effects.Nodes.Count > 0)
+        {
+            snap.Owners.Add(new TOwner
+            {
+                Key = "fx",
+                Label = L.T("特效"),
+                Kind = TOwnerKind.Design,
             });
         }
 
@@ -164,22 +173,15 @@ public partial class PvStageWindow
         });
     }
 
-    private void Timeline_LayerVisibilityToggled(string layerId, bool enabled)
+    private void Timeline_OwnerSelected(TOwner? owner)
     {
-        var layer = _scene.Layers.FirstOrDefault(l =>
-            string.Equals(l.Id, layerId, StringComparison.Ordinal));
-        if (layer is null) return;
+        if (owner is null)
+        {
+            _segmentTarget = null;
+            SelectLayer(null);
+            return;
+        }
 
-        PushUndo();
-        layer.Enabled = enabled;
-        BuildLayerList();
-        PublishDirector();
-        _saveError = SaveProjectNow();
-        TblStatus.Text = enabled ? L.T("图层已显示") : L.T("图层已隐藏");
-    }
-
-    private void Timeline_OwnerSelected(TOwner owner)
-    {
         switch (owner.Kind)
         {
             case TOwnerKind.Layer:
@@ -284,14 +286,35 @@ public partial class PvStageWindow
             snap.VtsCueTracks.Add(track);
     }
 
+    private string EffectTrackLabel(EffectNode node)
+    {
+        if (string.IsNullOrEmpty(node.Target)) return EffectName(node) + L.T(" · 全局");
+
+        var layer = _scene.Layers.FirstOrDefault(l =>
+            l is not null && string.Equals(l.Id, node.Target, StringComparison.Ordinal));
+        var target = layer is null
+            ? node.Target
+            : _scene.IsCharacterLayer(layer) ? L.T("角色") : LayerTitle(layer);
+        return EffectName(node) + " · " + target;
+    }
+
     private void ExportDesignTracks(TSnapshot snap)
     {
         double duration = snap.DurationSeconds;
 
-        var fx = new TDesignTrack { Kind = DesignTrackKind.Fx };
         foreach (var node in _effects.Nodes)
+        {
+            if (node is null) continue;
+            var track = new TDesignTrack
+            {
+                Kind = DesignTrackKind.Fx,
+                Id = "fx:" + node.InstanceId,
+                Label = EffectTrackLabel(node),
+            };
             foreach (var seg in DesignTracks.FromEffectNode(node, duration))
-                fx.Segments.Add(ToTSegment(seg));
+                track.Segments.Add(ToTSegment(seg));
+            if (track.Segments.Count > 0) snap.DesignTracks.Add(track);
+        }
 
         var cam = new TDesignTrack { Kind = DesignTrackKind.Cam };
         var shots = _project.CameraTrack?.Shots ?? new List<CameraShot>();
@@ -317,7 +340,6 @@ public partial class PvStageWindow
             }
         }
 
-        snap.DesignTracks.Add(fx);
         snap.DesignTracks.Add(cam);
         snap.DesignTracks.Add(layerCam);
         snap.DesignTracks.Add(treat);
@@ -494,19 +516,12 @@ public partial class PvStageWindow
         return (min - pad, max + pad);
     }
 
-    private int _inspectorTick;
-
     private void TickTimeline()
     {
         if (_snap is null) return;
         var t = _audio.Time;
         var d = _audio.Duration;
         TheTimeline.SetPlayhead(t, _audio.IsPlaying || _shuttleActive);
-        if (++_inspectorTick >= 3)
-        {
-            _inspectorTick = 0;
-            RefreshParamRows();
-        }
 
         TblTime.Text = $"{Fmt(t)} / {Fmt(d)}";
         if (SldTlZoom is not null && !SldTlZoom.IsMouseCaptureWithin)
@@ -653,6 +668,7 @@ public partial class PvStageWindow
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
+        PreviewEffect(node);
         ShowStatus(L.F("已给本句添加效果：{0}", L.T(def.NameKey)), 4);
     }
 
@@ -690,6 +706,7 @@ public partial class PvStageWindow
         _audio.Seek(_audio.Time);
         _resumeAfterScrub = false;
         _audio.Play();
+        TheTimeline.FollowPlayhead();
         UpdatePlayIcon();
     }
 
@@ -717,8 +734,30 @@ public partial class PvStageWindow
         MessageBox.Show(this, message, L.T("PV 工作台"),
             MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
 
-    private void Timeline_DesignTrackClear(DesignTrackKind kind)
+    private void Timeline_DesignTrackClear(DesignTrackKind kind, string trackId)
     {
+        if (kind == DesignTrackKind.Fx && trackId.StartsWith("fx:", StringComparison.Ordinal))
+        {
+            var node = _effects.Nodes.FirstOrDefault(n =>
+                n is not null && string.Equals("fx:" + n.InstanceId, trackId, StringComparison.Ordinal));
+            if (node is null)
+            {
+                TblStatus.Text = L.T("轨道已经是空的");
+                return;
+            }
+
+            if (!ConfirmClear(L.F("确定删除特效「{0}」及其轨道？此操作可撤销。", EffectName(node)))) return;
+
+            _evaluator.RemoveCurvesForTarget(node.InstanceId);
+            _effects.Nodes.Remove(node);
+            EffectsChanged();
+            _segmentTarget = null;
+            BuildInspector();
+            AfterSegmentEdit();
+            TblStatus.Text = L.F("已删除特效：{0}", EffectName(node));
+            return;
+        }
+
         if (kind == DesignTrackKind.Treat
             || (_legacyPlanInfo is { Cuts.Count: > 0 }
                 && kind is DesignTrackKind.Layout or DesignTrackKind.Enter or DesignTrackKind.Exit))

@@ -7,6 +7,12 @@ namespace JizuraLive.Pv;
 
 public readonly record struct PvLayerImage(ID2D1Bitmap? Bitmap, Color4? Solid, int Width, int Height)
 {
+    public byte[]? Alpha { get; init; }
+
+    public int AlphaWidth { get; init; }
+
+    public int AlphaHeight { get; init; }
+
     public bool HasContent => Bitmap is not null || Solid is not null;
 
     public static PvLayerImage Empty => new(null, null, 0, 0);

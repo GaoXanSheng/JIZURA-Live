@@ -47,7 +47,8 @@ public partial class PvStageWindow
 
     private void Stage_PointerPressed(Point hostPoint)
     {
-        if (_exporting || _pipe is not { } pipe) return;
+        Keyboard.ClearFocus();
+        if (_pipe is not { } pipe) return;
         if (!TryDesignPoint(hostPoint, out var design, out var scale)) return;
 
         var layer = _selectedLayer;
@@ -56,6 +57,13 @@ public partial class PvStageWindow
 
         if (layer is null || sel is null || !TryStageHandle(sel, design, out kind))
         {
+            if (design.X < 0 || design.Y < 0
+                || design.X > _scene.Width || design.Y > _scene.Height)
+            {
+                if (layer is not null) SelectLayer(null);
+                return;
+            }
+
             var hit = pipe.Pick(design);
             if (hit is null)
             {
@@ -366,12 +374,6 @@ public partial class PvStageWindow
             return true;
         }
 
-        if (SelectionContains(sel, p))
-        {
-            kind = StageDragKind.Move;
-            return true;
-        }
-
         kind = StageDragKind.None;
         return false;
     }
@@ -379,23 +381,11 @@ public partial class PvStageWindow
     private static bool Near(Vector2 a, Vector2 b, float radius) =>
         Vector2.DistanceSquared(a, b) <= radius * radius;
 
-    private static bool SelectionContains(PvSelectionInfo sel, Vector2 p)
-    {
-        float c1 = Cross(sel.A, sel.B, p);
-        float c2 = Cross(sel.B, sel.C, p);
-        float c3 = Cross(sel.C, sel.D, p);
-        float c4 = Cross(sel.D, sel.A, p);
-
-        return (c1 >= 0 && c2 >= 0 && c3 >= 0 && c4 >= 0)
-               || (c1 <= 0 && c2 <= 0 && c3 <= 0 && c4 <= 0);
-    }
-
-    private static float Cross(Vector2 a, Vector2 b, Vector2 p) =>
-        (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
-
     private bool StageCursorHitTest(Point hostPoint)
     {
-        if (_exporting || _selectedLayer is null || _pipe?.Selection is not { } sel) return false;
-        return TryDesignPoint(hostPoint, out var design, out _) && TryStageHandle(sel, design, out _);
+        if (_selectedLayer is null || _pipe is not { } pipe) return false;
+        if (!TryDesignPoint(hostPoint, out var design, out _)) return false;
+        if (pipe.Selection is { } sel && TryStageHandle(sel, design, out _)) return true;
+        return pipe.Pick(design) is not null;
     }
 }
