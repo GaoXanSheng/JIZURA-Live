@@ -11,6 +11,7 @@ using JizuraLive.Pv;
 using JizuraLive.Render.Effects;
 using JizuraLive.Vts;
 using JizuraLive.App.I18n;
+using JizuraLive.App.UI;
 
 namespace JizuraLive.App.PvStage;
 
@@ -731,8 +732,7 @@ public partial class PvStageWindow
     }
 
     private bool ConfirmClear(string message) =>
-        MessageBox.Show(this, message, L.T("StageUi.TimelinePanel.PvWorkbenchTitle"),
-            MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+        FluentDialog.Confirm(this, L.T("StageUi.TimelinePanel.PvWorkbenchTitle"), message);
 
     private void Timeline_DesignTrackClear(DesignTrackKind kind, string trackId)
     {

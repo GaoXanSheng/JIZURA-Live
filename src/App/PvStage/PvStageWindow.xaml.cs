@@ -11,6 +11,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage.Timeline;
+using JizuraLive.App.UI;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
@@ -422,19 +423,28 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void PublishAudioBands() => _pipe?.SetAudioAnalysis(_audioBands);
 
+    private bool _closeAfterSavePrompt;
+    private bool _closePromptPending;
+
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         var fault = SaveProjectToCurrent();
-        if (fault is not null)
+        if (fault is not null && !_closeAfterSavePrompt)
         {
             Log.Error($"[PV 工作台] 关闭前保存失败：{fault}");
-            if (MessageBox.Show(this,
-                    L.F("StageUi.Window.ProjectSaveFailedClosePrompt", fault),
-                    L.T("StageUi.Window.PvWorkbenchTitle"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            e.Cancel = true;
+            if (_closePromptPending) return;
+
+            _closePromptPending = true;
+            var prompt = L.F("StageUi.Window.ProjectSaveFailedClosePrompt", fault);
+            Dispatcher.BeginInvoke(() =>
             {
-                e.Cancel = true;
-                return;
-            }
+                _closePromptPending = false;
+                if (!FluentDialog.Confirm(this, L.T("StageUi.Window.PvWorkbenchTitle"), prompt)) return;
+                _closeAfterSavePrompt = true;
+                Close();
+            });
+            return;
         }
 
         _uiTimer?.Stop();
@@ -1065,10 +1075,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void BtnNewProject_Click(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show(this,
+        if (!FluentDialog.Confirm(this,
+                L.T("StageUi.Window.PvWorkbenchTitle"),
                 L.F("StageUi.Window.NewProjectConfirm",
-                    Path.GetFileName(_projectPath)),
-                L.T("StageUi.Window.PvWorkbenchTitle"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                    Path.GetFileName(_projectPath)))) return;
 
         AdoptProject(new DirectorProject(), L.T("StageUi.Window.ProjectCreated"), newPath: ProjectPath);
     }
@@ -1087,16 +1097,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (loaded.Project is null)
         {
             var fault = loaded.Fault ?? L.T("StageUi.Window.UnknownReason");
-            MessageBox.Show(this, L.T("StageUi.Window.OpenProjectFailedPrefix") + fault, L.T("StageUi.Window.PvWorkbenchTitle"),
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            FluentDialog.Info(this, L.T("StageUi.Window.PvWorkbenchTitle"),
+                L.T("StageUi.Window.OpenProjectFailedPrefix") + fault);
             Log.Warn("[PV 工作台] 打开工程失败：" + fault);
             return;
         }
 
-        if (MessageBox.Show(this,
+        if (!FluentDialog.Confirm(this,
+                L.T("StageUi.Window.PvWorkbenchTitle"),
                 L.F("StageUi.Window.OpenProjectConfirm",
-                    loaded.Project.Name, dlg.FileName, Path.GetFileName(_projectPath)),
-                L.T("StageUi.Window.PvWorkbenchTitle"), MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                    loaded.Project.Name, dlg.FileName, Path.GetFileName(_projectPath)))) return;
 
         AdoptProject(loaded.Project, L.F("StageUi.Window.ProjectOpened", loaded.Project.Name), newPath: dlg.FileName);
     }
@@ -1235,9 +1245,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         catch (Exception ex)
         {
             Log.Warn("[PV 工作台] 备份当前工程失败：" + ex.Message);
-            return MessageBox.Show(this,
-                L.F("StageUi.Window.BackupProjectFailedConfirm", ex.Message),
-                L.T("StageUi.Window.PvWorkbenchTitle"), MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+            return FluentDialog.Confirm(this,
+                L.T("StageUi.Window.PvWorkbenchTitle"),
+                L.F("StageUi.Window.BackupProjectFailedConfirm", ex.Message));
         }
     }
 
@@ -1289,7 +1299,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         catch (Exception ex)
         {
             TblStatus.Text = L.F("StageUi.Window.OpenLyricsFailed", ex.Message);
-            MessageBox.Show(this, L.T("StageUi.Window.OpenLyricsFailedPrefix") + ex.Message, L.T("StageUi.Window.PvStageTitle"), MessageBoxButton.OK, MessageBoxImage.Warning);
+            FluentDialog.Info(this, L.T("StageUi.Window.PvStageTitle"),
+                L.T("StageUi.Window.OpenLyricsFailedPrefix") + ex.Message);
         }
     }
 

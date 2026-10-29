@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using JizuraLive.App.I18n;
+using JizuraLive.App.UI;
 using JizuraLive.Pv;
 
 namespace JizuraLive.App.PvStage;
@@ -112,7 +113,7 @@ public partial class PvStageWindow
 
     private void MenuShortcuts_Click(object sender, RoutedEventArgs e)
     {
-        MessageBox.Show(this,
+        FluentDialog.Info(this, L.T("StageUi.Stage.MenuShortcuts"),
             "播放\n"
             + "空格          播放 / 暂停\n"
             + "J / K / L     倒放 / 暂停 / 正放（连按 J 加快速率）\n"
@@ -146,16 +147,14 @@ public partial class PvStageWindow
             + "Ctrl + I      导入音频\n"
             + "Ctrl + L      导入歌词\n\n"
             + "帮助\n"
-            + "F1            快捷键一览",
-            L.T("StageUi.Stage.MenuShortcuts"), MessageBoxButton.OK, MessageBoxImage.Information);
+            + "F1            快捷键一览");
     }
 
     private void MenuAbout_Click(object sender, RoutedEventArgs e)
     {
         var version = typeof(PvStageWindow).Assembly.GetName().Version?.ToString() ?? "1.0";
-        MessageBox.Show(this,
-            $"JIZURA Live PV {version}\n\n歌词 PV 与 VTS 虚拟角色特效联动工作台。",
-            L.T("StageUi.Stage.MenuAbout"), MessageBoxButton.OK, MessageBoxImage.Information);
+        FluentDialog.Info(this, L.T("StageUi.Stage.MenuAbout"),
+            $"JIZURA Live PV {version}\n\n歌词 PV 与 VTS 虚拟角色特效联动工作台。");
     }
 
     private void BtnPrevFrame_Click(object sender, RoutedEventArgs e) => SeekFrames(-1);

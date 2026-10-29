@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using JizuraLive.App.I18n;
+using JizuraLive.App.UI;
 using JizuraLive.Logging;
 
 namespace JizuraLive.App.PvStage;
@@ -36,10 +37,10 @@ public partial class PvStageWindow
             return;
         }
 
-        var confirmed = MessageBox.Show(this,
-            L.F("StageUi.Settings.CacheClearConfirm", files, Storage.FormatSize(bytes)),
+        var confirmed = FluentDialog.Confirm(this,
             L.T("StageUi.Settings.CacheClearTitle"),
-            MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+            L.F("StageUi.Settings.CacheClearConfirm", files, Storage.FormatSize(bytes)),
+            danger: true);
         if (!confirmed) return;
 
         var keep = _audioPath;
