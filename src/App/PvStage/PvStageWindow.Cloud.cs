@@ -18,13 +18,6 @@ public partial class PvStageWindow
             (L.T("另存为…"), SaveProjectAs),
         });
 
-    private void BtnImportMenu_Click(object sender, RoutedEventArgs e) =>
-        ShowMenu((FrameworkElement)sender, new (string Label, Action Click)[]
-        {
-            (L.T("导入音频…"), () => BtnOpenAudio_Click(this, new RoutedEventArgs())),
-            (L.T("导入歌词…"), () => BtnOpenLyrics_Click(this, new RoutedEventArgs())),
-        });
-
     private void ShowMenu(FrameworkElement anchor, IReadOnlyList<(string Label, Action Click)> items)
     {
         var menu = new ContextMenu

@@ -39,6 +39,7 @@ public partial class PvStageWindow
     private bool _stageDragKeyScale;
     private bool _stageDragKeyRotation;
     private bool _stageDragMoved;
+    private double _stageDragScale = 1;
     private long _stageDragRefreshAt;
 
 
@@ -46,14 +47,40 @@ public partial class PvStageWindow
 
     private void Stage_PointerPressed(Point hostPoint)
     {
-        if (_exporting || _selectedLayer is not { } layer || _pipe is not { } pipe) return;
-        if (pipe.Selection is not { } sel) return;
-        if (!TryDesignPoint(hostPoint, out var design)) return;
-        if (!TryStageHandle(sel, design, out var kind)) return;
+        if (_exporting || _pipe is not { } pipe) return;
+        if (!TryDesignPoint(hostPoint, out var design, out var scale)) return;
 
-        if (_audio.IsPlaying)
+        var layer = _selectedLayer;
+        PvSelectionInfo? sel = layer is null ? null : pipe.Selection;
+        StageDragKind kind;
+
+        if (layer is null || sel is null || !TryStageHandle(sel, design, out kind))
         {
-            _audio.Pause();
+            var hit = pipe.Pick(design);
+            if (hit is null)
+            {
+                if (layer is not null) SelectLayer(null);
+                return;
+            }
+
+            var picked = _scene.Layers.FirstOrDefault(l =>
+                string.Equals(l.Id, hit.Value.Id, StringComparison.Ordinal));
+            if (picked is null) return;
+
+            if (!ReferenceEquals(picked, layer)) SelectLayer(picked);
+            layer = picked;
+            sel = new PvSelectionInfo(hit.Value.A, hit.Value.B, hit.Value.C, hit.Value.D,
+                hit.Value.Center, hit.Value.Matrix, _scene.Width, _scene.Height,
+                hit.Value.FitWidth, hit.Value.FitHeight);
+            kind = StageDragKind.Move;
+        }
+
+        if (layer is null || sel is null) return;
+
+        if (_audio.IsPlaying || _shuttleActive)
+        {
+            StopShuttle();
+            if (_audio.IsPlaying) _audio.Pause();
             UpdatePlayIcon();
         }
 
@@ -67,6 +94,7 @@ public partial class PvStageWindow
         _stageDragLayer = layer;
         _stageDragKind = kind;
         _stageDragVts = vts;
+        _stageDragScale = scale;
         _stageDragStart = design;
         _stageDragCenter = sel.Center;
         _stageDragStartDistance = Math.Max(1f, Vector2.Distance(design, sel.Center));
@@ -95,12 +123,16 @@ public partial class PvStageWindow
     private void Stage_PointerMoved(Point hostPoint)
     {
         if (_stageDragLayer is not { } layer) return;
-        if (!TryDesignPoint(hostPoint, out var design)) return;
+        if (!TryDesignPoint(hostPoint, out var design, out _)) return;
 
         if (!_stageDragMoved)
         {
-            if (_stageDragKind == StageDragKind.Move
-                && Vector2.DistanceSquared(design, _stageDragStart) < 0.25f) return;
+            if (_stageDragKind == StageDragKind.Move)
+            {
+                double limit = SystemParameters.MinimumHorizontalDragDistance
+                               / Math.Max(0.01, _stageDragScale);
+                if (Vector2.DistanceSquared(design, _stageDragStart) < limit * limit) return;
+            }
             _stageDragMoved = true;
         }
 
@@ -293,9 +325,10 @@ public partial class PvStageWindow
         return degrees;
     }
 
-    private bool TryDesignPoint(Point hostPoint, out Vector2 design)
+    private bool TryDesignPoint(Point hostPoint, out Vector2 design, out double scale)
     {
         design = default;
+        scale = 0;
 
         double w = Stage.ActualWidth;
         double h = Stage.ActualHeight;
@@ -303,7 +336,7 @@ public partial class PvStageWindow
         int dh = _pipe?.DesignHeight ?? _scene.Height;
         if (w <= 1 || h <= 1 || dw <= 0 || dh <= 0) return false;
 
-        double scale = Math.Min(w / dw, h / dh);
+        scale = Math.Min(w / dw, h / dh);
         if (scale <= 0) return false;
 
         double pw = dw * scale;
@@ -363,6 +396,6 @@ public partial class PvStageWindow
     private bool StageCursorHitTest(Point hostPoint)
     {
         if (_exporting || _selectedLayer is null || _pipe?.Selection is not { } sel) return false;
-        return TryDesignPoint(hostPoint, out var design) && TryStageHandle(sel, design, out _);
+        return TryDesignPoint(hostPoint, out var design, out _) && TryStageHandle(sel, design, out _);
     }
 }

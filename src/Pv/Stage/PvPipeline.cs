@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Numerics;
 using JizuraLive.App.I18n;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -92,6 +93,8 @@ public sealed class PvPipeline : IDisposable
     }
 
     public PvSelectionInfo? Selection => _renderer.Selection;
+
+    public PvHitQuad? Pick(Vector2 designPoint) => _renderer.Pick(designPoint);
 
     public PvVtsControl VtsControl
     {

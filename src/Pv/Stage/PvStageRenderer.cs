@@ -40,6 +40,24 @@ public sealed record PvSelectionInfo(
     }
 }
 
+public readonly record struct PvHitQuad(
+    string Id, Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,
+    Matrix3x2 Matrix, float FitWidth, float FitHeight)
+{
+    public bool Contains(Vector2 p)
+    {
+        float c1 = Cross(A, B, p);
+        float c2 = Cross(B, C, p);
+        float c3 = Cross(C, D, p);
+        float c4 = Cross(D, A, p);
+        return (c1 >= 0 && c2 >= 0 && c3 >= 0 && c4 >= 0)
+               || (c1 <= 0 && c2 <= 0 && c3 <= 0 && c4 <= 0);
+    }
+
+    private static float Cross(Vector2 a, Vector2 b, Vector2 p) =>
+        (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
+}
+
 public sealed class PvStageRenderer : IDisposable
 {
     private readonly D3DDevice _gpu;
@@ -111,7 +129,19 @@ public sealed class PvStageRenderer : IDisposable
 
     private PvSelectionInfo? _selection;
 
+    private volatile PvHitQuad[] _hits = Array.Empty<PvHitQuad>();
+
+    private readonly List<PvHitQuad> _hitScratch = new();
+
     public PvSelectionInfo? Selection => Volatile.Read(ref _selection);
+
+    public PvHitQuad? Pick(Vector2 designPoint)
+    {
+        var hits = _hits;
+        for (int i = hits.Length - 1; i >= 0; i--)
+            if (hits[i].Contains(designPoint)) return hits[i];
+        return null;
+    }
 
     private double _hullHalfX;
     private double _hullHalfY;
@@ -220,6 +250,7 @@ public sealed class PvStageRenderer : IDisposable
         d.Clear(new Color4(0f, 0f, 0f, 1f));
 
         PvSelectionInfo? selection = null;
+        _hitScratch.Clear();
         var frameLayers = Stage.Scene.Layers;
         for (var li = 0; li < frameLayers.Count; li++)
         {
@@ -228,6 +259,7 @@ public sealed class PvStageRenderer : IDisposable
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
             var state = LayerState(layer);
+            _hitScratch.Add(BuildHit(layer, state, image));
             if (string.Equals(layer.Id, _selectedLayerId, StringComparison.Ordinal))
                 selection = BuildSelection(layer, state, image);
 
@@ -240,6 +272,8 @@ public sealed class PvStageRenderer : IDisposable
             d.End();
             DrawLayerWithEffects(d, compositor, layer, state, image, frame, returns, full);
         }
+
+        _hits = [.. _hitScratch];
 
         compositor.DrawBrighten(Stage.Camera, _designW, _designH);
 
@@ -456,6 +490,24 @@ public sealed class PvStageRenderer : IDisposable
         if (image.Bitmap is { } bmp) d.DrawBitmap(bmp, rect);
         else if (image.Solid is { } solid)
             d.FillRect(rect, new Paint2D { Brush = new SolidBrush2D(solid) });
+    }
+
+    private PvHitQuad BuildHit(PvLayerConfig layer, in PvLayerState state, PvLayerImage image)
+    {
+        var tf = PvParallax.Compute(_designW, _designH, layer, state, Stage.Camera,
+            globalParallax: Stage.Scene.GlobalParallaxEnabled,
+            antiBleed: Stage.Scene.AntiBleedGuardEnabled);
+        var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
+
+        Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
+
+        return new PvHitQuad(layer.Id,
+            Map(r.X, r.Y),
+            Map(r.X + r.Width, r.Y),
+            Map(r.X + r.Width, r.Y + r.Height),
+            Map(r.X, r.Y + r.Height),
+            Map(r.X + r.Width / 2, r.Y + r.Height / 2),
+            tf.Matrix, Math.Max(1, r.Width), Math.Max(1, r.Height));
     }
 
     private PvSelectionInfo BuildSelection(PvLayerConfig layer, in PvLayerState state, PvLayerImage image)
