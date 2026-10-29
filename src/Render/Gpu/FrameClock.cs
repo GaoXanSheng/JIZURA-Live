@@ -17,7 +17,6 @@ public sealed class FrameClock : IDisposable
     private long _lastTicks;
     private double _dtAccum;
     private int _dtCount;
-    private double _fpsAccum;
     private int _fpsCount;
 
     public double Dt { get; private set; }
@@ -56,14 +55,12 @@ public sealed class FrameClock : IDisposable
         {
             _dtAccum += Dt;
             _dtCount++;
-            _fpsAccum += 1.0 / Dt;
             _fpsCount++;
             if (_dtAccum >= 0.5)
             {
-                Fps = _fpsCount > 0 ? _fpsAccum / _fpsCount : 0;
+                Fps = _dtAccum > 0 ? _fpsCount / _dtAccum : 0;
                 _dtAccum = 0;
                 _dtCount = 0;
-                _fpsAccum = 0;
                 _fpsCount = 0;
             }
         }

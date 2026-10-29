@@ -137,8 +137,8 @@
                                             <ComboBox x:Name="CmbKoma" Grid.Column="1" HorizontalAlignment="Right"
                                                       Width="110" SelectionChanged="CmbKoma_SelectionChanged">
                                                 <ComboBoxItem Tag="0" Content="{DynamicResource Loc.PanelXaml.023}" />
-                                                <ComboBoxItem Tag="12" Content="{DynamicResource Loc.PanelXaml.024}" />
-                                                <ComboBoxItem Tag="8" Content="{DynamicResource Loc.PanelXaml.025}" />
+                                                <ComboBoxItem Tag="-2" Content="{DynamicResource Loc.PanelXaml.024}" />
+                                                <ComboBoxItem Tag="-3" Content="{DynamicResource Loc.PanelXaml.025}" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
@@ -167,6 +167,24 @@
                                                 <ComboBoxItem Tag="green" Content="{DynamicResource Loc.PanelXaml.032}" />
                                             </ComboBox>
                                         </Grid>
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="画面后期" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="按列表顺序叠加；目标可选全局或单个图层。点效果名在右侧改参数。" />
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ComboBox x:Name="CmbFxAdd" FontSize="12" />
+                                            <ui:Button x:Name="BtnFxAdd" Grid.Column="1" Content="添加"
+                                                       Margin="6,0,0,0" Click="BtnFxAdd_Click" />
+                                        </Grid>
+                                        <StackPanel x:Name="FxStackHost" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </ui:Card>
 
@@ -238,7 +256,8 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{DynamicResource Loc.PanelXaml.041}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbAutoStyle" Grid.Column="1" Width="130"
-                                                      HorizontalAlignment="Right" SelectedIndex="1">
+                                                      HorizontalAlignment="Right" SelectedIndex="1"
+                                                      SelectionChanged="CmbAutoStyle_SelectionChanged">
                                                 <ComboBoxItem Tag="soft" Content="{DynamicResource Loc.PanelXaml.042}" />
                                                 <ComboBoxItem Tag="dynamic" Content="{DynamicResource Loc.PanelXaml.043}" />
                                                 <ComboBoxItem Tag="epic" Content="{DynamicResource Loc.PanelXaml.044}" />
@@ -373,6 +392,8 @@
 
                                         <CheckBox x:Name="ChkBurnSubtitles" Margin="0,12,0,0"
                                                   Content="{DynamicResource Loc.PanelXaml.063}" />
+                                        <CheckBox x:Name="ChkVtsDrive" Margin="0,8,0,0"
+                                                  Content="导出时驱动 VTS（实时，较慢）" />
                                         <CheckBox x:Name="ChkIncludeAudio" Margin="0,8,0,0" IsEnabled="False"
                                                   Content="{DynamicResource Loc.PanelXaml.064}" Click="ChkIncludeAudio_Click" />
 
@@ -498,6 +519,19 @@
                                                              Checked="TglVSync_Changed"
                                                              Unchecked="TglVSync_Changed" />
                                         </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="合并原版图层" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglLegacyComposite" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglLegacyComposite_Changed"
+                                                             Unchecked="TglLegacyComposite_Changed" />
+                                        </Grid>
+                                        <TextBlock x:Name="TblLegacyComposite" Style="{StaticResource PanelHint}"
+                                                   TextWrapping="Wrap" Text="" />
                                     </StackPanel>
                                 </ui:Card>
 
@@ -562,6 +596,53 @@
                                         <Slider x:Name="SldCenterGap" Margin="0,4,0,0" Minimum="10" Maximum="70"
                                                 Value="30" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5"
                                                 ValueChanged="SldCenterGap_ValueChanged" />
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="字幕" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="多行歌词按第一行原文、后续行译文/罗马音筛选；单行时回退原文。" />
+                                        <Grid Margin="0,8,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="预览字幕" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglPreviewSubtitles" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglPreviewSubtitles_Changed"
+                                                             Unchecked="TglPreviewSubtitles_Changed" />
+                                        </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="字幕内容" Style="{StaticResource PanelRowLabel}" />
+                                            <ComboBox x:Name="CmbSubContent" Grid.Column="1" Width="120"
+                                                      HorizontalAlignment="Right"
+                                                      SelectionChanged="CmbSubContent_SelectionChanged">
+                                                <ComboBoxItem Content="关闭" Tag="off" />
+                                                <ComboBoxItem Content="译文" Tag="trans" />
+                                                <ComboBoxItem Content="罗马音" Tag="roma" />
+                                                <ComboBoxItem Content="原文+译文" Tag="both" />
+                                            </ComboBox>
+                                        </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="字幕位置" Style="{StaticResource PanelRowLabel}" />
+                                            <ComboBox x:Name="CmbSubPos" Grid.Column="1" Width="120"
+                                                      HorizontalAlignment="Right"
+                                                      SelectionChanged="CmbSubPos_SelectionChanged">
+                                                <ComboBoxItem Content="底部" Tag="bottom" />
+                                                <ComboBoxItem Content="顶部" Tag="top" />
+                                            </ComboBox>
+                                        </Grid>
                                     </StackPanel>
                                 </ui:Card>
                             </StackPanel>

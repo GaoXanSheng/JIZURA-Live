@@ -63,13 +63,33 @@ public static class ParamRegistry
             return false;
         }
 
+        var channel = addr.Param.Length > 2
+                      && addr.Param[^2] == '.'
+                      && addr.Param[^1] is 'r' or 'g' or 'b';
+        var baseKey = channel ? addr.Param[..^2] : addr.Param;
+
         foreach (var p in def.Params)
         {
-            if (!string.Equals(p.Key, addr.Param, StringComparison.Ordinal)) continue;
+            if (!string.Equals(p.Key, baseKey, StringComparison.Ordinal)) continue;
 
-            if (p.Kind != EffectParamKind.Number)
+            if (channel)
             {
-                error = $"{CodeNotNumber}: {addr} 是 {p.Kind} 参数；可动画通道只支持 Number";
+                if (p.Kind != EffectParamKind.Color)
+                {
+                    error = $"{CodeMissingKey}: {addr} 只在颜色参数上支持 .r/.g/.b 通道";
+                    return false;
+                }
+
+                param = p;
+                error = null;
+                return true;
+            }
+
+            if (p.Kind is not (EffectParamKind.Number or EffectParamKind.Bool))
+            {
+                error = p.Kind == EffectParamKind.Color
+                    ? $"{CodeNotNumber}: {addr} 是颜色参数；请用 {p.Key}.r / {p.Key}.g / {p.Key}.b 三条通道"
+                    : $"{CodeNotNumber}: {addr} 是 {p.Kind} 参数；可动画通道只支持 Number / Bool / Color 通道";
                 return false;
             }
 
@@ -137,12 +157,12 @@ public static class ParamRegistry
         switch (addr.Param)
         {
             case "x":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -10, 10, 0, "Param.Vts.X");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.X");
                 error = null;
                 return true;
 
             case "y":
-                spec = new ParamSpec(ParamUnit.Dimensionless, -10, 10, 0, "Param.Vts.Y");
+                spec = new ParamSpec(ParamUnit.Dimensionless, -1000, 1000, 0, "Param.Vts.Y");
                 error = null;
                 return true;
 

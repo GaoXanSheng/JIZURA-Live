@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using JizuraLive.Logging;
 using JizuraLive.Pv;
 using JizuraLive.Vts;
 using JizuraLive.App.I18n;
@@ -43,6 +44,8 @@ public partial class PvStageWindow
     private bool _vtsSaveBasePending;
     private readonly HashSet<string> _manualExprOn = new(StringComparer.Ordinal);
     private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
+    private readonly List<(double Time, VtsCueKind Kind, string Target)> _exportCueOff = new();
+    private double _exportVtsLast = -1;
 
     private static readonly ParamAddress VtsXAddr = new(ParamAddressKind.Vts, "model", "x");
     private static readonly ParamAddress VtsYAddr = new(ParamAddressKind.Vts, "model", "y");
@@ -198,9 +201,9 @@ public partial class PvStageWindow
             L.T("VTS 模式下，方框是采集画面边界，手柄直接改 VTS 模型坐标和关键帧。"),
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -10, 10, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 0.01,
             () => _vtsRestX, v => _vtsRestX = v, sliderWindow: 0.2));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -10, 10, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 0.01,
             () => _vtsRestY, v => _vtsRestY = v, sliderWindow: 0.2));
         AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
@@ -1131,6 +1134,7 @@ public partial class PvStageWindow
 
     private void UpdateVtsCues()
     {
+        if (_exporting) return;
         if (_project?.VtsCues?.Cues is not { } cues) return;
 
         double t = _audio.Time;
@@ -1209,6 +1213,7 @@ public partial class PvStageWindow
 
     private void UpdateVtsMove()
     {
+        if (_exporting) return;
         if (_vts.Framing is null) return;
 
         var t = _audio.Time;
@@ -1241,6 +1246,92 @@ public partial class PvStageWindow
     {
         _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
         _vts.SetDriveOffset(0, 0, 0, 0);
+    }
+
+    private void ExportVtsFrame(double time)
+    {
+        if (_vts.State != VtsState.Ready) return;
+        try
+        {
+            if (Dispatcher.CheckAccess()) ApplyVtsForExport(time);
+            else Dispatcher.Invoke(() => ApplyVtsForExport(time));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[PV/导出] VTS 帧驱动失败：" + ex.Message);
+        }
+    }
+
+    private void ResetVtsExportState()
+    {
+        _exportVtsLast = -1;
+        _exportCueOff.Clear();
+        _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+    }
+
+    private void ApplyVtsForExport(double time)
+    {
+        if (time < _exportVtsLast)
+        {
+            _exportVtsLast = time - 0.001;
+            _exportCueOff.Clear();
+        }
+
+        var cues = _project.VtsCues?.Cues;
+        if (cues is not null)
+        {
+            foreach (var cue in cues)
+            {
+                if (cue is null || string.IsNullOrWhiteSpace(cue.Target)) continue;
+                if (cue.Mode == VtsCueMode.Manual) continue;
+                if (cue.Time <= _exportVtsLast) continue;
+                if (cue.Time > time) break;
+
+                if (cue.Kind == VtsCueKind.Hotkey) _vts.TriggerHotkey(cue.Target);
+                else if (cue.Kind == VtsCueKind.Expression) _vts.SetExpression(cue.Target, true, 0.15);
+                else if (cue.Kind == VtsCueKind.Tint)
+                    _vts.SetArtMeshTint(cue.Target, cue.TintR, cue.TintG, cue.TintB);
+
+                if (cue.Mode == VtsCueMode.Toggle)
+                {
+                    var duration = cue.Duration > 0.01 ? cue.Duration : 2.0;
+                    _exportCueOff.Add((cue.Time + duration, cue.Kind, cue.Target));
+                }
+            }
+        }
+
+        for (var i = _exportCueOff.Count - 1; i >= 0; i--)
+        {
+            if (_exportCueOff[i].Time > time) continue;
+            EndCue(_exportCueOff[i].Kind, _exportCueOff[i].Target);
+            _exportCueOff.RemoveAt(i);
+        }
+
+        _exportVtsLast = time;
+        SendVtsDriveForExport(time);
+    }
+
+    private void SendVtsDriveForExport(double time)
+    {
+        if (_vts.Framing is null) return;
+
+        var x = _evaluator.TryEvaluate(VtsXAddr, time, out var vx) ? vx : _vtsRestX;
+        var y = _evaluator.TryEvaluate(VtsYAddr, time, out var vy) ? vy : _vtsRestY;
+        var size = _evaluator.TryEvaluate(VtsSizeAddr, time, out var vs) ? vs : _vtsRestSize;
+        var rotation = _evaluator.TryEvaluate(VtsRotationAddr, time, out var vr) ? vr : _vtsRestRot;
+
+        var baseSize = _vts.Framing.Size;
+        var sizeDrive = baseSize * Math.Clamp(size, -90, 300) / 100.0;
+        _vts.SetDriveOffset(sizeDrive, Math.Clamp(x, -1000, 1000), Math.Clamp(y, -1000, 1000),
+            Math.Clamp(rotation, -360, 360));
+    }
+
+    private void EndVtsExportState()
+    {
+        foreach (var off in _exportCueOff) EndCue(off.Kind, off.Target);
+        _exportCueOff.Clear();
+        _exportVtsLast = -1;
+        _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
     }
 
     private static CurveInterp DefaultCurveMode() => CurveInterp.SmoothStep;

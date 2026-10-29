@@ -37,6 +37,9 @@ public sealed class DirectorProject
 
     public string? LrcText { get; set; }
 
+    [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+    public Dictionary<int, long> LyricEnds { get; set; } = new();
+
     public List<CurveSave> Curves { get; set; } = new();
 
     [Newtonsoft.Json.JsonProperty(ObjectCreationHandling = Newtonsoft.Json.ObjectCreationHandling.Replace)]
@@ -50,6 +53,8 @@ public sealed class DirectorProject
     public VtsBaseSave? VtsBase { get; set; }
 
     public List<DesignSegment> DesignSegments { get; set; } = new();
+
+    public List<LegacyCutOverride> LegacyCutOverrides { get; set; } = new();
 
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
     public EditorLayout EditorLayout { get; set; } = new();
@@ -87,6 +92,37 @@ public sealed class VtsBaseSave
     public double Rotation { get; set; }
 }
 
+public sealed class LegacyCutOverride
+{
+    public int Line { get; set; } = -1;
+
+    public double Start { get; set; }
+
+    public string Layout { get; set; } = "";
+
+    public string Enter { get; set; } = "";
+
+    public string Exit { get; set; } = "";
+
+    public string Treat { get; set; } = "";
+
+    public Dictionary<string, double> LayoutParams { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, double> TreatParams { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, double> BgParams { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, double> CamParams { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, string> LayoutTexts { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, string> TreatTexts { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, string> BgTexts { get; set; } = new(StringComparer.Ordinal);
+
+    public Dictionary<string, string> CamTexts { get; set; } = new(StringComparer.Ordinal);
+}
+
 public sealed class EditorLayout
 {
     public List<string> CollapsedTrackIds { get; set; } = new();
@@ -96,6 +132,14 @@ public sealed class EditorLayout
     public bool VtsStageDrive { get; set; } = true;
 
     public bool VtsTintOnTransitions { get; set; }
+
+    public string AutoStyle { get; set; } = "dynamic";
+
+    public double AutoIntensity { get; set; } = 0.6;
+
+    public bool LegacyComposite { get; set; } = true;
+
+    public List<string> DeletedAutoIds { get; set; } = new();
 }
 
 public sealed class CurveSave

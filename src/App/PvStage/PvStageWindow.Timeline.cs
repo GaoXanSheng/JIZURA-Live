@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using JizuraLive.App.PvStage.Timeline;
 using JizuraLive.Engine;
 using JizuraLive.Logging;
@@ -13,7 +16,33 @@ namespace JizuraLive.App.PvStage;
 
 public partial class PvStageWindow
 {
-    private double TimelineSpan() => _audio.Duration > 0.5 ? _audio.Duration : 30;
+    private double ProjectDuration()
+    {
+        var duration = Math.Max(_audio.Duration, _legacyPlanInfo?.Duration ?? 0);
+        foreach (var segment in _project.DesignSegments)
+            if (segment is not null && double.IsFinite(segment.End)) duration = Math.Max(duration, segment.End);
+        foreach (var shot in _project.CameraTrack?.Shots ?? [])
+            if (shot is not null && double.IsFinite(shot.End)) duration = Math.Max(duration, shot.End);
+        foreach (var track in _project.LayerCameraTracks.Values)
+            foreach (var shot in track?.Shots ?? [])
+                if (shot is not null && double.IsFinite(shot.End)) duration = Math.Max(duration, shot.End);
+        foreach (var node in _effects.Nodes)
+            foreach (var window in node?.Windows ?? [])
+                if (double.IsFinite(window.End)) duration = Math.Max(duration, window.End);
+        foreach (var cue in _project.VtsCues?.Cues ?? [])
+            if (cue is not null && double.IsFinite(cue.Time))
+                duration = Math.Max(duration, cue.Time + Math.Max(0, cue.Duration));
+        foreach (var clip in _lyricClips)
+            if (clip is not null && clip.EndMs > 0)
+                duration = Math.Max(duration, clip.EndMs / 1000.0);
+        return double.IsFinite(duration) && duration > 0 ? duration : 0;
+    }
+
+    private double TimelineSpan()
+    {
+        var duration = ProjectDuration();
+        return duration > 0.5 ? duration : 30;
+    }
 
     private void RefreshTimeline()
     {
@@ -23,6 +52,17 @@ public partial class PvStageWindow
             PlayheadSeconds = _audio.Time,
             Waveform = _peaks,
         };
+
+        if (_beatMap is { } map)
+        {
+            foreach (var beat in map.Beats)
+                if (double.IsFinite(beat) && beat >= 0) snap.Beats.Add(beat);
+            snap.Beats.Sort();
+            foreach (var section in map.Sections)
+                if (section is not null && double.IsFinite(section.Start) && double.IsFinite(section.End)
+                    && section.End > section.Start)
+                    snap.Sections.Add(new TSection(section.Start, section.End, section.Kind ?? ""));
+        }
 
         foreach (var addr in _evaluator.Curves.Keys.OrderBy(a => a.ToString(), StringComparer.Ordinal))
         {
@@ -267,12 +307,20 @@ public partial class PvStageWindow
         return (min - pad, max + pad);
     }
 
+    private int _inspectorTick;
+
     private void TickTimeline()
     {
         if (_snap is null) return;
         var t = _audio.Time;
         var d = _audio.Duration;
-        TheTimeline.SetPlayhead(t);
+        TheTimeline.SetPlayhead(t, _audio.IsPlaying);
+        if (++_inspectorTick >= 3)
+        {
+            _inspectorTick = 0;
+            RefreshParamRows();
+        }
+
         TblTime.Text = $"{Fmt(t)} / {Fmt(d)}";
         if (!_draggingTime && d > 0)
         {
@@ -331,6 +379,8 @@ public partial class PvStageWindow
             return;
         }
 
+        if (!ConfirmClear(L.T("确定清空该 VTS 轨道？此操作可撤销。"))) return;
+
         int removed = cues.RemoveAll(Match);
         if (kind == VtsCueKind.Tint
             && _vtsTintOnTransitions
@@ -347,6 +397,111 @@ public partial class PvStageWindow
         TblStatus.Text = L.F("已清空 VTS 轨道（{0} 个）", removed);
     }
 
+    private void Timeline_LyricClipMenu(int index, double start, double end, string text)
+    {
+        var menu = new ContextMenu { PlacementTarget = TheTimeline, Placement = PlacementMode.MousePoint };
+        var label = (text ?? "").Replace('\n', ' ').Trim();
+        if (label.Length > 14) label = label[..14] + "…";
+        menu.Items.Add(new MenuItem
+        {
+            Header = L.F("本句效果：{0}", label),
+            IsEnabled = false,
+        });
+        menu.Items.Add(new Separator());
+
+        foreach (var group in EffectCatalog.All.GroupBy(def => def.Category))
+        {
+            var groupItem = new MenuItem { Header = EffectCategoryLabel(group.Key) };
+            foreach (var def in group.OrderBy(d => L.T(d.NameKey), StringComparer.CurrentCulture))
+            {
+                var item = new MenuItem { Header = L.T(def.NameKey) };
+                var id = def.Id;
+                item.Click += (_, _) => AddEffectToLine(id, start, end);
+                groupItem.Items.Add(item);
+            }
+
+            menu.Items.Add(groupItem);
+        }
+
+        menu.Items.Add(new Separator());
+        var clear = new MenuItem { Header = L.T("清除本句效果") };
+        clear.Click += (_, _) => ClearLineEffects(start, end);
+        menu.Items.Add(clear);
+
+        menu.IsOpen = true;
+    }
+
+    private static string EffectCategoryLabel(EffectCategory category) => category switch
+    {
+        EffectCategory.DistortGlitch => L.T("故障 / 扭曲"),
+        EffectCategory.Texture => L.T("纹理"),
+        EffectCategory.ColorGrade => L.T("调色"),
+        EffectCategory.LightGlow => L.T("光晕"),
+        EffectCategory.Geometry => L.T("几何"),
+        EffectCategory.Camera => L.T("相机"),
+        _ => category.ToString(),
+    };
+
+    private void AddEffectToLine(string defId, double start, double end)
+    {
+        var def = EffectCatalog.Get(defId);
+        if (def is null || end <= start + 0.01) return;
+
+        var target = _pipe?.LegacyComposite == true ? "" : LegacyPvProvider.FrontId;
+        var node = new EffectNode
+        {
+            DefId = defId,
+            InstanceId = "fx_line_" + Guid.NewGuid().ToString("N")[..8],
+            Target = target,
+            Source = "user",
+        };
+        node.Windows.Add(new EffectWindow(start, end,
+            Math.Min(0.12, (end - start) * 0.3),
+            Math.Min(0.18, (end - start) * 0.4)));
+        _effects.Nodes.Add(node);
+        EffectsChanged();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
+        ShowStatus(L.F("已给本句添加效果：{0}", L.T(def.NameKey)), 4);
+    }
+
+    private void ClearLineEffects(double start, double end)
+    {
+        var removed = _effects.Nodes.RemoveAll(node =>
+            node is not null && node.Source != "auto" && !node.Locked
+            && node.Windows.Count > 0
+            && node.Windows.All(window => window.Start >= start - 0.001 && window.End <= end + 0.001));
+        if (removed == 0)
+        {
+            ShowStatus(L.T("本句没有可清除的效果"), 3);
+            return;
+        }
+
+        EffectsChanged();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
+        ShowStatus(L.F("已清除本句效果：{0} 个", removed), 3);
+    }
+
+    private void Timeline_ScrubStarted()
+    {
+        if (!_audio.IsPlaying) return;
+        _resumeAfterScrub = true;
+        _audio.Pause();
+        UpdatePlayIcon();
+    }
+
+    private void Timeline_ScrubEnded()
+    {
+        if (!_resumeAfterScrub) return;
+        _audio.Seek(_audio.Time);
+        _resumeAfterScrub = false;
+        _audio.Play();
+        UpdatePlayIcon();
+    }
+
     private void Timeline_CurveClear(ParamAddress address)
     {
         if (!_evaluator.Curves.ContainsKey(address))
@@ -355,14 +510,21 @@ public partial class PvStageWindow
             return;
         }
 
+        if (!ConfirmClear(L.T("确定清空这条曲线？此操作可撤销。"))) return;
+
         _evaluator.RemoveCurve(address);
         PublishDirector();
+        EffectsChanged();
         RefreshParamRows();
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = L.T("已清空曲线");
     }
+
+    private bool ConfirmClear(string message) =>
+        MessageBox.Show(this, message, L.T("PV 工作台"),
+            MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
 
     private void Timeline_DesignTrackClear(DesignTrackKind kind)
     {
@@ -374,6 +536,8 @@ public partial class PvStageWindow
             return;
         }
 
+        if (!ConfirmClear(L.T("确定清空该轨道？此操作可撤销。"))) return;
+
         int removed;
         bool effectsChanged = false;
         bool cameraChanged = false;
@@ -383,6 +547,8 @@ public partial class PvStageWindow
             case DesignTrackKind.Fx:
                 removed = _effects.Nodes.Count;
                 if (removed == 0) break;
+                foreach (var node in _effects.Nodes)
+                    if (node is not null) _evaluator.RemoveCurvesForTarget(node.InstanceId);
                 _effects.Nodes.Clear();
                 effectsChanged = true;
                 break;
@@ -391,7 +557,10 @@ public partial class PvStageWindow
                 var shots = _project.CameraTrack?.Shots;
                 removed = shots?.Count ?? 0;
                 if (removed == 0) break;
-                shots!.Clear();
+                foreach (var shot in shots!)
+                    if (shot is not null)
+                        AddAutoTombstone(AutoDirector.AutoCamKey(shot.Start));
+                shots.Clear();
                 cameraChanged = true;
                 break;
             }
@@ -411,6 +580,13 @@ public partial class PvStageWindow
                 break;
             }
             default:
+                if (kind == DesignTrackKind.Trans)
+                    foreach (var segment in _project.DesignSegments)
+                        if (segment is not null && segment.Track == kind)
+                        {
+                            AddAutoTombstone(AutoDirector.AutoTransKey(segment.Start));
+                            AddAutoTombstone(AutoDirector.AutoTransKey(segment));
+                        }
                 removed = _project.DesignSegments.RemoveAll(segment => segment.Track == kind);
                 break;
         }
@@ -444,6 +620,7 @@ public partial class PvStageWindow
             return;
         }
 
+        MarkEffectUser(edit.Address);
         if (!_evaluator.Curves.TryGetValue(edit.Address, out var curve))
         {
             curve = new FloatCurve();
@@ -483,9 +660,17 @@ public partial class PvStageWindow
             return;
         }
 
+        var oldClip = _lyricClips[moved.Index];
         var clips = TimelineMath.WithClipRange(_lyricClips, moved.Index, ToMs(range.Start), ToMs(range.End));
         PublishLyricClips(clips);
-        _lrcText = LrcTextOf(clips);
+        var newClip = clips.FirstOrDefault(c => string.Equals(c.Id, oldClip.Id, StringComparison.Ordinal));
+        if (newClip is not null)
+        {
+            if (newClip.EndMs != oldClip.EndMs) _project.LyricEnds[moved.Index] = newClip.EndMs;
+            else _project.LyricEnds.Remove(moved.Index);
+            if (!string.IsNullOrEmpty(_lrcText))
+                _lrcText = LrcTimingEditor.RewriteLine(_lrcText, oldClip, newClip);
+        }
 
         PushUndo();
         _saveError = SaveProjectNow();
@@ -635,13 +820,17 @@ public partial class PvStageWindow
                 if (target.WindowIndex < node.Windows.Count)
                 {
                     node.Windows.RemoveAt(target.WindowIndex);
-                    if (node.Windows.Count == 0) _effects.Nodes.Remove(node);
+                    if (node.Windows.Count == 0 && _effects.Nodes.Remove(node))
+                        _evaluator.RemoveCurvesForTarget(node.InstanceId);
+                    else
+                        MarkFxUser(node);
                     removed = true;
                     effectsChanged = true;
                 }
                 break;
             case { Effect: { } node }:
                 removed = _effects.Nodes.Remove(node);
+                if (removed) _evaluator.RemoveCurvesForTarget(node.InstanceId);
                 effectsChanged = removed;
                 break;
             case { Shot: { } shot, LayerShot: true }:
@@ -654,10 +843,16 @@ public partial class PvStageWindow
                 break;
             case { Shot: { } shot }:
                 removed = _project.CameraTrack?.Shots.Remove(shot) == true;
+                if (removed) AddAutoTombstone(AutoDirector.AutoCamKey(shot.Start));
                 cameraChanged = removed;
                 break;
             case { Design: { } design }:
                 removed = _project.DesignSegments.Remove(design);
+                if (removed && design.Track == DesignTrackKind.Trans)
+                {
+                    AddAutoTombstone(AutoDirector.AutoTransKey(design.Start));
+                    AddAutoTombstone(AutoDirector.AutoTransKey(design));
+                }
                 break;
             case { LegacyCutIndex: >= 0 }:
                 TblStatus.Text = L.T("原版切分由歌词与 Plan 生成，不能删除");
@@ -733,19 +928,30 @@ public partial class PvStageWindow
         {
             case { Effect: { } node, WindowIndex: >= 0 } target:
                 if (target.WindowIndex < node.Windows.Count && node.Windows[target.WindowIndex].IsValid)
-                    node.Windows[target.WindowIndex] = new EffectWindow(start, end, fadeIn, fadeOut);
+                {
+                    var old = node.Windows[target.WindowIndex];
+                    node.Windows[target.WindowIndex] = new EffectWindow(start, end, fadeIn, fadeOut)
+                    {
+                        Gain = old.Gain,
+                    };
+                }
                 else
                 {
                     TblStatus.Text = L.T("效果段未生效：对应窗口已不存在");
                     return;
                 }
+                MarkFxUser(node);
                 EffectsChanged();
                 break;
             case { Effect: { } node }:
                 if (node.Windows.Count > 0)
-                    node.Windows[0] = new EffectWindow(start, end, fadeIn, fadeOut);
+                {
+                    var old = node.Windows[0];
+                    node.Windows[0] = new EffectWindow(start, end, fadeIn, fadeOut) { Gain = old.Gain };
+                }
                 else if (new EffectWindow(start, end, fadeIn, fadeOut).IsValid)
                     node.Windows.Add(new EffectWindow(start, end, fadeIn, fadeOut));
+                MarkFxUser(node);
                 EffectsChanged();
                 break;
             case { Shot: { } shot }:
@@ -773,32 +979,6 @@ public partial class PvStageWindow
         }
 
         TblStatus.Text = L.F("段时间已应用：{0:F3}s – {1:F3}s", start, end);
-        AfterSegmentEdit();
-    }
-
-    private void WriteSegmentParam(string key, double value)
-    {
-        switch (_segmentTarget)
-        {
-            case { Effect: { } node }:
-                node.Values[key] = (float)value;
-                EffectsChanged();
-                break;
-            case { Shot: { } shot }:
-                shot.Params[key] = value;
-                shot.Source = "user";
-                if (_segmentTarget is { LayerShot: true }
-                    && _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var layerTrack))
-                    layerTrack.UserEdited = true;
-                break;
-            case { Design: { } design }:
-                design.Params[key] = value;
-                design.Source = "user";
-                break;
-            default:
-                return;
-        }
-
         AfterSegmentEdit();
     }
 
@@ -831,22 +1011,6 @@ public partial class PvStageWindow
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
-    }
-
-    private static string LrcTextOf(IReadOnlyList<LyricClip> clips)
-    {
-        var sb = new StringBuilder();
-        foreach (var clip in clips)
-        {
-            var start = Stamp(clip.StartMs);
-            foreach (var line in clip.Text.Split('\n'))
-                sb.Append(start).Append(line).Append('\n');
-            sb.Append(Stamp(clip.EndMs)).Append('\n');
-        }
-
-        return sb.ToString();
-
-        static string Stamp(long ms) => $"[{ms / 60000:D2}:{ms / 1000 % 60:D2}.{ms % 1000:D3}]";
     }
 
     private static CurveInterp ParseInterp(string interp) =>

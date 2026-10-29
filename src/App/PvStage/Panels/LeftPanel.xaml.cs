@@ -15,6 +15,8 @@ public partial class LeftPanel : UserControl
 
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e) => Owner?.BtnAddLayer_Click(sender, e);
 
+    private void BtnFxAdd_Click(object sender, RoutedEventArgs e) => Owner?.BtnFxAdd_Click(sender, e);
+
     private void StageToggles_Changed(object sender, RoutedEventArgs e) => Owner?.StageToggles_Changed(sender, e);
 
     private void BtnGenerateAuto_Click(object sender, RoutedEventArgs e) => Owner?.BtnGenerateAuto_Click(sender, e);
@@ -23,6 +25,9 @@ public partial class LeftPanel : UserControl
 
     private void SldAutoIntensity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
         Owner?.SldAutoIntensity_ValueChanged(sender, e);
+
+    private void CmbAutoStyle_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        Owner?.CmbAutoStyle_SelectionChanged(sender, e);
 
     private void BtnExport_Click(object sender, RoutedEventArgs e) => Owner?.BtnExport_Click(sender, e);
 
@@ -43,6 +48,18 @@ public partial class LeftPanel : UserControl
     private void BtnApplyCanvas_Click(object sender, RoutedEventArgs e) => Owner?.BtnApplyCanvas_Click(sender, e);
 
     private void TglVSync_Changed(object sender, RoutedEventArgs e) => Owner?.TglVSync_Changed(sender, e);
+
+    private void TglLegacyComposite_Changed(object sender, RoutedEventArgs e) =>
+        Owner?.TglLegacyComposite_Changed(sender, e);
+
+    private void TglPreviewSubtitles_Changed(object sender, RoutedEventArgs e) =>
+        Owner?.TglPreviewSubtitles_Changed(sender, e);
+
+    private void CmbSubContent_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        Owner?.CmbSubContent_SelectionChanged(sender, e);
+
+    private void CmbSubPos_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        Owner?.CmbSubPos_SelectionChanged(sender, e);
 
     private void BtnVtsReconnect_Click(object sender, RoutedEventArgs e) => Owner?.BtnVtsReconnect_Click(sender, e);
 

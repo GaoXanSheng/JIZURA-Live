@@ -29,6 +29,7 @@ public partial class PvStageWindow
         public Wpf.Ui.Controls.Badge Badge = null!;
         public TextBlock ClampMark = null!;
         public double EditTime;
+        public bool Dirty;
     }
 
     private sealed class NumericValue
@@ -139,6 +140,8 @@ public partial class PvStageWindow
     }
 
     private readonly List<AnimRow> _inspectorRows = new();
+    private readonly List<(EffectNode Node, EffectParam Param, Wpf.Ui.Controls.ToggleSwitch Toggle)> _effectBoolRows = new();
+    private readonly List<(EffectNode Node, EffectParam Param, Wpf.Ui.Controls.TextBox Box, Border Swatch)> _effectColorRows = new();
     private bool _syncingRows;
     private Panel _inspectorTarget = null!;
     private TabControl? _inspectorTabs;
@@ -172,6 +175,8 @@ public partial class PvStageWindow
     private void BuildInspector()
     {
         _inspectorRows.Clear();
+        _effectBoolRows.Clear();
+        _effectColorRows.Clear();
         InspectorHost.Children.Clear();
         _inspectorTabs = null;
         _inspectorTarget = InspectorHost;
@@ -222,6 +227,7 @@ public partial class PvStageWindow
             _inspectorTab = selected;
 
         RefreshParamRows();
+        RefreshFxStack();
     }
 
     private void BuildCameraSection()
@@ -231,6 +237,97 @@ public partial class PvStageWindow
         AddInspector(CameraRow("offsetY", L.T("位移Y"), 1));
         AddInspector(CameraRow("scale", L.T("缩放"), 0.01));
         AddInspector(CameraRow("rotation", L.T("旋转"), 1));
+        AddInspector(CameraRow("blur", L.T("虚化"), 0.5));
+        AddInspector(CameraRow("brighten", L.T("提亮"), 0.01));
+        AddInspector(CameraAddRow());
+    }
+
+    private FrameworkElement CameraAddRow()
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        panel.Children.Add(ThemeText(L.T("整体运镜"), TextSecondaryKey, 11));
+
+        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        foreach (var preset in CameraDirection.Presets)
+            combo.Items.Add(new ComboBoxItem { Content = ZhLabel("cam", preset.Key), Tag = preset.Key });
+        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+        panel.Children.Add(combo);
+
+        var add = new Wpf.Ui.Controls.Button
+        {
+            Content = L.T("在播放头添加整体运镜"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        add.Click += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string preset })
+                AddGlobalCameraShot(preset);
+        };
+        panel.Children.Add(add);
+        return panel;
+    }
+
+    private void AddGlobalCameraShot(string preset)
+    {
+        var track = _project.CameraTrack;
+        if (track is null)
+        {
+            track = new CameraTrack
+            {
+                Width = _scene.Width,
+                Height = _scene.Height,
+                Fps = _scene.Fps,
+                BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
+                Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
+            };
+            _project.CameraTrack = track;
+        }
+        else
+        {
+            track.Width = _scene.Width;
+            track.Height = _scene.Height;
+            track.Fps = _scene.Fps;
+            if (track.BeatLen <= 0.05)
+                track.BeatLen = _beatMap is { Bpm: > 0 } bm2 ? 60.0 / bm2.Bpm : 0.5;
+        }
+
+        double start = Math.Max(0, _audio.Time);
+        double span = Math.Max(2.0, track.BeatLen * 8);
+        double end = start + span;
+        var duration = ProjectDuration();
+        if (duration > start + 0.2) end = Math.Min(duration, end);
+        if (end <= start + 0.2) end = start + 2.0;
+
+        var rng = new CameraRng(unchecked((uint)(_project.LegacySeed * 7919 + track.Shots.Count * 104729 + 17)));
+        var pars = CameraDirection.PlanParams(preset, rng);
+        pars["shotScale"] = 1.0;
+        pars["shotX"] = 0;
+        pars["shotY"] = 0;
+        pars["shotRot"] = 0;
+        pars["gain"] = 1.0;
+
+        var shot = new CameraShot
+        {
+            Preset = preset,
+            Start = start,
+            End = end,
+            Seed = unchecked((int)(rng.Next() * int.MaxValue)),
+            Params = pars,
+            Source = "user",
+        };
+        track.Shots.Add(shot);
+        track.Shots.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+        _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        _segmentTarget = SegmentTarget.Of(shot);
+        PublishDirector();
+        RefreshTimeline();
+        BuildInspector();
+        PushUndo();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已添加整体运镜：{0}", ZhLabel("cam", preset));
     }
 
     private FrameworkElement CameraRow(string param, string label, double step)
@@ -374,7 +471,8 @@ public partial class PvStageWindow
         }
 
         var copy = source.Clone();
-        copy.UserEdited = false;
+        copy.UserEdited = true;
+        foreach (var shot in copy.Shots) shot.Source = "user";
         _project.LayerCameraTracks[LayerTrackId(layer)] = copy;
         layer.Parallax.Follow = 0;
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
@@ -393,6 +491,7 @@ public partial class PvStageWindow
             {
                 Width = _scene.Width,
                 Height = _scene.Height,
+                Fps = _scene.Fps,
                 BeatLen = _beatMap is { Bpm: > 0 } bm ? 60.0 / bm.Bpm : 0.5,
                 Beats = _beatMap is { } map ? new List<double>(map.Beats) : new List<double>(),
             };
@@ -489,7 +588,7 @@ public partial class PvStageWindow
     }
 
     private FrameworkElement ConstRow(string label, double min, double max, double step,
-        Func<double> read, Action<double> write)
+        Func<double> read, Action<double> write, Action? onCommit = null)
     {
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
@@ -516,24 +615,33 @@ public partial class PvStageWindow
             VerticalAlignment = VerticalAlignment.Center,
         };
         bool syncing = false;
+        bool dirty = false;
+        void Commit()
+        {
+            if (!dirty) return;
+            dirty = false;
+            onCommit?.Invoke();
+            PushUndo();
+            _saveError = SaveProjectNow();
+        }
         value.Commit = v =>
         {
             write(v);
             syncing = true;
             try { slider.Value = Math.Clamp(v, min, max); }
             finally { syncing = false; }
-            PushUndo();
-            _saveError = SaveProjectNow();
+            dirty = true;
+            Commit();
         };
         slider.ValueChanged += (_, e) =>
         {
             if (syncing) return;
             write(e.NewValue);
             value.SetValue(e.NewValue);
-            if (slider.IsMouseCaptureWithin) return;
-            PushUndo();
-            _saveError = SaveProjectNow();
+            dirty = true;
+            if (!slider.IsMouseCaptureWithin) Commit();
         };
+        slider.LostMouseCapture += (_, _) => Commit();
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
 
@@ -571,10 +679,8 @@ public partial class PvStageWindow
         double current = _evaluator.TryEvaluate(address, _audio.Time, out var evaluated)
             ? evaluated
             : readBase();
-        double span = Math.Max(max - min, 0);
-        double margin = span > 1e-9 ? span * 0.5 : Math.Max(Math.Abs(current) * 0.5, 0.5);
-        double lo = double.IsFinite(current) ? Math.Min(min, current - margin) : min;
-        double hi = double.IsFinite(current) ? Math.Max(max, current + margin) : max;
+        double lo = min;
+        double hi = max;
 
         var state = new AnimRow
         {
@@ -619,8 +725,17 @@ public partial class PvStageWindow
         };
         slider.ValueChanged += (_, e) => OnRowValueChanged(state, e.NewValue);
         slider.PreviewMouseLeftButtonDown += (_, _) => state.EditTime = _audio.Time;
-        if (sliderWindow is not null)
-            slider.LostMouseCapture += (_, _) => RefreshParamRows();
+        slider.LostMouseCapture += (_, _) =>
+        {
+            if (state.Dirty)
+            {
+                state.Dirty = false;
+                PushUndo();
+                _saveError = SaveProjectNow();
+            }
+
+            if (sliderWindow is not null) RefreshParamRows();
+        };
         state.Slider = slider;
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
@@ -681,10 +796,20 @@ public partial class PvStageWindow
         return row;
     }
 
+    private void MarkEffectUser(in ParamAddress addr)
+    {
+        if (addr.Kind != ParamAddressKind.Effect) return;
+        var target = addr.Target;
+        var node = _effects.Nodes.FirstOrDefault(n =>
+            n is not null && string.Equals(n.InstanceId, target, StringComparison.Ordinal));
+        if (node is not null) MarkFxUser(node);
+    }
+
     private void KeyRowAtPlayhead(AnimRow row)
     {
         var t = _audio.Time;
         var v = _evaluator.TryEvaluate(row.Address, t, out var eval) ? eval : row.ReadBase();
+        MarkEffectUser(row.Address);
 
         bool created = !_evaluator.Curves.ContainsKey(row.Address);
         var curve = EnsureCurve(row.Address, row.ReadBase(), t);
@@ -733,6 +858,7 @@ public partial class PvStageWindow
     private void OnRowValueChanged(AnimRow row, double value)
     {
         if (_syncingRows) return;
+        MarkEffectUser(row.Address);
 
         if (row.Slider.IsMouseCaptureWithin
             && row.Address.Kind == ParamAddressKind.Vts
@@ -755,11 +881,13 @@ public partial class PvStageWindow
             row.EditTime = t;
         }
 
+        row.Dirty = true;
         RefreshTimeline();
         RefreshParamRows();
 
         if (!row.Slider.IsMouseCaptureWithin)
         {
+            row.Dirty = false;
             PushUndo();
             _saveError = SaveProjectNow();
         }
@@ -778,10 +906,28 @@ public partial class PvStageWindow
 
     private void RefreshParamRows()
     {
-        if (_inspectorRows.Count == 0) return;
-
         var t = _audio.Time;
         foreach (var row in _inspectorRows) RefreshRow(row, t);
+
+        foreach (var (node, param, toggle) in _effectBoolRows)
+        {
+            var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key);
+            var value = _evaluator.TryEvaluate(addr, t, out var evaluated) ? evaluated : node.Value(param);
+            var on = value >= 0.5;
+            if (toggle.IsChecked == on) continue;
+
+            _syncingRows = true;
+            try { toggle.IsChecked = on; }
+            finally { _syncingRows = false; }
+        }
+
+        foreach (var (node, param, box, swatch) in _effectColorRows)
+        {
+            if (box.IsKeyboardFocusWithin) continue;
+            var hex = ResolveEffectColor(node, param, t);
+            if (!string.Equals(box.Text, hex, StringComparison.OrdinalIgnoreCase)) box.Text = hex;
+            swatch.Background = BrushFromHex(hex);
+        }
     }
 
     private void RefreshRow(AnimRow row, double time)
@@ -858,7 +1004,6 @@ public partial class PvStageWindow
         string title;
         double[] times;
         bool showFades;
-        Dictionary<string, double> segParams;
 
         switch (target)
         {
@@ -870,25 +1015,25 @@ public partial class PvStageWindow
                 times = [win.IsValid ? win.Start : 0, win.IsValid ? win.End : 0, win.IsValid ? win.FadeIn : 0, win.IsValid ? win.FadeOut : 0];
                 source = node.Source;
                 locked = node.Locked;
-                segParams = new Dictionary<string, double>(node.Values.ToDictionary(p => p.Key, p => (double)p.Value), StringComparer.Ordinal);
                 title = EffectName(node) + L.F(" · 窗口 {0}", windowTarget.WindowIndex + 1);
                 showFades = true;
                 break;
             case { Effect: { } node }:
+                var first = node.Windows.Count > 0 && node.Windows[0].IsValid ? node.Windows[0] : default;
                 technique = node.DefId;
-                times = [0, Math.Max(0, _audio.Duration), 0, 0];
+                times = first.IsValid
+                    ? [first.Start, first.End, first.FadeIn, first.FadeOut]
+                    : [0, Math.Max(0, _audio.Duration), 0, 0];
                 source = node.Source;
                 locked = node.Locked;
-                segParams = new Dictionary<string, double>(node.Values.ToDictionary(p => p.Key, p => (double)p.Value), StringComparer.Ordinal);
                 title = EffectName(node);
-                showFades = false;
+                showFades = first.IsValid;
                 break;
             case { Shot: { } shot }:
                 technique = shot.Preset;
                 times = [shot.Start, shot.End, 0, 0];
                 source = shot.Source;
                 locked = shot.Locked;
-                segParams = new Dictionary<string, double>(shot.Params ?? new Dictionary<string, double>(), StringComparer.Ordinal);
                 title = L.F("运镜 · {0}", TechniqueLabel(target, shot.Preset));
                 showFades = false;
                 break;
@@ -897,7 +1042,6 @@ public partial class PvStageWindow
                 times = [design.Start, design.End, design.FadeIn, design.FadeOut];
                 source = design.Source;
                 locked = design.Locked;
-                segParams = new Dictionary<string, double>(design.Params, StringComparer.Ordinal);
                 title = DesignTrackNames.Label(design.Track) + " · " + TechniqueLabel(target, technique);
                 showFades = design.Track == DesignTrackKind.Fx;
                 break;
@@ -912,9 +1056,8 @@ public partial class PvStageWindow
                     _ => "",
                 };
                 times = [cut.Start, cut.End, 0, 0];
-                source = "auto";
+                source = string.IsNullOrWhiteSpace(cut.Source) ? "auto" : cut.Source;
                 locked = false;
-                segParams = new Dictionary<string, double>(StringComparer.Ordinal);
                 title = DesignTrackNames.Label(legacyTarget.LegacyKind) + " · " + TechniqueLabel(target, technique);
                 showFades = false;
                 break;
@@ -949,12 +1092,7 @@ public partial class PvStageWindow
             AddInspector(InfoRow(L.T("结束"), Fmt(times[1])));
         }
 
-        if (segParams.Count > 0)
-        {
-            AddSectionTitle(L.T("参数"));
-            foreach (var (key, value) in segParams.OrderBy(p => p.Key, StringComparer.Ordinal))
-                AddInspector(SegmentParamRow(key, value));
-        }
+        BuildSegmentParams(target);
 
         if (editable)
         {
@@ -1271,6 +1409,11 @@ public partial class PvStageWindow
                 switch (legacy.LegacyKind)
                 {
                     case DesignTrackKind.Layout:
+                        if (!string.Equals(cut.Layout, value, StringComparison.Ordinal))
+                        {
+                            cut.LayoutParams.Clear();
+                            cut.LayoutTexts.Clear();
+                        }
                         cut.Layout = value;
                         break;
                     case DesignTrackKind.Enter:
@@ -1280,12 +1423,19 @@ public partial class PvStageWindow
                         cut.Exit = value;
                         break;
                     case DesignTrackKind.Treat:
+                        if (!string.Equals(cut.Treat, value, StringComparison.Ordinal))
+                        {
+                            cut.TreatParams.Clear();
+                            cut.TreatTexts.Clear();
+                        }
                         cut.Treat = value;
                         break;
                 }
 
                 cut.Source = "user";
+                RecordCutOverride(cut);
                 _pipe?.ApplyLegacyCutOverrides(_legacyPlanInfo);
+                Dispatcher.BeginInvoke(new Action(BuildInspector));
                 break;
         }
 
@@ -1297,6 +1447,7 @@ public partial class PvStageWindow
         int index = _effects.Nodes.IndexOf(oldNode);
         if (index < 0) return;
 
+        _evaluator.RemoveCurvesForTarget(oldNode.InstanceId);
         var node = new EffectNode
         {
             DefId = defId,
@@ -1359,38 +1510,790 @@ public partial class PvStageWindow
         return apply;
     }
 
-    private FrameworkElement SegmentParamRow(string key, double value)
+    private void BuildSegmentParams(SegmentTarget target)
     {
-        double min = -4, max = 4;
-        if (_segmentTarget?.Effect is { } en
-            && EffectCatalog.Get(en.DefId)?.Params.FirstOrDefault(p => p.Key == key) is { } p)
+        switch (target)
         {
-            min = p.Min;
-            max = p.Max;
+            case { Effect: { } node, WindowIndex: >= 0 } windowTarget:
+                AddEffectParams(node, windowTarget.WindowIndex);
+                break;
+            case { Effect: { } node }:
+                AddEffectParams(node, node.Windows.Count > 0 ? 0 : -1);
+                break;
+            case { Shot: { } shot }:
+                AddShotParams(shot, target.LayerShot);
+                break;
+            case { Design: { } design }:
+                AddDesignParams(design);
+                break;
+            case { LegacyCutIndex: >= 0 } legacy:
+                if (_legacyPlanInfo is { } plan && legacy.LegacyCutIndex < plan.Cuts.Count)
+                    AddLegacyCutParams(plan, plan.Cuts[legacy.LegacyCutIndex]);
+                break;
         }
-        else if (_segmentTarget?.Shot is not null)
+    }
+
+    private static readonly HashSet<string> LegacyBoolParams = new(StringComparer.Ordinal)
+    {
+        "mirror", "vertical", "vert", "center", "centered", "bold", "italic",
+        "outline", "shadow", "underline", "strike", "reverse", "rev", "flip",
+    };
+
+    private static readonly HashSet<string> LegacyIntParams = new(StringComparer.Ordinal)
+    {
+        "n", "count", "cols", "columns", "rows", "type", "mode", "index",
+        "to", "dir", "side", "style",
+    };
+
+    private sealed record LegacyRange(double Min, double Max, double Step, bool IsInteger, bool IsBool);
+
+    private void AddLegacyCutParams(LegacyPvPlanInfo plan, LegacyPvCutInfo cut)
+    {
+        var groups = new (
+            string Label,
+            Dictionary<string, double> Numbers,
+            Dictionary<string, string> Texts,
+            Func<LegacyPvCutInfo, Dictionary<string, double>> SelectNumbers,
+            Func<LegacyPvCutInfo, Dictionary<string, string>> SelectTexts)[]
         {
-            if (string.Equals(key, "gain", StringComparison.Ordinal))
+            (L.T("布局参数"), cut.LayoutParams, cut.LayoutTexts, c => c.LayoutParams, c => c.LayoutTexts),
+            (L.T("文字处理参数"), cut.TreatParams, cut.TreatTexts, c => c.TreatParams, c => c.TreatTexts),
+            (L.T("背景参数"), cut.BgParams, cut.BgTexts, c => c.BgParams, c => c.BgTexts),
+            (L.T("运镜参数"), cut.CamParams, cut.CamTexts, c => c.CamParams, c => c.CamTexts),
+        };
+
+        if (!groups.Any(g => g.Numbers.Count > 0 || g.Texts.Count > 0)) return;
+
+        AddSectionTitle(L.T("参数"));
+        foreach (var (label, numbers, texts, selectNumbers, selectTexts) in groups)
+        {
+            if (numbers.Count == 0 && texts.Count == 0) continue;
+            var caption = ThemeText(label, TextSecondaryKey, 11);
+            caption.Margin = new Thickness(0, 6, 0, 2);
+            AddInspector(caption);
+
+            foreach (var key in numbers.Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
-                min = 0;
-                max = Math.Max(2, Math.Abs(value) * 2);
+                var fallback = numbers[key];
+                var range = LegacyRangeFor(plan, selectNumbers, key, fallback);
+                if (range.IsBool)
+                {
+                    AddInspector(BoolRow(ParamDisplayName(key), fallback >= 0.5, v =>
+                    {
+                        numbers[key] = v ? 1 : 0;
+                        cut.Source = "user";
+                        RecordCutOverride(cut);
+                        _pipe?.ApplyLegacyCutOverrides(plan);
+                        RefreshTimeline();
+                        PushUndo();
+                        _saveError = SaveProjectNow();
+                    }));
+                    continue;
+                }
+
+                AddInspector(ConstRow(ParamDisplayName(key), range.Min, range.Max, range.Step,
+                    () => numbers.TryGetValue(key, out var value) ? value : fallback,
+                    v =>
+                    {
+                        numbers[key] = range.IsBool ? (v >= 0.5 ? 1 : 0)
+                            : range.IsInteger ? Math.Round(v)
+                            : v;
+                        cut.Source = "user";
+                        RecordCutOverride(cut);
+                    },
+                    () =>
+                    {
+                        _pipe?.ApplyLegacyCutOverrides(plan);
+                        RefreshTimeline();
+                    }));
+            }
+
+            foreach (var key in texts.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            {
+                var fallback = texts[key];
+                var suggestions = plan.Cuts
+                    .SelectMany(c => selectTexts(c).TryGetValue(key, out var value)
+                        ? new[] { value }
+                        : Array.Empty<string>())
+                    .Where(v => !string.IsNullOrWhiteSpace(v))
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(v => v, StringComparer.Ordinal)
+                    .ToList();
+
+                AddInspector(TextParamRow(ParamDisplayName(key),
+                    () => texts.TryGetValue(key, out var value) ? value : fallback,
+                    v =>
+                    {
+                        texts[key] = v;
+                        cut.Source = "user";
+                        RecordCutOverride(cut);
+                    },
+                    () =>
+                    {
+                        _pipe?.ApplyLegacyCutOverrides(plan);
+                        RefreshTimeline();
+                    },
+                    suggestions));
+            }
+        }
+    }
+
+    private static LegacyRange LegacyRangeFor(LegacyPvPlanInfo plan,
+        Func<LegacyPvCutInfo, Dictionary<string, double>> select, string key, double value)
+    {
+        var samples = new List<double>();
+        foreach (var cut in plan.Cuts)
+        {
+            if (cut is null) continue;
+            var values = select(cut);
+            if (values.TryGetValue(key, out var sample) && double.IsFinite(sample)) samples.Add(sample);
+        }
+
+        if (samples.Count == 0) samples.Add(value);
+
+        if (LegacyBoolParams.Contains(key) && samples.All(v => v is 0 or 1))
+            return new LegacyRange(0, 1, 1, false, true);
+
+        if (key == "seed") return new LegacyRange(0, 1_000_000_000, 1, true, false);
+
+        var isInteger = LegacyIntParams.Contains(key)
+                        || samples.All(v => Math.Abs(v - Math.Round(v)) < 1e-9 && Math.Abs(v) < 1e9);
+        if (LegacyParamSpec(key, value) is { } spec)
+            return new LegacyRange(spec.Min, spec.Max, spec.Step, isInteger, false);
+
+        var lo = samples.Min();
+        var hi = samples.Max();
+        var span = Math.Max(hi - lo, Math.Max(Math.Abs(hi) * 0.5, isInteger ? 2 : 0.02));
+        if (isInteger)
+        {
+            var imin = Math.Floor(lo - span * 0.25);
+            var imax = Math.Ceiling(hi + span * 0.25);
+            if (imax - imin < 2)
+            {
+                imin -= 1;
+                imax += 1;
+            }
+
+            return new LegacyRange(imin, imax, 1, true, false);
+        }
+
+        var fmin = lo - span * 0.25;
+        var fmax = hi + span * 0.25;
+        if (!double.IsFinite(fmin) || !double.IsFinite(fmax) || fmax - fmin < 1e-6)
+        {
+            fmin = value - 1;
+            fmax = value + 1;
+        }
+
+        return new LegacyRange(fmin, fmax, Math.Max(0.0001, (fmax - fmin) / 200), false, false);
+    }
+
+    private FrameworkElement TextParamRow(string label, Func<string> read, Action<string> write,
+        Action? onCommit = null, IReadOnlyList<string>? suggestions = null)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var lab = ThemeText(label, TextSecondaryKey, 12);
+        lab.TextTrimming = TextTrimming.CharacterEllipsis;
+        lab.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(lab);
+
+        var box = new ComboBox
+        {
+            IsEditable = true,
+            IsTextSearchEnabled = false,
+            Text = read() ?? "",
+            FontSize = 11,
+            Height = 24,
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        if (suggestions is not null)
+            foreach (var suggestion in suggestions) box.Items.Add(suggestion);
+        Grid.SetColumn(box, 1);
+        row.Children.Add(box);
+
+        void Commit()
+        {
+            var value = box.Text.Trim();
+            if (string.Equals(value, read(), StringComparison.Ordinal)) return;
+            write(value);
+            onCommit?.Invoke();
+            PushUndo();
+            _saveError = SaveProjectNow();
+        }
+
+        box.SelectionChanged += (_, _) => Commit();
+        box.LostFocus += (_, _) => Commit();
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                Commit();
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                box.Text = read() ?? "";
+                Keyboard.ClearFocus();
+                e.Handled = true;
+            }
+        };
+
+        return row;
+    }
+
+    private static double CleanLegacyValue(string key, double value)
+    {
+        if (LegacyBoolParams.Contains(key)) return value >= 0.5 ? 1 : 0;
+        if (LegacyIntParams.Contains(key)) return Math.Round(value);
+        return value;
+    }
+
+    private static (double Min, double Max, double Step)? LegacyParamSpec(string key, double value)
+    {
+        return key switch
+        {
+            "rot" or "tilt" => (-180, 180, 1),
+            "scale" or "size" or "z" => (0.1, 4, 0.01),
+            "tracking" or "leading" or "gap" => (-2, 2, 0.01),
+            "a" or "amp" => Math.Abs(value) > 10 ? (-360, 360, 1) : (-10, 10, 0.01),
+            _ => null,
+        };
+    }
+
+    private void AddEffectParams(EffectNode node, int windowIndex)
+    {
+        var def = EffectCatalog.Get(node.DefId);
+        if (def is null || def.Params.Length == 0) return;
+
+        AddSectionTitle(L.T("参数"));
+        AddInspector(EffectStageRow(node));
+        AddInspector(EffectBlendRow(node));
+        AddInspector(ConstRow(L.T("不透明度"), 0, 1, 0.01,
+            () => node.Opacity,
+            v =>
+            {
+                node.Opacity = (float)Math.Clamp(v, 0, 1);
+                MarkFxUser(node);
+            },
+            () =>
+            {
+                EffectsChanged();
+                RefreshTimeline();
+            }));
+        if (windowIndex >= 0 && windowIndex < node.Windows.Count && node.Windows[windowIndex].IsValid)
+            AddInspector(EffectWindowGainRow(node, windowIndex));
+
+        foreach (var p in def.Params)
+        {
+            switch (p.Kind)
+            {
+                case EffectParamKind.Number:
+                    AddInspector(EffectNumberRow(node, p));
+                    break;
+                case EffectParamKind.Bool:
+                    AddInspector(EffectBoolRow(node, p));
+                    break;
+                case EffectParamKind.Color:
+                    AddInspector(EffectColorRow(node, p));
+                    break;
+            }
+        }
+    }
+
+    private FrameworkElement EffectStageRow(EffectNode node)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var lab = ThemeText(L.T("效果阶段"), TextSecondaryKey, 12);
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+
+        var combo = new ComboBox { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Stretch };
+        combo.Items.Add(new ComboBoxItem { Content = L.T("全局后期"), Tag = EffectStage.GlobalPost });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("合成后（转场前）"), Tag = EffectStage.Composite });
+        combo.SelectedIndex = node.Stage == EffectStage.Composite ? 1 : 0;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is not ComboBoxItem { Tag: EffectStage stage }) return;
+            if (node.Stage == stage) return;
+            node.Stage = stage;
+            if (stage != EffectStage.GlobalPost) node.Target = "";
+            MarkFxUser(node);
+            EffectsChanged();
+            RefreshTimeline();
+            PushUndo();
+            _saveError = SaveProjectNow();
+        };
+        Grid.SetColumn(combo, 1);
+        row.Children.Add(combo);
+        return row;
+    }
+
+    private FrameworkElement EffectBlendRow(EffectNode node)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var lab = ThemeText(L.T("混合模式"), TextSecondaryKey, 12);
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+
+        var combo = new ComboBox { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var blend in Enum.GetValues<EffectBlend>())
+            combo.Items.Add(new ComboBoxItem { Content = BlendLabel(blend), Tag = blend });
+        combo.SelectedIndex = (int)node.Blend;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is not ComboBoxItem { Tag: EffectBlend blend }) return;
+            if (node.Blend == blend) return;
+            node.Blend = blend;
+            MarkFxUser(node);
+            EffectsChanged();
+            RefreshTimeline();
+            PushUndo();
+            _saveError = SaveProjectNow();
+        };
+        Grid.SetColumn(combo, 1);
+        row.Children.Add(combo);
+        return row;
+    }
+
+    private static string BlendLabel(EffectBlend blend) => blend switch
+    {
+        EffectBlend.Normal => L.T("正常"),
+        EffectBlend.Add => L.T("相加"),
+        EffectBlend.Screen => L.T("滤色"),
+        EffectBlend.Multiply => L.T("正片叠底"),
+        EffectBlend.Overlay => L.T("叠加"),
+        _ => blend.ToString(),
+    };
+
+    private FrameworkElement EffectWindowGainRow(EffectNode node, int windowIndex)
+    {
+        return ConstRow(L.T("窗口强度"), 0, 2.5, 0.05,
+            () => windowIndex < node.Windows.Count ? node.Windows[windowIndex].Gain : 1,
+            v =>
+            {
+                if (windowIndex >= node.Windows.Count) return;
+                var window = node.Windows[windowIndex];
+                node.Windows[windowIndex] = window with { Gain = v };
+                MarkFxUser(node);
+            },
+            () => EffectsChanged());
+    }
+
+    private FrameworkElement EffectNumberRow(EffectNode node, EffectParam p)
+    {
+        var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
+        return AnimParamRow(_inspectorRows, addr, ParamLabel(p), p.Min, p.Max, Math.Max(0.0001, p.Step),
+            () => node.Value(p),
+            v =>
+            {
+                node.Set(p, (float)v);
+                MarkFxUser(node);
+                EffectsChanged();
+            });
+    }
+
+    private FrameworkElement EffectBoolRow(EffectNode node, EffectParam p)
+    {
+        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var lab = ThemeText(ParamLabel(p), TextSecondaryKey, 12);
+        lab.TextTrimming = TextTrimming.CharacterEllipsis;
+        row.Children.Add(lab);
+
+        var toggle = new Wpf.Ui.Controls.ToggleSwitch
+        {
+            IsChecked = node.Value(p) > 0.5f,
+            HorizontalAlignment = HorizontalAlignment.Right,
+        };
+        Grid.SetColumn(toggle, 1);
+        row.Children.Add(toggle);
+
+        var key = new Wpf.Ui.Controls.Button
+        {
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+            Content = "◆K",
+            FontSize = 11,
+            Padding = new Thickness(2, 1, 2, 1),
+            ToolTip = L.T("在当前时刻给布尔参数打关键帧（Step 插值）"),
+        };
+        key.Click += (_, _) => KeyEffectBoolAtPlayhead(node, p, toggle.IsChecked == true);
+        Grid.SetColumn(key, 2);
+        row.Children.Add(key);
+
+        void Write(bool value)
+        {
+            if (_syncingRows) return;
+
+            var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
+            var t = _audio.Time;
+            if (_evaluator.Curves.TryGetValue(addr, out var curve) && curve.Count > 0)
+            {
+                var mode = ModeOfKeyAt(curve, t) ?? CurveInterp.Step;
+                curve.Remove(t);
+                curve.TryAdd(t, value ? 1 : 0, mode);
+                PublishDirector();
             }
             else
             {
-                double mag = Math.Max(Math.Abs(value), 0.005);
-                min = -mag * 4;
-                max = mag * 4;
+                node.Set(p, value ? 1f : 0f);
             }
+
+            MarkFxUser(node);
+            EffectsChanged();
+            RefreshTimeline();
+            PushUndo();
+            _saveError = SaveProjectNow();
         }
 
-        var addr = new ParamAddress(
-            _segmentTarget?.Effect is not null ? ParamAddressKind.Effect : ParamAddressKind.Layer,
-            _segmentTarget?.Effect?.InstanceId ?? "segment", key);
-        return AnimParamRow(_inspectorRows, addr, ParamDisplayName(key), min, max, Math.Max(0.0001, (max - min) / 100),
-            () => _segmentTarget?.Effect is { } eff && eff.Values.TryGetValue(key, out var v) ? v
-                : _segmentTarget?.Shot is { } s && s.Params.TryGetValue(key, out var sv) ? sv
-                : _segmentTarget?.Design is { } d && d.Params.TryGetValue(key, out var dv) ? dv : value,
-            v => WriteSegmentParam(key, v));
+        toggle.Checked += (_, _) => Write(true);
+        toggle.Unchecked += (_, _) => Write(false);
+        _effectBoolRows.Add((node, p, toggle));
+        return row;
+    }
+
+    private void KeyEffectBoolAtPlayhead(EffectNode node, EffectParam p, bool value)
+    {
+        var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, p.Key);
+        var t = _audio.Time;
+        var curve = EnsureCurve(addr, node.Value(p), t);
+        curve.Remove(t);
+        curve.TryAdd(t, value ? 1 : 0, CurveInterp.Step);
+        MarkFxUser(node);
+        PublishDirector();
+        RefreshParamRows();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
+    }
+
+    private FrameworkElement EffectColorRow(EffectNode node, EffectParam p)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var lab = ThemeText(ParamLabel(p), TextSecondaryKey, 12);
+        lab.TextTrimming = TextTrimming.CharacterEllipsis;
+        Grid.SetColumn(lab, 0);
+        row.Children.Add(lab);
+
+        var initial = ResolveEffectColor(node, p, _audio.Time);
+        var box = new Wpf.Ui.Controls.TextBox
+        {
+            Text = initial,
+            FontSize = 12,
+            FontFamily = MonoFontFamily,
+            Height = 30,
+            Padding = new Thickness(6, 0, 6, 0),
+            VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        var swatch = new Border
+        {
+            Width = 20,
+            Height = 18,
+            CornerRadius = new CornerRadius(3),
+            Background = BrushFromHex(initial),
+            BorderThickness = new Thickness(1),
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = Cursors.Hand,
+            ToolTip = L.T("打开拾色器"),
+        };
+        swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
+
+        var key = new Wpf.Ui.Controls.Button
+        {
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+            Content = "◆K",
+            FontSize = 11,
+            Padding = new Thickness(2, 1, 2, 1),
+            ToolTip = L.T("在当前时刻给颜色打关键帧（RGB 三条曲线）"),
+        };
+        key.Click += (_, _) => KeyEffectColorAtPlayhead(node, p);
+        Grid.SetColumn(key, 3);
+        row.Children.Add(key);
+
+        void Commit()
+        {
+            var hex = box.Text.Trim();
+            if (!IsHexColor(hex))
+            {
+                box.Text = ResolveEffectColor(node, p, _audio.Time);
+                return;
+            }
+
+            swatch.Background = BrushFromHex(hex);
+            if (string.Equals(hex, ResolveEffectColor(node, p, _audio.Time), StringComparison.OrdinalIgnoreCase)) return;
+            WriteEffectColor(node, p, hex, _audio.Time);
+            MarkFxUser(node);
+            EffectsChanged();
+            RefreshTimeline();
+            PushUndo();
+            _saveError = SaveProjectNow();
+        }
+
+        box.LostFocus += (_, _) => Commit();
+        box.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            Commit();
+            e.Handled = true;
+        };
+        swatch.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            var current = IsHexColor(box.Text.Trim())
+                ? box.Text.Trim()
+                : ResolveEffectColor(node, p, _audio.Time);
+            Dispatcher.BeginInvoke(new Action(() => ColorPickerPopup.Show(swatch, current, hex =>
+            {
+                box.Text = hex;
+                swatch.Background = BrushFromHex(hex);
+                Commit();
+            }, hex => swatch.Background = BrushFromHex(hex))));
+        };
+
+        Grid.SetColumn(box, 1);
+        row.Children.Add(box);
+        Grid.SetColumn(swatch, 2);
+        row.Children.Add(swatch);
+        _effectColorRows.Add((node, p, box, swatch));
+        return row;
+    }
+
+    private static ParamAddress ColorChannel(EffectNode node, EffectParam p, char channel) =>
+        new(ParamAddressKind.Effect, node.InstanceId, $"{p.Key}.{channel}");
+
+    private bool HasEffectColorCurves(EffectNode node, EffectParam p)
+    {
+        foreach (var channel in "rgb")
+        {
+            var addr = ColorChannel(node, p, channel);
+            if (_evaluator.Curves.TryGetValue(addr, out var curve) && curve.Count > 0) return true;
+        }
+
+        return false;
+    }
+
+    private string ResolveEffectColor(EffectNode node, EffectParam p, double time)
+    {
+        var (r, g, b) = EffectNode.ParseHex(node.ColorValue(p));
+        foreach (var channel in "rgb")
+        {
+            var addr = ColorChannel(node, p, channel);
+            if (!_evaluator.Curves.TryGetValue(addr, out var curve) || curve.Count == 0) continue;
+            var value = (float)Math.Clamp(curve.Evaluate(time), 0, 1);
+            if (channel == 'r') r = value;
+            else if (channel == 'g') g = value;
+            else b = value;
+        }
+
+        return HexFromRgb(r, g, b);
+    }
+
+    private void WriteEffectColor(EffectNode node, EffectParam p, string hex, double time)
+    {
+        if (!HasEffectColorCurves(node, p))
+        {
+            node.SetColor(p, hex);
+            return;
+        }
+
+        var (baseR, baseG, baseB) = EffectNode.ParseHex(node.ColorValue(p));
+        var (r, g, b) = EffectNode.ParseHex(hex);
+        WriteColorChannel(ColorChannel(node, p, 'r'), r, baseR, time);
+        WriteColorChannel(ColorChannel(node, p, 'g'), g, baseG, time);
+        WriteColorChannel(ColorChannel(node, p, 'b'), b, baseB, time);
+        PublishDirector();
+    }
+
+    private void WriteColorChannel(ParamAddress addr, double value, double rest, double time)
+    {
+        var curve = EnsureCurve(addr, rest, time);
+        var mode = ModeOfKeyAt(curve, time) ?? CurveInterp.Linear;
+        curve.Remove(time);
+        curve.TryAdd(time, value, mode);
+    }
+
+    private void KeyEffectColorAtPlayhead(EffectNode node, EffectParam p)
+    {
+        var time = _audio.Time;
+        var (baseR, baseG, baseB) = EffectNode.ParseHex(node.ColorValue(p));
+        var (r, g, b) = EffectNode.ParseHex(ResolveEffectColor(node, p, time));
+        WriteColorChannel(ColorChannel(node, p, 'r'), r, baseR, time);
+        WriteColorChannel(ColorChannel(node, p, 'g'), g, baseG, time);
+        WriteColorChannel(ColorChannel(node, p, 'b'), b, baseB, time);
+        MarkFxUser(node);
+        PublishDirector();
+        RefreshParamRows();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
+    }
+
+    private static string HexFromRgb(double r, double g, double b) =>
+        $"#{ToByte(r):X2}{ToByte(g):X2}{ToByte(b):X2}";
+
+    private static int ToByte(double value) => (int)Math.Round(Math.Clamp(value, 0, 1) * 255);
+
+    private void AddShotParams(CameraShot shot, bool layerShot)
+    {
+        var keys = new List<string> { "shotScale", "shotX", "shotY", "shotRot", "gain" };
+        foreach (var key in shot.Params.Keys)
+            if (!keys.Contains(key, StringComparer.Ordinal)) keys.Add(key);
+
+        AddSectionTitle(L.T("参数"));
+        foreach (var key in keys)
+        {
+            var (min, max, step) = CameraParamSpec(key, ReadShotParam(shot, key));
+            AddInspector(ConstRow(ParamDisplayName(key), min, max, step,
+                () => ReadShotParam(shot, key),
+                v =>
+                {
+                    shot.Params[key] = CleanCameraValue(key, v);
+                    shot.Source = "user";
+                    if (layerShot
+                        && _project.LayerCameraTracks.TryGetValue(PvScene.CharacterLayerId, out var track))
+                        track.UserEdited = true;
+                },
+                () =>
+                {
+                    PublishDirector();
+                    RefreshTimeline();
+                }));
+        }
+    }
+
+    private static double ReadShotParam(CameraShot shot, string key) =>
+        shot.Params.TryGetValue(key, out var value) && double.IsFinite(value)
+            ? value
+            : key switch
+            {
+                "shotScale" or "gain" => 1,
+                _ => 0,
+            };
+
+    private static double CleanCameraValue(string key, double value) => key switch
+    {
+        "dir" or "side" or "n" or "s0" => Math.Round(value),
+        "vert" or "rev" => value >= 0.5 ? 1 : 0,
+        _ => value,
+    };
+
+    private static (double Min, double Max, double Step) CameraParamSpec(string key, double value)
+    {
+        return key switch
+        {
+            "shotScale" => (0.5, 2.0, 0.01),
+            "shotX" or "shotY" => (-0.25, 0.25, 0.005),
+            "shotRot" => (-15, 15, 0.5),
+            "gain" => (0, 2, 0.01),
+            "dir" => (-2, 3, 1),
+            "side" => (-1, 1, 1),
+            "vert" or "rev" => (0, 1, 1),
+            "a" or "amp" => Math.Abs(value) > 10 ? (-360, 360, 1) : (-10, 10, 0.01),
+            "per" => (0.1, 10, 0.05),
+            "d" => (0.05, 3, 0.01),
+            "b" => (0, 40, 0.5),
+            "at" => (0, 1, 0.01),
+            "f" => (0.1, 30, 0.1),
+            "jerk" => (0, 2, 0.05),
+            "z" => (0.5, 3, 0.01),
+            "r" => (-180, 180, 1),
+            "s0" => (0, 999, 1),
+            "dx" or "dy" => (-1, 1, 0.01),
+            "a0" => (-6.28, 6.28, 0.01),
+            "n" => (2, 12, 1),
+            "amount" => (0, 2, 0.01),
+            _ => FallbackRange(value),
+        };
+    }
+
+    private void AddDesignParams(DesignSegment design)
+    {
+        var values = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (design.Track == DesignTrackKind.Trans && TransitionCatalog.Get(design.Technique) is not null)
+        {
+            var seed = design.Seed != 0 ? design.Seed : PvStageRenderer.SeedFor(design.Start);
+            foreach (var (key, value) in TransitionRunner.Defaults(design.Technique, seed))
+                values[key] = value;
+        }
+
+        foreach (var (key, value) in design.Params)
+            values[key] = value;
+
+        if (values.Count == 0) return;
+
+        AddSectionTitle(L.T("参数"));
+        foreach (var key in values.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            var fallback = values[key];
+            var (min, max, step) = TransitionParamSpec(design.Technique, key, fallback);
+            AddInspector(ConstRow(ParamDisplayName(key), min, max, step,
+                () => design.Params.TryGetValue(key, out var value) ? value : fallback,
+                v =>
+                {
+                    design.Params[key] = CleanTransitionValue(key, v);
+                    design.Source = "user";
+                },
+                () =>
+                {
+                    PublishDirector();
+                    RefreshTimeline();
+                }));
+        }
+    }
+
+    private static double CleanTransitionValue(string key, double value) => key switch
+    {
+        "dir" or "n" or "rows" or "cols" or "c" or "seed" => Math.Round(value),
+        "vert" or "rev" or "rtl" or "up" or "roll" or "half" or "tate" or "useAccent" =>
+            value >= 0.5 ? 1 : 0,
+        _ => value,
+    };
+
+    private static (double Min, double Max, double Step) TransitionParamSpec(string technique, string key, double value)
+    {
+        if (technique == "diagonalWipe" && key == "k") return (-1, 1, 0.01);
+        if (technique == "pixelate" && key == "k") return (2, 32, 1);
+        if (technique == "zoomThrough" && key == "z") return (1, 3, 0.01);
+
+        return key switch
+        {
+            "dir" => (-2, 3, 1),
+            "n" => (2, 20, 1),
+            "rows" or "cols" => (2, 12, 1),
+            "vert" or "rev" or "rtl" or "up" or "roll" or "half" or "tate" or "useAccent" => (0, 1, 1),
+            "x" or "y" => (-0.5, 1.5, 0.01),
+            "z" => (1, 3, 0.01),
+            "rot" => (-360, 360, 1),
+            "a0" => (-180, 180, 1),
+            "c" => (0, 3, 1),
+            "o" => (-0.2, 0.2, 0.005),
+            "r" => (0, 1, 0.01),
+            "seed" => (0, 1_000_000_000, 1),
+            _ => FallbackRange(value),
+        };
+    }
+
+    private static (double Min, double Max, double Step) FallbackRange(double value)
+    {
+        var span = Math.Max(1, Math.Abs(value) * 4);
+        return (-span, span, Math.Max(0.0001, span / 100));
     }
 
     private void BuildProjectSection()
@@ -1398,11 +2301,68 @@ public partial class PvStageWindow
         AddSectionTitle(L.T("工程"));
         AddInspector(InfoRow(L.T("画布"), $"{_scene.Width}×{_scene.Height}"));
         AddInspector(InfoRow(L.T("帧率"), $"{_scene.Fps} fps"));
-        AddInspector(InfoRow(L.T("时长"), Fmt(_audio.Duration)));
+        AddInspector(InfoRow(L.T("时长"), Fmt(ProjectDuration())));
         AddInspector(InfoRow(L.T("音频"),
             string.IsNullOrWhiteSpace(_audioPath) ? L.T("未绑定") : Path.GetFileName(_audioPath), _audioPath));
         var lyrics = _lyrics is null ? L.T("未装载") : L.F("{0} 句", _lyrics.Count);
         AddInspector(InfoRow(L.T("歌词"), _tailUncalibrated ? lyrics + L.T(" · 末句待校准") : lyrics));
+        AddInspector(TransitionAddRow());
+    }
+
+    private FrameworkElement TransitionAddRow()
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+        panel.Children.Add(ThemeText(L.T("整体转场"), TextSecondaryKey, 11));
+
+        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        foreach (var id in TransitionCatalog.Ids.OrderBy(id => ZhLabel("trans", id), StringComparer.CurrentCulture))
+            combo.Items.Add(new ComboBoxItem { Content = ZhLabel("trans", id), Tag = id });
+        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+        panel.Children.Add(combo);
+
+        var add = new Wpf.Ui.Controls.Button
+        {
+            Content = L.T("在播放头添加转场"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        add.Click += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string id })
+                AddGlobalTransition(id);
+        };
+        panel.Children.Add(add);
+        return panel;
+    }
+
+    private void AddGlobalTransition(string technique)
+    {
+        double start = Math.Max(0, _audio.Time);
+        double end = start + 0.35;
+        var duration = ProjectDuration();
+        if (duration > start + 0.1) end = Math.Min(end, duration);
+        if (end <= start + 0.05) end = start + 0.35;
+
+        var segment = new DesignSegment
+        {
+            Track = DesignTrackKind.Trans,
+            Start = start,
+            End = end,
+            Technique = technique,
+            Source = "user",
+            RefId = "user_trans_" + Guid.NewGuid().ToString("N")[..8],
+        };
+        _project.DesignSegments.Add(segment);
+        _project.DesignSegments.Sort((a, b) => a.Start.CompareTo(b.Start));
+
+        _segmentTarget = SegmentTarget.Of(segment);
+        PublishDirector();
+        RefreshTimeline();
+        BuildInspector();
+        PushUndo();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已添加转场：{0}", ZhLabel("trans", technique));
     }
 
     private void AddSectionTitle(string text)
@@ -1492,6 +2452,20 @@ public partial class PvStageWindow
         "shotX" => L.T("构图X"),
         "shotY" => L.T("构图Y"),
         "shotRot" => L.T("倾斜"),
+        "n" => L.T("数量"),
+        "rows" => L.T("行数"),
+        "cols" => L.T("列数"),
+        "rev" => L.T("反向"),
+        "rtl" => L.T("从右到左"),
+        "up" => L.T("向上"),
+        "roll" => L.T("滚动"),
+        "half" => L.T("半屏"),
+        "tate" => L.T("竖排"),
+        "useAccent" => L.T("使用强调色"),
+        "c" => L.T("角"),
+        "o" => L.T("偏移"),
+        "k" => L.T("强度"),
+        "seed" => L.T("种子"),
         _ => param,
     };
 

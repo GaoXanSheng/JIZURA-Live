@@ -2,7 +2,7 @@ namespace JizuraLive.Engine;
 
 public sealed record LyricClip(
     string Id, long StartMs, long EndMs, string Text, bool OutOfRange,
-    IReadOnlyList<KrcWord>? Words = null, string? Style = null);
+    IReadOnlyList<KrcWord>? Words = null, string? Style = null, int SourceIndex = -1);
 
 public readonly record struct LyricSample(
     string ClipId, string Text, long StartMs, long EndMs, bool OutOfRange)

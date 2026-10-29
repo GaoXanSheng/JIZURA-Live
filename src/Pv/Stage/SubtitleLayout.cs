@@ -75,7 +75,8 @@ public static class SubtitleLayout
         var text = s.Text;
         if (string.IsNullOrWhiteSpace(text)) return null;
 
-        var lines = SplitLines(text);
+        var lines = SelectLines(SplitLines(text), cfg.Content);
+        if (lines.Length == 0) return null;
         var fontSizePx = FontSizeOf(cfg, height);
         var lineHeight = MathF.Max(1f, lineHeightPx);
         var ascent = MathF.Max(0f, ascentPx);
@@ -108,6 +109,30 @@ public static class SubtitleLayout
         var raw = text.Split('\n');
         for (var i = 0; i < raw.Length; i++) raw[i] = raw[i].TrimEnd('\r');
         return raw;
+    }
+
+    private static string[] SelectLines(string[] lines, SubContent content)
+    {
+        if (lines.Length <= 1) return lines;
+        return content switch
+        {
+            SubContent.Trans => lines[1..],
+            SubContent.Roma => SelectLatin(lines),
+            _ => lines,
+        };
+    }
+
+    private static string[] SelectLatin(string[] lines)
+    {
+        var latin = lines.Where(HasLatin).ToArray();
+        return latin.Length > 0 ? latin : lines;
+    }
+
+    private static bool HasLatin(string text)
+    {
+        foreach (var c in text)
+            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z') return true;
+        return false;
     }
 
     private static IReadOnlyList<Vector2> BuildStrokeOffsets(float strokeWidthPx)

@@ -13,8 +13,8 @@ public sealed class CameraShot
     public int Seed { get; set; }
 
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue("auto")]
-    public string Source { get; set; } = "auto";
+    [DefaultValue("user")]
+    public string Source { get; set; } = "user";
 
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
     [DefaultValue(false)]
@@ -37,6 +37,8 @@ public sealed class CameraTrack
 
     public double BeatLen { get; set; } = 0.5;
 
+    public double Fps { get; set; } = 60;
+
     public double Width { get; set; } = 1280;
     public double Height { get; set; } = 720;
 
@@ -47,6 +49,7 @@ public sealed class CameraTrack
         var copy = new CameraTrack
         {
             BeatLen = BeatLen,
+            Fps = Fps,
             Width = Width,
             Height = Height,
             UserEdited = UserEdited,
@@ -964,7 +967,7 @@ public static class CameraDirection
                 ParamGain(shot),
                 track.Beats.Count > 1 && track.BeatLen > 0.15,
                 track.BeatLen > 0 ? track.BeatLen : 0.5,
-                (int)Math.Floor(time * FrameGrid))
+                (int)Math.Floor(time * (track.Fps > 0 ? track.Fps : FrameGrid)))
         {
         }
 

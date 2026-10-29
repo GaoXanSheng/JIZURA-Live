@@ -34,6 +34,8 @@ public sealed partial class TimelineView
     private static readonly Brush HotkeyCueFill = Solid(0x55, 0xE8, 0xB4, 0x4A);
     private static readonly Brush ExpressionCueFill = Solid(0x55, 0x5E, 0xD6, 0x9A);
     private static readonly Brush TintCueFill = Solid(0x55, 0xE8, 0x6E, 0xC8);
+    private static readonly Brush SectionBrush = Solid(0x14, 0x5B, 0x8C, 0xFF);
+    private static readonly Pen BeatPen = FrozenPen(Solid(0x3A, 0x3A, 0x48), 1);
     private static readonly Brush EyeBrush = Solid(0x8A, 0x8A, 0x98);
     private static readonly Pen EyePen = FrozenPen(Solid(0x8A, 0x8A, 0x98), 1);
     private static readonly Pen EyeOffPen = FrozenPen(Solid(0xE8, 0xB4, 0x4A), 1);
@@ -141,6 +143,28 @@ public sealed partial class TimelineView
 
         double step = TimelineMath.RulerStep(_pixelsPerSecond);
         double end = _viewStart + w / _pixelsPerSecond;
+        if (_snap is not null)
+        {
+            foreach (var section in _snap.Sections)
+            {
+                if (section.End < _viewStart || section.Start > end) continue;
+                double sx0 = HeaderWidth + TimelineMath.TimeToX(
+                    Math.Max(section.Start, _viewStart), _viewStart, _pixelsPerSecond);
+                double sx1 = HeaderWidth + TimelineMath.TimeToX(
+                    Math.Min(section.End, end), _viewStart, _pixelsPerSecond);
+                dc.DrawRectangle(SectionBrush, null,
+                    new Rect(sx0, row.Top, Math.Max(1, sx1 - sx0), 3));
+            }
+
+            foreach (var beat in _snap.Beats)
+            {
+                if (beat < _viewStart || beat > end) continue;
+                double bx = HeaderWidth + TimelineMath.TimeToX(beat, _viewStart, _pixelsPerSecond);
+                dc.DrawLine(BeatPen, new Point(bx, row.Top + row.Height - 5),
+                    new Point(bx, row.Top + row.Height));
+            }
+        }
+
         for (long i = (long)Math.Ceiling(_viewStart / step); ; i++)
         {
             double t = i * step;

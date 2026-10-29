@@ -96,9 +96,12 @@ public sealed record EffectDef(
 
 public readonly record struct EffectWindow(double Start, double End, double FadeIn = 0, double FadeOut = 0)
 {
+    public double Gain { get; init; } = 1;
+
     [Newtonsoft.Json.JsonIgnore]
     public bool IsValid => double.IsFinite(Start) && double.IsFinite(End) && End > Start
-                           && double.IsFinite(FadeIn) && double.IsFinite(FadeOut) && FadeIn >= 0 && FadeOut >= 0;
+                           && double.IsFinite(FadeIn) && double.IsFinite(FadeOut) && FadeIn >= 0 && FadeOut >= 0
+                           && double.IsFinite(Gain) && Gain >= 0;
 
     public double WeightAt(double t)
     {
@@ -116,13 +119,28 @@ public readonly record struct EffectWindow(double Start, double End, double Fade
         var w = 1.0;
         if (fi > 0) w = Math.Min(w, (t - Start) / fi);
         if (fo > 0) w = Math.Min(w, (End - t) / fo);
-        return Math.Clamp(w, 0, 1);
+        return Math.Clamp(w, 0, 1) * Gain;
     }
+}
+
+public enum EffectBlend
+{
+    Normal,
+    Add,
+    Screen,
+    Multiply,
+    Overlay,
 }
 
 public sealed class EffectNode
 {
     public string DefId { get; init; } = "";
+
+    public EffectStage Stage { get; set; } = EffectStage.GlobalPost;
+
+    public EffectBlend Blend { get; set; } = EffectBlend.Normal;
+
+    public float Opacity { get; set; } = 1f;
 
     public string Target { get; set; } = "";
 

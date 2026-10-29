@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -38,6 +39,17 @@ public partial class PvStageWindow
 
     private static string OnOff(bool on) => on ? L.T("开") : L.T("关");
 
+    private static bool IsUserOwned(string? source, bool locked) =>
+        locked || string.Equals(source, "user", StringComparison.OrdinalIgnoreCase);
+
+    private void AddAutoTombstone(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        layout.DeletedAutoIds ??= new List<string>();
+        if (!layout.DeletedAutoIds.Contains(key)) layout.DeletedAutoIds.Add(key);
+    }
+
     private void SyncStageToggles()
     {
         if (!Dispatcher.CheckAccess())
@@ -58,10 +70,40 @@ public partial class PvStageWindow
         }
     }
 
+    private bool _syncingAuto;
+
     private string SelectedAutoStyle()
     {
         if (CmbAutoStyle.SelectedItem is ComboBoxItem { Tag: string s }) return s;
-        return "dynamic";
+        return _project?.EditorLayout?.AutoStyle ?? "dynamic";
+    }
+
+    internal void CmbAutoStyle_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingAuto || _project is null) return;
+        if (CmbAutoStyle.SelectedItem is not ComboBoxItem { Tag: string style }) return;
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        if (string.Equals(layout.AutoStyle, style, StringComparison.Ordinal)) return;
+        layout.AutoStyle = style;
+        _saveError = SaveProjectNow();
+    }
+
+    private void SyncAutoControls()
+    {
+        if (_project is null || CmbAutoStyle is null || SldAutoIntensity is null) return;
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        _syncingAuto = true;
+        try
+        {
+            SelectComboTag(CmbAutoStyle, string.IsNullOrWhiteSpace(layout.AutoStyle) ? "dynamic" : layout.AutoStyle);
+            SldAutoIntensity.Value = Math.Clamp(layout.AutoIntensity, 0, 1);
+            if (TblAutoIntensity is not null)
+                TblAutoIntensity.Text = layout.AutoIntensity.ToString("F2", CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _syncingAuto = false;
+        }
     }
 
     private void ApplyLegacyPlan(LegacyPvPlanInfo info, bool force = false)
@@ -72,14 +114,17 @@ public partial class PvStageWindow
         var preserved = CaptureUserCutOverrides(_legacyPlanInfo);
         _legacyPlanInfo = info;
         if (_beatMap is null && info.Duration > 0.01) _beatMap = info.ToBeatMap();
+        var layout = _project.EditorLayout;
         var report = AutoDirector.GenerateLegacyStage(_project, info, _beatMap, new AutoOptions
         {
-            Style = SelectedAutoStyle(),
-            Intensity = SldAutoIntensity.Value,
+            Style = string.IsNullOrWhiteSpace(layout?.AutoStyle) ? SelectedAutoStyle() : layout!.AutoStyle,
+            Intensity = layout?.AutoIntensity ?? SldAutoIntensity.Value,
             Seed = _project.LegacySeed,
-        });
+        }, EffectiveLegacyComposite(_project));
 
+        ApplyProjectCutOverrides(info);
         ApplyPreservedCutOverrides(info, preserved);
+        EffectsChanged();
 
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
         PublishDirector();
@@ -102,6 +147,7 @@ public partial class PvStageWindow
             (_beatMap is { } bm ? L.F("BPM {0:F1} · 段落 {1} 段 · ", bm.Bpm, bm.Sections.Count) : "")
             + L.F("原版 PV 计划 · {0} 个切分 · 时长 {1:F1}s\n", info.Cuts.Count, info.Duration)
             + L.F("舞台叠加：{0} · {1}（角色不单独位移，随镜头整体移动）\n", cameraLine, transLine)
+            + L.F("自动画面效果：{0} 个节点 · {1} 个时间窗\n", report.EffectNodes, report.EffectWindows)
             + L.T("布局 / 入退场 / 文字处理 / 引擎转场由原版引擎生成");
 
         ShowStatus(L.F("原版引擎就绪：{0} 切分 · {1} · {2}", info.Cuts.Count, cameraLine, transLine));
@@ -121,6 +167,14 @@ public partial class PvStageWindow
                 Enter = cut.Enter,
                 Exit = cut.Exit,
                 Treat = cut.Treat,
+                LayoutParams = CopyNumbers(cut.LayoutParams),
+                TreatParams = CopyNumbers(cut.TreatParams),
+                BgParams = CopyNumbers(cut.BgParams),
+                CamParams = CopyNumbers(cut.CamParams),
+                LayoutTexts = CopyTexts(cut.LayoutTexts),
+                TreatTexts = CopyTexts(cut.TreatTexts),
+                BgTexts = CopyTexts(cut.BgTexts),
+                CamTexts = CopyTexts(cut.CamTexts),
             };
         }
 
@@ -140,11 +194,112 @@ public partial class PvStageWindow
             if (!string.IsNullOrWhiteSpace(src.Enter)) cut.Enter = src.Enter;
             if (!string.IsNullOrWhiteSpace(src.Exit)) cut.Exit = src.Exit;
             cut.Treat = string.IsNullOrWhiteSpace(src.Treat) ? "none" : src.Treat;
+            ApplyNumbers(src.LayoutParams, cut.LayoutParams);
+            ApplyNumbers(src.TreatParams, cut.TreatParams);
+            ApplyNumbers(src.BgParams, cut.BgParams);
+            ApplyNumbers(src.CamParams, cut.CamParams);
+            ApplyTexts(src.LayoutTexts, cut.LayoutTexts);
+            ApplyTexts(src.TreatTexts, cut.TreatTexts);
+            ApplyTexts(src.BgTexts, cut.BgTexts);
+            ApplyTexts(src.CamTexts, cut.CamTexts);
             cut.Source = "user";
             applied = true;
         }
 
         if (applied) _pipe?.ApplyLegacyCutOverrides(info);
+    }
+
+    private void ApplyProjectCutOverrides(LegacyPvPlanInfo info)
+    {
+        if (_project.LegacyCutOverrides.Count == 0) return;
+
+        bool applied = false;
+        foreach (var cut in info.Cuts)
+        {
+            if (cut is null) continue;
+            var source = FindCutOverride(cut);
+            if (source is null) continue;
+
+            if (!string.IsNullOrWhiteSpace(source.Layout)) cut.Layout = source.Layout;
+            if (!string.IsNullOrWhiteSpace(source.Enter)) cut.Enter = source.Enter;
+            if (!string.IsNullOrWhiteSpace(source.Exit)) cut.Exit = source.Exit;
+            if (!string.IsNullOrWhiteSpace(source.Treat)) cut.Treat = source.Treat;
+            ApplyNumbers(source.LayoutParams, cut.LayoutParams);
+            ApplyNumbers(source.TreatParams, cut.TreatParams);
+            ApplyNumbers(source.BgParams, cut.BgParams);
+            ApplyNumbers(source.CamParams, cut.CamParams);
+            ApplyTexts(source.LayoutTexts, cut.LayoutTexts);
+            ApplyTexts(source.TreatTexts, cut.TreatTexts);
+            ApplyTexts(source.BgTexts, cut.BgTexts);
+            ApplyTexts(source.CamTexts, cut.CamTexts);
+            cut.Source = "user";
+            applied = true;
+        }
+
+        if (applied) _pipe?.ApplyLegacyCutOverrides(info);
+    }
+
+    private LegacyCutOverride? FindCutOverride(LegacyPvCutInfo cut)
+    {
+        foreach (var item in _project.LegacyCutOverrides)
+        {
+            if (item is null) continue;
+            if (Math.Abs(item.Start - cut.Start) > 0.05) continue;
+            if (item.Line >= 0 && cut.Line >= 0 && item.Line != cut.Line) continue;
+            return item;
+        }
+
+        return null;
+    }
+
+    private void RecordCutOverride(LegacyPvCutInfo cut)
+    {
+        var overrides = _project.LegacyCutOverrides;
+        var target = FindCutOverride(cut);
+        if (target is null)
+        {
+            target = new LegacyCutOverride { Line = cut.Line, Start = cut.Start };
+            overrides.Add(target);
+        }
+
+        target.Line = cut.Line;
+        target.Start = cut.Start;
+        target.Layout = cut.Layout ?? "";
+        target.Enter = cut.Enter ?? "";
+        target.Exit = cut.Exit ?? "";
+        target.Treat = cut.Treat ?? "";
+        target.LayoutParams = CopyNumbers(cut.LayoutParams);
+        target.TreatParams = CopyNumbers(cut.TreatParams);
+        target.BgParams = CopyNumbers(cut.BgParams);
+        target.CamParams = CopyNumbers(cut.CamParams);
+        target.LayoutTexts = CopyTexts(cut.LayoutTexts);
+        target.TreatTexts = CopyTexts(cut.TreatTexts);
+        target.BgTexts = CopyTexts(cut.BgTexts);
+        target.CamTexts = CopyTexts(cut.CamTexts);
+    }
+
+    private static Dictionary<string, double> CopyNumbers(Dictionary<string, double>? source) =>
+        source is null
+            ? new Dictionary<string, double>(StringComparer.Ordinal)
+            : new Dictionary<string, double>(source, StringComparer.Ordinal);
+
+    private static Dictionary<string, string> CopyTexts(Dictionary<string, string>? source) =>
+        source is null
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : new Dictionary<string, string>(source, StringComparer.Ordinal);
+
+    private static void ApplyNumbers(Dictionary<string, double>? source, Dictionary<string, double> target)
+    {
+        if (source is null || source.Count == 0) return;
+        foreach (var (key, value) in source)
+            if (double.IsFinite(value)) target[key] = value;
+    }
+
+    private static void ApplyTexts(Dictionary<string, string>? source, Dictionary<string, string> target)
+    {
+        if (source is null || source.Count == 0) return;
+        foreach (var (key, value) in source)
+            if (value is not null) target[key] = value;
     }
 
     internal async void BtnRegenerateAuto_Click(object sender, RoutedEventArgs e)
@@ -174,25 +329,25 @@ public partial class PvStageWindow
             return Task.CompletedTask;
         }
 
+        _autoSeed = Math.Max(1, _autoSeed);
+        PushUndo();
+
         _autoGenerating = true;
         BtnGenerateAuto.IsEnabled = false;
         BtnRegenerateAuto.IsEnabled = false;
         BtnGenerateAuto.Content = L.T("生成中…");
         ShowStatus(L.F("{0}：正在重建原版引擎 Plan…", what));
 
-        _autoSeed = Math.Max(1, _autoSeed);
+        int keptEffects = _effects.Nodes.Count(n => IsUserOwned(n.Source, n.Locked));
+        int keptShots = _project.CameraTrack?.Shots.Count(s => s is not null && IsUserOwned(s.Source, s.Locked)) ?? 0;
+        int keptTrans = _project.DesignSegments.Count(seg => seg is not null
+            && seg.Track == DesignTrackKind.Trans && IsUserOwned(seg.Source, seg.Locked));
+
         try
         {
             _project.LegacySeed = unchecked(20260922 + _autoSeed * 104729);
             SyncLyricStylePicker();
             SyncPresetControls();
-
-            _effects.Nodes.Clear();
-            _project.CameraTrack ??= new CameraTrack();
-            _project.CameraTrack.Shots.Clear();
-            _project.DesignSegments.RemoveAll(seg => seg.Track == DesignTrackKind.Trans);
-            _evaluator = DirectorEvaluator.FromSaves(null, _project.CameraTrack, _project.LayerCameraTracks);
-            EffectsChanged();
 
             SaveProjectNow();
 
@@ -211,7 +366,8 @@ public partial class PvStageWindow
             TblAutoReport.Text =
                 L.F("原版引擎 · 第 {0} 版（种子 {1}）\n", _autoSeed, _project.LegacySeed)
                 + mapLine
-                + L.F("主题 {0} · 正在按原版 Plan 切点缝入角色运动 / 整体运镜 / 整体转场…", ThemeLabel(_project.LegacyStyle));
+                + L.F("主题 {0} · 正在重建自动运镜 / 整体转场…\n", ThemeLabel(_project.LegacyStyle))
+                + L.F("保留手改：效果 {0} · 运镜 {1} · 转场 {2}", keptEffects, keptShots, keptTrans);
             var legacyNote = L.F("{0}：已重排原版引擎 · 第 {1} 版 · 种子 {2} · 主题 {3}",
                 what, _autoSeed, _project.LegacySeed, ThemeLabel(_project.LegacyStyle));
             ShowStatus(legacyNote);

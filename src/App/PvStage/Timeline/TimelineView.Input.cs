@@ -21,6 +21,7 @@ public sealed partial class TimelineView
         if (e.ChangedButton == MouseButton.Right)
         {
             if (p.X < HeaderWidth && TryOpenTrackMenu(p)) return;
+            if (TryOpenLyricClipMenu(p)) return;
             if (TryOpenVtsCueMenu(p)) return;
             if (TryOpenDesignMenu(p)) return;
             if (OpenKeyMenu(p)) return;
@@ -29,6 +30,8 @@ public sealed partial class TimelineView
         }
         if (e.ChangedButton != MouseButton.Left) return;
         e.Handled = true;
+        _pressPoint = p;
+        _dragPastThreshold = false;
 
         if (p.Y >= RenderSize.Height - ScrollbarHeight)
         {
@@ -126,6 +129,25 @@ public sealed partial class TimelineView
             return;
         }
         var p = e.GetPosition(this);
+        if (!_dragPastThreshold)
+        {
+            var dx = Math.Abs(p.X - _pressPoint.X);
+            var dy = Math.Abs(p.Y - _pressPoint.Y);
+            if (dx < SystemParameters.MinimumHorizontalDragDistance
+                && dy < SystemParameters.MinimumVerticalDragDistance) return;
+            _dragPastThreshold = true;
+        }
+
+        if (_drag is not (DragMode.Pan or DragMode.VPan or DragMode.TrackResize))
+        {
+            const double edge = 24;
+            double scroll = 12 / Math.Max(1, _pixelsPerSecond);
+            if (p.X < HeaderWidth + edge) _viewStart -= scroll;
+            else if (p.X > RenderSize.Width - ScrollbarWidth - edge) _viewStart += scroll;
+            _viewStart = TimelineMath.ClampViewStart(
+                _viewStart, _pixelsPerSecond, ContentWidth, _snap?.DurationSeconds ?? 0);
+        }
+
         switch (_drag)
         {
             case DragMode.Scrub:
@@ -188,8 +210,14 @@ public sealed partial class TimelineView
             _dragTip = null;
             CommitTrackResize();
         }
+        else if (_drag == DragMode.Scrub)
+        {
+            _drag = DragMode.None;
+            ScrubEnded?.Invoke();
+        }
         else _drag = DragMode.None;
 
+        _dragPastThreshold = false;
         if (IsMouseCaptured) ReleaseMouseCapture();
         InvalidateVisual();
     }
@@ -198,6 +226,13 @@ public sealed partial class TimelineView
     {
         base.OnLostMouseCapture(e);
         if (_drag == DragMode.None) return;
+        if (_drag == DragMode.Scrub)
+        {
+            _drag = DragMode.None;
+            ScrubEnded?.Invoke();
+            InvalidateVisual();
+            return;
+        }
         if (_drag == DragMode.TrackResize)
         {
             _drag = DragMode.None;
@@ -220,6 +255,7 @@ public sealed partial class TimelineView
             seg.End = _segOriginEnd;
             _dragSegment = null;
             _dragTip = null;
+            _segDirty = false;
         }
         RestoreGesture();
         InvalidateVisual();
@@ -248,6 +284,7 @@ public sealed partial class TimelineView
         }
         else _viewStart -= e.Delta / 120.0 * ContentWidth * 0.15 / _pixelsPerSecond;
 
+        _followPlayhead = false;
         _viewStart = TimelineMath.ClampViewStart(_viewStart, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
         InvalidateVisual();
     }
@@ -279,6 +316,27 @@ public sealed partial class TimelineView
                 e.Handled = true;
                 break;
         }
+    }
+
+    private double SnapTime(double time, double grid, bool enabled)
+    {
+        if (!enabled) return time;
+        var gridTime = TimelineMath.Snap(time, grid, true);
+        var beats = _snap?.Beats;
+        if (beats is not { Count: > 0 }) return gridTime;
+
+        double best = gridTime;
+        double bestDistance = Math.Abs(gridTime - time);
+        double tolerance = Math.Max(0.05, grid * 2);
+        foreach (var beat in beats)
+        {
+            double distance = Math.Abs(beat - time);
+            if (distance >= bestDistance || distance > tolerance) continue;
+            best = beat;
+            bestDistance = distance;
+        }
+
+        return best;
     }
 
     private TDesignSegment? DesignSegmentAt(Row row, double time)
@@ -315,6 +373,7 @@ public sealed partial class TimelineView
         _segOriginStart = hit.Start;
         _segOriginEnd = hit.End;
         _segAnchorTime = time;
+        _segDirty = false;
 
         double x0 = HeaderWidth + TimelineMath.TimeToX(hit.Start, _viewStart, _pixelsPerSecond);
         double x1 = HeaderWidth + TimelineMath.TimeToX(hit.End, _viewStart, _pixelsPerSecond);
@@ -334,7 +393,11 @@ public sealed partial class TimelineView
         double delta = TimeAt(p.X - HeaderWidth) - _segAnchorTime;
         bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
         double step = TimelineMath.GridStep(_pixelsPerSecond, Fps);
-        if (snap) delta = Math.Round(delta / step) * step;
+        if (snap)
+        {
+            double anchor = _segResizeEnd ? _segOriginEnd : _segOriginStart;
+            delta = SnapTime(anchor + delta, step, true) - anchor;
+        }
 
         double duration = Math.Max(0, _snap.DurationSeconds);
         double minDur = Math.Max(0.05, step);
@@ -355,6 +418,9 @@ public sealed partial class TimelineView
             seg.End = start + length;
         }
 
+        _segDirty = _segDirty
+                    || Math.Abs(seg.Start - _segOriginStart) > TimelineMath.TimeEpsilon
+                    || Math.Abs(seg.End - _segOriginEnd) > TimelineMath.TimeEpsilon;
         _dragTip = $"{FormatTime(seg.Start)} – {FormatTime(seg.End)}";
         InvalidateVisual();
     }
@@ -364,7 +430,9 @@ public sealed partial class TimelineView
         var seg = _dragSegment;
         _dragSegment = null;
         _dragTip = null;
-        if (seg is null) return;
+        bool dirty = _segDirty;
+        _segDirty = false;
+        if (seg is null || !dirty) return;
         SegmentTimeEdited?.Invoke(seg, seg.Start, seg.End);
         InvalidateVisual();
     }
@@ -637,6 +705,7 @@ public sealed partial class TimelineView
         _selection.Clear();
         _drag = DragMode.Scrub;
         CaptureMouse();
+        ScrubStarted?.Invoke();
         RaiseSeek(TimeAt(x));
     }
 
@@ -701,14 +770,14 @@ public sealed partial class TimelineView
         if (_dragCue.Mode != VtsCueMode.Toggle)
         {
             double t = Math.Clamp(_dragCueStart + delta, 0, Math.Max(0, duration - 0.05));
-            if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, Math.Max(0, duration - 0.05));
+            if (snap) t = Math.Clamp(SnapTime(t, grid, true), 0, Math.Max(0, duration - 0.05));
             _dragCue.Time = t;
             _dragTip = $"{t:F2}s";
         }
         else if (_dragCueResizeStart)
         {
             double t = Math.Clamp(_dragCueStart + delta, 0, _dragCueStart + _dragCueDuration - minDur);
-            if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, _dragCueStart + _dragCueDuration - minDur);
+            if (snap) t = Math.Clamp(SnapTime(t, grid, true), 0, _dragCueStart + _dragCueDuration - minDur);
             _dragCue.Time = t;
             _dragCue.Duration = _dragCueStart + _dragCueDuration - t;
             _dragTip = $"{t:F2}s – {t + _dragCue.Duration:F2}s";
@@ -716,14 +785,14 @@ public sealed partial class TimelineView
         else if (_dragCueResizeEnd)
         {
             double end = Math.Clamp(_dragCueStart + _dragCueDuration + delta, _dragCueStart + minDur, duration);
-            if (snap) end = Math.Clamp(TimelineMath.Snap(end, grid, true), _dragCueStart + minDur, duration);
+            if (snap) end = Math.Clamp(SnapTime(end, grid, true), _dragCueStart + minDur, duration);
             _dragCue.Duration = end - _dragCueStart;
             _dragTip = $"{_dragCueStart:F2}s – {end:F2}s";
         }
         else
         {
             double t = Math.Clamp(_dragCueStart + delta, 0, Math.Max(0, duration - _dragCueDuration));
-            if (snap) t = Math.Clamp(TimelineMath.Snap(t, grid, true), 0, Math.Max(0, duration - _dragCueDuration));
+            if (snap) t = Math.Clamp(SnapTime(t, grid, true), 0, Math.Max(0, duration - _dragCueDuration));
             _dragCue.Time = t;
             _dragTip = $"{t:F2}s – {t + _dragCueDuration:F2}s";
         }
@@ -759,6 +828,19 @@ public sealed partial class TimelineView
         }
         _dragCue = null;
         _dragTip = null;
+    }
+
+    private bool TryOpenLyricClipMenu(Point p)
+    {
+        if (_snap is null || RowAt(p.Y) is not { Kind: RowKind.Lyrics }) return false;
+
+        double time = TimeAt(p.X - HeaderWidth);
+        double tolerance = TimelineMath.ClipEdgeHitPx / Math.Max(1, _pixelsPerSecond);
+        if (TimelineMath.HitClip(_snap.Lyrics, time, tolerance) is not { } hit) return false;
+
+        var clip = _snap.Lyrics[hit.Index];
+        LyricClipMenuRequested?.Invoke(hit.Index, clip.Start, clip.End, clip.Text);
+        return true;
     }
 
     private bool TryOpenVtsCueMenu(Point p)
@@ -906,7 +988,7 @@ public sealed partial class TimelineView
         {
             var curve = FindCurve(address);
             if (curve is null || index >= curve.Keys.Count) continue;
-            double time = Math.Max(0, TimelineMath.Snap(origin.TimeSeconds + dt, grid, snap));
+            double time = Math.Max(0, SnapTime(origin.TimeSeconds + dt, grid, snap));
             double value;
             if (curve.Address.Kind == ParamAddressKind.Vts && curve.Address.Param is "x" or "y")
             {
@@ -951,6 +1033,7 @@ public sealed partial class TimelineView
         double fraction = Math.Clamp((x - trackX - _hScrollGrab) / usable, 0, 1);
         double duration = Math.Max(_snap.DurationSeconds, TimelineMath.MinSecondsPerScreen);
         double visible = Math.Min(duration, trackW / _pixelsPerSecond);
+        _followPlayhead = false;
         _viewStart = TimelineMath.ClampViewStart(fraction * (duration - visible), _pixelsPerSecond, trackW, _snap.DurationSeconds);
         InvalidateVisual();
     }
@@ -970,7 +1053,7 @@ public sealed partial class TimelineView
     private void AddKeyAt(TCurve curve, double x)
     {
         bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
-        double time = TimelineMath.Snap(TimeAt(x), TimelineMath.KeyframeStep, snap);
+        double time = SnapTime(TimeAt(x), TimelineMath.KeyframeStep, snap);
         int existing = TimelineMath.IndexAtTime(curve.Keys, time);
         if (existing >= 0)
         {

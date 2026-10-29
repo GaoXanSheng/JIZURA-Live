@@ -13,6 +13,9 @@ public static class EffectGraphJson
     {
         public string DefId { get; set; } = "";
         public bool Enabled { get; set; } = true;
+        public EffectStage Stage { get; set; } = EffectStage.GlobalPost;
+        public EffectBlend Blend { get; set; } = EffectBlend.Normal;
+        public float Opacity { get; set; } = 1f;
 
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string? InstanceId { get; set; }
@@ -21,8 +24,8 @@ public static class EffectGraphJson
         public string? Target { get; set; }
 
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-        [DefaultValue("auto")]
-        public string Source { get; set; } = "auto";
+        [DefaultValue("user")]
+        public string Source { get; set; } = "user";
 
         [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
         [DefaultValue(false)]
@@ -50,9 +53,12 @@ public static class EffectGraphJson
             {
                 DefId = n.DefId,
                 Enabled = n.Enabled,
+                Stage = n.Stage,
+                Blend = n.Blend,
+                Opacity = n.Opacity,
                 InstanceId = string.IsNullOrEmpty(n.InstanceId) ? null : n.InstanceId,
                 Target = string.IsNullOrEmpty(n.Target) ? null : n.Target,
-                Source = string.IsNullOrEmpty(n.Source) ? "auto" : n.Source,
+                Source = string.IsNullOrEmpty(n.Source) ? "user" : n.Source,
                 Locked = n.Locked,
                 Values = n.Values.Count > 0 ? new Dictionary<string, float>(n.Values) : null,
                 Colors = n.Colors.Count > 0 ? new Dictionary<string, string>(n.Colors) : null,
@@ -74,14 +80,18 @@ public static class EffectGraphJson
         }
         catch (Exception ex)
         {
-            Log.Warn("[EffectGraph] 效果图 JSON 解析失败，按空图处理：" + ex.Message);
-            return graph;
+            throw new JsonSerializationException("效果图 JSON 解析失败：" + ex.Message, ex);
         }
 
-        if (dto?.Nodes is null) return graph;
+        if (dto is null) return graph;
+        if (dto.Version > CurrentVersion)
+            throw new JsonSerializationException(
+                $"效果图版本过新（{dto.Version} > {CurrentVersion}），本程序不识别");
+        if (dto.Nodes is null) return graph;
 
         foreach (var nd in dto.Nodes)
         {
+            if (nd is null) continue;
             var def = EffectCatalog.Get(nd.DefId);
             if (def is null)
             {
@@ -93,11 +103,14 @@ public static class EffectGraphJson
             {
                 DefId = nd.DefId,
                 Enabled = nd.Enabled,
+                Stage = nd.Stage,
+                Blend = nd.Blend,
+                Opacity = Math.Clamp(nd.Opacity, 0f, 1f),
                 InstanceId = string.IsNullOrEmpty(nd.InstanceId)
                     ? EffectGraph.NewInstanceId(nd.DefId)
                     : nd.InstanceId,
                 Target = nd.Target ?? "",
-                Source = string.IsNullOrEmpty(nd.Source) ? "auto" : nd.Source,
+                Source = string.IsNullOrEmpty(nd.Source) ? "user" : nd.Source,
                 Locked = nd.Locked,
             };
             if (nd.Values is not null)

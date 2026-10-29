@@ -37,6 +37,9 @@ internal static class TechniquePreview
         BitmapSource? result = null;
         try
         {
+            if (group == "trans" && TransitionCatalog.Get(key) is { } technique)
+                return PvTransitionPreview.Render(technique);
+
             lock (BootGate) EngineBoot.InstallPacks();
             if (!Supports(group, key)) return null;
 

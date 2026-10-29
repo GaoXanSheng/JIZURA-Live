@@ -60,8 +60,11 @@ public sealed partial class TimelineView : Control
     private double _viewStart;
     private double _pixelsPerSecond = 120;
     private bool _fitted;
+    private bool _followPlayhead = true;
     private DragMode _drag;
     private Point _dragOrigin;
+    private Point _pressPoint;
+    private bool _dragPastThreshold;
     private double _dragValuePerPixel;
     private string? _dragTip;
     private int _clipIndex = -1;
@@ -76,6 +79,7 @@ public sealed partial class TimelineView : Control
     private double _segAnchorTime;
     private bool _segResizeStart;
     private bool _segResizeEnd;
+    private bool _segDirty;
 
     public TimelineView()
     {
@@ -86,9 +90,24 @@ public sealed partial class TimelineView : Control
 
     public double Fps { get; set; } = 30;
 
-    public void SetPlayhead(double seconds)
+    public void SetPlayhead(double seconds, bool follow = false)
     {
         if (_snap is null) return;
+
+        if (follow)
+        {
+            double visible = Math.Max(0.1, ContentWidth / Math.Max(1, _pixelsPerSecond));
+            double right = _viewStart + visible;
+            bool outside = seconds < _viewStart || seconds > right;
+            if (!_followPlayhead && outside) _followPlayhead = true;
+
+            if (_followPlayhead && (seconds < _viewStart || seconds > right - visible * 0.03))
+            {
+                _viewStart = TimelineMath.ClampViewStart(
+                    seconds - visible * 0.15, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
+            }
+        }
+
         _snap.PlayheadSeconds = seconds;
         InvalidateVisual();
     }
@@ -98,6 +117,15 @@ public sealed partial class TimelineView : Control
         if (_snap is null) return;
         BuildRows();
         _scrollOffset = Math.Max(0, _trackTotalHeight - _trackViewHeight);
+        InvalidateVisual();
+    }
+
+    public void ResetView()
+    {
+        _fitted = false;
+        _viewStart = 0;
+        _pixelsPerSecond = 120;
+        _followPlayhead = true;
         InvalidateVisual();
     }
 
@@ -120,6 +148,12 @@ public sealed partial class TimelineView : Control
     }
 
     public event Action<double>? SeekRequested;
+
+    public event Action<int, double, double, string>? LyricClipMenuRequested;
+
+    public event Action? ScrubStarted;
+
+    public event Action? ScrubEnded;
 
     public event Action<TEdit>? EditCommitted;
 
@@ -489,6 +523,7 @@ public sealed partial class TimelineView : Control
 
     private void RaiseSeek(double seconds)
     {
+        _followPlayhead = true;
         double max = Math.Max(0, _snap?.DurationSeconds ?? 0);
         SeekRequested?.Invoke(Math.Clamp(seconds, 0, max));
     }
@@ -499,6 +534,7 @@ public sealed partial class TimelineView : Control
         _fitted = true;
         _pixelsPerSecond = contentWidth / Math.Max(_snap.DurationSeconds, TimelineMath.MinSecondsPerScreen);
         _viewStart = 0;
+        _followPlayhead = true;
     }
 
     private void BeginGesture(IEnumerable<ParamAddress> addresses)
@@ -533,6 +569,15 @@ public sealed partial class TimelineView : Control
 
     private void CancelGesture()
     {
+        if (_drag == DragMode.Design && _dragSegment is { } segment)
+        {
+            segment.Start = _segOriginStart;
+            segment.End = _segOriginEnd;
+            _dragSegment = null;
+            _segDirty = false;
+        }
+        if (_drag == DragMode.VtsCue) RestoreVtsCueDrag();
+        _dragPastThreshold = false;
         RestoreGesture();
         if (IsMouseCaptured) ReleaseMouseCapture();
         InvalidateVisual();
@@ -551,6 +596,7 @@ public sealed partial class TimelineView : Control
         _dragKeys.Clear();
         _dragTip = null;
         _drag = DragMode.None;
+        _dragPastThreshold = false;
     }
 
     private void RestoreClip()

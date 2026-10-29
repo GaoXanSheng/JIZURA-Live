@@ -1,6 +1,7 @@
 using System.IO;
 using JizuraLive.Engine;
 using JizuraLive.LegacyEngine;
+using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
 using SkiaSharp;
 
@@ -21,6 +22,16 @@ public sealed class LegacyPvOptions
     public bool StageCamera { get; set; } = true;
     public bool StageTransitions { get; set; } = true;
 
+    public int Fps { get; set; }
+
+    public bool Composite { get; set; }
+
+    public bool NoPost { get; set; }
+
+    public bool GpuRaster { get; set; }
+
+    public List<LegacyCutOverride>? CutOverrides { get; set; }
+
     public LegacyPresetSettings? Preset { get; set; }
 }
 
@@ -35,6 +46,7 @@ public sealed class LegacyPvPlanInfo
     public int Height { get; set; } = 1080;
     public List<double> Beats { get; set; } = new();
     public List<LegacyPvCutInfo> Cuts { get; set; } = new();
+    public List<LegacyPvEventInfo> Events { get; set; } = new();
 
     public static LegacyPvPlanInfo From(Plan plan)
     {
@@ -66,7 +78,11 @@ public sealed class LegacyPvPlanInfo
             {
                 Start = start,
                 End = end,
+                Line = cut.Line,
                 Dur = Math.Max(0.05, cut.Dur > 0 ? cut.Dur : end - start),
+                Text = cut.Text ?? "",
+                ZoneW = cut.Zone?.W ?? plan.W,
+                ZoneH = cut.Zone?.H ?? plan.H,
                 Cam = string.IsNullOrWhiteSpace(cut.Cam) ? "push" : cut.Cam,
                 Trans = string.IsNullOrWhiteSpace(cut.Trans) ? null : cut.Trans,
                 TransDur = cut.TransDur,
@@ -80,11 +96,33 @@ public sealed class LegacyPvPlanInfo
 
             CopyNumbers(cut.CamP, item.CamParams);
             CopyNumbers(cut.TransP, item.TransParams);
+            CopyNumbers(cut.Params, item.LayoutParams);
+            CopyNumbers(cut.TreatP, item.TreatParams);
+            CopyNumbers(cut.BgP, item.BgParams);
+            CopyStrings(cut.CamP, item.CamTexts);
+            CopyStrings(cut.Params, item.LayoutTexts);
+            CopyStrings(cut.TreatP, item.TreatTexts);
+            CopyStrings(cut.BgP, item.BgTexts);
             info.Cuts.Add(item);
         }
 
         info.Cuts.Sort((a, b) => a.Start.CompareTo(b.Start));
         if (info.Duration <= 0 && info.Cuts.Count > 0) info.Duration = info.Cuts[^1].End;
+
+        foreach (var ev in plan.Events)
+        {
+            if (ev is null || string.IsNullOrWhiteSpace(ev.Type)) continue;
+            if (!double.IsFinite(ev.T) || !double.IsFinite(ev.Amp) || !double.IsFinite(ev.Dur)) continue;
+            info.Events.Add(new LegacyPvEventInfo
+            {
+                T = Math.Max(0, ev.T),
+                Type = ev.Type,
+                Amp = ev.Amp,
+                Dur = Math.Max(0, ev.Dur),
+            });
+        }
+
+        info.Events.Sort((a, b) => a.T.CompareTo(b.T));
         return info;
     }
 
@@ -93,9 +131,60 @@ public sealed class LegacyPvPlanInfo
         if (obj is null) return;
         foreach (var p in obj.Properties())
         {
+            if (p.Value.Type == JTokenType.Boolean)
+            {
+                target[p.Name] = p.Value.Value<bool>() ? 1 : 0;
+                continue;
+            }
+
             if (p.Value.Type is not (JTokenType.Integer or JTokenType.Float)) continue;
             double v = p.Value.Value<double>();
             if (double.IsFinite(v)) target[p.Name] = v;
+        }
+    }
+
+    internal static void ReplaceNumbers(JObject? obj, Dictionary<string, double> target)
+    {
+        target.Clear();
+        CopyNumbers(obj, target);
+    }
+
+    private static void CopyStrings(JObject? obj, Dictionary<string, string> target)
+    {
+        if (obj is null) return;
+        foreach (var p in obj.Properties())
+        {
+            if (p.Value.Type is not JTokenType.String) continue;
+            target[p.Name] = p.Value.Value<string>() ?? "";
+        }
+    }
+
+    internal static void ReplaceStrings(JObject? obj, Dictionary<string, string> target)
+    {
+        target.Clear();
+        CopyStrings(obj, target);
+    }
+
+    internal static void ApplyStrings(JObject? target, Dictionary<string, string>? values)
+    {
+        if (target is null || values is null || values.Count == 0) return;
+        foreach (var (key, value) in values)
+            if (value is not null) target[key] = value;
+    }
+
+    internal static void ApplyNumbers(JObject? target, Dictionary<string, double>? values)
+    {
+        if (target is null || values is null || values.Count == 0) return;
+        foreach (var (key, value) in values)
+        {
+            if (!double.IsFinite(value)) continue;
+            var existing = target[key];
+            target[key] = existing?.Type switch
+            {
+                JTokenType.Integer => (long)Math.Round(value),
+                JTokenType.Boolean => value >= 0.5,
+                _ => value,
+            };
         }
     }
 
@@ -212,11 +301,23 @@ public sealed class LegacyPvPlanInfo
     }
 }
 
+public sealed class LegacyPvEventInfo
+{
+    public double T { get; set; }
+    public string Type { get; set; } = "";
+    public double Amp { get; set; }
+    public double Dur { get; set; }
+}
+
 public sealed class LegacyPvCutInfo
 {
     public double Start { get; set; }
     public double End { get; set; }
+    public int Line { get; set; } = -1;
     public double Dur { get; set; }
+    public string Text { get; set; } = "";
+    public int ZoneW { get; set; }
+    public int ZoneH { get; set; }
     public string Cam { get; set; } = "push";
     public string? Trans { get; set; }
     public double TransDur { get; set; }
@@ -229,6 +330,13 @@ public sealed class LegacyPvCutInfo
     public string? Source { get; set; }
     public Dictionary<string, double> CamParams { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, double> TransParams { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, double> LayoutParams { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, double> TreatParams { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, double> BgParams { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> LayoutTexts { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> TreatTexts { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> BgTexts { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, string> CamTexts { get; set; } = new(StringComparer.Ordinal);
 }
 
 public sealed class LegacyPvFrame
@@ -251,6 +359,7 @@ public sealed class LegacyPvEngine : IDisposable
     private SKSurface? _surface;
     private int _surfaceWidth;
     private int _surfaceHeight;
+    private GpuRasterHost? _gpuHost;
 
     public string? Error { get; }
     public int CutCount => _plan.Cuts.Count;
@@ -282,7 +391,7 @@ public sealed class LegacyPvEngine : IDisposable
                 Seed = (uint)Math.Max(1, seed),
                 Aspect = AspectOf(_designWidth, _designHeight),
                 Res = Math.Min(_designWidth, _designHeight),
-                Fps = 24,
+                Fps = Math.Clamp(fps, 1, 240),
                 Fx = new FxSettings(),
                 Timing = new TimingSettings(),
                 Lang = "auto",
@@ -310,7 +419,7 @@ public sealed class LegacyPvEngine : IDisposable
     }
 
     public LegacyPvFrame? Render(double time, int? width = null, bool fast = false, bool noCutTrans = false,
-        string? layer = null, bool transparent = false, bool noCamera = false)
+        string? layer = null, bool transparent = false, bool noCamera = false, bool noPost = false)
     {
         if (Error is not null) return null;
         var w = Math.Max(16, width ?? _designWidth);
@@ -327,19 +436,51 @@ public sealed class LegacyPvEngine : IDisposable
             _surfaceHeight = h;
         }
 
+        var opts = new RenderOpts
+        {
+            Scale = scale,
+            Fast = fast,
+            NoGhost = fast,
+            NoCutTrans = noCutTrans,
+            Layer = layer,
+            Transparent = transparent,
+            NoCamera = noCamera,
+            NoPost = noPost,
+        };
+
+        if (_gpuHost is { } gpuHost)
+        {
+            try
+            {
+                gpuHost.Enter();
+                try
+                {
+                    using var gpuSurface = gpuHost.CreateGpuSurface(w, h);
+                    _renderer.Frame(gpuSurface.Canvas, _plan, Math.Max(0, time), opts);
+                    gpuSurface.Canvas.Flush();
+                    using var image = gpuSurface.Snapshot();
+                    using var bitmap = new SKBitmap(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
+                    if (!image.ReadPixels(bitmap.Info, bitmap.GetPixels(), bitmap.RowBytes, 0, 0))
+                        throw new InvalidOperationException("GPU 读回失败");
+                    var gpuBytes = new byte[w * h * 4];
+                    System.Runtime.InteropServices.Marshal.Copy(bitmap.GetPixels(), gpuBytes, 0, gpuBytes.Length);
+                    return new LegacyPvFrame { Bgra = gpuBytes, Width = w, Height = h };
+                }
+                finally
+                {
+                    gpuHost.Exit();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("[PV/原版引擎] GPU 同步渲染失败，回退 CPU：" + ex.Message);
+                UseCpu();
+            }
+        }
+
         lock (EngineRenderGate.Lock)
         {
-            _renderer.Frame(_surface.Canvas, _plan, Math.Max(0, time),
-                new RenderOpts
-                {
-                    Scale = scale,
-                    Fast = fast,
-                    NoGhost = fast,
-                    NoCutTrans = noCutTrans,
-                    Layer = layer,
-                    Transparent = transparent,
-                    NoCamera = noCamera,
-                });
+            _renderer.Frame(_surface.Canvas, _plan, Math.Max(0, time), opts);
             _surface.Canvas.Flush();
         }
 
@@ -348,16 +489,21 @@ public sealed class LegacyPvEngine : IDisposable
         return new LegacyPvFrame { Bgra = bytes, Width = w, Height = h };
     }
 
-    public void UseGpu(GpuRasterHost host) => _renderer.SurfaceFactory = host.CreateGpuSurface;
+    public void UseGpu(GpuRasterHost host)
+    {
+        _gpuHost = host;
+        _renderer.SurfaceFactory = host.CreateGpuSurface;
+    }
 
     public void UseCpu()
     {
+        _gpuHost = null;
         _renderer.SurfaceFactory = null;
         _renderer.ClearFrameCache();
     }
 
-    public void RenderTo(GpuSurface target, double time, bool noCutTrans, string layer, bool transparent,
-        bool noCamera)
+    public void RenderTo(GpuSurface target, double time, bool noCutTrans, string? layer, bool transparent,
+        bool noCamera, bool noPost = false)
     {
         if (Error is not null) return;
         var scale = target.Width / (double)_plan.W;
@@ -373,6 +519,7 @@ public sealed class LegacyPvEngine : IDisposable
                     Layer = layer,
                     Transparent = transparent,
                     NoCamera = noCamera,
+                    NoPost = noPost,
                 });
         }
     }
@@ -398,15 +545,105 @@ public sealed class LegacyPvEngine : IDisposable
             foreach (var cut in _plan.Cuts)
             {
                 if (!byStart.TryGetValue(Math.Round(cut.Start, 3), out var item)) continue;
-                if (!string.IsNullOrWhiteSpace(item.Layout)) cut.Layout = item.Layout;
+
+                if (!string.IsNullOrWhiteSpace(item.Layout))
+                {
+                    var changed = !string.Equals(cut.Layout, item.Layout, StringComparison.Ordinal);
+                    cut.Layout = item.Layout;
+                    if (changed && TryReplanLayout(cut, item))
+                    {
+                        LegacyPvPlanInfo.ReplaceNumbers(cut.Params, item.LayoutParams);
+                        LegacyPvPlanInfo.ReplaceStrings(cut.Params, item.LayoutTexts);
+                    }
+                    else
+                    {
+                        if (item.LayoutParams.Count == 0)
+                            LegacyPvPlanInfo.ReplaceNumbers(cut.Params, item.LayoutParams);
+                        if (item.LayoutTexts.Count == 0)
+                            LegacyPvPlanInfo.ReplaceStrings(cut.Params, item.LayoutTexts);
+                    }
+                }
+
                 if (!string.IsNullOrWhiteSpace(item.Enter)) cut.Enter = item.Enter;
                 if (!string.IsNullOrWhiteSpace(item.Exit)) cut.Exit = item.Exit;
-                cut.Treat = string.IsNullOrWhiteSpace(item.Treat) ? "none" : item.Treat;
+
+                var treat = string.IsNullOrWhiteSpace(item.Treat) ? "none" : item.Treat;
+                if (!string.Equals(cut.Treat, treat, StringComparison.Ordinal))
+                {
+                    cut.Treat = treat;
+                    ReplanTreat(cut);
+                    LegacyPvPlanInfo.ReplaceNumbers(cut.TreatP, item.TreatParams);
+                    LegacyPvPlanInfo.ReplaceStrings(cut.TreatP, item.TreatTexts);
+                }
+                else
+                {
+                    if (item.TreatParams.Count == 0)
+                        LegacyPvPlanInfo.ReplaceNumbers(cut.TreatP, item.TreatParams);
+                    if (item.TreatTexts.Count == 0)
+                        LegacyPvPlanInfo.ReplaceStrings(cut.TreatP, item.TreatTexts);
+                }
+
+                ApplyNumbers(cut.CamP, item.CamParams);
+                ApplyNumbers(cut.Params, item.LayoutParams);
+                ApplyNumbers(cut.TreatP, item.TreatParams);
+                ApplyNumbers(cut.BgP, item.BgParams);
+                LegacyPvPlanInfo.ApplyStrings(cut.CamP, item.CamTexts);
+                LegacyPvPlanInfo.ApplyStrings(cut.Params, item.LayoutTexts);
+                LegacyPvPlanInfo.ApplyStrings(cut.TreatP, item.TreatTexts);
+                LegacyPvPlanInfo.ApplyStrings(cut.BgP, item.BgTexts);
             }
 
             _renderer.ClearFrameCache();
         }
     }
+
+    private bool TryReplanLayout(Cut cut, LegacyPvCutInfo item)
+    {
+        if (!Reg.Layouts.TryGetValue(cut.Layout, out var def) || def.Plan is null) return false;
+
+        var text = string.IsNullOrEmpty(item.Text) ? cut.Text : item.Text;
+        var ctx = new LayoutCtx
+        {
+            Text = text,
+            N = JLayouts.CpLen(text),
+            W = item.ZoneW > 0 ? item.ZoneW : _plan.W,
+            H = item.ZoneH > 0 ? item.ZoneH : _plan.H,
+            Dur = item.Dur > 0 ? item.Dur : cut.Dur,
+        };
+
+        try
+        {
+            var rng = new Rng(unchecked(cut.Seed ^ 0x9E3779B9u));
+            cut.Params = def.Plan(rng, ctx, _plan.Style ?? new StyleDef()) ?? new JObject();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ReplanTreat(Cut cut)
+    {
+        if (!Reg.Treat.TryGetValue(cut.Treat, out var def) || def.Plan is null)
+        {
+            cut.TreatP = new JObject();
+            return;
+        }
+
+        try
+        {
+            var rng = new Rng(unchecked(cut.Seed ^ 0x85EBCA6Bu));
+            cut.TreatP = def.Plan(rng, _plan.Style ?? new StyleDef()) ?? new JObject();
+        }
+        catch
+        {
+            cut.TreatP = new JObject();
+        }
+    }
+
+    private static void ApplyNumbers(JObject? target, Dictionary<string, double>? values) =>
+        LegacyPvPlanInfo.ApplyNumbers(target, values);
 
     private static AudioData BuildAudio(string audioPath)
     {

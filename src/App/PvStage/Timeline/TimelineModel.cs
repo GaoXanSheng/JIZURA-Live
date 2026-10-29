@@ -61,6 +61,8 @@ public sealed class TVtsCueTrack
     public List<TVtsCue> Cues = new();
 }
 
+public readonly record struct TSection(double Start, double End, string Kind);
+
 public sealed class TSnapshot
 {
     public double DurationSeconds;
@@ -69,6 +71,8 @@ public sealed class TSnapshot
     public List<TClip> Lyrics = new();
     public List<TDesignTrack> DesignTracks = new();
     public List<TVtsCueTrack> VtsCueTracks = new();
+    public List<double> Beats = new();
+    public List<TSection> Sections = new();
 
     public HashSet<string> CollapsedTracks = new(StringComparer.Ordinal);
 

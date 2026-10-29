@@ -1,4 +1,6 @@
+using System.Globalization;
 using JizuraLive.Engine;
+using JizuraLive.Render.Effects;
 
 namespace JizuraLive.Pv;
 
@@ -14,8 +16,12 @@ public sealed class AutoReport
 {
     public int CameraShots;
 
-    public int CharacterKeys;
     public int TransSegments;
+
+    public int EffectNodes;
+
+    public int EffectWindows;
+
     public List<string> Notes = new();
 }
 
@@ -29,8 +35,23 @@ public static partial class AutoDirector
 
     private static bool IsUser(string? source) => string.Equals(source, "user", StringComparison.OrdinalIgnoreCase);
 
+    public static string AutoCamKey(double start) => "cam:" + start.ToString("F3", CultureInfo.InvariantCulture);
+
+    public static string AutoTransKey(double start) => "trans:at:" + start.ToString("F3", CultureInfo.InvariantCulture);
+
+    public static string AutoTransKey(DesignSegment seg)
+    {
+        var id = string.IsNullOrWhiteSpace(seg.RefId)
+            ? seg.Start.ToString("F3", CultureInfo.InvariantCulture)
+            : seg.RefId!;
+        return "trans:" + id;
+    }
+
+    private static bool IsDeleted(DirectorProject project, string key) =>
+        project.EditorLayout?.DeletedAutoIds?.Contains(key) == true;
+
         public static AutoReport GenerateLegacyStage(DirectorProject project, LegacyPvPlanInfo plan,
-        BeatMap? map, AutoOptions options)
+        BeatMap? map, AutoOptions options, bool legacyComposite)
     {
         ArgumentNullException.ThrowIfNull(project);
         ArgumentNullException.ThrowIfNull(plan);
@@ -40,9 +61,9 @@ public static partial class AutoDirector
         project.Curves ??= new List<CurveSave>();
 
         var report = new AutoReport();
-        double intensity = double.IsFinite(options.Intensity) ? Math.Clamp(options.Intensity, 0.0, 1.0) : 0.6;
-        string style = (options.Style ?? "dynamic").Trim().ToLowerInvariant();
-        if (style is not ("soft" or "dynamic" or "epic")) style = "dynamic";
+        options.Intensity = double.IsFinite(options.Intensity) ? Math.Clamp(options.Intensity, 0.0, 1.0) : 0.6;
+        options.Style = (options.Style ?? "dynamic").Trim().ToLowerInvariant();
+        if (options.Style is not ("soft" or "dynamic" or "epic")) options.Style = "dynamic";
 
         var preservedShots = CleanupPreviousGeneration(project);
 
@@ -54,10 +75,139 @@ public static partial class AutoDirector
         if (project.LegacyStageTransitions)
             BuildLegacyTransitions(project, plan, report);
 
-        report.Notes.Add($"原版引擎舞台层: Style={style}, Seed={options.Seed}, "
-                         + $"CameraShots={report.CameraShots}, CharacterKeys={report.CharacterKeys}, "
-                         + $"TransSegments={report.TransSegments}");
+        BuildAutoEffects(project, plan, report, legacyComposite);
+
+        report.Notes.Add($"原版引擎舞台层: Style={options.Style}, Seed={options.Seed}, "
+                         + $"CameraShots={report.CameraShots}, TransSegments={report.TransSegments}, "
+                         + $"EffectNodes={report.EffectNodes}, EffectWindows={report.EffectWindows}");
         return report;
+    }
+
+    private static readonly Dictionary<string, string> AutoEffectMap = new(StringComparer.Ordinal)
+    {
+        ["chroma"] = "chromatic",
+        ["radialChroma"] = "chromatic",
+        ["shake"] = "shake",
+        ["slice"] = "slice",
+        ["block"] = "glitch",
+        ["macroBlock"] = "glitch",
+        ["pixelSort"] = "glitch",
+        ["colorBars"] = "glitch",
+        ["tvStatic"] = "grain",
+        ["flash"] = "flash",
+        ["bloomFlash"] = "bloom",
+        ["snapshot"] = "flash",
+        ["zoom"] = "zoomPunch",
+        ["zoomStutter"] = "zoomPunch",
+        ["heartbeat"] = "zoomPunch",
+        ["squash"] = "zoomPunch",
+        ["rotateSnap"] = "zoomPunch",
+        ["mosaic"] = "posterize",
+        ["ditherBit"] = "posterize",
+        ["edgeDetect"] = "posterize",
+        ["negativeRing"] = "duotone",
+        ["duotone"] = "duotone",
+        ["bulge"] = "liquid",
+        ["ripple"] = "liquid",
+        ["defocus"] = "motionBlur",
+        ["echoFrames"] = "motionBlur",
+        ["loopScroll"] = "motionBlur",
+        ["interlace"] = "scanline",
+        ["scanBar"] = "scanline",
+        ["filmAdvance"] = "grain",
+        ["dustScratches"] = "grain",
+        ["focusLines"] = "speedLines",
+        ["speedLines"] = "speedLines",
+        ["lightRays"] = "lightRays",
+        ["anamorphic"] = "lightRays",
+        ["starGlint"] = "lightRays",
+        ["shatter"] = "glassShatter",
+        ["halftone"] = "halftone",
+    };
+
+    private static void BuildAutoEffects(DirectorProject project, LegacyPvPlanInfo plan, AutoReport report,
+        bool legacyComposite)
+    {
+        if (legacyComposite)
+        {
+            report.Notes.Add("原版合成层开启：事件特效由原版引擎绘制，不复制到 GPU 效果图");
+            return;
+        }
+
+        var groups = new Dictionary<string, List<LegacyPvEventInfo>>(StringComparer.Ordinal);
+        foreach (var ev in plan.Events)
+        {
+            if (ev is null || !AutoEffectMap.TryGetValue(ev.Type, out var defId)) continue;
+            if (!groups.TryGetValue(defId, out var list))
+                groups[defId] = list = new List<LegacyPvEventInfo>();
+            list.Add(ev);
+        }
+
+        foreach (var (defId, events) in groups)
+        {
+            var autoId = AutoPrefix + defId;
+            if (IsDeleted(project, "fx:" + autoId)) continue;
+
+            var node = project.Effects.Nodes.FirstOrDefault(n =>
+                n is not null && string.Equals(n.InstanceId, autoId, StringComparison.Ordinal));
+            if (node is not null && (IsUser(node.Source) || node.Locked)) continue;
+
+            if (node is null)
+            {
+                node = new EffectNode
+                {
+                    DefId = defId,
+                    InstanceId = autoId,
+                    Target = "",
+                    Source = "auto",
+                };
+                project.Effects.Nodes.Add(node);
+            }
+            else
+            {
+                node.Windows.Clear();
+                node.Values.Clear();
+                node.Colors.Clear();
+            }
+
+            var windows = new List<EffectWindow>();
+            foreach (var ev in events)
+            {
+                var duration = ev.Dur > 0.01 ? ev.Dur : 0.25;
+                var start = Math.Max(0, ev.T - Math.Min(0.05, duration * 0.2));
+                var end = ev.T + duration;
+                if (end - start < 0.05) continue;
+
+                var fadeIn = Math.Min(0.08, (end - start) * 0.35);
+                var fadeOut = Math.Min(0.12, (end - start) * 0.45);
+                var gain = Math.Clamp(0.6 + 0.35 * ev.Amp, 0.6, 1.8);
+                var window = new EffectWindow(start, end, fadeIn, fadeOut) { Gain = gain };
+                if (window.IsValid) windows.Add(window);
+            }
+
+            windows.Sort((a, b) => a.Start.CompareTo(b.Start));
+            var merged = new List<EffectWindow>(windows.Count);
+            foreach (var window in windows)
+            {
+                if (merged.Count > 0 && window.Start <= merged[^1].End + 0.02)
+                {
+                    var last = merged[^1];
+                    merged[^1] = new EffectWindow(last.Start, Math.Max(last.End, window.End),
+                        last.FadeIn, window.FadeOut)
+                    {
+                        Gain = Math.Max(last.Gain, window.Gain),
+                    };
+                }
+                else
+                {
+                    merged.Add(window);
+                }
+            }
+
+            foreach (var window in merged) node.Windows.Add(window);
+            report.EffectNodes++;
+            report.EffectWindows += merged.Count;
+        }
     }
 
     private static void BuildLegacyTransitions(DirectorProject project, LegacyPvPlanInfo plan, AutoReport report)
@@ -66,6 +216,7 @@ public static partial class AutoDirector
         foreach (var seg in plan.ToStageTransitions())
         {
             if (!seen.Add(Math.Round(seg.Start, 3))) continue;
+            if (IsDeleted(project, AutoTransKey(seg.Start)) || IsDeleted(project, AutoTransKey(seg))) continue;
             double dur = seg.End - seg.Start;
             if (TransitionsLockedNear(project, seg.Start, dur)) continue;
             project.DesignSegments.Add(seg);
@@ -78,7 +229,7 @@ public static partial class AutoDirector
             if (TransitionsLockedNear(project, start, dur)) continue;
 
             var cut = plan.Cuts.FirstOrDefault(c => Math.Abs(c.Start - start) < 0.08);
-            project.DesignSegments.Add(new DesignSegment
+            var segment = new DesignSegment
             {
                 Track = DesignTrackKind.Trans,
                 Start = start,
@@ -90,12 +241,13 @@ public static partial class AutoDirector
                 Seed = cut?.Seed ?? 0,
                 Source = "auto",
                 RefId = $"legacy_switch_{start:F2}",
-            });
+            };
+            if (IsDeleted(project, AutoTransKey(start)) || IsDeleted(project, AutoTransKey(segment))) continue;
+            project.DesignSegments.Add(segment);
         }
 
         project.DesignSegments.Sort((a, b) => a.Start.CompareTo(b.Start));
-        report.TransSegments = project.DesignSegments.Count(seg => seg.Track == DesignTrackKind.Trans
-            && !(IsUser(seg.Source) || seg.Locked));
+        report.TransSegments = project.DesignSegments.Count(seg => seg.Track == DesignTrackKind.Trans);
     }
 
     private static IEnumerable<double> SwitchTimes(DirectorProject project, LegacyPvPlanInfo plan)

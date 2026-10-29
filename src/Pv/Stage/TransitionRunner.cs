@@ -286,6 +286,13 @@ public sealed class TransitionRunner : IDisposable
     private static double DirPick(CameraRng rng, double wl, double wr, double wu, double wd) =>
         rng.WPick(new (double V, double W)[] { (0, wl), (1, wr), (2, wu), (3, wd) });
 
+    public static Dictionary<string, double> Defaults(string? id, int seed)
+    {
+        var pars = new TransitionParams { Seed = seed };
+        if (id is not null) ApplyPlan(id, pars);
+        return new Dictionary<string, double>(pars.Values, StringComparer.Ordinal);
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

@@ -39,7 +39,9 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{commondesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{localappdata}\JizuraLivePV"
+Type: filesandordirs; Name: "{localappdata}\JizuraLivePV\logs"
+Type: filesandordirs; Name: "{localappdata}\JizuraLivePV\cache"
+Type: filesandordirs; Name: "{localappdata}\JizuraLivePV\cloud"
 
 [Code]
 #include "build.cache-clean.iss"

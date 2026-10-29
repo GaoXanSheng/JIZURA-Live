@@ -10,6 +10,7 @@ public static class ShaderSources
                 ? normalize(uv - float2(PARAM(0, y), PARAM(0, z)) + 1e-6)
                 : float2(1, 0);
             float2 off = dir * PARAM(0, x) / max(PARAM(15, y), 1.0);
+            off.y *= max(PARAM(15, w), 0.01);
             float4 c = Tex.Sample(Smp, uv);
             float r = Tex.Sample(Smp, uv + off).r;
             float b = Tex.Sample(Smp, uv - off).b;
@@ -145,7 +146,8 @@ public static class ShaderSources
             for (int k = 0; k < 16; k++)
             {
                 float ang = 6.2831853 * k / 16.0;
-                float2 off = float2(cos(ang), sin(ang)) * radius * (0.4 + 0.6 * frac(k * 0.618));
+                float2 off = float2(cos(ang), sin(ang) * max(PARAM(15, w), 0.01))
+                             * radius * (0.4 + 0.6 * frac(k * 0.618));
                 float4 s = Tex.Sample(Smp, i.uv + off);
                 float3 srgb = s.rgb / max(s.a, 1e-4);
                 float l = dot(srgb, float3(0.299, 0.587, 0.114));
@@ -276,6 +278,58 @@ public static class ShaderSources
         }
         """;
 
+    public const string Blend = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float4 a = Tex.Sample(Smp, i.uv);
+            float4 b = Tex1.Sample(Smp, i.uv);
+            float mode = PARAM(0, x);
+            float opacity = saturate(PARAM(0, y));
+            float3 ar = a.rgb / max(a.a, 1e-4);
+            float3 br = b.rgb / max(b.a, 1e-4);
+            float3 r;
+            if (mode < 0.5) r = ar;
+            else if (mode < 1.5) r = br + ar;
+            else if (mode < 2.5) r = 1.0 - (1.0 - br) * (1.0 - ar);
+            else if (mode < 3.5) r = br * ar;
+            else
+            {
+                float3 lo = 2.0 * br * ar;
+                float3 hi = 1.0 - 2.0 * (1.0 - br) * (1.0 - ar);
+                r = lerp(lo, hi, step(0.5, br));
+            }
+            float alpha = lerp(b.a, max(a.a, b.a), opacity);
+            float3 rgb = lerp(br, r, opacity);
+            return float4(saturate(rgb) * alpha, alpha);
+        }
+        """;
+
+    public const string AudioPulse = """
+        float4 PSMain(VSOut i) : SV_Target
+        {
+            float amount = saturate(PARAM(0, x));
+            float zoom = PARAM(0, y);
+            float glow = PARAM(0, z);
+            float lowGain = PARAM(0, w);
+            float highGain = PARAM(1, x);
+            float bass = saturate(PARAM(14, x));
+            float mid = saturate(PARAM(14, y));
+            float high = saturate(PARAM(14, z));
+            float rms = saturate(PARAM(14, w));
+            float e = saturate(bass * lowGain + mid * 0.6 + high * highGain + rms * 0.5);
+            float2 uv = (i.uv - 0.5) / max(1.0 + e * zoom * 0.12, 0.01) + 0.5;
+            float4 c = Tex.Sample(Smp, uv);
+            float3 baseRgb = c.rgb / max(c.a, 1e-4);
+            float split = e * high * 0.006;
+            float4 sr = Tex.Sample(Smp, uv + float2(split, 0));
+            float4 sb = Tex.Sample(Smp, uv - float2(split, 0));
+            float3 rgb = float3(sr.r / max(sr.a, 1e-4), baseRgb.g, sb.b / max(sb.a, 1e-4))
+                       * (1.0 + e * glow * 0.8);
+            rgb = lerp(baseRgb, rgb, amount);
+            return float4(saturate(rgb) * c.a, c.a);
+        }
+        """;
+
     public const string BloomBright = """
         float4 PSMain(VSOut i) : SV_Target
         {
@@ -334,7 +388,8 @@ public static class ShaderSources
         float4 PSMain(VSOut i) : SV_Target
         {
             float a = radians(PARAM(0, y));
-            float2 dir = float2(cos(a), sin(a)) * PARAM(0, x) / max(PARAM(15, y), 1.0);
+            float2 dir = float2(cos(a), sin(a) * max(PARAM(15, w), 0.01))
+                         * PARAM(0, x) / max(PARAM(15, y), 1.0);
             float4 acc = 0;
             for (int k = 0; k < 12; k++)
             {

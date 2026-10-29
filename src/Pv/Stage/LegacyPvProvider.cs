@@ -34,13 +34,19 @@ public sealed class LegacyPvProvider : IDisposable
     private readonly Part _frontLayout;
     private readonly Part _frontDecor;
     private readonly Part _frontHud;
-    private readonly Part[] _parts;
+    private readonly Part _composite;
+    private readonly Part[] _splitParts;
+    private readonly Part[] _allParts;
+    private readonly Part[] _compositeParts;
+
+    private volatile bool _compositeMode;
 
     private volatile bool _running = true;
     private volatile int _cutCount;
     private volatile string? _error;
     private volatile LegacyPvPlanInfo? _planInfo;
     private LegacyPvEngine? _syncEngine;
+    private GpuRasterHost? _syncGpuHost;
     private LegacyPvPlanInfo? _pendingCutOverrides;
     private GpuRasterHost? _gpuHost;
     private volatile bool _gpuMode;
@@ -50,6 +56,8 @@ public sealed class LegacyPvProvider : IDisposable
 
         public double LastRenderMs { get; private set; }
 
+    public string? Error => _error;
+
     public bool GpuMode => _gpuMode;
 
     public string Id { get; }
@@ -58,13 +66,27 @@ public sealed class LegacyPvProvider : IDisposable
     public IPvLayerProvider FrontLayout { get; }
     public IPvLayerProvider FrontDecor { get; }
     public IPvLayerProvider FrontHud { get; }
+    public IPvLayerProvider Composite { get; }
+
+    public bool CompositeMode
+    {
+        get => _compositeMode;
+        set => _compositeMode = value;
+    }
+
     public int CutCount => _cutCount;
     public LegacyPvPlanInfo? PlanInfo => _planInfo;
     public event Action<LegacyPvPlanInfo>? PlanReady;
 
+    private Part[] ActiveParts => _compositeMode ? _compositeParts : _splitParts;
+
+    private static string? LayerOf(Part part) => part.Layer.Length == 0 ? null : part.Layer;
+
         public volatile bool NoCutTrans;
 
         public volatile bool NoCamera;
+
+        public volatile bool NoPost;
 
     public LegacyPvProvider(string id, D3DDevice gpu, ID2D1DeviceContext ctx,
         LegacyPvOptions options, int designWidth, int designHeight, int fps, int renderWidth)
@@ -76,22 +98,28 @@ public sealed class LegacyPvProvider : IDisposable
         _designWidth = designWidth;
         _designHeight = designHeight;
         _fps = fps;
-        _renderWidth = Math.Max(320, renderWidth);
+        _renderWidth = Math.Max(1, renderWidth);
         NoCutTrans = options.NoCutTrans;
         NoCamera = options.StageCamera;
+        NoPost = options.NoPost;
+        _compositeMode = options.Composite;
 
         _back = new Part(BackId, "back", transparent: false, "legacy_back");
         _front = new Part(FrontId, "front_text", transparent: true, "legacy_front_text");
         _frontLayout = new Part(FrontLayoutId, "front_layout", transparent: true, "legacy_front_layout");
         _frontDecor = new Part(FrontDecorId, "front_decor", transparent: true, "legacy_front_decor");
         _frontHud = new Part(FrontHudId, "front_hud", transparent: true, "legacy_front_hud");
-        _parts = [_back, _frontLayout, _front, _frontDecor, _frontHud];
+        _composite = new Part(BackId, "", transparent: false, "legacy_composite");
+        _splitParts = [_back, _frontLayout, _front, _frontDecor, _frontHud];
+        _allParts = [_back, _frontLayout, _front, _frontDecor, _frontHud, _composite];
+        _compositeParts = [_composite];
 
         Back = new LayerProvider(this, _back);
         Front = new LayerProvider(this, _front);
         FrontLayout = new LayerProvider(this, _frontLayout);
         FrontDecor = new LayerProvider(this, _frontDecor);
         FrontHud = new LayerProvider(this, _frontHud);
+        Composite = new LayerProvider(this, _composite);
 
         if (options.Synchronous)
         {
@@ -100,6 +128,19 @@ public sealed class LegacyPvProvider : IDisposable
             _cutCount = _syncEngine.CutCount;
             _error = _syncEngine.Error;
             _planInfo = _syncEngine.PlanInfo;
+            if (options.GpuRaster && _error is null)
+            {
+                try
+                {
+                    _syncGpuHost = GpuRasterHost.Create(_gpu.Device, _gpu.AdapterName);
+                    _syncEngine.UseGpu(_syncGpuHost);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[PV/原版引擎] 导出 GPU 光栅不可用，回退 CPU：" + ex.Message);
+                    _syncGpuHost = null;
+                }
+            }
             _thread = new Thread(() => { });
             return;
         }
@@ -138,6 +179,9 @@ public sealed class LegacyPvProvider : IDisposable
                 Enter = cut.Enter,
                 Exit = cut.Exit,
                 Treat = cut.Treat,
+                LayoutParams = new Dictionary<string, double>(cut.LayoutParams, StringComparer.Ordinal),
+                TreatParams = new Dictionary<string, double>(cut.TreatParams, StringComparer.Ordinal),
+                BgParams = new Dictionary<string, double>(cut.BgParams, StringComparer.Ordinal),
             });
         }
 
@@ -154,7 +198,7 @@ public sealed class LegacyPvProvider : IDisposable
             {
                 var sw = Stopwatch.StartNew();
                 var rendered = _syncEngine.Render(ctx.Time, _renderWidth, false, NoCutTrans,
-                    part.Layer, part.Transparent, NoCamera);
+                    LayerOf(part), part.Transparent, NoCamera, NoPost);
                 sw.Stop();
                 LastRenderMs = sw.Elapsed.TotalMilliseconds;
                 if (rendered is not null)
@@ -262,7 +306,7 @@ public sealed class LegacyPvProvider : IDisposable
                     var info = engine.PlanInfo;
                     var w = _renderWidth;
                     var h = Math.Max(1, (int)Math.Round(info.Height * (w / (double)Math.Max(1, info.Width))));
-                    foreach (var part in _parts)
+                    foreach (var part in ActiveParts)
                     {
                         var gpu = new GpuLayer(host, part.GpuKey, w, h);
                         if (gpu.Frames[0].Surface.DxgiFormat != (int)Format.B8G8R8A8_UNorm)
@@ -278,7 +322,7 @@ public sealed class LegacyPvProvider : IDisposable
                 {
                     Log.Warn("[PV/原版引擎] GPU 光栅初始化失败，回退 CPU：" + ex.Message);
                     _gpuMode = false;
-                    foreach (var part in _parts)
+                    foreach (var part in _allParts)
                     {
                         part.Gpu?.DisposeBitmaps();
                         part.Gpu = null;
@@ -335,10 +379,10 @@ public sealed class LegacyPvProvider : IDisposable
 
     private bool RenderCpuFrame(LegacyPvEngine engine, double time)
     {
-        foreach (var part in _parts)
+        foreach (var part in ActiveParts)
         {
             var frame = engine.Render(time, _renderWidth, false, NoCutTrans,
-                part.Layer, part.Transparent, NoCamera);
+                LayerOf(part), part.Transparent, NoCamera);
             if (frame is null) return false;
 
             lock (_frameGate)
@@ -353,14 +397,14 @@ public sealed class LegacyPvProvider : IDisposable
 
     private bool RenderGpuFrame(LegacyPvEngine engine, double time)
     {
-        foreach (var part in _parts)
+        foreach (var part in ActiveParts)
         {
-            var layer = part.Gpu;
+            var layer = EnsureGpuLayer(part);
             if (layer is null) continue;
             var frame = layer.Acquire(_frameGate);
 
             _gpuHost!.Activate(frame.Surface);
-            engine.RenderTo(frame.Surface, time, NoCutTrans, part.Layer, part.Transparent, NoCamera);
+            engine.RenderTo(frame.Surface, time, NoCutTrans, LayerOf(part), part.Transparent, NoCamera, NoPost);
             _gpuHost!.Flush();
 
             lock (_frameGate)
@@ -372,6 +416,38 @@ public sealed class LegacyPvProvider : IDisposable
 
         _gpuHost!.FlushAndSync();
         return true;
+    }
+
+    private GpuLayer? EnsureGpuLayer(Part part)
+    {
+        if (part.Gpu is not null) return part.Gpu;
+
+        var host = _gpuHost;
+        if (host is null) return null;
+
+        try
+        {
+            var info = _planInfo;
+            int width = _renderWidth;
+            int height = Math.Max(1, (int)Math.Round(
+                (info?.Height > 0 ? info.Height : _designHeight)
+                * (width / (double)Math.Max(1, info?.Width > 0 ? info.Width : _designWidth))));
+            var gpu = new GpuLayer(host, part.GpuKey, width, height);
+            if (gpu.Frames[0].Surface.DxgiFormat != (int)Format.B8G8R8A8_UNorm)
+            {
+                gpu.DisposeBitmaps();
+                Log.Warn($"[PV/原版引擎] {part.GpuKey} 表面格式不是 BGRA8，跳过 GPU 层");
+                return null;
+            }
+
+            part.Gpu = gpu;
+            return gpu;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"[PV/原版引擎] 延迟建立 {part.GpuKey} GPU 缓冲失败：{ex.Message}");
+            return null;
+        }
     }
 
     private bool ApplyPending(LegacyPvEngine engine)
@@ -424,6 +500,8 @@ public sealed class LegacyPvProvider : IDisposable
         {
             _syncEngine.Dispose();
             _syncEngine = null;
+            _syncGpuHost?.Dispose();
+            _syncGpuHost = null;
         }
         else
         {
@@ -434,7 +512,7 @@ public sealed class LegacyPvProvider : IDisposable
 
         _gpuMode = false;
         _gpuHost = null;
-        foreach (var part in _parts)
+        foreach (var part in _allParts)
         {
             part.Gpu?.DisposeBitmaps();
             part.Gpu = null;

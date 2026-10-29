@@ -41,6 +41,7 @@ public partial class PvStageWindow
     private TextBlock TblBroadcastState => Left.TblBroadcastState;
     private TextBlock TblGpuName => Left.TblGpuName;
     private TextBlock TblPvRender => Left.TblPvRender;
+    private TextBlock TblLegacyComposite => Left.TblLegacyComposite;
     private TextBlock TblVtsState => Left.TblVtsState;
     private Wpf.Ui.Controls.Button BtnVtsReconnect => Left.BtnVtsReconnect;
     private Wpf.Ui.Controls.Button BtnVtsAuth => Left.BtnVtsAuth;
@@ -48,16 +49,22 @@ public partial class PvStageWindow
     private ComboBox CmbKoma => Left.CmbKoma;
     private ComboBox CmbHud => Left.CmbHud;
     private ComboBox CmbKeyBg => Left.CmbKeyBg;
+    private ComboBox CmbFxAdd => Left.CmbFxAdd;
+    private StackPanel FxStackHost => Left.FxStackHost;
     private ComboBox CmbAutoStyle => Left.CmbAutoStyle;
     private ComboBox CmbCanvasPreset => Left.CmbCanvasPreset;
     private ComboBox CmbPvRender => Left.CmbPvRender;
     private ComboBox CmbCenterZone => Left.CmbCenterZone;
+    private ComboBox CmbSubContent => Left.CmbSubContent;
+    private ComboBox CmbSubPos => Left.CmbSubPos;
 
     private Wpf.Ui.Controls.ToggleSwitch TglStageCamera => Left.TglStageCamera;
     private Wpf.Ui.Controls.ToggleSwitch TglStageTransitions => Left.TglStageTransitions;
     private Wpf.Ui.Controls.ToggleSwitch TglBroadcast => Left.TglBroadcast;
     private Wpf.Ui.Controls.ToggleSwitch TglSpoutTransparent => Left.TglSpoutTransparent;
     private Wpf.Ui.Controls.ToggleSwitch TglVSync => Left.TglVSync;
+    private Wpf.Ui.Controls.ToggleSwitch TglLegacyComposite => Left.TglLegacyComposite;
+    private Wpf.Ui.Controls.ToggleSwitch TglPreviewSubtitles => Left.TglPreviewSubtitles;
     private Wpf.Ui.Controls.ToggleSwitch TglCenterFree => Left.TglCenterFree;
 
     private Slider SldAutoIntensity => Left.SldAutoIntensity;
@@ -76,6 +83,7 @@ public partial class PvStageWindow
 
     private CheckBox ChkIncludeAudio => Left.ChkIncludeAudio;
     private CheckBox ChkBurnSubtitles => Left.ChkBurnSubtitles;
+    private CheckBox ChkVtsDrive => Left.ChkVtsDrive;
 
     private Wpf.Ui.Controls.ProgressRing PrgExport => Left.PrgExport;
 

@@ -225,6 +225,17 @@ public static class EffectCatalog
             ],
             ["anime", "grade", "emotional"]),
 
+        new("audioPulse", "Fx.AudioPulse", EffectStage.GlobalPost, EffectCategory.LightGlow,
+            ShaderSources.AudioPulse,
+            [
+                EffectParam.Num("amount", "Fx.AudioPulse.Amount", 0, 0, 0f, 1f, 0.7f),
+                EffectParam.Num("zoom", "Fx.AudioPulse.Zoom", 0, 1, 0f, 1f, 0.4f),
+                EffectParam.Num("glow", "Fx.AudioPulse.Glow", 0, 2, 0f, 2f, 0.8f),
+                EffectParam.Num("low", "Fx.AudioPulse.Low", 0, 3, 0f, 2f, 1f),
+                EffectParam.Num("high", "Fx.AudioPulse.High", 1, 0, 0f, 2f, 0.5f),
+            ],
+            ["audio", "impact", "anime"]),
+
         new("letterbox", "Fx.Letterbox", EffectStage.GlobalPost, EffectCategory.Camera,
             ShaderSources.Letterbox,
             [
@@ -285,6 +296,8 @@ public static class EffectCatalog
         ["bloom"] = ("intensity", 0f),
         ["motionBlur"] = ("strength", 0f),
         ["speedLines"] = ("amount", 0f),
+        ["audioPulse"] = ("amount", 0f),
+        ["wipe"] = ("progress", 0f),
         ["mangaPanels"] = ("amount", 0f),
         ["duotone"] = ("amount", 0f),
         ["letterbox"] = ("amount", 0f),

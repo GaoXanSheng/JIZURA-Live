@@ -62,6 +62,8 @@ public sealed class PvLayerConfig
 
     public string? SpoutSenderName { get; set; } = "VTubeStudio";
 
+    public string? AssetPath { get; set; }
+
     public bool Premultiplied { get; set; }
 
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]

@@ -1,4 +1,10 @@
 {
+  "Fx.AudioPulse": "音频脉冲",
+  "Fx.AudioPulse.Amount": "强度",
+  "Fx.AudioPulse.Zoom": "缩放",
+  "Fx.AudioPulse.Glow": "发光",
+  "Fx.AudioPulse.Low": "低频增益",
+  "Fx.AudioPulse.High": "高频增益",
   "Fx.Flash": "闪光",
   "Fx.Chromatic": "色差",
   "Fx.Chromatic.Amount": "强度",

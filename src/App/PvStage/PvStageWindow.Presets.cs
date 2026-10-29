@@ -7,6 +7,7 @@ using System.Windows.Threading;
 using JizuraLive.LegacyEngine;
 using JizuraLive.Logging;
 using JizuraLive.Pv;
+using JizuraLive.Render.Effects;
 using JizuraLive.App.I18n;
 
 namespace JizuraLive.App.PvStage;
@@ -15,6 +16,7 @@ public partial class PvStageWindow
 {
     private bool _stylePanelBuilt;
     private bool _techPanelBuilt;
+    private bool _fxStackBuilt;
     private bool _presetSync;
     private DispatcherTimer? _presetDebounce;
 
@@ -48,6 +50,7 @@ public partial class PvStageWindow
         _stylePanelBuilt = true;
         BuildThemeGrid();
         BuildPresetRows();
+        BuildFxStack();
         SyncPresetControls();
     }
 
@@ -216,6 +219,235 @@ public partial class PvStageWindow
         CmbKeyBg.SelectionChanged += CmbKeyBg_SelectionChanged;
 
         BuildStyleExtras();
+    }
+
+    private void BuildFxStack()
+    {
+        if (!_fxStackBuilt)
+        {
+            CmbFxAdd.Items.Clear();
+            foreach (var def in EffectCatalog.All)
+                CmbFxAdd.Items.Add(new ComboBoxItem { Content = EffectName(def), Tag = def.Id });
+            if (CmbFxAdd.Items.Count > 0) CmbFxAdd.SelectedIndex = 0;
+            _fxStackBuilt = true;
+        }
+
+        RefreshFxStack();
+    }
+
+    internal void BtnFxAdd_Click(object sender, RoutedEventArgs e)
+    {
+        if (CmbFxAdd.SelectedItem is not ComboBoxItem { Tag: string defId })
+        {
+            TblStatus.Text = L.T("先选择一个效果");
+            return;
+        }
+
+        AddFxNode(defId);
+    }
+
+    private void AddFxNode(string defId)
+    {
+        var node = new EffectNode
+        {
+            DefId = defId,
+            InstanceId = EffectGraph.NewInstanceId(defId),
+            Target = "",
+            Source = "user",
+        };
+
+        _effects.Nodes.Add(node);
+        _segmentTarget = SegmentTarget.Of(node);
+        EffectsChanged();
+        BuildInspector();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = L.F("已添加画面后期：{0}", EffectName(node));
+    }
+
+    private void RefreshFxStack()
+    {
+        if (!_fxStackBuilt || FxStackHost is null) return;
+
+        FxStackHost.Children.Clear();
+        if (_effects.Nodes.Count == 0)
+        {
+            FxStackHost.Children.Add(ThemeText(L.T("还没有画面后期效果"), TextTertiaryKey, 11, wrap: true));
+            return;
+        }
+
+        for (var i = 0; i < _effects.Nodes.Count; i++)
+        {
+            var node = _effects.Nodes[i];
+            if (node is not null) FxStackHost.Children.Add(FxStackRow(node, i));
+        }
+    }
+
+    private FrameworkElement FxStackRow(EffectNode node, int index)
+    {
+        var body = new StackPanel();
+        var row = new Grid { Margin = new Thickness(0) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var toggle = new Wpf.Ui.Controls.ToggleSwitch
+        {
+            IsChecked = node.Enabled,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        toggle.Checked += (_, _) => SetFxEnabled(node, true);
+        toggle.Unchecked += (_, _) => SetFxEnabled(node, false);
+        Grid.SetColumn(toggle, 0);
+        row.Children.Add(toggle);
+
+        var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        name.Cursor = Cursors.Hand;
+        name.ToolTip = L.T("点击在右侧编辑参数");
+        name.MouseLeftButtonUp += (_, _) =>
+        {
+            _segmentTarget = node.Windows.Count > 0
+                ? SegmentTarget.OfEffectWindow(node, 0)
+                : SegmentTarget.Of(node);
+            BuildInspector();
+        };
+        Grid.SetColumn(name, 1);
+        row.Children.Add(name);
+
+        var up = SmallFxButton("↑");
+        up.IsEnabled = index > 0;
+        up.Click += (_, _) => MoveFxNode(node, -1);
+        Grid.SetColumn(up, 2);
+        row.Children.Add(up);
+
+        var down = SmallFxButton("↓");
+        down.IsEnabled = index < _effects.Nodes.Count - 1;
+        down.Click += (_, _) => MoveFxNode(node, 1);
+        Grid.SetColumn(down, 3);
+        row.Children.Add(down);
+
+        var del = SmallFxButton("✕");
+        del.Click += (_, _) => RemoveFxNode(node);
+        Grid.SetColumn(del, 4);
+        row.Children.Add(del);
+
+        body.Children.Add(row);
+
+        var targetRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var targetLabel = ThemeText(L.T("目标"), TextTertiaryKey, 11);
+        Grid.SetColumn(targetLabel, 0);
+        targetRow.Children.Add(targetLabel);
+
+        bool composite = _pipe?.LegacyComposite == true;
+        var target = new ComboBox { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Stretch };
+        target.Items.Add(new ComboBoxItem { Content = L.T("全局"), Tag = "" });
+        foreach (var layer in _scene.Layers)
+            if (layer is not null && !(composite && IsLegacyFront(layer.Id)))
+                target.Items.Add(new ComboBoxItem { Content = LayerTitle(layer), Tag = layer.Id });
+
+        ComboBoxItem? selected = null;
+        foreach (var item in target.Items.OfType<ComboBoxItem>())
+            if (string.Equals(item.Tag as string, node.Target, StringComparison.Ordinal))
+            {
+                selected = item;
+                break;
+            }
+
+        if (selected is null)
+        {
+            selected = new ComboBoxItem { Content = node.Target, Tag = node.Target };
+            target.Items.Add(selected);
+        }
+
+        target.SelectedItem = selected;
+        target.SelectionChanged += (_, _) =>
+        {
+            if (target.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+            if (string.Equals(tag, node.Target, StringComparison.Ordinal)) return;
+            node.Target = tag;
+            MarkFxUser(node);
+            CommitFxChange(false);
+        };
+        Grid.SetColumn(target, 1);
+        targetRow.Children.Add(target);
+        body.Children.Add(targetRow);
+
+        var border = new Border
+        {
+            Background = TryFindResource("ControlFillColorSecondaryBrush") as Brush
+                         ?? new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x24)),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 4, 6, 4),
+            Margin = new Thickness(0, 0, 0, 4),
+            Child = body,
+        };
+        return border;
+    }
+
+    private static Wpf.Ui.Controls.Button SmallFxButton(string text) => new()
+    {
+        Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+        Content = text,
+        FontSize = 11,
+        Padding = new Thickness(4, 1, 4, 1),
+        MinWidth = 0,
+        MinHeight = 0,
+        Margin = new Thickness(2, 0, 0, 0),
+    };
+
+    private static void MarkFxUser(EffectNode node)
+    {
+        if (!IsUserOwned(node.Source, node.Locked)) node.Source = "user";
+    }
+
+    private void SetFxEnabled(EffectNode node, bool enabled)
+    {
+        if (node.Enabled == enabled) return;
+        node.Enabled = enabled;
+        MarkFxUser(node);
+        CommitFxChange(false);
+    }
+
+    private void MoveFxNode(EffectNode node, int delta)
+    {
+        var index = _effects.Nodes.IndexOf(node);
+        var target = index + delta;
+        if (index < 0 || target < 0 || target >= _effects.Nodes.Count) return;
+        (_effects.Nodes[index], _effects.Nodes[target]) = (_effects.Nodes[target], _effects.Nodes[index]);
+        MarkFxUser(node);
+        CommitFxChange(true);
+    }
+
+    private void RemoveFxNode(EffectNode node)
+    {
+        if (!_effects.Nodes.Remove(node)) return;
+        if (node.InstanceId.StartsWith(AutoDirector.AutoPrefix, StringComparison.Ordinal))
+            AddAutoTombstone("fx:" + node.InstanceId);
+        _evaluator.RemoveCurvesForTarget(node.InstanceId);
+        if (ReferenceEquals(_segmentTarget?.Effect, node))
+        {
+            _segmentTarget = null;
+            BuildInspector();
+        }
+
+        CommitFxChange(true);
+        TblStatus.Text = L.F("已删除画面后期：{0}", EffectName(node));
+    }
+
+    private void CommitFxChange(bool refreshStack)
+    {
+        EffectsChanged();
+        if (refreshStack) RefreshFxStack();
+        RefreshTimeline();
+        PushUndo();
+        _saveError = SaveProjectNow();
     }
 
     private void BuildStyleExtras()
@@ -421,13 +653,22 @@ public partial class PvStageWindow
             Value = Math.Clamp(get() * 100, 0, 100),
             VerticalAlignment = VerticalAlignment.Center,
         };
+        bool dirty = false;
+        void Commit()
+        {
+            if (!dirty) return;
+            dirty = false;
+            PresetChanged();
+        }
         slider.ValueChanged += (_, e) =>
         {
             if (_presetSync) return;
             set(e.NewValue / 100.0);
             valueText.Text = ((int)Math.Round(e.NewValue)).ToString(CultureInfo.InvariantCulture);
-            if (!slider.IsMouseCaptureWithin) PresetChanged();
+            dirty = true;
+            if (!slider.IsMouseCaptureWithin) Commit();
         };
+        slider.LostMouseCapture += (_, _) => Commit();
         Grid.SetColumn(slider, 1);
         row.Children.Add(slider);
 
@@ -486,7 +727,11 @@ public partial class PvStageWindow
             if (TxtPresetSeed is not null)
                 TxtPresetSeed.Text = _project.LegacySeed.ToString(CultureInfo.InvariantCulture);
 
-            SelectComboTag(CmbKoma, Preset.Koma > 0 ? Preset.Koma.ToString(CultureInfo.InvariantCulture) : "0");
+            var komaTag = Preset.Koma <= 0 ? "0"
+                : Preset.Koma == Math.Max(1, _scene.Fps / 2) ? "-2"
+                : Preset.Koma == Math.Max(1, _scene.Fps / 3) ? "-3"
+                : "0";
+            SelectComboTag(CmbKoma, komaTag);
             SelectComboTag(CmbHud, string.IsNullOrWhiteSpace(Preset.Hud) ? "auto" : Preset.Hud);
             SelectComboTag(CmbKeyBg, string.IsNullOrWhiteSpace(Preset.KeyBg) ? "off" : Preset.KeyBg);
 
@@ -856,7 +1101,12 @@ public partial class PvStageWindow
     internal void CmbKoma_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_presetSync || CmbKoma.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
-        Preset.Koma = int.TryParse(tag, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ? value : 0;
+        Preset.Koma = tag switch
+        {
+            "-2" => Math.Max(1, _scene.Fps / 2),
+            "-3" => Math.Max(1, _scene.Fps / 3),
+            _ => 0,
+        };
         PresetChanged();
     }
 

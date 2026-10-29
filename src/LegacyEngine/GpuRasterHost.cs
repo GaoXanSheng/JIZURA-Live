@@ -66,6 +66,9 @@ public sealed class GpuRasterHost : IDisposable
 
     private static string _lastError = "";
 
+    public static GpuRasterHost Create(ID3D11Device device, string adapterName) =>
+        new(device, adapterName);
+
     private readonly IntPtr _dpy;
     private readonly IntPtr _cfg;
     private readonly IntPtr _ctx;

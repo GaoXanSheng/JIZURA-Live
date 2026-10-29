@@ -1,3 +1,4 @@
+using System.Threading;
 using JizuraLive.App.I18n;
 using JizuraLive.App.PvStage;
 using JizuraLive.Engine;
@@ -71,6 +72,11 @@ public static class PvExporter
                     NoCutTrans = legacy.NoCutTrans,
                     StageCamera = legacy.StageCamera,
                     StageTransitions = legacy.StageTransitions,
+                    NoPost = legacy.NoPost,
+                    GpuRaster = true,
+                    Fps = legacy.Fps,
+                    Composite = legacy.Composite,
+                    CutOverrides = legacy.CutOverrides,
                     Preset = legacy.Preset,
                     Synchronous = true,
                 };
@@ -83,9 +89,25 @@ public static class PvExporter
                 pipe.SetDesignSegments(inputs?.Segments);
                 pipe.SetAudioAnalysis(inputs?.Bands);
 
+                var paced = inputs?.FrameTick is not null;
+                var clock = System.Diagnostics.Stopwatch.StartNew();
                 for (var i = 0; i < frameCount; i++)
                 {
-                    pipe.Prepare(i / (double)fps);
+                    var time = i / (double)fps;
+                    if (paced)
+                    {
+                        var delay = time - clock.Elapsed.TotalSeconds;
+                        if (delay > 0) Thread.Sleep(TimeSpan.FromSeconds(Math.Min(delay, 1.0)));
+                    }
+
+                    if (inputs?.FrameTick is { } tick)
+                    {
+                        var before = pipe.CharacterFrameVersion;
+                        tick(time);
+                        if (pipe.HasCharacterSource) WaitForCharacterFrame(pipe, before, 150);
+                    }
+
+                    pipe.Prepare(time);
                     pipe.Composite(target.Bitmap, width, height);
                     gpu.Context.Flush();
 
@@ -101,6 +123,16 @@ public static class PvExporter
         catch (Exception ex)
         {
             return L.T("导出失败：") + ex.Message;
+        }
+    }
+
+    private static void WaitForCharacterFrame(PvPipeline pipe, long previous, int timeoutMs)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (pipe.CharacterFrameVersion == previous && sw.ElapsedMilliseconds < timeoutMs)
+        {
+            Thread.Sleep(4);
+            pipe.PumpSpout();
         }
     }
 
@@ -265,7 +297,7 @@ public static class PvExporter
         if (scene.Width <= 0 || scene.Height <= 0 || (scene.Width & 1) != 0 || (scene.Height & 1) != 0)
             return L.F("画布宽高必须是正偶数（当前 {0}×{1}）：NV12 色度按 2×2 采样", scene.Width, scene.Height);
 
-        var frames = Math.Round(durationSec * fps);
+        var frames = Math.Ceiling(durationSec * fps - 1e-9);
         if (frames > int.MaxValue) return L.F("导出帧数超出上限（{0} 秒 × {1} fps）", durationSec, fps);
         frameCount = Math.Max(1, (int)frames);
         return null;
@@ -280,4 +312,5 @@ public sealed record PvExportInputs(
     SubtitleConfig? Subtitles = null,
     string? AudioPath = null,
     double AudioOffsetSec = 0,
-    LegacyPvOptions? Legacy = null);
+    LegacyPvOptions? Legacy = null,
+    Action<double>? FrameTick = null);

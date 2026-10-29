@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -8,18 +9,21 @@ namespace JizuraLive.Engine
         public override string ToString() => Text;
     }
 
-    public sealed record KrcLine(long StartMs, long DurMs, string Text, IReadOnlyList<KrcWord>? Words = null)
+    public sealed record KrcLine(long StartMs, long DurMs, string Text,
+        IReadOnlyList<KrcWord>? Words = null, int SourceIndex = -1)
     {
         public override string ToString() => $"[{StartMs}ms+{DurMs}ms] {Text}";
     }
 
     public static class LrcParser
     {
-        private static readonly Regex TimestampRegex = new(@"\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]", RegexOptions.Compiled);
+        private static readonly Regex TimestampRegex = new(@"\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]", RegexOptions.Compiled);
 
         private static readonly Regex KrcLineRegex = new(@"^\[(\d+),(\d+)\](.*)$", RegexOptions.Compiled);
 
-        private static readonly Regex AngleTimestampRegex = new(@"<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>", RegexOptions.Compiled);
+        private static readonly Regex AngleTimestampRegex = new(@"<(\d+):(\d{2})(?:[.:](\d{1,3}))?>", RegexOptions.Compiled);
+
+        private static readonly Regex OffsetRegex = new(@"\[offset:\s*([+-]?\d+)\s*\]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         private static readonly Regex KrcWordMarkerRegex = new(@"<(\d+),(\d+),(\d+)>", RegexOptions.Compiled);
 
@@ -34,6 +38,15 @@ namespace JizuraLive.Engine
             var rawLines = raw.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
             var events = new List<LyricEvent>();
 
+            long offsetMs = 0;
+            foreach (var line in rawLines)
+            {
+                var offset = OffsetRegex.Match(line);
+                if (offset.Success
+                    && long.TryParse(offset.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+                    offsetMs = value;
+            }
+
             for (var i = 0; i < rawLines.Length; i++)
             {
                 var text = rawLines[i].Trim();
@@ -44,7 +57,7 @@ namespace JizuraLive.Engine
                 var krc = KrcLineRegex.Match(text);
                 if (krc.Success)
                 {
-                    var startMs = long.Parse(krc.Groups[1].Value);
+                    var startMs = Math.Max(0, long.Parse(krc.Groups[1].Value) + offsetMs);
                     var (krcText, krcWords) = SplitKrcWords(krc.Groups[3].Value, startMs);
                     if (krcText.Length > 0)
                         events.Add(new LyricEvent(lineNo, startMs, krcText, krcWords, long.Parse(krc.Groups[2].Value)));
@@ -57,8 +70,9 @@ namespace JizuraLive.Engine
                 if (AngleTimestampRegex.IsMatch(text))
                 {
                     if (!TryTimestampMs(matches[0], out var lineStartMs)) continue;
+                    lineStartMs = Math.Max(0, lineStartMs + offsetMs);
                     var body = text[(matches[0].Index + matches[0].Length)..];
-                    var (wordText, words, endMarkerMs) = SplitLrcWords(body);
+                    var (wordText, words, endMarkerMs) = SplitLrcWords(body, offsetMs);
                     if (wordText.Length > 0)
                         events.Add(new LyricEvent(lineNo, lineStartMs, wordText, words, null, endMarkerMs));
                     continue;
@@ -68,7 +82,8 @@ namespace JizuraLive.Engine
 
                 foreach (Match m in matches)
                 {
-                    if (TryTimestampMs(m, out var startMs)) events.Add(new LyricEvent(lineNo, startMs, lyricText));
+                    if (TryTimestampMs(m, out var startMs))
+                        events.Add(new LyricEvent(lineNo, Math.Max(0, startMs + offsetMs), lyricText));
                 }
             }
 
@@ -146,10 +161,40 @@ namespace JizuraLive.Engine
                     clipWords[^1] = last with { DurMs = Math.Max(0, wordEnd - last.StartMs) };
                 }
 
-                clips.Add(new LyricClip($"lrc_{clips.Count}", startMs, endMs, string.Join("\n", texts), outOfRange, clipWords));
+                clips.Add(new LyricClip($"lrc_{clips.Count}", startMs, endMs, string.Join("\n", texts),
+                    outOfRange, clipWords, SourceIndex: group[0].LineNo - 1));
             }
 
             return new LrcImportResult(clips, issues);
+        }
+
+        public static IReadOnlyList<LyricClip> ApplyEndOverrides(
+            IReadOnlyList<LyricClip> clips, IReadOnlyDictionary<int, long>? ends)
+        {
+            if (ends is null || ends.Count == 0 || clips.Count == 0) return clips;
+
+            var result = new List<LyricClip>(clips.Count);
+            for (var i = 0; i < clips.Count; i++)
+            {
+                var clip = clips[i];
+                if (!ends.TryGetValue(i, out var endMs) || endMs <= clip.StartMs)
+                {
+                    result.Add(clip);
+                    continue;
+                }
+
+                var nextStart = i + 1 < clips.Count ? clips[i + 1].StartMs : long.MaxValue;
+                endMs = Math.Min(endMs, nextStart);
+                if (endMs <= clip.StartMs)
+                {
+                    result.Add(clip);
+                    continue;
+                }
+
+                result.Add(clip with { EndMs = endMs });
+            }
+
+            return result;
         }
 
         public static List<LyricClip> ToClips(IReadOnlyList<KrcLine> lines)
@@ -158,7 +203,8 @@ namespace JizuraLive.Engine
             for (var i = 0; i < lines.Count; i++)
             {
                 var line = lines[i];
-                clips.Add(new LyricClip($"krc_{i}", line.StartMs, line.StartMs + line.DurMs, line.Text, false, line.Words));
+                clips.Add(new LyricClip($"krc_{i}", line.StartMs, line.StartMs + line.DurMs, line.Text,
+                    false, line.Words, SourceIndex: line.SourceIndex >= 0 ? line.SourceIndex : i));
             }
 
             return clips;
@@ -216,7 +262,7 @@ namespace JizuraLive.Engine
             return (sb.ToString(), words);
         }
 
-        private static (string Text, List<KrcWord>? Words, long? EndMarkerMs) SplitLrcWords(string body)
+        private static (string Text, List<KrcWord>? Words, long? EndMarkerMs) SplitLrcWords(string body, long offsetMs)
         {
             var markers = AngleTimestampRegex.Matches(body);
             var words = new List<KrcWord>(markers.Count);
@@ -226,6 +272,7 @@ namespace JizuraLive.Engine
             for (var i = 0; i < markers.Count; i++)
             {
                 if (!TryTimestampMs(markers[i], out var atMs)) continue;
+                atMs = Math.Max(0, atMs + offsetMs);
 
                 var segEnd = i + 1 < markers.Count ? markers[i + 1].Index : body.Length;
                 var seg = body[(markers[i].Index + markers[i].Length)..segEnd];
@@ -237,7 +284,9 @@ namespace JizuraLive.Engine
                     break;
                 }
 
-                var nextMs = i + 1 < markers.Count && TryTimestampMs(markers[i + 1], out var n) ? n : (long?)null;
+                long? nextMs = i + 1 < markers.Count && TryTimestampMs(markers[i + 1], out var n)
+                    ? Math.Max(0, n + offsetMs)
+                    : null;
                 words.Add(new KrcWord(atMs, nextMs is { } next ? Math.Max(0, next - atMs) : 0, seg));
                 sb.Append(seg);
             }

@@ -18,6 +18,8 @@ public sealed class Settings
 
     public SubtitleConfig Subtitle { get; set; } = new() { Content = SubContent.Both };
 
+    public bool PreviewSubtitles { get; set; }
+
     public double PreviewVolume { get; set; } = 0.8;
     public bool PreviewMuted { get; set; }
 
@@ -37,19 +39,41 @@ public sealed class Settings
                 if (settings != null)
                 {
                     Log.Info($"已加载配置文件：{FilePath}");
-                    return settings;
+                    return Normalize(settings);
                 }
             }
         }
         catch (Exception ex)
         {
+            try
+            {
+                if (File.Exists(FilePath)) File.Copy(FilePath, FilePath + ".corrupt.bak", overwrite: true);
+            }
+            catch (Exception backupEx)
+            {
+                Log.Warn($"配置文件损坏，备份失败：{backupEx.Message}");
+            }
+
             Log.Error($"配置文件解析失败 ({FilePath})，将使用默认配置并重新生成：{ex.Message}");
         }
 
-        var defaultSettings = new Settings();
+        var defaultSettings = Normalize(new Settings());
         defaultSettings.Save();
         Log.Info($"已初始化默认配置文件：{FilePath}");
         return defaultSettings;
+    }
+
+    private static Settings Normalize(Settings settings)
+    {
+        settings.SpoutName = string.IsNullOrWhiteSpace(settings.SpoutName)
+            ? "JIZURA-live-PV"
+            : settings.SpoutName.Trim();
+        settings.UiLang = string.IsNullOrWhiteSpace(settings.UiLang) ? "zh-Hans" : settings.UiLang;
+        settings.Subtitle ??= new SubtitleConfig { Content = SubContent.Both };
+        settings.PreviewVolume = double.IsFinite(settings.PreviewVolume)
+            ? Math.Clamp(settings.PreviewVolume, 0, 1)
+            : 0.8;
+        return settings;
     }
 
     public void Save()

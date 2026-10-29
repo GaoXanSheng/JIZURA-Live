@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using JizuraLive.App.I18n;
 using JizuraLive.Logging;
@@ -48,6 +49,7 @@ public partial class App : Application
         catch { }
 
         Log.Init();
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         JizuraLive.Server.HttpClientFactorySetup.Initialize();
         HookGlobalExceptions();
 
@@ -97,6 +99,7 @@ public partial class App : Application
         AppDomain.CurrentDomain.ProcessExit += (s, e) =>
         {
             Log.Info("应用正常退出");
+            try { Settings.FlushPending(); } catch (Exception ex) { Log.Warn("退出前保存设置失败：" + ex.Message); }
             try { _mutex?.ReleaseMutex(); } catch { }
             _mutex?.Dispose();
         };

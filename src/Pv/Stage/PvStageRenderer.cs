@@ -74,6 +74,14 @@ public sealed class PvStageRenderer : IDisposable
 
     public PvStage Stage { get; }
 
+    public float AudioBass { get; set; }
+
+    public float AudioMid { get; set; }
+
+    public float AudioHigh { get; set; }
+
+    public float AudioRms { get; set; }
+
     public TransitionTrack Transitions { get; } = new();
 
     public void SetDesignSegments(IEnumerable<DesignSegment>? segments)
@@ -250,6 +258,23 @@ public sealed class PvStageRenderer : IDisposable
 
         d.End();
         _selection = selection;
+
+        if (_frameEffects.HasEffectsFor("", EffectStage.Composite))
+        {
+            var compositePasses = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time,
+                _designW, _designH, "", AudioBass, AudioMid, AudioHigh, AudioRms, EffectStage.Composite);
+            if (compositePasses.Count > 0)
+            {
+                var composite = _fx.RunGraph(compositePasses, _stageSrv!, _designW, _designH);
+                d.SetTarget(_stageTarget.Bitmap, _designW, _designH);
+                d.Begin();
+                d.Clear(new Color4(0f, 0f, 0f, 1f));
+                d.DrawBitmap(BitmapFor(composite), full);
+                d.End();
+                returns.Add(composite);
+            }
+        }
+
         if (transTech is not null && transSeg is not null)
         {
             BlitInto(_transitionRunner.SurfaceB, _stageTarget.Bitmap);
@@ -270,7 +295,8 @@ public sealed class PvStageRenderer : IDisposable
 
         GpuTexturePool.Entry? fxOut = null;
         var passes = _frameEffects.HasEffectsFor("")
-            ? _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH)
+            ? _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH,
+                "", AudioBass, AudioMid, AudioHigh, AudioRms)
             : null;
         if (passes is { Count: > 0 })
             fxOut = _fx.RunGraph(passes, _stageSrv!, _designW, _designH);
@@ -343,7 +369,8 @@ public sealed class PvStageRenderer : IDisposable
         compositor.CompositeLayer(Stage.Scene, layer, state, image, Stage.Camera, _designW, _designH);
         d.End();
 
-        var graph = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH, layer.Id);
+        var graph = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH,
+            layer.Id, AudioBass, AudioMid, AudioHigh, AudioRms);
         var output = graph.Count > 0 ? _fx.RunGraph(graph, target.Srv, _designW, _designH) : null;
 
         d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
@@ -371,7 +398,8 @@ public sealed class PvStageRenderer : IDisposable
         compositor.CompositeFixedZone(id, images, _designW, _designH);
         d.End();
 
-        var graph = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH, id);
+        var graph = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH,
+            id, AudioBass, AudioMid, AudioHigh, AudioRms);
         var output = graph.Count > 0 ? _fx.RunGraph(graph, target.Srv, _designW, _designH) : null;
 
         d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
@@ -638,7 +666,7 @@ public sealed class PvStageRenderer : IDisposable
 
         _transParams.Seed = seg.Seed != 0
             ? seg.Seed
-            : DeterministicSeed(seg.Start);
+            : SeedFor(seg.Start);
 
         var colors = _transParams.Colors;
         colors.Clear();
@@ -657,7 +685,7 @@ public sealed class PvStageRenderer : IDisposable
         colors["bgCur"] = DarkenedHex(scene.AmbientTint, 0.3);
     }
 
-    private static int DeterministicSeed(double start) =>
+    public static int SeedFor(double start) =>
         unchecked((int)(Math.Round(start * 1000.0) * 2654435761) ^ 0x5f3759df);
 
     private static string DarkenedHex(string hex, double factor)

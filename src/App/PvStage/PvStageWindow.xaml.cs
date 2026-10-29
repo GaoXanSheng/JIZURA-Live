@@ -19,6 +19,7 @@ using JizuraLive.Render.Effects;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Render.Text;
 using JizuraLive.Spout;
+using JizuraLive.Vts;
 using Newtonsoft.Json;
 using Vortice.Mathematics;
 
@@ -34,6 +35,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private volatile PvPipeline? _pipe;
 
     private volatile bool _rebuildPipe;
+
+    private bool _resumeAfterScrub;
 
     private volatile bool _rebuildPipeKeepTransport;
 
@@ -132,12 +135,24 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         InitVolume();
 
         var boot = ProjectStore.LoadOrCreate(ProjectPath);
+        var primaryFault = boot.Fault;
+        var recoveredFromAutosave = false;
         var autosavePath = ProjectPath + ".autosave.json";
         if (File.Exists(autosavePath)
             && (!File.Exists(ProjectPath) || File.GetLastWriteTimeUtc(autosavePath) > File.GetLastWriteTimeUtc(ProjectPath)))
         {
             var recovered = ProjectStore.Load(autosavePath);
-            if (recovered.Project is not null) boot = new ProjectBootstrap(recovered.Project, null);
+            if (recovered.Project is not null)
+            {
+                boot = new ProjectBootstrap(recovered.Project, primaryFault);
+                recoveredFromAutosave = true;
+            }
+        }
+
+        if (primaryFault is not null)
+        {
+            BackupCorruptProject(ProjectPath);
+            if (!recoveredFromAutosave) _projectPath = ProjectPath + ".recovered.jzpv";
         }
 
         _project = boot.Project;
@@ -163,6 +178,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         Stage.MoveCursorHitTest = StageCursorHitTest;
 
         TheTimeline.SeekRequested += Timeline_SeekRequested;
+        TheTimeline.LyricClipMenuRequested += Timeline_LyricClipMenu;
+        TheTimeline.ScrubStarted += Timeline_ScrubStarted;
+        TheTimeline.ScrubEnded += Timeline_ScrubEnded;
         TheTimeline.EditCommitted += Timeline_EditCommitted;
         TheTimeline.SegmentSelected += Timeline_SegmentSelected;
         TheTimeline.SegmentDeselected += Timeline_SegmentDeselected;
@@ -191,6 +209,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         BuildInspector();
         RefreshTimeline();
         SyncSettingsPanel();
+        SyncAutoControls();
 
         _uiTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -213,10 +232,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         };
         _uiTimer.Start();
 
-        if (boot.Fault is { } bootFault)
+        if (primaryFault is { } bootFault)
         {
-            Log.Warn($"[PV 工作台] 工程未能完整载入，磁盘文件保持原样：{bootFault}");
-            TblStatus.Text = L.F("载入异常：{0}（磁盘文件保持原样）", bootFault);
+            Log.Warn($"[PV 工作台] 工程未能完整载入：{bootFault}；主文件已备份为 .corrupt.bak");
+            TblStatus.Text = recoveredFromAutosave
+                ? L.F("主工程载入失败，已从自动恢复文件载入：{0}", bootFault)
+                : L.F("载入异常：{0}；本次改动保存到 {1}，原文件不会被覆盖",
+                    bootFault, Path.GetFileName(_projectPath));
         }
 
         PushUndo();
@@ -230,6 +252,21 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private string _projectPath = ProjectPath;
     private static string ProjectPath => Path.Combine(AppDirs.ConfigDir, "pv_project.jzpv");
     private string AutosavePath => _projectPath + ".autosave.json";
+
+    private static void BackupCorruptProject(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return;
+            var backup = path + ".corrupt.bak";
+            if (!File.Exists(backup)) File.Copy(path, backup);
+            Log.Warn($"[PV 工作台] 已备份无法载入的工程：{backup}");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[PV 工作台] 备份损坏工程失败：" + ex.Message);
+        }
+    }
 
     private string? SaveProjectNow()
     {
@@ -437,7 +474,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _pipe?.Dispose();
         _pipe = null;
 
-        var pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects, null, LegacyOptions());
+        var pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects, SubtitleSource, LegacyOptions());
         _pipe = pipe;
         pipe.SelectedLayerId = _selectedLayer?.Id;
         pipe.SetSpoutTransparent(_spoutTransparent);
@@ -449,6 +486,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             {
                 if (epoch == _projectEpoch && ReferenceEquals(_pipe, pipe)) ApplyLegacyPlan(info);
             }));
+        pipe.CompositeInvalidated += () => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (epoch != _projectEpoch || !ReferenceEquals(_pipe, pipe)) return;
+            _rebuildPipeKeepTransport = true;
+            _rebuildPipe = true;
+            ShowStatus(L.T("图层顺序或逐层特效需要分层，正在切回五层模式…"), 4);
+        }));
         if (pipe.LegacyPlan is { } plan)
             Dispatcher.BeginInvoke(new Action(() =>
             {
@@ -503,9 +547,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                     PublishLyricClips(LrcParser.ToClips(lines));
                     _tailUncalibrated = tailUncalibrated;
                     BuildInspector();
+                    TheTimeline.ResetView();
                     RefreshTimeline();
                 });
-                Log.Info($"[PV 工作台] 已恢复工程歌词：{lines.Count} 行，末句待校准={tailUncalibrated}");
+                var last = lines.Count > 0 ? lines[^1].StartMs + lines[^1].DurMs : 0;
+                Log.Info($"[PV 工作台] 已恢复工程歌词：{lines.Count} 行，末句结束 {last}ms，末句待校准={tailUncalibrated}");
             }
             catch (Exception ex)
             {
@@ -650,9 +696,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private void BuildLayerList()
     {
         var layers = _scene.Layers;
+        bool composite = _pipe?.LegacyComposite == true;
 
         _uiLayers.Clear();
-        for (var i = layers.Count - 1; i >= 0; i--) _uiLayers.Add(layers[i]);
+        for (var i = layers.Count - 1; i >= 0; i--)
+        {
+            var layer = layers[i];
+            if (layer is null) continue;
+            if (composite && IsLegacyFront(layer.Id)) continue;
+            _uiLayers.Add(layer);
+        }
 
         if (_selectedLayer is not null && !_uiLayers.Contains(_selectedLayer)) _selectedLayer = null;
         SyncStageSelection();
@@ -664,8 +717,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             {
                 Padding = new Thickness(10, 9, 10, 9),
                 Margin = new Thickness(0, 0, 0, 6),
-                AllowDrop = true,
-                Cursor = Cursors.SizeAll,
+                AllowDrop = !composite,
+                Cursor = composite ? Cursors.Arrow : Cursors.SizeAll,
             };
             card.Tag = layer;
             card.PreviewMouseLeftButtonDown += LayerCard_MouseDown;
@@ -703,32 +756,44 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             toggle.Unchecked += (_, _) => layer.Enabled = false;
             headRight.Children.Add(toggle);
 
-            var del = new Wpf.Ui.Controls.Button
+            if (!IsEngineLayer(layer.Id))
             {
-                Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
-                Padding = new Thickness(6, 1, 6, 1),
-                Margin = new Thickness(6, 0, 0, 0),
-                Content = "✕",
-                ToolTip = L.T("删除本图层"),
-            };
-            var idRef = layer.Id;
-            del.Click += (_, _) =>
-            {
-                _evaluator.RemoveCurvesForTarget(idRef);
-                PublishDirector();
-                var pipe = _pipe;
-                if (pipe is not null)
+                var del = new Wpf.Ui.Controls.Button
                 {
-                    pipe.RequestRemove(idRef);
-                    return;
-                }
+                    Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+                    Padding = new Thickness(6, 1, 6, 1),
+                    Margin = new Thickness(6, 0, 0, 0),
+                    Content = "✕",
+                    ToolTip = L.T("删除本图层"),
+                };
+                var idRef = layer.Id;
+                del.Click += (_, _) =>
+                {
+                    _evaluator.RemoveCurvesForTarget(idRef);
+                    bool fxChanged = false;
+                    foreach (var node in _effects.Nodes)
+                    {
+                        if (node is null || !string.Equals(node.Target, idRef, StringComparison.Ordinal)) continue;
+                        node.Target = "";
+                        fxChanged = true;
+                    }
 
-                var index = _scene.Layers.FindIndex(l => l.Id == idRef);
-                if (index < 0) return;
-                _scene.Layers = PvPipeline.WithLayerRemovedAt(_scene.Layers, index);
-                BuildLayerList();
-            };
-            headRight.Children.Add(del);
+                    if (fxChanged) EffectsChanged();
+                    PublishDirector();
+                    var pipe = _pipe;
+                    if (pipe is not null)
+                    {
+                        pipe.RequestRemove(idRef);
+                        return;
+                    }
+
+                    var index = _scene.Layers.FindIndex(l => l.Id == idRef);
+                    if (index < 0) return;
+                    _scene.Layers = PvPipeline.WithLayerRemovedAt(_scene.Layers, index);
+                    BuildLayerList();
+                };
+                headRight.Children.Add(del);
+            }
 
             Grid.SetColumn(headRight, 1);
             head.Children.Add(headRight);
@@ -742,7 +807,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             LayersHost.Children.Add(card);
         }
 
-        TblLayerCount.Text = L.F("{0} 层", _scene.Layers.Count);
+        TblLayerCount.Text = L.F("{0} 层", _uiLayers.Count);
+        if (composite)
+        {
+            var hint = ThemeText(
+                L.T("原版图层已合并；关闭设置里的“合并原版图层”可逐层调整。"),
+                TextTertiaryKey, 11, wrap: true);
+            hint.Margin = new Thickness(0, 4, 0, 0);
+            LayersHost.Children.Add(hint);
+        }
+
         HighlightLayerCards();
         BuildInspector();
     }
@@ -768,6 +842,14 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private static string LayerMetaLabel(PvLayerConfig layer) => LayerKindLabel(layer);
 
+    private static bool IsEngineLayer(string id) => id is
+        LegacyPvProvider.BackId or LegacyPvProvider.FrontId or LegacyPvProvider.FrontLayoutId
+        or LegacyPvProvider.FrontDecorId or LegacyPvProvider.FrontHudId;
+
+    private static bool IsLegacyFront(string id) => id is
+        LegacyPvProvider.FrontId or LegacyPvProvider.FrontLayoutId
+        or LegacyPvProvider.FrontDecorId or LegacyPvProvider.FrontHudId;
+
     private void LayerCard_MouseDown(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is DependencyObject d
@@ -782,6 +864,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void LayerCard_MouseMove(object sender, MouseEventArgs e)
     {
+        if (_pipe?.LegacyComposite == true) return;
         if (e.LeftButton != MouseButtonState.Pressed || _dragLayer is null) return;
         var p = e.GetPosition(this);
         if (Math.Abs(p.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance
@@ -861,9 +944,57 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         return sb.ToString();
     }
 
-    private LegacyPvOptions LegacyOptions(DirectorProject? project = null)
+    private static readonly string[] LegacyAllIds =
+    [
+        LegacyPvProvider.BackId,
+        LegacyPvProvider.FrontId,
+        LegacyPvProvider.FrontLayoutId,
+        LegacyPvProvider.FrontDecorId,
+        LegacyPvProvider.FrontHudId,
+    ];
+
+    private bool AllowsLegacyComposite(DirectorProject p)
+    {
+        if (p.EditorLayout?.LegacyComposite != true) return false;
+
+        if (ReferenceEquals(p, _project))
+        {
+            foreach (var address in _evaluator.Curves.Keys)
+                if (address.Kind == ParamAddressKind.Layer
+                    && LegacyAllIds.Contains(address.Target, StringComparer.Ordinal))
+                    return false;
+        }
+        else
+        {
+            foreach (var save in p.Curves ?? new List<CurveSave>())
+            {
+                if (save is null || !ParamAddress.TryParse(save.Address, out var address)) continue;
+                if (address.Kind == ParamAddressKind.Layer
+                    && LegacyAllIds.Contains(address.Target, StringComparer.Ordinal))
+                    return false;
+            }
+        }
+
+        if (p.LayerCameraTracks is { } tracks)
+            foreach (var id in LegacyAllIds)
+                if (tracks.ContainsKey(id)) return false;
+
+        if (p.Effects is { } effects)
+            foreach (var node in effects.Nodes)
+                if (node is not null && node.Enabled
+                    && LegacyAllIds.Contains(node.Target, StringComparer.Ordinal))
+                    return false;
+
+        return true;
+    }
+
+    private bool EffectiveLegacyComposite(DirectorProject p) =>
+        AllowsLegacyComposite(p) && PvPipeline.CanUseLegacyComposite(p.Scene, p.Effects);
+
+    private LegacyPvOptions LegacyOptions(DirectorProject? project = null, int? fps = null)
     {
         var p = project ?? _project;
+        var composite = EffectiveLegacyComposite(p);
         return new LegacyPvOptions
         {
             Enabled = true,
@@ -875,6 +1006,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             NoCutTrans = p.LegacyStageTransitions,
             StageCamera = p.LegacyStageCamera,
             StageTransitions = p.LegacyStageTransitions,
+            Fps = fps ?? _scene.Fps,
+            Composite = composite,
+            NoPost = !composite,
+            CutOverrides = p.LegacyCutOverrides,
             Preset = p.Preset,
         };
     }
@@ -1069,10 +1204,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         BuildLayerList();
         TheTimeline.Fps = _scene.Fps;
+        TheTimeline.ResetView();
         RefreshTimeline();
         BuildInspector();
         SyncLyricStylePicker();
         SyncPresetControls();
+        SyncAutoControls();
         RefreshMediaPanel();
         UpdateAutoButton();
         TblAutoReport.Text = "";
@@ -1118,12 +1255,15 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         var duration = _audio.Duration;
         var result = LrcParser.ParseClips(text, duration > 0 ? duration : null);
+        _project.LyricEnds ??= new Dictionary<int, long>();
+        var clips = LrcParser.ApplyEndOverrides(result.Clips, _project.LyricEnds);
 
-        var lines = new List<KrcLine>(result.Clips.Count);
-        foreach (var clip in result.Clips)
-            lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text, clip.Words));
+        var lines = new List<KrcLine>(clips.Count);
+        foreach (var clip in clips)
+            lines.Add(new KrcLine(clip.StartMs, clip.EndMs - clip.StartMs, clip.Text, clip.Words,
+                clip.SourceIndex));
 
-        return (lines, result.Clips.Count > 0 && result.Clips[^1].OutOfRange);
+        return (lines, clips.Count > 0 && clips[^1].OutOfRange);
     }
 
     private void LoadLyrics(string text)
@@ -1134,6 +1274,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _tailUncalibrated = tailUncalibrated;
         PublishLyricClips(LrcParser.ToClips(lines));
         BuildInspector();
+        TheTimeline.ResetView();
         RefreshTimeline();
         UpdateAutoButton();
 
@@ -1148,6 +1289,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         try
         {
+            _project.LyricEnds ??= new Dictionary<int, long>();
+            _project.LyricEnds.Clear();
             LoadLyrics(ReadLyricFileText(path));
             TblStatus.Text = L.F("已装载歌词：{0} 行", _lyrics?.Count ?? 0)
                              + (_tailUncalibrated ? L.T("（末句待校准：未载入音频）") : "");
@@ -1192,6 +1335,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblStatus.Text = L.T("音频已加载");
             BuildInspector();
             UpdateAutoButton();
+            TheTimeline.ResetView();
+            RefreshTimeline();
             StartAudioLoad(path);
             _exportFormEdited = false;
             if (_pipe is not null)
@@ -1205,7 +1350,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             {
                 try
                 {
-                    LoadLyrics(File.ReadAllText(lrcPath));
+                    _project.LyricEnds ??= new Dictionary<int, long>();
+                    _project.LyricEnds.Clear();
+                    LoadLyrics(ReadLyricFileText(lrcPath));
                     Log.Info($"[工作台] 自动加载同名歌词：{_lyrics?.Count ?? 0} 行，末句待校准={_tailUncalibrated}");
                 }
                 catch { }
@@ -1290,13 +1437,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var defaultDir = string.IsNullOrEmpty(dir) ? AppDirs.ConfigDir : dir;
         var name = (string.IsNullOrWhiteSpace(audioPath) ? "pv_export" : Path.GetFileNameWithoutExtension(audioPath)) + ".mp4";
         var path = Path.Combine(defaultDir, name);
-        var seconds = _audio.Duration > 0 ? _audio.Duration.ToString("F2", CultureInfo.InvariantCulture) : "";
+        var duration = ProjectDuration();
+        var seconds = duration > 0 ? duration.ToString("F2", CultureInfo.InvariantCulture) : "";
+        var fpsText = _scene.Fps.ToString(CultureInfo.InvariantCulture);
 
         _syncingExportForm = true;
         try
         {
             if (!string.Equals(TxtExportPath.Text, path, StringComparison.Ordinal)) TxtExportPath.Text = path;
             if (!string.Equals(TxtExportSeconds.Text, seconds, StringComparison.Ordinal)) TxtExportSeconds.Text = seconds;
+            if (!string.Equals(TxtExportFps.Text, fpsText, StringComparison.Ordinal)) TxtExportFps.Text = fpsText;
         }
         finally
         {
@@ -1336,12 +1486,33 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             return;
         }
 
+        bool driveVts = ChkVtsDrive.IsChecked == true;
+        if (driveVts && _vts.State != VtsState.Ready)
+        {
+            TblExportState.Text = L.T("导出未开始：VTS 未连接，无法驱动角色");
+            return;
+        }
+
+        if (_project.VtsCues?.Cues.Count > 0 && !driveVts
+            && MessageBox.Show(this,
+                L.T("未勾选“导出时驱动 VTS”，VTS 动作/表情/染色不会在导出中执行；导出只捕获当前 VTS / Spout 状态。\n\n仍要继续导出？"),
+                L.T("PV 工作台"), MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+
         StartExport(TxtExportPath.Text.Trim(), fps, sec, ChkBurnSubtitles.IsChecked == true,
-            ChkIncludeAudio.IsChecked == true);
+            ChkIncludeAudio.IsChecked == true, driveVts);
     }
 
-    private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles, bool includeAudio)
+    private async void StartExport(string outPath, int fps, double seconds, bool burnSubtitles, bool includeAudio,
+        bool driveVts)
     {
+        if (driveVts)
+        {
+            if (_audio.IsPlaying) _audio.Pause();
+            UpdatePlayIcon();
+            ResetVtsExportState();
+        }
+
         _exporting = true;
         BtnExport.IsEnabled = false;
         PrgExport.Progress = 0;
@@ -1351,7 +1522,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TblStatus.Text = ExportText();
 
         var copy = ProjectFromSnapshot(ProjectSnapshot(), L.T("导出"));
-        var inputs = copy is null ? null : ExportInputs(copy, burnSubtitles, includeAudio);
+        var inputs = copy is null ? null : ExportInputs(copy, burnSubtitles, includeAudio, driveVts);
+        if (inputs?.Legacy is { } legacyOptions) legacyOptions.Fps = fps;
         var progress = new Progress<double>(p =>
         {
             _exportPercent = p;
@@ -1368,13 +1540,14 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             : await Task.Run(() => PvExporter.Export(copy.Scene, copy.Effects, seconds, fps, outPath, progress, inputs));
 
         _exporting = false;
+        if (driveVts) EndVtsExportState();
         BtnExport.IsEnabled = true;
         PrgExport.Visibility = Visibility.Collapsed;
         TblExportState.Text = fault ?? L.F("导出完成：{0}", outPath);
         ShowStatus(fault ?? L.F("导出完成：{0}", outPath));
     }
 
-    private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles, bool includeAudio)
+    private PvExportInputs ExportInputs(DirectorProject copy, bool burnSubtitles, bool includeAudio, bool driveVts)
     {
         var curves = DirectorEvaluator.FromSaves(copy.Curves, copy.CameraTrack, copy.LayerCameraTracks);
 
@@ -1386,14 +1559,24 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             Subtitles: burnSubtitles ? App.SettingsOf()?.Subtitle : null,
             AudioPath: includeAudio ? _audioPath : null,
             AudioOffsetSec: ExportAudioOffsetSec,
-            Legacy: LegacyOptions(copy));
+            Legacy: LegacyOptions(copy),
+            FrameTick: driveVts ? ExportVtsFrame : null);
     }
 
     private string ExportText() => L.F("导出中… {0:F0}%", _exportPercent * 100);
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
-        if (Keyboard.FocusedElement is TextBox)
+        var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        if (ctrl && e.Key == Key.S)
+        {
+            e.Handled = true;
+            SaveNow();
+            base.OnPreviewKeyDown(e);
+            return;
+        }
+
+        if (Keyboard.FocusedElement is TextBoxBase)
         {
             base.OnPreviewKeyDown(e);
             return;
@@ -1401,13 +1584,19 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         if (e.Key == Key.Space)
         {
+            if (ConsumesSpaceKeyboard(Keyboard.FocusedElement))
+            {
+                base.OnPreviewKeyDown(e);
+                return;
+            }
+
             e.Handled = true;
-            TogglePlay();
+            if (!e.IsRepeat) TogglePlay();
             base.OnPreviewKeyDown(e);
             return;
         }
 
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        if (!ctrl)
         {
             base.OnPreviewKeyDown(e);
             return;
@@ -1415,13 +1604,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         switch (e.Key)
         {
-            case Key.S:
-                e.Handled = true;
-                SaveNow();
-                break;
             case Key.Z:
                 e.Handled = true;
-                UndoRedo(true);
+                UndoRedo(!Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
                 break;
             case Key.Y:
                 e.Handled = true;
@@ -1430,6 +1615,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         base.OnPreviewKeyDown(e);
+    }
+
+    private static bool ConsumesSpaceKeyboard(IInputElement? element)
+    {
+        for (var node = element as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is ButtonBase or ComboBox or ComboBoxItem or ListBoxItem or Slider) return true;
+        return false;
     }
 
     internal void BtnAddLayer_Click(object sender, RoutedEventArgs e)
@@ -1449,9 +1641,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         var menu = new ContextMenu { PlacementTarget = BtnAddLayer };
 
+        var import = new MenuItem { Header = L.T("导入图片…") };
+        import.Click += (_, _) => ImportImageLayer();
+        menu.Items.Add(import);
+        menu.Items.Add(new Separator());
+
         if (known.Count > 0)
         {
-            menu.Items.Add(new Separator());
             foreach (var name in known)
             {
                 var item = new MenuItem { Header = name };
@@ -1476,10 +1672,36 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         menu.IsOpen = true;
     }
 
+    private void ImportImageLayer()
+    {
+        var pipe = _pipe;
+        if (pipe is null)
+        {
+            TblStatus.Text = L.T("渲染未就绪，稍后再导入图片");
+            return;
+        }
+
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = L.T("导入图片"),
+            Filter = L.T("图片 (*.png;*.jpg;*.jpeg;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.bmp|所有文件 (*.*)|*.*"),
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        pipe.RequestAddAsset(dlg.FileName);
+        TblStatus.Text = L.F("正在导入图片：{0}", Path.GetFileName(dlg.FileName));
+    }
+
     private void BtnPlay_Click(object sender, RoutedEventArgs e) => TogglePlay();
 
     private void TogglePlay()
     {
+        if (!_audio.IsPlaying && _audio.Duration <= 0)
+        {
+            ShowStatus(L.T("请先导入音频"), 3);
+            return;
+        }
+
         if (_audio.IsPlaying) _audio.Pause();
         else _audio.Play();
         UpdatePlayIcon();
@@ -1498,7 +1720,18 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     protected override void OnPreviewMouseLeftButtonUp(MouseButtonEventArgs e)
     {
-        _draggingTime = false;
+        if (_draggingTime)
+        {
+            _draggingTime = false;
+            _audio.Seek(SldTime.Value);
+            if (SldTime.IsMouseCaptured) SldTime.ReleaseMouseCapture();
+            if (_resumeAfterScrub)
+            {
+                _resumeAfterScrub = false;
+                _audio.Play();
+            }
+        }
+
         _dragLayer = null;
         base.OnPreviewMouseLeftButtonUp(e);
     }
@@ -1508,15 +1741,35 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (SldTime.IsMouseOver)
         {
             _draggingTime = true;
+            if (_audio.IsPlaying)
+            {
+                _resumeAfterScrub = true;
+                _audio.Pause();
+            }
+
             if (SldTime.Template?.FindName("PART_Track", SldTime) is System.Windows.Controls.Primitives.Track track
                 && track.ActualWidth > 0 && !IsThumbSource(e.OriginalSource as DependencyObject))
             {
                 double ratio = Math.Clamp(e.GetPosition(track).X / track.ActualWidth, 0, 1);
                 SldTime.Value = SldTime.Minimum + ratio * (SldTime.Maximum - SldTime.Minimum);
+                SldTime.CaptureMouse();
                 e.Handled = true;
             }
         }
         base.OnPreviewMouseLeftButtonDown(e);
+    }
+
+    protected override void OnPreviewMouseMove(MouseEventArgs e)
+    {
+        if (_draggingTime && SldTime.IsMouseCaptured && e.LeftButton == MouseButtonState.Pressed
+            && SldTime.Template?.FindName("PART_Track", SldTime) is System.Windows.Controls.Primitives.Track track
+            && track.ActualWidth > 0)
+        {
+            double ratio = Math.Clamp(e.GetPosition(track).X / track.ActualWidth, 0, 1);
+            SldTime.Value = SldTime.Minimum + ratio * (SldTime.Maximum - SldTime.Minimum);
+            e.Handled = true;
+        }
+        base.OnPreviewMouseMove(e);
     }
 
     private static bool IsThumbSource(DependencyObject? src)
@@ -1529,7 +1782,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private void RefreshStatus()
     {
         var t = _audio.Time;
-        var d = _audio.Duration;
+        var d = ProjectDuration();
         TblTime.Text = $"{Fmt(t)} / {Fmt(d)}";
         if (!_draggingTime)
         {
@@ -1563,9 +1816,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
             var (live, total) = pipe.SpoutState;
             var srcTxt = total == 0 ? L.T("无外部源") : L.F("{0}/{1} 路源已连", live, total);
-            var status = L.F("效果 {0} 段 · 图层 {1} · {2}", pipe.Renderer.EffectCount, _scene.Layers.Count, srcTxt);
+            var engineLayers = _scene.Layers.Count(l => l is not null && IsEngineLayer(l.Id));
+            var layerText = engineLayers > 0
+                ? L.F("可编辑层 {0} · 引擎层 {1}", _uiLayers.Count, engineLayers)
+                : L.F("图层 {0}", _uiLayers.Count);
+            var status = L.F("效果节点 {0} 个 · {1} · {2}", pipe.Renderer.EffectCount, layerText, srcTxt);
             if (pipe.LegacyMode)
                 status += L.F(" · 原版引擎 {0} 切分", pipe.LegacyCutCount);
+            if (pipe.LegacyComposite) status += L.T(" · 合并层");
+            if (pipe.LegacyError is { } legacyError)
+                status += L.F(" · 原版引擎错误：{0}", legacyError);
 
             var b = pipe.BroadcastInfo;
             if (b.Enabled)
@@ -1633,6 +1893,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (TblAutoIntensity is not null)
             TblAutoIntensity.Text = e.NewValue.ToString("F2", CultureInfo.InvariantCulture);
+        if (_syncingAuto || _project is null) return;
+
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        if (Math.Abs(layout.AutoIntensity - e.NewValue) < 1e-4) return;
+        layout.AutoIntensity = Math.Clamp(e.NewValue, 0, 1);
+        _saveError = SaveProjectNow();
     }
 
     private void UpdateAutoButton()
@@ -1642,7 +1908,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         BtnGenerateAuto.IsEnabled = !_autoGenerating && ready;
         BtnRegenerateAuto.IsEnabled = !_autoGenerating && ready;
         TblAutoHint.Text = ready
-            ? L.T("生成会整份重写自动生成的曲线与效果实例，一次生成压一条撤销。")
+            ? L.T("生成会重建自动运镜与整体转场，保留手改内容；一次生成压一条撤销。")
             : L.T("先导入音频和歌词，生成才会解锁。");
     }
 
@@ -1690,6 +1956,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (index == 0) RefreshMediaPanel();
         if (index == 1) EnsureStylePanel();
         if (index == 2) EnsureTechPanel();
+        if (index == 3) SyncAutoControls();
         if (index == 5) SyncSettingsPanel();
     }
 
@@ -1712,6 +1979,28 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             TblGpuName.Text = paren > 0 ? gpuName[..paren] : gpuName;
             TblGpuName.ToolTip = gpuName;
             TglVSync.IsChecked = Stage.VSync;
+            TglLegacyComposite.IsChecked = _project.EditorLayout?.LegacyComposite == true;
+            TblLegacyComposite.Text = _project.EditorLayout?.LegacyComposite != true
+                ? L.T("当前：分层（关闭合并）")
+                : _pipe is null
+                    ? L.T("当前：等待渲染")
+                    : _pipe.LegacyComposite
+                        ? L.T("当前：合并（单层渲染，更快）")
+                        : L.T("当前：分层（存在逐层曲线/运镜/特效、图层变换或图层顺序无法合并）");
+
+            var settings = App.SettingsOf();
+            if (settings is not null)
+            {
+                TglPreviewSubtitles.IsChecked = settings.PreviewSubtitles;
+                SelectComboTag(CmbSubContent, settings.Subtitle.Content switch
+                {
+                    SubContent.Off => "off",
+                    SubContent.Trans => "trans",
+                    SubContent.Roma => "roma",
+                    _ => "both",
+                });
+                SelectComboTag(CmbSubPos, settings.Subtitle.Pos == SubPos.Top ? "top" : "bottom");
+            }
 
             TglCenterFree.IsChecked = _project.Preset.CenterFree;
             SldCenterGap.Value = Math.Clamp(_project.Preset.CenterGap ?? 30, 10, 70);
@@ -1930,6 +2219,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         w = Math.Clamp(w, 64, 7680) & ~1;
         h = Math.Clamp(h, 64, 7680) & ~1;
         fps = Math.Clamp(fps, 1, 240);
+        var oldFps = _scene.Fps;
 
         if (w == _scene.Width && h == _scene.Height && fps == _scene.Fps)
         {
@@ -1941,6 +2231,25 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _scene.Height = h;
         _scene.Fps = fps;
         _project.Scene = _scene;
+        if (_project.Preset is { Koma: > 0 } preset)
+        {
+            if (preset.Koma == Math.Max(1, oldFps / 2)) preset.Koma = Math.Max(1, fps / 2);
+            else if (preset.Koma == Math.Max(1, oldFps / 3)) preset.Koma = Math.Max(1, fps / 3);
+        }
+        if (_project.CameraTrack is { } cameraTrack)
+        {
+            cameraTrack.Fps = fps;
+            cameraTrack.Width = w;
+            cameraTrack.Height = h;
+        }
+
+        foreach (var track in _project.LayerCameraTracks.Values)
+            if (track is not null)
+            {
+                track.Fps = fps;
+                track.Width = w;
+                track.Height = h;
+            }
 
         TheTimeline.Fps = fps;
         _rebuildPipeKeepTransport = true;
@@ -1952,6 +2261,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             : L.F("画布已应用，工程保存失败：{0}", fault);
         ShowStatus(TblCanvasState.Text, 5);
         SyncSettingsPanel();
+        SyncPresetControls();
     }
 
     internal void TglVSync_Changed(object sender, RoutedEventArgs e)
@@ -1965,6 +2275,60 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             settings.VSync = on;
             settings.SaveDebounced();
         }
+    }
+
+    internal void TglLegacyComposite_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncingSettings || _project is null) return;
+
+        var layout = _project.EditorLayout ??= new EditorLayout();
+        bool on = TglLegacyComposite.IsChecked == true;
+        if (layout.LegacyComposite == on) return;
+
+        layout.LegacyComposite = on;
+        _saveError = SaveProjectNow();
+        _rebuildPipeKeepTransport = true;
+        _rebuildPipe = true;
+        ShowStatus(on ? L.T("正在尝试合并原版图层…") : L.T("已切回分层渲染"), 4);
+    }
+
+    internal void TglPreviewSubtitles_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncingSettings) return;
+        var settings = App.SettingsOf();
+        if (settings is null) return;
+
+        settings.PreviewSubtitles = TglPreviewSubtitles.IsChecked == true;
+        settings.SaveDebounced();
+        ShowStatus(settings.PreviewSubtitles ? L.T("字幕预览已开启") : L.T("字幕预览已关闭"), 3);
+    }
+
+    internal void CmbSubContent_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSettings || CmbSubContent.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        var settings = App.SettingsOf();
+        if (settings is null) return;
+
+        settings.Subtitle.Content = tag switch
+        {
+            "trans" => SubContent.Trans,
+            "roma" => SubContent.Roma,
+            "both" => SubContent.Both,
+            _ => SubContent.Off,
+        };
+        settings.SaveDebounced();
+    }
+
+    internal void CmbSubPos_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingSettings || CmbSubPos.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        var settings = App.SettingsOf();
+        if (settings is null) return;
+
+        settings.Subtitle.Pos = string.Equals(tag, "top", StringComparison.Ordinal)
+            ? SubPos.Top
+            : SubPos.Bottom;
+        settings.SaveDebounced();
     }
 
     private void BtnInspector_Click(object sender, RoutedEventArgs e)

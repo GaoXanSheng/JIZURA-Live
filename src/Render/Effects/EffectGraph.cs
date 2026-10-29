@@ -6,6 +6,8 @@ public sealed class EffectGraph
 {
     public const int GlobalSlot = 15;
 
+    public const int AudioSlot = 14;
+
     public List<EffectNode> Nodes { get; } = new();
 
     internal static string NewInstanceId(string defId) =>
@@ -21,6 +23,9 @@ public sealed class EffectGraph
                 DefId = node.DefId,
                 InstanceId = node.InstanceId,
                 Enabled = node.Enabled,
+                Stage = node.Stage,
+                Blend = node.Blend,
+                Opacity = node.Opacity,
                 Target = node.Target,
             };
             foreach (var (key, value) in node.Values) clone.Values[key] = value;
@@ -33,7 +38,8 @@ public sealed class EffectGraph
     }
 
     public GpuRenderGraph BuildRenderGraph(ShaderLibrary library, float time, int width, int height,
-        string target = "")
+        string target = "", float bass = 0, float mid = 0, float high = 0, float rms = 0,
+        EffectStage stage = EffectStage.GlobalPost)
     {
         var graph = new GpuRenderGraph();
         var prev = GpuRenderGraph.External;
@@ -41,36 +47,48 @@ public sealed class EffectGraph
         foreach (var node in Nodes)
         {
             if (!node.Enabled || !node.FrameActive) continue;
+            if (node.Stage != stage) continue;
             if (!string.Equals(node.Target, target, StringComparison.Ordinal)) continue;
             var def = EffectCatalog.Get(node.DefId);
             if (def is null) continue;
 
-            if (def.GraphBuild is not null)
+            var source = prev;
+            var output = def.GraphBuild is not null
+                ? def.GraphBuild(node, graph, library, prev, width, height)
+                : graph.Add(library.GetPixel(def.Id, def.Hlsl),
+                    PackConstants(def, node, time, width, height, bass, mid, high, rms), prev);
+
+            if (node.Blend == EffectBlend.Normal && node.Opacity >= 0.999f)
             {
-                prev = def.GraphBuild(node, graph, library, prev, width, height);
+                prev = output;
                 continue;
             }
 
-            graph.Add(library.GetPixel(def.Id, def.Hlsl),
-                PackConstants(def, node, time, width, height), prev);
-            prev = graph.Count - 1;
+            var blendConstants = new float[FullScreenPass.ParamSlots * 4];
+            blendConstants[0] = (float)node.Blend;
+            blendConstants[1] = Math.Clamp(node.Opacity, 0f, 1f);
+            prev = graph.Add(library.GetPixel("fx.blend", ShaderSources.Blend),
+                blendConstants, output, source);
         }
 
-        foreach (var pass in graph.Passes) FillGlobals(pass.Constants, time, width, height);
+        foreach (var pass in graph.Passes)
+            FillGlobals(pass.Constants, time, width, height, bass, mid, high, rms);
         return graph;
     }
 
-    public bool HasEffectsFor(string target)
+    public bool HasEffectsFor(string target, EffectStage stage = EffectStage.GlobalPost)
     {
         foreach (var node in Nodes)
             if (node.Enabled && node.FrameActive
+                && node.Stage == stage
                 && string.Equals(node.Target, target, StringComparison.Ordinal)
                 && EffectCatalog.Get(node.DefId) is not null)
                 return true;
         return false;
     }
 
-    public static float[] PackConstants(EffectDef def, EffectNode node, float time, int width, int height)
+    public static float[] PackConstants(EffectDef def, EffectNode node, float time, int width, int height,
+        float bass = 0, float mid = 0, float high = 0, float rms = 0)
     {
         var c = new float[FullScreenPass.ParamSlots * 4];
         foreach (var p in def.Params)
@@ -91,11 +109,12 @@ public sealed class EffectGraph
             }
         }
 
-        FillGlobals(c, time, width, height);
+        FillGlobals(c, time, width, height, bass, mid, high, rms);
         return c;
     }
 
-    public static void FillGlobals(float[] c, float time, int width, int height)
+    public static void FillGlobals(float[] c, float time, int width, int height,
+        float bass = 0, float mid = 0, float high = 0, float rms = 0)
     {
         var gi = GlobalSlot * 4;
         if (gi + 3 >= c.Length) return;
@@ -103,5 +122,12 @@ public sealed class EffectGraph
         c[gi + 1] = width;
         c[gi + 2] = height;
         c[gi + 3] = height > 0 ? width / (float)height : 1f;
+
+        var ai = AudioSlot * 4;
+        if (ai + 3 >= c.Length) return;
+        c[ai] = bass;
+        c[ai + 1] = mid;
+        c[ai + 2] = high;
+        c[ai + 3] = rms;
     }
 }

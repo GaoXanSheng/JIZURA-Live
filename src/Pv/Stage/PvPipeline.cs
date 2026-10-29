@@ -22,6 +22,7 @@ public sealed class PvPipeline : IDisposable
     private readonly SnapshotSlot<EffectGraph> _effects;
 
     private readonly ConcurrentQueue<string> _pendingAdds = new();
+    private readonly ConcurrentQueue<string> _pendingAssets = new();
     private readonly ConcurrentQueue<string> _pendingRemoves = new();
     private volatile string[]? _pendingOrder;
 
@@ -37,6 +38,20 @@ public sealed class PvPipeline : IDisposable
 
     private volatile bool _stageCamera = true;
     private volatile bool _stageTransitions = true;
+    private bool _legacyComposite;
+
+    public bool LegacyComposite => _legacyComposite;
+
+    public event Action? CompositeInvalidated;
+
+    private static readonly string[] LegacyLayerIds =
+    [
+        LegacyPvProvider.BackId,
+        LegacyPvProvider.FrontLayoutId,
+        LegacyPvProvider.FrontId,
+        LegacyPvProvider.FrontDecorId,
+        LegacyPvProvider.FrontHudId,
+    ];
     private List<DesignSegment>? _designSegments;
 
     public double LastPrepareMs { get; private set; }
@@ -63,7 +78,7 @@ public sealed class PvPipeline : IDisposable
         set
         {
             _stageTransitions = value;
-            if (_legacy is not null) _legacy.NoCutTrans = !value;
+            if (_legacy is not null) _legacy.NoCutTrans = value;
             _renderer.SetDesignSegments(value ? _designSegments : null);
         }
     }
@@ -125,9 +140,21 @@ public sealed class PvPipeline : IDisposable
 
     public bool Ready { get; private set; }
     public string? Error { get; private set; }
+    public string? LegacyError => _legacy?.Error;
+    public bool LegacyNoPost => _legacy?.NoPost ?? false;
 
     public (int Live, int Total) SpoutState =>
         (_spoutProviders.Count(p => p.Connected), _spoutProviders.Count);
+
+    public bool HasCharacterSource => _character is { Connected: true };
+
+    public long CharacterFrameVersion => _character?.Version ?? 0;
+
+    public void PumpSpout()
+    {
+        if (_stopPumping) return;
+        foreach (var provider in _spoutProviders) provider.PumpFrame();
+    }
 
     public void RequestBroadcast(bool enable, string name) =>
         _pendingBroadcast = new BroadcastRequest(enable, name?.Trim() ?? "");
@@ -194,9 +221,24 @@ public sealed class PvPipeline : IDisposable
 
     public void ApplyLegacyCutOverrides(LegacyPvPlanInfo info) => _legacy?.ApplyCutOverrides(info);
 
-    public void PublishEffects(EffectGraph snapshot) => _effects.Publish(snapshot);
+    public void PublishEffects(EffectGraph snapshot)
+    {
+        _effects.Publish(snapshot);
+        if (_legacyComposite
+            && snapshot.Nodes.Any(n => n is not null && n.Enabled
+                && LegacyLayerIds.Contains(n.Target, StringComparer.Ordinal)))
+            CompositeInvalidated?.Invoke();
+    }
 
     public void SetAudioAnalysis(AudioBandSeries? series) => _audioBands = series;
+
+    private static float SampleBand(float[]? values, double time, double step)
+    {
+        if (values is null || values.Length == 0 || step <= 1e-9) return 0;
+        var index = (int)Math.Clamp(Math.Round(time / step), 0, values.Length - 1);
+        var value = values[index];
+        return float.IsFinite(value) ? Math.Clamp(value, 0f, 2f) : 0;
+    }
 
     public void Prepare(double time)
     {
@@ -216,6 +258,18 @@ public sealed class PvPipeline : IDisposable
         ApplyEffectCurves(effects, _director, time);
         _scene.PublishFrame(frame);
 
+        var bands = _audioBands;
+        var step = bands?.StepSeconds ?? 0;
+        var bass = SampleBand(bands?.Bass, time, step);
+        var mid = SampleBand(bands?.Mid, time, step);
+        var high = SampleBand(bands?.High, time, step);
+        var rms = SampleBand(bands?.Rms, time, step);
+        _renderer.AudioBass = bass;
+        _renderer.AudioMid = mid;
+        _renderer.AudioHigh = high;
+        _renderer.AudioRms = rms;
+        _renderer.Stage.Energy = Math.Clamp(rms, 0f, 1f);
+
         _renderer.Stage.Camera = frame.Camera;
 
         _subtitle?.Render(time, _renderer.DesignWidth, _renderer.DesignHeight);
@@ -234,6 +288,8 @@ public sealed class PvPipeline : IDisposable
     public ID2D1DeviceContext D2DContext => _renderer.D2DContext;
 
     public void RequestAdd(string sender) => _pendingAdds.Enqueue(sender);
+
+    public void RequestAddAsset(string path) => _pendingAssets.Enqueue(path);
 
     public void RequestRemove(string id) => _pendingRemoves.Enqueue(id);
     public void RequestOrder(IReadOnlyList<string> idsTopFirst) =>
@@ -258,6 +314,28 @@ public sealed class PvPipeline : IDisposable
     public static bool WantsSpout(PvLayerConfig layer) =>
         layer.Kind == PvLayerKind.VisualAsset
         && !string.IsNullOrWhiteSpace(layer.SpoutSenderName);
+
+    public static bool WantsAsset(PvLayerConfig layer) =>
+        !string.IsNullOrWhiteSpace(layer.AssetPath);
+
+    public static PvLayerConfig NewAssetLayer(string id, string path) => new()
+    {
+        Id = id,
+        Name = Path.GetFileName(path),
+        Kind = PvLayerKind.Background,
+        AssetPath = path,
+        SpoutSenderName = null,
+        Cover = true,
+        Parallax = new PvParallaxConfig { Depth = 1, RotationFactor = 1, ScaleFactor = 1, Defocus = 1 },
+        VisualBlend = new PvVisualBlendConfig
+        {
+            AmbientTintIntensity = 0,
+            RimGlow = 0,
+            DropShadow = 0,
+            ShadowOffsetY = 0,
+            AntiBleedMargin = 0.06,
+        },
+    };
 
     public static PvLayerConfig NewSourceLayer(string id, string sender) => new()
     {
@@ -295,17 +373,13 @@ public sealed class PvPipeline : IDisposable
             ? _scene.Width
             : Math.Clamp(
                 (int)Math.Round(_scene.Width * Math.Clamp(options.RenderScale, 0.25, 1.0)),
-                320, _scene.Width);
+                Math.Min(320, _scene.Width), _scene.Width);
+        var fps = options.Fps > 0 ? options.Fps : _scene.Fps;
         _legacy = new LegacyPvProvider("legacy", gpu, _d2d.Ctx, options,
-            _scene.Width, _scene.Height, _scene.Fps, renderWidth);
+            _scene.Width, _scene.Height, fps, renderWidth);
         _legacy.NoCutTrans = _stageTransitions;
         _legacy.NoCamera = _stageCamera;
         _legacy.PlanReady += info => LegacyPlanReady?.Invoke(info);
-        _renderer.Stage.Register(_legacy.Back);
-        _renderer.Stage.Register(_legacy.Front);
-        _renderer.Stage.Register(_legacy.FrontLayout);
-        _renderer.Stage.Register(_legacy.FrontDecor);
-        _renderer.Stage.Register(_legacy.FrontHud);
 
         var existingBack = ExistingLayer(LegacyPvProvider.BackId);
         var existingText = ExistingLayer(LegacyPvProvider.FrontId);
@@ -327,6 +401,12 @@ public sealed class PvPipeline : IDisposable
         decor.Kind = PvLayerKind.ForegroundFx;
         hud.Name = L.T("歌词界面层");
         hud.Kind = PvLayerKind.ForegroundFx;
+
+        EnsureLegacyCamera(back, true);
+        EnsureLegacyCamera(text, false);
+        EnsureLegacyCamera(layout, false);
+        EnsureLegacyCamera(decor, false);
+        EnsureLegacyCamera(hud, false);
 
         if (existingLayout is null) CopyLayerTransform(text, layout);
         if (existingDecor is null) CopyLayerTransform(text, decor);
@@ -355,8 +435,144 @@ public sealed class PvPipeline : IDisposable
         EnsureLyricLayer(hud, existingHud is not null,
             [LegacyPvProvider.FrontDecorId, LegacyPvProvider.FrontId, LegacyPvProvider.FrontLayoutId], []);
 
+        if (options.CutOverrides is { Count: > 0 } overrides)
+        {
+            var info = new LegacyPvPlanInfo();
+            foreach (var o in overrides)
+            {
+                if (o is null || !double.IsFinite(o.Start)) continue;
+                info.Cuts.Add(new LegacyPvCutInfo
+                {
+                    Start = o.Start,
+                    Line = o.Line,
+                    Layout = o.Layout ?? "",
+                    Enter = o.Enter ?? "",
+                    Exit = o.Exit ?? "",
+                    Treat = o.Treat ?? "",
+                    LayoutParams = new Dictionary<string, double>(o.LayoutParams ?? new(), StringComparer.Ordinal),
+                    TreatParams = new Dictionary<string, double>(o.TreatParams ?? new(), StringComparer.Ordinal),
+                    BgParams = new Dictionary<string, double>(o.BgParams ?? new(), StringComparer.Ordinal),
+                    CamParams = new Dictionary<string, double>(o.CamParams ?? new(), StringComparer.Ordinal),
+                    LayoutTexts = new Dictionary<string, string>(o.LayoutTexts ?? new(), StringComparer.Ordinal),
+                    TreatTexts = new Dictionary<string, string>(o.TreatTexts ?? new(), StringComparer.Ordinal),
+                    BgTexts = new Dictionary<string, string>(o.BgTexts ?? new(), StringComparer.Ordinal),
+                    CamTexts = new Dictionary<string, string>(o.CamTexts ?? new(), StringComparer.Ordinal),
+                });
+            }
+
+            if (info.Cuts.Count > 0) _legacy.ApplyCutOverrides(info);
+        }
+
+        _legacyComposite = options.Composite && CanUseLegacyComposite();
+        _legacy.CompositeMode = _legacyComposite;
+        back.Name = _legacyComposite ? L.T("原版合成层") : L.T("背景层");
+
+        if (_legacyComposite)
+        {
+            _renderer.Stage.Register(_legacy.Composite);
+        }
+        else
+        {
+            _renderer.Stage.Register(_legacy.Back);
+            _renderer.Stage.Register(_legacy.Front);
+            _renderer.Stage.Register(_legacy.FrontLayout);
+            _renderer.Stage.Register(_legacy.FrontDecor);
+            _renderer.Stage.Register(_legacy.FrontHud);
+        }
+
         Log.Info($"[PV 原版引擎] 图层顺序：{string.Join(" → ", _scene.Layers.Select(l => l.Id))}");
-        Log.Info($"[PV 原版引擎] 启动中：{renderWidth}px 渲染（背景/布局/文字/装饰/界面分层）");
+        Log.Info($"[PV 原版引擎] 启动中：{renderWidth}px 渲染（{(_legacyComposite ? "合并层" : "背景/布局/文字/装饰/界面分层")}，NoPost={_legacy.NoPost}）");
+    }
+
+    private bool CanUseLegacyComposite() => CanUseLegacyComposite(_scene, _effects.Snapshot);
+
+    public static bool CanUseLegacyComposite(PvScene scene, EffectGraph effects)
+    {
+        PvLayerConfig? Find(string id) =>
+            scene.Layers.FirstOrDefault(l => l is not null && l.Id == id);
+
+        var back = Find(LegacyPvProvider.BackId);
+        if (back is null || !IsDefaultLegacyBack(back)) return false;
+
+        var fronts = new[]
+        {
+            LegacyPvProvider.FrontLayoutId,
+            LegacyPvProvider.FrontId,
+            LegacyPvProvider.FrontDecorId,
+            LegacyPvProvider.FrontHudId,
+        };
+        foreach (var id in fronts)
+        {
+            var layer = Find(id);
+            if (layer is null || !IsDefaultLegacyFront(layer)) return false;
+        }
+
+        var indices = new int[LegacyLayerIds.Length];
+        for (var i = 0; i < LegacyLayerIds.Length; i++)
+        {
+            indices[i] = scene.Layers.FindIndex(l => l is not null && l.Id == LegacyLayerIds[i]);
+            if (indices[i] < 0) return false;
+        }
+
+        int min = indices.Min();
+        int max = indices.Max();
+        if (max - min + 1 != LegacyLayerIds.Length) return false;
+        for (var i = min; i <= max; i++)
+            if (!LegacyLayerIds.Contains(scene.Layers[i].Id, StringComparer.Ordinal))
+                return false;
+
+        foreach (var node in effects.Nodes)
+            if (node is not null && node.Enabled
+                && LegacyLayerIds.Contains(node.Target, StringComparer.Ordinal))
+                return false;
+
+        return true;
+    }
+
+    private static bool IsDefaultLegacyFront(PvLayerConfig layer)
+    {
+        if (!layer.Enabled || layer.MirrorX || !layer.Cover) return false;
+        if (Math.Abs(layer.Opacity - 1) > 1e-6 || Math.Abs(layer.Scale - 1) > 1e-6
+            || Math.Abs(layer.OffsetX) > 1e-6 || Math.Abs(layer.OffsetY) > 1e-6
+            || Math.Abs(layer.Rotation) > 1e-6) return false;
+
+        var parallax = layer.Parallax;
+        if (parallax is null
+            || Math.Abs(parallax.Depth - 1) > 1e-6
+            || Math.Abs(parallax.RotationFactor - 1) > 1e-6
+            || Math.Abs(parallax.ScaleFactor - 1) > 1e-6
+            || Math.Abs(parallax.Defocus - 1) > 1e-6
+            || (parallax.Follow is { } follow && Math.Abs(follow - 1) > 1e-6)) return false;
+
+        var blend = layer.VisualBlend;
+        return blend is not null
+               && blend.AmbientTintIntensity <= 1e-3
+               && blend.RimGlow <= 1e-3
+               && blend.DropShadow <= 1e-3
+               && Math.Abs(blend.AntiBleedMargin - 0.02) <= 1e-3;
+    }
+
+    private static bool IsDefaultLegacyBack(PvLayerConfig layer)
+    {
+        if (!layer.Enabled || layer.MirrorX || !layer.Cover) return false;
+        if (Math.Abs(layer.Opacity - 1) > 1e-6 || Math.Abs(layer.Scale - 1) > 1e-6
+            || Math.Abs(layer.OffsetX) > 1e-6 || Math.Abs(layer.OffsetY) > 1e-6
+            || Math.Abs(layer.Rotation) > 1e-6) return false;
+
+        var parallax = layer.Parallax;
+        if (parallax is null
+            || Math.Abs(parallax.Depth - 1) > 1e-6
+            || Math.Abs(parallax.RotationFactor - 1) > 1e-6
+            || Math.Abs(parallax.ScaleFactor - 1) > 1e-6
+            || Math.Abs(parallax.Defocus - 1) > 1e-6
+            || (parallax.Follow is { } follow && Math.Abs(follow - 1) > 1e-6)) return false;
+
+        var blend = layer.VisualBlend;
+        return blend is not null
+               && blend.AmbientTintIntensity <= 1e-3
+               && blend.RimGlow <= 1e-3
+               && blend.DropShadow <= 1e-3
+               && blend.AntiBleedMargin is >= 0.19 and <= 0.21;
     }
 
     private void EnsureLyricLayer(PvLayerConfig layer, bool exists, string[] afterIds, string[] beforeIds)
@@ -407,7 +623,7 @@ public sealed class PvPipeline : IDisposable
         Opacity = 1,
         Scale = 1,
         SpoutSenderName = null,
-        Parallax = new PvParallaxConfig { Depth = 0, RotationFactor = 0, ScaleFactor = 0, Defocus = 0 },
+        Parallax = new PvParallaxConfig { Depth = 1, RotationFactor = 1, ScaleFactor = 1, Defocus = 1 },
         VisualBlend = new PvVisualBlendConfig
         {
             AmbientTintIntensity = 0,
@@ -418,8 +634,41 @@ public sealed class PvPipeline : IDisposable
         },
     };
 
+    private static void EnsureLegacyCamera(PvLayerConfig layer, bool background)
+    {
+        layer.Parallax ??= new PvParallaxConfig();
+        var p = layer.Parallax;
+        if (p.Depth <= 0.001 && p.RotationFactor <= 0.001 && p.ScaleFactor <= 0.001
+            && p.Defocus <= 0.001 && (p.Follow is null || p.Follow <= 0.001))
+        {
+            p.Depth = 1;
+            p.RotationFactor = 1;
+            p.ScaleFactor = 1;
+            p.Defocus = 1;
+        }
+
+        layer.VisualBlend ??= new PvVisualBlendConfig();
+        if (layer.VisualBlend.AntiBleedMargin <= 0.001)
+            layer.VisualBlend.AntiBleedMargin = background ? 0.2 : 0.02;
+    }
+
     private void RegisterLayerProvider(PvLayerConfig layer)
     {
+        if (WantsAsset(layer))
+        {
+            try
+            {
+                var provider = new ImageLayerProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.AssetPath!);
+                _renderer.Stage.Register(provider);
+                Log.Info($"[PV 管线] 图片图层已就绪：'{layer.Id}' <- '{layer.AssetPath}'");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[PV 管线] 图片图层加载失败：{layer.Id} <- {layer.AssetPath}：{ex.Message}");
+            }
+            return;
+        }
+
         if (WantsSpout(layer))
         {
             var provider = new SpoutSourceProvider(layer.Id, _renderer.Device, _d2d.Ctx, layer.SpoutSenderName!,
@@ -440,10 +689,20 @@ public sealed class PvPipeline : IDisposable
         {
             var id = $"src_{Interlocked.Increment(ref _layerSeq)}";
             var layer = NewSourceLayer(id, sender);
-            _scene.Layers = WithLayerAdded(_scene.Layers, layer);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer, _legacyComposite);
             RegisterLayerProvider(layer);
             changed = true;
             Log.Info($"[PV 管线] 新建图层 '{id}' <- '{sender}'");
+        }
+
+        while (_pendingAssets.TryDequeue(out var path))
+        {
+            var id = $"img_{Interlocked.Increment(ref _layerSeq)}";
+            var layer = NewAssetLayer(id, path);
+            _scene.Layers = WithLayerAdded(_scene.Layers, layer, false);
+            RegisterLayerProvider(layer);
+            changed = true;
+            Log.Info($"[PV 管线] 新建图片图层 '{id}' <- '{path}'");
         }
 
         while (_pendingRemoves.TryDequeue(out var id))
@@ -469,15 +728,29 @@ public sealed class PvPipeline : IDisposable
             changed = true;
         }
 
+        if (_legacyComposite && !CanUseLegacyComposite(_scene, _effects.Snapshot))
+            CompositeInvalidated?.Invoke();
+
         if (changed)
         {
             LayersChanged?.Invoke();
         }
     }
 
-    public static List<PvLayerConfig> WithLayerAdded(IReadOnlyList<PvLayerConfig> layers, PvLayerConfig layer)
+    public static List<PvLayerConfig> WithLayerAdded(IReadOnlyList<PvLayerConfig> layers, PvLayerConfig layer,
+        bool aboveComposite = false)
     {
         var next = new List<PvLayerConfig>(layers);
+        if (aboveComposite)
+        {
+            int hud = next.FindIndex(l => l.Id == LegacyPvProvider.FrontHudId);
+            if (hud >= 0)
+            {
+                next.Insert(hud + 1, layer);
+                return next;
+            }
+        }
+
         int front = next.FindIndex(l => l.Id == LegacyPvProvider.FrontLayoutId);
         if (front < 0) front = next.FindIndex(l => l.Id == LegacyPvProvider.FrontId);
         if (front >= 0) next.Insert(front, layer);
@@ -682,6 +955,11 @@ public sealed class PvPipeline : IDisposable
         _renderer.Stage.Energy = 0;
     }
 
+    private static string HexFromRgb(double r, double g, double b) =>
+        $"#{ToByte(r):X2}{ToByte(g):X2}{ToByte(b):X2}";
+
+    private static int ToByte(double value) => (int)Math.Round(Math.Clamp(value, 0, 1) * 255);
+
     public static void ApplyEffectCurves(EffectGraph effects, DirectorEvaluator? curves, double time)
     {
         var nodes = effects.Nodes;
@@ -699,7 +977,24 @@ public sealed class PvPipeline : IDisposable
 
             foreach (var param in def.Params)
             {
-                if (param.Kind != EffectParamKind.Number) continue;
+                if (param.Kind == EffectParamKind.Color)
+                {
+                    var rAddr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key + ".r");
+                    var gAddr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key + ".g");
+                    var bAddr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key + ".b");
+                    if (curves is null
+                        || (!curves.Affects(rAddr) && !curves.Affects(gAddr) && !curves.Affects(bAddr)))
+                        continue;
+
+                    var (br, bg, bb) = EffectNode.ParseHex(node.ColorValue(param));
+                    var r = curves.Affects(rAddr) ? curves.Resolve(rAddr, time, br) : br;
+                    var g = curves.Affects(gAddr) ? curves.Resolve(gAddr, time, bg) : bg;
+                    var b = curves.Affects(bAddr) ? curves.Resolve(bAddr, time, bb) : bb;
+                    node.SetColor(param, HexFromRgb(r, g, b));
+                    continue;
+                }
+
+                if (param.Kind is not (EffectParamKind.Number or EffectParamKind.Bool)) continue;
                 var addr = new ParamAddress(ParamAddressKind.Effect, node.InstanceId, param.Key);
                 var isMix = hasMix && string.Equals(param.Key, mixKey, StringComparison.Ordinal);
                 var animated = curves is not null && curves.Affects(addr);
