@@ -320,6 +320,7 @@ public sealed partial class TimelineView
         else if (_drag == DragMode.HeaderResize)
         {
             _drag = DragMode.None;
+            HeaderWidthChanged?.Invoke();
         }
         else if (_drag == DragMode.Scrub)
         {
@@ -356,6 +357,7 @@ public sealed partial class TimelineView
         if (_drag == DragMode.HeaderResize)
         {
             _drag = DragMode.None;
+            HeaderWidthChanged?.Invoke();
             InvalidateVisual();
             return;
         }

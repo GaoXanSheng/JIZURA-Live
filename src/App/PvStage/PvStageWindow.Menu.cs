@@ -104,8 +104,10 @@ public partial class PvStageWindow
         TimelineRow.MinHeight = 80;
         TimelineRow.Height = new GridLength(300);
         TheTimeline.Visibility = Visibility.Visible;
+        TheTimeline.SetHeaderWidth(200);
         TheTimeline.ZoomToFit();
         TheTimeline.CollapseAllGroups();
+        SaveWindowLayout();
     }
 
     private void MenuShortcuts_Click(object sender, RoutedEventArgs e)

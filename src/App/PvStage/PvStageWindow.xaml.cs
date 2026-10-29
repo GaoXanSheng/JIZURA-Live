@@ -124,6 +124,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         InitializeComponent();
         Left.Owner = this;
         InitVts();
+        LeftSplitter.DragCompleted += (_, _) => SaveWindowLayout();
+        InspectorSplitter.DragCompleted += (_, _) => SaveWindowLayout();
+        TimelineSplitter.DragCompleted += (_, _) => SaveWindowLayout();
+        TheTimeline.HeaderWidthChanged += SaveWindowLayout;
 
         var settings = App.SettingsOf();
         _broadcastOn = settings?.SpoutEnabled ?? false;
@@ -200,7 +204,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         UpdateBroadcastButton();
         SyncStageToggles();
         SyncCameraSwitchControls();
-        SetStep(0);
+        ApplySavedLayout(settings);
+        SetStep(Math.Clamp(settings?.Layout?.LeftTab ?? 0, 0, 4));
 
         TblInspectorTitle.Cursor = Cursors.Hand;
         TblInspectorTitle.ToolTip = L.T("StageUi.Window.BackToOverallCameraTooltip");
@@ -1940,6 +1945,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (index == 2) EnsureTechPanel();
         if (index == 3) SyncAutoControls();
         if (index == 4) SyncSettingsPanel();
+        if (IsLoaded) SaveWindowLayout();
     }
 
     private void SyncSettingsPanel()
@@ -2334,32 +2340,90 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         settings.SaveDebounced();
     }
 
-    private void ToggleInspector()
+    private void ApplySavedLayout(Settings? settings)
     {
-        _inspectorCollapsed = !_inspectorCollapsed;
+        var layout = settings?.Layout;
+        if (layout is null) return;
+
+        _leftCollapsed = layout.LeftCollapsed;
+        _inspectorCollapsed = layout.InspectorCollapsed;
+        _timelineCollapsed = layout.TimelineCollapsed;
+
+        LeftColumn.MinWidth = _leftCollapsed ? 0 : 240;
+        LeftColumn.Width = new GridLength(_leftCollapsed ? 0 : Math.Clamp(layout.LeftWidth, 240, 1200));
+        Left.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        LeftSplitter.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        LeftSplitterColumn.Width = new GridLength(_leftCollapsed ? 0 : 4);
+
         InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 340;
-        InspectorColumn.Width = new GridLength(_inspectorCollapsed ? 0 : InspectorWidth);
+        InspectorColumn.Width = new GridLength(_inspectorCollapsed
+            ? 0
+            : Math.Clamp(layout.InspectorWidth, 340, 1200));
         InspectorPane.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
         InspectorSplitter.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
         InspectorSplitterColumn.Width = new GridLength(_inspectorCollapsed ? 0 : 6);
+
+        TimelineRow.MinHeight = _timelineCollapsed ? 34 : 80;
+        TimelineRow.Height = new GridLength(_timelineCollapsed
+            ? 34
+            : Math.Clamp(layout.TimelineHeight, 80, 1600));
+        TheTimeline.Visibility = _timelineCollapsed ? Visibility.Collapsed : Visibility.Visible;
+
+        TheTimeline.SetHeaderWidth(layout.TimelineHeaderWidth);
+    }
+
+    private void SaveWindowLayout()
+    {
+        var settings = App.SettingsOf();
+        if (settings is null) return;
+        var layout = settings.Layout ??= new WindowLayout();
+
+        layout.LeftCollapsed = _leftCollapsed;
+        layout.InspectorCollapsed = _inspectorCollapsed;
+        layout.TimelineCollapsed = _timelineCollapsed;
+        if (!_leftCollapsed && LeftColumn.Width.IsAbsolute && LeftColumn.Width.Value > 0)
+            layout.LeftWidth = LeftColumn.Width.Value;
+        if (!_inspectorCollapsed && InspectorColumn.Width.IsAbsolute && InspectorColumn.Width.Value > 0)
+            layout.InspectorWidth = InspectorColumn.Width.Value;
+        if (!_timelineCollapsed && TimelineRow.Height.IsAbsolute && TimelineRow.Height.Value > 0)
+            layout.TimelineHeight = TimelineRow.Height.Value;
+        if (_step >= 0) layout.LeftTab = Math.Clamp(_step, 0, 4);
+        layout.TimelineHeaderWidth = TheTimeline.HeaderWidth;
+        settings.SaveDebounced();
+    }
+
+    private void ToggleInspector()
+    {
+        _inspectorCollapsed = !_inspectorCollapsed;
+        var width = Math.Clamp(App.SettingsOf()?.Layout?.InspectorWidth ?? InspectorWidth, 340, 1200);
+        InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 340;
+        InspectorColumn.Width = new GridLength(_inspectorCollapsed ? 0 : width);
+        InspectorPane.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        InspectorSplitter.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        InspectorSplitterColumn.Width = new GridLength(_inspectorCollapsed ? 0 : 6);
+        SaveWindowLayout();
     }
 
     private void ToggleLeftPanel()
     {
         _leftCollapsed = !_leftCollapsed;
+        var width = Math.Clamp(App.SettingsOf()?.Layout?.LeftWidth ?? 320, 240, 1200);
         LeftColumn.MinWidth = _leftCollapsed ? 0 : 240;
-        LeftColumn.Width = new GridLength(_leftCollapsed ? 0 : 320);
+        LeftColumn.Width = new GridLength(_leftCollapsed ? 0 : width);
         Left.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
         LeftSplitter.Visibility = _leftCollapsed ? Visibility.Collapsed : Visibility.Visible;
         LeftSplitterColumn.Width = new GridLength(_leftCollapsed ? 0 : 4);
+        SaveWindowLayout();
     }
 
     private void ToggleTimeline()
     {
         _timelineCollapsed = !_timelineCollapsed;
+        var height = Math.Clamp(App.SettingsOf()?.Layout?.TimelineHeight ?? 300, 80, 1600);
         TimelineRow.MinHeight = _timelineCollapsed ? 34 : 80;
-        TimelineRow.Height = new GridLength(_timelineCollapsed ? 34 : 300);
+        TimelineRow.Height = new GridLength(_timelineCollapsed ? 34 : height);
         TheTimeline.Visibility = _timelineCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        SaveWindowLayout();
     }
 
     private void RefreshMediaPanel()

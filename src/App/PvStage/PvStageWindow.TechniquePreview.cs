@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -16,11 +17,16 @@ public partial class PvStageWindow
         public BitmapSource[]? Frames { get; } = frames;
     }
 
+    private sealed class TechPlayback(BitmapSource[] frames)
+    {
+        public BitmapSource[] Frames { get; } = frames;
+        public int Index { get; set; }
+    }
+
+    private readonly Dictionary<Image, TechPlayback> _techPlaybacks = new();
+    private readonly HashSet<Border> _techAutoPlayHosts = new();
     private DispatcherTimer? _techPreviewTimer;
     private Border? _techPreviewHost;
-    private Image? _techPreviewImage;
-    private BitmapSource[]? _techPreviewFrames;
-    private int _techPreviewIndex;
 
     private void LoadTechniquePreview(Image image, string? group, string key, int width, bool retry = true)
     {
@@ -48,18 +54,24 @@ public partial class PvStageWindow
 
                     image.Tag = new TechPreviewTag(version, frames);
                     image.Source = frames[0];
-                    if (ReferenceEquals(_techPreviewHost, image.Parent)) PlayTechniquePreview(image, frames);
+                    if (image.Parent is Border host
+                        && (_techAutoPlayHosts.Contains(host) || ReferenceEquals(_techPreviewHost, host)))
+                        PlayTechniquePreview(image, frames);
                 }));
             }, TaskScheduler.Default);
     }
 
-    private void EnsureTechniquePreview(Border host, string? group, string key, int width)
+    private void EnsureTechniquePreview(Border host, string? group, string key, int width, bool autoPlay = false)
     {
         if (group is null) return;
+        if (autoPlay) _techAutoPlayHosts.Add(host);
+        else _techAutoPlayHosts.Remove(host);
+
         if (host.Child is Image cached && cached.Tag is TechPreviewTag tag
             && tag.Version == TechniquePreview.Version)
         {
-            if (ReferenceEquals(_techPreviewHost, host) && tag.Frames is { Length: > 0 } frames)
+            if (tag.Frames is { Length: > 0 } frames
+                && (autoPlay || ReferenceEquals(_techPreviewHost, host)))
                 PlayTechniquePreview(cached, frames);
             return;
         }
@@ -77,6 +89,7 @@ public partial class PvStageWindow
     {
         if (frames.Length <= 1)
         {
+            _techPlaybacks.Remove(image);
             image.Source = frames[0];
             return;
         }
@@ -84,43 +97,64 @@ public partial class PvStageWindow
         _techPreviewTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(125) };
         _techPreviewTimer.Tick -= TechPreviewTick;
         _techPreviewTimer.Tick += TechPreviewTick;
-        _techPreviewImage = image;
-        _techPreviewFrames = frames;
-        _techPreviewIndex = 0;
+        if (_techPlaybacks.ContainsKey(image))
+        {
+            if (!_techPreviewTimer.IsEnabled) _techPreviewTimer.Start();
+            return;
+        }
+
+        _techPlaybacks[image] = new TechPlayback(frames);
         image.Source = frames[0];
         if (!_techPreviewTimer.IsEnabled) _techPreviewTimer.Start();
     }
 
     private void StopTechniquePreview(Image? image)
     {
-        if (image is null || !ReferenceEquals(_techPreviewImage, image)) return;
+        if (image is null || !_techPlaybacks.Remove(image, out var playback)) return;
+        if (playback.Frames.Length > 0) image.Source = playback.Frames[0];
+        if (_techPlaybacks.Count == 0) _techPreviewTimer?.Stop();
+    }
 
-        _techPreviewTimer?.Stop();
-        if (_techPreviewFrames is { Length: > 0 }) image.Source = _techPreviewFrames[0];
-        _techPreviewImage = null;
-        _techPreviewFrames = null;
-        _techPreviewIndex = 0;
+    private void UnloadTechniquePreview(Border host)
+    {
+        _techAutoPlayHosts.Remove(host);
+        if (host.Child is not Image image) return;
+        _techPlaybacks.Remove(image);
+        if (_techPlaybacks.Count == 0) _techPreviewTimer?.Stop();
+        image.Source = null;
+        image.Tag = new TechPreviewTag(TechniquePreview.Version, null);
+        host.Child = host.Tag as UIElement;
     }
 
     private void StopTechniquePreview()
     {
         _techPreviewTimer?.Stop();
-        _techPreviewImage = null;
-        _techPreviewFrames = null;
-        _techPreviewIndex = 0;
+        _techPlaybacks.Clear();
+        _techAutoPlayHosts.Clear();
         _techPreviewHost = null;
     }
 
     private void TechPreviewTick(object? sender, EventArgs e)
     {
-        if (_techPreviewImage is null || _techPreviewFrames is not { Length: > 1 })
+        if (_techPlaybacks.Count == 0)
         {
             _techPreviewTimer?.Stop();
             return;
         }
 
-        _techPreviewIndex = (_techPreviewIndex + 1) % _techPreviewFrames.Length;
-        _techPreviewImage.Source = _techPreviewFrames[_techPreviewIndex];
+        foreach (var (image, playback) in _techPlaybacks.ToList())
+        {
+            if (image.Parent is null)
+            {
+                _techPlaybacks.Remove(image);
+                continue;
+            }
+
+            playback.Index = (playback.Index + 1) % playback.Frames.Length;
+            image.Source = playback.Frames[playback.Index];
+        }
+
+        if (_techPlaybacks.Count == 0) _techPreviewTimer?.Stop();
     }
 
     private static string? PreviewGroup(DesignTrackKind kind) => kind switch

@@ -15,6 +15,15 @@ public sealed partial class TimelineView : Control
 
     public double HeaderWidth => _headerWidth;
 
+    public event Action? HeaderWidthChanged;
+
+    public void SetHeaderWidth(double width)
+    {
+        _headerWidth = Math.Clamp(width, HeaderMinWidth, 800);
+        ClampScrollOffset();
+        InvalidateVisual();
+    }
+
     public const double RulerHeight = 28;
     public const double WaveformHeight = 60;
     public const double LyricHeight = 30;

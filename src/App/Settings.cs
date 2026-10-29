@@ -25,6 +25,8 @@ public sealed class Settings
 
     public string UiLang { get; set; } = "zh-Hans";
 
+    public WindowLayout Layout { get; set; } = new();
+
     public static string ConfigDir => AppDirs.ConfigDir;
     public static string FilePath => Path.Combine(ConfigDir, "pv_config.json");
 
@@ -73,8 +75,17 @@ public sealed class Settings
         settings.PreviewVolume = double.IsFinite(settings.PreviewVolume)
             ? Math.Clamp(settings.PreviewVolume, 0, 1)
             : 0.8;
+        settings.Layout ??= new WindowLayout();
+        settings.Layout.LeftWidth = Clamp(settings.Layout.LeftWidth, 240, 1200, 320);
+        settings.Layout.InspectorWidth = Clamp(settings.Layout.InspectorWidth, 340, 1200, 380);
+        settings.Layout.TimelineHeight = Clamp(settings.Layout.TimelineHeight, 80, 1600, 300);
+        settings.Layout.TimelineHeaderWidth = Clamp(settings.Layout.TimelineHeaderWidth, 120, 800, 200);
+        settings.Layout.LeftTab = Math.Clamp(settings.Layout.LeftTab, 0, 4);
         return settings;
     }
+
+    private static double Clamp(double value, double min, double max, double fallback) =>
+        double.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
 
     public void Save()
     {        lock (SaveGate)
@@ -118,4 +129,23 @@ public sealed class Settings
         }
         s?.Save();
     }
+}
+
+public sealed class WindowLayout
+{
+    public double LeftWidth { get; set; } = 320;
+
+    public double InspectorWidth { get; set; } = 380;
+
+    public double TimelineHeight { get; set; } = 300;
+
+    public bool LeftCollapsed { get; set; }
+
+    public bool InspectorCollapsed { get; set; }
+
+    public bool TimelineCollapsed { get; set; }
+
+    public int LeftTab { get; set; }
+
+    public double TimelineHeaderWidth { get; set; } = 200;
 }

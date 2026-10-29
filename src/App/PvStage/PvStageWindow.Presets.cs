@@ -16,6 +16,7 @@ public partial class PvStageWindow
 {
     private bool _stylePanelBuilt;
     private bool _techPanelBuilt;
+    private bool _techPreviewHooked;
     private bool _fxStackBuilt;
     private bool _presetSync;
     private DispatcherTimer? _presetDebounce;
@@ -35,7 +36,7 @@ public partial class PvStageWindow
         public StackPanel List = null!;
         public WrapPanel Cards = null!;
         public List<(string Key, string Label)> Items = new();
-        public List<(string Key, string Label, Grid Row, CheckBox Box)> Rows = new();
+        public List<(string Key, string Label, Grid Row, CheckBox Box, Border Thumb)> Rows = new();
         public bool Built;
         public string BuiltFilter = "";
         public int BuiltPreviewVersion = -1;
@@ -62,6 +63,13 @@ public partial class PvStageWindow
         BuildFxStack();
         BuildTechPackToggles();
         BuildTechLists();
+        if (!_techPreviewHooked)
+        {
+            _techPreviewHooked = true;
+            PanelTech.ScrollChanged += (_, _) => RefreshVisibleTechPreviews();
+            PanelTech.SizeChanged += (_, _) => RefreshVisibleTechPreviews();
+            PanelTech.IsVisibleChanged += (_, _) => RefreshVisibleTechPreviews();
+        }
         SyncPresetControls();
         ApplyTechFilter();
     }
@@ -153,6 +161,46 @@ public partial class PvStageWindow
         foreach (var category in _techCategories)
             if (category.Built && category.Expander.IsExpanded)
                 EnsureCategoryBuilt(category);
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshVisibleTechPreviews));
+    }
+
+    private void RefreshVisibleTechPreviews()
+    {
+        if (PanelTech is null) return;
+        var panelVisible = PanelTech.IsVisible;
+        foreach (var category in _techCategories)
+        {
+            if (!category.Built) continue;
+            foreach (var row in category.Rows)
+            {
+                if (panelVisible && category.Expander.IsExpanded && IsInTechViewport(row.Thumb))
+                    EnsureTechniquePreview(row.Thumb, category.Group, row.Key, 74, autoPlay: true);
+                else
+                    UnloadTechniquePreview(row.Thumb);
+            }
+        }
+    }
+
+    private bool IsInTechViewport(FrameworkElement element)
+    {
+        if (!element.IsVisible || element.ActualHeight <= 0) return false;
+        try
+        {
+            var top = element.TranslatePoint(new Point(0, 0), PanelTech).Y;
+            return top + element.ActualHeight > 0 && top < PanelTech.ActualHeight;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private void ResetTechCategory(TechCategory category)
+    {
+        foreach (var row in category.Rows) UnloadTechniquePreview(row.Thumb);
+        category.Cards.Children.Clear();
+        category.Rows.Clear();
+        category.Built = false;
     }
 
     private void SyncThemeCards()
@@ -886,7 +934,12 @@ public partial class PvStageWindow
                 category.Items.Add((key, TechLabel(group, key)));
 
             expander.Content = list;
-            expander.Expanded += (_, _) => EnsureCategoryBuilt(category);
+            expander.Expanded += (_, _) =>
+            {
+                EnsureCategoryBuilt(category);
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(RefreshVisibleTechPreviews));
+            };
+            expander.Collapsed += (_, _) => ResetTechCategory(category);
             TechHost.Children.Add(expander);
             _techCategories.Add(category);
         }
@@ -900,12 +953,7 @@ public partial class PvStageWindow
             && string.Equals(category.BuiltFilter, _techFilter, StringComparison.Ordinal)
             && category.BuiltPreviewVersion == TechniquePreview.Version) return;
 
-        if (category.Built)
-        {
-            StopTechniquePreview();
-            category.Cards.Children.Clear();
-            category.Rows.Clear();
-        }
+        if (category.Built) ResetTechCategory(category);
 
         category.Built = true;
         category.BuiltFilter = _techFilter;
@@ -936,6 +984,7 @@ public partial class PvStageWindow
                 BorderThickness = new Thickness(1),
                 Background = new SolidColorBrush(Color.FromRgb(0x16, 0x16, 0x1a)),
                 ClipToBounds = true,
+                Tag = placeholder,
                 Child = placeholder,
             };
             thumb.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
@@ -986,19 +1035,9 @@ public partial class PvStageWindow
             check.Unchecked += (_, _) => Sync();
             Sync();
 
-            card.MouseEnter += (_, _) =>
-            {
-                _techPreviewHost = thumb;
-                EnsureTechniquePreview(thumb, category.Group, key, 74);
-            };
-            card.MouseLeave += (_, _) =>
-            {
-                if (ReferenceEquals(_techPreviewHost, thumb)) _techPreviewHost = null;
-                StopTechniquePreview(thumb.Child as Image);
-            };
             card.MouseLeftButtonDown += (_, _) => check.IsChecked = check.IsChecked != true;
             category.Cards.Children.Add(card);
-            category.Rows.Add((key, label, card, check));
+            category.Rows.Add((key, label, card, check, thumb));
         }
     }
 
