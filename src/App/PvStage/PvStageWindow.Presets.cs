@@ -716,6 +716,7 @@ public partial class PvStageWindow
     private void SyncPresetControls()
     {
         if (!_stylePanelBuilt && !_techPanelBuilt) return;
+        bool komaChanged = false;
         _presetSync = true;
         try
         {
@@ -727,10 +728,13 @@ public partial class PvStageWindow
             if (TxtPresetSeed is not null)
                 TxtPresetSeed.Text = _project.LegacySeed.ToString(CultureInfo.InvariantCulture);
 
-            var komaTag = Preset.Koma <= 0 ? "0"
-                : Preset.Koma == Math.Max(1, _scene.Fps / 2) ? "-2"
-                : Preset.Koma == Math.Max(1, _scene.Fps / 3) ? "-3"
-                : "0";
+            var komaTag = KomaTagOf(Preset.Koma);
+            int komaValue = KomaOfTag(komaTag);
+            if (Preset.Koma != komaValue)
+            {
+                Preset.Koma = komaValue;
+                komaChanged = true;
+            }
             SelectComboTag(CmbKoma, komaTag);
             SelectComboTag(CmbHud, string.IsNullOrWhiteSpace(Preset.Hud) ? "auto" : Preset.Hud);
             SelectComboTag(CmbKeyBg, string.IsNullOrWhiteSpace(Preset.KeyBg) ? "off" : Preset.KeyBg);
@@ -744,6 +748,8 @@ public partial class PvStageWindow
         {
             _presetSync = false;
         }
+
+        if (komaChanged) PresetChanged();
     }
 
     private static void SelectComboTag(ComboBox combo, string tag)
@@ -1106,13 +1112,31 @@ public partial class PvStageWindow
     internal void CmbKoma_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_presetSync || CmbKoma.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
-        Preset.Koma = tag switch
-        {
-            "-2" => Math.Max(1, _scene.Fps / 2),
-            "-3" => Math.Max(1, _scene.Fps / 3),
-            _ => 0,
-        };
+        int value = KomaOfTag(tag);
+        if (Preset.Koma == value) return;
+        Preset.Koma = value;
         PresetChanged();
+    }
+
+    private string KomaTagOf(int koma)
+    {
+        if (koma <= 0) return "0";
+        if (koma == Math.Max(1, _scene.Fps / 2)) return "-2";
+        if (koma == Math.Max(1, _scene.Fps / 3)) return "-3";
+        return "0";
+    }
+
+    private int KomaOfTag(string tag) => tag switch
+    {
+        "-2" => Math.Max(1, _scene.Fps / 2),
+        "-3" => Math.Max(1, _scene.Fps / 3),
+        _ => 0,
+    };
+
+    private void NormalizeKoma()
+    {
+        int value = KomaOfTag(KomaTagOf(Preset.Koma));
+        if (Preset.Koma != value) Preset.Koma = value;
     }
 
     internal void CmbHud_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -1179,11 +1203,8 @@ public partial class PvStageWindow
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (_pipe is not null)
-            {
-                _rebuildPipeKeepTransport = true;
-                _rebuildPipe = true;
-            }
+            _rebuildPipeKeepTransport = true;
+            _rebuildPipe = true;
         };
         return timer;
     }

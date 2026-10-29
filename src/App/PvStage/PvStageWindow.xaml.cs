@@ -164,6 +164,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
 
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        NormalizeKoma();
 
         Loaded += OnLoaded;
         Closing += OnClosing;
@@ -1129,6 +1130,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _lrcText = project.LrcText;
 
         _evaluator = DirectorEvaluator.FromSaves(project.Curves, project.CameraTrack, project.LayerCameraTracks);
+        NormalizeKoma();
 
         if (resetUndo)
         {
@@ -1943,7 +1945,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             var effective = frameMs > 0.01
                 ? Math.Min(present > 0 ? present : 999, 1000.0 / frameMs)
                 : present;
-            TblFps.Text = $"{effective:F1} fps · {frameMs:F1}ms";
+            TblFps.Text = L.F("预览 {0:F1} fps · {1:F1}ms", effective, frameMs);
             TblFps.ToolTip =
                 L.T("有效帧率按最慢环节估算\n") +
                 L.F("呈现节奏 {0:F1} Hz（受 VSync/显示器刷新限制）\n", present) +
