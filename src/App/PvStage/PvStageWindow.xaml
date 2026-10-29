@@ -176,7 +176,7 @@
                            HorizontalAlignment="Right"
                            FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="11"
                            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                           TextTrimming="CharacterEllipsis" Text="{DynamicResource Loc.StageXaml.010}" />
+                           TextTrimming="CharacterEllipsis" Text="{DynamicResource Loc.Stage.StatusInitializing}" />
             </Grid>
         </Border>
 
@@ -239,7 +239,7 @@
                                 </ui:Button.Icon>
                             </ui:Button>
                             <ui:Button x:Name="BtnPlay" Appearance="Transparent" Click="BtnPlay_Click"
-                                       ToolTip="{DynamicResource Loc.StageXaml.013}">
+                                       ToolTip="{DynamicResource Loc.Stage.PlayPauseTooltip}">
                                 <ui:Button.Icon>
                                     <ui:SymbolIcon x:Name="PlayIcon" Symbol="Play24" />
                                 </ui:Button.Icon>
@@ -262,7 +262,7 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
                                     Margin="10,0,0,0">
                             <ui:Button x:Name="BtnMute" Appearance="Transparent" Padding="4"
-                                       Click="BtnMute_Click" ToolTip="{DynamicResource Loc.StageXaml.014}">
+                                       Click="BtnMute_Click" ToolTip="{DynamicResource Loc.Stage.MuteTooltip}">
                                 <ui:Button.Icon>
                                     <ui:SymbolIcon x:Name="VolumeIcon" Symbol="Speaker224" />
                                 </ui:Button.Icon>
@@ -270,7 +270,7 @@
                             <Slider x:Name="SldVolume" Width="90" Margin="6,0,0,0"
                                     Minimum="0" Maximum="100" Value="80"
                                     IsMoveToPointEnabled="True" VerticalAlignment="Center"
-                                    ToolTip="{DynamicResource Loc.StageXaml.015}" ValueChanged="SldVolume_ValueChanged" />
+                                    ToolTip="{DynamicResource Loc.Stage.VolumeTooltip}" ValueChanged="SldVolume_ValueChanged" />
                             <TextBlock x:Name="TblVolume" Width="36" Margin="4,0,0,0" Text="80%"
                                        TextAlignment="Right" VerticalAlignment="Center" FontSize="11"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
@@ -288,7 +288,7 @@
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="14,12,12,6">
-                        <TextBlock Text="{DynamicResource Loc.StageXaml.016}" VerticalAlignment="Center"
+                        <TextBlock Text="{DynamicResource Loc.Stage.PropertiesHeader}" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontSize="12" />
                         <TextBlock x:Name="TblInspectorTitle" HorizontalAlignment="Right" FontSize="12"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"

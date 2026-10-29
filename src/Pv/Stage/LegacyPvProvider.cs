@@ -50,6 +50,7 @@ public sealed class LegacyPvProvider : IDisposable
     private LegacyPvPlanInfo? _pendingCutOverrides;
     private GpuRasterHost? _gpuHost;
     private volatile bool _gpuMode;
+    private volatile string? _rasterFallback;
 
     private double _requestedTime;
     private double _lastRenderedTime = double.NaN;
@@ -59,6 +60,8 @@ public sealed class LegacyPvProvider : IDisposable
     public string? Error => _error;
 
     public bool GpuMode => _gpuMode;
+
+    public string? RasterFallbackReason => _rasterFallback;
 
     public string Id { get; }
     public IPvLayerProvider Back { get; }
@@ -272,18 +275,34 @@ public sealed class LegacyPvProvider : IDisposable
         var entered = false;
         try
         {
-            host = GpuRasterHost.TryGet(_gpu.Device, _gpu.AdapterName, out _);
-            if (host is not null)
+            host = GpuRasterHost.TryGet(_gpu.Device, _gpu.AdapterName, out var hostError);
+            if (host is null)
             {
-                try
+                _rasterFallback = string.IsNullOrWhiteSpace(hostError) ? "ANGLE 不可用" : hostError;
+            }
+            else
+            {
+                for (var attempt = 0; attempt < 30; attempt++)
                 {
-                    host.Enter();
-                    entered = true;
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("[PV/原版引擎] GPU 上下文绑定失败，回退 CPU：" + ex.Message);
-                    host = null;
+                    try
+                    {
+                        host.Enter();
+                        entered = true;
+                        _rasterFallback = null;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (attempt >= 29)
+                        {
+                            Log.Warn("[PV/原版引擎] GPU 上下文绑定失败，回退 CPU：" + ex.Message);
+                            _rasterFallback = ex.Message;
+                            host = null;
+                            break;
+                        }
+
+                        Thread.Sleep(50);
+                    }
                 }
             }
 
@@ -322,6 +341,7 @@ public sealed class LegacyPvProvider : IDisposable
                 {
                     Log.Warn("[PV/原版引擎] GPU 光栅初始化失败，回退 CPU：" + ex.Message);
                     _gpuMode = false;
+                    _rasterFallback = ex.Message;
                     foreach (var part in _allParts)
                     {
                         part.Gpu?.DisposeBitmaps();

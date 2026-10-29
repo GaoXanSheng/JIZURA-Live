@@ -1,18 +1,8 @@
 {
-  "StageXaml.001": "默认工程",
-  "StageXaml.002": "项目 ▾",
-  "StageXaml.003": "新建 / 打开 / 保存 / 另存为",
-  "StageXaml.004": "导入文件 ▾",
-  "StageXaml.005": "导入本地音频 / 歌词文件",
-  "StageXaml.006": "撤销",
-  "StageXaml.007": "撤销 (Ctrl+Z)",
-  "StageXaml.008": "重做",
-  "StageXaml.009": "重做 (Ctrl+Y)",
-  "StageXaml.010": "初始化…",
-  "StageXaml.011": "属性栏",
-  "StageXaml.012": "显示 / 隐藏右侧属性检查器",
-  "StageXaml.013": "播放 / 暂停 (Space)",
-  "StageXaml.014": "静音 / 取消静音",
-  "StageXaml.015": "预览音量",
-  "StageXaml.016": "属性"
+  "Stage.StatusInitializing": "初始化…",
+  "Stage.PlayPauseTooltip": "播放 / 暂停 (Space)",
+  "Stage.MuteTooltip": "静音 / 取消静音",
+  "Stage.VolumeTooltip": "预览音量",
+  "Stage.PropertiesHeader": "属性",
+  "Stage.WindowTitle": "{0} — JIZURA Live PV"
 }

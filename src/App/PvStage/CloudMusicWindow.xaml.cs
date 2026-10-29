@@ -69,7 +69,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
             : Wpf.Ui.Controls.ControlAppearance.Transparent;
         _rows.Clear();
         LstSongs.ItemsSource = null;
-        TblStatus.Text = L.T("输入歌名或歌手后搜索");
+        TblStatus.Text = L.T("CloudMusic.StatusPrompt");
         ResetDetail();
     }
 
@@ -94,7 +94,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
         var keyword = TxtKeyword.Text.Trim();
         if (keyword.Length == 0)
         {
-            TblStatus.Text = L.T("请输入歌名或歌手");
+            TblStatus.Text = L.T("CloudMusic.EnterKeyword");
             return;
         }
 
@@ -107,7 +107,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
 
         BtnSearch.IsEnabled = false;
         BtnMore.IsEnabled = false;
-        TblStatus.Text = L.T("正在搜索…");
+        TblStatus.Text = L.T("CloudMusic.StatusSearching");
         try
         {
             var songs = await CloudMusicService.SearchAsync(_source, keyword, _page);
@@ -115,14 +115,14 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
             _rows.AddRange(rows);
             LstSongs.ItemsSource = null;
             LstSongs.ItemsSource = _rows;
-            if (rows.Count == 0) TblStatus.Text = _rows.Count == 0 ? L.T("没有找到歌曲") : L.T("没有更多结果");
-            else TblStatus.Text = L.F("共 {0} 首（第 {1} 页）", _rows.Count, _page);
+            if (rows.Count == 0) TblStatus.Text = _rows.Count == 0 ? L.T("CloudMusic.NoResults") : L.T("CloudMusic.NoMoreResults");
+            else TblStatus.Text = L.F("CloudMusic.ResultPage", _rows.Count, _page);
             LoadCovers(rows);
         }
         catch (Exception ex)
         {
             Log.Warn("[Cloud] 搜索失败：" + ex.Message);
-            TblStatus.Text = L.T("搜索失败：") + ex.Message;
+            TblStatus.Text = L.T("CloudMusic.SearchFailed") + ex.Message;
         }
         finally
         {
@@ -165,12 +165,12 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
         TblAlbum.Text = row.Length;
         ImgCover.Source = null;
         if (row.Cover is not null) ImgCover.Source = row.Cover;
-        TblDetailStatus.Text = L.T("双击列表中的歌曲也可以直接导入");
+        TblDetailStatus.Text = L.T("CloudMusic.DoubleClickHint");
     }
 
     private void ResetDetail()
     {
-        TblName.Text = L.T("选择一首歌");
+        TblName.Text = L.T("CloudMusic.SelectSong");
         TblSinger.Text = "";
         TblAlbum.Text = "";
         ImgCover.Source = null;
@@ -180,7 +180,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
     {
         if (LstSongs.SelectedItem is not SongRow row)
         {
-            TblStatus.Text = L.T("先在列表里选中一首歌");
+            TblStatus.Text = L.T("CloudMusic.SelectFirst");
             return;
         }
 

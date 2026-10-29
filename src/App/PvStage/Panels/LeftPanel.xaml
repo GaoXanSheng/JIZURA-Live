@@ -50,17 +50,17 @@
                         <Border Height="1" VerticalAlignment="Bottom" IsHitTestVisible="False"
                                 Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
                         <UniformGrid Rows="1" Margin="0">
-                            <RadioButton x:Name="NavMedia" Content="{DynamicResource Loc.PanelXaml.001}" Style="{StaticResource NavTab}"
+                            <RadioButton x:Name="NavMedia" Content="{DynamicResource Loc.LeftPanel.NavMedia}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" IsChecked="True" Checked="Nav_Click" />
-                            <RadioButton x:Name="NavStyle" Content="{DynamicResource Loc.PanelXaml.002}" Style="{StaticResource NavTab}"
+                            <RadioButton x:Name="NavStyle" Content="{DynamicResource Loc.LeftPanel.NavStyle}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
-                            <RadioButton x:Name="NavTech" Content="{DynamicResource Loc.PanelXaml.003}" Style="{StaticResource NavTab}"
+                            <RadioButton x:Name="NavTech" Content="{DynamicResource Loc.LeftPanel.NavTech}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
-                            <RadioButton x:Name="NavDirector" Content="{DynamicResource Loc.PanelXaml.004}" Style="{StaticResource NavTab}"
+                            <RadioButton x:Name="NavDirector" Content="{DynamicResource Loc.LeftPanel.NavDirector}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
-                            <RadioButton x:Name="NavOutput" Content="{DynamicResource Loc.PanelXaml.005}" Style="{StaticResource NavTab}"
+                            <RadioButton x:Name="NavOutput" Content="{DynamicResource Loc.LeftPanel.NavOutput}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
-                            <RadioButton x:Name="NavSettings" Content="{DynamicResource Loc.PanelXaml.006}" Style="{StaticResource NavTab}"
+                            <RadioButton x:Name="NavSettings" Content="{DynamicResource Loc.LeftPanel.NavSettings}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
                         </UniformGrid>
                     </Grid>
@@ -71,10 +71,10 @@
                             <StackPanel>
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.007}" Style="{StaticResource PanelCardTitle}" />
-                                        <ui:Button x:Name="BtnCloudMusic" Content="{DynamicResource Loc.PanelXaml.008}" Appearance="Primary"
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.MusicTitle}" Style="{StaticResource PanelCardTitle}" />
+                                        <ui:Button x:Name="BtnCloudMusic" Content="{DynamicResource Loc.LeftPanel.CloudMusic}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Click="BtnCloudMusic_Click"
-                                                   ToolTip="{DynamicResource Loc.PanelXaml.009}">
+                                                   ToolTip="{DynamicResource Loc.LeftPanel.CloudMusicTooltip}">
                                             <ui:Button.Icon>
                                                 <ui:SymbolIcon Symbol="Cloud24" />
                                             </ui:Button.Icon>
@@ -84,20 +84,20 @@
                                                    Click="BtnImportAudio_Click"
                                                    ToolTip="选择 mp3 / wav / flac / ogg，或直接把文件拖进窗口" />
                                         <TextBlock x:Name="TblAudioName" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
-                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{DynamicResource Loc.PanelXaml.010}" />
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{DynamicResource Loc.LeftPanel.AudioEmpty}" />
                                         <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.011}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.AudioEmptyHint}" />
                                     </StackPanel>
                                 </Border>
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.012}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.LyricsTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.013}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.LyricsHint}" />
                                         <TextBlock x:Name="TblLyricInfo" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.014}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.LyricsEmpty}" />
                                         <ui:Button x:Name="BtnImportLyrics" Content="导入歌词文件…"
                                                    HorizontalAlignment="Stretch" Margin="0,8,0,0"
                                                    Click="BtnImportLyrics_Click"
@@ -112,16 +112,16 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.015}" Style="{StaticResource PanelCardTitle}" Margin="0" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.LayersTitle}" Style="{StaticResource PanelCardTitle}" Margin="0" />
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                                 <TextBlock x:Name="TblLayerCount" Margin="0,0,6,0" VerticalAlignment="Center"
                                                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                                                <ui:Button x:Name="BtnAddLayer" Content="{DynamicResource Loc.PanelXaml.016}" Click="BtnAddLayer_Click"
-                                                           ToolTip="{DynamicResource Loc.PanelXaml.017}" />
+                                                <ui:Button x:Name="BtnAddLayer" Content="{DynamicResource Loc.LeftPanel.AddLayer}" Click="BtnAddLayer_Click"
+                                                           ToolTip="{DynamicResource Loc.LeftPanel.AddLayerTooltip}" />
                                             </StackPanel>
                                         </Grid>
                                         <TextBlock Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.018}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.LayersHint}" />
                                         <StackPanel x:Name="LayersHost" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </Border>
@@ -134,16 +134,16 @@
                             <StackPanel>
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.019}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.ThemeTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock x:Name="TblThemeName" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.020}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.ThemeCurrent}" />
                                         <WrapPanel x:Name="ThemeGrid" Margin="0,8,0,0" />
                                     </StackPanel>
                                 </Border>
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.021}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.ThemeFxTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="FxSliderHost" />
                                         <StackPanel x:Name="FxToggleHost" Margin="0,6,0,0" />
                                         <Grid Margin="0,6,0,0">
@@ -154,9 +154,9 @@
                                             <TextBlock Text="HUD" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbHud" Grid.Column="1" HorizontalAlignment="Right"
                                                       Width="110" SelectionChanged="CmbHud_SelectionChanged">
-                                                <ComboBoxItem Tag="auto" Content="{DynamicResource Loc.PanelXaml.026}" />
-                                                <ComboBoxItem Tag="on" Content="{DynamicResource Loc.PanelXaml.027}" />
-                                                <ComboBoxItem Tag="off" Content="{DynamicResource Loc.PanelXaml.028}" />
+                                                <ComboBoxItem Tag="auto" Content="{DynamicResource Loc.LeftPanel.HudAuto}" />
+                                                <ComboBoxItem Tag="on" Content="{DynamicResource Loc.LeftPanel.HudOn}" />
+                                                <ComboBoxItem Tag="off" Content="{DynamicResource Loc.LeftPanel.HudOff}" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
@@ -164,12 +164,12 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.029}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.KeyBackground}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbKeyBg" Grid.Column="1" HorizontalAlignment="Right"
                                                       Width="110" SelectionChanged="CmbKeyBg_SelectionChanged">
-                                                <ComboBoxItem Tag="off" Content="{DynamicResource Loc.PanelXaml.030}" />
-                                                <ComboBoxItem Tag="black" Content="{DynamicResource Loc.PanelXaml.031}" />
-                                                <ComboBoxItem Tag="green" Content="{DynamicResource Loc.PanelXaml.032}" />
+                                                <ComboBoxItem Tag="off" Content="{DynamicResource Loc.LeftPanel.KeyBackgroundNormal}" />
+                                                <ComboBoxItem Tag="black" Content="{DynamicResource Loc.LeftPanel.KeyBackgroundBlack}" />
+                                                <ComboBoxItem Tag="green" Content="{DynamicResource Loc.LeftPanel.KeyBackgroundGreen}" />
                                             </ComboBox>
                                         </Grid>
                                     </StackPanel>
@@ -177,14 +177,14 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.033}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.FontColorTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="StyleExtraHost" />
                                     </StackPanel>
                                 </Border>
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.034}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.SeedTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
                                                    Text="同一种子得到同一套结果；换种子会得到另一套随机排版与装饰。" />
                                         <Grid>
@@ -193,7 +193,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <ui:TextBox x:Name="TxtPresetSeed" FontSize="12" />
-                                            <ui:Button x:Name="BtnReseedPreset" Grid.Column="1" Content="{DynamicResource Loc.PanelXaml.035}"
+                                            <ui:Button x:Name="BtnReseedPreset" Grid.Column="1" Content="{DynamicResource Loc.LeftPanel.Reseed}"
                                                        Margin="6,0,0,0" Click="BtnReseedPreset_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -226,13 +226,13 @@
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <Grid>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.037}" Style="{StaticResource PanelCardTitle}" Margin="0" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.FxLibraryTitle}" Style="{StaticResource PanelCardTitle}" Margin="0" />
                                             <TextBlock x:Name="TblTechCount" HorizontalAlignment="Right"
                                                        VerticalAlignment="Center" FontSize="11"
                                                        Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                                         </Grid>
                                         <ui:TextBox x:Name="TxtTechFilter" Margin="0,6,0,4" FontSize="12"
-                                                    PlaceholderText="{DynamicResource Loc.PanelXaml.038}"
+                                                    PlaceholderText="{DynamicResource Loc.LeftPanel.FxFilterPlaceholder}"
                                                     TextChanged="TxtTechFilter_TextChanged" />
                                         <StackPanel x:Name="TechHost" />
                                     </StackPanel>
@@ -240,7 +240,7 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.036}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.FxScopeTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
                                                    Text="勾选参与生成的效果包；关掉的效果在自动生成时不会被选中。" />
                                         <StackPanel x:Name="TechPackHost" />
@@ -255,25 +255,25 @@
                             <StackPanel>
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.039}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.AutoCameraTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.040}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.AutoCameraHint}" />
                                         <Grid Margin="0,12,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.041}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.AutoStyleLabel}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbAutoStyle" Grid.Column="1" Width="130"
                                                       HorizontalAlignment="Right" SelectedIndex="1"
                                                       SelectionChanged="CmbAutoStyle_SelectionChanged">
-                                                <ComboBoxItem Tag="soft" Content="{DynamicResource Loc.PanelXaml.042}" />
-                                                <ComboBoxItem Tag="dynamic" Content="{DynamicResource Loc.PanelXaml.043}" />
-                                                <ComboBoxItem Tag="epic" Content="{DynamicResource Loc.PanelXaml.044}" />
+                                                <ComboBoxItem Tag="soft" Content="{DynamicResource Loc.LeftPanel.StyleSoft}" />
+                                                <ComboBoxItem Tag="dynamic" Content="{DynamicResource Loc.LeftPanel.StyleDynamic}" />
+                                                <ComboBoxItem Tag="epic" Content="{DynamicResource Loc.LeftPanel.StyleEpic}" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,12,2,0">
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.048}" HorizontalAlignment="Left"
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.AutoIntensity}" HorizontalAlignment="Left"
                                                        Style="{StaticResource PanelRowLabel}" />
                                             <TextBlock x:Name="TblAutoIntensity" Text="0.60" HorizontalAlignment="Right"
                                                        Style="{StaticResource PanelValue}" />
@@ -281,7 +281,7 @@
                                         <Slider x:Name="SldAutoIntensity" Margin="0,4,0,0" IsMoveToPointEnabled="True"
                                                 Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
                                                 ValueChanged="SldAutoIntensity_ValueChanged" />
-                                        <ui:Button x:Name="BtnGenerateAuto" Content="{DynamicResource Loc.PanelXaml.049}" Appearance="Primary"
+                                        <ui:Button x:Name="BtnGenerateAuto" Content="{DynamicResource Loc.LeftPanel.Generate}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Margin="0,16,0,0"
                                                    Click="BtnGenerateAuto_Click">
                                             <ui:Button.Icon>
@@ -289,10 +289,10 @@
                                             </ui:Button.Icon>
                                         </ui:Button>
                                         <TextBlock x:Name="TblAutoHint" Margin="0,10,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.051}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.GenerateLockedHint}" />
                                         <Expander Margin="0,10,0,0" IsExpanded="False"
                                                   Background="Transparent" BorderThickness="0"
-                                                  Header="{DynamicResource Loc.PanelXaml.104}">
+                                                  Header="{DynamicResource Loc.LeftPanel.GenerationInfo}">
                                             <TextBlock x:Name="TblAutoReport" Margin="0,2,0,0" TextWrapping="Wrap"
                                                        Style="{StaticResource PanelHint}"
                                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
@@ -302,15 +302,15 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.102}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.StageOverlayTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.103}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.StageOverlayHint}" />
                                         <Grid Margin="0,12,2,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.046}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.StageCamera}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglStageCamera" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="StageToggles_Changed"
@@ -321,7 +321,7 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.047}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.StageTransition}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglStageTransitions" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="StageToggles_Changed"
@@ -346,16 +346,16 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.097}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.CameraSwitch}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbCamSwitch" Grid.Column="1" Width="130"
                                                       HorizontalAlignment="Right" SelectedIndex="0"
                                                       SelectionChanged="CmbCamSwitch_SelectionChanged">
-                                                <ComboBoxItem Tag="cut" Content="{DynamicResource Loc.PanelXaml.099}" />
-                                                <ComboBoxItem Tag="blend" Content="{DynamicResource Loc.PanelXaml.100}" />
+                                                <ComboBoxItem Tag="cut" Content="{DynamicResource Loc.LeftPanel.CameraCut}" />
+                                                <ComboBoxItem Tag="blend" Content="{DynamicResource Loc.LeftPanel.CameraBlendMode}" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,12,2,0">
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.098}" HorizontalAlignment="Left"
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.CameraBlend}" HorizontalAlignment="Left"
                                                        Style="{StaticResource PanelRowLabel}" />
                                             <TextBlock x:Name="TblCamBlend" Text="0.22" HorizontalAlignment="Right"
                                                        Style="{StaticResource PanelValue}" />
@@ -365,7 +365,7 @@
                                                 ValueChanged="SldCamBlend_ValueChanged" />
                                         <TextBlock Margin="0,6,0,0" Style="{StaticResource PanelHint}"
                                                    TextWrapping="Wrap"
-                                                   Text="{DynamicResource Loc.PanelXaml.101}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.CameraBlendHint}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -377,13 +377,13 @@
                             <StackPanel>
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.052}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.053}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutBroadcast}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglBroadcast" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglBroadcast_Changed"
@@ -394,16 +394,16 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.054}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutTransparent}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglSpoutTransparent" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglSpoutTransparent_Changed"
                                                              Unchecked="TglSpoutTransparent_Changed" />
                                         </Grid>
                                         <TextBlock Margin="0,4,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.055}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.SpoutTransparentHint}" />
                                         <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.056}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.BroadcastOff}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -415,17 +415,17 @@
                             <StackPanel>
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.066}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.CanvasTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.067}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.CanvasHint}" />
                                         <ComboBox x:Name="CmbCanvasPreset" Margin="0,10,0,0"
                                                   SelectionChanged="CmbCanvasPreset_SelectionChanged">
                                             <ComboBoxItem Tag="1920x1080" Content="1920 × 1080（16:9）" />
                                             <ComboBoxItem Tag="2560x1440" Content="2560 × 1440（16:9）" />
                                             <ComboBoxItem Tag="3840x2160" Content="3840 × 2160（4K）" />
-                                            <ComboBoxItem Tag="1080x1920" Content="{DynamicResource Loc.PanelXaml.068}" />
-                                            <ComboBoxItem Tag="1080x1080" Content="{DynamicResource Loc.PanelXaml.069}" />
-                                            <ComboBoxItem Tag="custom" Content="{DynamicResource Loc.PanelXaml.070}" />
+                                            <ComboBoxItem Tag="1080x1920" Content="{DynamicResource Loc.LeftPanel.CanvasPortrait}" />
+                                            <ComboBoxItem Tag="1080x1080" Content="{DynamicResource Loc.LeftPanel.CanvasSquare}" />
+                                            <ComboBoxItem Tag="custom" Content="{DynamicResource Loc.LeftPanel.CanvasCustom}" />
                                         </ComboBox>
                                         <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
@@ -434,10 +434,10 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.071}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.CanvasWidth}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtCanvasW" Grid.Column="1" Margin="8,0,0,0"
                                                         TextChanged="CanvasField_TextChanged" />
-                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.PanelXaml.072}" Margin="10,0,8,0"
+                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.LeftPanel.CanvasHeight}" Margin="10,0,8,0"
                                                        Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtCanvasH" Grid.Column="3"
                                                         TextChanged="CanvasField_TextChanged" />
@@ -447,13 +447,13 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.073}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.CanvasFps}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:TextBox x:Name="TxtCanvasFps" Grid.Column="1" Width="90"
                                                         HorizontalAlignment="Left" Margin="8,0,0,0" />
                                         </Grid>
                                         <TextBlock x:Name="TblCanvasState" Margin="0,8,0,0"
                                                    Style="{StaticResource PanelHint}" Text="" />
-                                        <ui:Button x:Name="BtnApplyCanvas" Content="{DynamicResource Loc.PanelXaml.074}" Appearance="Primary"
+                                        <ui:Button x:Name="BtnApplyCanvas" Content="{DynamicResource Loc.LeftPanel.CanvasApply}" Appearance="Primary"
                                                    HorizontalAlignment="Stretch" Margin="0,12,0,0"
                                                    Click="BtnApplyCanvas_Click">
                                             <ui:Button.Icon>
@@ -465,7 +465,7 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.075}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.RenderTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid Margin="0,2,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
@@ -483,20 +483,20 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.077}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.PvRenderResolution}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbPvRender" Grid.Column="1" Width="170"
                                                       HorizontalAlignment="Right"
                                                       SelectionChanged="CmbPvRender_SelectionChanged">
-                                                <ComboBoxItem Tag="1" Content="{DynamicResource Loc.PanelXaml.078}" />
+                                                <ComboBoxItem Tag="1" Content="{DynamicResource Loc.LeftPanel.PvRenderFull}" />
                                                 <ComboBoxItem Tag="0.75" Content="75%" />
-                                                <ComboBoxItem Tag="0.6667" Content="{DynamicResource Loc.PanelXaml.079}" />
+                                                <ComboBoxItem Tag="0.6667" Content="{DynamicResource Loc.LeftPanel.PvRenderDefault}" />
                                                 <ComboBoxItem Tag="0.5" Content="50%" />
                                                 <ComboBoxItem Tag="0.3333" Content="33.3%" />
                                                 <ComboBoxItem Tag="0.25" Content="25%" />
                                             </ComboBox>
                                         </Grid>
                                         <TextBlock Style="{StaticResource PanelHint}" Margin="0,6,0,0" TextWrapping="Wrap"
-                                                   Text="{DynamicResource Loc.PanelXaml.080}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.PvRenderHint}" />
                                         <TextBlock x:Name="TblPvRender" Style="{StaticResource PanelHint}"
                                                    TextWrapping="Wrap" Text="" />
                                         <Grid Margin="0,6,0,0">
@@ -504,7 +504,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.081}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.VSync}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglVSync" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglVSync_Changed"
@@ -528,20 +528,20 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.082}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.VtsTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.083}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.VtsHint}" />
                                         <TextBlock x:Name="TblVtsState" Margin="0,8,0,0" TextWrapping="Wrap"
-                                                   Style="{StaticResource PanelHint}" Text="{DynamicResource Loc.PanelXaml.084}" />
+                                                   Style="{StaticResource PanelHint}" Text="{DynamicResource Loc.LeftPanel.VtsDisconnected}" />
                                         <Grid Margin="0,8,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <ui:Button x:Name="BtnVtsReconnect" Content="{DynamicResource Loc.PanelXaml.085}"
+                                            <ui:Button x:Name="BtnVtsReconnect" Content="{DynamicResource Loc.LeftPanel.VtsReconnect}"
                                                        HorizontalAlignment="Stretch"
                                                        Click="BtnVtsReconnect_Click" />
-                                            <ui:Button x:Name="BtnVtsAuth" Grid.Column="1" Content="{DynamicResource Loc.PanelXaml.086}"
+                                            <ui:Button x:Name="BtnVtsAuth" Grid.Column="1" Content="{DynamicResource Loc.LeftPanel.VtsAuthorize}"
                                                        Margin="6,0,0,0" Click="BtnVtsAuth_Click" />
                                         </Grid>
                                     </StackPanel>
@@ -549,15 +549,15 @@
 
                                 <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.087}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.SafeGapTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.088}" />
+                                                   Text="{DynamicResource Loc.LeftPanel.SafeGapHint}" />
                                         <Grid Margin="0,10,2,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.089}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SafeGapEnable}" Style="{StaticResource PanelRowLabel}" />
                                             <ui:ToggleSwitch x:Name="TglCenterFree" Grid.Column="1"
                                                              HorizontalAlignment="Right"
                                                              Checked="TglCenterFree_Changed"
@@ -568,19 +568,19 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.090}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SafeGapPosition}" Style="{StaticResource PanelRowLabel}" />
                                             <ComboBox x:Name="CmbCenterZone" Grid.Column="1" Width="110"
                                                       HorizontalAlignment="Right" SelectedIndex="0"
                                                       SelectionChanged="CmbCenterZone_SelectionChanged">
-                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.091}" Tag="center" />
-                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.092}" Tag="left" />
-                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.093}" Tag="right" />
-                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.094}" Tag="top" />
-                                                <ComboBoxItem Content="{DynamicResource Loc.PanelXaml.095}" Tag="bottom" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.LeftPanel.SafeGapCenter}" Tag="center" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.LeftPanel.SafeGapLeft}" Tag="left" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.LeftPanel.SafeGapRight}" Tag="right" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.LeftPanel.SafeGapTop}" Tag="top" />
+                                                <ComboBoxItem Content="{DynamicResource Loc.LeftPanel.SafeGapBottom}" Tag="bottom" />
                                             </ComboBox>
                                         </Grid>
                                         <Grid Margin="0,8,0,0">
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.096}" Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SafeGapRatio}" Style="{StaticResource PanelRowLabel}" />
                                             <TextBlock x:Name="TblCenterGap" HorizontalAlignment="Right"
                                                        Style="{StaticResource PanelValue}" Text="30%" />
                                         </Grid>

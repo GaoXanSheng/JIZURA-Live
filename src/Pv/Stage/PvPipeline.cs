@@ -63,6 +63,8 @@ public sealed class PvPipeline : IDisposable
 
     public bool LegacyGpu => _legacy?.GpuMode ?? false;
 
+    public string? LegacyRasterFallback => _legacy?.RasterFallbackReason;
+
     public bool StageCameraEnabled
     {
         get => _stageCamera;

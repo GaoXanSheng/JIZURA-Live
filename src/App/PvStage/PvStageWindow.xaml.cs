@@ -1796,8 +1796,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             SldTime.Value = Math.Clamp(t, 0, SldTime.Maximum);
         }
 
-        RefreshParamRows();
         TickTimeline();
+
+        if (_step == 5) UpdateRasterLabel();
 
         var pipe = _pipe;
         if (pipe is not null)
@@ -1862,7 +1863,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 TblStatus.Text = _transientStatus;
         }
 
-        AppTitleBar.Title = L.F("{0} — JIZURA Live PV",
+        AppTitleBar.Title = L.F("Stage.WindowTitle",
             string.IsNullOrWhiteSpace(_project.Name) ? L.T("默认工程") : _project.Name);
         if (_step == 0) RefreshMediaPanel();
         UpdateAutoButton();
@@ -2028,9 +2029,36 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         if (bestDiff > 0.0005) best = -1;
         CmbPvRender.SelectedIndex = best;
 
+        UpdateRasterLabel();
+    }
+
+    private void UpdateRasterLabel()
+    {
+        if (TblPvRender is null) return;
+
+        var scale = Math.Clamp(_project.LegacyRenderScale, 0.25, 1.0);
         var (w, h) = PvRenderSize(scale);
-        var mode = _pipe is null ? L.T("待启动") : _pipe.LegacyGpu ? L.T("GPU 光栅") : L.T("CPU 光栅");
+        string mode;
+        string? reason = null;
+
+        if (_pipe is null)
+        {
+            mode = L.T("待启动");
+        }
+        else if (_pipe.LegacyGpu)
+        {
+            mode = L.T("GPU 光栅");
+        }
+        else
+        {
+            reason = _pipe.LegacyRasterFallback;
+            mode = string.IsNullOrWhiteSpace(reason)
+                ? L.T("CPU 光栅")
+                : L.F("CPU 光栅（GPU 回退：{0}）", reason);
+        }
+
         TblPvRender.Text = L.F("当前 {0} × {1}（{2:0.#}%）· {3}", w, h, scale * 100, mode);
+        TblPvRender.ToolTip = string.IsNullOrWhiteSpace(reason) ? null : reason;
     }
 
     private (int Width, int Height) PvRenderSize(double scale)
