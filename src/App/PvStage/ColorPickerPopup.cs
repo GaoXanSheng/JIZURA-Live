@@ -128,7 +128,7 @@ internal static class ColorPickerPopup
                 FontFamily = new FontFamily("Consolas, Cascadia Mono, Microsoft YaHei UI"),
                 Height = 26,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = L.T("输入 #rrggbb，回车确认"),
+                ToolTip = L.T("StageUi.Media.HexColorInputHint"),
             };
             _hexBox.TextChanged += (_, _) =>
             {

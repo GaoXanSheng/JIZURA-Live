@@ -9,14 +9,12 @@ public partial class PvStageWindow
     private ScrollViewer PanelStyle => Left.PanelStyle;
     private ScrollViewer PanelTech => Left.PanelTech;
     private ScrollViewer PanelDirector => Left.PanelDirector;
-    private ScrollViewer PanelOutput => Left.PanelOutput;
     private ScrollViewer PanelSettings => Left.PanelSettings;
 
     private RadioButton NavMedia => Left.NavMedia;
     private RadioButton NavStyle => Left.NavStyle;
     private RadioButton NavTech => Left.NavTech;
     private RadioButton NavDirector => Left.NavDirector;
-    private RadioButton NavOutput => Left.NavOutput;
     private RadioButton NavSettings => Left.NavSettings;
 
     private Wpf.Ui.Controls.Button BtnAddLayer => Left.BtnAddLayer;

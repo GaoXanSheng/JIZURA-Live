@@ -67,7 +67,7 @@ public static class ProjectStore
     public static ProjectLoadResult Load(string path)
     {
         if (!File.Exists(path))
-            return new ProjectLoadResult(null, L.F("工程文件不存在：{0}", path));
+            return new ProjectLoadResult(null, L.F("StageUi.Project.FileNotFound", path));
 
         string json;
         byte[]? embeddedAudio = null;
@@ -78,7 +78,7 @@ public static class ProjectStore
             {
                 var entries = JizuraPackage.Read(bytes);
                 var projectEntry = entries.FirstOrDefault(e => e.Name == "project.json")
-                                   ?? throw new InvalidDataException(L.T("工程包缺少 project.json"));
+                                   ?? throw new InvalidDataException(L.T("StageUi.Project.MissingManifest"));
                 json = DecodeUtf8(projectEntry.Data);
                 embeddedAudio = entries.FirstOrDefault(e => e.Name == "audio.bin")?.Data;
             }
@@ -89,7 +89,7 @@ public static class ProjectStore
         }
         catch (Exception ex)
         {
-            return new ProjectLoadResult(null, L.F("工程文件读取失败：{0}", ex.Message));
+            return new ProjectLoadResult(null, L.F("StageUi.Project.ReadFailed", ex.Message));
         }
 
         DirectorProject? project;
@@ -99,11 +99,11 @@ public static class ProjectStore
         }
         catch (Exception ex)
         {
-            return new ProjectLoadResult(null, L.F("工程文件 JSON 损坏：{0}", ex.Message));
+            return new ProjectLoadResult(null, L.F("StageUi.Project.JsonCorrupt", ex.Message));
         }
 
         if (project is null)
-            return new ProjectLoadResult(null, L.T("工程文件 JSON 损坏：解析结果为空"));
+            return new ProjectLoadResult(null, L.T("StageUi.Project.JsonEmpty"));
 
         project.Scene ??= PvScene.CreateDefault();
         project.Preset ??= new LegacyPresetSettings();
@@ -135,7 +135,7 @@ public static class ProjectStore
 
         if (project.SchemaVersion > DirectorProject.CurrentSchemaVersion)
             return new ProjectLoadResult(null,
-                L.F("工程版本过新（{0} > {1}），本程序不识别，请升级后再打开", project.SchemaVersion, DirectorProject.CurrentSchemaVersion));
+                L.F("StageUi.Project.VersionTooNew", project.SchemaVersion, DirectorProject.CurrentSchemaVersion));
 
         NormalizeScene(project, project.Scene);
         ResolveAssetPaths(project, path);
@@ -426,6 +426,6 @@ public static class ProjectStore
         project.SyncCharacterCameraTrack();
 
         var saveFault = SaveJson(project, projectPath);
-        return new ProjectBootstrap(project, saveFault is null ? null : L.F("工程文件写入失败：{0}", saveFault));
+        return new ProjectBootstrap(project, saveFault is null ? null : L.F("StageUi.Project.WriteFailed", saveFault));
     }
 }

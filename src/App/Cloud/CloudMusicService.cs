@@ -16,6 +16,12 @@ public sealed class CloudMusicException(string message) : Exception(message);
 
 public sealed record CloudLoadedSong(string AudioPath, string FileName, string Lrc, string Note);
 
+public sealed record CloudLyricOption(string Id, string AccessKey, string Label,
+    bool Trans = false, bool Roma = false)
+{
+    public override string ToString() => Label;
+}
+
 public static class CloudMusicService
 {
     public const string Kugou = "kugou";
@@ -34,41 +40,87 @@ public static class CloudMusicService
             result = await ServerContext.Netease.SearchAsync(keyword, page);
         else
             result = await ServerContext.KuGou.SearchAsync(keyword, page);
-        if (!result.Ok) throw new CloudMusicException(result.Error ?? L.T("搜索失败"));
+        if (!result.Ok) throw new CloudMusicException(result.Error ?? L.T("StageUi.Media.SearchFailed"));
         return result.List;
     }
 
+    public static async Task<List<CloudLyricOption>> GetLyricOptionsAsync(KgSong song)
+    {
+        var source = string.IsNullOrWhiteSpace(song.Source) ? Kugou : song.Source;
+        var options = new List<CloudLyricOption>();
+        if (source == Netease)
+        {
+            options.Add(new CloudLyricOption("orig", "", L.T("CloudMusic.LyricVersionOriginalDefault")));
+            options.Add(new CloudLyricOption("trans", "", L.T("CloudMusic.LyricVersionTrans"), Trans: true));
+            options.Add(new CloudLyricOption("roma", "", L.T("CloudMusic.LyricVersionRoma"), Roma: true));
+            options.Add(new CloudLyricOption("trans_roma", "", L.T("CloudMusic.LyricVersionTransRoma"),
+                Trans: true, Roma: true));
+            return options;
+        }
+
+        options.Add(new CloudLyricOption("", "", L.T("CloudMusic.LyricVersionDefault")));
+        try
+        {
+            var candidates = await ServerContext.KuGou.GetLyricCandidatesAsync(song.Hash, song.AlbumId);
+            for (var i = 0; i < candidates.Count; i++)
+            {
+                var candidate = candidates[i];
+                var label = !string.IsNullOrWhiteSpace(candidate.Nick) ? candidate.Nick
+                    : !string.IsNullOrWhiteSpace(candidate.From) ? candidate.From
+                    : L.F("CloudMusic.LyricVersionNumber", i + 1);
+                options.Add(new CloudLyricOption(candidate.Id, candidate.AccessKey, label));
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[Cloud] 歌词版本获取失败：" + ex.Message);
+        }
+
+        return options;
+    }
+
     public static async Task<CloudLoadedSong> LoadAsync(KgSong song, string quality = "320",
+        CloudLyricOption? lyricOption = null,
         Action<string>? progress = null, CancellationToken ct = default)
     {
         var source = string.IsNullOrWhiteSpace(song.Source) ? Kugou : song.Source;
-        progress?.Invoke(L.T("正在获取播放地址…"));
+        progress?.Invoke(L.T("StageUi.Media.FetchingPlayUrl"));
         KgUrlResponse urlResponse = source == Netease
             ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
             : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
                 int.TryParse(quality, out var kgQuality) ? kgQuality : 320);
         if (!urlResponse.Ok || string.IsNullOrWhiteSpace(urlResponse.Url))
-            throw new CloudMusicException(urlResponse.Error ?? L.T("没有可用的播放地址（可能需要登录或 VIP）"));
+            throw new CloudMusicException(urlResponse.Error ?? L.T("StageUi.Media.NoPlayableUrl"));
 
         var ext = Regex.Replace(urlResponse.Ext ?? "mp3", "[^a-z0-9]", "", RegexOptions.IgnoreCase).ToLowerInvariant();
         if (ext.Length == 0) ext = "mp3";
         var fileName = AudioFileName(song.Singer, song.Name, ext);
-        progress?.Invoke(L.T("正在下载音频…"));
+        progress?.Invoke(L.T("StageUi.Media.DownloadingAudio"));
         var audioPath = await DownloadAsync(urlResponse.Url, fileName, ct);
 
-        progress?.Invoke(L.T("正在获取歌词…"));
+        progress?.Invoke(L.T("StageUi.Media.FetchingLyrics"));
         var lrc = "";
-        var note = L.T("，没有找到歌词");
+        var note = L.T("StageUi.Media.LyricsNotFound");
         try
         {
             var lyric = source == Netease
                 ? await ServerContext.Netease.GetLyricAsync(song.Id)
-                : await ServerContext.KuGou.GetLyricAsync(song.Hash, null, null, song.AlbumId);
+                : await ServerContext.KuGou.GetLyricAsync(song.Hash, lyricOption?.Id, lyricOption?.AccessKey,
+                    song.AlbumId);
             if (lyric.Ok && !string.IsNullOrWhiteSpace(lyric.Content))
             {
                 if (source == Netease)
                 {
-                    lrc = Krc.B64Text(lyric.Content);
+                    var trans = lyricOption?.Trans == true && !string.IsNullOrWhiteSpace(lyric.Trans)
+                        ? Krc.B64Text(lyric.Trans!)
+                        : null;
+                    var roma = lyricOption?.Roma == true && !string.IsNullOrWhiteSpace(lyric.Roma)
+                        ? Krc.B64Text(lyric.Roma!)
+                        : null;
+                    var baseLrc = Krc.B64Text(lyric.Content);
+                    lrc = trans is null && roma is null
+                        ? baseLrc
+                        : Krc.MergeVariantLrc(baseLrc, trans, roma);
                 }
                 else if (string.Equals(lyric.Fmt, "krc", StringComparison.OrdinalIgnoreCase))
                 {
@@ -79,13 +131,13 @@ public static class CloudMusicService
                     lrc = Krc.B64Text(lyric.Content);
                 }
 
-                note = string.IsNullOrWhiteSpace(lrc) ? L.T("，歌词为空") : L.T("，歌词已填入");
+                note = string.IsNullOrWhiteSpace(lrc) ? L.T("StageUi.Media.LyricsEmpty") : L.T("StageUi.Media.LyricsFilled");
             }
         }
         catch (Exception ex)
         {
             Log.Warn("[Cloud] 歌词获取失败（继续装载音频）：" + ex.Message);
-            note = L.T("，歌词获取失败");
+            note = L.T("StageUi.Media.LyricsFetchFailed");
         }
 
         return new CloudLoadedSong(audioPath, fileName, lrc, note);
@@ -149,7 +201,7 @@ public static class CloudMusicService
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || uri.Scheme is not ("http" or "https") || !AllowedHost(uri.Host))
-            throw new CloudMusicException(L.T("播放地址不在允许的音频域名内"));
+            throw new CloudMusicException(L.T("StageUi.Media.PlayUrlHostNotAllowed"));
 
         Directory.CreateDirectory(AppDirs.CloudDir);
         var path = Path.Combine(AppDirs.CloudDir, fileName);
@@ -165,9 +217,9 @@ public static class CloudMusicService
             using var response = await StreamHttp.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, handshake.Token);
             var finalHost = response.RequestMessage?.RequestUri?.Host ?? uri.Host;
             if (!response.IsSuccessStatusCode)
-                throw new CloudMusicException(L.F("音频下载失败：HTTP {0}", (int)response.StatusCode));
+                throw new CloudMusicException(L.F("StageUi.Media.AudioDownloadHttpFailed", (int)response.StatusCode));
             if (!AllowedHost(finalHost))
-                throw new CloudMusicException(L.T("音频跳转到了不允许的域名"));
+                throw new CloudMusicException(L.T("StageUi.Media.AudioRedirectHostNotAllowed"));
 
             await using (var source = await response.Content.ReadAsStreamAsync(watchdog.Token))
             await using (var target = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 81920))
@@ -182,14 +234,14 @@ public static class CloudMusicService
                 }
             }
 
-            if (new FileInfo(tmp).Length == 0) throw new CloudMusicException(L.T("音频下载结果为空"));
+            if (new FileInfo(tmp).Length == 0) throw new CloudMusicException(L.T("StageUi.Media.AudioDownloadEmpty"));
             File.Move(tmp, path, true);
             Log.Info("[Cloud] 音频已下载：" + path);
             return path;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new CloudMusicException(L.T("音频下载超时"));
+            throw new CloudMusicException(L.T("StageUi.Media.AudioDownloadTimeout"));
         }
         finally
         {

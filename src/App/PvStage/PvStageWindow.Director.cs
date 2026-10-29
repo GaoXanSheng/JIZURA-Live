@@ -35,12 +35,12 @@ public partial class PvStageWindow
 
         PublishDirector();
         SaveProjectNow();
-        ShowStatus(L.F("原版引擎叠加：整体运镜 {0}", OnOff(_project.LegacyStageCamera))
-                   + L.F(" · 整体转场 {0}", OnOff(_project.LegacyStageTransitions))
-                   + L.F(" · 角色跟随 {0}", OnOff(_scene.CameraAffectsCharacter)));
+        ShowStatus(L.F("StageUi.Stage.LegacyOverlayCamera", OnOff(_project.LegacyStageCamera))
+                   + L.F("StageUi.Stage.LegacyOverlayTransitions", OnOff(_project.LegacyStageTransitions))
+                   + L.F("StageUi.Stage.LegacyOverlayCharacterFollow", OnOff(_scene.CameraAffectsCharacter)));
     }
 
-    private static string OnOff(bool on) => on ? L.T("开") : L.T("关");
+    private static string OnOff(bool on) => on ? L.T("StageUi.Stage.On") : L.T("StageUi.Stage.Off");
 
     private static bool IsUserOwned(string? source, bool locked) =>
         locked || string.Equals(source, "user", StringComparison.OrdinalIgnoreCase);
@@ -115,8 +115,8 @@ public partial class PvStageWindow
         PushUndo();
         track.SwitchMode = mode;
         ApplyCameraSwitchChange(mode == "blend"
-            ? L.T("摄像机切换：混合")
-            : L.T("摄像机切换：切断"));
+            ? L.T("StageUi.Stage.CameraSwitchBlend")
+            : L.T("StageUi.Stage.CameraSwitchCut"));
     }
 
     internal void SldCamBlend_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -129,7 +129,7 @@ public partial class PvStageWindow
         if (Math.Abs(track.SwitchSeconds - seconds) < 1e-4) return;
 
         track.SwitchSeconds = seconds;
-        ApplyCameraSwitchChange(L.F("摄像机混合 {0:F2}s", seconds));
+        ApplyCameraSwitchChange(L.F("StageUi.Stage.CameraBlendSeconds", seconds));
     }
 
     private CameraTrack EnsureCameraTrack()
@@ -217,17 +217,17 @@ public partial class PvStageWindow
             _saveError = SaveProjectNow();
         }
 
-        string cameraLine = _project.LegacyStageCamera ? L.F("运镜 {0} 个", report.CameraShots) : L.T("运镜：关");
-        string transLine = _project.LegacyStageTransitions ? L.F("转场 {0} 段", report.TransSegments) : L.T("转场：关");
+        string cameraLine = _project.LegacyStageCamera ? L.F("StageUi.Stage.CameraShotsCount", report.CameraShots) : L.T("StageUi.Stage.CameraOff");
+        string transLine = _project.LegacyStageTransitions ? L.F("StageUi.Stage.TransitionSegmentsCount", report.TransSegments) : L.T("StageUi.Stage.TransitionsOff");
 
         TblAutoReport.Text =
-            (_beatMap is { } bm ? L.F("BPM {0:F1} · 段落 {1} 段 · ", bm.Bpm, bm.Sections.Count) : "")
-            + L.F("原版 PV 计划 · {0} 个切分 · 时长 {1:F1}s\n", info.Cuts.Count, info.Duration)
-            + L.F("舞台叠加：{0} · {1}（角色不单独位移，随镜头整体移动）\n", cameraLine, transLine)
-            + L.F("自动画面效果：{0} 个节点 · {1} 个时间窗\n", report.EffectNodes, report.EffectWindows)
-            + L.T("布局 / 入退场 / 文字处理 / 引擎转场由原版引擎生成");
+            (_beatMap is { } bm ? L.F("StageUi.Stage.BeatMapSections", bm.Bpm, bm.Sections.Count) : "")
+            + L.F("StageUi.Stage.LegacyPlanSummary", info.Cuts.Count, info.Duration)
+            + L.F("StageUi.Stage.StageOverlaySummary", cameraLine, transLine)
+            + L.F("StageUi.Stage.AutoEffectsSummary", report.EffectNodes, report.EffectWindows)
+            + L.T("StageUi.Stage.LegacyEngineHandlesLayout");
 
-        ShowStatus(L.F("原版引擎就绪：{0} 切分 · {1} · {2}", info.Cuts.Count, cameraLine, transLine));
+        ShowStatus(L.F("StageUi.Stage.LegacyEngineReady", info.Cuts.Count, cameraLine, transLine));
     }
 
     private static Dictionary<double, LegacyPvCutInfo> CaptureUserCutOverrides(LegacyPvPlanInfo? info)
@@ -390,17 +390,17 @@ public partial class PvStageWindow
     {
         if (_autoGenerating) return Task.CompletedTask;
 
-        var what = _autoSeed > 1 ? L.F("换一版（第 {0} 版）", _autoSeed) : L.T("一键成片");
+        var what = _autoSeed > 1 ? L.F("StageUi.Stage.RegenerateVersion", _autoSeed) : L.T("StageUi.Stage.AutoGenerate");
 
         if (string.IsNullOrWhiteSpace(_audioPath) || !File.Exists(_audioPath))
         {
-            ShowStatus(L.F("{0}失败：请先导入音频", what));
+            ShowStatus(L.F("StageUi.Stage.GenerateFailedNoAudio", what));
             return Task.CompletedTask;
         }
 
         if (string.IsNullOrWhiteSpace(_lrcText))
         {
-            ShowStatus(L.F("{0}失败：请先导入歌词", what));
+            ShowStatus(L.F("StageUi.Stage.GenerateFailedNoLyrics", what));
             return Task.CompletedTask;
         }
 
@@ -409,8 +409,8 @@ public partial class PvStageWindow
 
         _autoGenerating = true;
         BtnGenerateAuto.IsEnabled = false;
-        BtnGenerateAuto.Content = L.T("生成中…");
-        ShowStatus(L.F("{0}：正在重建原版引擎 Plan…", what));
+        BtnGenerateAuto.Content = L.T("StageUi.Stage.Generating");
+        ShowStatus(L.F("StageUi.Stage.RebuildingLegacyPlan", what));
 
         int keptEffects = _effects.Nodes.Count(n => IsUserOwned(n.Source, n.Locked));
         int keptShots = _project.CameraTrack?.Shots.Count(s => s is not null && IsUserOwned(s.Source, s.Locked)) ?? 0;
@@ -436,14 +436,14 @@ public partial class PvStageWindow
             PushUndo();
 
             string mapLine = _beatMap is { } bm
-                ? L.F("BPM {0:F1} · 段落 {1} 段 · 节拍 {2} 个\n", bm.Bpm, bm.Sections.Count, bm.Beats.Count)
+                ? L.F("StageUi.Stage.BeatMapWithBeats", bm.Bpm, bm.Sections.Count, bm.Beats.Count)
                 : "";
             TblAutoReport.Text =
-                L.F("原版引擎 · 第 {0} 版（种子 {1}）\n", _autoSeed, _project.LegacySeed)
+                L.F("StageUi.Stage.LegacyEngineVersionSeed", _autoSeed, _project.LegacySeed)
                 + mapLine
-                + L.F("主题 {0} · 正在重建自动运镜 / 整体转场…\n", ThemeLabel(_project.LegacyStyle))
-                + L.F("保留手改：效果 {0} · 运镜 {1} · 转场 {2}", keptEffects, keptShots, keptTrans);
-            var legacyNote = L.F("{0}：已重排原版引擎 · 第 {1} 版 · 种子 {2} · 主题 {3}",
+                + L.F("StageUi.Stage.RebuildingCameraTransitions", ThemeLabel(_project.LegacyStyle))
+                + L.F("StageUi.Stage.KeptManualEdits", keptEffects, keptShots, keptTrans);
+            var legacyNote = L.F("StageUi.Stage.LegacyEngineRegenerated",
                 what, _autoSeed, _project.LegacySeed, ThemeLabel(_project.LegacyStyle));
             _autoGeneratedOnce = true;
             ShowStatus(legacyNote);
@@ -451,14 +451,14 @@ public partial class PvStageWindow
         }
         catch (Exception ex)
         {
-            TblAutoReport.Text = L.T("生成失败：") + ex.Message;
-            ShowStatus(L.F("{0}失败：{1}", what, ex.Message));
+            TblAutoReport.Text = L.T("StageUi.Stage.GenerateFailed") + ex.Message;
+            ShowStatus(L.F("StageUi.Stage.GenerateFailedWithMessage", what, ex.Message));
             Log.Warn("[PV 工作台] 一键成片异常：" + ex);
         }
         finally
         {
             _autoGenerating = false;
-            BtnGenerateAuto.Content = _autoGeneratedOnce ? L.T("换一版") : L.T("生成运镜");
+            BtnGenerateAuto.Content = _autoGeneratedOnce ? L.T("StageUi.Stage.Regenerate") : L.T("StageUi.Stage.GenerateCamera");
             UpdateAutoButton();
         }
 

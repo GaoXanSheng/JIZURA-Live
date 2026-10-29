@@ -231,11 +231,11 @@ public partial class PvStageWindow
         string title = (_stageDragVts ? "VTS " : "") + LayerTitle(layer);
         return _stageDragKind switch
         {
-            StageDragKind.Scale => L.F("图层 {0}：{1} {2:F2}", title, L.T("缩放"), _stageDragValueScale),
-            StageDragKind.Rotate => L.F("图层 {0}：{1} {2:F1}", title, L.T("旋转"), _stageDragValueRotation),
+            StageDragKind.Scale => L.F("StageUi.Stage.StageStatusLayerScale", title, L.T("StageUi.Stage.Scale"), _stageDragValueScale),
+            StageDragKind.Rotate => L.F("StageUi.Stage.StageStatusLayerRotate", title, L.T("StageUi.Stage.Rotate"), _stageDragValueRotation),
             _ when _stageDragVts =>
-                L.F("图层 {0}：X {1:F2} · Y {2:F2}", title, _stageDragValueX, _stageDragValueY),
-            _ => L.F("图层 {0}：X {1:F3} · Y {2:F3}", title, _stageDragValueX, _stageDragValueY),
+                L.F("StageUi.Stage.StageStatusLayerMoveVts", title, _stageDragValueX, _stageDragValueY),
+            _ => L.F("StageUi.Stage.StageStatusLayerMove", title, _stageDragValueX, _stageDragValueY),
         };
     }
 
@@ -260,11 +260,11 @@ public partial class PvStageWindow
         string title = (vts ? "VTS " : "") + LayerTitle(layer);
         TblStatus.Text = kind switch
         {
-            StageDragKind.Scale => L.F("已调整图层 {0}：{1} {2:F2}", title, L.T("缩放"), _stageDragValueScale),
-            StageDragKind.Rotate => L.F("已调整图层 {0}：{1} {2:F1}", title, L.T("旋转"), _stageDragValueRotation),
+            StageDragKind.Scale => L.F("StageUi.Stage.StageAdjustedLayerScale", title, L.T("StageUi.Stage.Scale"), _stageDragValueScale),
+            StageDragKind.Rotate => L.F("StageUi.Stage.StageAdjustedLayerRotate", title, L.T("StageUi.Stage.Rotate"), _stageDragValueRotation),
             _ when vts =>
-                L.F("已调整图层 {0}：X {1:F2} · Y {2:F2}", title, _stageDragValueX, _stageDragValueY),
-            _ => L.F("已调整图层 {0}：X {1:F3} · Y {2:F3}", title, _stageDragValueX, _stageDragValueY),
+                L.F("StageUi.Stage.StageAdjustedLayerMoveVts", title, _stageDragValueX, _stageDragValueY),
+            _ => L.F("StageUi.Stage.StageAdjustedLayerMove", title, _stageDragValueX, _stageDragValueY),
         };
     }
 

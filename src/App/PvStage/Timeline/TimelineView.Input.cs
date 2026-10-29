@@ -77,6 +77,15 @@ public sealed partial class TimelineView
             return;
         }
 
+        if (NearHeaderDivider(p))
+        {
+            _drag = DragMode.HeaderResize;
+            _headerResizeStartX = p.X;
+            _headerResizeStartWidth = _headerWidth;
+            CaptureMouse();
+            return;
+        }
+
         if (RowAt(p.Y) is not { } row)
         {
             ClearSegmentSelection();
@@ -169,6 +178,11 @@ public sealed partial class TimelineView
         {
             var hover = e.GetPosition(this);
             UpdateHover(hover);
+            if (NearHeaderDivider(hover))
+            {
+                Cursor = Cursors.SizeWE;
+                return;
+            }
             if (hover.X >= RenderSize.Width - ScrollbarWidth
                 && VerticalScrollbar(out var vTop, out var vHeight, out _, out _)
                 && hover.Y >= vTop && hover.Y < vTop + vHeight)
@@ -205,7 +219,7 @@ public sealed partial class TimelineView
             _dragPastThreshold = true;
         }
 
-        if (_drag is not (DragMode.Pan or DragMode.VPan or DragMode.TrackResize))
+        if (_drag is not (DragMode.Pan or DragMode.VPan or DragMode.TrackResize or DragMode.HeaderResize))
         {
             const double edge = 24;
             double scroll = 12 / Math.Max(1, _pixelsPerSecond);
@@ -240,6 +254,9 @@ public sealed partial class TimelineView
                 break;
             case DragMode.TrackResize:
                 MoveTrackResize(p);
+                break;
+            case DragMode.HeaderResize:
+                MoveHeaderResize(p);
                 break;
         }
     }
@@ -300,6 +317,10 @@ public sealed partial class TimelineView
             _dragTip = null;
             CommitTrackResize();
         }
+        else if (_drag == DragMode.HeaderResize)
+        {
+            _drag = DragMode.None;
+        }
         else if (_drag == DragMode.Scrub)
         {
             _drag = DragMode.None;
@@ -329,6 +350,12 @@ public sealed partial class TimelineView
             _drag = DragMode.None;
             _dragTip = null;
             CommitTrackResize();
+            InvalidateVisual();
+            return;
+        }
+        if (_drag == DragMode.HeaderResize)
+        {
+            _drag = DragMode.None;
             InvalidateVisual();
             return;
         }
@@ -550,12 +577,12 @@ public sealed partial class TimelineView
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
         if (IsLegacy(seg))
         {
-            menu.Items.Add(new MenuItem { Header = L.T("原版切分由歌词与 Plan 生成，只读"), IsEnabled = false });
+            menu.Items.Add(new MenuItem { Header = L.T("StageUi.TimelineUi.LegacySegmentReadOnly"), IsEnabled = false });
             menu.IsOpen = true;
             return true;
         }
 
-        var start = new MenuItem { Header = L.F("开始时间：{0}…", FormatTime(seg.Start)) };
+        var start = new MenuItem { Header = L.F("StageUi.TimelineUi.StartTimeMenu", FormatTime(seg.Start)) };
         start.Click += async (_, _) =>
         {
             var value = await PromptValueAsync(seg.Start);
@@ -566,7 +593,7 @@ public sealed partial class TimelineView
         };
         menu.Items.Add(start);
 
-        var end = new MenuItem { Header = L.F("结束时间：{0}…", FormatTime(seg.End)) };
+        var end = new MenuItem { Header = L.F("StageUi.TimelineUi.EndTimeMenu", FormatTime(seg.End)) };
         end.Click += async (_, _) =>
         {
             var value = await PromptValueAsync(seg.End);
@@ -578,7 +605,7 @@ public sealed partial class TimelineView
         menu.Items.Add(end);
 
         menu.Items.Add(new Separator());
-        var fit = new MenuItem { Header = L.T("从播放头开始") };
+        var fit = new MenuItem { Header = L.T("StageUi.TimelineUi.FitFromPlayhead") };
         fit.Click += (_, _) =>
         {
             double length = seg.End - seg.Start;
@@ -590,7 +617,7 @@ public sealed partial class TimelineView
         menu.Items.Add(fit);
 
         menu.Items.Add(new Separator());
-        var remove = new MenuItem { Header = L.T("删除段") };
+        var remove = new MenuItem { Header = L.T("StageUi.TimelineUi.DeleteSegment") };
         remove.Click += (_, _) => SegmentDeleteRequested?.Invoke(seg);
         menu.Items.Add(remove);
 
@@ -672,6 +699,19 @@ public sealed partial class TimelineView
         TrackHeightsChanged?.Invoke();
     }
 
+    private bool NearHeaderDivider(Point p) =>
+        Math.Abs(p.X - HeaderWidth) <= HeaderGripWidth
+        && p.Y < RenderSize.Height - ScrollbarHeight;
+
+    private void MoveHeaderResize(Point p)
+    {
+        double max = Math.Max(HeaderMinWidth, RenderSize.Width - 160);
+        _headerWidth = Math.Clamp(
+            _headerResizeStartWidth + (p.X - _headerResizeStartX), HeaderMinWidth, max);
+        ClampScrollOffset();
+        InvalidateVisual();
+    }
+
     private bool EyeAt(Point p, in Row row)
     {
         if (row.Kind == RowKind.Ruler)
@@ -687,7 +727,7 @@ public sealed partial class TimelineView
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
         var expand = new MenuItem
         {
-            Header = IsGroupExpanded(row.GroupKey) ? L.T("折叠属性") : L.T("展开属性"),
+            Header = IsGroupExpanded(row.GroupKey) ? L.T("StageUi.TimelineUi.CollapseProperties") : L.T("StageUi.TimelineUi.ExpandProperties"),
             IsEnabled = HasGroupChildren(row.GroupKey),
         };
         expand.Click += (_, _) => ToggleGroupExpanded(row);
@@ -695,13 +735,13 @@ public sealed partial class TimelineView
 
         var hide = new MenuItem
         {
-            Header = IsGroupHidden(row.GroupKey) ? L.T("显示") : L.T("隐藏"),
+            Header = IsGroupHidden(row.GroupKey) ? L.T("StageUi.TimelineUi.Show") : L.T("StageUi.TimelineUi.Hide"),
         };
         hide.Click += (_, _) => ToggleGroupHidden(row);
         menu.Items.Add(hide);
 
         menu.Items.Add(new Separator());
-        var select = new MenuItem { Header = L.T("选中") };
+        var select = new MenuItem { Header = L.T("StageUi.TimelineUi.Select") };
         select.Click += (_, _) => SelectOwner(row);
         menu.Items.Add(select);
 
@@ -719,21 +759,21 @@ public sealed partial class TimelineView
             case RowKind.Design:
             {
                 var design = _snap.DesignTracks[row.Index];
-                label = L.F("清空轨道「{0}」", TrackLabel(design));
+                label = L.F("StageUi.TimelineUi.ClearTrack", TrackLabel(design));
                 clear = () => DesignTrackClearRequested?.Invoke(design.Kind, design.Id);
                 break;
             }
             case RowKind.Automation:
             {
                 var curve = _snap.Curves[row.Index];
-                label = L.F("清空曲线「{0}」", curve.Label);
+                label = L.F("StageUi.TimelineUi.ClearCurve", curve.Label);
                 clear = () => CurveClearRequested?.Invoke(curve.Address);
                 break;
             }
             case RowKind.VtsCue:
             {
                 var track = _snap.VtsCueTracks[row.Index];
-                label = L.F("清空轨道「{0}」", VtsCueTrackLabel(track));
+                label = L.F("StageUi.TimelineUi.ClearTrack", VtsCueTrackLabel(track));
                 var kind = track.Kind;
                 var target = track.Target;
                 clear = () => VtsTrackClearRequested?.Invoke(kind, target);
@@ -765,7 +805,7 @@ public sealed partial class TimelineView
         }
 
         menu.Items.Add(new Separator());
-        var all = new MenuItem { Header = L.T("全部显示") };
+        var all = new MenuItem { Header = L.T("StageUi.TimelineUi.ShowAll") };
         all.Click += (_, _) => ShowAllTracks();
         menu.Items.Add(all);
         menu.IsOpen = true;
@@ -981,7 +1021,7 @@ public sealed partial class TimelineView
         if (hit is null) return false;
 
         var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
-        var remove = new MenuItem { Header = L.T("删除") };
+        var remove = new MenuItem { Header = L.T("StageUi.TimelineUi.Delete") };
         remove.Click += (_, _) => VtsCueDeleteRequested?.Invoke(track.Kind, hit.Target, hit.Time);
         menu.Items.Add(remove);
         menu.IsOpen = true;
@@ -1234,7 +1274,7 @@ public sealed partial class TimelineView
             menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
-        var remove = new MenuItem { Header = L.T("删除") };
+        var remove = new MenuItem { Header = L.T("StageUi.TimelineUi.Delete") };
         remove.Click += (_, _) => DeleteSelected();
         menu.Items.Add(remove);
         menu.IsOpen = true;
@@ -1243,11 +1283,11 @@ public sealed partial class TimelineView
 
     private static string InterpLabel(string interp) => interp switch
     {
-        "Step" => L.T("阶梯"),
-        "Linear" => L.T("线性"),
-        "SmoothStep" => L.T("平滑"),
-        "Bezier" => L.T("贝塞尔"),
-        "Spring" => L.T("弹簧"),
+        "Step" => L.T("StageUi.TimelineUi.InterpStep"),
+        "Linear" => L.T("StageUi.TimelineUi.InterpLinear"),
+        "SmoothStep" => L.T("StageUi.TimelineUi.InterpSmoothStep"),
+        "Bezier" => L.T("StageUi.TimelineUi.InterpBezier"),
+        "Spring" => L.T("StageUi.TimelineUi.InterpSpring"),
         _ => interp,
     };
 

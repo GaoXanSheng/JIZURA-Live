@@ -391,20 +391,20 @@ public sealed class PvPipeline : IDisposable
         var existingLayout = ExistingLayer(LegacyPvProvider.FrontLayoutId);
         var existingDecor = ExistingLayer(LegacyPvProvider.FrontDecorId);
         var existingHud = ExistingLayer(LegacyPvProvider.FrontHudId);
-        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, L.T("背景层"), PvLayerKind.Background);
-        var text = existingText ?? LegacyLayer(LegacyPvProvider.FrontId, L.T("歌词文字层"), PvLayerKind.ForegroundFx);
-        var layout = existingLayout ?? LegacyLayer(LegacyPvProvider.FrontLayoutId, L.T("歌词布局层"), PvLayerKind.ForegroundFx);
-        var decor = existingDecor ?? LegacyLayer(LegacyPvProvider.FrontDecorId, L.T("歌词装饰层"), PvLayerKind.ForegroundFx);
-        var hud = existingHud ?? LegacyLayer(LegacyPvProvider.FrontHudId, L.T("歌词界面层"), PvLayerKind.ForegroundFx);
-        back.Name = L.T("背景层");
+        var back = existingBack ?? LegacyLayer(LegacyPvProvider.BackId, L.T("StageUi.Layer.BackgroundLayer"), PvLayerKind.Background);
+        var text = existingText ?? LegacyLayer(LegacyPvProvider.FrontId, L.T("StageUi.Layer.LyricsTextLayer"), PvLayerKind.ForegroundFx);
+        var layout = existingLayout ?? LegacyLayer(LegacyPvProvider.FrontLayoutId, L.T("StageUi.Layer.LyricsLayoutLayer"), PvLayerKind.ForegroundFx);
+        var decor = existingDecor ?? LegacyLayer(LegacyPvProvider.FrontDecorId, L.T("StageUi.Layer.LyricsDecorationLayer"), PvLayerKind.ForegroundFx);
+        var hud = existingHud ?? LegacyLayer(LegacyPvProvider.FrontHudId, L.T("StageUi.Layer.LyricsInterfaceLayer"), PvLayerKind.ForegroundFx);
+        back.Name = L.T("StageUi.Layer.BackgroundLayer");
         back.Kind = PvLayerKind.Background;
-        text.Name = L.T("歌词文字层");
+        text.Name = L.T("StageUi.Layer.LyricsTextLayer");
         text.Kind = PvLayerKind.ForegroundFx;
-        layout.Name = L.T("歌词布局层");
+        layout.Name = L.T("StageUi.Layer.LyricsLayoutLayer");
         layout.Kind = PvLayerKind.ForegroundFx;
-        decor.Name = L.T("歌词装饰层");
+        decor.Name = L.T("StageUi.Layer.LyricsDecorationLayer");
         decor.Kind = PvLayerKind.ForegroundFx;
-        hud.Name = L.T("歌词界面层");
+        hud.Name = L.T("StageUi.Layer.LyricsInterfaceLayer");
         hud.Kind = PvLayerKind.ForegroundFx;
 
         EnsureLegacyCamera(back, true);
@@ -470,7 +470,7 @@ public sealed class PvPipeline : IDisposable
 
         _legacyComposite = options.Composite && CanUseLegacyComposite();
         _legacy.CompositeMode = _legacyComposite;
-        back.Name = _legacyComposite ? L.T("原版合成层") : L.T("背景层");
+        back.Name = _legacyComposite ? L.T("StageUi.Layer.LegacyComposite") : L.T("StageUi.Layer.BackgroundLayer");
 
         if (_legacyComposite)
         {

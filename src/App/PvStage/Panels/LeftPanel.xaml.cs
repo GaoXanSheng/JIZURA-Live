@@ -1,13 +1,48 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using JizuraLive.Pv;
 
 namespace JizuraLive.App.PvStage.Panels;
 
 public partial class LeftPanel : UserControl
 {
-    public LeftPanel() => InitializeComponent();
+    public LeftPanel()
+    {
+        InitializeComponent();
+        PreviewMouseLeftButtonDown += OnRootPreviewMouseLeftButtonDown;
+    }
 
     public PvStageWindow? Owner { get; set; }
+
+    private void OnRootPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        if (source is null) return;
+        if (FindAncestor<Border>(source, b => b.Tag is PvLayerConfig || b.Tag is "fx") is not null) return;
+        if (FindAncestor<ButtonBase>(source) is not null) return;
+        if (FindAncestor<RangeBase>(source) is not null) return;
+        if (FindAncestor<TextBoxBase>(source) is not null) return;
+        if (FindAncestor<Selector>(source) is not null) return;
+        if (FindAncestor<ScrollBar>(source) is not null) return;
+        if (FindAncestor<Thumb>(source) is not null) return;
+        if (FindAncestor<Expander>(source) is not null) return;
+        Owner?.ClearLayerSelection();
+    }
+
+    private static T? FindAncestor<T>(DependencyObject? current, Func<T, bool>? match = null)
+        where T : DependencyObject
+    {
+        while (current is not null)
+        {
+            if (current is T typed && (match is null || match(typed))) return typed;
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
 
     private void Nav_Click(object sender, RoutedEventArgs e) => Owner?.Nav_Click(sender, e);
 

@@ -17,6 +17,13 @@
   "CloudMusic.SelectFirst": "先在列表里选中一首歌",
   "CloudMusic.SelectSong": "选择一首歌",
   "CloudMusic.Quality": "音质",
+  "CloudMusic.LyricVersion": "歌词版本",
+  "CloudMusic.LyricVersionDefault": "默认版本",
+  "CloudMusic.LyricVersionOriginalDefault": "原文（默认）",
+  "CloudMusic.LyricVersionTrans": "原文 + 译文",
+  "CloudMusic.LyricVersionRoma": "原文 + 罗马音",
+  "CloudMusic.LyricVersionTransRoma": "原文 + 译文 + 罗马音",
+  "CloudMusic.LyricVersionNumber": "版本 {0}",
   "CloudMusic.DoubleClickHint": "双击列表中的歌曲也可以直接导入",
   "CloudMusic.Import": "导入到工程"
 }

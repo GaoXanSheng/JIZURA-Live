@@ -470,9 +470,9 @@ public sealed partial class TimelineView
 
     private static string CueTrackLabel(VtsCueKind kind) => kind switch
     {
-        VtsCueKind.Hotkey => L.T("动作键"),
-        VtsCueKind.Expression => L.T("表情"),
-        VtsCueKind.Tint => L.T("染色"),
+        VtsCueKind.Hotkey => L.T("StageUi.TimelineUi.CueKindHotkey"),
+        VtsCueKind.Expression => L.T("StageUi.TimelineUi.CueKindExpression"),
+        VtsCueKind.Tint => L.T("StageUi.TimelineUi.CueKindTint"),
         _ => kind.ToString(),
     };
 
@@ -563,11 +563,11 @@ public sealed partial class TimelineView
             switch (row.Kind)
             {
                 case RowKind.Waveform:
-                    dc.DrawText(Text(L.T("音频"), 11, DimBrush),
+                    dc.DrawText(Text(L.T("StageUi.TimelineUi.AudioTrack"), 11, DimBrush),
                         new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.Lyrics:
-                    dc.DrawText(Text(L.T("歌词"), 11, DimBrush),
+                    dc.DrawText(Text(L.T("StageUi.TimelineUi.LyricsTrack"), 11, DimBrush),
                         new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.Automation:

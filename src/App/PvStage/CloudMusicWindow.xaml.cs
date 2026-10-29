@@ -27,6 +27,10 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
     public string Quality =>
         (CmbQuality.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? "320";
 
+    public CloudLyricOption? SelectedLyricOption => CmbLyricVersion.SelectedItem as CloudLyricOption;
+
+    private int _lyricOptionsVersion;
+
     private sealed class SongRow : INotifyPropertyChanged
     {
         private ImageSource? _cover;
@@ -152,7 +156,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
         return $"{(int)ts.TotalMinutes:00}:{ts.Seconds:00}";
     }
 
-    private void LstSongs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private async void LstSongs_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (LstSongs.SelectedItem is not SongRow row)
         {
@@ -166,10 +170,40 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
         ImgCover.Source = null;
         if (row.Cover is not null) ImgCover.Source = row.Cover;
         TblDetailStatus.Text = L.T("CloudMusic.DoubleClickHint");
+        await LoadLyricOptionsAsync(row.Song);
+    }
+
+    private async Task LoadLyricOptionsAsync(KgSong song)
+    {
+        var version = ++_lyricOptionsVersion;
+        CmbLyricVersion.IsEnabled = false;
+        CmbLyricVersion.Items.Clear();
+        CmbLyricVersion.Items.Add(new CloudLyricOption("", "", L.T("CloudMusic.LyricVersionDefault")));
+        CmbLyricVersion.SelectedIndex = 0;
+        try
+        {
+            var options = await CloudMusicService.GetLyricOptionsAsync(song);
+            if (version != _lyricOptionsVersion) return;
+            CmbLyricVersion.Items.Clear();
+            foreach (var option in options) CmbLyricVersion.Items.Add(option);
+            CmbLyricVersion.SelectedIndex = 0;
+        }
+        catch
+        {
+        }
+        finally
+        {
+            if (version == _lyricOptionsVersion) CmbLyricVersion.IsEnabled = true;
+        }
     }
 
     private void ResetDetail()
     {
+        _lyricOptionsVersion++;
+        CmbLyricVersion.Items.Clear();
+        CmbLyricVersion.Items.Add(new CloudLyricOption("", "", L.T("CloudMusic.LyricVersionDefault")));
+        CmbLyricVersion.SelectedIndex = 0;
+        CmbLyricVersion.IsEnabled = false;
         TblName.Text = L.T("CloudMusic.SelectSong");
         TblSinger.Text = "";
         TblAlbum.Text = "";

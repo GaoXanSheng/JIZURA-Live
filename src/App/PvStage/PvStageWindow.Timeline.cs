@@ -104,7 +104,7 @@ public partial class PvStageWindow
         snap.Owners.Add(new TOwner
         {
             Key = "cam",
-            Label = L.T("整体相机"),
+            Label = L.T("StageUi.TimelinePanel.OverallCamera"),
             Kind = TOwnerKind.Camera,
             AddressKind = ParamAddressKind.Camera,
             Target = "",
@@ -115,7 +115,7 @@ public partial class PvStageWindow
             snap.Owners.Add(new TOwner
             {
                 Key = "layer:" + layer.Id,
-                Label = _scene.IsCharacterLayer(layer) ? L.T("角色") : LayerTitle(layer),
+                Label = _scene.IsCharacterLayer(layer) ? L.T("StageUi.TimelinePanel.Character") : LayerTitle(layer),
                 Kind = TOwnerKind.Layer,
                 AddressKind = ParamAddressKind.Layer,
                 Target = layer.Id,
@@ -125,7 +125,7 @@ public partial class PvStageWindow
         snap.Owners.Add(new TOwner
         {
             Key = "vts",
-            Label = L.T("角色移动"),
+            Label = L.T("StageUi.TimelinePanel.CharacterMovement"),
             Kind = TOwnerKind.VtsMove,
             AddressKind = ParamAddressKind.Vts,
             Target = "model",
@@ -153,7 +153,7 @@ public partial class PvStageWindow
             snap.Owners.Add(new TOwner
             {
                 Key = "fx",
-                Label = L.T("特效"),
+                Label = L.T("StageUi.TimelinePanel.Effects"),
                 Kind = TOwnerKind.Design,
             });
         }
@@ -161,14 +161,14 @@ public partial class PvStageWindow
         snap.Owners.Add(new TOwner
         {
             Key = "design",
-            Label = L.T("设计轨道"),
+            Label = L.T("StageUi.TimelinePanel.DesignTracks"),
             Kind = TOwnerKind.Design,
         });
 
         snap.Owners.Add(new TOwner
         {
             Key = "vtscue",
-            Label = L.T("VTS 提示"),
+            Label = L.T("StageUi.TimelinePanel.VtsCues"),
             Kind = TOwnerKind.VtsCue,
         });
     }
@@ -288,13 +288,13 @@ public partial class PvStageWindow
 
     private string EffectTrackLabel(EffectNode node)
     {
-        if (string.IsNullOrEmpty(node.Target)) return EffectName(node) + L.T(" · 全局");
+        if (string.IsNullOrEmpty(node.Target)) return EffectName(node) + L.T("StageUi.TimelinePanel.GlobalSuffix");
 
         var layer = _scene.Layers.FirstOrDefault(l =>
             l is not null && string.Equals(l.Id, node.Target, StringComparison.Ordinal));
         var target = layer is null
             ? node.Target
-            : _scene.IsCharacterLayer(layer) ? L.T("角色") : LayerTitle(layer);
+            : _scene.IsCharacterLayer(layer) ? L.T("StageUi.TimelinePanel.Character") : LayerTitle(layer);
         return EffectName(node) + " · " + target;
     }
 
@@ -481,10 +481,10 @@ public partial class PvStageWindow
         ParamAddressKind.Camera => ParamDisplayName(addr.Param),
         ParamAddressKind.Vts => addr.Param switch
         {
-            "x" => L.T("位移X"),
-            "y" => L.T("位移Y"),
-            "size" => L.T("缩放Z"),
-            "rotation" => L.T("旋转"),
+            "x" => L.T("StageUi.TimelinePanel.OffsetX"),
+            "y" => L.T("StageUi.TimelinePanel.OffsetY"),
+            "size" => L.T("StageUi.TimelinePanel.ScaleZ"),
+            "rotation" => L.T("StageUi.TimelinePanel.Rotation"),
             _ => addr.Param,
         },
         ParamAddressKind.Layer => ParamDisplayName(addr.Param),
@@ -546,7 +546,7 @@ public partial class PvStageWindow
         PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.T("已删除 VTS 关键帧");
+        TblStatus.Text = L.T("StageUi.TimelinePanel.VtsCueDeleted");
     }
 
     private void Timeline_VtsCueEdited(VtsCueKind kind, string target,
@@ -565,7 +565,7 @@ public partial class PvStageWindow
         PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.T("已调整 VTS 关键帧时间");
+        TblStatus.Text = L.T("StageUi.TimelinePanel.VtsCueTimeAdjusted");
     }
 
     private void Timeline_VtsTrackClear(VtsCueKind kind, string target)
@@ -579,11 +579,11 @@ public partial class PvStageWindow
 
         if (!cues.Any(Match))
         {
-            TblStatus.Text = L.T("轨道已经是空的");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.TrackAlreadyEmpty");
             return;
         }
 
-        if (!ConfirmClear(L.T("确定清空该 VTS 轨道？此操作可撤销。"))) return;
+        if (!ConfirmClear(L.T("StageUi.TimelinePanel.ClearVtsTrackConfirm"))) return;
 
         int removed = cues.RemoveAll(Match);
         if (kind == VtsCueKind.Tint
@@ -598,7 +598,7 @@ public partial class PvStageWindow
         PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已清空 VTS 轨道（{0} 个）", removed);
+        TblStatus.Text = L.F("StageUi.TimelinePanel.VtsTrackCleared", removed);
     }
 
     private void Timeline_LyricClipMenu(int index, double start, double end, string text)
@@ -608,7 +608,7 @@ public partial class PvStageWindow
         if (label.Length > 14) label = label[..14] + "…";
         menu.Items.Add(new MenuItem
         {
-            Header = L.F("本句效果：{0}", label),
+            Header = L.F("StageUi.TimelinePanel.LineEffectsHeader", label),
             IsEnabled = false,
         });
         menu.Items.Add(new Separator());
@@ -628,7 +628,7 @@ public partial class PvStageWindow
         }
 
         menu.Items.Add(new Separator());
-        var clear = new MenuItem { Header = L.T("清除本句效果") };
+        var clear = new MenuItem { Header = L.T("StageUi.TimelinePanel.ClearLineEffects") };
         clear.Click += (_, _) => ClearLineEffects(start, end);
         menu.Items.Add(clear);
 
@@ -637,13 +637,13 @@ public partial class PvStageWindow
 
     private static string EffectCategoryLabel(EffectCategory category) => category switch
     {
-        EffectCategory.DistortGlitch => L.T("故障 / 扭曲"),
-        EffectCategory.Texture => L.T("纹理"),
-        EffectCategory.ColorGrade => L.T("调色"),
-        EffectCategory.LightGlow => L.T("光晕"),
-        EffectCategory.Geometry => L.T("几何"),
-        EffectCategory.Stylize => L.T("风格化"),
-        EffectCategory.Camera => L.T("相机"),
+        EffectCategory.DistortGlitch => L.T("StageUi.TimelinePanel.EffectCategoryDistortGlitch"),
+        EffectCategory.Texture => L.T("StageUi.TimelinePanel.EffectCategoryTexture"),
+        EffectCategory.ColorGrade => L.T("StageUi.TimelinePanel.EffectCategoryColorGrade"),
+        EffectCategory.LightGlow => L.T("StageUi.TimelinePanel.EffectCategoryLightGlow"),
+        EffectCategory.Geometry => L.T("StageUi.TimelinePanel.EffectCategoryGeometry"),
+        EffectCategory.Stylize => L.T("StageUi.TimelinePanel.EffectCategoryStylize"),
+        EffectCategory.Camera => L.T("StageUi.TimelinePanel.EffectCategoryCamera"),
         _ => category.ToString(),
     };
 
@@ -669,7 +669,7 @@ public partial class PvStageWindow
         PushUndo();
         _saveError = SaveProjectNow();
         PreviewEffect(node);
-        ShowStatus(L.F("已给本句添加效果：{0}", L.T(def.NameKey)), 4);
+        ShowStatus(L.F("StageUi.TimelinePanel.LineEffectAdded", L.T(def.NameKey)), 4);
     }
 
     private void ClearLineEffects(double start, double end)
@@ -680,7 +680,7 @@ public partial class PvStageWindow
             && node.Windows.All(window => window.Start >= start - 0.001 && window.End <= end + 0.001));
         if (removed == 0)
         {
-            ShowStatus(L.T("本句没有可清除的效果"), 3);
+            ShowStatus(L.T("StageUi.TimelinePanel.NoLineEffectsToClear"), 3);
             return;
         }
 
@@ -688,7 +688,7 @@ public partial class PvStageWindow
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
-        ShowStatus(L.F("已清除本句效果：{0} 个", removed), 3);
+        ShowStatus(L.F("StageUi.TimelinePanel.LineEffectsCleared", removed), 3);
     }
 
     private void Timeline_ScrubStarted()
@@ -714,11 +714,11 @@ public partial class PvStageWindow
     {
         if (!_evaluator.Curves.ContainsKey(address))
         {
-            TblStatus.Text = L.T("轨道已经是空的");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.TrackAlreadyEmpty");
             return;
         }
 
-        if (!ConfirmClear(L.T("确定清空这条曲线？此操作可撤销。"))) return;
+        if (!ConfirmClear(L.T("StageUi.TimelinePanel.ClearCurveConfirm"))) return;
 
         _evaluator.RemoveCurve(address);
         PublishDirector();
@@ -727,11 +727,11 @@ public partial class PvStageWindow
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.T("已清空曲线");
+        TblStatus.Text = L.T("StageUi.TimelinePanel.CurveCleared");
     }
 
     private bool ConfirmClear(string message) =>
-        MessageBox.Show(this, message, L.T("PV 工作台"),
+        MessageBox.Show(this, message, L.T("StageUi.TimelinePanel.PvWorkbenchTitle"),
             MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
 
     private void Timeline_DesignTrackClear(DesignTrackKind kind, string trackId)
@@ -742,11 +742,11 @@ public partial class PvStageWindow
                 n is not null && string.Equals("fx:" + n.InstanceId, trackId, StringComparison.Ordinal));
             if (node is null)
             {
-                TblStatus.Text = L.T("轨道已经是空的");
+                TblStatus.Text = L.T("StageUi.TimelinePanel.TrackAlreadyEmpty");
                 return;
             }
 
-            if (!ConfirmClear(L.F("确定删除特效「{0}」及其轨道？此操作可撤销。", EffectName(node)))) return;
+            if (!ConfirmClear(L.F("StageUi.TimelinePanel.DeleteEffectTrackConfirm", EffectName(node)))) return;
 
             _evaluator.RemoveCurvesForTarget(node.InstanceId);
             _effects.Nodes.Remove(node);
@@ -754,7 +754,7 @@ public partial class PvStageWindow
             _segmentTarget = null;
             BuildInspector();
             AfterSegmentEdit();
-            TblStatus.Text = L.F("已删除特效：{0}", EffectName(node));
+            TblStatus.Text = L.F("StageUi.TimelinePanel.EffectDeleted", EffectName(node));
             return;
         }
 
@@ -762,11 +762,11 @@ public partial class PvStageWindow
             || (_legacyPlanInfo is { Cuts.Count: > 0 }
                 && kind is DesignTrackKind.Layout or DesignTrackKind.Enter or DesignTrackKind.Exit))
         {
-            TblStatus.Text = L.T("原版切分由歌词与 Plan 生成，不能清空");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.LegacyCutCannotClear");
             return;
         }
 
-        if (!ConfirmClear(L.T("确定清空该轨道？此操作可撤销。"))) return;
+        if (!ConfirmClear(L.T("StageUi.TimelinePanel.ClearTrackConfirm"))) return;
 
         int removed;
         bool effectsChanged = false;
@@ -823,7 +823,7 @@ public partial class PvStageWindow
 
         if (removed == 0)
         {
-            TblStatus.Text = L.T("轨道已经是空的");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.TrackAlreadyEmpty");
             return;
         }
 
@@ -833,7 +833,7 @@ public partial class PvStageWindow
         _segmentTarget = null;
         BuildInspector();
         AfterSegmentEdit();
-        TblStatus.Text = L.F("已清空设计轨：{0} 段", removed);
+        TblStatus.Text = L.F("StageUi.TimelinePanel.DesignTrackCleared", removed);
     }
 
     private void Timeline_SeekRequested(double seconds)
@@ -871,7 +871,7 @@ public partial class PvStageWindow
         RefreshParamRows();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("关键帧已{0} · {1} 个 key", ReasonLabel(edit.Reason), edit.After.Count);
+        TblStatus.Text = L.F("StageUi.TimelinePanel.KeyframeEditStatus", ReasonLabel(edit.Reason), edit.After.Count);
     }
 
     private void CommitLyricClip(TEdit edit)
@@ -880,14 +880,14 @@ public partial class PvStageWindow
         if (_snap is null || moved.Index < 0
             || moved.Index >= _snap.Lyrics.Count || moved.Index >= _lyricClips.Count)
         {
-            TblStatus.Text = L.T("歌词条未生效：这一句已经不在歌词轨上了");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.LyricClipNotOnTrack");
             return;
         }
 
         var range = new ClipRange(moved.Start, moved.End);
         if (TimelineMath.ClipFault(_snap.Lyrics, moved.Index, range) is { } fault)
         {
-            TblStatus.Text = L.T("歌词条未生效：") + fault;
+            TblStatus.Text = L.T("StageUi.TimelinePanel.LyricClipInvalidPrefix") + fault;
             return;
         }
 
@@ -906,7 +906,7 @@ public partial class PvStageWindow
         PushUndo();
         _saveError = SaveProjectNow();
         RefreshTimeline();
-        TblStatus.Text = L.F("歌词条已调整：{0:F3}s – {1:F3}s", range.Start, range.End);
+        TblStatus.Text = L.F("StageUi.TimelinePanel.LyricClipAdjusted", range.Start, range.End);
     }
 
     private static long ToMs(double seconds) => (long)Math.Round(seconds * 1000.0);
@@ -1023,7 +1023,7 @@ public partial class PvStageWindow
 
         if (_segmentTarget is { LegacyCutIndex: >= 0 })
         {
-            TblStatus.Text = L.T("原版切分的开始/结束时间由歌词与 Plan 决定，不能直接拖动");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.LegacyCutTimeNotDraggable");
             RefreshTimeline();
             return;
         }
@@ -1086,14 +1086,14 @@ public partial class PvStageWindow
                 }
                 break;
             case { LegacyCutIndex: >= 0 }:
-                TblStatus.Text = L.T("原版切分由歌词与 Plan 生成，不能删除");
+                TblStatus.Text = L.T("StageUi.TimelinePanel.LegacyCutCannotDelete");
                 RefreshTimeline();
                 return;
         }
 
         if (!removed)
         {
-            TblStatus.Text = L.T("段未删除：对应对象已不存在");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.SegmentNotDeletedTargetMissing");
             RefreshTimeline();
             return;
         }
@@ -1104,7 +1104,7 @@ public partial class PvStageWindow
             _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
         BuildInspector();
         AfterSegmentEdit();
-        TblStatus.Text = L.T("已删除设计段");
+        TblStatus.Text = L.T("StageUi.TimelinePanel.DesignSegmentDeleted");
     }
 
     private SegmentTarget? _segmentTarget;
@@ -1133,13 +1133,13 @@ public partial class PvStageWindow
         if (double.IsNaN(start) || double.IsNaN(end) || double.IsNaN(fadeIn) || double.IsNaN(fadeOut)
             || double.IsInfinity(start) || double.IsInfinity(end) || double.IsInfinity(fadeIn) || double.IsInfinity(fadeOut))
         {
-            TblStatus.Text = L.T("段时间未生效：时间值必须是有限数");
+            TblStatus.Text = L.T("StageUi.TimelinePanel.SegmentTimeInvalidNotFinite");
             return;
         }
 
         if (end <= start)
         {
-            TblStatus.Text = L.F("段时间未生效：结束 {0:F3}s 必须大于开始 {1:F3}s", end, start);
+            TblStatus.Text = L.F("StageUi.TimelinePanel.SegmentTimeInvalidEndBeforeStart", end, start);
             return;
         }
 
@@ -1152,7 +1152,7 @@ public partial class PvStageWindow
             double overflow = fadeIn + fadeOut - length;
             if (fadeIn >= fadeOut) fadeIn = Math.Max(0, fadeIn - overflow);
             else fadeOut = Math.Max(0, fadeOut - overflow);
-            TblStatus.Text = L.F("淡入淡出之和已收敛到段长内（{0:F3}s – {1:F3}s）", start, end);
+            TblStatus.Text = L.F("StageUi.TimelinePanel.FadeClampedToSegmentLength", start, end);
         }
 
         switch (_segmentTarget)
@@ -1168,7 +1168,7 @@ public partial class PvStageWindow
                 }
                 else
                 {
-                    TblStatus.Text = L.T("效果段未生效：对应窗口已不存在");
+                    TblStatus.Text = L.T("StageUi.TimelinePanel.EffectWindowMissing");
                     return;
                 }
                 MarkFxUser(node);
@@ -1209,7 +1209,7 @@ public partial class PvStageWindow
                 return;
         }
 
-        TblStatus.Text = L.F("段时间已应用：{0:F3}s – {1:F3}s", start, end);
+        TblStatus.Text = L.F("StageUi.TimelinePanel.SegmentTimeApplied", start, end);
         AfterSegmentEdit();
     }
 
@@ -1251,12 +1251,12 @@ public partial class PvStageWindow
 
     private static string ReasonLabel(string reason) => reason switch
     {
-        "add" => L.T("新增"),
-        "move" => L.T("移动"),
-        "delete" => L.T("删除"),
-        "interp" => L.T("改插值"),
-        "value" => L.T("改值"),
-        _ => L.T("更新"),
+        "add" => L.T("StageUi.TimelinePanel.ReasonAdd"),
+        "move" => L.T("StageUi.TimelinePanel.ReasonMove"),
+        "delete" => L.T("StageUi.TimelinePanel.ReasonDelete"),
+        "interp" => L.T("StageUi.TimelinePanel.ReasonChangeInterpolation"),
+        "value" => L.T("StageUi.TimelinePanel.ReasonChangeValue"),
+        _ => L.T("StageUi.TimelinePanel.ReasonUpdate"),
     };
 
     private void StartAudioLoad(string path)

@@ -19,7 +19,7 @@ public static class Krc
     {
         if (data.Length < 8 || data[0] != (byte)'k' || data[1] != (byte)'r' || data[2] != (byte)'c'
             || data[3] != (byte)'1')
-            throw new InvalidDataException(L.T("不是 .krc 文件（缺少 krc1 魔数）"));
+            throw new InvalidDataException(L.T("StageUi.Media.KrcBadMagic"));
         var body = new byte[data.Length - 4];
         Array.Copy(data, 4, body, 0, body.Length);
         for (var i = 0; i < body.Length; i++) body[i] ^= KrcKey[i % 16];
@@ -143,6 +143,72 @@ public static class Krc
         }
 
         return string.Join('\n', outLines).TrimEnd('\n') + "\n";
+    }
+
+    private static readonly Regex ReStdLrc =
+        new(@"^\[(\d+):(\d{2})(?:[.:](\d{1,3}))?\]", RegexOptions.Compiled);
+
+        public static string MergeVariantLrc(string lrc, string? trans, string? roma)
+    {
+        var transMap = ParseStdLrcMap(trans);
+        var romaMap = ParseStdLrcMap(roma);
+        if (transMap.Count == 0 && romaMap.Count == 0) return lrc;
+
+        var outLines = new List<string>();
+        foreach (var raw in lrc.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            var m = ReStdLrc.Match(line);
+            if (!m.Success)
+            {
+                outLines.Add(line);
+                continue;
+            }
+
+            var notes = new List<string>();
+            if (transMap.TryGetValue(StdMs(m), out var t)) AddNote(notes, t);
+            if (romaMap.TryGetValue(StdMs(m), out var r)) AddNote(notes, r);
+            outLines.Add(notes.Count == 0 ? line : line + "|" + string.Join("　", notes));
+        }
+
+        return string.Join('\n', outLines);
+    }
+
+    private static Dictionary<long, string> ParseStdLrcMap(string? text)
+    {
+        var map = new Dictionary<long, string>();
+        if (string.IsNullOrWhiteSpace(text)) return map;
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            var m = ReStdLrc.Match(line);
+            if (!m.Success) continue;
+            var value = ReStdLrc.Replace(line, "").Trim();
+            if (value.Length == 0) continue;
+            map[StdMs(m)] = value;
+        }
+
+        return map;
+    }
+
+    private static long StdMs(Match m)
+    {
+        long ms = 0;
+        var frac = m.Groups[3].Value;
+        if (frac.Length > 0)
+        {
+            ms = long.Parse(frac);
+            if (frac.Length == 1) ms *= 100;
+            else if (frac.Length == 2) ms *= 10;
+        }
+
+        return (long.Parse(m.Groups[1].Value) * 60 + long.Parse(m.Groups[2].Value)) * 1000 + ms;
+    }
+
+    private static void AddNote(List<string> notes, string text)
+    {
+        var value = text.Replace("/", "／").Trim();
+        if (value.Length > 0 && !notes.Contains(value)) notes.Add(value);
     }
 
         public static string B64Text(string b64) => Encoding.UTF8.GetString(Convert.FromBase64String(b64));

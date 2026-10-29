@@ -80,10 +80,10 @@ public partial class PvStageWindow
         var state = _vts.State;
         var text = state switch
         {
-            VtsState.Ready => L.T("已连接") + (string.IsNullOrWhiteSpace(_vts.ModelName) ? "" : " · " + _vts.ModelName),
-            VtsState.AwaitApproval => L.T("等待 VTS 弹窗确认…"),
-            VtsState.NeedAuth => L.T("已连接 · 需要授权"),
-            _ => string.IsNullOrWhiteSpace(_vts.LastError) ? L.T("未连接") : L.T("未连接 · ") + _vts.LastError,
+            VtsState.Ready => L.T("StageUi.Vts.Connected") + (string.IsNullOrWhiteSpace(_vts.ModelName) ? "" : " · " + _vts.ModelName),
+            VtsState.AwaitApproval => L.T("StageUi.Vts.AwaitingApproval"),
+            VtsState.NeedAuth => L.T("StageUi.Vts.ConnectedNeedsAuth"),
+            _ => string.IsNullOrWhiteSpace(_vts.LastError) ? L.T("StageUi.Vts.Disconnected") : L.T("StageUi.Vts.DisconnectedDetail") + _vts.LastError,
         };
 
         TblVtsState.Text = text;
@@ -159,9 +159,9 @@ public partial class PvStageWindow
 
     private void BuildCharacterMoveSection()
     {
-        AddSectionTitle(L.T("角色移动"));
+        AddSectionTitle(L.T("StageUi.Vts.CharacterMove"));
         AddInspector(ThemeText(
-            L.T("X/Y 为 VTS 场景位移，Z 为皮套缩放，旋转为角度；关键帧用自动平滑插值，播放时实时写入 VTS。"),
+            L.T("StageUi.Vts.CharacterMoveHelp"),
             TextSecondaryKey, 11, wrap: true));
 
         _vtsFramingText = ThemeText(VtsFramingLabel(), TextTertiaryKey, 11, wrap: true);
@@ -169,7 +169,7 @@ public partial class PvStageWindow
 
         var calibrate = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("校准初始坐标（以 VTS 当前姿态为基准）"),
+            Content = L.T("StageUi.Vts.CalibrateInitialCoordinates"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -179,7 +179,7 @@ public partial class PvStageWindow
 
         var zeroOffset = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("偏移归零（回到基准）"),
+            Content = L.T("StageUi.Vts.ZeroOffsets"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -188,7 +188,7 @@ public partial class PvStageWindow
         AddInspector(zeroOffset);
 
         _stageVtsDrive = _project.EditorLayout?.VtsStageDrive ?? _stageVtsDrive;
-        AddInspector(BoolRow(L.T("画面手柄控制 VTS 坐标"), _stageVtsDrive,
+        AddInspector(BoolRow(L.T("StageUi.Vts.StageHandlesDriveVts"), _stageVtsDrive,
             v =>
             {
                 _stageVtsDrive = v;
@@ -196,21 +196,21 @@ public partial class PvStageWindow
                 _saveError = SaveProjectNow();
             }));
         AddInspector(ThemeText(
-            L.T("VTS 模式下，方框是采集画面边界，手柄直接改 VTS 模型坐标和关键帧。"),
+            L.T("StageUi.Vts.VtsModeHelp"),
             TextTertiaryKey, 11, wrap: true));
 
-        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("位移X"), -1000, 1000, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsXAddr, L.T("StageUi.Vts.OffsetX"), -1000, 1000, 0.01,
             () => _vtsRestX, v => _vtsRestX = v, sliderWindow: 0.2));
-        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("位移Y"), -1000, 1000, 0.01,
+        AddInspector(AnimParamRow(_inspectorRows, VtsYAddr, L.T("StageUi.Vts.OffsetY"), -1000, 1000, 0.01,
             () => _vtsRestY, v => _vtsRestY = v, sliderWindow: 0.2));
-        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("缩放Z%"), -90, 300, 1,
+        AddInspector(AnimParamRow(_inspectorRows, VtsSizeAddr, L.T("StageUi.Vts.ScaleZPercent"), -90, 300, 1,
             () => _vtsRestSize, v => _vtsRestSize = v));
-        AddInspector(AnimParamRow(_inspectorRows, VtsRotationAddr, L.T("旋转"), -180, 180, 1,
+        AddInspector(AnimParamRow(_inspectorRows, VtsRotationAddr, L.T("StageUi.Vts.Rotation"), -180, 180, 1,
             () => _vtsRestRot, v => _vtsRestRot = v));
 
         var addKeys = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("在播放头添加移动关键帧"),
+            Content = L.T("StageUi.Vts.AddMoveKeysAtPlayhead"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -220,7 +220,7 @@ public partial class PvStageWindow
 
         var clear = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("清空移动关键帧"),
+            Content = L.T("StageUi.Vts.ClearMoveKeys"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 10, 0, 0),
@@ -229,19 +229,19 @@ public partial class PvStageWindow
         AddInspector(clear);
 
         AddInspector(ThemeText(
-            L.T("点 ◆K 开始做动画：首次打帧会自动补 0s 保持键；之后拖滑杆或改数值，会在播放头自动覆盖/新增关键帧。时间线上的关键帧可拖动、可调贝塞尔手柄。"),
+            L.T("StageUi.Vts.MoveKeyframeHelp"),
             TextTertiaryKey, 11, wrap: true));
     }
 
     private void BuildCharacterExpressionSection()
     {
-        AddSectionTitle(L.T("角色表情"));
+        AddSectionTitle(L.T("StageUi.Vts.CharacterExpression"));
         AddInspector(ThemeText(
-            L.T("动作键与表情共用时间线；开关到点开启、结束关闭，一次性只触发开始，手动不自动触发。"),
+            L.T("StageUi.Vts.ExpressionTimelineHelp"),
             TextSecondaryKey, 11, wrap: true));
 
-        AddInspector(ThemeText(L.T("动作关键帧"), TextSecondaryKey, 12));
-        AddInspector(ConstRow(L.T("持续"), 0.3, 20, 0.1,
+        AddInspector(ThemeText(L.T("StageUi.Vts.HotkeyKeyframes"), TextSecondaryKey, 12));
+        AddInspector(ConstRow(L.T("StageUi.Vts.Duration"), 0.3, 20, 0.1,
             () => _vtsHotkeyDuration, v => _vtsHotkeyDuration = v));
         var hotMode = VtsModeCombo(() => _vtsHotkeyMode, v => _vtsHotkeyMode = v);
         AddInspector(hotMode);
@@ -261,7 +261,7 @@ public partial class PvStageWindow
 
         var hotAdd = new Wpf.Ui.Controls.Button
         {
-            Content = _vtsHotkeyMode == VtsCueMode.Manual ? L.T("手动触发动作") : L.T("在播放头开启动作"),
+            Content = _vtsHotkeyMode == VtsCueMode.Manual ? L.T("StageUi.Vts.TriggerHotkeyManually") : L.T("StageUi.Vts.AddHotkeyAtPlayhead"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
@@ -270,23 +270,23 @@ public partial class PvStageWindow
         {
             if (hotCombo.SelectedItem is not ComboBoxItem { Tag: string id })
             {
-                TblStatus.Text = L.T("先连上 VTS 读取动作键");
+                TblStatus.Text = L.T("StageUi.Vts.ConnectToReadHotkeys");
                 return;
             }
 
             if (_vtsHotkeyMode == VtsCueMode.Manual)
             {
                 _vts.TriggerHotkey(id);
-                TblStatus.Text = L.T("已手动触发动作键");
+                TblStatus.Text = L.T("StageUi.Vts.HotkeyTriggeredManually");
             }
             else AddVtsCue(VtsCueKind.Hotkey, id, _vtsHotkeyMode);
         };
         hotMode.SelectionChanged += (_, _) =>
-            hotAdd.Content = _vtsHotkeyMode == VtsCueMode.Manual ? L.T("手动触发动作") : L.T("在播放头开启动作");
+            hotAdd.Content = _vtsHotkeyMode == VtsCueMode.Manual ? L.T("StageUi.Vts.TriggerHotkeyManually") : L.T("StageUi.Vts.AddHotkeyAtPlayhead");
         AddInspector(hotAdd);
 
-        AddInspector(ThemeText(L.T("表情关键帧"), TextSecondaryKey, 12));
-        AddInspector(ConstRow(L.T("持续"), 0.3, 20, 0.1,
+        AddInspector(ThemeText(L.T("StageUi.Vts.ExpressionKeyframes"), TextSecondaryKey, 12));
+        AddInspector(ConstRow(L.T("StageUi.Vts.Duration"), 0.3, 20, 0.1,
             () => _vtsExpressionDuration, v => _vtsExpressionDuration = v));
         var exprMode = VtsModeCombo(() => _vtsExpressionMode, v => _vtsExpressionMode = v);
         AddInspector(exprMode);
@@ -298,7 +298,7 @@ public partial class PvStageWindow
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = _vtsExpressionMode == VtsCueMode.Manual ? L.T("手动开关表情") : L.T("在播放头开启表情"),
+            Content = _vtsExpressionMode == VtsCueMode.Manual ? L.T("StageUi.Vts.ToggleExpressionManually") : L.T("StageUi.Vts.AddExpressionAtPlayhead"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
@@ -307,7 +307,7 @@ public partial class PvStageWindow
         {
             if (combo.SelectedItem is not ComboBoxItem { Tag: string file })
             {
-                TblStatus.Text = L.T("先连上 VTS 读取表情");
+                TblStatus.Text = L.T("StageUi.Vts.ConnectToReadExpressions");
                 return;
             }
 
@@ -316,23 +316,23 @@ public partial class PvStageWindow
                 if (_manualExprOn.Remove(file))
                 {
                     _vts.SetExpression(file, false, 0.1);
-                    TblStatus.Text = L.T("已手动关闭表情");
+                    TblStatus.Text = L.T("StageUi.Vts.ExpressionTurnedOffManually");
                 }
                 else
                 {
                     _vts.SetExpression(file, true, 0.1);
                     _manualExprOn.Add(file);
-                    TblStatus.Text = L.T("已手动开启表情");
+                    TblStatus.Text = L.T("StageUi.Vts.ExpressionTurnedOnManually");
                 }
             }
             else AddVtsCue(VtsCueKind.Expression, file, _vtsExpressionMode);
         };
         exprMode.SelectionChanged += (_, _) =>
-            add.Content = _vtsExpressionMode == VtsCueMode.Manual ? L.T("手动开关表情") : L.T("在播放头开启表情");
+            add.Content = _vtsExpressionMode == VtsCueMode.Manual ? L.T("StageUi.Vts.ToggleExpressionManually") : L.T("StageUi.Vts.AddExpressionAtPlayhead");
         AddInspector(add);
 
         AddInspector(ThemeText(
-            L.T("时间线上的开关条可拖动位置，拖左右边缘改开始/结束；一次性关键帧只可拖动时间。"),
+            L.T("StageUi.Vts.CueBarHelp"),
             TextTertiaryKey, 11, wrap: true));
         _vtsPickSignature = VtsPickSignature();
     }
@@ -361,7 +361,7 @@ public partial class PvStageWindow
         foreach (var hotkey in _vts.Hotkeys)
             combo.Items.Add(new ComboBoxItem { Content = hotkey.Name, Tag = hotkey.HotkeyId });
         if (combo.Items.Count == 0)
-            combo.Items.Add(new ComboBoxItem { Content = L.T("未读取到动作键"), IsEnabled = false });
+            combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.NoHotkeysLoaded"), IsEnabled = false });
 
         for (int i = 0; i < combo.Items.Count; i++)
             if (combo.Items[i] is ComboBoxItem { Tag: string id } && id == selected)
@@ -384,7 +384,7 @@ public partial class PvStageWindow
                 Tag = file,
             });
         if (combo.Items.Count == 0)
-            combo.Items.Add(new ComboBoxItem { Content = L.T("未读取到表情"), IsEnabled = false });
+            combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.NoExpressionsLoaded"), IsEnabled = false });
 
         for (int i = 0; i < combo.Items.Count; i++)
             if (combo.Items[i] is ComboBoxItem { Tag: string file } && file == selected)
@@ -398,17 +398,17 @@ public partial class PvStageWindow
 
     private void BuildCharacterTintSection()
     {
-        AddSectionTitle(L.T("角色染色"));
+        AddSectionTitle(L.T("StageUi.Vts.CharacterTint"));
         AddInspector(ThemeText(
-            L.T("按范围给整个模型、图层组、单个 ArtMesh 或标签染色；开关模式到点染色、结束恢复原色。"),
+            L.T("StageUi.Vts.TintScopeHelp"),
             TextSecondaryKey, 11, wrap: true));
 
-        AddInspector(ThemeText(L.T("范围"), TextSecondaryKey, 12));
+        AddInspector(ThemeText(L.T("StageUi.Vts.Scope"), TextSecondaryKey, 12));
         var scope = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
-        scope.Items.Add(new ComboBoxItem { Content = L.T("整个模型"), Tag = "all" });
-        scope.Items.Add(new ComboBoxItem { Content = L.T("图层组"), Tag = "group" });
-        scope.Items.Add(new ComboBoxItem { Content = L.T("单个 ArtMesh"), Tag = "name" });
-        scope.Items.Add(new ComboBoxItem { Content = L.T("标签"), Tag = "tag" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.WholeModel"), Tag = "all" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.LayerGroup"), Tag = "group" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.SingleArtMesh"), Tag = "name" });
+        scope.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.Tag"), Tag = "tag" });
         scope.SelectedIndex = _vtsTintScope switch
         {
             "group" => 1,
@@ -418,7 +418,7 @@ public partial class PvStageWindow
         };
         AddInspector(scope);
 
-        AddInspector(ThemeText(L.T("目标"), TextSecondaryKey, 12));
+        AddInspector(ThemeText(L.T("StageUi.Vts.Target"), TextSecondaryKey, 12));
         var target = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         _vtsTintTargetCombo = target;
         FillTintTargets(target);
@@ -454,7 +454,7 @@ public partial class PvStageWindow
         colorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         colorRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
 
-        var colorLabel = ThemeText(L.T("颜色"), TextSecondaryKey, 12);
+        var colorLabel = ThemeText(L.T("StageUi.Vts.Color"), TextSecondaryKey, 12);
         colorLabel.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(colorLabel, 0);
         colorRow.Children.Add(colorLabel);
@@ -478,7 +478,7 @@ public partial class PvStageWindow
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
             Cursor = Cursors.Hand,
-            ToolTip = L.T("打开拾色器"),
+            ToolTip = L.T("StageUi.Vts.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
         swatch.MouseLeftButtonUp += (_, e) =>
@@ -503,14 +503,14 @@ public partial class PvStageWindow
         colorRow.Children.Add(swatch);
         AddInspector(colorRow);
 
-        AddInspector(ConstRow(L.T("持续"), 0.3, 20, 0.1,
+        AddInspector(ConstRow(L.T("StageUi.Vts.Duration"), 0.3, 20, 0.1,
             () => _vtsTintDuration, v => _vtsTintDuration = v));
         var mode = VtsModeCombo(() => _vtsTintMode, v => _vtsTintMode = v);
         AddInspector(mode);
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = _vtsTintMode == VtsCueMode.Manual ? L.T("立即染色") : L.T("在播放头添加染色"),
+            Content = _vtsTintMode == VtsCueMode.Manual ? L.T("StageUi.Vts.ApplyTintNow") : L.T("StageUi.Vts.AddTintAtPlayhead"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 4, 0, 0),
@@ -519,7 +519,7 @@ public partial class PvStageWindow
         {
             if (string.IsNullOrWhiteSpace(_vtsTintTarget))
             {
-                TblStatus.Text = L.T("先选择一个染色目标");
+                TblStatus.Text = L.T("StageUi.Vts.SelectTintTargetFirst");
                 return;
             }
 
@@ -527,20 +527,20 @@ public partial class PvStageWindow
             if (_vtsTintMode == VtsCueMode.Manual)
             {
                 _vts.SetArtMeshTint(_vtsTintTarget, r, g, b);
-                TblStatus.Text = L.T("已应用染色");
+                TblStatus.Text = L.T("StageUi.Vts.TintApplied");
                 return;
             }
             AddVtsTintCue(r, g, b);
         };
         mode.SelectionChanged += (_, _) =>
             add.Content = _vtsTintMode == VtsCueMode.Manual
-                ? L.T("立即染色")
-                : L.T("在播放头添加染色");
+                ? L.T("StageUi.Vts.ApplyTintNow")
+                : L.T("StageUi.Vts.AddTintAtPlayhead");
         AddInspector(add);
 
         var reset = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("恢复默认染色"),
+            Content = L.T("StageUi.Vts.ResetTint"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -548,14 +548,14 @@ public partial class PvStageWindow
         reset.Click += (_, _) => ResetVtsTint();
         AddInspector(reset);
 
-        AddInspector(ThemeText(L.T("自动染色"), TextSecondaryKey, 12));
+        AddInspector(ThemeText(L.T("StageUi.Vts.AutoTint"), TextSecondaryKey, 12));
         _vtsTintOnTransitions = _project.EditorLayout?.VtsTintOnTransitions ?? _vtsTintOnTransitions;
-        AddInspector(BoolRow(L.T("转场染色（自动给转场段加染色点）"), _vtsTintOnTransitions,
+        AddInspector(BoolRow(L.T("StageUi.Vts.TransitionTint"), _vtsTintOnTransitions,
             SetTransitionTint, toggle => _vtsTintTransitionToggle = toggle));
 
         var autoTint = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("按音频自动染色"),
+            Content = L.T("StageUi.Vts.AutoTintFromAudio"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -564,11 +564,11 @@ public partial class PvStageWindow
         AddInspector(autoTint);
 
         AddInspector(ThemeText(
-            L.T("自动节拍染色会替换当前目标的自动节拍点；转场染色按目标分别生成，换目标会追加新目标并保留已有目标的轨道。"),
+            L.T("StageUi.Vts.AutoTintHelp"),
             TextTertiaryKey, 11, wrap: true));
 
         AddInspector(ThemeText(
-            L.T("染色关键帧在时间线上可拖动；开关模式结束会恢复白色。"),
+            L.T("StageUi.Vts.TintKeyframeHelp"),
             TextTertiaryKey, 11, wrap: true));
     }
 
@@ -580,12 +580,12 @@ public partial class PvStageWindow
         if (_project is null) return;
         if (string.IsNullOrWhiteSpace(_vtsTintTarget))
         {
-            TblStatus.Text = L.T("先选择一个染色目标");
+            TblStatus.Text = L.T("StageUi.Vts.SelectTintTargetFirst");
             return;
         }
         if (_beatMap is null || _beatMap.Beats.Count == 0)
         {
-            TblStatus.Text = L.T("没有可用的节拍数据，先把音乐分析完");
+            TblStatus.Text = L.T("StageUi.Vts.NoBeatData");
             return;
         }
 
@@ -633,7 +633,7 @@ public partial class PvStageWindow
         PushUndo();
         RefreshTimeline();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已在 {0} 个节拍点自动染色", added);
+        TblStatus.Text = L.F("StageUi.Vts.AutoTintedAtBeats", added);
     }
 
     private void RefreshTransitionTintOnTargetChange()
@@ -672,7 +672,7 @@ public partial class PvStageWindow
     {
         if (string.IsNullOrWhiteSpace(_vtsTintTarget))
         {
-            TblStatus.Text = L.T("先选择一个染色目标");
+            TblStatus.Text = L.T("StageUi.Vts.SelectTintTargetFirst");
             return false;
         }
 
@@ -683,7 +683,7 @@ public partial class PvStageWindow
             .ToList();
         if (segments.Count == 0)
         {
-            TblStatus.Text = L.T("没有可用的转场段");
+            TblStatus.Text = L.T("StageUi.Vts.NoTransitionSegments");
             return false;
         }
 
@@ -715,7 +715,7 @@ public partial class PvStageWindow
         }
 
         cues.Sort((left, right) => left.Time.CompareTo(right.Time));
-        TblStatus.Text = L.F("已给 {0} 个转场段添加染色", segments.Count);
+        TblStatus.Text = L.F("StageUi.Vts.TransitionTintAdded", segments.Count);
         return true;
     }
 
@@ -725,7 +725,7 @@ public partial class PvStageWindow
         if (cues is null) return;
 
         cues.RemoveAll(cue => cue is not null && cue.Source == AutoTransitionSource);
-        TblStatus.Text = L.T("已关闭转场染色");
+        TblStatus.Text = L.T("StageUi.Vts.TransitionTintDisabled");
     }
 
     private static double SnapVtsMove(double value)
@@ -740,8 +740,8 @@ public partial class PvStageWindow
     {
         var framing = _vts.Framing;
         return framing is null
-            ? L.T("滑杆是相对校准基准的偏移，0 = 保持基准；连上 VTS 后可校准初始坐标。")
-            : L.F("基准：X {0:F2} · Y {1:F2} · 缩放 {2:F2}；滑杆 0 = 保持基准。",
+            ? L.T("StageUi.Vts.SliderOffsetHelp")
+            : L.F("StageUi.Vts.BaseFramingLabel",
                 framing.X, framing.Y, framing.Size);
     }
 
@@ -761,19 +761,19 @@ public partial class PvStageWindow
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.T("已把 VTS 偏移归零到基准");
+        TblStatus.Text = L.T("StageUi.Vts.OffsetsZeroed");
     }
 
     private void CalibrateVtsBase()
     {
         if (_vts.State != VtsState.Ready)
         {
-            TblStatus.Text = L.T("先连上 VTS 再校准");
+            TblStatus.Text = L.T("StageUi.Vts.ConnectBeforeCalibration");
             return;
         }
         if (string.IsNullOrWhiteSpace(_vts.ModelName))
         {
-            TblStatus.Text = L.T("VTS 没有加载模型");
+            TblStatus.Text = L.T("StageUi.Vts.NoModelLoaded");
             return;
         }
 
@@ -785,7 +785,7 @@ public partial class PvStageWindow
         _vtsRestRot = 0;
         _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
         RefreshParamRows();
-        TblStatus.Text = L.T("已以 VTS 当前姿态校准基准坐标");
+        TblStatus.Text = L.T("StageUi.Vts.BaseCalibrated");
     }
 
     private void RefreshTintTargetsIfNeeded()
@@ -822,7 +822,7 @@ public partial class PvStageWindow
                 foreach (var group in _vts.ArtMeshGroups)
                     combo.Items.Add(new ComboBoxItem
                     {
-                        Content = L.F("组 · {0}（{1}）", group.GroupName, group.Count),
+                        Content = L.F("StageUi.Vts.GroupWithCount", group.GroupName, group.Count),
                         Tag = "group:" + group.GroupId,
                     });
                 break;
@@ -837,7 +837,7 @@ public partial class PvStageWindow
 
                     combo.Items.Add(new ComboBoxItem
                     {
-                        Content = L.F("组 · {0}", group.GroupName),
+                        Content = L.F("StageUi.Vts.GroupNameFormat", group.GroupName),
                         IsEnabled = false,
                     });
                     foreach (var name in entries)
@@ -854,10 +854,10 @@ public partial class PvStageWindow
             }
             case "tag":
                 foreach (var tag in _vts.ArtMeshTags)
-                    combo.Items.Add(new ComboBoxItem { Content = L.F("标签 · {0}", tag), Tag = "tag:" + tag });
+                    combo.Items.Add(new ComboBoxItem { Content = L.F("StageUi.Vts.TagNameFormat", tag), Tag = "tag:" + tag });
                 break;
             default:
-                combo.Items.Add(new ComboBoxItem { Content = L.T("整个模型"), Tag = "all" });
+                combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.WholeModel"), Tag = "all" });
                 break;
         }
 
@@ -866,10 +866,10 @@ public partial class PvStageWindow
             {
                 Content = _vtsTintScope switch
                 {
-                    "group" => L.T("VTS 模型没有图层组，可在 VTS 里创建或改用标签"),
-                    "name" => L.T("未读取到 ArtMesh，连上 VTS 后重试"),
-                    "tag" => L.T("未读取到标签，连上 VTS 后重试"),
-                    _ => L.T("未读取到目标，连上 VTS 后重试"),
+                    "group" => L.T("StageUi.Vts.NoLayerGroups"),
+                    "name" => L.T("StageUi.Vts.NoArtMeshes"),
+                    "tag" => L.T("StageUi.Vts.NoTags"),
+                    _ => L.T("StageUi.Vts.NoTargets"),
                 },
                 IsEnabled = false,
             });
@@ -907,20 +907,20 @@ public partial class PvStageWindow
 
         if (!string.IsNullOrWhiteSpace(_vts.LastError))
         {
-            _vtsTintHint.Text = L.F("读取图层组失败：{0}", _vts.LastError);
+            _vtsTintHint.Text = L.F("StageUi.Vts.ReadLayerGroupsFailed", _vts.LastError);
             return;
         }
 
         var keys = _vts.ArtMeshResponseKeys;
         if (keys.Length == 0)
         {
-            _vtsTintHint.Text = L.T("还没读取到 VTS 的 ArtMesh 列表，稍等或重新打开下拉框。");
+            _vtsTintHint.Text = L.T("StageUi.Vts.ArtMeshListPending");
             return;
         }
 
         _vtsTintHint.Text = keys.Contains("artMeshGroups", StringComparison.Ordinal)
-            ? L.T("VTS 返回了 artMeshGroups，但列表为空。")
-            : L.F("VTS 响应里没有 artMeshGroups（字段：{0}），当前 VTS 版本可能不支持读取组。", keys);
+            ? L.T("StageUi.Vts.ArtMeshGroupsEmpty")
+            : L.F("StageUi.Vts.ArtMeshGroupsMissing", keys);
     }
 
     private void AddVtsTintCue(int r, int g, int b)
@@ -951,13 +951,13 @@ public partial class PvStageWindow
         RefreshTimeline();
         TheTimeline.RevealCues();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已在 {0:F2}s 添加染色关键帧", t);
+        TblStatus.Text = L.F("StageUi.Vts.TintKeyframeAdded", t);
     }
 
     private void ResetVtsTint()
     {
         _vts.ClearArtMeshTint("all");
-        TblStatus.Text = L.T("已恢复默认染色");
+        TblStatus.Text = L.T("StageUi.Vts.TintReset");
     }
 
     private static (int R, int G, int B) ParseTintColor(string hex)
@@ -1040,16 +1040,16 @@ public partial class PvStageWindow
 
     private string VtsTintTargetName(string target)
     {
-        if (string.IsNullOrEmpty(target) || target == "all") return L.T("整个模型");
+        if (string.IsNullOrEmpty(target) || target == "all") return L.T("StageUi.Vts.WholeModel");
         if (target.StartsWith("group:", StringComparison.Ordinal))
-            return L.F("组 · {0}", _vts.ArtMeshGroups
+            return L.F("StageUi.Vts.GroupNameFormat", _vts.ArtMeshGroups
                 .FirstOrDefault(g => g.GroupId == target[6..])?.GroupName ?? target[6..]);
-        if (target.StartsWith("tag:", StringComparison.Ordinal)) return L.F("标签 · {0}", target[4..]);
+        if (target.StartsWith("tag:", StringComparison.Ordinal)) return L.F("StageUi.Vts.TagNameFormat", target[4..]);
         if (target.StartsWith("name:", StringComparison.Ordinal))
         {
             var name = target[5..];
             var group = _vts.ArtMeshGroups.FirstOrDefault(g => g.Entries.Contains(name));
-            return group is null ? name : L.F("{0}（{1}）", name, group.GroupName);
+            return group is null ? name : L.F("StageUi.Vts.NameWithGroup", name, group.GroupName);
         }
         return target;
     }
@@ -1070,7 +1070,7 @@ public partial class PvStageWindow
         removed |= _evaluator.RemoveCurve(VtsRotationAddr);
         if (!removed)
         {
-            TblStatus.Text = L.T("角色移动没有关键帧");
+            TblStatus.Text = L.T("StageUi.Vts.NoMoveKeyframes");
             return;
         }
 
@@ -1080,15 +1080,15 @@ public partial class PvStageWindow
         RefreshTimeline();
         RefreshParamRows();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.T("已清空角色移动关键帧");
+        TblStatus.Text = L.T("StageUi.Vts.MoveKeyframesCleared");
     }
 
     private ComboBox VtsModeCombo(Func<VtsCueMode> read, Action<VtsCueMode> write)
     {
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
-        combo.Items.Add(new ComboBoxItem { Content = L.T("开关（开始开，结束关）"), Tag = VtsCueMode.Toggle });
-        combo.Items.Add(new ComboBoxItem { Content = L.T("一次性（只触发开始）"), Tag = VtsCueMode.Once });
-        combo.Items.Add(new ComboBoxItem { Content = L.T("手动（不自动触发）"), Tag = VtsCueMode.Manual });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.CueModeToggle"), Tag = VtsCueMode.Toggle });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.CueModeOnce"), Tag = VtsCueMode.Once });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Vts.CueModeManual"), Tag = VtsCueMode.Manual });
         combo.SelectedIndex = read() switch
         {
             VtsCueMode.Once => 1,
@@ -1126,8 +1126,8 @@ public partial class PvStageWindow
         RefreshTimeline();
         TheTimeline.RevealCues();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已在 {0:F2}s 打点：{1}", t, (kind == VtsCueKind.Hotkey ? L.T("动作键") : L.T("表情")))
-                         + L.F("（{0}）", mode == VtsCueMode.Toggle ? L.T("开关") : L.T("一次性"));
+        TblStatus.Text = L.F("StageUi.Vts.CueAdded", t, (kind == VtsCueKind.Hotkey ? L.T("StageUi.Vts.Hotkey") : L.T("StageUi.Vts.Expression")))
+                         + L.F("StageUi.Vts.CueModeSuffix", mode == VtsCueMode.Toggle ? L.T("StageUi.Vts.SwitchMode") : L.T("StageUi.Vts.OnceMode"));
     }
 
     private void UpdateVtsCues()
@@ -1195,7 +1195,7 @@ public partial class PvStageWindow
         RefreshParamRows();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已在 {0:F2}s 添加角色移动关键帧（X / Y / Z / 旋转）", t);
+        TblStatus.Text = L.F("StageUi.Vts.MoveKeyframesAdded", t);
     }
 
     private void AddVtsMoveKey(in ParamAddress addr, double baseValue, double time)

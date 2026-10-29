@@ -145,7 +145,7 @@ public partial class PvStageWindow
         SyncThemeCards();
         PresetChanged();
         RefreshTechPreviews();
-        TblStatus.Text = L.F("主题风格：{0}（正在重建…）", ThemeLabel(key));
+        TblStatus.Text = L.F("StageUi.Presets.ThemeStyleRebuilding", ThemeLabel(key));
     }
 
     private void RefreshTechPreviews()
@@ -166,7 +166,7 @@ public partial class PvStageWindow
                 swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
         }
 
-        if (TblThemeName is not null) TblThemeName.Text = L.T("当前主题：") + ThemeLabel(current);
+        if (TblThemeName is not null) TblThemeName.Text = L.T("StageUi.Presets.CurrentTheme") + ThemeLabel(current);
     }
 
     private static string ThemeLabel(string? key)
@@ -189,22 +189,22 @@ public partial class PvStageWindow
         _presetSliders.Clear();
         FxSliderHost.Children.Clear();
 
-        AddSlider(L.T("动态强度"), () => Preset.Motion, v => Preset.Motion = v);
-        AddSlider(L.T("故障效果"), () => Preset.Glitch, v => Preset.Glitch = v);
-        AddSlider(L.T("色彩错位"), () => Preset.Chroma, v => Preset.Chroma = v);
-        AddSlider(L.T("装饰量"), () => Preset.Decor, v => Preset.Decor = v);
-        AddSlider(L.T("镜头密度"), () => Preset.Density, v => Preset.Density = v);
-        AddSlider(L.T("质感"), () => Preset.Texture, v => Preset.Texture = v);
-        AddSlider(L.T("背景切换"), () => Preset.BgSwitch, v => Preset.BgSwitch = v);
+        AddSlider(L.T("StageUi.Presets.MotionStrength"), () => Preset.Motion, v => Preset.Motion = v);
+        AddSlider(L.T("StageUi.Presets.Glitch"), () => Preset.Glitch, v => Preset.Glitch = v);
+        AddSlider(L.T("StageUi.Presets.Chroma"), () => Preset.Chroma, v => Preset.Chroma = v);
+        AddSlider(L.T("StageUi.Presets.DecorAmount"), () => Preset.Decor, v => Preset.Decor = v);
+        AddSlider(L.T("StageUi.Presets.CameraDensity"), () => Preset.Density, v => Preset.Density = v);
+        AddSlider(L.T("StageUi.Presets.Texture"), () => Preset.Texture, v => Preset.Texture = v);
+        AddSlider(L.T("StageUi.Presets.BackgroundSwitch"), () => Preset.BgSwitch, v => Preset.BgSwitch = v);
 
         _presetToggles.Clear();
         FxToggleHost.Children.Clear();
 
-        AddToggle(L.T("统一感"), () => Preset.Unify, v => Preset.Unify = v);
-        AddToggle(L.T("文字整列"), () => Preset.Typeset, v => Preset.Typeset = v);
-        AddToggle(L.T("闪光"), () => Preset.Flash, v => Preset.Flash = v);
-        AddToggle(L.T("隐藏装饰编号"), () => Preset.HideNo, v => Preset.HideNo = v);
-        AddToggle(L.T("隐藏装饰时间"), () => Preset.HideTime, v => Preset.HideTime = v);
+        AddToggle(L.T("StageUi.Presets.Unify"), () => Preset.Unify, v => Preset.Unify = v);
+        AddToggle(L.T("StageUi.Presets.Typeset"), () => Preset.Typeset, v => Preset.Typeset = v);
+        AddToggle(L.T("StageUi.Presets.Flash"), () => Preset.Flash, v => Preset.Flash = v);
+        AddToggle(L.T("StageUi.Presets.HideDecorNumber"), () => Preset.HideNo, v => Preset.HideNo = v);
+        AddToggle(L.T("StageUi.Presets.HideDecorTime"), () => Preset.HideTime, v => Preset.HideTime = v);
 
         TxtPresetSeed.LostFocus -= SeedBox_LostFocus;
         TxtPresetSeed.LostFocus += SeedBox_LostFocus;
@@ -237,7 +237,7 @@ public partial class PvStageWindow
     {
         if (CmbFxAdd.SelectedItem is not ComboBoxItem { Tag: string defId })
         {
-            TblStatus.Text = L.T("先选择一个效果");
+            TblStatus.Text = L.T("StageUi.Presets.SelectEffectFirst");
             return;
         }
 
@@ -263,7 +263,7 @@ public partial class PvStageWindow
         if (node.Windows.Any(w => w.IsValid))
             PreviewEffect(node);
         else
-            TblStatus.Text = L.F("已添加画面后期：{0}", EffectName(node));
+            TblStatus.Text = L.F("StageUi.Presets.PostEffectAdded", EffectName(node));
     }
 
     private void PreviewEffect(EffectNode node)
@@ -275,7 +275,7 @@ public partial class PvStageWindow
                 _audio.Play();
                 UpdatePlayIcon();
             }
-            TblStatus.Text = L.F("持续特效已生效：{0}", EffectName(node));
+            TblStatus.Text = L.F("StageUi.Presets.ContinuousEffectApplied", EffectName(node));
             return;
         }
 
@@ -289,7 +289,7 @@ public partial class PvStageWindow
 
         if (_audio.Duration <= 0)
         {
-            TblStatus.Text = L.F("已添加画面后期：{0}", EffectName(node));
+            TblStatus.Text = L.F("StageUi.Presets.PostEffectAdded", EffectName(node));
             return;
         }
 
@@ -297,7 +297,7 @@ public partial class PvStageWindow
         _audio.Seek(start);
         if (!_audio.IsPlaying) _audio.Play();
         UpdatePlayIcon();
-        ShowStatus(L.F("预览特效：{0}", EffectName(node)), 3);
+        ShowStatus(L.F("StageUi.Presets.PreviewEffect", EffectName(node)), 3);
     }
 
     private void RefreshFxStack()
@@ -307,7 +307,7 @@ public partial class PvStageWindow
         FxStackHost.Children.Clear();
         if (_effects.Nodes.Count == 0)
         {
-            FxStackHost.Children.Add(ThemeText(L.T("还没有画面后期效果"), TextTertiaryKey, 11, wrap: true));
+            FxStackHost.Children.Add(ThemeText(L.T("StageUi.Presets.NoPostEffects"), TextTertiaryKey, 11, wrap: true));
             return;
         }
 
@@ -343,7 +343,7 @@ public partial class PvStageWindow
         var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
         name.TextTrimming = TextTrimming.CharacterEllipsis;
         name.Cursor = Cursors.Hand;
-        name.ToolTip = L.T("点击在右侧编辑参数");
+        name.ToolTip = L.T("StageUi.Presets.ClickToEditParamsOnRight");
         name.MouseLeftButtonUp += (_, _) =>
         {
             _segmentTarget = node.Windows.Count > 0
@@ -355,7 +355,7 @@ public partial class PvStageWindow
         row.Children.Add(name);
 
         var preview = SmallFxButton("▶");
-        preview.ToolTip = L.T("定位到特效窗口预览");
+        preview.ToolTip = L.T("StageUi.Presets.SeekToEffectWindowPreview");
         preview.Click += (_, _) => PreviewEffect(node);
         Grid.SetColumn(preview, 2);
         row.Children.Add(preview);
@@ -382,13 +382,13 @@ public partial class PvStageWindow
         var targetRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
         targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
         targetRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var targetLabel = ThemeText(L.T("目标"), TextTertiaryKey, 11);
+        var targetLabel = ThemeText(L.T("StageUi.Presets.Target"), TextTertiaryKey, 11);
         Grid.SetColumn(targetLabel, 0);
         targetRow.Children.Add(targetLabel);
 
         bool composite = _pipe?.LegacyComposite == true;
         var target = new ComboBox { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Stretch };
-        target.Items.Add(new ComboBoxItem { Content = L.T("全局"), Tag = "" });
+        target.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Presets.Global"), Tag = "" });
         foreach (var layer in _scene.Layers)
             if (layer is not null && !(composite && IsLegacyFront(layer.Id)))
                 target.Items.Add(new ComboBoxItem { Content = LayerTitle(layer), Tag = layer.Id });
@@ -422,13 +422,15 @@ public partial class PvStageWindow
 
         var border = new Border
         {
-            Background = TryFindResource("ControlFillColorSecondaryBrush") as Brush
-                         ?? new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x24)),
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(6, 4, 6, 4),
-            Margin = new Thickness(0, 0, 0, 4),
+            Background = Brushes.Transparent,
+            Padding = new Thickness(8, 6, 8, 6),
+            Margin = new Thickness(0, 0, 0, 2),
+            Tag = "fx",
             Child = body,
         };
+        border.MouseEnter += (_, _) =>
+            border.SetResourceReference(Border.BackgroundProperty, SelectFillKey);
+        border.MouseLeave += (_, _) => border.Background = Brushes.Transparent;
         return border;
     }
 
@@ -477,7 +479,7 @@ public partial class PvStageWindow
 
         CommitFxChange(true);
         BuildInspector();
-        TblStatus.Text = L.F("已删除画面后期：{0}", EffectName(node));
+        TblStatus.Text = L.F("StageUi.Presets.PostEffectRemoved", EffectName(node));
     }
 
     private void CommitFxChange(bool refreshStack)
@@ -495,74 +497,74 @@ public partial class PvStageWindow
         _presetCombos.Clear();
         _presetColorBoxes.Clear();
 
-        StyleExtraHost.Children.Add(ComboRow(L.T("歌词语言"), new[]
+        StyleExtraHost.Children.Add(ComboRow(L.T("StageUi.Presets.LyricLanguage"), new[]
         {
-            (L.T("自动识别"), "auto"), (L.T("简体中文"), "zh-Hans"), (L.T("繁體中文"), "zh-Hant"),
-            (L.T("日本語"), "ja"), (L.T("한국어"), "ko"), ("English", "en"),
+            (L.T("StageUi.Presets.AutoDetect"), "auto"), (L.T("StageUi.Presets.ChineseSimplified"), "zh-Hans"), (L.T("StageUi.Presets.ChineseTraditional"), "zh-Hant"),
+            (L.T("StageUi.Presets.Japanese"), "ja"), (L.T("StageUi.Presets.Korean"), "ko"), ("English", "en"),
         }, () => Preset.Lang, v =>
         {
             Preset.Lang = v;
             PresetChanged();
         }));
 
-        StyleExtraHost.Children.Add(ComboRow(L.T("标题字体"), FontOptions(), () => Preset.FontDisplay, v =>
+        StyleExtraHost.Children.Add(ComboRow(L.T("StageUi.Presets.TitleFont"), FontOptions(), () => Preset.FontDisplay, v =>
         {
             Preset.FontDisplay = v;
             PresetChanged();
         }));
-        StyleExtraHost.Children.Add(ComboRow(L.T("衬线字体"), FontOptions(), () => Preset.FontSerif, v =>
+        StyleExtraHost.Children.Add(ComboRow(L.T("StageUi.Presets.SerifFont"), FontOptions(), () => Preset.FontSerif, v =>
         {
             Preset.FontSerif = v;
             PresetChanged();
         }));
-        StyleExtraHost.Children.Add(ComboRow(L.T("正文字体"), FontOptions(), () => Preset.FontBody, v =>
+        StyleExtraHost.Children.Add(ComboRow(L.T("StageUi.Presets.BodyFont"), FontOptions(), () => Preset.FontBody, v =>
         {
             Preset.FontBody = v;
             PresetChanged();
         }));
 
-        AddToggleTo(StyleExtraHost, L.T("启用自定义颜色"), () => Preset.ColorsEnabled, v =>
+        AddToggleTo(StyleExtraHost, L.T("StageUi.Presets.EnableCustomColors"), () => Preset.ColorsEnabled, v =>
         {
             Preset.ColorsEnabled = v;
             PresetChanged();
         });
-        StyleExtraHost.Children.Add(ColorRow(L.T("背景色"), () => Preset.ColorBg,
+        StyleExtraHost.Children.Add(ColorRow(L.T("StageUi.Presets.BackgroundColor"), () => Preset.ColorBg,
             "#101014", v =>
             {
                 Preset.ColorBg = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow(L.T("文字色"), () => Preset.ColorFg,
+        StyleExtraHost.Children.Add(ColorRow(L.T("StageUi.Presets.TextColor"), () => Preset.ColorFg,
             "#f5eeea", v =>
             {
                 Preset.ColorFg = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow(L.T("次级文字"), () => Preset.ColorSub,
+        StyleExtraHost.Children.Add(ColorRow(L.T("StageUi.Presets.SecondaryText"), () => Preset.ColorSub,
             "#bdb6b2", v =>
             {
                 Preset.ColorSub = v;
                 PresetChanged();
             }));
 
-        AddToggleTo(StyleExtraHost, L.T("自定义强调色"), () => Preset.AccentOn, v =>
+        AddToggleTo(StyleExtraHost, L.T("StageUi.Presets.CustomAccentColor"), () => Preset.AccentOn, v =>
         {
             Preset.AccentOn = v;
             PresetChanged();
         });
-        StyleExtraHost.Children.Add(ColorRow(L.T("强调色"), () => Preset.ColorAccent,
+        StyleExtraHost.Children.Add(ColorRow(L.T("StageUi.Presets.AccentColor"), () => Preset.ColorAccent,
             "#f5a50c", v =>
             {
                 Preset.ColorAccent = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow(L.T("错位色 A"), () => Preset.ColorGhostA,
+        StyleExtraHost.Children.Add(ColorRow(L.T("StageUi.Presets.ChromaColorA"), () => Preset.ColorGhostA,
             "#f5a50c", v =>
             {
                 Preset.ColorGhostA = v;
                 PresetChanged();
             }));
-        StyleExtraHost.Children.Add(ColorRow(L.T("错位色 B"), () => Preset.ColorGhostB,
+        StyleExtraHost.Children.Add(ColorRow(L.T("StageUi.Presets.ChromaColorB"), () => Preset.ColorGhostB,
             "#16f4d4", v =>
             {
                 Preset.ColorGhostB = v;
@@ -572,7 +574,7 @@ public partial class PvStageWindow
 
     private static IEnumerable<(string Label, string Key)> FontOptions()
     {
-        yield return (L.T("风格默认"), "");
+        yield return (L.T("StageUi.Presets.StyleDefault"), "");
         foreach (var (key, face) in JFonts.Table.OrderBy(p => p.Value.Label, StringComparer.CurrentCulture))
             yield return (string.IsNullOrWhiteSpace(face.Label) ? key : face.Label, key);
     }
@@ -638,7 +640,7 @@ public partial class PvStageWindow
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = Cursors.Hand,
-            ToolTip = L.T("打开拾色器"),
+            ToolTip = L.T("StageUi.Presets.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
         swatch.MouseLeftButtonUp += (_, e) =>
@@ -797,11 +799,11 @@ public partial class PvStageWindow
     private void BuildTechPackToggles()
     {
         TechPackHost.Children.Clear();
-        AddPackToggle(L.T("新增手法"), () => Preset.Extra, v => Preset.Extra = v);
-        AddPackToggle(L.T("和风手法"), () => Preset.Wa, v => Preset.Wa = v);
-        AddPackToggle(L.T("文字排版手法"), () => Preset.Typo, v => Preset.Typo = v);
-        AddPackToggle(L.T("动态文字手法"), () => Preset.Kinetic, v => Preset.Kinetic = v);
-        AddPackToggle(L.T("恐怖手法"), () => Preset.Horror, v => Preset.Horror = v);
+        AddPackToggle(L.T("StageUi.Presets.PackExtra"), () => Preset.Extra, v => Preset.Extra = v);
+        AddPackToggle(L.T("StageUi.Presets.PackJapanese"), () => Preset.Wa, v => Preset.Wa = v);
+        AddPackToggle(L.T("StageUi.Presets.PackTypography"), () => Preset.Typo, v => Preset.Typo = v);
+        AddPackToggle(L.T("StageUi.Presets.PackKinetic"), () => Preset.Kinetic, v => Preset.Kinetic = v);
+        AddPackToggle(L.T("StageUi.Presets.PackHorror"), () => Preset.Horror, v => Preset.Horror = v);
     }
 
     private void AddPackToggle(string label, Func<bool> get, Action<bool> set)
@@ -874,9 +876,9 @@ public partial class PvStageWindow
             };
 
             var tools = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
-            tools.Children.Add(TechBulkButton(L.T("全部开启"), category, 1));
-            tools.Children.Add(TechBulkButton(L.T("全部关闭"), category, 0));
-            tools.Children.Add(TechBulkButton(L.T("反转"), category, 2));
+            tools.Children.Add(TechBulkButton(L.T("StageUi.Presets.EnableAll"), category, 1));
+            tools.Children.Add(TechBulkButton(L.T("StageUi.Presets.DisableAll"), category, 0));
+            tools.Children.Add(TechBulkButton(L.T("StageUi.Presets.Invert"), category, 2));
             list.Children.Add(tools);
             list.Children.Add(cards);
 
@@ -922,7 +924,7 @@ public partial class PvStageWindow
             check.Checked += (_, _) => SetTechEnabled(category.Group, key, true);
             check.Unchecked += (_, _) => SetTechEnabled(category.Group, key, false);
 
-            var placeholder = ThemeText(L.T("预览"), TextTertiaryKey, 9);
+            var placeholder = ThemeText(L.T("StageUi.Presets.Preview"), TextTertiaryKey, 9);
             placeholder.HorizontalAlignment = HorizontalAlignment.Center;
             placeholder.VerticalAlignment = VerticalAlignment.Center;
 
@@ -1070,8 +1072,8 @@ public partial class PvStageWindow
         {
             var on = category.Items.Count(item => IsTechEnabled(category.Group, item.Key));
             category.Header.Text = _techFilter.Length == 0
-                ? L.F("{0}   {1}/{2}", TechGroupLabel(category.Group), on, category.Items.Count)
-                : L.F("{0}   {1} 项匹配", TechGroupLabel(category.Group), MatchCount(category));
+                ? L.F("StageUi.Presets.TechGroupCount", TechGroupLabel(category.Group), on, category.Items.Count)
+                : L.F("StageUi.Presets.TechGroupMatchCount", TechGroupLabel(category.Group), MatchCount(category));
             enabled += on;
             total += category.Items.Count;
         }
@@ -1115,16 +1117,16 @@ public partial class PvStageWindow
 
     private static string TechGroupLabel(string group) => group switch
     {
-        "layout" => L.T("布局"),
-        "enter" => L.T("入场"),
-        "hold" => L.T("保持"),
-        "exit" => L.T("退场"),
-        "decor" => L.T("装饰"),
-        "treat" => L.T("文字处理"),
-        "bg" => L.T("背景"),
-        "cam" => L.T("运镜"),
-        "trans" => L.T("转场"),
-        "fx" => L.T("特效"),
+        "layout" => L.T("StageUi.Presets.GroupLayout"),
+        "enter" => L.T("StageUi.Presets.GroupEnter"),
+        "hold" => L.T("StageUi.Presets.GroupHold"),
+        "exit" => L.T("StageUi.Presets.GroupExit"),
+        "decor" => L.T("StageUi.Presets.GroupDecor"),
+        "treat" => L.T("StageUi.Presets.GroupTextTreatment"),
+        "bg" => L.T("StageUi.Presets.GroupBackground"),
+        "cam" => L.T("StageUi.Presets.GroupCamera"),
+        "trans" => L.T("StageUi.Presets.GroupTransition"),
+        "fx" => L.T("StageUi.Presets.GroupFx"),
         _ => group,
     };
 
@@ -1162,9 +1164,9 @@ public partial class PvStageWindow
         _saveError = SaveProjectNow();
         TblStatus.Text = tag switch
         {
-            "black" => L.T("背景：黑幕"),
-            "green" => L.T("背景：绿幕"),
-            _ => L.T("背景：常规"),
+            "black" => L.T("StageUi.Presets.KeyBackgroundBlack"),
+            "green" => L.T("StageUi.Presets.KeyBackgroundGreen"),
+            _ => L.T("StageUi.Presets.KeyBackgroundNormal"),
         };
         Log.Info($"[风格] 背景切换：{tag}");
         PresetChanged();
@@ -1199,7 +1201,7 @@ public partial class PvStageWindow
         if (_presetSync) return;
         TechniquePreview.Invalidate();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.T("预设已修改，正在重新生成…");
+        TblStatus.Text = L.T("StageUi.Presets.PresetChangedRegenerating");
 
         _presetDebounce ??= CreatePresetDebounce();
         _presetDebounce.Stop();

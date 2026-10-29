@@ -58,8 +58,6 @@
                                          GroupName="NavTabs" Checked="Nav_Click" />
                             <RadioButton x:Name="NavDirector" Content="{DynamicResource Loc.LeftPanel.NavDirector}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
-                            <RadioButton x:Name="NavOutput" Content="{DynamicResource Loc.LeftPanel.NavOutput}" Style="{StaticResource NavTab}"
-                                         GroupName="NavTabs" Checked="Nav_Click" />
                             <RadioButton x:Name="NavSettings" Content="{DynamicResource Loc.LeftPanel.NavSettings}" Style="{StaticResource NavTab}"
                                          GroupName="NavTabs" Checked="Nav_Click" />
                         </UniformGrid>
@@ -67,9 +65,9 @@
 
                     <Grid Grid.Row="1">
                         <ScrollViewer x:Name="PanelMedia" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12">
+                                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,0,12">
                             <StackPanel>
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.MusicTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <ui:Button x:Name="BtnCloudMusic" Content="{DynamicResource Loc.LeftPanel.CloudMusic}" Appearance="Primary"
@@ -91,7 +89,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.LyricsTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource PanelHint}"
@@ -105,7 +103,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -129,10 +127,10 @@
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelStyle" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,0,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.ThemeTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock x:Name="TblThemeName" Style="{StaticResource PanelHint}"
@@ -141,7 +139,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.ThemeFxTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="FxSliderHost" />
@@ -175,14 +173,14 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.FontColorTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="StyleExtraHost" />
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.SeedTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
@@ -202,10 +200,10 @@
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelTech" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,0,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="已应用特效" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
@@ -223,7 +221,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <Grid>
                                             <TextBlock Text="{DynamicResource Loc.LeftPanel.FxLibraryTitle}" Style="{StaticResource PanelCardTitle}" Margin="0" />
@@ -238,7 +236,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.FxScopeTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
@@ -250,10 +248,10 @@
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelDirector" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,0,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.AutoCameraTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -300,7 +298,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.StageOverlayTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -371,49 +369,11 @@
                             </StackPanel>
                         </ScrollViewer>
 
-                        <ScrollViewer x:Name="PanelOutput" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
-                                      Visibility="Collapsed">
-                            <StackPanel>
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                                    <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutTitle}" Style="{StaticResource PanelCardTitle}" />
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutBroadcast}" Style="{StaticResource PanelRowLabel}" />
-                                            <ui:ToggleSwitch x:Name="TglBroadcast" Grid.Column="1"
-                                                             HorizontalAlignment="Right"
-                                                             Checked="TglBroadcast_Changed"
-                                                             Unchecked="TglBroadcast_Changed" />
-                                        </Grid>
-                                        <Grid Margin="0,8,2,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutTransparent}" Style="{StaticResource PanelRowLabel}" />
-                                            <ui:ToggleSwitch x:Name="TglSpoutTransparent" Grid.Column="1"
-                                                             HorizontalAlignment="Right"
-                                                             Checked="TglSpoutTransparent_Changed"
-                                                             Unchecked="TglSpoutTransparent_Changed" />
-                                        </Grid>
-                                        <TextBlock Margin="0,4,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.LeftPanel.SpoutTransparentHint}" />
-                                        <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.LeftPanel.BroadcastOff}" />
-                                    </StackPanel>
-                                </Border>
-                            </StackPanel>
-                        </ScrollViewer>
-
                         <ScrollViewer x:Name="PanelSettings" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,0,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.CanvasTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -463,7 +423,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.RenderTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid Margin="0,2,0,0">
@@ -526,7 +486,39 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <StackPanel>
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutTitle}" Style="{StaticResource PanelCardTitle}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutBroadcast}" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglBroadcast" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglBroadcast_Changed"
+                                                             Unchecked="TglBroadcast_Changed" />
+                                        </Grid>
+                                        <Grid Margin="0,8,2,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SpoutTransparent}" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglSpoutTransparent" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglSpoutTransparent_Changed"
+                                                             Unchecked="TglSpoutTransparent_Changed" />
+                                        </Grid>
+                                        <TextBlock Margin="0,4,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="{DynamicResource Loc.LeftPanel.SpoutTransparentHint}" />
+                                        <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="{DynamicResource Loc.LeftPanel.BroadcastOff}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.VtsTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -547,7 +539,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.SafeGapTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -590,7 +582,7 @@
                                     </StackPanel>
                                 </Border>
 
-                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="字幕" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"

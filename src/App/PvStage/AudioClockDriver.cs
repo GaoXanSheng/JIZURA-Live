@@ -173,7 +173,7 @@ public sealed class AudioClockDriver : IDisposable
             }
             catch (Exception ex)
             {
-                Error = L.T("定位失败：") + ex.Message;
+                Error = L.T("StageUi.Media.SeekFailed") + ex.Message;
                 return;
             }
 

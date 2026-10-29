@@ -40,7 +40,7 @@ public partial class PvStageWindow
     {
         if (IsEngineLayer(layer.Id))
         {
-            ShowStatus(L.T("引擎图层不能删除"), 3);
+            ShowStatus(L.T("StageUi.Stage.EngineLayerCannotDelete"), 3);
             return;
         }
 
@@ -145,7 +145,7 @@ public partial class PvStageWindow
             + "Ctrl + L      导入歌词\n\n"
             + "帮助\n"
             + "F1            快捷键一览",
-            L.T("快捷键一览"), MessageBoxButton.OK, MessageBoxImage.Information);
+            L.T("StageUi.Stage.MenuShortcuts"), MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void MenuAbout_Click(object sender, RoutedEventArgs e)
@@ -153,7 +153,7 @@ public partial class PvStageWindow
         var version = typeof(PvStageWindow).Assembly.GetName().Version?.ToString() ?? "1.0";
         MessageBox.Show(this,
             $"JIZURA Live PV {version}\n\n歌词 PV 与 VTS 虚拟角色特效联动工作台。",
-            L.T("关于"), MessageBoxButton.OK, MessageBoxImage.Information);
+            L.T("StageUi.Stage.MenuAbout"), MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void BtnPrevFrame_Click(object sender, RoutedEventArgs e) => SeekFrames(-1);
@@ -171,7 +171,7 @@ public partial class PvStageWindow
                 ? Wpf.Ui.Controls.ControlAppearance.Primary
                 : Wpf.Ui.Controls.ControlAppearance.Secondary;
         }
-        ShowStatus(on ? L.T("吸附：开") : L.T("吸附：关"), 2);
+        ShowStatus(on ? L.T("StageUi.Stage.SnapOn") : L.T("StageUi.Stage.SnapOff"), 2);
     }
 
     private void SeekFrames(int frames)

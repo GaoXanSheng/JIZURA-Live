@@ -221,5 +221,22 @@ public sealed partial class KuGouClient
             { Ok = true, Fmt = hit2.Value.Fmt, Content = hit2.Value.Content, Candidates = candidates };
     }
 
+    public async Task<List<KgLyricCandidate>> GetLyricCandidatesAsync(string? hash, string albumId)
+    {
+        var list = new List<KgLyricCandidate>();
+        if (string.IsNullOrEmpty(hash)) return list;
+        var c = await GetJsonAsync(
+            $"https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=&hash={Uri.EscapeDataString(hash!)}&album_id={Uri.EscapeDataString(albumId)}");
+        foreach (var x in c["candidates"] as JArray ?? new JArray())
+            list.Add(new KgLyricCandidate
+            {
+                Id = x.Value<string>("id") ?? "",
+                AccessKey = x.Value<string>("accesskey") ?? "",
+                From = x.Value<string>("product_from") ?? "",
+                Nick = x.Value<string>("nickname") ?? ""
+            });
+        return list;
+    }
+
     private sealed record UrlHit(string Url, string Ext, long TimeLength);
 }

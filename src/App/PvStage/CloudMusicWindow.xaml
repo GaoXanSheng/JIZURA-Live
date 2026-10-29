@@ -145,6 +145,17 @@
                             </ComboBox>
                         </Grid>
 
+                        <Grid Grid.Row="3" Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{DynamicResource Loc.CloudMusic.LyricVersion}" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            <ComboBox x:Name="CmbLyricVersion" Grid.Column="1" Margin="10,0,0,0"
+                                      HorizontalAlignment="Stretch" IsEnabled="False" />
+                        </Grid>
+
                         <TextBlock x:Name="TblDetailStatus" Grid.Row="4" Margin="0,10,0,0" FontSize="11"
                                    TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Bottom"
                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}"

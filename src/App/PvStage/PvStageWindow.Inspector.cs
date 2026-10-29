@@ -53,7 +53,7 @@ public partial class PvStageWindow
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand,
-                ToolTip = L.T("点击输入精确数值"),
+                ToolTip = L.T("StageUi.Inspector.ClickToEnterExactValue"),
             };
             Display.SetResourceReference(TextBlock.ForegroundProperty, TextPrimaryKey);
             Display.MouseLeftButtonDown += (_, e) =>
@@ -148,6 +148,8 @@ public partial class PvStageWindow
     private string? _inspectorTab;
     private bool _buildingInspector;
 
+    internal void ClearLayerSelection() => SelectLayer(null);
+
     private void SelectLayer(PvLayerConfig? layer)
     {
         if (ReferenceEquals(_selectedLayer, layer) && _segmentTarget is null) return;
@@ -166,11 +168,11 @@ public partial class PvStageWindow
         foreach (var card in LayersHost.Children.OfType<Border>())
         {
             var active = ReferenceEquals(card.Tag, _selectedLayer);
-            card.SetResourceReference(Border.BackgroundProperty, active ? SelectFillKey : CardFillKey);
-            card.SetResourceReference(Border.BorderBrushProperty, active ? SelectStrokeKey : CardStrokeKey);
+            if (active) card.SetResourceReference(Border.BackgroundProperty, SelectFillKey);
+            else card.Background = Brushes.Transparent;
         }
 
-        TblInspectorTitle.Text = _selectedLayer is null ? L.T("整体") : LayerTitle(_selectedLayer);
+        TblInspectorTitle.Text = _selectedLayer is null ? L.T("StageUi.Inspector.Overall") : LayerTitle(_selectedLayer);
     }
 
     private static string LayerTitle(PvLayerConfig layer) =>
@@ -238,13 +240,13 @@ public partial class PvStageWindow
 
     private void BuildCameraSection()
     {
-        AddSectionTitle(L.T("整体相机"));
-        AddInspector(CameraRow("offsetX", L.T("位移X"), 1));
-        AddInspector(CameraRow("offsetY", L.T("位移Y"), 1));
-        AddInspector(CameraRow("scale", L.T("缩放"), 0.01));
-        AddInspector(CameraRow("rotation", L.T("旋转"), 1));
-        AddInspector(CameraRow("blur", L.T("虚化"), 0.5));
-        AddInspector(CameraRow("brighten", L.T("提亮"), 0.01));
+        AddSectionTitle(L.T("StageUi.Inspector.OverallCamera"));
+        AddInspector(CameraRow("offsetX", L.T("StageUi.Inspector.OffsetX"), 1));
+        AddInspector(CameraRow("offsetY", L.T("StageUi.Inspector.OffsetY"), 1));
+        AddInspector(CameraRow("scale", L.T("StageUi.Inspector.Scale"), 0.01));
+        AddInspector(CameraRow("rotation", L.T("StageUi.Inspector.Rotation"), 1));
+        AddInspector(CameraRow("blur", L.T("StageUi.Inspector.Defocus"), 0.5));
+        AddInspector(CameraRow("brighten", L.T("StageUi.Inspector.Brighten"), 0.01));
         AddInspector(CameraAddRow());
         AddInspector(TransitionAddRow());
     }
@@ -252,7 +254,7 @@ public partial class PvStageWindow
     private FrameworkElement CameraAddRow()
     {
         var panel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-        panel.Children.Add(ThemeText(L.T("整体运镜"), TextSecondaryKey, 11));
+        panel.Children.Add(ThemeText(L.T("StageUi.Inspector.OverallCameraMove"), TextSecondaryKey, 11));
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var preset in CameraDirection.Presets)
@@ -262,7 +264,7 @@ public partial class PvStageWindow
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("在播放头添加整体运镜"),
+            Content = L.T("StageUi.Inspector.AddOverallCameraMoveAtPlayhead"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -300,7 +302,7 @@ public partial class PvStageWindow
         BuildInspector();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已添加整体运镜：{0}", ZhLabel("cam", preset));
+        TblStatus.Text = L.F("StageUi.Inspector.AddedOverallCameraMove", ZhLabel("cam", preset));
     }
 
     private CameraTrack NewCameraTrack() => new()
@@ -361,34 +363,34 @@ public partial class PvStageWindow
 
     private void BuildLayerSection(PvLayerConfig layer)
     {
-        AddSectionTitle(L.T("图层"));
+        AddSectionTitle(L.T("StageUi.Inspector.Layer"));
         AddInspector(ThemeText(
-            L.T("选中图层后，画面里会出现方框；拖框内移动，拖四角缩放，拖上方圆点旋转，Shift 锁定方向；已有对应关键帧时在播放头自动打帧。VTS 图层可改为直接控制 VTS 坐标。"),
+            L.T("StageUi.Inspector.LayerTransformHint"),
             TextTertiaryKey, 11, wrap: true));
-        AddInspector(LayerRow(layer, "offsetX", L.T("位移X"), 0.01));
-        AddInspector(LayerRow(layer, "offsetY", L.T("位移Y"), 0.01));
-        AddInspector(LayerRow(layer, "scale", L.T("缩放"), 0.01));
-        AddInspector(LayerRow(layer, "opacity", L.T("不透明"), 0.02));
-        AddInspector(LayerRow(layer, "rotation", L.T("旋转"), 1));
-        AddInspector(ConstRow(L.T("深度"), 0, 3, 0.01,
+        AddInspector(LayerRow(layer, "offsetX", L.T("StageUi.Inspector.OffsetX"), 0.01));
+        AddInspector(LayerRow(layer, "offsetY", L.T("StageUi.Inspector.OffsetY"), 0.01));
+        AddInspector(LayerRow(layer, "scale", L.T("StageUi.Inspector.Scale"), 0.01));
+        AddInspector(LayerRow(layer, "opacity", L.T("StageUi.Inspector.Opacity"), 0.02));
+        AddInspector(LayerRow(layer, "rotation", L.T("StageUi.Inspector.Rotation"), 1));
+        AddInspector(ConstRow(L.T("StageUi.Inspector.Depth"), 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
-        AddInspector(ConstRow(L.T("跟随运镜"), 0, 1, 0.01,
+        AddInspector(ConstRow(L.T("StageUi.Inspector.CameraFollow"), 0, 1, 0.01,
             () => layer.Parallax.Follow ?? layer.Parallax.Depth,
             v => layer.Parallax.Follow = v));
-        AddInspector(ConstRow(L.T("环境光"), 0, 1, 0.02,
+        AddInspector(ConstRow(L.T("StageUi.Inspector.AmbientLight"), 0, 1, 0.02,
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
-        AddInspector(ConstRow(L.T("边缘光"), 0, 1, 0.02,
+        AddInspector(ConstRow(L.T("StageUi.Inspector.RimLight"), 0, 1, 0.02,
             () => layer.VisualBlend.RimGlow, v => layer.VisualBlend.RimGlow = v));
-        AddInspector(ConstRow(L.T("阴影"), 0, 1, 0.02,
+        AddInspector(ConstRow(L.T("StageUi.Inspector.Shadow"), 0, 1, 0.02,
             () => layer.VisualBlend.DropShadow, v => layer.VisualBlend.DropShadow = v));
 
         if (!string.IsNullOrWhiteSpace(layer.SpoutSenderName))
         {
             var isCharacter = layer.VtsCharacter
                               ?? string.Equals(layer.Id, PvScene.CharacterLayerId, StringComparison.Ordinal);
-            AddInspector(BoolRow(L.T("VTS 角色来源"), isCharacter,
+            AddInspector(BoolRow(L.T("StageUi.Inspector.VtsCharacterSource"), isCharacter,
                 v => SetVtsCharacterSource(layer, v)));
-            AddInspector(BoolRow(L.T("预乘 Alpha"), layer.Premultiplied, v =>
+            AddInspector(BoolRow(L.T("StageUi.Inspector.PremultipliedAlpha"), layer.Premultiplied, v =>
             {
                 layer.Premultiplied = v;
                 RebuildStage();
@@ -411,7 +413,7 @@ public partial class PvStageWindow
         RebuildStage();
         RefreshTimeline();
         BuildInspector();
-        TblStatus.Text = on ? L.F("已设为 VTS 角色来源：{0}", LayerTitle(layer)) : L.T("已取消 VTS 角色来源");
+        TblStatus.Text = on ? L.F("StageUi.Inspector.VtsCharacterSourceSet", LayerTitle(layer)) : L.T("StageUi.Inspector.VtsCharacterSourceCleared");
     }
 
     private string LayerTrackId(PvLayerConfig layer) =>
@@ -419,9 +421,9 @@ public partial class PvStageWindow
 
     private void BuildLayerCameraSection(PvLayerConfig layer)
     {
-        AddSectionTitle(L.T("角色运镜"));
+        AddSectionTitle(L.T("StageUi.Inspector.CharacterCameraMove"));
         AddInspector(ThemeText(
-            L.T("角色默认跟随自己的运镜轨；跟随运镜 0 = 完全用角色运镜轨，1 = 完全跟全局运镜。"),
+            L.T("StageUi.Inspector.CharacterCameraFollowHint"),
             TextSecondaryKey, 11, wrap: true));
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 6, 0, 0) };
@@ -432,7 +434,7 @@ public partial class PvStageWindow
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("添加角色运镜"),
+            Content = L.T("StageUi.Inspector.AddCharacterCameraMove"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Primary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -446,7 +448,7 @@ public partial class PvStageWindow
 
         var copy = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("拷贝全局运镜"),
+            Content = L.T("StageUi.Inspector.CopyGlobalCameraMove"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -456,7 +458,7 @@ public partial class PvStageWindow
 
         if (_project.LayerCameraTracks.TryGetValue(LayerTrackId(layer), out var track) && track.Shots.Count > 0)
             AddInspector(ThemeText(
-                L.F("已有 {0} 段，可在时间线“角色运镜”轨选中编辑。", track.Shots.Count),
+                L.F("StageUi.Inspector.ExistingShotsHint", track.Shots.Count),
                 TextSecondaryKey, 11, wrap: true));
 
         BuildCharacterMoveSection();
@@ -469,7 +471,7 @@ public partial class PvStageWindow
         var source = _project.CameraTrack;
         if (source is null || source.Shots.Count == 0)
         {
-            TblStatus.Text = L.T("全局运镜轨为空，先一键生成或手动添加运镜");
+            TblStatus.Text = L.T("StageUi.Inspector.GlobalCameraTrackEmpty");
             return;
         }
 
@@ -483,7 +485,7 @@ public partial class PvStageWindow
         RefreshTimeline();
         BuildInspector();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已拷贝 {0} 段全局运镜到角色运镜轨", copy.Shots.Count);
+        TblStatus.Text = L.F("StageUi.Inspector.GlobalCameraCopiedToCharacterTrack", copy.Shots.Count);
     }
 
     private void AddLayerCameraShot(PvLayerConfig layer, string preset)
@@ -508,7 +510,7 @@ public partial class PvStageWindow
         RefreshTimeline();
         BuildInspector();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已添加角色运镜：{0}", ZhLabel("cam", preset));
+        TblStatus.Text = L.F("StageUi.Inspector.AddedCharacterCameraMove", ZhLabel("cam", preset));
     }
 
     private FrameworkElement BoolRow(string label, bool value, Action<bool> write,
@@ -755,7 +757,7 @@ public partial class PvStageWindow
             FontSize = 11,
             Padding = new Thickness(2, 1, 2, 1),
             BorderThickness = new Thickness(1),
-            ToolTip = L.T("在当前时刻打一个关键帧（该时刻已有则替换）"),
+            ToolTip = L.T("StageUi.Inspector.KeyAtPlayheadReplaceHint"),
         };
         key.Click += (_, _) => KeyRowAtPlayhead(state);
         if (!ParamRegistry.TryResolve(address, _effects, _scene, out _, out _))
@@ -806,8 +808,8 @@ public partial class PvStageWindow
         PushUndo();
         _saveError = SaveProjectNow();
         TblStatus.Text = created && t > 1e-6
-            ? L.F("已打关键帧 t={0:F2}s · {1} {2:F2}（并在 0s 补了保持键）", t, row.Label, v)
-            : L.F("已打关键帧 t={0:F2}s · {1} {2:F2}", t, row.Label, v);
+            ? L.F("StageUi.Inspector.KeyframeAddedWithHoldKey", t, row.Label, v)
+            : L.F("StageUi.Inspector.KeyframeAdded", t, row.Label, v);
     }
 
     private FloatCurve EnsureCurve(in ParamAddress addr, double rest, double time)
@@ -925,12 +927,12 @@ public partial class PvStageWindow
             hasCurve ? TextAccentKey : TextTertiaryKey);
         row.Badge.SetResourceReference(Control.BorderBrushProperty,
             hasCurve ? TextAccentKey : TextTertiaryKey);
-        row.Badge.ToolTip = hasCurve ? L.T("由曲线驱动 base(t)（点徽标跳到时间轴该轨）") : L.T("文档里的常量");
+        row.Badge.ToolTip = hasCurve ? L.T("StageUi.Inspector.DrivenByCurveHint") : L.T("StageUi.Inspector.DocumentConstant");
 
         var range = $"[{row.SpecMin.ToString("0.###", CultureInfo.InvariantCulture)}, {row.SpecMax.ToString("0.###", CultureInfo.InvariantCulture)}]";
         row.ClampMark.Visibility = clamped ? Visibility.Visible : Visibility.Collapsed;
         row.ClampMark.ToolTip = clamped
-            ? L.F("原值 {0} 越界，写入目标时按 {1} 限幅",
+            ? L.F("StageUi.Inspector.ValueOutOfRangeClamped",
                 value.ToString("0.###", CultureInfo.InvariantCulture), range)
             : null;
 
@@ -940,8 +942,8 @@ public partial class PvStageWindow
         row.KeyButton.SetResourceReference(Control.BorderBrushProperty,
             hasCurve ? TextAccentKey : TextTertiaryKey);
         row.KeyButton.ToolTip = keyHere
-            ? L.T("当前时刻已有关键帧（点击用当前值覆盖）")
-            : L.T("在当前时刻打一个关键帧（首次打帧会自动补 0 时刻保持键）");
+            ? L.T("StageUi.Inspector.KeyframeExistsOverwriteHint")
+            : L.T("StageUi.Inspector.KeyAtPlayheadAutoHoldHint");
 
         row.Value.SetValue(value);
 
@@ -1000,7 +1002,7 @@ public partial class PvStageWindow
                 times = [win.IsValid ? win.Start : 0, win.IsValid ? win.End : 0, win.IsValid ? win.FadeIn : 0, win.IsValid ? win.FadeOut : 0];
                 source = node.Source;
                 locked = node.Locked;
-                title = EffectName(node) + L.F(" · 窗口 {0}", windowTarget.WindowIndex + 1);
+                title = EffectName(node) + L.F("StageUi.Inspector.WindowSuffix", windowTarget.WindowIndex + 1);
                 showFades = true;
                 break;
             case { Effect: { } node }:
@@ -1019,7 +1021,7 @@ public partial class PvStageWindow
                 times = [shot.Start, shot.End, 0, 0];
                 source = shot.Source;
                 locked = shot.Locked;
-                title = L.F("运镜 · {0}", TechniqueLabel(target, shot.Preset));
+                title = L.F("StageUi.Inspector.CameraMoveFormat", TechniqueLabel(target, shot.Preset));
                 showFades = false;
                 break;
             case { Design: { } design }:
@@ -1052,29 +1054,29 @@ public partial class PvStageWindow
 
         AddSectionTitle(title);
         AddInspector(TechniqueRow(target, technique));
-        AddInspector(InfoRow(L.T("来源"), string.Equals(source, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "auto"));
+        AddInspector(InfoRow(L.T("StageUi.Inspector.Source"), string.Equals(source, "user", StringComparison.OrdinalIgnoreCase) ? "user" : "auto"));
 
         bool editable = target.LegacyCutIndex < 0;
         if (editable)
         {
-            AddInspector(SegmentTimeRow(L.T("开始"), () => times[0], v => times[0] = v));
-            AddInspector(SegmentTimeRow(L.T("结束"), () => times[1], v => times[1] = v));
+            AddInspector(SegmentTimeRow(L.T("StageUi.Inspector.Start"), () => times[0], v => times[0] = v));
+            AddInspector(SegmentTimeRow(L.T("StageUi.Inspector.End"), () => times[1], v => times[1] = v));
             if (showFades)
             {
-                AddInspector(SegmentTimeRow(L.T("淡入"), () => times[2], v => times[2] = v));
-                AddInspector(SegmentTimeRow(L.T("淡出"), () => times[3], v => times[3] = v));
+                AddInspector(SegmentTimeRow(L.T("StageUi.Inspector.FadeIn"), () => times[2], v => times[2] = v));
+                AddInspector(SegmentTimeRow(L.T("StageUi.Inspector.FadeOut"), () => times[3], v => times[3] = v));
             }
 
             AddInspector(SegmentApplyRow(times, showFades));
-            var hint = ThemeText(L.T("时间单位为秒（0 = 音频开头），改完点「应用时间」生效"), TextTertiaryKey, 11);
+            var hint = ThemeText(L.T("StageUi.Inspector.SegmentTimeHint"), TextTertiaryKey, 11);
             hint.Margin = new Thickness(0, 0, 0, 2);
             hint.TextWrapping = TextWrapping.Wrap;
             AddInspector(hint);
         }
         else
         {
-            AddInspector(InfoRow(L.T("开始"), Fmt(times[0])));
-            AddInspector(InfoRow(L.T("结束"), Fmt(times[1])));
+            AddInspector(InfoRow(L.T("StageUi.Inspector.Start"), Fmt(times[0])));
+            AddInspector(InfoRow(L.T("StageUi.Inspector.End"), Fmt(times[1])));
         }
 
         BuildSegmentParams(target);
@@ -1084,7 +1086,7 @@ public partial class PvStageWindow
             var lockRow = new Grid { Margin = new Thickness(0, 8, 0, 2) };
             lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             lockRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var lockLab = ThemeText(L.T("锁定（防自动清理）"), TextSecondaryKey, 12);
+            var lockLab = ThemeText(L.T("StageUi.Inspector.LockPreventAutoCleanup"), TextSecondaryKey, 12);
             Grid.SetColumn(lockLab, 0);
             lockRow.Children.Add(lockLab);
             var lockToggle = new Wpf.Ui.Controls.ToggleSwitch
@@ -1121,7 +1123,7 @@ public partial class PvStageWindow
 
     private static string LegacyTechniqueLabel(DesignTrackKind kind, string key)
     {
-        if (string.IsNullOrWhiteSpace(key) || string.Equals(key, "none", StringComparison.Ordinal)) return L.T("关闭");
+        if (string.IsNullOrWhiteSpace(key) || string.Equals(key, "none", StringComparison.Ordinal)) return L.T("StageUi.Inspector.Off");
         IRegEntry? entry = kind switch
         {
             DesignTrackKind.Layout => Reg.Layouts.GetValueOrDefault(key),
@@ -1159,7 +1161,7 @@ public partial class PvStageWindow
     private static IEnumerable<TechniqueOption> LegacyOptions(DesignTrackKind kind)
     {
         if (kind == DesignTrackKind.Treat)
-            return new[] { new TechniqueOption("none", L.T("关闭")) }
+            return new[] { new TechniqueOption("none", L.T("StageUi.Inspector.Off")) }
                 .Concat(Reg.Treat
                     .Where(p => !string.Equals(p.Key, "none", StringComparison.Ordinal))
                     .Select(p => new TechniqueOption(p.Key, p.Value.Name)))
@@ -1183,7 +1185,7 @@ public partial class PvStageWindow
     private FrameworkElement TechniqueRow(SegmentTarget target, string current)
     {
         var options = TechniqueOptions(target)?.ToList();
-        if (options is null) return InfoRow(L.T("手法"), TechniqueLabel(target, current));
+        if (options is null) return InfoRow(L.T("StageUi.Inspector.Technique"), TechniqueLabel(target, current));
 
         var selected = options.FirstOrDefault(o => string.Equals(o.Key, current, StringComparison.Ordinal));
         if (selected is null)
@@ -1222,7 +1224,7 @@ public partial class PvStageWindow
             Margin = new Thickness(10, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        caption.Children.Add(ThemeText(L.T("手法"), TextSecondaryKey, 11));
+        caption.Children.Add(ThemeText(L.T("StageUi.Inspector.Technique"), TextSecondaryKey, 11));
         caption.Children.Add(ThemeText(selected.Label, TextPrimaryKey, 12));
 
         var content = new Grid();
@@ -1283,7 +1285,7 @@ public partial class PvStageWindow
             };
             thumb.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
 
-            var placeholder = ThemeText(group is null ? "FX" : L.T("预览"), TextTertiaryKey, group is null ? 12 : 10);
+            var placeholder = ThemeText(group is null ? "FX" : L.T("StageUi.Inspector.Preview"), TextTertiaryKey, group is null ? 12 : 10);
             placeholder.HorizontalAlignment = HorizontalAlignment.Center;
             placeholder.VerticalAlignment = VerticalAlignment.Center;
             thumb.Child = placeholder;
@@ -1493,7 +1495,7 @@ public partial class PvStageWindow
     {
         var apply = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("应用时间"),
+            Content = L.T("StageUi.Inspector.ApplyTime"),
             Margin = new Thickness(0, 6, 0, 2),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
@@ -1551,15 +1553,15 @@ public partial class PvStageWindow
             Func<LegacyPvCutInfo, Dictionary<string, double>> SelectNumbers,
             Func<LegacyPvCutInfo, Dictionary<string, string>> SelectTexts)[]
         {
-            (L.T("布局参数"), cut.LayoutParams, cut.LayoutTexts, c => c.LayoutParams, c => c.LayoutTexts),
-            (L.T("文字处理参数"), cut.TreatParams, cut.TreatTexts, c => c.TreatParams, c => c.TreatTexts),
-            (L.T("背景参数"), cut.BgParams, cut.BgTexts, c => c.BgParams, c => c.BgTexts),
-            (L.T("运镜参数"), cut.CamParams, cut.CamTexts, c => c.CamParams, c => c.CamTexts),
+            (L.T("StageUi.Inspector.LayoutParams"), cut.LayoutParams, cut.LayoutTexts, c => c.LayoutParams, c => c.LayoutTexts),
+            (L.T("StageUi.Inspector.TextTreatmentParams"), cut.TreatParams, cut.TreatTexts, c => c.TreatParams, c => c.TreatTexts),
+            (L.T("StageUi.Inspector.BackgroundParams"), cut.BgParams, cut.BgTexts, c => c.BgParams, c => c.BgTexts),
+            (L.T("StageUi.Inspector.CameraMoveParams"), cut.CamParams, cut.CamTexts, c => c.CamParams, c => c.CamTexts),
         };
 
         if (!groups.Any(g => g.Numbers.Count > 0 || g.Texts.Count > 0)) return;
 
-        AddSectionTitle(L.T("参数"));
+        AddSectionTitle(L.T("StageUi.Inspector.Params"));
         foreach (var (label, numbers, texts, selectNumbers, selectTexts) in groups)
         {
             if (numbers.Count == 0 && texts.Count == 0) continue;
@@ -1764,10 +1766,10 @@ public partial class PvStageWindow
         var def = EffectCatalog.Get(node.DefId);
         if (def is null || def.Params.Length == 0) return;
 
-        AddSectionTitle(L.T("参数"));
+        AddSectionTitle(L.T("StageUi.Inspector.Params"));
         AddInspector(EffectStageRow(node));
         AddInspector(EffectBlendRow(node));
-        AddInspector(ConstRow(L.T("不透明度"), 0, 1, 0.01,
+        AddInspector(ConstRow(L.T("StageUi.Inspector.OpacityAmount"), 0, 1, 0.01,
             () => node.Opacity,
             v =>
             {
@@ -1805,13 +1807,13 @@ public partial class PvStageWindow
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var lab = ThemeText(L.T("效果阶段"), TextSecondaryKey, 12);
+        var lab = ThemeText(L.T("StageUi.Inspector.EffectStage"), TextSecondaryKey, 12);
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
         var combo = new ComboBox { FontSize = 11, HorizontalAlignment = HorizontalAlignment.Stretch };
-        combo.Items.Add(new ComboBoxItem { Content = L.T("全局后期"), Tag = EffectStage.GlobalPost });
-        combo.Items.Add(new ComboBoxItem { Content = L.T("合成后（转场前）"), Tag = EffectStage.Composite });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Inspector.GlobalPost"), Tag = EffectStage.GlobalPost });
+        combo.Items.Add(new ComboBoxItem { Content = L.T("StageUi.Inspector.AfterCompositeBeforeTransition"), Tag = EffectStage.Composite });
         combo.SelectedIndex = node.Stage == EffectStage.Composite ? 1 : 0;
         combo.SelectionChanged += (_, _) =>
         {
@@ -1836,7 +1838,7 @@ public partial class PvStageWindow
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var lab = ThemeText(L.T("混合模式"), TextSecondaryKey, 12);
+        var lab = ThemeText(L.T("StageUi.Inspector.BlendMode"), TextSecondaryKey, 12);
         Grid.SetColumn(lab, 0);
         row.Children.Add(lab);
 
@@ -1862,17 +1864,17 @@ public partial class PvStageWindow
 
     private static string BlendLabel(EffectBlend blend) => blend switch
     {
-        EffectBlend.Normal => L.T("正常"),
-        EffectBlend.Add => L.T("相加"),
-        EffectBlend.Screen => L.T("滤色"),
-        EffectBlend.Multiply => L.T("正片叠底"),
-        EffectBlend.Overlay => L.T("叠加"),
+        EffectBlend.Normal => L.T("StageUi.Inspector.BlendNormal"),
+        EffectBlend.Add => L.T("StageUi.Inspector.BlendAdd"),
+        EffectBlend.Screen => L.T("StageUi.Inspector.BlendScreen"),
+        EffectBlend.Multiply => L.T("StageUi.Inspector.BlendMultiply"),
+        EffectBlend.Overlay => L.T("StageUi.Inspector.BlendOverlay"),
         _ => blend.ToString(),
     };
 
     private FrameworkElement EffectWindowGainRow(EffectNode node, int windowIndex)
     {
-        return ConstRow(L.T("窗口强度"), 0, 2.5, 0.05,
+        return ConstRow(L.T("StageUi.Inspector.WindowGain"), 0, 2.5, 0.05,
             () => windowIndex < node.Windows.Count ? node.Windows[windowIndex].Gain : 1,
             v =>
             {
@@ -1922,7 +1924,7 @@ public partial class PvStageWindow
             Content = "◆K",
             FontSize = 11,
             Padding = new Thickness(2, 1, 2, 1),
-            ToolTip = L.T("在当前时刻给布尔参数打关键帧（Step 插值）"),
+            ToolTip = L.T("StageUi.Inspector.KeyBoolParamHint"),
         };
         key.Click += (_, _) => KeyEffectBoolAtPlayhead(node, p, toggle.IsChecked == true);
         Grid.SetColumn(key, 2);
@@ -2006,7 +2008,7 @@ public partial class PvStageWindow
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = Cursors.Hand,
-            ToolTip = L.T("打开拾色器"),
+            ToolTip = L.T("StageUi.Inspector.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
 
@@ -2016,7 +2018,7 @@ public partial class PvStageWindow
             Content = "◆K",
             FontSize = 11,
             Padding = new Thickness(2, 1, 2, 1),
-            ToolTip = L.T("在当前时刻给颜色打关键帧（RGB 三条曲线）"),
+            ToolTip = L.T("StageUi.Inspector.KeyColorParamHint"),
         };
         key.Click += (_, _) => KeyEffectColorAtPlayhead(node, p);
         Grid.SetColumn(key, 3);
@@ -2151,7 +2153,7 @@ public partial class PvStageWindow
         foreach (var key in shot.Params.Keys)
             if (!keys.Contains(key, StringComparer.Ordinal)) keys.Add(key);
 
-        AddSectionTitle(L.T("参数"));
+        AddSectionTitle(L.T("StageUi.Inspector.Params"));
         foreach (var key in keys)
         {
             var (min, max, step) = CameraParamSpec(key, ReadShotParam(shot, key));
@@ -2233,7 +2235,7 @@ public partial class PvStageWindow
 
         if (values.Count == 0) return;
 
-        AddSectionTitle(L.T("参数"));
+        AddSectionTitle(L.T("StageUi.Inspector.Params"));
         foreach (var key in values.Keys.OrderBy(k => k, StringComparer.Ordinal))
         {
             var fallback = values[key];
@@ -2294,7 +2296,7 @@ public partial class PvStageWindow
     private FrameworkElement TransitionAddRow()
     {
         var panel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-        panel.Children.Add(ThemeText(L.T("整体转场"), TextSecondaryKey, 11));
+        panel.Children.Add(ThemeText(L.T("StageUi.Inspector.OverallTransition"), TextSecondaryKey, 11));
 
         var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
         foreach (var id in TransitionCatalog.Ids.OrderBy(id => ZhLabel("trans", id), StringComparer.CurrentCulture))
@@ -2304,7 +2306,7 @@ public partial class PvStageWindow
 
         var add = new Wpf.Ui.Controls.Button
         {
-            Content = L.T("在播放头添加转场"),
+            Content = L.T("StageUi.Inspector.AddTransitionAtPlayhead"),
             Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             Margin = new Thickness(0, 6, 0, 0),
@@ -2344,7 +2346,7 @@ public partial class PvStageWindow
         BuildInspector();
         PushUndo();
         _saveError = SaveProjectNow();
-        TblStatus.Text = L.F("已添加转场：{0}", ZhLabel("trans", technique));
+        TblStatus.Text = L.F("StageUi.Inspector.AddedTransition", ZhLabel("trans", technique));
     }
 
     private void AddSectionTitle(string text)
@@ -2463,49 +2465,49 @@ public partial class PvStageWindow
 
     private static string ParamDisplayName(string param) => param switch
     {
-        "offsetX" => L.T("位移X"),
-        "offsetY" => L.T("位移Y"),
-        "scale" => L.T("缩放"),
-        "rotation" => L.T("旋转"),
-        "opacity" => L.T("不透明"),
-        "gain" => L.T("强度"),
-        "a" => L.T("幅度"),
-        "dir" => L.T("方向"),
-        "sp" => L.T("速度"),
-        "per" => L.T("周期"),
-        "d" => L.T("时长"),
-        "b" => L.T("模糊"),
-        "at" => L.T("触发点"),
-        "f" => L.T("频率"),
-        "jerk" => L.T("抖动"),
-        "z" => L.T("缩放"),
-        "r" => L.T("旋转"),
-        "s0" => L.T("种子"),
-        "vert" => L.T("垂直"),
-        "dx" => L.T("X 幅度"),
-        "dy" => L.T("Y 幅度"),
-        "a0" => L.T("相位"),
-        "side" => L.T("方向"),
-        "amp" => L.T("幅度"),
-        "amount" => L.T("强度"),
-        "shotScale" => L.T("景别"),
-        "shotX" => L.T("构图X"),
-        "shotY" => L.T("构图Y"),
-        "shotRot" => L.T("倾斜"),
-        "n" => L.T("数量"),
-        "rows" => L.T("行数"),
-        "cols" => L.T("列数"),
-        "rev" => L.T("反向"),
-        "rtl" => L.T("从右到左"),
-        "up" => L.T("向上"),
-        "roll" => L.T("滚动"),
-        "half" => L.T("半屏"),
-        "tate" => L.T("竖排"),
-        "useAccent" => L.T("使用强调色"),
-        "c" => L.T("角"),
-        "o" => L.T("偏移"),
-        "k" => L.T("强度"),
-        "seed" => L.T("种子"),
+        "offsetX" => L.T("StageUi.Inspector.OffsetX"),
+        "offsetY" => L.T("StageUi.Inspector.OffsetY"),
+        "scale" => L.T("StageUi.Inspector.Scale"),
+        "rotation" => L.T("StageUi.Inspector.Rotation"),
+        "opacity" => L.T("StageUi.Inspector.Opacity"),
+        "gain" => L.T("StageUi.Inspector.Strength"),
+        "a" => L.T("StageUi.Inspector.Amplitude"),
+        "dir" => L.T("StageUi.Inspector.Direction"),
+        "sp" => L.T("StageUi.Inspector.Speed"),
+        "per" => L.T("StageUi.Inspector.Period"),
+        "d" => L.T("StageUi.Inspector.Duration"),
+        "b" => L.T("StageUi.Inspector.Blur"),
+        "at" => L.T("StageUi.Inspector.TriggerPoint"),
+        "f" => L.T("StageUi.Inspector.Frequency"),
+        "jerk" => L.T("StageUi.Inspector.Jitter"),
+        "z" => L.T("StageUi.Inspector.Scale"),
+        "r" => L.T("StageUi.Inspector.Rotation"),
+        "s0" => L.T("StageUi.Inspector.Seed"),
+        "vert" => L.T("StageUi.Inspector.Vertical"),
+        "dx" => L.T("StageUi.Inspector.AmplitudeX"),
+        "dy" => L.T("StageUi.Inspector.AmplitudeY"),
+        "a0" => L.T("StageUi.Inspector.Phase"),
+        "side" => L.T("StageUi.Inspector.Direction"),
+        "amp" => L.T("StageUi.Inspector.Amplitude"),
+        "amount" => L.T("StageUi.Inspector.Strength"),
+        "shotScale" => L.T("StageUi.Inspector.ShotScale"),
+        "shotX" => L.T("StageUi.Inspector.CompositionX"),
+        "shotY" => L.T("StageUi.Inspector.CompositionY"),
+        "shotRot" => L.T("StageUi.Inspector.Tilt"),
+        "n" => L.T("StageUi.Inspector.Count"),
+        "rows" => L.T("StageUi.Inspector.Rows"),
+        "cols" => L.T("StageUi.Inspector.Columns"),
+        "rev" => L.T("StageUi.Inspector.Reverse"),
+        "rtl" => L.T("StageUi.Inspector.RightToLeft"),
+        "up" => L.T("StageUi.Inspector.Upward"),
+        "roll" => L.T("StageUi.Inspector.Roll"),
+        "half" => L.T("StageUi.Inspector.HalfScreen"),
+        "tate" => L.T("StageUi.Inspector.VerticalText"),
+        "useAccent" => L.T("StageUi.Inspector.UseAccentColor"),
+        "c" => L.T("StageUi.Inspector.Corner"),
+        "o" => L.T("StageUi.Inspector.Offset"),
+        "k" => L.T("StageUi.Inspector.Strength"),
+        "seed" => L.T("StageUi.Inspector.Seed"),
         _ => param,
     };
 
@@ -2515,14 +2517,14 @@ public partial class PvStageWindow
         switch (addr.Kind)
         {
             case ParamAddressKind.Camera:
-                return L.F("镜头 · {0}", name);
+                return L.F("StageUi.Inspector.CameraLabelFormat", name);
             case ParamAddressKind.Vts:
-                return L.F("角色移动 · {0}", addr.Param switch
+                return L.F("StageUi.Inspector.CharacterMoveFormat", addr.Param switch
                 {
-                    "x" => L.T("位移X"),
-                    "y" => L.T("位移Y"),
-                    "size" => L.T("缩放Z"),
-                    "rotation" => L.T("旋转"),
+                    "x" => L.T("StageUi.Inspector.OffsetX"),
+                    "y" => L.T("StageUi.Inspector.OffsetY"),
+                    "size" => L.T("StageUi.Inspector.ScaleZ"),
+                    "rotation" => L.T("StageUi.Inspector.Rotation"),
                     _ => addr.Param,
                 });
             case ParamAddressKind.Layer:
@@ -2530,7 +2532,7 @@ public partial class PvStageWindow
                     if (string.Equals(layer.Id, addr.Target, StringComparison.Ordinal))
                     {
                         var prefix = _scene.IsCharacterLayer(layer)
-                            ? L.T("角色")
+                            ? L.T("StageUi.Inspector.Character")
                             : LayerTitle(layer);
                         return prefix + " · " + name;
                     }
@@ -2555,8 +2557,8 @@ public enum InspectorSectionKind
 
 public static class ValueSourceBadge
 {
-    public static string Curve => L.T("曲线");
-    public static string Constant => L.T("常量");
+    public static string Curve => L.T("StageUi.Inspector.Curve");
+    public static string Constant => L.T("StageUi.Inspector.Constant");
 
     public static string Label(bool hasCurve) => hasCurve ? Curve : Constant;
 }

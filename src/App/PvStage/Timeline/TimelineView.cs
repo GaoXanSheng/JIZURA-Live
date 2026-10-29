@@ -9,7 +9,11 @@ namespace JizuraLive.App.PvStage.Timeline;
 
 public sealed partial class TimelineView : Control
 {
-    public const double HeaderWidth = 200;
+    private double _headerWidth = 200;
+    private const double HeaderMinWidth = 120;
+    private const double HeaderGripWidth = 4;
+
+    public double HeaderWidth => _headerWidth;
 
     public const double RulerHeight = 28;
     public const double WaveformHeight = 60;
@@ -47,6 +51,7 @@ public sealed partial class TimelineView : Control
         Design,
         VtsCue,
         TrackResize,
+        HeaderResize,
     }
 
     internal readonly record struct SelSegment(int Track, string RefId);
@@ -75,6 +80,8 @@ public sealed partial class TimelineView : Control
     private Point _pressPoint;
     private bool _dragPastThreshold;
     private double _dragValuePerPixel;
+    private double _headerResizeStartX;
+    private double _headerResizeStartWidth;
     private string? _dragTip;
     private int _clipIndex = -1;
     private ClipEdge _clipEdge;
@@ -369,7 +376,7 @@ public sealed partial class TimelineView : Control
     private const string WaveformTrackId = "waveform";
     private const string LyricsTrackId = "lyrics";
     private const double EyeHitWidth = 24;
-    private const double RulerEyeLeft = HeaderWidth - 52;
+    private double RulerEyeLeft => HeaderWidth - 52;
     private const double WaveformMinHeight = 30;
     private const double WaveformMaxHeight = 200;
     private const double LyricsMinHeight = 20;
@@ -757,8 +764,8 @@ public sealed partial class TimelineView : Control
         if (_snap is null) return list;
         bool Hidden(string id) => _snap.CollapsedTracks.Contains(id);
 
-        if (Hidden(WaveformTrackId)) list.Add((WaveformTrackId, L.T("音频")));
-        if (Hidden(LyricsTrackId) && _snap.Lyrics.Count > 0) list.Add((LyricsTrackId, L.T("歌词")));
+        if (Hidden(WaveformTrackId)) list.Add((WaveformTrackId, L.T("StageUi.TimelineUi.AudioTrack")));
+        if (Hidden(LyricsTrackId) && _snap.Lyrics.Count > 0) list.Add((LyricsTrackId, L.T("StageUi.TimelineUi.LyricsTrack")));
         foreach (var owner in _snap.Owners)
         {
             var id = GroupTrackId(owner.Key);
