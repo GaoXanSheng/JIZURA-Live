@@ -1019,7 +1019,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private void PushUndo()
     {
         _undo.Push(ProjectSnapshot());
-        UpdateUndoButtons();
     }
 
     private string ProjectSnapshot()
@@ -1050,7 +1049,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private void UndoRedo(bool undo)
     {
         var text = undo ? _undo.Undo() : _undo.Redo();
-        UpdateUndoButtons();
         if (text is null)
         {
             TblStatus.Text = undo ? L.T("没有可撤销的改动") : L.T("没有可重做的改动");
@@ -1999,7 +1997,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         if (_exporting) TblStatus.Text = ExportText();
 
-        TblProjectName.Text = string.IsNullOrWhiteSpace(_project.Name) ? L.T("默认工程") : _project.Name;
+        AppTitleBar.Title = L.F("{0} — JIZURA Live PV",
+            string.IsNullOrWhiteSpace(_project.Name) ? L.T("默认工程") : _project.Name);
         if (_step == 0) RefreshMediaPanel();
         SyncExportForm();
         UpdateAutoButton();
@@ -2016,16 +2015,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         _saveError = SaveProjectToCurrent();
         TblStatus.Text = _saveError is null ? L.T("工程已保存") : L.F("保存失败：{0}", _saveError);
-    }
-
-    private void BtnUndo_Click(object sender, RoutedEventArgs e) => UndoRedo(true);
-
-    private void BtnRedo_Click(object sender, RoutedEventArgs e) => UndoRedo(false);
-
-    private void UpdateUndoButtons()
-    {
-        BtnUndo.IsEnabled = _undo.CanUndo;
-        BtnRedo.IsEnabled = _undo.CanRedo;
     }
 
     internal void SldAutoIntensity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

@@ -17,6 +17,41 @@
                  AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
 
     <ui:FluentWindow.Resources>
+        <ControlTemplate x:Key="CompactTopMenuHeader" TargetType="{x:Type MenuItem}">
+            <Border x:Name="Chrome" Background="Transparent" CornerRadius="4" Padding="8,0" Margin="2,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" VerticalAlignment="Center"
+                                      TextElement.Foreground="{TemplateBinding Control.Foreground}" />
+                    <Popup x:Name="Popup" Grid.Row="1" AllowsTransparency="True" Focusable="False"
+                           IsOpen="{TemplateBinding MenuItem.IsSubmenuOpen}" Placement="Bottom"
+                           PopupAnimation="None" VerticalOffset="1"
+                           PlacementTarget="{Binding ElementName=Chrome}">
+                        <Border Background="{DynamicResource FlyoutBackground}"
+                                BorderBrush="{DynamicResource FlyoutBorderBrush}" BorderThickness="1"
+                                CornerRadius="8" Padding="0,4" Margin="0,4,0,0">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </Popup>
+                </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Chrome" Property="Background"
+                            Value="{DynamicResource MenuBarItemBackgroundSelected}" />
+                </Trigger>
+                <Trigger Property="IsSubmenuOpen" Value="True">
+                    <Setter TargetName="Chrome" Property="Background"
+                            Value="{DynamicResource MenuBarItemBackgroundSelected}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Control.Foreground" Value="{DynamicResource TextFillColorDisabledBrush}" />
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
         <Style x:Key="InspectorTabs" TargetType="TabControl">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -80,24 +115,28 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition MinHeight="240" />
             <RowDefinition Height="Auto" MinHeight="6" />
             <RowDefinition x:Name="TimelineRow" Height="300" MinHeight="80" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Title="JIZURA Live PV" VerticalAlignment="Center" Height="48">
-            <ui:TitleBar.TrailingContent>
-                <TextBlock x:Name="TblProjectName" Margin="0,0,8,0" VerticalAlignment="Center"
-                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                           TextTrimming="CharacterEllipsis" Text="{DynamicResource Loc.StageXaml.001}" />
-            </ui:TitleBar.TrailingContent>
-        </ui:TitleBar>
+        <ui:TitleBar x:Name="AppTitleBar" Title="JIZURA Live PV" Height="32" />
 
-        <Menu Grid.Row="1" x:Name="MainMenu" Padding="6,0" Height="30"
-              Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
-              BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"
-              FontSize="12.5" VerticalContentAlignment="Center">
+        <Border Grid.Row="1" Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Menu x:Name="MainMenu" Padding="6,0" Height="26"
+                      Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                      FontSize="12.5" VerticalContentAlignment="Center">
+                    <Menu.ItemContainerStyle>
+                        <Style TargetType="{x:Type MenuItem}">
+                            <Setter Property="Template" Value="{StaticResource CompactTopMenuHeader}" />
+                        </Style>
+                    </Menu.ItemContainerStyle>
             <MenuItem Header="文件">
                 <MenuItem Header="新建项目" InputGestureText="Ctrl+N" Click="MenuNewProject_Click" />
                 <MenuItem Header="打开项目…" InputGestureText="Ctrl+O" Click="MenuOpenProject_Click" />
@@ -138,54 +177,16 @@
                 <MenuItem Header="快捷键一览" Click="MenuShortcuts_Click" />
                 <MenuItem Header="关于" Click="MenuAbout_Click" />
             </MenuItem>
-        </Menu>
-
-        <Border Grid.Row="2" Background="{DynamicResource LayerFillColorDefaultBrush}"
-                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
-            <Grid Margin="10,6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <ui:Button x:Name="BtnProjectMenu" Appearance="Transparent" Click="BtnProjectMenu_Click" Content="{DynamicResource Loc.StageXaml.002}"
-                               ToolTip="{DynamicResource Loc.StageXaml.003}">
-                        <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="Folder24" />
-                        </ui:Button.Icon>
-                    </ui:Button>
-                    <Border Width="1" Margin="6,4" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
-                    <ui:Button x:Name="BtnUndo" Appearance="Transparent" Click="BtnUndo_Click" Content="{DynamicResource Loc.StageXaml.006}"
-                               ToolTip="{DynamicResource Loc.StageXaml.007}">
-                        <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="ArrowUndo24" />
-                        </ui:Button.Icon>
-                    </ui:Button>
-                    <ui:Button x:Name="BtnRedo" Appearance="Transparent" Click="BtnRedo_Click" Content="{DynamicResource Loc.StageXaml.008}"
-                               ToolTip="{DynamicResource Loc.StageXaml.009}">
-                        <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="ArrowRedo24" />
-                        </ui:Button.Icon>
-                    </ui:Button>
-                </StackPanel>
-
-                <TextBlock x:Name="TblStatus" Grid.Column="1" Margin="16,0" VerticalAlignment="Center"
+                </Menu>
+                <TextBlock x:Name="TblStatus" Grid.Column="1" Margin="16,0,12,0" VerticalAlignment="Center"
+                           HorizontalAlignment="Right"
                            FontFamily="Consolas, Cascadia Mono, Microsoft YaHei UI" FontSize="11"
                            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
                            TextTrimming="CharacterEllipsis" Text="{DynamicResource Loc.StageXaml.010}" />
-
-                <ui:Button x:Name="BtnInspector" Grid.Column="2" Appearance="Transparent" Content="{DynamicResource Loc.StageXaml.011}"
-                           Click="BtnInspector_Click" ToolTip="{DynamicResource Loc.StageXaml.012}">
-                    <ui:Button.Icon>
-                        <ui:SymbolIcon Symbol="Options24" />
-                    </ui:Button.Icon>
-                </ui:Button>
             </Grid>
         </Border>
 
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftColumn" Width="320" MinWidth="240" />
                 <ColumnDefinition Width="4" />
@@ -309,11 +310,11 @@
                           ResizeDirection="Columns" Cursor="SizeWE" />
         </Grid>
 
-        <GridSplitter Grid.Row="4" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                       Background="{DynamicResource DividerStrokeColorDefaultBrush}"
                       ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Cursor="SizeNS" />
 
-        <Border Grid.Row="5" Background="{DynamicResource LayerFillColorDefaultBrush}"
+        <Border Grid.Row="4" Background="{DynamicResource LayerFillColorDefaultBrush}"
                 BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
             <DockPanel>
                 <Grid DockPanel.Dock="Top" Height="34" Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">

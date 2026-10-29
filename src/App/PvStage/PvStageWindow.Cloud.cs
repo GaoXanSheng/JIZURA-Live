@@ -1,6 +1,4 @@
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using JizuraLive.App.Cloud;
 using JizuraLive.Logging;
 using JizuraLive.App.I18n;
@@ -9,34 +7,6 @@ namespace JizuraLive.App.PvStage;
 
 public partial class PvStageWindow
 {
-    private void BtnProjectMenu_Click(object sender, RoutedEventArgs e) =>
-        ShowMenu((FrameworkElement)sender, new (string Label, Action Click)[]
-        {
-            (L.T("新建项目"), () => BtnNewProject_Click(this, new RoutedEventArgs())),
-            (L.T("打开项目…"), () => BtnOpenProject_Click(this, new RoutedEventArgs())),
-            (L.T("保存"), SaveNow),
-            (L.T("另存为…"), SaveProjectAs),
-        });
-
-    private void ShowMenu(FrameworkElement anchor, IReadOnlyList<(string Label, Action Click)> items)
-    {
-        var menu = new ContextMenu
-        {
-            PlacementTarget = anchor,
-            Placement = PlacementMode.Bottom,
-            MinWidth = 150,
-        };
-
-        foreach (var (label, action) in items)
-        {
-            var item = new Wpf.Ui.Controls.MenuItem { Header = label };
-            item.Click += (_, _) => action();
-            menu.Items.Add(item);
-        }
-
-        menu.IsOpen = true;
-    }
-
     internal async void BtnCloudMusic_Click(object sender, RoutedEventArgs e) => await ImportCloudMusicAsync();
 
     private async Task ImportCloudMusicAsync()
