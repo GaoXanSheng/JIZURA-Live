@@ -37,20 +37,26 @@
             </Style>
             <Style x:Key="PanelCardTitle" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontSize" Value="12.5" />
                 <Setter Property="FontWeight" Value="SemiBold" />
                 <Setter Property="Margin" Value="0,0,0,8" />
             </Style>
             <Style x:Key="PanelHint" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                <Setter Property="FontSize" Value="11.5" />
+                <Setter Property="LineHeight" Value="17" />
                 <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
             <Style x:Key="PanelRowLabel" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Setter Property="FontSize" Value="12" />
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
             <Style x:Key="PanelValue" TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                <Setter Property="FontSize" Value="11.5" />
                 <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, Microsoft YaHei UI" />
+                <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

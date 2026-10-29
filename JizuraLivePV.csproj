@@ -76,5 +76,15 @@
       <Compile Remove="tools\**" />
       <None Remove="tools\**" />
       <Content Remove="tools\**" />
+      <Compile Remove="tmpjizura-build 2\**" />
+      <EmbeddedResource Remove="tmpjizura-build 2\**" />
+      <Compile Remove="tmpjizura-ui 2\**" />
+      <EmbeddedResource Remove="tmpjizura-ui 2\**" />
+    </ItemGroup>
+
+
+    <ItemGroup>
+      <Page Remove="tmpjizura-build 2\**" />
+      <Page Remove="tmpjizura-ui 2\**" />
     </ItemGroup>
 </Project>

@@ -154,16 +154,17 @@ public partial class PvStageWindow
         SyncStageSelection();
         HighlightLayerCards();
         TheTimeline.ClearDesignSelection();
+        TheTimeline.SetSelectedOwner(layer is null ? "cam" : "layer:" + layer.Id);
         BuildInspector();
     }
 
     private void HighlightLayerCards()
     {
-        foreach (var card in LayersHost.Children.OfType<Wpf.Ui.Controls.Card>())
+        foreach (var card in LayersHost.Children.OfType<Border>())
         {
             var active = ReferenceEquals(card.Tag, _selectedLayer);
-            card.SetResourceReference(Control.BackgroundProperty, active ? SelectFillKey : CardFillKey);
-            card.SetResourceReference(Control.BorderBrushProperty, active ? SelectStrokeKey : CardStrokeKey);
+            card.SetResourceReference(Border.BackgroundProperty, active ? SelectFillKey : CardFillKey);
+            card.SetResourceReference(Border.BorderBrushProperty, active ? SelectStrokeKey : CardStrokeKey);
         }
 
         TblInspectorTitle.Text = _selectedLayer is null ? L.T("工程") : LayerTitle(_selectedLayer);
@@ -178,12 +179,16 @@ public partial class PvStageWindow
         _effectBoolRows.Clear();
         _effectColorRows.Clear();
         InspectorHost.Children.Clear();
+        InspectorHost.RowDefinitions.Clear();
+        InspectorHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        InspectorHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _inspectorTabs = null;
         _inspectorTarget = InspectorHost;
         _buildingInspector = true;
 
         try
         {
+            AddInspectorSummary();
             if (_segmentTarget is { } target && SegmentTargetAlive(target))
             {
                 BuildSegmentSection(target);
@@ -216,14 +221,15 @@ public partial class PvStageWindow
         if (_inspectorTabs is not null && _inspectorTab is { } keep)
         {
             foreach (TabItem item in _inspectorTabs.Items)
-                if (string.Equals(item.Header as string, keep, StringComparison.Ordinal))
+                if (string.Equals(SectionHeaderText(item.Header), keep, StringComparison.Ordinal))
                 {
                     item.IsSelected = true;
                     break;
                 }
         }
 
-        if (_inspectorTabs?.SelectedItem is TabItem { Header: string selected })
+        if (_inspectorTabs?.SelectedItem is TabItem selectedItem
+            && SectionHeaderText(selectedItem.Header) is { } selected)
             _inspectorTab = selected;
 
         RefreshParamRows();
@@ -697,17 +703,17 @@ public partial class PvStageWindow
         };
         owner.Add(state);
 
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+        var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(50) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var lab = ThemeText(label, TextSecondaryKey, 12);
+        var lab = ThemeText(label, TextSecondaryKey, 11.5);
         lab.TextTrimming = TextTrimming.CharacterEllipsis;
-        Grid.SetColumn(lab, 0);
+        Grid.SetColumn(lab, 1);
         row.Children.Add(lab);
 
         double halfWindow = sliderWindow is { } window ? window / 2 : 0;
@@ -737,7 +743,7 @@ public partial class PvStageWindow
             if (sliderWindow is not null) RefreshParamRows();
         };
         state.Slider = slider;
-        Grid.SetColumn(slider, 1);
+        Grid.SetColumn(slider, 2);
         row.Children.Add(slider);
 
         var value = new NumericValue
@@ -751,7 +757,9 @@ public partial class PvStageWindow
             },
         };
         state.Value = value;
-        Grid.SetColumn(value.Root, 2);
+        value.Display.FontSize = 11.5;
+        value.Editor.FontSize = 11.5;
+        Grid.SetColumn(value.Root, 3);
         row.Children.Add(value.Root);
 
         var clamp = Themed(new TextBlock
@@ -763,22 +771,23 @@ public partial class PvStageWindow
             Visibility = Visibility.Collapsed,
         }, TextBlock.ForegroundProperty, CautionKey);
         state.ClampMark = clamp;
-        Grid.SetColumn(clamp, 3);
+        Grid.SetColumn(clamp, 4);
         row.Children.Add(clamp);
 
         var key = new Wpf.Ui.Controls.Button
         {
             Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
-            Content = "◆K",
+            Content = "◆",
             FontSize = 11,
             Padding = new Thickness(2, 1, 2, 1),
+            BorderThickness = new Thickness(1),
             ToolTip = L.T("在当前时刻打一个关键帧（该时刻已有则替换）"),
         };
         key.Click += (_, _) => KeyRowAtPlayhead(state);
         if (!ParamRegistry.TryResolve(address, _effects, _scene, out _, out _))
             key.Visibility = Visibility.Collapsed;
         state.KeyButton = key;
-        Grid.SetColumn(key, 4);
+        Grid.SetColumn(key, 0);
         row.Children.Add(key);
 
         var badge = new Wpf.Ui.Controls.Badge
@@ -953,7 +962,9 @@ public partial class PvStageWindow
 
         bool keyHere = hasCurve && ModeOfKeyAt(curve!, time) is not null;
         row.KeyButton.SetResourceReference(Control.ForegroundProperty,
-            keyHere ? TextAccentKey : TextTertiaryKey);
+            hasCurve ? TextAccentKey : TextTertiaryKey);
+        row.KeyButton.SetResourceReference(Control.BorderBrushProperty,
+            hasCurve ? TextAccentKey : TextTertiaryKey);
         row.KeyButton.ToolTip = keyHere
             ? L.T("当前时刻已有关键帧（点击用当前值覆盖）")
             : L.T("在当前时刻打一个关键帧（首次打帧会自动补 0 时刻保持键）");
@@ -2378,9 +2389,11 @@ public partial class PvStageWindow
             };
             _inspectorTabs.SelectionChanged += (_, _) =>
             {
-                if (!_buildingInspector && _inspectorTabs?.SelectedItem is TabItem { Header: string header })
+                if (!_buildingInspector && _inspectorTabs?.SelectedItem is TabItem selectedTab
+                    && SectionHeaderText(selectedTab.Header) is { } header)
                     _inspectorTab = header;
             };
+            Grid.SetRow(_inspectorTabs, 1);
             InspectorHost.Children.Add(_inspectorTabs);
         }
 
@@ -2394,11 +2407,67 @@ public partial class PvStageWindow
         };
         _inspectorTabs.Items.Add(new TabItem
         {
-            Header = text,
+            Header = SectionHeader(text),
             Content = scroll,
             Style = TryFindResource("InspectorTabItem") as Style,
         });
         _inspectorTarget = content;
+    }
+
+    private FrameworkElement SectionHeader(string text)
+    {
+        var header = new StackPanel
+        {
+            Margin = new Thickness(0, 8, 0, 0),
+            Tag = text,
+        };
+        header.Children.Add(new TextBlock
+        {
+            Text = text,
+            FontSize = 11.5,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        var divider = new Border
+        {
+            Height = 1,
+            Margin = new Thickness(0, 4, 0, 0),
+            SnapsToDevicePixels = true,
+        };
+        divider.SetResourceReference(Border.BackgroundProperty, "DividerStrokeColorDefaultBrush");
+        header.Children.Add(divider);
+        return header;
+    }
+
+    private static string? SectionHeaderText(object? header) => header switch
+    {
+        string text => text,
+        FrameworkElement element => element.Tag as string,
+        _ => null,
+    };
+
+    private void AddInspectorSummary()
+    {
+        var name = CurrentInspectorTargetName();
+        var summary = ThemeText(
+            string.IsNullOrWhiteSpace(name) ? "效果控件" : "效果控件 · " + name,
+            TextSecondaryKey, 11.5);
+        summary.TextTrimming = TextTrimming.CharacterEllipsis;
+        summary.Margin = new Thickness(0, 0, 0, 6);
+        Grid.SetRow(summary, 0);
+        AddInspector(summary);
+    }
+
+    private string? CurrentInspectorTargetName()
+    {
+        if (_segmentTarget is { } target && SegmentTargetAlive(target))
+        {
+            if (target.Effect is { } node) return EffectName(node);
+            if (target.Shot is { } shot) return TechniqueLabel(target, shot.Preset);
+            if (target.Design is { } design) return TechniqueLabel(target, design.Technique);
+        }
+
+        return _selectedLayer is { } layer ? LayerTitle(layer) : null;
     }
 
     private void AddInspector(UIElement element) => _inspectorTarget.Children.Add(element);

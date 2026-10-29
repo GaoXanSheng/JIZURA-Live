@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-             FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI">
+             FontFamily="Microsoft YaHei UI, Microsoft YaHei, Segoe UI"
+             FontSize="12.5">
     <UserControl.Resources>
         <Style x:Key="NavTab" TargetType="RadioButton">
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
@@ -13,18 +14,23 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="RadioButton">
                         <Grid Background="Transparent">
-                            <ContentPresenter Margin="4,3,4,6" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <Border x:Name="Underline" Height="2" Margin="3,0" VerticalAlignment="Bottom"
-                                    CornerRadius="1" Background="Transparent" />
+                            <Border x:Name="Bg" Background="Transparent" />
+                            <ContentPresenter Margin="4,7" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Border x:Name="Line" Height="2" Margin="8,0" VerticalAlignment="Bottom"
+                                    Background="Transparent" />
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background"
+                                        Value="{DynamicResource ControlFillColorDefaultBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bg" Property="Background"
+                                        Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+                                <Setter TargetName="Line" Property="Background"
+                                        Value="{DynamicResource AccentFillColorDefaultBrush}" />
                                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                                <Setter TargetName="Underline" Property="Background"
-                                        Value="{DynamicResource AccentFillColorSecondaryBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -40,26 +46,30 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <UniformGrid Grid.Row="0" Rows="1" Margin="12,8,12,4">
-                        <RadioButton x:Name="NavMedia" Content="{DynamicResource Loc.PanelXaml.001}" Style="{StaticResource NavTab}"
-                                     GroupName="NavTabs" IsChecked="True" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavStyle" Content="{DynamicResource Loc.PanelXaml.002}" Style="{StaticResource NavTab}"
-                                     GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavTech" Content="{DynamicResource Loc.PanelXaml.003}" Style="{StaticResource NavTab}"
-                                     GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavDirector" Content="{DynamicResource Loc.PanelXaml.004}" Style="{StaticResource NavTab}"
-                                     GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavOutput" Content="{DynamicResource Loc.PanelXaml.005}" Style="{StaticResource NavTab}"
-                                     GroupName="NavTabs" Checked="Nav_Click" />
-                        <RadioButton x:Name="NavSettings" Content="{DynamicResource Loc.PanelXaml.006}" Style="{StaticResource NavTab}"
-                                     GroupName="NavTabs" Checked="Nav_Click" />
-                    </UniformGrid>
+                    <Grid Grid.Row="0">
+                        <Border Height="1" VerticalAlignment="Bottom" IsHitTestVisible="False"
+                                Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                        <UniformGrid Rows="1" Margin="0">
+                            <RadioButton x:Name="NavMedia" Content="{DynamicResource Loc.PanelXaml.001}" Style="{StaticResource NavTab}"
+                                         GroupName="NavTabs" IsChecked="True" Checked="Nav_Click" />
+                            <RadioButton x:Name="NavStyle" Content="{DynamicResource Loc.PanelXaml.002}" Style="{StaticResource NavTab}"
+                                         GroupName="NavTabs" Checked="Nav_Click" />
+                            <RadioButton x:Name="NavTech" Content="{DynamicResource Loc.PanelXaml.003}" Style="{StaticResource NavTab}"
+                                         GroupName="NavTabs" Checked="Nav_Click" />
+                            <RadioButton x:Name="NavDirector" Content="{DynamicResource Loc.PanelXaml.004}" Style="{StaticResource NavTab}"
+                                         GroupName="NavTabs" Checked="Nav_Click" />
+                            <RadioButton x:Name="NavOutput" Content="{DynamicResource Loc.PanelXaml.005}" Style="{StaticResource NavTab}"
+                                         GroupName="NavTabs" Checked="Nav_Click" />
+                            <RadioButton x:Name="NavSettings" Content="{DynamicResource Loc.PanelXaml.006}" Style="{StaticResource NavTab}"
+                                         GroupName="NavTabs" Checked="Nav_Click" />
+                        </UniformGrid>
+                    </Grid>
 
                     <Grid Grid.Row="1">
                         <ScrollViewer x:Name="PanelMedia" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12">
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12">
                             <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.007}" Style="{StaticResource PanelCardTitle}" />
                                         <ui:Button x:Name="BtnCloudMusic" Content="{DynamicResource Loc.PanelXaml.008}" Appearance="Primary"
@@ -69,25 +79,33 @@
                                                 <ui:SymbolIcon Symbol="Cloud24" />
                                             </ui:Button.Icon>
                                         </ui:Button>
+                                        <ui:Button x:Name="BtnImportAudio" Content="导入本地音频…"
+                                                   HorizontalAlignment="Stretch" Margin="0,6,0,0"
+                                                   Click="BtnImportAudio_Click"
+                                                   ToolTip="选择 mp3 / wav / flac / ogg，或直接把文件拖进窗口" />
                                         <TextBlock x:Name="TblAudioName" Margin="0,8,0,0" TextTrimming="CharacterEllipsis"
                                                    Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="{DynamicResource Loc.PanelXaml.010}" />
                                         <TextBlock x:Name="TblAudioMeta" Margin="0,2,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.011}" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.012}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Margin="0,2,0,0" Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.013}" />
                                         <TextBlock x:Name="TblLyricInfo" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.014}" />
+                                        <ui:Button x:Name="BtnImportLyrics" Content="导入歌词文件…"
+                                                   HorizontalAlignment="Stretch" Margin="0,8,0,0"
+                                                   Click="BtnImportLyrics_Click"
+                                                   ToolTip="选择 .lrc / .krc 文件" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <Grid>
                                             <Grid.ColumnDefinitions>
@@ -106,24 +124,24 @@
                                                    Text="{DynamicResource Loc.PanelXaml.018}" />
                                         <StackPanel x:Name="LayersHost" Margin="0,8,0,0" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelStyle" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.019}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock x:Name="TblThemeName" Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.020}" />
                                         <WrapPanel x:Name="ThemeGrid" Margin="0,8,0,0" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.021}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="FxSliderHost" />
@@ -168,9 +186,9 @@
                                             </ComboBox>
                                         </Grid>
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="画面后期" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
@@ -186,18 +204,20 @@
                                         </Grid>
                                         <StackPanel x:Name="FxStackHost" Margin="0,8,0,0" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.033}" Style="{StaticResource PanelCardTitle}" />
                                         <StackPanel x:Name="StyleExtraHost" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.034}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="同一种子得到同一套结果；换种子会得到另一套随机排版与装饰。" />
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -208,22 +228,24 @@
                                                        Margin="6,0,0,0" Click="BtnReseedPreset_Click" />
                                         </Grid>
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelTech" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.036}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="勾选参与生成的效果包；关掉的效果在自动生成时不会被选中。" />
                                         <StackPanel x:Name="TechPackHost" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <Grid>
                                             <TextBlock Text="{DynamicResource Loc.PanelXaml.037}" Style="{StaticResource PanelCardTitle}" Margin="0" />
@@ -236,20 +258,20 @@
                                                     TextChanged="TxtTechFilter_TextChanged" />
                                         <StackPanel x:Name="TechHost" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelDirector" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.039}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.040}" />
-                                        <Grid Margin="0,10,0,0">
+                                        <Grid Margin="0,12,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
@@ -263,9 +285,47 @@
                                                 <ComboBoxItem Tag="epic" Content="{DynamicResource Loc.PanelXaml.044}" />
                                             </ComboBox>
                                         </Grid>
-                                        <TextBlock Margin="0,10,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.045}" />
-                                        <Grid Margin="0,10,2,0">
+                                        <Grid Margin="0,12,2,0">
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.048}" HorizontalAlignment="Left"
+                                                       Style="{StaticResource PanelRowLabel}" />
+                                            <TextBlock x:Name="TblAutoIntensity" Text="0.60" HorizontalAlignment="Right"
+                                                       Style="{StaticResource PanelValue}" />
+                                        </Grid>
+                                        <Slider x:Name="SldAutoIntensity" Margin="0,4,0,0" IsMoveToPointEnabled="True"
+                                                Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
+                                                ValueChanged="SldAutoIntensity_ValueChanged" />
+                                        <ui:Button x:Name="BtnGenerateAuto" Content="{DynamicResource Loc.PanelXaml.049}" Appearance="Primary"
+                                                   HorizontalAlignment="Stretch" Margin="0,16,0,0"
+                                                   Click="BtnGenerateAuto_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="Wand24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+                                        <ui:Button x:Name="BtnRegenerateAuto" Content="{DynamicResource Loc.PanelXaml.050}"
+                                                   HorizontalAlignment="Stretch" Margin="0,8,0,0"
+                                                   Click="BtnRegenerateAuto_Click">
+                                            <ui:Button.Icon>
+                                                <ui:SymbolIcon Symbol="ArrowSync24" />
+                                            </ui:Button.Icon>
+                                        </ui:Button>
+                                        <TextBlock x:Name="TblAutoHint" Margin="0,10,0,0" Style="{StaticResource PanelHint}"
+                                                   Text="{DynamicResource Loc.PanelXaml.051}" />
+                                        <Expander Margin="0,10,0,0" IsExpanded="False"
+                                                  Background="Transparent" BorderThickness="0"
+                                                  Header="{DynamicResource Loc.PanelXaml.104}">
+                                            <TextBlock x:Name="TblAutoReport" Margin="0,2,0,0" TextWrapping="Wrap"
+                                                       Style="{StaticResource PanelHint}"
+                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
+                                        </Expander>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <StackPanel>
+                                        <TextBlock Text="{DynamicResource Loc.PanelXaml.102}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}"
+                                                   Text="{DynamicResource Loc.PanelXaml.103}" />
+                                        <Grid Margin="0,12,2,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
@@ -287,44 +347,42 @@
                                                              Checked="StageToggles_Changed"
                                                              Unchecked="StageToggles_Changed" />
                                         </Grid>
-                                        <Grid Margin="0,10,2,0">
-                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.048}" HorizontalAlignment="Left"
+                                        <Border Height="1" Margin="0,12,0,0" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                                        <Grid Margin="0,12,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.097}" Style="{StaticResource PanelRowLabel}" />
+                                            <ComboBox x:Name="CmbCamSwitch" Grid.Column="1" Width="130"
+                                                      HorizontalAlignment="Right" SelectedIndex="0"
+                                                      SelectionChanged="CmbCamSwitch_SelectionChanged">
+                                                <ComboBoxItem Tag="cut" Content="{DynamicResource Loc.PanelXaml.099}" />
+                                                <ComboBoxItem Tag="blend" Content="{DynamicResource Loc.PanelXaml.100}" />
+                                            </ComboBox>
+                                        </Grid>
+                                        <Grid Margin="0,12,2,0">
+                                            <TextBlock Text="{DynamicResource Loc.PanelXaml.098}" HorizontalAlignment="Left"
                                                        Style="{StaticResource PanelRowLabel}" />
-                                            <TextBlock x:Name="TblAutoIntensity" Text="0.60" HorizontalAlignment="Right"
+                                            <TextBlock x:Name="TblCamBlend" Text="0.22" HorizontalAlignment="Right"
                                                        Style="{StaticResource PanelValue}" />
                                         </Grid>
-                                        <Slider x:Name="SldAutoIntensity" Margin="0,4,0,0" IsMoveToPointEnabled="True"
-                                                Minimum="0" Maximum="1" Value="0.6" SmallChange="0.05" LargeChange="0.1"
-                                                ValueChanged="SldAutoIntensity_ValueChanged" />
-                                        <ui:Button x:Name="BtnGenerateAuto" Content="{DynamicResource Loc.PanelXaml.049}" Appearance="Primary"
-                                                   HorizontalAlignment="Stretch" Margin="0,14,0,0"
-                                                   Click="BtnGenerateAuto_Click">
-                                            <ui:Button.Icon>
-                                                <ui:SymbolIcon Symbol="Wand24" />
-                                            </ui:Button.Icon>
-                                        </ui:Button>
-                                        <ui:Button x:Name="BtnRegenerateAuto" Content="{DynamicResource Loc.PanelXaml.050}"
-                                                   HorizontalAlignment="Stretch" Margin="0,8,0,0"
-                                                   Click="BtnRegenerateAuto_Click">
-                                            <ui:Button.Icon>
-                                                <ui:SymbolIcon Symbol="ArrowSync24" />
-                                            </ui:Button.Icon>
-                                        </ui:Button>
-                                        <TextBlock x:Name="TblAutoHint" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
-                                                   Text="{DynamicResource Loc.PanelXaml.051}" />
-                                        <TextBlock x:Name="TblAutoReport" Margin="0,6,0,0" TextWrapping="Wrap"
-                                                   Style="{StaticResource PanelHint}"
-                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="" />
+                                        <Slider x:Name="SldCamBlend" Margin="0,4,0,0" IsMoveToPointEnabled="True"
+                                                Minimum="0.1" Maximum="0.8" Value="0.22" SmallChange="0.01" LargeChange="0.05"
+                                                ValueChanged="SldCamBlend_ValueChanged" />
+                                        <TextBlock Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                                   TextWrapping="Wrap"
+                                                   Text="{DynamicResource Loc.PanelXaml.101}" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelOutput" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,10,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.052}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid>
@@ -354,9 +412,9 @@
                                         <TextBlock x:Name="TblBroadcastState" Margin="0,6,0,0" Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.PanelXaml.056}" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.057}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -374,19 +432,20 @@
                                                        Content="{DynamicResource Loc.PanelXaml.060}" Click="BtnExportBrowse_Click" />
                                         </Grid>
 
-                                        <Grid Margin="0,8,0,0">
+                                        <Grid Margin="0,10,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{DynamicResource Loc.PanelXaml.061}" Style="{StaticResource PanelRowLabel}" />
-                                            <ui:TextBox x:Name="TxtExportFps" Grid.Column="1" Width="70" Margin="8,0,0,0"
-                                                        Text="60" />
-                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.PanelXaml.062}" Margin="12,0,8,0"
+                                            <ui:TextBox x:Name="TxtExportFps" Grid.Column="1" Margin="8,0,0,0"
+                                                        HorizontalAlignment="Stretch" Text="60" />
+                                            <TextBlock Grid.Column="2" Text="{DynamicResource Loc.PanelXaml.062}" Margin="14,0,8,0"
                                                        Style="{StaticResource PanelRowLabel}" />
-                                            <ui:TextBox x:Name="TxtExportSeconds" Grid.Column="3" Width="90"
+                                            <ui:TextBox x:Name="TxtExportSeconds" Grid.Column="3"
+                                                        HorizontalAlignment="Stretch"
                                                         TextChanged="ExportField_TextChanged" />
                                         </Grid>
 
@@ -415,15 +474,15 @@
                                                        Style="{StaticResource PanelHint}" />
                                         </Grid>
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
 
                         <ScrollViewer x:Name="PanelSettings" VerticalScrollBarVisibility="Auto"
-                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,18,12"
+                                      HorizontalScrollBarVisibility="Disabled" Padding="12,0,12,12"
                                       Visibility="Collapsed">
                             <StackPanel>
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.066}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -471,9 +530,9 @@
                                             </ui:Button.Icon>
                                         </ui:Button>
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.075}" Style="{StaticResource PanelCardTitle}" />
                                         <Grid Margin="0,2,0,0">
@@ -485,6 +544,7 @@
                                             <TextBlock x:Name="TblGpuName" Grid.Column="1" Margin="12,0,0,0"
                                                        HorizontalAlignment="Right" VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                        Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
@@ -533,9 +593,9 @@
                                         <TextBlock x:Name="TblLegacyComposite" Style="{StaticResource PanelHint}"
                                                    TextWrapping="Wrap" Text="" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.082}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -554,9 +614,9 @@
                                                        Margin="6,0,0,0" Click="BtnVtsAuth_Click" />
                                         </Grid>
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="{DynamicResource Loc.PanelXaml.087}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
@@ -597,9 +657,9 @@
                                                 Value="30" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5"
                                                 ValueChanged="SldCenterGap_ValueChanged" />
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
 
-                                <ui:Card Padding="14,12" Margin="0,0,0,8">
+                                <Border Padding="13,11" Margin="0,0,0,1" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
                                         <TextBlock Text="字幕" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
@@ -644,7 +704,7 @@
                                             </ComboBox>
                                         </Grid>
                                     </StackPanel>
-                                </ui:Card>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>

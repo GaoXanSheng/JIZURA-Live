@@ -44,6 +44,14 @@ public sealed class CameraTrack
 
     public bool UserEdited { get; set; }
 
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    [DefaultValue("cut")]
+    public string SwitchMode { get; set; } = "cut";
+
+    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
+    [DefaultValue(0.22)]
+    public double SwitchSeconds { get; set; } = 0.22;
+
     public CameraTrack Clone()
     {
         var copy = new CameraTrack
@@ -53,6 +61,8 @@ public sealed class CameraTrack
             Width = Width,
             Height = Height,
             UserEdited = UserEdited,
+            SwitchMode = SwitchMode,
+            SwitchSeconds = SwitchSeconds,
             Beats = new List<double>(Beats),
             Shots = new List<CameraShot>(Shots.Count),
         };
@@ -187,7 +197,49 @@ public static class CameraDirection
 
         var env = new Env(track, shot, time);
         camera = Clamp(EvaluatePreset(shot.Preset, in env, shot.Params), env);
+        if (TrySwitchBlend(track, shot, time, camera, out var blended)) camera = blended;
         return true;
+    }
+
+    private static bool TrySwitchBlend(CameraTrack track, CameraShot shot, double time, in PvCamState to,
+        out PvCamState state)
+    {
+        state = to;
+        if (!string.Equals(track.SwitchMode, "blend", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var seconds = double.IsFinite(track.SwitchSeconds)
+            ? Math.Clamp(track.SwitchSeconds, 0.1, 2.0)
+            : 0.22;
+        var lt = time - shot.Start;
+        if (lt < 0 || lt >= seconds) return false;
+
+        var index = track.Shots.IndexOf(shot);
+        if (index <= 0) return false;
+        var prev = track.Shots[index - 1];
+        if (prev.End <= prev.Start) return false;
+
+        var prevEnv = new Env(track, prev, prev.End);
+        var from = Clamp(EvaluatePreset(prev.Preset, in prevEnv, prev.Params), prevEnv);
+        state = BlendCam(from, to, Smootherstep(lt / seconds));
+        return true;
+    }
+
+    private static PvCamState BlendCam(PvCamState a, PvCamState b, double t) =>
+        new(
+            Lerp(a.X, b.X, t),
+            Lerp(a.Y, b.Y, t),
+            Math.Exp(Lerp(Math.Log(Math.Max(0.01, a.Scale)), Math.Log(Math.Max(0.01, b.Scale)), t)),
+            Lerp(a.Rotation, b.Rotation, t),
+            Lerp(a.SkewX, b.SkewX, t),
+            a.ScaleX is not null && b.ScaleX is not null ? Lerp(a.ScaleX.Value, b.ScaleX.Value, t) : b.ScaleX,
+            a.ScaleY is not null && b.ScaleY is not null ? Lerp(a.ScaleY.Value, b.ScaleY.Value, t) : b.ScaleY,
+            Lerp(a.BlurSigma, b.BlurSigma, t),
+            Lerp(a.Brighten, b.Brighten, t));
+
+    private static double Smootherstep(double t)
+    {
+        t = Clamp(t);
+        return t * t * t * (t * (t * 6 - 15) + 10);
     }
 
     private static CameraShot? FindShot(List<CameraShot> shots, double time)

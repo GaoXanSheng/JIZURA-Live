@@ -21,7 +21,7 @@ public partial class PvStageWindow
     private DispatcherTimer? _presetDebounce;
 
     private readonly List<(Slider Slider, Func<double> Get)> _presetSliders = new();
-    private readonly List<(Wpf.Ui.Controls.ToggleSwitch Toggle, Func<bool> Get)> _presetToggles = new();
+    private readonly List<(Action<bool> SetChecked, Func<bool> Get)> _presetToggles = new();
     private readonly List<(ComboBox Combo, Func<string> Get)> _presetCombos = new();
     private readonly List<(TextBox Box, Func<string> Get)> _presetColorBoxes = new();
     private readonly Dictionary<string, Border> _themeSwatches = new(StringComparer.Ordinal);
@@ -88,17 +88,17 @@ public partial class PvStageWindow
 
             var swatch = new Border
             {
-                Height = 54,
-                CornerRadius = new CornerRadius(6),
+                Height = 48,
+                CornerRadius = new CornerRadius(0),
                 Background = BrushFromHex(bg),
-                BorderThickness = new Thickness(2),
+                BorderThickness = new Thickness(1),
             };
             swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
 
             var sample = new TextBlock
             {
-                Text = L.T("字面"),
-                FontSize = 19,
+                Text = "Aa",
+                FontSize = 18,
                 FontWeight = FontWeights.Bold,
                 Foreground = BrushFromHex(fg),
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -709,7 +709,7 @@ public partial class PvStageWindow
         Grid.SetColumn(toggle, 1);
         row.Children.Add(toggle);
 
-        _presetToggles.Add((toggle, get));
+        _presetToggles.Add((value => toggle.IsChecked = value, get));
         host.Children.Add(row);
     }
 
@@ -721,8 +721,8 @@ public partial class PvStageWindow
         {
             foreach (var (slider, get) in _presetSliders)
                 slider.Value = Math.Clamp(get() * 100, 0, 100);
-            foreach (var (toggle, get) in _presetToggles)
-                toggle.IsChecked = get();
+            foreach (var (setChecked, get) in _presetToggles)
+                setChecked(get());
 
             if (TxtPresetSeed is not null)
                 TxtPresetSeed.Text = _project.LegacySeed.ToString(CultureInfo.InvariantCulture);
@@ -780,7 +780,12 @@ public partial class PvStageWindow
         Grid.SetColumn(text, 0);
         row.Children.Add(text);
 
-        var toggle = new Wpf.Ui.Controls.ToggleSwitch { IsChecked = get() };
+        var toggle = new CheckBox
+        {
+            IsChecked = get(),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 2, 0),
+        };
         toggle.Checked += (_, _) =>
         {
             if (_presetSync) return;
@@ -796,7 +801,7 @@ public partial class PvStageWindow
         Grid.SetColumn(toggle, 1);
         row.Children.Add(toggle);
 
-        _presetToggles.Add((toggle, get));
+        _presetToggles.Add((value => toggle.IsChecked = value, get));
         TechPackHost.Children.Add(row);
     }
 

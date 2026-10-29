@@ -9,14 +9,15 @@ namespace JizuraLive.App.PvStage.Timeline;
 
 public sealed partial class TimelineView : Control
 {
-    public const double HeaderWidth = 180;
+    public const double HeaderWidth = 200;
 
-    public const double RulerHeight = 26;
+    public const double RulerHeight = 28;
     public const double WaveformHeight = 60;
     public const double LyricHeight = 30;
     public const double DesignMinHeight = 14;
     public const double DesignMaxHeight = 24;
     public const double AutomationHeight = 24;
+    public const double GroupHeight = 24;
     public const double ScrollbarHeight = 14;
     public const double ScrollbarWidth = 12;
 
@@ -25,12 +26,13 @@ public sealed partial class TimelineView : Control
         Ruler,
         Waveform,
         Lyrics,
+        Group,
         Design,
         Automation,
         VtsCue,
     }
 
-    internal readonly record struct Row(RowKind Kind, int Index, double Top, double Height);
+    internal readonly record struct Row(RowKind Kind, int Index, double Top, double Height, string GroupKey = "");
 
     internal readonly record struct SelKey(ParamAddress Address, double Time);
 
@@ -50,6 +52,7 @@ public sealed partial class TimelineView : Control
     internal readonly record struct SelSegment(int Track, string RefId);
 
     private readonly List<SelKey> _selection = new();
+    private bool _snapEnabled = true;
     private SelSegment? _selSegment;
     private readonly Dictionary<ParamAddress, List<TKey>> _gestureBefore = new();
     private readonly List<(ParamAddress Address, int KeyIndex, TKey Orig)> _dragKeys = new();
@@ -61,6 +64,12 @@ public sealed partial class TimelineView : Control
     private double _pixelsPerSecond = 120;
     private bool _fitted;
     private bool _followPlayhead = true;
+    private bool _hoverActive;
+    private double _hoverX;
+    private double _hoverY;
+    private double _hoverRowTop = double.NaN;
+    private double _hoverRowBottom = double.NaN;
+    private bool _hoverRowIsRuler;
     private DragMode _drag;
     private Point _dragOrigin;
     private Point _pressPoint;
@@ -112,6 +121,97 @@ public sealed partial class TimelineView : Control
         InvalidateVisual();
     }
 
+    public void SeekAdjacentKey(int direction)
+    {
+        if (_snap is null || direction == 0) return;
+
+        double current = _snap.PlayheadSeconds;
+        double best = double.NaN;
+        foreach (var curve in _snap.Curves)
+        {
+            foreach (var key in curve.Keys)
+            {
+                double time = key.TimeSeconds;
+                if (direction < 0)
+                {
+                    if (time >= current - TimelineMath.TimeEpsilon) continue;
+                    if (double.IsNaN(best) || time > best) best = time;
+                }
+                else
+                {
+                    if (time <= current + TimelineMath.TimeEpsilon) continue;
+                    if (double.IsNaN(best) || time < best) best = time;
+                }
+            }
+        }
+
+        if (double.IsNaN(best)) return;
+        double max = Math.Max(0, _snap.DurationSeconds);
+        SeekRequested?.Invoke(Math.Clamp(best, 0, max));
+    }
+
+    public bool SnapEnabled
+    {
+        get => _snapEnabled;
+        set
+        {
+            if (_snapEnabled == value) return;
+            _snapEnabled = value;
+            InvalidateVisual();
+        }
+    }
+
+    public bool ToggleSnap()
+    {
+        SnapEnabled = !_snapEnabled;
+        return _snapEnabled;
+    }
+
+    public void SeekAdjacentCut(int direction)
+    {
+        if (_snap is null || direction == 0) return;
+
+        double current = _snap.PlayheadSeconds;
+        double best = double.NaN;
+
+        void Take(double time)
+        {
+            if (direction < 0)
+            {
+                if (time >= current - TimelineMath.TimeEpsilon) return;
+                if (double.IsNaN(best) || time > best) best = time;
+            }
+            else
+            {
+                if (time <= current + TimelineMath.TimeEpsilon) return;
+                if (double.IsNaN(best) || time < best) best = time;
+            }
+        }
+
+        foreach (var clip in _snap.Lyrics)
+        {
+            Take(clip.Start);
+            Take(clip.End);
+        }
+
+        foreach (var track in _snap.DesignTracks)
+        {
+            foreach (var segment in track.Segments)
+            {
+                Take(segment.Start);
+                Take(segment.End);
+            }
+        }
+
+        foreach (var track in _snap.VtsCueTracks)
+        {
+            foreach (var cue in track.Cues) Take(cue.Time);
+        }
+
+        if (double.IsNaN(best)) return;
+        SeekRequested?.Invoke(Math.Clamp(best, 0, Math.Max(0, _snap.DurationSeconds)));
+    }
+
     public void RevealCues()
     {
         if (_snap is null) return;
@@ -126,6 +226,64 @@ public sealed partial class TimelineView : Control
         _viewStart = 0;
         _pixelsPerSecond = 120;
         _followPlayhead = true;
+        InvalidateVisual();
+    }
+
+    private (double Min, double Max) ZoomRange()
+    {
+        double duration = Math.Max(_snap?.DurationSeconds ?? 0, TimelineMath.MinSecondsPerScreen);
+        double min = ContentWidth / duration;
+        double max = ContentWidth / TimelineMath.MinSecondsPerScreen;
+        return (min, Math.Max(min, max));
+    }
+
+    public double ZoomFraction
+    {
+        get
+        {
+            var (min, max) = ZoomRange();
+            if (max <= min || _pixelsPerSecond <= 0) return 0;
+            return Math.Clamp(Math.Log(_pixelsPerSecond / min) / Math.Log(max / min), 0, 1);
+        }
+    }
+
+    public void SetZoomFraction(double fraction)
+    {
+        if (_snap is null || ContentWidth <= 0) return;
+        var (min, max) = ZoomRange();
+        double target = min * Math.Pow(max / min, Math.Clamp(fraction, 0, 1));
+        double anchor = TimeAt(ContentWidth / 2);
+        _pixelsPerSecond = TimelineMath.ClampPixelsPerSecond(target, ContentWidth, _snap.DurationSeconds);
+        _viewStart = TimelineMath.ClampViewStart(
+            TimelineMath.ZoomViewStart(anchor, ContentWidth / 2, _pixelsPerSecond),
+            _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
+        _followPlayhead = false;
+        InvalidateVisual();
+        ZoomChanged?.Invoke(ZoomFraction);
+    }
+
+    public void ZoomIn() => SetZoomFraction(ZoomFraction + 0.08);
+
+    public void ZoomOut() => SetZoomFraction(ZoomFraction - 0.08);
+
+    public void ZoomToFit()
+    {
+        if (_snap is null) return;
+        var (min, _) = ZoomRange();
+        _pixelsPerSecond = Math.Max(1, min);
+        _viewStart = 0;
+        _followPlayhead = true;
+        InvalidateVisual();
+        ZoomChanged?.Invoke(ZoomFraction);
+    }
+
+    public void ScrollToTime(double seconds)
+    {
+        if (_snap is null || ContentWidth <= 0) return;
+        double visible = ContentWidth / Math.Max(1, _pixelsPerSecond);
+        _viewStart = TimelineMath.ClampViewStart(
+            seconds - visible / 2, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
+        _followPlayhead = false;
         InvalidateVisual();
     }
 
@@ -177,10 +335,19 @@ public sealed partial class TimelineView : Control
 
     public event Action? TrackHeightsChanged;
 
+    public event Action<TOwner>? OwnerSelected;
+
+    public event Action<string, bool>? LayerVisibilityToggled;
+
+    public event Action<double>? ZoomChanged;
+
     public Func<double, Task<double?>>? ValuePrompt { get; set; }
 
     public IEnumerable<string> CollapsedTrackIds =>
         _snap?.CollapsedTracks ?? (IEnumerable<string>)Array.Empty<string>();
+
+    public IEnumerable<string> ExpandedGroupIds =>
+        _snap?.ExpandedGroups ?? (IEnumerable<string>)Array.Empty<string>();
 
     public IReadOnlyDictionary<string, double> TrackHeights =>
         _snap?.TrackHeights ?? EmptyHeights;
@@ -199,6 +366,8 @@ public sealed partial class TimelineView : Control
     private const double TrackMaxHeight = 120;
 
     private string _resizeTrackId = "";
+    private string _selectedOwnerKey = "";
+    private readonly Dictionary<string, int> _groupChildCounts = new(StringComparer.Ordinal);
     private double _resizeStartY;
     private double _resizeStartHeight;
     private double _resizeMinHeight;
@@ -286,80 +455,131 @@ public sealed partial class TimelineView : Control
         _trackTop = trackTop;
         double viewH = Math.Max(0, contentHeight - trackTop);
 
-        var populated = new List<int>();
+        var blocks = new List<GroupBlock>();
+        int designRows = 0;
+        _groupChildCounts.Clear();
         if (_snap is not null)
-            for (int i = 0; i < _snap.DesignTracks.Count; i++)
-                if (_snap.DesignTracks[i].Segments.Count > 0
-                    && !Hidden(DesignTrackId(_snap.DesignTracks[i].Kind)))
-                    populated.Add(i);
-
-        double autoDesignH = DesignMaxHeight;
-        if (populated.Count > 0)
-            autoDesignH = Math.Clamp(viewH / populated.Count, DesignMinHeight, DesignMaxHeight);
-
-        var designHeights = new List<double>(populated.Count);
-        double designBlock = 0;
-        foreach (var index in populated)
         {
-            double height = HeightOf(DesignTrackId(_snap!.DesignTracks[index].Kind),
-                autoDesignH, DesignMinHeight, TrackMaxHeight);
-            designHeights.Add(height);
-            designBlock += height;
+            foreach (var owner in _snap.Owners)
+            {
+                var children = ChildEntries(owner, Hidden);
+                _groupChildCounts[owner.Key] = children.Count;
+                bool show = owner.Kind == TOwnerKind.Layer || children.Count > 0;
+                if (!show) continue;
+                if (owner.Kind == TOwnerKind.Design)
+                    designRows += children.Count;
+                blocks.Add(new GroupBlock(owner, children)
+                {
+                    Expanded = IsGroupExpanded(owner.Key),
+                    Hidden = IsGroupHidden(owner.Key),
+                });
+            }
         }
 
-        double automationBlock = 0;
-        if (_snap is not null)
-            for (int i = 0; i < _snap.Curves.Count; i++)
-            {
-                var id = CurveTrackId(_snap.Curves[i].Address);
-                if (Hidden(id)) continue;
-                automationBlock += HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
-            }
+        double groupTotal = blocks.Count * GroupHeight;
+        double designAutoH = designRows > 0
+            ? Math.Clamp(Math.Max(0, viewH - groupTotal) / designRows, DesignMinHeight, DesignMaxHeight)
+            : DesignMaxHeight;
 
-        double cueBlock = 0;
-        if (_snap is not null)
-            for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
-            {
-                var id = VtsTrackId(_snap.VtsCueTracks[i]);
-                if (Hidden(id)) continue;
-                cueBlock += HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
-            }
+        double total = 0;
+        foreach (var block in blocks)
+        {
+            total += GroupHeight;
+            if (!block.Expanded || block.Hidden) continue;
+            foreach (var child in block.Children)
+                total += ChildHeight(child, designAutoH);
+        }
 
         _trackViewHeight = viewH;
-        _trackTotalHeight = designBlock + automationBlock + cueBlock;
+        _trackTotalHeight = total;
         ClampScrollOffset();
 
         double y = trackTop - _scrollOffset;
-
-        for (int i = 0; i < populated.Count; i++)
+        foreach (var block in blocks)
         {
-            double height = designHeights[i];
-            rows.Add(new Row(RowKind.Design, populated[i], y, height));
-            y += height;
+            rows.Add(new Row(RowKind.Group, 0, y, GroupHeight, block.Owner.Key));
+            y += GroupHeight;
+            if (!block.Expanded || block.Hidden) continue;
+            foreach (var child in block.Children)
+            {
+                double height = ChildHeight(child, designAutoH);
+                rows.Add(new Row(child.Kind, child.Index, y, height, block.Owner.Key));
+                y += height;
+            }
         }
-
-        if (_snap is not null)
-            for (int i = 0; i < _snap.Curves.Count; i++)
-            {
-                var id = CurveTrackId(_snap.Curves[i].Address);
-                if (Hidden(id)) continue;
-                double height = HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
-                rows.Add(new Row(RowKind.Automation, i, y, height));
-                y += height;
-            }
-
-        if (_snap is not null)
-            for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
-            {
-                var id = VtsTrackId(_snap.VtsCueTracks[i]);
-                if (Hidden(id)) continue;
-                double height = HeightOf(id, AutomationHeight, TrackMinHeight, TrackMaxHeight);
-                rows.Add(new Row(RowKind.VtsCue, i, y, height));
-                y += height;
-            }
 
         return rows;
     }
+
+    private sealed class GroupBlock
+    {
+        public GroupBlock(TOwner owner, List<ChildEntry> children)
+        {
+            Owner = owner;
+            Children = children;
+            Expanded = false;
+            Hidden = false;
+        }
+
+        public TOwner Owner { get; }
+        public List<ChildEntry> Children { get; }
+        public bool Expanded { get; set; }
+        public bool Hidden { get; set; }
+    }
+
+    private readonly record struct ChildEntry(RowKind Kind, int Index, string TrackId);
+
+    private List<ChildEntry> ChildEntries(TOwner owner, Func<string, bool> hidden)
+    {
+        var list = new List<ChildEntry>();
+        if (_snap is null) return list;
+
+        switch (owner.Kind)
+        {
+            case TOwnerKind.Camera:
+            case TOwnerKind.VtsMove:
+            case TOwnerKind.Layer:
+            case TOwnerKind.Effect:
+                for (int i = 0; i < _snap.Curves.Count; i++)
+                {
+                    var curve = _snap.Curves[i];
+                    if (curve.Address.Kind != owner.AddressKind) continue;
+                    if (!string.Equals(curve.Address.Target, owner.Target, StringComparison.Ordinal)) continue;
+                    var id = CurveTrackId(curve.Address);
+                    if (hidden(id)) continue;
+                    list.Add(new ChildEntry(RowKind.Automation, i, id));
+                }
+                break;
+            case TOwnerKind.Design:
+                for (int i = 0; i < _snap.DesignTracks.Count; i++)
+                {
+                    var track = _snap.DesignTracks[i];
+                    if (track.Segments.Count == 0) continue;
+                    var id = DesignTrackId(track.Kind);
+                    if (hidden(id)) continue;
+                    list.Add(new ChildEntry(RowKind.Design, i, id));
+                }
+                break;
+            case TOwnerKind.VtsCue:
+                for (int i = 0; i < _snap.VtsCueTracks.Count; i++)
+                {
+                    var track = _snap.VtsCueTracks[i];
+                    if (track.Cues.Count == 0) continue;
+                    var id = VtsTrackId(track);
+                    if (hidden(id)) continue;
+                    list.Add(new ChildEntry(RowKind.VtsCue, i, id));
+                }
+                break;
+        }
+
+        return list;
+    }
+
+    private double ChildHeight(in ChildEntry child, double designAutoH) => child.Kind switch
+    {
+        RowKind.Design => HeightOf(child.TrackId, designAutoH, DesignMinHeight, TrackMaxHeight),
+        _ => HeightOf(child.TrackId, AutomationHeight, TrackMinHeight, TrackMaxHeight),
+    };
 
     private double HeightOf(string id, double fallback, double min, double max) =>
         _snap is not null && _snap.TrackHeights.TryGetValue(id, out var height)
@@ -370,11 +590,112 @@ public sealed partial class TimelineView : Control
     {
         RowKind.Waveform => WaveformTrackId,
         RowKind.Lyrics => LyricsTrackId,
+        RowKind.Group => GroupTrackId(row.GroupKey),
         RowKind.Design => DesignTrackId(_snap!.DesignTracks[row.Index].Kind),
         RowKind.Automation => CurveTrackId(_snap!.Curves[row.Index].Address),
         RowKind.VtsCue => VtsTrackId(_snap!.VtsCueTracks[row.Index]),
         _ => "",
     };
+
+    private static string GroupTrackId(string key) => "group:" + key;
+
+    internal TOwner? FindOwner(string key)
+    {
+        if (_snap is null) return null;
+        foreach (var owner in _snap.Owners)
+            if (string.Equals(owner.Key, key, StringComparison.Ordinal)) return owner;
+        return null;
+    }
+
+    internal bool IsGroupExpanded(string key) =>
+        _snap is not null && _snap.ExpandedGroups.Contains(key);
+
+    internal bool IsGroupHidden(string key) =>
+        _snap is not null && _snap.CollapsedTracks.Contains(GroupTrackId(key));
+
+    internal bool HasGroupChildren(string key) => GroupChildCount(key) > 0;
+
+    internal int GroupChildCount(string key)
+    {
+        if (_groupChildCounts.TryGetValue(key, out var count)) return count;
+        if (_snap is null) return 0;
+        var owner = FindOwner(key);
+        return owner is null ? 0 : ChildEntries(owner, id => _snap.CollapsedTracks.Contains(id)).Count;
+    }
+
+    private void ToggleGroupExpanded(in Row row)
+    {
+        if (_snap is null || row.GroupKey.Length == 0) return;
+        if (!_snap.ExpandedGroups.Remove(row.GroupKey))
+            _snap.ExpandedGroups.Add(row.GroupKey);
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    private void ToggleGroupHidden(in Row row)
+    {
+        if (_snap is null || row.GroupKey.Length == 0) return;
+        var owner = FindOwner(row.GroupKey);
+        if (owner is { Kind: TOwnerKind.Layer })
+        {
+            owner.Enabled = !owner.Enabled;
+            LayerVisibilityToggled?.Invoke(owner.Target, owner.Enabled);
+            InvalidateVisual();
+            return;
+        }
+
+        var id = GroupTrackId(row.GroupKey);
+        if (!_snap.CollapsedTracks.Remove(id)) _snap.CollapsedTracks.Add(id);
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    internal bool IsOwnerEnabled(string key)
+    {
+        var owner = FindOwner(key);
+        return owner is null || owner.Enabled;
+    }
+
+    public void ExpandAllGroups()
+    {
+        if (_snap is null) return;
+        foreach (var owner in _snap.Owners) _snap.ExpandedGroups.Add(owner.Key);
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    public void CollapseAllGroups()
+    {
+        if (_snap is null) return;
+        _snap.ExpandedGroups.Clear();
+        BuildRows();
+        ClampScrollOffset();
+        InvalidateVisual();
+        TrackVisibilityChanged?.Invoke();
+    }
+
+    public void SetSelectedOwner(string? key)
+    {
+        _selectedOwnerKey = key ?? "";
+        InvalidateVisual();
+    }
+
+    private void SelectOwner(in Row row)
+    {
+        var owner = FindOwner(row.GroupKey);
+        if (owner is null) return;
+        _selectedOwnerKey = owner.Key;
+        _selection.Clear();
+        ClearSegmentSelection();
+        OwnerSelected?.Invoke(owner);
+        InvalidateVisual();
+    }
 
     private void ToggleTrackHidden(in Row row)
     {
@@ -418,6 +739,11 @@ public sealed partial class TimelineView : Control
 
         if (Hidden(WaveformTrackId)) list.Add((WaveformTrackId, L.T("音频")));
         if (Hidden(LyricsTrackId) && _snap.Lyrics.Count > 0) list.Add((LyricsTrackId, L.T("歌词")));
+        foreach (var owner in _snap.Owners)
+        {
+            var id = GroupTrackId(owner.Key);
+            if (Hidden(id)) list.Add((id, owner.Label));
+        }
         foreach (var track in _snap.DesignTracks)
         {
             if (track.Segments.Count == 0) continue;

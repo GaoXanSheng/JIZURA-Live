@@ -47,7 +47,7 @@
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Margin" Value="0,0,2,0" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
@@ -80,6 +80,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition MinHeight="240" />
             <RowDefinition Height="Auto" MinHeight="6" />
             <RowDefinition x:Name="TimelineRow" Height="300" MinHeight="80" />
@@ -93,7 +94,53 @@
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
 
-        <Border Grid.Row="1" Background="{DynamicResource LayerFillColorDefaultBrush}"
+        <Menu Grid.Row="1" x:Name="MainMenu" Padding="6,0" Height="30"
+              Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
+              BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"
+              FontSize="12.5" VerticalContentAlignment="Center">
+            <MenuItem Header="文件">
+                <MenuItem Header="新建项目" InputGestureText="Ctrl+N" Click="MenuNewProject_Click" />
+                <MenuItem Header="打开项目…" InputGestureText="Ctrl+O" Click="MenuOpenProject_Click" />
+                <MenuItem Header="保存" InputGestureText="Ctrl+S" Click="MenuSave_Click" />
+                <MenuItem Header="另存为…" InputGestureText="Ctrl+Shift+S" Click="MenuSaveAs_Click" />
+                <Separator />
+                <MenuItem Header="导入音频…" InputGestureText="Ctrl+I" Click="MenuImportAudio_Click" />
+                <MenuItem Header="导入歌词…" InputGestureText="Ctrl+L" Click="MenuImportLyrics_Click" />
+                <MenuItem Header="导入图片…" Click="MenuImportImage_Click" />
+                <MenuItem Header="云端音乐…" Click="MenuCloudMusic_Click" />
+                <Separator />
+                <MenuItem Header="导出…" InputGestureText="Ctrl+E" Click="MenuExport_Click" />
+                <Separator />
+                <MenuItem Header="退出" Click="MenuExit_Click" />
+            </MenuItem>
+            <MenuItem Header="编辑">
+                <MenuItem Header="撤销" InputGestureText="Ctrl+Z" Click="MenuUndo_Click" />
+                <MenuItem Header="重做" InputGestureText="Ctrl+Shift+Z" Click="MenuRedo_Click" />
+            </MenuItem>
+            <MenuItem Header="视图">
+                <MenuItem Header="素材" Click="MenuPanel_Click" Tag="0" />
+                <MenuItem Header="画面" Click="MenuPanel_Click" Tag="1" />
+                <MenuItem Header="效果" Click="MenuPanel_Click" Tag="2" />
+                <MenuItem Header="运镜" Click="MenuPanel_Click" Tag="3" />
+                <MenuItem Header="导出" Click="MenuPanel_Click" Tag="4" />
+                <MenuItem Header="设置" Click="MenuPanel_Click" Tag="5" />
+                <Separator />
+                <MenuItem Header="显示 / 隐藏属性栏" Click="MenuToggleInspector_Click" />
+                <Separator />
+                <MenuItem Header="时间轴：全部展开" Click="MenuExpandTimeline_Click" />
+                <MenuItem Header="时间轴：全部折叠" Click="MenuCollapseTimeline_Click" />
+                <MenuItem Header="时间轴：适配窗口" Click="MenuFitTimeline_Click" />
+            </MenuItem>
+            <MenuItem Header="窗口">
+                <MenuItem Header="重置布局" Click="MenuResetLayout_Click" />
+            </MenuItem>
+            <MenuItem Header="帮助">
+                <MenuItem Header="快捷键一览" Click="MenuShortcuts_Click" />
+                <MenuItem Header="关于" Click="MenuAbout_Click" />
+            </MenuItem>
+        </Menu>
+
+        <Border Grid.Row="2" Background="{DynamicResource LayerFillColorDefaultBrush}"
                 BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
             <Grid Margin="10,6">
                 <Grid.ColumnDefinitions>
@@ -107,12 +154,6 @@
                                ToolTip="{DynamicResource Loc.StageXaml.003}">
                         <ui:Button.Icon>
                             <ui:SymbolIcon Symbol="Folder24" />
-                        </ui:Button.Icon>
-                    </ui:Button>
-                    <ui:Button x:Name="BtnImportMenu" Appearance="Transparent" Click="BtnImportMenu_Click" Content="{DynamicResource Loc.StageXaml.004}"
-                               ToolTip="{DynamicResource Loc.StageXaml.005}">
-                        <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="ArrowImport24" />
                         </ui:Button.Icon>
                     </ui:Button>
                     <Border Width="1" Margin="6,4" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
@@ -144,27 +185,46 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320" MinWidth="260" />
+                <ColumnDefinition x:Name="LeftColumn" Width="320" MinWidth="240" />
+                <ColumnDefinition Width="4" />
                 <ColumnDefinition Width="*" MinWidth="320" />
                 <ColumnDefinition x:Name="InspectorSplitterColumn" Width="6" />
-                <ColumnDefinition x:Name="InspectorColumn" Width="360" MinWidth="320" />
+                <ColumnDefinition x:Name="InspectorColumn" Width="380" MinWidth="340" />
             </Grid.ColumnDefinitions>
 
             <panels:LeftPanel x:Name="Left" Grid.Column="0" />
 
-            <Grid Grid.Column="1">
+            <GridSplitter Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch" Background="Transparent"
+                          ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                          Cursor="SizeWE" />
+
+            <Grid Grid.Column="2">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <Grid Grid.Row="0" Background="Black">
-                    <Grid x:Name="StageWorkspace">
-                        <gpu:PresentHost x:Name="Stage" Margin="0" />
+                <DockPanel Grid.Row="0">
+                    <Grid DockPanel.Dock="Top" Height="30" Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
+                        <Border Margin="10,0,0,0" VerticalAlignment="Stretch"
+                                BorderBrush="{DynamicResource AccentFillColorSecondaryBrush}" BorderThickness="0,0,0,2"
+                                HorizontalAlignment="Left">
+                            <TextBlock Text="预览" VerticalAlignment="Center" Margin="0,0,12,0" FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                        </Border>
+                        <TextBlock x:Name="TblCompInfo" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Margin="0,0,12,0" FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
                     </Grid>
-                </Grid>
+                    <Grid Background="Black">
+                        <Grid x:Name="StageWorkspace">
+                            <gpu:PresentHost x:Name="Stage" Margin="0" />
+                        </Grid>
+                    </Grid>
+                </DockPanel>
 
                 <Border Grid.Row="1" Background="{DynamicResource LayerFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
@@ -177,10 +237,22 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:Button x:Name="BtnPrevFrame" Appearance="Transparent" Padding="5"
+                                       Click="BtnPrevFrame_Click" ToolTip="上一帧（←）">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="Previous24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
                             <ui:Button x:Name="BtnPlay" Appearance="Transparent" Click="BtnPlay_Click"
                                        ToolTip="{DynamicResource Loc.StageXaml.013}">
                                 <ui:Button.Icon>
                                     <ui:SymbolIcon x:Name="PlayIcon" Symbol="Play24" />
+                                </ui:Button.Icon>
+                            </ui:Button>
+                            <ui:Button x:Name="BtnNextFrame" Appearance="Transparent" Padding="5"
+                                       Click="BtnNextFrame_Click" ToolTip="下一帧（→）">
+                                <ui:Button.Icon>
+                                    <ui:SymbolIcon Symbol="Next24" />
                                 </ui:Button.Icon>
                             </ui:Button>
                             <TextBlock x:Name="TblTime" Margin="10,0,0,0" VerticalAlignment="Center"
@@ -217,13 +289,13 @@
                 </Border>
             </Grid>
 
-            <Border x:Name="InspectorPane" Grid.Column="3" Background="{DynamicResource LayerFillColorDefaultBrush}"
+            <Border x:Name="InspectorPane" Grid.Column="4" Background="{DynamicResource LayerFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
                 <DockPanel>
-                    <Grid DockPanel.Dock="Top" Margin="14,12,12,4">
+                    <Grid DockPanel.Dock="Top" Margin="14,12,12,6">
                         <TextBlock Text="{DynamicResource Loc.StageXaml.016}" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontSize="11" />
-                        <TextBlock x:Name="TblInspectorTitle" HorizontalAlignment="Right" FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontSize="12" />
+                        <TextBlock x:Name="TblInspectorTitle" HorizontalAlignment="Right" FontSize="12"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </Grid>
@@ -231,16 +303,77 @@
                 </DockPanel>
             </Border>
 
-            <GridSplitter x:Name="InspectorSplitter" Grid.Column="2" Width="6"
+            <GridSplitter x:Name="InspectorSplitter" Grid.Column="3" Width="6"
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                           Background="Transparent" ResizeBehavior="PreviousAndNext"
                           ResizeDirection="Columns" Cursor="SizeWE" />
         </Grid>
 
-        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+        <GridSplitter Grid.Row="4" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
                       Background="{DynamicResource DividerStrokeColorDefaultBrush}"
                       ResizeBehavior="PreviousAndNext" ResizeDirection="Rows" Cursor="SizeNS" />
 
-        <tl:TimelineView x:Name="TheTimeline" Grid.Row="4" />
+        <Border Grid.Row="5" Background="{DynamicResource LayerFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" Height="34" Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Margin="10,0,14,0" VerticalAlignment="Stretch"
+                            BorderBrush="{DynamicResource AccentFillColorSecondaryBrush}" BorderThickness="0,0,0,2">
+                        <TextBlock Text="时间轴" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                    </Border>
+
+                    <TextBlock Grid.Column="1" Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                               TextTrimming="CharacterEllipsis"
+                               Text="拖动片段改时间 · 拖动轨道底边改高度 · 右键更多操作 · Alt 临时关吸附" />
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
+                                Margin="0,0,10,0">
+                        <ui:Button x:Name="BtnTlSnap" Appearance="Primary" Content="吸附" Padding="7,3"
+                                   Click="BtnTlSnap_Click" ToolTip="吸附开关（S）" />
+                        <Border Width="1" Margin="6,7" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                        <ui:Button x:Name="BtnTlExpand" Appearance="Transparent" Padding="5"
+                                   Click="BtnTlExpand_Click" ToolTip="展开全部属性">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="ChevronDown24" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+                        <ui:Button x:Name="BtnTlCollapse" Appearance="Transparent" Padding="5"
+                                   Click="BtnTlCollapse_Click" ToolTip="折叠全部属性">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="ChevronUp24" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+                        <Border Width="1" Margin="6,7" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                        <ui:Button x:Name="BtnTlZoomOut" Appearance="Transparent" Padding="5"
+                                   Click="BtnTlZoomOut_Click" ToolTip="缩小（-）">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="Subtract24" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+                        <Slider x:Name="SldTlZoom" Width="110" Margin="4,0" Minimum="0" Maximum="100"
+                                Value="0" IsMoveToPointEnabled="True" VerticalAlignment="Center"
+                                ValueChanged="SldTlZoom_ValueChanged" />
+                        <ui:Button x:Name="BtnTlZoomIn" Appearance="Transparent" Padding="5"
+                                   Click="BtnTlZoomIn_Click" ToolTip="放大（+）">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="Add24" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+                        <ui:Button x:Name="BtnTlFit" Appearance="Transparent" Content="适配" Padding="7,3"
+                                   Click="BtnTlFit_Click" ToolTip="适配窗口（Shift+/）" />
+                    </StackPanel>
+                </Grid>
+
+                <tl:TimelineView x:Name="TheTimeline" />
+            </DockPanel>
+        </Border>
     </Grid>
 </ui:FluentWindow>

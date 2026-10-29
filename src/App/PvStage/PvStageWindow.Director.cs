@@ -70,6 +70,79 @@ public partial class PvStageWindow
         }
     }
 
+    private bool _syncingCamSwitch;
+
+    private void SyncCameraSwitchControls()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(SyncCameraSwitchControls);
+            return;
+        }
+
+        var track = _project?.CameraTrack;
+        var seconds = track is { SwitchSeconds: > 0 } && double.IsFinite(track.SwitchSeconds)
+            ? Math.Clamp(track.SwitchSeconds, 0.1, 0.8)
+            : 0.22;
+
+        _syncingCamSwitch = true;
+        try
+        {
+            SelectComboTag(CmbCamSwitch, string.Equals(track?.SwitchMode, "blend", StringComparison.OrdinalIgnoreCase)
+                ? "blend"
+                : "cut");
+            SldCamBlend.Value = seconds;
+            if (TblCamBlend is not null) TblCamBlend.Text = seconds.ToString("F2", CultureInfo.InvariantCulture);
+        }
+        finally
+        {
+            _syncingCamSwitch = false;
+        }
+    }
+
+    internal void CmbCamSwitch_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingCamSwitch || _project is null) return;
+        if (CmbCamSwitch.SelectedItem is not ComboBoxItem { Tag: string mode }) return;
+
+        var track = EnsureCameraTrack();
+        if (string.Equals(track.SwitchMode, mode, StringComparison.Ordinal)) return;
+
+        PushUndo();
+        track.SwitchMode = mode;
+        ApplyCameraSwitchChange(mode == "blend"
+            ? L.T("摄像机切换：混合")
+            : L.T("摄像机切换：切断"));
+    }
+
+    internal void SldCamBlend_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (TblCamBlend is not null) TblCamBlend.Text = e.NewValue.ToString("F2", CultureInfo.InvariantCulture);
+        if (_syncingCamSwitch || _project is null) return;
+
+        var track = EnsureCameraTrack();
+        var seconds = Math.Round(Math.Clamp(e.NewValue, 0.1, 0.8), 2);
+        if (Math.Abs(track.SwitchSeconds - seconds) < 1e-4) return;
+
+        track.SwitchSeconds = seconds;
+        ApplyCameraSwitchChange(L.F("摄像机混合 {0:F2}s", seconds));
+    }
+
+    private CameraTrack EnsureCameraTrack()
+    {
+        var track = _project.CameraTrack ??= new CameraTrack();
+        if (!double.IsFinite(track.SwitchSeconds) || track.SwitchSeconds <= 0) track.SwitchSeconds = 0.22;
+        return track;
+    }
+
+    private void ApplyCameraSwitchChange(string status)
+    {
+        _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
+        PublishDirector();
+        _saveError = SaveProjectNow();
+        ShowStatus(status);
+    }
+
     private bool _syncingAuto;
 
     private string SelectedAutoStyle()
@@ -358,6 +431,7 @@ public partial class PvStageWindow
             }
 
             SyncStageToggles();
+            SyncCameraSwitchControls();
             PushUndo();
 
             string mapLine = _beatMap is { } bm

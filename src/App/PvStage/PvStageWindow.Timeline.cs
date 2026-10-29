@@ -71,6 +71,8 @@ public partial class PvStageWindow
             snap.Curves.Add(TrackFor(addr, curve));
         }
 
+        AddVirtualCurves(snap);
+
         foreach (var clip in _lyricClips)
             snap.Lyrics.Add(new TClip
             {
@@ -81,9 +83,13 @@ public partial class PvStageWindow
 
         ExportDesignTracks(snap);
         ExportVtsCueTracks(snap);
+        PopulateOwners(snap);
 
         foreach (var id in _project.EditorLayout?.CollapsedTrackIds ?? new List<string>())
             if (!string.IsNullOrEmpty(id)) snap.CollapsedTracks.Add(id);
+
+        foreach (var id in _project.EditorLayout?.ExpandedGroupIds ?? new List<string>())
+            if (!string.IsNullOrEmpty(id)) snap.ExpandedGroups.Add(id);
 
         foreach (var (id, height) in _project.EditorLayout?.TrackHeights ?? new Dictionary<string, double>())
             if (!string.IsNullOrEmpty(id) && double.IsFinite(height))
@@ -93,11 +99,131 @@ public partial class PvStageWindow
         TheTimeline.SetSnapshot(snap);
     }
 
+    private void PopulateOwners(TSnapshot snap)
+    {
+        snap.Owners.Add(new TOwner
+        {
+            Key = "cam",
+            Label = L.T("整体相机"),
+            Kind = TOwnerKind.Camera,
+            AddressKind = ParamAddressKind.Camera,
+            Target = "",
+        });
+
+        foreach (var layer in _uiLayers)
+        {
+            snap.Owners.Add(new TOwner
+            {
+                Key = "layer:" + layer.Id,
+                Label = _scene.IsCharacterLayer(layer) ? L.T("角色") : LayerTitle(layer),
+                Kind = TOwnerKind.Layer,
+                AddressKind = ParamAddressKind.Layer,
+                Target = layer.Id,
+                Enabled = layer.Enabled,
+            });
+        }
+
+        snap.Owners.Add(new TOwner
+        {
+            Key = "vts",
+            Label = L.T("角色移动"),
+            Kind = TOwnerKind.VtsMove,
+            AddressKind = ParamAddressKind.Vts,
+            Target = "model",
+        });
+
+        foreach (var node in _effects.Nodes)
+        {
+            if (node is null) continue;
+            bool hasCurve = _evaluator.Curves.Keys.Any(a =>
+                a.Kind == ParamAddressKind.Effect
+                && string.Equals(a.Target, node.InstanceId, StringComparison.Ordinal));
+            if (!hasCurve && node.Windows.Count == 0) continue;
+            snap.Owners.Add(new TOwner
+            {
+                Key = "effect:" + node.InstanceId,
+                Label = EffectName(node),
+                Kind = TOwnerKind.Effect,
+                AddressKind = ParamAddressKind.Effect,
+                Target = node.InstanceId,
+            });
+        }
+
+        snap.Owners.Add(new TOwner
+        {
+            Key = "design",
+            Label = L.T("设计轨道"),
+            Kind = TOwnerKind.Design,
+        });
+
+        snap.Owners.Add(new TOwner
+        {
+            Key = "vtscue",
+            Label = L.T("VTS 提示"),
+            Kind = TOwnerKind.VtsCue,
+        });
+    }
+
+    private void Timeline_LayerVisibilityToggled(string layerId, bool enabled)
+    {
+        var layer = _scene.Layers.FirstOrDefault(l =>
+            string.Equals(l.Id, layerId, StringComparison.Ordinal));
+        if (layer is null) return;
+
+        PushUndo();
+        layer.Enabled = enabled;
+        BuildLayerList();
+        PublishDirector();
+        _saveError = SaveProjectNow();
+        TblStatus.Text = enabled ? L.T("图层已显示") : L.T("图层已隐藏");
+    }
+
+    private void Timeline_OwnerSelected(TOwner owner)
+    {
+        switch (owner.Kind)
+        {
+            case TOwnerKind.Layer:
+                var layer = _scene.Layers.FirstOrDefault(l =>
+                    string.Equals(l.Id, owner.Target, StringComparison.Ordinal));
+                if (layer is not null) SelectLayer(layer);
+                break;
+            case TOwnerKind.Effect:
+                var node = _effects.Nodes.FirstOrDefault(n =>
+                    string.Equals(n.InstanceId, owner.Target, StringComparison.Ordinal));
+                if (node is null) break;
+                if (!string.IsNullOrEmpty(node.Target))
+                {
+                    var targetLayer = _scene.Layers.FirstOrDefault(l =>
+                        string.Equals(l.Id, node.Target, StringComparison.Ordinal));
+                    if (targetLayer is not null)
+                    {
+                        _selectedLayer = targetLayer;
+                        SyncStageSelection();
+                        HighlightLayerCards();
+                    }
+                }
+                _segmentTarget = SegmentTarget.Of(node);
+                BuildInspector();
+                break;
+            case TOwnerKind.Camera:
+                SelectLayer(null);
+                break;
+            case TOwnerKind.VtsMove:
+                _selectedLayer = null;
+                SyncStageSelection();
+                HighlightLayerCards();
+                _segmentTarget = null;
+                BuildInspector();
+                break;
+        }
+    }
+
     private void Timeline_TrackVisibilityChanged()
     {
         if (_project is null) return;
         var layout = _project.EditorLayout ??= new EditorLayout();
         layout.CollapsedTrackIds = TheTimeline.CollapsedTrackIds.ToList();
+        layout.ExpandedGroupIds = TheTimeline.ExpandedGroupIds.ToList();
         _saveError = SaveProjectNow();
     }
 
@@ -272,7 +398,14 @@ public partial class PvStageWindow
     private TCurve TrackFor(in ParamAddress addr, FloatCurve? curve)
     {
         var (min, max) = CurveRange(addr, curve);
-        var track = new TCurve { Address = addr, Label = TrackLabel(addr), Min = min, Max = max };
+        var track = new TCurve
+        {
+            Address = addr,
+            Label = TrackLabel(addr),
+            ShortLabel = ShortTrackLabel(addr),
+            Min = min,
+            Max = max,
+        };
         if (ParamRegistry.TryResolve(addr, _effects, _scene, out var spec, out _))
         {
             track.SpecMin = spec.Min;
@@ -284,6 +417,60 @@ public partial class PvStageWindow
             track.Keys.Add(new TKey(key.Time, key.Value, InterpName(key.Mode)));
         return track;
     }
+
+    private void AddVirtualCurves(TSnapshot snap)
+    {
+        var seen = new HashSet<ParamAddress>(snap.Curves.Select(c => c.Address));
+
+        void Add(ParamAddress addr, double baseValue)
+        {
+            if (!seen.Add(addr)) return;
+            if (!ParamRegistry.TryResolve(addr, _effects, _scene, out _, out _)) return;
+            var curve = TrackFor(addr, null);
+            curve.BaseValue = baseValue;
+            snap.Curves.Add(curve);
+        }
+
+        foreach (var layer in _uiLayers)
+        {
+            Add(new ParamAddress(ParamAddressKind.Layer, layer.Id, "offsetX"), layer.OffsetX);
+            Add(new ParamAddress(ParamAddressKind.Layer, layer.Id, "offsetY"), layer.OffsetY);
+            Add(new ParamAddress(ParamAddressKind.Layer, layer.Id, "scale"), layer.Scale);
+            Add(new ParamAddress(ParamAddressKind.Layer, layer.Id, "rotation"), layer.Rotation);
+            Add(new ParamAddress(ParamAddressKind.Layer, layer.Id, "opacity"), layer.Opacity);
+        }
+
+        Add(new ParamAddress(ParamAddressKind.Camera, "", "offsetX"), _scene.Camera.X);
+        Add(new ParamAddress(ParamAddressKind.Camera, "", "offsetY"), _scene.Camera.Y);
+        Add(new ParamAddress(ParamAddressKind.Camera, "", "scale"), _scene.Camera.Scale);
+        Add(new ParamAddress(ParamAddressKind.Camera, "", "rotation"), _scene.Camera.Rotation);
+        var blurAddr = new ParamAddress(ParamAddressKind.Camera, "", "blur");
+        if (!seen.Contains(blurAddr)
+            && ParamRegistry.TryResolve(blurAddr, _effects, _scene, out var blurSpec, out _))
+        {
+            var blur = TrackFor(blurAddr, null);
+            blur.BaseValue = blurSpec.Default;
+            snap.Curves.Add(blur);
+        }
+    }
+
+    private string ShortTrackLabel(ParamAddress addr) => addr.Kind switch
+    {
+        ParamAddressKind.Camera => ParamDisplayName(addr.Param),
+        ParamAddressKind.Vts => addr.Param switch
+        {
+            "x" => L.T("位移X"),
+            "y" => L.T("位移Y"),
+            "size" => L.T("缩放Z"),
+            "rotation" => L.T("旋转"),
+            _ => addr.Param,
+        },
+        ParamAddressKind.Layer => ParamDisplayName(addr.Param),
+        _ => _effects.Nodes.FirstOrDefault(n =>
+                string.Equals(n.InstanceId, addr.Target, StringComparison.Ordinal)) is { } node
+            ? EffectParamLabel(node, addr.Param)
+            : ParamDisplayName(addr.Param),
+    };
 
     private (double Min, double Max) CurveRange(in ParamAddress addr, FloatCurve? curve)
     {
@@ -314,7 +501,7 @@ public partial class PvStageWindow
         if (_snap is null) return;
         var t = _audio.Time;
         var d = _audio.Duration;
-        TheTimeline.SetPlayhead(t, _audio.IsPlaying);
+        TheTimeline.SetPlayhead(t, _audio.IsPlaying || _shuttleActive);
         if (++_inspectorTick >= 3)
         {
             _inspectorTick = 0;
@@ -322,6 +509,8 @@ public partial class PvStageWindow
         }
 
         TblTime.Text = $"{Fmt(t)} / {Fmt(d)}";
+        if (SldTlZoom is not null && !SldTlZoom.IsMouseCaptureWithin)
+            SyncTimelineZoom(TheTimeline.ZoomFraction);
         if (!_draggingTime && d > 0)
         {
             SldTime.Maximum = Math.Max(0.01, d);
@@ -487,6 +676,7 @@ public partial class PvStageWindow
 
     private void Timeline_ScrubStarted()
     {
+        StopShuttle();
         if (!_audio.IsPlaying) return;
         _resumeAfterScrub = true;
         _audio.Pause();
@@ -608,6 +798,7 @@ public partial class PvStageWindow
 
     private void Timeline_SeekRequested(double seconds)
     {
+        StopShuttle();
         _audio.Seek(seconds);
         TickTimeline();
     }

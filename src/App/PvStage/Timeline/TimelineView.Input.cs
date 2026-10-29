@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -20,12 +20,30 @@ public sealed partial class TimelineView
         var p = e.GetPosition(this);
         if (e.ChangedButton == MouseButton.Right)
         {
+            if (RowAt(p.Y) is { Kind: RowKind.Group } groupRow)
+            {
+                OpenGroupMenu(groupRow);
+                return;
+            }
             if (p.X < HeaderWidth && TryOpenTrackMenu(p)) return;
             if (TryOpenLyricClipMenu(p)) return;
             if (TryOpenVtsCueMenu(p)) return;
             if (TryOpenDesignMenu(p)) return;
             if (OpenKeyMenu(p)) return;
             TryOpenTrackMenu(p);
+            return;
+        }
+        if (e.ChangedButton == MouseButton.Middle)
+        {
+            e.Handled = true;
+            _drag = DragMode.Pan;
+            _dragOrigin = p;
+            _hScrollGrab = HorizontalScrollbar(out _, out _, out var mThumb, out var mThumbWidth)
+                           && p.X >= mThumb && p.X <= mThumb + mThumbWidth
+                ? p.X - mThumb
+                : mThumbWidth / 2;
+            CaptureMouse();
+            PanTo(p.X);
             return;
         }
         if (e.ChangedButton != MouseButton.Left) return;
@@ -60,6 +78,33 @@ public sealed partial class TimelineView
         }
 
         if (RowAt(p.Y) is not { } row) return;
+        if (row.Kind == RowKind.Group)
+        {
+            e.Handled = true;
+            if (p.X < HeaderWidth)
+            {
+                if (p.X >= 4 && p.X <= 22 && HasGroupChildren(row.GroupKey))
+                {
+                    ToggleGroupExpanded(row);
+                    return;
+                }
+                if (p.X >= 24 && p.X <= 42)
+                {
+                    ToggleGroupHidden(row);
+                    return;
+                }
+                if (e.ClickCount == 2 && HasGroupChildren(row.GroupKey))
+                {
+                    ToggleGroupExpanded(row);
+                    return;
+                }
+                SelectOwner(row);
+                return;
+            }
+            SelectOwner(row);
+            StartScrub(p.X - HeaderWidth);
+            return;
+        }
         if (EyeAt(p, row))
         {
             e.Handled = true;
@@ -73,6 +118,14 @@ public sealed partial class TimelineView
             StartTrackResize(resizeRow, p);
             return;
         }
+
+        if (p.X < HeaderWidth && row.Kind == RowKind.Automation)
+        {
+            e.Handled = true;
+            SelectOwner(row);
+            return;
+        }
+
         double x = p.X - HeaderWidth;
 
         if (e.ClickCount == 2 && row.Kind == RowKind.Automation)
@@ -108,11 +161,18 @@ public sealed partial class TimelineView
         if (_drag == DragMode.None)
         {
             var hover = e.GetPosition(this);
+            UpdateHover(hover);
             if (hover.X >= RenderSize.Width - ScrollbarWidth
                 && VerticalScrollbar(out var vTop, out var vHeight, out _, out _)
                 && hover.Y >= vTop && hover.Y < vTop + vHeight)
             {
                 Cursor = Cursors.SizeNS;
+                return;
+            }
+            if (RowAt(hover.Y) is { Kind: RowKind.Group } groupRow
+                && hover.X < HeaderWidth && hover.X >= 4 && hover.X <= 42)
+            {
+                Cursor = Cursors.Hand;
                 return;
             }
             if (RowAt(hover.Y) is { } hoverRow && EyeAt(hover, hoverRow))
@@ -177,10 +237,33 @@ public sealed partial class TimelineView
         }
     }
 
+    private void UpdateHover(Point p)
+    {
+        bool sameRow = _hoverActive && p.Y >= _hoverRowTop && p.Y < _hoverRowBottom;
+        bool sameColumn = !_hoverRowIsRuler || (p.X >= _hoverX - 0.5 && p.X <= _hoverX + 0.5);
+        _hoverActive = true;
+        _hoverX = p.X;
+        _hoverY = p.Y;
+        if (!sameRow || !sameColumn) InvalidateVisual();
+    }
+
+    protected override void OnMouseLeave(MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        if (!_hoverActive) return;
+        _hoverActive = false;
+        _hoverRowTop = double.NaN;
+        _hoverRowBottom = double.NaN;
+        _hoverRowIsRuler = false;
+        InvalidateVisual();
+    }
+
     protected override void OnMouseUp(MouseButtonEventArgs e)
     {
         base.OnMouseUp(e);
-        if (e.ChangedButton != MouseButton.Left || _drag == DragMode.None) return;
+        if (e.ChangedButton != MouseButton.Left
+            && !(e.ChangedButton == MouseButton.Middle && _drag == DragMode.Pan)) return;
+        if (_drag == DragMode.None) return;
 
         if (_drag == DragMode.Key)
         {
@@ -219,6 +302,7 @@ public sealed partial class TimelineView
 
         _dragPastThreshold = false;
         if (IsMouseCaptured) ReleaseMouseCapture();
+        UpdateHover(e.GetPosition(this));
         InvalidateVisual();
     }
 
@@ -267,26 +351,34 @@ public sealed partial class TimelineView
         if (_snap is null) return;
         e.Handled = true;
 
-        double x = Math.Max(0, e.GetPosition(this).X - HeaderWidth);
-        if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0
-            || e.GetPosition(this).X >= RenderSize.Width - ScrollbarWidth)
-        {
-            ScrollTracks(-e.Delta / 120.0 * AutomationHeight * 3);
-            return;
-        }
+        var position = e.GetPosition(this);
+        double x = Math.Max(0, position.X - HeaderWidth);
+        var mods = Keyboard.Modifiers;
+        bool onScrollbar = position.X >= RenderSize.Width - ScrollbarWidth;
 
-        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        if ((mods & ModifierKeys.Control) != 0 && !onScrollbar)
         {
             double anchorTime = TimeAt(x);
             double factor = e.Delta > 0 ? 1.25 : 0.8;
             _pixelsPerSecond = TimelineMath.ClampPixelsPerSecond(_pixelsPerSecond * factor, ContentWidth, _snap.DurationSeconds);
             _viewStart = TimelineMath.ZoomViewStart(anchorTime, x, _pixelsPerSecond);
         }
-        else _viewStart -= e.Delta / 120.0 * ContentWidth * 0.15 / _pixelsPerSecond;
+        else if ((mods & (ModifierKeys.Shift | ModifierKeys.Alt)) == 0
+                 && !onScrollbar
+                 && _trackTotalHeight > _trackViewHeight + 0.5)
+        {
+            ScrollTracks(-e.Delta / 120.0 * AutomationHeight * 3);
+            return;
+        }
+        else
+        {
+            _viewStart -= e.Delta / 120.0 * ContentWidth * 0.15 / _pixelsPerSecond;
+        }
 
         _followPlayhead = false;
         _viewStart = TimelineMath.ClampViewStart(_viewStart, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
         InvalidateVisual();
+        ZoomChanged?.Invoke(ZoomFraction);
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -391,7 +483,7 @@ public sealed partial class TimelineView
         if (_dragSegment is not { } seg || _snap is null) return;
 
         double delta = TimeAt(p.X - HeaderWidth) - _segAnchorTime;
-        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        bool snap = _snapEnabled && (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
         double step = TimelineMath.GridStep(_pixelsPerSecond, Fps);
         if (snap)
         {
@@ -513,7 +605,7 @@ public sealed partial class TimelineView
         double contentHeight = ContentHeight;
         foreach (var candidate in BuildRows())
         {
-            if (candidate.Kind == RowKind.Ruler) continue;
+            if (candidate.Kind is RowKind.Ruler or RowKind.Group) continue;
 
             double edge = candidate.Top + candidate.Height;
             bool fixedRow = candidate.Kind is RowKind.Waveform or RowKind.Lyrics;
@@ -578,6 +670,35 @@ public sealed partial class TimelineView
         if (row.Kind == RowKind.Ruler)
             return p.X >= RulerEyeLeft && p.X < HeaderWidth && HiddenTrackEntries().Count > 0;
         return p.X >= 0 && p.X <= EyeHitWidth;
+    }
+
+    private void OpenGroupMenu(Row row)
+    {
+        var owner = FindOwner(row.GroupKey);
+        if (owner is null) return;
+
+        var menu = new ContextMenu { PlacementTarget = this, Placement = PlacementMode.MousePoint };
+        var expand = new MenuItem
+        {
+            Header = IsGroupExpanded(row.GroupKey) ? L.T("折叠属性") : L.T("展开属性"),
+            IsEnabled = HasGroupChildren(row.GroupKey),
+        };
+        expand.Click += (_, _) => ToggleGroupExpanded(row);
+        menu.Items.Add(expand);
+
+        var hide = new MenuItem
+        {
+            Header = IsGroupHidden(row.GroupKey) ? L.T("显示") : L.T("隐藏"),
+        };
+        hide.Click += (_, _) => ToggleGroupHidden(row);
+        menu.Items.Add(hide);
+
+        menu.Items.Add(new Separator());
+        var select = new MenuItem { Header = L.T("选中") };
+        select.Click += (_, _) => SelectOwner(row);
+        menu.Items.Add(select);
+
+        menu.IsOpen = true;
     }
 
     private bool TryOpenTrackMenu(Point p)
@@ -761,7 +882,7 @@ public sealed partial class TimelineView
     {
         if (_snap is null || _dragCue is null) return;
 
-        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        bool snap = _snapEnabled && (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
         double grid = TimelineMath.GridStep(_pixelsPerSecond, Fps);
         double duration = Math.Max(0, _snap.DurationSeconds);
         double minDur = Math.Max(0.1, grid);
@@ -888,7 +1009,7 @@ public sealed partial class TimelineView
     {
         if (_snap is null || _clipIndex < 0 || _clipIndex >= _snap.Lyrics.Count) return;
 
-        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        bool snap = _snapEnabled && (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
         var range = TimelineMath.DragClip(_clipOrigin, _clipEdge,
             TimeAt(p.X - HeaderWidth) - _clipAnchorTime,
             TimelineMath.GridStep(_pixelsPerSecond, Fps), snap);
@@ -979,7 +1100,7 @@ public sealed partial class TimelineView
 
     private void MoveSelectedKeys(Point p)
     {
-        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        bool snap = _snapEnabled && (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
         double grid = TimelineMath.KeyframeStep;
         double dt = TimeAt(p.X - HeaderWidth) - TimeAt(_dragOrigin.X - HeaderWidth);
         double dv = (_dragOrigin.Y - p.Y) * _dragValuePerPixel;
@@ -1052,7 +1173,7 @@ public sealed partial class TimelineView
 
     private void AddKeyAt(TCurve curve, double x)
     {
-        bool snap = (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
+        bool snap = _snapEnabled && (Keyboard.Modifiers & ModifierKeys.Alt) == 0;
         double time = SnapTime(TimeAt(x), TimelineMath.KeyframeStep, snap);
         int existing = TimelineMath.IndexAtTime(curve.Keys, time);
         if (existing >= 0)
@@ -1064,7 +1185,8 @@ public sealed partial class TimelineView
         }
 
         BeginGesture([curve.Address]);
-        double value = TimelineMath.Evaluate(curve.Keys, time, (curve.Min + curve.Max) / 2);
+        double value = curve.BaseValue
+                       ?? TimelineMath.Evaluate(curve.Keys, time, (curve.Min + curve.Max) / 2);
         curve.Keys.Add(new TKey(time, value, "SmoothStep"));
         _selection.Clear();
         _selection.Add(new SelKey(curve.Address, time));

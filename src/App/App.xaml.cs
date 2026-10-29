@@ -26,6 +26,7 @@ public partial class App : Application
 
     private static bool AnotherRealInstanceRunning()
     {
+        if (Environment.GetEnvironmentVariable("JIZURA_PV_ALLOW_MULTI") == "1") return false;
         int self = Environment.ProcessId;
         try
         {

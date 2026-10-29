@@ -97,7 +97,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private PvLayerConfig? _selectedLayer;
 
-    private const double InspectorWidth = 360;
+    private const double InspectorWidth = 380;
     private bool _inspectorCollapsed;
 
     private int _step = -1;
@@ -190,6 +190,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         TheTimeline.VtsCueEdited += Timeline_VtsCueEdited;
         TheTimeline.TrackVisibilityChanged += Timeline_TrackVisibilityChanged;
         TheTimeline.TrackHeightsChanged += Timeline_TrackHeightsChanged;
+        TheTimeline.OwnerSelected += Timeline_OwnerSelected;
+        TheTimeline.LayerVisibilityToggled += Timeline_LayerVisibilityToggled;
+        TheTimeline.ZoomChanged += SyncTimelineZoom;
         TheTimeline.VtsTrackClearRequested += Timeline_VtsTrackClear;
         TheTimeline.CurveClearRequested += Timeline_CurveClear;
         TheTimeline.DesignTrackClearRequested += Timeline_DesignTrackClear;
@@ -199,6 +202,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SyncLyricStylePicker();
         UpdateBroadcastButton();
         SyncStageToggles();
+        SyncCameraSwitchControls();
         SetStep(0);
 
         TblInspectorTitle.Cursor = Cursors.Hand;
@@ -687,11 +691,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             VerticalAlignment = VerticalAlignment.Center,
         }, TextBlock.ForegroundProperty, TextPrimaryKey);
 
-    private static void RestoreCardStroke(Wpf.Ui.Controls.Card card) =>
-        card.SetResourceReference(Control.BorderBrushProperty, CardStrokeKey);
+    private static void RestoreCardStroke(Border card) =>
+        card.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
 
-    private static void MarkCardStroke(Wpf.Ui.Controls.Card card, string themeKey) =>
-        card.SetResourceReference(Control.BorderBrushProperty, themeKey);
+    private static void MarkCardStroke(Border card, string themeKey) =>
+        card.SetResourceReference(Border.BorderBrushProperty, themeKey);
 
     private void BuildLayerList()
     {
@@ -713,13 +717,16 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         LayersHost.Children.Clear();
         foreach (var layer in _uiLayers)
         {
-            var card = new Wpf.Ui.Controls.Card
+            var card = new Border
             {
-                Padding = new Thickness(10, 9, 10, 9),
-                Margin = new Thickness(0, 0, 0, 6),
+                Padding = new Thickness(8, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 1),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(2),
                 AllowDrop = !composite,
                 Cursor = composite ? Cursors.Arrow : Cursors.SizeAll,
             };
+            card.SetResourceReference(Border.BackgroundProperty, CardFillKey);
             card.Tag = layer;
             card.PreviewMouseLeftButtonDown += LayerCard_MouseDown;
             card.PreviewMouseMove += LayerCard_MouseMove;
@@ -728,28 +735,37 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             card.DragLeave += (_, _) => RestoreCardStroke(card);
 
             var body = new Grid();
-            body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            card.Content = body;
+            card.Child = body;
 
             var head = new Grid();
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var name = ThemeText(
                 layer.Kind == PvLayerKind.VisualAsset && !string.IsNullOrWhiteSpace(layer.SpoutSenderName)
                     ? layer.SpoutSenderName!
                     : layer.Name,
-                TextPrimaryKey, 13);
+                TextPrimaryKey, 12);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
-            name.Margin = new Thickness(0, 0, 6, 0);
+            name.VerticalAlignment = VerticalAlignment.Center;
+            name.Margin = new Thickness(0, 0, 8, 0);
             Grid.SetColumn(name, 0);
             head.Children.Add(name);
 
+            var meta = ThemeText(LayerMetaLabel(layer), TextTertiaryKey, 10.5);
+            meta.VerticalAlignment = VerticalAlignment.Center;
+            meta.Margin = new Thickness(0, 0, 8, 0);
+            Grid.SetColumn(meta, 1);
+            head.Children.Add(meta);
+
             var headRight = new StackPanel { Orientation = Orientation.Horizontal };
-            var toggle = new Wpf.Ui.Controls.ToggleSwitch
+            var toggle = new CheckBox
             {
                 IsChecked = layer.Enabled,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0),
                 ToolTip = L.T("显示 / 隐藏本图层"),
             };
             toggle.Checked += (_, _) => layer.Enabled = true;
@@ -766,43 +782,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                     Content = "✕",
                     ToolTip = L.T("删除本图层"),
                 };
-                var idRef = layer.Id;
-                del.Click += (_, _) =>
-                {
-                    _evaluator.RemoveCurvesForTarget(idRef);
-                    bool fxChanged = false;
-                    foreach (var node in _effects.Nodes)
-                    {
-                        if (node is null || !string.Equals(node.Target, idRef, StringComparison.Ordinal)) continue;
-                        node.Target = "";
-                        fxChanged = true;
-                    }
-
-                    if (fxChanged) EffectsChanged();
-                    PublishDirector();
-                    var pipe = _pipe;
-                    if (pipe is not null)
-                    {
-                        pipe.RequestRemove(idRef);
-                        return;
-                    }
-
-                    var index = _scene.Layers.FindIndex(l => l.Id == idRef);
-                    if (index < 0) return;
-                    _scene.Layers = PvPipeline.WithLayerRemovedAt(_scene.Layers, index);
-                    BuildLayerList();
-                };
+                del.Click += (_, _) => DeleteLayer(layer);
                 headRight.Children.Add(del);
             }
 
-            Grid.SetColumn(headRight, 1);
+            Grid.SetColumn(headRight, 2);
             head.Children.Add(headRight);
             body.Children.Add(head);
-
-            var meta = ThemeText(LayerMetaLabel(layer), TextTertiaryKey, 11);
-            meta.Margin = new Thickness(0, 2, 0, 0);
-            Grid.SetRow(meta, 1);
-            body.Children.Add(meta);
 
             LayersHost.Children.Add(card);
         }
@@ -819,6 +805,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         HighlightLayerCards();
         BuildInspector();
+        if (_snap is not null) RefreshTimeline();
     }
 
     private static string LayerKindLabel(PvLayerKind k) => k switch
@@ -856,7 +843,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             && (FindAncestor<RangeBase>(d) is not null
                 || FindAncestor<ButtonBase>(d) is not null
                 || FindAncestor<Wpf.Ui.Controls.ToggleSwitch>(d) is not null)) return;
-        var layer = ((Wpf.Ui.Controls.Card)sender).Tag as PvLayerConfig;
+        var layer = ((Border)sender).Tag as PvLayerConfig;
         if (!ReferenceEquals(layer, _selectedLayer)) SelectLayer(layer);
         _dragStart = e.GetPosition(this);
         _dragLayer = layer;
@@ -883,12 +870,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         }
 
         e.Effects = DragDropEffects.Move;
-        MarkCardStroke((Wpf.Ui.Controls.Card)sender, SelectStrokeKey);
+        MarkCardStroke((Border)sender, SelectStrokeKey);
     }
 
     private void LayerCard_Drop(object sender, DragEventArgs e)
     {
-        var targetCard = (Wpf.Ui.Controls.Card)sender;
+        var targetCard = (Border)sender;
         RestoreCardStroke(targetCard);
         if (!e.Data.GetDataPresent(typeof(PvLayerConfig))) return;
         var source = (PvLayerConfig)e.Data.GetData(typeof(PvLayerConfig));
@@ -1210,6 +1197,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SyncLyricStylePicker();
         SyncPresetControls();
         SyncAutoControls();
+        SyncCameraSwitchControls();
         RefreshMediaPanel();
         UpdateAutoButton();
         TblAutoReport.Text = "";
@@ -1568,10 +1556,18 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
-        if (ctrl && e.Key == Key.S)
+        if (ctrl && e.Key == Key.S && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
         {
             e.Handled = true;
             SaveNow();
+            base.OnPreviewKeyDown(e);
+            return;
+        }
+
+        if (e.Key == Key.F1)
+        {
+            e.Handled = true;
+            MenuShortcuts_Click(this, new RoutedEventArgs());
             base.OnPreviewKeyDown(e);
             return;
         }
@@ -1596,6 +1592,81 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             return;
         }
 
+        var mods = Keyboard.Modifiers;
+        bool plain = mods == ModifierKeys.None || mods == ModifierKeys.Shift;
+        if (plain)
+        {
+            switch (e.Key)
+            {
+                case Key.J:
+                    e.Handled = true;
+                    TransportPlayReverse();
+                    return;
+                case Key.K:
+                    e.Handled = true;
+                    TransportPause();
+                    return;
+                case Key.L:
+                    e.Handled = true;
+                    TransportPlayForward();
+                    return;
+                case Key.Home:
+                    e.Handled = true;
+                    StopShuttle();
+                    _audio.Seek(0);
+                    return;
+                case Key.End:
+                    e.Handled = true;
+                    StopShuttle();
+                    _audio.Seek(Math.Max(0, _audio.Duration));
+                    return;
+                case Key.Up:
+                case Key.Down:
+                    if (ConsumesArrowKeyboard(Keyboard.FocusedElement)) break;
+                    e.Handled = true;
+                    TheTimeline.SeekAdjacentCut(e.Key == Key.Up ? -1 : 1);
+                    return;
+                case Key.S when (mods & ModifierKeys.Shift) == 0:
+                    e.Handled = true;
+                    ToggleSnap();
+                    return;
+                case Key.Z when (mods & ModifierKeys.Shift) != 0:
+                    e.Handled = true;
+                    TheTimeline.ZoomToFit();
+                    return;
+                case Key.PageUp:
+                    e.Handled = true;
+                    TheTimeline.SeekAdjacentKey(-1);
+                    return;
+                case Key.PageDown:
+                    e.Handled = true;
+                    TheTimeline.SeekAdjacentKey(1);
+                    return;
+                case Key.Left:
+                case Key.Right:
+                    if (ConsumesArrowKeyboard(Keyboard.FocusedElement)) break;
+                    e.Handled = true;
+                    SeekFrames((e.Key == Key.Left ? -1 : 1)
+                               * ((mods & ModifierKeys.Shift) != 0 ? 10 : 1));
+                    return;
+                case Key.OemPlus:
+                case Key.Add:
+                    e.Handled = true;
+                    TheTimeline.ZoomIn();
+                    return;
+                case Key.OemMinus:
+                case Key.Subtract:
+                    e.Handled = true;
+                    TheTimeline.ZoomOut();
+                    return;
+                case Key.OemQuestion:
+                    if ((mods & ModifierKeys.Shift) == 0) break;
+                    e.Handled = true;
+                    TheTimeline.ZoomToFit();
+                    return;
+            }
+        }
+
         if (!ctrl)
         {
             base.OnPreviewKeyDown(e);
@@ -1612,15 +1683,70 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 e.Handled = true;
                 UndoRedo(false);
                 break;
+            case Key.Left:
+                e.Handled = true;
+                StopShuttle();
+                _audio.Seek(Math.Clamp(_audio.Time - 1, 0, Math.Max(0, _audio.Duration)));
+                break;
+            case Key.Right:
+                e.Handled = true;
+                StopShuttle();
+                _audio.Seek(Math.Clamp(_audio.Time + 1, 0, Math.Max(0, _audio.Duration)));
+                break;
+            case Key.OemPlus:
+            case Key.Add:
+                e.Handled = true;
+                TheTimeline.ZoomIn();
+                break;
+            case Key.OemMinus:
+            case Key.Subtract:
+                e.Handled = true;
+                TheTimeline.ZoomOut();
+                break;
+            case Key.D0:
+                e.Handled = true;
+                TheTimeline.ZoomToFit();
+                break;
+            case Key.N:
+                e.Handled = true;
+                BtnNewProject_Click(this, new RoutedEventArgs());
+                break;
+            case Key.O:
+                e.Handled = true;
+                BtnOpenProject_Click(this, new RoutedEventArgs());
+                break;
+            case Key.S when (Keyboard.Modifiers & ModifierKeys.Shift) != 0:
+                e.Handled = true;
+                SaveProjectAs();
+                break;
+            case Key.I:
+                e.Handled = true;
+                BtnOpenAudio_Click(this, new RoutedEventArgs());
+                break;
+            case Key.L:
+                e.Handled = true;
+                BtnOpenLyrics_Click(this, new RoutedEventArgs());
+                break;
+            case Key.E:
+                e.Handled = true;
+                MenuExport_Click(this, new RoutedEventArgs());
+                break;
         }
 
         base.OnPreviewKeyDown(e);
     }
 
+    private static bool ConsumesArrowKeyboard(IInputElement? element)
+    {
+        for (var node = element as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is ComboBox or ComboBoxItem or Slider or TabItem) return true;
+        return false;
+    }
+
     private static bool ConsumesSpaceKeyboard(IInputElement? element)
     {
         for (var node = element as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
-            if (node is ButtonBase or ComboBox or ComboBoxItem or ListBoxItem or Slider) return true;
+            if (node is ComboBox or ComboBoxItem) return true;
         return false;
     }
 
@@ -1696,6 +1822,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void TogglePlay()
     {
+        if (_shuttleActive)
+        {
+            StopShuttle();
+            UpdatePlayIcon();
+            return;
+        }
+
         if (!_audio.IsPlaying && _audio.Duration <= 0)
         {
             ShowStatus(L.T("请先导入音频"), 3);
@@ -1707,10 +1840,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         UpdatePlayIcon();
     }
 
-    private void UpdatePlayIcon() =>
-        PlayIcon.Symbol = _audio.IsPlaying
+    private void UpdatePlayIcon()
+    {
+        PlayIcon.Symbol = _audio.IsPlaying || _shuttleActive
             ? Wpf.Ui.Controls.SymbolRegular.Pause24
             : Wpf.Ui.Controls.SymbolRegular.Play24;
+    }
 
     private void SldTime_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
@@ -1784,6 +1919,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         var t = _audio.Time;
         var d = ProjectDuration();
         TblTime.Text = $"{Fmt(t)} / {Fmt(d)}";
+        if (TblCompInfo is not null && _scene is not null)
+            TblCompInfo.Text = $"{_scene.Width} × {_scene.Height} · {_scene.Fps} fps";
         if (!_draggingTime)
         {
             SldTime.Maximum = Math.Max(0.01, d);
@@ -2334,7 +2471,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private void BtnInspector_Click(object sender, RoutedEventArgs e)
     {
         _inspectorCollapsed = !_inspectorCollapsed;
-        InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 320;
+        InspectorColumn.MinWidth = _inspectorCollapsed ? 0 : 340;
         InspectorColumn.Width = new GridLength(_inspectorCollapsed ? 0 : InspectorWidth);
         InspectorPane.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;
         InspectorSplitter.Visibility = _inspectorCollapsed ? Visibility.Collapsed : Visibility.Visible;

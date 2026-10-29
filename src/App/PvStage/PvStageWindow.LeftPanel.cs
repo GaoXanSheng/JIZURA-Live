@@ -57,6 +57,7 @@ public partial class PvStageWindow
     private ComboBox CmbCenterZone => Left.CmbCenterZone;
     private ComboBox CmbSubContent => Left.CmbSubContent;
     private ComboBox CmbSubPos => Left.CmbSubPos;
+    private ComboBox CmbCamSwitch => Left.CmbCamSwitch;
 
     private Wpf.Ui.Controls.ToggleSwitch TglStageCamera => Left.TglStageCamera;
     private Wpf.Ui.Controls.ToggleSwitch TglStageTransitions => Left.TglStageTransitions;
@@ -69,8 +70,10 @@ public partial class PvStageWindow
 
     private Slider SldAutoIntensity => Left.SldAutoIntensity;
     private Slider SldCenterGap => Left.SldCenterGap;
+    private Slider SldCamBlend => Left.SldCamBlend;
 
     private TextBlock TblCenterGap => Left.TblCenterGap;
+    private TextBlock TblCamBlend => Left.TblCamBlend;
 
     private TextBox TxtPresetSeed => Left.TxtPresetSeed;
     private TextBox TxtTechFilter => Left.TxtTechFilter;

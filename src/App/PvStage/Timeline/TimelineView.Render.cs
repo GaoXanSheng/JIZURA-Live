@@ -12,22 +12,29 @@ public sealed partial class TimelineView
     private const double ValuePad = 3;
     private const double KeyRadius = 4;
 
-    private static readonly Brush BgBrush = Solid(0x0A, 0x0A, 0x0D);
-    private static readonly Brush PanelBrush = Solid(0x10, 0x10, 0x15);
-    private static readonly Brush RowBrush = Solid(0x12, 0x12, 0x18);
-    private static readonly Brush RowAltBrush = Solid(0x0D, 0x0D, 0x12);
-    private static readonly Brush HeaderBrush = Solid(0x14, 0x14, 0x1B);
-    private static readonly Brush AccentBrush = Solid(0x5B, 0x8C, 0xFF);
-    private static readonly Brush AccentSoftBrush = Solid(0x2A, 0x3A, 0x66);
-    private static readonly Brush WaveBrush = Solid(0x38, 0xE1, 0xC4);
-    private static readonly Brush FgBrush = Solid(0xEC, 0xEC, 0xF2);
-    private static readonly Brush DimBrush = Solid(0x9A, 0x9A, 0xA8);
-    private static readonly Brush FaintBrush = Solid(0x5E, 0x5E, 0x6C);
+    private static readonly Brush BgBrush = Solid(0x1E, 0x1E, 0x1E);
+    private static readonly Brush PanelBrush = Solid(0x25, 0x25, 0x25);
+    private static readonly Brush RowBrush = Solid(0x23, 0x23, 0x23);
+    private static readonly Brush RowAltBrush = Solid(0x1F, 0x1F, 0x1F);
+    private static readonly Brush HeaderBrush = Solid(0x2A, 0x2A, 0x2A);
+    private static readonly Brush GroupHeaderBrush = Solid(0x30, 0x30, 0x30);
+    private static readonly Brush GroupSelectedBrush = Solid(0x2C, 0x3A, 0x50);
+    private static readonly Brush GroupRowBrush = Solid(0x20, 0x20, 0x20);
+    private static readonly Brush GroupSelectedRowBrush = Solid(0x24, 0x2E, 0x3E);
+    private static readonly Brush SummaryKeyBrush = Solid(0x8A, 0x9A, 0xB0);
+    private static readonly Brush SummarySegmentBrush = Solid(0x44, 0x52, 0x68);
+    private static readonly Brush TwirlBrush = Solid(0xB4, 0xB4, 0xB4);
+    private static readonly Brush AccentBrush = Solid(0x4C, 0x9A, 0xFF);
+    private static readonly Brush AccentSoftBrush = Solid(0x2B, 0x3E, 0x5C);
+    private static readonly Brush WaveBrush = Solid(0x59, 0xC2, 0xA0);
+    private static readonly Brush FgBrush = Solid(0xE6, 0xE6, 0xE6);
+    private static readonly Brush DimBrush = Solid(0x9E, 0x9E, 0x9E);
+    private static readonly Brush FaintBrush = Solid(0x6B, 0x6B, 0x6B);
     private static readonly Brush PlayheadBrush = Solid(0xFF, 0x5F, 0x6E);
     private static readonly Brush ConflictBrush = Solid(0xFF, 0x5F, 0x6E);
-    private static readonly Brush ScrollTrackBrush = Solid(0x28, 0x28, 0x33);
-    private static readonly Brush ScrollThumbBrush = Solid(0xC0, 0x6E, 0x9C, 0xFF);
-    private static readonly Brush ScrollThumbHotBrush = Solid(0xFF, 0x9B, 0xBE, 0xFF);
+    private static readonly Brush ScrollTrackBrush = Solid(0x3A, 0x3A, 0x3A);
+    private static readonly Brush ScrollThumbBrush = Solid(0x9E, 0x9E, 0x9E, 0xFF);
+    private static readonly Brush ScrollThumbHotBrush = Solid(0xC8, 0xC8, 0xC8, 0xFF);
     private static readonly Brush HotkeyCueBrush = Solid(0xE8, 0xB4, 0x4A);
     private static readonly Brush ExpressionCueBrush = Solid(0x5E, 0xD6, 0x9A);
     private static readonly Brush TintCueBrush = Solid(0xE8, 0x6E, 0xC8);
@@ -35,12 +42,14 @@ public sealed partial class TimelineView
     private static readonly Brush ExpressionCueFill = Solid(0x55, 0x5E, 0xD6, 0x9A);
     private static readonly Brush TintCueFill = Solid(0x55, 0xE8, 0x6E, 0xC8);
     private static readonly Brush SectionBrush = Solid(0x14, 0x5B, 0x8C, 0xFF);
-    private static readonly Pen BeatPen = FrozenPen(Solid(0x3A, 0x3A, 0x48), 1);
-    private static readonly Brush EyeBrush = Solid(0x8A, 0x8A, 0x98);
-    private static readonly Pen EyePen = FrozenPen(Solid(0x8A, 0x8A, 0x98), 1);
+    private static readonly Pen BeatPen = FrozenPen(Solid(0x3A, 0x3A, 0x3A), 1);
+    private static readonly Brush EyeBrush = Solid(0x9E, 0x9E, 0x9E);
+    private static readonly Pen EyePen = FrozenPen(Solid(0x9E, 0x9E, 0x9E), 1);
     private static readonly Pen EyeOffPen = FrozenPen(Solid(0xE8, 0xB4, 0x4A), 1);
-    private static readonly Brush TipBrush = Solid(0xE6, 0x17, 0x17, 0x1E);
-    private static readonly Pen LinePen = FrozenPen(Solid(0x23, 0x23, 0x2C), 1);
+    private static readonly Brush TipBrush = Solid(0xE6, 0x24, 0x24, 0x24);
+    private static readonly Brush HoverRowBrush = Solid(0x12, 0xE6, 0xE6, 0xE6);
+    private static readonly Pen HoverLinePen = FrozenPen(DimBrush, 1);
+    private static readonly Pen LinePen = FrozenPen(Solid(0x33, 0x33, 0x33), 1);
     private static readonly Pen SoftPen = FrozenPen(Solid(0x19, 0x19, 0x20), 1);
     private static readonly Pen WavePen = FrozenPen(WaveBrush, 1);
     private static readonly Pen CurvePen = FrozenPen(AccentBrush, 1.4);
@@ -110,12 +119,15 @@ public sealed partial class TimelineView
             if (row.Top >= contentH) break;
             switch (row.Kind)
             {
+                case RowKind.Group: RenderGroup(dc, row); break;
                 case RowKind.Design: RenderDesignTrack(dc, row); break;
                 case RowKind.Automation: RenderAutomation(dc, row); break;
                 case RowKind.VtsCue: RenderVtsCueTrack(dc, row); break;
             }
         }
         dc.Pop();
+
+        RenderHover(dc, rows, contentW, contentH, w);
 
         dc.PushClip(new RectangleGeometry(contentRect));
         RenderPlayhead(dc, contentH);
@@ -134,6 +146,58 @@ public sealed partial class TimelineView
         var thumbBrush = _drag == DragMode.VPan ? ScrollThumbHotBrush : ScrollThumbBrush;
         dc.DrawRoundedRectangle(thumbBrush, null,
             new Rect(w - ScrollbarWidth + 2, thumbTop, ScrollbarWidth - 4, thumbHeight), 4, 4);
+    }
+
+    private void RenderHover(DrawingContext dc, List<Row> rows, double contentW, double contentH, double w)
+    {
+        Row? hover = null;
+        if (_hoverActive && _drag == DragMode.None && _hoverY >= 0 && _hoverY < contentH)
+        {
+            foreach (var candidate in rows)
+            {
+                if (candidate.Top >= contentH) break;
+                if (_hoverY >= candidate.Top && _hoverY < candidate.Top + candidate.Height)
+                {
+                    hover = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (hover is { } row)
+        {
+            _hoverRowTop = row.Top;
+            _hoverRowBottom = row.Top + row.Height;
+            _hoverRowIsRuler = row.Kind == RowKind.Ruler;
+        }
+        else
+        {
+            _hoverRowTop = double.NaN;
+            _hoverRowBottom = double.NaN;
+            _hoverRowIsRuler = false;
+        }
+
+        if (hover is not { } hovered) return;
+
+        dc.PushClip(new RectangleGeometry(new Rect(0, 0, w, contentH)));
+        dc.DrawRectangle(HoverRowBrush, null, new Rect(0, hovered.Top, w, hovered.Height));
+
+        if (hovered.Kind == RowKind.Ruler
+            && _hoverX >= HeaderWidth && _hoverX <= HeaderWidth + contentW)
+        {
+            dc.DrawLine(HoverLinePen, new Point(_hoverX, hovered.Top),
+                new Point(_hoverX, hovered.Top + hovered.Height));
+
+            var label = Text(FormatTime(TimeAt(_hoverX - HeaderWidth)), 10, FgBrush, MonoFont);
+            double left = _hoverX + 5;
+            if (left + label.Width + 8 > HeaderWidth + contentW)
+                left = Math.Max(HeaderWidth, _hoverX - 5 - label.Width - 8);
+            var box = new Rect(left, hovered.Top + 2, label.Width + 8, 16);
+            dc.DrawRoundedRectangle(TipBrush, null, box, 3, 3);
+            dc.DrawText(label, new Point(box.X + 4, box.Y + 1));
+        }
+
+        dc.Pop();
     }
 
     private void RenderRuler(DrawingContext dc, Row row)
@@ -339,7 +403,9 @@ public sealed partial class TimelineView
 
         double top = row.Top + ValuePad;
         double height = row.Height - 2 * ValuePad;
-        double fallback = (curve.Min + curve.Max) / 2;
+        double fallback = curve.Keys.Count == 0 && curve.BaseValue is { } baseValue
+            ? baseValue
+            : (curve.Min + curve.Max) / 2;
 
         dc.PushClip(new RectangleGeometry(new Rect(HeaderWidth, row.Top, w, row.Height)));
 
@@ -457,7 +523,12 @@ public sealed partial class TimelineView
 
     private void RenderHeader(DrawingContext dc, Row row)
     {
-        dc.DrawRectangle(HeaderBrush, null, new Rect(0, row.Top, HeaderWidth, row.Height));
+        bool selected = row.Kind == RowKind.Group
+                        && string.Equals(row.GroupKey, _selectedOwnerKey, StringComparison.Ordinal);
+        var background = row.Kind == RowKind.Group
+            ? (selected ? GroupSelectedBrush : GroupHeaderBrush)
+            : HeaderBrush;
+        dc.DrawRectangle(background, null, new Rect(0, row.Top, HeaderWidth, row.Height));
 
         if (row.Kind == RowKind.Ruler)
         {
@@ -466,6 +537,26 @@ public sealed partial class TimelineView
             dc.DrawText(Text("/ " + FormatTime(_snap?.DurationSeconds ?? 0), 10, FaintBrush, MonoFont),
                 new Point(12 + head.Width, row.Top + 7));
             DrawHiddenTracksIndicator(dc, row);
+        }
+        else if (row.Kind == RowKind.Group)
+        {
+            double cy = row.Top + row.Height / 2;
+            if (HasGroupChildren(row.GroupKey)) DrawTwirl(dc, 13, cy, IsGroupExpanded(row.GroupKey));
+            else DrawLeafMark(dc, 13, cy);
+            var owner = FindOwner(row.GroupKey);
+            bool eyeClosed = owner is { Kind: TOwnerKind.Layer }
+                ? !owner.Enabled
+                : IsGroupHidden(row.GroupKey);
+            DrawEye(dc, row, 32, eyeClosed);
+            dc.PushClip(new RectangleGeometry(new Rect(44, row.Top, HeaderWidth - 52, row.Height)));
+            dc.DrawText(Text(owner?.Label ?? row.GroupKey, 11.5,
+                    selected ? FgBrush : DimBrush),
+                new Point(46, row.Top + (row.Height - 14) / 2));
+            dc.Pop();
+            int childCount = GroupChildCount(row.GroupKey);
+            if (childCount > 0)
+                dc.DrawText(Text(childCount.ToString(CultureInfo.InvariantCulture), 10, FaintBrush, MonoFont),
+                    new Point(HeaderWidth - 22, row.Top + (row.Height - 13) / 2));
         }
         else
         {
@@ -482,7 +573,9 @@ public sealed partial class TimelineView
                         new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.Automation:
-                    dc.DrawText(Text(_snap!.Curves[row.Index].Label, 11, DimBrush),
+                    var curve = _snap!.Curves[row.Index];
+                    var label = string.IsNullOrEmpty(curve.ShortLabel) ? curve.Label : curve.ShortLabel;
+                    dc.DrawText(Text(label, 11, DimBrush),
                         new Point(28, row.Top + (row.Height - 14) / 2));
                     break;
                 case RowKind.VtsCue:
@@ -506,11 +599,116 @@ public sealed partial class TimelineView
         dc.DrawLine(SoftPen, new Point(0, row.Top + row.Height), new Point(HeaderWidth, row.Top + row.Height));
     }
 
+    private void RenderGroup(DrawingContext dc, Row row)
+    {
+        var owner = FindOwner(row.GroupKey);
+        if (owner is null) return;
+
+        bool selected = string.Equals(row.GroupKey, _selectedOwnerKey, StringComparison.Ordinal);
+        dc.DrawRectangle(selected ? GroupSelectedRowBrush : GroupRowBrush, null,
+            new Rect(HeaderWidth, row.Top, ContentWidth, row.Height));
+        dc.DrawLine(SoftPen, new Point(HeaderWidth, row.Top + row.Height),
+            new Point(HeaderWidth + ContentWidth, row.Top + row.Height));
+
+        double cy = row.Top + row.Height / 2;
+        double viewEnd = _viewStart + ContentWidth / _pixelsPerSecond;
+
+        switch (owner.Kind)
+        {
+            case TOwnerKind.Camera:
+            case TOwnerKind.VtsMove:
+            case TOwnerKind.Layer:
+            case TOwnerKind.Effect:
+                for (int i = 0; i < _snap!.Curves.Count; i++)
+                {
+                    var curve = _snap.Curves[i];
+                    if (curve.Address.Kind != owner.AddressKind) continue;
+                    if (!string.Equals(curve.Address.Target, owner.Target, StringComparison.Ordinal)) continue;
+                    foreach (var key in curve.Keys)
+                    {
+                        if (key.TimeSeconds < _viewStart || key.TimeSeconds > viewEnd) continue;
+                        double x = HeaderWidth + TimelineMath.TimeToX(
+                            key.TimeSeconds, _viewStart, _pixelsPerSecond);
+                        dc.DrawRectangle(SummaryKeyBrush, null, new Rect(x - 1, cy - 3, 2, 6));
+                    }
+                }
+                break;
+            case TOwnerKind.Design:
+                for (int i = 0; i < _snap!.DesignTracks.Count; i++)
+                {
+                    var track = _snap.DesignTracks[i];
+                    foreach (var seg in track.Segments)
+                    {
+                        if (seg.End < _viewStart || seg.Start > viewEnd) continue;
+                        double x0 = HeaderWidth + TimelineMath.TimeToX(
+                            Math.Max(seg.Start, _viewStart), _viewStart, _pixelsPerSecond);
+                        double x1 = HeaderWidth + TimelineMath.TimeToX(
+                            Math.Min(seg.End, viewEnd), _viewStart, _pixelsPerSecond);
+                        dc.DrawRoundedRectangle(SummarySegmentBrush, null,
+                            new Rect(x0, cy - 4, Math.Max(2, x1 - x0), 8), 2, 2);
+                    }
+                }
+                break;
+            case TOwnerKind.VtsCue:
+                for (int i = 0; i < _snap!.VtsCueTracks.Count; i++)
+                {
+                    var track = _snap.VtsCueTracks[i];
+                    var brush = CueBrush(track.Kind);
+                    foreach (var cue in track.Cues)
+                    {
+                        if (cue.Time < _viewStart || cue.Time > viewEnd) continue;
+                        double x = HeaderWidth + TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
+                        dc.DrawEllipse(brush, null, new Point(x, cy), 3, 3);
+                    }
+                }
+                break;
+        }
+    }
+
+    private static void DrawTwirl(DrawingContext dc, double x, double y, bool expanded)
+    {
+        var geometry = new StreamGeometry();
+        using (var g = geometry.Open())
+        {
+            if (expanded)
+            {
+                g.BeginFigure(new Point(x - 4, y - 2), true, true);
+                g.LineTo(new Point(x + 4, y - 2), true, false);
+                g.LineTo(new Point(x, y + 3), true, false);
+            }
+            else
+            {
+                g.BeginFigure(new Point(x - 2, y - 4), true, true);
+                g.LineTo(new Point(x + 3, y), true, false);
+                g.LineTo(new Point(x - 2, y + 4), true, false);
+            }
+        }
+        geometry.Freeze();
+        dc.DrawGeometry(TwirlBrush, null, geometry);
+    }
+
     private static void DrawEye(DrawingContext dc, in Row row)
     {
         double cx = 14;
         double cy = row.Top + row.Height / 2;
         dc.DrawEllipse(null, EyePen, new Point(cx, cy), 6, 3.5);
+        dc.DrawEllipse(EyeBrush, null, new Point(cx, cy), 1.6, 1.6);
+    }
+
+    private static void DrawLeafMark(DrawingContext dc, double x, double y)
+    {
+        dc.DrawEllipse(TwirlBrush, null, new Point(x, y), 2, 2);
+    }
+
+    private static void DrawEye(DrawingContext dc, in Row row, double cx, bool closed = false)
+    {
+        double cy = row.Top + row.Height / 2;
+        dc.DrawEllipse(null, closed ? EyeOffPen : EyePen, new Point(cx, cy), 6, 3.5);
+        if (closed)
+        {
+            dc.DrawLine(EyeOffPen, new Point(cx - 6, cy + 3), new Point(cx + 6, cy - 3));
+            return;
+        }
         dc.DrawEllipse(EyeBrush, null, new Point(cx, cy), 1.6, 1.6);
     }
 

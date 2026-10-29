@@ -12,9 +12,13 @@ public sealed class TCurve
 
     public string Label = "";
 
+    public string ShortLabel = "";
+
     public double Min = 0, Max = 1;
 
     public double SpecMin = double.NegativeInfinity, SpecMax = double.PositiveInfinity;
+
+    public double? BaseValue;
 
     public List<TKey> Keys = new();
 }
@@ -63,6 +67,31 @@ public sealed class TVtsCueTrack
 
 public readonly record struct TSection(double Start, double End, string Kind);
 
+public enum TOwnerKind
+{
+    Camera,
+    VtsMove,
+    Layer,
+    Effect,
+    Design,
+    VtsCue,
+}
+
+public sealed class TOwner
+{
+    public string Key = "";
+
+    public string Label = "";
+
+    public TOwnerKind Kind;
+
+    public ParamAddressKind AddressKind;
+
+    public string Target = "";
+
+    public bool Enabled = true;
+}
+
 public sealed class TSnapshot
 {
     public double DurationSeconds;
@@ -73,8 +102,11 @@ public sealed class TSnapshot
     public List<TVtsCueTrack> VtsCueTracks = new();
     public List<double> Beats = new();
     public List<TSection> Sections = new();
+    public List<TOwner> Owners = new();
 
     public HashSet<string> CollapsedTracks = new(StringComparer.Ordinal);
+
+    public HashSet<string> ExpandedGroups = new(StringComparer.Ordinal);
 
     public Dictionary<string, double> TrackHeights = new(StringComparer.Ordinal);
 

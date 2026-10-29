@@ -12,6 +12,10 @@ public static partial class AutoDirector
             Fps = project.Scene is { Fps: > 0 } scene ? scene.Fps : 60,
             BeatLen = plan.BeatLen > 0.05 ? plan.BeatLen : 0.5,
             Beats = new List<double>(plan.Beats),
+            SwitchMode = project.CameraTrack?.SwitchMode ?? "cut",
+            SwitchSeconds = project.CameraTrack is { SwitchSeconds: > 0 } previous
+                ? previous.SwitchSeconds
+                : 0.22,
         };
 
         double duration = plan.Duration > 0.01

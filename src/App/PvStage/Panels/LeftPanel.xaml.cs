@@ -11,6 +11,10 @@ public partial class LeftPanel : UserControl
 
     private void Nav_Click(object sender, RoutedEventArgs e) => Owner?.Nav_Click(sender, e);
 
+    private void BtnImportAudio_Click(object sender, RoutedEventArgs e) => Owner?.BtnOpenAudio_Click(sender, e);
+
+    private void BtnImportLyrics_Click(object sender, RoutedEventArgs e) => Owner?.BtnOpenLyrics_Click(sender, e);
+
     private void BtnCloudMusic_Click(object sender, RoutedEventArgs e) => Owner?.BtnCloudMusic_Click(sender, e);
 
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e) => Owner?.BtnAddLayer_Click(sender, e);
@@ -25,6 +29,12 @@ public partial class LeftPanel : UserControl
 
     private void SldAutoIntensity_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
         Owner?.SldAutoIntensity_ValueChanged(sender, e);
+
+    private void CmbCamSwitch_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        Owner?.CmbCamSwitch_SelectionChanged(sender, e);
+
+    private void SldCamBlend_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
+        Owner?.SldCamBlend_ValueChanged(sender, e);
 
     private void CmbAutoStyle_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         Owner?.CmbAutoStyle_SelectionChanged(sender, e);
