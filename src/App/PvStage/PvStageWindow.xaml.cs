@@ -1998,6 +1998,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             SelectCanvasPreset(_scene.Width, _scene.Height);
             SyncPvRenderOption();
             UpdateVtsUi();
+            RefreshCacheStats();
         }
         finally
         {

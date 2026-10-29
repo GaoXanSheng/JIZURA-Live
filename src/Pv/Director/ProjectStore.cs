@@ -349,8 +349,8 @@ public static class ProjectStore
         {
             Directory.CreateDirectory(AppDirs.AudioCacheDir);
             var source = string.IsNullOrWhiteSpace(project.AudioPath) ? projectPath : project.AudioPath;
-            var ext = Path.GetExtension(source);
-            if (string.IsNullOrWhiteSpace(ext)) ext = ".mp3";
+            var ext = Path.GetExtension(source).ToLowerInvariant();
+            if (ext is not (".mp3" or ".flac" or ".wav" or ".m4a" or ".aac" or ".ogg")) ext = ".mp3";
             var hash = Convert.ToHexString(SHA256.HashData(data))[..12].ToLowerInvariant();
             var cached = Path.Combine(AppDirs.AudioCacheDir, $"pv_audio_{hash}{ext}");
             if (!File.Exists(cached) || new FileInfo(cached).Length != data.Length)

@@ -113,6 +113,10 @@ public partial class LeftPanel : UserControl
     private void TglSpoutTransparent_Changed(object sender, RoutedEventArgs e) =>
         Owner?.TglSpoutTransparent_Changed(sender, e);
 
+    private void BtnClearCache_Click(object sender, RoutedEventArgs e) => Owner?.BtnClearCache_Click(sender, e);
+
+    private void BtnOpenFolder_Click(object sender, RoutedEventArgs e) => Owner?.BtnOpenFolder_Click(sender, e);
+
     private void BtnReseedPreset_Click(object sender, RoutedEventArgs e) => Owner?.BtnReseedPreset_Click(sender, e);
 
     private void CmbHud_SelectionChanged(object sender, SelectionChangedEventArgs e) =>

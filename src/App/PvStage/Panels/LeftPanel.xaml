@@ -628,6 +628,39 @@
                                         </Grid>
                                     </StackPanel>
                                 </Border>
+
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <StackPanel>
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.CacheTitle}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="{DynamicResource Loc.LeftPanel.CacheHint}" />
+                                        <TextBlock x:Name="TblCacheStats" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
+                                                   TextWrapping="Wrap" Text="" />
+                                        <TextBlock x:Name="TblCacheState" Style="{StaticResource PanelHint}"
+                                                   TextWrapping="Wrap" Text="" />
+                                        <Grid Margin="0,10,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:Button x:Name="BtnClearCache" Content="{DynamicResource Loc.LeftPanel.CacheClear}"
+                                                       HorizontalAlignment="Stretch"
+                                                       Click="BtnClearCache_Click">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="Delete24" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                            <ui:Button x:Name="BtnOpenFolder" Grid.Column="1" Margin="6,0,0,0"
+                                                       Content="{DynamicResource Loc.LeftPanel.CacheOpen}"
+                                                       HorizontalAlignment="Stretch"
+                                                       Click="BtnOpenFolder_Click">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="FolderOpen24" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>

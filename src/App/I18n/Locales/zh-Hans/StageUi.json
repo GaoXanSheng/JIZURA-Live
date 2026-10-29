@@ -585,5 +585,12 @@
   "StageUi.Window.Undone": "已撤销",
   "StageUi.Window.UnknownReason": "未知原因",
   "StageUi.Window.WordsEvenSplit": "按字均分",
-  "StageUi.Window.WordsFromFile": "文件自带"
+  "StageUi.Window.WordsFromFile": "文件自带",
+  "StageUi.Settings.CacheStats": "缓存 {0}（音频 {1} · 封面 {2} · 其他 {3}）\n云端 {4} · 日志 {5}",
+  "StageUi.Settings.CacheClearTitle": "清空缓存与日志",
+  "StageUi.Settings.CacheClearConfirm": "确定清空缓存与日志？将删除 {0} 个文件（{1}）。\n正在使用的音频与当前 jizura.log 会保留，工程与配置不受影响。",
+  "StageUi.Settings.CacheCleared": "已删除 {0} 个文件，释放 {1}",
+  "StageUi.Settings.CacheClearFailed": "清空失败：{0}",
+  "StageUi.Settings.CacheEmpty": "缓存与日志已为空",
+  "StageUi.Settings.OpenFolderFailed": "打开文件夹失败：{0}"
 }

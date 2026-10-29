@@ -85,5 +85,9 @@
   "LeftPanel.CameraBlendHint": "播放经过镜头切点时生效；时长越大切换越慢，太短会接近硬切。",
   "LeftPanel.StageOverlayTitle": "舞台叠加",
   "LeftPanel.StageOverlayHint": "控制原版引擎生成的运镜与转场是否作用到画面；镜头切换决定切点处是硬切还是平滑过渡。",
-  "LeftPanel.GenerationInfo": "生成信息"
+  "LeftPanel.GenerationInfo": "生成信息",
+  "LeftPanel.CacheTitle": "缓存与日志",
+  "LeftPanel.CacheHint": "工程内嵌音频、云端封面与运行日志都存放在本地。清空会删除缓存文件和旧日志，正在写入的 jizura.log 与在用的音频会保留。",
+  "LeftPanel.CacheClear": "清空缓存与日志",
+  "LeftPanel.CacheOpen": "打开文件夹"
 }

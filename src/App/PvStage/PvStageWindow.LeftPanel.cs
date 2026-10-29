@@ -37,8 +37,12 @@ public partial class PvStageWindow
     private TextBlock TblPvRender => Left.TblPvRender;
     private TextBlock TblLegacyComposite => Left.TblLegacyComposite;
     private TextBlock TblVtsState => Left.TblVtsState;
+    private TextBlock TblCacheStats => Left.TblCacheStats;
+    private TextBlock TblCacheState => Left.TblCacheState;
     private Wpf.Ui.Controls.Button BtnVtsReconnect => Left.BtnVtsReconnect;
     private Wpf.Ui.Controls.Button BtnVtsAuth => Left.BtnVtsAuth;
+    private Wpf.Ui.Controls.Button BtnClearCache => Left.BtnClearCache;
+    private Wpf.Ui.Controls.Button BtnOpenFolder => Left.BtnOpenFolder;
 
     private ComboBox CmbHud => Left.CmbHud;
     private ComboBox CmbKeyBg => Left.CmbKeyBg;
