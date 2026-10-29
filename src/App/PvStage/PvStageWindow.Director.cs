@@ -24,6 +24,7 @@ public partial class PvStageWindow
 
         _project.LegacyStageCamera = TglStageCamera.IsChecked == true;
         _project.LegacyStageTransitions = TglStageTransitions.IsChecked == true;
+        _scene.CameraAffectsCharacter = TglCameraAffectsCharacter.IsChecked == true;
 
         if (_pipe is not null)
         {
@@ -34,7 +35,8 @@ public partial class PvStageWindow
         PublishDirector();
         SaveProjectNow();
         ShowStatus(L.F("原版引擎叠加：整体运镜 {0}", OnOff(_project.LegacyStageCamera))
-                   + L.F(" · 整体转场 {0}", OnOff(_project.LegacyStageTransitions)));
+                   + L.F(" · 整体转场 {0}", OnOff(_project.LegacyStageTransitions))
+                   + L.F(" · 角色跟随 {0}", OnOff(_scene.CameraAffectsCharacter)));
     }
 
     private static string OnOff(bool on) => on ? L.T("开") : L.T("关");
@@ -63,6 +65,7 @@ public partial class PvStageWindow
         {
             TglStageCamera.IsChecked = _project.LegacyStageCamera;
             TglStageTransitions.IsChecked = _project.LegacyStageTransitions;
+            TglCameraAffectsCharacter.IsChecked = _scene.CameraAffectsCharacter;
         }
         finally
         {

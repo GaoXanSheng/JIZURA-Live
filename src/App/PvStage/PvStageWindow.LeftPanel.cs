@@ -61,6 +61,7 @@ public partial class PvStageWindow
 
     private Wpf.Ui.Controls.ToggleSwitch TglStageCamera => Left.TglStageCamera;
     private Wpf.Ui.Controls.ToggleSwitch TglStageTransitions => Left.TglStageTransitions;
+    private Wpf.Ui.Controls.ToggleSwitch TglCameraAffectsCharacter => Left.TglCameraAffectsCharacter;
     private Wpf.Ui.Controls.ToggleSwitch TglBroadcast => Left.TglBroadcast;
     private Wpf.Ui.Controls.ToggleSwitch TglSpoutTransparent => Left.TglSpoutTransparent;
     private Wpf.Ui.Controls.ToggleSwitch TglVSync => Left.TglVSync;

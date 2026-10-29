@@ -896,14 +896,21 @@ public sealed class PvPipeline : IDisposable
 
             if (ReferenceEquals(layer, character))
             {
-                var cam = frame.Camera;
-                if (_director is not null
-                    && _director.TryLayerCameraAt(PvScene.CharacterLayerId, time, out var layerCam))
-                    cam = CharacterCamera(layer, cam, layerCam);
+                if (_scene.CameraAffectsCharacter)
+                {
+                    state = state with { CameraOverride = frame.Camera };
+                }
                 else
-                    cam = cam with { X = 0, Y = 0 };
+                {
+                    var cam = frame.Camera;
+                    if (_director is not null
+                        && _director.TryLayerCameraAt(PvScene.CharacterLayerId, time, out var layerCam))
+                        cam = CharacterCamera(layer, cam, layerCam);
+                    else
+                        cam = cam with { X = 0, Y = 0 };
 
-                state = state with { CameraOverride = cam };
+                    state = state with { CameraOverride = cam };
+                }
             }
             else if (_director is not null && _director.TryLayerCameraAt(layer.Id, time, out var layerCam))
             {

@@ -45,21 +45,35 @@ public static class PvParallax
 {
     private const double DegToRad = Math.PI / 180.0;
 
+    private static readonly PvParallaxConfig CameraFollow = new()
+    {
+        Depth = 1,
+        Follow = 1,
+        RotationFactor = 1,
+        ScaleFactor = 1,
+        Defocus = 1,
+    };
+
+    public static PvParallaxConfig? OverrideFor(PvScene scene, PvLayerConfig layer) =>
+        scene.CameraAffectsCharacter && scene.IsCharacterLayer(layer) ? CameraFollow : null;
+
     public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, in PvLayerState state,
-        PvCamState cam, double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true)
+        PvCamState cam, double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true,
+        PvParallaxConfig? parallaxOverride = null)
     {
         var cx = cw / 2f;
         var cy = ch / 2f;
+        var px = parallaxOverride ?? layer.Parallax;
 
-        var depth = globalParallax ? Math.Clamp(layer.Parallax.Depth, 0.0, 3.0) : 1.0;
+        var depth = globalParallax ? Math.Clamp(px.Depth, 0.0, 3.0) : 1.0;
         var follow = state.CameraOverride is not null
             ? 1.0
-            : globalParallax ? Math.Clamp(layer.Parallax.Follow ?? layer.Parallax.Depth, 0.0, 3.0) : 1.0;
+            : globalParallax ? Math.Clamp(px.Follow ?? px.Depth, 0.0, 3.0) : 1.0;
         var camUse = state.CameraOverride ?? cam;
-        var rotFactor = globalParallax ? Math.Clamp(layer.Parallax.RotationFactor, 0.0, 2.0) : 1.0;
-        var scaleFactor = globalParallax ? Math.Clamp(layer.Parallax.ScaleFactor, 0.0, 2.0) : 1.0;
+        var rotFactor = globalParallax ? Math.Clamp(px.RotationFactor, 0.0, 2.0) : 1.0;
+        var scaleFactor = globalParallax ? Math.Clamp(px.ScaleFactor, 0.0, 2.0) : 1.0;
 
-        var defocus = Math.Clamp(layer.Parallax.Defocus, 0.0, 3.0);
+        var defocus = Math.Clamp(px.Defocus, 0.0, 3.0);
         var depthBlur = depth <= 0.001 ? 1.0 : 1.0 + Math.Max(0.0, 0.7 - depth) * 2.0;
         var blur = Math.Clamp(camUse.BlurSigma, 0.0, 40.0) * follow * depthBlur * defocus;
 

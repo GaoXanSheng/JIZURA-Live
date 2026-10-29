@@ -496,7 +496,8 @@ public sealed class PvStageRenderer : IDisposable
     {
         var tf = PvParallax.Compute(_designW, _designH, layer, state, Stage.Camera,
             globalParallax: Stage.Scene.GlobalParallaxEnabled,
-            antiBleed: Stage.Scene.AntiBleedGuardEnabled);
+            antiBleed: Stage.Scene.AntiBleedGuardEnabled,
+            parallaxOverride: PvParallax.OverrideFor(Stage.Scene, layer));
         var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
 
         Vector2 Map(float x, float y) => Vector2.Transform(new Vector2(x, y), tf.Matrix);
@@ -514,7 +515,8 @@ public sealed class PvStageRenderer : IDisposable
     {
         var tf = PvParallax.Compute(_designW, _designH, layer, state, Stage.Camera,
             globalParallax: Stage.Scene.GlobalParallaxEnabled,
-            antiBleed: Stage.Scene.AntiBleedGuardEnabled);
+            antiBleed: Stage.Scene.AntiBleedGuardEnabled,
+            parallaxOverride: PvParallax.OverrideFor(Stage.Scene, layer));
         var r = PvStageCompositor.FitRect(image, layer.Cover, _designW, _designH);
         var vts = VtsControl;
         if (vts.Active)

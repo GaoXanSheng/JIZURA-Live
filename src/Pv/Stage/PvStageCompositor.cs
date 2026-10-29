@@ -70,7 +70,8 @@ public sealed class PvStageCompositor
     {
         var tf = PvParallax.Compute(width, height, layer, state, cam,
             globalParallax: scene.GlobalParallaxEnabled,
-            antiBleed: scene.AntiBleedGuardEnabled);
+            antiBleed: scene.AntiBleedGuardEnabled,
+            parallaxOverride: PvParallax.OverrideFor(scene, layer));
 
         var atmos = scene.AmbientBlendEnabled
             ? Math.Clamp(scene.Atmosphere, 0, 1) * PvAmbient.AtmosphereFar(layer.Parallax, scene.GlobalParallaxEnabled)

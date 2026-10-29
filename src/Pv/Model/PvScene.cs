@@ -19,6 +19,8 @@ public sealed class PvScene
 
     public bool GlobalParallaxEnabled { get; set; } = true;
 
+    public bool CameraAffectsCharacter { get; set; }
+
     public PvCameraConfig Camera { get; set; } = new();
 
     private PvFrameState _frame = new();
