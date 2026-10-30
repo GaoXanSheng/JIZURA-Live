@@ -357,9 +357,12 @@ public partial class PvStageWindow
         AddInspector(LayerRow(layer, "rotation", L.T("StageUi.Inspector.Rotation"), 1));
         AddInspector(ConstRow(L.T("StageUi.Inspector.Depth"), 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
-        AddInspector(ConstRow(L.T("StageUi.Inspector.CameraFollow"), 0, 1, 0.01,
-            () => layer.Parallax.Follow ?? layer.Parallax.Depth,
-            v => layer.Parallax.Follow = v));
+        if (_scene.IsCharacterLayer(layer))
+            AddInspector(IndependentCameraRow(layer));
+        else
+            AddInspector(ConstRow(L.T("StageUi.Inspector.CameraFollow"), 0, 1, 0.01,
+                () => layer.Parallax.Follow ?? layer.Parallax.Depth,
+                v => layer.Parallax.Follow = v));
         AddInspector(ConstRow(L.T("StageUi.Inspector.AmbientLight"), 0, 1, 0.02,
             () => layer.VisualBlend.AmbientTintIntensity, v => layer.VisualBlend.AmbientTintIntensity = v));
         AddInspector(ConstRow(L.T("StageUi.Inspector.RimLight"), 0, 1, 0.02,
@@ -381,9 +384,45 @@ public partial class PvStageWindow
         }
 
         if (_scene.IsCharacterLayer(layer))
-            BuildLayerCameraSection(layer);
+        {
+            if (UsesIndependentCameraTrack(layer) && !_scene.CameraAffectsCharacter)
+                BuildCharacterCameraTrackSection(layer);
+            else if (_scene.CameraAffectsCharacter)
+                AddInspector(ThemeText(L.T("StageUi.Inspector.CharacterCameraGlobalForced"),
+                    TextTertiaryKey, 11, wrap: true));
 
+            if (VtsEnabled)
+            {
+                BuildCharacterMoveSection();
+                BuildCharacterExpressionSection();
+                BuildCharacterTintSection();
+            }
+        }
     }
+
+    private FrameworkElement IndependentCameraRow(PvLayerConfig layer)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(BoolRow(L.T("StageUi.Inspector.IndependentCameraTrack"),
+            UsesIndependentCameraTrack(layer), v =>
+            {
+                layer.Parallax.Follow = v ? 0 : 1;
+                PublishDirector();
+                BuildInspector();
+                PushUndo();
+                _saveError = SaveProjectNow();
+            }));
+
+        var hint = ThemeText(L.T("StageUi.Inspector.IndependentCameraHint"),
+            TextTertiaryKey, 11, wrap: true);
+        hint.Margin = new Thickness(0, 4, 0, 0);
+        panel.Children.Add(hint);
+        return panel;
+    }
+
+    private bool UsesIndependentCameraTrack(PvLayerConfig layer) =>
+        _scene.IsCharacterLayer(layer)
+        && (layer.Parallax.Follow ?? layer.Parallax.Depth) < 0.999;
 
     private void SetVtsCharacterSource(PvLayerConfig layer, bool on)
     {
@@ -402,7 +441,7 @@ public partial class PvStageWindow
     private string LayerTrackId(PvLayerConfig layer) =>
         _scene.IsCharacterLayer(layer) ? PvScene.CharacterLayerId : layer.Id;
 
-    private void BuildLayerCameraSection(PvLayerConfig layer)
+    private void BuildCharacterCameraTrackSection(PvLayerConfig layer)
     {
         AddSectionTitle(L.T("StageUi.Inspector.CharacterCameraMove"));
         AddInspector(ThemeText(
@@ -443,10 +482,6 @@ public partial class PvStageWindow
             AddInspector(ThemeText(
                 L.F("StageUi.Inspector.ExistingShotsHint", track.Shots.Count),
                 TextSecondaryKey, 11, wrap: true));
-
-        BuildCharacterMoveSection();
-        BuildCharacterExpressionSection();
-        BuildCharacterTintSection();
     }
 
     private void CopyGlobalCameraToLayer(PvLayerConfig layer)

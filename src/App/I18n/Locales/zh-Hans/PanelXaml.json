@@ -67,6 +67,7 @@
   "LeftPanel.VSync": "垂直同步",
   "LeftPanel.VtsTitle": "VTS 连接",
   "LeftPanel.VtsHint": "通过 VTube Studio 插件 API 驱动皮套位移与缩放。先在 VTS 设置里开启 API（端口 8001）。",
+  "LeftPanel.VtsEnable": "启用 VTS 连接",
   "LeftPanel.VtsDisconnected": "未连接",
   "LeftPanel.VtsReconnect": "重新连接",
   "LeftPanel.VtsAuthorize": "请求授权",

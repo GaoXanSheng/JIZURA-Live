@@ -42,6 +42,7 @@ public partial class PvStageWindow
     private TextBlock? _vtsFramingText;
     private bool _vtsBaseSynced;
     private bool _vtsSaveBasePending;
+    private bool _syncingVtsToggle;
     private readonly HashSet<string> _manualExprOn = new(StringComparer.Ordinal);
     private readonly List<(double Time, VtsCueKind Kind, string Target)> _pendingCueOff = new();
 
@@ -50,10 +51,11 @@ public partial class PvStageWindow
     private static readonly ParamAddress VtsSizeAddr = new(ParamAddressKind.Vts, "model", "size");
     private static readonly ParamAddress VtsRotationAddr = new(ParamAddressKind.Vts, "model", "rotation");
 
+    private bool VtsEnabled => App.SettingsOf()?.VtsEnabled ?? true;
+
     private void InitVts()
     {
         _vts.Changed += () => Dispatcher.BeginInvoke(UpdateVtsUi);
-        _vts.Start();
 
         _vtsTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -64,7 +66,56 @@ public partial class PvStageWindow
             UpdateVtsMove();
             UpdateVtsCues();
         };
-        _vtsTimer.Start();
+
+        if (VtsEnabled)
+        {
+            _vts.Start();
+            _vtsTimer.Start();
+        }
+    }
+
+    internal void TglVtsEnabled_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_syncingVtsToggle) return;
+        var on = TglVtsEnabled.IsChecked == true;
+        var settings = App.SettingsOf();
+        if (settings is not null && settings.VtsEnabled != on)
+        {
+            settings.VtsEnabled = on;
+            settings.Save();
+        }
+
+        ApplyVtsEnabled(on);
+    }
+
+    private void ApplyVtsEnabled(bool on)
+    {
+        if (on)
+        {
+            _vts.Start();
+            _vts.Reconnect();
+            _vtsTimer?.Start();
+        }
+        else
+        {
+            _vtsTimer?.Stop();
+            _vts.Stop();
+            _pipe?.VtsControl = new PvVtsControl(false, 0, 0, 0, 0);
+            _vtsSent = (double.NaN, double.NaN, double.NaN, double.NaN);
+            _vtsWasReady = false;
+            _vtsBaseSynced = false;
+        }
+
+        SyncVtsToggle(on);
+        UpdateVtsUi();
+        BuildInspector();
+    }
+
+    private void SyncVtsToggle(bool on)
+    {
+        _syncingVtsToggle = true;
+        try { TglVtsEnabled.IsChecked = on; }
+        finally { _syncingVtsToggle = false; }
     }
 
     private void UpdateVtsUi()
@@ -76,6 +127,24 @@ public partial class PvStageWindow
         }
 
         if (_project is null) return;
+
+        SyncVtsToggle(VtsEnabled);
+        if (!VtsEnabled)
+        {
+            TblVtsState.Text = L.T("StageUi.Vts.Disabled");
+            BtnVtsReconnect.IsEnabled = false;
+            BtnVtsAuth.IsEnabled = false;
+            if (_vtsFramingText is not null)
+            {
+                _vtsFramingText.Text = "";
+                _vtsFramingText.Visibility = Visibility.Collapsed;
+            }
+
+            return;
+        }
+
+        BtnVtsReconnect.IsEnabled = true;
+        if (_vtsFramingText is not null) _vtsFramingText.Visibility = Visibility.Visible;
 
         var state = _vts.State;
         var text = state switch
@@ -147,12 +216,14 @@ public partial class PvStageWindow
 
     internal void BtnVtsReconnect_Click(object sender, RoutedEventArgs e)
     {
+        if (!VtsEnabled) return;
         _vts.Reconnect();
         UpdateVtsUi();
     }
 
     internal void BtnVtsAuth_Click(object sender, RoutedEventArgs e)
     {
+        if (!VtsEnabled) return;
         _vts.RequestAuth();
         UpdateVtsUi();
     }
@@ -1132,6 +1203,7 @@ public partial class PvStageWindow
 
     private void UpdateVtsCues()
     {
+        if (!VtsEnabled) return;
         if (_project?.VtsCues?.Cues is not { } cues) return;
 
         double t = _audio.Time;
@@ -1210,6 +1282,7 @@ public partial class PvStageWindow
 
     private void UpdateVtsMove()
     {
+        if (!VtsEnabled) return;
         if (_vts.Framing is null) return;
 
         var t = _audio.Time;

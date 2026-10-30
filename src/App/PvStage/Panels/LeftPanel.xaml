@@ -209,6 +209,21 @@
                             <StackPanel>
                                 <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
+                                        <Grid>
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.FxLibraryTitle}" Style="{StaticResource PanelCardTitle}" Margin="0" />
+                                            <TextBlock x:Name="TblTechCount" HorizontalAlignment="Right"
+                                                       VerticalAlignment="Center" FontSize="11"
+                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                        </Grid>
+                                        <ui:TextBox x:Name="TxtTechFilter" Margin="0,6,0,4" FontSize="12"
+                                                    PlaceholderText="{DynamicResource Loc.LeftPanel.FxFilterPlaceholder}"
+                                                    TextChanged="TxtTechFilter_TextChanged" />
+                                        <StackPanel x:Name="TechHost" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <StackPanel>
                                         <TextBlock Text="已应用特效" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
                                                    Text="按列表顺序叠加；目标可选全局或单个图层。点名字在右侧改参数，▶ 定位到特效窗口预览。" />
@@ -222,21 +237,6 @@
                                                        Margin="6,0,0,0" Click="BtnFxAdd_Click" />
                                         </Grid>
                                         <StackPanel x:Name="FxStackHost" Margin="0,8,0,0" />
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                                    <StackPanel>
-                                        <Grid>
-                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.FxLibraryTitle}" Style="{StaticResource PanelCardTitle}" Margin="0" />
-                                            <TextBlock x:Name="TblTechCount" HorizontalAlignment="Right"
-                                                       VerticalAlignment="Center" FontSize="11"
-                                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
-                                        </Grid>
-                                        <ui:TextBox x:Name="TxtTechFilter" Margin="0,6,0,4" FontSize="12"
-                                                    PlaceholderText="{DynamicResource Loc.LeftPanel.FxFilterPlaceholder}"
-                                                    TextChanged="TxtTechFilter_TextChanged" />
-                                        <StackPanel x:Name="TechHost" />
                                     </StackPanel>
                                 </Border>
 
@@ -533,6 +533,17 @@
                                         <TextBlock Text="{DynamicResource Loc.LeftPanel.VtsTitle}" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.LeftPanel.VtsHint}" />
+                                        <Grid Margin="0,10,2,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.VtsEnable}" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglVtsEnabled" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglVtsEnabled_Changed"
+                                                             Unchecked="TglVtsEnabled_Changed" />
+                                        </Grid>
                                         <TextBlock x:Name="TblVtsState" Margin="0,8,0,0" TextWrapping="Wrap"
                                                    Style="{StaticResource PanelHint}" Text="{DynamicResource Loc.LeftPanel.VtsDisconnected}" />
                                         <Grid Margin="0,8,0,0">

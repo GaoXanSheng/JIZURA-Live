@@ -20,6 +20,8 @@ public sealed class Settings
 
     public bool PreviewSubtitles { get; set; }
 
+    public bool VtsEnabled { get; set; } = true;
+
     public double PreviewVolume { get; set; } = 0.8;
     public bool PreviewMuted { get; set; }
 

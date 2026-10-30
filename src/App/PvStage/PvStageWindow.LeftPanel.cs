@@ -39,6 +39,7 @@ public partial class PvStageWindow
     private TextBlock TblVtsState => Left.TblVtsState;
     private TextBlock TblCacheStats => Left.TblCacheStats;
     private TextBlock TblCacheState => Left.TblCacheState;
+    private Wpf.Ui.Controls.ToggleSwitch TglVtsEnabled => Left.TglVtsEnabled;
     private Wpf.Ui.Controls.Button BtnVtsReconnect => Left.BtnVtsReconnect;
     private Wpf.Ui.Controls.Button BtnVtsAuth => Left.BtnVtsAuth;
     private Wpf.Ui.Controls.Button BtnClearCache => Left.BtnClearCache;

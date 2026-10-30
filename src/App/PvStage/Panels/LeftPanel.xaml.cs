@@ -103,6 +103,9 @@ public partial class LeftPanel : UserControl
 
     private void BtnVtsAuth_Click(object sender, RoutedEventArgs e) => Owner?.BtnVtsAuth_Click(sender, e);
 
+    private void TglVtsEnabled_Changed(object sender, RoutedEventArgs e) =>
+        Owner?.TglVtsEnabled_Changed(sender, e);
+
     private void TglCenterFree_Changed(object sender, RoutedEventArgs e) => Owner?.TglCenterFree_Changed(sender, e);
 
     private void CmbCenterZone_SelectionChanged(object sender, SelectionChangedEventArgs e) =>

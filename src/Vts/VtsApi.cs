@@ -56,7 +56,7 @@ public sealed class VtsApi : IDisposable
         "HotkeyTriggeredEvent",
     ];
 
-    private readonly BlockingCollection<Action<Worker>> _commands = new();
+    private BlockingCollection<Action<Worker>> _commands = new();
     private readonly object _driveGate = new();
     private VtsFraming? _pendingDrive;
     private Thread? _worker;
@@ -146,6 +146,8 @@ public sealed class VtsApi : IDisposable
     public void Start()
     {
         if (_worker != null) return;
+        if (_commands.IsAddingCompleted) _commands = new BlockingCollection<Action<Worker>>();
+        _stopping = false;
         _worker = new Thread(WorkerLoop)
         {
             IsBackground = true,
@@ -162,7 +164,7 @@ public sealed class VtsApi : IDisposable
         if (worker is { IsAlive: true } && worker != Thread.CurrentThread)
         {
             using var done = new ManualResetEventSlim();
-            try { _commands.Add(w => { w.ResetTints(); done.Set(); }); }
+            try { _commands.Add(w => { w.ResetDrive(); w.ResetTints(); done.Set(); }); }
             catch (InvalidOperationException) { }
             done.Wait(1000);
         }
@@ -172,6 +174,8 @@ public sealed class VtsApi : IDisposable
         var w = _worker;
         _worker = null;
         if (w is { IsAlive: true } && w != Thread.CurrentThread) w.Join(2000);
+        _state = (int)VtsState.Disconnected;
+        _framing = null;
     }
 
     public void Dispose() => Stop();
@@ -785,6 +789,24 @@ public sealed class VtsApi : IDisposable
                 var path = line[(first + 1)..second].Replace("\\\\", "\\");
                 if (Directory.Exists(path)) yield return path;
             }
+        }
+
+        public void ResetDrive()
+        {
+            _drive = new VtsFraming(0, 0, 0, 0);
+            _lastDrive = null;
+            lock (_api._driveGate) _api._pendingDrive = null;
+            if (_ws == null || _ws.State != WebSocketState.Open) return;
+
+            Send("MoveModelRequest", new JObject
+            {
+                ["timeInSeconds"] = 0.05,
+                ["valuesAreRelativeToModel"] = false,
+                ["positionX"] = Math.Clamp(_manual.X, -1000, 1000),
+                ["positionY"] = Math.Clamp(_manual.Y, -1000, 1000),
+                ["rotation"] = Math.Clamp(_manual.Rotation, -360, 360),
+                ["size"] = _manual.Size,
+            });
         }
 
         public void ResetTints()

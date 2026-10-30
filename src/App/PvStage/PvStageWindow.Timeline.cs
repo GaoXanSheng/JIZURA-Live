@@ -169,7 +169,7 @@ public partial class PvStageWindow
         snap.Owners.Add(new TOwner
         {
             Key = "vtscue",
-            Label = L.T("StageUi.TimelinePanel.VtsCues"),
+            Label = L.T("StageUi.TimelinePanel.VtsEffects"),
             Kind = TOwnerKind.VtsCue,
         });
     }
