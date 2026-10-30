@@ -20,16 +20,18 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
     {
         InitializeComponent();
         Loaded += (_, _) => TxtKeyword.Focus();
+        Closed += (_, _) => _coverLoadVersion++;
     }
 
     public KgSong? SelectedSong { get; private set; }
 
     public string Quality =>
-        (CmbQuality.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? "320";
+        (CmbQuality.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? "128";
 
     public CloudLyricOption? SelectedLyricOption => CmbLyricVersion.SelectedItem as CloudLyricOption;
 
     private int _lyricOptionsVersion;
+    private int _coverLoadVersion;
 
     private sealed class SongRow : INotifyPropertyChanged
     {
@@ -73,6 +75,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
             : Wpf.Ui.Controls.ControlAppearance.Transparent;
         _rows.Clear();
         LstSongs.ItemsSource = null;
+        _coverLoadVersion++;
         TblStatus.Text = L.T("CloudMusic.StatusPrompt");
         ResetDetail();
     }
@@ -107,7 +110,9 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
             _lastKeyword = keyword;
             _page = 1;
             _rows.Clear();
+            _coverLoadVersion++;
         }
+        var coverVersion = _coverLoadVersion;
 
         BtnSearch.IsEnabled = false;
         BtnMore.IsEnabled = false;
@@ -121,7 +126,7 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
             LstSongs.ItemsSource = _rows;
             if (rows.Count == 0) TblStatus.Text = _rows.Count == 0 ? L.T("CloudMusic.NoResults") : L.T("CloudMusic.NoMoreResults");
             else TblStatus.Text = L.F("CloudMusic.ResultPage", _rows.Count, _page);
-            LoadCovers(rows);
+            LoadCovers(rows, coverVersion);
         }
         catch (Exception ex)
         {
@@ -135,13 +140,16 @@ public partial class CloudMusicWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
-    private async void LoadCovers(IReadOnlyList<SongRow> rows)
+    private async void LoadCovers(IReadOnlyList<SongRow> rows, int version)
     {
         foreach (var row in rows)
         {
+            if (version != _coverLoadVersion) return;
             try
             {
-                row.Cover = await CloudMusicService.LoadCoverAsync(row.Song.Cover);
+                var cover = await CloudMusicService.LoadCoverAsync(row.Song.Cover);
+                if (version != _coverLoadVersion) return;
+                row.Cover = cover;
             }
             catch
             {

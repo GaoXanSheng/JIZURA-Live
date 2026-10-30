@@ -71,6 +71,16 @@
 
     <ItemGroup>
       <Resource Include="assets\app.ico" />
+      <None Remove="assets\mono\*.cur" />
+      <None Remove="assets\mono\*.ani" />
+      <Content Include="assets\mono\*.cur">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </Content>
+      <Content Include="assets\mono\*.ani">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </Content>
       <ApplicationDefinition Include="src\App\App.xaml" />
       <EmbeddedResource Include="src\App\I18n\Locales\**\*.json" />
       <Compile Remove="tools\**" />

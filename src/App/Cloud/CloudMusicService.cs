@@ -79,7 +79,7 @@ public static class CloudMusicService
         return options;
     }
 
-    public static async Task<CloudLoadedSong> LoadAsync(KgSong song, string quality = "320",
+    public static async Task<CloudLoadedSong> LoadAsync(KgSong song, string quality = "128",
         CloudLyricOption? lyricOption = null,
         Action<string>? progress = null, CancellationToken ct = default)
     {
@@ -88,7 +88,7 @@ public static class CloudMusicService
         KgUrlResponse urlResponse = source == Netease
             ? await ServerContext.Netease.GetUrlAsync(song.Id, quality)
             : await ServerContext.KuGou.GetUrlAsync(song.Hash, song.AlbumId, song.AlbumAudioId,
-                int.TryParse(quality, out var kgQuality) ? kgQuality : 320);
+                int.TryParse(quality, out var kgQuality) ? kgQuality : 128);
         if (!urlResponse.Ok || string.IsNullOrWhiteSpace(urlResponse.Url))
             throw new CloudMusicException(urlResponse.Error ?? L.T("StageUi.Media.NoPlayableUrl"));
 
@@ -99,40 +99,13 @@ public static class CloudMusicService
         var audioPath = await DownloadAsync(urlResponse.Url, fileName, ct);
 
         progress?.Invoke(L.T("StageUi.Media.FetchingLyrics"));
-        var lrc = "";
+        string? lrc = null;
         var note = L.T("StageUi.Media.LyricsNotFound");
         try
         {
-            var lyric = source == Netease
-                ? await ServerContext.Netease.GetLyricAsync(song.Id)
-                : await ServerContext.KuGou.GetLyricAsync(song.Hash, lyricOption?.Id, lyricOption?.AccessKey,
-                    song.AlbumId);
-            if (lyric.Ok && !string.IsNullOrWhiteSpace(lyric.Content))
-            {
-                if (source == Netease)
-                {
-                    var trans = lyricOption?.Trans == true && !string.IsNullOrWhiteSpace(lyric.Trans)
-                        ? Krc.B64Text(lyric.Trans!)
-                        : null;
-                    var roma = lyricOption?.Roma == true && !string.IsNullOrWhiteSpace(lyric.Roma)
-                        ? Krc.B64Text(lyric.Roma!)
-                        : null;
-                    var baseLrc = Krc.B64Text(lyric.Content);
-                    lrc = trans is null && roma is null
-                        ? baseLrc
-                        : Krc.MergeVariantLrc(baseLrc, trans, roma);
-                }
-                else if (string.Equals(lyric.Fmt, "krc", StringComparison.OrdinalIgnoreCase))
-                {
-                    lrc = Krc.KrcToLrc(Krc.Decrypt(Convert.FromBase64String(lyric.Content)), false, false);
-                }
-                else
-                {
-                    lrc = Krc.B64Text(lyric.Content);
-                }
-
+            lrc = await LoadLyricsAsync(song, lyricOption);
+            if (lrc is not null)
                 note = string.IsNullOrWhiteSpace(lrc) ? L.T("StageUi.Media.LyricsEmpty") : L.T("StageUi.Media.LyricsFilled");
-            }
         }
         catch (Exception ex)
         {
@@ -140,8 +113,39 @@ public static class CloudMusicService
             note = L.T("StageUi.Media.LyricsFetchFailed");
         }
 
-        return new CloudLoadedSong(audioPath, fileName, lrc, note);
+        return new CloudLoadedSong(audioPath, fileName, lrc ?? "", note);
     }
+
+    public static async Task<string?> LoadLyricsAsync(KgSong song, CloudLyricOption? lyricOption = null)
+    {
+        var source = string.IsNullOrWhiteSpace(song.Source) ? Kugou : song.Source;
+        var lyric = source == Netease
+            ? await ServerContext.Netease.GetLyricAsync(song.Id)
+            : await ServerContext.KuGou.GetLyricAsync(song.Hash, lyricOption?.Id, lyricOption?.AccessKey,
+                song.AlbumId);
+        if (!lyric.Ok || string.IsNullOrWhiteSpace(lyric.Content)) return null;
+
+        if (source == Netease)
+        {
+            var trans = lyricOption?.Trans == true && !string.IsNullOrWhiteSpace(lyric.Trans)
+                ? Krc.B64Text(lyric.Trans!)
+                : null;
+            var roma = lyricOption?.Roma == true && !string.IsNullOrWhiteSpace(lyric.Roma)
+                ? Krc.B64Text(lyric.Roma!)
+                : null;
+            var baseLrc = Krc.B64Text(lyric.Content);
+            return trans is null && roma is null
+                ? baseLrc
+                : Krc.MergeVariantLrc(baseLrc, trans, roma);
+        }
+
+        return string.Equals(lyric.Fmt, "krc", StringComparison.OrdinalIgnoreCase)
+            ? Krc.KrcToLrc(Krc.Decrypt(Convert.FromBase64String(lyric.Content)), true, true)
+            : Krc.B64Text(lyric.Content);
+    }
+
+    private static readonly Dictionary<string, BitmapSource> CoverCache = new(StringComparer.Ordinal);
+    private static readonly object CoverCacheGate = new();
 
     public static async Task<BitmapSource?> LoadCoverAsync(string? url)
     {
@@ -152,6 +156,9 @@ public static class CloudMusicService
         Directory.CreateDirectory(dir);
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url)))[..16].ToLowerInvariant();
         var file = Path.Combine(dir, key);
+
+        lock (CoverCacheGate)
+            if (CoverCache.TryGetValue(file, out var cached)) return cached;
 
         byte[] data;
         if (File.Exists(file) && new FileInfo(file).Length > 0)
@@ -164,6 +171,18 @@ public static class CloudMusicService
             if (data.Length > 0) await File.WriteAllBytesAsync(file, data);
         }
 
+        var bitmap = await Task.Run(() => DecodeCover(data));
+        lock (CoverCacheGate)
+        {
+            if (CoverCache.Count >= 128) CoverCache.Clear();
+            CoverCache[file] = bitmap;
+        }
+
+        return bitmap;
+    }
+
+    private static BitmapSource DecodeCover(byte[] data)
+    {
         using var stream = new MemoryStream(data);
         var bitmap = new BitmapImage();
         bitmap.BeginInit();

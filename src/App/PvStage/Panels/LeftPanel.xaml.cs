@@ -50,6 +50,9 @@ public partial class LeftPanel : UserControl
 
     private void BtnImportLyrics_Click(object sender, RoutedEventArgs e) => Owner?.BtnOpenLyrics_Click(sender, e);
 
+    private void BtnCloudLyricVersion_Click(object sender, RoutedEventArgs e) =>
+        Owner?.BtnCloudLyricVersion_Click(sender, e);
+
     private void BtnCloudMusic_Click(object sender, RoutedEventArgs e) => Owner?.BtnCloudMusic_Click(sender, e);
 
     private void BtnAddLayer_Click(object sender, RoutedEventArgs e) => Owner?.BtnAddLayer_Click(sender, e);

@@ -90,7 +90,7 @@ public partial class PvStageWindow
             {
                 Width = 82,
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = Cursors.Hand,
+                Cursor = AppCursors.Hand,
                 ToolTip = ThemeTooltip(style),
             };
 
@@ -390,7 +390,7 @@ public partial class PvStageWindow
 
         var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
         name.TextTrimming = TextTrimming.CharacterEllipsis;
-        name.Cursor = Cursors.Hand;
+        name.Cursor = AppCursors.Hand;
         name.ToolTip = L.T("StageUi.Presets.ClickToEditParamsOnRight");
         name.MouseLeftButtonUp += (_, _) =>
         {
@@ -687,7 +687,7 @@ public partial class PvStageWindow
             Background = BrushFromHex(value),
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
-            Cursor = Cursors.Hand,
+            Cursor = AppCursors.Hand,
             ToolTip = L.T("StageUi.Presets.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
@@ -1018,7 +1018,7 @@ public partial class PvStageWindow
             {
                 Width = 82,
                 Margin = new Thickness(0, 0, 4, 6),
-                Cursor = Cursors.Hand,
+                Cursor = AppCursors.Hand,
                 ToolTip = string.IsNullOrWhiteSpace(desc) ? label : desc,
             };
             card.Children.Add(stack);
@@ -1253,8 +1253,7 @@ public partial class PvStageWindow
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            _rebuildPipeKeepTransport = true;
-            _rebuildPipe = true;
+            RequestPipelineRebuild();
         };
         return timer;
     }

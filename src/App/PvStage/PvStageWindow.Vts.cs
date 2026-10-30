@@ -477,7 +477,7 @@ public partial class PvStageWindow
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            Cursor = Cursors.Hand,
+            Cursor = AppCursors.Hand,
             ToolTip = L.T("StageUi.Vts.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);

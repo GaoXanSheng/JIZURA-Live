@@ -96,6 +96,10 @@
                                                    Text="{DynamicResource Loc.LeftPanel.LyricsHint}" />
                                         <TextBlock x:Name="TblLyricInfo" Margin="0,8,0,0" Style="{StaticResource PanelHint}"
                                                    Text="{DynamicResource Loc.LeftPanel.LyricsEmpty}" />
+                                        <ui:Button x:Name="BtnCloudLyricVersion" Content="{DynamicResource Loc.LeftPanel.CloudLyricVersion}"
+                                                   HorizontalAlignment="Stretch" Margin="0,8,0,0" Visibility="Collapsed"
+                                                   Click="BtnCloudLyricVersion_Click"
+                                                   ToolTip="{DynamicResource Loc.LeftPanel.CloudLyricVersionTooltip}" />
                                         <ui:Button x:Name="BtnImportLyrics" Content="导入歌词文件…"
                                                    HorizontalAlignment="Stretch" Margin="0,8,0,0"
                                                    Click="BtnImportLyrics_Click"
@@ -339,31 +343,37 @@
                                         <TextBlock Margin="0,4,0,0" Style="{StaticResource PanelHint}" TextWrapping="Wrap"
                                                    Text="开启后 VTS 角色跟随整体运镜与摄像机切换，忽略角色自己的逐层运镜；默认角色固定在画面里。" />
                                         <Border Height="1" Margin="0,12,0,0" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
-                                        <Grid Margin="0,12,0,0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.CameraSwitch}" Style="{StaticResource PanelRowLabel}" />
-                                            <ComboBox x:Name="CmbCamSwitch" Grid.Column="1" Width="130"
-                                                      HorizontalAlignment="Right" SelectedIndex="0"
-                                                      SelectionChanged="CmbCamSwitch_SelectionChanged">
-                                                <ComboBoxItem Tag="cut" Content="{DynamicResource Loc.LeftPanel.CameraCut}" />
-                                                <ComboBoxItem Tag="blend" Content="{DynamicResource Loc.LeftPanel.CameraBlendMode}" />
-                                            </ComboBox>
-                                        </Grid>
-                                        <Grid Margin="0,12,2,0">
-                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.CameraBlend}" HorizontalAlignment="Left"
+                                        <StackPanel x:Name="CamSwitchGroup">
+                                            <TextBlock Margin="0,12,0,0" Text="{DynamicResource Loc.LeftPanel.CameraSwitchTitle}"
                                                        Style="{StaticResource PanelRowLabel}" />
-                                            <TextBlock x:Name="TblCamBlend" Text="0.22" HorizontalAlignment="Right"
-                                                       Style="{StaticResource PanelValue}" />
-                                        </Grid>
-                                        <Slider x:Name="SldCamBlend" Margin="0,4,0,0" IsMoveToPointEnabled="True"
-                                                Minimum="0.1" Maximum="0.8" Value="0.22" SmallChange="0.01" LargeChange="0.05"
-                                                ValueChanged="SldCamBlend_ValueChanged" />
-                                        <TextBlock Margin="0,6,0,0" Style="{StaticResource PanelHint}"
-                                                   TextWrapping="Wrap"
-                                                   Text="{DynamicResource Loc.LeftPanel.CameraBlendHint}" />
+                                            <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                       Text="{DynamicResource Loc.LeftPanel.CameraSwitchOnlyWithGenerated}" />
+                                            <Grid Margin="0,10,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{DynamicResource Loc.LeftPanel.CameraSwitch}" Style="{StaticResource PanelRowLabel}" />
+                                                <ComboBox x:Name="CmbCamSwitch" Grid.Column="1" Width="130"
+                                                          HorizontalAlignment="Right" SelectedIndex="0"
+                                                          SelectionChanged="CmbCamSwitch_SelectionChanged">
+                                                    <ComboBoxItem Tag="cut" Content="{DynamicResource Loc.LeftPanel.CameraCut}" />
+                                                    <ComboBoxItem Tag="blend" Content="{DynamicResource Loc.LeftPanel.CameraBlendMode}" />
+                                                </ComboBox>
+                                            </Grid>
+                                            <Grid Margin="0,12,2,0">
+                                                <TextBlock Text="{DynamicResource Loc.LeftPanel.CameraBlend}" HorizontalAlignment="Left"
+                                                           Style="{StaticResource PanelRowLabel}" />
+                                                <TextBlock x:Name="TblCamBlend" Text="0.22" HorizontalAlignment="Right"
+                                                           Style="{StaticResource PanelValue}" />
+                                            </Grid>
+                                            <Slider x:Name="SldCamBlend" Margin="0,4,0,0" IsMoveToPointEnabled="True"
+                                                    Minimum="0.1" Maximum="0.8" Value="0.22" SmallChange="0.01" LargeChange="0.05"
+                                                    ValueChanged="SldCamBlend_ValueChanged" />
+                                            <TextBlock Margin="0,6,0,0" Style="{StaticResource PanelHint}"
+                                                       TextWrapping="Wrap"
+                                                       Text="{DynamicResource Loc.LeftPanel.CameraBlendHint}" />
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

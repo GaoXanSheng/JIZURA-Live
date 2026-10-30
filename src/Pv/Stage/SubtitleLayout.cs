@@ -106,9 +106,26 @@ public static class SubtitleLayout
 
     private static string[] SplitLines(string text)
     {
-        var raw = text.Split('\n');
-        for (var i = 0; i < raw.Length; i++) raw[i] = raw[i].TrimEnd('\r');
-        return raw;
+        var lines = new List<string>();
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            var bar = line.IndexOf('|');
+            if (bar < 0)
+            {
+                lines.Add(line);
+                continue;
+            }
+
+            lines.Add(line[..bar]);
+            foreach (var note in line[(bar + 1)..].Split('\u3000'))
+            {
+                var value = note.Trim();
+                if (value.Length > 0) lines.Add(value);
+            }
+        }
+
+        return lines.ToArray();
     }
 
     private static string[] SelectLines(string[] lines, SubContent content)
@@ -116,23 +133,36 @@ public static class SubtitleLayout
         if (lines.Length <= 1) return lines;
         return content switch
         {
-            SubContent.Trans => lines[1..],
-            SubContent.Roma => SelectLatin(lines),
+            SubContent.Trans => SelectTrans(lines),
+            SubContent.Roma => SelectRoma(lines),
             _ => lines,
         };
     }
 
-    private static string[] SelectLatin(string[] lines)
+    private static string[] SelectTrans(string[] lines)
     {
-        var latin = lines.Where(HasLatin).ToArray();
+        var trans = lines.Skip(1).Where(l => !LooksLatin(l)).ToArray();
+        return trans.Length > 0 ? trans : lines[1..];
+    }
+
+    private static string[] SelectRoma(string[] lines)
+    {
+        var latin = lines.Skip(1).Where(LooksLatin).ToArray();
         return latin.Length > 0 ? latin : lines;
     }
 
-    private static bool HasLatin(string text)
+    private static bool LooksLatin(string text)
     {
+        var latin = 0;
+        var cjk = 0;
         foreach (var c in text)
-            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z') return true;
-        return false;
+        {
+            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z') latin++;
+            else if (c is >= '\u3040' and <= '\u30ff' or >= '\u3400' and <= '\u9fff'
+                     or >= '\uac00' and <= '\ud7af') cjk++;
+        }
+
+        return latin > cjk;
     }
 
     private static IReadOnlyList<Vector2> BuildStrokeOffsets(float strokeWidthPx)

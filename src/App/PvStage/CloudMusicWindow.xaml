@@ -140,8 +140,8 @@
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                             <ComboBox x:Name="CmbQuality" Grid.Column="1" Margin="10,0,0,0"
                                       Width="120" HorizontalAlignment="Right">
-                                <ComboBoxItem Content="128k" Tag="128" />
-                                <ComboBoxItem Content="320k" Tag="320" IsSelected="True" />
+                                <ComboBoxItem Content="128k" Tag="128" IsSelected="True" />
+                                <ComboBoxItem Content="320k" Tag="320" />
                             </ComboBox>
                         </Grid>
 

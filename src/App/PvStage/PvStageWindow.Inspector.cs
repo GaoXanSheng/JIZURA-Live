@@ -52,7 +52,7 @@ public partial class PvStageWindow
                 FontSize = 12,
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
-                Cursor = Cursors.Hand,
+                Cursor = AppCursors.Hand,
                 ToolTip = L.T("StageUi.Inspector.ClickToEnterExactValue"),
             };
             Display.SetResourceReference(TextBlock.ForegroundProperty, TextPrimaryKey);
@@ -144,9 +144,6 @@ public partial class PvStageWindow
     private readonly List<(EffectNode Node, EffectParam Param, Wpf.Ui.Controls.TextBox Box, Border Swatch)> _effectColorRows = new();
     private bool _syncingRows;
     private Panel _inspectorTarget = null!;
-    private TabControl? _inspectorTabs;
-    private string? _inspectorTab;
-    private bool _buildingInspector;
 
     internal void ClearLayerSelection() => SelectLayer(null);
 
@@ -183,59 +180,45 @@ public partial class PvStageWindow
         _inspectorRows.Clear();
         _effectBoolRows.Clear();
         _effectColorRows.Clear();
-        InspectorHost.Children.Clear();
-        InspectorHost.RowDefinitions.Clear();
-        InspectorHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        InspectorHost.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        _inspectorTabs = null;
-        _inspectorTarget = InspectorHost;
-        _buildingInspector = true;
+        InspectorStack.Children.Clear();
+        _inspectorTarget = InspectorStack;
+        TblInspectorTitle.Text = InspectorTargetTitle();
 
-        try
+        if (_segmentTarget is { } target && SegmentTargetAlive(target))
         {
-            AddInspectorSummary();
-            if (_segmentTarget is { } target && SegmentTargetAlive(target))
+            BuildSegmentSection(target);
+        }
+        else
+        {
+            _segmentTarget = null;
+            foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
             {
-                BuildSegmentSection(target);
-            }
-            else
-            {
-                _segmentTarget = null;
-                foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
+                switch (section)
                 {
-                    switch (section)
-                    {
-                        case InspectorSectionKind.Camera:
-                            BuildCameraSection();
-                            break;
-                        case InspectorSectionKind.Layer:
-                            BuildLayerSection(_selectedLayer!);
-                            break;
-                    }
+                    case InspectorSectionKind.Camera:
+                        BuildCameraSection();
+                        break;
+                    case InspectorSectionKind.Layer:
+                        BuildLayerSection(_selectedLayer!);
+                        break;
                 }
             }
         }
-        finally
-        {
-            _buildingInspector = false;
-        }
-
-        if (_inspectorTabs is not null && _inspectorTab is { } keep)
-        {
-            foreach (TabItem item in _inspectorTabs.Items)
-                if (string.Equals(SectionHeaderText(item.Header), keep, StringComparison.Ordinal))
-                {
-                    item.IsSelected = true;
-                    break;
-                }
-        }
-
-        if (_inspectorTabs?.SelectedItem is TabItem selectedItem
-            && SectionHeaderText(selectedItem.Header) is { } selected)
-            _inspectorTab = selected;
 
         RefreshParamRows();
         RefreshFxStack();
+    }
+
+    private string InspectorTargetTitle()
+    {
+        if (_segmentTarget is { } target && SegmentTargetAlive(target))
+        {
+            if (target.Effect is { } node) return EffectName(node);
+            if (target.Shot is { } shot) return TechniqueLabel(target, shot.Preset);
+            if (target.Design is { } design) return TechniqueLabel(target, design.Technique);
+        }
+
+        return _selectedLayer is { } layer ? LayerTitle(layer) : L.T("StageUi.Inspector.Overall");
     }
 
     private void BuildCameraSection()
@@ -247,16 +230,16 @@ public partial class PvStageWindow
         AddInspector(CameraRow("rotation", L.T("StageUi.Inspector.Rotation"), 1));
         AddInspector(CameraRow("blur", L.T("StageUi.Inspector.Defocus"), 0.5));
         AddInspector(CameraRow("brighten", L.T("StageUi.Inspector.Brighten"), 0.01));
+        AddSectionTitle(L.T("StageUi.Inspector.OverallCameraMove"));
         AddInspector(CameraAddRow());
+        AddSectionTitle(L.T("StageUi.Inspector.OverallTransition"));
         AddInspector(TransitionAddRow());
     }
 
     private FrameworkElement CameraAddRow()
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-        panel.Children.Add(ThemeText(L.T("StageUi.Inspector.OverallCameraMove"), TextSecondaryKey, 11));
-
-        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        var panel = new StackPanel();
+        var combo = new ComboBox { FontSize = 12 };
         foreach (var preset in CameraDirection.Presets)
             combo.Items.Add(new ComboBoxItem { Content = ZhLabel("cam", preset.Key), Tag = preset.Key });
         if (combo.Items.Count > 0) combo.SelectedIndex = 0;
@@ -541,8 +524,7 @@ public partial class PvStageWindow
     {
         if (_pipe is not null)
         {
-            _rebuildPipeKeepTransport = true;
-            _rebuildPipe = true;
+            RequestPipelineRebuild();
         }
 
         _saveError = SaveProjectNow();
@@ -572,20 +554,24 @@ public partial class PvStageWindow
     private FrameworkElement ConstRow(string label, double min, double max, double step,
         Func<double> read, Action<double> write, Action? onCommit = null)
     {
-        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
+        var row = new Grid { Margin = new Thickness(0, 4, 0, 2) };
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var head = new Grid();
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var lab = ThemeText(label, TextSecondaryKey, 12);
         lab.TextTrimming = TextTrimming.CharacterEllipsis;
+        lab.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(lab, 0);
-        row.Children.Add(lab);
+        head.Children.Add(lab);
 
         var value = new NumericValue { Min = min, Max = max };
         value.SetValue(read());
-        Grid.SetColumn(value.Root, 2);
-        row.Children.Add(value.Root);
+        Grid.SetColumn(value.Root, 1);
+        head.Children.Add(value.Root);
 
         var slider = new Slider
         {
@@ -595,6 +581,7 @@ public partial class PvStageWindow
             Value = Math.Clamp(read(), min, max),
             IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 4, 0, 0),
         };
         bool syncing = false;
         bool dirty = false;
@@ -624,8 +611,9 @@ public partial class PvStageWindow
             if (!slider.IsMouseCaptureWithin) Commit();
         };
         slider.LostMouseCapture += (_, _) => Commit();
-        Grid.SetColumn(slider, 1);
+        Grid.SetRow(slider, 1);
         row.Children.Add(slider);
+        row.Children.Add(head);
 
         return row;
     }
@@ -679,18 +667,21 @@ public partial class PvStageWindow
         };
         owner.Add(state);
 
-        var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(50) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var row = new Grid { Margin = new Thickness(0, 4, 0, 2) };
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        row.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var lab = ThemeText(label, TextSecondaryKey, 11.5);
+        var head = new Grid();
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var lab = ThemeText(label, TextSecondaryKey, 12);
         lab.TextTrimming = TextTrimming.CharacterEllipsis;
+        lab.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(lab, 1);
-        row.Children.Add(lab);
+        head.Children.Add(lab);
 
         double halfWindow = sliderWindow is { } window ? window / 2 : 0;
         double sliderMin = sliderWindow is null ? lo : current - halfWindow;
@@ -704,6 +695,7 @@ public partial class PvStageWindow
             Value = Math.Clamp(current, sliderMin, sliderMax),
             IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(22, 3, 0, 0),
         };
         slider.ValueChanged += (_, e) => OnRowValueChanged(state, e.NewValue);
         slider.PreviewMouseLeftButtonDown += (_, _) => state.EditTime = _audio.Time;
@@ -719,7 +711,7 @@ public partial class PvStageWindow
             if (sliderWindow is not null) RefreshParamRows();
         };
         state.Slider = slider;
-        Grid.SetColumn(slider, 2);
+        Grid.SetRow(slider, 1);
         row.Children.Add(slider);
 
         var value = new NumericValue
@@ -735,8 +727,6 @@ public partial class PvStageWindow
         state.Value = value;
         value.Display.FontSize = 11.5;
         value.Editor.FontSize = 11.5;
-        Grid.SetColumn(value.Root, 3);
-        row.Children.Add(value.Root);
 
         var clamp = Themed(new TextBlock
         {
@@ -744,19 +734,34 @@ public partial class PvStageWindow
             FontSize = 12,
             TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 2, 0),
             Visibility = Visibility.Collapsed,
         }, TextBlock.ForegroundProperty, CautionKey);
         state.ClampMark = clamp;
-        Grid.SetColumn(clamp, 4);
-        row.Children.Add(clamp);
+
+        var valueCell = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        valueCell.Children.Add(clamp);
+        valueCell.Children.Add(value.Root);
+        Grid.SetColumn(valueCell, 2);
+        head.Children.Add(valueCell);
 
         var key = new Wpf.Ui.Controls.Button
         {
             Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
             Content = "◆",
-            FontSize = 11,
-            Padding = new Thickness(2, 1, 2, 1),
+            FontSize = 10,
+            Width = 18,
+            Height = 18,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 0, 4, 0),
             BorderThickness = new Thickness(1),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             ToolTip = L.T("StageUi.Inspector.KeyAtPlayheadReplaceHint"),
         };
         key.Click += (_, _) => KeyRowAtPlayhead(state);
@@ -764,20 +769,23 @@ public partial class PvStageWindow
             key.Visibility = Visibility.Collapsed;
         state.KeyButton = key;
         Grid.SetColumn(key, 0);
-        row.Children.Add(key);
+        head.Children.Add(key);
 
         var badge = new Wpf.Ui.Controls.Badge
         {
-            Cursor = Cursors.Hand,
-            FontSize = 11,
+            Cursor = AppCursors.Hand,
+            FontSize = 10.5,
             Padding = new Thickness(4, 0, 4, 0),
+            Margin = new Thickness(6, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
             Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
         };
         badge.MouseLeftButtonDown += (_, _) => JumpToRowTrack(state);
         state.Badge = badge;
-        Grid.SetColumn(badge, 5);
-        row.Children.Add(badge);
+        Grid.SetColumn(badge, 3);
+        head.Children.Add(badge);
 
+        row.Children.Add(head);
         return row;
     }
 
@@ -1309,7 +1317,7 @@ public partial class PvStageWindow
                 Padding = new Thickness(4),
                 CornerRadius = new CornerRadius(6),
                 BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand,
+                Cursor = AppCursors.Hand,
                 Child = stack,
                 ToolTip = option.Label,
             };
@@ -2007,7 +2015,7 @@ public partial class PvStageWindow
             Background = BrushFromHex(initial),
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
-            Cursor = Cursors.Hand,
+            Cursor = AppCursors.Hand,
             ToolTip = L.T("StageUi.Inspector.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
@@ -2295,10 +2303,8 @@ public partial class PvStageWindow
 
     private FrameworkElement TransitionAddRow()
     {
-        var panel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
-        panel.Children.Add(ThemeText(L.T("StageUi.Inspector.OverallTransition"), TextSecondaryKey, 11));
-
-        var combo = new ComboBox { FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+        var panel = new StackPanel();
+        var combo = new ComboBox { FontSize = 12 };
         foreach (var id in TransitionCatalog.Ids.OrderBy(id => ZhLabel("trans", id), StringComparer.CurrentCulture))
             combo.Items.Add(new ComboBoxItem { Content = ZhLabel("trans", id), Tag = id });
         if (combo.Items.Count > 0) combo.SelectedIndex = 0;
@@ -2351,104 +2357,34 @@ public partial class PvStageWindow
 
     private void AddSectionTitle(string text)
     {
-        if (_inspectorTabs is null)
-        {
-            _inspectorTabs = new TabControl
-            {
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(0),
-                Style = TryFindResource("InspectorTabs") as Style,
-            };
-            _inspectorTabs.SelectionChanged += (_, _) =>
-            {
-                if (!_buildingInspector && _inspectorTabs?.SelectedItem is TabItem selectedTab
-                    && SectionHeaderText(selectedTab.Header) is { } header)
-                    _inspectorTab = header;
-            };
-            Grid.SetRow(_inspectorTabs, 1);
-            InspectorHost.Children.Add(_inspectorTabs);
-        }
-
         var content = new StackPanel();
-        var scroll = new ScrollViewer
+        var body = new StackPanel();
+        body.Children.Add(new TextBlock
         {
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            Padding = new Thickness(0, 4, 4, 8),
-            Content = content,
-        };
-        _inspectorTabs.Items.Add(new TabItem
+            Text = text,
+            Style = TryFindResource("InspectorSectionTitle") as Style,
+        });
+        body.Children.Add(content);
+
+        InspectorStack.Children.Add(new Border
         {
-            Header = SectionHeader(text),
-            Content = scroll,
-            Style = TryFindResource("InspectorTabItem") as Style,
+            Child = body,
+            Style = TryFindResource("InspectorCard") as Style,
         });
         _inspectorTarget = content;
     }
 
-    private FrameworkElement SectionHeader(string text)
+    private void AddInspector(UIElement element)
     {
-        var header = new StackPanel
-        {
-            Margin = new Thickness(0, 8, 0, 0),
-            Tag = text,
-        };
-        header.Children.Add(new TextBlock
-        {
-            Text = text,
-            FontSize = 11.5,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
-        var divider = new Border
-        {
-            Height = 1,
-            Margin = new Thickness(0, 4, 0, 0),
-            SnapsToDevicePixels = true,
-        };
-        divider.SetResourceReference(Border.BackgroundProperty, "DividerStrokeColorDefaultBrush");
-        header.Children.Add(divider);
-        return header;
+        if (element is FrameworkElement { Margin: { } margin } fe && margin == default)
+            fe.Margin = new Thickness(0, 0, 0, 6);
+        _inspectorTarget.Children.Add(element);
     }
-
-    private static string? SectionHeaderText(object? header) => header switch
-    {
-        string text => text,
-        FrameworkElement element => element.Tag as string,
-        _ => null,
-    };
-
-    private void AddInspectorSummary()
-    {
-        var name = CurrentInspectorTargetName();
-        var summary = ThemeText(
-            string.IsNullOrWhiteSpace(name) ? "效果控件" : "效果控件 · " + name,
-            TextSecondaryKey, 11.5);
-        summary.TextTrimming = TextTrimming.CharacterEllipsis;
-        summary.Margin = new Thickness(0, 0, 0, 6);
-        Grid.SetRow(summary, 0);
-        AddInspector(summary);
-    }
-
-    private string? CurrentInspectorTargetName()
-    {
-        if (_segmentTarget is { } target && SegmentTargetAlive(target))
-        {
-            if (target.Effect is { } node) return EffectName(node);
-            if (target.Shot is { } shot) return TechniqueLabel(target, shot.Preset);
-            if (target.Design is { } design) return TechniqueLabel(target, design.Technique);
-        }
-
-        return _selectedLayer is { } layer ? LayerTitle(layer) : null;
-    }
-
-    private void AddInspector(UIElement element) => _inspectorTarget.Children.Add(element);
 
     private FrameworkElement InfoRow(string label, string value, string? tip = null)
     {
-        var row = new Grid { Margin = new Thickness(0, 1, 0, 1) };
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
+        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         var lab = ThemeText(label, TextSecondaryKey, 12);

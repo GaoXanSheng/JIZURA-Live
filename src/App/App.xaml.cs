@@ -69,6 +69,7 @@ public partial class App : Application
             Settings = settings;
 
             L.Initialize(settings.UiLang);
+            AppCursors.Apply();
 
             var pvWindow = new PvStage.PvStageWindow();
             MainInstance = pvWindow;

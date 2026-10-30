@@ -180,30 +180,30 @@ public sealed partial class TimelineView
             UpdateHover(hover);
             if (NearHeaderDivider(hover))
             {
-                Cursor = Cursors.SizeWE;
+                Cursor = AppCursors.SizeWE;
                 return;
             }
             if (hover.X >= RenderSize.Width - ScrollbarWidth
                 && VerticalScrollbar(out var vTop, out var vHeight, out _, out _)
                 && hover.Y >= vTop && hover.Y < vTop + vHeight)
             {
-                Cursor = Cursors.SizeNS;
+                Cursor = AppCursors.SizeNS;
                 return;
             }
             if (RowAt(hover.Y) is { Kind: RowKind.Group } groupRow
                 && hover.X < HeaderWidth && hover.X >= 4 && hover.X <= 42)
             {
-                Cursor = Cursors.Hand;
+                Cursor = AppCursors.Hand;
                 return;
             }
             if (RowAt(hover.Y) is { } hoverRow && EyeAt(hover, hoverRow))
             {
-                Cursor = Cursors.Hand;
+                Cursor = AppCursors.Hand;
                 return;
             }
             if (TrackResizeRowAt(hover, out _))
             {
-                Cursor = Cursors.SizeNS;
+                Cursor = AppCursors.SizeNS;
                 return;
             }
             UpdateDesignCursor(hover);
@@ -818,7 +818,7 @@ public sealed partial class TimelineView
     {
         if (_snap is null)
         {
-            Cursor = Cursors.Arrow;
+            Cursor = AppCursors.Arrow;
             return;
         }
 
@@ -829,13 +829,13 @@ public sealed partial class TimelineView
             var cue = CueAt(track, x);
             if (cue is null)
             {
-                Cursor = Cursors.Arrow;
+                Cursor = AppCursors.Arrow;
                 return;
             }
 
             if (cue.Mode != VtsCueMode.Toggle)
             {
-                Cursor = Cursors.SizeAll;
+                Cursor = AppCursors.SizeAll;
                 return;
             }
 
@@ -843,21 +843,21 @@ public sealed partial class TimelineView
             double sx = TimelineMath.TimeToX(cue.Time, _viewStart, _pixelsPerSecond);
             double ex = TimelineMath.TimeToX(cue.Time + duration, _viewStart, _pixelsPerSecond);
             Cursor = Math.Abs(x - sx) <= 6 || Math.Abs(x - ex) <= 6
-                ? Cursors.SizeWE
-                : Cursors.SizeAll;
+                ? AppCursors.SizeWE
+                : AppCursors.SizeAll;
             return;
         }
 
         if (RowAt(p.Y) is not { Kind: RowKind.Design } row)
         {
-            Cursor = Cursors.Arrow;
+            Cursor = AppCursors.Arrow;
             return;
         }
 
         var seg = DesignSegmentAt(row, TimeAt(p.X - HeaderWidth));
         if (seg is null)
         {
-            Cursor = Cursors.Arrow;
+            Cursor = AppCursors.Arrow;
             return;
         }
 
@@ -865,8 +865,8 @@ public sealed partial class TimelineView
         double x1 = HeaderWidth + TimelineMath.TimeToX(seg.End, _viewStart, _pixelsPerSecond);
         const double edgePx = 6;
         Cursor = Math.Abs(p.X - x0) <= edgePx || Math.Abs(p.X - x1) <= edgePx
-            ? Cursors.SizeWE
-            : Cursors.SizeAll;
+            ? AppCursors.SizeWE
+            : AppCursors.SizeAll;
     }
 
     private void StartScrub(double x)

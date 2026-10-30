@@ -140,6 +140,7 @@
   "Fx.Duotone.Shadow": "暗部色",
   "Fx.Duotone.Highlight": "亮部色",
   "Fx.Letterbox": "电影黑边",
-  "Fx.Letterbox.Amount": "强度",
+  "Fx.Letterbox.Top": "顶部高度",
+  "Fx.Letterbox.Bottom": "底部高度",
   "Fx.Letterbox.Color": "条色"
 }

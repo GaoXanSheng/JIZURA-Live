@@ -35,11 +35,17 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private volatile AudioClockDriver _audio = new();
     private volatile PvPipeline? _pipe;
 
-    private volatile bool _rebuildPipe;
+    private int _rebuildPipeGeneration;
 
     private bool _resumeAfterScrub;
 
     private volatile bool _rebuildPipeKeepTransport;
+
+    private void RequestPipelineRebuild(bool keepTransport = true)
+    {
+        _rebuildPipeKeepTransport = keepTransport;
+        Interlocked.Increment(ref _rebuildPipeGeneration);
+    }
 
     private Vortice.Direct2D1.ID2D1Bitmap1? _backBufferBitmap;
     private IntPtr _backBufferHandle;
@@ -124,6 +130,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         InitializeComponent();
         Left.Owner = this;
+        LeftSplitter.Cursor = AppCursors.SizeWE;
+        InspectorSplitter.Cursor = AppCursors.SizeWE;
+        TimelineSplitter.Cursor = AppCursors.SizeNS;
         InitVts();
         LeftSplitter.DragCompleted += (_, _) => SaveWindowLayout();
         InspectorSplitter.DragCompleted += (_, _) => SaveWindowLayout();
@@ -178,7 +187,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         Stage.PointerPressed += Stage_PointerPressed;
         Stage.PointerMoved += Stage_PointerMoved;
         Stage.PointerReleased += Stage_PointerReleased;
-        Stage.MoveCursorHitTest = StageCursorHitTest;
+        Stage.CursorHitTest = StageCursorAt;
 
         TheTimeline.SeekRequested += Timeline_SeekRequested;
         TheTimeline.LyricClipMenuRequested += Timeline_LyricClipMenu;
@@ -208,7 +217,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         ApplySavedLayout(settings);
         SetStep(Math.Clamp(settings?.Layout?.LeftTab ?? 0, 0, 4));
 
-        TblInspectorTitle.Cursor = Cursors.Hand;
+        TblInspectorTitle.Cursor = AppCursors.Hand;
         TblInspectorTitle.ToolTip = L.T("StageUi.Window.BackToOverallCameraTooltip");
         TblInspectorTitle.MouseLeftButtonDown += (_, _) => SelectLayer(null);
 
@@ -514,8 +523,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         pipe.CompositeInvalidated += () => Dispatcher.BeginInvoke(new Action(() =>
         {
             if (epoch != _projectEpoch || !ReferenceEquals(_pipe, pipe)) return;
-            _rebuildPipeKeepTransport = true;
-            _rebuildPipe = true;
+            RequestPipelineRebuild();
             ShowStatus(L.T("StageUi.Window.LayerOrderRequiresLayeredMode"), 4);
         }));
         if (pipe.LegacyPlan is { } plan)
@@ -597,9 +605,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void RebuildPipeline(PresentHost host)
     {
-        _rebuildPipe = false;
+        var generation = Volatile.Read(ref _rebuildPipeGeneration);
         var keepTransport = _rebuildPipeKeepTransport;
-        _rebuildPipeKeepTransport = false;
         DisposeBackBufferBitmap();
         try
         {
@@ -610,11 +617,15 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             Log.Error("[PV 舞台] 换工程时重建管线失败：" + ex.Message, ex);
             Dispatcher.BeginInvoke(() => TblStatus.Text = L.T("StageUi.Window.SwitchProjectFailedPrefix") + ex.Message);
         }
+        finally
+        {
+            Interlocked.Add(ref _rebuildPipeGeneration, -generation);
+        }
     }
 
     private void OnStagePrepare(PresentHost host)
     {
-        if (_rebuildPipe) RebuildPipeline(host);
+        if (Volatile.Read(ref _rebuildPipeGeneration) > 0) RebuildPipeline(host);
 
         var pipe = _pipe;
         if (pipe is null || !pipe.Ready || host.Target is null) return;
@@ -738,7 +749,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 CornerRadius = new CornerRadius(4),
                 Background = Brushes.Transparent,
                 AllowDrop = !composite,
-                Cursor = composite ? Cursors.Arrow : Cursors.SizeAll,
+                Cursor = composite ? AppCursors.Arrow : AppCursors.SizeAll,
             };
             card.MouseEnter += (_, _) => card.SetResourceReference(Border.BackgroundProperty, SelectFillKey);
             card.MouseLeave += (_, _) => HighlightLayerCards();
@@ -1161,6 +1172,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         if (!sameAudio)
         {
+            SetCloudSong(null);
             _audio.Dispose();
             _audio = new AudioClockDriver();
             ApplyVolume();
@@ -1210,6 +1222,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         SyncLyricStylePicker();
         SyncPresetControls();
         SyncAutoControls();
+        SyncStageToggles();
         SyncCameraSwitchControls();
         RefreshMediaPanel();
         UpdateAutoButton();
@@ -1217,8 +1230,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         if (_pipe is not null)
         {
-            _rebuildPipeKeepTransport = false;
-            _rebuildPipe = true;
+            RequestPipelineRebuild(false);
         }
 
         if (resetUndo)
@@ -1280,8 +1292,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         if (_pipe is not null)
         {
-            _rebuildPipeKeepTransport = true;
-            _rebuildPipe = true;
+            RequestPipelineRebuild();
         }
     }
 
@@ -1326,12 +1337,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         LoadAudioFile(dlg.FileName);
     }
 
-    private void LoadAudioFile(string path)
+    private bool LoadAudioFile(string path)
     {
         TblStatus.Text = L.T("StageUi.Window.LoadingAudio");
 
         if (_audio.LoadAudio(path))
         {
+            SetCloudSong(null);
             _audioPath = path;
             TblStatus.Text = L.T("StageUi.Window.AudioLoaded");
             BuildInspector();
@@ -1341,8 +1353,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             StartAudioLoad(path);
             if (_pipe is not null)
             {
-                _rebuildPipeKeepTransport = true;
-                _rebuildPipe = true;
+                RequestPipelineRebuild();
             }
 
             var lrcPath = Path.ChangeExtension(path, ".lrc");
@@ -1362,10 +1373,13 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 LoadLyrics(_lrcText);
                 TblStatus.Text = L.F("StageUi.Window.AudioLoadedTailAligned", _lyrics?.Count ?? 0);
             }
+
+            return true;
         }
         else
         {
             TblStatus.Text = L.F("StageUi.Window.AudioLoadFailed", Path.GetFileName(path), _audio.Error);
+            return false;
         }
     }
 
@@ -2095,8 +2109,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         _project.LegacyRenderScale = scale;
         _saveError = SaveProjectNow();
-        _rebuildPipeKeepTransport = true;
-        _rebuildPipe = true;
+        RequestPipelineRebuild();
 
         var (w, h) = PvRenderSize(scale);
         ShowStatus(L.F("StageUi.Window.RenderResolutionRebuilding", w, h), 5);
@@ -2273,8 +2286,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             }
 
         TheTimeline.Fps = fps;
-        _rebuildPipeKeepTransport = true;
-        _rebuildPipe = true;
+        RequestPipelineRebuild();
 
         var fault = SaveProjectNow();
         TblCanvasState.Text = fault is null
@@ -2308,8 +2320,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         layout.LegacyComposite = on;
         _saveError = SaveProjectNow();
-        _rebuildPipeKeepTransport = true;
-        _rebuildPipe = true;
+        RequestPipelineRebuild();
         ShowStatus(on ? L.T("StageUi.Window.MergingLegacyLayers") : L.T("StageUi.Window.SwitchedToLayeredRendering"), 4);
     }
 

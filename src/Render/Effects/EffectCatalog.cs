@@ -270,7 +270,8 @@ public static class EffectCatalog
         new("letterbox", "Fx.Letterbox", EffectStage.GlobalPost, EffectCategory.Camera,
             ShaderSources.Letterbox,
             [
-                EffectParam.Num("amount", "Fx.Letterbox.Amount", 0, 0, 0f, 1f, 1f),
+                EffectParam.Num("top", "Fx.Letterbox.Top", 0, 0, 0f, 0.5f, 0.12f, 0.005f, unit: ParamUnit.Ratio),
+                EffectParam.Num("bottom", "Fx.Letterbox.Bottom", 0, 1, 0f, 0.5f, 0.12f, 0.005f, unit: ParamUnit.Ratio),
                 EffectParam.Color3("color", "Fx.Letterbox.Color", 1, 0, "#000000"),
             ],
             ["cinematic", "anime", "calm"]),
@@ -353,7 +354,6 @@ public static class EffectCatalog
         ["wipe"] = ("progress", 0f),
         ["mangaPanels"] = ("amount", 0f),
         ["duotone"] = ("amount", 0f),
-        ["letterbox"] = ("amount", 0f),
         ["colorCorrect"] = ("saturation", 1f),
         ["whiteBalance"] = ("temperature", 0f),
         ["levels"] = ("inputWhite", 1f),

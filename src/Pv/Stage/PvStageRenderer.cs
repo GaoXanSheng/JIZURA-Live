@@ -287,7 +287,7 @@ public sealed class PvStageRenderer : IDisposable
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
             var state = LayerState(layer);
-            if (!string.Equals(layer.Id, LegacyPvProvider.BackId, StringComparison.Ordinal))
+            if (!LegacyPvProvider.IsLayerId(layer.Id))
                 _hitScratch.Add(BuildHit(layer, state, image));
             if (string.Equals(layer.Id, _selectedLayerId, StringComparison.Ordinal))
                 selection = BuildSelection(layer, state, image);
@@ -665,8 +665,8 @@ public sealed class PvStageRenderer : IDisposable
             d.StrokeRect(handle, line);
         }
 
-        d.FillCircle(rotation.X, rotation.Y, 4.5f, fill);
-        d.StrokeCircle(rotation.X, rotation.Y, 4.5f, line);
+        d.FillCircle(rotation.X, rotation.Y, 6.5f, fill);
+        d.StrokeCircle(rotation.X, rotation.Y, 6.5f, line);
     }
 
     public void FreezeFrames() => _freezeLast = true;

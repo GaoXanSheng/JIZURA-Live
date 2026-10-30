@@ -33,6 +33,7 @@ public partial class PvStageWindow
             _pipe.StageTransitionsEnabled = _project.LegacyStageTransitions;
         }
 
+        SyncCameraSwitchControls();
         PublishDirector();
         SaveProjectNow();
         ShowStatus(L.F("StageUi.Stage.LegacyOverlayCamera", OnOff(_project.LegacyStageCamera))
@@ -88,6 +89,10 @@ public partial class PvStageWindow
         var seconds = track is { SwitchSeconds: > 0 } && double.IsFinite(track.SwitchSeconds)
             ? Math.Clamp(track.SwitchSeconds, 0.1, 0.8)
             : 0.22;
+
+        var cameraOn = _project?.LegacyStageCamera ?? true;
+        Left.CamSwitchGroup.IsEnabled = cameraOn;
+        Left.CamSwitchGroup.Opacity = cameraOn ? 1 : 0.5;
 
         _syncingCamSwitch = true;
         try
@@ -427,8 +432,7 @@ public partial class PvStageWindow
 
             if (_pipe is not null)
             {
-                _rebuildPipeKeepTransport = true;
-                _rebuildPipe = true;
+                RequestPipelineRebuild();
             }
 
             SyncStageToggles();

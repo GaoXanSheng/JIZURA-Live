@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Input;
 using JizuraLive.App.I18n;
 using JizuraLive.Pv;
+using JizuraLive.Render.Gpu;
 
 namespace JizuraLive.App.PvStage;
 
@@ -18,12 +19,13 @@ public partial class PvStageWindow
 
     private PvLayerConfig? _stageDragLayer;
     private StageDragKind _stageDragKind;
+    private HostCursor _stageDragCursor;
     private bool _stageDragVts;
     private Vector2 _stageDragStart;
     private Matrix3x2 _stageDragInverse;
     private Vector2 _stageDragCenter;
     private double _stageDragStartDistance;
-    private double _stageDragStartAngle;
+    private double _stageDragLastAngle;
     private double _stageDragVtsScaleX;
     private double _stageDragVtsScaleY;
     private double _stageDragBaseX;
@@ -55,32 +57,43 @@ public partial class PvStageWindow
         PvSelectionInfo? sel = layer is null ? null : pipe.Selection;
         StageDragKind kind;
 
-        if (layer is null || sel is null || !TryStageHandle(sel, design, out kind))
+        if (layer is null || sel is null || !TryStageHandle(sel, design, HandleRadiusFor(scale), out kind))
         {
-            if (design.X < 0 || design.Y < 0
-                || design.X > _scene.Width || design.Y > _scene.Height)
+            var keepLegacy = layer is not null && sel is not null
+                             && IsLegacyLayer(layer.Id) && ContainsSelection(sel, design)
+                             && (pipe.Pick(design) is not { } top || IsLegacyLayer(top.Id));
+
+            if (keepLegacy)
             {
-                if (layer is not null) SelectLayer(null);
-                return;
+                kind = StageDragKind.Move;
             }
-
-            var hit = pipe.Pick(design);
-            if (hit is null)
+            else
             {
-                if (layer is not null) SelectLayer(null);
-                return;
+                if (design.X < 0 || design.Y < 0
+                    || design.X > _scene.Width || design.Y > _scene.Height)
+                {
+                    if (layer is not null) SelectLayer(null);
+                    return;
+                }
+
+                var hit = pipe.Pick(design);
+                if (hit is null)
+                {
+                    if (layer is not null) SelectLayer(null);
+                    return;
+                }
+
+                var picked = _scene.Layers.FirstOrDefault(l =>
+                    string.Equals(l.Id, hit.Value.Id, StringComparison.Ordinal));
+                if (picked is null) return;
+
+                if (!ReferenceEquals(picked, layer)) SelectLayer(picked);
+                layer = picked;
+                sel = new PvSelectionInfo(hit.Value.A, hit.Value.B, hit.Value.C, hit.Value.D,
+                    hit.Value.Center, hit.Value.Matrix, _scene.Width, _scene.Height,
+                    hit.Value.FitWidth, hit.Value.FitHeight);
+                kind = StageDragKind.Move;
             }
-
-            var picked = _scene.Layers.FirstOrDefault(l =>
-                string.Equals(l.Id, hit.Value.Id, StringComparison.Ordinal));
-            if (picked is null) return;
-
-            if (!ReferenceEquals(picked, layer)) SelectLayer(picked);
-            layer = picked;
-            sel = new PvSelectionInfo(hit.Value.A, hit.Value.B, hit.Value.C, hit.Value.D,
-                hit.Value.Center, hit.Value.Matrix, _scene.Width, _scene.Height,
-                hit.Value.FitWidth, hit.Value.FitHeight);
-            kind = StageDragKind.Move;
         }
 
         if (layer is null || sel is null) return;
@@ -101,12 +114,20 @@ public partial class PvStageWindow
 
         _stageDragLayer = layer;
         _stageDragKind = kind;
+        _stageDragCursor = kind switch
+        {
+            StageDragKind.Scale => CornerCursor(sel, design),
+            StageDragKind.Rotate => HostCursor.Rotate,
+            _ => HostCursor.SizeAll,
+        };
         _stageDragVts = vts;
         _stageDragScale = scale;
         _stageDragStart = design;
-        _stageDragCenter = sel.Center;
-        _stageDragStartDistance = Math.Max(1f, Vector2.Distance(design, sel.Center));
-        _stageDragStartAngle = Angle(design - sel.Center);
+        _stageDragCenter = vts
+            ? sel.Center
+            : new Vector2(pipe.DesignWidth / 2f, pipe.DesignHeight / 2f);
+        _stageDragStartDistance = Math.Max(1f, Vector2.Distance(design, _stageDragCenter));
+        _stageDragLastAngle = Angle(design - _stageDragCenter);
         _stageDragVtsScaleX = 2.0 / Math.Max(1.0, sel.FitWidth);
         _stageDragVtsScaleY = 2.0 / Math.Max(1.0, sel.FitHeight);
         _stageDragMoved = false;
@@ -218,8 +239,9 @@ public partial class PvStageWindow
     private void RotateStageLayer(PvLayerConfig layer, Vector2 design, double t)
     {
         double angle = Angle(design - _stageDragCenter);
-        double delta = NormalizeAngle(angle - _stageDragStartAngle);
-        double value = Math.Clamp(_stageDragBaseRotation + delta, -180, 180);
+        double step = NormalizeAngle(angle - _stageDragLastAngle);
+        _stageDragLastAngle = angle;
+        double value = Math.Clamp(_stageDragValueRotation + step, -180, 180);
 
         var addr = _stageDragVts ? VtsRotationAddr : LayerAddr(layer, "rotation");
         ApplyStageValue(layer, addr, _stageDragKeyRotation, _stageDragVts, value, t);
@@ -249,6 +271,7 @@ public partial class PvStageWindow
         bool vts = _stageDragVts;
         _stageDragLayer = null;
         _stageDragKind = StageDragKind.None;
+        _stageDragCursor = HostCursor.Arrow;
         _stageDragMoved = false;
         if (!moved) return;
 
@@ -358,9 +381,13 @@ public partial class PvStageWindow
         return true;
     }
 
-    private static bool TryStageHandle(PvSelectionInfo sel, Vector2 p, out StageDragKind kind)
+    private const float StageHandleRadius = 18f;
+
+    private static float HandleRadiusFor(double scale) =>
+        Math.Max(StageHandleRadius, 14f / (float)Math.Max(0.01, scale));
+
+    private static bool TryStageHandle(PvSelectionInfo sel, Vector2 p, float radius, out StageDragKind kind)
     {
-        const float radius = 18f;
         if (Vector2.DistanceSquared(p, sel.RotationHandle) <= radius * radius)
         {
             kind = StageDragKind.Rotate;
@@ -381,11 +408,73 @@ public partial class PvStageWindow
     private static bool Near(Vector2 a, Vector2 b, float radius) =>
         Vector2.DistanceSquared(a, b) <= radius * radius;
 
-    private bool StageCursorHitTest(Point hostPoint)
+    private HostCursor StageCursorAt(Point hostPoint)
     {
-        if (_selectedLayer is null || _pipe is not { } pipe) return false;
-        if (!TryDesignPoint(hostPoint, out var design, out _)) return false;
-        if (pipe.Selection is { } sel && TryStageHandle(sel, design, out _)) return true;
-        return pipe.Pick(design) is not null;
+        if (_stageDragLayer is not null) return _stageDragCursor;
+
+        if (_pipe is not { } pipe) return HostCursor.Arrow;
+        if (!TryDesignPoint(hostPoint, out var design, out var scale)) return HostCursor.Arrow;
+
+        var radius = HandleRadiusFor(scale);
+        var hit = pipe.Pick(design);
+        if (_selectedLayer is { } selected)
+        {
+            if (pipe.Selection is { } sel)
+            {
+                if (Near(design, sel.RotationHandle, radius)) return HostCursor.Rotate;
+                if (TryStageHandle(sel, design, radius, out _)) return CornerCursor(sel, design);
+                if (IsLegacyLayer(selected.Id) && ContainsSelection(sel, design)
+                    && (hit is not { } top || IsLegacyLayer(top.Id)))
+                    return HostCursor.SizeAll;
+            }
+
+            if (hit is not { } picked) return HostCursor.Arrow;
+            return string.Equals(picked.Id, selected.Id, StringComparison.Ordinal)
+                ? HostCursor.SizeAll
+                : HostCursor.Hand;
+        }
+
+        return hit is null ? HostCursor.Arrow : HostCursor.Hand;
     }
+
+    private static HostCursor CornerCursor(PvSelectionInfo sel, Vector2 p)
+    {
+        var corner = NearestCorner(sel, p);
+        var dir = corner - sel.Center;
+        double ax = Math.Abs(dir.X);
+        double ay = Math.Abs(dir.Y);
+        if (ax > ay * 2) return HostCursor.SizeWE;
+        if (ay > ax * 2) return HostCursor.SizeNS;
+        return dir.X * dir.Y >= 0 ? HostCursor.SizeNWSE : HostCursor.SizeNESW;
+    }
+
+    private static Vector2 NearestCorner(PvSelectionInfo sel, Vector2 p)
+    {
+        var best = sel.A;
+        var bestDistance = Vector2.DistanceSquared(p, sel.A);
+        foreach (var corner in new[] { sel.B, sel.C, sel.D })
+        {
+            var distance = Vector2.DistanceSquared(p, corner);
+            if (distance >= bestDistance) continue;
+            best = corner;
+            bestDistance = distance;
+        }
+
+        return best;
+    }
+
+    private static bool IsLegacyLayer(string id) => LegacyPvProvider.IsLayerId(id);
+
+    private static bool ContainsSelection(PvSelectionInfo sel, Vector2 p)
+    {
+        float c1 = Cross(sel.A, sel.B, p);
+        float c2 = Cross(sel.B, sel.C, p);
+        float c3 = Cross(sel.C, sel.D, p);
+        float c4 = Cross(sel.D, sel.A, p);
+        return (c1 >= 0 && c2 >= 0 && c3 >= 0 && c4 >= 0)
+               || (c1 <= 0 && c2 <= 0 && c3 <= 0 && c4 <= 0);
+    }
+
+    private static float Cross(Vector2 a, Vector2 b, Vector2 p) =>
+        (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
 }

@@ -128,6 +128,19 @@ public static class EffectGraphJson
                 }
             }
 
+            if (nd.Values is not null
+                && def.Id == "letterbox"
+                && !node.Values.ContainsKey("top")
+                && !node.Values.ContainsKey("bottom")
+                && nd.Values.TryGetValue("amount", out var legacyAmount)
+                && float.IsFinite(legacyAmount))
+            {
+                var top = def.Params.FirstOrDefault(x => x.Key == "top");
+                var bottom = def.Params.FirstOrDefault(x => x.Key == "bottom");
+                if (top is not null) node.Set(top, legacyAmount * 0.12f);
+                if (bottom is not null) node.Set(bottom, legacyAmount * 0.12f);
+            }
+
             if (nd.Colors is not null)
             {
                 foreach (var (key, hex) in nd.Colors)

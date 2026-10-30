@@ -18,6 +18,9 @@ public sealed class LegacyPvProvider : IDisposable
     public const string FrontDecorId = "legacy_pv_front_decor";
     public const string FrontHudId = "legacy_pv_front_hud";
 
+    public static bool IsLayerId(string id) =>
+        id is BackId or FrontId or FrontLayoutId or FrontDecorId or FrontHudId;
+
     private readonly D3DDevice _gpu;
     private readonly ID2D1DeviceContext _ctx;
     private readonly LegacyPvOptions _options;

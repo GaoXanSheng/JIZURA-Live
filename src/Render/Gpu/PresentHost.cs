@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -6,6 +7,18 @@ using System.Windows.Threading;
 using JizuraLive.Logging;
 
 namespace JizuraLive.Render.Gpu;
+
+public enum HostCursor
+{
+    Arrow,
+    Hand,
+    Rotate,
+    SizeAll,
+    SizeWE,
+    SizeNS,
+    SizeNWSE,
+    SizeNESW,
+}
 
 public sealed class PresentHost : HwndHost
 {
@@ -26,7 +39,13 @@ public sealed class PresentHost : HwndHost
     private const uint TmeLeave = 0x00000002;
     private const int HtClient = 1;
     private const int IdcArrow = 32512;
-    private const int IdcSizeAll = 32644;
+    private const int IdcWait = 32514;
+    private const int IdcSizeNWSE = 32642;
+    private const int IdcSizeNESW = 32643;
+    private const int IdcSizeWE = 32644;
+    private const int IdcSizeNS = 32645;
+    private const int IdcSizeAll = 32646;
+    private const int IdcHand = 32649;
 
     private IntPtr _hwnd = IntPtr.Zero;
     private Thread? _thread;
@@ -84,7 +103,7 @@ public sealed class PresentHost : HwndHost
 
     public event Action? PointerReleased;
 
-    public Func<Point, bool>? MoveCursorHitTest;
+    public Func<Point, HostCursor>? CursorHitTest;
 
     public string? Error { get; private set; }
 
@@ -324,8 +343,7 @@ public sealed class PresentHost : HwndHost
             case WmSetCursor:
                 if (((long)lParam & 0xFFFF) == HtClient)
                 {
-                    SetCursor(LoadCursorW(IntPtr.Zero,
-                        (IntPtr)(_pointerDown || HitTestMove() ? IdcSizeAll : IdcArrow)));
+                    SetCursor(CursorHandle(HitTestCursor()));
                     return (IntPtr)1;
                 }
                 break;
@@ -334,17 +352,78 @@ public sealed class PresentHost : HwndHost
         return DefSubclassProc(hwnd, msg, wParam, lParam);
     }
 
-    private bool HitTestMove()
+    private static readonly Dictionary<HostCursor, string> CursorFiles = new()
     {
-        var test = MoveCursorHitTest;
-        if (test is null || !GetCursorPos(out var p)) return false;
-        if (!ScreenToClient(_hwnd, ref p)) return false;
+        [HostCursor.Arrow] = "arrow.cur",
+        [HostCursor.Hand] = "hand.cur",
+        [HostCursor.Rotate] = "wait.ani",
+        [HostCursor.SizeAll] = "sizeall.cur",
+        [HostCursor.SizeWE] = "sizewe.cur",
+        [HostCursor.SizeNS] = "sizens.cur",
+        [HostCursor.SizeNWSE] = "sizenwse.cur",
+        [HostCursor.SizeNESW] = "sizenesw.cur",
+    };
+
+    private static readonly object CursorGate = new();
+    private static readonly Dictionary<HostCursor, IntPtr> CursorHandles = new();
+
+    private static IntPtr CursorHandle(HostCursor cursor)
+    {
+        lock (CursorGate)
+        {
+            if (CursorHandles.TryGetValue(cursor, out var loaded))
+                return loaded != IntPtr.Zero ? loaded : LoadCursorW(IntPtr.Zero, (IntPtr)CursorId(cursor));
+
+            var handle = IntPtr.Zero;
+            if (CursorFiles.TryGetValue(cursor, out var file))
+            {
+                var path = Path.Combine(AppContext.BaseDirectory, "assets", "mono", file);
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        handle = LoadCursorFromFileW(path);
+                        if (handle == IntPtr.Zero) Log.Warn("[PresentHost] 光标加载失败：" + path);
+                    }
+                    else
+                    {
+                        Log.Warn("[PresentHost] 光标文件不存在：" + path);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("[PresentHost] 光标加载异常：" + ex.Message);
+                }
+            }
+
+            CursorHandles[cursor] = handle;
+            return handle != IntPtr.Zero ? handle : LoadCursorW(IntPtr.Zero, (IntPtr)CursorId(cursor));
+        }
+    }
+
+    private static int CursorId(HostCursor cursor) => cursor switch
+    {
+        HostCursor.Hand => IdcHand,
+        HostCursor.Rotate => IdcWait,
+        HostCursor.SizeAll => IdcSizeAll,
+        HostCursor.SizeWE => IdcSizeWE,
+        HostCursor.SizeNS => IdcSizeNS,
+        HostCursor.SizeNWSE => IdcSizeNWSE,
+        HostCursor.SizeNESW => IdcSizeNESW,
+        _ => IdcArrow,
+    };
+
+    private HostCursor HitTestCursor()
+    {
+        var test = CursorHitTest;
+        if (test is null || !GetCursorPos(out var p)) return HostCursor.Arrow;
+        if (!ScreenToClient(_hwnd, ref p)) return HostCursor.Arrow;
 
         try { return test(ToDip(p.X, p.Y)); }
         catch (Exception ex)
         {
             Log.Warn("[PresentHost] 光标命中测试异常：" + ex.Message);
-            return false;
+            return HostCursor.Arrow;
         }
     }
 
@@ -425,6 +504,9 @@ public sealed class PresentHost : HwndHost
 
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursorW(IntPtr instance, IntPtr name);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadCursorFromFileW(string path);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -566,9 +566,10 @@ public static class ShaderSources
         float4 PSMain(VSOut i) : SV_Target
         {
             float4 c = Tex.Sample(Smp, i.uv);
-            float bar = saturate(PARAM(0, x)) * 0.12;
-            if (bar <= 0.0) return c;
-            if (i.uv.y < bar || i.uv.y > 1.0 - bar) return float4(PARAM(1, xyz), 1.0);
+            float top = saturate(PARAM(0, x));
+            float bottom = saturate(PARAM(0, y));
+            if (top <= 0.0 && bottom <= 0.0) return c;
+            if (i.uv.y < top || i.uv.y > 1.0 - bottom) return float4(PARAM(1, xyz), 1.0);
             return c;
         }
         """;

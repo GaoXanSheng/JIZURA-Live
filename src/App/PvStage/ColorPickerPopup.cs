@@ -69,7 +69,7 @@ internal static class ColorPickerPopup
                 Width = SvWidth,
                 Height = SvHeight,
                 ClipToBounds = true,
-                Cursor = Cursors.Cross,
+                Cursor = AppCursors.Cross,
                 Background = _hueBase,
             };
             sv.Children.Add(new Rectangle
@@ -99,7 +99,7 @@ internal static class ColorPickerPopup
                 Width = HueWidth,
                 Height = SvHeight,
                 ClipToBounds = true,
-                Cursor = Cursors.Hand,
+                Cursor = AppCursors.Hand,
             };
             hue.Children.Add(new Rectangle
             {

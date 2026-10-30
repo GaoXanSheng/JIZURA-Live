@@ -53,62 +53,23 @@
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
-        <Style x:Key="InspectorTabs" TargetType="TabControl">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="ItemsPanel">
-                <Setter.Value>
-                    <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                </Setter.Value>
-            </Setter>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TabControl">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <ItemsPresenter Grid.Row="0" />
-                            <ContentPresenter Grid.Row="1" Margin="0,6,0,0"
-                                              ContentSource="SelectedContent" />
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        <Style x:Key="InspectorCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Margin" Value="0,0,0,8" />
         </Style>
-        <Style x:Key="InspectorTabItem" TargetType="TabItem">
+        <Style x:Key="InspectorSectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style x:Key="InspectorSubTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Margin" Value="0,0,2,0" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TabItem">
-                        <Grid Background="Transparent">
-                            <Border x:Name="Bg" Margin="0,0,0,2" CornerRadius="4" Background="Transparent" />
-                            <ContentPresenter ContentSource="Header" Margin="9,5"
-                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <Border x:Name="Line" Height="2" Margin="4,0" VerticalAlignment="Bottom"
-                                    CornerRadius="1" Background="Transparent" />
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bg" Property="Background"
-                                        Value="{DynamicResource ControlFillColorSecondaryBrush}" />
-                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Line" Property="Background"
-                                        Value="{DynamicResource AccentFillColorSecondaryBrush}" />
-                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
     </ui:FluentWindow.Resources>
 
@@ -288,13 +249,22 @@
                     BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" Margin="14,12,12,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
                         <TextBlock Text="{DynamicResource Loc.Stage.PropertiesHeader}" VerticalAlignment="Center"
                                    Foreground="{DynamicResource TextFillColorTertiaryBrush}" FontSize="12" />
-                        <TextBlock x:Name="TblInspectorTitle" HorizontalAlignment="Right" FontSize="12"
+                        <TextBlock x:Name="TblInspectorTitle" Grid.Column="1" Margin="12,0,0,0"
+                                   HorizontalAlignment="Right" FontSize="12"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                     </Grid>
-                    <Grid x:Name="InspectorHost" Margin="10,0,8,0" />
+                    <ScrollViewer x:Name="InspectorScroll" Margin="10,0,8,0"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  PanningMode="VerticalOnly">
+                        <StackPanel x:Name="InspectorStack" Margin="0,4,2,10" />
+                    </ScrollViewer>
                 </DockPanel>
             </Border>
 
