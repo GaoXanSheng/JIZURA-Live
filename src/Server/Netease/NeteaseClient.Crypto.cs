@@ -57,6 +57,22 @@ public sealed partial class NeteaseClient
         }
     }
 
+    private static JObject NeSave(JObject patch)
+    {
+        _stateLock.Wait();
+        try
+        {
+            var s = NeStateInternal();
+            foreach (var p in patch.Properties()) s[p.Name] = p.Value;
+            AtomicFile.Write(StateFile, s.ToString(Formatting.Indented));
+            return s;
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
     private static string S(JObject o, string key)
     {
         return o[key]?.ToString() ?? "";

@@ -16,6 +16,7 @@ public sealed partial class KuGouClient
     private const string AndroidSalt = "OIlwieks28dk2k092lksi2UIkp";
     private const string KeySalt = "57ae12eb6890223e355ccfcb74edf70d";
     private const string AppId = "1005";
+    private const string SrcAppId = "2919";
     private const string ClientVer = "20489";
     private const string AndroidUa = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
 

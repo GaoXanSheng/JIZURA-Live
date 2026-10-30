@@ -174,6 +174,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _audioPath = _project.AudioPath;
         _lrcText = _project.LrcText;
         if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
+        SyncSubtitleLayer();
 
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
 
@@ -461,6 +462,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _paramTimer?.Stop();
         StopTechniquePreview();
         _vtsTimer?.Stop();
+        _cloudMusicWindow?.Close();
 
         var pipe = _pipe;
         pipe?.StopPumping();
@@ -787,6 +789,22 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             head.Children.Add(meta);
 
             var headRight = new StackPanel { Orientation = Orientation.Horizontal };
+            var lockToggle = new Wpf.Ui.Controls.Button
+            {
+                Appearance = Wpf.Ui.Controls.ControlAppearance.Transparent,
+                Padding = new Thickness(6, 1, 6, 1),
+                Margin = new Thickness(0, 0, 4, 0),
+                Content = layer.Locked ? "🔒" : "🔓",
+                ToolTip = L.T(layer.Locked ? "StageUi.Window.UnlockLayerTooltip" : "StageUi.Window.LockLayerTooltip"),
+            };
+            lockToggle.Click += (_, _) =>
+            {
+                layer.Locked = !layer.Locked;
+                _saveError = SaveProjectNow();
+                BuildLayerList();
+            };
+            headRight.Children.Add(lockToggle);
+
             var toggle = new CheckBox
             {
                 IsChecked = layer.Enabled,
@@ -1147,6 +1165,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _uiLayers.Clear();
         _project = project;
         _scene = project.Scene;
+        SyncSubtitleLayer();
         _effects = project.Effects;
         _pipeEffects = _effects.Clone();
         _audioPath = project.AudioPath;
@@ -2332,6 +2351,12 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
         settings.PreviewSubtitles = TglPreviewSubtitles.IsChecked == true;
         settings.SaveDebounced();
+        if (SyncSubtitleLayer())
+        {
+            BuildLayerList();
+            BuildInspector();
+            _saveError = SaveProjectNow();
+        }
         ShowStatus(settings.PreviewSubtitles ? L.T("StageUi.Window.SubtitlePreviewEnabled") : L.T("StageUi.Window.SubtitlePreviewDisabled"), 3);
     }
 

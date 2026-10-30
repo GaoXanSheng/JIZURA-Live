@@ -367,8 +367,10 @@ public sealed class PvPipeline : IDisposable
 
         if (subtitleSource is not null)
         {
-            _subtitle = new SubtitleProvider("subtitle_top", gpu, _d2d.Ctx, subtitleSource);
-            _renderer.Overlay = _subtitle;
+            var subtitleId = _scene.Layers.FirstOrDefault(l => l is not null && l.Kind == PvLayerKind.Subtitle)?.Id
+                             ?? "subtitle_top";
+            _subtitle = new SubtitleProvider(subtitleId, gpu, _d2d.Ctx, subtitleSource);
+            _renderer.Stage.Register(_subtitle);
         }
     }
 
@@ -1040,8 +1042,6 @@ public sealed class PvPipeline : IDisposable
 
         _spoutProviders.Clear();
         _character = null;
-        _renderer.Overlay = null;
-        _subtitle?.Dispose();
         _subtitle = null;
 
         _renderer.SetBroadcast(null);

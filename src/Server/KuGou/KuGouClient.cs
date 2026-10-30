@@ -238,5 +238,273 @@ public sealed partial class KuGouClient
         return list;
     }
 
+    private async Task<JObject> GatewayAsync(string path, string? router,
+        Dictionary<string, string>? extraParams, JObject? body)
+    {
+        var st = EnsureIdentity();
+        var now = ((int)(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000)).ToString();
+        var token = S(st, "token");
+        var userid = long.TryParse(S(st, "userid"), out var uid) ? uid : 0;
+        var q = new Dictionary<string, string>
+        {
+            ["dfid"] = S(st, "dfid").Length > 0 ? S(st, "dfid") : "-",
+            ["mid"] = S(st, "mid"),
+            ["uuid"] = "-",
+            ["appid"] = AppId,
+            ["clientver"] = ClientVer,
+            ["clienttime"] = now
+        };
+        if (token.Length > 0)
+        {
+            q["token"] = token;
+            q["userid"] = userid.ToString();
+        }
+
+        if (extraParams != null)
+            foreach (var (k, v) in extraParams)
+                q[k] = v;
+
+        var data = body == null ? "" : JsonConvert.SerializeObject(body);
+        var plain = string.Concat(q.Keys.OrderBy(k => k, StringComparer.Ordinal).Select(k => $"{k}={q[k]}"));
+        q["signature"] = Md5($"{AndroidSalt}{plain}{data}{AndroidSalt}");
+        var qs = string.Join("&", q.Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value)}"));
+
+        using var req = new HttpRequestMessage(
+            body == null ? HttpMethod.Get : HttpMethod.Post,
+            $"https://gateway.kugou.com{path}?{qs}");
+        if (body != null)
+            req.Content = new StringContent(data, new MediaTypeHeaderValue("application/json"));
+        if (router != null)
+            req.Headers.TryAddWithoutValidation("x-router", router);
+        AddGatewayHeaders(req, q["dfid"], now, q["mid"]);
+        return await GetJsonAsync(req);
+    }
+
+    public async Task<PlaylistsResponse> MyPlaylistsAsync()
+    {
+        var st = KgState();
+        var token = S(st, "token");
+        if (token.Length == 0)
+            return new PlaylistsResponse { Ok = false, Error = "请先扫码登录酷狗" };
+
+        var myUid = long.TryParse(S(st, "userid"), out var uid) ? uid : 0;
+        var r = new PlaylistsResponse { Ok = true };
+        for (var page = 1; page <= 20; page++)
+        {
+            var d = await GatewayAsync("/v7/get_all_list", "cloudlist.service.kugou.com",
+                new Dictionary<string, string> { ["plat"] = "1" },
+                new JObject
+                {
+                    ["userid"] = myUid,
+                    ["token"] = token,
+                    ["total_ver"] = 979,
+                    ["type"] = 2,
+                    ["page"] = page,
+                    ["pagesize"] = 100
+                });
+            if (d.Value<int?>("status") is { } status && status != 1)
+            {
+                if (page == 1) return new PlaylistsResponse { Ok = false, Error = "酷狗登录状态已失效，请重新扫码" };
+                break;
+            }
+
+            if (d["data"]?["info"] is not JArray info) break;
+            r.List.AddRange(ParsePlaylistsPage(info, myUid));
+            var total = d["data"]?.Value<int?>("list_count") ?? r.List.Count;
+            if (info.Count == 0 || r.List.Count >= total) break;
+        }
+
+        return r;
+    }
+
+    private static List<PlaylistInfo> ParsePlaylistsPage(JArray info, long myUid)
+    {
+        var list = new List<PlaylistInfo>();
+        foreach (var p in info)
+        {
+            var id = p.Value<string>("global_collection_id") ?? "";
+            var name = p.Value<string>("name") ?? "";
+            if (id.Length == 0 || name.Length == 0) continue;
+            var creatorId = p.Value<long?>("list_create_userid") ?? 0;
+            list.Add(new PlaylistInfo
+            {
+                Id = id,
+                Name = name,
+                Count = p.Value<int?>("count") ?? 0,
+                Creator = p.Value<string>("list_create_username") ?? "",
+                Cover = p.Value<string>("pic")?.Replace("{size}", "240") ?? "",
+                Kind = (p.Value<int?>("is_def") ?? 0) > 0 ? PlaylistKind.Liked
+                    : creatorId > 0 && creatorId == myUid ? PlaylistKind.Mine
+                    : PlaylistKind.Subscribed,
+            });
+        }
+
+        return list;
+    }
+
+    private static KgSong PlSongToSong(JObject it)
+    {
+        var singers = (it["singerinfo"] as JArray ?? new JArray())
+            .Select(x => x.Value<string>("name")).Where(n => !string.IsNullOrEmpty(n));
+        return new KgSong
+        {
+            Hash = it.Value<string>("hash") ?? "",
+            AlbumId = it.Value<string>("album_id") ?? "",
+            AlbumAudioId = it.Value<long?>("mixsongid")?.ToString() ?? "",
+            Name = it.Value<string>("name") ?? "",
+            Singer = string.Join(" / ", singers),
+            Album = it["albuminfo"]?.Value<string>("name") ?? "",
+            Duration = (it.Value<long?>("timelen") ?? 0) / 1000,
+            Pay = (it.Value<long?>("feetype") ?? 0) != 0 ? 1 : 0,
+            Cover = it.Value<string>("cover")?.Replace("{size}", "240") ?? ""
+        };
+    }
+
+    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id, Action<int>? progress = null)
+    {
+        var gcid = (id ?? "").Trim();
+        var m = Regex.Match(gcid, @"[?&](?:global_collection_id|id)=([\w-]+)");
+        if (m.Success) gcid = m.Groups[1].Value;
+        if (gcid.Length == 0)
+            return new KgSearchResponse { Ok = false, Error = "缺少歌单 ID" };
+        if (S(KgState(), "token").Length == 0)
+            return new KgSearchResponse { Ok = false, Error = "请先扫码登录酷狗" };
+
+        var first = await FetchPlaylistPageAsync(gcid, 0);
+        if (first == null)
+            return new KgSearchResponse { Ok = false, Error = "酷狗歌单读取失败，请确认歌单 ID 或重新扫码登录" };
+
+        var r = new KgSearchResponse { Ok = true };
+        AppendPage(r, first.Value.Songs);
+        progress?.Invoke(r.List.Count);
+
+        var total = Math.Min(first.Value.Count, 1000);
+        var begins = new List<int>();
+        for (var begin = 300; begin < total; begin += 300) begins.Add(begin);
+        if (begins.Count > 0)
+        {
+            var pages = await Task.WhenAll(begins.Select(b => FetchPlaylistPageAsync(gcid, b)));
+            foreach (var page in pages)
+            {
+                if (page == null) continue;
+                AppendPage(r, page.Value.Songs);
+                progress?.Invoke(r.List.Count);
+            }
+        }
+
+        r.Total = r.List.Count;
+        return r;
+    }
+
+    private async Task<(JArray Songs, int Count)?> FetchPlaylistPageAsync(string gcid, int begin)
+    {
+        var d = await GatewayAsync("/pubsongs/v2/get_other_list_file_nofilt", null,
+            new Dictionary<string, string>
+            {
+                ["area_code"] = "1",
+                ["begin_idx"] = begin.ToString(),
+                ["plat"] = "1",
+                ["type"] = "1",
+                ["mode"] = "1",
+                ["personal_switch"] = "1",
+                ["extend_fields"] = "abtags,hot_cmt,popularization",
+                ["pagesize"] = "300",
+                ["global_collection_id"] = gcid
+            }, null);
+        if (d.Value<int?>("status") != 1) return null;
+        var songs = d["data"]?["songs"] as JArray ?? new JArray();
+        var count = d["data"]?.Value<int?>("count") ?? songs.Count;
+        return (songs, count);
+    }
+
+    private static void AppendPage(KgSearchResponse r, JArray songs)
+    {
+        foreach (var it in songs) r.List.Add(PlSongToSong((JObject)it));
+    }
+
+    public async Task<KgQrResponse> QrAsync()
+    {
+        var st = EnsureIdentity();
+        var (url, _) = SignedUrl("https://login-user.kugou.com", "/v2/qrcode", new Dictionary<string, string>
+        {
+            ["dfid"] = "-",
+            ["mid"] = S(st, "mid"),
+            ["appid"] = "1001",
+            ["type"] = "1",
+            ["plat"] = "4",
+            ["qrcode_txt"] = $"https://h5.kugou.com/apps/loginQRCode/html/index.html?appid={AppId}&",
+            ["srcappid"] = SrcAppId
+        }, false);
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+        var d = await GetJsonAsync(req);
+        var q = d["data"];
+        var key = q?.Value<string>("qrcode") ?? "";
+        if (key.Length == 0) return new KgQrResponse { Ok = false, Error = "二维码生成失败" };
+        return new KgQrResponse { Ok = true, Key = key, Img = q?.Value<string>("qrcode_img") ?? "" };
+    }
+
+    public async Task<KgQrCheckResponse> QrCheckAsync(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return new KgQrCheckResponse { Ok = false, Error = "缺少 key" };
+        var st = EnsureIdentity();
+        var (url, _) = SignedUrl("https://login-user.kugou.com", "/v2/get_userinfo_qrcode",
+            new Dictionary<string, string>
+            {
+                ["dfid"] = "-",
+                ["mid"] = S(st, "mid"),
+                ["plat"] = "4",
+                ["appid"] = AppId,
+                ["srcappid"] = SrcAppId,
+                ["qrcode"] = key,
+                ["dev"] = S(st, "dev")
+            }, false);
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+        var d = await GetJsonAsync(req);
+        var q = d["data"];
+        var status = q?.Value<int?>("status");
+        var nickname = q?.Value<string>("nickname") ?? "";
+        var token = q?.Value<string>("token") ?? "";
+        if (status == 4 && token.Length > 0)
+        {
+            var userId = q?.Value<long?>("userid")?.ToString() is { Length: > 0 } u ? u : "0";
+            KgSave(new JObject { ["token"] = token, ["userid"] = userId, ["nickname"] = nickname });
+            try
+            {
+                await RegisterDevAsync(token, long.TryParse(userId, out var uid2) ? uid2 : 0);
+            }
+            catch (Exception ex)
+            {
+                Log.Debug("Failed to register KuGou dev: " + ex);
+            }
+        }
+
+        return new KgQrCheckResponse
+        {
+            Ok = true,
+            Status = status?.ToString() ?? "",
+            Nickname = nickname,
+        };
+    }
+
+    public KgLoginResponse LoginState()
+    {
+        var st = KgState();
+        return new KgLoginResponse
+        {
+            Ok = true,
+            Logged = S(st, "token").Length > 0,
+            Nickname = S(st, "nickname"),
+            UserId = S(st, "userid"),
+        };
+    }
+
+    public KgLoginResponse Logout()
+    {
+        KgSave(new JObject { ["token"] = "", ["userid"] = "", ["nickname"] = "" });
+        return new KgLoginResponse { Ok = true, Logged = false };
+    }
+
     private sealed record UrlHit(string Url, string Ext, long TimeLength);
 }

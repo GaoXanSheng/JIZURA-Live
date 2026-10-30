@@ -44,6 +44,36 @@ public static class CloudMusicService
         return result.List;
     }
 
+    public static Task<KgQrResponse> QrAsync(string source) =>
+        source == Netease ? ServerContext.Netease.QrAsync() : ServerContext.KuGou.QrAsync();
+
+    public static Task<KgQrCheckResponse> QrCheckAsync(string source, string key) =>
+        source == Netease ? ServerContext.Netease.QrCheckAsync(key) : ServerContext.KuGou.QrCheckAsync(key);
+
+    public static KgLoginResponse LoginState(string source) =>
+        source == Netease ? ServerContext.Netease.LoginState() : ServerContext.KuGou.LoginState();
+
+    public static KgLoginResponse Logout(string source) =>
+        source == Netease ? ServerContext.Netease.Logout() : ServerContext.KuGou.Logout();
+
+    public static async Task<List<PlaylistInfo>> MyPlaylistsAsync(string source)
+    {
+        var result = source == Netease
+            ? await ServerContext.Netease.MyPlaylistsAsync()
+            : await ServerContext.KuGou.MyPlaylistsAsync();
+        if (!result.Ok) throw new CloudMusicException(result.Error ?? L.T("CloudMusic.PlaylistsFailed"));
+        return result.List;
+    }
+
+    public static async Task<List<KgSong>> PlaylistSongsAsync(string source, string id)
+    {
+        var result = source == Netease
+            ? await ServerContext.Netease.PlaylistSongsAsync(id)
+            : await ServerContext.KuGou.PlaylistSongsAsync(id);
+        if (!result.Ok) throw new CloudMusicException(result.Error ?? L.T("CloudMusic.PlaylistLoadFailed"));
+        return result.List;
+    }
+
     public static async Task<List<CloudLyricOption>> GetLyricOptionsAsync(KgSong song)
     {
         var source = string.IsNullOrWhiteSpace(song.Source) ? Kugou : song.Source;

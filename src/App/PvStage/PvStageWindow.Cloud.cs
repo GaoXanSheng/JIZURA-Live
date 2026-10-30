@@ -12,22 +12,45 @@ public partial class PvStageWindow
 {
     private KgSong? _cloudSong;
     private CloudLyricOption? _cloudLyricOption;
+    private CloudMusicWindow? _cloudMusicWindow;
+    private bool _cloudImporting;
 
-    internal async void BtnCloudMusic_Click(object sender, RoutedEventArgs e) => await ImportCloudMusicAsync();
-
-    private async Task ImportCloudMusicAsync()
+    internal void BtnCloudMusic_Click(object sender, RoutedEventArgs e)
     {
-        var dlg = new CloudMusicWindow { Owner = this };
-        if (dlg.ShowDialog() != true || dlg.SelectedSong is not { } song) return;
+        if (_cloudMusicWindow is { IsLoaded: true } open)
+        {
+            open.Activate();
+            return;
+        }
 
+        var cloud = new CloudMusicWindow();
+        cloud.ImportRequested += (_, _) => OnCloudMusicImportRequested(cloud);
+        cloud.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_cloudMusicWindow, cloud)) _cloudMusicWindow = null;
+        };
+        _cloudMusicWindow = cloud;
+        cloud.Show();
+    }
+
+    private async void OnCloudMusicImportRequested(CloudMusicWindow window)
+    {
+        if (window.SelectedSong is not { } song) return;
+        await ImportCloudSongAsync(song, window.Quality, window.SelectedLyricOption);
+    }
+
+    private async Task ImportCloudSongAsync(KgSong song, string quality, CloudLyricOption? lyricOption)
+    {
+        if (_cloudImporting) return;
+        _cloudImporting = true;
         TblStatus.Text = L.F("StageUi.Stage.CloudMusicFetching", song.Singer, song.Name);
         try
         {
-            var loaded = await CloudMusicService.LoadAsync(song, dlg.Quality, dlg.SelectedLyricOption,
+            var loaded = await CloudMusicService.LoadAsync(song, quality, lyricOption,
                 msg => TblStatus.Text = L.T("StageUi.Stage.CloudMusicPrefix") + msg);
             if (!LoadAudioFile(loaded.AudioPath)) return;
 
-            SetCloudSong(song, dlg.SelectedLyricOption);
+            SetCloudSong(song, lyricOption);
             ApplyCloudLyrics(song, loaded.Lrc);
 
             _saveError = SaveProjectToCurrent();
@@ -41,6 +64,10 @@ public partial class PvStageWindow
         {
             TblStatus.Text = L.T("StageUi.Stage.CloudMusicImportFailed") + ex.Message;
             Log.Warn("[Cloud] 云端音乐导入失败：" + ex);
+        }
+        finally
+        {
+            _cloudImporting = false;
         }
     }
 

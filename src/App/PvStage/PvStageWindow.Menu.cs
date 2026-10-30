@@ -45,6 +45,18 @@ public partial class PvStageWindow
             return;
         }
 
+        if (string.Equals(layer.Id, SubtitleLayerId, StringComparison.Ordinal))
+        {
+            var subtitleIndex = _scene.Layers.FindIndex(l => ReferenceEquals(l, layer));
+            if (subtitleIndex < 0) return;
+            _scene.Layers = PvPipeline.WithLayerRemovedAt(_scene.Layers, subtitleIndex);
+            if (ReferenceEquals(_selectedLayer, layer)) _selectedLayer = null;
+            BuildLayerList();
+            BuildInspector();
+            _saveError = SaveProjectNow();
+            return;
+        }
+
         var idRef = layer.Id;
         _evaluator.RemoveCurvesForTarget(idRef);
 

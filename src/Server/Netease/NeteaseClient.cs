@@ -182,4 +182,166 @@ public sealed partial class NeteaseClient
         };
     }
 
+    public async Task<KgQrResponse> QrAsync()
+    {
+        var d = await PostAsync("/api/login/qrcode/unikey", new JObject { ["type"] = 1 }, eapi: false);
+        string key = d.Value<string>("unikey") ?? "";
+        if (key.Length == 0) return new KgQrResponse { Ok = false, Error = "二维码生成失败" };
+
+        string content = $"https://music.163.com/login?codekey={key}";
+        string img;
+        using (var gen = new QRCodeGenerator())
+        using (var data = gen.CreateQrCode(content, QRCodeGenerator.ECCLevel.M))
+        using (var png = new PngByteQRCode(data))
+        {
+            img = "data:image/png;base64," + Convert.ToBase64String(png.GetGraphic(6));
+        }
+
+        return new KgQrResponse { Ok = true, Key = key, Img = img };
+    }
+
+    public async Task<KgQrCheckResponse> QrCheckAsync(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return new KgQrCheckResponse { Ok = false, Error = "缺少 key" };
+        var cookies = new List<string>();
+        var d = await PostAsync("/api/login/qrcode/client/login", new JObject
+        {
+            ["key"] = key,
+            ["type"] = 1,
+        }, eapi: false, setCookies: cookies);
+
+        int code = d.Value<int?>("code") ?? 0;
+        if (code == 803)
+        {
+            var patch = new JObject();
+            void Eat(string raw)
+            {
+                foreach (var part in raw.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                {
+                    int eq = part.IndexOf('=');
+                    if (eq <= 0) continue;
+                    string k = part[..eq].Trim(), v = part[(eq + 1)..].Trim();
+                    if ((k == "MUSIC_U" || k == "__csrf") && v.Length > 0) patch[k] = v;
+                }
+            }
+
+            Eat(d.Value<string>("cookie") ?? "");
+            foreach (var line in cookies) Eat(line);
+            if (!patch.ContainsKey("MUSIC_U"))
+                return new KgQrCheckResponse { Ok = false, Error = "扫码成功但没拿到登录凭据，请刷新二维码重试" };
+
+            patch["nickname"] = d["profile"]?.Value<string>("nickname") ?? "网易云账号";
+            NeSave(patch);
+        }
+
+        return new KgQrCheckResponse
+        {
+            Ok = true,
+            Status = code.ToString(),
+            Nickname = d["profile"]?.Value<string>("nickname"),
+        };
+    }
+
+    public KgLoginResponse LoginState()
+    {
+        var st = NeState();
+        return new KgLoginResponse
+        {
+            Ok = true,
+            Logged = S(st, "MUSIC_U").Length > 0,
+            Nickname = S(st, "nickname"),
+        };
+    }
+
+    public KgLoginResponse Logout()
+    {
+        NeSave(new JObject { ["MUSIC_U"] = "", ["__csrf"] = "", ["nickname"] = "" });
+        return new KgLoginResponse { Ok = true, Logged = false };
+    }
+
+    private static KgSong TrackToSong(JObject it)
+    {
+        long fee = it.Value<long?>("fee") ?? 0;
+        return new KgSong
+        {
+            Source = "netease",
+            Id = it.Value<long?>("id")?.ToString() ?? "",
+            Name = it.Value<string>("name") ?? "",
+            Singer = string.Join(" / ", (it["ar"] as JArray ?? new JArray())
+                .Select(a => a.Value<string>("name")).Where(n => !string.IsNullOrEmpty(n))),
+            Album = it["al"]?.Value<string>("name") ?? "",
+            Duration = (it.Value<long?>("dt") ?? 0) / 1000,
+            Pay = fee is 1 or 4 ? 1 : 0,
+            Cover = it["al"]?.Value<string>("picUrl") ?? "",
+        };
+    }
+
+    public async Task<PlaylistsResponse> MyPlaylistsAsync()
+    {
+        if (S(NeState(), "MUSIC_U").Length == 0)
+            return new PlaylistsResponse { Ok = false, Error = "请先扫码登录网易云" };
+
+        var acc = await PostAsync("/api/nuser/account/get", new JObject(), eapi: false);
+        string uid = acc["profile"]?.Value<long?>("userId")?.ToString()
+                     ?? acc["account"]?.Value<long?>("id")?.ToString() ?? "";
+        if (uid.Length == 0)
+            return new PlaylistsResponse { Ok = false, Error = "登录状态已失效，请重新扫码" };
+
+        var d = await PostAsync("/api/user/playlist", new JObject
+        {
+            ["uid"] = long.Parse(uid),
+            ["limit"] = 1000,
+            ["offset"] = 0,
+            ["includeVideoSong"] = true,
+        }, eapi: false);
+
+        var r = new PlaylistsResponse { Ok = true };
+        r.List.AddRange(ParsePlaylists(d, long.TryParse(uid, out var me) ? me : 0));
+        return r;
+    }
+
+    public static List<PlaylistInfo> ParsePlaylists(JObject d, long myUid)
+    {
+        var list = new List<PlaylistInfo>();
+        foreach (var p in d["playlist"] as JArray ?? new JArray())
+        {
+            var id = p.Value<long?>("id")?.ToString() ?? "";
+            var name = p.Value<string>("name") ?? "";
+            if (id.Length == 0 || name.Length == 0) continue;
+            var creatorId = p["creator"]?.Value<long?>("userId") ?? 0;
+            var subscribed = p.Value<bool?>("subscribed") ?? false;
+            list.Add(new PlaylistInfo
+            {
+                Id = id,
+                Name = name,
+                Count = p.Value<int?>("trackCount") ?? 0,
+                Creator = p["creator"]?.Value<string>("nickname") ?? "",
+                Cover = p.Value<string>("coverImgUrl") ?? "",
+                Kind = p.Value<int?>("specialType") == 5 ? PlaylistKind.Liked
+                    : !subscribed || (creatorId > 0 && creatorId == myUid) ? PlaylistKind.Mine
+                    : PlaylistKind.Subscribed,
+            });
+        }
+
+        return list;
+    }
+
+    public async Task<KgSearchResponse> PlaylistSongsAsync(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || !long.TryParse(id.Trim(), out _))
+            return new KgSearchResponse { Ok = false, Error = "缺少歌单 ID" };
+
+        var d = await PostAsync("/api/v6/playlist/detail", new JObject
+        {
+            ["id"] = long.Parse(id.Trim()),
+            ["n"] = 1000,
+        }, eapi: false);
+
+        var r = new KgSearchResponse { Ok = true };
+        foreach (var t in d["playlist"]?["tracks"] as JArray ?? new JArray())
+            r.List.Add(TrackToSong((JObject)t));
+        r.Total = r.List.Count;
+        return r;
+    }
+
 }

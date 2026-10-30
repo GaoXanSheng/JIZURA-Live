@@ -83,6 +83,8 @@ public sealed class Settings
         settings.Layout.TimelineHeight = Clamp(settings.Layout.TimelineHeight, 80, 1600, 300);
         settings.Layout.TimelineHeaderWidth = Clamp(settings.Layout.TimelineHeaderWidth, 120, 800, 200);
         settings.Layout.LeftTab = Math.Clamp(settings.Layout.LeftTab, 0, 4);
+        settings.Layout.CloudWidth = Clamp(settings.Layout.CloudWidth, 900, 4096, 960);
+        settings.Layout.CloudHeight = Clamp(settings.Layout.CloudHeight, 560, 4096, 620);
         return settings;
     }
 
@@ -150,4 +152,12 @@ public sealed class WindowLayout
     public int LeftTab { get; set; }
 
     public double TimelineHeaderWidth { get; set; } = 200;
+
+    public double? CloudLeft { get; set; }
+
+    public double? CloudTop { get; set; }
+
+    public double CloudWidth { get; set; } = 960;
+
+    public double CloudHeight { get; set; } = 620;
 }

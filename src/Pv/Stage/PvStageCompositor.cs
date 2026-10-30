@@ -69,8 +69,6 @@ public sealed class PvStageCompositor
 
     public PvStageCompositor(Immediate2D draw) => _draw = draw;
 
-    public static readonly string[] FixedZones = { "subtitle_top" };
-
     public void CompositeLayer(PvScene scene, PvLayerConfig layer, in PvLayerState state, PvLayerImage image,
         PvCamState cam, int width, int height)
     {
@@ -135,14 +133,6 @@ public sealed class PvStageCompositor
             Blend = Blend2D.Plus,
         });
         _draw.Restore();
-    }
-
-    public void CompositeFixedZone(string id, IReadOnlyDictionary<string, PvLayerImage> images,
-        int width, int height)
-    {
-        if (!images.TryGetValue(id, out var zone) || !zone.HasContent) return;
-        var dest = FitRect(zone, false, width, height);
-        if (zone.Bitmap is not null) _draw.DrawBitmap(zone.Bitmap, dest, 1f);
     }
 
     private void DrawContent(PvLayerConfig layer, PvLayerImage image, PvLayerTransform tf,

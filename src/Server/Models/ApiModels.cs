@@ -81,3 +81,50 @@ public sealed class KgLyricResponse : ApiResponse
     public List<KgLyricCandidate>? Candidates { get; set; }
 }
 
+public sealed class KgQrResponse : ApiResponse
+{
+    [JsonProperty("key")] public string Key { get; set; } = "";
+    [JsonProperty("img")] public string Img { get; set; } = "";
+}
+
+public sealed class KgQrCheckResponse : ApiResponse
+{
+    [JsonProperty("status")] public string Status { get; set; } = "";
+    [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Nickname { get; set; }
+}
+
+public sealed class KgLoginResponse : ApiResponse
+{
+    [JsonProperty("logged")] public bool Logged { get; set; }
+    [JsonProperty("nickname", NullValueHandling = NullValueHandling.Ignore)]
+    public string? Nickname { get; set; }
+    [JsonProperty("userid", NullValueHandling = NullValueHandling.Ignore)]
+    public string? UserId { get; set; }
+}
+
+public static class PlaylistKind
+{
+    public const string Mine = "mine";
+    public const string Subscribed = "sub";
+    public const string Liked = "liked";
+}
+
+public sealed class PlaylistInfo
+{
+    [JsonProperty("id")] public string Id { get; set; } = "";
+    [JsonProperty("name")] public string Name { get; set; } = "";
+    [JsonProperty("count")] public int Count { get; set; }
+    [JsonProperty("kind", NullValueHandling = NullValueHandling.Ignore)]
+    public string Kind { get; set; } = "";
+    [JsonProperty("creator", NullValueHandling = NullValueHandling.Ignore)]
+    public string Creator { get; set; } = "";
+    [JsonProperty("cover", NullValueHandling = NullValueHandling.Ignore)]
+    public string Cover { get; set; } = "";
+}
+
+public sealed class PlaylistsResponse : ApiResponse
+{
+    [JsonProperty("list")] public List<PlaylistInfo> List { get; } = [];
+}
+

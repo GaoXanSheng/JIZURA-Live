@@ -141,8 +141,6 @@ public sealed class PvStageRenderer : IDisposable
 
     public EffectGraph Effects => _effects;
 
-    public IPvLayerProvider? Overlay { get; set; }
-
     private volatile string? _selectedLayerId;
 
     public string? SelectedLayerId
@@ -287,10 +285,13 @@ public sealed class PvStageRenderer : IDisposable
             if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
             var state = LayerState(layer);
-            if (!LegacyPvProvider.IsLayerId(layer.Id))
-                _hitScratch.Add(BuildHit(layer, state, image));
-            if (string.Equals(layer.Id, _selectedLayerId, StringComparison.Ordinal))
-                selection = BuildSelection(layer, state, image);
+            if (!layer.Locked && layer.Kind != PvLayerKind.Subtitle)
+            {
+                if (!LegacyPvProvider.IsLayerId(layer.Id))
+                    _hitScratch.Add(BuildHit(layer, state, image));
+                if (string.Equals(layer.Id, _selectedLayerId, StringComparison.Ordinal))
+                    selection = BuildSelection(layer, state, image);
+            }
 
             if (!_frameEffects.HasEffectsFor(layer.Id))
             {
@@ -305,19 +306,6 @@ public sealed class PvStageRenderer : IDisposable
         _hits = [.. _hitScratch];
 
         if (!SpoutTransparent) compositor.DrawBrighten(Stage.Camera, _designW, _designH);
-
-        foreach (var id in PvStageCompositor.FixedZones)
-        {
-            if (!images.TryGetValue(id, out var zone) || !zone.HasContent) continue;
-            if (!_frameEffects.HasEffectsFor(id))
-            {
-                compositor.CompositeFixedZone(id, images, _designW, _designH);
-                continue;
-            }
-
-            d.End();
-            DrawZoneWithEffects(d, compositor, id, images, frame, returns, full);
-        }
 
         d.End();
         _selection = selection;
@@ -371,7 +359,6 @@ public sealed class PvStageRenderer : IDisposable
         d.Clear(new Color4(0f, 0f, 0f, 1f));
         var previewRect = Letterbox(_designW, _designH, width, height);
         DrawStage(d, fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut), previewRect);
-        DrawOverlay(d, frame, previewRect);
         if (selection is not null) DrawSelection(d, selection, previewRect);
         d.End();
 
@@ -383,7 +370,6 @@ public sealed class PvStageRenderer : IDisposable
             d.Begin();
             d.Clear(SpoutTransparent ? new Color4(0f, 0f, 0f, 0f) : new Color4(0f, 0f, 0f, 1f));
             DrawStage(d, src, broadcastRect);
-            DrawOverlay(d, frame, broadcastRect);
             d.End();
 
             b.PresentFrame();
@@ -407,35 +393,6 @@ public sealed class PvStageRenderer : IDisposable
 
         var graph = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH,
             layer.Id, AudioBass, AudioMid, AudioHigh, AudioRms);
-        var output = graph.Count > 0 ? _fx.RunGraph(graph, target.Srv, _designW, _designH) : null;
-
-        d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
-        d.Begin();
-        if (output is not null)
-        {
-            d.DrawBitmap(BitmapFor(output), full);
-            returns.Add(output);
-        }
-        else
-        {
-            d.DrawBitmap(target.Surface.Bitmap, full);
-        }
-    }
-
-    private void DrawZoneWithEffects(Immediate2D d, PvStageCompositor compositor, string id,
-        IReadOnlyDictionary<string, PvLayerImage> images, in PvFrameContext frame,
-        List<GpuTexturePool.Entry> returns, Rect full)
-    {
-        var target = LayerTargetFor(id);
-
-        d.SetTarget(target.Surface.Bitmap, _designW, _designH);
-        d.Begin();
-        d.Clear(new Color4(0f, 0f, 0f, 0f));
-        compositor.CompositeFixedZone(id, images, _designW, _designH);
-        d.End();
-
-        var graph = _frameEffects.BuildRenderGraph(_fx.Shaders, (float)frame.Time, _designW, _designH,
-            id, AudioBass, AudioMid, AudioHigh, AudioRms);
         var output = graph.Count > 0 ? _fx.RunGraph(graph, target.Srv, _designW, _designH) : null;
 
         d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
@@ -482,16 +439,6 @@ public sealed class PvStageRenderer : IDisposable
     private void DrawStage(Immediate2D d, ID2D1Bitmap1 bitmap, Rect rect)
     {
         d.DrawBitmap(bitmap, rect);
-    }
-
-    private void DrawOverlay(Immediate2D d, in PvFrameContext frame, Rect rect)
-    {
-        if (Overlay is null) return;
-
-        var image = Overlay.Pump(frame);
-        if (image.Bitmap is { } bmp) d.DrawBitmap(bmp, rect);
-        else if (image.Solid is { } solid)
-            d.FillRect(rect, new Paint2D { Brush = new SolidBrush2D(solid) });
     }
 
     private PvHitQuad BuildHit(PvLayerConfig layer, in PvLayerState state, PvLayerImage image)
@@ -775,7 +722,6 @@ public sealed class PvStageRenderer : IDisposable
     public void Dispose()
     {
         _broadcast = null;
-        Overlay = null;
         _transitionRunner.Dispose();
         ClearFxBitmapCache();
         foreach (var target in _layerTargets.Values) target.Dispose();

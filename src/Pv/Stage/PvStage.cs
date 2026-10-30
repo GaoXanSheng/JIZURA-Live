@@ -40,14 +40,6 @@ public sealed class PvStage : IDisposable
             var image = provider.Pump(ctx);
             if (image.HasContent) _images[layer.Id] = image;
         }
-
-        foreach (var id in PvStageCompositor.FixedZones)
-        {
-            if (_images.ContainsKey(id)) continue;
-            if (!_providers.TryGetValue(id, out var zone)) continue;
-            var zi = zone.Pump(ctx);
-            if (zi.HasContent) _images[id] = zi;
-        }
     }
 
     public void Dispose()

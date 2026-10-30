@@ -45,6 +45,7 @@ public sealed class PvLayerConfig
     public string Name { get; set; } = "Layer";
     public PvLayerKind Kind { get; set; } = PvLayerKind.VisualAsset;
     public bool Enabled { get; set; } = true;
+    public bool Locked { get; set; }
 
     public double Opacity { get; set; } = 1.0;
 
