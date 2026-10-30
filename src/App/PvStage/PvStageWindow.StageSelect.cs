@@ -105,7 +105,7 @@ public partial class PvStageWindow
             UpdatePlayIcon();
         }
 
-        var vts = _stageVtsDrive && _scene.IsCharacterLayer(layer);
+        var vts = VtsEnabled && _stageVtsDrive && _scene.IsCharacterLayer(layer);
         var t = _audio.Time;
         var xAddr = vts ? VtsXAddr : LayerAddr(layer, "offsetX");
         var yAddr = vts ? VtsYAddr : LayerAddr(layer, "offsetY");
