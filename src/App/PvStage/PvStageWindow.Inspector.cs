@@ -52,7 +52,7 @@ public partial class PvStageWindow
                 FontSize = 12,
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
-                Cursor = AppCursors.Hand,
+                Cursor = Cursors.Hand,
                 ToolTip = L.T("StageUi.Inspector.ClickToEnterExactValue"),
             };
             Display.SetResourceReference(TextBlock.ForegroundProperty, TextPrimaryKey);
@@ -145,6 +145,22 @@ public partial class PvStageWindow
     private bool _syncingRows;
     private Panel _inspectorTarget = null!;
 
+    private enum InspectorTab
+    {
+        Transform,
+        Appearance,
+        Effects,
+        Camera,
+        CameraMove,
+        Transition,
+        CharacterCamera,
+        CharacterMove,
+        CharacterExpression,
+        CharacterTint,
+    }
+
+    private InspectorTab? _inspectorTab;
+
     internal void ClearLayerSelection() => SelectLayer(null);
 
     private void SelectLayer(PvLayerConfig? layer)
@@ -186,27 +202,109 @@ public partial class PvStageWindow
 
         if (_segmentTarget is { } target && SegmentTargetAlive(target))
         {
+            InspectorTabs.Children.Clear();
+            InspectorTabs.Visibility = Visibility.Collapsed;
             BuildSegmentSection(target);
         }
         else
         {
             _segmentTarget = null;
-            foreach (var section in InspectorLayout.Sections(_selectedLayer is not null))
-            {
-                switch (section)
-                {
-                    case InspectorSectionKind.Camera:
-                        BuildCameraSection();
-                        break;
-                    case InspectorSectionKind.Layer:
-                        BuildLayerSection(_selectedLayer!);
-                        break;
-                }
-            }
+            BuildTabbedInspector();
         }
 
         RefreshParamRows();
         RefreshFxStack();
+    }
+
+    private void BuildTabbedInspector()
+    {
+        var layer = _selectedLayer;
+        var tabs = new List<(InspectorTab Tab, string Label)>();
+
+        if (layer is null)
+        {
+            tabs.Add((InspectorTab.Camera, L.T("StageUi.Inspector.TabCamera")));
+            tabs.Add((InspectorTab.CameraMove, L.T("StageUi.Inspector.TabCameraMove")));
+            tabs.Add((InspectorTab.Transition, L.T("StageUi.Inspector.TabTransition")));
+        }
+        else
+        {
+            tabs.Add((InspectorTab.Transform, L.T("StageUi.Inspector.TabTransform")));
+            tabs.Add((InspectorTab.Appearance, L.T("StageUi.Inspector.TabAppearance")));
+            tabs.Add((InspectorTab.Effects, L.T("StageUi.TimelinePanel.Effects")));
+            if (_scene.IsCharacterLayer(layer))
+            {
+                if (UsesIndependentCameraTrack(layer) || _scene.CameraAffectsCharacter)
+                    tabs.Add((InspectorTab.CharacterCamera, L.T("StageUi.Inspector.CharacterCameraMove")));
+                if (VtsEnabled)
+                {
+                    tabs.Add((InspectorTab.CharacterMove, L.T("StageUi.Vts.CharacterMove")));
+                    tabs.Add((InspectorTab.CharacterExpression, L.T("StageUi.Vts.CharacterExpression")));
+                    tabs.Add((InspectorTab.CharacterTint, L.T("StageUi.Vts.CharacterTint")));
+                }
+            }
+        }
+
+        var active = _inspectorTab is { } current && tabs.Exists(t => t.Tab == current)
+            ? current
+            : tabs[0].Tab;
+        _inspectorTab = active;
+
+        InspectorTabs.Children.Clear();
+        InspectorTabs.Visibility = Visibility.Visible;
+        foreach (var (tab, label) in tabs)
+        {
+            var radio = new RadioButton
+            {
+                Content = label,
+                GroupName = "InspectorTabs",
+                Style = TryFindResource("InspectorTab") as Style,
+                IsChecked = tab == active,
+                Tag = tab,
+            };
+            radio.Checked += (_, _) =>
+            {
+                if (_inspectorTab == (InspectorTab)radio.Tag) return;
+                _inspectorTab = (InspectorTab)radio.Tag;
+                BuildInspector();
+                InspectorScroll.ScrollToTop();
+            };
+            InspectorTabs.Children.Add(radio);
+        }
+
+        switch (active)
+        {
+            case InspectorTab.Transform:
+                BuildLayerSection(layer!);
+                break;
+            case InspectorTab.Appearance:
+                BuildLayerAppearanceSection(layer!);
+                break;
+            case InspectorTab.Effects:
+                BuildLayerEffectsSection(layer!);
+                break;
+            case InspectorTab.Camera:
+                BuildCameraSection();
+                break;
+            case InspectorTab.CameraMove:
+                BuildCameraMoveSection();
+                break;
+            case InspectorTab.Transition:
+                BuildCameraTransitionSection();
+                break;
+            case InspectorTab.CharacterCamera:
+                BuildCharacterCameraSection(layer!);
+                break;
+            case InspectorTab.CharacterMove:
+                BuildCharacterMoveSection();
+                break;
+            case InspectorTab.CharacterExpression:
+                BuildCharacterExpressionSection();
+                break;
+            case InspectorTab.CharacterTint:
+                BuildCharacterTintSection();
+                break;
+        }
     }
 
     private string InspectorTargetTitle()
@@ -230,8 +328,16 @@ public partial class PvStageWindow
         AddInspector(CameraRow("rotation", L.T("StageUi.Inspector.Rotation"), 1));
         AddInspector(CameraRow("blur", L.T("StageUi.Inspector.Defocus"), 0.5));
         AddInspector(CameraRow("brighten", L.T("StageUi.Inspector.Brighten"), 0.01));
+    }
+
+    private void BuildCameraMoveSection()
+    {
         AddSectionTitle(L.T("StageUi.Inspector.OverallCameraMove"));
         AddInspector(CameraAddRow());
+    }
+
+    private void BuildCameraTransitionSection()
+    {
         AddSectionTitle(L.T("StageUi.Inspector.OverallTransition"));
         AddInspector(TransitionAddRow());
     }
@@ -346,7 +452,7 @@ public partial class PvStageWindow
 
     private void BuildLayerSection(PvLayerConfig layer)
     {
-        AddSectionTitle(L.T("StageUi.Inspector.Layer"));
+        AddSectionTitle(L.T("StageUi.Inspector.TabTransform"));
         AddInspector(ThemeText(
             L.T("StageUi.Inspector.LayerTransformHint"),
             TextTertiaryKey, 11, wrap: true));
@@ -355,6 +461,11 @@ public partial class PvStageWindow
         AddInspector(LayerRow(layer, "scale", L.T("StageUi.Inspector.Scale"), 0.01));
         AddInspector(LayerRow(layer, "opacity", L.T("StageUi.Inspector.Opacity"), 0.02));
         AddInspector(LayerRow(layer, "rotation", L.T("StageUi.Inspector.Rotation"), 1));
+    }
+
+    private void BuildLayerAppearanceSection(PvLayerConfig layer)
+    {
+        AddSectionTitle(L.T("StageUi.Inspector.TabAppearance"));
         AddInspector(ConstRow(L.T("StageUi.Inspector.Depth"), 0, 3, 0.01,
             () => layer.Parallax.Depth, v => layer.Parallax.Depth = v));
         if (_scene.IsCharacterLayer(layer))
@@ -382,22 +493,101 @@ public partial class PvStageWindow
                 RebuildStage();
             }));
         }
+    }
 
-        if (_scene.IsCharacterLayer(layer))
+    private void BuildLayerEffectsSection(PvLayerConfig layer)
+    {
+        AddSectionTitle(L.T("StageUi.TimelinePanel.Effects"));
+        AddInspector(ThemeText(L.T("StageUi.Inspector.LayerEffectsHint"), TextTertiaryKey, 11, wrap: true));
+
+        var combo = new ComboBox { FontSize = 12 };
+        foreach (var def in EffectCatalog.All)
+            combo.Items.Add(new ComboBoxItem { Content = EffectName(def), Tag = def.Id });
+        if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+
+        var add = new Wpf.Ui.Controls.Button
         {
-            if (UsesIndependentCameraTrack(layer) && !_scene.CameraAffectsCharacter)
-                BuildCharacterCameraTrackSection(layer);
-            else if (_scene.CameraAffectsCharacter)
-                AddInspector(ThemeText(L.T("StageUi.Inspector.CharacterCameraGlobalForced"),
-                    TextTertiaryKey, 11, wrap: true));
+            Content = L.T("StageUi.Inspector.AddEffectToLayer"),
+            Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        add.Click += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string defId })
+                AddFxNode(defId, layer.Id);
+        };
+        AddInspector(combo);
+        AddInspector(add);
 
-            if (VtsEnabled)
-            {
-                BuildCharacterMoveSection();
-                BuildCharacterExpressionSection();
-                BuildCharacterTintSection();
-            }
+        var nodes = _effects.Nodes
+            .Where(n => string.Equals(n.Target, layer.Id, StringComparison.Ordinal))
+            .ToList();
+        if (nodes.Count == 0)
+        {
+            AddInspector(ThemeText(L.T("StageUi.Inspector.NoLayerEffects"), TextTertiaryKey, 11, wrap: true));
+            return;
         }
+
+        foreach (var node in nodes)
+            AddInspector(LayerEffectRow(node));
+    }
+
+    private FrameworkElement LayerEffectRow(EffectNode node)
+    {
+        var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var toggle = new Wpf.Ui.Controls.ToggleSwitch
+        {
+            IsChecked = node.Enabled,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+        };
+        toggle.Checked += (_, _) => SetFxEnabled(node, true);
+        toggle.Unchecked += (_, _) => SetFxEnabled(node, false);
+        Grid.SetColumn(toggle, 0);
+        row.Children.Add(toggle);
+
+        var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        name.VerticalAlignment = VerticalAlignment.Center;
+        name.Cursor = Cursors.Hand;
+        name.ToolTip = L.T("StageUi.Presets.ClickToEditParamsOnRight");
+        name.MouseLeftButtonUp += (_, _) =>
+        {
+            _segmentTarget = node.Windows.Count > 0
+                ? SegmentTarget.OfEffectWindow(node, 0)
+                : SegmentTarget.Of(node);
+            BuildInspector();
+        };
+        Grid.SetColumn(name, 1);
+        row.Children.Add(name);
+
+        var preview = SmallFxButton("▶");
+        preview.ToolTip = L.T("StageUi.Presets.SeekToEffectWindowPreview");
+        preview.Click += (_, _) => PreviewEffect(node);
+        Grid.SetColumn(preview, 2);
+        row.Children.Add(preview);
+
+        var del = SmallFxButton("✕");
+        del.Click += (_, _) => RemoveFxNode(node);
+        Grid.SetColumn(del, 3);
+        row.Children.Add(del);
+
+        return row;
+    }
+
+    private void BuildCharacterCameraSection(PvLayerConfig layer)
+    {
+        if (UsesIndependentCameraTrack(layer) && !_scene.CameraAffectsCharacter)
+            BuildCharacterCameraTrackSection(layer);
+        else if (_scene.CameraAffectsCharacter)
+            AddInspector(ThemeText(L.T("StageUi.Inspector.CharacterCameraGlobalForced"),
+                TextTertiaryKey, 11, wrap: true));
     }
 
     private FrameworkElement IndependentCameraRow(PvLayerConfig layer)
@@ -808,7 +998,7 @@ public partial class PvStageWindow
 
         var badge = new Wpf.Ui.Controls.Badge
         {
-            Cursor = AppCursors.Hand,
+            Cursor = Cursors.Hand,
             FontSize = 10.5,
             Padding = new Thickness(4, 0, 4, 0),
             Margin = new Thickness(6, 0, 0, 0),
@@ -1352,7 +1542,7 @@ public partial class PvStageWindow
                 Padding = new Thickness(4),
                 CornerRadius = new CornerRadius(6),
                 BorderThickness = new Thickness(1),
-                Cursor = AppCursors.Hand,
+                Cursor = Cursors.Hand,
                 Child = stack,
                 ToolTip = option.Label,
             };
@@ -2050,7 +2240,7 @@ public partial class PvStageWindow
             Background = BrushFromHex(initial),
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
-            Cursor = AppCursors.Hand,
+            Cursor = Cursors.Hand,
             ToolTip = L.T("StageUi.Inspector.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
@@ -2520,24 +2710,10 @@ public partial class PvStageWindow
         EffectCatalog.Get(node.DefId)?.Params.FirstOrDefault(p => p.Key == key) is { } p ? ParamLabel(p) : key;
 }
 
-public enum InspectorSectionKind
-{
-    Camera,
-    Layer,
-}
-
 public static class ValueSourceBadge
 {
     public static string Curve => L.T("StageUi.Inspector.Curve");
     public static string Constant => L.T("StageUi.Inspector.Constant");
 
     public static string Label(bool hasCurve) => hasCurve ? Curve : Constant;
-}
-
-public static class InspectorLayout
-{
-    public static IReadOnlyList<InspectorSectionKind> Sections(bool hasLayerSelection) =>
-        hasLayerSelection
-            ? [InspectorSectionKind.Layer]
-            : [InspectorSectionKind.Camera];
 }

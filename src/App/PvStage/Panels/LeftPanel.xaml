@@ -209,6 +209,15 @@
                             <StackPanel>
                                 <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                                     <StackPanel>
+                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.FxScopeTitle}" Style="{StaticResource PanelCardTitle}" />
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="勾选参与生成的效果包；关掉的效果在自动生成时不会被选中。" />
+                                        <StackPanel x:Name="TechPackHost" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                    <StackPanel>
                                         <Grid>
                                             <TextBlock Text="{DynamicResource Loc.LeftPanel.FxLibraryTitle}" Style="{StaticResource PanelCardTitle}" Margin="0" />
                                             <TextBlock x:Name="TblTechCount" HorizontalAlignment="Right"
@@ -237,15 +246,6 @@
                                                        Margin="6,0,0,0" Click="BtnFxAdd_Click" />
                                         </Grid>
                                         <StackPanel x:Name="FxStackHost" Margin="0,8,0,0" />
-                                    </StackPanel>
-                                </Border>
-
-                                <Border Padding="12,8" Margin="0,0,0,8" Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-                                    <StackPanel>
-                                        <TextBlock Text="{DynamicResource Loc.LeftPanel.FxScopeTitle}" Style="{StaticResource PanelCardTitle}" />
-                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
-                                                   Text="勾选参与生成的效果包；关掉的效果在自动生成时不会被选中。" />
-                                        <StackPanel x:Name="TechPackHost" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

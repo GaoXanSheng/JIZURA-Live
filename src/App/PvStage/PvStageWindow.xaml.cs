@@ -130,9 +130,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     {
         InitializeComponent();
         Left.Owner = this;
-        LeftSplitter.Cursor = AppCursors.SizeWE;
-        InspectorSplitter.Cursor = AppCursors.SizeWE;
-        TimelineSplitter.Cursor = AppCursors.SizeNS;
+        LeftSplitter.Cursor = Cursors.SizeWE;
+        InspectorSplitter.Cursor = Cursors.SizeWE;
+        TimelineSplitter.Cursor = Cursors.SizeNS;
         InitVts();
         LeftSplitter.DragCompleted += (_, _) => SaveWindowLayout();
         InspectorSplitter.DragCompleted += (_, _) => SaveWindowLayout();
@@ -217,7 +217,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         ApplySavedLayout(settings);
         SetStep(Math.Clamp(settings?.Layout?.LeftTab ?? 0, 0, 4));
 
-        TblInspectorTitle.Cursor = AppCursors.Hand;
+        TblInspectorTitle.Cursor = Cursors.Hand;
         TblInspectorTitle.ToolTip = L.T("StageUi.Window.BackToOverallCameraTooltip");
         TblInspectorTitle.MouseLeftButtonDown += (_, _) => SelectLayer(null);
 
@@ -749,7 +749,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
                 CornerRadius = new CornerRadius(4),
                 Background = Brushes.Transparent,
                 AllowDrop = !composite,
-                Cursor = composite ? AppCursors.Arrow : AppCursors.SizeAll,
+                Cursor = composite ? Cursors.Arrow : Cursors.SizeAll,
             };
             card.MouseEnter += (_, _) => card.SetResourceReference(Border.BackgroundProperty, SelectFillKey);
             card.MouseLeave += (_, _) => HighlightLayerCards();

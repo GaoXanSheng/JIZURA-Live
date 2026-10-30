@@ -1,4 +1,3 @@
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -343,62 +342,13 @@ public sealed class PresentHost : HwndHost
             case WmSetCursor:
                 if (((long)lParam & 0xFFFF) == HtClient)
                 {
-                    SetCursor(CursorHandle(HitTestCursor()));
+                    SetCursor(LoadCursorW(IntPtr.Zero, (IntPtr)CursorId(HitTestCursor())));
                     return (IntPtr)1;
                 }
                 break;
         }
 
         return DefSubclassProc(hwnd, msg, wParam, lParam);
-    }
-
-    private static readonly Dictionary<HostCursor, string> CursorFiles = new()
-    {
-        [HostCursor.Arrow] = "arrow.cur",
-        [HostCursor.Hand] = "hand.cur",
-        [HostCursor.Rotate] = "wait.ani",
-        [HostCursor.SizeAll] = "sizeall.cur",
-        [HostCursor.SizeWE] = "sizewe.cur",
-        [HostCursor.SizeNS] = "sizens.cur",
-        [HostCursor.SizeNWSE] = "sizenwse.cur",
-        [HostCursor.SizeNESW] = "sizenesw.cur",
-    };
-
-    private static readonly object CursorGate = new();
-    private static readonly Dictionary<HostCursor, IntPtr> CursorHandles = new();
-
-    private static IntPtr CursorHandle(HostCursor cursor)
-    {
-        lock (CursorGate)
-        {
-            if (CursorHandles.TryGetValue(cursor, out var loaded))
-                return loaded != IntPtr.Zero ? loaded : LoadCursorW(IntPtr.Zero, (IntPtr)CursorId(cursor));
-
-            var handle = IntPtr.Zero;
-            if (CursorFiles.TryGetValue(cursor, out var file))
-            {
-                var path = Path.Combine(AppContext.BaseDirectory, "assets", "mono", file);
-                try
-                {
-                    if (File.Exists(path))
-                    {
-                        handle = LoadCursorFromFileW(path);
-                        if (handle == IntPtr.Zero) Log.Warn("[PresentHost] 光标加载失败：" + path);
-                    }
-                    else
-                    {
-                        Log.Warn("[PresentHost] 光标文件不存在：" + path);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("[PresentHost] 光标加载异常：" + ex.Message);
-                }
-            }
-
-            CursorHandles[cursor] = handle;
-            return handle != IntPtr.Zero ? handle : LoadCursorW(IntPtr.Zero, (IntPtr)CursorId(cursor));
-        }
     }
 
     private static int CursorId(HostCursor cursor) => cursor switch
@@ -504,9 +454,6 @@ public sealed class PresentHost : HwndHost
 
     [DllImport("user32.dll")]
     private static extern IntPtr LoadCursorW(IntPtr instance, IntPtr name);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr LoadCursorFromFileW(string path);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

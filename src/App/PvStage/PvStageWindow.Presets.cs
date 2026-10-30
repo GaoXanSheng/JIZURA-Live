@@ -90,7 +90,7 @@ public partial class PvStageWindow
             {
                 Width = 82,
                 Margin = new Thickness(0, 0, 6, 6),
-                Cursor = AppCursors.Hand,
+                Cursor = Cursors.Hand,
                 ToolTip = ThemeTooltip(style),
             };
 
@@ -292,13 +292,14 @@ public partial class PvStageWindow
         AddFxNode(defId);
     }
 
-    private void AddFxNode(string defId)
+    private void AddFxNode(string defId, string target = "")
     {
         var node = new EffectNode
         {
             DefId = defId,
             InstanceId = EffectGraph.NewInstanceId(defId),
             Source = "user",
+            Target = target,
         };
 
         _effects.Nodes.Add(node);
@@ -390,7 +391,7 @@ public partial class PvStageWindow
 
         var name = ThemeText(EffectName(node), TextPrimaryKey, 12);
         name.TextTrimming = TextTrimming.CharacterEllipsis;
-        name.Cursor = AppCursors.Hand;
+        name.Cursor = Cursors.Hand;
         name.ToolTip = L.T("StageUi.Presets.ClickToEditParamsOnRight");
         name.MouseLeftButtonUp += (_, _) =>
         {
@@ -687,7 +688,7 @@ public partial class PvStageWindow
             Background = BrushFromHex(value),
             BorderThickness = new Thickness(1),
             VerticalAlignment = VerticalAlignment.Center,
-            Cursor = AppCursors.Hand,
+            Cursor = Cursors.Hand,
             ToolTip = L.T("StageUi.Presets.OpenColorPicker"),
         };
         swatch.SetResourceReference(Border.BorderBrushProperty, CardStrokeKey);
@@ -1018,7 +1019,7 @@ public partial class PvStageWindow
             {
                 Width = 82,
                 Margin = new Thickness(0, 0, 4, 6),
-                Cursor = AppCursors.Hand,
+                Cursor = Cursors.Hand,
                 ToolTip = string.IsNullOrWhiteSpace(desc) ? label : desc,
             };
             card.Children.Add(stack);
