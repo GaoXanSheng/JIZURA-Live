@@ -46,7 +46,7 @@ public static class PvParallax
 {
     private const double DegToRad = Math.PI / 180.0;
 
-    private static readonly PvParallaxConfig CameraFollow = new()
+    public static readonly PvParallaxConfig FullFollow = new()
     {
         Depth = 1,
         Follow = 1,
@@ -56,7 +56,7 @@ public static class PvParallax
     };
 
     public static PvParallaxConfig? OverrideFor(PvScene scene, PvLayerConfig layer) =>
-        scene.CameraAffectsCharacter && scene.IsCharacterLayer(layer) ? CameraFollow : null;
+        scene.CameraAffectsCharacter && scene.IsCharacterLayer(layer) ? FullFollow : null;
 
     public static PvLayerTransform Compute(float cw, float ch, PvLayerConfig layer, in PvLayerState state,
         PvCamState cam, double shakeX = 0, double shakeY = 0, bool globalParallax = true, bool antiBleed = true,

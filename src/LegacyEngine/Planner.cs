@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using JizuraLive.Logging;
 using Newtonsoft.Json.Linq;
 
 namespace JizuraLive.LegacyEngine;
@@ -637,9 +638,12 @@ public static class Planner
                 m[k] = (src == null || !src.TryGetValue(k, out var v) || v) && Reg.RandomAllows(project, g, k);
             en[g] = m;
         }
-        var zones = project.CenterFree ? SideZones(W, H, project.CenterDir, project.CenterGap, project.CenterZone) : null;
+        var smart = project.SmartAvoid && project.AvoidZones != null;
+        var zones = project.CenterFree && !smart
+            ? SideZones(W, H, project.CenterDir, project.CenterGap, project.CenterZone)
+            : null;
         Zone? ZoneOf() => zones == null ? null : CloneZone(zones[0]);
-        if (zones != null && en.TryGetValue("bg", out var enBg)) enBg["bigChar"] = false; 
+        if ((zones != null || smart) && en.TryGetValue("bg", out var enBg)) enBg["bigChar"] = false; 
         var plan = new Plan
         {
             Version = 1,
@@ -659,7 +663,7 @@ public static class Planner
             Events = new List<PlanEvent>(),
             Beats = audio?.Beats != null ? (double[])audio.Beats.Clone() : Array.Empty<double>(),
             Hud = fx.Hud == "on" ? true : fx.Hud == "off" ? false : st.Hud,
-            KeyBg = JStyles.KeyMode(project),             CenterFree = zones != null,
+            KeyBg = JStyles.KeyMode(project),             CenterFree = zones != null || smart,
             Zones = zones,
             Typeset = project.Typeset,
             Unify = project.Unify,
@@ -925,10 +929,12 @@ public static class Planner
                 var cs = bounds[k];
                 var ce = bounds[k + 1];
                 var dur = ce - cs;
-                var halves = zones != null ? SplitHalf(u.Text, plan.Lang) : null;                 var txt = halves != null ? halves[0] : u.Text;
+                var cutZones = smart ? AvoidZonesOf(project, cs, ce, W, H) : null;
+                var halves = zones != null ? SplitHalf(u.Text, plan.Lang) : null;
+                var txt = halves != null ? halves[0] : u.Text;
                 var nn = (halves ?? new List<string> { u.Text }).Max(t2 => CpLen(WsRe.Replace(t2, "")));
                 var emph = kime || (ln.Impact && (k == 0 || u.Recap)) || ln.Emph.Any(w2 => u.Text.Contains(w2));
-                var Z = ZoneOf();
+                var Z = cutZones is { Count: >= 1 } ? CloneZone(cutZones[0]) : ZoneOf();
                 var LW = Z != null ? Z.W : W;
                 var LH = Z != null ? Z.H : H;                 var UU = U != null && !ovAny ? U : null;                 var tech = CutTechOf(ov, k);                 var layout = Str(ov, "layout") is { } ol && Reg.Layouts.ContainsKey(ol)
                     ? ol
@@ -1228,6 +1234,16 @@ public static class Planner
                     prevCut!.Exit = "cut";
                     prevCut!.OutDur = 0;
                 }
+                var avoidKey = Reg.Layouts.ContainsKey("scatterFit") ? "scatterFit"
+                    : Reg.Layouts.ContainsKey("scatter") ? "scatter" : null;
+                if (smart && cutZones is { Count: >= 1 } && avoidKey is not null)
+                {
+                    layout = avoidKey;
+                    LD = Reg.Layouts[avoidKey];
+                    ps = LD.Plan!(rng, new LayoutCtx { Text = txt, N = nn, W = LW, H = LH, Dur = dur }, st)
+                         ?? new JObject();
+                    drawn.Layout = layout;
+                }
                 var cut = MakeCut(
                     text: txt,
                     lineText: ln.Text,
@@ -1391,17 +1407,28 @@ public static class Planner
         {
             var c = plan.Cuts[i];
             c.Index = i;
-            if (zones == null || c.Zone != null) continue;
+            if (c.Zone != null) continue;
             if (c.Layout == "interlude")
             {
+                if (zones == null) continue;
                 var p2 = (JObject)c.Params.DeepClone();
                 p2["showTitle"] = false;
                 c.Params = p2;
                 continue;
             }
-            c.Zone = ZoneOf();
+            if (zones != null) c.Zone = ZoneOf();
+            else if (smart)
+            {
+                var zs = AvoidZonesOf(project, c.Start, c.End, plan.W, plan.H);
+                if (zs.Count > 0) c.Zone = CloneZone(zs[0]);
+            }
         }
         plan.Events = plan.Events.OrderBy(e2 => e2.T).ToList();
+        if (smart)
+        {
+            var zoned = plan.Cuts.Count(c => c.Zone != null);
+            Log.Info($"[智能避让] {zoned}/{plan.Cuts.Count} 句分配到空白带");
+        }
         plan.Energy = audio?.Energy;
         plan.EnergyRate = audio?.EnergyRate ?? 0;
         plan.Pitch = audio != null && audio.Pitch != null && audio.Pitch.Length > 0 ? audio.Pitch : null;
@@ -1869,6 +1896,18 @@ public static class Planner
         Kime = c.Kime,
         WeightGrow = c.WeightGrow
     };
+
+        private static IReadOnlyList<Zone> AvoidZonesOf(Project project, double start, double end, int w, int h)
+        {
+            try
+            {
+                return project.AvoidZones?.Invoke(start, end, w, h) ?? Array.Empty<Zone>();
+            }
+            catch
+            {
+                return Array.Empty<Zone>();
+            }
+        }
 
         public static Zone[] SideZones(int W, int H, string? dir, double? gapPct, string? zonePos)
     {

@@ -53,6 +53,8 @@ public sealed class LegacyPresetSettings
 
     public double? CenterGap { get; set; }
 
+    public bool SmartAvoid { get; set; }
+
     public bool ColorsEnabled { get; set; }
 
     public bool AccentOn { get; set; }
@@ -100,6 +102,7 @@ public sealed class LegacyPresetSettings
         project.CenterDir = string.IsNullOrWhiteSpace(CenterDir) ? "tb" : CenterDir;
         project.CenterZone = string.IsNullOrWhiteSpace(CenterZone) ? "center" : CenterZone;
         project.CenterGap = CenterGap;
+        project.SmartAvoid = SmartAvoid;
 
         var fx = project.Fx;
         fx.Motion = Clamp01(Motion);

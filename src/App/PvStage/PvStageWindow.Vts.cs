@@ -1296,7 +1296,8 @@ public partial class PvStageWindow
             && _scene.IsCharacterLayer(_selectedLayer);
         var hull = _vts.Hull;
         _pipe?.VtsControl = new PvVtsControl(controlActive, x, y, size, rotation,
-            hull?.MinX ?? 0, hull?.MaxX ?? 0, hull?.MinY ?? 0, hull?.MaxY ?? 0, hull is not null);
+            hull?.MinX ?? 0, hull?.MaxX ?? 0, hull?.MinY ?? 0, hull?.MaxY ?? 0, hull is not null, hull?.Points);
+        NoteAvoidHull(hull is not null);
 
         if (Math.Abs(x - _vtsSent.X) < 1e-4
             && Math.Abs(y - _vtsSent.Y) < 1e-4

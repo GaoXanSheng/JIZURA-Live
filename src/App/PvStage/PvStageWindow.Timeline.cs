@@ -1239,6 +1239,7 @@ public partial class PvStageWindow
     private void AfterSegmentEdit()
     {
         PublishDirector();
+        ScheduleAvoidRefresh();
         RefreshTimeline();
         PushUndo();
         _saveError = SaveProjectNow();

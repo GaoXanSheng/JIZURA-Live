@@ -33,6 +33,8 @@ public sealed class LegacyPvOptions
     public List<LegacyCutOverride>? CutOverrides { get; set; }
 
     public LegacyPresetSettings? Preset { get; set; }
+
+    public Func<double, double, int, int, IReadOnlyList<Zone>>? AvoidZones { get; set; }
 }
 
 public sealed class LegacyPvPlanInfo
@@ -366,7 +368,8 @@ public sealed class LegacyPvEngine : IDisposable
     public LegacyPvPlanInfo PlanInfo { get; private set; } = new();
 
     public LegacyPvEngine(string lrcText, string audioPath, string? styleName, int seed,
-        int designWidth, int designHeight, int fps, LegacyPresetSettings? preset = null)
+        int designWidth, int designHeight, int fps, LegacyPresetSettings? preset = null,
+        Func<double, double, int, int, IReadOnlyList<Zone>>? avoidZones = null)
     {
         _designWidth = Math.Max(16, designWidth);
         _designHeight = Math.Max(16, designHeight);
@@ -400,6 +403,7 @@ public sealed class LegacyPvEngine : IDisposable
             };
             project.Enabled = Reg.DefaultEnabled();
             preset?.ApplyTo(project);
+            project.AvoidZones = avoidZones;
             _plan = Planner.Plan(project, audio);
             PlanInfo = LegacyPvPlanInfo.From(_plan);
         }

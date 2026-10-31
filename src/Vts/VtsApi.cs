@@ -34,7 +34,7 @@ public sealed record VtsHotkey(string HotkeyId, string Name, string Type, string
 
 public sealed record VtsFraming(double Size, double X, double Y, double Rotation);
 
-public sealed record VtsHullBounds(double MinX, double MaxX, double MinY, double MaxY);
+public sealed record VtsHullBounds(double MinX, double MaxX, double MinY, double MaxY, double[]? Points = null);
 
 public sealed class VtsApi : IDisposable
 {
@@ -859,6 +859,7 @@ public sealed class VtsApi : IDisposable
                     if (data?["convexHull"] is not JArray hull || hull.Count == 0) return;
                     double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
                     double minY = double.PositiveInfinity, maxY = double.NegativeInfinity;
+                    var points = new List<double>(hull.Count * 2);
                     foreach (var point in hull)
                     {
                         double px = (double?)point["x"] ?? 0;
@@ -868,9 +869,12 @@ public sealed class VtsApi : IDisposable
                         maxX = Math.Max(maxX, px);
                         minY = Math.Min(minY, py);
                         maxY = Math.Max(maxY, py);
+                        points.Add(px);
+                        points.Add(py);
                     }
                     if (maxX > minX && maxY > minY)
-                        Volatile.Write(ref _api._hull, new VtsHullBounds(minX, maxX, minY, maxY));
+                        Volatile.Write(ref _api._hull,
+                            new VtsHullBounds(minX, maxX, minY, maxY, points.ToArray()));
                     break;
 
                 case "TrackingStatusChangedEvent":

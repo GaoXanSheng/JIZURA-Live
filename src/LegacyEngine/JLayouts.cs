@@ -358,6 +358,7 @@ public static class JLayouts
         RegisterMarquee();
         RegisterTile();
         RegisterScatter();
+        RegisterScatterFit();
         RegisterRing();
         RegisterWave();
         RegisterHuge();
@@ -833,6 +834,91 @@ public static class JLayouts
                         ["y"] = y,
                         ["rot"] = J.Rs(s, i, 74) * 24,
                         ["color"] = J.R(s, i, 75) < 0.15 ? sc.Str("accent") : sc.Str("fg"),
+                        ["mi"] = i,
+                    }));
+                }
+                env.Body = bb;
+            },
+        });
+    }
+
+    private static void RegisterScatterFit()
+    {
+        Reg.Register("layout", "scatterFit", new LayoutDef
+        {
+            Name = "留白散らし",
+            Fits = n => n >= 1,
+            Plan = (rng, cut, st) => new JObject
+            {
+                ["font"] = rng.Pick(FontsOf(st, "display")),
+                ["fontB"] = rng.Pick(FontsOf(st, "serif", "display")),
+                ["jitter"] = rng.Range(0.10, 0.22),
+            },
+            Draw = env =>
+            {
+                var W = env.W;
+                var H = env.H;
+                var sc = env.Sc!;
+                var P = env.P;
+                var cut = env.Cut!;
+                var s = (int)cut.Seed;
+                var font = S(P, "font")!;
+                var fontB = S(P, "fontB")!;
+                var chars = CodePoints(Regex.Replace(cut.Text, @"\s+", ""));
+                var n = chars.Count;
+                if (n == 0) return;
+
+                var baseSize = Math.Min(env.Plan.W, env.Plan.H) * 0.085;
+                var cols = 1;
+                var maxFit = 0.0;
+                for (var c = 1; c <= n; c++)
+                {
+                    var r = (int)Math.Ceiling(n / (double)c);
+                    var fit = Math.Min(W / (c * 1.12), H / (r * 1.22));
+                    if (fit > maxFit)
+                    {
+                        maxFit = fit;
+                        cols = c;
+                    }
+                }
+
+                if (maxFit > baseSize)
+                {
+                    for (var c = 1; c <= n; c++)
+                    {
+                        var r = (int)Math.Ceiling(n / (double)c);
+                        var fit = Math.Min(W / (c * 1.12), H / (r * 1.22));
+                        if (fit >= baseSize) cols = c;
+                    }
+                }
+
+                var rows = (int)Math.Ceiling(n / (double)cols);
+                var size = Math.Max(10, Math.Min(baseSize, maxFit));
+                var cellW = size * 1.12;
+                var cellH = size * 1.22;
+                var ox = (W - cols * cellW) / 2;
+                var oy = (H - rows * cellH) / 2;
+                var jitter = Num(P, "jitter");
+                if (!(jitter > 0)) jitter = 0.12;
+
+                BBox? bb = null;
+                for (var i = 0; i < n; i++)
+                {
+                    var ch = chars[i];
+                    var col = i % cols;
+                    var row = i / cols;
+                    var x = ox + (col + 0.5) * cellW + J.Rs(s, i, 61) * size * jitter;
+                    var y = oy + (row + 0.5) * cellH + J.Rs(s, i, 62) * size * jitter;
+                    var k2 = 0.9 + J.R(s, i, 63) * 0.2;
+                    bb = UnionBb(bb, MainDraw(env, new JObject
+                    {
+                        ["text"] = ch,
+                        ["font"] = i % 3 == 1 ? fontB : font,
+                        ["size"] = size * k2,
+                        ["x"] = x,
+                        ["y"] = y,
+                        ["rot"] = J.Rs(s, i, 64) * 12,
+                        ["color"] = J.R(s, i, 65) < 0.12 ? sc.Str("accent") : sc.Str("fg"),
                         ["mi"] = i,
                     }));
                 }

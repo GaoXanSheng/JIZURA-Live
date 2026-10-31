@@ -600,6 +600,19 @@
                                         <Slider x:Name="SldCenterGap" Margin="0,4,0,0" Minimum="10" Maximum="70"
                                                 Value="30" IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5"
                                                 ValueChanged="SldCenterGap_ValueChanged" />
+                                        <Grid Margin="0,10,2,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{DynamicResource Loc.LeftPanel.SmartAvoid}" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglSmartAvoid" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="TglSmartAvoid_Changed"
+                                                             Unchecked="TglSmartAvoid_Changed" />
+                                        </Grid>
+                                        <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
+                                                   Text="{DynamicResource Loc.LeftPanel.SmartAvoidHint}" />
                                     </StackPanel>
                                 </Border>
 

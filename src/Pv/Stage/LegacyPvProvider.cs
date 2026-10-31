@@ -130,7 +130,7 @@ public sealed class LegacyPvProvider : IDisposable
         if (options.Synchronous)
         {
             _syncEngine = new LegacyPvEngine(options.LrcText, options.AudioPath!, options.Style,
-                options.Seed, designWidth, designHeight, fps, options.Preset);
+                options.Seed, designWidth, designHeight, fps, options.Preset, options.AvoidZones);
             _cutCount = _syncEngine.CutCount;
             _error = _syncEngine.Error;
             _planInfo = _syncEngine.PlanInfo;
@@ -310,7 +310,7 @@ public sealed class LegacyPvProvider : IDisposable
             }
 
             engine = new LegacyPvEngine(_options.LrcText, _options.AudioPath!, _options.Style,
-                _options.Seed, _designWidth, _designHeight, _fps, _options.Preset);
+                _options.Seed, _designWidth, _designHeight, _fps, _options.Preset, _options.AvoidZones);
             if (engine.Error is not null)
             {
                 _error = engine.Error;

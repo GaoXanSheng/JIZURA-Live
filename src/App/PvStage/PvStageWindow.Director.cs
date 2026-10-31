@@ -35,6 +35,7 @@ public partial class PvStageWindow
 
         SyncCameraSwitchControls();
         PublishDirector();
+        ScheduleAvoidRefresh();
         SaveProjectNow();
         ShowStatus(L.F("StageUi.Stage.LegacyOverlayCamera", OnOff(_project.LegacyStageCamera))
                    + L.F("StageUi.Stage.LegacyOverlayTransitions", OnOff(_project.LegacyStageTransitions))

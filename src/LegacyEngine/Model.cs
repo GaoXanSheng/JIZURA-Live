@@ -38,6 +38,11 @@ public sealed class Project
 
         public string CenterZone { get; set; } = "center";
 
+        public bool SmartAvoid { get; set; }
+
+        [JsonIgnore]
+        public Func<double, double, int, int, IReadOnlyList<Zone>>? AvoidZones { get; set; }
+
     public uint Seed { get; set; } = 20260922;
 
     public string Aspect { get; set; } = "16:9";

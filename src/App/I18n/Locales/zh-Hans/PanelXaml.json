@@ -81,6 +81,8 @@
   "LeftPanel.SafeGapTop": "上方",
   "LeftPanel.SafeGapBottom": "下方",
   "LeftPanel.SafeGapRatio": "留白比例",
+  "LeftPanel.SmartAvoid": "智能皮套避让（实验）",
+  "LeftPanel.SmartAvoidHint": "开启后按皮套轮廓和当前运镜逐句计算空白带，歌词逐字散布进空白处；关闭时恢复上方固定留白。同时开 VTS 与 Spout 时优先用 VTS 模型轮廓，不可用时退回 Spout 画面轮廓。运镜或时间线改动会自动重算，轮廓取重建时的快照。",
   "LeftPanel.CameraSwitch": "摄像机切换",
   "LeftPanel.CameraBlend": "混合时长",
   "LeftPanel.CameraCut": "切断",

@@ -244,6 +244,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _paramTimer.Start();
         _uiTimer.Tick += (_, _) =>
         {
+            NoteAvoidImage();
             RefreshStatus();
             if (++_saveTick >= 10)
             {
@@ -502,10 +503,11 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void BuildPipeline(PresentHost host, bool keepTransport = false)
     {
+        var avoid = CaptureAvoidSnapshot();
         _pipe?.Dispose();
         _pipe = null;
 
-        var pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects, SubtitleSource, LegacyOptions());
+        var pipe = new PvPipeline(host.Gpu!, _scene, _pipeEffects, SubtitleSource, LegacyOptions(null, null, avoid));
         _pipe = pipe;
         pipe.SelectedLayerId = _selectedLayer?.Id;
         pipe.SetSpoutTransparent(_spoutTransparent);
@@ -1016,7 +1018,8 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
     private bool EffectiveLegacyComposite(DirectorProject p) =>
         AllowsLegacyComposite(p) && PvPipeline.CanUseLegacyComposite(p.Scene, p.Effects);
 
-    private LegacyPvOptions LegacyOptions(DirectorProject? project = null, int? fps = null)
+    private LegacyPvOptions LegacyOptions(DirectorProject? project = null, int? fps = null,
+        PvAvoidSnapshot? avoid = null)
     {
         var p = project ?? _project;
         var composite = EffectiveLegacyComposite(p);
@@ -1036,6 +1039,9 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             NoPost = !composite,
             CutOverrides = p.LegacyCutOverrides,
             Preset = p.Preset,
+            AvoidZones = p.Preset.SmartAvoid && avoid is not null
+                ? (start, end, width, height) => PvAvatarAvoid.Zones(avoid, start, end, width, height)
+                : null,
         };
     }
 
@@ -2021,6 +2027,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             }
 
             TglCenterFree.IsChecked = _project.Preset.CenterFree;
+            TglSmartAvoid.IsChecked = _project.Preset.SmartAvoid;
             SldCenterGap.Value = Math.Clamp(_project.Preset.CenterGap ?? 30, 10, 70);
             TblCenterGap.Text = $"{Math.Round(SldCenterGap.Value):0}%";
             SelectCenterZone(_project.Preset.CenterZone);

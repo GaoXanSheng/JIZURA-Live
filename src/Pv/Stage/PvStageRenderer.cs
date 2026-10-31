@@ -15,7 +15,8 @@ using DCommonPixelFormat = Vortice.DCommon.PixelFormat;
 namespace JizuraLive.Pv;
 
 public sealed record PvVtsControl(bool Active, double X, double Y, double Size, double Rotation,
-    double HullMinX = 0, double HullMaxX = 0, double HullMinY = 0, double HullMaxY = 0, bool HasHull = false);
+    double HullMinX = 0, double HullMaxX = 0, double HullMinY = 0, double HullMaxY = 0, bool HasHull = false,
+    double[]? HullPoints = null);
 
 public sealed record PvSelectionInfo(
     Vector2 A, Vector2 B, Vector2 C, Vector2 D, Vector2 Center,

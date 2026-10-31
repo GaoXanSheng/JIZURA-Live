@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using JizuraLive.Logging;
 using JizuraLive.Render.Gpu;
 using JizuraLive.Spout;
@@ -107,6 +108,68 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
         if (bmp is null) return PvLayerImage.Empty;
 
         return new PvLayerImage(bmp, null, w, h);
+    }
+
+    public bool TryCaptureAlpha(int maxSide, out byte[] alpha, out int alphaWidth, out int alphaHeight)
+    {
+        alpha = Array.Empty<byte>();
+        alphaWidth = 0;
+        alphaHeight = 0;
+
+        var tex = _in.FrontTexture;
+        if (tex is null) return false;
+
+        var desc = tex.Description;
+        if (desc.Format is not (Format.R8G8B8A8_UNorm or Format.B8G8R8A8_UNorm)) return false;
+
+        var w = (int)desc.Width;
+        var h = (int)desc.Height;
+        if (w <= 0 || h <= 0) return false;
+
+        var step = Math.Max(1, (int)Math.Ceiling(Math.Max(w, h) / (double)Math.Max(1, maxSide)));
+        alphaWidth = Math.Max(1, w / step);
+        alphaHeight = Math.Max(1, h / step);
+        alpha = new byte[alphaWidth * alphaHeight];
+
+        try
+        {
+            using var staging = _gpu.Device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = desc.Width,
+                Height = desc.Height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = desc.Format,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging,
+                BindFlags = BindFlags.None,
+                CPUAccessFlags = CpuAccessFlags.Read,
+            });
+
+            var ctx = _gpu.Context;
+            ctx.CopyResource(staging, tex);
+            var mapped = ctx.Map(staging, 0, MapMode.Read, Vortice.Direct3D11.MapFlags.None);
+            try
+            {
+                for (var y = 0; y < alphaHeight; y++)
+                {
+                    var row = IntPtr.Add(mapped.DataPointer, (int)(y * step * mapped.RowPitch));
+                    for (var x = 0; x < alphaWidth; x++)
+                        alpha[y * alphaWidth + x] = Marshal.ReadByte(row, x * step * 4 + 3);
+                }
+            }
+            finally
+            {
+                ctx.Unmap(staging, 0);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("[PV/Spout] 读取 alpha 轮廓失败：" + ex.Message);
+            return false;
+        }
     }
 
     private ID2D1Bitmap? EnsureBitmap(ID3D11Texture2D tex, long generation, int frontIndex)

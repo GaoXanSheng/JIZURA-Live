@@ -114,6 +114,9 @@ public partial class LeftPanel : UserControl
     private void SldCenterGap_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
         Owner?.SldCenterGap_ValueChanged(sender, e);
 
+    private void TglSmartAvoid_Changed(object sender, RoutedEventArgs e) =>
+        Owner?.TglSmartAvoid_Changed(sender, e);
+
     private void TglBroadcast_Changed(object sender, RoutedEventArgs e) => Owner?.TglBroadcast_Changed(sender, e);
 
     private void TglSpoutTransparent_Changed(object sender, RoutedEventArgs e) =>

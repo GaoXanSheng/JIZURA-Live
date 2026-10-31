@@ -65,6 +65,7 @@ public partial class PvStageWindow
     private Wpf.Ui.Controls.ToggleSwitch TglLegacyComposite => Left.TglLegacyComposite;
     private Wpf.Ui.Controls.ToggleSwitch TglPreviewSubtitles => Left.TglPreviewSubtitles;
     private Wpf.Ui.Controls.ToggleSwitch TglCenterFree => Left.TglCenterFree;
+    private Wpf.Ui.Controls.ToggleSwitch TglSmartAvoid => Left.TglSmartAvoid;
 
     private Slider SldAutoIntensity => Left.SldAutoIntensity;
     private Slider SldCenterGap => Left.SldCenterGap;
