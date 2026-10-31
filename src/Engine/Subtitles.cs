@@ -5,13 +5,15 @@ using Newtonsoft.Json.Converters;
 
 namespace JizuraLive.Engine;
 
+[Flags]
 [JsonConverter(typeof(StringEnumConverter))]
 public enum SubContent
 {
-    Off,
-    Trans,
-    Roma,
-    Both
+    Off = 0,
+    Original = 1,
+    Trans = 2,
+    Roma = 4,
+    Both = Original | Trans,
 }
 
 [JsonConverter(typeof(StringEnumConverter))]

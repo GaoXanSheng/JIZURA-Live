@@ -2024,13 +2024,10 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             if (settings is not null)
             {
                 TglPreviewSubtitles.IsChecked = settings.PreviewSubtitles;
-                SelectComboTag(CmbSubContent, settings.Subtitle.Content switch
-                {
-                    SubContent.Off => "off",
-                    SubContent.Trans => "trans",
-                    SubContent.Roma => "roma",
-                    _ => "both",
-                });
+                var content = settings.Subtitle.Content;
+                TglSubOriginal.IsChecked = (content & SubContent.Original) != 0;
+                TglSubTrans.IsChecked = (content & SubContent.Trans) != 0;
+                TglSubRoma.IsChecked = (content & SubContent.Roma) != 0;
                 SelectComboTag(CmbSubPos, settings.Subtitle.Pos == SubPos.Top ? "top" : "bottom");
             }
 
@@ -2360,19 +2357,17 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         ShowStatus(settings.PreviewSubtitles ? L.T("StageUi.Window.SubtitlePreviewEnabled") : L.T("StageUi.Window.SubtitlePreviewDisabled"), 3);
     }
 
-    internal void CmbSubContent_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    internal void SubContent_Changed(object sender, RoutedEventArgs e)
     {
-        if (_syncingSettings || CmbSubContent.SelectedItem is not ComboBoxItem { Tag: string tag }) return;
+        if (_syncingSettings) return;
         var settings = App.SettingsOf();
         if (settings is null) return;
 
-        settings.Subtitle.Content = tag switch
-        {
-            "trans" => SubContent.Trans,
-            "roma" => SubContent.Roma,
-            "both" => SubContent.Both,
-            _ => SubContent.Off,
-        };
+        var content = SubContent.Off;
+        if (TglSubOriginal.IsChecked == true) content |= SubContent.Original;
+        if (TglSubTrans.IsChecked == true) content |= SubContent.Trans;
+        if (TglSubRoma.IsChecked == true) content |= SubContent.Roma;
+        settings.Subtitle.Content = content;
         settings.SaveDebounced();
     }
 

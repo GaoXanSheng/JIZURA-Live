@@ -53,8 +53,10 @@ public partial class PvStageWindow
     private ComboBox CmbCanvasPreset => Left.CmbCanvasPreset;
     private ComboBox CmbPvRender => Left.CmbPvRender;
     private ComboBox CmbCenterZone => Left.CmbCenterZone;
-    private ComboBox CmbSubContent => Left.CmbSubContent;
     private ComboBox CmbSubPos => Left.CmbSubPos;
+    private Wpf.Ui.Controls.ToggleSwitch TglSubOriginal => Left.TglSubOriginal;
+    private Wpf.Ui.Controls.ToggleSwitch TglSubTrans => Left.TglSubTrans;
+    private Wpf.Ui.Controls.ToggleSwitch TglSubRoma => Left.TglSubRoma;
     private ComboBox CmbCamSwitch => Left.CmbCamSwitch;
 
     private Wpf.Ui.Controls.ToggleSwitch TglStageCamera => Left.TglStageCamera;

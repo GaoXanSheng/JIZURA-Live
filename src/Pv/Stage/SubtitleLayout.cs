@@ -130,25 +130,54 @@ public static class SubtitleLayout
 
     private static string[] SelectLines(string[] lines, SubContent content)
     {
-        if (lines.Length <= 1) return lines;
-        return content switch
+        var wantOriginal = (content & SubContent.Original) != 0;
+        var wantTrans = (content & SubContent.Trans) != 0;
+        var wantRoma = (content & SubContent.Roma) != 0;
+
+        var selected = new List<string>(lines.Length);
+        if (wantOriginal && lines[0].Length > 0) selected.Add(lines[0]);
+        if (lines.Length <= 1 || (!wantTrans && !wantRoma)) return selected.ToArray();
+
+        var notes = lines[1..];
+        if (notes.Length == 1)
         {
-            SubContent.Trans => SelectTrans(lines),
-            SubContent.Roma => SelectRoma(lines),
-            _ => lines,
-        };
+            if (LooksLatin(notes[0]) ? wantRoma : wantTrans) selected.Add(notes[0]);
+            return selected.ToArray();
+        }
+
+        var latin = new int[notes.Length];
+        var maxLatin = 0;
+        for (var i = 0; i < notes.Length; i++)
+        {
+            latin[i] = CountLatin(notes[i]);
+            maxLatin = Math.Max(maxLatin, latin[i]);
+        }
+
+        if (wantTrans)
+        {
+            for (var i = 0; i < notes.Length; i++)
+                if (!IsRoma(latin, maxLatin, i)) selected.Add(notes[i]);
+        }
+
+        if (wantRoma)
+        {
+            for (var i = 0; i < notes.Length; i++)
+                if (IsRoma(latin, maxLatin, i)) selected.Add(notes[i]);
+        }
+
+        return selected.ToArray();
     }
 
-    private static string[] SelectTrans(string[] lines)
-    {
-        var trans = lines.Skip(1).Where(l => !LooksLatin(l)).ToArray();
-        return trans.Length > 0 ? trans : lines[1..];
-    }
+    private static bool IsRoma(int[] latin, int maxLatin, int index) =>
+        maxLatin > 0 ? latin[index] == maxLatin : index < latin.Length - 1;
 
-    private static string[] SelectRoma(string[] lines)
+    private static int CountLatin(string text)
     {
-        var latin = lines.Skip(1).Where(LooksLatin).ToArray();
-        return latin.Length > 0 ? latin : lines;
+        var latin = 0;
+        foreach (var c in text)
+            if (c is >= 'A' and <= 'Z' or >= 'a' and <= 'z')
+                latin++;
+        return latin;
     }
 
     private static bool LooksLatin(string text)

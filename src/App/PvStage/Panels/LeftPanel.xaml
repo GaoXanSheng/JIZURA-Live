@@ -607,7 +607,7 @@
                                     <StackPanel>
                                         <TextBlock Text="字幕" Style="{StaticResource PanelCardTitle}" />
                                         <TextBlock Style="{StaticResource PanelHint}" TextWrapping="Wrap"
-                                                   Text="多行歌词按第一行原文、后续行译文/罗马音筛选；单行时回退原文。" />
+                                                   Text="原文、翻译、罗马音可分别开关，同时开启时按此顺序显示。" />
                                         <Grid Margin="0,8,0,0">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -621,18 +621,36 @@
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Text="字幕内容" Style="{StaticResource PanelRowLabel}" />
-                                            <ComboBox x:Name="CmbSubContent" Grid.Column="1" Width="120"
-                                                      HorizontalAlignment="Right"
-                                                      SelectionChanged="CmbSubContent_SelectionChanged">
-                                                <ComboBoxItem Content="关闭" Tag="off" />
-                                                <ComboBoxItem Content="译文" Tag="trans" />
-                                                <ComboBoxItem Content="罗马音" Tag="roma" />
-                                                <ComboBoxItem Content="原文+译文" Tag="both" />
-                                            </ComboBox>
+                                            <TextBlock Text="原文" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglSubOriginal" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="SubContent_Changed"
+                                                             Unchecked="SubContent_Changed" />
+                                        </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="翻译" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglSubTrans" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="SubContent_Changed"
+                                                             Unchecked="SubContent_Changed" />
+                                        </Grid>
+                                        <Grid Margin="0,6,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="罗马音" Style="{StaticResource PanelRowLabel}" />
+                                            <ui:ToggleSwitch x:Name="TglSubRoma" Grid.Column="1"
+                                                             HorizontalAlignment="Right"
+                                                             Checked="SubContent_Changed"
+                                                             Unchecked="SubContent_Changed" />
                                         </Grid>
                                         <Grid Margin="0,6,0,0">
                                             <Grid.ColumnDefinitions>

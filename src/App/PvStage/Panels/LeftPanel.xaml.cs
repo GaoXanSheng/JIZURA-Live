@@ -93,8 +93,8 @@ public partial class LeftPanel : UserControl
     private void TglPreviewSubtitles_Changed(object sender, RoutedEventArgs e) =>
         Owner?.TglPreviewSubtitles_Changed(sender, e);
 
-    private void CmbSubContent_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        Owner?.CmbSubContent_SelectionChanged(sender, e);
+    private void SubContent_Changed(object sender, RoutedEventArgs e) =>
+        Owner?.SubContent_Changed(sender, e);
 
     private void CmbSubPos_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         Owner?.CmbSubPos_SelectionChanged(sender, e);
