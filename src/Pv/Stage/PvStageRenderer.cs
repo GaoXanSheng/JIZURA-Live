@@ -293,6 +293,8 @@ public sealed class PvStageRenderer : IDisposable
                     selection = BuildSelection(layer, state, image);
             }
 
+            if (layer.Topmost == true) continue;
+
             if (!_frameEffects.HasEffectsFor(layer.Id))
             {
                 compositor.CompositeLayer(Stage.Scene, layer, state, image, Stage.Camera, _designW, _designH);
@@ -352,20 +354,70 @@ public sealed class PvStageRenderer : IDisposable
         if (passes is { Count: > 0 })
             fxOut = _fx.RunGraph(passes, _stageSrv!, _designW, _designH);
 
+        var stageSource = fxOut is null ? _stageTarget!.Bitmap : BitmapFor(fxOut);
+
+        var hasTopmost = false;
+        for (var li = 0; li < frameLayers.Count; li++)
+        {
+            var layer = frameLayers[li];
+            if (layer.Topmost != true || !layer.Enabled) continue;
+            if (!images.TryGetValue(layer.Id, out var probe) || !probe.HasContent) continue;
+            hasTopmost = true;
+            break;
+        }
+
+        if (hasTopmost)
+        {
+            if (fxOut is not null)
+            {
+                d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
+                d.Begin();
+                d.Clear(BackdropClear);
+                d.DrawBitmap(stageSource, full);
+                d.End();
+            }
+
+            for (var li = 0; li < frameLayers.Count; li++)
+            {
+                var layer = frameLayers[li];
+                if (layer.Topmost != true || !layer.Enabled) continue;
+                if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
+
+                var state = LayerState(layer);
+                d.End();
+
+                if (!_frameEffects.HasEffectsFor(layer.Id))
+                {
+                    d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
+                    d.Begin();
+                    compositor.CompositeLayer(Stage.Scene, layer, state, image, Stage.Camera, _designW, _designH);
+                    d.End();
+                    continue;
+                }
+
+                DrawLayerWithEffects(d, compositor, layer, state, image, frame, returns, full, _stageTarget!.Bitmap);
+            }
+
+            d.End();
+            foreach (var entry in returns) _fx.Pool.Return(entry);
+            returns.Clear();
+            stageSource = _stageTarget!.Bitmap;
+        }
+
         var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         d.SetTarget(target, width, height);
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
         var previewRect = Letterbox(_designW, _designH, width, height);
-        DrawStage(d, fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut), previewRect);
+        DrawStage(d, stageSource, previewRect);
         if (selection is not null) DrawSelection(d, selection, previewRect);
         d.End();
 
         if (_broadcast is { IsActive: true, Bitmap: { } bbmp } b)
         {
             var broadcastRect = new Rect(0, 0, b.Width, b.Height);
-            var src = fxOut is null ? _stageTarget.Bitmap : BitmapFor(fxOut);
+            var src = stageSource;
             d.SetTarget(bbmp, b.Width, b.Height);
             d.Begin();
             d.Clear(SpoutTransparent ? new Color4(0f, 0f, 0f, 0f) : new Color4(0f, 0f, 0f, 1f));
@@ -381,7 +433,7 @@ public sealed class PvStageRenderer : IDisposable
 
     private void DrawLayerWithEffects(Immediate2D d, PvStageCompositor compositor, PvLayerConfig layer,
         in PvLayerState state, PvLayerImage image, in PvFrameContext frame,
-        List<GpuTexturePool.Entry> returns, Rect full)
+        List<GpuTexturePool.Entry> returns, Rect full, ID2D1Bitmap1? dest = null)
     {
         var target = LayerTargetFor(layer.Id);
 
@@ -395,7 +447,7 @@ public sealed class PvStageRenderer : IDisposable
             layer.Id, AudioBass, AudioMid, AudioHigh, AudioRms);
         var output = graph.Count > 0 ? _fx.RunGraph(graph, target.Srv, _designW, _designH) : null;
 
-        d.SetTarget(_stageTarget!.Bitmap, _designW, _designH);
+        d.SetTarget(dest ?? _stageTarget!.Bitmap, _designW, _designH);
         d.Begin();
         if (output is not null)
         {

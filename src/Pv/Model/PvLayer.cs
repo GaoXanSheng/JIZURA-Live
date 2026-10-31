@@ -47,6 +47,9 @@ public sealed class PvLayerConfig
     public bool Enabled { get; set; } = true;
     public bool Locked { get; set; }
 
+    [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+    public bool? Topmost { get; set; }
+
     public double Opacity { get; set; } = 1.0;
 
     public double Scale { get; set; } = 1.0;

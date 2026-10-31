@@ -461,6 +461,12 @@ public partial class PvStageWindow
         AddInspector(LayerRow(layer, "scale", L.T("StageUi.Inspector.Scale"), 0.01));
         AddInspector(LayerRow(layer, "opacity", L.T("StageUi.Inspector.Opacity"), 0.02));
         AddInspector(LayerRow(layer, "rotation", L.T("StageUi.Inspector.Rotation"), 1));
+        AddInspector(BoolRow(L.T("StageUi.Inspector.Topmost"), layer.Topmost == true, v =>
+        {
+            layer.Topmost = v;
+            PushUndo();
+            _saveError = SaveProjectNow();
+        }));
     }
 
     private void BuildLayerAppearanceSection(PvLayerConfig layer)

@@ -29,13 +29,22 @@ public partial class PvStageWindow
         if (index >= 0)
         {
             var existing = _scene.Layers[index];
-            if (existing.Kind == PvLayerKind.Subtitle && IsDefaultBlend(existing.VisualBlend))
+            if (existing.Kind != PvLayerKind.Subtitle) return false;
+
+            var changed = false;
+            if (existing.Topmost is null)
             {
-                existing.VisualBlend = NeutralBlend();
-                return true;
+                existing.Topmost = true;
+                changed = true;
             }
 
-            return false;
+            if (IsDefaultBlend(existing.VisualBlend))
+            {
+                existing.VisualBlend = NeutralBlend();
+                changed = true;
+            }
+
+            return changed;
         }
 
         var next = new List<PvLayerConfig>(_scene.Layers)
@@ -45,6 +54,7 @@ public partial class PvStageWindow
                 Id = SubtitleLayerId,
                 Name = L.T("StageUi.Layer.SubtitleLayer"),
                 Kind = PvLayerKind.Subtitle,
+                Topmost = true,
                 Parallax = new PvParallaxConfig
                 {
                     Depth = 0,
