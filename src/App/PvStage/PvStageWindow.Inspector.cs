@@ -189,7 +189,9 @@ public partial class PvStageWindow
     }
 
     private static string LayerTitle(PvLayerConfig layer) =>
-        string.IsNullOrWhiteSpace(layer.SpoutSenderName) ? layer.Name : layer.SpoutSenderName!;
+        layer.Kind == PvLayerKind.VisualAsset && !string.IsNullOrWhiteSpace(layer.SpoutSenderName)
+            ? layer.SpoutSenderName!
+            : layer.Name;
 
     private void BuildInspector()
     {
@@ -487,7 +489,7 @@ public partial class PvStageWindow
         AddInspector(ConstRow(L.T("StageUi.Inspector.Shadow"), 0, 1, 0.02,
             () => layer.VisualBlend.DropShadow, v => layer.VisualBlend.DropShadow = v));
 
-        if (!string.IsNullOrWhiteSpace(layer.SpoutSenderName))
+        if (layer.Kind == PvLayerKind.VisualAsset && !string.IsNullOrWhiteSpace(layer.SpoutSenderName))
         {
             var isCharacter = layer.VtsCharacter
                               ?? string.Equals(layer.Id, PvScene.CharacterLayerId, StringComparison.Ordinal);

@@ -38,6 +38,12 @@ public partial class PvStageWindow
                 changed = true;
             }
 
+            if (!string.IsNullOrEmpty(existing.SpoutSenderName))
+            {
+                existing.SpoutSenderName = null;
+                changed = true;
+            }
+
             if (IsDefaultBlend(existing.VisualBlend))
             {
                 existing.VisualBlend = NeutralBlend();
@@ -55,6 +61,7 @@ public partial class PvStageWindow
                 Name = L.T("StageUi.Layer.SubtitleLayer"),
                 Kind = PvLayerKind.Subtitle,
                 Topmost = true,
+                SpoutSenderName = null,
                 Parallax = new PvParallaxConfig
                 {
                     Depth = 0,
