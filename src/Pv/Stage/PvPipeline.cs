@@ -235,6 +235,7 @@ public sealed class PvPipeline : IDisposable
         var frame = new PvFrameState();
         if (_legacyMode && !_stageCamera) frame.Camera = PvCamState.Identity;
         else ApplyCamera(time, frame);
+        frame.Camera = LimitCamera(frame.Camera, time);
         ApplyLayerFrame(time, frame);
         ApplyEffectCurves(effects, _director, time);
         _scene.PublishFrame(frame);
@@ -850,15 +851,7 @@ public sealed class PvPipeline : IDisposable
         for (var i = 0; i < layers.Count; i++)
         {
             var layer = layers[i];
-            var state = BaseLayer(layer, _director, time);
-            state = state with
-            {
-                OffsetX = Math.Clamp(Finite(state.OffsetX, 0), -1, 1),
-                OffsetY = Math.Clamp(Finite(state.OffsetY, 0), -1, 1),
-                Scale = Math.Clamp(Finite(state.Scale, 1), 0.1, 5),
-                Opacity = Math.Clamp(Finite(state.Opacity, 1), 0, 1),
-                Rotation = Math.Clamp(Finite(state.Rotation, 0), -180, 180),
-            };
+            var state = SanitizeLayer(BaseLayer(layer, _director, time));
 
             if (ReferenceEquals(layer, character))
             {
@@ -886,6 +879,15 @@ public sealed class PvPipeline : IDisposable
             frame.SetLayer(layer.Id, state);
         }
     }
+
+    private static PvLayerState SanitizeLayer(PvLayerState state) => state with
+    {
+        OffsetX = Math.Clamp(Finite(state.OffsetX, 0), -1, 1),
+        OffsetY = Math.Clamp(Finite(state.OffsetY, 0), -1, 1),
+        Scale = Math.Clamp(Finite(state.Scale, 1), 0.1, 5),
+        Opacity = Math.Clamp(Finite(state.Opacity, 1), 0, 1),
+        Rotation = Math.Clamp(Finite(state.Rotation, 0), -180, 180),
+    };
 
     private static PvCamState CharacterCamera(PvLayerConfig layer, PvCamState globalCam, PvCamState layerCam)
     {
@@ -916,6 +918,29 @@ public sealed class PvPipeline : IDisposable
         Scale = state.Scale * Math.Max(0.01, cam.Scale),
         Rotation = state.Rotation + cam.Rotation,
     };
+
+    private PvCamState LimitCamera(PvCamState cam, double time)
+    {
+        if (_legacyMode && !_stageCamera) return cam;
+
+        var layers = _scene.Layers;
+        for (var i = 0; i < layers.Count; i++)
+        {
+            var layer = layers[i];
+            if (!layer.Enabled || layer.Kind != PvLayerKind.Background) continue;
+            if (_scene.IsCharacterLayer(layer)) continue;
+            if (!_renderer.Stage.LastImages.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
+
+            var state = SanitizeLayer(BaseLayer(layer, _director, time));
+            if (_director is not null && _director.TryLayerCameraAt(layer.Id, time, out var layerCam))
+                state = ApplyLayerCamera(state, layerCam);
+
+            return PvParallax.LimitToLayer(_scene.Width, _scene.Height, layer, state, cam, image,
+                _scene.GlobalParallaxEnabled);
+        }
+
+        return cam;
+    }
 
     private void ApplyCamera(double time, PvFrameState frame)
     {

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Vortice.Mathematics;
 
 namespace JizuraLive.Pv;
 
@@ -115,5 +116,67 @@ public static class PvParallax
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(cx, cy));
 
         return new PvLayerTransform(m, blur);
+    }
+
+    public static PvCamState LimitToLayer(float cw, float ch, PvLayerConfig layer, in PvLayerState state,
+        PvCamState cam, PvLayerImage image, bool globalParallax)
+    {
+        if (!image.HasContent) return cam;
+
+        var follow = globalParallax
+            ? Math.Clamp(layer.Parallax.Follow ?? layer.Parallax.Depth, 0.0, 3.0)
+            : 1.0;
+        if (follow <= 0.001) return cam;
+
+        var rect = PvStageCompositor.FitRect(image, layer.Cover, (int)cw, (int)ch);
+        var centered = cam with { X = 0, Y = 0 };
+        if (!Covers(cw, ch, layer, state, centered, rect, globalParallax))
+        {
+            if (!Covers(cw, ch, layer, state, centered with { Scale = 2 }, rect, globalParallax))
+                return cam;
+
+            double lo = Math.Min(2, centered.Scale), hi = 2;
+            for (var i = 0; i < 14; i++)
+            {
+                var mid = (lo + hi) * 0.5;
+                if (Covers(cw, ch, layer, state, centered with { Scale = mid }, rect, globalParallax)) hi = mid;
+                else lo = mid;
+            }
+
+            centered = centered with { Scale = hi };
+        }
+
+        var full = centered with { X = cam.X, Y = cam.Y };
+        if (Covers(cw, ch, layer, state, full, rect, globalParallax)) return full;
+
+        double ok = 0, over = 1;
+        for (var i = 0; i < 14; i++)
+        {
+            var mid = (ok + over) * 0.5;
+            var test = centered with { X = cam.X * mid, Y = cam.Y * mid };
+            if (Covers(cw, ch, layer, state, test, rect, globalParallax)) ok = mid;
+            else over = mid;
+        }
+
+        return centered with { X = cam.X * ok, Y = cam.Y * ok };
+    }
+
+    private static bool Covers(float cw, float ch, PvLayerConfig layer, in PvLayerState state, PvCamState cam,
+        Rect rect, bool globalParallax)
+    {
+        var tf = Compute(cw, ch, layer, state, cam, globalParallax: globalParallax, antiBleed: false);
+        if (!Matrix3x2.Invert(tf.Matrix, out var inv)) return false;
+
+        return Inside(inv, rect, 0, 0)
+               && Inside(inv, rect, cw, 0)
+               && Inside(inv, rect, 0, ch)
+               && Inside(inv, rect, cw, ch);
+    }
+
+    private static bool Inside(Matrix3x2 inv, Rect rect, float x, float y)
+    {
+        var p = Vector2.Transform(new Vector2(x, y), inv);
+        return p.X >= rect.X && p.X <= rect.X + rect.Width
+               && p.Y >= rect.Y && p.Y <= rect.Y + rect.Height;
     }
 }
