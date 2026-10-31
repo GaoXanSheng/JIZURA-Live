@@ -11,8 +11,6 @@ public partial class PvStageWindow
     private int _shuttleRate = 1;
     private long _shuttleLastTick;
 
-    private bool ShuttleActive => _shuttleActive;
-
     private void TransportPlayForward()
     {
         StopShuttle();

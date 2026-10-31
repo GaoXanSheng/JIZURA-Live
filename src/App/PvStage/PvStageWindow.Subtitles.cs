@@ -26,32 +26,7 @@ public partial class PvStageWindow
             return true;
         }
 
-        if (index >= 0)
-        {
-            var existing = _scene.Layers[index];
-            if (existing.Kind != PvLayerKind.Subtitle) return false;
-
-            var changed = false;
-            if (existing.Topmost is null)
-            {
-                existing.Topmost = true;
-                changed = true;
-            }
-
-            if (!string.IsNullOrEmpty(existing.SpoutSenderName))
-            {
-                existing.SpoutSenderName = null;
-                changed = true;
-            }
-
-            if (IsDefaultBlend(existing.VisualBlend))
-            {
-                existing.VisualBlend = NeutralBlend();
-                changed = true;
-            }
-
-            return changed;
-        }
+        if (index >= 0) return false;
 
         var next = new List<PvLayerConfig>(_scene.Layers)
         {
@@ -85,13 +60,6 @@ public partial class PvStageWindow
         ShadowOffsetY = 0,
         AntiBleedMargin = 0,
     };
-
-    private static bool IsDefaultBlend(PvVisualBlendConfig blend) =>
-        Math.Abs(blend.AmbientTintIntensity - 0.18) < 1e-9
-        && Math.Abs(blend.RimGlow - 0.15) < 1e-9
-        && Math.Abs(blend.DropShadow - 0.3) < 1e-9
-        && Math.Abs(blend.ShadowOffsetY - 16) < 1e-9
-        && Math.Abs(blend.AntiBleedMargin - 0.06) < 1e-9;
 
     private WindowSubtitleSource SubtitleSource => _subtitleSource ??= new WindowSubtitleSource(this);
 

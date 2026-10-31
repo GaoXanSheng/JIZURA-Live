@@ -686,16 +686,7 @@ public sealed class LegacyPvEngine : IDisposable
     public static string MapStyle(string? style)
     {
         var key = (style ?? "").Trim().ToLowerInvariant();
-        return key switch
-        {
-            "" or "classic" => "noir",
-            "neon" => "magenta",
-            "minimal" => "specimen",
-            "karaoke" => "noir",
-            "pop" => "crimson",
-            "typewriter" => "paper",
-            _ => key,
-        };
+        return key.Length == 0 ? "noir" : key;
     }
 
     public static string AspectOf(int width, int height)

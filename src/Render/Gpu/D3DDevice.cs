@@ -20,15 +20,11 @@ public sealed class D3DDevice : IDisposable
 
     public long DedicatedVideoMemory { get; }
 
-    public bool DebugLayer { get; }
-
-    public bool IsSoftware { get; }
-
     public static bool DebugRequested =>
         Environment.GetEnvironmentVariable("JIZURA_D3D_DEBUG") is "1" or "true" or "on";
 
     private D3DDevice(ID3D11Device device, ID3D11DeviceContext context, IDXGIFactory2 factory,
-        IDXGIAdapter1? adapter, FeatureLevel level, string adapterName, long vram, bool debug, bool software)
+        IDXGIAdapter1? adapter, FeatureLevel level, string adapterName, long vram)
     {
         Device = device;
         Context = context;
@@ -37,8 +33,6 @@ public sealed class D3DDevice : IDisposable
         FeatureLevel = level;
         AdapterName = adapterName;
         DedicatedVideoMemory = vram;
-        DebugLayer = debug;
-        IsSoftware = software;
     }
 
     public static D3DDevice? TryCreate(out string error)
@@ -73,7 +67,7 @@ public sealed class D3DDevice : IDisposable
                     }
 
                     Log.Warn($"[D3DDevice] 硬件设备不可用，回退 WARP 软件光栅：{firstWhy}｜{why2}");
-                    return new D3DDevice(device!, context!, factory, null, level, "WARP 软件光栅", 0, debug, true);
+                    return new D3DDevice(device!, context!, factory, null, level, "WARP 软件光栅", 0);
                 }
 
                 Log.Warn($"[D3DDevice] 挑中的适配器不可用，回退默认硬件设备：{firstWhy}");
@@ -81,7 +75,7 @@ public sealed class D3DDevice : IDisposable
 
             var name = picked != null ? DescribeAdapter(picked) : "(默认硬件适配器)";
             var vram = picked != null ? (long)(ulong)picked.Description1.DedicatedVideoMemory : 0L;
-            var dev = new D3DDevice(device!, context!, factory, picked, level, name, vram, debug, false);
+            var dev = new D3DDevice(device!, context!, factory, picked, level, name, vram);
             Log.Info($"[D3DDevice] 就绪：{name}，feature level={level}，"
                      + $"显存 {vram / (1024 * 1024)}MB，调试层={(debug ? "开" : "关")}");
             return dev;

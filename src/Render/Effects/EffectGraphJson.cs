@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.IO;
 using JizuraLive.Logging;
 using Newtonsoft.Json;
@@ -23,12 +22,8 @@ public static class EffectGraphJson
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public string? Target { get; set; }
 
-        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-        [DefaultValue("user")]
         public string Source { get; set; } = "user";
 
-        [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-        [DefaultValue(false)]
         public bool Locked { get; set; }
 
         public Dictionary<string, float>? Values { get; set; }
@@ -126,19 +121,6 @@ public static class EffectGraphJson
                     var p = def.Params.FirstOrDefault(x => x.Key == key);
                     if (p is not null) node.Set(p, value);
                 }
-            }
-
-            if (nd.Values is not null
-                && def.Id == "letterbox"
-                && !node.Values.ContainsKey("top")
-                && !node.Values.ContainsKey("bottom")
-                && nd.Values.TryGetValue("amount", out var legacyAmount)
-                && float.IsFinite(legacyAmount))
-            {
-                var top = def.Params.FirstOrDefault(x => x.Key == "top");
-                var bottom = def.Params.FirstOrDefault(x => x.Key == "bottom");
-                if (top is not null) node.Set(top, legacyAmount * 0.12f);
-                if (bottom is not null) node.Set(bottom, legacyAmount * 0.12f);
             }
 
             if (nd.Colors is not null)

@@ -1265,9 +1265,7 @@ public partial class PvStageWindow
         var cts = new CancellationTokenSource();
         _audioLoadCts = cts;
         _peaks = null;
-        _audioBands = null;
         _beatMap = null;
-        PublishAudioBands();
         RefreshTimeline();
 
         Task.Run(() =>

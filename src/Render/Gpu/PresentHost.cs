@@ -92,8 +92,6 @@ public sealed class PresentHost : HwndHost
 
     public event Action<PresentHost, double>? Frame;
 
-    public event Action<PresentHost>? Resized;
-
     public event Action<PresentHost>? Shutdown;
 
     public event Action<Point>? PointerPressed;
@@ -226,7 +224,6 @@ public sealed class PresentHost : HwndHost
                 {
                     BeforeResize?.Invoke(this);
                     target.Resize(cw, ch);
-                    Resized?.Invoke(this);
                 }
 
                 try

@@ -307,16 +307,6 @@ public sealed partial class TimelineView : Control
         ZoomChanged?.Invoke(ZoomFraction);
     }
 
-    public void ScrollToTime(double seconds)
-    {
-        if (_snap is null || ContentWidth <= 0) return;
-        double visible = ContentWidth / Math.Max(1, _pixelsPerSecond);
-        _viewStart = TimelineMath.ClampViewStart(
-            seconds - visible / 2, _pixelsPerSecond, ContentWidth, _snap.DurationSeconds);
-        _followPlayhead = false;
-        InvalidateVisual();
-    }
-
     public void SetSnapshot(TSnapshot snap)
     {
         _snap = snap ?? throw new ArgumentNullException(nameof(snap));
@@ -920,7 +910,6 @@ public sealed partial class TimelineView : Control
             edits.Add(new TEdit
             {
                 Address = address,
-                Before = before,
                 After = [.. curve.Keys],
                 Reason = reason,
             });

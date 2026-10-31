@@ -16,7 +16,7 @@ public readonly record struct PvCamState(
     public static PvCamState Identity => new(0, 0, 1, 0, 0, null, null, 0, 0);
 }
 
-public readonly record struct PvLayerTransform(Matrix3x2 Matrix, double EffectiveScale, double Overscan, double BlurSigma = 0);
+public readonly record struct PvLayerTransform(Matrix3x2 Matrix, double BlurSigma = 0);
 
 public readonly record struct PvLayerState(
     double OffsetX,
@@ -114,6 +114,6 @@ public static class PvParallax
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateScale(sx, sy));
         m = Matrix3x2.Multiply(m, Matrix3x2.CreateTranslation(cx, cy));
 
-        return new PvLayerTransform(m, camS * state.Scale, overscan, blur);
+        return new PvLayerTransform(m, blur);
     }
 }

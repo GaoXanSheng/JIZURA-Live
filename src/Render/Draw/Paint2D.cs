@@ -29,21 +29,8 @@ public enum Blend2D
 {
     SrcOver,
     Plus,
-    Screen,
-    Overlay,
-    Multiply,
     Lighten,
     Darken,
-    ColorDodge,
-    ColorBurn,
-    HardLight,
-    SoftLight,
-    Difference,
-    Exclusion,
-    Hue,
-    Saturation,
-    Color,
-    Luminosity,
     SrcCopy,
 }
 
@@ -58,19 +45,6 @@ public sealed record LinearGradient2D(
     Vector2 End,
     GradientStop2D[] Stops,
     ExtendMode Extend = ExtendMode.Clamp) : Brush2D;
-
-public sealed record RadialGradient2D(
-    Vector2 Center,
-    float RadiusX,
-    float RadiusY,
-    GradientStop2D[] Stops,
-    ExtendMode Extend = ExtendMode.Clamp) : Brush2D;
-
-public sealed record BitmapBrush2D(
-    Image2D Image,
-    ExtendMode ExtendX = ExtendMode.Wrap,
-    ExtendMode ExtendY = ExtendMode.Wrap,
-    BitmapInterpolationMode Interp = BitmapInterpolationMode.Linear) : Brush2D;
 
 public sealed class Paint2D
 {

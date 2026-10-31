@@ -47,7 +47,6 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
 
     public bool Connected => _in.Connected;
 
-    public double LastReceiveMs { get; private set; }
     public double MaxReceiveMs { get; private set; }
 
     public SpoutSourceProvider(string id, D3DDevice gpu, ID2D1DeviceContext ctx,
@@ -86,7 +85,6 @@ public sealed class SpoutSourceProvider : IPvLayerProvider, IDisposable
         {
             var ms = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0
                      / System.Diagnostics.Stopwatch.Frequency;
-            LastReceiveMs = ms;
             if (ms > MaxReceiveMs) MaxReceiveMs = ms;
             if (ms > 100 && !_slowLogged)
             {

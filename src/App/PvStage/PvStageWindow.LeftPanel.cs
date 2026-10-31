@@ -19,8 +19,6 @@ public partial class PvStageWindow
 
     private Wpf.Ui.Controls.Button BtnAddLayer => Left.BtnAddLayer;
     private Wpf.Ui.Controls.Button BtnGenerateAuto => Left.BtnGenerateAuto;
-    private Wpf.Ui.Controls.Button BtnApplyCanvas => Left.BtnApplyCanvas;
-    private Wpf.Ui.Controls.Button BtnReseedPreset => Left.BtnReseedPreset;
 
     private TextBlock TblAudioName => Left.TblAudioName;
     private TextBlock TblAudioMeta => Left.TblAudioMeta;
@@ -43,7 +41,6 @@ public partial class PvStageWindow
     private Wpf.Ui.Controls.Button BtnVtsReconnect => Left.BtnVtsReconnect;
     private Wpf.Ui.Controls.Button BtnVtsAuth => Left.BtnVtsAuth;
     private Wpf.Ui.Controls.Button BtnClearCache => Left.BtnClearCache;
-    private Wpf.Ui.Controls.Button BtnOpenFolder => Left.BtnOpenFolder;
 
     private ComboBox CmbHud => Left.CmbHud;
     private ComboBox CmbKeyBg => Left.CmbKeyBg;

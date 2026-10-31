@@ -31,7 +31,6 @@ public sealed class PvPipeline : IDisposable
 
     private volatile bool _stopPumping;
     private SubtitleProvider? _subtitle;
-    private SpoutSourceProvider? _character;
     private readonly bool _legacyMode;
     private LegacyPvProvider? _legacy;
     private int _layerSeq;
@@ -119,8 +118,6 @@ public sealed class PvPipeline : IDisposable
 
     private volatile DirectorEvaluator? _director;
 
-    private volatile AudioBandSeries? _audioBands;
-
     private static readonly ParamAddress CameraScaleAddr =
         new(ParamAddressKind.Camera, "", "scale");
 
@@ -146,20 +143,9 @@ public sealed class PvPipeline : IDisposable
     public bool Ready { get; private set; }
     public string? Error { get; private set; }
     public string? LegacyError => _legacy?.Error;
-    public bool LegacyNoPost => _legacy?.NoPost ?? false;
 
     public (int Live, int Total) SpoutState =>
         (_spoutProviders.Count(p => p.Connected), _spoutProviders.Count);
-
-    public bool HasCharacterSource => _character is { Connected: true };
-
-    public long CharacterFrameVersion => _character?.Version ?? 0;
-
-    public void PumpSpout()
-    {
-        if (_stopPumping) return;
-        foreach (var provider in _spoutProviders) provider.PumpFrame();
-    }
 
     public void RequestBroadcast(bool enable, string name) =>
         _pendingBroadcast = new BroadcastRequest(enable, name?.Trim() ?? "");
@@ -235,16 +221,6 @@ public sealed class PvPipeline : IDisposable
             CompositeInvalidated?.Invoke();
     }
 
-    public void SetAudioAnalysis(AudioBandSeries? series) => _audioBands = series;
-
-    private static float SampleBand(float[]? values, double time, double step)
-    {
-        if (values is null || values.Length == 0 || step <= 1e-9) return 0;
-        var index = (int)Math.Clamp(Math.Round(time / step), 0, values.Length - 1);
-        var value = values[index];
-        return float.IsFinite(value) ? Math.Clamp(value, 0f, 2f) : 0;
-    }
-
     public void Prepare(double time)
     {
         var sw = Stopwatch.StartNew();
@@ -262,18 +238,6 @@ public sealed class PvPipeline : IDisposable
         ApplyLayerFrame(time, frame);
         ApplyEffectCurves(effects, _director, time);
         _scene.PublishFrame(frame);
-
-        var bands = _audioBands;
-        var step = bands?.StepSeconds ?? 0;
-        var bass = SampleBand(bands?.Bass, time, step);
-        var mid = SampleBand(bands?.Mid, time, step);
-        var high = SampleBand(bands?.High, time, step);
-        var rms = SampleBand(bands?.Rms, time, step);
-        _renderer.AudioBass = bass;
-        _renderer.AudioMid = mid;
-        _renderer.AudioHigh = high;
-        _renderer.AudioRms = rms;
-        _renderer.Stage.Energy = Math.Clamp(rms, 0f, 1f);
 
         _renderer.Stage.Camera = frame.Camera;
 
@@ -682,7 +646,6 @@ public sealed class PvPipeline : IDisposable
                 layer.Premultiplied);
             _renderer.Stage.Register(provider);
             _spoutProviders.Add(provider);
-            if (_scene.IsCharacterLayer(layer)) _character = provider;
             return;
         }
 
@@ -721,7 +684,6 @@ public sealed class PvPipeline : IDisposable
                 _renderer.Stage.Remove(id);
                 var p = _spoutProviders.FirstOrDefault(x => x.Id == id);
                 if (p is not null) _spoutProviders.Remove(p);
-                if (_character?.Id == id) _character = null;
                 changed = true;
                 Log.Info($"[PV 管线] 移除图层 '{id}'");
             }
@@ -1041,7 +1003,6 @@ public sealed class PvPipeline : IDisposable
         Ready = false;
 
         _spoutProviders.Clear();
-        _character = null;
         _subtitle = null;
 
         _renderer.SetBroadcast(null);

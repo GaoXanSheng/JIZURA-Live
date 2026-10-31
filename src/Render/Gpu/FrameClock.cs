@@ -16,7 +16,6 @@ public sealed class FrameClock : IDisposable
     private readonly ManualResetEventSlim _stop = new(false);
     private long _lastTicks;
     private double _dtAccum;
-    private int _dtCount;
     private int _fpsCount;
 
     public double Dt { get; private set; }
@@ -25,12 +24,9 @@ public sealed class FrameClock : IDisposable
 
     public long Frame { get; private set; }
 
-    public bool Waitable { get; }
-
     public FrameClock(IntPtr waitable)
     {
         _waitable = waitable;
-        Waitable = waitable != IntPtr.Zero;
         _stopHandle = _stop.WaitHandle.SafeWaitHandle.DangerousGetHandle();
         _handles = [_waitable, _stopHandle];
         _lastTicks = _sw.ElapsedTicks;
@@ -54,13 +50,11 @@ public sealed class FrameClock : IDisposable
         if (Frame > 0 && Dt > 0)
         {
             _dtAccum += Dt;
-            _dtCount++;
             _fpsCount++;
             if (_dtAccum >= 0.5)
             {
                 Fps = _dtAccum > 0 ? _fpsCount / _dtAccum : 0;
                 _dtAccum = 0;
-                _dtCount = 0;
                 _fpsCount = 0;
             }
         }

@@ -6,14 +6,10 @@ using Vortice.Mathematics;
 namespace JizuraLive.Pv;
 
 public readonly record struct SubtitlePlan(
-    string ClipId,
-    string Text,
     string[] Lines,
-    float FontSizePx,
     float CenterX,
     float FirstBaselineY,
     float LineHeight,
-    float StrokeWidthPx,
     IReadOnlyList<Vector2> StrokeOffsets,
     Color4 Fill,
     Color4 Stroke,
@@ -90,14 +86,10 @@ public static class SubtitleLayout
 
         var centerX = width / 2f;
         return new SubtitlePlan(
-            s.ClipId,
-            text,
             lines,
-            fontSizePx,
             centerX,
             firstBaseline,
             lineHeight,
-            strokeWidthPx,
             BuildStrokeOffsets(strokeWidthPx),
             ParseColor(cfg.Color, new Color4(1f, 1f, 1f, 1f)),
             ParseColor(cfg.StrokeColor, new Color4(0f, 0f, 0f, 1f)),

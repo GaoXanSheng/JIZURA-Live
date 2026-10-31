@@ -74,11 +74,7 @@ public sealed class GpuTexturePool : IDisposable
     private readonly HashSet<(int W, int H)> _warnedDoubleReturn = new();
 
     private long _returnSeq;
-    private int _freeCount;
     private long _freeBytes;
-    private long _allocatedBytes;
-    private long _evictions;
-    private long _doubleReturns;
     private bool _disposed;
 
     public GpuTexturePool(ID3D11Device device,
@@ -101,7 +97,6 @@ public sealed class GpuTexturePool : IDisposable
         {
             var reused = free[^1];
             free.RemoveAt(free.Count - 1);
-            _freeCount--;
             _freeBytes -= Bytes(reused);
             if (free.Count == 0) _free.Remove((width, height));
             _leased.Add(reused);
@@ -124,7 +119,6 @@ public sealed class GpuTexturePool : IDisposable
         var entry = new Entry(texture, _device.CreateRenderTargetView(texture),
             _device.CreateShaderResourceView(texture), width, height);
         _all.Add(entry);
-        _allocatedBytes += Bytes(entry);
         _leased.Add(entry);
         return entry;
     }
@@ -135,7 +129,6 @@ public sealed class GpuTexturePool : IDisposable
 
         if (!_leased.Remove(entry))
         {
-            _doubleReturns++;
             if (_warnedDoubleReturn.Add((entry.Width, entry.Height)))
                 Log.Warn($"[GpuTexturePool] 重复归还 {entry.Width}×{entry.Height} 的面，已忽略"
                          + "（同一尺寸只提示一次；重复归还可能是同一张面被两个消费者同时持有的前兆）");
@@ -150,7 +143,6 @@ public sealed class GpuTexturePool : IDisposable
         }
 
         free.Add(entry);
-        _freeCount++;
         _freeBytes += Bytes(entry);
 
         TrimFreeCache((entry.Width, entry.Height));
@@ -203,11 +195,8 @@ public sealed class GpuTexturePool : IDisposable
 
     private void DisposeFree(Entry entry)
     {
-        _freeCount--;
         _freeBytes -= Bytes(entry);
         _all.Remove(entry);
-        _allocatedBytes -= Bytes(entry);
-        _evictions++;
         entry.Dispose();
     }
 
@@ -222,8 +211,6 @@ public sealed class GpuTexturePool : IDisposable
         _all.Clear();
         _free.Clear();
         _leased.Clear();
-        _freeCount = 0;
         _freeBytes = 0;
-        _allocatedBytes = 0;
     }
 }

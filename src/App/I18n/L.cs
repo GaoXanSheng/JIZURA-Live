@@ -20,10 +20,6 @@ public static class L
     private static Dictionary<string, string> _fallback = new();
     private static ResourceDictionary? _rd;
 
-    public static string CurrentLang { get; private set; } = DefaultLang;
-
-    public static event Action? LanguageChanged;
-
     public static void Initialize(string? lang)
     {
         EnsureLoaded();
@@ -44,10 +40,8 @@ public static class L
             Packs[DefaultLang] = fb = new Dictionary<string, string>();
         _fallback = fb;
         _current = lang == DefaultLang ? fb : Packs[lang];
-        CurrentLang = lang;
 
         ApplyToResources();
-        LanguageChanged?.Invoke();
     }
 
     public static string T(string key)

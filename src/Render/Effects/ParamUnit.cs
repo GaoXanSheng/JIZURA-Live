@@ -11,6 +11,4 @@ public enum ParamUnit
     Pixels = 3,
 
     Degrees = 4,
-
-    Seconds = 5,
 }

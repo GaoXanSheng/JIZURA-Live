@@ -31,7 +31,6 @@ public sealed class SpoutOut : IDisposable
 
     public long SentCount { get; private set; }
     public long FailedCount { get; private set; }
-    public double LastSendMs { get; private set; }
     public string? LastError { get; private set; }
 
     public ID2D1Bitmap1? Bitmap => _bitmap;
@@ -101,14 +100,11 @@ public sealed class SpoutOut : IDisposable
     public bool PresentFrame()
     {
         if (!_initialized || _sender is null || _texture is null) return false;
-        var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         try
         {
             _gpu.Context.Flush();
             _sender.SendTexture(_texture.NativePointer);
             SentCount++;
-            LastSendMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0
-                         / System.Diagnostics.Stopwatch.Frequency;
             return true;
         }
         catch (Exception ex)

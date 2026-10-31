@@ -14,13 +14,10 @@ public partial class App : Application
 
     private const string MutexName = "JizuraLivePV_SingleInstance";
     private Mutex? _mutex;
-    private Settings? _settings;
 
     private bool _startupComplete;
 
     public Settings? Settings { get; private set; }
-
-    public static PvStage.PvStageWindow? MainInstance { get; set; }
 
     public static Settings? SettingsOf() => (Current as App)?.Settings;
 
@@ -65,13 +62,11 @@ public partial class App : Application
             }
 
             var settings = Settings.Load();
-            _settings = settings;
             Settings = settings;
 
             L.Initialize(settings.UiLang);
 
             var pvWindow = new PvStage.PvStageWindow();
-            MainInstance = pvWindow;
             MainWindow = pvWindow;
             pvWindow.Show();
 

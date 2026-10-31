@@ -118,7 +118,6 @@ public readonly record struct TClipEdit(int Index, double Start, double End);
 public sealed class TEdit
 {
     public ParamAddress Address;
-    public List<TKey> Before = new();
     public List<TKey> After = new();
 
     public string Reason = "";

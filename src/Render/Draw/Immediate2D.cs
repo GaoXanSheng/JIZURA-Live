@@ -22,15 +22,13 @@ public sealed class Immediate2D : IDisposable
     {
         public readonly Matrix3x2 Matrix;
         public readonly int ClipDepth;
-        public readonly int DrawCount;
         public readonly Blend2D Blend;
         public readonly bool Antialias;
 
-        public StateEntry(Matrix3x2 matrix, int clipDepth, int drawCount, Blend2D blend, bool antialias)
+        public StateEntry(Matrix3x2 matrix, int clipDepth, Blend2D blend, bool antialias)
         {
             Matrix = matrix;
             ClipDepth = clipDepth;
-            DrawCount = drawCount;
             Blend = blend;
             Antialias = antialias;
         }
@@ -115,7 +113,7 @@ public sealed class Immediate2D : IDisposable
 
     public void Save()
     {
-        _stack.Add(new StateEntry(_matrix, _clips.Count, _stack.Count, _blend, _antialias));
+        _stack.Add(new StateEntry(_matrix, _clips.Count, _blend, _antialias));
     }
 
     public void Restore()
@@ -415,41 +413,6 @@ public sealed class Immediate2D : IDisposable
                         StartPoint = g.Start,
                         EndPoint = g.End,
                     }, coll);
-                    _brushes[key] = b;
-                }
-
-                b.Opacity = alpha;
-                return b;
-            }
-
-            case RadialGradient2D g:
-            {
-                var key = "R|" + GradientKey(g.Stops, g.Extend)
-                          + $"|{g.Center.X},{g.Center.Y},{g.RadiusX},{g.RadiusY}";
-                if (!_brushes.TryGetValue(key, out var b))
-                {
-                    using var coll = Rt.CreateGradientStopCollection(ToStops(g.Stops), Gamma.StandardRgb, g.Extend);
-                    b = Rt.CreateRadialGradientBrush(new RadialGradientBrushProperties
-                    {
-                        Center = g.Center,
-                        GradientOriginOffset = Vector2.Zero,
-                        RadiusX = g.RadiusX,
-                        RadiusY = g.RadiusY,
-                    }, coll);
-                    _brushes[key] = b;
-                }
-
-                b.Opacity = alpha;
-                return b;
-            }
-
-            case BitmapBrush2D bm:
-            {
-                var key = $"B|{bm.Image.GetHashCode()}|{bm.ExtendX}|{bm.ExtendY}|{bm.Interp}";
-                if (!_brushes.TryGetValue(key, out var b))
-                {
-                    var props = new BitmapBrushProperties(bm.ExtendX, bm.ExtendY, bm.Interp);
-                    b = Rt.CreateBitmapBrush(bm.Image.Bitmap, props, null);
                     _brushes[key] = b;
                 }
 

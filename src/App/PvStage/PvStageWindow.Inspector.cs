@@ -463,7 +463,7 @@ public partial class PvStageWindow
         AddInspector(LayerRow(layer, "scale", L.T("StageUi.Inspector.Scale"), 0.01));
         AddInspector(LayerRow(layer, "opacity", L.T("StageUi.Inspector.Opacity"), 0.02));
         AddInspector(LayerRow(layer, "rotation", L.T("StageUi.Inspector.Rotation"), 1));
-        AddInspector(BoolRow(L.T("StageUi.Inspector.Topmost"), layer.Topmost == true, v =>
+        AddInspector(BoolRow(L.T("StageUi.Inspector.Topmost"), layer.Topmost, v =>
         {
             layer.Topmost = v;
             PushUndo();
@@ -1981,13 +1981,6 @@ public partial class PvStageWindow
         };
 
         return row;
-    }
-
-    private static double CleanLegacyValue(string key, double value)
-    {
-        if (LegacyBoolParams.Contains(key)) return value >= 0.5 ? 1 : 0;
-        if (LegacyIntParams.Contains(key)) return Math.Round(value);
-        return value;
     }
 
     private static (double Min, double Max, double Step)? LegacyParamSpec(string key, double value)

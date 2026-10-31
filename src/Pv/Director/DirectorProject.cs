@@ -2,7 +2,6 @@ using JizuraLive.Render.Effects;
 using JizuraLive.Vts;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System.ComponentModel;
 
 namespace JizuraLive.Pv;
 
@@ -153,12 +152,8 @@ public sealed class CurveSave
     [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
     public string? Layer { get; set; }
 
-    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue("auto")]
     public string Source { get; set; } = "user";
 
-    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue(false)]
     public bool Locked { get; set; }
 
     [JsonProperty(DefaultValueHandling = DefaultValueHandling.Ignore)]

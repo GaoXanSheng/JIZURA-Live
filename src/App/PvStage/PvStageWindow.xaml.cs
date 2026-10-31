@@ -82,8 +82,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private CancellationTokenSource? _audioLoadCts;
 
-    private AudioBandSeries? _audioBands;
-
     private bool _autoGenerating;
     private string? _transientStatus;
     private int _transientStatusTicks;
@@ -173,7 +171,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _pipeEffects = _effects.Clone();
         _audioPath = _project.AudioPath;
         _lrcText = _project.LrcText;
-        if (string.IsNullOrWhiteSpace(_scene.AmbientTint)) _scene.AmbientTint = "#8899ff";
         SyncSubtitleLayer();
 
         _evaluator = DirectorEvaluator.FromSaves(_project.Curves, _project.CameraTrack, _project.LayerCameraTracks);
@@ -431,8 +428,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         _pipe?.PublishEffects(snapshot);
     }
 
-    private void PublishAudioBands() => _pipe?.SetAudioAnalysis(_audioBands);
-
     private bool _closeAfterSavePrompt;
     private bool _closePromptPending;
 
@@ -536,7 +531,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
         Dispatcher.BeginInvoke(new Action(() =>
         {
             PublishDirector();
-            PublishAudioBands();
         }));
 
         UpdateBroadcastButton();
@@ -1053,9 +1047,6 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
 
     private void SyncLyricStylePicker()
     {
-        if (string.IsNullOrWhiteSpace(_scene.LyricStyleName))
-            _scene.LyricStyleName = LegacyStyleToLyric(_project.LegacyStyle);
-
         SyncThemeCards();
     }
 
@@ -1201,9 +1192,7 @@ public partial class PvStageWindow : Wpf.Ui.Controls.FluentWindow
             _audioLoadCts = null;
             _musicCts?.Cancel();
             _musicCts = null;
-            _audioBands = null;
             _beatMap = null;
-            PublishAudioBands();
 
             if (!string.IsNullOrWhiteSpace(_audioPath) && File.Exists(_audioPath))
             {

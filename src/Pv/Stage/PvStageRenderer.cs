@@ -183,11 +183,7 @@ public sealed class PvStageRenderer : IDisposable
         set => Volatile.Write(ref _vtsControl, value);
     }
 
-    public (double Engine, double Fx, double Composite) LastTiming { get; private set; }
-
     public int EffectCount => Effects.Nodes.Count(n => n.Enabled);
-
-    public int FxBitmapsCreated { get; private set; }
 
     public ID2D1DeviceContext D2DContext => _d2d.Ctx;
 
@@ -218,34 +214,6 @@ public sealed class PvStageRenderer : IDisposable
         _effects = effects;
         _frameEffects = effects;
         _frameTime = time;
-        LastTiming = (0, LastTiming.Fx, LastTiming.Composite);
-    }
-
-    public sealed class SharedTarget : IDisposable
-    {
-        public ID3D11Texture2D Texture { get; }
-        public ID2D1Bitmap1 Bitmap { get; }
-        public int Width { get; }
-        public int Height { get; }
-
-        private readonly IDXGISurface _surface;
-
-        internal SharedTarget(ID3D11Texture2D texture, IDXGISurface surface, ID2D1Bitmap1 bitmap,
-            int width, int height)
-        {
-            Texture = texture;
-            _surface = surface;
-            Bitmap = bitmap;
-            Width = width;
-            Height = height;
-        }
-
-        public void Dispose()
-        {
-            Bitmap.Dispose();
-            _surface.Dispose();
-            Texture.Dispose();
-        }
     }
 
     public void Composite(ID2D1Bitmap1 target, int width, int height)
@@ -293,7 +261,7 @@ public sealed class PvStageRenderer : IDisposable
                     selection = BuildSelection(layer, state, image);
             }
 
-            if (layer.Topmost == true) continue;
+            if (layer.Topmost) continue;
 
             if (!_frameEffects.HasEffectsFor(layer.Id))
             {
@@ -344,7 +312,6 @@ public sealed class PvStageRenderer : IDisposable
 
         foreach (var entry in returns) _fx.Pool.Return(entry);
         returns.Clear();
-        var t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
         GpuTexturePool.Entry? fxOut = null;
         var passes = _frameEffects.HasEffectsFor("")
@@ -360,7 +327,7 @@ public sealed class PvStageRenderer : IDisposable
         for (var li = 0; li < frameLayers.Count; li++)
         {
             var layer = frameLayers[li];
-            if (layer.Topmost != true || !layer.Enabled) continue;
+            if (!layer.Topmost || !layer.Enabled) continue;
             if (!images.TryGetValue(layer.Id, out var probe) || !probe.HasContent) continue;
             hasTopmost = true;
             break;
@@ -380,7 +347,7 @@ public sealed class PvStageRenderer : IDisposable
             for (var li = 0; li < frameLayers.Count; li++)
             {
                 var layer = frameLayers[li];
-                if (layer.Topmost != true || !layer.Enabled) continue;
+                if (!layer.Topmost || !layer.Enabled) continue;
                 if (!images.TryGetValue(layer.Id, out var image) || !image.HasContent) continue;
 
                 var state = LayerState(layer);
@@ -404,8 +371,6 @@ public sealed class PvStageRenderer : IDisposable
             stageSource = _stageTarget!.Bitmap;
         }
 
-        var t2 = System.Diagnostics.Stopwatch.GetTimestamp();
-
         d.SetTarget(target, width, height);
         d.Begin();
         d.Clear(new Color4(0f, 0f, 0f, 1f));
@@ -428,7 +393,6 @@ public sealed class PvStageRenderer : IDisposable
         }
 
         if (!_freezeLast && fxOut is not null) _fx.Pool.Return(fxOut);
-        LastTiming = (LastTiming.Engine, Elapsed(t1), Elapsed(t2));
     }
 
     private void DrawLayerWithEffects(Immediate2D d, PvStageCompositor compositor, PvLayerConfig layer,
@@ -673,7 +637,6 @@ public sealed class PvStageRenderer : IDisposable
     public void ClearFxBitmapCache()
     {
         foreach (var entry in _fx.Pool.LiveEntries) entry.DisposeAttachment();
-        FxBitmapsCreated = 0;
     }
 
     public static Rect Letterbox(int designW, int designH, int targetW, int targetH)
@@ -709,7 +672,6 @@ public sealed class PvStageRenderer : IDisposable
             new DCommonPixelFormat(Format.B8G8R8A8_UNorm, DCommonAlphaMode.Premultiplied),
             96f, 96f, BitmapOptions.None));
         entry.Attach(bmp);
-        FxBitmapsCreated++;
         return bmp;
     }
 
@@ -767,9 +729,6 @@ public sealed class PvStageRenderer : IDisposable
                + $"{Math.Clamp((int)(c.G * 255 * factor), 0, 255):x2}"
                + $"{Math.Clamp((int)(c.B * 255 * factor), 0, 255):x2}";
     }
-
-    private static double Elapsed(long from) =>
-        (System.Diagnostics.Stopwatch.GetTimestamp() - from) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
     public void Dispose()
     {

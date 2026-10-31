@@ -37,12 +37,7 @@ public static class Log
         };
         file.ActivateOptions();
 
-        var panelLayout = new PatternLayout("%date{HH:mm:ss} %-5level %message");
-        panelLayout.ActivateOptions();
-        var panel = new PanelAppender { Layout = panelLayout };
-        panel.ActivateOptions();
-
-        BasicConfigurator.Configure(file, panel);
+        BasicConfigurator.Configure(file);
 
         Info("================ JIZURA Live PV 启动 ================");
         Info("日志文件：" + LogFile);
@@ -84,15 +79,4 @@ public static class Log
         L.Fatal(message);
     }
 
-}
-
-public sealed class PanelAppender : AppenderSkeleton
-{
-    public static event Action<string>? Line;
-
-    protected override void Append(LoggingEvent loggingEvent)
-    {
-        var line = RenderLoggingEvent(loggingEvent);
-        Line?.Invoke(line);
-    }
 }

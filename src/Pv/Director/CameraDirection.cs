@@ -1,5 +1,4 @@
 using Newtonsoft.Json;
-using System.ComponentModel;
 
 namespace JizuraLive.Pv;
 
@@ -12,12 +11,8 @@ public sealed class CameraShot
 
     public int Seed { get; set; }
 
-    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue("user")]
     public string Source { get; set; } = "user";
 
-    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue(false)]
     public bool Locked { get; set; }
 
     [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
@@ -44,12 +39,8 @@ public sealed class CameraTrack
 
     public bool UserEdited { get; set; }
 
-    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue("cut")]
     public string SwitchMode { get; set; } = "cut";
 
-    [JsonProperty(DefaultValueHandling = DefaultValueHandling.Populate)]
-    [DefaultValue(0.22)]
     public double SwitchSeconds { get; set; } = 0.22;
 
     public CameraTrack Clone()

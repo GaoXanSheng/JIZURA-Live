@@ -18,13 +18,11 @@ public sealed class SwapChainTarget : IDisposable
 
     public IntPtr FrameLatencyWaitable { get; }
 
-    public Format BackBufferFormat { get; }
-
     private readonly ID3D11Device _device;
     private readonly SwapChainFlags _createFlags;
 
     private SwapChainTarget(ID3D11Device device, IDXGISwapChain1 swapChain, int w, int h,
-        bool vsync, bool allowTearing, IntPtr waitable, Format format, SwapChainFlags createFlags)
+        bool vsync, bool allowTearing, IntPtr waitable, SwapChainFlags createFlags)
     {
         _device = device;
         SwapChain = swapChain;
@@ -33,7 +31,6 @@ public sealed class SwapChainTarget : IDisposable
         VSync = vsync;
         AllowTearing = allowTearing;
         FrameLatencyWaitable = waitable;
-        BackBufferFormat = format;
         _createFlags = createFlags;
         RenderTargetView = CreateRtv();
     }
@@ -70,7 +67,7 @@ public sealed class SwapChainTarget : IDisposable
         swapChain2.Dispose();
 
         var target = new SwapChainTarget(gpu.Device, swapChain, width, height, vsync, tearing,
-            waitable, desc.Format, flags);
+            waitable, flags);
         Log.Info($"[SwapChain] {width}x{height} flip-discard，vsync={(vsync ? "开" : "关")}"
                  + $"，撕裂允许={(tearing ? "是" : "否")}，帧延迟等待对象={(waitable != IntPtr.Zero ? "有" : "无")}");
         return target;

@@ -9,14 +9,13 @@ namespace JizuraLive.App;
 public sealed class Settings
 {
     public string SpoutName { get; set; } = "JIZURA-live-PV";
-    public bool Clean { get; set; }
     public bool SpoutEnabled { get; set; } = true;
 
     public bool SpoutTransparent { get; set; } = false;
 
     public bool VSync { get; set; } = true;
 
-    public SubtitleConfig Subtitle { get; set; } = new() { Content = SubContent.Both };
+    public SubtitleConfig Subtitle { get; set; } = new() { Content = SubContent.Original | SubContent.Trans };
 
     public bool PreviewSubtitles { get; set; }
 
@@ -73,7 +72,7 @@ public sealed class Settings
             ? "JIZURA-live-PV"
             : settings.SpoutName.Trim();
         settings.UiLang = string.IsNullOrWhiteSpace(settings.UiLang) ? "zh-Hans" : settings.UiLang;
-        settings.Subtitle ??= new SubtitleConfig { Content = SubContent.Both };
+        settings.Subtitle ??= new SubtitleConfig { Content = SubContent.Original | SubContent.Trans };
         settings.PreviewVolume = double.IsFinite(settings.PreviewVolume)
             ? Math.Clamp(settings.PreviewVolume, 0, 1)
             : 0.8;

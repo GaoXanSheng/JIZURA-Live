@@ -8,10 +8,9 @@ internal enum JzCodec : byte
 {
     Raw = 0,
     Brotli = 1,
-    Gzip = 2
 }
 
-internal sealed record JizuraPackageEntry(string Name, JzCodec Codec, long RawSize, byte[] Data);
+internal sealed record JizuraPackageEntry(string Name, byte[] Data);
 
 internal static class JizuraPackage
 {
@@ -42,7 +41,7 @@ internal static class JizuraPackage
             if (!IsSafeName(name)) throw new InvalidDataException($"unsafe entry name: {name}");
             var codec = (JzCodec)bytes[p];
             p++;
-            if (codec is not (JzCodec.Raw or JzCodec.Brotli or JzCodec.Gzip))
+            if (codec is not (JzCodec.Raw or JzCodec.Brotli))
                 throw new InvalidDataException($"unknown codec {codec} in {name}");
             var rawSize = (long)BitConverter.ToUInt64(bytes, p);
             p += 8;
@@ -53,7 +52,7 @@ internal static class JizuraPackage
             if (rawSize < 0 || packSize < 0 || offset < 0 || offset > bytes.Length - packSize)
                 throw new InvalidDataException($"entry out of bounds: {name}");
             var data = Decode(bytes.AsSpan((int)offset, (int)packSize), codec, rawSize, name);
-            entries.Add(new JizuraPackageEntry(name, codec, rawSize, data));
+            entries.Add(new JizuraPackageEntry(name, data));
         }
 
         return entries;
@@ -153,11 +152,6 @@ internal static class JizuraPackage
                 using (var src = new MemoryStream(payload.ToArray(), false))
                 using (var br = new BrotliStream(src, CompressionMode.Decompress))
                     data = ReadAll(br, rawSize, name);
-                break;
-            case JzCodec.Gzip:
-                using (var src = new MemoryStream(payload.ToArray(), false))
-                using (var gz = new GZipStream(src, CompressionMode.Decompress))
-                    data = ReadAll(gz, rawSize, name);
                 break;
             default:
                 throw new InvalidDataException($"unknown codec in {name}");

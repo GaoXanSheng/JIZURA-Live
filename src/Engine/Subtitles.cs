@@ -13,7 +13,6 @@ public enum SubContent
     Original = 1,
     Trans = 2,
     Roma = 4,
-    Both = Original | Trans,
 }
 
 [JsonConverter(typeof(StringEnumConverter))]

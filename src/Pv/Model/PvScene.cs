@@ -7,8 +7,6 @@ public sealed class PvScene
 {
     public const string CharacterLayerId = "character";
 
-    public int SchemaVersion { get; set; } = 1;
-
     public string Name { get; set; } = "Default PV Stage";
 
     public int Width { get; set; } = 1920;

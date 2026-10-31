@@ -28,10 +28,7 @@ public sealed class AutoReport
 public static partial class AutoDirector
 {
     public const string AutoPrefix = "fx_autodir_";
-    public const string LayerPrefix = "auto.";
     public const string AutoLayerPrefix = "autodir_";
-
-    private static readonly string[] CameraParams = ["scale", "rotation", "offsetX", "offsetY", "blur", "brighten"];
 
     private static bool IsUser(string? source) => string.Equals(source, "user", StringComparison.OrdinalIgnoreCase);
 
@@ -264,7 +261,6 @@ public static partial class AutoDirector
         for (int i = project.Effects.Nodes.Count - 1; i >= 0; i--)
         {
             var node = project.Effects.Nodes[i];
-            if (string.IsNullOrEmpty(node.Source)) node.Source = "auto";
             if (IsUser(node.Source) || node.Locked)
             {
                 keptInstanceIds.Add(node.InstanceId);
@@ -279,17 +275,14 @@ public static partial class AutoDirector
         {
             if (c is null) return true;
             if (IsUser(c.Source) || c.Locked) return false;
-            if (string.IsNullOrEmpty(c.Source)) c.Source = "auto";
-            bool legacyAuto =
-                (c.Layer?.StartsWith(LayerPrefix, StringComparison.Ordinal) ?? false) ||
-                (string.IsNullOrEmpty(c.Layer) && CameraParams.Any(p => c.Address == "camera." + p)) ||
+            var auto =
                 c.Address.StartsWith($"effect:{AutoPrefix}", StringComparison.Ordinal) ||
                 c.Address.StartsWith($"layer:{AutoLayerPrefix}", StringComparison.Ordinal);
             if (keptInstanceIds.Count > 0 && c.Address.StartsWith("effect:", StringComparison.Ordinal))
                 foreach (var id in keptInstanceIds)
                     if (c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal))
                         return false;
-            return legacyAuto
+            return auto
                 || autoInstanceIds.Any(id => c.Address.StartsWith($"effect:{id}.", StringComparison.Ordinal));
         });
 
